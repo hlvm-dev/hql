@@ -249,7 +249,7 @@ function handleRequest(request: {
       write({
         jsonrpc: "2.0",
         id: request.id,
-        result: { content: text.split("").reverse().join("") },
+        result: { content: [{ type: "text", text: text.split("").reverse().join("") }] },
       });
       return;
     }
@@ -258,7 +258,7 @@ function handleRequest(request: {
       jsonrpc: "2.0",
       id: request.id,
       result: {
-        content: `${replyPrefix}${args?.message ?? ""}`,
+        content: [{ type: "text", text: `${replyPrefix}${args?.message ?? ""}` }],
       },
     });
     return;

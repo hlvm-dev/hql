@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "jsr:@std/assert";
+import { assertEquals } from "jsr:@std/assert";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import {
   getMcpOAuthAuthorizationHeader,
@@ -7,7 +7,6 @@ import {
   parseBearerChallengeHeader,
   recoverMcpOAuthFromUnauthorized,
 } from "../../../src/hlvm/agent/mcp/oauth.ts";
-import { HttpTransport } from "../../../src/hlvm/agent/mcp/transport.ts";
 
 interface OAuthServerState {
   port: number;
@@ -224,51 +223,6 @@ Deno.test({
       );
 
       await oauth.server.shutdown();
-    });
-  },
-});
-
-Deno.test({
-  name: "HttpTransport: 401 Bearer challenge surfaces OAuth login hint",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  fn: async () => {
-    await withOauthStorePath(async () => {
-      let port = 0;
-      const server = Deno.serve(
-        {
-          port: 0,
-          hostname: "127.0.0.1",
-          onListen({ port: p }) {
-            port = p;
-          },
-        },
-        async () =>
-          await Promise.resolve(
-            new Response("unauthorized", {
-              status: 401,
-              headers: { "WWW-Authenticate": 'Bearer realm="mcp"' },
-            }),
-          ),
-      );
-      await new Promise((r) => setTimeout(r, 50));
-
-      const transport = new HttpTransport({
-        name: "oauth-required",
-        url: `http://127.0.0.1:${port}/mcp`,
-      });
-      await assertRejects(
-        () =>
-          transport.send({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "ping",
-          }),
-        Error,
-        "hlvm mcp login oauth-required",
-      );
-
-      await server.shutdown();
     });
   },
 });

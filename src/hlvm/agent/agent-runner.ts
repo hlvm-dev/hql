@@ -277,6 +277,14 @@ export async function runAgentQuery(
   let sessionEntry: AgentSessionEntry | null = null;
 
   try {
+    // Add file-roots system note BEFORE history so system messages stay contiguous
+    session.context.addMessage({
+      role: "system",
+      content: `Allowed file roots: ${
+        DEFAULT_AGENT_PATH_ROOTS.join(", ")
+      }. Use "~/Downloads" not "/Downloads".`,
+    });
+
     if (useExternalHistory) {
       for (const message of options.messageHistory!) {
         session.context.addMessage({ ...message, fromSession: true });
@@ -289,13 +297,6 @@ export async function runAgentQuery(
         session.context.addMessage({ ...message, fromSession: true });
       }
     }
-
-    session.context.addMessage({
-      role: "system",
-      content: `Allowed file roots: ${
-        DEFAULT_AGENT_PATH_ROOTS.join(", ")
-      }. Use "~/Downloads" not "/Downloads".`,
-    });
 
     let policy = session.policy;
     policy = mergePolicyPathRoots(policy, DEFAULT_AGENT_PATH_ROOTS);

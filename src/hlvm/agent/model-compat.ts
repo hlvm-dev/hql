@@ -60,3 +60,20 @@ export function shouldSuppressFinalResponse(response: string): boolean {
   return false;
 }
 
+const AGENT_ORCHESTRATOR_FAILURE_PREFIXES = [
+  "Native tool calling required.",
+  "Tool call required but none provided.",
+  "Tool-call JSON in text is not accepted.",
+  "The model returned an empty response.",
+] as const;
+
+/**
+ * Detect orchestrator-generated failure messages where falling back to plain chat
+ * produces a better user-facing response.
+ */
+export function isAgentOrchestratorFailureResponse(response: string): boolean {
+  const trimmed = response.trim();
+  return AGENT_ORCHESTRATOR_FAILURE_PREFIXES.some((prefix) =>
+    trimmed.startsWith(prefix)
+  );
+}

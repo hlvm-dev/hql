@@ -3,6 +3,14 @@
  */
 
 import { assertEquals } from "jsr:@std/assert";
+import {
+  APICallError,
+  EmptyResponseBodyError,
+  LoadAPIKeyError,
+  NoContentGeneratedError,
+  NoSuchModelError,
+  RetryError,
+} from "ai";
 import { classifyError, getRecoveryHint } from "../../../src/hlvm/agent/error-taxonomy.ts";
 import { TimeoutError } from "../../../src/common/timeout-utils.ts";
 
@@ -103,4 +111,81 @@ Deno.test("Recovery hint: auth and schema errors have actionable hints", () => {
 
   const schemaHint = getRecoveryHint("Invalid tool schema for search_code");
   assertEquals(schemaHint!.includes("tool"), true);
+});
+
+// ============================================================
+// SDK structured error type tests
+// ============================================================
+
+Deno.test("Error taxonomy: APICallError 429 → rate_limit", () => {
+  const err = new APICallError({
+    statusCode: 429,
+    message: "Too many requests",
+    url: "http://api.test",
+    requestBodyValues: {},
+    isRetryable: true,
+  });
+  const result = classifyError(err);
+  assertEquals(result.class, "rate_limit");
+  assertEquals(result.retryable, true);
+});
+
+Deno.test("Error taxonomy: APICallError 401 → permanent", () => {
+  const err = new APICallError({
+    statusCode: 401,
+    message: "Unauthorized",
+    url: "http://api.test",
+    requestBodyValues: {},
+    isRetryable: false,
+  });
+  const result = classifyError(err);
+  assertEquals(result.class, "permanent");
+  assertEquals(result.retryable, false);
+});
+
+Deno.test("Error taxonomy: APICallError 500 → transient", () => {
+  const err = new APICallError({
+    statusCode: 500,
+    message: "Internal server error",
+    url: "http://api.test",
+    requestBodyValues: {},
+    isRetryable: true,
+  });
+  const result = classifyError(err);
+  assertEquals(result.class, "transient");
+  assertEquals(result.retryable, true);
+});
+
+Deno.test("Error taxonomy: APICallError with context overflow message → context_overflow", () => {
+  const err = new APICallError({
+    statusCode: 400,
+    message: "This model's maximum context length is exceeded",
+    url: "http://api.test",
+    requestBodyValues: {},
+    isRetryable: false,
+  });
+  const result = classifyError(err);
+  assertEquals(result.class, "context_overflow");
+  assertEquals(result.retryable, true);
+});
+
+Deno.test("Error taxonomy: LoadAPIKeyError → permanent", () => {
+  const err = new LoadAPIKeyError({ message: "Missing OPENAI_API_KEY" });
+  const result = classifyError(err);
+  assertEquals(result.class, "permanent");
+  assertEquals(result.retryable, false);
+});
+
+Deno.test("Error taxonomy: NoContentGeneratedError → transient", () => {
+  const err = new NoContentGeneratedError({ message: "No output generated" });
+  const result = classifyError(err);
+  assertEquals(result.class, "transient");
+  assertEquals(result.retryable, true);
+});
+
+Deno.test("Error taxonomy: NoSuchModelError → permanent", () => {
+  const err = new NoSuchModelError({ message: "Model not found", modelId: "nonexistent", modelType: "languageModel" });
+  const result = classifyError(err);
+  assertEquals(result.class, "permanent");
+  assertEquals(result.retryable, false);
 });

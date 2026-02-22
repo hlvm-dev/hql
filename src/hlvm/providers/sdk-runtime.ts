@@ -34,25 +34,6 @@ export interface SdkModelSpec {
   apiKey?: string;
 }
 
-/**
- * Agent-side message shape accepted by SDK runtime converters.
- * Kept generic to avoid coupling runtime conversion to agent module types.
- */
-export interface AgentLikeMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string;
-  images?: string[];
-  toolCalls?: Array<{
-    id?: string;
-    function: {
-      name: string;
-      arguments: unknown;
-    };
-  }>;
-  toolName?: string;
-  toolCallId?: string;
-}
-
 const SUPPORTED_SDK_PROVIDERS = new Set<SdkProviderName>([
   "openai",
   "anthropic",
@@ -91,7 +72,7 @@ export function assertSupportedSdkProvider(
   );
 }
 
-export function extractStatusCode(error: unknown): number | null {
+function extractStatusCode(error: unknown): number | null {
   if (!error || typeof error !== "object") return null;
   const record = error as Record<string, unknown>;
   const direct = record.statusCode ?? record.status ?? record.status_code;
@@ -193,8 +174,11 @@ export async function createSdkLanguageModel(
 
     case "ollama": {
       const { createOllama } = await import("ollama-ai-provider-v2");
-      const baseURL = toNonEmptyString(spec.endpoint) ??
-        getPlatform().env.get("OLLAMA_BASE_URL");
+      const baseURL = withApiPathSuffix(
+        toNonEmptyString(spec.endpoint) ??
+          getPlatform().env.get("OLLAMA_BASE_URL"),
+        "/api",
+      );
       const ollama = createOllama({ ...(baseURL ? { baseURL } : {}) });
       return ollama(modelId);
     }
@@ -226,73 +210,31 @@ function toToolCallInput(args: unknown): unknown {
   return args ?? {};
 }
 
-function toToolCallArgsRecord(args: unknown): Record<string, unknown> {
-  const normalized = toToolCallInput(args);
-  if (
-    normalized &&
-    typeof normalized === "object" &&
-    !Array.isArray(normalized)
-  ) {
-    return normalized as Record<string, unknown>;
-  }
-  return {};
-}
-
-export function convertAgentMessagesToProvider(
-  messages: AgentLikeMessage[],
-  normalizeArgs: (value: unknown) => Record<string, unknown> =
-    toToolCallArgsRecord,
-): Message[] {
-  return messages.map((msg): Message => {
-    if (msg.role === "assistant") {
-      return {
-        role: "assistant",
-        content: msg.content,
-        ...(msg.toolCalls?.length
-          ? {
-            tool_calls: msg.toolCalls.map((call) => ({
-              id: call.id ?? generateToolCallId(),
-              type: "function" as const,
-              function: {
-                name: call.function.name,
-                arguments: normalizeArgs(call.function.arguments),
-              },
-            })),
-          }
-          : {}),
-      };
-    }
-
-    if (msg.role === "tool") {
-      return {
-        role: "tool",
-        content: msg.content,
-        tool_name: msg.toolName,
-        tool_call_id: msg.toolCallId,
-      };
-    }
-
-    return {
-      role: msg.role,
-      content: msg.content,
-      ...(msg.role === "user" && msg.images?.length
-        ? { images: msg.images }
-        : {}),
-    };
-  });
-}
-
 export function convertProviderMessagesToSdk(
   messages: Message[],
 ): ModelMessage[] {
-  return messages.map((msg): ModelMessage => {
+  // Consolidate all system messages into a single message at position 0.
+  // Providers reject interleaved system messages (e.g. system, user, system).
+  const systemParts: string[] = [];
+  const nonSystemMessages: Message[] = [];
+  for (const msg of messages) {
     if (msg.role === "system") {
-      return { role: "system", content: msg.content };
+      if (msg.content) systemParts.push(msg.content);
+    } else {
+      nonSystemMessages.push(msg);
     }
+  }
 
+  const result: ModelMessage[] = [];
+  if (systemParts.length > 0) {
+    result.push({ role: "system", content: systemParts.join("\n\n") });
+  }
+
+  for (const msg of nonSystemMessages) {
     if (msg.role === "user") {
       if (!msg.images?.length) {
-        return { role: "user", content: msg.content };
+        result.push({ role: "user", content: msg.content });
+        continue;
       }
       const content: Array<SdkTextPart | SdkImagePart> = [];
       if (msg.content) {
@@ -301,7 +243,8 @@ export function convertProviderMessagesToSdk(
       for (const image of msg.images) {
         content.push({ type: "image", image });
       }
-      return { role: "user", content };
+      result.push({ role: "user", content });
+      continue;
     }
 
     if (msg.role === "assistant") {
@@ -318,12 +261,14 @@ export function convertProviderMessagesToSdk(
             input: toToolCallInput(tc.function.arguments),
           });
         }
-        return { role: "assistant", content: parts };
+        result.push({ role: "assistant", content: parts });
+      } else {
+        result.push({ role: "assistant", content: msg.content });
       }
-      return { role: "assistant", content: msg.content };
+      continue;
     }
 
-    return {
+    result.push({
       role: "tool",
       content: [{
         type: "tool-result",
@@ -331,11 +276,13 @@ export function convertProviderMessagesToSdk(
         toolName: msg.tool_name ?? "unknown",
         output: { type: "text", value: msg.content },
       }],
-    };
-  });
+    });
+  }
+
+  return result;
 }
 
-export interface NormalizedSdkToolCall {
+interface NormalizedSdkToolCall {
   id: string;
   toolName: string;
   args: unknown;
@@ -456,6 +403,9 @@ export async function* chatWithSdk(
     await result.text;
   } catch (error) {
     await maybeHandleSdkAuthError(spec.providerName, error);
+    // "No output generated" retry is handled by the agent engine layer
+    // (engine-sdk.ts) which has richer recovery (tool calls, usage tracking).
+    // Re-throwing here avoids a double retry that wastes latency.
     throw error;
   }
 }

@@ -15,6 +15,7 @@ import { readSingleKey } from "../utils/input.ts";
 import { getOllamaCatalogAsync } from "../../providers/ollama/catalog.ts";
 import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
 import { pullModelWithProgress } from "../../../common/ai-default-model.ts";
+import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../../common/ai-messages.ts";
 import { aiEngine } from "../../runtime/ai-runtime.ts";
 import type { AIEngineLifecycle } from "../../runtime/ai-runtime.ts";
 import type { ModelInfo } from "../../providers/types.ts";
@@ -157,8 +158,9 @@ export async function runOllamaSignin(
 export async function verifyOllamaCloudModelAccess(
   modelId: string,
 ): Promise<boolean> {
+  let stream: AsyncIterator<string> | null = null;
   try {
-    const stream = ai.chat(
+    stream = ai.chat(
       [{ role: "user", content: "ok" }],
       {
         model: modelId,
@@ -166,14 +168,29 @@ export async function verifyOllamaCloudModelAccess(
         maxTokens: 1,
         temperature: 0,
       },
-    );
-    await stream.next();
+    )[Symbol.asyncIterator]();
+    const first = await stream.next();
+    if (first.done) return false;
+
+    const chunk = String(first.value ?? "").trim();
+    if (chunk.length === 0) return false;
+    if (chunk.startsWith("Error:")) return false;
+    if (chunk === AI_NO_OUTPUT_FALLBACK_TEXT) {
+      return false;
+    }
+
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isOllamaAuthErrorMessage(message)) return false;
     log.error(`Cloud access check failed: ${message}`);
     return false;
+  } finally {
+    try {
+      await stream?.return?.();
+    } catch {
+      // Iterator already closed
+    }
   }
 }
 

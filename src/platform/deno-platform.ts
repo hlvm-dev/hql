@@ -36,7 +36,7 @@ import type {
   PlatformWriteOptions,
   SignalType,
 } from "./types.ts";
-import { buildOpenCommand } from "./platform-shared.ts";
+import { buildOpenCommands } from "./platform-shared.ts";
 
 // =============================================================================
 // Helper Functions
@@ -110,10 +110,15 @@ function createDenoCommand(options: PlatformCommandOptions): Deno.Command {
   });
 }
 
-/** Create the OS-specific command to open a URL or file path. */
-function createOpenUrlCommand(url: string): Deno.Command {
-  const { cmd, args } = buildOpenCommand(DenoBuild.os, url);
-  return new Deno.Command(cmd, { args });
+/** Run the OS-specific commands to open a URL or file path and bring it to front. */
+async function runOpenUrlCommands(url: string): Promise<void> {
+  const commands = buildOpenCommands(DenoBuild.os, url);
+  for (const { cmd, args } of commands) {
+    const status = await new Deno.Command(cmd, { args }).spawn().status;
+    if (!status.success) {
+      throw new Error(`Failed to open URL: ${url} (exit code: ${status.code})`);
+    }
+  }
 }
 
 // =============================================================================
@@ -257,6 +262,7 @@ const DenoPath: PlatformPath = {
 const DenoEnv: PlatformEnv = {
   get: (key: string): string | undefined => Deno.env.get(key),
   set: (key: string, value: string): void => Deno.env.set(key, value),
+  toObject: (): Record<string, string> => Deno.env.toObject(),
 };
 
 // =============================================================================
@@ -373,10 +379,5 @@ export const DenoPlatform: Platform = {
   build: DenoBuild,
   command: DenoCommand,
   http: DenoHttp,
-  openUrl: async (url: string): Promise<void> => {
-    const status = await createOpenUrlCommand(url).spawn().status;
-    if (!status.success) {
-      throw new Error(`Failed to open URL: ${url} (exit code: ${status.code})`);
-    }
-  },
+  openUrl: (url: string): Promise<void> => runOpenUrlCommands(url),
 };

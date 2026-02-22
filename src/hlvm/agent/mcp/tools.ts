@@ -16,13 +16,12 @@ import {
   unregisterTool,
 } from "../registry.ts";
 import { sanitizeToolName } from "../tool-schema.ts";
-import { McpClient } from "./client.ts";
+import { SdkMcpClient, createSdkMcpClient } from "./sdk-client.ts";
 import {
   dedupeServers,
   loadMcpConfig,
   loadMcpConfigMultiScope,
 } from "./config.ts";
-import { createTransport } from "./transport.ts";
 import type {
   McpConnectedServer,
   McpElicitationRequest,
@@ -160,7 +159,7 @@ function formatPromptMessages(messages: McpPromptMessage[]): string {
 // ============================================================
 
 function buildToolEntry(
-  client: McpClient,
+  client: SdkMcpClient,
   tool: McpToolInfo,
 ): ToolMetadata {
   const argsSchema = buildArgsSchema(tool.inputSchema);
@@ -190,7 +189,7 @@ function buildToolEntry(
 // ============================================================
 
 function registerNotificationHandlers(
-  client: McpClient,
+  client: SdkMcpClient,
   server: McpServerConfig,
   registrationOwnerId: string,
   currentToolNames: Set<string>,
@@ -331,22 +330,13 @@ export async function loadMcpTools(
     };
   }
 
-  const clientCapabilities: Record<string, unknown> = {
-    tools: {},
-    sampling: {},
-    elicitation: {},
-    roots: { listChanged: true },
-  };
-
-  const clients: McpClient[] = [];
+  const clients: SdkMcpClient[] = [];
   const registered: string[] = [];
   const connectedServers: McpConnectedServer[] = [];
 
   for (const server of servers) {
-    const transport = createTransport(server);
-    const client = new McpClient(server, transport);
     try {
-      await client.start(clientCapabilities);
+      const client = await createSdkMcpClient(server);
 
       // Register tools
       const tools = await client.listTools();
@@ -451,11 +441,7 @@ export async function loadMcpTools(
       getAgentLogger().warn(
         `Skipping MCP server '${server.name}': ${getErrorMessage(error)}`,
       );
-      try {
-        await client.close();
-      } catch {
-        // Best-effort cleanup
-      }
+      // Client cleanup is handled by createSdkMcpClient on connect failure
     }
   }
 

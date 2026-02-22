@@ -8,6 +8,17 @@ import { startHttpServer } from "../repl/http-server.ts";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 
+/** Resolves when runtime is initialized; rejects permanently if all retries fail. */
+let runtimeReady: Promise<void> | null = null;
+
+/** Returns the runtime readiness promise. Endpoints can await this before using AI. */
+export function getRuntimeReady(): Promise<void> {
+  if (!runtimeReady) {
+    return Promise.reject(new Error("Server not started"));
+  }
+  return runtimeReady;
+}
+
 /**
  * Start HTTP REPL server
  */
@@ -22,10 +33,28 @@ export async function serveCommand(args: string[]): Promise<number> {
     // Deno.serve() binds the port synchronously — no "Connection refused" race.
     const serverDone = startHttpServer();
 
-    // Initialize runtime while server is already listening.
-    // Endpoints that need the runtime (eval, models) wait naturally;
-    // SSE streams, health, config, and sessions work immediately.
-    await initializeRuntime({ ai: true, stdlib: true, cache: true });
+    // Initialize runtime in the background with retries.
+    // The runtimeReady promise lets endpoints know when AI is available.
+    runtimeReady = (async () => {
+      const maxAttempts = 3;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          await initializeRuntime({ ai: true, stdlib: true, cache: true });
+          return;
+        } catch (error) {
+          log.error(
+            `Runtime initialization attempt ${attempt}/${maxAttempts} failed`,
+            error,
+          );
+          if (attempt < maxAttempts) {
+            await new Promise((resolve) => setTimeout(resolve, 1_000 * attempt));
+          }
+        }
+      }
+      const msg = "Runtime initialization failed after retries; AI features unavailable.";
+      log.error(msg);
+      throw new Error(msg);
+    })();
 
     await serverDone;
     return 0;

@@ -26,7 +26,12 @@ import {
 import { autoConfigureInitialClaudeCodeModel } from "../../../../common/ai-default-model.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../../agent/constants.ts";
 import type { InteractionResponse } from "../../../agent/orchestrator.ts";
+import {
+  isAgentOrchestratorFailureResponse,
+  shouldSuppressFinalResponse,
+} from "../../../agent/model-compat.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
+import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../../../common/ai-messages.ts";
 import { RuntimeError, ValidationError } from "../../../../common/error.ts";
 import { classifyError } from "../../../agent/error-taxonomy.ts";
 import { log } from "../../../api/log.ts";
@@ -238,7 +243,98 @@ async function modelSupportsTools(
   } catch {
     // Catalog unavailable
   }
-  return true;
+  // Fail closed: if we cannot verify tool capability, agent mode should not
+  // proceed blindly.
+  return false;
+}
+
+async function streamDirectChatFallback(
+  sessionId: string,
+  assistantMessageId: number,
+  resolvedModel: string,
+  body: ChatRequest,
+  signal: AbortSignal,
+  emit: (obj: unknown) => void,
+  onPartial: (text: string) => void,
+): Promise<string> {
+  const cfgSnapshot = config.snapshot;
+  const providerMessages = await buildProviderMessages(
+    sessionId,
+    assistantMessageId,
+    CHAT_CONTEXT_HISTORY_LIMIT,
+  );
+  const tokenIterator = ai.chat(providerMessages, {
+    model: resolvedModel,
+    temperature: body.temperature ?? cfgSnapshot.temperature,
+    maxTokens: body.max_tokens ?? cfgSnapshot.maxTokens,
+    signal,
+  })[Symbol.asyncIterator]();
+
+  let fullText = "";
+  const waitForAbort: Promise<"aborted"> = signal.aborted
+    ? Promise.resolve("aborted")
+    : new Promise((resolve) => {
+      signal.addEventListener("abort", () => resolve("aborted"), {
+        once: true,
+      });
+    });
+
+  try {
+    while (true) {
+      if (signal.aborted) break;
+      const nextPromise = tokenIterator.next();
+      const nextOrAbort = await Promise.race([
+        nextPromise.then((result) => ({ type: "next" as const, result })),
+        waitForAbort.then(() => ({ type: "abort" as const })),
+      ]);
+
+      if (nextOrAbort.type === "abort") {
+        nextPromise.catch(() => {});
+        break;
+      }
+      if (nextOrAbort.result.done) break;
+
+      const token = nextOrAbort.result.value;
+      fullText += token;
+      onPartial(token);
+      emit({ event: "token", text: token });
+    }
+  } finally {
+    try {
+      await tokenIterator.return?.();
+    } catch {
+      // iterator already closed
+    }
+  }
+
+  return fullText;
+}
+
+async function buildProviderMessages(
+  sessionId: string,
+  assistantMessageId: number,
+  limit: number,
+): Promise<Message[]> {
+  const storedMessages = loadRecentMessages(sessionId, limit);
+  const providerMessages: Message[] = [];
+  for (const m of storedMessages) {
+    if (
+      m.role === "tool" || m.cancelled || m.content.length === 0 ||
+      m.id === assistantMessageId
+    ) {
+      continue;
+    }
+    const msg: Message = {
+      role: m.role as Message["role"],
+      content: m.content,
+    };
+    if (m.image_paths) {
+      const images = await resolveImages(m.image_paths);
+      if (images.length > 0) msg.images = images;
+    }
+    providerMessages.push(msg);
+  }
+  return providerMessages;
 }
 
 // MARK: - Constants
@@ -547,6 +643,16 @@ export async function handleChat(req: Request): Promise<Response> {
     }
     if (body.model && resolvedModelInfo === null && !modelDiscoveryFailed) {
       return jsonError(`Model not found: ${body.model}`, 400);
+    }
+    if (
+      (body.mode === "agent" || body.mode === CLAUDE_CODE_AGENT_MODE) &&
+      resolvedModelInfo === null &&
+      modelDiscoveryFailed
+    ) {
+      return jsonError(
+        "Could not verify selected model capabilities for agent mode. Check provider connection and model availability.",
+        503,
+      );
     }
     if (
       body.mode === "agent" &&
@@ -862,29 +968,11 @@ async function handleChatMode(
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
 ): Promise<void> {
-  const storedMessages = loadRecentMessages(
+  const providerMessages = await buildProviderMessages(
     sessionId,
+    assistantMessageId,
     CHAT_CONTEXT_HISTORY_LIMIT,
   );
-
-  const providerMessages: Message[] = [];
-  for (const m of storedMessages) {
-    if (
-      m.role === "tool" || m.cancelled || m.content.length === 0 ||
-      m.id === assistantMessageId
-    ) {
-      continue;
-    }
-    const msg: Message = {
-      role: m.role as Message["role"],
-      content: m.content,
-    };
-    if (m.image_paths) {
-      const images = await resolveImages(m.image_paths);
-      if (images.length > 0) msg.images = images;
-    }
-    providerMessages.push(msg);
-  }
 
   let fullText = "";
 
@@ -988,6 +1076,9 @@ async function handleAgentMode(
 
   const lastUserMessage = getLastUserMessage(body.messages);
   const query = lastUserMessage?.content ?? "";
+  let streamedFinalText = false;
+  let successfulToolCalls = 0;
+  let failedToolCalls = 0;
 
   const result = await runAgentQuery({
     query,
@@ -1000,10 +1091,6 @@ async function handleAgentMode(
     modelInfo,
     cachedSession,
     callbacks: {
-      onToken: (text) => {
-        onPartial(text);
-        emit({ event: "token", text });
-      },
       onInteraction: async (event) => {
         return await awaitInteractionResponse(event, signal, emit);
       },
@@ -1022,6 +1109,11 @@ async function handleAgentMode(
             });
             break;
           case "tool_end": {
+            if (event.success) {
+              successfulToolCalls += 1;
+            } else {
+              failedToolCalls += 1;
+            }
             const toolMsg = insertMessage({
               session_id: body.session_id,
               role: "tool",
@@ -1061,10 +1153,41 @@ async function handleAgentMode(
   });
 
   if (!signal.aborted) {
-    updateMessage(assistantMessageId, { content: result.text });
+    let finalText = result.text;
+    const shouldFallbackToDirectChat =
+      shouldSuppressFinalResponse(finalText) ||
+      isAgentOrchestratorFailureResponse(finalText) ||
+      (failedToolCalls > 0 && successfulToolCalls === 0 && !finalText.trim());
+    if (shouldFallbackToDirectChat) {
+      const fallbackText = await streamDirectChatFallback(
+        body.session_id,
+        assistantMessageId,
+        resolvedModel,
+        body,
+        signal,
+        emit,
+        onPartial,
+      );
+      if (fallbackText.trim().length > 0) {
+        finalText = fallbackText;
+        streamedFinalText = true;
+      }
+    }
+
+    if (finalText.trim().length === 0) {
+      finalText = AI_NO_OUTPUT_FALLBACK_TEXT;
+      streamedFinalText = false;
+    }
+
+    if (!streamedFinalText) {
+      onPartial(finalText);
+      emit({ event: "token", text: finalText });
+    }
+
+    updateMessage(assistantMessageId, { content: finalText });
     pushSSEEvent(body.session_id, "message_updated", {
       id: assistantMessageId,
-      content: result.text,
+      content: finalText,
     });
     pushSessionUpdatedEvent(body.session_id);
   }
@@ -1207,6 +1330,39 @@ function processClaudeCodeJsonLine(
   }
 }
 
+/**
+ * Build a complete subprocess environment for the claude CLI.
+ * GUI-spawned processes often receive a minimal environment (HOME, PATH only),
+ * missing critical vars that claude needs for Keychain access and normal operation.
+ * This function inherits existing vars and fills in any missing essentials.
+ */
+function buildClaudeSubprocessEnv(): Record<string, string> {
+  const platform = getPlatform();
+  const env = platform.env.toObject();
+
+  const home = env.HOME ?? "";
+
+  // Derive USER/LOGNAME from HOME if missing (e.g. /Users/alice → alice)
+  if (!env.USER && home) {
+    const parts = home.split("/").filter(Boolean);
+    env.USER = parts[parts.length - 1] ?? "";
+  }
+  if (!env.LOGNAME) env.LOGNAME = env.USER ?? "";
+
+  // Ensure TMPDIR, SHELL, LANG have sensible defaults
+  if (!env.TMPDIR) env.TMPDIR = "/tmp";
+  if (!env.SHELL) env.SHELL = "/bin/zsh";
+  if (!env.LANG) env.LANG = "en_US.UTF-8";
+  if (!env.TERM) env.TERM = "xterm-256color";
+
+  // Ensure ~/.local/bin is in PATH (where claude is typically installed)
+  if (home && env.PATH && !env.PATH.includes(`${home}/.local/bin`)) {
+    env.PATH = `${home}/.local/bin:${env.PATH}`;
+  }
+
+  return env;
+}
+
 /** Spawn Claude Code CLI subprocess and stream results. Returns success status. */
 async function spawnClaudeCodeProcess(
   query: string,
@@ -1225,6 +1381,7 @@ async function spawnClaudeCodeProcess(
 
   const proc = platform.command.run({
     cmd,
+    env: buildClaudeSubprocessEnv(),
     stdout: "piped",
     stderr: "piped",
     stdin: "null",

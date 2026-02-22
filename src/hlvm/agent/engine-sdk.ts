@@ -21,16 +21,17 @@ import {
 } from "./llm-integration.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import { ValidationError } from "../../common/error.ts";
+import { getErrorMessage } from "../../common/utils.ts";
+import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../common/ai-messages.ts";
 import {
   getDefaultProvider,
   getProviderDefaultConfig,
   parseModelString,
 } from "../providers/index.ts";
 import type { ProviderConfig } from "../providers/types.ts";
+import { generateToolCallId } from "../providers/common.ts";
 import {
   assertSupportedSdkProvider,
-  convertAgentMessagesToProvider,
-  convertProviderMessagesToSdk,
   convertToolDefinitionsToSdk,
   createSdkLanguageModel,
   mapSdkToolCallsNormalized,
@@ -100,21 +101,73 @@ function getSdkModelFromSpec(spec: ResolvedModelSpec): Promise<LanguageModel> {
 // ============================================================
 
 /**
- * Convert our internal AgentMessage[] to AI SDK ModelMessage[] format.
+ * Convert our internal AgentMessage[] directly to AI SDK ModelMessage[] format.
  *
- * Key mappings:
- *   - system → { role: "system", content: string }
+ * Single-hop conversion (no intermediate ProviderMessage):
+ *   - system → consolidated into one system message at position 0
  *   - user → { role: "user", content: string }
  *   - assistant (no tool calls) → { role: "assistant", content: string }
  *   - assistant (with tool calls) → { role: "assistant", content: [TextPart, ...ToolCallParts] }
  *   - tool → { role: "tool", content: [ToolResultPart] }
  */
 export function convertToSdkMessages(messages: AgentMessage[]): ModelMessage[] {
-  const providerMessages = convertAgentMessagesToProvider(
-    messages,
-    normalizeToolArgs,
-  );
-  return convertProviderMessagesToSdk(providerMessages);
+  // Consolidate all system messages into a single message at position 0.
+  // Providers reject interleaved system messages (e.g. system, user, system).
+  const systemParts: string[] = [];
+  const nonSystemMessages: AgentMessage[] = [];
+  for (const msg of messages) {
+    if (msg.role === "system") {
+      if (msg.content) systemParts.push(msg.content);
+    } else {
+      nonSystemMessages.push(msg);
+    }
+  }
+
+  const result: ModelMessage[] = [];
+  if (systemParts.length > 0) {
+    result.push({ role: "system", content: systemParts.join("\n\n") });
+  }
+
+  for (const msg of nonSystemMessages) {
+    if (msg.role === "user") {
+      result.push({ role: "user", content: msg.content });
+      continue;
+    }
+
+    if (msg.role === "assistant") {
+      if (msg.toolCalls?.length) {
+        const parts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }> = [];
+        if (msg.content) {
+          parts.push({ type: "text", text: msg.content });
+        }
+        for (const tc of msg.toolCalls) {
+          parts.push({
+            type: "tool-call",
+            toolCallId: tc.id ?? generateToolCallId(),
+            toolName: tc.function.name,
+            input: normalizeToolArgs(tc.function.arguments),
+          });
+        }
+        result.push({ role: "assistant", content: parts });
+      } else {
+        result.push({ role: "assistant", content: msg.content });
+      }
+      continue;
+    }
+
+    // role === "tool"
+    result.push({
+      role: "tool",
+      content: [{
+        type: "tool-result",
+        toolCallId: msg.toolCallId ?? generateToolCallId(),
+        toolName: msg.toolName ?? "unknown",
+        output: { type: "text", value: msg.content },
+      }],
+    });
+  }
+
+  return result;
 }
 
 // ============================================================
@@ -227,6 +280,34 @@ export class SdkAgentEngine implements AgentEngine {
         };
       } catch (error) {
         await maybeHandleSdkAuthError(spec.providerName, error);
+        const message = getErrorMessage(error);
+        if (message.includes("No output generated")) {
+          let fallbackText = "";
+          let fallbackCalls: ToolCall[] = [];
+          let fallbackUsage: { inputTokens: number; outputTokens: number } | undefined;
+
+          try {
+            const fallback = await generateText(commonOpts);
+            fallbackText = (fallback.text || "").trim();
+            fallbackCalls = mapSdkToolCalls(fallback.toolCalls);
+            fallbackUsage = mapSdkUsage(fallback.usage);
+          } catch (fallbackError) {
+            await maybeHandleSdkAuthError(spec.providerName, fallbackError);
+          }
+
+          if (fallbackText.length === 0 && fallbackCalls.length === 0) {
+            fallbackText = AI_NO_OUTPUT_FALLBACK_TEXT;
+          }
+          if (config.onToken && fallbackText.length > 0) {
+            config.onToken(fallbackText);
+          }
+
+          return {
+            content: fallbackText,
+            toolCalls: fallbackCalls,
+            usage: fallbackUsage,
+          };
+        }
         throw error;
       }
     };

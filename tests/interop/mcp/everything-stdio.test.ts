@@ -2,22 +2,19 @@
  * MCP Interop: Tests against @modelcontextprotocol/server-everything
  *
  * Uses the canonical MCP reference server (stdio transport) to verify
- * real-world interoperability. Requires Node.js for `npx`.
+ * real-world interoperability via the official @modelcontextprotocol/sdk.
+ * Requires Node.js for `npx`.
  *
  * The reference server supports: tools, resources, prompts, logging, completions.
  */
 
 import { assertEquals } from "jsr:@std/assert";
-import { McpClient } from "../../../src/hlvm/agent/mcp/client.ts";
-import { StdioTransport } from "../../../src/hlvm/agent/mcp/transport.ts";
+import { createSdkMcpClient } from "../../../src/hlvm/agent/mcp/sdk-client.ts";
 
 const SERVER_COMMAND = ["npx", "-y", "@modelcontextprotocol/server-everything"];
 
-function createReferenceClient(): { client: McpClient; transport: StdioTransport } {
-  const config = { name: "everything", command: SERVER_COMMAND };
-  const transport = new StdioTransport(config);
-  const client = new McpClient(config, transport);
-  return { client, transport };
+function createConfig() {
+  return { name: "everything", command: SERVER_COMMAND };
 }
 
 // ============================================================
@@ -29,9 +26,8 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const { client } = createReferenceClient();
+    const client = await createSdkMcpClient(createConfig());
 
-    await client.start();
     assertEquals(client.hasCapability("tools"), true, "server must declare tools capability");
 
     await client.close();
@@ -47,8 +43,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const { client } = createReferenceClient();
-    await client.start();
+    const client = await createSdkMcpClient(createConfig());
 
     const tools = await client.listTools();
     assertEquals(tools.length > 0, true, "must return at least one tool");
@@ -69,8 +64,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const { client } = createReferenceClient();
-    await client.start();
+    const client = await createSdkMcpClient(createConfig());
 
     const result = await client.callTool("echo", { message: "conformance-test" });
     const r = result as Record<string, unknown>;
@@ -97,8 +91,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const { client } = createReferenceClient();
-    await client.start();
+    const client = await createSdkMcpClient(createConfig());
 
     const result = await client.callTool("get-sum", { a: 3, b: 7 });
     const r = result as Record<string, unknown>;
@@ -124,8 +117,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const { client } = createReferenceClient();
-    await client.start();
+    const client = await createSdkMcpClient(createConfig());
 
     const resources = await client.listResources();
     assertEquals(resources.length > 0, true, "must return at least one resource");
@@ -145,8 +137,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const { client } = createReferenceClient();
-    await client.start();
+    const client = await createSdkMcpClient(createConfig());
 
     // Read the first available resource
     const resources = await client.listResources();
@@ -172,8 +163,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const { client } = createReferenceClient();
-    await client.start();
+    const client = await createSdkMcpClient(createConfig());
 
     const prompts = await client.listPrompts();
     assertEquals(prompts.length > 0, true, "must return at least one prompt");
@@ -199,8 +189,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const { client } = createReferenceClient();
-    await client.start();
+    const client = await createSdkMcpClient(createConfig());
 
     // ping should resolve without error
     await client.ping();

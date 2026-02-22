@@ -29,51 +29,45 @@ import {
   collectForOfStatementsInScope,
 } from "../utils/ir-tree-walker.ts";
 
-// Stack to track the current loop context for recur targeting
-const loopContextStack: string[] = [];
-
-// Counter for generating unique loop names
-let loopIdCounter = 0;
-
 /**
- * Generate a unique loop identifier for proper recur targeting
- * Internal helper - not exported as it's only used within this module
+ * Encapsulates all mutable state for loop/recur compilation.
+ * A fresh instance must be created per compilation unit to prevent
+ * cross-compilation corruption in concurrent/parallel scenarios.
  */
-function generateLoopId(): string {
-  return `loop_${loopIdCounter++}`;
+export interface LoopState {
+  loopContextStack: string[];
+  loopIdCounter: number;
+  forOfLabelTargets: WeakMap<IR.IRForOfStatement, Set<string>>;
 }
 
-/**
- * Get the current loop context - used by recur to know which loop to target
- * Internal helper - not exported as it's only used within this module
- */
-function getCurrentLoopContext(): string | undefined {
-  return loopContextStack.length > 0
-    ? loopContextStack[loopContextStack.length - 1]
+/** Create a fresh LoopState for one compilation pass. */
+export function createLoopState(): LoopState {
+  return { loopContextStack: [], loopIdCounter: 0, forOfLabelTargets: new WeakMap() };
+}
+
+function generateLoopId(state: LoopState): string {
+  return `loop_${state.loopIdCounter++}`;
+}
+
+function getCurrentLoopContext(state: LoopState): string | undefined {
+  return state.loopContextStack.length > 0
+    ? state.loopContextStack[state.loopContextStack.length - 1]
     : undefined;
 }
 
-/**
- * Push a new loop context to the stack
- * Internal helper - not exported as it's only used within this module
- */
-function pushLoopContext(loopId: string): void {
-  loopContextStack.push(loopId);
+function pushLoopContext(state: LoopState, loopId: string): void {
+  state.loopContextStack.push(loopId);
 }
 
-/**
- * Pop the most recent loop context from the stack
- * Internal helper - not exported as it's only used within this module
- */
-function popLoopContext(): string | undefined {
-  return loopContextStack.pop();
+function popLoopContext(state: LoopState): string | undefined {
+  return state.loopContextStack.pop();
 }
 
 /**
  * Check if there's an active loop context
  */
-export function hasLoopContext(): boolean {
-  return loopContextStack.length > 0;
+export function hasLoopContext(state: LoopState): boolean {
+  return state.loopContextStack.length > 0;
 }
 
 /**
@@ -83,6 +77,7 @@ export function transformLoop(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  state: LoopState,
 ): IR.IRNode {
   try {
     // Verify loop syntax: (loop [bindings...] body...)
@@ -131,8 +126,8 @@ export function transformLoop(
     }
 
     // Create a unique ID for this loop context
-    const loopId = generateLoopId();
-    pushLoopContext(loopId); // Push this loop onto the context stack
+    const loopId = generateLoopId(state);
+    pushLoopContext(state, loopId); // Push this loop onto the context stack
 
     try {
       // Extract parameter names and initial values
@@ -298,7 +293,7 @@ export function transformLoop(
       return iife;
     } finally {
       // Always pop the loop context, even on error
-      popLoopContext();
+      popLoopContext(state);
     }
   } catch (error) {
     // Preserve HQLError instances (ValidationError, ParseError, etc.)
@@ -964,6 +959,7 @@ export function transformRecur(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  state: LoopState,
 ): IR.IRNode {
   try {
     // Verify that we have at least the recur keyword
@@ -977,7 +973,7 @@ export function transformRecur(
     }
 
     // Get the current loop context (last item on the stack)
-    if (!hasLoopContext()) {
+    if (!hasLoopContext(state)) {
       throw new ValidationError(
         "recur must be used inside a loop",
         "recur statement",
@@ -986,7 +982,7 @@ export function transformRecur(
       );
     }
 
-    const loopId = getCurrentLoopContext()!;
+    const loopId = getCurrentLoopContext(state)!;
 
     // Transform all the argument expressions
     const args: IR.IRNode[] = [];
@@ -1029,9 +1025,10 @@ export function transformContinue(
   list: ListNode,
   _currentDir: string,
   _transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  state: LoopState,
 ): IR.IRNode {
   // Validate inside loop context
-  if (!hasLoopContext()) {
+  if (!hasLoopContext(state)) {
     throw new ValidationError(
       "continue must be inside a loop",
       "continue statement",
@@ -1061,9 +1058,10 @@ export function transformBreak(
   list: ListNode,
   _currentDir: string,
   _transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  state: LoopState,
 ): IR.IRNode {
   // Validate inside loop context
-  if (!hasLoopContext()) {
+  if (!hasLoopContext(state)) {
     throw new ValidationError(
       "break must be inside a loop",
       "break statement",
@@ -1161,15 +1159,7 @@ function transformLoopBody(
   };
 }
 
-/**
- * Module-level storage for for-of label targets.
- * When a for-of detects labeled break/continue that targets an ancestor label,
- * it stores the targeted labels here so that the label can later decide
- * whether to wrap in IIFE.
- *
- * This enables proper handling of ANY nesting depth - not just immediate parent.
- */
-const forOfLabelTargets: WeakMap<IR.IRForOfStatement, Set<string>> = new WeakMap();
+// forOfLabelTargets is now part of LoopState (see createLoopState)
 
 // ============================================================================
 // Scope-aware tree walking utilities (using generic ir-tree-walker)
@@ -1245,6 +1235,7 @@ export function transformForOf(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  state: LoopState,
   isAwait: boolean = false,
 ): IR.IRNode {
   // Validate syntax: (for-of [binding collection] body...)
@@ -1317,8 +1308,8 @@ export function transformForOf(
   }
 
   // Push loop context for continue/break
-  const loopId = generateLoopId();
-  pushLoopContext(loopId);
+  const loopId = generateLoopId(state);
+  pushLoopContext(state, loopId);
 
   try {
     // Transform body expressions
@@ -1372,12 +1363,12 @@ export function transformForOf(
 
     if (targetedLabels.size > 0) {
       // Check if any targeted label is in our ancestor chain
-      const ancestorLabelsInScope = new Set(loopContextStack);
+      const ancestorLabelsInScope = new Set(state.loopContextStack);
       const hasAncestorTarget = [...targetedLabels].some(label => ancestorLabelsInScope.has(label));
 
       if (hasAncestorTarget) {
         // Store the targets so transformLabel can use them later
-        forOfLabelTargets.set(forOfNode, targetedLabels);
+        state.forOfLabelTargets.set(forOfNode, targetedLabels);
         // Return as statement - the ancestor label will wrap in IIFE
         return forOfNode;
       }
@@ -1438,7 +1429,7 @@ export function transformForOf(
     }
     return iife;
   } finally {
-    popLoopContext();
+    popLoopContext(state);
   }
 }
 
@@ -1452,8 +1443,9 @@ export function transformForAwaitOf(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  state: LoopState,
 ): IR.IRNode {
-  return transformForOf(list, currentDir, transformNode, true);
+  return transformForOf(list, currentDir, transformNode, state, true);
 }
 
 /**
@@ -1497,6 +1489,7 @@ export function transformLabel(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  state: LoopState,
 ): IR.IRNode {
   if (list.elements.length < 3) {
     throw new ValidationError(
@@ -1522,7 +1515,7 @@ export function transformLabel(
   // Push label context so break/continue can reference it
   // NOTE: We keep this label in the stack during the needsIIFE check
   // so we can properly determine if we're the outermost targeted label
-  pushLoopContext(labelName);
+  pushLoopContext(state, labelName);
 
   try {
     // Transform the body statement
@@ -1551,12 +1544,12 @@ export function transformLabel(
     let hasAsyncForOf = false;
 
     for (const forOf of forOfNodes) {
-      const targets = forOfLabelTargets.get(forOf);
+      const targets = state.forOfLabelTargets.get(forOf);
       if (targets && targets.has(labelName)) {
         // This for-of targets our label
         // Check if any ANCESTOR label (excluding self) is also targeted
         // Ancestors are all stack items except the current one (which is us)
-        const ancestorStack = loopContextStack.slice(0, -1);  // Exclude self
+        const ancestorStack = state.loopContextStack.slice(0, -1);  // Exclude self
         const ancestorTargeted = ancestorStack.some(ancestor => targets.has(ancestor));
 
         if (!ancestorTargeted) {
@@ -1664,6 +1657,6 @@ export function transformLabel(
     copyPosition(list, node);
     return node;
   } finally {
-    popLoopContext();
+    popLoopContext(state);
   }
 }

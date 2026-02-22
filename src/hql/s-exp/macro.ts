@@ -610,9 +610,13 @@ export function expandMacros(
     }
   }
 
-  if (iteration >= iterationLimit) {
-    logger.warn(
-      `Macro expansion reached maximum iterations (${iterationLimit}). Check for infinite recursion.`,
+  if (iteration >= iterationLimit && options.iterationLimit == null) {
+    // Only throw for the default limit — explicit limits (e.g., macroexpand1)
+    // intentionally constrain expansion and should not be treated as errors.
+    throw new MacroError(
+      `Macro expansion reached maximum iterations (${iterationLimit}). This likely indicates infinite macro recursion.`,
+      "macro-expansion",
+      { line: 0, column: 0 },
     );
   }
   logger.debug(`Completed macro expansion after ${iteration} iterations`);

@@ -1,6 +1,7 @@
 /**
  * CLI option parsing and application utilities
  */
+import { parseArgs } from "jsr:@std/cli@1.0.13/parse-args";
 import { globalLogger } from "../../../logger.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { platformCwd } from "./platform-helpers.ts";
@@ -18,34 +19,21 @@ export interface CliOptions {
  * Parse standard CLI flags into a structured options object.
  */
 export function parseCliOptions(args: string[]): CliOptions {
-  const options: CliOptions = {};
+  const parsed = parseArgs(args, {
+    boolean: ["verbose", "time", "force-cache", "no-force-cache", "no-cache", "debug"],
+    alias: { v: "verbose" },
+  });
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    switch (arg) {
-      case "--verbose":
-      case "-v":
-        options.verbose = true;
-        break;
-      case "--time":
-        options.showTiming = true;
-        break;
-      case "--force-cache":
-        options.forceCache = true;
-        break;
-      case "--no-force-cache":
-      case "--no-cache":
-        options.forceCache = false;
-        break;
-      case "--debug":
-        options.debug = true;
-        break;
-      default:
-        break;
-    }
-  }
-
-  return options;
+  return {
+    verbose: parsed.verbose || undefined,
+    showTiming: parsed.time || undefined,
+    forceCache: parsed["force-cache"]
+      ? true
+      : (parsed["no-force-cache"] || parsed["no-cache"])
+      ? false
+      : undefined,
+    debug: parsed.debug || undefined,
+  };
 }
 
 /**
@@ -72,22 +60,12 @@ export function applyCliOptions(options: CliOptions): void {
  * Extract log namespace settings from CLI args
  */
 export function parseLogNamespaces(args: string[]): string[] {
-  const logIndex = args.findIndex((arg) =>
-    arg === "--log" || arg.startsWith("--log=")
-  );
+  const parsed = parseArgs(args, {
+    string: ["log"],
+  });
 
-  if (logIndex === -1) return [];
-
-  let namespaceArg = "";
-  const arg = args[logIndex];
-
-  if (arg.includes("=")) {
-    namespaceArg = arg.split("=")[1];
-  } else if (args[logIndex + 1] && !args[logIndex + 1].startsWith("-")) {
-    namespaceArg = args[logIndex + 1];
-  }
-
-  return namespaceArg.split(",").map((ns) => ns.trim()).filter((ns) =>
+  if (!parsed.log) return [];
+  return parsed.log.split(",").map((ns: string) => ns.trim()).filter((ns: string) =>
     ns.length > 0
   );
 }

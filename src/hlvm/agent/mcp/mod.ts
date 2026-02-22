@@ -1,8 +1,8 @@
 /**
  * MCP Module — Barrel re-export for MCP integration.
  *
- * This module re-exports the exact same public API that was previously
- * in the single `mcp.ts` file. All importers should use this barrel.
+ * This module re-exports the public API for MCP server connections.
+ * Uses @modelcontextprotocol/sdk for protocol handling.
  */
 
 // Types
@@ -22,7 +22,6 @@ export type {
   McpSamplingResponse,
   McpServerConfig,
   McpToolInfo,
-  McpTransport,
 } from "./types.ts";
 
 // Config loading & management
@@ -40,8 +39,5 @@ export type { McpScope, McpServerWithScope } from "./config.ts";
 // Tool registration
 export { inferMcpSafetyLevel, loadMcpTools } from "./tools.ts";
 
-// Client (for advanced usage)
-export { McpClient } from "./client.ts";
-
-// Transport
-export { createTransport, HttpTransport, StdioTransport } from "./transport.ts";
+// SDK Client (for direct usage)
+export { createSdkMcpClient, SdkMcpClient } from "./sdk-client.ts";

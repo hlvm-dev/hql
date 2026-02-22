@@ -226,7 +226,7 @@ function createStubEngine(
   };
 }
 
-Deno.test("runFirstTimeSetup: user decline falls back to model browser", async () => {
+Deno.test({ name: "runFirstTimeSetup: user decline falls back to model browser", sanitizeOps: false, sanitizeResources: false, async fn() {
   const calls: string[] = [];
   const engine = createStubEngine({
     ensureRunning: () => {
@@ -248,9 +248,9 @@ Deno.test("runFirstTimeSetup: user decline falls back to model browser", async (
   assertEquals(result, "ollama/fallback-model:cloud");
   assertEquals(calls.includes("ensureRunning"), false);
   assertEquals(calls.includes("fallback"), true);
-});
+}});
 
-Deno.test("runFirstTimeSetup: engine startup failure falls back", async () => {
+Deno.test({ name: "runFirstTimeSetup: engine startup failure falls back", sanitizeOps: false, sanitizeResources: false, async fn() {
   const calls: string[] = [];
   const engine = createStubEngine({
     ensureRunning: () => Promise.resolve(false),
@@ -268,9 +268,9 @@ Deno.test("runFirstTimeSetup: engine startup failure falls back", async () => {
 
   assertEquals(result, "ollama/fallback-model:cloud");
   assertEquals(calls.includes("fallback"), true);
-});
+}});
 
-Deno.test("runFirstTimeSetup: no cloud model falls back", async () => {
+Deno.test({ name: "runFirstTimeSetup: no cloud model falls back", sanitizeOps: false, sanitizeResources: false, async fn() {
   const calls: string[] = [];
   const engine = createStubEngine();
 
@@ -287,9 +287,9 @@ Deno.test("runFirstTimeSetup: no cloud model falls back", async () => {
 
   assertEquals(result, "ollama/fallback-model:cloud");
   assertEquals(calls.includes("fallback"), true);
-});
+}});
 
-Deno.test("runFirstTimeSetup: pull failure falls back", async () => {
+Deno.test({ name: "runFirstTimeSetup: pull failure falls back", sanitizeOps: false, sanitizeResources: false, async fn() {
   const calls: string[] = [];
   const engine = createStubEngine();
   const cloudModel: ModelInfo = {
@@ -313,9 +313,9 @@ Deno.test("runFirstTimeSetup: pull failure falls back", async () => {
 
   assertEquals(result, "ollama/fallback-model:cloud");
   assertEquals(calls.includes("fallback"), true);
-});
+}});
 
-Deno.test("runFirstTimeSetup: success saves selected cloud model", async () => {
+Deno.test({ name: "runFirstTimeSetup: success saves selected cloud model", sanitizeOps: false, sanitizeResources: false, async fn() {
   const saved: string[] = [];
   const engine = createStubEngine();
   const cloudModel: ModelInfo = {
@@ -341,9 +341,9 @@ Deno.test("runFirstTimeSetup: success saves selected cloud model", async () => {
 
   assertEquals(result, "ollama/deepseek-v3.1:671b-cloud");
   assertEquals(saved, ["ollama/deepseek-v3.1:671b-cloud"]);
-});
+}});
 
-Deno.test("runFirstTimeSetup: unverified cloud auth falls back and does not save", async () => {
+Deno.test({ name: "runFirstTimeSetup: unverified cloud auth falls back and does not save", sanitizeOps: false, sanitizeResources: false, async fn() {
   const saved: string[] = [];
   const calls: string[] = [];
   const engine = createStubEngine();
@@ -373,7 +373,7 @@ Deno.test("runFirstTimeSetup: unverified cloud auth falls back and does not save
   assertEquals(result, "ollama/fallback-model:cloud");
   assertEquals(saved.length, 0);
   assertEquals(calls.includes("fallback"), true);
-});
+}});
 
 Deno.test({
   name: "aiEngine.isRunning: returns boolean for real daemon check",

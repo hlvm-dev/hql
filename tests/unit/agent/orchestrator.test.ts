@@ -1253,7 +1253,8 @@ Deno.test({
       const injected = maybeInjectReminder(state, lc, config);
       assertEquals(injected, true, `should inject for tier=${tier}`);
 
-      const msgs = context.getMessages().filter((m) => m.role === "system");
+      // Reminders use role:"user" to avoid interleaved system message errors
+      const msgs = context.getMessages().filter((m) => m.role === "user");
       assertEquals(msgs.length, 1);
       assertStringIncludes(msgs[0].content, "web content");
       assertStringIncludes(msgs[0].content, "reference data only");
@@ -1276,7 +1277,7 @@ Deno.test({
 
       const injected = maybeInjectReminder(state, lc, config);
       assertEquals(injected, true);
-      const msgs = context.getMessages().filter((m) => m.role === "system");
+      const msgs = context.getMessages().filter((m) => m.role === "user");
       assertEquals(msgs.length, 1);
       assertStringIncludes(msgs[0].content, "dedicated tools");
       assertStringIncludes(msgs[0].content, "shell_exec");
@@ -1290,7 +1291,7 @@ Deno.test({
 
       const injected = maybeInjectReminder(state, lc, config);
       assertEquals(injected, false);
-      const msgs = context.getMessages().filter((m) => m.role === "system");
+      const msgs = context.getMessages().filter((m) => m.role === "user");
       assertEquals(msgs.length, 0);
     }
 
@@ -1331,8 +1332,8 @@ Deno.test({
     const injected = maybeInjectReminder(state, lc, config);
     assertEquals(injected, true);
 
-    // Should be the web safety message, not tool routing
-    const msgs = context.getMessages().filter((m) => m.role === "system");
+    // Should be the web safety message, not tool routing (reminders use role:"user")
+    const msgs = context.getMessages().filter((m) => m.role === "user");
     assertEquals(msgs.length, 1);
     assertStringIncludes(msgs[0].content, "web content");
   },

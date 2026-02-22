@@ -72,6 +72,9 @@ import { getSymbolTable, type CompilerContext } from "../compiler-context.ts";
 // This enables isolation when context.symbolTable is provided
 let currentSymbolTable: SymbolTable = globalSymbolTable;
 
+// Per-compilation loop state — reset in transformToIR() to prevent cross-compilation corruption
+let currentLoopState: loopRecurModule.LoopState = loopRecurModule.createLoopState();
+
 type MetaData = {
   line?: number;
   column?: number;
@@ -369,6 +372,9 @@ export function transformToIR(
   // Sync import-export module with current symbol table
   setImportExportSymbolTable(currentSymbolTable);
 
+  // Fresh loop state per compilation pass — prevents cross-compilation corruption
+  currentLoopState = loopRecurModule.createLoopState();
+
   if (transformFactory.size === 0) {
     initializeTransformFactory();
   }
@@ -596,7 +602,7 @@ function initializeTransformFactory(): void {
         list,
         currentDir,
         transformHQLNodeToIR,
-        loopRecurModule.hasLoopContext,
+        () => loopRecurModule.hasLoopContext(currentLoopState),
       ),
   );
   transformFactory.set(
@@ -626,37 +632,37 @@ function initializeTransformFactory(): void {
   transformFactory.set(
     "loop",
     (list, currentDir) =>
-      loopRecurModule.transformLoop(list, currentDir, transformHQLNodeToIR),
+      loopRecurModule.transformLoop(list, currentDir, transformHQLNodeToIR, currentLoopState),
   );
   transformFactory.set(
     "recur",
     (list, currentDir) =>
-      loopRecurModule.transformRecur(list, currentDir, transformHQLNodeToIR),
+      loopRecurModule.transformRecur(list, currentDir, transformHQLNodeToIR, currentLoopState),
   );
   transformFactory.set(
     "continue",
     (list, currentDir) =>
-      loopRecurModule.transformContinue(list, currentDir, transformHQLNodeToIR),
+      loopRecurModule.transformContinue(list, currentDir, transformHQLNodeToIR, currentLoopState),
   );
   transformFactory.set(
     "break",
     (list, currentDir) =>
-      loopRecurModule.transformBreak(list, currentDir, transformHQLNodeToIR),
+      loopRecurModule.transformBreak(list, currentDir, transformHQLNodeToIR, currentLoopState),
   );
   transformFactory.set(
     "for-of",
     (list, currentDir) =>
-      loopRecurModule.transformForOf(list, currentDir, transformHQLNodeToIR),
+      loopRecurModule.transformForOf(list, currentDir, transformHQLNodeToIR, currentLoopState),
   );
   transformFactory.set(
     "for-await-of",
     (list, currentDir) =>
-      loopRecurModule.transformForAwaitOf(list, currentDir, transformHQLNodeToIR),
+      loopRecurModule.transformForAwaitOf(list, currentDir, transformHQLNodeToIR, currentLoopState),
   );
   transformFactory.set(
     "label",
     (list, currentDir) =>
-      loopRecurModule.transformLabel(list, currentDir, transformHQLNodeToIR),
+      loopRecurModule.transformLabel(list, currentDir, transformHQLNodeToIR, currentLoopState),
   );
   transformFactory.set(
     "return",

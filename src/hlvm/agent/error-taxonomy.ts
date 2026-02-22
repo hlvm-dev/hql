@@ -5,6 +5,16 @@
  * to ensure consistent retry policies for LLM and tool execution.
  */
 
+import {
+  APICallError,
+  EmptyResponseBodyError,
+  InvalidPromptError,
+  LoadAPIKeyError,
+  NoContentGeneratedError,
+  NoSuchModelError,
+  RetryError,
+  UnsupportedFunctionalityError,
+} from "ai";
 import { TimeoutError } from "../../common/timeout-utils.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 
@@ -94,6 +104,63 @@ export function classifyError(err: unknown): ClassifiedError {
     return { class: "timeout", retryable: true, message };
   }
 
+  // ── SDK structured error checks (before string matching) ──
+
+  // RetryError wraps the real error — classify its lastError instead
+  if (RetryError.isInstance(err)) {
+    const inner = (err as { lastError?: unknown }).lastError;
+    if (inner) return classifyError(inner);
+    return { class: "transient", retryable: true, message };
+  }
+
+  // APICallError carries a structured status code
+  if (APICallError.isInstance(err)) {
+    const apiErr = err as { statusCode?: number; isRetryable?: boolean };
+    const code = apiErr.statusCode;
+    if (code === 429) return { class: "rate_limit", retryable: true, message };
+    if (code === 401 || code === 403) {
+      return { class: "permanent", retryable: false, message };
+    }
+    // Check for context overflow in message even on API errors
+    if (isContextOverflowError(message)) {
+      return { class: "context_overflow", retryable: true, message };
+    }
+    if (code && code >= 500 && code < 600) {
+      return { class: "transient", retryable: true, message };
+    }
+    // Fall back to SDK's own retryable flag
+    if (apiErr.isRetryable === true) {
+      return { class: "transient", retryable: true, message };
+    }
+    if (apiErr.isRetryable === false) {
+      return { class: "permanent", retryable: false, message };
+    }
+  }
+
+  // Auth/key errors — permanent
+  if (LoadAPIKeyError.isInstance(err)) {
+    return { class: "permanent", retryable: false, message };
+  }
+
+  // Model/prompt configuration errors — permanent
+  if (
+    NoSuchModelError.isInstance(err) ||
+    InvalidPromptError.isInstance(err) ||
+    UnsupportedFunctionalityError.isInstance(err)
+  ) {
+    return { class: "permanent", retryable: false, message };
+  }
+
+  // Empty/no content — transient (retry may produce output)
+  if (
+    NoContentGeneratedError.isInstance(err) ||
+    EmptyResponseBodyError.isInstance(err)
+  ) {
+    return { class: "transient", retryable: true, message };
+  }
+
+  // ── String-matching fallback (non-SDK errors, tool errors, legacy) ──
+
   if (isAuthError(message)) {
     return { class: "permanent", retryable: false, message };
   }
@@ -115,7 +182,7 @@ export function classifyError(err: unknown): ClassifiedError {
     return { class: "transient", retryable: true, message };
   }
 
-  // Fix 15: Programming errors are permanent — don't waste retries
+  // Programming errors are permanent — don't waste retries
   if (
     err instanceof TypeError ||
     err instanceof ReferenceError ||

@@ -1,8 +1,10 @@
 /**
  * MCP Types — All type definitions for MCP protocol integration.
  *
- * Covers: config, JSON-RPC, tools, resources, prompts, sampling,
- * elicitation, completion, transport, and handler interfaces.
+ * Covers: config, tools, resources, prompts, sampling,
+ * elicitation, and handler interfaces.
+ *
+ * JSON-RPC and transport types are handled by @modelcontextprotocol/sdk.
  */
 
 // ============================================================
@@ -25,19 +27,6 @@ export interface McpServerConfig {
 export interface McpConfig {
   version: 1;
   servers: McpServerConfig[];
-}
-
-// ============================================================
-// JSON-RPC Types
-// ============================================================
-
-export interface JsonRpcMessage {
-  jsonrpc: "2.0";
-  id?: number;
-  method?: string;
-  params?: unknown;
-  result?: unknown;
-  error?: { code: number; message: string; data?: unknown };
 }
 
 // ============================================================
@@ -158,22 +147,6 @@ export interface McpHandlers {
     request: McpElicitationRequest,
   ) => Promise<McpElicitationResponse>;
   roots?: string[];
-}
-
-// ============================================================
-// Transport Types
-// ============================================================
-
-/** Abstract transport interface — used by McpClient */
-export interface McpTransport {
-  start(): Promise<void>;
-  send(message: JsonRpcMessage): Promise<void>;
-  setMessageHandler(
-    handler: (message: JsonRpcMessage) => void,
-  ): void;
-  close(): Promise<void>;
-  /** Optional: set the negotiated protocol version (used by HTTP transport for headers) */
-  setProtocolVersion?(version: string): void;
 }
 
 // ============================================================

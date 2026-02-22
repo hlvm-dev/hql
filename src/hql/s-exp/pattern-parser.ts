@@ -33,6 +33,13 @@ import {
   EMPTY_ARRAY_SYMBOL,
 } from "../../common/runtime-helper-impl.ts";
 import { ParseError } from "../../common/error.ts";
+import { getMeta } from "./types.ts";
+
+/** Extract source position from an S-expression node, falling back to 0:0. */
+function posOf(node: SExp): { line: number; column: number } {
+  const m = getMeta(node);
+  return { line: m?.line ?? 0, column: m?.column ?? 0 };
+}
 
 // Re-export couldBePattern so it can be imported from this module
 export { couldBePattern } from "./types.ts";
@@ -107,7 +114,7 @@ export function parsePattern(exp: SExp): Pattern {
     return parseArrayPattern(arrayExp);
   }
 
-  throw new ParseError(`Invalid pattern: ${JSON.stringify(exp)}`, { line: 0, column: 0 });
+  throw new ParseError(`Invalid pattern: ${JSON.stringify(exp)}`, posOf(exp));
 }
 
 /**
@@ -126,7 +133,7 @@ export function parsePattern(exp: SExp): Pattern {
  */
 function parseIdentifierPattern(exp: SExp): IdentifierPattern {
   if (!isSymbol(exp)) {
-    throw new ParseError(`Expected symbol for identifier pattern, got: ${exp.type}`, { line: 0, column: 0 });
+    throw new ParseError(`Expected symbol for identifier pattern, got: ${exp.type}`, posOf(exp));
   }
 
   return createIdentifierPattern(exp.name);
@@ -175,7 +182,7 @@ function parseIdentifierPattern(exp: SExp): IdentifierPattern {
  */
 function parseArrayPattern(exp: SExp): ArrayPattern {
   if (!isList(exp)) {
-    throw new ParseError(`Expected list for array pattern, got: ${exp.type}`, { line: 0, column: 0 });
+    throw new ParseError(`Expected list for array pattern, got: ${exp.type}`, posOf(exp));
   }
 
   const elements: (Pattern | SkipPattern | RestPattern | null)[] = [];
@@ -191,7 +198,7 @@ function parseArrayPattern(exp: SExp): ArrayPattern {
       if (nextElem === undefined) {
         throw new ParseError(
           `Rest pattern (&) must be followed by identifier`,
-          { line: 0, column: 0 }
+          posOf(elem)
         );
       }
 
@@ -199,7 +206,7 @@ function parseArrayPattern(exp: SExp): ArrayPattern {
       if (!isSymbol(nextElem)) {
         throw new ParseError(
           `Rest pattern (&) must be followed by identifier, got: ${nextElem?.type}`,
-          { line: 0, column: 0 }
+          posOf(nextElem!)
         );
       }
 
@@ -207,7 +214,7 @@ function parseArrayPattern(exp: SExp): ArrayPattern {
       if (i !== exp.elements.length - 2) {
         throw new ParseError(
           `Rest pattern (&) must be second-to-last element, found at position ${i}`,
-          { line: 0, column: 0 }
+          posOf(elem)
         );
       }
 
@@ -226,7 +233,7 @@ function parseArrayPattern(exp: SExp): ArrayPattern {
       if (isDefaultValueForm(nextElem)) {
         throw new ParseError(
           `Skip pattern (_) cannot have default value`,
-          { line: 0, column: 0 }
+          posOf(elem)
         );
       }
       elements.push(createSkipPattern());
@@ -238,7 +245,7 @@ function parseArrayPattern(exp: SExp): ArrayPattern {
     if (isDefaultValueForm(elem)) {
       throw new ParseError(
         `Default value (= expr) must follow a pattern element, found at position ${i}`,
-        { line: 0, column: 0 }
+        posOf(elem)
       );
     }
 
@@ -281,14 +288,14 @@ function parseArrayPattern(exp: SExp): ArrayPattern {
         `Array pattern cannot contain literal values. Found: ${
           JSON.stringify(elem.value)
         }`,
-        { line: 0, column: 0 }
+        posOf(elem)
       );
     }
 
     // Function call or other invalid element
     throw new ParseError(
       `Invalid element in array pattern: ${JSON.stringify(elem)}`,
-      { line: 0, column: 0 }
+      posOf(elem)
     );
   }
 
@@ -320,7 +327,7 @@ function parseArrayPattern(exp: SExp): ArrayPattern {
  */
 function parseObjectPattern(exp: SExp): ObjectPattern {
   if (!isList(exp)) {
-    throw new ParseError(`Expected list for object pattern, got: ${exp.type}`, { line: 0, column: 0 });
+    throw new ParseError(`Expected list for object pattern, got: ${exp.type}`, posOf(exp));
   }
 
   // Verify it starts with "hash-map" or "__hql_hash_map"
@@ -332,7 +339,7 @@ function parseObjectPattern(exp: SExp): ObjectPattern {
   ) {
     throw new ParseError(
       `Expected hash-map for object pattern, got: ${JSON.stringify(exp)}`,
-      { line: 0, column: 0 }
+      posOf(exp)
     );
   }
 
@@ -350,13 +357,13 @@ function parseObjectPattern(exp: SExp): ObjectPattern {
       if (!valueExp) {
         throw new ParseError(
           `Rest pattern (&) must be followed by identifier`,
-          { line: 0, column: 0 }
+          posOf(keyExp)
         );
       }
       if (!isSymbol(valueExp)) {
         throw new ParseError(
           `Rest pattern (&) must be followed by identifier, got: ${valueExp.type}`,
-          { line: 0, column: 0 }
+          posOf(valueExp)
         );
       }
 
@@ -364,7 +371,7 @@ function parseObjectPattern(exp: SExp): ObjectPattern {
       if (i !== exp.elements.length - 2) {
         throw new ParseError(
           `Rest pattern (&) must be last in object pattern, found at position ${i}`,
-          { line: 0, column: 0 }
+          posOf(keyExp)
         );
       }
 
@@ -382,7 +389,7 @@ function parseObjectPattern(exp: SExp): ObjectPattern {
     } else {
       throw new ParseError(
         `Object pattern key must be a symbol or string, got: ${keyExp.type}`,
-        { line: 0, column: 0 }
+        posOf(keyExp)
       );
     }
 

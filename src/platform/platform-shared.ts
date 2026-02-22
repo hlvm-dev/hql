@@ -12,7 +12,7 @@ import type { OperatingSystem } from "./types.ts";
 // Open URL/Path — Cross-Platform Command Builder
 // =============================================================================
 
-/** Command descriptor returned by buildOpenCommand. */
+/** Command descriptor returned by buildOpenCommands. */
 export interface OpenCommand {
   cmd: string;
   args: string[];
@@ -26,31 +26,43 @@ export interface OpenCommand {
  * - Windows: cmd.exe /c start
  * - Linux: xdg-open
  */
-export function buildOpenCommand(os: OperatingSystem, url: string): OpenCommand {
+/**
+ * Build the OS-specific commands to open a URL or file path.
+ *
+ * Returns an array because macOS requires two sequential steps:
+ * 1. `open` to launch the target (synchronous, reliable)
+ * 2. `osascript` to bring the opened app to the foreground
+ *
+ * The previous JXA NSWorkspace approach used the async
+ * `openURLConfigurationCompletionHandler` which could exit before the window
+ * appeared, causing the "opens but doesn't come to front" bug.
+ */
+export function buildOpenCommands(os: OperatingSystem, url: string): OpenCommand[] {
   switch (os) {
     case "darwin": {
-      // Plain `open` doesn't bring the target app to foreground when called
-      // from a child process of a GUI wrapper. Use NSWorkspace with
-      // `activates = true` via JXA — works universally for any app.
+      // Step 1: `open` is synchronous and reliable for launching
+      const openCmd: OpenCommand = { cmd: "open", args: [url] };
+      // Step 2: Activate the frontmost app that `open` just launched.
+      // For file paths, `open` launches Finder (or default app);
+      // for URLs, it launches the default browser.
+      // We use AppleScript to activate the app after a tiny delay.
       const isWebUrl = /^https?:\/\//i.test(url);
-      const jxa = `
-        ObjC.import('AppKit');
-        var ws = $.NSWorkspace.sharedWorkspace;
-        var u = ${isWebUrl
-          ? `$.NSURL.URLWithString(${JSON.stringify(url)})`
-          : `$.NSURL.fileURLWithPath(${JSON.stringify(url)})`};
-        var c = $.NSWorkspaceOpenConfiguration.configuration;
-        c.activates = true;
-        ws.openURLConfigurationCompletionHandler(u, c, $());
-      `;
-      return { cmd: "osascript", args: ["-l", "JavaScript", "-e", jxa] };
+      const activateScript = isWebUrl
+        ? 'tell application "System Events" to set frontmost of the first process whose frontmost is true to true'
+        : `tell application "Finder" to activate`;
+      const activateCmd: OpenCommand = {
+        cmd: "osascript",
+        args: ["-e", `delay 0.3\n${activateScript}`],
+      };
+      return [openCmd, activateCmd];
     }
     case "windows":
       // 'start' is a cmd.exe builtin, not a standalone executable.
       // The empty "" prevents start from treating the URL as window title.
-      return { cmd: "cmd.exe", args: ["/c", "start", "", url] };
+      return [{ cmd: "cmd.exe", args: ["/c", "start", "", url] }];
     default:
       // Linux and other Unix-like systems
-      return { cmd: "xdg-open", args: [url] };
+      return [{ cmd: "xdg-open", args: [url] }];
   }
 }
+

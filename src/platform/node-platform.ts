@@ -47,7 +47,7 @@ import type {
   PlatformWriteOptions,
   SignalType,
 } from "./types.ts";
-import { buildOpenCommand } from "./platform-shared.ts";
+import { buildOpenCommands } from "./platform-shared.ts";
 
 // =============================================================================
 // Helper Functions
@@ -379,6 +379,13 @@ const NodeEnv: PlatformEnv = {
   set: (key: string, value: string): void => {
     nodeProcess.env[key] = value;
   },
+  toObject: (): Record<string, string> => {
+    const result: Record<string, string> = {};
+    for (const [key, value] of Object.entries(nodeProcess.env)) {
+      if (value !== undefined) result[key] = value;
+    }
+    return result;
+  },
 };
 
 // =============================================================================
@@ -602,10 +609,12 @@ export const NodePlatform: Platform = {
   command: NodeCommand,
   http: NodeHttp,
   openUrl: async (url: string): Promise<void> => {
-    const { cmd, args } = buildOpenCommand(mapOs(), url);
-    const result = await NodeCommand.output({ cmd: [cmd, ...args] });
-    if (!result.success) {
-      throw new Error(`Failed to open URL: ${url} (exit code: ${result.code})`);
+    const commands = buildOpenCommands(mapOs(), url);
+    for (const { cmd, args } of commands) {
+      const result = await NodeCommand.output({ cmd: [cmd, ...args] });
+      if (!result.success) {
+        throw new Error(`Failed to open URL: ${url} (exit code: ${result.code})`);
+      }
     }
   },
 };

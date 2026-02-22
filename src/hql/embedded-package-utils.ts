@@ -29,11 +29,14 @@ export function createEmbeddedPackageLookup(
   const getByPath = (path: string): string | undefined => {
     const normalized = normalize(path);
     for (const match of matches) {
-      if (
-        normalized.endsWith(match.modPathSuffix) ||
-        normalized.includes(match.pathMarker)
-      ) {
-        return packages[match.key];
+      if (normalized.endsWith(match.modPathSuffix)) return packages[match.key];
+      // Require path-boundary match: pathMarker must end at string end or be followed by '/'
+      const idx = normalized.indexOf(match.pathMarker);
+      if (idx >= 0) {
+        const afterIdx = idx + match.pathMarker.length;
+        if (afterIdx === normalized.length || normalized[afterIdx] === "/") {
+          return packages[match.key];
+        }
       }
     }
     return undefined;

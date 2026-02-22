@@ -5,6 +5,7 @@ import {
   checkPureFunctionBody,
   checkPureParameterCallSites,
 } from "./effects/effect-infer.ts";
+import { toEffectValidationError } from "./effects/effect-errors.ts";
 
 /**
  * Check HQL effects.
@@ -20,6 +21,13 @@ export function checkEffects(ir: IR.IRProgram): void {
     if (node.type === IR.IRNodeType.FnFunctionDeclaration) {
       const fn = node as IR.IRFnFunctionDeclaration;
       if (!fn.pure) return;
+      // Generators are inherently impure — reject at declaration level
+      if (fn.generator) {
+        throw toEffectValidationError(
+          `Generator function '${fn.id.name}' cannot be declared pure (fx). Generators use 'yield' which is an effect.`,
+          fn,
+        );
+      }
       const callableParams = checkPureFunctionBody(fn, signatures);
       const sig = lookupFunctionSignature(fn.id.name, signatures);
       if (sig) sig.callableParams = callableParams;
