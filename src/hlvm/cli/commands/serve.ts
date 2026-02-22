@@ -12,12 +12,26 @@ import { withRetry } from "../../../common/retry.ts";
 
 /** Resolves when runtime is initialized; rejects permanently if all retries fail. */
 let runtimeReady: Promise<void> | null = null;
+let runtimeReadinessManaged = false;
 
 /** Tracks runtime readiness state for /health endpoint */
 export let runtimeReadyState: "pending" | "ready" | "failed" = "pending";
 
+/** Whether serveCommand manages runtime readiness for this process. */
+export function isRuntimeReadinessManaged(): boolean {
+  return runtimeReadinessManaged;
+}
+
+/** Whether AI runtime should accept runtime-dependent requests right now. */
+export function isRuntimeReadyForAiRequests(): boolean {
+  return !runtimeReadinessManaged || runtimeReadyState === "ready";
+}
+
 /** Returns the runtime readiness promise. Endpoints can await this before using AI. */
 export function getRuntimeReady(): Promise<void> {
+  if (!runtimeReadinessManaged) {
+    return Promise.resolve();
+  }
   if (!runtimeReady) {
     return Promise.reject(new RuntimeError("Server not started"));
   }
@@ -34,6 +48,9 @@ export async function serveCommand(args: string[]): Promise<number> {
   }
 
   try {
+    runtimeReadinessManaged = true;
+    runtimeReadyState = "pending";
+
     // Start server FIRST so the port is open immediately for GUI clients.
     // Deno.serve() binds the port synchronously — no "Connection refused" race.
     const serverDone = startHttpServer();
@@ -55,8 +72,14 @@ export async function serveCommand(args: string[]): Promise<number> {
       },
     ).catch((error) => {
       runtimeReadyState = "failed";
-      log.error("Runtime initialization failed after retries; AI features unavailable.", error);
-      throw error;
+      const wrappedError = new RuntimeError(
+        "Runtime initialization failed after retries; AI features unavailable.",
+        {
+          originalError: error instanceof Error ? error : undefined,
+        },
+      );
+      log.error(wrappedError.message, error);
+      throw wrappedError;
     });
 
     await serverDone;

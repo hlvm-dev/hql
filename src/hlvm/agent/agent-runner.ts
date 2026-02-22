@@ -42,6 +42,10 @@ import {
 import { UsageTracker } from "./usage.ts";
 import { ContextManager } from "./context.ts";
 import type { ModelInfo } from "../providers/types.ts";
+import {
+  classifyAgentFinalResponse,
+  type AgentOrchestratorFailureCode,
+} from "./model-compat.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
@@ -181,6 +185,10 @@ export interface AgentRunnerOptions {
 
 export interface AgentRunnerResult {
   text: string;
+  finalResponseState: {
+    suppressFinalResponse: boolean;
+    orchestratorFailureCode: AgentOrchestratorFailureCode | null;
+  };
   stats: {
     messageCount: number;
     estimatedTokens: number;
@@ -356,8 +364,10 @@ export async function runAgentQuery(
 
     const stats = session.context.getStats();
     const usageSnapshot = usageTracker.snapshot();
+    const finalResponseState = classifyAgentFinalResponse(text);
     return {
       text,
+      finalResponseState,
       stats: {
         messageCount: stats.messageCount,
         estimatedTokens: stats.estimatedTokens,

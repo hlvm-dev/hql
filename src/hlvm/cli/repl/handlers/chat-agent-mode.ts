@@ -23,10 +23,6 @@ import { config } from "../../../api/config.ts";
 import { log } from "../../../api/log.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { RuntimeError, ValidationError } from "../../../../common/error.ts";
-import {
-  isAgentOrchestratorFailureResponse,
-  shouldSuppressFinalResponse,
-} from "../../../agent/model-compat.ts";
 import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../../../common/ai-messages.ts";
 import {
   buildClaudeCodeCommand,
@@ -168,8 +164,8 @@ export async function handleAgentMode(
   if (!signal.aborted) {
     let finalText = result.text;
     const shouldFallbackToDirectChat =
-      shouldSuppressFinalResponse(finalText) ||
-      isAgentOrchestratorFailureResponse(finalText) ||
+      result.finalResponseState.suppressFinalResponse ||
+      result.finalResponseState.orchestratorFailureCode !== null ||
       (failedToolCalls > 0 && successfulToolCalls === 0 && !finalText.trim());
     if (shouldFallbackToDirectChat) {
       const fallbackText = await streamDirectChatFallback(

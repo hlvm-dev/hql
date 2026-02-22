@@ -43,6 +43,12 @@ interface ProcessOptions {
   generateSourceMap?: boolean;
   /** Original HQL source code for embedding in source map */
   sourceContent?: string;
+  /** Enable TypeScript type checking in transpiler pipeline (default: true) */
+  typeCheck?: boolean;
+  /** Fail transpilation on type errors (default: false) */
+  failOnTypeErrors?: boolean;
+  /** Emit transpiler type warnings/errors to stderr (default: true) */
+  showTypeWarnings?: boolean;
   /** Suppress TS2304 "Cannot find name" errors (for REPL where bindings are on globalThis) */
   suppressUnknownNameErrors?: boolean;
 }
@@ -115,6 +121,9 @@ async function generateJavascript(
         currentFile: options.currentFile,
         generateSourceMap: options.generateSourceMap,
         sourceContent: options.sourceContent,
+        typeCheck: options.typeCheck,
+        failOnTypeErrors: options.failOnTypeErrors,
+        showTypeWarnings: options.showTypeWarnings,
         suppressUnknownNameErrors: options.suppressUnknownNameErrors,
       },
       env,

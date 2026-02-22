@@ -20,6 +20,12 @@ export interface TranspileOptions {
   generateSourceMap?: boolean;
   /** Original HQL source code for embedding in source map */
   sourceContent?: string;
+  /** Enable TypeScript type checking in transpiler pipeline (default: true) */
+  typeCheck?: boolean;
+  /** Fail transpilation on type errors (default: false) */
+  failOnTypeErrors?: boolean;
+  /** Emit transpiler type warnings/errors to stderr (default: true) */
+  showTypeWarnings?: boolean;
   /** Generate TypeScript declaration file (.d.ts) content */
   generateDts?: boolean;
 }
@@ -47,6 +53,9 @@ export async function transpile(
     currentFile: options.currentFile,
     generateSourceMap: options.generateSourceMap,
     sourceContent: options.sourceContent || source,
+    typeCheck: options.typeCheck,
+    failOnTypeErrors: options.failOnTypeErrors,
+    showTypeWarnings: options.showTypeWarnings,
   };
 
   // If .d.ts generation is requested, use the IR-returning variant

@@ -13,6 +13,7 @@ import { TEXT_ENCODER } from "../../common/utils.ts";
 import { checkGrounding } from "./grounding.ts";
 import type { LLMResponse, ToolCall } from "./tool-call.ts";
 import {
+  AGENT_ORCHESTRATOR_FAILURE_MESSAGES,
   looksLikeToolCallJsonAnywhere,
   responseAsksQuestion,
 } from "./model-compat.ts";
@@ -199,7 +200,7 @@ export function handleTextOnlyResponse(
     }
     return {
       action: "return",
-      value: "The model returned an empty response. Please try again.",
+      value: AGENT_ORCHESTRATOR_FAILURE_MESSAGES.emptyResponse,
     };
   }
 
@@ -222,13 +223,11 @@ export function handleTextOnlyResponse(
     return state.toolUses.length === 0
       ? {
         action: "return",
-        value:
-          "Native tool calling required. Tool call JSON in text is not accepted.",
+        value: AGENT_ORCHESTRATOR_FAILURE_MESSAGES.nativeToolCallingRequired,
       }
       : {
         action: "return",
-        value:
-          "Tool-call JSON in text is not accepted. Provide a final answer based on available tool results.",
+        value: AGENT_ORCHESTRATOR_FAILURE_MESSAGES.toolCallJsonRejected,
       };
   }
 
@@ -255,7 +254,7 @@ export function handleFinalResponse(
     if (state.toolCallRetries > lc.maxToolCallRetries) {
       return {
         action: "return",
-        value: "Tool call required but none provided. Task incomplete.",
+        value: AGENT_ORCHESTRATOR_FAILURE_MESSAGES.toolCallRequired,
       };
     }
     addContextMessage(config, {

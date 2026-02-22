@@ -19,7 +19,12 @@ import { getActiveProvider } from "../repl-ink/completion/concrete-providers.ts"
 import { parseJsonBody, jsonError, addCorsHeaders } from "./http-utils.ts";
 import { createRouter } from "./http-router.ts";
 import { handleChat, handleChatCancel, handleChatInteraction, handleSessionCancel } from "./handlers/chat.ts";
-import { runtimeReadyState } from "../commands/serve.ts";
+import {
+  getRuntimeReady,
+  isRuntimeReadinessManaged,
+  isRuntimeReadyForAiRequests,
+  runtimeReadyState,
+} from "../commands/serve.ts";
 import {
   handleListSessions,
   handleCreateSession,
@@ -61,6 +66,7 @@ import { handleGetConfig, handlePatchConfig, handleConfigStream } from "./handle
  * - Can be overridden via HLVM_REPL_PORT environment variable (for testing)
  */
 const DEFAULT_PORT = 11435;
+const AI_READY_WAIT_MS = 150;
 const platform = getPlatform();
 const INSTANCE_ID = platform.env.get("HLVM_REPL_INSTANCE_ID") ?? null;
 
@@ -399,8 +405,60 @@ function handleHealth(): Response {
     initialized: replState !== null,
     definitions: replState?.getDocstrings().size ?? 0,
     instanceId: INSTANCE_ID,
-    aiReady: runtimeReadyState === "ready",
+    aiReady: isRuntimeReadyForAiRequests(),
   });
+}
+
+function requiresAiRuntime(method: string, pathname: string): boolean {
+  if (method === "POST" && pathname === "/api/chat") {
+    return true;
+  }
+  if (!pathname.startsWith("/api/models")) {
+    return false;
+  }
+  // Model stream is event replay only; allow it even while runtime is warming up.
+  return pathname !== "/api/models/stream";
+}
+
+async function maybeGateAiRoute(
+  method: string,
+  pathname: string,
+): Promise<Response | null> {
+  if (!requiresAiRuntime(method, pathname)) {
+    return null;
+  }
+  if (!isRuntimeReadinessManaged()) {
+    return null;
+  }
+  if (isRuntimeReadyForAiRequests()) {
+    return null;
+  }
+
+  if (runtimeReadyState === "pending") {
+    try {
+      await Promise.race([
+        getRuntimeReady(),
+        new Promise<void>((resolve) => setTimeout(resolve, AI_READY_WAIT_MS)),
+      ]);
+    } catch {
+      // Runtime readiness failed or server was not started via serveCommand.
+    }
+    if (isRuntimeReadyForAiRequests()) {
+      return null;
+    }
+  }
+
+  const response = runtimeReadyState === "failed"
+    ? jsonError(
+      "AI runtime initialization failed. Restart HLVM and check logs.",
+      503,
+    )
+    : jsonError(
+      "AI runtime is still initializing. Please retry shortly.",
+      503,
+    );
+  response.headers.set("Retry-After", runtimeReadyState === "failed" ? "5" : "1");
+  return response;
 }
 
 function encodeHqlString(value: string): string {
@@ -619,6 +677,11 @@ async function handleRequest(req: Request): Promise<Response> {
     if (authHeader !== `Bearer ${serverAuthToken}`) {
       return addCorsHeaders(jsonError("Unauthorized", 401), origin);
     }
+  }
+
+  const aiGateResponse = await maybeGateAiRoute(req.method, url.pathname);
+  if (aiGateResponse) {
+    return addCorsHeaders(aiGateResponse, origin);
   }
 
   if (req.method === "POST" && url.pathname === "/eval") {

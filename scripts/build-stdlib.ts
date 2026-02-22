@@ -91,6 +91,8 @@ async function main() {
     result = await transpile(source, {
       baseDir: STDLIB_DIR,
       currentFile: STDLIB_HQL,
+      typeCheck: false,
+      showTypeWarnings: false,
     });
   } catch (err) {
     // Restore backup on transpilation failure

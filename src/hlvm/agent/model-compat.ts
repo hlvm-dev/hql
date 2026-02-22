@@ -60,20 +60,48 @@ export function shouldSuppressFinalResponse(response: string): boolean {
   return false;
 }
 
-const AGENT_ORCHESTRATOR_FAILURE_PREFIXES = [
-  "Native tool calling required.",
-  "Tool call required but none provided.",
-  "Tool-call JSON in text is not accepted.",
-  "The model returned an empty response.",
-] as const;
+export const AGENT_ORCHESTRATOR_FAILURE_MESSAGES = {
+  nativeToolCallingRequired:
+    "Native tool calling required. Tool call JSON in text is not accepted.",
+  toolCallRequired: "Tool call required but none provided. Task incomplete.",
+  toolCallJsonRejected:
+    "Tool-call JSON in text is not accepted. Provide a final answer based on available tool results.",
+  emptyResponse: "The model returned an empty response. Please try again.",
+} as const;
+
+export type AgentOrchestratorFailureCode =
+  keyof typeof AGENT_ORCHESTRATOR_FAILURE_MESSAGES;
+
+const ORCHESTRATOR_FAILURE_ENTRIES = Object.entries(
+  AGENT_ORCHESTRATOR_FAILURE_MESSAGES,
+) as Array<[AgentOrchestratorFailureCode, string]>;
+
+export interface AgentFinalResponseClassification {
+  suppressFinalResponse: boolean;
+  orchestratorFailureCode: AgentOrchestratorFailureCode | null;
+}
+
+/**
+ * Classify final agent output using canonical orchestrator messages (SSOT).
+ * This avoids prefix/string-guess based routing decisions in higher layers.
+ */
+export function classifyAgentFinalResponse(
+  response: string,
+): AgentFinalResponseClassification {
+  const trimmed = response.trim();
+  const failureMatch = ORCHESTRATOR_FAILURE_ENTRIES.find(([, message]) =>
+    message === trimmed
+  );
+  return {
+    suppressFinalResponse: shouldSuppressFinalResponse(trimmed),
+    orchestratorFailureCode: failureMatch?.[0] ?? null,
+  };
+}
 
 /**
  * Detect orchestrator-generated failure messages where falling back to plain chat
  * produces a better user-facing response.
  */
 export function isAgentOrchestratorFailureResponse(response: string): boolean {
-  const trimmed = response.trim();
-  return AGENT_ORCHESTRATOR_FAILURE_PREFIXES.some((prefix) =>
-    trimmed.startsWith(prefix)
-  );
+  return classifyAgentFinalResponse(response).orchestratorFailureCode !== null;
 }
