@@ -10,7 +10,7 @@
  */
 
 import { generateText, streamText } from "ai";
-import type { LanguageModel, ModelMessage } from "ai";
+import type { LanguageModel } from "ai";
 import type { AgentEngine, AgentLLMConfig } from "./engine.ts";
 import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
@@ -29,13 +29,12 @@ import {
   parseModelString,
 } from "../providers/index.ts";
 import type { ProviderConfig } from "../providers/types.ts";
-import { generateToolCallId } from "../providers/common.ts";
 import {
   assertSupportedSdkProvider,
+  convertToSdkMessages,
   convertToolDefinitionsToSdk,
   createSdkLanguageModel,
-  mapSdkToolCallsNormalized,
-  mapSdkUsage as mapSdkUsageFromRuntime,
+  mapSdkUsage,
   maybeHandleSdkAuthError,
   type SdkModelSpec as SdkRuntimeModelSpec,
 } from "../providers/sdk-runtime.ts";
@@ -97,95 +96,6 @@ function getSdkModelFromSpec(spec: ResolvedModelSpec): Promise<LanguageModel> {
 }
 
 // ============================================================
-// Message Conversion: Agent Messages → AI SDK ModelMessage[]
-// ============================================================
-
-/**
- * Convert our internal AgentMessage[] directly to AI SDK ModelMessage[] format.
- *
- * Single-hop conversion (no intermediate ProviderMessage):
- *   - system → consolidated into one system message at position 0
- *   - user → { role: "user", content: string }
- *   - assistant (no tool calls) → { role: "assistant", content: string }
- *   - assistant (with tool calls) → { role: "assistant", content: [TextPart, ...ToolCallParts] }
- *   - tool → { role: "tool", content: [ToolResultPart] }
- */
-export function convertToSdkMessages(messages: AgentMessage[]): ModelMessage[] {
-  // Consolidate all system messages into a single message at position 0.
-  // Providers reject interleaved system messages (e.g. system, user, system).
-  const systemParts: string[] = [];
-  const nonSystemMessages: AgentMessage[] = [];
-  for (const msg of messages) {
-    if (msg.role === "system") {
-      if (msg.content) systemParts.push(msg.content);
-    } else {
-      nonSystemMessages.push(msg);
-    }
-  }
-
-  const result: ModelMessage[] = [];
-  if (systemParts.length > 0) {
-    result.push({ role: "system", content: systemParts.join("\n\n") });
-  }
-
-  for (const msg of nonSystemMessages) {
-    if (msg.role === "user") {
-      result.push({ role: "user", content: msg.content });
-      continue;
-    }
-
-    if (msg.role === "assistant") {
-      if (msg.toolCalls?.length) {
-        const parts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }> = [];
-        if (msg.content) {
-          parts.push({ type: "text", text: msg.content });
-        }
-        for (const tc of msg.toolCalls) {
-          parts.push({
-            type: "tool-call",
-            toolCallId: tc.id ?? generateToolCallId(),
-            toolName: tc.function.name,
-            input: normalizeToolArgs(tc.function.arguments),
-          });
-        }
-        result.push({ role: "assistant", content: parts });
-      } else {
-        result.push({ role: "assistant", content: msg.content });
-      }
-      continue;
-    }
-
-    // role === "tool"
-    result.push({
-      role: "tool",
-      content: [{
-        type: "tool-result",
-        toolCallId: msg.toolCallId ?? generateToolCallId(),
-        toolName: msg.toolName ?? "unknown",
-        output: { type: "text", value: msg.content },
-      }],
-    });
-  }
-
-  return result;
-}
-
-// ============================================================
-// Tool Definition Conversion
-// ============================================================
-
-/**
- * Convert our ToolDefinition[] to AI SDK tool format (without execute).
- * We don't provide execute because we handle tool execution ourselves
- * in the orchestrator.
- */
-export function convertToSdkTools(
-  defs: ToolDefinition[],
-) {
-  return convertToolDefinitionsToSdk(defs) ?? {};
-}
-
-// ============================================================
 // Response Mapping
 // ============================================================
 
@@ -193,18 +103,11 @@ export function convertToSdkTools(
 export function mapSdkToolCalls(
   calls: Array<{ toolCallId: string; toolName: string; input: unknown }>,
 ): ToolCall[] {
-  return mapSdkToolCallsNormalized(calls).map((call) => ({
-    id: call.id,
+  return calls.map((call) => ({
+    id: call.toolCallId,
     toolName: call.toolName,
-    args: normalizeToolArgs(call.args),
+    args: normalizeToolArgs(call.input),
   }));
-}
-
-/** Map AI SDK LanguageModelUsage → our LLMUsage */
-export function mapSdkUsage(
-  usage?: { inputTokens: number | undefined; outputTokens: number | undefined },
-): { inputTokens: number; outputTokens: number } | undefined {
-  return mapSdkUsageFromRuntime(usage);
 }
 
 // ============================================================
@@ -233,7 +136,7 @@ export class SdkAgentEngine implements AgentEngine {
         denylist: config.toolDenylist,
         ownerId: config.toolOwnerId,
       });
-      const sdkTools = convertToSdkTools(toolDefs);
+      const sdkTools = convertToolDefinitionsToSdk(toolDefs) ?? {};
 
       const commonOpts = {
         model,

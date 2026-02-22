@@ -16,7 +16,8 @@ import type {
   ProviderToolCall,
   ToolDefinition,
 } from "./types.ts";
-import { generateToolCallId, parseJsonArgs } from "./common.ts";
+import { generateToolCallId } from "./common.ts";
+import { normalizeToolArgs } from "../agent/validation.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { ValidationError } from "../../common/error.ts";
 
@@ -203,20 +204,36 @@ type SdkTextPart = { type: "text"; text: string };
 type SdkImagePart = { type: "image"; image: string };
 type SdkAssistantPart = SdkTextPart | ToolCallPart;
 
-function toToolCallInput(args: unknown): unknown {
-  if (typeof args === "string") {
-    return parseJsonArgs(args);
-  }
-  return args ?? {};
+/**
+ * Message shape accepted by the universal SDK converter.
+ * Both AgentMessage (camelCase) and ProviderMessage (snake_case) satisfy this.
+ */
+export interface SdkConvertibleMessage {
+  role: string;
+  content: string;
+  images?: string[];
+  // AgentMessage convention (camelCase)
+  toolCalls?: Array<{ id?: string; function: { name: string; arguments: unknown } }>;
+  toolName?: string;
+  toolCallId?: string;
+  // ProviderMessage convention (snake_case)
+  tool_calls?: Array<{ id?: string; function: { name: string; arguments: unknown } }>;
+  tool_name?: string;
+  tool_call_id?: string;
 }
 
-export function convertProviderMessagesToSdk(
-  messages: Message[],
+/**
+ * Universal converter: internal messages → AI SDK ModelMessage[].
+ * Handles both AgentMessage (camelCase) and ProviderMessage (snake_case) field names.
+ * Single source of truth — used by both engine-sdk.ts and sdk-runtime.ts.
+ */
+export function convertToSdkMessages(
+  messages: SdkConvertibleMessage[],
 ): ModelMessage[] {
   // Consolidate all system messages into a single message at position 0.
   // Providers reject interleaved system messages (e.g. system, user, system).
   const systemParts: string[] = [];
-  const nonSystemMessages: Message[] = [];
+  const nonSystemMessages: SdkConvertibleMessage[] = [];
   for (const msg of messages) {
     if (msg.role === "system") {
       if (msg.content) systemParts.push(msg.content);
@@ -248,17 +265,18 @@ export function convertProviderMessagesToSdk(
     }
 
     if (msg.role === "assistant") {
-      if (msg.tool_calls?.length) {
+      const toolCalls = msg.toolCalls ?? msg.tool_calls;
+      if (toolCalls?.length) {
         const parts: SdkAssistantPart[] = [];
         if (msg.content) {
           parts.push({ type: "text", text: msg.content });
         }
-        for (const tc of msg.tool_calls) {
+        for (const tc of toolCalls) {
           parts.push({
             type: "tool-call",
             toolCallId: tc.id ?? generateToolCallId(),
             toolName: tc.function.name,
-            input: toToolCallInput(tc.function.arguments),
+            input: normalizeToolArgs(tc.function.arguments),
           });
         }
         result.push({ role: "assistant", content: parts });
@@ -268,34 +286,19 @@ export function convertProviderMessagesToSdk(
       continue;
     }
 
+    // role === "tool"
     result.push({
       role: "tool",
       content: [{
         type: "tool-result",
-        toolCallId: msg.tool_call_id ?? generateToolCallId(),
-        toolName: msg.tool_name ?? "unknown",
+        toolCallId: msg.toolCallId ?? msg.tool_call_id ?? generateToolCallId(),
+        toolName: msg.toolName ?? msg.tool_name ?? "unknown",
         output: { type: "text", value: msg.content },
       }],
     });
   }
 
   return result;
-}
-
-interface NormalizedSdkToolCall {
-  id: string;
-  toolName: string;
-  args: unknown;
-}
-
-export function mapSdkToolCallsNormalized(
-  calls: Array<{ toolCallId: string; toolName: string; input: unknown }>,
-): NormalizedSdkToolCall[] {
-  return calls.map((call) => ({
-    id: call.toolCallId,
-    toolName: call.toolName,
-    args: toToolCallInput(call.input),
-  }));
 }
 
 export function mapSdkUsage(
@@ -309,14 +312,14 @@ export function mapSdkUsage(
 }
 
 function toProviderToolCalls(
-  calls: NormalizedSdkToolCall[],
+  calls: Array<{ toolCallId: string; toolName: string; input: unknown }>,
 ): ProviderToolCall[] {
   return calls.map((call): ProviderToolCall => ({
-    id: call.id,
+    id: call.toolCallId,
     type: "function",
     function: {
       name: call.toolName,
-      arguments: call.args,
+      arguments: normalizeToolArgs(call.input),
     },
   }));
 }
@@ -386,7 +389,7 @@ export async function* chatWithSdk(
   signal?: AbortSignal,
 ): AsyncGenerator<string, void, unknown> {
   const model = await createSdkLanguageModel(spec);
-  const sdkMessages = convertProviderMessagesToSdk(messages);
+  const sdkMessages = convertToSdkMessages(messages);
   const settings = buildCommonSettings(
     spec,
     model,
@@ -417,7 +420,7 @@ export async function chatStructuredWithSdk(
   signal?: AbortSignal,
 ): Promise<ChatStructuredResponse> {
   const model = await createSdkLanguageModel(spec);
-  const sdkMessages = convertProviderMessagesToSdk(messages);
+  const sdkMessages = convertToSdkMessages(messages);
   const settings = buildCommonSettings(
     spec,
     model,
@@ -442,19 +445,17 @@ export async function chatStructuredWithSdk(
         result.usage,
       ]);
 
-      const normalizedCalls = mapSdkToolCallsNormalized(toolCalls);
       return {
         content: contentChunks.join("") || text || "",
-        toolCalls: toProviderToolCalls(normalizedCalls),
+        toolCalls: toProviderToolCalls(toolCalls),
         usage: mapSdkUsage(usage),
       };
     }
 
     const result = await generateText(settings);
-    const normalizedCalls = mapSdkToolCallsNormalized(result.toolCalls);
     return {
       content: result.text || "",
-      toolCalls: toProviderToolCalls(normalizedCalls),
+      toolCalls: toProviderToolCalls(result.toolCalls),
       usage: mapSdkUsage(result.usage),
     };
   } catch (error) {

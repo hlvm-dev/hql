@@ -272,7 +272,7 @@ Deno.test({ name: "loadMcpTools deduplicates server names (config takes preceden
   await platform.fs.remove(temp, { recursive: true });
 }});
 
-Deno.test("resolveBuiltinMcpServers returns playwright server only when script exists", async () => {
+Deno.test({ name: "resolveBuiltinMcpServers returns playwright server only when script exists", sanitizeOps: false, sanitizeResources: false, fn: async () => {
   const platform = getPlatform();
 
   const repoServers = await resolveBuiltinMcpServers(platform.process.cwd());
@@ -283,7 +283,7 @@ Deno.test("resolveBuiltinMcpServers returns playwright server only when script e
   const tempServers = await resolveBuiltinMcpServers(temp);
   assertEquals(tempServers.length, 0);
   await platform.fs.remove(temp, { recursive: true });
-});
+}});
 
 Deno.test("inferMcpSafetyLevel classifies read and mutating tool names", () => {
   assertEquals(inferMcpSafetyLevel("render_url"), "L0");

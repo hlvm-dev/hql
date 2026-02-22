@@ -11,13 +11,11 @@ import {
   assertRejects,
 } from "jsr:@std/assert";
 import {
-  convertToSdkMessages,
-  convertToSdkTools,
   getSdkModel,
   mapSdkToolCalls,
-  mapSdkUsage,
   SdkAgentEngine,
 } from "../../../src/hlvm/agent/engine-sdk.ts";
+import { convertToSdkMessages, convertToolDefinitionsToSdk, mapSdkUsage } from "../../../src/hlvm/providers/sdk-runtime.ts";
 import type { Message } from "../../../src/hlvm/agent/context.ts";
 import type { ToolDefinition } from "../../../src/hlvm/agent/llm-integration.ts";
 
@@ -180,7 +178,7 @@ Deno.test({
 // ============================================================
 
 Deno.test({
-  name: "convertToSdkTools: converts ToolDefinition[] to SDK tools",
+  name: "convertToolDefinitionsToSdk: converts ToolDefinition[] to SDK tools",
   fn() {
     const defs: ToolDefinition[] = [
       {
@@ -213,7 +211,7 @@ Deno.test({
       },
     ];
 
-    const sdkTools = convertToSdkTools(defs);
+    const sdkTools = convertToolDefinitionsToSdk(defs)!;
     assertExists(sdkTools["read_file"]);
     assertExists(sdkTools["shell_exec"]);
     assertEquals(Object.keys(sdkTools).length, 2);

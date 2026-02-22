@@ -211,19 +211,10 @@ function createAiApi() {
               if (!provider?.models?.list) return [];
               let models: ModelInfo[] = [];
 
-              // SSOT for Ollama model discovery in listAll(): always use gist-backed catalog.
-              if (name === "ollama" && provider.models.catalog) {
-                try {
-                  models = await provider.models.catalog();
-                } catch {
-                  // Keep empty; listAll should still return whatever other providers have.
-                }
-              } else {
-                try {
-                  models = await provider.models.list();
-                } catch {
-                  // Keep empty; listAll should still return whatever other providers have.
-                }
+              try {
+                models = await provider.models.list();
+              } catch {
+                // Keep empty; listAll should still return whatever other providers have.
               }
 
               if (models.length === 0) return [];
