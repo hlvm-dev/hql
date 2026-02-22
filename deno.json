@@ -15,7 +15,8 @@
     "@ai-sdk/anthropic": "npm:@ai-sdk/anthropic@^3.0.0",
     "@ai-sdk/google": "npm:@ai-sdk/google@^3.0.0",
     "ollama-ai-provider-v2": "npm:ollama-ai-provider-v2@^3.0.0",
-    "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk@^1.12.0"
+    "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk@^1.12.0",
+    "@std/async": "jsr:@std/async@1.0.13"
   },
   "lint": {
     "include": ["src/", "tests/", "scripts/"],

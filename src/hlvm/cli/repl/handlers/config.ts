@@ -10,6 +10,7 @@ import { parseJsonBody, jsonError, createSSEResponse } from "../http-utils.ts";
 import { isConfigKey } from "../../../../common/config/storage.ts";
 import { validateValue } from "../../../../common/config/types.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
+import { debounce } from "@std/async";
 
 /**
  * @openapi
@@ -122,15 +123,14 @@ export function handleConfigStream(req: Request): Response {
     void config.reload();
 
     // Watch config file for external changes (replaces 1s polling interval)
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedReload = debounce(() => {
+      void config.reloadIfChanged();
+    }, 500);
     const watcher = getPlatform().fs.watchFs(config.path);
     const watcherDone = (async () => {
       for await (const event of watcher) {
         if (event.kind === "modify") {
-          if (debounceTimer !== null) clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(() => {
-            void config.reloadIfChanged();
-          }, 500);
+          debouncedReload();
         }
       }
     })();
@@ -139,7 +139,7 @@ export function handleConfigStream(req: Request): Response {
 
     return () => {
       unsubConfig();
-      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      debouncedReload.clear();
       watcher.close();
     };
   });

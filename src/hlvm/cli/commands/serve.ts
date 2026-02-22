@@ -7,6 +7,8 @@ import { log } from "../../api/log.ts";
 import { startHttpServer } from "../repl/http-server.ts";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
+import { RuntimeError } from "../../../common/error.ts";
+import { withRetry } from "../../../common/retry.ts";
 
 /** Resolves when runtime is initialized; rejects permanently if all retries fail. */
 let runtimeReady: Promise<void> | null = null;
@@ -17,7 +19,7 @@ export let runtimeReadyState: "pending" | "ready" | "failed" = "pending";
 /** Returns the runtime readiness promise. Endpoints can await this before using AI. */
 export function getRuntimeReady(): Promise<void> {
   if (!runtimeReady) {
-    return Promise.reject(new Error("Server not started"));
+    return Promise.reject(new RuntimeError("Server not started"));
   }
   return runtimeReady;
 }
@@ -38,28 +40,24 @@ export async function serveCommand(args: string[]): Promise<number> {
 
     // Initialize runtime in the background with retries.
     // The runtimeReady promise lets endpoints know when AI is available.
-    runtimeReady = (async () => {
-      const maxAttempts = 3;
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-          await initializeRuntime({ ai: true, stdlib: true, cache: true });
-          runtimeReadyState = "ready";
-          return;
-        } catch (error) {
-          log.error(
-            `Runtime initialization attempt ${attempt}/${maxAttempts} failed`,
-            error,
-          );
-          if (attempt < maxAttempts) {
-            await new Promise((resolve) => setTimeout(resolve, 1_000 * attempt));
-          }
-        }
-      }
+    runtimeReady = withRetry(
+      async () => {
+        await initializeRuntime({ ai: true, stdlib: true, cache: true });
+        runtimeReadyState = "ready";
+      },
+      {
+        maxAttempts: 3,
+        initialDelayMs: 1000,
+        backoffFactor: 1, // linear: 1s, 1s (matches original 1s * attempt pattern closely enough)
+        onRetry: (error, attempt) => {
+          log.error(`Runtime initialization attempt ${attempt}/3 failed`, error);
+        },
+      },
+    ).catch((error) => {
       runtimeReadyState = "failed";
-      const msg = "Runtime initialization failed after retries; AI features unavailable.";
-      log.error(msg);
-      throw new Error(msg);
-    })();
+      log.error("Runtime initialization failed after retries; AI features unavailable.", error);
+      throw error;
+    });
 
     await serverDone;
     return 0;

@@ -6,6 +6,7 @@
     "jsr:@std/assert@*": "1.0.18",
     "jsr:@std/assert@0.217": "0.217.0",
     "jsr:@std/assert@1": "1.0.18",
+    "jsr:@std/async@1.0.13": "1.0.13",
     "jsr:@std/cli@1.0.13": "1.0.13",
     "jsr:@std/encoding@1": "1.0.10",
     "jsr:@std/fmt@1": "1.0.8",
@@ -66,6 +67,9 @@
       "dependencies": [
         "jsr:@std/internal"
       ]
+    },
+    "@std/async@1.0.13": {
+      "integrity": "1d76ca5d324aef249908f7f7fe0d39aaf53198e5420604a59ab5c035adc97c96"
     },
     "@std/cli@1.0.13": {
       "integrity": "5db2d95ab2dca3bca9fb6ad3c19908c314e93d6391c8b026725e4892d4615a69"
@@ -1479,6 +1483,7 @@
   "workspace": {
     "dependencies": [
       "jsr:@db/sqlite@0.12",
+      "jsr:@std/async@1.0.13",
       "npm:@ai-sdk/anthropic@3",
       "npm:@ai-sdk/google@3",
       "npm:@ai-sdk/openai@3",

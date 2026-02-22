@@ -4,6 +4,7 @@
  */
 
 import type { EvalTask } from "../../repl/task-manager/types.ts";
+import { safeStringify } from "../../../../common/safe-stringify.ts";
 
 const STATUS_ORDER: Record<string, number> = {
   running: 0,
@@ -12,34 +13,6 @@ const STATUS_ORDER: Record<string, number> = {
   failed: 3,
   cancelled: 4,
 };
-
-function safeStringify(value: unknown, spacing = 2): string {
-  const seen = new WeakSet<object>();
-  try {
-    const json = JSON.stringify(
-      value,
-      (_key, val) => {
-        if (typeof val === "bigint") return `${val}n`;
-        if (typeof val === "function") return "[Function]";
-        if (typeof val === "symbol") return String(val);
-        if (typeof val === "object" && val !== null) {
-          if (seen.has(val)) return "[Circular]";
-          seen.add(val);
-        }
-        return val;
-      },
-      spacing
-    );
-    if (json !== undefined) return json;
-  } catch {
-    // Fall through to string conversion.
-  }
-  try {
-    return String(value);
-  } catch {
-    return "[Unserializable]";
-  }
-}
 
 export function formatEvalTaskResultLines(task: EvalTask): string[] {
   const outputLines = task.output ? task.output.split("\n") : [];
