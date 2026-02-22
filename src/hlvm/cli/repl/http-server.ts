@@ -19,6 +19,7 @@ import { getActiveProvider } from "../repl-ink/completion/concrete-providers.ts"
 import { parseJsonBody, jsonError, addCorsHeaders } from "./http-utils.ts";
 import { createRouter } from "./http-router.ts";
 import { handleChat, handleChatCancel, handleChatInteraction, handleSessionCancel } from "./handlers/chat.ts";
+import { runtimeReadyState } from "../commands/serve.ts";
 import {
   handleListSessions,
   handleCreateSession,
@@ -398,6 +399,7 @@ function handleHealth(): Response {
     initialized: replState !== null,
     definitions: replState?.getDocstrings().size ?? 0,
     instanceId: INSTANCE_ID,
+    aiReady: runtimeReadyState === "ready",
   });
 }
 
@@ -681,6 +683,8 @@ export async function startHttpServer(options: StartHttpServerOptions = {}): Pro
       );
     }
     log.error(`Failed to start REPL HTTP server: ${getErrorMessage(error)}`);
-    throw error;
+    throw new RuntimeError(
+      `REPL server failed to start: ${getErrorMessage(error)}`,
+    );
   }
 }

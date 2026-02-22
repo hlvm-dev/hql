@@ -515,8 +515,8 @@ function processBindings(
   for (let i = 0; i < bindingsNode.elements.length; i += 2) {
     if (i + 1 >= bindingsNode.elements.length) {
       throw new ValidationError(
-        `Incomplete binding pair in ${kind === "const" ? "let" : "var"}`,
-        `${kind === "const" ? "let" : "var"} binding`,
+        `Incomplete binding pair in ${kind}`,
+        `${kind} binding`,
         "name-value pair",
         "incomplete pair",
       );
@@ -545,7 +545,7 @@ function processBindings(
         if (!patternIR) {
           throw new ValidationError(
             "Invalid destructuring pattern",
-            `${kind === "const" ? "let" : "var"} binding pattern`,
+            `${kind} binding pattern`,
             "valid pattern",
             "null pattern",
           );
@@ -564,7 +564,7 @@ function processBindings(
               true,
             )
             : transformNode(valueNode, currentDir),
-          `${kind === "const" ? "let" : "var"} binding value`,
+          `${kind} binding value`,
           `Binding value for pattern`,
         );
 
@@ -580,7 +580,7 @@ function processBindings(
     if (nameNode.type !== "symbol") {
       throw new ValidationError(
         "Binding name must be a symbol or destructuring pattern",
-        `${kind === "const" ? "let" : "var"} binding name`,
+        `${kind} binding name`,
         "symbol or pattern",
         nameNode.type,
       );
@@ -602,7 +602,7 @@ function processBindings(
           true,
         )
         : transformNode(valueNode, currentDir),
-      `${kind === "const" ? "let" : "var"} binding value`,
+      `${kind} binding value`,
       `Binding value for '${name}'`,
     );
 

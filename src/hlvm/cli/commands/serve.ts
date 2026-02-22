@@ -11,6 +11,9 @@ import { hasHelpFlag } from "../utils/common-helpers.ts";
 /** Resolves when runtime is initialized; rejects permanently if all retries fail. */
 let runtimeReady: Promise<void> | null = null;
 
+/** Tracks runtime readiness state for /health endpoint */
+export let runtimeReadyState: "pending" | "ready" | "failed" = "pending";
+
 /** Returns the runtime readiness promise. Endpoints can await this before using AI. */
 export function getRuntimeReady(): Promise<void> {
   if (!runtimeReady) {
@@ -40,6 +43,7 @@ export async function serveCommand(args: string[]): Promise<number> {
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
           await initializeRuntime({ ai: true, stdlib: true, cache: true });
+          runtimeReadyState = "ready";
           return;
         } catch (error) {
           log.error(
@@ -51,6 +55,7 @@ export async function serveCommand(args: string[]): Promise<number> {
           }
         }
       }
+      runtimeReadyState = "failed";
       const msg = "Runtime initialization failed after retries; AI features unavailable.";
       log.error(msg);
       throw new Error(msg);

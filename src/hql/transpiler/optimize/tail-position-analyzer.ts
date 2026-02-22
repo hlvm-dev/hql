@@ -330,6 +330,16 @@ function walkExpression(
       break;
     }
 
+    case IR.IRNodeType.CallMemberExpression: {
+      const callMem = node as IR.IRCallMemberExpression;
+      // Method calls are never tail calls themselves, but we must walk
+      // their arguments to find any recursive calls hiding inside them
+      // (which would be in non-tail position).
+      walkExpression(callMem.object, false, visitor, options);
+      callMem.arguments.forEach((arg) => walkExpression(arg, false, visitor, options));
+      break;
+    }
+
     // Literals, identifiers, and other terminal nodes - nothing to walk
   }
 }

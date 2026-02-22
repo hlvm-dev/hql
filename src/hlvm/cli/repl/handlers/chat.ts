@@ -146,6 +146,7 @@ function awaitInteractionResponse(
     };
 
     const onAbort = () => {
+      emit({ event: "interaction_denied", request_id: event.requestId, reason: "abort" });
       finalize({ approved: false });
     };
 
@@ -155,11 +156,13 @@ function awaitInteractionResponse(
     }
 
     if (pendingInteractions.size >= MAX_PENDING_INTERACTIONS) {
+      emit({ event: "interaction_denied", request_id: event.requestId, reason: "queue_full" });
       finalize({ approved: false });
       return;
     }
 
     timer = setTimeout(() => {
+      emit({ event: "interaction_denied", request_id: event.requestId, reason: "timeout" });
       finalize({ approved: false });
     }, INTERACTION_TIMEOUT_MS);
 
@@ -185,7 +188,8 @@ async function readImageAsBase64(filePath: string): Promise<string | null> {
       );
     }
     return btoa(chunks.join(""));
-  } catch {
+  } catch (e) {
+    log.warn(`Failed to read image: ${filePath}`, e);
     return null;
   }
 }
@@ -200,7 +204,8 @@ async function resolveImages(imagePathsJson: string | null): Promise<string[]> {
       if (base64) images.push(base64);
     }
     return images;
-  } catch {
+  } catch (e) {
+    log.warn("Failed to resolve image paths", e);
     return [];
   }
 }
@@ -217,9 +222,9 @@ const CATALOG_CACHE_TTL_MS = 60_000;
 async function modelSupportsTools(
   modelName: string,
   modelInfo: ModelInfo | null,
-): Promise<boolean> {
+): Promise<{ supported: boolean; catalogFailed?: boolean }> {
   if (modelInfo?.capabilities) {
-    return modelInfo.capabilities.includes("tools");
+    return { supported: modelInfo.capabilities.includes("tools") };
   }
   try {
     const now = Date.now();
@@ -238,14 +243,15 @@ async function modelSupportsTools(
       m.name === bare || m.name.split(":")[0] === baseName
     );
     if (match) {
-      return match.capabilities?.includes("tools") ?? false;
+      return { supported: match.capabilities?.includes("tools") ?? false };
     }
-  } catch {
-    // Catalog unavailable
+  } catch (e) {
+    log.warn("Model catalog unavailable for tool support check", e);
+    return { supported: false, catalogFailed: true };
   }
   // Fail closed: if we cannot verify tool capability, agent mode should not
   // proceed blindly.
-  return false;
+  return { supported: false };
 }
 
 async function streamDirectChatFallback(
@@ -302,8 +308,8 @@ async function streamDirectChatFallback(
   } finally {
     try {
       await tokenIterator.return?.();
-    } catch {
-      // iterator already closed
+    } catch (e) {
+      log.debug("Iterator cleanup", e);
     }
   }
 
@@ -654,16 +660,22 @@ export async function handleChat(req: Request): Promise<Response> {
         503,
       );
     }
-    if (
-      body.mode === "agent" &&
-      !(await modelSupportsTools(resolvedModel, resolvedModelInfo))
-    ) {
-      return jsonError(
-        body.model
-          ? "Selected model does not support tool calling"
-          : "Default model does not support tool calling",
-        400,
-      );
+    if (body.mode === "agent") {
+      const toolCheck = await modelSupportsTools(resolvedModel, resolvedModelInfo);
+      if (!toolCheck.supported) {
+        if (toolCheck.catalogFailed) {
+          return jsonError(
+            "Could not verify model tool support. Check provider connection and try again.",
+            503,
+          );
+        }
+        return jsonError(
+          body.model
+            ? "Selected model does not support tool calling"
+            : "Default model does not support tool calling",
+          400,
+        );
+      }
     }
   }
 
@@ -1017,7 +1029,7 @@ async function handleChatMode(
   } finally {
     try {
       await tokenIterator.return?.();
-    } catch { /* already closed */ }
+    } catch (e) { log.debug("Iterator cleanup", e); }
   }
 
   if (!signal.aborted) {
@@ -1321,8 +1333,12 @@ function processClaudeCodeJsonLine(
         state.fullText = event.result;
       }
     }
-  } catch {
+  } catch (e) {
     if (trimmed.length > 0) {
+      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        log.warn(`Failed to parse JSON-like Claude Code output: ${trimmed.slice(0, 120)}`, e);
+        emit({ event: "warning", message: "Unparseable JSON in Claude Code stream" });
+      }
       state.fullText += trimmed + "\n";
       onPartial(trimmed + "\n");
       emit({ event: "token", text: trimmed + "\n" });
