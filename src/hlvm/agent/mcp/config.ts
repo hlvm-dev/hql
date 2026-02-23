@@ -5,7 +5,7 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getAgentLogger } from "../logger.ts";
-import { getMcpConfigPath } from "../../../common/paths.ts";
+import { getClaudeCodeMcpDir, getMcpConfigPath } from "../../../common/paths.ts";
 import type { McpConfig, McpServerConfig } from "./types.ts";
 
 const MCP_FILE_NAME = "mcp.json";
@@ -134,7 +134,7 @@ async function loadDotMcpJson(
 // ============================================================
 
 /** Scope tag for display and identification */
-export type McpScope = "dotmcp" | "project" | "user";
+export type McpScope = "dotmcp" | "project" | "user" | "claude-code";
 
 export interface McpServerWithScope extends McpServerConfig {
   scope: McpScope;
@@ -142,15 +142,16 @@ export interface McpServerWithScope extends McpServerConfig {
 
 /**
  * Load MCP servers from all scopes, merged with deduplication.
- * Priority: .mcp.json > .hlvm/mcp.json (project) > ~/.hlvm/mcp.json (user)
+ * Priority: .mcp.json > .hlvm/mcp.json (project) > ~/.hlvm/mcp.json (user) > Claude Code plugins
  */
 export async function loadMcpConfigMultiScope(
   workspace: string,
 ): Promise<McpServerWithScope[]> {
-  const [dotMcp, projectConfig, userConfig] = await Promise.all([
+  const [dotMcp, projectConfig, userConfig, claudeServers] = await Promise.all([
     loadDotMcpJson(workspace),
     loadMcpConfigFromPath(getProjectMcpPath(workspace)),
     loadMcpConfigFromPath(getMcpConfigPath()),
+    loadClaudeCodeMcpServers(),
   ]);
 
   // Dedupe: first occurrence wins (highest priority)
@@ -158,7 +159,146 @@ export async function loadMcpConfigMultiScope(
     ...dotMcp.map((s) => ({ ...s, scope: "dotmcp" as const })),
     ...(projectConfig?.servers ?? []).map((s) => ({ ...s, scope: "project" as const })),
     ...(userConfig?.servers ?? []).map((s) => ({ ...s, scope: "user" as const })),
+    ...claudeServers.map((s) => ({ ...s, scope: "claude-code" as const })),
   ]);
+}
+
+// ============================================================
+// Claude Code Plugin Import
+// ============================================================
+
+/**
+ * Parse a single Claude Code .mcp.json server entry into McpServerConfig.
+ * Handles: stdio (command+args), HTTP (url), SSE (url+type:sse), uvx shorthand.
+ */
+function parseClaudeCodeServerEntry(
+  name: string,
+  entry: Record<string, unknown>,
+): McpServerConfig | null {
+  const env = isObjectValue(entry.env)
+    ? Object.fromEntries(
+      Object.entries(entry.env as Record<string, unknown>)
+        .filter(([, v]) => typeof v === "string")
+        .map(([k, v]) => [k, v as string]),
+    )
+    : undefined;
+
+  // HTTP / SSE transport
+  if (typeof entry.url === "string") {
+    return { name, url: entry.url, env };
+  }
+
+  // Stdio transport: command + args
+  if (typeof entry.command === "string") {
+    const args = Array.isArray(entry.args)
+      ? entry.args.filter((a: unknown) => typeof a === "string") as string[]
+      : [];
+    return { name, command: [entry.command, ...args], env };
+  }
+
+  return null;
+}
+
+/**
+ * Parse a Claude Code `.mcp.json` file content.
+ * Handles two formats:
+ *   1. Direct: `{ "<name>": { command, args, url, env, ... } }`
+ *   2. Wrapped: `{ "mcpServers": { "<name>": { ... } } }`
+ *
+ * @param content Raw JSON string
+ * @param fileName Used as fallback server name when only one unnamed entry
+ */
+export function parseClaudeCodeMcpJson(
+  content: string,
+  fileName: string,
+): McpServerConfig[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return [];
+  }
+  if (!isObjectValue(parsed)) return [];
+  const obj = parsed as Record<string, unknown>;
+
+  // Wrapped format: { mcpServers: { name: { ... } } }
+  if (isObjectValue(obj.mcpServers)) {
+    const servers: McpServerConfig[] = [];
+    for (
+      const [name, value] of Object.entries(
+        obj.mcpServers as Record<string, unknown>,
+      )
+    ) {
+      if (!isObjectValue(value)) continue;
+      const config = parseClaudeCodeServerEntry(
+        name,
+        value as Record<string, unknown>,
+      );
+      if (config) servers.push(config);
+    }
+    return servers;
+  }
+
+  // Direct format: { name: { command, args, ... } }
+  const servers: McpServerConfig[] = [];
+  for (const [name, value] of Object.entries(obj)) {
+    if (!isObjectValue(value)) continue;
+    const config = parseClaudeCodeServerEntry(
+      name,
+      value as Record<string, unknown>,
+    );
+    if (config) servers.push(config);
+  }
+
+  // If no named entries found, treat entire object as a single unnamed server
+  if (servers.length === 0) {
+    const config = parseClaudeCodeServerEntry(fileName, obj);
+    if (config) servers.push(config);
+  }
+
+  return servers;
+}
+
+/**
+ * Scan Claude Code's external_plugins directory for installed MCP servers.
+ * Each subdirectory may contain a `.mcp.json` file.
+ * Returns empty array if the directory doesn't exist or is unreadable.
+ */
+export async function loadClaudeCodeMcpServers(): Promise<McpServerConfig[]> {
+  const platform = getPlatform();
+  const pluginsDir = getClaudeCodeMcpDir();
+
+  // Collect directory entries (readDir returns AsyncIterable)
+  const dirs: string[] = [];
+  try {
+    for await (const entry of platform.fs.readDir(pluginsDir)) {
+      if (entry.isDirectory) {
+        dirs.push(entry.name);
+      }
+    }
+  } catch {
+    // Directory doesn't exist or is unreadable — no Claude Code plugins
+    return [];
+  }
+
+  if (dirs.length === 0) return [];
+
+  // Read all .mcp.json files in parallel
+  const results = await Promise.allSettled(
+    dirs.map(async (dirName) => {
+      const mcpPath = platform.path.join(pluginsDir, dirName, DOT_MCP_FILE);
+      const content = await platform.fs.readTextFile(mcpPath);
+      return parseClaudeCodeMcpJson(content, dirName);
+    }),
+  );
+
+  const servers: McpServerConfig[] = [];
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      servers.push(...result.value);
+    }
+  }
+  return servers;
 }
 
 // ============================================================
@@ -269,7 +409,11 @@ export function formatServerEntry(s: McpServerWithScope): {
   return {
     transport: s.url ? "http" : "stdio",
     target: s.url ?? (s.command?.join(" ") ?? ""),
-    scopeLabel: s.scope === "dotmcp" ? ".mcp.json" : s.scope,
+    scopeLabel: s.scope === "dotmcp"
+      ? ".mcp.json"
+      : s.scope === "claude-code"
+        ? "Claude Code"
+        : s.scope,
   };
 }
 

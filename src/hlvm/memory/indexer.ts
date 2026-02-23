@@ -12,6 +12,7 @@ import {
 } from "../../common/paths.ts";
 import {
   getFileMeta,
+  getMemoryDb,
   insertChunk,
   removeChunksForFile,
   setFileMeta,
@@ -59,39 +60,46 @@ export function indexFile(filePath: string, date: string): void {
   }
 
   const mtime = Date.now();
+  const db = getMemoryDb();
 
-  // Remove old chunks for this file
-  removeChunksForFile(filePath);
+  // Atomic: remove old chunks + insert new + update meta in one transaction
+  db.exec("BEGIN");
+  try {
+    removeChunksForFile(filePath);
 
-  // Chunk and insert
-  let charPos = 0;
-  let lineNum = 0;
+    // Chunk and insert
+    let charPos = 0;
+    let lineNum = 0;
 
-  while (charPos < content.length) {
-    const chunkEnd = Math.min(charPos + CHUNK_SIZE, content.length);
-    const chunkText = content.slice(charPos, chunkEnd);
+    while (charPos < content.length) {
+      const chunkEnd = Math.min(charPos + CHUNK_SIZE, content.length);
+      const chunkText = content.slice(charPos, chunkEnd);
 
-    // Calculate line numbers for this chunk
-    const lineStart = lineNum;
-    const chunkLines = chunkText.split("\n").length;
-    const lineEnd = lineStart + chunkLines - 1;
+      // Calculate line numbers for this chunk
+      const lineStart = lineNum;
+      const chunkLines = chunkText.split("\n").length;
+      const lineEnd = lineStart + chunkLines - 1;
 
-    if (chunkText.trim()) {
-      insertChunk(filePath, lineStart, lineEnd, chunkText, date);
+      if (chunkText.trim()) {
+        insertChunk(filePath, lineStart, lineEnd, chunkText, date);
+      }
+
+      // Advance with overlap
+      const advance = CHUNK_SIZE - CHUNK_OVERLAP;
+      charPos += advance;
+
+      // Update line counter (count newlines in advanced portion)
+      const advancedText = content.slice(charPos - advance, charPos);
+      const advancedNewlines = (advancedText.match(/\n/g) ?? []).length;
+      lineNum += advancedNewlines;
     }
 
-    // Advance with overlap
-    const advance = CHUNK_SIZE - CHUNK_OVERLAP;
-    charPos += advance;
-
-    // Update line counter (count newlines in advanced portion)
-    const advancedText = content.slice(charPos - advance, charPos);
-    const advancedNewlines = (advancedText.match(/\n/g) ?? []).length;
-    lineNum += advancedNewlines;
+    setFileMeta(filePath, mtime, hash);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
   }
-
-  // Update metadata
-  setFileMeta(filePath, mtime, hash);
 }
 
 /**

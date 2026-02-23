@@ -14,7 +14,7 @@ export {
 } from "./store.ts";
 
 // Manager
-export { loadMemoryContext, resetMigrationForTesting } from "./manager.ts";
+export { loadMemoryContext, resetMemoryStateForTesting } from "./manager.ts";
 
 // Tools
 export { MEMORY_TOOLS } from "./tools.ts";

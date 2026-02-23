@@ -112,7 +112,12 @@ export function appendToMemoryMd(
     let newContent: string;
     if (section) {
       const sectionHeader = `## ${section}`;
-      const idx = existing.indexOf(sectionHeader);
+      // Match "## Section\n" exactly to avoid prefix collisions (e.g. "Prefer" vs "Preferences")
+      const idx = existing.includes(sectionHeader + "\n")
+        ? existing.indexOf(sectionHeader + "\n")
+        : existing.endsWith(sectionHeader)
+          ? existing.length - sectionHeader.length
+          : -1;
       if (idx >= 0) {
         // Find end of section (next ## or end of file)
         const afterHeader = idx + sectionHeader.length;

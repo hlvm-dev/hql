@@ -17,7 +17,7 @@ import { initializeRuntime } from "../../src/common/runtime-initializer.ts";
 import { runAgentQuery } from "../../src/hlvm/agent/agent-runner.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import { resetHlvmDirCacheForTests, getMemoryMdPath, getJournalDir } from "../../src/common/paths.ts";
-import { closeMemoryDb, resetMigrationForTesting } from "../../src/hlvm/memory/mod.ts";
+import { closeMemoryDb, resetMemoryStateForTesting } from "../../src/hlvm/memory/mod.ts";
 
 const MODEL = "ollama/llama3.1:8b";
 
@@ -44,7 +44,7 @@ async function setupIsolatedEnv(): Promise<string> {
   const tempDir = await platform.fs.makeTempDir({ prefix: "hlvm-smoke-" });
   platform.env.set("HLVM_DIR", tempDir);
   resetHlvmDirCacheForTests();
-  resetMigrationForTesting();
+  resetMemoryStateForTesting();
   return tempDir;
 }
 
@@ -52,7 +52,7 @@ async function teardownIsolatedEnv(tempDir: string): Promise<void> {
   closeMemoryDb();
   getPlatform().env.set("HLVM_DIR", "");
   resetHlvmDirCacheForTests();
-  resetMigrationForTesting();
+  resetMemoryStateForTesting();
   try {
     await getPlatform().fs.remove(tempDir, { recursive: true });
   } catch { /* ignore */ }
@@ -151,7 +151,7 @@ Deno.test({
       );
 
       // New session should load memory and model should reference it
-      resetMigrationForTesting();
+      resetMemoryStateForTesting();
       const result = await runAgentQuery({
         query: "What are my editor preferences? Answer based on what you know about me.",
         model: MODEL,

@@ -12,6 +12,7 @@ import {
   getMemoryMdPath,
 } from "../../common/paths.ts";
 import { readMemoryMd, readRecentJournals, warnMemory, writeMemoryMd } from "./store.ts";
+import { reindexMemoryFiles } from "./indexer.ts";
 import { estimateTokensFromText } from "../../common/token-utils.ts";
 
 // Budget thresholds for context loading
@@ -24,6 +25,7 @@ const MEMORY_SIZE_WARNING = 3000;        // tokens — log warning if exceeded
 // ============================================================
 
 let _migrationDone = false;
+let _indexedThisProcess = false;
 
 /**
  * One-time migration from ~/.hlvm/agent-memory.jsonl to MEMORY.md.
@@ -113,6 +115,12 @@ export async function loadMemoryContext(
   // Run migration on first load (idempotent)
   await migrateFromJsonl();
 
+  // Ensure FTS5 index is populated on first load (idempotent per-process)
+  if (!_indexedThisProcess) {
+    _indexedThisProcess = true;
+    try { await reindexMemoryFiles(); } catch { /* best-effort */ }
+  }
+
   const memoryMd = await readMemoryMd();
 
   // Determine how many journal days to include
@@ -154,7 +162,8 @@ export async function loadMemoryContext(
   return combined;
 }
 
-/** Reset migration flag (for testing) */
-export function resetMigrationForTesting(): void {
+/** Reset migration + reindex flags (for testing) */
+export function resetMemoryStateForTesting(): void {
   _migrationDone = false;
+  _indexedThisProcess = false;
 }

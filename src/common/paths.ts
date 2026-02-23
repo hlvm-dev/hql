@@ -236,6 +236,23 @@ export function getCustomInstructionsPath(): string {
 }
 
 /**
+ * Get the Claude Code external MCP plugins directory.
+ * Claude Code stores installed MCP servers as subdirectories here,
+ * each with a `.mcp.json` config file.
+ */
+export function getClaudeCodeMcpDir(): string {
+  const home = getEnvVar("HOME") || getEnvVar("USERPROFILE") || ".";
+  return join(
+    home,
+    ".claude",
+    "plugins",
+    "marketplaces",
+    "claude-plugins-official",
+    "external_plugins",
+  );
+}
+
+/**
  * Ensure the HLVM directory exists
  */
 export async function ensureHlvmDir(): Promise<void> {

@@ -28,8 +28,10 @@ export type {
 export {
   addServerToConfig,
   formatServerEntry,
+  loadClaudeCodeMcpServers,
   loadMcpConfig,
   loadMcpConfigMultiScope,
+  parseClaudeCodeMcpJson,
   removeServerFromConfig,
   resolveBuiltinMcpServers,
 } from "./config.ts";

@@ -28,6 +28,8 @@ const DDL = `
     content_rowid=id
   );
 
+  CREATE INDEX IF NOT EXISTS idx_chunks_file ON chunks(file);
+
   CREATE TABLE IF NOT EXISTS meta (
     file TEXT PRIMARY KEY,
     mtime INTEGER NOT NULL,
@@ -74,7 +76,8 @@ function decayScore(bm25Score: number, ageDays: number): number {
 /** Convert "YYYY-MM-DD" to milliseconds (avoids Date object allocation per row) */
 function dateStringToMs(dateStr: string): number {
   const [y, m, d] = dateStr.split("-");
-  return Date.UTC(+y, +m - 1, +d);
+  const ms = Date.UTC(+y, +m - 1, +d);
+  return Number.isNaN(ms) ? Date.now() : ms;
 }
 
 // ============================================================
@@ -115,21 +118,35 @@ export function searchMemory(
   const nowMs = Date.now();
   const msPerDay = 86_400_000;
 
+  const ftsQuery = db.prepare(`
+    SELECT c.text, c.file, c.date,
+           rank AS bm25_score
+    FROM chunks_fts
+    JOIN chunks c ON c.id = chunks_fts.rowid
+    WHERE chunks_fts MATCH ?
+    ORDER BY rank
+    LIMIT ?
+  `);
+
   try {
-    const rows = db.prepare(`
-      SELECT c.text, c.file, c.date,
-             rank AS bm25_score
-      FROM chunks_fts
-      JOIN chunks c ON c.id = chunks_fts.rowid
-      WHERE chunks_fts MATCH ?
-      ORDER BY rank
-      LIMIT ?
-    `).all(escaped, limit * 3) as Array<{
+    // AND-first query (current default: all words must match)
+    let rows = ftsQuery.all(escaped, limit * 3) as Array<{
       text: string;
       file: string;
       date: string;
       bm25_score: number;
     }>;
+
+    // P4: OR fallback — if AND yields nothing and there are multiple words, retry with OR
+    if (rows.length === 0 && words.length > 1) {
+      const orEscaped = words.map((w) => `"${w}"`).join(" OR ");
+      rows = ftsQuery.all(orEscaped, limit * 3) as Array<{
+        text: string;
+        file: string;
+        date: string;
+        bm25_score: number;
+      }>;
+    }
 
     const results: SearchResult[] = rows.map((row) => {
       // Use the stable `date` field for aging (not created_at which resets on reindex).
@@ -149,9 +166,15 @@ export function searchMemory(
       };
     });
 
-    // Sort by decayed score (higher is better)
-    results.sort((a, b) => b.score - a.score);
-    return results.slice(0, limit);
+    // P5: File-level deduplication — keep only the best-scoring chunk per file
+    const bestByFile = new Map<string, SearchResult>();
+    for (const r of results) {
+      const existing = bestByFile.get(r.file);
+      if (!existing || r.score > existing.score) bestByFile.set(r.file, r);
+    }
+    const deduplicated = [...bestByFile.values()];
+    deduplicated.sort((a, b) => b.score - a.score);
+    return deduplicated.slice(0, limit);
   } catch {
     // FTS5 query failed (e.g., empty index) — return empty
     return [];

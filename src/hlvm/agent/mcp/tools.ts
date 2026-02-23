@@ -307,7 +307,7 @@ export async function loadMcpTools(
 ): Promise<McpLoadResult> {
   const registrationOwnerId = ownerId ?? `mcp:${generateUUID()}`;
 
-  // Use multi-scope loading (user + project + .mcp.json) unless an explicit config path is given
+  // Use multi-scope loading (user + project + .mcp.json + claude-code) unless an explicit config path is given
   let configServers: McpServerConfig[];
   if (configPath) {
     const config = await loadMcpConfig(workspace, configPath);

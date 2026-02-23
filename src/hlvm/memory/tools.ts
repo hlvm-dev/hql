@@ -19,7 +19,8 @@ import { getJournalDir, getMemoryMdPath } from "../../common/paths.ts";
 // Helpers
 // ============================================================
 
-/** Scan lines for needle with ±1 line of context. Mutates results array. */
+/** Scan lines for needle with ±1 line of context. Mutates results array.
+ *  Uses word-AND semantics: ALL words must appear in the line (matches FTS5 behavior). */
 function substringSearchLines(
   lines: string[],
   needle: string,
@@ -27,8 +28,10 @@ function substringSearchLines(
   limit: number,
   results: { source: string; text: string }[],
 ): void {
+  const words = needle.split(/\s+/).filter(Boolean);
   for (let i = 0; i < lines.length && results.length < limit; i++) {
-    if (lines[i].toLowerCase().includes(needle)) {
+    const lower = lines[i].toLowerCase();
+    if (words.every((w) => lower.includes(w))) {
       const start = Math.max(0, i - 1);
       const end = Math.min(lines.length, i + 2);
       results.push({ source, text: lines.slice(start, end).join("\n") });

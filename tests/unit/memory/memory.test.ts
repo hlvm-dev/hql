@@ -24,7 +24,8 @@ import {
   closeMemoryDb,
   loadMemoryContext,
   readMemoryMd,
-  resetMigrationForTesting,
+  reindexMemoryFiles,
+  resetMemoryStateForTesting,
   searchMemory,
   writeMemoryMd,
 } from "../../../src/hlvm/memory/mod.ts";
@@ -46,7 +47,7 @@ async function setupTestEnv(): Promise<string> {
   const tempDir = await platform.fs.makeTempDir({ prefix: "hlvm-memory-test-" });
   platform.env.set("HLVM_DIR", tempDir);
   resetHlvmDirCacheForTests();
-  resetMigrationForTesting();
+  resetMemoryStateForTesting();
   return tempDir;
 }
 
@@ -54,7 +55,7 @@ async function teardownTestEnv(tempDir: string): Promise<void> {
   closeMemoryDb();
   getPlatform().env.set("HLVM_DIR", "");
   resetHlvmDirCacheForTests();
-  resetMigrationForTesting();
+  resetMemoryStateForTesting();
   try {
     await getPlatform().fs.remove(tempDir, { recursive: true });
   } catch { /* ignore */ }
@@ -137,7 +138,7 @@ Deno.test("E2E: written memory appears in next session's system prompt context",
     });
 
     // Session 2: loadMemoryContext (what createAgentSession calls)
-    resetMigrationForTesting(); // simulate new session
+    resetMemoryStateForTesting(); // simulate new session
     const context = await loadMemoryContext(32_000);
 
     // MEMORY.md content should be present
@@ -167,7 +168,7 @@ Deno.test("E2E: small context budget (8K) excludes journal entries", async () =>
       target: "journal",
     });
 
-    resetMigrationForTesting();
+    resetMemoryStateForTesting();
     const context = await loadMemoryContext(8_000);
 
     // MEMORY.md should be present
@@ -405,7 +406,7 @@ Deno.test("reuseSession: stale memory is replaced with fresh MEMORY.md content",
       platform.path.join(memDir, "MEMORY.md"),
       "Fresh preference: emacs keybindings and light mode",
     );
-    resetMigrationForTesting();
+    resetMemoryStateForTesting();
 
     // Call reuseSession — it should drop stale memory and inject fresh
     const reused = await reuseSession(fakeSession);
@@ -518,7 +519,7 @@ Deno.test("cachedSession: memory refresh happens on session reuse path", async (
     };
 
     // Reuse the session — this is what runAgentQuery does with cachedSession
-    resetMigrationForTesting();
+    resetMemoryStateForTesting();
     const reused = await reuseSession(fakeSession);
 
     // The reused session should have memory injected
@@ -741,6 +742,215 @@ Deno.test("Concurrency: simultaneous writes don't corrupt MEMORY.md", async () =
     // Section header should appear exactly once
     const sectionCount = (memoryMd.match(/## Concurrent/g) ?? []).length;
     assertEquals(sectionCount, 1, "Section header should appear exactly once (not duplicated by races)");
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+// ============================================================
+// P0: loadMemoryContext triggers FTS5 reindex
+// ============================================================
+
+Deno.test("P0: loadMemoryContext triggers FTS5 reindex on first call", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    const platform = getPlatform();
+
+    // Write MEMORY.md directly (bypassing memory_write tool)
+    const memDir = platform.path.join(tempDir, "memory");
+    await platform.fs.mkdir(memDir, { recursive: true });
+    await platform.fs.writeTextFile(
+      platform.path.join(memDir, "MEMORY.md"),
+      "# Preferences\n\nUser prefers Neovim and dark terminals",
+    );
+
+    // loadMemoryContext should trigger reindex on first call
+    await loadMemoryContext(32_000);
+
+    // FTS5 should now find it
+    const results = searchMemory("Neovim dark terminals");
+    assert(results.length > 0, "FTS5 should find content after loadMemoryContext triggers reindex");
+    assert(
+      results.some((r) => r.text.includes("Neovim")),
+      "Result should contain the indexed content",
+    );
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+// ============================================================
+// P1: indexFile atomic — re-index replaces old content cleanly
+// ============================================================
+
+Deno.test("P1: indexFile replaces old chunks atomically (no stale data)", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    const platform = getPlatform();
+    const memDir = platform.path.join(tempDir, "memory");
+    await platform.fs.mkdir(memDir, { recursive: true });
+    const filePath = platform.path.join(memDir, "MEMORY.md");
+
+    // Index with original content
+    await platform.fs.writeTextFile(filePath, "Original: user prefers emacs");
+    indexFile(filePath, "2026-02-23");
+
+    const before = searchMemory("emacs");
+    assert(before.length > 0, "Should find original content");
+
+    // Re-index with completely different content
+    await platform.fs.writeTextFile(filePath, "Updated: user prefers vim");
+    indexFile(filePath, "2026-02-23");
+
+    // Old content must be gone, new content must be present
+    const stale = searchMemory("emacs");
+    assertEquals(stale.length, 0, "Old content must be removed after re-index");
+
+    const fresh = searchMemory("vim");
+    assert(fresh.length > 0, "New content must be findable after re-index");
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+// ============================================================
+// P2: Malformed date chunk doesn't produce NaN scores
+// ============================================================
+
+Deno.test("P2: malformed date chunk doesn't produce NaN scores", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    getMemoryDb();
+
+    // Insert chunk with invalid date
+    insertChunk("/journal/invalid.md", 0, 5, "some content about testing NaN dates", "not-a-date");
+    // Insert chunk with valid date for comparison
+    insertChunk("/journal/2026-02-23.md", 0, 5, "some content about testing NaN dates", "2026-02-23");
+
+    const results = searchMemory("testing NaN dates");
+    assert(results.length > 0, "Should return results even with malformed dates");
+
+    // No score should be NaN
+    for (const r of results) {
+      assertEquals(Number.isNaN(r.score), false, `Score should not be NaN, got: ${r.score}`);
+      assert(r.score >= 0, `Score should be non-negative, got: ${r.score}`);
+    }
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+// ============================================================
+// P4: OR fallback finds results when AND matches nothing
+// ============================================================
+
+Deno.test("P4: OR fallback finds results when AND matches nothing", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    getMemoryDb();
+
+    // Two chunks, each with only one of the search words
+    insertChunk("/journal/2026-02-23.md", 0, 5, "fixed a cors issue in the proxy layer", "2026-02-23");
+    insertChunk("/journal/2026-02-22.md", 0, 5, "found a critical bug in authentication", "2026-02-22");
+
+    // AND query "cors bug" would match nothing (no chunk has both words)
+    // OR fallback should find both chunks
+    const results = searchMemory("cors bug");
+    assert(results.length > 0, "OR fallback should find results when AND matches nothing");
+    assert(results.length <= 2, "Should find at most 2 results");
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+// ============================================================
+// P5: Overlapping chunks from same file deduplicated to 1 result
+// ============================================================
+
+Deno.test("P5: overlapping chunks from same file deduplicated to 1 result per file", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    getMemoryDb();
+    const file = "/memory/MEMORY.md";
+
+    // Insert multiple overlapping chunks from the SAME file (simulates large file chunking)
+    insertChunk(file, 0, 10, "user prefers dark mode and vim keybindings", "2026-02-23");
+    insertChunk(file, 5, 15, "vim keybindings and dark mode are preferred", "2026-02-23");
+    insertChunk(file, 10, 20, "dark mode vim keybindings set in config", "2026-02-23");
+
+    const results = searchMemory("dark mode vim", 10);
+    // All chunks match, but dedup should return only 1 result (best score from same file)
+    assertEquals(results.length, 1, "Should deduplicate to 1 result per file");
+    assertEquals(results[0].file, file);
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+// ============================================================
+// P6: Substring fallback matches all words (AND), not exact phrase
+// ============================================================
+
+Deno.test("P6: substring fallback uses word-AND semantics, not exact phrase", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    const platform = getPlatform();
+
+    // Write content where words appear on same line but not as exact phrase
+    const memDir = platform.path.join(tempDir, "memory");
+    await platform.fs.mkdir(memDir, { recursive: true });
+    await platform.fs.writeTextFile(
+      platform.path.join(memDir, "MEMORY.md"),
+      "# Notes\n\nThe database uses PostgreSQL and the cache uses Redis",
+    );
+
+    // Search via substring fallback (FTS5 index is empty — no reindex called)
+    const result = await memorySearch({ query: "PostgreSQL Redis" }) as Record<string, unknown>;
+    const results = result.results as Array<Record<string, unknown>>;
+
+    // Word-AND: both "postgresql" and "redis" appear on the same line → match
+    assert(results.length > 0, "Substring fallback should match when all words appear on same line");
+
+    // Exact phrase "PostgreSQL Redis" does NOT appear → old behavior would miss this
+    const text = results[0].text as string;
+    assertStringIncludes(text, "PostgreSQL");
+    assertStringIncludes(text, "Redis");
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+// ============================================================
+// P7: Section "Prefer" doesn't collide with "Preferences"
+// ============================================================
+
+Deno.test("P7: section header 'Prefer' doesn't collide with 'Preferences'", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    // Create MEMORY.md with a "Preferences" section
+    await writeMemoryMd("# Memory\n\n## Preferences\nDark mode\n");
+
+    // Append to section "Prefer" — should NOT match "Preferences"
+    await appendToMemoryMd("Tabs over spaces", "Prefer");
+
+    const content = await readMemoryMd();
+
+    // "## Prefer" should be a new section (not appended inside "## Preferences")
+    assertStringIncludes(content, "## Prefer\n");
+    assertStringIncludes(content, "## Preferences\n");
+
+    // "Tabs over spaces" should be under "## Prefer", not "## Preferences"
+    const prefIdx = content.indexOf("## Prefer\n");
+    const preferencesIdx = content.indexOf("## Preferences\n");
+    const tabsIdx = content.indexOf("Tabs over spaces");
+
+    // "Prefer" section should be after "Preferences" section (appended at end)
+    assert(prefIdx > preferencesIdx, "## Prefer should be after ## Preferences");
+    // "Tabs over spaces" should be near ## Prefer, not ## Preferences
+    assert(
+      Math.abs(tabsIdx - prefIdx) < Math.abs(tabsIdx - preferencesIdx),
+      "Content should be under ## Prefer, not ## Preferences",
+    );
   } finally {
     await teardownTestEnv(tempDir);
   }
