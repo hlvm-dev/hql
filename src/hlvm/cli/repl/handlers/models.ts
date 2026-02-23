@@ -10,6 +10,7 @@ import type { RouteParams } from "../http-router.ts";
 import { parseJsonBody, jsonError, ndjsonLine, textEncoder, formatSSE, createSSEResponse } from "../http-utils.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { listRegisteredProviders } from "../../../providers/index.ts";
+import { isRuntimeReadyForAiRequests } from "../../commands/serve.ts";
 
 const MODELS_CHANNEL = "__models__";
 
@@ -45,6 +46,7 @@ export function handleModelsStream(req: Request): Response {
   const lastEventId = req.headers.get("Last-Event-ID");
 
   return createSSEResponse(req, (emit) => {
+    // Replay buffered events for reconnecting clients.
     const replay = replayAfter(MODELS_CHANNEL, lastEventId);
     if (replay.gapDetected) {
       emit(`event: models_updated\ndata: ${JSON.stringify({ reason: "replay_gap" })}\n\n`);
@@ -52,6 +54,16 @@ export function handleModelsStream(req: Request): Response {
       for (const event of replay.events) {
         emit(formatSSE(event));
       }
+    }
+
+    // SSE best practice: send current state on connect.
+    // If runtime is already ready but the client missed the event (fresh connect
+    // with empty buffer, or buffer compacted), tell it immediately.
+    const hasRuntimeReadyReplay = replay.events.some(
+      (e) => e.event_type === "models_updated" && (e.data as Record<string, unknown>)?.reason === "runtime_ready",
+    );
+    if (isRuntimeReadyForAiRequests() && !hasRuntimeReadyReplay) {
+      emit(`event: models_updated\ndata: ${JSON.stringify({ reason: "runtime_ready" })}\n\n`);
     }
 
     const unsubscribe = subscribe(MODELS_CHANNEL, (event) => {

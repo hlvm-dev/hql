@@ -26,23 +26,25 @@ function withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 // ============================================================
+// Logger Helper — DRY wrapper for optional agent logger
+// ============================================================
+
+export async function warnMemory(msg: string): Promise<void> {
+  try {
+    const { getAgentLogger } = await import("../agent/logger.ts");
+    getAgentLogger().warn(msg);
+  } catch { /* Logger not available */ }
+}
+
+// ============================================================
 // Sensitive Content Filter
 // ============================================================
 
 const SENSITIVE_PATTERNS: { pattern: RegExp; label: string }[] = [
-  { pattern: /\b\d{3}[-.]?\d{2}[-.]?\d{4}\b/, label: "SSN" },
-  {
-    pattern: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/,
-    label: "credit card",
-  },
-  {
-    pattern: /\b(sk|pk|api[_-]?key|secret)[_-]?\w{20,}/i,
-    label: "API key",
-  },
-  {
-    pattern: /(password|passwd|pwd)\s*[:=]\s*\S+/i,
-    label: "password",
-  },
+  { pattern: /\b\d{3}[-.]?\d{2}[-.]?\d{4}\b/g, label: "SSN" },
+  { pattern: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g, label: "credit card" },
+  { pattern: /\b(sk|pk|api[_-]?key|secret)[_-]?\w{20,}/gi, label: "API key" },
+  { pattern: /(password|passwd|pwd)\s*[:=]\s*\S+/gi, label: "password" },
 ];
 
 /**
@@ -55,13 +57,11 @@ export function sanitizeSensitiveContent(
   const stripped: string[] = [];
   let sanitized = text;
   for (const { pattern, label } of SENSITIVE_PATTERNS) {
-    const globalPattern = new RegExp(pattern.source, pattern.flags + "g");
-    if (globalPattern.test(sanitized)) {
+    pattern.lastIndex = 0;
+    if (pattern.test(sanitized)) {
       stripped.push(label);
-      sanitized = sanitized.replace(
-        new RegExp(pattern.source, pattern.flags + "g"),
-        `[REDACTED:${label}]`,
-      );
+      pattern.lastIndex = 0;
+      sanitized = sanitized.replace(pattern, `[REDACTED:${label}]`);
     }
   }
   return { sanitized, stripped };
@@ -85,12 +85,7 @@ export function writeMemoryMd(content: string): Promise<void> {
   return withWriteLock(async () => {
     const { sanitized, stripped } = sanitizeSensitiveContent(content);
     if (stripped.length > 0) {
-      try {
-        const { getAgentLogger } = await import("../agent/logger.ts");
-        getAgentLogger().warn(
-          `Memory: stripped sensitive content from full write (${stripped.join(", ")})`,
-        );
-      } catch { /* Logger not available */ }
+      await warnMemory(`Memory: stripped sensitive content from full write (${stripped.join(", ")})`);
     }
     await ensureMemoryDirs();
     await getPlatform().fs.writeTextFile(getMemoryMdPath(), sanitized);
@@ -108,12 +103,7 @@ export function appendToMemoryMd(
   return withWriteLock(async () => {
     const { sanitized, stripped } = sanitizeSensitiveContent(content);
     if (stripped.length > 0) {
-      try {
-        const { getAgentLogger } = await import("../agent/logger.ts");
-        getAgentLogger().warn(
-          `Memory: stripped sensitive content (${stripped.join(", ")})`,
-        );
-      } catch { /* Logger not available */ }
+      await warnMemory(`Memory: stripped sensitive content (${stripped.join(", ")})`);
     }
 
     await ensureMemoryDirs();
@@ -165,12 +155,7 @@ export function appendToJournal(content: string): Promise<void> {
   return withWriteLock(async () => {
     const { sanitized, stripped } = sanitizeSensitiveContent(content);
     if (stripped.length > 0) {
-      try {
-        const { getAgentLogger } = await import("../agent/logger.ts");
-        getAgentLogger().warn(
-          `Memory: stripped sensitive content from journal (${stripped.join(", ")})`,
-        );
-      } catch { /* Logger not available */ }
+      await warnMemory(`Memory: stripped sensitive content from journal (${stripped.join(", ")})`);
     }
 
     await ensureMemoryDirs();

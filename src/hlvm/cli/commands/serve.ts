@@ -9,6 +9,7 @@ import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 import { RuntimeError } from "../../../common/error.ts";
 import { withRetry } from "../../../common/retry.ts";
+import { pushSSEEvent } from "../../store/sse-store.ts";
 
 /** Resolves when runtime is initialized; rejects permanently if all retries fail. */
 let runtimeReady: Promise<void> | null = null;
@@ -61,6 +62,10 @@ export async function serveCommand(args: string[]): Promise<number> {
       async () => {
         await initializeRuntime({ ai: true, stdlib: true, cache: true });
         runtimeReadyState = "ready";
+        // Notify connected SSE clients that models are now queryable.
+        // This fixes a race where GUI connects before runtime is ready,
+        // refreshModels() gets 503, and models stay empty forever.
+        pushSSEEvent("__models__", "models_updated", { reason: "runtime_ready" });
       },
       {
         maxAttempts: 3,

@@ -11,8 +11,13 @@ import {
   getAgentMemoryPath,
   getMemoryMdPath,
 } from "../../common/paths.ts";
-import { readMemoryMd, readRecentJournals, writeMemoryMd } from "./store.ts";
+import { readMemoryMd, readRecentJournals, warnMemory, writeMemoryMd } from "./store.ts";
 import { estimateTokensFromText } from "../../common/token-utils.ts";
+
+// Budget thresholds for context loading
+const LARGE_CONTEXT_THRESHOLD = 32_000;  // tokens — include 2 days of journals
+const MEDIUM_CONTEXT_THRESHOLD = 16_000; // tokens — include today's journal only
+const MEMORY_SIZE_WARNING = 3000;        // tokens — log warning if exceeded
 
 // ============================================================
 // Migration
@@ -112,9 +117,9 @@ export async function loadMemoryContext(
 
   // Determine how many journal days to include
   let journalDays = 0;
-  if (contextWindow >= 32_000) {
+  if (contextWindow >= LARGE_CONTEXT_THRESHOLD) {
     journalDays = 2; // today + yesterday
-  } else if (contextWindow >= 16_000) {
+  } else if (contextWindow >= MEDIUM_CONTEXT_THRESHOLD) {
     journalDays = 1; // today only
   }
 
@@ -142,15 +147,8 @@ export async function loadMemoryContext(
 
   // Warn if memory is getting large
   const tokens = estimateTokensFromText(combined);
-  if (tokens > 3000) {
-    try {
-      const { getAgentLogger } = await import("../agent/logger.ts");
-      getAgentLogger().warn(
-        `Memory context is large (~${tokens} tokens). Consider consolidating MEMORY.md.`,
-      );
-    } catch {
-      // Logger not available — skip warning
-    }
+  if (tokens > MEMORY_SIZE_WARNING) {
+    await warnMemory(`Memory context is large (~${tokens} tokens). Consider consolidating MEMORY.md.`);
   }
 
   return combined;

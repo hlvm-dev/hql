@@ -25,10 +25,10 @@ import {
   loadMemoryContext,
   readMemoryMd,
   resetMigrationForTesting,
-  sanitizeSensitiveContent,
   searchMemory,
   writeMemoryMd,
 } from "../../../src/hlvm/memory/mod.ts";
+import { sanitizeSensitiveContent } from "../../../src/hlvm/memory/store.ts";
 import { getMemoryDb, insertChunk } from "../../../src/hlvm/memory/search.ts";
 import { indexFile } from "../../../src/hlvm/memory/indexer.ts";
 import { MEMORY_TOOLS } from "../../../src/hlvm/memory/mod.ts";

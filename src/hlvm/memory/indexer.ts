@@ -16,6 +16,7 @@ import {
   removeChunksForFile,
   setFileMeta,
 } from "./search.ts";
+import { warnMemory } from "./store.ts";
 
 const CHUNK_SIZE = 1600; // ~400 tokens
 const CHUNK_OVERLAP = 320; // ~80 tokens
@@ -63,7 +64,6 @@ export function indexFile(filePath: string, date: string): void {
   removeChunksForFile(filePath);
 
   // Chunk and insert
-  const lines = content.split("\n");
   let charPos = 0;
   let lineNum = 0;
 
@@ -122,11 +122,6 @@ export async function reindexMemoryFiles(): Promise<void> {
       // Journal directory might not exist yet
     }
   } catch (error) {
-    try {
-      const { getAgentLogger } = await import("../agent/logger.ts");
-      getAgentLogger().warn(`Memory reindex failed: ${error}`);
-    } catch {
-      // Logger not available
-    }
+    await warnMemory(`Memory reindex failed: ${error}`);
   }
 }

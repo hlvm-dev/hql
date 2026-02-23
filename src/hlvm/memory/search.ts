@@ -71,6 +71,12 @@ function decayScore(bm25Score: number, ageDays: number): number {
   return bm25Score * Math.exp(-LAMBDA * ageDays);
 }
 
+/** Convert "YYYY-MM-DD" to milliseconds (avoids Date object allocation per row) */
+function dateStringToMs(dateStr: string): number {
+  const [y, m, d] = dateStr.split("-");
+  return Date.UTC(+y, +m - 1, +d);
+}
+
 // ============================================================
 // Search
 // ============================================================
@@ -97,12 +103,12 @@ export function searchMemory(
   if (!needle) return [];
 
   // Escape FTS5 special characters and operators.
-  // FTS5 treats AND/OR/NOT/NEAR as boolean operators and parens/colons as syntax.
+  // FTS5 treats AND/OR/NOT/NEAR as boolean operators and parens/colons/braces/pipes as syntax.
   // Quote each word to force literal matching: "word1" "word2" ...
   const words = needle
-    .replace(/['"*():^]/g, " ")        // strip syntax chars
+    .replace(/['"*():^{}|]/g, " ")     // strip ALL FTS5 syntax chars
     .split(/\s+/)
-    .filter((w) => w && !/^(AND|OR|NOT|NEAR)$/i.test(w)); // strip boolean operators
+    .filter((w) => w && w.length <= 100 && !/^(AND|OR|NOT|NEAR)$/i.test(w));
   if (words.length === 0) return [];
   const escaped = words.map((w) => `"${w}"`).join(" ");
 
@@ -128,7 +134,7 @@ export function searchMemory(
     const results: SearchResult[] = rows.map((row) => {
       // Use the stable `date` field for aging (not created_at which resets on reindex).
       // date is "YYYY-MM-DD" for journals, or today's date for MEMORY.md.
-      const dateMs = new Date(row.date + "T00:00:00Z").getTime();
+      const dateMs = dateStringToMs(row.date);
       const ageDays = (nowMs - dateMs) / msPerDay;
       // MEMORY.md entries: no decay (always relevant)
       const isMemoryMd = row.file.endsWith("MEMORY.md");

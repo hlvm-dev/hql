@@ -11,7 +11,31 @@ import { isToolArgsObject } from "../agent/validation.ts";
 import type { ToolMetadata } from "../agent/registry.ts";
 import { appendToJournal, appendToMemoryMd, readMemoryMd, readRecentJournals } from "./store.ts";
 import { searchMemory as ftsSearch } from "./search.ts";
-import { reindexMemoryFiles } from "./indexer.ts";
+import { indexFile } from "./indexer.ts";
+import { getPlatform } from "../../platform/platform.ts";
+import { getJournalDir, getMemoryMdPath } from "../../common/paths.ts";
+
+// ============================================================
+// Helpers
+// ============================================================
+
+/** Scan lines for needle with ±1 line of context. Mutates results array. */
+function substringSearchLines(
+  lines: string[],
+  needle: string,
+  source: string,
+  limit: number,
+  results: { source: string; text: string }[],
+): void {
+  for (let i = 0; i < lines.length && results.length < limit; i++) {
+    if (lines[i].toLowerCase().includes(needle)) {
+      const start = Math.max(0, i - 1);
+      const end = Math.min(lines.length, i + 2);
+      results.push({ source, text: lines.slice(start, end).join("\n") });
+      i = end - 1;
+    }
+  }
+}
 
 // ============================================================
 // Tool Implementations
@@ -39,12 +63,15 @@ async function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
 
   if (target === "journal") {
     await appendToJournal(content.trim());
+    // Targeted reindex: only the changed journal file (not full scan)
+    const today = new Date().toISOString().slice(0, 10);
+    const journalPath = getPlatform().path.join(getJournalDir(), `${today}.md`);
+    try { indexFile(journalPath, today); } catch { /* best-effort */ }
   } else {
     await appendToMemoryMd(content.trim(), section);
+    // Targeted reindex: only MEMORY.md (not full scan)
+    try { indexFile(getMemoryMdPath(), new Date().toISOString().slice(0, 10)); } catch { /* best-effort */ }
   }
-
-  // Trigger background reindex after write
-  reindexMemoryFiles().catch(() => {});
 
   return { written: true, target, section };
 }
@@ -88,32 +115,17 @@ async function memorySearch(args: unknown): Promise<Record<string, unknown>> {
 
   const memoryMd = await readMemoryMd();
   if (memoryMd) {
-    const lines = memoryMd.split("\n");
-    for (let i = 0; i < lines.length && results.length < limit; i++) {
-      if (lines[i].toLowerCase().includes(needle)) {
-        const start = Math.max(0, i - 1);
-        const end = Math.min(lines.length, i + 2);
-        const context = lines.slice(start, end).join("\n");
-        results.push({ source: "MEMORY.md", text: context });
-        i = end - 1;
-      }
-    }
+    substringSearchLines(memoryMd.split("\n"), needle, "MEMORY.md", limit, results);
   }
 
   if (results.length < limit) {
     const journals = await readRecentJournals(7);
     for (const journal of journals) {
       if (results.length >= limit) break;
-      const lines = journal.content.split("\n");
-      for (let i = 0; i < lines.length && results.length < limit; i++) {
-        if (lines[i].toLowerCase().includes(needle)) {
-          const start = Math.max(0, i - 1);
-          const end = Math.min(lines.length, i + 2);
-          const context = lines.slice(start, end).join("\n");
-          results.push({ source: `journal/${journal.date}`, text: context });
-          i = end - 1;
-        }
-      }
+      substringSearchLines(
+        journal.content.split("\n"), needle,
+        `journal/${journal.date}`, limit, results,
+      );
     }
   }
 

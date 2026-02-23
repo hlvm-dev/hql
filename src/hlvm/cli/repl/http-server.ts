@@ -398,6 +398,11 @@ async function handleComplete(req: Request): Promise<Response> {
  *                 instanceId:
  *                   type: string
  *                   nullable: true
+ *                 aiReady:
+ *                   type: boolean
+ *                 authToken:
+ *                   type: string
+ *                   description: Bearer token the server uses for authenticated endpoints
  */
 function handleHealth(): Response {
   return Response.json({
@@ -406,6 +411,7 @@ function handleHealth(): Response {
     definitions: replState?.getDocstrings().size ?? 0,
     instanceId: INSTANCE_ID,
     aiReady: isRuntimeReadyForAiRequests(),
+    authToken: serverAuthToken,
   });
 }
 

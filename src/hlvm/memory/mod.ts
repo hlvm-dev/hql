@@ -8,10 +8,8 @@
 export {
   appendToJournal,
   appendToMemoryMd,
-  readJournal,
   readMemoryMd,
   readRecentJournals,
-  sanitizeSensitiveContent,
   writeMemoryMd,
 } from "./store.ts";
 
@@ -25,4 +23,4 @@ export { MEMORY_TOOLS } from "./tools.ts";
 export { closeMemoryDb, searchMemory } from "./search.ts";
 
 // Indexer
-export { reindexMemoryFiles } from "./indexer.ts";
+export { indexFile, reindexMemoryFiles } from "./indexer.ts";
