@@ -51,7 +51,9 @@ function isMissingEmbeddedEngineError(error: unknown): boolean {
 
 async function isAIRunning(): Promise<boolean> {
   try {
-    const status = await ai.status();
+    // AI runtime lifecycle here means the local Ollama daemon, not whichever
+    // provider is currently configured as default (which may be cloud-only).
+    const status = await ai.status("ollama");
     return status.available;
   } catch {
     return false;

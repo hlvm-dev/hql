@@ -100,6 +100,10 @@ function inferMcpSafetyReason(level: "L0" | "L1" | "L2"): string {
 }
 
 const MCP_L0_SAFETY = inferMcpSafetyReason("L0");
+const MCP_CONNECT_WARNING_MAX_CHARS = 240;
+
+// Process-lifetime de-duplication for noisy startup/connect warnings.
+const seenMcpConnectWarnings = new Set<string>();
 
 // ============================================================
 // Schema Helpers
@@ -152,6 +156,12 @@ function formatPromptMessages(messages: McpPromptMessage[]): string {
       return `[${m.role}] (unknown content)`;
     })
     .join("\n");
+}
+
+function summarizeConnectError(error: unknown): string {
+  const normalized = getErrorMessage(error).replace(/\s+/g, " ").trim();
+  if (normalized.length <= MCP_CONNECT_WARNING_MAX_CHARS) return normalized;
+  return `${normalized.slice(0, MCP_CONNECT_WARNING_MAX_CHARS)}...`;
 }
 
 // ============================================================
@@ -438,9 +448,18 @@ export async function loadMcpTools(
       clients.push(client);
       connectedServers.push({ name: server.name, toolCount: names.length });
     } catch (error) {
-      getAgentLogger().warn(
-        `Skipping MCP server '${server.name}': ${getErrorMessage(error)}`,
-      );
+      const summary = summarizeConnectError(error);
+      const warningKey = `${server.name}::${summary}`;
+      if (!seenMcpConnectWarnings.has(warningKey)) {
+        seenMcpConnectWarnings.add(warningKey);
+        getAgentLogger().warn(
+          `Skipping MCP server '${server.name}': ${summary}`,
+        );
+      } else {
+        getAgentLogger().debug(
+          `MCP server '${server.name}' skip repeated`,
+        );
+      }
       // Client cleanup is handled by createSdkMcpClient on connect failure
     }
   }

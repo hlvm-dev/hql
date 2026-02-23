@@ -4,6 +4,19 @@
 import { getErrorMessage } from "./common/utils.ts";
 import { LRUCache } from "./common/lru-cache.ts";
 
+/**
+ * Best-effort console write that never throws into request handlers.
+ * macOS pipes can surface EAGAIN ("Resource temporarily unavailable")
+ * under backpressure; logging should never crash business logic.
+ */
+function safeWrite(fn: (...args: unknown[]) => void, ...args: unknown[]): void {
+  try {
+    fn(...args);
+  } catch {
+    // Intentionally drop log writes on I/O backpressure or closed fds.
+  }
+}
+
 export interface LogOptions {
   text: string;
   namespace?: string;
@@ -127,15 +140,16 @@ export class Logger {
     const totalTime = timingData.getTotalTime();
 
     // Always use console for performance metrics to ensure they're visible
-    console.log(`=== 🕒 Performance Metrics: ${context} ===`);
+    safeWrite(console.log, `=== 🕒 Performance Metrics: ${context} ===`);
     if (filename) {
-      console.log(`${filename}`);
+      safeWrite(console.log, `${filename}`);
     }
 
     for (const [label, time] of timings.entries()) {
       // Show time in both ms and seconds
       const timeInSeconds = (time / 1000).toFixed(2);
-      console.log(
+      safeWrite(
+        console.log,
         `  ${label.padEnd(20)} ${time.toFixed(0)}ms (${timeInSeconds}s) ${
           ((time / total) * 100).toFixed(1)
         }%`,
@@ -146,7 +160,8 @@ export class Logger {
     const unaccounted = totalTime - total;
     if (unaccounted > 1) { // Only show if significant
       const unaccountedInSeconds = (unaccounted / 1000).toFixed(2);
-      console.log(
+      safeWrite(
+        console.log,
         `  Other               ${
           unaccounted.toFixed(0)
         }ms (${unaccountedInSeconds}s) ${
@@ -156,12 +171,13 @@ export class Logger {
     }
 
     const totalTimeInSeconds = (totalTime / 1000).toFixed(2);
-    console.log(
+    safeWrite(
+      console.log,
       `  ✅ Total               ${
         totalTime.toFixed(0)
       }ms (${totalTimeInSeconds}s)`,
     );
-    console.log("=========================");
+    safeWrite(console.log, "=========================");
   }
 
   /**
@@ -171,13 +187,13 @@ export class Logger {
   log({ text, namespace }: LogOptions): void {
     // If --verbose is enabled, log everything regardless of namespace
     if (this.enabled) {
-      console.log(namespace ? `[${namespace}] ${text}` : text);
+      safeWrite(console.log, namespace ? `[${namespace}] ${text}` : text);
       return;
     }
 
     // If --log is provided with namespaces, only log if the namespace matches
     if (this.isNamespaceEnabled(namespace)) {
-      console.log(`[${namespace}] ${text}`);
+      safeWrite(console.log, `[${namespace}] ${text}`);
     }
   }
 
@@ -225,7 +241,7 @@ export class Logger {
   debug(message: string, namespace?: string): void {
     if (this.enabled || this.isNamespaceEnabled(namespace)) {
       const prefix = namespace ? `[${namespace}] ` : "";
-      console.log(`${prefix}${message}`);
+      safeWrite(console.log, `${prefix}${message}`);
     }
   }
 
@@ -235,7 +251,7 @@ export class Logger {
   info(message: string, namespace?: string): void {
     if (this.enabled || this.isNamespaceEnabled(namespace)) {
       const prefix = namespace ? `[${namespace}] ` : "";
-      console.log(`${prefix}${message}`);
+      safeWrite(console.log, `${prefix}${message}`);
     }
   }
 
@@ -244,7 +260,7 @@ export class Logger {
    */
   warn(message: string, namespace?: string): void {
     const prefix = namespace ? `[${namespace}] ` : "";
-    console.warn(`⚠️ ${prefix}${message}`);
+    safeWrite(console.warn, `⚠️ ${prefix}${message}`);
   }
 
   /**
@@ -253,7 +269,7 @@ export class Logger {
   error(message: string, error?: unknown, namespace?: string): void {
     const errorDetails = error ? `: ${getErrorMessage(error)}` : "";
     const prefix = namespace ? `[${namespace}] ` : "";
-    console.error(`❌ ${prefix}${message}${errorDetails}`);
+    safeWrite(console.error, `❌ ${prefix}${message}${errorDetails}`);
   }
 
   /**
