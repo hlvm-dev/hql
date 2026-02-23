@@ -140,14 +140,31 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
   memory_write: {
     fn: memoryWrite,
     description:
-      "Write important facts, decisions, preferences, or outcomes to persistent memory. Call proactively when the user makes decisions, expresses preferences, solves problems, or asks you to remember something. Memory persists across conversations.",
+      "Save important information to persistent memory that survives across conversations. " +
+      "Call proactively when you learn:\n" +
+      "- User preferences (coding style, tools, conventions, workflows)\n" +
+      "- Project decisions (architecture choices, why X over Y, trade-offs made)\n" +
+      "- Bugs found and how they were fixed\n" +
+      "- Environment details (OS, runtime versions, deployment targets)\n" +
+      "- The user explicitly asks you to remember something\n" +
+      "Do NOT save: trivial/temporary info, things already in the codebase, " +
+      "or raw code snippets (reference file paths instead).",
     category: "memory",
     args: {
-      content: "string - Content to remember (facts, decisions, preferences)",
+      content:
+        'string - A concise factual statement to remember. ' +
+        'Good: "User prefers Deno over Node for all new projects". ' +
+        'Good: "Auth uses JWT with 1h expiry — decided 2026-02-20 over session cookies for statelessness". ' +
+        'Bad: "The user said they like Deno I think maybe". ' +
+        'Bad: "We talked about some auth stuff today".',
       target:
-        'string (optional) - "memory" for permanent facts (default), "journal" for session context',
+        'string (optional) - "memory" for permanent facts (default), "journal" for session-specific context. ' +
+        'Use "memory" for preferences and decisions that matter long-term. ' +
+        'Use "journal" for today\'s working context (current task, files being edited, debugging notes).',
       section:
-        'string (optional) - Section name in MEMORY.md to file under (only for target="memory")',
+        'string (optional) - Section heading in MEMORY.md to organize under (only for target="memory"). ' +
+        'Good: "Preferences", "Architecture Decisions", "Environment". ' +
+        'Omit if unsure — content appends to the end.',
     },
     returns: {
       written: "boolean",
@@ -160,11 +177,23 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
   memory_search: {
     fn: memorySearch,
     description:
-      "Search persistent memory for previously stored facts, decisions, and context. Use when you need to recall information from past conversations.",
+      "Search persistent memory for facts, decisions, and context from previous conversations. " +
+      "Call this when:\n" +
+      '- User references something from a past conversation ("remember when we...", "what was that...")\n' +
+      "- You need context about a prior decision, bug fix, or preference\n" +
+      "- User mentions a topic that might have history (check before assuming)\n" +
+      "- Starting work on a feature/file that was discussed before\n" +
+      "Do NOT call for things in the current conversation (you already have that in context).",
     category: "memory",
     args: {
-      query: "string - Search query",
-      limit: "number (optional) - Max results (default: 5)",
+      query:
+        'string - Short specific keyword search. Use concrete terms, not vague phrases. ' +
+        'Good: "CORS bug auth.ts". ' +
+        'Good: "database migration decision". ' +
+        'Good: "preferred test framework". ' +
+        'Bad: "that thing we talked about". ' +
+        'Bad: "everything about the project".',
+      limit: "number (optional) - Max results to return (default: 5)",
     },
     returns: {
       results: "Array of {source, text, date?, score?}",
