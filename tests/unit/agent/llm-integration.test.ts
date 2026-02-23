@@ -196,24 +196,31 @@ Deno.test({
 // ============================================================
 
 Deno.test({
-  name: "generateSystemPrompt - tier filtering: weak gets core, frontier gets everything",
+  name: "generateSystemPrompt - tier filtering: weak gets core + examples, mid/frontier get tips",
   fn() {
     const weak = generateSystemPrompt({ modelTier: "weak" });
+    const mid = generateSystemPrompt({ modelTier: "mid" });
     const frontier = generateSystemPrompt({ modelTier: "frontier" });
 
     // Weak MUST include routing + permissions (they need guidance most)
     assertStringIncludes(weak, "# Tool Selection");
     assertStringIncludes(weak, "# Permission Cost");
     assertStringIncludes(weak, "Do NOT output tool call JSON");
-    // Weak must NOT include frontier/mid-only sections
-    assertEquals(weak.includes("# Examples"), false);
+    // Weak now includes concrete examples (high-leverage for weaker models)
+    assertStringIncludes(weak, "# Examples");
+    assertStringIncludes(weak, "Good:");
+    assertStringIncludes(weak, "Bad:");
+    // Tips remain mid/frontier only
     assertEquals(weak.includes("# Tips"), false);
 
-    // Frontier includes examples
+    // Mid/frontier include tips
+    assertStringIncludes(mid, "# Tips");
+    assertStringIncludes(frontier, "# Tips");
+
+    // Frontier also includes examples
     assertStringIncludes(frontier, "# Examples");
     assertStringIncludes(frontier, "Good:");
     assertStringIncludes(frontier, "Bad:");
-    assertStringIncludes(frontier, "# Tips");
   },
 });
 
@@ -236,14 +243,14 @@ Deno.test({
 });
 
 Deno.test({
-  name: "generateSystemPrompt - prompt size grows with tier (weak < mid < frontier)",
+  name: "generateSystemPrompt - prompt size grows from weak to mid (frontier >= mid)",
   fn() {
     const weakPrompt = generateSystemPrompt({ modelTier: "weak" });
     const midPrompt = generateSystemPrompt({ modelTier: "mid" });
     const frontierPrompt = generateSystemPrompt({ modelTier: "frontier" });
 
     assertEquals(weakPrompt.length < midPrompt.length, true);
-    assertEquals(midPrompt.length < frontierPrompt.length, true);
+    assertEquals(frontierPrompt.length >= midPrompt.length, true);
   },
 });
 

@@ -162,11 +162,11 @@ function renderCriticalRules(): PromptSection {
     id: "critical_rules",
     content: `# CRITICAL: When NOT to use tools
 Answer DIRECTLY from your knowledge for:
-- Programming questions (syntax, concepts, examples, best practices)
+- General programming knowledge (syntax, concepts, examples, best practices)
 - General knowledge, math, greetings, explanations
-- Anything you already know the answer to
-Do NOT create files, run commands, or search the web for questions you can answer yourself.
-Only use tools when the user explicitly asks you to interact with their filesystem, run code, or fetch live data.
+- Questions fully answerable without inspecting local files, running commands, or fetching live data
+Do NOT create files, run commands, or search the web for generic questions you can answer yourself.
+Use tools whenever accuracy depends on repository state, local files, command output, test/build results, git history, or live external data.
 Exception: memory_write and memory_search may be used proactively — save important facts, decisions, and preferences without being asked.`,
     minTier: "weak",
   };
@@ -288,9 +288,9 @@ function renderExamples(): PromptSection {
 Good: read_file({path:"src/main.ts"}) — use dedicated tool
 Bad: shell_exec({command:"cat src/main.ts"}) — shell for file reading
 
-Good: search_code({query:"handleError",path:"src/"}) — dedicated search
+Good: search_code({pattern:"handleError",path:"src/"}) — dedicated search
 Bad: shell_exec({command:"grep -r handleError src/"}) — shell for search`,
-    minTier: "frontier",
+    minTier: "weak",
   };
 }
 
