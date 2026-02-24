@@ -71,7 +71,7 @@ async function runAgentTask(task: string): Promise<{
     {
       workspace: platform.process.cwd(),
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
       maxToolCalls: 10,
     },
     llm,
@@ -238,7 +238,7 @@ Deno.test({
       {
         workspace: platform.process.cwd(),
         context,
-        autoApprove: true,
+        permissionMode: "yolo",
         maxToolCalls: 10,
       },
       llm,

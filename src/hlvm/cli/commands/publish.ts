@@ -31,7 +31,7 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HqlPackageCo
 
   // If hql.json exists, read and return it
   if (await exists(configPath)) {
-    const config = (await readJSONFile(configPath)) as unknown as HqlPackageConfig;
+    const config = (await readJSONFile(configPath)) as HqlPackageConfig;
 
     // Validate required fields
     if (!config.name || !config.version || !config.exports) {
@@ -95,7 +95,7 @@ async function ensureConfig(options: { yesFlag: boolean }): Promise<HqlPackageCo
     exports: `./${entryPoint}`,
   };
 
-  await writeJSONFile(configPath, config as unknown as Record<string, unknown>);
+  await writeJSONFile(configPath, config);
 
   log.raw.log(`\n✨ Created hql.json`);
   log.raw.log(`  → ${name} v${version}\n`);
@@ -113,10 +113,10 @@ async function updateConfigVersion(newVersion: string): Promise<void> {
     return; // No config to update
   }
 
-  const config = await readJSONFile(configPath) as unknown as HqlPackageConfig;
+  const config = await readJSONFile(configPath) as HqlPackageConfig;
   config.version = newVersion;
 
-  await writeJSONFile(configPath, config as unknown as Record<string, unknown>);
+  await writeJSONFile(configPath, config);
   log.raw.log(`\n  → Updated hql.json to version ${newVersion}`);
 }
 
@@ -214,7 +214,7 @@ export async function publishCommand(args: string[]): Promise<void> {
   const config = await ensureConfig({ yesFlag: parsedArgs.yesFlag });
 
   // Determine entry file
-  const entryFile = parsedArgs.entryFile || config.exports.replace(/^\.\//, "");
+  const entryFile = parsedArgs.entryFile || config.exports?.replace(/^\.\//, "") || "index.hql";
 
   // Check entry file exists
   if (!await exists(entryFile)) {

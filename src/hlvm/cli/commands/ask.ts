@@ -19,6 +19,7 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
 import { parseModelString } from "../../providers/registry.ts";
 import type { AgentUIEvent, TraceEvent } from "../../agent/orchestrator.ts";
+import type { PermissionMode } from "../../../common/config/types.ts";
 
 // MARK: - Paid Provider Consent
 
@@ -106,6 +107,8 @@ OPTIONS:
   --usage                      Show token usage summary after execution
   --model <provider/model>     Use a specific AI model (e.g., openai/gpt-4o, anthropic/claude-sonnet-4-5-20250929)
   --fresh                      Start a fresh session (no prior context)
+  --auto-edit                  Auto-approve file reads and writes; only confirm destructive ops
+  --dangerously-skip-permissions  Skip ALL permission prompts (like Claude Code --dangerously-skip-permissions)
 `);
 }
 
@@ -337,6 +340,7 @@ export async function askCommand(args: string[]): Promise<void> {
   let showUsage = false;
   let freshSession = false;
   let modelOverride: string | undefined;
+  let permissionModeOverride: PermissionMode | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -346,6 +350,10 @@ export async function askCommand(args: string[]): Promise<void> {
       showUsage = true;
     } else if (arg === "--fresh") {
       freshSession = true;
+    } else if (arg === "--auto-edit") {
+      permissionModeOverride = "auto-edit";
+    } else if (arg === "--dangerously-skip-permissions") {
+      permissionModeOverride = "yolo";
     } else if (arg === "--model") {
       i++;
       if (i >= args.length) {
@@ -506,12 +514,18 @@ export async function askCommand(args: string[]): Promise<void> {
     log.raw.log(`\nAgent: ${query}\n`);
   }
 
+  // Resolve permission mode: CLI flag > config > default
+  const effectivePermissionMode: PermissionMode = permissionModeOverride
+    ?? (config.snapshot.permissionMode as PermissionMode | undefined)
+    ?? "default";
+
   const executeQuery = async () => {
     const result = await runAgentQuery({
       query,
       model,
       contextWindow,
       skipSessionHistory: freshSession,
+      permissionMode: effectivePermissionMode,
       callbacks: {
         onToken,
         onAgentEvent,

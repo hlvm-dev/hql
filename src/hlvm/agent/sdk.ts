@@ -103,13 +103,14 @@ export class Agent {
       {
         workspace: this.config.workspace ?? getPlatform().process.cwd(),
         context: session.context,
-        autoApprove: true,
+        permissionMode: "yolo",
         groundingMode: "off",
         policy: session.policy,
         onTrace,
         noInput: true,
         planning: { mode: "off", requireStepMarkers: false },
         skipModelCompensation: session.isFrontierModel,
+        autoMemoryRecall: true,
         l1Confirmations: session.l1Confirmations,
         toolAllowlist: session.toolFilterState?.allowlist ??
           session.llmConfig?.toolAllowlist,

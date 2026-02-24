@@ -7,6 +7,7 @@ import {
   DEFAULT_TIMEOUTS,
   MAX_ITERATIONS,
   MAX_RETRIES,
+  type GroundingMode,
   type ModelTier,
   RATE_LIMITS,
   RESOURCE_LIMITS,
@@ -55,6 +56,8 @@ export interface LoopState {
   iterationsSinceReminder: number;
   /** Whether memory flush was already injected this cycle (pre-compaction) */
   memoryFlushedThisCycle: boolean;
+  /** Whether automatic memory recall has already been injected for this user turn */
+  memoryRecallInjected: boolean;
 }
 
 /** Resolved constants from OrchestratorConfig, computed once at loop start.
@@ -64,7 +67,7 @@ export interface LoopConfig {
   maxDenials: number;
   llmTimeout: number;
   maxRetries: number;
-  groundingMode: "off" | "warn" | "strict";
+  groundingMode: GroundingMode;
   llmLimiter: SlidingWindowRateLimiter | null;
   toolRateLimiter: SlidingWindowRateLimiter | null;
   maxToolResultBytes: number;
@@ -118,6 +121,7 @@ export function initializeLoopState(config: OrchestratorConfig): LoopState {
     lastToolsIncludedWeb: false,
     iterationsSinceReminder: 3, // Start at cooldown to avoid immediate reminder
     memoryFlushedThisCycle: false,
+    memoryRecallInjected: false,
   };
 }
 

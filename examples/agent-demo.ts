@@ -60,7 +60,7 @@ async function runDemo(task: string) {
       {
         workspace: WORKSPACE,
         context,
-        autoApprove: true, // Auto-approve for demo
+        permissionMode: "yolo", // Skip all prompts for demo
         maxToolCalls: 5, // Limit tool calls for demo
       },
       llm,

@@ -5,7 +5,6 @@
 
 import { run } from "../../../../mod.ts";
 import { parse } from "../../../hql/transpiler/pipeline/parser.ts";
-import type { ListNode } from "../../../hql/transpiler/type/hql_ast.ts";
 import { isList, isSymbol, sexpToString, type SList, type SSymbol } from "../../../hql/s-exp/types.ts";
 import { isVectorImport, isNamespaceImport } from "../../../hql/transpiler/syntax/import-export.ts";
 import { sanitizeIdentifier, ensureError } from "../../../common/utils.ts";
@@ -307,7 +306,7 @@ async function handleImport(list: SList, state: ReplState): Promise<EvalResult> 
     const names: string[] = [];
 
     // Extract names being imported for tracking
-    if (isVectorImport(list as unknown as ListNode)) {
+    if (isVectorImport(list)) {
       // (import [names] from "path") - parsed as (import (vector names) from "path")
       const vectorList = list.elements[1] as SList;
       // Skip the "vector" or "empty-array" keyword at index 0
@@ -329,7 +328,7 @@ async function handleImport(list: SList, state: ReplState): Promise<EvalResult> 
         }
         names.push(sanitizeIdentifier(localName));
       }
-    } else if (isNamespaceImport(list as unknown as ListNode)) {
+    } else if (isNamespaceImport(list)) {
       // (import name from "path")
       names.push(sanitizeIdentifier((list.elements[1] as SSymbol).name));
     }

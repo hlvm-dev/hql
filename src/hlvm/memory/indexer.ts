@@ -2,8 +2,8 @@
  * Memory Indexer - Chunks files and inserts into FTS5 index
  *
  * Chunking: ~400 tokens (~1600 chars), 80-token overlap (~320 chars).
- * Skips unchanged files via content hash. Includes GC for orphaned chunks,
- * journal rotation (90-day max age), and FTS5 optimize.
+ * Skips unchanged files via content hash. Includes GC for orphaned chunks
+ * and FTS5 optimize.
  */
 
 import { getPlatform } from "../../platform/platform.ts";
@@ -25,7 +25,6 @@ import { warnMemory } from "./store.ts";
 
 const CHUNK_SIZE = 1600; // ~400 tokens
 const CHUNK_OVERLAP = 320; // ~80 tokens
-const JOURNAL_MAX_AGE_DAYS = 90;
 
 /**
  * Simple hash for change detection (FNV-1a variant).
@@ -139,43 +138,8 @@ async function gcOrphanedChunks(): Promise<void> {
 }
 
 /**
- * Delete journal files older than JOURNAL_MAX_AGE_DAYS and remove their index entries.
- */
-async function rotateOldJournals(): Promise<void> {
-  const fs = getPlatform().fs;
-  const journalDir = getJournalDir();
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - JOURNAL_MAX_AGE_DAYS);
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
-
-  const db = getMemoryDb();
-  try {
-    for await (const entry of fs.readDir(journalDir)) {
-      // Only process date-named journals (YYYY-MM-DD.md)
-      if (entry.isFile && entry.name.endsWith(".md")) {
-        const date = entry.name.replace(".md", "");
-        if (date < cutoffStr) {
-          const filePath = getPlatform().path.join(journalDir, entry.name);
-          db.exec("BEGIN");
-          try {
-            removeChunksForFile(filePath);
-            removeFileMeta(filePath);
-            db.exec("COMMIT");
-          } catch {
-            db.exec("ROLLBACK");
-          }
-          try { await fs.remove(filePath); } catch { /* best-effort */ }
-        }
-      }
-    }
-  } catch {
-    // Journal directory might not exist yet
-  }
-}
-
-/**
  * Reindex all memory files that have changed.
- * Also runs GC for orphaned chunks, journal rotation, and FTS5 optimize.
+ * Also runs GC for orphaned chunks and FTS5 optimize.
  * Called on startup and after memory_write.
  * Non-blocking — errors are logged but don't propagate.
  */
@@ -183,9 +147,6 @@ export async function reindexMemoryFiles(): Promise<void> {
   try {
     // GC: remove index entries for files that no longer exist on disk
     await gcOrphanedChunks();
-
-    // Rotate: delete journals older than 90 days
-    await rotateOldJournals();
 
     // Index MEMORY.md
     const memoryPath = getMemoryMdPath();

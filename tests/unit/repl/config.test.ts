@@ -42,6 +42,7 @@ Deno.test("CONFIG_KEYS - exact user-settable keys", () => {
     "approvedProviders",
     "agentMode",
     "sessionMemory",
+    "permissionMode",
   ]);
 });
 

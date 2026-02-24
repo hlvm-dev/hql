@@ -24,6 +24,7 @@ import {
 } from "../../../common/utils.ts";
 import { isToolArgsObject } from "../validation.ts";
 import { classifyShellCommand } from "./shell-classifier.ts";
+import type { PermissionMode } from "../../../common/config/types.ts";
 
 // TEXT_ENCODER imported from common/utils.ts (SSOT)
 
@@ -534,14 +535,15 @@ async function readLine(
  *
  * @param toolName Tool name
  * @param args Tool arguments
- * @param autoApprove If true, skip all confirmations (for testing/automation)
+ * @param permissionMode Permission mode: "default" | "auto-edit" | "yolo"
  * @returns True if execution should proceed
  *
  * @example
  * ```ts
  * const shouldExecute = await checkToolSafety(
  *   "write_file",
- *   { path: "src/main.ts", content: "..." }
+ *   { path: "src/main.ts", content: "..." },
+ *   "default"
  * );
  * if (shouldExecute) {
  *   // Execute tool
@@ -551,7 +553,7 @@ async function readLine(
 export async function checkToolSafety(
   toolName: string,
   args: unknown,
-  autoApprove = false,
+  permissionMode: PermissionMode = "default",
   policy: AgentPolicy | null = null,
   l1Store: Map<string, boolean>,
   ownerId?: string,
@@ -560,7 +562,7 @@ export async function checkToolSafety(
   // Classify tool
   const classification = classifyTool(toolName, args, ownerId);
 
-  // Apply policy override if present
+  // Apply policy override if present (always takes precedence)
   const policyDecision = resolvePolicyDecision(
     policy,
     toolName,
@@ -573,17 +575,22 @@ export async function checkToolSafety(
     return true;
   }
 
-  // Auto-approve mode (for testing/automation)
-  if (autoApprove) {
+  // Yolo mode: auto-approve everything
+  if (permissionMode === "yolo") {
     return true;
   }
 
-  // L0: Auto-approve
+  // L0: Always auto-approve (all modes)
   if (classification.level === "L0") {
     return true;
   }
 
-  // L1: Check confirmation cache
+  // Auto-edit mode: auto-approve L1 (file edits, web fetch)
+  if (permissionMode === "auto-edit" && classification.level === "L1") {
+    return true;
+  }
+
+  // L1 default mode: Check confirmation cache, then prompt
   if (classification.level === "L1") {
     if (hasL1Confirmation(toolName, args, l1Store)) {
       return true;
@@ -604,7 +611,7 @@ export async function checkToolSafety(
     return result.confirmed;
   }
 
-  // L2: Always prompt
+  // L2: Always prompt (unless yolo, handled above)
   const result = await promptUserConfirmation(toolName, args, classification, onInteraction);
   return result.confirmed;
 }

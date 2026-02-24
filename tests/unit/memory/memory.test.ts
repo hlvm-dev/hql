@@ -18,7 +18,7 @@
 
 import { assertEquals, assert, assertStringIncludes } from "jsr:@std/assert";
 import { getPlatform } from "../../../src/platform/platform.ts";
-import { resetHlvmDirCacheForTests, getMemoryMdPath, getMemoryDir, ensureMemoryDirs, ensureMemoryDirsSync } from "../../../src/common/paths.ts";
+import { resetHlvmDirCacheForTests, getMemoryDir, ensureMemoryDirs, ensureMemoryDirsSync } from "../../../src/common/paths.ts";
 import {
   appendToMemoryMd,
   closeMemoryDb,
@@ -1173,10 +1173,10 @@ Deno.test("Hard cap: loadMemoryContext truncates oversized memory", async () => 
 });
 
 // ============================================================
-// Fix #8: Journal rotation deletes old journals
+// Fix #8: Journal retention keeps old journals searchable
 // ============================================================
 
-Deno.test("Rotation: reindexMemoryFiles deletes journals older than 90 days", async () => {
+Deno.test("Retention: reindexMemoryFiles keeps journals older than 90 days", async () => {
   const tempDir = await setupTestEnv();
   try {
     const platform = getPlatform();
@@ -1196,19 +1196,23 @@ Deno.test("Rotation: reindexMemoryFiles deletes journals older than 90 days", as
     const recentPath = platform.path.join(journalDir, `${today}.md`);
     await platform.fs.writeTextFile(recentPath, "# Today\n\nFresh context");
 
-    // Run reindex (includes rotation)
+    // Run reindex (includes retention-safe indexing)
     resetMemoryStateForTesting();
     await reindexMemoryFiles();
 
-    // Old journal should be deleted
+    // Old journal should still exist
     let oldExists = true;
     try { await platform.fs.stat(oldPath); } catch { oldExists = false; }
-    assertEquals(oldExists, false, "Journal older than 90 days should be deleted");
+    assertEquals(oldExists, true, "Old journal should be preserved");
 
     // Recent journal should still exist
     let recentExists = true;
     try { await platform.fs.stat(recentPath); } catch { recentExists = false; }
     assertEquals(recentExists, true, "Recent journal should be preserved");
+
+    // Old journal remains searchable
+    const oldResults = searchMemory("Ancient context");
+    assert(oldResults.length > 0, "Old journal content should remain searchable");
   } finally {
     await teardownTestEnv(tempDir);
   }

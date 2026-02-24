@@ -26,8 +26,8 @@ export type ProviderCapability =
 // Message Types (Common across providers)
 // ============================================================================
 
-/** Role for chat messages */
-export type MessageRole = "system" | "user" | "assistant" | "tool";
+import type { MessageRole } from "../agent/context.ts";
+export type { MessageRole };
 
 /** A provider-level chat message (snake_case fields for wire format) */
 export interface ProviderMessage {

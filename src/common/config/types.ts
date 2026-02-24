@@ -33,6 +33,15 @@ export function normalizeModelId(value: unknown): string | undefined {
 /** Agent mode for Claude models: HLVM-orchestrated or Claude Code full agent passthrough */
 export type AgentMode = "hlvm" | "claude-code-agent";
 
+/**
+ * Permission mode for agent tool execution.
+ * - "default": auto-approve L0 reads, confirm-once L1 writes, always-confirm L2 destructive
+ * - "auto-edit": auto-approve L0+L1, only confirm L2 destructive
+ * - "yolo": auto-approve everything (no prompts)
+ */
+export type PermissionMode = "default" | "auto-edit" | "yolo";
+export const PERMISSION_MODES: PermissionMode[] = ["default", "auto-edit", "yolo"];
+
 /** User-customized keybindings (action ID -> key combo) */
 export type KeybindingsConfig = Record<string, string>;
 
@@ -84,6 +93,7 @@ export interface HlvmConfig {
   approvedProviders?: string[]; // Providers the user has consented to (e.g., ["openai", "anthropic"])
   agentMode?: AgentMode; // Agent mode for Claude models: "hlvm" (HLVM orchestrates) or "claude-code-agent" (full passthrough)
   sessionMemory?: boolean; // Claude Code session memory: remembers context across messages in same chat session (default: true)
+  permissionMode?: PermissionMode; // Agent tool permission mode: "default" | "auto-edit" | "yolo"
 }
 
 // ============================================================
@@ -164,6 +174,7 @@ export const CONFIG_KEYS = [
   "approvedProviders",
   "agentMode",
   "sessionMemory",
+  "permissionMode",
 ] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 
@@ -280,6 +291,13 @@ export function validateValue(
       if (value === undefined) return { valid: true }; // optional field
       if (typeof value !== "boolean") {
         return { valid: false, error: "sessionMemory must be a boolean" };
+      }
+      return { valid: true };
+
+    case "permissionMode":
+      if (value === undefined) return { valid: true }; // optional field
+      if (!PERMISSION_MODES.includes(value as PermissionMode)) {
+        return { valid: false, error: `permissionMode must be one of: ${PERMISSION_MODES.join(", ")}` };
       }
       return { valid: true };
 

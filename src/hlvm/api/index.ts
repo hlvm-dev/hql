@@ -19,22 +19,21 @@
 
 import { config } from "./config.ts";
 import { memory } from "./memory.ts";
-import { session, setSessionManager } from "./session.ts";
+import { session, setSessionManager, type SessionManagerRef } from "./session.ts";
 import { history, setReplState } from "./history.ts";
 import { ai } from "./ai.ts";
 import { runtime, setRuntimeState, setAbortSignal, getAbortSignal, type RuntimeState } from "./runtime.ts";
 import { log } from "./log.ts";
 import { errors } from "./errors.ts";
 
-export { config, memory, session, setSessionManager, history, setReplState, ai, runtime, setRuntimeState, setAbortSignal, getAbortSignal, log, errors };
+export { config, memory, session, setSessionManager, type SessionManagerRef, history, setReplState, ai, runtime, setRuntimeState, setAbortSignal, getAbortSignal, log, errors };
 
 /**
  * Options for registering APIs on globalThis
  */
 interface RegisterApisOptions {
   /** Session manager for session API */
-  // deno-lint-ignore no-explicit-any
-  sessionManager?: any;
+  sessionManager?: SessionManagerRef;
   /** REPL state for history API */
   replState?: {
     history: string[];

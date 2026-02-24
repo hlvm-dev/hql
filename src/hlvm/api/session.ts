@@ -32,7 +32,7 @@ import { assertString } from "./validation.ts";
  */
 let _sessionManager: SessionManagerRef | null = null;
 
-interface SessionManagerRef {
+export interface SessionManagerRef {
   getCurrentSession(): SessionMeta | null;
   recordMessage(
     role: "user" | "assistant",

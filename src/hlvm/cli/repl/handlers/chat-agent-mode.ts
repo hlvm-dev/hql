@@ -20,6 +20,7 @@ import { loadRecentMessages } from "../../../store/message-utils.ts";
 import type { Message as AgentMessage } from "../../../agent/context.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
 import { config } from "../../../api/config.ts";
+import type { PermissionMode } from "../../../../common/config/types.ts";
 import { log } from "../../../api/log.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { RuntimeError, ValidationError } from "../../../../common/error.ts";
@@ -93,7 +94,7 @@ export async function handleAgentMode(
   const result = await runAgentQuery({
     query,
     model: resolvedModel,
-    autoApprove: false,
+    permissionMode: (config.snapshot.permissionMode as PermissionMode | undefined) ?? "default",
     noInput: false,
     signal,
     toolDenylist: [...DEFAULT_TOOL_DENYLIST],

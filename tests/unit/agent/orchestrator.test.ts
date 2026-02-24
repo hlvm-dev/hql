@@ -12,6 +12,8 @@ import {
 import {
   executeToolCall,
   executeToolCalls,
+  extractMemoryRecallKeywords,
+  filterMemoryRecallResults,
   type LLMResponse,
   type LoopConfig,
   type LoopState,
@@ -55,7 +57,7 @@ Deno.test({
     const result = await executeToolCall(call, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true, // Skip confirmation
+      permissionMode: "yolo", // Skip confirmation
     });
 
     assertEquals(result.success, true);
@@ -78,7 +80,7 @@ Deno.test({
         {
           workspace: TEST_WORKSPACE,
           context,
-          autoApprove: true,
+          permissionMode: "yolo",
           ensureMcpLoaded: async () => {
             await Promise.resolve();
             ensureCalls += 1;
@@ -120,7 +122,7 @@ Deno.test({
     const result = await executeToolCall(call, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
       toolAllowlist: ["read_file"],
     });
 
@@ -143,7 +145,7 @@ Deno.test({
     const result = await executeToolCall(call, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
       toolAllowlist: ["read_file"],
       toolDenylist: ["read_file"],
     });
@@ -169,7 +171,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: true,
+        permissionMode: "yolo",
         delegate: async (args) => {
           await Promise.resolve();
           captured = args as Record<string, unknown>;
@@ -210,7 +212,7 @@ END_PLAN`);
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: true,
+        permissionMode: "yolo",
         groundingMode: "off",
         planning: { mode: "always", requireStepMarkers: true },
         delegate: async () => {
@@ -254,7 +256,7 @@ Deno.test({
     try {
       const result = await executeToolCall(
         { toolName, args: {} },
-        { workspace: TEST_WORKSPACE, context, autoApprove: true },
+        { workspace: TEST_WORKSPACE, context, permissionMode: "yolo" },
       );
 
       assertEquals(result.success, true);
@@ -279,7 +281,7 @@ Deno.test({
     const result = await executeToolCall(call, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
     });
 
     assertEquals(result.success, false);
@@ -289,7 +291,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: executeToolCall - respects autoApprove",
+  name: "Orchestrator: executeToolCall - respects permissionMode",
   async fn() {
     clearAllL1Confirmations();
 
@@ -299,14 +301,14 @@ Deno.test({
       args: { path: "test.ts" },
     };
 
-    // With autoApprove
+    // With yolo mode
     const result1 = await executeToolCall(call, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
     });
 
-    // L0 tools should work even without autoApprove
+    // L0 tools should work even in default mode
     assertEquals(result1.success, true);
   },
 });
@@ -327,7 +329,7 @@ Deno.test({
     const result = await executeToolCall(call, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
     });
 
     assertEquals(result.success, true);
@@ -355,7 +357,7 @@ Deno.test({
     const results = await executeToolCalls(calls, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
     });
 
     assertEquals(results.length, 2);
@@ -392,7 +394,7 @@ Deno.test({
       const results = await executeToolCalls(calls, {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: true,
+        permissionMode: "yolo",
         toolRateLimit: { maxCalls: 1, windowMs: 1000 },
       });
 
@@ -422,7 +424,7 @@ Deno.test({
     const results = await executeToolCalls(calls, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
       continueOnError: false, // Explicitly stop on error
     });
 
@@ -445,7 +447,7 @@ Deno.test({
     const results = await executeToolCalls(calls, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
       // continueOnError defaults to true
     });
 
@@ -473,7 +475,7 @@ Deno.test({
     const result = await processAgentResponse(response, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
     });
 
     assertEquals(result.toolCallsMade, 0);
@@ -500,7 +502,7 @@ Deno.test({
     const result = await processAgentResponse(response, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
     });
 
     assertEquals(result.toolCallsMade, 1);
@@ -535,7 +537,7 @@ Deno.test({
     const result = await processAgentResponse(response, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
       maxToolCalls: 5, // Limit to 5
     });
 
@@ -563,7 +565,7 @@ Deno.test({
     const result = await processAgentResponse(response, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
     });
 
     // Only 2 unique calls should be executed (not 3)
@@ -596,7 +598,7 @@ Deno.test({
     const result = await processAgentResponse(response, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
     });
 
     assertEquals(result.toolCallsMade, 2);
@@ -625,7 +627,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: true,
+        permissionMode: "yolo",
       },
       mockLLM,
     );
@@ -655,7 +657,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: true,
+        permissionMode: "yolo",
         maxToolCallRetries: 1,
       },
       mockLLM,
@@ -696,7 +698,7 @@ Deno.test({
             {
               workspace: TEST_WORKSPACE,
               context,
-              autoApprove: true,
+              permissionMode: "yolo",
               llmRateLimit: { maxCalls: 1, windowMs: 1000 },
             },
             llm,
@@ -729,7 +731,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: true,
+        permissionMode: "yolo",
       },
       mockLLM,
     );
@@ -762,7 +764,7 @@ Deno.test({
         {
           workspace: TEST_WORKSPACE,
           context,
-          autoApprove: true,
+          permissionMode: "yolo",
           maxRetries: 3,
         },
         mockLLM,
@@ -829,7 +831,7 @@ Deno.test({
 
     const result = await runReActLoop(
       "Rate limit task",
-      { workspace: TEST_WORKSPACE, context, autoApprove: true, maxRetries: 2 },
+      { workspace: TEST_WORKSPACE, context, permissionMode: "yolo", maxRetries: 2 },
       mockLLM,
     );
 
@@ -872,7 +874,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: true,
+        permissionMode: "yolo",
         maxRetries: 3,
       },
       mockLLM,
@@ -914,7 +916,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: true,
+        permissionMode: "yolo",
       },
       mockLLM,
     );
@@ -950,7 +952,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: true,
+        permissionMode: "yolo",
         toolFilterState,
       },
       mockLLM,
@@ -984,7 +986,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: true,
+        permissionMode: "yolo",
       },
       mockLLM,
     );
@@ -1026,7 +1028,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: true,
+        permissionMode: "yolo",
       },
       mockLLM,
     );
@@ -1056,7 +1058,7 @@ Deno.test({
     await processAgentResponse(response, {
       workspace: TEST_WORKSPACE,
       context,
-      autoApprove: true,
+      permissionMode: "yolo",
     });
 
     const finalCount = context.getMessages().length;
@@ -1102,7 +1104,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: false, // Trigger denials
+        permissionMode: "default", // Trigger denials
         maxDenials: 3,
       },
       mockLLM,
@@ -1153,7 +1155,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: false, // Trigger denials for L2
+        permissionMode: "default", // Trigger denials for L2
         maxDenials: 3,
       },
       mockLLM,
@@ -1195,7 +1197,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: false,
+        permissionMode: "default",
         maxDenials: 2, // Custom limit (instead of default 3)
       },
       mockLLM,
@@ -1237,7 +1239,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: false,
+        permissionMode: "default",
         // No maxDenials specified, should default to 3
       },
       mockLLM,
@@ -1277,7 +1279,7 @@ Deno.test({
       {
         workspace: TEST_WORKSPACE,
         context,
-        autoApprove: false,
+        permissionMode: "default",
         maxDenials: 2,
       },
       mockLLM,
@@ -1324,6 +1326,7 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     lastToolsIncludedWeb: false,
     iterationsSinceReminder: 3,
     memoryFlushedThisCycle: false,
+    memoryRecallInjected: false,
     ...overrides,
   };
 }
@@ -1489,5 +1492,63 @@ Deno.test({
     assertEquals(WEB_TOOL_NAMES.has("web_browse"), true);
     assertEquals(WEB_TOOL_NAMES.has("read_file"), false);
     assertEquals(WEB_TOOL_NAMES.has("shell_exec"), false);
+  },
+});
+
+// ============================================================
+// Memory Recall Guards — Direct Unit Tests
+// ============================================================
+
+Deno.test({
+  name: "extractMemoryRecallKeywords removes stop-words and keeps high-signal terms",
+  fn() {
+    const keywords = extractMemoryRecallKeywords(
+      "Please help me with the API auth bug in proxy middleware and CORS headers",
+    );
+
+    assertEquals(keywords.includes("please"), false);
+    assertEquals(keywords.includes("help"), false);
+    assertEquals(keywords.includes("with"), false);
+    assertEquals(keywords.includes("api"), true);
+    assertEquals(keywords.includes("auth"), true);
+    assertEquals(keywords.includes("bug"), true);
+    assertEquals(keywords.includes("proxy"), true);
+    assertEquals(keywords.includes("cors"), true);
+  },
+});
+
+Deno.test({
+  name: "extractMemoryRecallKeywords drops low-signal requests",
+  fn() {
+    const keywords = extractMemoryRecallKeywords(
+      "please help me with this",
+    );
+    assertEquals(keywords.length, 0);
+  },
+});
+
+Deno.test({
+  name: "filterMemoryRecallResults keeps only high-confidence matches",
+  fn() {
+    const results = filterMemoryRecallResults(
+      [
+        {
+          text: "Fixed CORS headers in proxy middleware for api routes",
+          file: "/tmp/journal/2026-02-20.md",
+          date: "2026-02-20",
+          score: 0.4,
+        },
+        {
+          text: "Adjusted CORS max-age value",
+          file: "/tmp/journal/2026-02-10.md",
+          date: "2026-02-10",
+          score: 0.3,
+        },
+      ],
+      ["cors", "proxy", "api"],
+    );
+
+    assertEquals(results.length, 1);
+    assertStringIncludes(results[0].text, "proxy middleware");
   },
 });

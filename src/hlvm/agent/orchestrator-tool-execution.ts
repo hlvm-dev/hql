@@ -20,6 +20,7 @@ import { getErrorMessage } from "../../common/utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { getAgentLogger } from "./logger.ts";
 import type { AgentPolicy } from "./policy.ts";
+import type { PermissionMode } from "../../common/config/types.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import type { ToolCall } from "./tool-call.ts";
 import {
@@ -171,11 +172,11 @@ export async function executeToolCall(
     }
 
     // Check safety
-    const autoApprove = config.autoApprove ?? false;
+    const permissionMode: PermissionMode = config.permissionMode ?? "default";
     const approved = await checkToolSafety(
       toolCall.toolName,
       coercedArgs,
-      autoApprove,
+      permissionMode,
       config.policy ?? null,
       l1Store,
       config.toolOwnerId,

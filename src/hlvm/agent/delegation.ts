@@ -10,7 +10,7 @@ import {
   runReActLoop,
 } from "./orchestrator.ts";
 import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
-import { DEFAULT_MAX_TOOL_CALLS } from "./constants.ts";
+import { DEFAULT_MAX_TOOL_CALLS, isGroundingMode } from "./constants.ts";
 import { ValidationError } from "../../common/error.ts";
 import { hasTool } from "./registry.ts";
 
@@ -34,7 +34,7 @@ function resolveAllowedTools(
 
 export function createDelegateHandler(
   llm: LLMFunction,
-  baseConfig: Pick<OrchestratorConfig, "policy" | "autoApprove">,
+  baseConfig: Pick<OrchestratorConfig, "policy">,
 ): (args: unknown, config: OrchestratorConfig) => Promise<unknown> {
   return async (
     args: unknown,
@@ -92,7 +92,6 @@ export function createDelegateHandler(
       {
         workspace: config.workspace,
         context,
-        autoApprove: baseConfig.autoApprove,
         // Fix 16: Clamp maxToolCalls to prevent resource exhaustion
         maxToolCalls: typeof record.maxToolCalls === "number"
           ? Math.min(
@@ -101,10 +100,9 @@ export function createDelegateHandler(
           )
           : config.maxToolCalls,
         // Fix 17: Validate groundingMode at runtime
-        groundingMode:
-          (["off", "warn", "strict"].includes(String(record.groundingMode))
-            ? record.groundingMode as "off" | "warn" | "strict"
-            : config.groundingMode),
+        groundingMode: isGroundingMode(record.groundingMode)
+          ? record.groundingMode
+          : config.groundingMode,
         policy: baseConfig.policy ?? null,
         toolAllowlist: allowedTools,
         toolDenylist: ["delegate_agent"],

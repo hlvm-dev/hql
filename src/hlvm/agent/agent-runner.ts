@@ -41,6 +41,7 @@ import {
   isFrontierProvider,
   MAX_SESSION_HISTORY,
 } from "./constants.ts";
+import type { PermissionMode } from "../../common/config/types.ts";
 import { UsageTracker } from "./usage.ts";
 import { ContextManager } from "./context.ts";
 import type { ModelInfo } from "../providers/types.ts";
@@ -190,7 +191,7 @@ export interface AgentRunnerOptions {
   contextWindow?: number;
   workspace?: string;
   callbacks: AgentRunnerCallbacks;
-  autoApprove?: boolean;
+  permissionMode?: PermissionMode;
   noInput?: boolean;
   toolDenylist?: string[];
   skipSessionHistory?: boolean;
@@ -261,11 +262,11 @@ export async function runAgentQuery(
   const {
     query,
     callbacks,
-    autoApprove = false,
     noInput = false,
     toolDenylist = [...DEFAULT_TOOL_DENYLIST],
     skipSessionHistory = false,
   } = options;
+  const permissionMode: PermissionMode = options.permissionMode ?? "default";
   const model = options.model ?? getConfiguredModel();
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const profile = ENGINE_PROFILES.normal;
@@ -330,7 +331,6 @@ export async function runAgentQuery(
     policy = mergePolicyPathRoots(policy, DEFAULT_AGENT_PATH_ROOTS);
     const delegate = createDelegateHandler(session.llm, {
       policy,
-      autoApprove: false,
     });
 
     // Wire MCP server-initiated request handlers (sampling, elicitation, roots)
@@ -357,7 +357,7 @@ export async function runAgentQuery(
       {
         workspace,
         context: session.context,
-        autoApprove,
+        permissionMode,
         maxToolCalls: profile.maxToolCalls,
         groundingMode: profile.groundingMode,
         policy,
@@ -371,6 +371,7 @@ export async function runAgentQuery(
         modelTier: session.modelTier,
         modelId: model,
         signal: options.signal,
+        autoMemoryRecall: true,
         usage: usageTracker,
         l1Confirmations: session.l1Confirmations,
         toolAllowlist: session.toolFilterState?.allowlist ??

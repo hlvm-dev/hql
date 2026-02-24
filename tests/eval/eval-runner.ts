@@ -141,7 +141,7 @@ async function runEvalCase(evalCase: EvalCase): Promise<EvalResult> {
       {
         workspace: "/tmp",
         context,
-        autoApprove: true,
+        permissionMode: "yolo",
         maxToolCalls: 10,
         onTrace,
       },
@@ -576,7 +576,7 @@ if (isLiveMode) {
           {
             workspace,
             context,
-            autoApprove: true,
+            permissionMode: "yolo",
             maxToolCalls: 5,
             onTrace,
           },

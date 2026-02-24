@@ -257,20 +257,20 @@ Deno.test({
 });
 
 // ============================================================
-// checkToolSafety tests (auto-approve mode)
+// checkToolSafety tests (permission modes)
 // ============================================================
 
 Deno.test({
-  name: "Safety: checkToolSafety - auto-approve mode",
+  name: "Safety: checkToolSafety - yolo mode auto-approves all levels",
   async fn() {
     clearAllL1Confirmations();
     const store = new Map<string, boolean>();
 
-    // All tools should be approved in auto-approve mode
+    // All tools should be approved in yolo mode
     const l0Result = await checkToolSafety(
       "read_file",
       { path: "test.ts" },
-      true,
+      "yolo",
       null,
       store,
     );
@@ -279,7 +279,7 @@ Deno.test({
     const l1Result = await checkToolSafety(
       "shell_exec",
       { command: "git status" },
-      true,
+      "yolo",
       null,
       store,
     );
@@ -288,7 +288,7 @@ Deno.test({
     const l2Result = await checkToolSafety(
       "write_file",
       { path: "test.ts", content: "test" },
-      true,
+      "yolo",
       null,
       store,
     );
@@ -297,16 +297,44 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Safety: checkToolSafety - L0 auto-approved without prompt",
+  name: "Safety: checkToolSafety - auto-edit mode auto-approves L0 and L1",
   async fn() {
     clearAllL1Confirmations();
     const store = new Map<string, boolean>();
 
-    // L0 tools should be auto-approved even without auto-approve flag
+    // L0 auto-approved
+    const l0Result = await checkToolSafety(
+      "read_file",
+      { path: "test.ts" },
+      "auto-edit",
+      null,
+      store,
+    );
+    assertEquals(l0Result, true);
+
+    // L1 auto-approved in auto-edit mode (no prompt needed)
+    const l1Result = await checkToolSafety(
+      "shell_exec",
+      { command: "git status" },
+      "auto-edit",
+      null,
+      store,
+    );
+    assertEquals(l1Result, true);
+  },
+});
+
+Deno.test({
+  name: "Safety: checkToolSafety - L0 auto-approved in default mode",
+  async fn() {
+    clearAllL1Confirmations();
+    const store = new Map<string, boolean>();
+
+    // L0 tools should be auto-approved even in default mode
     const result = await checkToolSafety(
       "read_file",
       { path: "test.ts" },
-      false, // autoApprove = false, but should still approve L0
+      "default",
       null,
       store,
     );
@@ -329,7 +357,7 @@ Deno.test({
     const result = await checkToolSafety(
       "shell_exec",
       args,
-      false,
+      "default",
       null,
       store,
     );

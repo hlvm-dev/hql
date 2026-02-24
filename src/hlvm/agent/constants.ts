@@ -318,6 +318,13 @@ export function isFrontierProvider(model?: string): boolean {
 // Model Tier Classification
 // ============================================================
 
+export const GROUNDING_MODES = ["off", "warn", "strict"] as const;
+export type GroundingMode = typeof GROUNDING_MODES[number];
+
+export function isGroundingMode(value: unknown): value is GroundingMode {
+  return GROUNDING_MODES.includes(value as GroundingMode);
+}
+
 export type ModelTier = "weak" | "mid" | "frontier";
 
 /** Returns true if `tier` meets or exceeds `minTier`. */

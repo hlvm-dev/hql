@@ -116,7 +116,7 @@ function createConfigApi() {
       const result = validateValue(key, value);
       if (!result.valid) {
         log.warn(`config.${key} invalid: ${result.error}. Using default.`);
-        (next as unknown as Record<string, unknown>)[key] =
+        (next as Record<string, unknown>)[key] =
           DEFAULT_CONFIG[key as keyof HlvmConfig];
       }
     }
@@ -172,7 +172,7 @@ function createConfigApi() {
             "config.set",
           );
         }
-        (next as unknown as Record<string, unknown>)[key] = parsedValue;
+        (next as Record<string, unknown>)[key] = parsedValue;
       }
 
       await saveConfig(next);
