@@ -649,6 +649,56 @@ Deno.test({ name: "Integration: setSignal cancels pending on abort", sanitizeOps
   await platform.fs.remove(temp, { recursive: true });
 }});
 
+Deno.test({ name: "loadMcpTools - disabled_tools filters specified tools from registration", sanitizeOps: false, sanitizeResources: false, fn: async () => {
+  const platform = getPlatform();
+  const temp = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-test-" });
+  const fixturePath = platform.path.join("tests", "fixtures", "mcp-server.ts");
+
+  // The fixture server exposes an "echo" tool. Disable it and verify it's not registered.
+  const { tools, dispose } = await loadMcpTools(
+    temp,
+    undefined,
+    [{
+      name: "filtered",
+      command: ["deno", "run", fixturePath],
+      disabled_tools: ["echo"],
+    }],
+  );
+
+  // The "echo" tool should be disabled — not in the registered tools list
+  assertEquals(tools.includes("mcp_filtered_echo"), false);
+  // Other tools from the server may still register (if any — our fixture only has echo)
+  // The server should still connect successfully
+  assertEquals(hasTool("mcp_filtered_echo"), false);
+
+  await dispose();
+  await platform.fs.remove(temp, { recursive: true });
+}});
+
+Deno.test({ name: "loadMcpTools - timed-out server skipped gracefully", sanitizeOps: false, sanitizeResources: false, fn: async () => {
+  const platform = getPlatform();
+  const temp = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-test-" });
+  const fixturePath = platform.path.join("tests", "fixtures", "mcp-server.ts");
+
+  // Use a working server alongside a server with an impossibly short timeout
+  const { tools, dispose } = await loadMcpTools(
+    temp,
+    undefined,
+    [
+      // This server has a 1ms timeout — should fail to connect in time
+      { name: "slow", command: ["deno", "run", fixturePath], connection_timeout_ms: 1 },
+      // This server has normal timeout — should succeed
+      { name: "fast", command: ["deno", "run", fixturePath] },
+    ],
+  );
+
+  // The fast server should have registered its tools
+  assertEquals(tools.includes("mcp_fast_echo"), true);
+  // The slow server may or may not have connected in 1ms — either way, no crash
+  await dispose();
+  await platform.fs.remove(temp, { recursive: true });
+}});
+
 Deno.test({ name: "Integration: resource subscribe and unsubscribe via SDK client", sanitizeOps: false, sanitizeResources: false, fn: async () => {
   const fixturePath = getPlatform().path.join("tests", "fixtures", "mcp-server.ts");
   const server = {

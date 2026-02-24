@@ -340,3 +340,34 @@ export const DEFAULT_TOOL_DENYLIST = [
   "delegate_agent",
   "complete_task",
 ] as const;
+
+// ============================================================
+// Weak-Tier Tool Cap
+// ============================================================
+
+/**
+ * Core tools for weak-tier models (< 13B params).
+ * Keeps tool count low to avoid context overflow and tool selection confusion.
+ * Mid/frontier models get ALL tools (no cap).
+ */
+export const WEAK_TIER_CORE_TOOLS: readonly string[] = [
+  "read_file", "write_file", "edit_file", "list_files",
+  "search_code", "shell_exec", "ask_user", "complete_task",
+  "git_status", "git_diff", "git_log", "git_commit",
+  "memory_write", "memory_search",
+] as const;
+
+/**
+ * Compute tier-aware tool filter.
+ * - weak: restricts to WEAK_TIER_CORE_TOOLS (unless user provides explicit allowlist)
+ * - mid/frontier: passthrough (no filtering)
+ */
+export function computeTierToolFilter(
+  tier: ModelTier,
+  userAllowlist?: string[],
+  userDenylist?: string[],
+): { allowlist?: string[]; denylist?: string[] } {
+  if (tier !== "weak") return { allowlist: userAllowlist, denylist: userDenylist };
+  const baseAllowlist = userAllowlist?.length ? userAllowlist : [...WEAK_TIER_CORE_TOOLS];
+  return { allowlist: baseAllowlist, denylist: userDenylist };
+}

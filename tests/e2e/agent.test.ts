@@ -33,9 +33,11 @@ const MODEL = "ollama/llama3.1:8b"; // Reliable model for E2E testing
 
 async function isLLMAvailable(): Promise<boolean> {
   try {
-    const { ai } = await import("../../src/hlvm/api/ai.ts");
-    const status = await ai.status();
-    return status.available;
+    const llm = new SdkAgentEngine().createLLM({ model: MODEL });
+    await llm(
+      [{ role: "user", content: "Respond with the word: ok" }],
+    );
+    return true;
   } catch {
     return false;
   }

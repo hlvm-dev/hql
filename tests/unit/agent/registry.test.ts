@@ -18,6 +18,8 @@ import {
   getToolsByCategory,
   hasTool,
   registerTool,
+  resolveTools,
+  unregisterTool,
   validateToolArgs,
 } from "../../../src/hlvm/agent/registry.ts";
 
@@ -347,6 +349,41 @@ Deno.test({
     const dummyTool = { fn: async () => {}, description: "test", args: {} };
     for (const bad of ["test.invalid", "test/invalid"]) {
       assertThrows(() => registerTool(bad, dummyTool), Error, "Invalid tool name");
+    }
+  },
+});
+
+// ============================================================
+// resolveTools tests
+// ============================================================
+
+Deno.test({
+  name: "Registry: resolveTools applies denylist after allowlist",
+  fn() {
+    const selected = resolveTools({
+      allowlist: ["read_file", "write_file"],
+      denylist: ["write_file"],
+    });
+    assertEquals(Object.keys(selected), ["read_file"]);
+  },
+});
+
+Deno.test({
+  name: "Registry: resolveTools supports allowlist + denylist with dynamic tools",
+  fn() {
+    registerTool("test_resolve_dynamic", {
+      fn: async () => "ok",
+      description: "temporary dynamic tool",
+      args: {},
+    });
+    try {
+      const selected = resolveTools({
+        allowlist: ["test_resolve_dynamic", "read_file"],
+        denylist: ["test_resolve_dynamic"],
+      });
+      assertEquals(Object.keys(selected), ["read_file"]);
+    } finally {
+      unregisterTool("test_resolve_dynamic");
     }
   },
 });

@@ -10,6 +10,7 @@ import {
   addServerToConfig,
   formatServerEntry,
   loadMcpConfigMultiScope,
+  normalizeServerName,
   removeServerFromConfig,
 } from "../../agent/mcp/config.ts";
 import {
@@ -227,10 +228,6 @@ async function mcpRemove(args: string[], workspace: string): Promise<void> {
 // ============================================================
 // OAuth Login / Logout
 // ============================================================
-
-function normalizeServerName(name: string): string {
-  return name.trim().toLowerCase();
-}
 
 async function resolveServerByName(
   workspace: string,

@@ -43,7 +43,6 @@ import {
 import type { LLMResponse, ToolCall } from "./tool-call.ts";
 export type { LLMResponse, ToolCall } from "./tool-call.ts";
 import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
-import { clearToolDefCache } from "./llm-integration.ts";
 import {
   createPlanState,
   formatPlanForContext,
@@ -318,8 +317,6 @@ export async function runReActLoop(
     config = { ...config, l1Confirmations: new Map<string, boolean>() };
   }
   const { context, onTrace } = config;
-
-  clearToolDefCache();
 
   const state = initializeLoopState(config);
   const lc = resolveLoopConfig(config);

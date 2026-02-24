@@ -111,9 +111,24 @@ async function loadDotMcpJson(
       )
       : undefined;
 
+    const disabled_tools = Array.isArray(entry.disabled_tools)
+      ? entry.disabled_tools.filter((t: unknown) => typeof t === "string") as string[]
+      : undefined;
+    const connection_timeout_ms = typeof entry.connection_timeout_ms === "number" &&
+        Number.isFinite(entry.connection_timeout_ms) &&
+        entry.connection_timeout_ms > 0
+      ? Math.floor(entry.connection_timeout_ms)
+      : undefined;
+
     // HTTP transport
     if (typeof entry.url === "string") {
-      servers.push({ name, url: entry.url, env });
+      servers.push({
+        name,
+        url: entry.url,
+        env,
+        disabled_tools,
+        connection_timeout_ms,
+      });
       continue;
     }
 
@@ -122,7 +137,13 @@ async function loadDotMcpJson(
       const args = Array.isArray(entry.args)
         ? entry.args.filter((a: unknown) => typeof a === "string") as string[]
         : [];
-      servers.push({ name, command: [entry.command, ...args], env });
+      servers.push({
+        name,
+        command: [entry.command, ...args],
+        env,
+        disabled_tools,
+        connection_timeout_ms,
+      });
     }
   }
 
@@ -183,9 +204,18 @@ function parseClaudeCodeServerEntry(
     )
     : undefined;
 
+  const disabled_tools = Array.isArray(entry.disabled_tools)
+    ? entry.disabled_tools.filter((t: unknown) => typeof t === "string") as string[]
+    : undefined;
+  const connection_timeout_ms = typeof entry.connection_timeout_ms === "number" &&
+      Number.isFinite(entry.connection_timeout_ms) &&
+      entry.connection_timeout_ms > 0
+    ? Math.floor(entry.connection_timeout_ms)
+    : undefined;
+
   // HTTP / SSE transport
   if (typeof entry.url === "string") {
-    return { name, url: entry.url, env };
+    return { name, url: entry.url, env, disabled_tools, connection_timeout_ms };
   }
 
   // Stdio transport: command + args
@@ -193,7 +223,13 @@ function parseClaudeCodeServerEntry(
     const args = Array.isArray(entry.args)
       ? entry.args.filter((a: unknown) => typeof a === "string") as string[]
       : [];
-    return { name, command: [entry.command, ...args], env };
+    return {
+      name,
+      command: [entry.command, ...args],
+      env,
+      disabled_tools,
+      connection_timeout_ms,
+    };
   }
 
   return null;
@@ -384,7 +420,7 @@ export async function resolveBuiltinMcpServers(
 // Shared Utilities
 // ============================================================
 
-function normalizeServerName(name: string): string {
+export function normalizeServerName(name: string): string {
   return name.trim().toLowerCase();
 }
 

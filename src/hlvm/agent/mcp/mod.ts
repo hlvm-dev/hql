@@ -31,6 +31,7 @@ export {
   loadClaudeCodeMcpServers,
   loadMcpConfig,
   loadMcpConfigMultiScope,
+  normalizeServerName,
   parseClaudeCodeMcpJson,
   removeServerFromConfig,
   resolveBuiltinMcpServers,

@@ -162,6 +162,89 @@ Deno.test("parseClaudeCodeMcpJson - non-string env values filtered out", () => {
 });
 
 // ============================================================
+// disabled_tools — parsing tests
+// ============================================================
+
+Deno.test("parseClaudeCodeMcpJson - disabled_tools parsed", () => {
+  const json = JSON.stringify({
+    myserver: {
+      command: "node",
+      args: ["server.js"],
+      disabled_tools: ["dangerous_tool", "another_tool"],
+    },
+  });
+  const servers = parseClaudeCodeMcpJson(json, "myserver");
+  assertEquals(servers.length, 1);
+  assertEquals(servers[0].disabled_tools, ["dangerous_tool", "another_tool"]);
+});
+
+Deno.test("parseClaudeCodeMcpJson - disabled_tools absent returns undefined", () => {
+  const json = JSON.stringify({
+    myserver: {
+      command: "node",
+      args: ["server.js"],
+    },
+  });
+  const servers = parseClaudeCodeMcpJson(json, "myserver");
+  assertEquals(servers.length, 1);
+  assertEquals(servers[0].disabled_tools, undefined);
+});
+
+Deno.test("parseClaudeCodeMcpJson - disabled_tools filters non-strings", () => {
+  const json = JSON.stringify({
+    myserver: {
+      command: "node",
+      args: ["server.js"],
+      disabled_tools: ["valid", 42, null, "also_valid"],
+    },
+  });
+  const servers = parseClaudeCodeMcpJson(json, "myserver");
+  assertEquals(servers.length, 1);
+  assertEquals(servers[0].disabled_tools, ["valid", "also_valid"]);
+});
+
+Deno.test("parseClaudeCodeMcpJson - disabled_tools in mcpServers wrapper", () => {
+  const json = JSON.stringify({
+    mcpServers: {
+      playwright: {
+        command: "npx",
+        args: ["@playwright/mcp@latest"],
+        disabled_tools: ["browser_install"],
+      },
+    },
+  });
+  const servers = parseClaudeCodeMcpJson(json, "pw-dir");
+  assertEquals(servers.length, 1);
+  assertEquals(servers[0].disabled_tools, ["browser_install"]);
+});
+
+Deno.test("parseClaudeCodeMcpJson - connection_timeout_ms parsed when valid", () => {
+  const json = JSON.stringify({
+    myserver: {
+      command: "node",
+      args: ["server.js"],
+      connection_timeout_ms: 1234.8,
+    },
+  });
+  const servers = parseClaudeCodeMcpJson(json, "myserver");
+  assertEquals(servers.length, 1);
+  assertEquals(servers[0].connection_timeout_ms, 1234);
+});
+
+Deno.test("parseClaudeCodeMcpJson - connection_timeout_ms ignored when invalid", () => {
+  const json = JSON.stringify({
+    myserver: {
+      command: "node",
+      args: ["server.js"],
+      connection_timeout_ms: -1,
+    },
+  });
+  const servers = parseClaudeCodeMcpJson(json, "myserver");
+  assertEquals(servers.length, 1);
+  assertEquals(servers[0].connection_timeout_ms, undefined);
+});
+
+// ============================================================
 // formatServerEntry — scope label tests
 // ============================================================
 
@@ -203,5 +286,4 @@ Deno.test("formatServerEntry - claude-code scope", () => {
   assertEquals(entry.scopeLabel, "Claude Code");
   assertEquals(entry.transport, "stdio");
 });
-
 

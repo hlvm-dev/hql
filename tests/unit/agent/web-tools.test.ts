@@ -1,9 +1,9 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert";
+import { WEB_TOOLS } from "../../../src/hlvm/agent/tools/web-tools.ts";
 import {
   parseDuckDuckGoSearchResults,
-  WEB_TOOLS,
   scoreSearchResults,
-} from "../../../src/hlvm/agent/tools/web-tools.ts";
+} from "../../../src/hlvm/agent/tools/web/duckduckgo.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import type { AgentPolicy } from "../../../src/hlvm/agent/policy.ts";
 

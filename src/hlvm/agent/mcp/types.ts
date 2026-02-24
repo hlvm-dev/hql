@@ -22,6 +22,10 @@ export interface McpServerConfig {
   transport?: "stdio" | "http";
   /** Additional headers for HTTP transport */
   headers?: Record<string, string>;
+  /** Raw MCP tool names to skip (not registered) */
+  disabled_tools?: string[];
+  /** Per-server connection timeout in ms (default: 5000) */
+  connection_timeout_ms?: number;
 }
 
 export interface McpConfig {

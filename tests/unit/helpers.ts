@@ -69,7 +69,7 @@ interface TempHqlFileOptions {
  * Create a temporary .hql file, run callback, and always clean up.
  * SSOT for file-backed runtime tests.
  */
-export async function withTempHqlFile<T>(
+async function withTempHqlFile<T>(
   code: string,
   fn: (filePath: string) => Promise<T>,
   options: TempHqlFileOptions = {},

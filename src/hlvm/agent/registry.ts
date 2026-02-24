@@ -171,6 +171,13 @@ let _toolCount: number | null = null;
 /** Pre-computed word sets per tool name for suggestToolNames() */
 let _toolWordSets: Map<string, { stripped: string; words: string[] }> | null =
   null;
+/** Monotonic generation counter — incremented on every cache invalidation */
+let _registryGeneration = 0;
+
+/** Current registry generation (monotonic counter, incremented on tool changes) */
+export function getToolRegistryGeneration(): number {
+  return _registryGeneration;
+}
 
 function invalidateAllToolsCache(): void {
   _allToolsCache = null;
@@ -178,6 +185,7 @@ function invalidateAllToolsCache(): void {
   _normalizedNameMap = null;
   _toolCount = null;
   _toolWordSets = null;
+  _registryGeneration++;
 }
 
 function getActiveDynamicTool(
@@ -336,27 +344,27 @@ export function resolveTools(
 ): Record<string, ToolMetadata> {
   const tools = getAllTools(options?.ownerId);
   const allowlist = options?.allowlist?.filter((name) => name in tools) ?? [];
-  if (allowlist.length > 0) {
-    const selected: Record<string, ToolMetadata> = {};
-    for (const name of allowlist) {
-      selected[name] = tools[name];
-    }
-    return selected;
+  const denylist = options?.denylist?.filter((name) => name in tools) ?? [];
+  if (allowlist.length === 0 && denylist.length === 0) {
+    return tools;
   }
 
-  const denylist = options?.denylist?.filter((name) => name in tools) ?? [];
+  const selected: Record<string, ToolMetadata> = allowlist.length > 0
+    ? Object.fromEntries(
+      allowlist.map((name) => [name, tools[name]]),
+    )
+    : { ...tools };
+
   if (denylist.length > 0) {
     const denySet = new Set(denylist);
-    const selected: Record<string, ToolMetadata> = {};
-    for (const [name, tool] of Object.entries(tools)) {
-      if (!denySet.has(name)) {
-        selected[name] = tool;
+    for (const name of Object.keys(selected)) {
+      if (denySet.has(name)) {
+        delete selected[name];
       }
     }
-    return selected;
   }
 
-  return tools;
+  return selected;
 }
 
 /**

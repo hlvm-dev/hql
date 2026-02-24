@@ -13,6 +13,7 @@ import { ValidationError } from "../../../common/error.ts";
 import { atomicWriteTextFile } from "../../../common/jsonl.ts";
 import { getMcpOAuthPath } from "../../../common/paths.ts";
 import { http } from "../../../common/http-client.ts";
+import { normalizeServerName } from "./config.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
@@ -94,10 +95,6 @@ export interface McpOAuthLoginOptions {
 
 function emptyStore(): McpOAuthStore {
   return { version: MCP_OAUTH_STORE_VERSION, records: [] };
-}
-
-function normalizeServerName(name: string): string {
-  return name.trim().toLowerCase();
 }
 
 function normalizeServerUrl(url: string): string {

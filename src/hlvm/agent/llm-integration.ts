@@ -8,7 +8,11 @@
  * SSOT-compliant: Uses existing platform abstraction
  */
 
-import { resolveTools, type ToolMetadata } from "./registry.ts";
+import {
+  getToolRegistryGeneration,
+  resolveTools,
+  type ToolMetadata,
+} from "./registry.ts";
 import { listAgentProfiles } from "./agent-registry.ts";
 import { buildToolJsonSchema } from "./tool-schema.ts";
 import { getPlatform } from "../../platform/platform.ts";
@@ -38,18 +42,19 @@ function createToolDefCache(): {
   ) => ToolDefinition[];
   clear: () => void;
 } {
-  let cached: { key: string; defs: ToolDefinition[] } | null = null;
+  let cached: { key: string; defs: ToolDefinition[]; generation: number } | null = null;
 
   return {
     build(
       options?: { allowlist?: string[]; denylist?: string[]; ownerId?: string },
     ): ToolDefinition[] {
+      const generation = getToolRegistryGeneration();
       const cacheKey = JSON.stringify([
         options?.allowlist ?? null,
         options?.denylist ?? null,
         options?.ownerId ?? null,
       ]);
-      if (cached && cached.key === cacheKey) {
+      if (cached && cached.key === cacheKey && cached.generation === generation) {
         return cached.defs;
       }
 
@@ -70,7 +75,7 @@ function createToolDefCache(): {
           };
         },
       );
-      cached = { key: cacheKey, defs };
+      cached = { key: cacheKey, defs, generation };
       return defs;
     },
     clear() {

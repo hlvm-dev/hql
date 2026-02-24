@@ -3,6 +3,7 @@
  * into the HLVM dynamic tool registry.
  */
 
+import { pooledMap } from "@std/async";
 import { ValidationError } from "../../../common/error.ts";
 import {
   generateUUID,
@@ -37,47 +38,10 @@ import type {
 // Safety Heuristics
 // ============================================================
 
-const MCP_READ_ONLY_HINTS = [
-  /\bread\b/,
-  /\blist\b/,
-  /\bget\b/,
-  /\bfetch\b/,
-  /\bsearch\b/,
-  /\bfind\b/,
-  /\bquery\b/,
-  /\binspect\b/,
-  /\bdescribe\b/,
-  /\bstatus\b/,
-  /\brender\b/,
-  /\bscreenshot\b/,
-  /\becho\b/,
-];
-
-const MCP_MUTATING_HINTS = [
-  /\bwrite\b/,
-  /\bcreate\b/,
-  /\bupdate\b/,
-  /\bdelete\b/,
-  /\bremove\b/,
-  /\bdestroy\b/,
-  /\bdrop\b/,
-  /\binsert\b/,
-  /\bmodify\b/,
-  /\bpost\b/,
-  /\bput\b/,
-  /\bpatch\b/,
-  /\bsend\b/,
-  /\bexecute\b/,
-  /\brun\b/,
-  /\bstart\b/,
-  /\bstop\b/,
-  /\bkill\b/,
-  /\brestart\b/,
-  /\bclick\b/,
-  /\btype\b/,
-  /\bpress\b/,
-  /\bsubmit\b/,
-];
+const MCP_READ_ONLY_RE =
+  /\b(read|list|get|fetch|search|find|query|inspect|describe|status|render|screenshot|echo)\b/;
+const MCP_MUTATING_RE =
+  /\b(write|create|update|delete|remove|destroy|drop|insert|modify|post|put|patch|send|execute|run|start|stop|kill|restart|click|type|press|submit)\b/;
 
 export function inferMcpSafetyLevel(
   toolName: string,
@@ -86,8 +50,8 @@ export function inferMcpSafetyLevel(
   const text = `${toolName} ${description ?? ""}`
     .toLowerCase()
     .replace(/[_/.-]+/g, " ");
-  if (MCP_MUTATING_HINTS.some((p) => p.test(text))) return "L2";
-  if (MCP_READ_ONLY_HINTS.some((p) => p.test(text))) return "L0";
+  if (MCP_MUTATING_RE.test(text)) return "L2";
+  if (MCP_READ_ONLY_RE.test(text)) return "L0";
   return "L1";
 }
 
@@ -203,13 +167,17 @@ function registerNotificationHandlers(
   server: McpServerConfig,
   registrationOwnerId: string,
   currentToolNames: Set<string>,
+  disabledSet: Set<string> | null,
 ): void {
   // tools/list_changed → re-list tools, unregister removed ones
   client.onNotification(
     "notifications/tools/list_changed",
     async () => {
       try {
-        const newTools = await client.listTools();
+        const allTools = await client.listTools();
+        const newTools = disabledSet
+          ? allTools.filter((t) => !disabledSet.has(t.name))
+          : allTools;
         const entries: Record<string, ToolMetadata> = {};
         const newNames = new Set<string>();
         for (const tool of newTools) {
@@ -306,6 +274,199 @@ function registerNotificationHandlers(
 }
 
 // ============================================================
+// Connection Timeout + Concurrency
+// ============================================================
+
+const MCP_CONNECT_TIMEOUT_MS = 5_000;
+const MCP_CONNECT_CONCURRENCY = 3;
+
+/** Connect to an MCP server with a timeout. Returns null on timeout/error. */
+async function connectWithTimeout(
+  server: McpServerConfig,
+): Promise<SdkMcpClient | null> {
+  const timeoutMs = server.connection_timeout_ms ?? MCP_CONNECT_TIMEOUT_MS;
+  const connectPromise = createSdkMcpClient(server);
+  let didTimeout = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      didTimeout = true;
+      reject(new Error(`MCP connect timeout (${timeoutMs}ms)`));
+    }, timeoutMs);
+  });
+
+  try {
+    const client = await Promise.race([connectPromise, timeoutPromise]);
+    return client;
+  } catch (error) {
+    if (didTimeout) {
+      // If connect eventually succeeds after timeout, close immediately.
+      void connectPromise.then((client) => client.close()).catch(() => {});
+    }
+    const summary = summarizeConnectError(error);
+    const warningKey = `${server.name}::${summary}`;
+    if (!seenMcpConnectWarnings.has(warningKey)) {
+      seenMcpConnectWarnings.add(warningKey);
+      getAgentLogger().warn(
+        `Skipping MCP server '${server.name}': ${summary}`,
+      );
+    } else {
+      getAgentLogger().debug(
+        `MCP server '${server.name}' skip repeated`,
+      );
+    }
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** Result of connecting and registering a single MCP server */
+interface ServerRegistration {
+  client: SdkMcpClient;
+  names: string[];
+  connected: McpConnectedServer;
+}
+
+/** Connect to a server, list+register its tools/resources/prompts. */
+async function connectAndRegisterServer(
+  server: McpServerConfig,
+  registrationOwnerId: string,
+): Promise<ServerRegistration | null> {
+  const client = await connectWithTimeout(server);
+  if (!client) return null;
+
+  try {
+    // List tools (filter disabled_tools if configured)
+    const allTools = await client.listTools();
+    const disabledSet = server.disabled_tools?.length
+      ? new Set(server.disabled_tools)
+      : null;
+    const tools = disabledSet
+      ? allTools.filter((t) => !disabledSet.has(t.name))
+      : allTools;
+    if (disabledSet && allTools.length !== tools.length) {
+      getAgentLogger().debug(
+        `MCP '${server.name}': filtered ${allTools.length - tools.length} disabled tool(s)`,
+      );
+    }
+
+    const entries: Record<string, ToolMetadata> = {};
+    const serverToolNames = new Set<string>();
+    for (const tool of tools) {
+      const name = sanitizeToolName(`mcp_${server.name}_${tool.name}`);
+      entries[name] = buildToolEntry(client, tool);
+      serverToolNames.add(name);
+    }
+
+    registerNotificationHandlers(
+      client,
+      server,
+      registrationOwnerId,
+      serverToolNames,
+      disabledSet,
+    );
+
+    // Conditionally register resource tools
+    if (client.hasCapability("resources")) {
+      entries[sanitizeToolName(`mcp_${server.name}_list_resources`)] = {
+        fn: async () => {
+          const resources = await client.listResources();
+          return { resources };
+        },
+        description:
+          `List available resources from MCP server '${server.name}'`,
+        args: {},
+        skipValidation: true,
+        safetyLevel: "L0",
+        safety: MCP_L0_SAFETY,
+      };
+      entries[sanitizeToolName(`mcp_${server.name}_read_resource`)] = {
+        fn: async (args: unknown) => {
+          if (!isObjectValue(args)) {
+            throw new ValidationError("args must be an object", "mcp");
+          }
+          const a = args as Record<string, unknown>;
+          if (typeof a.uri !== "string") {
+            throw new ValidationError("uri must be a string", "mcp");
+          }
+          const contents = await client.readResource(a.uri);
+          return { contents };
+        },
+        description:
+          `Read a resource by URI from MCP server '${server.name}'`,
+        args: { uri: "string - Resource URI to read" },
+        safetyLevel: "L0",
+        safety: MCP_L0_SAFETY,
+      };
+    }
+
+    // Conditionally register prompt tools
+    if (client.hasCapability("prompts")) {
+      entries[sanitizeToolName(`mcp_${server.name}_list_prompts`)] = {
+        fn: async () => {
+          const prompts = await client.listPrompts();
+          return { prompts };
+        },
+        description:
+          `List available prompts from MCP server '${server.name}'`,
+        args: {},
+        skipValidation: true,
+        safetyLevel: "L0",
+        safety: MCP_L0_SAFETY,
+      };
+      entries[sanitizeToolName(`mcp_${server.name}_get_prompt`)] = {
+        fn: async (args: unknown) => {
+          if (!isObjectValue(args)) {
+            throw new ValidationError("args must be an object", "mcp");
+          }
+          const a = args as Record<string, unknown>;
+          if (typeof a.name !== "string") {
+            throw new ValidationError("name must be a string", "mcp");
+          }
+          const promptArgs: Record<string, string> = {};
+          for (const [k, v] of Object.entries(a)) {
+            if (k !== "name" && typeof v === "string") {
+              promptArgs[k] = v;
+            }
+          }
+          const messages = await client.getPrompt(
+            a.name,
+            Object.keys(promptArgs).length > 0 ? promptArgs : undefined,
+          );
+          return { messages: formatPromptMessages(messages) };
+        },
+        description:
+          `Get a rendered prompt by name from MCP server '${server.name}'. Pass prompt arguments as additional fields.`,
+        args: { name: "string - Prompt name" },
+        skipValidation: true,
+        safetyLevel: "L0",
+        safety: MCP_L0_SAFETY,
+      };
+    }
+
+    const names = registerTools(entries, registrationOwnerId);
+    return {
+      client,
+      names,
+      connected: { name: server.name, toolCount: names.length },
+    };
+  } catch (error) {
+    // Tool listing/registration failed after connect — clean up client
+    await client.close().catch(() => {});
+    const summary = summarizeConnectError(error);
+    const warningKey = `${server.name}::${summary}`;
+    if (!seenMcpConnectWarnings.has(warningKey)) {
+      seenMcpConnectWarnings.add(warningKey);
+      getAgentLogger().warn(
+        `Skipping MCP server '${server.name}': ${summary}`,
+      );
+    }
+    return null;
+  }
+}
+
+// ============================================================
 // Main Load Function
 // ============================================================
 
@@ -344,123 +505,14 @@ export async function loadMcpTools(
   const registered: string[] = [];
   const connectedServers: McpConnectedServer[] = [];
 
-  for (const server of servers) {
-    try {
-      const client = await createSdkMcpClient(server);
-
-      // Register tools
-      const tools = await client.listTools();
-      const entries: Record<string, ToolMetadata> = {};
-      const serverToolNames = new Set<string>();
-      for (const tool of tools) {
-        const name = sanitizeToolName(`mcp_${server.name}_${tool.name}`);
-        entries[name] = buildToolEntry(client, tool);
-        serverToolNames.add(name);
-      }
-
-      registerNotificationHandlers(
-        client,
-        server,
-        registrationOwnerId,
-        serverToolNames,
-      );
-
-      // Conditionally register resource tools
-      if (client.hasCapability("resources")) {
-        entries[sanitizeToolName(`mcp_${server.name}_list_resources`)] = {
-          fn: async () => {
-            const resources = await client.listResources();
-            return { resources };
-          },
-          description:
-            `List available resources from MCP server '${server.name}'`,
-          args: {},
-          skipValidation: true,
-          safetyLevel: "L0",
-          safety: MCP_L0_SAFETY,
-        };
-        entries[sanitizeToolName(`mcp_${server.name}_read_resource`)] = {
-          fn: async (args: unknown) => {
-            if (!isObjectValue(args)) {
-              throw new ValidationError("args must be an object", "mcp");
-            }
-            const a = args as Record<string, unknown>;
-            if (typeof a.uri !== "string") {
-              throw new ValidationError("uri must be a string", "mcp");
-            }
-            const contents = await client.readResource(a.uri);
-            return { contents };
-          },
-          description:
-            `Read a resource by URI from MCP server '${server.name}'`,
-          args: { uri: "string - Resource URI to read" },
-          safetyLevel: "L0",
-          safety: MCP_L0_SAFETY,
-        };
-      }
-
-      // Conditionally register prompt tools
-      if (client.hasCapability("prompts")) {
-        entries[sanitizeToolName(`mcp_${server.name}_list_prompts`)] = {
-          fn: async () => {
-            const prompts = await client.listPrompts();
-            return { prompts };
-          },
-          description:
-            `List available prompts from MCP server '${server.name}'`,
-          args: {},
-          skipValidation: true,
-          safetyLevel: "L0",
-          safety: MCP_L0_SAFETY,
-        };
-        entries[sanitizeToolName(`mcp_${server.name}_get_prompt`)] = {
-          fn: async (args: unknown) => {
-            if (!isObjectValue(args)) {
-              throw new ValidationError("args must be an object", "mcp");
-            }
-            const a = args as Record<string, unknown>;
-            if (typeof a.name !== "string") {
-              throw new ValidationError("name must be a string", "mcp");
-            }
-            const promptArgs: Record<string, string> = {};
-            for (const [k, v] of Object.entries(a)) {
-              if (k !== "name" && typeof v === "string") {
-                promptArgs[k] = v;
-              }
-            }
-            const messages = await client.getPrompt(
-              a.name,
-              Object.keys(promptArgs).length > 0 ? promptArgs : undefined,
-            );
-            return { messages: formatPromptMessages(messages) };
-          },
-          description:
-            `Get a rendered prompt by name from MCP server '${server.name}'. Pass prompt arguments as additional fields.`,
-          args: { name: "string - Prompt name" },
-          skipValidation: true,
-          safetyLevel: "L0",
-          safety: MCP_L0_SAFETY,
-        };
-      }
-
-      const names = registerTools(entries, registrationOwnerId);
-      registered.push(...names);
-      clients.push(client);
-      connectedServers.push({ name: server.name, toolCount: names.length });
-    } catch (error) {
-      const summary = summarizeConnectError(error);
-      const warningKey = `${server.name}::${summary}`;
-      if (!seenMcpConnectWarnings.has(warningKey)) {
-        seenMcpConnectWarnings.add(warningKey);
-        getAgentLogger().warn(
-          `Skipping MCP server '${server.name}': ${summary}`,
-        );
-      } else {
-        getAgentLogger().debug(
-          `MCP server '${server.name}' skip repeated`,
-        );
-      }
-      // Client cleanup is handled by createSdkMcpClient on connect failure
+  // Connect servers with bounded concurrency and per-server timeout
+  const results = pooledMap(MCP_CONNECT_CONCURRENCY, servers,
+    (server) => connectAndRegisterServer(server, registrationOwnerId));
+  for await (const result of results) {
+    if (result) {
+      clients.push(result.client);
+      registered.push(...result.names);
+      connectedServers.push(result.connected);
     }
   }
 

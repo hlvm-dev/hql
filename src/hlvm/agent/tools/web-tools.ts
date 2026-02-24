@@ -19,12 +19,6 @@ import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 import { loadWebConfig } from "../web-config.ts";
 import { getWebCacheValue, setWebCacheValue } from "../web-cache.ts";
 
-// Re-exports from extracted modules (preserve external API)
-export {
-  scoreSearchResults,
-  parseDuckDuckGoSearchResults,
-} from "./web/duckduckgo.ts";
-
 import { duckDuckGoSearch } from "./web/duckduckgo.ts";
 import {
   parseHtml,

@@ -86,6 +86,30 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Orchestrator: executeToolCall - denylist overrides allowlist",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    const call: ToolCall = {
+      toolName: "read_file",
+      args: { path: "README.md" },
+    };
+
+    const result = await executeToolCall(call, {
+      workspace: TEST_WORKSPACE,
+      context,
+      autoApprove: true,
+      toolAllowlist: ["read_file"],
+      toolDenylist: ["read_file"],
+    });
+
+    assertEquals(result.success, false);
+    assertStringIncludes(result.error ?? "", "Tool not allowed");
+  },
+});
+
+Deno.test({
   name: "Orchestrator: executeToolCall - delegate_agent uses handler",
   async fn() {
     clearAllL1Confirmations();

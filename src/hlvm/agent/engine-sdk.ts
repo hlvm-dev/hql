@@ -10,15 +10,13 @@
  */
 
 import { generateText, streamText } from "ai";
-import type { LanguageModel } from "ai";
+import type { LanguageModel, ToolSet } from "ai";
 import type { AgentEngine, AgentLLMConfig } from "./engine.ts";
 import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
 import type { LLMResponse, ToolCall } from "./tool-call.ts";
-import {
-  buildToolDefinitions,
-  type ToolDefinition,
-} from "./llm-integration.ts";
+import { buildToolDefinitions } from "./llm-integration.ts";
+import { getToolRegistryGeneration } from "./registry.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import { ValidationError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
@@ -116,32 +114,49 @@ export function mapSdkToolCalls(
 
 export class SdkAgentEngine implements AgentEngine {
   createLLM(config: AgentLLMConfig): LLMFunction {
+    // Hoisted: resolved once per createLLM() call (same config → same spec)
+    const spec = resolveSdkModelSpec(config.model);
+    let cachedModel: LanguageModel | null = null;
+    const shouldCacheModel = spec.providerName !== "claude-code";
+
+    // Ollama context budget hint (stable across calls)
+    const numCtx = spec.providerName === "ollama" &&
+        typeof config.contextBudget === "number" &&
+        config.contextBudget > 0
+      ? Math.floor(config.contextBudget)
+      : undefined;
+
+    // Tool cache: rebuilt only when registry generation changes
+    let cachedSdkTools: ToolSet = {};
+    let lastToolGeneration = -1;
+
     return async (
       messages: AgentMessage[],
       signal?: AbortSignal,
     ): Promise<LLMResponse> => {
-      const spec = resolveSdkModelSpec(config.model);
-      const model = await getSdkModelFromSpec(spec);
+      if (shouldCacheModel && !cachedModel) {
+        cachedModel = await getSdkModelFromSpec(spec);
+      }
+      const model = shouldCacheModel && cachedModel
+        ? cachedModel
+        : await getSdkModelFromSpec(spec);
       const sdkMessages = convertToSdkMessages(messages);
 
-      // Ollama context budget hint
-      const numCtx = spec.providerName === "ollama" &&
-          typeof config.contextBudget === "number" &&
-          config.contextBudget > 0
-        ? Math.floor(config.contextBudget)
-        : undefined;
-
-      const toolDefs = buildToolDefinitions({
-        allowlist: config.toolAllowlist,
-        denylist: config.toolDenylist,
-        ownerId: config.toolOwnerId,
-      });
-      const sdkTools = convertToolDefinitionsToSdk(toolDefs) ?? {};
+      const generation = getToolRegistryGeneration();
+      if (generation !== lastToolGeneration) {
+        const toolDefs = buildToolDefinitions({
+          allowlist: config.toolAllowlist,
+          denylist: config.toolDenylist,
+          ownerId: config.toolOwnerId,
+        });
+        cachedSdkTools = convertToolDefinitionsToSdk(toolDefs) ?? {};
+        lastToolGeneration = generation;
+      }
 
       const commonOpts = {
         model,
         messages: sdkMessages,
-        tools: sdkTools,
+        tools: cachedSdkTools,
         temperature: config.options?.temperature ?? 0.0,
         maxTokens: config.options?.maxTokens,
         abortSignal: signal,

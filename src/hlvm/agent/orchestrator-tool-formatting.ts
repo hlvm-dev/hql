@@ -224,8 +224,11 @@ export function buildIsToolAllowed(
   const denySet = config.toolDenylist?.length
     ? new Set(config.toolDenylist)
     : null;
-  return (name: string) =>
-    allowSet ? allowSet.has(name) : denySet ? !denySet.has(name) : true;
+  return (name: string) => {
+    if (allowSet && !allowSet.has(name)) return false;
+    if (denySet && denySet.has(name)) return false;
+    return true;
+  };
 }
 
 export function isRenderToolName(toolName: string): boolean {

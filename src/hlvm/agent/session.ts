@@ -18,6 +18,7 @@ import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
 import { type AgentPolicy, loadAgentPolicy } from "./policy.ts";
 import {
   classifyModelTier,
+  computeTierToolFilter,
   ENGINE_PROFILES,
   isFrontierProvider,
   type ModelTier,
@@ -188,13 +189,31 @@ export async function createAgentSession(
     detectGitContext(options.workspace),
   ]);
 
-  // Load MCP tools (depends on builtinMcpServers above)
-  const mcp = await loadMcpTools(
-    options.workspace,
-    options.mcpConfigPath,
-    builtinMcpServers,
-    toolOwnerId,
-  );
+  // Compute model tier BEFORE MCP loading (weak models skip MCP entirely)
+  const isFrontier = isFrontierProvider(options.model);
+  const modelTier = classifyModelTier(modelInfo, isFrontier);
+  const tierFilter = computeTierToolFilter(modelTier, options.toolAllowlist, options.toolDenylist);
+
+  // Load MCP tools (skip for weak-tier models to save context budget)
+  let mcp: Awaited<ReturnType<typeof loadMcpTools>>;
+  if (modelTier === "weak") {
+    getAgentLogger().info("MCP: skipped (weak model tier)");
+    mcp = {
+      tools: [],
+      ownerId: toolOwnerId,
+      connectedServers: [],
+      dispose: async () => {},
+      setHandlers: () => {},
+      setSignal: () => {},
+    };
+  } else {
+    mcp = await loadMcpTools(
+      options.workspace,
+      options.mcpConfigPath,
+      builtinMcpServers,
+      toolOwnerId,
+    );
+  }
 
   // Log connected MCP servers at startup
   if (mcp.connectedServers.length > 0) {
@@ -223,15 +242,12 @@ export async function createAgentSession(
     contextConfig.llmSummarize = engine.createSummarizer(options.model);
   }
 
-  const isFrontier = isFrontierProvider(options.model);
-  const modelTier = classifyModelTier(modelInfo, isFrontier);
-
   const context = new ContextManager(contextConfig);
   context.addMessage({
     role: "system",
     content: generateSystemPrompt({
-      toolAllowlist: options.toolAllowlist,
-      toolDenylist: options.toolDenylist,
+      toolAllowlist: tierFilter.allowlist,
+      toolDenylist: tierFilter.denylist,
       toolOwnerId: mcp.ownerId,
       customInstructions: options.customInstructions,
       modelTier,
@@ -264,8 +280,8 @@ export async function createAgentSession(
       })(),
       options: { temperature: 0.0 },
       contextBudget: resolved.budget,
-      toolAllowlist: options.toolAllowlist,
-      toolDenylist: options.toolDenylist,
+      toolAllowlist: tierFilter.allowlist,
+      toolDenylist: tierFilter.denylist,
       toolOwnerId: mcp.ownerId,
       onToken: options.onToken,
     });
@@ -273,8 +289,8 @@ export async function createAgentSession(
   const llmConfig = options.fixturePath ? undefined : {
     model: options.model!,
     contextBudget: resolved.budget,
-    toolAllowlist: options.toolAllowlist,
-    toolDenylist: options.toolDenylist,
+    toolAllowlist: tierFilter.allowlist,
+    toolDenylist: tierFilter.denylist,
     toolOwnerId: mcp.ownerId,
     temperature: 0.0,
   };

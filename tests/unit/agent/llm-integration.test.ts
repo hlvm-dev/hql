@@ -6,15 +6,22 @@
 
 import {
   assertEquals,
+  assertNotStrictEquals,
   assertStringIncludes,
 } from "jsr:@std/assert";
 import {
+  buildToolDefinitions,
+  clearToolDefCache,
   generateSystemPrompt,
 } from "../../../src/hlvm/agent/llm-integration.ts";
 import {
   classifyModelTier,
   tierMeetsMinimum,
 } from "../../../src/hlvm/agent/constants.ts";
+import {
+  registerTool,
+  unregisterTool,
+} from "../../../src/hlvm/agent/registry.ts";
 
 // ============================================================
 // System Prompt Generation
@@ -294,5 +301,49 @@ Deno.test({
   async fn() {
     const result = await detectGitContext("/nonexistent-dir-12345");
     assertEquals(result, null);
+  },
+});
+
+// ============================================================
+// Tool Definition Cache + Registry Generation
+// ============================================================
+
+Deno.test({
+  name: "buildToolDefinitions: cache hit when registry unchanged",
+  fn() {
+    clearToolDefCache();
+    const first = buildToolDefinitions();
+    const second = buildToolDefinitions();
+    // Same reference → cache hit (no rebuild)
+    assertEquals(first, second);
+  },
+});
+
+Deno.test({
+  name: "buildToolDefinitions: cache miss when registry generation changes",
+  fn() {
+    clearToolDefCache();
+    const before = buildToolDefinitions();
+
+    // Register a dynamic tool to bump the generation counter
+    registerTool("testGenTool", {
+      description: "temp tool for generation test",
+      args: {},
+      fn: async () => "ok",
+    });
+
+    try {
+      const after = buildToolDefinitions();
+      // Different reference → cache miss (rebuilt)
+      assertNotStrictEquals(before, after);
+      // New tool should be present
+      const hasNewTool = after.some(
+        (t) => t.function.name === "testGenTool",
+      );
+      assertEquals(hasNewTool, true);
+    } finally {
+      unregisterTool("testGenTool");
+      clearToolDefCache();
+    }
   },
 });
