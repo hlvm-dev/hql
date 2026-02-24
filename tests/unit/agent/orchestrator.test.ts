@@ -1492,3 +1492,80 @@ Deno.test({
     assertEquals(WEB_TOOL_NAMES.has("shell_exec"), false);
   },
 });
+
+// ============================================================
+// Preflight reject: shell_exec with pipes/chains fails before permission prompt
+// ============================================================
+
+Deno.test({
+  name: "Orchestrator: executeToolCall - shell_exec preflight rejects piped commands",
+  async fn() {
+    clearAllL1Confirmations();
+    const context = new ContextManager();
+
+    const call: ToolCall = {
+      toolName: "shell_exec",
+      args: { command: "ls | grep foo" },
+    };
+
+    // Even in yolo mode, preflight rejects unsafe shell structures
+    const result = await executeToolCall(call, {
+      workspace: TEST_WORKSPACE,
+      context,
+      permissionMode: "yolo",
+    });
+
+    assertEquals(result.success, false);
+    assertStringIncludes(
+      result.error ?? result.llmContent ?? "",
+      "shell_exec does not support",
+    );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCall - shell_exec preflight rejects chained commands",
+  async fn() {
+    clearAllL1Confirmations();
+    const context = new ContextManager();
+
+    const call: ToolCall = {
+      toolName: "shell_exec",
+      args: { command: "echo hi && rm -rf /" },
+    };
+
+    const result = await executeToolCall(call, {
+      workspace: TEST_WORKSPACE,
+      context,
+      permissionMode: "yolo",
+    });
+
+    assertEquals(result.success, false);
+    assertStringIncludes(
+      result.error ?? result.llmContent ?? "",
+      "shell_exec does not support",
+    );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCall - shell_exec preflight allows simple commands",
+  async fn() {
+    clearAllL1Confirmations();
+    const context = new ContextManager();
+
+    const call: ToolCall = {
+      toolName: "shell_exec",
+      args: { command: "echo hello world" },
+    };
+
+    const result = await executeToolCall(call, {
+      workspace: TEST_WORKSPACE,
+      context,
+      permissionMode: "yolo",
+    });
+
+    // Simple command should pass preflight and execute successfully
+    assertEquals(result.success, true);
+  },
+});

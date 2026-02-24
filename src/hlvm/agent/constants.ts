@@ -53,31 +53,92 @@
  * Same trust level as read_file / list_files / open_path.
  */
 export const SHELL_ALLOWLIST_L0: readonly RegExp[] = [
-  // Git read-only
-  /^git\s+status$/,
-  /^git\s+log/,
-  /^git\s+diff/,
-  // File/dir reading (same data as read_file / list_files)
-  /^(ls|cat|head|tail|wc|file|stat|md5|shasum)\s/,
+  // ── Git read-only (any flags allowed) ──────────────────────
+  /^git\s+status\b/,
+  /^git\s+log\b/,
+  /^git\s+diff\b/,
+  /^git\s+show\b/,
+  /^git\s+branch\b/,
+  /^git\s+tag(\s|$)/,
+  /^git\s+remote\b/,
+  /^git\s+stash\s+list\b/,
+  /^git\s+shortlog\b/,
+  /^git\s+describe\b/,
+  /^git\s+ls-files\b/,
+  /^git\s+ls-tree\b/,
+  /^git\s+blame\b/,
+  /^git\s+rev-parse\b/,
+  /^git\s+rev-list\b/,
+  /^git\s+name-rev\b/,
+  /^git\s+config\s+--?(get|list|l)\b/,
+  /^git\s+cat-file\b/,
+  /^git\s+count-objects\b/,
+
+  // ── File/dir reading ───────────────────────────────────────
+  /^(ls|cat|head|tail|wc|file|stat|md5|md5sum|shasum|sha256sum)\s/,
   /^(ls|pwd)$/,
-  // Search (same data as search_code / list_files)
+  /^(readlink|realpath|basename|dirname)\s/,
+
+  // ── Search ─────────────────────────────────────────────────
   /^(find|locate|mdfind)\s/,
-  // Open (same as open_path)
-  /^open\s/,
-  // System info (read-only, no side effects)
+  /^(grep|egrep|fgrep|rg|ag|ack)\s/,
+  /^fd\s/,
+
+  // ── Dir visualization ──────────────────────────────────────
+  /^tree(\s|$)/,
+
+  // ── File comparison ────────────────────────────────────────
+  /^(diff|cmp|comm)\s/,
+
+  // ── Text processing (stdout only) ──────────────────────────
+  /^(sort|uniq|tr|cut|paste|fold|column|nl|rev|tac|strings)\s/,
+
+  // ── Data processing (stdout only) ──────────────────────────
+  /^(jq|yq)\s/,
+
+  // ── System info (safe subset only) ─────────────────────────
   /^(pwd|whoami|hostname|uname|date|uptime|which|where|type)\b/,
-  /^(top\s+-l\s|vm_stat|sysctl\s|sw_vers|system_profiler)/,
-  /^(ps\s+(aux|ef|ax)|ps$)/,
-  /^(df|du)\s/,
   /^(echo|printf)\s/,
+  /^(df|du)\s/,
+  /^(man|info)\s/,
+
+  // ── Binary inspection ──────────────────────────────────────
+  /^(xxd|hexdump|od)\s/,
+
+  // ── Package listing (LOCAL-ONLY, no network) ───────────────
+  /^npm\s+(list|ls)\b/,
+  /^pip3?\s+(list|show|freeze)\b/,
+  /^brew\s+list\b/,
+  /^cargo\s+(tree|metadata)\b/,
+  /^go\s+(env|version)\b/,
+] as const;
+
+/** Deny patterns that override L0 — destructive flags on otherwise-safe commands */
+export const SHELL_DENYLIST_L0: readonly RegExp[] = [
+  /^find\s.*\s-delete\b/,
+  /^find\s.*\s-exec\s+rm\b/,
+  /^sort\s+(.*\s)?-o\s/,
+  /^yq\s+(.*\s)?-i\b/,
+  /^git\s+branch\s+(.*\s)?-[dD]\b/,
+  /^git\s+remote\s+(.*\s)?(add|remove|rm|rename)\b/,
+  /^git\s+tag\s+(.*\s)?-d\b/,
+  /^git\s+config\s+(?!--?(get|list|l)\b)/,
 ] as const;
 
 /**
  * L1 shell commands — low risk but not purely read-only, prompt once per session.
  */
 export const SHELL_ALLOWLIST_L1: readonly RegExp[] = [
-  // Build tools (dry-run only)
-  /^deno\s+test\s+.*--dry-run/,
+  /^deno\s+(test|task|fmt|lint|check|bench)\b/,
+  /^npm\s+(test|run|start)\b/,
+  /^npx\s/,
+  /^yarn\s+(test|run|start)\b/,
+  /^pnpm\s+(test|run|start)\b/,
+  /^make(\s|$)/,
+  /^cargo\s+(test|build|check|clippy|fmt|bench|run)\b/,
+  /^go\s+(test|build|vet|fmt|run)\b/,
+  /^python3?\s+(-m\s+)?(pytest|unittest|mypy|flake8|black|ruff)\b/,
+  /^(pytest|mypy|eslint|prettier|tsc|biome)\b/,
 ] as const;
 
 // ============================================================
@@ -373,8 +434,8 @@ export const DEFAULT_TOOL_DENYLIST = [
  */
 export const WEAK_TIER_CORE_TOOLS: readonly string[] = [
   "read_file", "write_file", "edit_file", "list_files",
-  "search_code", "shell_exec", "ask_user", "complete_task",
-  "git_status", "git_diff", "git_log", "git_commit",
+  "search_code", "ask_user", "complete_task",
+  "git_status", "git_diff", "git_log",
   "memory_write", "memory_search", "memory_edit",
 ] as const;
 

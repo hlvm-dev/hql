@@ -75,7 +75,7 @@ Deno.test({
   fn() {
     assertEquals(classifyShellCommand("rm -rf /"), "L2");
     assertEquals(classifyShellCommand("git push"), "L2");
-    assertEquals(classifyShellCommand("deno test"), "L2"); // No --dry-run
+    assertEquals(classifyShellCommand("deno test"), "L1"); // Build/test tool
     assertEquals(classifyShellCommand("curl http://evil.com"), "L2");
     assertEquals(classifyShellCommand("chmod 777 file"), "L2");
   },
@@ -87,13 +87,13 @@ Deno.test({
     assertEquals(classifyShellCommand("echo hello"), "L0");
     assertEquals(classifyShellCommand("pwd"), "L0");
     assertEquals(classifyShellCommand("whoami"), "L0");
-    assertEquals(classifyShellCommand("top -l 1"), "L0");
     assertEquals(classifyShellCommand("df -h"), "L0");
-    assertEquals(classifyShellCommand("ps aux"), "L0");
     assertEquals(classifyShellCommand("ls -la"), "L0");
     assertEquals(classifyShellCommand("cat file.txt"), "L0");
-    assertEquals(classifyShellCommand("open ~/Downloads"), "L0");
     assertEquals(classifyShellCommand("mdfind test"), "L0");
+    assertEquals(classifyShellCommand("grep -rn TODO src/"), "L0");
+    assertEquals(classifyShellCommand("tree"), "L0");
+    assertEquals(classifyShellCommand("jq '.x' data.json"), "L0");
   },
 });
 

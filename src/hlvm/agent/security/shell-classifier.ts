@@ -10,7 +10,7 @@
  * - L2: Everything else, always prompt
  */
 
-import { SHELL_ALLOWLIST_L0, SHELL_ALLOWLIST_L1 } from "../constants.ts";
+import { SHELL_ALLOWLIST_L0, SHELL_ALLOWLIST_L1, SHELL_DENYLIST_L0 } from "../constants.ts";
 
 interface ShellCommandClassification {
   level: "L0" | "L1" | "L2";
@@ -32,6 +32,15 @@ export function classifyShellCommand(command: string): ShellCommandClassificatio
 
   for (const pattern of SHELL_ALLOWLIST_L0) {
     if (pattern.test(trimmed)) {
+      // Deny-list check: destructive flags on otherwise-safe commands
+      for (const deny of SHELL_DENYLIST_L0) {
+        if (deny.test(trimmed)) {
+          return {
+            level: "L2",
+            reason: `Destructive flag on read-only command: ${trimmed}`,
+          };
+        }
+      }
       return {
         level: "L0",
         reason: `Read-only command (auto-approved): ${trimmed}`,
