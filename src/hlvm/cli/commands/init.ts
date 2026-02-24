@@ -197,7 +197,7 @@ export async function init(args: string[]): Promise<void> {
     exports: `./${entryPoint}`,
   };
 
-  await writeJSONFile(configPath, config as unknown as Record<string, unknown>);
+  await writeJSONFile(configPath, config);
 
   log.raw.log(`\n📁 Created:`);
   log.raw.log(`  ✓ hql.json (${name} v${version})`);

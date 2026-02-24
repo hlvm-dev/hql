@@ -42,8 +42,8 @@ export async function publishJSR(
       logger.debug && logger.debug(`Using existing metadata file: ${jsrMeta}`);
       // Read name and version from actual deno.json if it exists
       const existingDenoJson = (await readJSONFile(denoJsonPath)) as HqlPackageConfig;
-      name = (existingDenoJson.name || config.name) as string;
-      version = (existingDenoJson.version || config.version) as string;
+      name = existingDenoJson.name || config.name;
+      version = existingDenoJson.version || config.version;
     } else {
       // Generate temporary deno.json for publishing
       const { jsr } = await generatePackageMetadata(config, platformCwd());

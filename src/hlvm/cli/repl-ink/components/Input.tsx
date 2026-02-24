@@ -166,7 +166,7 @@ export function Input({
 
   // Paste detection: buffer rapid inputs and process together
   const pasteBufferRef = useRef<string>("");
-  const pasteTimeoutRef = useRef<number | null>(null);
+  const pasteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastInputTimeRef = useRef<number>(0);
 
   // Track if text change was from cycling (Up/Down) vs typing
@@ -1755,7 +1755,7 @@ export function Input({
         pasteTimeoutRef.current = setTimeout(() => {
           pasteTimeoutRef.current = null;
           processPasteBuffer();
-        }, PASTE_PROCESS_DELAY_MS) as unknown as number;
+        }, PASTE_PROCESS_DELAY_MS);
 
         return;
       }

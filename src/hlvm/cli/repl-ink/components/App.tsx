@@ -418,7 +418,7 @@ function AppContent(
     const renderInterval = 100;
     let buffer = "";
     let lastUpdate = 0;
-    let pendingUpdate: number | null = null;
+    let pendingUpdate: ReturnType<typeof setTimeout> | null = null;
 
     const scheduleUpdate = () => {
       const now = Date.now();
@@ -436,7 +436,7 @@ function AppContent(
         pendingUpdate = null;
         updateEvalOutput(taskId, buffer, true);
         lastUpdate = Date.now();
-      }, renderInterval - elapsed) as unknown as number;
+      }, renderInterval - elapsed);
     };
 
     const finalizeForeground = () => {

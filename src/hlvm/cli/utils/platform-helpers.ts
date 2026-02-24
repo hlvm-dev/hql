@@ -3,7 +3,7 @@
  * SSOT: All file/path/process operations go through getPlatform()
  */
 import { getPlatform } from "../../../platform/platform.ts";
-import type { PlatformWriteOptions } from "../../../platform/types.ts";
+import type { PlatformCommandOptions, PlatformWriteOptions } from "../../../platform/types.ts";
 
 export const basename = (path: string) => getPlatform().path.basename(path);
 export const dirname = (path: string) => getPlatform().path.dirname(path);
@@ -21,5 +21,4 @@ export const platformCwd = () => getPlatform().process.cwd();
 export const platformExit = (code: number) => getPlatform().process.exit(code);
 export const platformGetArgs = () => getPlatform().process.args();
 export const platformGetEnv = (key: string) => getPlatform().env.get(key);
-// deno-lint-ignore no-explicit-any
-export const runCmd = (options: any) => getPlatform().command.run(options);
+export const runCmd = (options: PlatformCommandOptions) => getPlatform().command.run(options);

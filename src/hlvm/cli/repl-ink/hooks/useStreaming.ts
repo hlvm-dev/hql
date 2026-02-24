@@ -54,7 +54,7 @@ export function useStreaming(
   // Use refs to avoid re-renders during streaming
   const bufferRef = useRef("");
   const lastUpdateRef = useRef(0);
-  const pendingUpdateRef = useRef<number | null>(null);
+  const pendingUpdateRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
 
   // Cancel function exposed to caller
@@ -104,7 +104,7 @@ export function useStreaming(
             lastUpdateRef.current = Date.now();
           }
           pendingUpdateRef.current = null;
-        }, renderInterval - elapsed) as unknown as number;
+        }, renderInterval - elapsed);
       }
     };
 

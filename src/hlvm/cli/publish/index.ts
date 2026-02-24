@@ -219,7 +219,7 @@ export async function publish(args: string[]): Promise<void> {
       );
       exit(1);
     }
-    const config = (await readJSONFile(configPath)) as unknown as HqlPackageConfig;
+    const config = (await readJSONFile(configPath)) as HqlPackageConfig;
 
     if (!await exists(options.entryFile)) {
       log.raw.error(`\n❌ Entry file not found: ${options.entryFile}`);

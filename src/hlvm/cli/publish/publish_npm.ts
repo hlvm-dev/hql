@@ -118,7 +118,7 @@ const npmPublisher: RegistryPublisher = {
     config.version = packageVersion;
 
     const packageJsonPath = getPlatform().path.join(distDir, "package.json");
-    await writeJSONFile(packageJsonPath, config as unknown as Record<string, unknown>); // Cast to Record
+    await writeJSONFile(packageJsonPath, config);
     log.raw.log(
       `  → Updated dist/package.json file with version ${packageVersion}`,
     );

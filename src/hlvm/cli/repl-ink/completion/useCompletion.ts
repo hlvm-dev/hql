@@ -147,7 +147,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   } = options;
 
   const dropdown = useDropdownState();
-  const debounceTimerRef = useRef<number | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef(0);
 
   const clearDebounce = useCallback(() => {
@@ -231,7 +231,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
           } finally {
             debounceTimerRef.current = null;
           }
-        }, providerDebounceMs) as unknown as number;
+        }, providerDebounceMs);
         return;
       }
 

@@ -10,11 +10,12 @@ import { memory } from "../../api/memory.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
+import { getGlobalRecord } from "./string-utils.ts";
 
 const { GREEN, YELLOW, CYAN, DIM_GRAY, RESET } = ANSI_COLORS;
 
 export function registerReplHelpers(state: ReplState): void {
-  const globalAny = globalThis as unknown as Record<string, unknown>;
+  const globalAny = getGlobalRecord();
 
   if (!globalAny.memory) {
     globalAny.memory = memory;
