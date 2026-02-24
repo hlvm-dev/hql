@@ -14,6 +14,13 @@ import { log } from "../../api/log.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { buildJsModule } from "./build_js_module.ts";
 import { ANSI_COLORS } from "../ansi.ts";
+import {
+  canParse as semverCanParse,
+  compare as semverCompare,
+  format as semverFormat,
+  increment as semverIncrement,
+  parse as semverParse,
+} from "@std/semver";
 
 /**
  * HQL package configuration interface
@@ -296,22 +303,11 @@ export function promptUser(
 }
 
 export function incrementPatchVersion(version: string): string {
-  const parts = version.split(".");
-  if (parts.length !== 3) {
+  try {
+    return semverFormat(semverIncrement(semverParse(version), "patch"));
+  } catch {
     return "0.0.1";
   }
-
-  const major = parseInt(parts[0], 10);
-  const minor = parseInt(parts[1], 10);
-  let patch = parseInt(parts[2], 10);
-
-  // parseInt returns NaN for non-numeric input (doesn't throw)
-  if (Number.isNaN(major) || Number.isNaN(minor) || Number.isNaN(patch)) {
-    return "0.0.1";
-  }
-
-  patch++;
-  return `${major}.${minor}.${patch}`;
 }
 
 export function getCachedBuild(
@@ -363,13 +359,11 @@ export function getPlatformsFromArgs(args: string[]): ("jsr" | "npm")[] {
 }
 
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
-    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
+  if (semverCanParse(a) && semverCanParse(b)) {
+    return semverCompare(semverParse(a), semverParse(b));
   }
-  return 0;
+  // Fallback for non-semver strings — never throw
+  return a.localeCompare(b);
 }
 
 export async function resolveNextPublishVersion(

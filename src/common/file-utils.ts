@@ -6,15 +6,17 @@
  */
 
 import { getPlatform } from "../platform/platform.ts";
+import ignoreModule from "ignore";
+import type { Ignore } from "ignore";
+
+// `ignore` CJS module exports default as property in Deno's TS type system
+const createIgnore: () => Ignore = ignoreModule.default;
+
+export type { Ignore };
 
 // ============================================================
 // Types
 // ============================================================
-
-export interface GitignorePattern {
-  pattern: RegExp;
-  negated: boolean;
-}
 
 export interface WalkEntry {
   /** Relative path from base directory */
@@ -31,7 +33,7 @@ export interface WalkOptions {
   /** Maximum depth (default: 10) */
   maxDepth?: number;
   /** Gitignore patterns to respect */
-  gitignorePatterns?: GitignorePattern[];
+  gitignorePatterns?: Ignore;
   /** Filter function for entries (return false to skip) */
   filter?: (entry: WalkEntry, depth: number) => boolean;
 }
@@ -68,84 +70,32 @@ export function shouldSkipFile(name: string): boolean {
 }
 
 // ============================================================
-// Gitignore Support
+// Gitignore Support (powered by `ignore` package)
 // ============================================================
 
 /**
- * Parse .gitignore content into pattern list
+ * Check if a path is ignored by gitignore patterns.
+ * Thin wrapper preserving API stability for callers.
  */
-export function parseGitignore(content: string): GitignorePattern[] {
-  const patterns: GitignorePattern[] = [];
-
-  for (let line of content.split("\n")) {
-    line = line.trim();
-
-    // Skip empty lines and comments
-    if (!line || line.startsWith("#")) continue;
-
-    // Handle negation
-    const negated = line.startsWith("!");
-    if (negated) line = line.slice(1);
-
-    // Convert gitignore pattern to regex
-    let regex = line
-      .replace(/\./g, "\\.")           // Escape dots
-      .replace(/\*\*/g, "<<<GLOBSTAR>>>")  // Temp placeholder
-      .replace(/\*/g, "[^/]*")         // Single * = anything except /
-      .replace(/<<<GLOBSTAR>>>/g, ".*") // ** = anything including /
-      .replace(/\?/g, "[^/]");         // ? = single char except /
-
-    // Handle directory-only patterns
-    if (line.endsWith("/")) {
-      regex = regex.slice(0, -2); // Remove trailing \/
-    }
-
-    // Handle patterns starting with /
-    if (regex.startsWith("\\/")) {
-      regex = "^" + regex.slice(2);
-    } else {
-      regex = "(^|/)" + regex;
-    }
-
-    regex += "($|/)";
-
-    try {
-      patterns.push({ pattern: new RegExp(regex), negated });
-    } catch {
-      // Invalid regex, skip
-    }
-  }
-
-  return patterns;
+export function isIgnored(path: string, ig: Ignore): boolean {
+  return ig.ignores(path);
 }
 
 /**
- * Check if a path is ignored by gitignore patterns
+ * Load and parse .gitignore from a directory.
+ * Returns an Ignore instance (empty if no .gitignore found).
  */
-export function isIgnored(path: string, patterns: GitignorePattern[]): boolean {
-  let ignored = false;
-
-  for (const { pattern, negated } of patterns) {
-    if (pattern.test(path)) {
-      ignored = !negated;
-    }
-  }
-
-  return ignored;
-}
-
-/**
- * Load and parse .gitignore from a directory
- */
-export async function loadGitignore(baseDir: string): Promise<GitignorePattern[]> {
+export async function loadGitignore(baseDir: string): Promise<Ignore> {
+  const ig = createIgnore();
   try {
     const platform = getPlatform();
     const gitignorePath = platform.path.join(baseDir, ".gitignore");
     const content = await platform.fs.readTextFile(gitignorePath);
-    return parseGitignore(content);
+    ig.add(content);
   } catch {
-    return [];
+    // No .gitignore or unreadable — return empty ignore instance
   }
+  return ig;
 }
 
 // ============================================================
@@ -155,26 +105,14 @@ export async function loadGitignore(baseDir: string): Promise<GitignorePattern[]
 /**
  * Recursively walk a directory tree
  * Yields all files and directories that pass filters
- *
- * @example
- * ```ts
- * const gitignore = await loadGitignore("/project");
- * for await (const entry of walkDirectory({
- *   baseDir: "/project",
- *   gitignorePatterns: gitignore,
- *   maxDepth: 5,
- * })) {
- *   console.log(entry.path, entry.isDirectory);
- * }
- * ```
  */
 export async function* walkDirectory(
-  options: WalkOptions
+  options: WalkOptions,
 ): AsyncGenerator<WalkEntry> {
   const {
     baseDir,
     maxDepth = 10,
-    gitignorePatterns = [],
+    gitignorePatterns = createIgnore(),
     filter,
   } = options;
 
@@ -183,7 +121,7 @@ export async function* walkDirectory(
   async function* walkRecursive(
     dir: string,
     prefix: string,
-    depth: number
+    depth: number,
   ): AsyncGenerator<WalkEntry> {
     // Limit depth to avoid infinite recursion
     if (depth > maxDepth) return;
@@ -203,8 +141,9 @@ export async function* walkDirectory(
           continue;
         }
 
-        // Check gitignore
-        if (isIgnored(relativePath, gitignorePatterns)) {
+        // Check gitignore (append "/" for directories per gitignore spec)
+        const gitignorePath = entry.isDirectory ? `${relativePath}/` : relativePath;
+        if (isIgnored(gitignorePath, gitignorePatterns)) {
           continue;
         }
 

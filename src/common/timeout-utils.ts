@@ -164,42 +164,8 @@ export async function withTimeout<T>(
  * ```
  */
 export function combineSignals(...signals: AbortSignal[]): AbortSignal {
-  // Fast path: single signal needs no wrapper/allocation
-  if (signals.length === 1) {
-    return signals[0];
-  }
-
-  // Fast path: if any signal already aborted, return aborted signal
-  for (const signal of signals) {
-    if (signal.aborted) {
-      const controller = new AbortController();
-      controller.abort(signal.reason);
-      return controller.signal;
-    }
-  }
-
-  // Create combined controller
-  const controller = new AbortController();
-  const listeners: Array<[AbortSignal, () => void]> = [];
-
-  const abortWithSignal = (signal: AbortSignal): void => {
-    if (controller.signal.aborted) {
-      return;
-    }
-    controller.abort(signal.reason);
-    for (const [registeredSignal, listener] of listeners) {
-      registeredSignal.removeEventListener("abort", listener);
-    }
-  };
-
-  // Listen to all signals
-  for (const signal of signals) {
-    const listener = () => abortWithSignal(signal);
-    listeners.push([signal, listener]);
-    signal.addEventListener("abort", listener, { once: true });
-  }
-
-  return controller.signal;
+  if (signals.length === 1) return signals[0];
+  return AbortSignal.any(signals);
 }
 
 // ============================================================

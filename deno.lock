@@ -1496,14 +1496,18 @@
     "dependencies": [
       "jsr:@db/sqlite@0.12",
       "jsr:@std/async@1.0.13",
+      "jsr:@std/path@1",
+      "jsr:@std/semver@1",
       "npm:@ai-sdk/anthropic@3",
       "npm:@ai-sdk/google@3",
       "npm:@ai-sdk/openai@3",
       "npm:@modelcontextprotocol/sdk@^1.12.0",
       "npm:ai@6",
+      "npm:ignore@6",
       "npm:ollama-ai-provider-v2@3",
       "npm:source-map@0.6.1",
-      "npm:typescript@5.3.3"
+      "npm:typescript@5.3.3",
+      "npm:vlq@2.0.4"
     ]
   }
 }

@@ -21,20 +21,21 @@
 // ============================================================
 
 /**
- * Allow-list for L1 (confirm once) shell commands
+ * Allow-list configuration for shell commands
  *
- * These commands are read-only and safe to execute after single confirmation.
+ * L0 commands are read-only and auto-approved.
+ * L1 commands are lower-risk execution commands that require one-time confirmation
+ * per unique invocation in default mode.
  * Everything else defaults to L2 (always confirm).
  *
  * Used by:
  * - security/shell-classifier.ts: classifyShellCommand()
  * - safety.ts: classifyShellExec()
  *
- * L1 commands:
- * - `git status`: Show working tree status (read-only)
- * - `git log`: Show commit history (read-only, any args allowed)
- * - `git diff`: Show changes (read-only, any args allowed)
- * - `deno test --dry-run`: Show tests without running (must have --dry-run flag)
+ * L1 examples:
+ * - `deno test`: Run tests
+ * - `cargo build`: Compile project
+ * - `go test ./...`: Run Go tests
  *
  * @example
  * ```ts
@@ -53,14 +54,14 @@
  * Same trust level as read_file / list_files / open_path.
  */
 export const SHELL_ALLOWLIST_L0: readonly RegExp[] = [
-  // ── Git read-only (any flags allowed) ──────────────────────
+  // ── Git read-only ───────────────────────────────────────────
   /^git\s+status\b/,
   /^git\s+log\b/,
   /^git\s+diff\b/,
   /^git\s+show\b/,
-  /^git\s+branch\b/,
-  /^git\s+tag(\s|$)/,
-  /^git\s+remote\b/,
+  /^git\s+branch(?:\s+(-a|--all|-r|--remotes|-v|-vv|--verbose|--list)\b)?$/,
+  /^git\s+tag(?:\s+(-l|--list)\b(?:\s+\S+)?)?$/,
+  /^git\s+remote(?:\s+-v)?$/,
   /^git\s+stash\s+list\b/,
   /^git\s+shortlog\b/,
   /^git\s+describe\b/,
@@ -110,18 +111,25 @@ export const SHELL_ALLOWLIST_L0: readonly RegExp[] = [
   /^pip3?\s+(list|show|freeze)\b/,
   /^brew\s+list\b/,
   /^cargo\s+(tree|metadata)\b/,
-  /^go\s+(env|version)\b/,
+  /^go\s+version\b/,
+  /^go\s+env(?:\s+[A-Za-z_][A-Za-z0-9_]*)?$/,
 ] as const;
 
 /** Deny patterns that override L0 — destructive flags on otherwise-safe commands */
 export const SHELL_DENYLIST_L0: readonly RegExp[] = [
   /^find\s.*\s-delete\b/,
+  /^find\s.*\s-(exec|execdir|ok|okdir)\b/,
   /^find\s.*\s-exec\s+rm\b/,
   /^sort\s+(.*\s)?-o\s/,
   /^yq\s+(.*\s)?-i\b/,
+  /^go\s+env\s+.*\s-w\b/,
+  /^go\s+env\s+-w\b/,
   /^git\s+branch\s+(.*\s)?-[dD]\b/,
+  /^git\s+branch\s+(.*\s)?-[mMcC]\b/,
   /^git\s+remote\s+(.*\s)?(add|remove|rm|rename)\b/,
+  /^git\s+remote\s+(.*\s)?(set-url|set-head|prune)\b/,
   /^git\s+tag\s+(.*\s)?-d\b/,
+  /^git\s+tag\s+(.*\s)?-[af]\b/,
   /^git\s+config\s+(?!--?(get|list|l)\b)/,
 ] as const;
 
@@ -129,14 +137,9 @@ export const SHELL_DENYLIST_L0: readonly RegExp[] = [
  * L1 shell commands — low risk but not purely read-only, prompt once per session.
  */
 export const SHELL_ALLOWLIST_L1: readonly RegExp[] = [
-  /^deno\s+(test|task|fmt|lint|check|bench)\b/,
-  /^npm\s+(test|run|start)\b/,
-  /^npx\s/,
-  /^yarn\s+(test|run|start)\b/,
-  /^pnpm\s+(test|run|start)\b/,
-  /^make(\s|$)/,
+  /^deno\s+(test|fmt|lint|check|bench)\b/,
   /^cargo\s+(test|build|check|clippy|fmt|bench|run)\b/,
-  /^go\s+(test|build|vet|fmt|run)\b/,
+  /^go\s+(test|build|vet|fmt)\b/,
   /^python3?\s+(-m\s+)?(pytest|unittest|mypy|flake8|black|ruff)\b/,
   /^(pytest|mypy|eslint|prettier|tsc|biome)\b/,
 ] as const;

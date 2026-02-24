@@ -690,21 +690,10 @@ Deno.test({
   fn() {
     const cases: string[] = [
       "deno test",
-      "deno task test:unit",
       "deno fmt",
       "deno lint",
       "deno check mod.ts",
       "deno bench",
-      "npm test",
-      "npm run build",
-      "npm start",
-      "npx vitest",
-      "yarn test",
-      "yarn run build",
-      "pnpm test",
-      "pnpm run dev",
-      "make",
-      "make build",
       "cargo test",
       "cargo build",
       "cargo check",
@@ -716,7 +705,6 @@ Deno.test({
       "go build",
       "go vet ./...",
       "go fmt ./...",
-      "go run main.go",
       "python -m pytest",
       "python3 -m mypy src/",
       "pytest",
@@ -745,16 +733,31 @@ Deno.test({
   fn() {
     const cases: string[] = [
       "npm install",
+      "npm test",
+      "npm run build",
+      "npm start",
+      "npx vitest",
+      "yarn test",
+      "yarn run build",
+      "pnpm test",
+      "pnpm run dev",
+      "make",
+      "make build",
       "git add .",
       "git checkout main",
       "git stash",
       "git stash pop",
       "git restore file.ts",
+      "git branch -m old new",
+      "git tag -a v1 -m msg",
+      "git remote set-url origin git@x:y.git",
       "curl https://example.com",
       "wget https://example.com",
       "npm view lodash",
       "brew search node",
       "pip install requests",
+      "go run main.go",
+      "go env -w GOPATH=/tmp",
       "sudo anything",
       "rm file.txt",
       "rm -rf /",
@@ -876,6 +879,7 @@ Deno.test({
       "git branch -d main",
       "git remote add origin url",
       "git tag -d v1.0",
+      "go env -w GOPATH=/tmp",
     ];
 
     for (const cmd of deniedCommands) {
@@ -885,6 +889,17 @@ Deno.test({
         "L2",
         `Expected ${cmd} to be L2 (denied), got ${classification.level}`,
       );
+    }
+
+    // Commands that are L0 candidates but explicitly denied should carry deny-list reason.
+    const denyReasonCommands = [
+      "find . -delete",
+      "sort -o output.txt input.txt",
+      "yq -i '.x' file.yaml",
+    ];
+
+    for (const cmd of denyReasonCommands) {
+      const classification = classifyTool("shell_exec", { command: cmd });
       assertEquals(
         classification.reason.includes("Destructive flag"),
         true,
@@ -903,13 +918,9 @@ Deno.test({
     // In auto-edit mode, L1 tools are auto-approved
     const l1Commands = [
       "deno test",
-      "deno task test:unit",
-      "npm test",
-      "npm run build",
       "cargo test",
       "go test ./...",
       "pytest",
-      "make",
       "eslint src/",
     ];
 
@@ -947,7 +958,7 @@ Deno.test({
     assertEquals(result, true, "Expected cached L1 to be auto-approved");
 
     // Different L1 command NOT cached → would need prompt
-    const uncachedArgs = { command: "npm test" };
+    const uncachedArgs = { command: "cargo test" };
     assertEquals(
       hasL1Confirmation("shell_exec", uncachedArgs, store),
       false,
@@ -1060,15 +1071,15 @@ Deno.test({
     setL1Confirmation("shell_exec", { command: "deno test" }, store);
     assertEquals(hasL1Confirmation("shell_exec", { command: "deno test" }, store), true);
 
-    // npm test is NOT confirmed (different args → different cache key)
-    assertEquals(hasL1Confirmation("shell_exec", { command: "npm test" }, store), false);
+    // cargo test is NOT confirmed (different args → different cache key)
+    assertEquals(hasL1Confirmation("shell_exec", { command: "cargo test" }, store), false);
 
-    // deno task test:unit is NOT confirmed (different args)
-    assertEquals(hasL1Confirmation("shell_exec", { command: "deno task test:unit" }, store), false);
+    // go test is NOT confirmed (different args)
+    assertEquals(hasL1Confirmation("shell_exec", { command: "go test ./..." }, store), false);
 
-    // Confirm npm test separately
-    setL1Confirmation("shell_exec", { command: "npm test" }, store);
-    assertEquals(hasL1Confirmation("shell_exec", { command: "npm test" }, store), true);
+    // Confirm cargo test separately
+    setL1Confirmation("shell_exec", { command: "cargo test" }, store);
+    assertEquals(hasL1Confirmation("shell_exec", { command: "cargo test" }, store), true);
 
     // deno test still confirmed
     assertEquals(hasL1Confirmation("shell_exec", { command: "deno test" }, store), true);

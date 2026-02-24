@@ -2,8 +2,10 @@
  * Source Map V3 Validator
  *
  * Pure utility for validating source maps against the Source Map V3 specification.
- * Includes a Base64 VLQ decoder and structural/semantic validation.
+ * Uses the `vlq` package for Base64 VLQ decoding with error normalization.
  */
+
+import { decode as vlqDecode } from "vlq";
 
 export interface RawSourceMap {
   version: number;
@@ -21,14 +23,6 @@ export interface ValidationResult {
   warnings: string[];
 }
 
-const BASE64_CHARS =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-const BASE64_MAP = new Map<string, number>();
-for (let i = 0; i < BASE64_CHARS.length; i++) {
-  BASE64_MAP.set(BASE64_CHARS[i], i);
-}
-
 class SourceMapValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -36,49 +30,45 @@ class SourceMapValidationError extends Error {
   }
 }
 
+// Base64 VLQ continuation bit mask — bit 5 indicates more sextets follow
+const VLQ_CONTINUATION_BIT = 0x20;
+const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
 /**
  * Decode a Base64 VLQ encoded string into an array of integers.
- *
- * Base64 VLQ encoding:
- * - Each character maps to a 6-bit value via the Base64 alphabet
- * - Bit 5 (0x20) is the continuation bit: 1 means more sextets follow for this value
- * - After accumulating all sextets, bit 0 of the result is the sign bit (1 = negative)
+ * Thin wrapper around the `vlq` package with truncation detection and error normalization.
  */
 export function decodeVLQ(input: string): number[] {
-  const result: number[] = [];
-  let shift = 0;
-  let value = 0;
+  if (!input) return [];
 
-  for (let i = 0; i < input.length; i++) {
-    const char = input[i];
-    const digit = BASE64_MAP.get(char);
-    if (digit === undefined) {
-      throw new SourceMapValidationError(
-        `Invalid Base64 VLQ character: '${char}' at position ${i}`,
-      );
-    }
-
-    const hasContinuation = (digit & 0x20) !== 0;
-    value += (digit & 0x1f) << shift;
-    shift += 5;
-
-    if (!hasContinuation) {
-      // Bit 0 is the sign bit
-      const isNegative = (value & 1) === 1;
-      const absValue = value >> 1;
-      result.push(isNegative ? -absValue : absValue);
-      value = 0;
-      shift = 0;
-    }
+  // Detect truncated input: last character must NOT have continuation bit set
+  const lastCharValue = BASE64_CHARS.indexOf(input[input.length - 1]);
+  if (lastCharValue === -1) {
+    throw new SourceMapValidationError(
+      `Invalid Base64 VLQ character: '${input[input.length - 1]}' at position ${input.length - 1}`,
+    );
   }
-
-  if (shift > 0) {
+  if ((lastCharValue & VLQ_CONTINUATION_BIT) !== 0) {
     throw new SourceMapValidationError(
       "Truncated VLQ value: unexpected end of input",
     );
   }
 
-  return result;
+  try {
+    return vlqDecode(input);
+  } catch (e) {
+    // Normalize vlq's "Invalid character (X)" to our expected format
+    const msg = e instanceof Error ? e.message : String(e);
+    const charMatch = msg.match(/Invalid character \((.)\)/);
+    if (charMatch) {
+      const badChar = charMatch[1];
+      const pos = input.indexOf(badChar);
+      throw new SourceMapValidationError(
+        `Invalid Base64 VLQ character: '${badChar}' at position ${pos}`,
+      );
+    }
+    throw new SourceMapValidationError(msg);
+  }
 }
 
 /**
