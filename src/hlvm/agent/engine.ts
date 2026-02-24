@@ -9,6 +9,12 @@
 import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
 
+/** Mutable tool filter state shared between orchestrator and engine. */
+export interface ToolFilterState {
+  allowlist?: string[];
+  denylist?: string[];
+}
+
 /** Configuration passed to AgentEngine.createLLM */
 export interface AgentLLMConfig {
   model?: string;
@@ -16,6 +22,8 @@ export interface AgentLLMConfig {
   options?: { temperature?: number; maxTokens?: number };
   toolAllowlist?: string[];
   toolDenylist?: string[];
+  /** Runtime-overridable tool filters (e.g., tool_search narrowing). */
+  toolFilterState?: ToolFilterState;
   toolOwnerId?: string;
   onToken?: (text: string) => void;
 }

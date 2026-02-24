@@ -13,6 +13,7 @@ import {
 import { getAgentLogger } from "../logger.ts";
 import {
   registerTools,
+  type ToolExecutionOptions,
   type ToolMetadata,
   unregisterTool,
 } from "../registry.ts";
@@ -141,13 +142,14 @@ function buildToolEntry(
   const safetyLevel = inferMcpSafetyLevel(tool.name, tool.description);
 
   return {
-    fn: async (args: unknown) => {
+    fn: async (args: unknown, _workspace: string, options?: ToolExecutionOptions) => {
       if (!isObjectValue(args)) {
         throw new ValidationError("args must be an object", "mcp");
       }
       return await client.callTool(
         tool.name,
         args as Record<string, unknown>,
+        options?.signal,
       );
     },
     description: tool.description ?? `MCP tool ${tool.name}`,
@@ -370,8 +372,8 @@ async function connectAndRegisterServer(
     // Conditionally register resource tools
     if (client.hasCapability("resources")) {
       entries[sanitizeToolName(`mcp_${server.name}_list_resources`)] = {
-        fn: async () => {
-          const resources = await client.listResources();
+        fn: async (_args: unknown, _workspace: string, options?: ToolExecutionOptions) => {
+          const resources = await client.listResources(options?.signal);
           return { resources };
         },
         description:
@@ -382,7 +384,11 @@ async function connectAndRegisterServer(
         safety: MCP_L0_SAFETY,
       };
       entries[sanitizeToolName(`mcp_${server.name}_read_resource`)] = {
-        fn: async (args: unknown) => {
+        fn: async (
+          args: unknown,
+          _workspace: string,
+          options?: ToolExecutionOptions,
+        ) => {
           if (!isObjectValue(args)) {
             throw new ValidationError("args must be an object", "mcp");
           }
@@ -390,7 +396,7 @@ async function connectAndRegisterServer(
           if (typeof a.uri !== "string") {
             throw new ValidationError("uri must be a string", "mcp");
           }
-          const contents = await client.readResource(a.uri);
+          const contents = await client.readResource(a.uri, options?.signal);
           return { contents };
         },
         description:
@@ -404,8 +410,8 @@ async function connectAndRegisterServer(
     // Conditionally register prompt tools
     if (client.hasCapability("prompts")) {
       entries[sanitizeToolName(`mcp_${server.name}_list_prompts`)] = {
-        fn: async () => {
-          const prompts = await client.listPrompts();
+        fn: async (_args: unknown, _workspace: string, options?: ToolExecutionOptions) => {
+          const prompts = await client.listPrompts(options?.signal);
           return { prompts };
         },
         description:
@@ -416,7 +422,11 @@ async function connectAndRegisterServer(
         safety: MCP_L0_SAFETY,
       };
       entries[sanitizeToolName(`mcp_${server.name}_get_prompt`)] = {
-        fn: async (args: unknown) => {
+        fn: async (
+          args: unknown,
+          _workspace: string,
+          options?: ToolExecutionOptions,
+        ) => {
           if (!isObjectValue(args)) {
             throw new ValidationError("args must be an object", "mcp");
           }
@@ -433,6 +443,7 @@ async function connectAndRegisterServer(
           const messages = await client.getPrompt(
             a.name,
             Object.keys(promptArgs).length > 0 ? promptArgs : undefined,
+            options?.signal,
           );
           return { messages: formatPromptMessages(messages) };
         },
@@ -551,6 +562,10 @@ export async function loadMcpTools(
         client.cancelAllPending("Agent aborted");
       }
     };
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
     signal.addEventListener("abort", onAbort, { once: true });
   };
 

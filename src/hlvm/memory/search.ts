@@ -32,7 +32,7 @@ const DDL = `
 
   CREATE TABLE IF NOT EXISTS meta (
     file TEXT PRIMARY KEY,
-    mtime INTEGER NOT NULL,
+    mtime INTEGER NOT NULL,  -- vestigial: stored but not used for change detection (hash-only)
     hash TEXT NOT NULL
   );
 `;
@@ -253,4 +253,30 @@ export function setFileMeta(
   db.prepare(
     "INSERT OR REPLACE INTO meta (file, mtime, hash) VALUES (?, ?, ?)",
   ).run(file, mtime, hash);
+}
+
+/**
+ * Remove file metadata entry (used by GC for deleted files).
+ */
+export function removeFileMeta(file: string): void {
+  const db = getMemoryDb();
+  db.prepare("DELETE FROM meta WHERE file = ?").run(file);
+}
+
+/**
+ * Get all distinct file paths stored in the chunks table (for GC).
+ */
+export function getIndexedFiles(): string[] {
+  const db = getMemoryDb();
+  const rows = db.prepare("SELECT DISTINCT file FROM chunks").all() as Array<{ file: string }>;
+  return rows.map((r) => r.file);
+}
+
+/**
+ * Run FTS5 optimize to merge shadow table segments.
+ * Reduces fragmentation from repeated delete+insert cycles.
+ */
+export function optimizeFts(): void {
+  const db = getMemoryDb();
+  db.prepare("INSERT INTO chunks_fts(chunks_fts) VALUES('optimize')").run();
 }

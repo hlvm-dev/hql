@@ -11,7 +11,11 @@
 
 import { generateText, streamText } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
-import type { AgentEngine, AgentLLMConfig } from "./engine.ts";
+import type {
+  AgentEngine,
+  AgentLLMConfig,
+  ToolFilterState,
+} from "./engine.ts";
 import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
 import type { LLMResponse, ToolCall } from "./tool-call.ts";
@@ -129,6 +133,22 @@ export class SdkAgentEngine implements AgentEngine {
     // Tool cache: rebuilt only when registry generation changes
     let cachedSdkTools: ToolSet = {};
     let lastToolGeneration = -1;
+    let lastToolFilterSignature = "";
+
+    const resolveToolFilters = (): ToolFilterState => {
+      if (config.toolFilterState) return config.toolFilterState;
+      return {
+        allowlist: config.toolAllowlist,
+        denylist: config.toolDenylist,
+      };
+    };
+
+    const serializeToolFilters = (filters: ToolFilterState): string => {
+      return JSON.stringify([
+        filters.allowlist ?? null,
+        filters.denylist ?? null,
+      ]);
+    };
 
     return async (
       messages: AgentMessage[],
@@ -143,14 +163,20 @@ export class SdkAgentEngine implements AgentEngine {
       const sdkMessages = convertToSdkMessages(messages);
 
       const generation = getToolRegistryGeneration();
-      if (generation !== lastToolGeneration) {
+      const toolFilters = resolveToolFilters();
+      const toolFilterSignature = serializeToolFilters(toolFilters);
+      if (
+        generation !== lastToolGeneration ||
+        toolFilterSignature !== lastToolFilterSignature
+      ) {
         const toolDefs = buildToolDefinitions({
-          allowlist: config.toolAllowlist,
-          denylist: config.toolDenylist,
+          allowlist: toolFilters.allowlist,
+          denylist: toolFilters.denylist,
           ownerId: config.toolOwnerId,
         });
         cachedSdkTools = convertToolDefinitionsToSdk(toolDefs) ?? {};
         lastToolGeneration = generation;
+        lastToolFilterSignature = toolFilterSignature;
       }
 
       const commonOpts = {

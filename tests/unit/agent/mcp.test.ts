@@ -649,6 +649,49 @@ Deno.test({ name: "Integration: setSignal cancels pending on abort", sanitizeOps
   await platform.fs.remove(temp, { recursive: true });
 }});
 
+Deno.test({ name: "loadMcpTools - setSignal aborts in-flight MCP tool call", sanitizeOps: false, sanitizeResources: false, fn: async () => {
+  const platform = getPlatform();
+  const temp = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-test-" });
+  const fixturePath = platform.path.join("tests", "fixtures", "mcp-server.ts");
+
+  const { dispose, setSignal, ownerId } = await loadMcpTools(
+    temp,
+    undefined,
+    [{
+      name: "abortable",
+      command: [
+        "deno",
+        "run",
+        "--allow-env=MCP_TOOL_DELAY_MS",
+        fixturePath,
+      ],
+      env: { MCP_TOOL_DELAY_MS: "5000" },
+    }],
+  );
+
+  const controller = new AbortController();
+  setSignal(controller.signal);
+
+  const tool = getTool("mcp_abortable_echo", ownerId);
+  const startedAt = Date.now();
+  const abortTimer = setTimeout(() => controller.abort(), 50);
+  try {
+    const err = await assertRejects(
+      () => tool.fn({ message: "hello" }, temp),
+      Error,
+    );
+    const elapsed = Date.now() - startedAt;
+    const message = err.message.toLowerCase();
+    const aborted = err.name === "AbortError" || message.includes("abort");
+    assertEquals(aborted, true);
+    assertEquals(elapsed < 1500, true);
+  } finally {
+    clearTimeout(abortTimer);
+    await dispose();
+    await platform.fs.remove(temp, { recursive: true });
+  }
+}});
+
 Deno.test({ name: "loadMcpTools - disabled_tools filters specified tools from registration", sanitizeOps: false, sanitizeResources: false, fn: async () => {
   const platform = getPlatform();
   const temp = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-test-" });

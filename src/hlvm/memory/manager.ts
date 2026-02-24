@@ -19,6 +19,8 @@ import { estimateTokensFromText } from "../../common/token-utils.ts";
 const LARGE_CONTEXT_THRESHOLD = 32_000;  // tokens — include 2 days of journals
 const MEDIUM_CONTEXT_THRESHOLD = 16_000; // tokens — include today's journal only
 const MEMORY_SIZE_WARNING = 3000;        // tokens — log warning if exceeded
+const MEMORY_MAX_TOKENS = 6000;          // tokens — hard cap on injected memory
+const MEMORY_BUDGET_RATIO = 0.15;        // max 15% of context window for memory
 
 // ============================================================
 // Migration
@@ -153,8 +155,25 @@ export async function loadMemoryContext(
 
   const combined = parts.join("\n\n");
 
-  // Warn if memory is getting large
+  // Hard cap: truncate if memory exceeds budget
+  const maxTokens = Math.min(
+    Math.floor(contextWindow * MEMORY_BUDGET_RATIO),
+    MEMORY_MAX_TOKENS,
+  );
   const tokens = estimateTokensFromText(combined);
+
+  if (tokens > maxTokens) {
+    // Truncate to approximate token limit (4 chars ≈ 1 token)
+    const maxChars = maxTokens * 4;
+    const truncated = combined.slice(0, maxChars);
+    const lastNewline = truncated.lastIndexOf("\n");
+    const finalContent = lastNewline > 0
+      ? truncated.slice(0, lastNewline) + "\n\n[Memory truncated — consider consolidating MEMORY.md]"
+      : truncated;
+    await warnMemory(`Memory context truncated from ~${tokens} to ~${maxTokens} tokens.`);
+    return finalContent;
+  }
+
   if (tokens > MEMORY_SIZE_WARNING) {
     await warnMemory(`Memory context is large (~${tokens} tokens). Consider consolidating MEMORY.md.`);
   }

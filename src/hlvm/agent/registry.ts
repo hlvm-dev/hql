@@ -60,6 +60,20 @@ export interface ToolExecutionOptions {
   signal?: AbortSignal;
   policy?: AgentPolicy | null;
   onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>;
+  /** Session-scoped tool owner (used by dynamic tool families like MCP). */
+  toolOwnerId?: string;
+  /** Optional lazy MCP loader hook used by tool_search. */
+  ensureMcpLoaded?: () => Promise<void>;
+  /** Optional registry-backed tool search callback used by tool_search. */
+  searchTools?: (
+    query: string,
+    options?: {
+      allowlist?: string[];
+      denylist?: string[];
+      ownerId?: string;
+      limit?: number;
+    },
+  ) => ToolSearchResult[];
 }
 
 /** Generic tool function signature */
@@ -88,6 +102,15 @@ export interface ToolMetadata {
     returnDisplay: string;
     llmContent?: string;
   } | null;
+}
+
+/** Condensed tool summary used by the tool_search meta tool. */
+export interface ToolSearchResult {
+  name: string;
+  description: string;
+  category?: ToolMetadata["category"];
+  safetyLevel: "L0" | "L1" | "L2";
+  source: "built-in" | "dynamic";
 }
 
 /** Result of argument validation */
@@ -365,6 +388,78 @@ export function resolveTools(
   }
 
   return selected;
+}
+
+/**
+ * Search tools by natural-language query across name/description/argument keys.
+ * Returns ranked summaries suitable for LLM-facing discovery.
+ */
+export function searchTools(
+  query: string,
+  options?: {
+    allowlist?: string[];
+    denylist?: string[];
+    ownerId?: string;
+    limit?: number;
+  },
+): ToolSearchResult[] {
+  const tools = resolveTools({
+    allowlist: options?.allowlist,
+    denylist: options?.denylist,
+    ownerId: options?.ownerId,
+  });
+  const normalizedQuery = query.trim().toLowerCase();
+  const tokens = normalizedQuery.length > 0
+    ? normalizedQuery.split(/\s+/).filter((t) => t.length > 0)
+    : [];
+  const requestedLimit = options?.limit ?? 12;
+  const limit = Math.max(1, Math.min(requestedLimit, 50));
+
+  const scored: Array<ToolSearchResult & { score: number }> = [];
+  for (const [name, meta] of Object.entries(tools)) {
+    const lowerName = name.toLowerCase();
+    const lowerDescription = meta.description.toLowerCase();
+    const argKeys = Object.keys(meta.args).join(" ").toLowerCase();
+    const haystack = `${lowerName} ${lowerDescription} ${argKeys}`;
+
+    let score = normalizedQuery.length === 0 ? 1 : 0;
+    if (normalizedQuery.length > 0) {
+      if (lowerName === normalizedQuery) score += 12;
+      if (lowerName.startsWith(normalizedQuery)) score += 8;
+      if (lowerName.includes(normalizedQuery)) score += 5;
+
+      for (const token of tokens) {
+        if (lowerName.includes(token)) {
+          score += 4;
+        } else if (lowerDescription.includes(token)) {
+          score += 2;
+        } else if (argKeys.includes(token)) {
+          score += 1;
+        }
+      }
+
+      if (tokens.length > 0 && tokens.every((token) => haystack.includes(token))) {
+        score += 3;
+      }
+    }
+
+    if (score <= 0) continue;
+    scored.push({
+      name,
+      description: meta.description,
+      category: meta.category,
+      safetyLevel: meta.safetyLevel ?? "L0",
+      source: name in TOOL_REGISTRY ? "built-in" : "dynamic",
+      score,
+    });
+  }
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.name.localeCompare(b.name);
+  });
+
+  return scored.slice(0, limit).map(({ score: _score, ...tool }) => tool);
 }
 
 /**

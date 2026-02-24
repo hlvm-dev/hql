@@ -206,7 +206,7 @@ export function transpileCode(hqlCode: string): Promise<{ js: string; result: Co
     const outputPath = `${dir}/test.js`;
 
     await Deno.writeTextFile(inputPath, hqlCode);
-    const result = await runCLI("compile", [inputPath, "-o", outputPath]);
+    const result = await runCLI("hql", ["compile", inputPath, "-o", outputPath]);
 
     let js = "";
     if (result.success) {
@@ -247,7 +247,7 @@ function compileAndRunWith(
     const outputPath = `${dir}/test.js`;
 
     await Deno.writeTextFile(inputPath, hqlCode);
-    const compileResult = await runCLI("compile", [inputPath, "-o", outputPath]);
+    const compileResult = await runCLI("hql", ["compile", inputPath, "-o", outputPath]);
 
     if (!compileResult.success) return compileResult;
 

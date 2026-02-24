@@ -19,6 +19,7 @@ import {
   type InteractionRequestEvent,
   type InteractionResponse,
 } from "./registry.ts";
+import type { ToolFilterState } from "./engine.ts";
 import {
   ContextOverflowError,
   type ContextManager,
@@ -227,8 +228,12 @@ export interface OrchestratorConfig {
   ) => Promise<unknown>;
   toolAllowlist?: string[];
   toolDenylist?: string[];
+  /** Shared mutable tool filters (updated by tool_search). */
+  toolFilterState?: ToolFilterState;
   l1Confirmations?: Map<string, boolean>;
   toolOwnerId?: string;
+  /** Optional lazy MCP loader called on demand. */
+  ensureMcpLoaded?: () => Promise<void>;
   requireToolCalls?: boolean;
   maxToolCallRetries?: number;
   noInput?: boolean;

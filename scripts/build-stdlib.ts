@@ -68,7 +68,7 @@ const HEADER = `\
 // ===========================================================================
 // This file is generated from stdlib.hql by: deno task stdlib:build
 // To modify stdlib functions, edit stdlib.hql and re-run the build.
-// Generated: ${new Date().toISOString()}
+// Generated header is deterministic (timestamp omitted for stable builds).
 // ===========================================================================
 `;
 

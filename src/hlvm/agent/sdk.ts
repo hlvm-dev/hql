@@ -84,6 +84,7 @@ export class Agent {
   async chat(prompt: string): Promise<ChatResult> {
     await this.ensureInit();
     const session = this.session!;
+    session.resetToolFilter?.();
 
     const toolCalls: ChatResult["toolCalls"] = [];
     const onTrace = (event: TraceEvent): void => {
@@ -110,7 +111,13 @@ export class Agent {
         planning: { mode: "off", requireStepMarkers: false },
         skipModelCompensation: session.isFrontierModel,
         l1Confirmations: session.l1Confirmations,
+        toolAllowlist: session.toolFilterState?.allowlist ??
+          session.llmConfig?.toolAllowlist,
+        toolDenylist: session.toolFilterState?.denylist ??
+          session.llmConfig?.toolDenylist,
+        toolFilterState: session.toolFilterState,
         toolOwnerId: session.toolOwnerId,
+        ensureMcpLoaded: session.ensureMcpLoaded,
       },
       session.llm,
     );

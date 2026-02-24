@@ -22,6 +22,7 @@ import {
   type ToolCall,
   WEB_TOOL_NAMES,
 } from "../../../src/hlvm/agent/orchestrator.ts";
+import { callLLMWithRetry } from "../../../src/hlvm/agent/orchestrator-llm.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import { clearAllL1Confirmations } from "../../../src/hlvm/agent/security/safety.ts";
 import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
@@ -59,6 +60,49 @@ Deno.test({
 
     assertEquals(result.success, true);
     assertEquals(result.result !== undefined, true);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCall - lazy MCP hook loads mcp_* tool on demand",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    const toolName = "mcp_lazy_echo";
+    let ensureCalls = 0;
+
+    try {
+      const result = await executeToolCall(
+        { toolName, args: { message: "hello" } },
+        {
+          workspace: TEST_WORKSPACE,
+          context,
+          autoApprove: true,
+          ensureMcpLoaded: async () => {
+            await Promise.resolve();
+            ensureCalls += 1;
+            if (!TOOL_REGISTRY[toolName]) {
+              TOOL_REGISTRY[toolName] = {
+                fn: async (args: unknown) => {
+                  const message = (args as { message?: unknown }).message;
+                  return `echo:${typeof message === "string" ? message : ""}`;
+                },
+                description: "lazy mcp test tool",
+                args: { message: "string" },
+                safetyLevel: "L0" as const,
+              };
+            }
+          },
+        },
+      );
+
+      assertEquals(ensureCalls, 1);
+      assertEquals(result.success, true);
+      assertEquals(result.result, "echo:hello");
+    } finally {
+      delete TOOL_REGISTRY[toolName];
+    }
   },
 });
 
@@ -733,6 +777,40 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Orchestrator: callLLMWithRetry - aborts during retry backoff",
+  async fn() {
+    let calls = 0;
+    const controller = new AbortController();
+    const startedAt = Date.now();
+
+    const llm = async () => {
+      calls += 1;
+      throw new Error("Rate limit exceeded (429)");
+    };
+
+    const abortTimer = setTimeout(() => controller.abort(), 50);
+    try {
+      await assertRejects(
+        () =>
+          callLLMWithRetry(
+            llm,
+            [],
+            { timeout: 2000, maxRetries: 4, signal: controller.signal },
+          ),
+        Error,
+        "aborted",
+      );
+    } finally {
+      clearTimeout(abortTimer);
+    }
+
+    const elapsed = Date.now() - startedAt;
+    assertEquals(calls, 1);
+    assertEquals(elapsed < 900, true);
+  },
+});
+
+Deno.test({
   name: "Orchestrator: runReActLoop - retries on rate limit then succeeds",
   async fn() {
     clearAllL1Confirmations();
@@ -843,6 +921,45 @@ Deno.test({
 
     assertEquals(typeof result, "string");
     assertEquals(callCount, 2); // Should have called LLM twice
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: runReActLoop - tool_search narrows runtime tool filter",
+  async fn() {
+    clearAllL1Confirmations();
+
+    const context = new ContextManager();
+    const toolFilterState: { allowlist?: string[]; denylist?: string[] } = {};
+    let callCount = 0;
+
+    const mockLLM = async () => {
+      await Promise.resolve();
+      callCount++;
+      if (callCount === 1) {
+        return makeResponse("", [{
+          toolName: "tool_search",
+          args: { query: "read file", limit: 3 },
+        }]);
+      }
+      return makeResponse("done");
+    };
+
+    const result = await runReActLoop(
+      "Find the right tool",
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        autoApprove: true,
+        toolFilterState,
+      },
+      mockLLM,
+    );
+
+    assertEquals(result, "done");
+    assertEquals((toolFilterState.allowlist?.length ?? 0) > 0, true);
+    assertEquals(toolFilterState.allowlist?.includes("tool_search"), true);
+    assertEquals(toolFilterState.allowlist?.includes("read_file"), true);
   },
 });
 

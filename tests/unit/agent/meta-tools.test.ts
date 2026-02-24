@@ -6,11 +6,13 @@
 
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import { META_TOOLS } from "../../../src/hlvm/agent/tools/meta-tools.ts";
+import { searchTools } from "../../../src/hlvm/agent/registry.ts";
 
 Deno.test({
   name: "META_TOOLS: ask_user - should have correct safety level",
   fn() {
     assertEquals(META_TOOLS.ask_user.safetyLevel, "L0");
+    assertEquals(META_TOOLS.tool_search.safetyLevel, "L0");
   },
 });
 
@@ -89,6 +91,59 @@ Deno.test({
         ),
       Error,
       "aborted",
+    );
+  },
+});
+
+Deno.test({
+  name: "META_TOOLS: tool_search - returns ranked matches and suggested allowlist",
+  async fn() {
+    const result = await META_TOOLS.tool_search.fn(
+      { query: "read file", limit: 3 },
+      "/workspace",
+      { searchTools },
+    ) as {
+      count: number;
+      matches: Array<{ name: string }>;
+      suggested_allowlist: string[];
+    };
+
+    assertEquals(result.count > 0, true);
+    assertEquals(Array.isArray(result.matches), true);
+    assertEquals(result.matches[0].name, "read_file");
+    assertEquals(
+      result.suggested_allowlist.includes("read_file"),
+      true,
+    );
+  },
+});
+
+Deno.test({
+  name: "META_TOOLS: tool_search - triggers ensureMcpLoaded hook",
+  async fn() {
+    let ensured = false;
+    await META_TOOLS.tool_search.fn(
+      { query: "search code" },
+      "/workspace",
+      {
+        ensureMcpLoaded: async () => {
+          await Promise.resolve();
+          ensured = true;
+        },
+        searchTools,
+      },
+    );
+    assertEquals(ensured, true);
+  },
+});
+
+Deno.test({
+  name: "META_TOOLS: tool_search - rejects missing query",
+  async fn() {
+    await assertRejects(
+      async () => await META_TOOLS.tool_search.fn({}, "/workspace"),
+      Error,
+      "query must be a non-empty string",
     );
   },
 });

@@ -152,6 +152,55 @@ async function readStdinWithAbort(
 }
 
 // ============================================================
+// Tool 2: tool_search
+// ============================================================
+
+async function toolSearch(
+  args: unknown,
+  _workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<Record<string, unknown>> {
+  throwIfAborted(options?.signal);
+
+  if (!isToolArgsObject(args)) {
+    throw new ValidationError("args must be an object", "tool_search");
+  }
+
+  const { query, limit } = args as {
+    query?: unknown;
+    limit?: unknown;
+  };
+
+  if (typeof query !== "string" || query.trim() === "") {
+    throw new ValidationError("query must be a non-empty string", "tool_search");
+  }
+
+  if (options?.ensureMcpLoaded) {
+    await options.ensureMcpLoaded();
+  }
+
+  const resolvedLimit = typeof limit === "number" && Number.isFinite(limit)
+    ? Math.max(1, Math.min(Math.floor(limit), 25))
+    : 10;
+
+  if (!options?.searchTools) {
+    throw new ValidationError("tool search is not configured", "tool_search");
+  }
+
+  const matches = options.searchTools(query, {
+    ownerId: options?.toolOwnerId,
+    limit: resolvedLimit,
+  });
+
+  return {
+    query,
+    count: matches.length,
+    matches,
+    suggested_allowlist: matches.map((m) => m.name),
+  };
+}
+
+// ============================================================
 // Tool Registry Export
 // ============================================================
 
@@ -187,6 +236,22 @@ export const META_TOOLS: Record<string, ToolMetadata> = {
     },
     returns: {
       summary: "string - Completion summary",
+    },
+    safetyLevel: "L0" as const,
+  },
+  tool_search: {
+    fn: toolSearch,
+    description:
+      "Search and rank tools by intent. Returns suggested_allowlist for narrowing next LLM tool schema.",
+    category: "meta",
+    args: {
+      query: "string - Capability needed (e.g., 'find symbol references in TypeScript')",
+      limit: "number (optional) - Max tools to return (1-25, default 10)",
+    },
+    returns: {
+      count: "number - Number of matched tools",
+      matches: "array - Ranked tool summaries",
+      suggested_allowlist: "string[] - Suggested tool names to focus next iteration",
     },
     safetyLevel: "L0" as const,
   },

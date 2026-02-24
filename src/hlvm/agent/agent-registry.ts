@@ -30,6 +30,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
       "mcp_playwright_render_url",
       "memory_write",
       "memory_search",
+      "memory_edit",
     ],
   },
   {
@@ -78,6 +79,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
     tools: [
       "memory_write",
       "memory_search",
+      "memory_edit",
     ],
   },
 ];

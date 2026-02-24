@@ -19,6 +19,7 @@ import {
   hasTool,
   registerTool,
   resolveTools,
+  searchTools,
   unregisterTool,
   validateToolArgs,
 } from "../../../src/hlvm/agent/registry.ts";
@@ -385,5 +386,31 @@ Deno.test({
     } finally {
       unregisterTool("test_resolve_dynamic");
     }
+  },
+});
+
+// ============================================================
+// searchTools tests
+// ============================================================
+
+Deno.test({
+  name: "Registry: searchTools ranks matching tools and returns summaries",
+  fn() {
+    const matches = searchTools("read file", { limit: 5 });
+    assertEquals(matches.length > 0, true);
+    assertEquals(matches[0].name, "read_file");
+    assertStringIncludes(matches[0].description.toLowerCase(), "read");
+    assertEquals(matches[0].source, "built-in");
+  },
+});
+
+Deno.test({
+  name: "Registry: searchTools respects denylist filters",
+  fn() {
+    const matches = searchTools("read file", {
+      denylist: ["read_file"],
+      limit: 10,
+    });
+    assertEquals(matches.some((m) => m.name === "read_file"), false);
   },
 });

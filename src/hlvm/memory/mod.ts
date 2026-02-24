@@ -10,6 +10,8 @@ export {
   appendToMemoryMd,
   readMemoryMd,
   readRecentJournals,
+  removeSectionFromMemoryMd,
+  replaceInMemoryMd,
   writeMemoryMd,
 } from "./store.ts";
 
@@ -20,7 +22,7 @@ export { loadMemoryContext, resetMemoryStateForTesting } from "./manager.ts";
 export { MEMORY_TOOLS } from "./tools.ts";
 
 // Search
-export { closeMemoryDb, searchMemory } from "./search.ts";
+export { closeMemoryDb, getIndexedFiles, optimizeFts, removeFileMeta, searchMemory } from "./search.ts";
 
 // Indexer
 export { indexFile, reindexMemoryFiles } from "./indexer.ts";

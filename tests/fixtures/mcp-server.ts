@@ -37,6 +37,15 @@ try {
   testMode = "";
 }
 
+let toolDelayMs = 0;
+try {
+  const rawDelay = Deno.env.get("MCP_TOOL_DELAY_MS");
+  const parsed = rawDelay ? Number(rawDelay) : 0;
+  toolDelayMs = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+} catch {
+  toolDelayMs = 0;
+}
+
 let buffer = "";
 
 function write(message: unknown) {
@@ -246,21 +255,31 @@ function handleRequest(request: {
 
     if (toolName === "reverse") {
       const text = (args?.text as string) ?? "";
-      write({
+      const response = {
         jsonrpc: "2.0",
         id: request.id,
         result: { content: [{ type: "text", text: text.split("").reverse().join("") }] },
-      });
+      };
+      if (toolDelayMs > 0) {
+        setTimeout(() => write(response), toolDelayMs);
+      } else {
+        write(response);
+      }
       return;
     }
 
-    write({
+    const response = {
       jsonrpc: "2.0",
       id: request.id,
       result: {
         content: [{ type: "text", text: `${replyPrefix}${args?.message ?? ""}` }],
       },
-    });
+    };
+    if (toolDelayMs > 0) {
+      setTimeout(() => write(response), toolDelayMs);
+    } else {
+      write(response);
+    }
     return;
   }
 

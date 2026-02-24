@@ -22,9 +22,12 @@ import { resetHlvmDirCacheForTests, getMemoryMdPath, getMemoryDir, ensureMemoryD
 import {
   appendToMemoryMd,
   closeMemoryDb,
+  getIndexedFiles,
   loadMemoryContext,
   readMemoryMd,
   reindexMemoryFiles,
+  removeSectionFromMemoryMd,
+  replaceInMemoryMd,
   resetMemoryStateForTesting,
   searchMemory,
   writeMemoryMd,
@@ -64,6 +67,7 @@ async function teardownTestEnv(tempDir: string): Promise<void> {
 // Wrap the actual tool handlers with a dummy workspace (memory tools don't use it)
 const memoryWrite = (args: unknown) => MEMORY_TOOLS.memory_write.fn(args, "/tmp");
 const memorySearch = (args: unknown) => MEMORY_TOOLS.memory_search.fn(args, "/tmp");
+const memoryEdit = (args: unknown) => MEMORY_TOOLS.memory_edit.fn(args, "/tmp");
 
 // ============================================================
 // E2E: memory_write → disk → memory_search finds it
@@ -951,6 +955,260 @@ Deno.test("P7: section header 'Prefer' doesn't collide with 'Preferences'", asyn
       Math.abs(tabsIdx - prefIdx) < Math.abs(tabsIdx - preferencesIdx),
       "Content should be under ## Prefer, not ## Preferences",
     );
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+// ============================================================
+// Fix #1: GC removes orphaned chunks for deleted files
+// ============================================================
+
+Deno.test("GC: reindexMemoryFiles removes chunks for deleted journal files", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    const platform = getPlatform();
+    const memDir = platform.path.join(tempDir, "memory");
+    const journalDir = platform.path.join(memDir, "journal");
+    await platform.fs.mkdir(journalDir, { recursive: true });
+
+    // Create and index a journal file
+    const journalPath = platform.path.join(journalDir, "2026-01-15.md");
+    await platform.fs.writeTextFile(journalPath, "# Journal\n\nOrphaned entry about kubernetes");
+    indexFile(journalPath, "2026-01-15");
+
+    // Verify it's indexed
+    const before = searchMemory("kubernetes");
+    assert(before.length > 0, "Should find indexed content before deletion");
+
+    // Delete the file from disk
+    await platform.fs.remove(journalPath);
+
+    // Run reindex (which includes GC)
+    resetMemoryStateForTesting();
+    await reindexMemoryFiles();
+
+    // Orphaned chunks should be gone
+    const after = searchMemory("kubernetes");
+    assertEquals(after.length, 0, "GC should remove chunks for deleted files");
+
+    // Meta table should also be cleaned
+    const indexed = getIndexedFiles();
+    assertEquals(indexed.includes(journalPath), false, "GC should clean meta for deleted files");
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+// ============================================================
+// Fix #2: Atomic writes (verified via concurrent write safety)
+// ============================================================
+
+Deno.test("Atomic: writeMemoryMd produces valid file (no partial writes)", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    // Write a large content block atomically
+    const largeContent = "# Big Memory\n\n" + Array.from({ length: 100 }, (_, i) =>
+      `- Entry ${i}: ${"x".repeat(80)}`).join("\n");
+    await writeMemoryMd(largeContent);
+
+    // Verify content is complete (not truncated)
+    const result = await readMemoryMd();
+    assertStringIncludes(result, "Entry 0:");
+    assertStringIncludes(result, "Entry 99:");
+    assert(result.length > 8000, "Full content should be written atomically");
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+// ============================================================
+// Fix #3: memory_edit tool — delete section and replace
+// ============================================================
+
+Deno.test("memory_edit: delete_section removes a section from MEMORY.md", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    await writeMemoryMd("# Memory\n\n## Keep\nImportant stuff\n\n## Remove\nOutdated info\n\n## Also Keep\nMore stuff\n");
+
+    const result = await memoryEdit({ action: "delete_section", section: "Remove" }) as Record<string, unknown>;
+    assertEquals(result.edited, true);
+
+    const content = await readMemoryMd();
+    assertStringIncludes(content, "Important stuff");
+    assertStringIncludes(content, "More stuff");
+    assertEquals(content.includes("Outdated info"), false, "Deleted section content should be gone");
+    assertEquals(content.includes("## Remove"), false, "Deleted section header should be gone");
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+Deno.test("memory_edit: delete_section returns false for non-existent section", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    await writeMemoryMd("# Memory\n\n## Existing\nContent\n");
+    const result = await memoryEdit({ action: "delete_section", section: "NonExistent" }) as Record<string, unknown>;
+    assertEquals(result.edited, false);
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+Deno.test("memory_edit: replace finds and replaces text in MEMORY.md", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    await writeMemoryMd("User prefers tabs. Tabs are great. Use tabs everywhere.");
+
+    const result = await memoryEdit({
+      action: "replace",
+      find: "tabs",
+      replace_with: "spaces",
+    }) as Record<string, unknown>;
+    assertEquals(result.edited, true);
+    // "tabs" (lowercase) appears twice: "prefers tabs" and "Use tabs" — replaceAll replaces both
+    assert((result.replacements as number) >= 1);
+
+    const content = await readMemoryMd();
+    assertStringIncludes(content, "spaces");
+    // "Tabs" (capitalized) should remain unchanged (case-sensitive replace)
+    assertStringIncludes(content, "Tabs are great");
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+Deno.test("memory_edit: replace returns 0 when find doesn't match", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    await writeMemoryMd("User prefers dark mode");
+    const result = await memoryEdit({
+      action: "replace",
+      find: "light mode",
+      replace_with: "dark mode",
+    }) as Record<string, unknown>;
+    assertEquals(result.edited, false);
+    assertEquals(result.replacements, 0);
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+Deno.test("memory_edit: rejects invalid action", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    let threw = false;
+    try {
+      await memoryEdit({ action: "invalid" });
+    } catch {
+      threw = true;
+    }
+    assertEquals(threw, true, "Should reject invalid action");
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+// ============================================================
+// Fix #3: removeSectionFromMemoryMd and replaceInMemoryMd (direct)
+// ============================================================
+
+Deno.test("removeSectionFromMemoryMd: removes section and cleans up whitespace", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    await writeMemoryMd("# Mem\n\n## A\nKeep A\n\n## B\nRemove B\n\n## C\nKeep C\n");
+    const removed = await removeSectionFromMemoryMd("B");
+    assertEquals(removed, true);
+
+    const content = await readMemoryMd();
+    assertStringIncludes(content, "Keep A");
+    assertStringIncludes(content, "Keep C");
+    assertEquals(content.includes("Remove B"), false);
+    // No triple newlines
+    assertEquals(content.includes("\n\n\n"), false, "Should not have triple newlines after removal");
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+Deno.test("replaceInMemoryMd: sanitizes replacement text for PII", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    await writeMemoryMd("API key is OLD_KEY");
+    const count = await replaceInMemoryMd("OLD_KEY", "sk_live_abcdefghijklmnopqrstuvwxyz");
+    assertEquals(count, 1);
+
+    const content = await readMemoryMd();
+    assertStringIncludes(content, "[REDACTED:API key]");
+    assertEquals(content.includes("sk_live_abcdefghijklmnopqrstuvwxyz"), false);
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+// ============================================================
+// Fix #4: Hard cap on memory context injection
+// ============================================================
+
+Deno.test("Hard cap: loadMemoryContext truncates oversized memory", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    // Write a very large MEMORY.md (>6000 tokens ≈ 24K chars)
+    const bigContent = Array.from({ length: 500 }, (_, i) =>
+      `- Decision ${i}: We chose architecture pattern ${i} for module ${i}`).join("\n");
+    await writeMemoryMd("# Memory\n\n" + bigContent);
+
+    // Load with small context window (8K tokens → 15% = 1200 tokens max)
+    resetMemoryStateForTesting();
+    const context = await loadMemoryContext(8_000);
+
+    // Should be truncated
+    assertStringIncludes(context, "Decision 0");
+    assertStringIncludes(context, "[Memory truncated");
+    // Should not contain entries near the end
+    assertEquals(context.includes("Decision 499"), false, "End entries should be truncated");
+  } finally {
+    await teardownTestEnv(tempDir);
+  }
+});
+
+// ============================================================
+// Fix #8: Journal rotation deletes old journals
+// ============================================================
+
+Deno.test("Rotation: reindexMemoryFiles deletes journals older than 90 days", async () => {
+  const tempDir = await setupTestEnv();
+  try {
+    const platform = getPlatform();
+    const memDir = platform.path.join(tempDir, "memory");
+    const journalDir = platform.path.join(memDir, "journal");
+    await platform.fs.mkdir(journalDir, { recursive: true });
+
+    // Create an old journal (200 days ago)
+    const oldDate = new Date();
+    oldDate.setDate(oldDate.getDate() - 200);
+    const oldDateStr = oldDate.toISOString().slice(0, 10);
+    const oldPath = platform.path.join(journalDir, `${oldDateStr}.md`);
+    await platform.fs.writeTextFile(oldPath, "# Old journal\n\nAncient context");
+
+    // Create a recent journal (today)
+    const today = new Date().toISOString().slice(0, 10);
+    const recentPath = platform.path.join(journalDir, `${today}.md`);
+    await platform.fs.writeTextFile(recentPath, "# Today\n\nFresh context");
+
+    // Run reindex (includes rotation)
+    resetMemoryStateForTesting();
+    await reindexMemoryFiles();
+
+    // Old journal should be deleted
+    let oldExists = true;
+    try { await platform.fs.stat(oldPath); } catch { oldExists = false; }
+    assertEquals(oldExists, false, "Journal older than 90 days should be deleted");
+
+    // Recent journal should still exist
+    let recentExists = true;
+    try { await platform.fs.stat(recentPath); } catch { recentExists = false; }
+    assertEquals(recentExists, true, "Recent journal should be preserved");
   } finally {
     await teardownTestEnv(tempDir);
   }

@@ -172,7 +172,7 @@ Answer DIRECTLY from your knowledge for:
 - Questions fully answerable without inspecting local files, running commands, or fetching live data
 Do NOT create files, run commands, or search the web for generic questions you can answer yourself.
 Use tools whenever accuracy depends on repository state, local files, command output, test/build results, git history, or live external data.
-Exception: memory_write and memory_search may be used proactively — save important facts, decisions, and preferences without being asked.`,
+Exception: memory_write, memory_search, and memory_edit may be used proactively — save important facts, decisions, and preferences without being asked. Use memory_edit to correct outdated information.`,
     minTier: "weak",
   };
 }
@@ -304,6 +304,7 @@ function renderTips(): PromptSection {
     id: "tips",
     content: `# Tips
 - For user folders use list_files with paths like ~/Downloads, ~/Desktop, ~/Documents
+- Use tool_search to narrow the active tool set before specialized tasks
 - For counts/totals/max/min, use aggregate_entries on prior tool results
 - For media files, use mimePrefix (e.g., "video/", "image/")`,
     minTier: "mid",

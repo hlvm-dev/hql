@@ -66,6 +66,7 @@ export class SdkMcpClient {
     | InstanceType<typeof StreamableHTTPClientTransport>
     | null = null;
   private closed = false;
+  private pendingAbortController = new AbortController();
 
   /**
    * Queue for server-initiated requests that arrive before handlers are
@@ -126,6 +127,7 @@ export class SdkMcpClient {
 
   async close(): Promise<void> {
     if (this.closed) return;
+    this.cancelAllPending("MCP client closed");
     this.closed = true;
     try {
       await this.client.close();
@@ -140,8 +142,63 @@ export class SdkMcpClient {
   // Tool Operations
   // ============================================================
 
-  async listTools(): Promise<McpToolInfo[]> {
-    const result = await this.client.listTools();
+  private buildRequestOptions(
+    signal?: AbortSignal,
+  ): { options: { signal: AbortSignal }; cleanup: () => void } {
+    const pendingSignal = this.pendingAbortController.signal;
+    if (!signal) {
+      return { options: { signal: pendingSignal }, cleanup: () => {} };
+    }
+
+    if (signal.aborted || pendingSignal.aborted) {
+      const controller = new AbortController();
+      controller.abort(signal.aborted ? signal.reason : pendingSignal.reason);
+      return { options: { signal: controller.signal }, cleanup: () => {} };
+    }
+
+    const controller = new AbortController();
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      pendingSignal.removeEventListener("abort", onPendingAbort);
+      signal.removeEventListener("abort", onSignalAbort);
+    };
+    const onPendingAbort = () => {
+      if (!controller.signal.aborted) {
+        controller.abort(pendingSignal.reason);
+      }
+      cleanup();
+    };
+    const onSignalAbort = () => {
+      if (!controller.signal.aborted) {
+        controller.abort(signal.reason);
+      }
+      cleanup();
+    };
+    pendingSignal.addEventListener("abort", onPendingAbort, { once: true });
+    signal.addEventListener("abort", onSignalAbort, { once: true });
+
+    return { options: { signal: controller.signal }, cleanup };
+  }
+
+  private async withRequestOptions<T>(
+    run: (options: { signal: AbortSignal }) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const { options, cleanup } = this.buildRequestOptions(signal);
+    try {
+      return await run(options);
+    } finally {
+      cleanup();
+    }
+  }
+
+  async listTools(signal?: AbortSignal): Promise<McpToolInfo[]> {
+    const result = await this.withRequestOptions(
+      (options) => this.client.listTools(undefined, options),
+      signal,
+    );
     return result.tools.map((t) => ({
       name: t.name,
       description: t.description,
@@ -152,16 +209,28 @@ export class SdkMcpClient {
   async callTool(
     name: string,
     args: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<unknown> {
-    return await this.client.callTool({ name, arguments: args });
+    return await this.withRequestOptions(
+      (options) =>
+        this.client.callTool(
+          { name, arguments: args },
+          undefined,
+          options,
+        ),
+      signal,
+    );
   }
 
   // ============================================================
   // Resource Operations
   // ============================================================
 
-  async listResources(): Promise<McpResourceInfo[]> {
-    const result = await this.client.listResources();
+  async listResources(signal?: AbortSignal): Promise<McpResourceInfo[]> {
+    const result = await this.withRequestOptions(
+      (options) => this.client.listResources(undefined, options),
+      signal,
+    );
     return result.resources.map((r) => ({
       uri: r.uri,
       name: r.name,
@@ -170,8 +239,14 @@ export class SdkMcpClient {
     }));
   }
 
-  async readResource(uri: string): Promise<McpResourceContent[]> {
-    const result = await this.client.readResource({ uri });
+  async readResource(
+    uri: string,
+    signal?: AbortSignal,
+  ): Promise<McpResourceContent[]> {
+    const result = await this.withRequestOptions(
+      (options) => this.client.readResource({ uri }, options),
+      signal,
+    );
     return result.contents.map((c) => ({
       uri: c.uri,
       mimeType: c.mimeType,
@@ -180,8 +255,13 @@ export class SdkMcpClient {
     }));
   }
 
-  async listResourceTemplates(): Promise<McpResourceTemplate[]> {
-    const result = await this.client.listResourceTemplates();
+  async listResourceTemplates(
+    signal?: AbortSignal,
+  ): Promise<McpResourceTemplate[]> {
+    const result = await this.withRequestOptions(
+      (options) => this.client.listResourceTemplates(undefined, options),
+      signal,
+    );
     return result.resourceTemplates.map((t) => ({
       uriTemplate: t.uriTemplate,
       name: t.name,
@@ -190,20 +270,29 @@ export class SdkMcpClient {
     }));
   }
 
-  async subscribeResource(uri: string): Promise<void> {
-    await this.client.subscribeResource({ uri });
+  async subscribeResource(uri: string, signal?: AbortSignal): Promise<void> {
+    await this.withRequestOptions(
+      (options) => this.client.subscribeResource({ uri }, options),
+      signal,
+    );
   }
 
-  async unsubscribeResource(uri: string): Promise<void> {
-    await this.client.unsubscribeResource({ uri });
+  async unsubscribeResource(uri: string, signal?: AbortSignal): Promise<void> {
+    await this.withRequestOptions(
+      (options) => this.client.unsubscribeResource({ uri }, options),
+      signal,
+    );
   }
 
   // ============================================================
   // Prompt Operations
   // ============================================================
 
-  async listPrompts(): Promise<McpPromptInfo[]> {
-    const result = await this.client.listPrompts();
+  async listPrompts(signal?: AbortSignal): Promise<McpPromptInfo[]> {
+    const result = await this.withRequestOptions(
+      (options) => this.client.listPrompts(undefined, options),
+      signal,
+    );
     return result.prompts.map((p) => ({
       name: p.name,
       description: p.description,
@@ -218,8 +307,12 @@ export class SdkMcpClient {
   async getPrompt(
     name: string,
     args?: Record<string, string>,
+    signal?: AbortSignal,
   ): Promise<McpPromptMessage[]> {
-    const result = await this.client.getPrompt({ name, arguments: args });
+    const result = await this.withRequestOptions(
+      (options) => this.client.getPrompt({ name, arguments: args }, options),
+      signal,
+    );
     return result.messages as McpPromptMessage[];
   }
 
@@ -232,8 +325,12 @@ export class SdkMcpClient {
       | { type: "ref/resource"; uri: string }
       | { type: "ref/prompt"; name: string },
     argument: { name: string; value: string },
+    signal?: AbortSignal,
   ): Promise<string[]> {
-    const result = await this.client.complete({ ref, argument });
+    const result = await this.withRequestOptions(
+      (options) => this.client.complete({ ref, argument }, options),
+      signal,
+    );
     return result.completion.values;
   }
 
@@ -241,24 +338,31 @@ export class SdkMcpClient {
   // Logging
   // ============================================================
 
-  async setLogLevel(level: string): Promise<void> {
-    await this.client.setLoggingLevel(level as
-      | "debug"
-      | "info"
-      | "notice"
-      | "warning"
-      | "error"
-      | "critical"
-      | "alert"
-      | "emergency");
+  async setLogLevel(level: string, signal?: AbortSignal): Promise<void> {
+    await this.withRequestOptions(
+      (options) =>
+        this.client.setLoggingLevel(level as
+          | "debug"
+          | "info"
+          | "notice"
+          | "warning"
+          | "error"
+          | "critical"
+          | "alert"
+          | "emergency", options),
+      signal,
+    );
   }
 
   // ============================================================
   // Ping
   // ============================================================
 
-  async ping(): Promise<void> {
-    await this.client.ping();
+  async ping(signal?: AbortSignal): Promise<void> {
+    await this.withRequestOptions(
+      (options) => this.client.ping(options),
+      signal,
+    );
   }
 
   // ============================================================
@@ -351,11 +455,12 @@ export class SdkMcpClient {
   // Cancellation (SDK handles internally, expose for setSignal)
   // ============================================================
 
-  /** Cancel all pending requests — SDK handles via AbortController internally */
-  cancelAllPending(_reason?: string): void {
-    // The SDK doesn't expose cancelAllPending directly.
-    // When using setSignal, the AbortSignal is wired to close().
-    // For graceful cancellation, close() is the mechanism.
+  /** Cancel all in-flight requests by rotating the shared request AbortController. */
+  cancelAllPending(reason?: string): void {
+    if (!this.pendingAbortController.signal.aborted) {
+      this.pendingAbortController.abort(reason ?? "MCP request cancelled");
+    }
+    this.pendingAbortController = new AbortController();
   }
 }
 

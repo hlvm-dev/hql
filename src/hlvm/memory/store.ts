@@ -25,6 +25,17 @@ function withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
   return prev.then(fn).finally(() => resolve!());
 }
 
+/**
+ * Atomic write: write to .tmp then rename (POSIX-atomic).
+ * Prevents half-written files if process crashes mid-write.
+ */
+async function atomicWriteTextFile(path: string, content: string): Promise<void> {
+  const platform = getPlatform();
+  const tmpPath = path + ".tmp";
+  await platform.fs.writeTextFile(tmpPath, content);
+  await platform.fs.rename(tmpPath, path);
+}
+
 // ============================================================
 // Logger Helper — DRY wrapper for optional agent logger
 // ============================================================
@@ -71,6 +82,26 @@ export function sanitizeSensitiveContent(
 // MEMORY.md Operations
 // ============================================================
 
+/**
+ * Find the start index of a ## section header in content.
+ * Returns -1 if not found. Uses exact match with \n to avoid prefix collisions.
+ */
+function findSectionStart(content: string, section: string): number {
+  const header = `## ${section}`;
+  if (content.includes(header + "\n")) return content.indexOf(header + "\n");
+  if (content.endsWith(header)) return content.length - header.length;
+  return -1;
+}
+
+/**
+ * Find the end index of a section (start of next ## or end of content).
+ */
+function findSectionEnd(content: string, sectionStartIdx: number, section: string): number {
+  const afterHeader = sectionStartIdx + `## ${section}`.length;
+  const nextSection = content.indexOf("\n## ", afterHeader);
+  return nextSection >= 0 ? nextSection : content.length;
+}
+
 /** Read MEMORY.md content, return "" if missing */
 export async function readMemoryMd(): Promise<string> {
   try {
@@ -88,7 +119,7 @@ export function writeMemoryMd(content: string): Promise<void> {
       await warnMemory(`Memory: stripped sensitive content from full write (${stripped.join(", ")})`);
     }
     await ensureMemoryDirs();
-    await getPlatform().fs.writeTextFile(getMemoryMdPath(), sanitized);
+    await atomicWriteTextFile(getMemoryMdPath(), sanitized);
   });
 }
 
@@ -111,31 +142,21 @@ export function appendToMemoryMd(
 
     let newContent: string;
     if (section) {
-      const sectionHeader = `## ${section}`;
-      // Match "## Section\n" exactly to avoid prefix collisions (e.g. "Prefer" vs "Preferences")
-      const idx = existing.includes(sectionHeader + "\n")
-        ? existing.indexOf(sectionHeader + "\n")
-        : existing.endsWith(sectionHeader)
-          ? existing.length - sectionHeader.length
-          : -1;
+      const idx = findSectionStart(existing, section);
       if (idx >= 0) {
-        // Find end of section (next ## or end of file)
-        const afterHeader = idx + sectionHeader.length;
-        const nextSection = existing.indexOf("\n## ", afterHeader);
-        const insertPoint = nextSection >= 0 ? nextSection : existing.length;
+        const insertPoint = findSectionEnd(existing, idx, section);
         newContent = existing.slice(0, insertPoint) +
           "\n" + sanitized + "\n" +
           existing.slice(insertPoint);
       } else {
-        // Create new section at end
-        newContent = existing.trimEnd() + "\n\n" + sectionHeader + "\n" +
+        newContent = existing.trimEnd() + "\n\n" + `## ${section}` + "\n" +
           sanitized + "\n";
       }
     } else {
       newContent = existing.trimEnd() + "\n\n" + sanitized + "\n";
     }
 
-    await getPlatform().fs.writeTextFile(getMemoryMdPath(), newContent);
+    await atomicWriteTextFile(getMemoryMdPath(), newContent);
   });
 }
 
@@ -180,7 +201,7 @@ export function appendToJournal(content: string): Promise<void> {
       ? existing.trimEnd() + "\n\n" + entry
       : `# Journal ${date}\n\n${entry}`;
 
-    await getPlatform().fs.writeTextFile(journalPath, newContent);
+    await atomicWriteTextFile(journalPath, newContent);
   });
 }
 
@@ -211,4 +232,45 @@ export async function readRecentJournals(
   }
 
   return results;
+}
+
+// ============================================================
+// MEMORY.md Edit Operations
+// ============================================================
+
+/** Remove an entire ## section from MEMORY.md. Returns true if found and removed. */
+export function removeSectionFromMemoryMd(section: string): Promise<boolean> {
+  return withWriteLock(async () => {
+    const existing = await readMemoryMd();
+    const idx = findSectionStart(existing, section);
+    if (idx < 0) return false;
+
+    const endIdx = findSectionEnd(existing, idx, section);
+    const newContent = (existing.slice(0, idx) + existing.slice(endIdx))
+      .replace(/\n{3,}/g, "\n\n").trim();
+
+    await ensureMemoryDirs();
+    await atomicWriteTextFile(getMemoryMdPath(), newContent ? newContent + "\n" : "");
+    return true;
+  });
+}
+
+/** Find and replace text in MEMORY.md. Returns number of replacements made. */
+export function replaceInMemoryMd(find: string, replaceWith: string): Promise<number> {
+  return withWriteLock(async () => {
+    const existing = await readMemoryMd();
+    if (!existing.includes(find)) return 0;
+
+    const { sanitized, stripped } = sanitizeSensitiveContent(replaceWith);
+    if (stripped.length > 0) {
+      await warnMemory(`Memory: stripped sensitive content from replacement (${stripped.join(", ")})`);
+    }
+
+    let count = 0;
+    const newContent = existing.replaceAll(find, () => { count++; return sanitized; });
+
+    await ensureMemoryDirs();
+    await atomicWriteTextFile(getMemoryMdPath(), newContent);
+    return count;
+  });
 }

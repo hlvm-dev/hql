@@ -37,7 +37,11 @@ import { generateUUID } from "../../common/utils.ts";
 import { resolveContextBudget, type ResolvedBudget } from "./context-resolver.ts";
 import type { ModelInfo } from "../providers/types.ts";
 import { getPlatform } from "../../platform/platform.ts";
-import { type AgentEngine, getAgentEngine } from "./engine.ts";
+import {
+  type AgentEngine,
+  type ToolFilterState,
+  getAgentEngine,
+} from "./engine.ts";
 import { loadMemoryContext } from "../memory/mod.ts";
 
 export interface AgentSessionOptions {
@@ -82,11 +86,18 @@ export interface AgentSession {
     contextBudget: number;
     toolAllowlist?: string[];
     toolDenylist?: string[];
+    toolFilterState?: ToolFilterState;
     toolOwnerId?: string;
     temperature?: number;
   };
   /** The engine used for LLM creation (for rebuilding in reuseSession) */
   engine?: AgentEngine;
+  /** Shared mutable tool filter state used by orchestrator + engine. */
+  toolFilterState?: ToolFilterState;
+  /** Reset runtime tool filters back to tier/user baseline. */
+  resetToolFilter?: () => void;
+  /** Lazy MCP loader (connect/register only when first needed). */
+  ensureMcpLoaded?: () => Promise<void>;
   /** Deferred MCP handler registration (sampling, elicitation, roots) */
   mcpSetHandlers?: (handlers: McpHandlers) => void;
   /** Wire an AbortSignal to cancel all pending MCP requests */
@@ -158,6 +169,19 @@ async function detectGitContextInner(
   return { branch, dirty: statusOutput.length > 0 };
 }
 
+function cloneStringList(list?: string[]): string[] | undefined {
+  return list?.length ? [...list] : undefined;
+}
+
+function mergeMcpHandlers(current: McpHandlers, next: McpHandlers): McpHandlers {
+  const roots = [...(current.roots ?? []), ...(next.roots ?? [])];
+  return {
+    onSampling: next.onSampling ?? current.onSampling,
+    onElicitation: next.onElicitation ?? current.onElicitation,
+    roots: roots.length > 0 ? Array.from(new Set(roots)) : undefined,
+  };
+}
+
 export async function createAgentSession(
   options: AgentSessionOptions,
 ): Promise<AgentSession> {
@@ -182,34 +206,90 @@ export async function createAgentSession(
   const isFrontier = isFrontierProvider(options.model);
   const modelTier = classifyModelTier(modelInfo, isFrontier);
   const tierFilter = computeTierToolFilter(modelTier, options.toolAllowlist, options.toolDenylist);
+  const baseToolFilter: ToolFilterState = {
+    allowlist: cloneStringList(tierFilter.allowlist),
+    denylist: cloneStringList(tierFilter.denylist),
+  };
+  const toolFilterState: ToolFilterState = {
+    allowlist: cloneStringList(baseToolFilter.allowlist),
+    denylist: cloneStringList(baseToolFilter.denylist),
+  };
+  const resetToolFilter = () => {
+    toolFilterState.allowlist = cloneStringList(baseToolFilter.allowlist);
+    toolFilterState.denylist = cloneStringList(baseToolFilter.denylist);
+  };
 
-  // Load MCP tools (skip for weak-tier models to save context budget)
-  let mcp: Awaited<ReturnType<typeof loadMcpTools>>;
+  // Lazy MCP loading: defer connection/registration until first MCP use.
+  let loadedMcp: Awaited<ReturnType<typeof loadMcpTools>> | null = null;
+  let loadingMcp: Promise<Awaited<ReturnType<typeof loadMcpTools>>> | null =
+    null;
+  let pendingHandlers: McpHandlers = {};
+  let pendingSignal: AbortSignal | null = null;
+
+  const applyMcpBindings = (
+    mcp: Awaited<ReturnType<typeof loadMcpTools>>,
+  ): void => {
+    if (
+      pendingHandlers.onSampling ||
+      pendingHandlers.onElicitation ||
+      (pendingHandlers.roots?.length ?? 0) > 0
+    ) {
+      mcp.setHandlers(pendingHandlers);
+    }
+    if (pendingSignal) {
+      mcp.setSignal(pendingSignal);
+    }
+  };
+
+  const ensureMcpLoaded = async (): Promise<void> => {
+    if (modelTier === "weak") return;
+    if (loadedMcp) {
+      applyMcpBindings(loadedMcp);
+      return;
+    }
+    if (!loadingMcp) {
+      loadingMcp = loadMcpTools(
+        options.workspace,
+        options.mcpConfigPath,
+        builtinMcpServers,
+        toolOwnerId,
+      ).then((mcp) => {
+        loadedMcp = mcp;
+        applyMcpBindings(mcp);
+        if (mcp.connectedServers.length > 0) {
+          const logger = getAgentLogger();
+          for (const s of mcp.connectedServers) {
+            logger.info(`MCP: ${s.name} — ${s.toolCount} tools`);
+          }
+        }
+        return mcp;
+      }).catch((error) => {
+        loadingMcp = null;
+        throw error;
+      });
+    }
+    const mcp = await loadingMcp;
+    applyMcpBindings(mcp);
+  };
+
+  const mcpSetHandlers = (handlers: McpHandlers): void => {
+    pendingHandlers = mergeMcpHandlers(pendingHandlers, handlers);
+    if (loadedMcp) {
+      loadedMcp.setHandlers(pendingHandlers);
+    }
+  };
+
+  const mcpSetSignal = (signal: AbortSignal): void => {
+    pendingSignal = signal;
+    if (loadedMcp) {
+      loadedMcp.setSignal(signal);
+    }
+  };
+
   if (modelTier === "weak") {
     getAgentLogger().info("MCP: skipped (weak model tier)");
-    mcp = {
-      tools: [],
-      ownerId: toolOwnerId,
-      connectedServers: [],
-      dispose: async () => {},
-      setHandlers: () => {},
-      setSignal: () => {},
-    };
   } else {
-    mcp = await loadMcpTools(
-      options.workspace,
-      options.mcpConfigPath,
-      builtinMcpServers,
-      toolOwnerId,
-    );
-  }
-
-  // Log connected MCP servers at startup
-  if (mcp.connectedServers.length > 0) {
-    const logger = getAgentLogger();
-    for (const s of mcp.connectedServers) {
-      logger.info(`MCP: ${s.name} — ${s.toolCount} tools`);
-    }
+    getAgentLogger().debug("MCP: lazy load enabled");
   }
 
   const resolved = resolveContextBudget({
@@ -235,9 +315,9 @@ export async function createAgentSession(
   context.addMessage({
     role: "system",
     content: generateSystemPrompt({
-      toolAllowlist: tierFilter.allowlist,
-      toolDenylist: tierFilter.denylist,
-      toolOwnerId: mcp.ownerId,
+      toolAllowlist: toolFilterState.allowlist,
+      toolDenylist: toolFilterState.denylist,
+      toolOwnerId,
       customInstructions: options.customInstructions,
       modelTier,
       gitContext: gitContext ?? undefined,
@@ -269,18 +349,20 @@ export async function createAgentSession(
       })(),
       options: { temperature: 0.0 },
       contextBudget: resolved.budget,
-      toolAllowlist: tierFilter.allowlist,
-      toolDenylist: tierFilter.denylist,
-      toolOwnerId: mcp.ownerId,
+      toolAllowlist: toolFilterState.allowlist,
+      toolDenylist: toolFilterState.denylist,
+      toolFilterState,
+      toolOwnerId,
       onToken: options.onToken,
     });
 
   const llmConfig = options.fixturePath ? undefined : {
     model: options.model!,
     contextBudget: resolved.budget,
-    toolAllowlist: tierFilter.allowlist,
-    toolDenylist: tierFilter.denylist,
-    toolOwnerId: mcp.ownerId,
+    toolAllowlist: toolFilterState.allowlist,
+    toolDenylist: toolFilterState.denylist,
+    toolFilterState,
+    toolOwnerId,
     temperature: 0.0,
   };
 
@@ -289,15 +371,22 @@ export async function createAgentSession(
     llm,
     policy,
     l1Confirmations: new Map<string, boolean>(),
-    toolOwnerId: mcp.ownerId,
-    dispose: mcp.dispose,
+    toolOwnerId,
+    dispose: async () => {
+      if (!loadingMcp) return;
+      const mcp = await loadingMcp;
+      await mcp.dispose();
+    },
     profile,
     isFrontierModel: isFrontier,
     modelTier,
     resolvedContextBudget: resolved,
     llmConfig,
     engine,
-    mcpSetHandlers: mcp.setHandlers,
-    mcpSetSignal: mcp.setSignal,
+    toolFilterState,
+    resetToolFilter,
+    ensureMcpLoaded,
+    mcpSetHandlers,
+    mcpSetSignal,
   };
 }

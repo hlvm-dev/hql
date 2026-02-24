@@ -9,7 +9,14 @@
 import { ValidationError } from "../../common/error.ts";
 import { isToolArgsObject } from "../agent/validation.ts";
 import type { ToolMetadata } from "../agent/registry.ts";
-import { appendToJournal, appendToMemoryMd, readMemoryMd, readRecentJournals } from "./store.ts";
+import {
+  appendToJournal,
+  appendToMemoryMd,
+  readMemoryMd,
+  readRecentJournals,
+  removeSectionFromMemoryMd,
+  replaceInMemoryMd,
+} from "./store.ts";
 import { searchMemory as ftsSearch } from "./search.ts";
 import { indexFile } from "./indexer.ts";
 import { getPlatform } from "../../platform/platform.ts";
@@ -122,7 +129,7 @@ async function memorySearch(args: unknown): Promise<Record<string, unknown>> {
   }
 
   if (results.length < limit) {
-    const journals = await readRecentJournals(7);
+    const journals = await readRecentJournals(30);
     for (const journal of journals) {
       if (results.length >= limit) break;
       substringSearchLines(
@@ -133,6 +140,44 @@ async function memorySearch(args: unknown): Promise<Record<string, unknown>> {
   }
 
   return { query, results, count: results.length };
+}
+
+async function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
+  if (!isToolArgsObject(args)) {
+    throw new ValidationError("args must be an object", "memory_edit");
+  }
+  const record = args as Record<string, unknown>;
+  const action = record.action;
+
+  if (action === "delete_section") {
+    const section = record.section;
+    if (typeof section !== "string" || !section.trim()) {
+      throw new ValidationError("section is required for delete_section", "memory_edit");
+    }
+    const removed = await removeSectionFromMemoryMd(section.trim());
+    if (removed) {
+      try { indexFile(getMemoryMdPath(), new Date().toISOString().slice(0, 10)); } catch { /* best-effort */ }
+    }
+    return { edited: removed, action: "delete_section", section };
+  }
+
+  if (action === "replace") {
+    const find = record.find;
+    const replaceWith = record.replace_with;
+    if (typeof find !== "string" || !find) {
+      throw new ValidationError("find is required for replace action", "memory_edit");
+    }
+    if (typeof replaceWith !== "string") {
+      throw new ValidationError("replace_with is required for replace action", "memory_edit");
+    }
+    const count = await replaceInMemoryMd(find, replaceWith);
+    if (count > 0) {
+      try { indexFile(getMemoryMdPath(), new Date().toISOString().slice(0, 10)); } catch { /* best-effort */ }
+    }
+    return { edited: count > 0, action: "replace", replacements: count };
+  }
+
+  throw new ValidationError('action must be "delete_section" or "replace"', "memory_edit");
 }
 
 // ============================================================
@@ -204,5 +249,37 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     },
     safetyLevel: "L0",
     safety: "Local-only read from ~/.hlvm/memory/",
+  },
+  memory_edit: {
+    fn: memoryEdit,
+    description:
+      "Edit or delete content in persistent memory (MEMORY.md). " +
+      "Use this to correct mistakes, remove outdated information, or update facts.\n" +
+      "Actions:\n" +
+      '- "delete_section": Remove an entire ## section from MEMORY.md\n' +
+      '- "replace": Find and replace text in MEMORY.md\n' +
+      "Call this when:\n" +
+      "- Previously stored information is now wrong or outdated\n" +
+      "- User explicitly asks to forget or correct something\n" +
+      "- A section has grown too large and needs cleanup",
+    category: "memory",
+    args: {
+      action:
+        'string - "delete_section" to remove a whole section, "replace" to find/replace text.',
+      section:
+        'string (for delete_section) - The section name to remove (e.g., "Old Decisions"). ' +
+        "Matches ## heading exactly.",
+      find:
+        'string (for replace) - The exact text to find in MEMORY.md.',
+      replace_with:
+        'string (for replace) - The replacement text. Use "" to delete the matched text.',
+    },
+    returns: {
+      edited: "boolean - true if changes were made",
+      action: "string",
+      replacements: "number (for replace action)",
+    },
+    safetyLevel: "L0",
+    safety: "Local-only edit of ~/.hlvm/memory/MEMORY.md",
   },
 };

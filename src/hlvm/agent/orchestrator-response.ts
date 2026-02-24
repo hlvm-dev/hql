@@ -9,7 +9,7 @@ import {
 } from "./context.ts";
 import { DEFAULT_MAX_TOOL_CALLS } from "./constants.ts";
 import { SlidingWindowRateLimiter } from "../../common/rate-limiter.ts";
-import { TEXT_ENCODER } from "../../common/utils.ts";
+import { isObjectValue, TEXT_ENCODER } from "../../common/utils.ts";
 import { checkGrounding } from "./grounding.ts";
 import type { LLMResponse, ToolCall } from "./tool-call.ts";
 import {
@@ -43,6 +43,48 @@ import {
 } from "./orchestrator-tool-execution.ts";
 import { callLLMWithRetry, type LLMFunction } from "./orchestrator-llm.ts";
 import type { ToolUse } from "./grounding.ts";
+
+const TOOL_SEARCH_BASELINE_ALLOWLIST = [
+  "tool_search",
+  "ask_user",
+  "complete_task",
+  "list_files",
+  "search_code",
+  "read_file",
+  "write_file",
+  "edit_file",
+  "shell_exec",
+] as const;
+
+function areListsEqual(a?: string[], b?: string[]): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function parseToolSearchAllowlist(result: unknown): string[] {
+  if (!isObjectValue(result)) return [];
+  const payload = result as Record<string, unknown>;
+
+  const suggested = Array.isArray(payload.suggested_allowlist)
+    ? payload.suggested_allowlist.filter((v): v is string => typeof v === "string")
+    : [];
+  if (suggested.length > 0) return suggested;
+
+  const matches = Array.isArray(payload.matches) ? payload.matches : [];
+  const names: string[] = [];
+  for (const match of matches) {
+    if (!isObjectValue(match)) continue;
+    if (typeof match.name === "string") {
+      names.push(match.name);
+    }
+  }
+  return names;
+}
 
 /** Add a message to context, translating overflow to trace event */
 export function addContextMessage(
@@ -259,7 +301,9 @@ export function handleFinalResponse(
     }
     addContextMessage(config, {
       role: "user",
-      content: buildToolRequiredMessage(config.toolAllowlist),
+      content: buildToolRequiredMessage(
+        config.toolFilterState?.allowlist ?? config.toolAllowlist,
+      ),
     });
     return { action: "continue" };
   }
@@ -442,6 +486,46 @@ export async function handlePostToolExecution(
       config.context,
     );
     return { action: "return", value: finalResponse.content ?? "" };
+  }
+
+  // tool_search can narrow the runtime tool schema set for subsequent iterations.
+  for (let i = 0; i < result.results.length; i++) {
+    const toolCall = result.toolCalls[i];
+    const toolResult = result.results[i];
+    if (toolCall?.toolName !== "tool_search" || !toolResult?.success) continue;
+
+    const rawAllowlist = parseToolSearchAllowlist(toolResult.result);
+    if (rawAllowlist.length === 0) continue;
+
+    const currentAllowlist = config.toolFilterState?.allowlist ??
+      config.toolAllowlist;
+    const allowedUniverse = currentAllowlist?.length
+      ? new Set(currentAllowlist)
+      : null;
+    const unique = Array.from(new Set([
+      ...TOOL_SEARCH_BASELINE_ALLOWLIST,
+      ...rawAllowlist,
+    ]));
+    const nextAllowlist = allowedUniverse
+      ? unique.filter((name) => allowedUniverse.has(name))
+      : unique;
+    if (nextAllowlist.length === 0 || areListsEqual(currentAllowlist, nextAllowlist)) {
+      continue;
+    }
+
+    if (config.toolFilterState) {
+      config.toolFilterState.allowlist = nextAllowlist;
+    }
+    config.toolAllowlist = nextAllowlist;
+
+    const preview = nextAllowlist.slice(0, 12).join(", ");
+    const extra = nextAllowlist.length > 12
+      ? ` (+${nextAllowlist.length - 12} more)`
+      : "";
+    addContextMessage(config, {
+      role: "user",
+      content: `Tool context narrowed to: ${preview}${extra}. Continue using this focused tool set unless another tool_search changes it.`,
+    });
   }
 
   // --- Loop detection (weak-model compensation) ---

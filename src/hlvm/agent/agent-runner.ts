@@ -302,6 +302,9 @@ export async function runAgentQuery(
   let sessionEntry: AgentSessionEntry | null = null;
 
   try {
+    // Reset any prior dynamic tool narrowing (tool_search) for this new turn.
+    session.resetToolFilter?.();
+
     // Add file-roots system note BEFORE history so system messages stay contiguous
     session.context.addMessage({
       role: "system",
@@ -370,7 +373,13 @@ export async function runAgentQuery(
         signal: options.signal,
         usage: usageTracker,
         l1Confirmations: session.l1Confirmations,
+        toolAllowlist: session.toolFilterState?.allowlist ??
+          session.llmConfig?.toolAllowlist,
+        toolDenylist: session.toolFilterState?.denylist ??
+          session.llmConfig?.toolDenylist,
+        toolFilterState: session.toolFilterState,
         toolOwnerId: session.toolOwnerId,
+        ensureMcpLoaded: session.ensureMcpLoaded,
       },
       session.llm,
     );

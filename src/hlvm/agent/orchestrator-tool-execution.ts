@@ -8,6 +8,7 @@ import {
   hasTool,
   normalizeToolName,
   prepareToolArgsForExecution,
+  searchTools,
   suggestToolNames,
   type ToolFunction,
 } from "./registry.ts";
@@ -48,6 +49,8 @@ export async function executeToolWithTimeout(
   timeout: number,
   policy?: AgentPolicy | null,
   onInteraction?: OrchestratorConfig["onInteraction"],
+  toolOwnerId?: string,
+  ensureMcpLoaded?: () => Promise<void>,
   parentSignal?: AbortSignal,
 ): Promise<unknown> {
   return await withTimeout(
@@ -56,6 +59,13 @@ export async function executeToolWithTimeout(
         signal,
         policy,
         onInteraction,
+        toolOwnerId,
+        ensureMcpLoaded,
+        searchTools: (query, options) =>
+          searchTools(query, {
+            ...options,
+            ownerId: options?.ownerId ?? toolOwnerId,
+          }),
       });
       if (signal.aborted) {
         throw new RuntimeError("Tool execution aborted");
@@ -77,6 +87,15 @@ export async function executeToolCall(
 ): Promise<ToolExecutionResult> {
   const startedAt = Date.now();
   const l1Store = config.l1Confirmations ?? new Map<string, boolean>();
+
+  // Lazy MCP bootstrap: defer MCP connect+registration until a tool call needs it.
+  if (
+    config.ensureMcpLoaded &&
+    (toolCall.toolName.startsWith("mcp_") || toolCall.toolName === "tool_search")
+  ) {
+    await config.ensureMcpLoaded();
+  }
+
   // Normalize tool name (handle camelCase, casing, separators)
   const resolvedName =
     normalizeToolName(toolCall.toolName, config.toolOwnerId) ??
@@ -207,6 +226,8 @@ export async function executeToolCall(
         toolTimeout,
         config.policy ?? null,
         config.onInteraction,
+        config.toolOwnerId,
+        config.ensureMcpLoaded,
         config.signal,
       );
     } catch (error) {
@@ -223,6 +244,8 @@ export async function executeToolCall(
             toolTimeout,
             config.policy ?? null,
             config.onInteraction,
+            config.toolOwnerId,
+            config.ensureMcpLoaded,
             config.signal,
           );
         } else {

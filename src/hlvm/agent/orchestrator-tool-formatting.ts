@@ -218,11 +218,13 @@ export function buildToolErrorResult(
 export function buildIsToolAllowed(
   config: OrchestratorConfig,
 ): (name: string) => boolean {
-  const allowSet = config.toolAllowlist?.length
-    ? new Set(config.toolAllowlist)
+  const allowlist = config.toolFilterState?.allowlist ?? config.toolAllowlist;
+  const denylist = config.toolFilterState?.denylist ?? config.toolDenylist;
+  const allowSet = allowlist?.length
+    ? new Set(allowlist)
     : null;
-  const denySet = config.toolDenylist?.length
-    ? new Set(config.toolDenylist)
+  const denySet = denylist?.length
+    ? new Set(denylist)
     : null;
   return (name: string) => {
     if (allowSet && !allowSet.has(name)) return false;

@@ -5,7 +5,7 @@
 
 import { type ContextManager } from "./context.ts";
 import type { Message } from "./context.ts";
-import { withTimeout } from "../../common/timeout-utils.ts";
+import { throwIfAborted, withTimeout } from "../../common/timeout-utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { classifyError } from "./error-taxonomy.ts";
 import { getAgentLogger } from "./logger.ts";
@@ -17,6 +17,36 @@ export type LLMFunction = (
   messages: Message[],
   signal?: AbortSignal,
 ) => Promise<LLMResponse>;
+
+async function sleepWithAbort(
+  delayMs: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (delayMs <= 0) return;
+  throwIfAborted(signal, "LLM retry aborted");
+
+  await new Promise<void>((resolve, reject) => {
+    if (!signal) {
+      setTimeout(() => resolve(), delayMs);
+      return;
+    }
+
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      signal.removeEventListener("abort", onAbort);
+      const error = new Error("LLM retry aborted");
+      error.name = "AbortError";
+      reject(error);
+    };
+
+    const timeoutId = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 /**
  * Call LLM with timeout
@@ -116,7 +146,7 @@ export async function callLLMWithRetry(
       // Exponential backoff: 1s, 2s, 4s, 8s — or provider's Retry-After
       const delay = retryAfterMs ??
         Math.min(Math.pow(2, attempt) * 1000, 30000);
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await sleepWithAbort(delay, config.signal);
     }
   }
 
