@@ -261,113 +261,9 @@ export const WEB_TOOL_NAMES = new Set([
   "web_browse",
 ]);
 
-const MEMORY_RECALL_RESULT_LIMIT = 2;
+const MEMORY_RECALL_RESULT_LIMIT = 3;
 const MEMORY_RECALL_MAX_QUERY_CHARS = 400;
-const MEMORY_RECALL_MAX_KEYWORDS = 8;
-const MEMORY_RECALL_MIN_KEYWORDS = 2;
-const MEMORY_RECALL_MIN_KEYWORD_HITS = 2;
 const MEMORY_RECALL_RESULT_CHARS = 220;
-const MEMORY_RECALL_STOP_WORDS = new Set([
-  "a",
-  "an",
-  "and",
-  "are",
-  "as",
-  "at",
-  "be",
-  "been",
-  "being",
-  "but",
-  "by",
-  "can",
-  "could",
-  "did",
-  "do",
-  "does",
-  "for",
-  "from",
-  "help",
-  "how",
-  "i",
-  "if",
-  "in",
-  "is",
-  "it",
-  "its",
-  "just",
-  "let",
-  "lets",
-  "me",
-  "my",
-  "of",
-  "on",
-  "or",
-  "our",
-  "please",
-  "should",
-  "so",
-  "that",
-  "the",
-  "their",
-  "them",
-  "then",
-  "there",
-  "these",
-  "they",
-  "this",
-  "those",
-  "to",
-  "up",
-  "us",
-  "was",
-  "we",
-  "were",
-  "what",
-  "when",
-  "where",
-  "which",
-  "who",
-  "why",
-  "will",
-  "with",
-  "would",
-  "you",
-  "your",
-]);
-
-/** @internal Exported for unit testing */
-export function extractMemoryRecallKeywords(input: string): string[] {
-  return [...new Set(
-    input
-      .toLowerCase()
-      .match(/[a-z0-9][a-z0-9_-]*/g) ?? []
-  )]
-    .filter((word) =>
-      word.length >= 2 &&
-      !MEMORY_RECALL_STOP_WORDS.has(word) &&
-      !/^\d+$/.test(word)
-    )
-    .slice(0, MEMORY_RECALL_MAX_KEYWORDS);
-}
-
-/** @internal Exported for unit testing */
-export function filterMemoryRecallResults(
-  results: SearchResult[],
-  keywords: string[],
-): SearchResult[] {
-  const requiredHits = Math.min(MEMORY_RECALL_MIN_KEYWORD_HITS, keywords.length);
-  if (requiredHits <= 0) return [];
-
-  return results.filter((result) => {
-    const haystack = `${result.file} ${result.text}`.toLowerCase();
-    let hits = 0;
-    for (const keyword of keywords) {
-      if (haystack.includes(keyword)) hits++;
-      if (hits >= requiredHits) return true;
-    }
-    return false;
-  });
-}
 
 function formatMemoryRecall(results: SearchResult[]): string {
   const lines = results.map((result) => {
@@ -397,18 +293,12 @@ function maybeInjectMemoryRecall(
   const trimmed = userRequest.trim();
   if (!trimmed) return;
 
-  const bounded = trimmed.length > MEMORY_RECALL_MAX_QUERY_CHARS
+  const query = trimmed.length > MEMORY_RECALL_MAX_QUERY_CHARS
     ? trimmed.slice(0, MEMORY_RECALL_MAX_QUERY_CHARS)
     : trimmed;
-  const keywords = extractMemoryRecallKeywords(bounded);
-  if (keywords.length < MEMORY_RECALL_MIN_KEYWORDS) return;
-  const query = keywords.join(" ");
 
   try {
-    const candidates = searchMemory(query, MEMORY_RECALL_RESULT_LIMIT * 3);
-    if (candidates.length === 0) return;
-    const results = filterMemoryRecallResults(candidates, keywords)
-      .slice(0, MEMORY_RECALL_RESULT_LIMIT);
+    const results = searchMemory(query, MEMORY_RECALL_RESULT_LIMIT);
     if (results.length === 0) return;
     addContextMessage(config, {
       role: "user",

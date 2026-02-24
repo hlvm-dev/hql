@@ -12,8 +12,6 @@ import {
 import {
   executeToolCall,
   executeToolCalls,
-  extractMemoryRecallKeywords,
-  filterMemoryRecallResults,
   type LLMResponse,
   type LoopConfig,
   type LoopState,
@@ -1492,63 +1490,5 @@ Deno.test({
     assertEquals(WEB_TOOL_NAMES.has("web_browse"), true);
     assertEquals(WEB_TOOL_NAMES.has("read_file"), false);
     assertEquals(WEB_TOOL_NAMES.has("shell_exec"), false);
-  },
-});
-
-// ============================================================
-// Memory Recall Guards — Direct Unit Tests
-// ============================================================
-
-Deno.test({
-  name: "extractMemoryRecallKeywords removes stop-words and keeps high-signal terms",
-  fn() {
-    const keywords = extractMemoryRecallKeywords(
-      "Please help me with the API auth bug in proxy middleware and CORS headers",
-    );
-
-    assertEquals(keywords.includes("please"), false);
-    assertEquals(keywords.includes("help"), false);
-    assertEquals(keywords.includes("with"), false);
-    assertEquals(keywords.includes("api"), true);
-    assertEquals(keywords.includes("auth"), true);
-    assertEquals(keywords.includes("bug"), true);
-    assertEquals(keywords.includes("proxy"), true);
-    assertEquals(keywords.includes("cors"), true);
-  },
-});
-
-Deno.test({
-  name: "extractMemoryRecallKeywords drops low-signal requests",
-  fn() {
-    const keywords = extractMemoryRecallKeywords(
-      "please help me with this",
-    );
-    assertEquals(keywords.length, 0);
-  },
-});
-
-Deno.test({
-  name: "filterMemoryRecallResults keeps only high-confidence matches",
-  fn() {
-    const results = filterMemoryRecallResults(
-      [
-        {
-          text: "Fixed CORS headers in proxy middleware for api routes",
-          file: "/tmp/journal/2026-02-20.md",
-          date: "2026-02-20",
-          score: 0.4,
-        },
-        {
-          text: "Adjusted CORS max-age value",
-          file: "/tmp/journal/2026-02-10.md",
-          date: "2026-02-10",
-          score: 0.3,
-        },
-      ],
-      ["cors", "proxy", "api"],
-    );
-
-    assertEquals(results.length, 1);
-    assertStringIncludes(results[0].text, "proxy middleware");
   },
 });

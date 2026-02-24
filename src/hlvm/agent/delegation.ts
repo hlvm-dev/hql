@@ -92,6 +92,7 @@ export function createDelegateHandler(
       {
         workspace: config.workspace,
         context,
+        permissionMode: config.permissionMode,
         // Fix 16: Clamp maxToolCalls to prevent resource exhaustion
         maxToolCalls: typeof record.maxToolCalls === "number"
           ? Math.min(
