@@ -263,6 +263,7 @@ const DenoPath: PlatformPath = {
 const DenoEnv: PlatformEnv = {
   get: (key: string): string | undefined => Deno.env.get(key),
   set: (key: string, value: string): void => Deno.env.set(key, value),
+  delete: (key: string): void => Deno.env.delete(key),
   toObject: (): Record<string, string> => Deno.env.toObject(),
 };
 

@@ -380,6 +380,9 @@ const NodeEnv: PlatformEnv = {
   set: (key: string, value: string): void => {
     nodeProcess.env[key] = value;
   },
+  delete: (key: string): void => {
+    delete nodeProcess.env[key];
+  },
   toObject: (): Record<string, string> => {
     const result: Record<string, string> = {};
     for (const [key, value] of Object.entries(nodeProcess.env)) {

@@ -54,7 +54,7 @@ import {
   shouldPlanRequest,
 } from "./planning.ts";
 import { getAgentLogger } from "./logger.ts";
-import { searchMemory, type SearchResult } from "../memory/search.ts";
+import { retrieveMemory, type RetrievalResult } from "../memory/retrieve.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -265,7 +265,7 @@ const MEMORY_RECALL_RESULT_LIMIT = 3;
 const MEMORY_RECALL_MAX_QUERY_CHARS = 400;
 const MEMORY_RECALL_RESULT_CHARS = 220;
 
-function formatMemoryRecall(results: SearchResult[]): string {
+function formatMemoryRecall(results: RetrievalResult[]): string {
   const lines = results.map((result) => {
     const source = result.file.split(/[\\/]/).pop() ?? result.file;
     const excerpt = truncate(
@@ -298,7 +298,7 @@ function maybeInjectMemoryRecall(
     : trimmed;
 
   try {
-    const results = searchMemory(query, MEMORY_RECALL_RESULT_LIMIT);
+    const results = retrieveMemory(query, MEMORY_RECALL_RESULT_LIMIT);
     if (results.length === 0) return;
     addContextMessage(config, {
       role: "user",

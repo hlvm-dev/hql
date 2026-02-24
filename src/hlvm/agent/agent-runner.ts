@@ -10,7 +10,11 @@
 
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { getCustomInstructionsPath } from "../../common/paths.ts";
-import { loadMemoryContext } from "../memory/mod.ts";
+import {
+  extractSessionFacts,
+  loadMemoryContext,
+  setMemoryModelTier,
+} from "../memory/mod.ts";
 import { setAgentLogger } from "./logger.ts";
 import {
   ensureDefaultModelInstalled,
@@ -351,6 +355,7 @@ export async function runAgentQuery(
     }
 
     const usageTracker = new UsageTracker();
+    setMemoryModelTier(session.modelTier);
 
     const text = await runReActLoop(
       query,
@@ -387,6 +392,20 @@ export async function runAgentQuery(
 
     if (sessionEntry) {
       await appendSessionMessages(sessionEntry, session.context.getMessages());
+    }
+
+    if (session.modelTier === "frontier") {
+      try {
+        await extractSessionFacts(
+          session.context.getMessages().map((message) => ({
+            role: message.role,
+            content: message.content,
+          })),
+          session.modelTier,
+        );
+      } catch {
+        // Best-effort only; extraction should never block agent response.
+      }
     }
 
     const stats = session.context.getStats();

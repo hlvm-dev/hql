@@ -15,7 +15,7 @@ import { type Message } from "../../../providers/index.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { loadMemoryContext } from "../../../memory/mod.ts";
-import { appendToMemoryMd, appendToJournal } from "../../../memory/store.ts";
+import { insertFact, linkFactEntities } from "../../../memory/mod.ts";
 import type { ChatRequest } from "./chat-session.ts";
 import {
   CHAT_CONTEXT_HISTORY_LIMIT,
@@ -327,7 +327,7 @@ async function injectMemorySystemMessage(
  * - "I prefer X" / "I like X" / "I use X"
  * - "remember that X" / "don't forget X"
  *
- * Writes to both MEMORY.md (persistent) and journal (searchable).
+ * Writes to canonical memory DB.
  */
 async function autoSaveUserFacts(
   userMessage: string,
@@ -365,8 +365,12 @@ async function autoSaveUserFacts(
 
   const entry = facts.join("\n");
   try {
-    await appendToMemoryMd(entry);
-    await appendToJournal(entry);
+    const factId = insertFact({
+      content: entry,
+      category: "Preferences",
+      source: "memory",
+    });
+    linkFactEntities(factId, entry);
     log.debug(`Auto-saved ${facts.length} fact(s) to memory from chat`);
   } catch {
     log.debug("Failed to auto-save facts to memory");

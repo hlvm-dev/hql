@@ -3,7 +3,7 @@
  *
  * Runs REAL agent queries with an actual Ollama model to verify:
  * 1. Agent calls memory_write when asked to remember something (asserted unconditionally)
- * 2. Memory persists to disk and new session recalls it
+ * 2. Memory persists to DB and new session recalls it
  *
  * Hermeticity: dangerous tools (shell, write, edit, git, open) are denied.
  * Only memory tools + read-only tools are available.
@@ -16,8 +16,8 @@ import { assert } from "jsr:@std/assert";
 import { initializeRuntime } from "../../src/common/runtime-initializer.ts";
 import { runAgentQuery } from "../../src/hlvm/agent/agent-runner.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
-import { resetHlvmDirCacheForTests, getMemoryMdPath, getJournalDir } from "../../src/common/paths.ts";
-import { closeMemoryDb, resetMemoryStateForTesting } from "../../src/hlvm/memory/mod.ts";
+import { resetHlvmDirCacheForTests } from "../../src/common/paths.ts";
+import { closeFactDb, getValidFacts, insertFact } from "../../src/hlvm/memory/mod.ts";
 
 const MODEL = "ollama/llama3.1:8b";
 
@@ -44,48 +44,16 @@ async function setupIsolatedEnv(): Promise<string> {
   const tempDir = await platform.fs.makeTempDir({ prefix: "hlvm-smoke-" });
   platform.env.set("HLVM_DIR", tempDir);
   resetHlvmDirCacheForTests();
-  resetMemoryStateForTesting();
   return tempDir;
 }
 
 async function teardownIsolatedEnv(tempDir: string): Promise<void> {
-  closeMemoryDb();
-  getPlatform().env.set("HLVM_DIR", "");
+  closeFactDb();
+  getPlatform().env.delete("HLVM_DIR");
   resetHlvmDirCacheForTests();
-  resetMemoryStateForTesting();
   try {
     await getPlatform().fs.remove(tempDir, { recursive: true });
   } catch { /* ignore */ }
-}
-
-/** Check if memory content appears in MEMORY.md or any journal file */
-async function isMemoryOnDisk(keywords: string[]): Promise<boolean> {
-  const platform = getPlatform();
-
-  // Check MEMORY.md
-  try {
-    const memoryMd = await platform.fs.readTextFile(getMemoryMdPath());
-    if (keywords.some((k) => memoryMd.toLowerCase().includes(k.toLowerCase()))) {
-      return true;
-    }
-  } catch { /* file may not exist */ }
-
-  // Check journal files
-  try {
-    const journalDir = getJournalDir();
-    for await (const entry of platform.fs.readDir(journalDir)) {
-      if (entry.name.endsWith(".md")) {
-        const content = await platform.fs.readTextFile(
-          platform.path.join(journalDir, entry.name),
-        );
-        if (keywords.some((k) => content.toLowerCase().includes(k.toLowerCase()))) {
-          return true;
-        }
-      }
-    }
-  } catch { /* journal dir may not exist */ }
-
-  return false;
 }
 
 let runtimeReady = false;
@@ -96,7 +64,7 @@ async function ensureRuntime(): Promise<void> {
 }
 
 Deno.test({
-  name: "SMOKE: agent calls memory_write and content appears on disk",
+  name: "SMOKE: agent calls memory_write and content persists in DB",
   ignore: !(await isOllamaAvailable()),
   sanitizeOps: false,
   sanitizeResources: false,
@@ -121,10 +89,14 @@ Deno.test({
         result.stats.toolMessages > 0,
         `Agent MUST call memory_write when explicitly asked to remember. Tool calls: ${result.stats.toolMessages}. Response: ${result.text.slice(0, 200)}`,
       );
-      assert(
-        await isMemoryOnDisk(["tabs", "dark mode"]),
-        "Memory content must appear on disk after memory_write",
+
+      // V2: verify fact is in canonical DB
+      const facts = getValidFacts();
+      const hasMemoryContent = facts.some((f) =>
+        f.content.toLowerCase().includes("tab") ||
+        f.content.toLowerCase().includes("dark mode")
       );
+      assert(hasMemoryContent, "Memory content must be stored in canonical facts DB");
     } finally {
       await teardownIsolatedEnv(tempDir);
     }
@@ -132,7 +104,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "SMOKE: new session recalls preferences from pre-populated MEMORY.md",
+  name: "SMOKE: new session recalls preferences from pre-populated DB",
   ignore: !(await isOllamaAvailable()),
   sanitizeOps: false,
   sanitizeResources: false,
@@ -140,18 +112,12 @@ Deno.test({
     await ensureRuntime();
     const tempDir = await setupIsolatedEnv();
     try {
-      const platform = getPlatform();
+      // V2: pre-populate canonical DB directly
+      insertFact({ content: "Always use tabs over spaces", category: "User Preferences" });
+      insertFact({ content: "Prefers dark mode", category: "User Preferences" });
+      insertFact({ content: "Favorite language: TypeScript", category: "User Preferences" });
 
-      // Pre-populate MEMORY.md (deterministic — doesn't depend on model writing)
-      const memoryDir = platform.path.join(tempDir, "memory");
-      await platform.fs.mkdir(memoryDir, { recursive: true });
-      await platform.fs.writeTextFile(
-        platform.path.join(memoryDir, "MEMORY.md"),
-        "# User Preferences\n\n- Always use tabs over spaces\n- Prefers dark mode\n- Favorite language: TypeScript\n",
-      );
-
-      // New session should load memory and model should reference it
-      resetMemoryStateForTesting();
+      // New session should load memory from DB and model should reference it
       const result = await runAgentQuery({
         query: "What are my editor preferences? Answer based on what you know about me.",
         model: MODEL,
