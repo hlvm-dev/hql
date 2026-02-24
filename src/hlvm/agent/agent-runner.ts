@@ -37,6 +37,7 @@ import type { AgentPolicy } from "./policy.ts";
 import {
   DEFAULT_TOOL_DENYLIST,
   ENGINE_PROFILES,
+  extractModelSuffix,
   isFrontierProvider,
   MAX_SESSION_HISTORY,
 } from "./constants.ts";
@@ -236,9 +237,7 @@ export async function ensureAgentReady(
   setAgentLogger(log);
 
   // Strip provider prefix to get raw model name for cloud detection
-  const modelName = model.includes("/")
-    ? model.split("/").slice(1).join("/")
-    : model;
+  const modelName = extractModelSuffix(model);
   // Lazy import for SDK decoupling — avoids hard coupling to ../providers/ollama/
   const { isOllamaCloudModel } = await import("../providers/ollama/cloud.ts");
   const isLocalModel = !isFrontierProvider(model) &&

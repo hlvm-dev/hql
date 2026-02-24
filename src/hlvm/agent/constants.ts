@@ -293,10 +293,24 @@ export const MAX_SESSION_HISTORY = 10;
 /** Cloud/frontier provider prefixes (SSOT for detectFrontierModel + isLocalModel) */
 export const FRONTIER_PROVIDER_PREFIXES = ["anthropic", "openai", "google", "claude-code"] as const;
 
+/** Extract provider prefix from "provider/model" string */
+export function extractProviderName(model?: string): string {
+  if (!model) return "unknown";
+  const slashIdx = model.indexOf("/");
+  return slashIdx > 0 ? model.slice(0, slashIdx).toLowerCase() : "ollama";
+}
+
+/** Extract model name from "provider/model" string */
+export function extractModelSuffix(model?: string): string {
+  if (!model) return "unknown";
+  const slashIdx = model.indexOf("/");
+  return slashIdx > 0 ? model.slice(slashIdx + 1) : model;
+}
+
 /** Detect whether a model string refers to a frontier API model */
 export function isFrontierProvider(model?: string): boolean {
   if (!model) return false;
-  const prefix = model.split("/")[0]?.toLowerCase() ?? "";
+  const prefix = extractProviderName(model);
   return (FRONTIER_PROVIDER_PREFIXES as readonly string[]).includes(prefix);
 }
 

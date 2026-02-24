@@ -14,6 +14,7 @@ import {
   getErrorMessage,
   isFileNotFoundError,
 } from "../../../common/utils.ts";
+import { formatBytes } from "../../../common/limits.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 
 // ============================================================================
@@ -221,17 +222,6 @@ export function getDisplayName(type: AttachmentType, id: number): string {
   return `[${prefix} #${id}]`;
 }
 
-/**
- * Format file size for display
- */
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
 
 /**
  * Get size limit for attachment type
@@ -291,8 +281,8 @@ export async function createAttachment(
     if (fileInfo.size > sizeLimit) {
       return {
         type: "size_exceeded",
-        message: `File too large: ${formatFileSize(fileInfo.size)} exceeds ${
-          formatFileSize(sizeLimit)
+        message: `File too large: ${formatBytes(fileInfo.size)} exceeds ${
+          formatBytes(sizeLimit)
         } limit`,
         path,
       };

@@ -20,6 +20,8 @@ import {
   classifyModelTier,
   computeTierToolFilter,
   ENGINE_PROFILES,
+  extractModelSuffix,
+  extractProviderName,
   isFrontierProvider,
   type ModelTier,
 } from "./constants.ts";
@@ -92,19 +94,6 @@ export interface AgentSession {
 }
 
 
-/** Extract provider prefix from "provider/model" string */
-function extractProviderName(model?: string): string {
-  if (!model) return "unknown";
-  const slashIdx = model.indexOf("/");
-  return slashIdx > 0 ? model.slice(0, slashIdx).toLowerCase() : "ollama";
-}
-
-/** Extract model name from "provider/model" string */
-function extractModelSuffix(model?: string): string {
-  if (!model) return "unknown";
-  const slashIdx = model.indexOf("/");
-  return slashIdx > 0 ? model.slice(slashIdx + 1) : model;
-}
 
 /** Try to get ModelInfo from the provider (best-effort, non-blocking) */
 async function tryGetModelInfo(
