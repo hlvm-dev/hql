@@ -175,6 +175,11 @@ export type TraceEvent =
 export type AgentUIEvent =
   | { type: "thinking"; iteration: number }
   | {
+    type: "thinking_update";
+    iteration: number;
+    summary: string;
+  }
+  | {
     type: "tool_start";
     name: string;
     argsSummary: string;
@@ -560,6 +565,14 @@ export async function runReActLoop(
         content: responseText,
         toolCalls: agentResponse.toolCalls?.length ?? 0,
       });
+
+      if ((agentResponse.toolCalls?.length ?? 0) > 0 && responseText.trim()) {
+        config.onAgentEvent?.({
+          type: "thinking_update",
+          iteration: state.iterations,
+          summary: truncate(responseText, 300),
+        });
+      }
 
       const textResult = handleTextOnlyResponse(
         response,

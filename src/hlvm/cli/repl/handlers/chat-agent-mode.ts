@@ -102,6 +102,11 @@ export async function handleAgentMode(
     modelInfo,
     cachedSession,
     callbacks: {
+      onToken: (text: string) => {
+        streamedFinalText = true;
+        onPartial(text);
+        emit({ event: "token", text });
+      },
       onInteraction: async (event) => {
         return await awaitInteractionResponse(event, signal, emit);
       },
@@ -147,6 +152,13 @@ export async function handleAgentMode(
             });
             break;
           }
+          case "thinking_update":
+            emit({
+              event: "thinking_update",
+              iteration: event.iteration,
+              summary: event.summary,
+            });
+            break;
           case "turn_stats":
             emit({
               event: "turn_stats",
