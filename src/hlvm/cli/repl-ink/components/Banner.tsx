@@ -3,8 +3,8 @@
  * SICP-inspired design with professional CLI aesthetics
  */
 
-import React from "npm:react@18";
-import { Box, Text } from "npm:ink@5";
+import React from "react";
+import { Box, Text } from "ink";
 import { version as VERSION } from "../../../../../mod.ts";
 import type { SessionMeta } from "../../repl/session/types.ts";
 import { useTheme } from "../../theme/index.ts";

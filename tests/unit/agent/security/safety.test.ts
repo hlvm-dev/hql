@@ -14,7 +14,15 @@ import {
   hasL1Confirmation,
   setL1Confirmation,
 } from "../../../../src/hlvm/agent/security/safety.ts";
-import { computeTierToolFilter, WEAK_TIER_CORE_TOOLS } from "../../../../src/hlvm/agent/constants.ts";
+import {
+  computeTierToolFilter,
+  SHELL_ALLOWLIST_L0,
+  SHELL_ALLOWLIST_L1,
+  SHELL_COMMAND_MANIFEST,
+  SHELL_DENY_MANIFEST,
+  SHELL_DENYLIST_L0,
+  WEAK_TIER_CORE_TOOLS,
+} from "../../../../src/hlvm/agent/constants.ts";
 
 // ============================================================
 // Classification tests
@@ -690,10 +698,23 @@ Deno.test({
   fn() {
     const cases: string[] = [
       "deno test",
+      "deno task dev",
       "deno fmt",
       "deno lint",
       "deno check mod.ts",
       "deno bench",
+      "npm test",
+      "npm run build",
+      "npm start",
+      "npx vitest",
+      "yarn test",
+      "yarn run build",
+      "yarn start",
+      "pnpm test",
+      "pnpm run dev",
+      "pnpm start",
+      "make",
+      "make build",
       "cargo test",
       "cargo build",
       "cargo check",
@@ -705,6 +726,7 @@ Deno.test({
       "go build",
       "go vet ./...",
       "go fmt ./...",
+      "go run main.go",
       "python -m pytest",
       "python3 -m mypy src/",
       "pytest",
@@ -733,16 +755,6 @@ Deno.test({
   fn() {
     const cases: string[] = [
       "npm install",
-      "npm test",
-      "npm run build",
-      "npm start",
-      "npx vitest",
-      "yarn test",
-      "yarn run build",
-      "pnpm test",
-      "pnpm run dev",
-      "make",
-      "make build",
       "git add .",
       "git checkout main",
       "git stash",
@@ -756,7 +768,6 @@ Deno.test({
       "npm view lodash",
       "brew search node",
       "pip install requests",
-      "go run main.go",
       "go env -w GOPATH=/tmp",
       "sudo anything",
       "rm file.txt",
@@ -1130,6 +1141,133 @@ Deno.test({
         classification.level,
         "L2",
         `Expected ${cmd} to be L2 (metachar), got ${classification.level}`,
+      );
+    }
+  },
+});
+
+// ============================================================
+// Manifest invariant tests (prevents count drift)
+// ============================================================
+
+Deno.test({
+  name: "Safety: manifest invariant — exact L0/L1/deny counts",
+  fn() {
+    // If you add/remove a pattern, update these counts.
+    // This test prevents claims from drifting from reality.
+    assertEquals(SHELL_ALLOWLIST_L0.length, 40, "L0 pattern count");
+    assertEquals(SHELL_ALLOWLIST_L1.length, 10, "L1 pattern count");
+    assertEquals(SHELL_DENYLIST_L0.length, 14, "Deny pattern count");
+    assertEquals(SHELL_COMMAND_MANIFEST.length, 50, "Total manifest entries");
+    assertEquals(SHELL_DENY_MANIFEST.length, 14, "Deny manifest entries");
+  },
+});
+
+Deno.test({
+  name: "Safety: manifest invariant — derived arrays match manifest",
+  fn() {
+    const l0Count = SHELL_COMMAND_MANIFEST.filter(s => s.tier === "L0").length;
+    const l1Count = SHELL_COMMAND_MANIFEST.filter(s => s.tier === "L1").length;
+    assertEquals(SHELL_ALLOWLIST_L0.length, l0Count, "L0 derived from manifest");
+    assertEquals(SHELL_ALLOWLIST_L1.length, l1Count, "L1 derived from manifest");
+    assertEquals(SHELL_DENYLIST_L0.length, SHELL_DENY_MANIFEST.length, "Deny derived from manifest");
+  },
+});
+
+Deno.test({
+  name: "Safety: manifest invariant — every command in manifest matches its pattern",
+  fn() {
+    for (const spec of SHELL_COMMAND_MANIFEST) {
+      for (const cmd of spec.commands) {
+        // Some commands in the manifest are prefixes (e.g. "git status" matches "git status -s")
+        // but at minimum the command itself should match
+        assertEquals(
+          spec.pattern.test(cmd) || spec.pattern.test(cmd + " arg"),
+          true,
+          `Pattern ${spec.pattern} should match its documented command "${cmd}"`,
+        );
+      }
+    }
+  },
+});
+
+// ============================================================
+// Redirect classification tests
+// ============================================================
+
+Deno.test({
+  name: "Safety: redirects are L2 via metachar gate",
+  fn() {
+    const redirectCommands = [
+      "echo hello > file.txt",
+      "echo hello >> log.txt",
+      "cat < input.txt",
+      "cmd 2>&1",
+      "cmd 2> error.log",
+      "cmd &> all.log",
+      "sort file > output.txt",
+      "cat file.txt > /dev/null",
+    ];
+
+    for (const cmd of redirectCommands) {
+      const classification = classifyTool("shell_exec", { command: cmd });
+      assertEquals(
+        classification.level,
+        "L2",
+        `Expected redirect "${cmd}" to be L2, got ${classification.level}`,
+      );
+    }
+  },
+});
+
+// ============================================================
+// Deny-list flag variant tests (ordering, whitespace)
+// ============================================================
+
+Deno.test({
+  name: "Safety: deny-list catches flags in various positions",
+  fn() {
+    const denyVariants = [
+      // git branch -d in different positions
+      "git branch -d main",
+      "git branch --verbose -d main",
+      "git branch -a -d feature",
+      // git branch -m (move/rename)
+      "git branch -m old new",
+      "git branch -M old new",
+      // git remote mutations
+      "git remote add origin https://x",
+      "git remote remove origin",
+      "git remote rename old new",
+      "git remote set-url origin https://x",
+      "git remote prune origin",
+      // git tag mutations
+      "git tag -d v1.0",
+      "git tag -a v1.0 -m release",
+      "git tag -f v1.0",
+      // find destructive
+      "find . -name '*.tmp' -delete",
+      "find /tmp -exec rm {} +",
+      "find . -execdir rm {} \\;",
+      // sort/yq in-place
+      "sort -o output.txt input.txt",
+      "sort --reverse -o out file",
+      "yq -i '.x = 1' file.yaml",
+      "yq eval '.x' -i file.yaml",
+      // go env -w
+      "go env -w GOPATH=/tmp",
+      "go env GOPATH -w",
+      // git config SET
+      "git config user.email foo@bar",
+      "git config --global user.name Foo",
+    ];
+
+    for (const cmd of denyVariants) {
+      const classification = classifyTool("shell_exec", { command: cmd });
+      assertEquals(
+        classification.level,
+        "L2",
+        `Expected deny variant "${cmd}" to be L2, got ${classification.level}`,
       );
     }
   },

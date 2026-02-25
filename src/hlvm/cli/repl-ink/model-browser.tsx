@@ -4,8 +4,8 @@
  * Provides an interactive CLI UI for downloading and selecting models.
  */
 
-import React, { useCallback, useRef } from "npm:react@18";
-import { render, useApp } from "npm:ink@5";
+import React, { useCallback, useRef } from "react";
+import { render, useApp } from "ink";
 import { ThemeProvider } from "../theme/index.ts";
 import { ModelBrowser } from "./components/ModelBrowser.tsx";
 import { getErrorMessage } from "../../../common/utils.ts";

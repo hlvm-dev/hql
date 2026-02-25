@@ -3,7 +3,7 @@
  * Uses React 18's useSyncExternalStore for proper external store subscription
  */
 
-import { useSyncExternalStore, useMemo } from "npm:react@18";
+import { useSyncExternalStore, useMemo } from "react";
 import type { ReplState } from "../../repl/state.ts";
 
 /**

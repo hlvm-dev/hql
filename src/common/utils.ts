@@ -223,6 +223,18 @@ export function truncate(text: string, maxLen: number, suffix = "..."): string {
  * @param headRatio - Fraction of maxLen for head (default: 0.4)
  * @returns Head + separator + tail if truncated, original string otherwise
  */
+/**
+ * Truncate text and report whether truncation occurred.
+ * SSOT for truncate-with-flag pattern (used by web tools, etc.).
+ */
+export function truncateText(
+  text: string,
+  maxChars: number,
+): { text: string; truncated: boolean } {
+  if (maxChars <= 0 || text.length <= maxChars) return { text, truncated: false };
+  return { text: text.slice(0, maxChars), truncated: true };
+}
+
 export function truncateMiddle(text: string, maxLen: number, headRatio = 0.4): string {
   if (text.length <= maxLen) return text;
 

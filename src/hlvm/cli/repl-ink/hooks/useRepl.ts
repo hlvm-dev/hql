@@ -3,7 +3,7 @@
  * Manages REPL state, evaluation, and mode switching
  */
 
-import { useCallback, useRef } from "npm:react@18";
+import { useCallback, useRef } from "react";
 import { ReplState } from "../../repl/state.ts";
 import { evaluate as hqlEvaluate } from "../../repl/evaluator.ts";
 import { resolveAtMentions } from "../../repl/mention-resolver.ts";

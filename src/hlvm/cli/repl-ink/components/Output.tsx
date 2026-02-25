@@ -4,8 +4,8 @@
  * Uses shared formatter from src/hlvm/cli/repl/formatter.ts (Single Source of Truth)
  */
 
-import React from "npm:react@18";
-import { Text, Box } from "npm:ink@5";
+import React from "react";
+import { Text, Box } from "ink";
 import type { EvalResult } from "../types.ts";
 import { renderMarkdown, hasMarkdown } from "../../repl/markdown.ts";
 import { useStreaming } from "../hooks/useStreaming.ts";

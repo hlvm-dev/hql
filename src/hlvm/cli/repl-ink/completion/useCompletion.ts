@@ -5,7 +5,7 @@
  * This is the primary hook for components to use.
  */
 
-import { useCallback, useRef, useEffect, useMemo } from "npm:react@18";
+import { useCallback, useRef, useEffect, useMemo } from "react";
 import type { CompletionContext, CompletionItem, ProviderId, ApplyContext, CompletionAction } from "./types.ts";
 import { useDropdownState } from "./useDropdownState.ts";
 import { buildContext } from "./providers.ts";

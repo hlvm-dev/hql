@@ -12,7 +12,7 @@
  * @module source-map-support
  */
 
-import { SourceMapConsumer } from "npm:source-map@0.6.1";
+import { SourceMapConsumer } from "source-map";
 import { globalLogger as logger } from "../../../logger.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { getErrorMessage } from "../../../common/utils.ts";

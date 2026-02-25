@@ -11,8 +11,8 @@
  * - Optimized rendering (cursor-only updates for blink)
  */
 
-import React, { useState, useMemo, useEffect, useCallback, useRef } from "npm:react@18";
-import { useInput } from "npm:ink@5";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useInput } from "ink";
 import { registry, getDisplay, CATEGORY_ORDER } from "../keybindings/index.ts";
 import type { KeybindingAction, KeybindingMatch, KeybindingCategory } from "../keybindings/index.ts";
 import {

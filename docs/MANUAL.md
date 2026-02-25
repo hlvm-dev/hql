@@ -1,6 +1,5 @@
 # HQL Language Manual
 
-**Version:** 2.0 | **JS Parity:** 100% | **TS Types:** 100%
 
 This manual covers installation, CLI usage, and key workflows. For complete syntax, see [HQL-SYNTAX.md](./HQL-SYNTAX.md).
 
@@ -178,6 +177,3 @@ See [Standard Library Reference](./api/stdlib.md) for complete documentation.
 | [api/stdlib.md](./api/stdlib.md) | Built-in functions |
 | [GUIDE.md](./GUIDE.md) | Learning guide from beginner to advanced |
 
----
-
-*Version 2.0 - Updated December 2024*

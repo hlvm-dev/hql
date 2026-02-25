@@ -1,4 +1,4 @@
-import { typeByExtension } from "jsr:@std/media-types@1";
+import { typeByExtension } from "@std/media-types";
 
 function normalizeExtension(value: string): string {
   return value.trim().toLowerCase().replace(/^\./, "");

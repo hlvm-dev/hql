@@ -10,7 +10,7 @@
  * Features:
  * - Single/double quote handling
  * - Backslash escape sequences
- * - Dangerous operator detection (|, &&, ||, ;)
+ * - Dangerous operator detection (|, &&, ||, ;, >, <)
  * - Preserves original command for auditing
  */
 
@@ -30,6 +30,8 @@ export interface ParsedCommand {
   hasPipes: boolean;
   /** True if command contains chaining operators (&&, ||, ;) */
   hasChaining: boolean;
+  /** True if command contains redirect operators (>, >>, <, <<, etc.) */
+  hasRedirects: boolean;
   /** Original unparsed command string */
   raw: string;
 }
@@ -59,7 +61,7 @@ export class ShellParseError extends Error {
  * - Double quotes: Allows escapes like \", \\, \n
  * - Backslash: Escapes next character outside quotes
  * - Whitespace: Argument delimiter outside quotes
- * - Pipes/chaining: Detected and flagged (not parsed)
+ * - Pipes/chaining/redirects: Detected and flagged (not parsed)
  *
  * Security:
  * - Detects dangerous shell operators
@@ -102,6 +104,7 @@ export function parseShellCommand(command: string): ParsedCommand {
   let escaped = false;
   let hasPipes = false;
   let hasChaining = false;
+  let hasRedirects = false;
   let position = 0;
   let pendingPipe = false;
   let pendingAmp = false;
@@ -210,6 +213,8 @@ export function parseShellCommand(command: string): ParsedCommand {
         pendingAmp = true;
       } else if (char === ";") {
         hasChaining = true;
+      } else if (char === ">" || char === "<") {
+        hasRedirects = true;
       }
     }
 
@@ -257,6 +262,7 @@ export function parseShellCommand(command: string): ParsedCommand {
     args: args.slice(1),
     hasPipes,
     hasChaining,
+    hasRedirects,
     raw: command,
   };
 }
@@ -284,7 +290,7 @@ export function parseShellCommand(command: string): ParsedCommand {
  * ```
  */
 export function isSafeCommand(parsed: ParsedCommand): boolean {
-  return !parsed.hasPipes && !parsed.hasChaining;
+  return !parsed.hasPipes && !parsed.hasChaining && !parsed.hasRedirects;
 }
 
 /**
@@ -303,14 +309,10 @@ export function isSafeCommand(parsed: ParsedCommand): boolean {
  * ```
  */
 export function getUnsafeReason(parsed: ParsedCommand): string {
-  if (parsed.hasPipes && parsed.hasChaining) {
-    return "Command contains both pipe operators (|) and chaining operators (&&/||/;)";
-  }
-  if (parsed.hasPipes) {
-    return "Command contains pipe operators (|)";
-  }
-  if (parsed.hasChaining) {
-    return "Command contains chaining operators (&&/||/;)";
-  }
-  return "Command is safe";
+  const reasons: string[] = [];
+  if (parsed.hasPipes) reasons.push("pipe operators (|)");
+  if (parsed.hasChaining) reasons.push("chaining operators (&&/||/;)");
+  if (parsed.hasRedirects) reasons.push("redirect operators (>/<)");
+  if (reasons.length === 0) return "Command is safe";
+  return `Command contains ${reasons.join(" and ")}`;
 }

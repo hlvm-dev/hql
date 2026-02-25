@@ -3,8 +3,8 @@
  * Interactive session selector (Claude Code / Gemini CLI style)
  */
 
-import React, { useState, useEffect } from "npm:react@18";
-import { Box, Text, useInput } from "npm:ink@5";
+import React, { useState, useEffect } from "react";
+import { Box, Text, useInput } from "ink";
 import type { SessionMeta } from "../../repl/session/types.ts";
 
 interface SessionPickerProps {

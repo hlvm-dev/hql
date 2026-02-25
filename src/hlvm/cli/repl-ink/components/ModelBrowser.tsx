@@ -5,8 +5,8 @@
  * Download new models with progress tracking.
  */
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "npm:react@18";
-import { Box, Text, useInput } from "npm:ink@5";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { Box, Text, useInput } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { ProgressBar, formatBytes } from "./ProgressBar.tsx";

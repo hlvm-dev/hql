@@ -15,8 +15,8 @@
  * - r: Reset all to defaults
  */
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "npm:react@18";
-import { useInput } from "npm:ink@5";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useInput } from "ink";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import {
   type ConfigKey,

@@ -12,7 +12,7 @@
  * - Hot-reload built into React's reconciliation
  */
 
-import React, { createContext, useContext, useState, useCallback, useMemo } from "npm:react@18";
+import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
 import { THEMES, type ThemeName, type ThemePalette } from "./palettes.ts";
 import { config } from "../../api/config.ts";
 import { ValidationError } from "../../../common/error.ts";

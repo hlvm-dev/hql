@@ -1,6 +1,5 @@
 # HQL Language Syntax Reference
 
-**Version:** 2.0 | **Status:** Complete | **JS Parity:** 100% | **TS Types:** 100%
 
 HQL (Homoiconic Query Language) is a Lisp dialect that transpiles to JavaScript/TypeScript. This document is the **definitive syntax reference** covering all supported syntax.
 
@@ -73,7 +72,10 @@ HQL (Homoiconic Query Language) is a Lisp dialect that transpiles to JavaScript/
 
 ```clojure
 // Single-line comment
-// Documentation comment (convention)
+/* Multi-line
+   block comment */
+;; Lisp-style comment (convention in .hql files)
+#!/usr/bin/env hlvm   // Shebang line (ignored)
 ```
 
 ### Identifiers
@@ -177,10 +179,11 @@ HQL bindings have the same semantics as JavaScript:
   (+ x y))            // → 120
 ```
 
-### Block-scoped Immutable (`const`)
+### Block-scoped Immutable (`const` / `def`)
 
 ```clojure
 (const PI 3.14159)
+(def PI 3.14159)       // def is an alias for const
 // (= PI 3.0)          ERROR: Cannot reassign const
 
 // Objects/arrays are frozen (deep immutability)
@@ -324,6 +327,21 @@ Functions can have multiple arities (parameter lists), dispatching based on argu
     (while (< i end)
       (yield i)
       (= i (+ i 1)))))
+```
+
+### Pure Functions (fx)
+
+```clojure
+// Declare a function as pure (compile-time enforcement)
+(fx pure-add [a b]
+  (+ a b))
+
+// Pure functions cannot contain:
+// - Calls to impure functions
+// - Mutations (push, pop, etc.)
+// - Side effects (console.log, fetch, etc.)
+// - Generators (yield)
+// See docs/features/21-effect-system/spec.md for details
 ```
 
 ### Return
@@ -803,6 +821,22 @@ HQL has native S-expression syntax for TypeScript types. All native type express
 (type ArrayElement<T> (if-extends T (array (infer E)) E never))
 ```
 
+### Swift Collection Shorthand
+
+```clojure
+// Array type
+[Int]                // → Int[]
+[String]             // → String[]
+
+// Dictionary/Map type
+[String: Int]        // → Record<string, number>
+[String: Any]        // → Record<string, any>
+
+// Tuple type
+(Int, String)        // → [Int, String]
+(Int, String, Bool)  // → [Int, String, Bool]
+```
+
 ### Utility Type Application
 
 ```clojure
@@ -884,6 +918,13 @@ For complex types, use string passthrough with `deftype` or `interface`.
 (declare var "globalCounter: number")
 (declare const "PI: 3.14159")
 (declare module "my-module")
+```
+
+### Decorators
+
+```clojure
+(decorator @Injectable)
+(decorator (@Component {selector: "app"}))
 ```
 
 ### Parameter Type Annotations
@@ -1229,4 +1270,82 @@ obj?.prop             // Optional chaining
 
 ---
 
-*This document is the authoritative HQL syntax reference. Version 2.0 - Updated December 2024.*
+## 17. Lazy Evaluation & Sequences
+
+### Lazy Sequences
+
+```clojure
+// Create lazy sequence (thunk-based, memoized)
+(lazy-seq (cons 1 (lazy-seq (cons 2 nil))))
+
+// Seq protocol: first, rest, cons
+(first [1 2 3])       // → 1
+(rest [1 2 3])        // → (2 3)
+(cons 0 [1 2 3])      // → (0 1 2 3)
+(seq [1 2 3])         // → lazy seq or null if empty
+
+// Delay/Force
+(def d (delay (expensive-computation)))
+(force d)             // Realize the delayed value
+(realized d)          // Check if already forced
+```
+
+### Standard Library (Lazy-by-Default)
+
+```clojure
+// Collection operations (all return lazy sequences)
+(map inc [1 2 3])              // → (2 3 4)
+(filter even? [1 2 3 4])      // → (2 4)
+(reduce + 0 [1 2 3])          // → 6
+(take 3 (range))              // → (0 1 2)
+(drop 2 [1 2 3 4])            // → (3 4)
+(concat [1 2] [3 4])          // → (1 2 3 4)
+(flatten [[1 2] [3 [4]]])     // → (1 2 3 4)
+(distinct [1 2 1 3 2])        // → (1 2 3)
+
+// Infinite sequences
+(range)                        // → 0, 1, 2, ... ∞
+(range 5)                      // → 0, 1, 2, 3, 4
+(range 1 10 2)                 // → 1, 3, 5, 7, 9
+(repeat "x")                   // → "x", "x", "x", ... ∞
+(cycle [1 2 3])                // → 1, 2, 3, 1, 2, 3, ... ∞
+(iterate inc 0)                // → 0, 1, 2, 3, ... ∞
+
+// Predicates
+(some even? [1 3 4 5])        // → true
+(every odd? [1 3 5])          // → true
+(isEmpty [])                   // → true
+
+// Transducers
+(transduce (comp (map inc) (filter even?)) + 0 [1 2 3 4])
+```
+
+See `docs/features/23-stdlib/spec.md` for the complete stdlib reference (107+ functions).
+
+---
+
+## 18. Effect System
+
+```clojure
+// Pure function declaration (compile-time enforcement)
+(fx pure-add [a:number b:number] :number
+  (+ a b))
+
+// Effect types: Pure | Impure
+// ValueKind tracking for receiver-type-aware purity
+// See docs/features/21-effect-system/spec.md for details
+```
+
+---
+
+## Further Reading
+
+For comprehensive documentation, see:
+
+| Document | Description |
+|----------|-------------|
+| [THE-HQL-PROGRAMMING-LANGUAGE.md](THE-HQL-PROGRAMMING-LANGUAGE.md) | Complete language book (K&R-style) |
+| [REFERENCE.md](REFERENCE.md) | Quick reference card |
+| [MANUAL.md](MANUAL.md) | Language manual |
+| [TYPE-SYSTEM.md](TYPE-SYSTEM.md) | Type system details |
+| [features/](features/) | Feature specifications |

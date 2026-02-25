@@ -27,7 +27,7 @@ function getJsCallRegex(funcName: string): RegExp {
   }
   return regex;
 }
-import { type RawSourceMap, SourceMapConsumer } from "npm:source-map@0.6.1";
+import { type RawSourceMap, SourceMapConsumer } from "source-map";
 import { getPlatform } from "../platform/platform.ts";
 import { ERROR_REPORTED_SYMBOL } from "./error-codes.ts";
 import { mapPositionSync } from "../hql/transpiler/pipeline/source-map-support.ts";
@@ -491,7 +491,7 @@ export async function handleRuntimeError(
 ): Promise<RuntimeError> {
   // Prevent infinite recursion if error occurs during error handling
   if (isHandlingError) {
-    console.error("[HLVM] Critical: Error in error handler:", error.message);
+    logger.error("[HLVM] Critical: Error in error handler:", error.message);
     return new RuntimeError(error.message, { originalError: error });
   }
   isHandlingError = true;

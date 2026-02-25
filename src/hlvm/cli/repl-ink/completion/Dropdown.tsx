@@ -7,8 +7,8 @@
  * Scroll calculation is INTERNAL - no external scroll props needed.
  */
 
-import React, { useMemo } from "npm:react@18";
-import { Text, Box } from "npm:ink@5";
+import React, { useMemo } from "react";
+import { Text, Box } from "ink";
 import type { CompletionItem, ItemRenderSpec } from "./types.ts";
 import { MAX_VISIBLE_ITEMS } from "./types.ts";
 import { calculateScrollWindow } from "./navigation.ts";

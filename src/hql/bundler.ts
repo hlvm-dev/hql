@@ -12,7 +12,7 @@ import type {
   OnResolveResult,
   Plugin,
   PluginBuild,
-} from "npm:esbuild-wasm@^0.17.0";
+} from "esbuild-wasm";
 import { transpileToJavascript } from "./transpiler/hql-transpiler.ts";
 import {
   needsRuntimeGetSnippet,

@@ -5,8 +5,8 @@
  * Pattern: ✳ Thinking… (esc to interrupt · 4m 35s)
  */
 
-import React, { useState, useEffect, useMemo } from "npm:react@18";
-import { Box, Text } from "npm:ink@5";
+import React, { useState, useEffect, useMemo } from "react";
+import { Box, Text } from "ink";
 import { useTheme } from "../../theme/index.ts";
 
 // Braille spinner frames (smooth animation)

@@ -1,6 +1,5 @@
 # HQL Quick Reference Card
 
-**Version 2.0** | **JS Parity: 100%** | **TS Types: 100%**
 
 ---
 
@@ -12,8 +11,10 @@
 (var y 20)                // var y = 20 (function-scoped mutable)
 (= x 30)                  // x = 30 (assignment)
 (const PI 3.14)           // const PI = 3.14 (immutable, frozen)
+(def PI 3.14)             // def = alias for const
 (let [a b] [1 2])         // destructure array
 (let {x y} obj)           // destructure object
+(let [a & rest] [1 2 3])  // rest destructuring
 ```
 
 ### Functions
@@ -24,6 +25,9 @@
 (=> [x y] (+ x y))               // (x, y) => x + y
 (async fn f [] (await x))        // async function
 (fn sum [& args] ...)            // rest params
+(fn greet ([] "Hi") ([n] n))     // multi-arity
+(fx pure-fn [a b] (+ a b))      // pure function (effect system)
+(defn name [a] (+ a 1))          // defn = alias for fn
 ```
 
 ### Generators
@@ -151,6 +155,34 @@ obj.property                     // obj.property
 (-> x (f) (g))                   // thread-first
 (->> x (f) (g))                  // thread-last
 (as-> x sym (f sym))             // thread-as
+(doto x (.m1) (.m2))             // execute methods, return x
+(with-gensyms [tmp] body)        // macro hygiene
+```
+
+### Lazy Evaluation & Sequences
+```clojure
+(first [1 2 3])                  // → 1
+(rest [1 2 3])                   // → (2 3)
+(cons 0 [1 2 3])                 // → (0 1 2 3)
+(seq coll)                       // → lazy seq or null
+(lazy-seq (cons 1 more))         // lazy sequence
+(delay expr)                     // deferred computation
+(force d)                        // realize delayed value
+(map inc [1 2 3])                // → (2 3 4) (lazy)
+(filter even? [1 2 3 4])         // → (2 4) (lazy)
+(reduce + 0 [1 2 3])            // → 6
+(take 3 (range))                 // → (0 1 2) (lazy)
+(range)                          // → 0, 1, 2, ... ∞
+(repeat "x")                     // → "x", "x", ... ∞
+(cycle [1 2])                    // → 1, 2, 1, 2, ... ∞
+(iterate inc 0)                  // → 0, 1, 2, ... ∞
+```
+
+### Swift Type Shorthand
+```clojure
+[Int]                            // Int[] (array type)
+[String: Int]                    // Record<string, number>
+(Int, String)                    // [Int, String] (tuple)
 ```
 
 ---
@@ -228,12 +260,10 @@ obj.property                     // obj.property
 
 | File | Purpose |
 |------|---------|
+| `THE-HQL-PROGRAMMING-LANGUAGE.md` | Complete language book (K&R-style) |
 | `HQL-SYNTAX.md` | Complete syntax reference |
 | `TYPE-SYSTEM.md` | Type system details |
 | `MANUAL.md` | Language manual |
 | `REFERENCE.md` | Quick reference (this file) |
 | `GUIDE.md` | Learning guide (quick start + full tutorial) |
-
----
-
-*Version 2.0 - December 2024*
+| `features/` | Feature specifications |

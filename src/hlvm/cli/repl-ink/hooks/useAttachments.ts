@@ -7,7 +7,7 @@
  * - Clear attachments after submit
  */
 
-import { useState, useCallback, useRef } from "npm:react@18";
+import { useState, useCallback, useRef } from "react";
 import {
   type Attachment,
   type TextAttachment,

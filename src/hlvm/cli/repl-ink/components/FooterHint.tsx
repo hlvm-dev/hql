@@ -5,8 +5,8 @@
  * Helps users discover keyboard shortcuts.
  */
 
-import React, { useState, useEffect } from "npm:react@18";
-import { Text, Box } from "npm:ink@5";
+import React, { useState, useEffect } from "react";
+import { Text, Box } from "ink";
 
 export function FooterHint(): React.ReactElement {
   const [model, setModel] = useState<string>("");

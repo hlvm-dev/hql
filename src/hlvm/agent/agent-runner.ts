@@ -275,7 +275,7 @@ export async function runAgentQuery(
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const profile = ENGINE_PROFILES.normal;
 
-  // Pre-read custom instructions (~/.hlvm/prompt.md) — non-blocking
+  // Pre-read custom instructions (~/.hlvm/HLVM.md) — non-blocking
   let customInstructions = "";
   try {
     customInstructions = await getPlatform().fs.readTextFile(

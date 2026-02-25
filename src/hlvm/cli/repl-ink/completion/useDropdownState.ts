@@ -5,7 +5,7 @@
  * Provides a clean API for components to interact with dropdown state.
  */
 
-import { useReducer, useCallback, useMemo } from "npm:react@18";
+import { useReducer, useCallback, useMemo } from "react";
 import type { DropdownState, CompletionItem, ProviderId } from "./types.ts";
 import { INITIAL_DROPDOWN_STATE } from "./types.ts";
 import {

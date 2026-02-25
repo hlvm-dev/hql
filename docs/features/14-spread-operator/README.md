@@ -1,6 +1,5 @@
 # Spread Operator
 
-**Status:** Implemented
 **Source:** `src/hql/transpiler/utils/validation-helpers.ts`, `src/hql/transpiler/syntax/data-structure.ts`, `src/hql/transpiler/syntax/function.ts`, `src/hql/transpiler/syntax/js-interop.ts`
 
 ## Overview

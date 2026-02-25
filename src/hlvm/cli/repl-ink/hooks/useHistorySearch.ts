@@ -5,7 +5,7 @@
  * Uses fuzzy matching for flexible searching.
  */
 
-import { useState, useCallback, useMemo } from "npm:react@18";
+import { useState, useCallback, useMemo } from "react";
 import { fuzzyMatch } from "../../repl/fuzzy.ts";
 
 // ============================================================

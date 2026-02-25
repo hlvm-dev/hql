@@ -60,7 +60,7 @@ export interface AgentSessionOptions {
   contextWindow?: number;
   /** Pre-fetched model info to avoid duplicate provider API calls */
   modelInfo?: ModelInfo | null;
-  /** Custom instructions from ~/.hlvm/prompt.md */
+  /** Custom instructions from ~/.hlvm/HLVM.md */
   customInstructions?: string;
   /** Override the LLM engine (defaults to getAgentEngine()) */
   engine?: AgentEngine;

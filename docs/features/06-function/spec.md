@@ -336,6 +336,45 @@ Type annotations are passed through to the generated TypeScript output.
 
 ---
 
+## Pure Functions (fx)
+
+`fx` declares a function as **pure**, enforced at compile time by the effect system.
+
+```lisp
+// Pure function declaration
+(fx add [a:number b:number]
+  (+ a b))
+
+// Pure functions cannot contain:
+// - Impure function calls (I/O, network, DOM, etc.)
+// - Mutations (variable reassignment, object mutation)
+// - Side effects (console.log, throwing exceptions)
+// - Generator yields
+```
+
+### Callback Purity Constraints
+
+Parameters can be annotated with purity requirements, ensuring callers pass only pure callbacks:
+
+```lisp
+(fx map-pure [f:pure items]
+  (map f items))
+
+// Calling with a pure function: OK
+(map-pure (fx [x] (* x 2)) [1 2 3])
+
+// Calling with an impure function: compile-time error
+(map-pure (fn [x] (console.log x)) [1 2 3])  ;; ERROR
+```
+
+### Compile-Time Enforcement
+
+The compiler statically verifies that `fx` bodies contain no impure operations. Violations produce compile-time errors, not runtime exceptions. This enables safe optimizations like memoization and parallelization.
+
+For full details on the effect system, purity inference, and effect annotations, see the [Effect System documentation](../21-effect-system/).
+
+---
+
 ## Syntax Reference Table
 
 | Category | Syntax | Example |
@@ -352,6 +391,7 @@ Type annotations are passed through to the generated TypeScript output.
 | **Async Generator** | `(async fn* name [p] body)` | `(async fn* ag [x] ...)` |
 | **Arrow Implicit** | `(=> body)` | `(=> (* $0 2))` |
 | **Arrow Explicit** | `(=> [params] body)` | `(=> [x y] (+ x y))` |
+| **Pure Function** | `(fx name [p] body)` | `(fx add [x y] (+ x y))` |
 | **defn** | `(defn name [p] body)` | `(defn add [x y] (+ x y))` |
 | **Rest Params** | `[x & rest]` | `(fn f [x & rest] ...)` |
 | **Defaults** | `[x = val]` | `(fn f [x = 10] x)` |
@@ -381,6 +421,7 @@ Type annotations are passed through to the generated TypeScript output.
 | Generator (fn*)     | Yes |
 | Async (async fn)    | Yes |
 | Async Generator     | Yes |
+| Pure Function (fx)  | Yes |
 | defn alias          | Yes |
 | Arrow Lambda (=>)   | Yes |
 | Lisp Map Syntax     | Yes (preferred) |

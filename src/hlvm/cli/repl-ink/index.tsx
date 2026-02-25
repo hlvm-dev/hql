@@ -2,8 +2,8 @@
  * HLVM Ink REPL - Entry Point
  */
 
-import React from "npm:react@18";
-import { render } from "npm:ink@5";
+import React from "react";
+import { render } from "ink";
 import { App } from "./components/App.tsx";
 import { ThemeProvider } from "../theme/index.ts";
 import { parseSessionFlags, type SessionInitOptions } from "../repl/session/types.ts";

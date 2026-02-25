@@ -205,10 +205,10 @@ export function getAgentPolicyPath(): string {
 }
 
 /**
- * Get the global custom instructions path (~/.hlvm/prompt.md)
+ * Get the global custom instructions path (~/.hlvm/HLVM.md)
  */
 export function getCustomInstructionsPath(): string {
-  return join(getHlvmDir(), "prompt.md");
+  return join(getHlvmDir(), "HLVM.md");
 }
 
 /**

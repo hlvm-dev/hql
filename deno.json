@@ -20,7 +20,16 @@
     "@std/path": "jsr:@std/path@1",
     "@std/semver": "jsr:@std/semver@1",
     "ignore": "npm:ignore@^6.0.0",
-    "vlq": "npm:vlq@2.0.4"
+    "vlq": "npm:vlq@2.0.4",
+    "@std/cli": "jsr:@std/cli@1.0.13",
+    "@std/media-types": "jsr:@std/media-types@1",
+    "@std/encoding": "jsr:@std/encoding@1",
+    "react": "npm:react@18",
+    "ink": "npm:ink@5",
+    "esbuild": "npm:esbuild@^0.17.0",
+    "esbuild-wasm": "npm:esbuild-wasm@^0.17.0",
+    "jsdom": "npm:jsdom@22.1.0",
+    "@mozilla/readability": "npm:@mozilla/readability@0.5.0"
   },
   "lint": {
     "include": ["src/", "tests/", "scripts/"],

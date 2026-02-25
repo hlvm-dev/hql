@@ -5,8 +5,8 @@
  * Uses existing ProgressBar and TaskManager infrastructure.
  */
 
-import React, { useEffect, useMemo, useRef } from "npm:react@18";
-import { Box, Text, useInput } from "npm:ink@5";
+import React, { useEffect, useMemo, useRef } from "react";
+import { Box, Text, useInput } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { ProgressBar, formatBytes } from "./ProgressBar.tsx";

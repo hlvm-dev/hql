@@ -334,8 +334,8 @@ export async function extractReadableContent(
   url: string,
 ): Promise<{ title?: string; content?: string; text?: string } | null> {
   try {
-    const { JSDOM } = await import("npm:jsdom@22.1.0");
-    const { Readability } = await import("npm:@mozilla/readability@0.5.0");
+    const { JSDOM } = await import("jsdom");
+    const { Readability } = await import("@mozilla/readability");
     const dom = new JSDOM(html, { url });
     const reader = new Readability(dom.window.document);
     const article = reader.parse();

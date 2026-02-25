@@ -11,7 +11,7 @@
  * With Ink/React, the smoothest approach is raw streaming + final format.
  */
 
-import { useState, useEffect, useRef, useCallback } from "npm:react@18";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 interface UseStreamingOptions {
   /** Throttle interval for display updates in ms (default: 100) */

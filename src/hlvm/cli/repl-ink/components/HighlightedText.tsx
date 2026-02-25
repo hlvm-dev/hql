@@ -5,8 +5,8 @@
  * Used by Dropdown (completion) and HistorySearchPrompt (Ctrl+R search).
  */
 
-import React from "npm:react@18";
-import { Text } from "npm:ink@5";
+import React from "react";
+import { Text } from "ink";
 
 // ============================================================
 // Types

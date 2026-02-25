@@ -122,7 +122,7 @@ export interface SystemPromptOptions {
   toolAllowlist?: string[];
   toolDenylist?: string[];
   toolOwnerId?: string;
-  /** Custom instructions from ~/.hlvm/prompt.md */
+  /** Custom instructions from ~/.hlvm/HLVM.md */
   customInstructions?: string;
   /** Model tier — controls prompt depth */
   modelTier?: ModelTier;

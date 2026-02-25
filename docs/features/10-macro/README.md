@@ -1,6 +1,5 @@
 # Macro System
 
-**Status:** Implemented
 **Source:** `src/hql/s-exp/macro.ts`, `src/hql/s-exp/macro-reader.ts`, `src/hql/s-exp/macro-registry.ts`, `src/hql/macroexpand.ts`, `src/hql/gensym.ts`, `src/hql/transpiler/syntax/quote.ts`
 **Macro libraries:** `src/hql/lib/macro/core.hql`, `src/hql/lib/macro/utils.hql`, `src/hql/lib/macro/loop.hql`
 

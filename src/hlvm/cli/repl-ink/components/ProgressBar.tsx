@@ -5,8 +5,8 @@
  * Minimal design: ████████░░░░░░░░ 48%
  */
 
-import React from "npm:react@18";
-import { Text } from "npm:ink@5";
+import React from "react";
+import { Text } from "ink";
 import { useTheme } from "../../theme/index.ts";
 
 // ============================================================

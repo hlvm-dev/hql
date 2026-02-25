@@ -3,8 +3,8 @@
  * Full-featured REPL with rich banner, keyboard shortcuts, completions
  */
 
-import React, { useCallback, useEffect, useRef, useState } from "npm:react@18";
-import { Box, Static, Text, useApp, useInput } from "npm:ink@5";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Box, Static, Text, useApp, useInput } from "ink";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";

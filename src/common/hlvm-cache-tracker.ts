@@ -1009,7 +1009,7 @@ async function rewriteHqlImportsInJs(
       const cachedJsPath = preJsPath;
 
       try {
-        const esbuild = await import("npm:esbuild@^0.17.0");
+        const esbuild = await import("esbuild");
         await esbuild.build({
           entryPoints: [cachedTsPath],
           outfile: cachedJsPath,

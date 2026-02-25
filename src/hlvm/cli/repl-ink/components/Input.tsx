@@ -3,8 +3,8 @@
  * Full keyboard handling with syntax highlighting, completions, history
  */
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "npm:react@18";
-import { Text, Box, useInput } from "npm:ink@5";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { Text, Box, useInput } from "ink";
 import {
   highlight,
   findMatchingParen,

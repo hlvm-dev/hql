@@ -1,7 +1,7 @@
 /**
  * CLI option parsing and application utilities
  */
-import { parseArgs } from "jsr:@std/cli@1.0.13/parse-args";
+import { parseArgs } from "@std/cli/parse-args";
 import { globalLogger } from "../../../logger.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { platformCwd } from "./platform-helpers.ts";

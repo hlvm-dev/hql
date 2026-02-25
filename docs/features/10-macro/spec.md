@@ -153,6 +153,76 @@ Three `.hql` source files are embedded at build time via `embedded-macros.ts`:
 
 These are compiled into `EMBEDDED_MACROS` object. To modify, edit the `.hql` files and run `deno run -A scripts/embed-packages.ts`.
 
+## Utility Macros (utils.hql)
+
+The utility macro library provides common convenience forms:
+
+### doto
+
+`(doto x & forms)` -- Execute forms with `x` as the receiver, return `x`. Method calls (`.method`) are transformed to `(js-call x method args...)`.
+
+```lisp
+(doto (new HashMap)
+  (.set "a" 1)
+  (.set "b" 2))
+;; Equivalent to:
+;; (let tmp (new HashMap))
+;; (js-call tmp "set" "a" 1)
+;; (js-call tmp "set" "b" 2)
+;; tmp
+```
+
+### if-not
+
+`(if-not test then else)` -- Inverse of `if`. Swaps the then/else branches.
+
+```lisp
+(if-not (isEmpty coll)
+  (first coll)
+  "empty")
+;; Expands to: (if (isEmpty coll) "empty" (first coll))
+```
+
+### when-not
+
+`(when-not test & body)` -- Inverse of `when`. Executes body when test is falsy.
+
+```lisp
+(when-not (isEmpty items)
+  (process items))
+;; Expands to: (when (not (isEmpty items)) (process items))
+```
+
+### xor
+
+`(xor a b)` -- Logical XOR with short-circuit evaluation.
+
+```lisp
+(xor true false)   ;; => true
+(xor true true)    ;; => false
+```
+
+### min / max
+
+Maps directly to `Math.min` / `Math.max`:
+
+```lisp
+(min 1 2 3)  ;; => Math.min(1, 2, 3)
+(max 1 2 3)  ;; => Math.max(1, 2, 3)
+```
+
+### with-gensyms
+
+`(with-gensyms [names...] body)` -- Hygiene helper that binds each name to a fresh gensym for use in macro templates.
+
+```lisp
+(macro swap [a b]
+  (with-gensyms [tmp]
+    `(let (~tmp ~a) (= ~a ~b) (= ~b ~tmp))))
+
+;; tmp gets a unique name (e.g. tmp_42) to avoid variable capture
+```
+
 ## Quote Transpilation (quote.ts)
 
 The transpiler handles `quote` and `quasiquote` after macro expansion:

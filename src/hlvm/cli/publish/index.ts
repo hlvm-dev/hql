@@ -1,4 +1,4 @@
-import { parseArgs } from "jsr:@std/cli@1.0.13/parse-args";
+import { parseArgs } from "@std/cli/parse-args";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 import {
   dirname,

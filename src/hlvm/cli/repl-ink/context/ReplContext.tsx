@@ -3,7 +3,7 @@
  * Provides 100% FRP - all state changes automatically update UI
  */
 
-import React, { createContext, useContext, useState, useEffect, useMemo } from "npm:react@18";
+import React, { createContext, useContext, useState, useEffect, useMemo } from "react";
 import type { ReplState } from "../../repl/state.ts";
 import { useReplStateBridge, type ReplStateSnapshot } from "../hooks/useReplStateBridge.ts";
 import { ValidationError } from "../../../../common/error.ts";

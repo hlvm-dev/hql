@@ -6,7 +6,7 @@
  */
 
 import { registry } from "./registry.ts";
-import type { Key } from "npm:ink@5";
+import type { Key } from "ink";
 import { config } from "../../../api/config.ts";
 
 // ============================================================

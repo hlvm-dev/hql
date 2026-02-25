@@ -51,14 +51,8 @@ export function makeCacheKey(
   return `${prefix}:${safe}`;
 }
 
-export function truncateText(
-  text: string,
-  maxChars: number,
-): { text: string; truncated: boolean } {
-  if (maxChars <= 0) return { text, truncated: false };
-  if (text.length <= maxChars) return { text, truncated: false };
-  return { text: text.slice(0, maxChars), truncated: true };
-}
+// Re-export truncateText from SSOT (common/utils.ts)
+export { truncateText } from "../../../../common/utils.ts";
 
 // ============================================================
 // Charset Decoding

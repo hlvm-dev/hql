@@ -109,6 +109,7 @@ export function createDelegateHandler(
         toolDenylist: ["delegate_agent"],
         l1Confirmations: new Map<string, boolean>(),
         toolOwnerId: config.toolOwnerId,
+        onInteraction: config.onInteraction,
         planning: { mode: "off" },
       },
       llm,

@@ -7,7 +7,7 @@
  * Supports HQL evaluation tasks and model downloads.
  */
 
-import { useSyncExternalStore, useMemo, useCallback } from "npm:react@18";
+import { useSyncExternalStore, useMemo, useCallback } from "react";
 import {
   getTaskManager,
   type Task,

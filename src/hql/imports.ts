@@ -1820,7 +1820,7 @@ async function transpileTypeScriptToJavaScript(
   jsPath: string,
 ): Promise<void> {
   try {
-    const esbuild = await import("npm:esbuild@^0.17.0");
+    const esbuild = await import("esbuild");
 
     await esbuild.build({
       entryPoints: [tsPath],

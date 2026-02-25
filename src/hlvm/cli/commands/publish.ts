@@ -1,6 +1,6 @@
 import { log } from "../../api/log.ts";
 import { exists, platformExit } from "../utils/platform-helpers.ts";
-import { parseArgs } from "jsr:@std/cli@1.0.13/parse-args";
+import { parseArgs } from "@std/cli/parse-args";
 import {
   incrementPatchVersion,
   promptUser,

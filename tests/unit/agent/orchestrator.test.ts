@@ -1569,3 +1569,128 @@ Deno.test({
     assertEquals(result.success, true);
   },
 });
+
+Deno.test({
+  name: "Orchestrator: executeToolCall - shell_exec preflight rejects output redirect",
+  async fn() {
+    clearAllL1Confirmations();
+    const context = new ContextManager();
+
+    const call: ToolCall = {
+      toolName: "shell_exec",
+      args: { command: "echo hello > file.txt" },
+    };
+
+    const result = await executeToolCall(call, {
+      workspace: TEST_WORKSPACE,
+      context,
+      permissionMode: "yolo",
+    });
+
+    assertEquals(result.success, false);
+    assertStringIncludes(
+      result.error ?? result.llmContent ?? "",
+      "shell_exec does not support",
+    );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCall - shell_exec preflight rejects input redirect",
+  async fn() {
+    clearAllL1Confirmations();
+    const context = new ContextManager();
+
+    const call: ToolCall = {
+      toolName: "shell_exec",
+      args: { command: "cat < input.txt" },
+    };
+
+    const result = await executeToolCall(call, {
+      workspace: TEST_WORKSPACE,
+      context,
+      permissionMode: "yolo",
+    });
+
+    assertEquals(result.success, false);
+    assertStringIncludes(
+      result.error ?? result.llmContent ?? "",
+      "shell_exec does not support",
+    );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCall - shell_exec preflight rejects append redirect",
+  async fn() {
+    clearAllL1Confirmations();
+    const context = new ContextManager();
+
+    const call: ToolCall = {
+      toolName: "shell_exec",
+      args: { command: "echo line >> log.txt" },
+    };
+
+    const result = await executeToolCall(call, {
+      workspace: TEST_WORKSPACE,
+      context,
+      permissionMode: "yolo",
+    });
+
+    assertEquals(result.success, false);
+    assertStringIncludes(
+      result.error ?? result.llmContent ?? "",
+      "shell_exec does not support",
+    );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCall - shell_exec preflight rejects stderr redirect",
+  async fn() {
+    clearAllL1Confirmations();
+    const context = new ContextManager();
+
+    const call: ToolCall = {
+      toolName: "shell_exec",
+      args: { command: "cmd 2>&1" },
+    };
+
+    const result = await executeToolCall(call, {
+      workspace: TEST_WORKSPACE,
+      context,
+      permissionMode: "yolo",
+    });
+
+    assertEquals(result.success, false);
+    assertStringIncludes(
+      result.error ?? result.llmContent ?? "",
+      "shell_exec does not support",
+    );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCall - shell_exec preflight rejects heredoc",
+  async fn() {
+    clearAllL1Confirmations();
+    const context = new ContextManager();
+
+    const call: ToolCall = {
+      toolName: "shell_exec",
+      args: { command: "cat << EOF" },
+    };
+
+    const result = await executeToolCall(call, {
+      workspace: TEST_WORKSPACE,
+      context,
+      permissionMode: "yolo",
+    });
+
+    assertEquals(result.success, false);
+    assertStringIncludes(
+      result.error ?? result.llmContent ?? "",
+      "shell_exec does not support",
+    );
+  },
+});

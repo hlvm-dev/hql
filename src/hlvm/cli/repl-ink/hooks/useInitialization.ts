@@ -3,7 +3,7 @@
  * Handles runtime initialization, AI import, memory loading
  */
 
-import { useState, useEffect, useRef } from "npm:react@18";
+import { useState, useEffect, useRef } from "react";
 import { initializeRuntime } from "../../../../common/runtime-initializer.ts";
 import { getFileIndex } from "../../repl/file-search.ts";
 import { ReplState } from "../../repl/state.ts";
