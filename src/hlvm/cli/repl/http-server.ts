@@ -52,6 +52,13 @@ import {
 } from "./handlers/models.ts";
 import { handleSSEStream } from "./handlers/sse.ts";
 import { handleGetConfig, handlePatchConfig, handleConfigStream } from "./handlers/config.ts";
+import {
+  handleCompanionObserve,
+  handleCompanionStream,
+  handleCompanionRespond,
+  handleCompanionStatus,
+  handleCompanionConfig,
+} from "./handlers/companion.ts";
 
 /**
  * REPL HTTP Server Port
@@ -659,6 +666,12 @@ router.add("POST", "/api/completions", (req) => handleComplete(req));
 router.add("GET", "/api/config", () => handleGetConfig());
 router.add("PATCH", "/api/config", (req) => handlePatchConfig(req));
 router.add("GET", "/api/config/stream", (req) => handleConfigStream(req));
+
+router.add("POST", "/api/companion/observe", (req) => handleCompanionObserve(req));
+router.add("GET", "/api/companion/stream", (req) => handleCompanionStream(req));
+router.add("POST", "/api/companion/respond", (req) => handleCompanionRespond(req));
+router.add("GET", "/api/companion/status", () => handleCompanionStatus());
+router.add("POST", "/api/companion/config", (req) => handleCompanionConfig(req));
 
 // MARK: - Request Handler
 

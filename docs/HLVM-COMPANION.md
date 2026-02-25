@@ -4794,3 +4794,1036 @@ seoksoonjang@seoksoons-MacBook-Pro hql % claude
   ? for shortcuts                                                                                                      Error compacting conversation  
                                                                                                                                                       
 
+
+
+
+▗ ▗   ▖ ▖  Claude Code v2.1.32
+           Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/dev/hql
+
+❯                                                                                                                                                   
+  ▗ ▗   ▖ ▖  Claude Code v2.1.32                                                                                                                    
+             Opus 4.6 · Claude Max                                                                                                                  
+    ▘▘ ▝▝    ~/dev/hql                                                                                                                              
+                                                                                                                                                    
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+  ────╮                                                                                                                                             
+  │ Plan to implement                                                                                                                               
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ HLVM Companion Agent — Full Execution Plan (Phases 1-5)                                                                                         
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Overview                                                                                                                                        
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Build a proactive personal AI companion that observes what the user does across all apps and decides whether to help, suggest, or act. All      
+      │                                                                                                                                             
+  │ intelligence in CLI (Deno/TS), GUI is thin sensor + renderer.                                                                                   
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ We implement Phase 1 now (CLI Core). Phases 2-5 are documented for future execution.                                                            
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ ---                                                                                                                                             
+      │                                                                                                                                             
+  │ PHASE 1: CLI Core (implement now)                                                                                                               
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Goal: End-to-end pipeline working. POST observations via curl, subscribe to SSE stream. Gate/decision are stubs (always SILENT). Fully testable 
+      │                                                                                                                                             
+  │ without Swift GUI.                                                                                                                              
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Implementation Order (dependency-driven)                                                                                                        
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Step 1: src/hlvm/companion/types.ts (~80 lines)                                                                                                 
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Pure type definitions, no runtime. Zero imports.                                                                                                
+      │                                                                                                                                             
+  │ - ObservationType: "app_switch" | "window_title" | "clipboard" | "file_change" | "screen_captured" | "check_result" | "terminal_result"         
+      │                                                                                                                                             
+  │ - Observation: { type, timestamp, source, data: Record<string, unknown> }                                                                       
+      │                                                                                                                                             
+  │ - GateResult: { result: "SILENT" | "NOTIFY", reason?: string }                                                                                  
+      │                                                                                                                                             
+  │ - CompanionDecisionType: "SILENT" | "CHAT" | "SUGGEST" | "ACT" | "ASK_VISION"                                                                   
+      │                                                                                                                                             
+  │ - CompanionDecision: { type, message?, actions? }                                                                                               
+      │                                                                                                                                             
+  │ - CompanionAction: { id, label, description, requiresApproval }                                                                                 
+      │                                                                                                                                             
+  │ - CompanionEventType: "message" | "suggestion" | "action_request" | "status_change"                                                             
+      │                                                                                                                                             
+  │ - CompanionEvent: { type, content, actions?, timestamp, id }                                                                                    
+      │                                                                                                                                             
+  │ - CompanionResponse: { eventId, actionId?, approved?, reply? }                                                                                  
+      │                                                                                                                                             
+  │ - CompanionState: "idle" | "observing" | "thinking" | "acting" | "paused"                                                                       
+      │                                                                                                                                             
+  │ - CompanionConfig: { enabled, debounceWindowMs, maxBufferSize, quietWindowMs }                                                                  
+      │                                                                                                                                             
+  │ - DEFAULT_COMPANION_CONFIG const (disabled, 2000ms debounce, 256 buffer, 5000ms quiet)                                                          
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Step 2: src/hlvm/companion/bus.ts (~55 lines)                                                                                                   
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Async iterable ring buffer. Depends on: types.ts.                                                                                               
+      │                                                                                                                                             
+  │ - ObservationBus class with append(obs), close(), get size, [Symbol.asyncIterator]()                                                            
+      │                                                                                                                                             
+  │ - Ring buffer drops oldest when > maxSize                                                                                                       
+      │                                                                                                                                             
+  │ - close() resolves all pending iterators (clean exit)                                                                                           
+      │                                                                                                                                             
+  │ - Waiters pattern: Promise<boolean> where true = done                                                                                           
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Step 3: src/hlvm/companion/redact.ts (~50 lines)                                                                                                
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Deterministic PII filter. Depends on: types.ts, memory/mod.ts.                                                                                  
+      │                                                                                                                                             
+  │ - redactObservation(obs): Observation — returns sanitized copy (never mutates)                                                                  
+      │                                                                                                                                             
+  │ - Reuses sanitizeSensitiveContent() from ../memory/mod.ts (SSOT — file: src/hlvm/memory/store.ts:44)                                            
+      │                                                                                                                                             
+  │ - Clipboard-specific: truncate to 200 chars + hash suffix for long text                                                                         
+      │                                                                                                                                             
+  │ - simpleHash() helper (djb2-style, returns base36)                                                                                              
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Step 4: src/hlvm/companion/debounce.ts (~50 lines)                                                                                              
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Async generator that batches by time window. Depends on: types.ts.                                                                              
+      │                                                                                                                                             
+  │ - async function* debounceObservations(source, windowMs): AsyncGenerator<Observation[]>                                                         
+      │                                                                                                                                             
+  │ - First observation starts timer, collects all within window, yields batch                                                                      
+      │                                                                                                                                             
+  │ - Uses Promise.race between iterator.next() and setTimeout                                                                                      
+      │                                                                                                                                             
+  │ - Source exhaustion yields remaining batch and exits                                                                                            
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Step 5: src/hlvm/companion/context.ts (~90 lines)                                                                                               
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Rolling context buffer + prompt builder. Depends on: types.ts.                                                                                  
+      │                                                                                                                                             
+  │ - CompanionContext class                                                                                                                        
+      │                                                                                                                                             
+  │ - addBatch(batch) — updates activeApp, activeWindowTitle, recentClipboard from observation data                                                 
+      │                                                                                                                                             
+  │ - buildPromptContext(): string — markdown summary for LLM (Phase 2+)                                                                            
+      │                                                                                                                                             
+  │ - setState()/getState() — lifecycle state                                                                                                       
+      │                                                                                                                                             
+  │ - isUserTyping() — true if last activity < quietWindowMs                                                                                        
+      │                                                                                                                                             
+  │ - getActiveApp()/getActiveWindowTitle() — accessors                                                                                             
+      │                                                                                                                                             
+  │ - Rolling buffer capped at 20 observations (configurable via constructor)                                                                       
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Step 6: src/hlvm/companion/gate.ts (~10 lines, STUB)                                                                                            
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ export async function gateObservations(_batch, _context): Promise<GateResult> {                                                                 
+      │                                                                                                                                             
+  │   return { result: "SILENT" };                                                                                                                  
+      │                                                                                                                                             
+  │ }                                                                                                                                               
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Step 7: src/hlvm/companion/decide.ts (~10 lines, STUB)                                                                                          
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ export async function makeDecision(_batch, _context, _gateReason?): Promise<CompanionDecision> {                                                
+      │                                                                                                                                             
+  │   return { type: "SILENT" };                                                                                                                    
+      │                                                                                                                                             
+  │ }                                                                                                                                               
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Step 8: src/hlvm/companion/loop.ts (~100 lines)                                                                                                 
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Main pipeline loop. Depends on: all above + store/sse-store.ts + api/log.ts.                                                                    
+      │                                                                                                                                             
+  │ - COMPANION_CHANNEL = "__companion__" constant                                                                                                  
+      │                                                                                                                                             
+  │ - runCompanionLoop(bus, config, context, signal): Promise<void>                                                                                 
+      │                                                                                                                                             
+  │   - Sets state "observing"                                                                                                                      
+      │                                                                                                                                             
+  │   - for await (batch of debounceObservations(bus, config.debounceWindowMs))                                                                     
+      │                                                                                                                                             
+  │       - Check signal.aborted → break                                                                                                            
+      │                                                                                                                                             
+  │     - batch.map(redactObservation) — PII filter                                                                                                 
+      │                                                                                                                                             
+  │     - context.addBatch(redacted)                                                                                                                
+      │                                                                                                                                             
+  │     - Set state "thinking"                                                                                                                      
+      │                                                                                                                                             
+  │     - gate = await gateObservations(redacted, context)                                                                                          
+      │                                                                                                                                             
+  │     - If SILENT → set state "observing", continue                                                                                               
+      │                                                                                                                                             
+  │     - decision = await makeDecision(redacted, context, gate.reason)                                                                             
+      │                                                                                                                                             
+  │     - Switch on decision.type → emit SSE via pushSSEEvent(COMPANION_CHANNEL, "companion_event", event)                                          
+      │                                                                                                                                             
+  │     - Set state "observing"                                                                                                                     
+      │                                                                                                                                             
+  │   - Finally: set state "idle", log stop                                                                                                         
+      │                                                                                                                                             
+  │ - emitCompanionEvent(event) — pushSSEEvent wrapper                                                                                              
+      │                                                                                                                                             
+  │ - resolveCompanionResponse(response): boolean — for pending approval map (Phase 3)                                                              
+      │                                                                                                                                             
+  │ - Import: pushSSEEvent from ../store/sse-store.ts, log from ../api/log.ts                                                                       
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Step 9: src/hlvm/companion/mod.ts (~45 lines)                                                                                                   
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Barrel + lifecycle. Depends on: all companion modules.                                                                                          
+      │                                                                                                                                             
+  │ - Re-exports all types, ObservationBus, CompanionContext, COMPANION_CHANNEL, redactObservation                                                  
+      │                                                                                                                                             
+  │ - Module-level state: bus, context, abortController, currentConfig                                                                              
+      │                                                                                                                                             
+  │ - startCompanion(config?) — creates bus+context+AbortController, fires runCompanionLoop (fire-and-forget with .finally)                         
+      │                                                                                                                                             
+  │ - stopCompanion() — abort+close+nullify                                                                                                         
+      │                                                                                                                                             
+  │ - getCompanionBus(), isCompanionRunning(), getCompanionState(), getCompanionConfig()                                                            
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Step 10: src/hlvm/cli/repl/handlers/companion.ts (~100 lines, NEW)                                                                              
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ HTTP handlers. Depends on: companion/mod.ts, http-utils.ts, store/sse-store.ts.                                                                 
+      │                                                                                                                                             
+  │ - handleCompanionObserve(req) — POST /api/companion/observe                                                                                     
+      │                                                                                                                                             
+  │   - Parse JSON body (single or array of Observation)                                                                                            
+      │                                                                                                                                             
+  │   - Push each to bus. 503 if not running. Returns 201 { queued: N }                                                                             
+      │                                                                                                                                             
+  │ - handleCompanionStream(req) — GET /api/companion/stream                                                                                        
+      │                                                                                                                                             
+  │   - createSSEResponse + replayAfter(COMPANION_CHANNEL, lastEventId) + subscribe(COMPANION_CHANNEL)                                              
+      │                                                                                                                                             
+  │ - handleCompanionRespond(req) — POST /api/companion/respond                                                                                     
+      │                                                                                                                                             
+  │   - Parse CompanionResponse, call resolveCompanionResponse. 400 if missing eventId.                                                             
+      │                                                                                                                                             
+  │ - handleCompanionStatus() — GET /api/companion/status                                                                                           
+      │                                                                                                                                             
+  │   - Returns { state, running, config }                                                                                                          
+      │                                                                                                                                             
+  │ - handleCompanionConfig(req) — POST /api/companion/config                                                                                       
+      │                                                                                                                                             
+  │   - enabled: true + not running → startCompanion(rest). enabled: false + running → stopCompanion(). Else unchanged.                             
+      │                                                                                                                                             
+  │ - Imports:                                                                                                                                      
+      │                                                                                                                                             
+  │   - import { parseJsonBody, jsonError, createSSEResponse, formatSSE } from "../http-utils.ts";                                                  
+      │                                                                                                                                             
+  │   - import { subscribe, replayAfter } from "../../../store/sse-store.ts";                                                                       
+      │                                                                                                                                             
+  │   - import { ... } from "../../../companion/mod.ts";                                                                                            
+      │                                                                                                                                             
+  │   - import { resolveCompanionResponse } from "../../../companion/loop.ts";                                                                      
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Step 11: MODIFY src/hlvm/cli/repl/http-server.ts                                                                                                
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ - Add import after line 54 (after config handler import):                                                                                       
+      │                                                                                                                                             
+  │ import {                                                                                                                                        
+      │                                                                                                                                             
+  │   handleCompanionObserve, handleCompanionStream, handleCompanionRespond,                                                                        
+      │                                                                                                                                             
+  │   handleCompanionStatus, handleCompanionConfig,                                                                                                 
+      │                                                                                                                                             
+  │ } from "./handlers/companion.ts";                                                                                                               
+      │                                                                                                                                             
+  │ - Add 5 routes after line 661 (after config routes, before // MARK: - Request Handler):                                                         
+      │                                                                                                                                             
+  │ router.add("POST", "/api/companion/observe", (req) => handleCompanionObserve(req));                                                             
+      │                                                                                                                                             
+  │ router.add("GET", "/api/companion/stream", (req) => handleCompanionStream(req));                                                                
+      │                                                                                                                                             
+  │ router.add("POST", "/api/companion/respond", (req) => handleCompanionRespond(req));                                                             
+      │                                                                                                                                             
+  │ router.add("GET", "/api/companion/status", () => handleCompanionStatus());                                                                      
+      │                                                                                                                                             
+  │ router.add("POST", "/api/companion/config", (req) => handleCompanionConfig(req));                                                               
+      │                                                                                                                                             
+  │ - Routes go through router → automatic Bearer token auth + CORS. No AI runtime gating needed (companion manages its own readiness).             
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Step 12: MODIFY src/hlvm/cli/commands/serve.ts — ALREADY DONE                                                                                   
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Comment already present at line 69. No further changes needed.                                                                                  
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Step 13: tests/unit/companion/companion.test.ts (~140 lines, NEW)                                                                               
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ 12 tests:                                                                                                                                       
+      │                                                                                                                                             
+  │ 1. Bus: append + iterate — 3 observations yield in order                                                                                        
+      │                                                                                                                                             
+  │ 2. Bus: close terminates — close() exits for-await                                                                                              
+      │                                                                                                                                             
+  │ 3. Bus: overflow drops oldest — maxSize=3, append 4, size=3                                                                                     
+      │                                                                                                                                             
+  │ 4. Debounce: rapid → 1 batch — 3 obs within 50ms window → 1 batch of 3 (sanitizeOps: false, sanitizeResources: false)                           
+      │                                                                                                                                             
+  │ 5. Debounce: gap → 2 batches — obs, 80ms gap, obs with 30ms window → 2 batches (sanitizeOps: false, sanitizeResources: false)                   
+      │                                                                                                                                             
+  │ 6. Redact: API key → [REDACTED] — sk_live_abc123def456ghi789 in clipboard → redacted                                                            
+      │                                                                                                                                             
+  │ 7. Redact: normal text preserved — "hello world" → unchanged                                                                                    
+      │                                                                                                                                             
+  │ 8. Redact: long clipboard truncated — 300 chars → < 300 with ...                                                                                
+      │                                                                                                                                             
+  │ 9. Context: addBatch updates state — app_switch → getActiveApp/getActiveWindowTitle                                                             
+      │                                                                                                                                             
+  │ 10. Context: buildPromptContext format — includes app name and title                                                                            
+      │                                                                                                                                             
+  │ 11. Context: rolling buffer cap — 10 obs with max 5 → prompt shows "5"                                                                          
+      │                                                                                                                                             
+  │ 12. Helper: makeObs(type, data) factory                                                                                                         
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Reused Infrastructure (DO NOT reinvent)                                                                                                         
+      │                                                                                                                                             
+  │ ┌────────────────────────────────────────────────────────┬──────────────────────────────────┬───────────────────────────────────┐               
+      │                                                                                                                                             
+  │ │                          What                          │               From               │   Import Path (from companion/)   │               
+      │                                                                                                                                             
+  │ ├────────────────────────────────────────────────────────┼──────────────────────────────────┼───────────────────────────────────┤               
+      │                                                                                                                                             
+  │ │ pushSSEEvent, subscribe, replayAfter                   │ src/hlvm/store/sse-store.ts      │ ../store/sse-store.ts             │               
+      │                                                                                                                                             
+  │ ├────────────────────────────────────────────────────────┼──────────────────────────────────┼───────────────────────────────────┤               
+      │                                                                                                                                             
+  │ │ sanitizeSensitiveContent                               │ src/hlvm/memory/store.ts:44      │ ../memory/mod.ts                  │               
+      │                                                                                                                                             
+  │ ├────────────────────────────────────────────────────────┼──────────────────────────────────┼───────────────────────────────────┤               
+      │                                                                                                                                             
+  │ │ createSSEResponse, formatSSE, parseJsonBody, jsonError │ src/hlvm/cli/repl/http-utils.ts  │ (from handlers/) ../http-utils.ts │               
+      │                                                                                                                                             
+  │ ├────────────────────────────────────────────────────────┼──────────────────────────────────┼───────────────────────────────────┤               
+      │                                                                                                                                             
+  │ │ createRouter, router.add()                             │ src/hlvm/cli/repl/http-router.ts │ (used in http-server.ts)          │               
+      │                                                                                                                                             
+  │ ├────────────────────────────────────────────────────────┼──────────────────────────────────┼───────────────────────────────────┤               
+      │                                                                                                                                             
+  │ │ log                                                    │ src/hlvm/api/log.ts              │ ../api/log.ts                     │               
+      │                                                                                                                                             
+  │ └────────────────────────────────────────────────────────┴──────────────────────────────────┴───────────────────────────────────┘               
+      │                                                                                                                                             
+  │ Verification                                                                                                                                    
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ # 1. Type check                                                                                                                                 
+      │                                                                                                                                             
+  │ deno check src/hlvm/companion/mod.ts                                                                                                            
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ # 2. SSOT check                                                                                                                                 
+      │                                                                                                                                             
+  │ deno task ssot:check    # 0 violations                                                                                                          
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ # 3. Domain tests                                                                                                                               
+      │                                                                                                                                             
+  │ deno test tests/unit/companion/companion.test.ts                                                                                                
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ # 4. Full test suite (after domain tests pass)                                                                                                  
+      │                                                                                                                                             
+  │ deno task test:unit                                                                                                                             
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ # 5. Manual E2E (optional)                                                                                                                      
+      │                                                                                                                                             
+  │ # Start server, get token, then:                                                                                                                
+      │                                                                                                                                             
+  │ curl -H "Authorization: Bearer $TOKEN" localhost:11435/api/companion/status                                                                     
+      │                                                                                                                                             
+  │ # → {"state":"idle","running":false,"config":{...}}                                                                                             
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \                                                            
+      │                                                                                                                                             
+  │   -d '{"enabled":true}' localhost:11435/api/companion/config                                                                                    
+      │                                                                                                                                             
+  │ # → {"status":"started","config":{...}}                                                                                                         
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \                                                            
+      │                                                                                                                                             
+  │   -d '{"type":"app_switch","timestamp":"2026-02-26T00:00:00Z","source":"test","data":{"app":"Safari"}}' \                                       
+      │                                                                                                                                             
+  │   localhost:11435/api/companion/observe                                                                                                         
+      │                                                                                                                                             
+  │ # → {"queued":1}                                                                                                                                
+      │                                                                                                                                             
+  │ # (No SSE events — gate stub returns SILENT. Pipeline runs cleanly.)                                                                            
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ ---                                                                                                                                             
+      │                                                                                                                                             
+  │ PHASE 2: Gate LLM (future — replace stub)                                                                                                       
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Goal: Real cheap LLM filters observations. 90% → SILENT.                                                                                        
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Replace gate.ts body (~60 lines):                                                                                                               
+      │                                                                                                                                             
+  │ - System prompt: "Silent observer. Default SILENT. NOTIFY only when clear help opportunity (errors, confusion, stuck patterns)."                
+      │                                                                                                                                             
+  │ - getAgentEngine().createLLM({ options: { temperature: 0, maxTokens: 100 }, toolDenylist: ["*"] }) — cached                                     
+      │                                                                                                                                             
+  │ - Single-shot LLM call (NOT runReActLoop)                                                                                                       
+      │                                                                                                                                             
+  │ - Parse: starts with "NOTIFY" → extract reason; else → SILENT                                                                                   
+      │                                                                                                                                             
+  │ - withRetry from src/common/retry.ts (maxAttempts: 2), errors default SILENT                                                                    
+      │                                                                                                                                             
+  │ - Import: getAgentEngine from ../agent/engine.ts                                                                                                
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Tests (+3): Mock LLM → SILENT; Mock LLM → "NOTIFY reason"; Mock LLM throws → SILENT                                                             
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ ---                                                                                                                                             
+      │                                                                                                                                             
+  │ PHASE 3: Decision LLM + Agent Loop (future — replace stub)                                                                                      
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Goal: Frontier LLM makes nuanced decisions. ACT invokes tools with approval.                                                                    
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Replace decide.ts body (~120 lines):                                                                                                            
+      │                                                                                                                                             
+  │ - System prompt: companion role + decision framework (SILENT/CHAT/SUGGEST/ACT/ASK_VISION)                                                       
+      │                                                                                                                                             
+  │ - loadMemoryContext(4000) from ../memory/mod.ts for context enrichment                                                                          
+      │                                                                                                                                             
+  │ - getAgentEngine().createLLM({ options: { temperature: 0.3, maxTokens: 1000 }, toolDenylist: ["*"] }) — cached                                  
+      │                                                                                                                                             
+  │ - Parse JSON decision from code fences; invalid → SILENT                                                                                        
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Update loop.ts ACT case (~30 lines):                                                                                                            
+      │                                                                                                                                             
+  │ - ACT: emit action_request → waitForApproval(requestId) with 60s timeout → executeCompanionAction() via runAgentQuery() from                    
+      │                                                                                                                                             
+  │ ../agent/agent-runner.ts                                                                                                                        
+      │                                                                                                                                             
+  │ - ALWAYS asks approval (overrides auto-approve)                                                                                                 
+      │                                                                                                                                             
+  │ - executeCompanionAction passes noInput: true, companion tool denylist                                                                          
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ ASK_VISION handshake: consent → GUI captures → POST screenshot observation → re-run decide                                                      
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Tests (+5): Each decision type → correct SSE; ACT approval flow; timeout cancels                                                                
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ ---                                                                                                                                             
+      │                                                                                                                                             
+  │ PHASE 4: GUI Sensors — Swift (future, parallel with Phase 2)                                                                                    
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Goal: Event-driven text sensors replace periodic screenshots.                                                                                   
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ New: CompanionSensorManager.swift (~150 lines)                                                                                                  
+      │                                                                                                                                             
+  │ - AppSwitchSensor: NSWorkspace.didActivateApplicationNotification → POST app_switch                                                             
+      │                                                                                                                                             
+  │ - WindowTitleSensor: AXObserver + kAXFocusedWindowChanged + kAXTitleChanged                                                                     
+      │                                                                                                                                             
+  │   - Requires AXObserverGetRunLoopSource() attachment                                                                                            
+      │                                                                                                                                             
+  │   - Fallback: AX fail → title-only                                                                                                              
+      │                                                                                                                                             
+  │ - ClipboardSensor: 2s timer, NSPasteboard.changeCount poll → POST clipboard (max 500 chars)                                                     
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Modify: Observer.swift (remove periodic screenshots, keep on-demand), Notification+Name.swift, APIEndpoints.swift                               
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ ---                                                                                                                                             
+      │                                                                                                                                             
+  │ PHASE 5: GUI Render — Swift (future, after Phase 3+4)                                                                                           
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Goal: Render companion events with approval UI.                                                                                                 
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ New files:                                                                                                                                      
+      │                                                                                                                                             
+  │ - CompanionEventStream.swift (~60 lines) — SSE subscriber → NotificationCenter                                                                  
+      │                                                                                                                                             
+  │ - CompanionBubbleView.swift (~80 lines) — SwiftUI floating view, approve/deny/later, auto-hide 10s                                              
+      │                                                                                                                                             
+  │ - CompanionViewModel.swift (~60 lines) — bridges SSE → UI state, DND while typing, POST responses                                               
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Integration: Wire into AppDependencies. Pause companion during interactive chat.                                                                
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ ---                                                                                                                                             
+      │                                                                                                                                             
+  │ Phase Dependency Graph                                                                                                                          
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Phase 1 (CLI Core) ──→ Phase 2 (Gate LLM) ──→ Phase 3 (Decision + ACT)                                                                          
+      │                                                                                                                                             
+  │       |                                              |                                                                                          
+      │                                                                                                                                             
+  │       └──→ Phase 4 (GUI Sensors, parallel w/2) ──→ Phase 5 (GUI Render)                                                                         
+      │                                                                                                                                             
+  │                                                                                                                                                 
+      │                                                                                                                                             
+  │ Totals                                                                                                                                          
+      │                                                                                                                                             
+  │ ┌───────┬───────────┬────────────────┬─────────────┬────────────────┐                                                                           
+      │                                                                                                                                             
+  │ │ Phase │ New Lines │ Modified Lines │  New Files  │ Modified Files │                                                                           
+      │                                                                                                                                             
+  │ ├───────┼───────────┼────────────────┼─────────────┼────────────────┤                                                                           
+      │                                                                                                                                             
+  │ │ 1     │ ~630      │ ~10            │ 11 + 1 test │ 2 (TS)         │                                                                           
+      │                                                                                                                                             
+  │ ├───────┼───────────┼────────────────┼─────────────┼────────────────┤                                                                           
+      │                                                                                                                                             
+  │ │ 2     │ ~60       │ ~0             │ 0           │ 1              │                                                                           
+      │                                                                                                                                             
+  │ ├───────┼───────────┼────────────────┼─────────────┼────────────────┤                                                                           
+      │                                                                                                                                             
+  │ │ 3     │ ~150      │ ~30            │ 0           │ 2              │                                                                           
+      │                                                                                                                                             
+  │ ├───────┼───────────┼────────────────┼─────────────┼────────────────┤                                                                           
+      │                                                                                                                                             
+  │ │ 4     │ ~150      │ ~50            │ 1           │ 3 (Swift)      │                                                                           
+      │                                                                                                                                             
+  │ ├───────┼───────────┼────────────────┼─────────────┼────────────────┤                                                                           
+      │                                                                                                                                             
+  │ │ 5     │ ~200      │ ~20            │ 3           │ 1 (Swift)      │                                                                           
+      │                                                                                                                                             
+  │ └───────┴───────────┴────────────────┴─────────────┴────────────────┘                                                                           
+      │                                                                                                                                             
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+  ────╯                                                                                                                                             
+                                                                                                                                                    
+  ⏺ I'll implement Phase 1 of the HLVM Companion Agent. Let me start by understanding the existing infrastructure I need to integrate with.         
+                                                                                                                                                    
+  ⏺ Explore(Explore companion integration points)                                                                                                   
+    ⎿  Done (30 tool uses · 76.0k tokens · 57s)                                                                                                     
+                                                                                                                                                    
+                                                                                                                                                    
+  ⏺ Now let me check the current state of files that are already partially implemented (from the WIP commit).                                       
+                                                                                                                                                    
+                                                                                                                                                    
+                                                                                                                                                    
+  ⏺ Bash(ls -la /Users/seoksoonjang/dev/hql/src/hlvm/companion/ 2>/dev/null && echo "---EXISTS---" || echo "---NOT EXISTS---")                      
+                                                                                                                                                    
+    ⎿  total 72                                                                                                                                     
+                                                                                                                                                    
+       drwxr-xr-x  11 seoksoonjang  staff   352 Feb 26 02:00 .                                                                                      
+                                                                                                                                                    
+       drwxr-xr-x  10 seoksoonjang  staff   320 Feb 26 01:59 ..                                                                                     
+                                                                                                                                                    
+       … +10 lines (ctrl+o to expand)                                                                                                               
+                                                                                                                                                    
+                                                                                                                                                    
+                                                                                                                                                    
+  ⏺ Bash(ls -la /Users/seoksoonjang/dev/hql/src/hlvm/cli/repl/handlers/companion.ts 2>/dev/null && echo "---EXISTS---" || echo "---NOT EXISTS---")  
+                                                                                                                                                    
+    ⎿  -rw-r--r--  1 seoksoonjang  staff  3575 Feb 26 02:00 /Users/seoksoonjang/dev/hql/src/hlvm/cli/repl/handlers/companion.ts                     
+                                                                                                                                                    
+       ---EXISTS---                                                                                                                                 
+                                                                                                                                                    
+                                                                                                                                                    
+                                                                                                                                                    
+  ⏺ Bash(ls -la /Users/seoksoonjang/dev/hql/tests/unit/companion/ 2>/dev/null && echo "---EXISTS---" || echo "---NOT EXISTS---")                    
+    ⎿  total 16                                                                                                                                     
+                                                                                                                                                    
+       drwxr-xr-x    3 seoksoonjang  staff    96 Feb 26 02:01 .                                                                                     
+                                                                                                                                                    
+       drwxr-xr-x  114 seoksoonjang  staff  3648 Feb 26 01:59 ..                                                                                    
+                                                                                                                                                    
+       … +2 lines (ctrl+o to expand)                                                                                                                
+                                                                                                                                                    
+                                                                                                                                                    
+                                                                                                                                                    
+  ⏺ Good, the WIP files already exist. Let me read all of them to understand the current state, then check if they compile and pass tests.          
+                                                                                                                                                    
+                                                                                                                                                    
+  ⏺ Read 11 files (ctrl+o to expand)                                                                                                                
+                                                                                                                                                    
+                                                                                                                                                    
+                                                                                                                                                    
+  ⏺ Good — all WIP files exist. Now let me check if they compile and what the current state of http-server.ts is (whether routes are already        
+  wired).                                                                                                                                           
+                                                                                                                                                    
+                                                                                                                                                    
+  ⏺ Bash(deno check src/hlvm/companion/mod.ts 2>&1 | head -50)                                                                                      
+    ⎿  (No content)                                                                                                                                 
+                                                                                                                                                    
+                                                                                                                                                    
+  ⏺ Bash(deno check src/hlvm/cli/repl/handlers/companion.ts 2>&1 | head -50)                                                                        
+                                                                                                                                                    
+    ⎿  Check file:///Users/seoksoonjang/dev/hql/src/hlvm/cli/repl/handlers/companion.ts                                                             
+                                                                                                                                                    
+                                                                                                                                                    
+  ⏺ Searched for 1 pattern (ctrl+o to expand)                                                                                                       
+                                                                                                                                                    
+                                                                                                                                                    
+  ⏺ Everything compiles and the routes are already wired in http-server.ts. Let me now run the domain tests to see if they pass.                    
+                                                                                                                                                    
+                                                                                                                                                    
+  ⏺ Bash(deno test tests/unit/companion/companion.test.ts 2>&1)                                                                                     
+    ⎿  Error: Exit code 1                                                                                                                           
+                                                                                                                                                    
+       Check file:///Users/seoksoonjang/dev/hql/tests/unit/companion/companion.test.ts                                                              
+       Uncaught error from ./tests/unit/companion/companion.test.ts FAILED                                                                          
+                                                                                                                                                    
+                                                                                                                                                    
+        ERRORS                                                                                                                                      
+                                                                                                                                                    
+                                                                                                                                                    
+                                                                                                                                                    
+       ./tests/unit/companion/companion.test.ts (uncaught error)                                                                                    
+       error: (in promise) Error: Failed to load SQLite3 Dynamic Library                                                                            
+                                                                                                                                                    
+         throw new Error("Failed to load SQLite3 Dynamic Library", { cause: e });                                                                   
+               ^                                                                                                                                    
+                                                                                                                                                    
+       … +15 lines (ctrl+o to see all)                                                                                                              
+                                                                                                                                                    
+  ⏺ The SQLite permission issue is from importing redact.ts → memory/mod.ts which has SQLite deps at the module level. Let me check how other       
+  tests                                                                                                                                             
+    handle this and what the test runner configuration looks like.                                                                                  
+                                                                                                                                                    
+  ⏺ Searched for 2 patterns (ctrl+o to expand)                                                                                                      
+                                                                                                                                                    
+    ⎿  API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"},"request_id":"req_011CYVBggagv2KgvYZshpfCm"}   
+                                                                                                                                                    
+                                                                                                                                                    
+  ✻ Cooked for 1m 45s                                                                                                                               
+                                                                                                                                                    
+  ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+  ─────                                                                                                                                             
+  ❯                                                                                                                                                 
+  ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+  ─────                                                                                                                                             
+     ⏵ accept edits on (shift+tab to cycle)                                                                                                         
+                                                                                                                                                    
+                                                                                                                                                    
+                                                                                                                                                    
+                                                                                                                                                    
+                                                                                                                                                    
+  => plan again and proceed - read doc if any info is needed @docs/HLVM-COMPANION.md                                                                
+                                                                                                                                                    
+
+⏺ Let me read the companion doc and the existing WIP files to understand the full picture, then create a solid plan.
+
+⏺ Read 12 files (ctrl+o to expand)
+
+⏺ The doc is too large to read in one go. Let me read the relevant section and the WIP files separately.
+
+⏺ Read 3 files (ctrl+o to expand)
+
+⏺ Interesting — the WIP files seem to have been removed or were never actually committed. Let me verify the actual state of the filesystem.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Bash(git -C /Users/seoksoonjang/dev/hql status --short src/hlvm/companion/ tests/unit/companion/ src/hlvm/cli/repl/handlers/companion.ts 2>&1)
+  ⎿  (No content)
+
+⏺ The companion directory is empty — all WIP files were cleaned out. The directory exists but has no files. Let me check the git status and the doc more
+   carefully.
+
+⏺ Bash(git -C /Users/seoksoonjang/dev/hql status --short 2>&1 | head -30)
+  ⎿  (No content)
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ OK, the doc is ~4800 lines. The companion directory is empty and git status is clean. Let me read the doc in chunks — I need the Phase 1
+  implementation details specifically, and check the infrastructure files I need to integrate with.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ This is a conversation log, not a spec doc. Let me search for the actual implementation plan section.
+
+⏺ Searched for 1 pattern (ctrl+o to expand)
+
+⏺ The actual implementation plan starts around line 3224. Let me read from there — that's the execution plan from the user's initial message context.
+
+⏺ Read 2 files (ctrl+o to expand)
+
+⏺ Now I have a thorough understanding of the doc's Phase 0+1 spec. Let me explore the infrastructure files I need to integrate with — SSE store, memory
+  sanitizer, http-utils, and http-server routes.
+
+⏺ Explore(Explore companion integration infra)
+  ⎿  Done (23 tool uses · 72.0k tokens · 48s)
+
+⏺ Now I have all the infrastructure details. Let me also check what the sanitizeSensitiveContent export looks like from memory/mod.ts specifically,
+  since the previous attempt to import it from there caused a SQLite loading error in tests.
+
+⏺ Searched for 2 patterns (ctrl+o to expand)
+
+⏺ The critical issue is that memory/mod.ts re-exports from store.ts which imports SQLite modules. This caused the test failure. I need to import
+  sanitizeSensitiveContent directly from store.ts to avoid the SQLite dependency chain, or handle it differently. Let me check what imports store.ts
+  has.
+
+⏺ Read 2 files (ctrl+o to expand)
+
+⏺ store.ts is clean — no SQLite imports. The SQLite issue comes from importing mod.ts which transitively imports db.ts, facts.ts, etc. which use SQLite.
+
+
+  Solution: Import sanitizeSensitiveContent directly from ../memory/store.ts (not mod.ts) in redact.ts to avoid SQLite dependency chain in tests.
+
+  Now I have everything I need. Let me read the http-server.ts where I need to add routes.
+
+⏺ Read 2 files (ctrl+o to expand)
+
+⏺ Now I have a complete picture. Let me write the final plan.
+
+⏺ Updated plan
+  ⎿  /plan to preview
+
+⏺ Plan is written. Key points:
+
+  1. 13 steps — 9 new companion module files, 1 handler file, 1 http-server modification, 1 test file
+  2. SQLite fix: Import sanitizeSensitiveContent from memory/store.ts directly (not mod.ts) to avoid SQLite dependency chain that broke WIP tests
+  3. No serve.ts changes — companion starts via POST /api/companion/config {enabled:true}, not server boot
+  4. Doc alignment: Uses the updated type names from the doc (kind not type, dot-notation observation kinds like app.switch)
+  5. All stubs return SILENT — pipeline runs end-to-end but never emits companion events
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Ready to code?
+
+ Here is Claude's plan:
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ HLVM Companion Agent — Phase 1: CLI Core
+
+ Summary
+
+ Build the companion observation pipeline end-to-end. POST observations via curl, subscribe to SSE stream. Gate/decision are stubs (always SILENT).
+ Fully testable without Swift GUI.
+
+ Current State
+
+ - src/hlvm/companion/ directory exists but is empty (WIP files were removed)
+ - src/hlvm/cli/repl/handlers/companion.ts does not exist
+ - tests/unit/companion/ exists but is empty
+ - No companion routes in http-server.ts yet
+ - No companion startup in serve.ts yet
+
+ Key Design Decision: Avoid SQLite in Tests
+
+ Previous WIP had redact.ts importing from ../memory/mod.ts which transitively pulls in SQLite via db.ts/facts.ts. This causes Failed to load SQLite3
+ Dynamic Library in unit tests.
+
+ Fix: Import sanitizeSensitiveContent directly from ../memory/store.ts (pure functions, no SQLite deps).
+
+ ---
+ Files to Create (dependency order)
+
+ Step 1: src/hlvm/companion/types.ts (~80 lines)
+
+ Pure type definitions, zero runtime imports.
+ - ObservationKind: "app.switch" | "ui.window.title.changed" | "ui.window.focused" | "ui.selection.changed" | "clipboard.changed" | "fs.changed" |
+ "check.failed" | "check.passed" | "terminal.result" | "screen.captured" | "custom"
+ - Observation: { kind, timestamp, source, scope?, data: Record<string, unknown> }
+ - GateResult: { decision: "SILENT" | "NOTIFY", reason: string }
+ - CompanionDecisionType: "SILENT" | "CHAT" | "SUGGEST" | "ACT" | "ASK_VISION"
+ - CompanionDecision: { type, message?, actions? }
+ - CompanionAction: { id, label, description, requiresApproval }
+ - CompanionEventType: "message" | "suggestion" | "action_request" | "status_change"
+ - CompanionEvent: { type, content, actions?, timestamp, id }
+ - CompanionResponse: { eventId, actionId?, approved?, reply? }
+ - CompanionState: "idle" | "observing" | "thinking" | "acting" | "paused"
+ - CompanionConfig: { enabled, debounceWindowMs, maxBufferSize, quietWhileTypingMs, maxNotifyPerMinute }
+ - DEFAULT_COMPANION_CONFIG const (disabled, 3000ms debounce, 100 buffer, 5000ms quiet, 3/min)
+
+ Step 2: src/hlvm/companion/bus.ts (~55 lines)
+
+ Async iterable ring buffer. Depends on: types.ts only.
+ - ObservationBus class: append(obs), close(), get size, [Symbol.asyncIterator]()
+ - Ring buffer drops oldest when > maxSize
+ - Waiters pattern: resolvers array for Promise<void> that wake up async iterator
+
+ Step 3: src/hlvm/companion/redact.ts (~50 lines)
+
+ Deterministic PII filter. Depends on: types.ts, ../memory/store.ts (NOT mod.ts — avoids SQLite).
+ - redactObservation(obs: Observation): Observation — returns sanitized copy (never mutates)
+ - Uses sanitizeSensitiveContent() from ../memory/store.ts on all string values in data
+ - Clipboard-specific: truncate to 200 chars + djb2 hash suffix for long text
+ - Cap all string payloads to 500 chars max
+ - simpleHash(str): string helper (djb2, base36)
+
+ Step 4: src/hlvm/companion/debounce.ts (~65 lines)
+
+ Async generator batching by time window. Depends on: types.ts only.
+ - async function* debounceObservations(source, windowMs, maxBatchSize?): AsyncGenerator<Observation[]>
+ - First observation starts timer, collects within window, yields batch
+ - Priority-based triage when maxBatchSize reached: keep high-signal (check., terminal., app.switch), drop oldest low-signal (ui., fs.)
+ - Promise.race between source.next() and setTimeout
+ - Source exhaustion yields remaining batch and exits
+
+ Step 5: src/hlvm/companion/context.ts (~100 lines)
+
+ Rolling context buffer + prompt builder. Depends on: types.ts only.
+ - CompanionContext class
+ - addBatch(batch) — updates activeApp, activeWindowTitle, recentClipboard, lastActivityTs from observation data
+ - buildPromptContext(): string — markdown summary for LLM
+ - setState()/getState() — lifecycle state management
+ - isUserActive(quietWindowMs): boolean — true if last activity < quietWindowMs
+ - getActiveApp()/getActiveWindowTitle() — accessors
+ - toJSON() — serializable snapshot
+ - Rolling buffer capped at 20 observations (configurable)
+
+ Step 6: src/hlvm/companion/gate.ts (~10 lines, STUB)
+
+ export async function gateObservations(_batch, _context): Promise<GateResult> {
+   return { decision: "SILENT", reason: "" };
+ }
+
+ Step 7: src/hlvm/companion/decide.ts (~10 lines, STUB)
+
+ export async function makeDecision(_batch, _context, _gateReason?): Promise<CompanionDecision> {
+   return { type: "SILENT" };
+ }
+
+ Step 8: src/hlvm/companion/loop.ts (~100 lines)
+
+ Main pipeline loop. Depends on: all above + ../../store/sse-store.ts + ../../api/log.ts.
+ - COMPANION_CHANNEL = "__companion__" constant
+ - runCompanionLoop(bus, config, context, signal): Promise<void>
+   a. State "observing"
+   b. for await (batch of debounceObservations(bus, config.debounceWindowMs))
+   c. Abort check → break
+   d. batch.map(redactObservation) — PII filter
+   e. context.addBatch(redacted)
+   f. DND: context.isUserActive(config.quietWhileTypingMs) → skip
+   g. Gate → SILENT or NOTIFY
+   h. Decision → emit SSE via pushSSEEvent(COMPANION_CHANNEL, "companion_event", event)
+   i. State "observing"
+   j. Finally: state "idle"
+ - emitCompanionEvent(event) — pushSSEEvent wrapper
+ - resolveCompanionResponse(response): boolean — for pending approval map (Phase 5)
+ - Imports: pushSSEEvent from ../../store/sse-store.ts, log from ../../api/log.ts
+
+ Step 9: src/hlvm/companion/mod.ts (~45 lines)
+
+ Barrel + lifecycle. Re-exports all types, ObservationBus, CompanionContext, COMPANION_CHANNEL, redactObservation.
+ - Module-level state: bus, context, abortController, currentConfig
+ - startCompanion(config?) — creates bus+context+AbortController, fires runCompanionLoop
+ - stopCompanion() — abort+close+nullify
+ - getCompanionBus(), isCompanionRunning(), getCompanionState(), getCompanionConfig()
+
+ ---
+ Files to Create (HTTP layer)
+
+ Step 10: src/hlvm/cli/repl/handlers/companion.ts (~100 lines)
+
+ HTTP handlers. Pattern matches existing handlers (chat.ts, sessions.ts, models.ts).
+ - handleCompanionObserve(req) — POST /api/companion/observe
+   - parseJsonBody<Observation | Observation[]>(req)
+   - Push to bus. 503 if not running. Returns 201 { queued: N }
+ - handleCompanionStream(req) — GET /api/companion/stream
+   - createSSEResponse + subscribe(COMPANION_CHANNEL, ...) + replayAfter
+ - handleCompanionRespond(req) — POST /api/companion/respond
+   - Parse CompanionResponse, call resolveCompanionResponse. 400 if missing eventId.
+ - handleCompanionStatus() — GET /api/companion/status
+   - Returns { state, running, config }
+ - handleCompanionConfig(req) — POST /api/companion/config
+   - enabled: true + not running → startCompanion(). enabled: false + running → stopCompanion().
+ - Imports from: ../http-utils.ts, ../../../store/sse-store.ts, ../../../companion/mod.ts, ../../../companion/loop.ts
+
+ ---
+ Files to Modify
+
+ Step 11: src/hlvm/cli/repl/http-server.ts (~10 lines)
+
+ - Add import after line 54 (after config handler import):
+ import {
+   handleCompanionObserve, handleCompanionStream, handleCompanionRespond,
+   handleCompanionStatus, handleCompanionConfig,
+ } from "./handlers/companion.ts";
+ - Add 5 routes after line 661 (before // MARK: - Request Handler):
+ router.add("POST", "/api/companion/observe", (req) => handleCompanionObserve(req));
+ router.add("GET", "/api/companion/stream", (req) => handleCompanionStream(req));
+ router.add("POST", "/api/companion/respond", (req) => handleCompanionRespond(req));
+ router.add("GET", "/api/companion/status", () => handleCompanionStatus());
+ router.add("POST", "/api/companion/config", (req) => handleCompanionConfig(req));
+
+ Step 12: src/hlvm/cli/commands/serve.ts — NO CHANGES NEEDED
+
+ Companion startup is triggered by POST /api/companion/config {enabled: true}, not by server boot. No serve.ts changes needed in Phase 1.
+
+ ---
+ Files to Create (Tests)
+
+ Step 13: tests/unit/companion/companion.test.ts (~150 lines)
+
+ Critical: NO imports from memory/mod.ts — only memory/store.ts (via redact.ts).
+ Use sanitizeOps: false, sanitizeResources: false on debounce tests (timer-based).
+
+ Tests:
+ 1. Bus: append + iterate — 3 observations yield in order
+ 2. Bus: close terminates — close() exits for-await
+ 3. Bus: overflow drops oldest — maxSize=3, append 4, size=3
+ 4. Debounce: rapid → 1 batch — 3 obs within 50ms window → 1 batch of 3
+ 5. Debounce: gap → 2 batches — obs, 80ms gap, obs with 30ms window → 2 batches
+ 6. Redact: API key → [REDACTED] — sk_live_abc123def456ghi789 in clipboard data
+ 7. Redact: normal text preserved — "hello world" → unchanged
+ 8. Redact: long clipboard truncated — 300 chars → < 300 with hash suffix
+ 9. Context: addBatch updates state — app.switch → getActiveApp/getActiveWindowTitle
+ 10. Context: buildPromptContext format — includes app name and title
+ 11. Context: rolling buffer cap — 10 obs with maxBuffer=5 → buffer has 5
+ 12. Context: isUserActive — recent obs → active, old obs → not active
+ 13. Gate stub: always SILENT — returns { decision: "SILENT" }
+ 14. Decision stub: always SILENT — returns { type: "SILENT" }
+
+ Helper: makeObs(kind, data) factory for test convenience.
+
+ ---
+ Reused Infrastructure (DO NOT reinvent)
+ ┌────────────────────────────────────────────────────────┬──────────────────────────────────┬───────────────────────────────────┐
+ │                          What                          │               From               │   Import Path (from companion/)   │
+ ├────────────────────────────────────────────────────────┼──────────────────────────────────┼───────────────────────────────────┤
+ │ pushSSEEvent, subscribe, replayAfter                   │ src/hlvm/store/sse-store.ts      │ ../../store/sse-store.ts          │
+ ├────────────────────────────────────────────────────────┼──────────────────────────────────┼───────────────────────────────────┤
+ │ sanitizeSensitiveContent                               │ src/hlvm/memory/store.ts         │ ../memory/store.ts (NOT mod.ts!)  │
+ ├────────────────────────────────────────────────────────┼──────────────────────────────────┼───────────────────────────────────┤
+ │ createSSEResponse, formatSSE, parseJsonBody, jsonError │ src/hlvm/cli/repl/http-utils.ts  │ (from handlers/) ../http-utils.ts │
+ ├────────────────────────────────────────────────────────┼──────────────────────────────────┼───────────────────────────────────┤
+ │ createRouter, router.add()                             │ src/hlvm/cli/repl/http-router.ts │ (used in http-server.ts)          │
+ ├────────────────────────────────────────────────────────┼──────────────────────────────────┼───────────────────────────────────┤
+ │ log                                                    │ src/hlvm/api/log.ts              │ ../../api/log.ts                  │
+ └────────────────────────────────────────────────────────┴──────────────────────────────────┴───────────────────────────────────┘
+ ---
+ Verification
+
+ # 1. Type check
+ deno check src/hlvm/companion/mod.ts
+
+ # 2. SSOT check
+ deno task ssot:check    # 0 violations
+
+ # 3. Domain tests
+ deno test tests/unit/companion/companion.test.ts
+
+ # 4. Full test suite
+ deno task test:unit
+
+ # 5. Manual E2E
+ curl -H "Authorization: Bearer $TOKEN" localhost:11435/api/companion/status
+ # → {"state":"idle","running":false,"config":{...}}
+
+ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+   -d '{"enabled":true}' localhost:11435/api/companion/config
+ # → {"status":"started","config":{...}}
+
+ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+   -d '{"kind":"app.switch","timestamp":"2026-02-26T00:00:00Z","source":"test","data":{"appName":"Safari"}}' \
+   localhost:11435/api/companion/observe
+ # → {"queued":1}
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+ Claude has written up a plan and is ready to execute. Would you like to proceed?
+
+ ❯ 1. Yes, clear context and auto-accept edits (shift+tab)
+   2. Yes, auto-accept edits
+   3. Yes, manually approve edits
+   4. Type here to tell Claude what to change
+
+ ctrl-g to edit in VS Code · ~/.claude/plans/compressed-frolicking-hopcroft.md
+
+
+
