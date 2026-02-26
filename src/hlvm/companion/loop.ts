@@ -38,6 +38,21 @@ const COMPANION_TOOL_DENYLIST = [
   "ask_user",
 ];
 
+/** Build a companion event with auto-incrementing ID and current timestamp. */
+function makeEvent(
+  type: CompanionEvent["type"],
+  content: string,
+  extra?: Partial<Pick<CompanionEvent, "actions" | "id">>,
+): CompanionEvent {
+  return {
+    type,
+    content,
+    id: extra?.id ?? `comp-${++eventSeq}`,
+    timestamp: new Date().toISOString(),
+    actions: extra?.actions,
+  };
+}
+
 /** Emit a companion event to the SSE channel. */
 export function emitCompanionEvent(event: CompanionEvent): void {
   pushSSEEvent(COMPANION_CHANNEL, "companion_event", event);
@@ -81,12 +96,11 @@ export function companionOnInteraction(
 
     // L1+: route through SSE approval flow
     const permEventId = `comp-perm-${++eventSeq}`;
-    emitCompanionEvent({
-      type: "action_request",
-      content: `Tool permission: ${event.toolName ?? "unknown"} — ${event.toolArgs ?? ""}`,
-      id: permEventId,
-      timestamp: new Date().toISOString(),
-    });
+    emitCompanionEvent(makeEvent(
+      "action_request",
+      `Tool permission: ${event.toolName ?? "unknown"} — ${event.toolArgs ?? ""}`,
+      { id: permEventId },
+    ));
 
     try {
       const response = await waitForApproval(permEventId, signal);
@@ -111,22 +125,12 @@ async function handleActFlow(
   try {
     approvalResponse = await waitForApproval(event.id, signal);
   } catch {
-    emitCompanionEvent({
-      type: "action_cancelled",
-      content: "Action timed out or was cancelled.",
-      id: `comp-${++eventSeq}`,
-      timestamp: new Date().toISOString(),
-    });
+    emitCompanionEvent(makeEvent("action_cancelled", "Action timed out or was cancelled."));
     return;
   }
 
   if (!approvalResponse.approved) {
-    emitCompanionEvent({
-      type: "action_cancelled",
-      content: "Action denied by user.",
-      id: `comp-${++eventSeq}`,
-      timestamp: new Date().toISOString(),
-    });
+    emitCompanionEvent(makeEvent("action_cancelled", "Action denied by user."));
     return;
   }
 
@@ -134,12 +138,7 @@ async function handleActFlow(
   const action = decision.actions?.find((a) => a.id === approvalResponse.actionId)
     ?? decision.actions?.[0];
   if (!action) {
-    emitCompanionEvent({
-      type: "action_cancelled",
-      content: "No action found to execute.",
-      id: `comp-${++eventSeq}`,
-      timestamp: new Date().toISOString(),
-    });
+    emitCompanionEvent(makeEvent("action_cancelled", "No action found to execute."));
     return;
   }
 
@@ -157,28 +156,13 @@ async function handleActFlow(
       signal,
     });
 
-    emitCompanionEvent({
-      type: "action_result",
-      content: result.text,
-      id: `comp-${++eventSeq}`,
-      timestamp: new Date().toISOString(),
-    });
+    emitCompanionEvent(makeEvent("action_result", result.text));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (signal.aborted || message.includes("abort")) {
-      emitCompanionEvent({
-        type: "action_cancelled",
-        content: "Action was cancelled.",
-        id: `comp-${++eventSeq}`,
-        timestamp: new Date().toISOString(),
-      });
+      emitCompanionEvent(makeEvent("action_cancelled", "Action was cancelled."));
     } else {
-      emitCompanionEvent({
-        type: "action_result",
-        content: `Error: ${message}`,
-        id: `comp-${++eventSeq}`,
-        timestamp: new Date().toISOString(),
-      });
+      emitCompanionEvent(makeEvent("action_result", `Error: ${message}`));
     }
   }
 }
@@ -199,18 +183,17 @@ async function handleVisionFlow(
   try {
     approvalResponse = await waitForApproval(event.id, signal);
   } catch {
-    return; // timeout or abort — fail silently
+    emitCompanionEvent(makeEvent("action_cancelled", "Vision request timed out or was cancelled."));
+    return;
   }
 
-  if (!approvalResponse.approved) return;
+  if (!approvalResponse.approved) {
+    emitCompanionEvent(makeEvent("action_cancelled", "Vision request denied by user."));
+    return;
+  }
 
   // Tell the GUI to capture now
-  emitCompanionEvent({
-    type: "capture_request",
-    content: "Capture screenshot",
-    id: `comp-capture-${++eventSeq}`,
-    timestamp: new Date().toISOString(),
-  });
+  emitCompanionEvent(makeEvent("capture_request", "Capture screenshot"));
 }
 
 /** Main pipeline loop — runs until signal is aborted or bus is closed. */
@@ -296,36 +279,22 @@ export async function runCompanionLoop(
       notifyTimestamps.push(now);
 
       // Emit — branch by decision type
-      const eventId = `comp-${++eventSeq}`;
-
       if (decision.type === "ACT") {
-        const event: CompanionEvent = {
-          type: "action_request",
-          content: decision.message ?? "",
+        const event = makeEvent("action_request", decision.message ?? "", {
           actions: decision.actions,
-          timestamp: new Date().toISOString(),
-          id: eventId,
-        };
+        });
         emitCompanionEvent(event);
         await handleActFlow(event, decision, context, config, signal);
       } else if (decision.type === "ASK_VISION") {
-        const event: CompanionEvent = {
-          type: "vision_request",
-          content: decision.message ?? "",
-          timestamp: new Date().toISOString(),
-          id: eventId,
-        };
+        const event = makeEvent("vision_request", decision.message ?? "");
         emitCompanionEvent(event);
         await handleVisionFlow(event, context, signal);
       } else {
         // CHAT / SUGGEST
-        emitCompanionEvent({
-          type: decision.type === "SUGGEST" ? "suggestion" : "message",
-          content: decision.message ?? "",
+        const type = decision.type === "SUGGEST" ? "suggestion" : "message";
+        emitCompanionEvent(makeEvent(type, decision.message ?? "", {
           actions: decision.actions,
-          timestamp: new Date().toISOString(),
-          id: eventId,
-        });
+        }));
       }
 
       context.setState("observing");
