@@ -86,3 +86,9 @@ test_resource.txt
 # Documentation examples - ignore compiled files
 doc/examples/**/*.js
 mod.js
+
+# Website (Node.js project — exempt from *.js ignore)
+!website/**/*.js
+!website/**/*.jsx
+!website/**/*.mjs
+website/public/content/

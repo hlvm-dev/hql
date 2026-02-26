@@ -5,47 +5,57 @@ Complete guide to how HQL docs are authored, transformed, tested, published, and
 ## Quick Reference
 
 ```
-Source of truth:   ~/dev/hql/docs/*.md                     (this repo)
-Website:           hlvm.dev/docs/*                         (live site)
-Web app:           ~/dev/hlvm-web/hlvm-web/react-src/      (React SPA)
-Sync script:       react-src/scripts/sync-docs.mjs         (markdown pipeline)
-Firebase project:  hlvm-78dcc                              (hosting)
+Source of truth:   docs/*.md                        (this repo)
+Website app:       website/                         (React SPA, same repo)
+Sync script:       website/scripts/sync-docs.mjs    (markdown pipeline)
+Firebase project:  hlvm-78dcc                       (hosting)
+Live site:         hlvm.dev/docs/*
 ```
 
 ---
 
 ## 1. The Big Picture
 
-Two separate Git repos collaborate to produce the docs website:
+Everything lives in one repo:
 
 ```
- ┌─────────────────────────────┐       ┌──────────────────────────────────┐
- │  REPO: hql                  │       │  REPO: hlvm-web                  │
- │  ~/dev/hql                  │       │  ~/dev/hlvm-web/hlvm-web         │
- │                             │       │                                  │
- │  docs/                      │       │  react-src/                      │
- │  ├── GUIDE.md               │       │  ├── src/          (React app)   │
- │  ├── MANUAL.md              │       │  ├── public/                     │
- │  ├── HQL-SYNTAX.md          │       │  │   └── content/  (generated)   │
- │  ├── REFERENCE.md           │       │  ├── scripts/                    │
- │  ├── TYPE-SYSTEM.md         │       │  │   └── sync-docs.mjs           │
- │  ├── BUILD.md               │       │  ├── tests/                      │
- │  ├── ...                    │       │  │   ├── *.test.js  (unit)       │
- │  ├── features/              │       │  │   └── e2e/       (Playwright) │
- │  │   ├── 01-binding/        │       │  └── package.json                │
- │  │   ├── 02-functions/      │       │                                  │
- │  │   └── ...                │       │  firebase.json                   │
- │  └── api/                   │       │  .github/workflows/deploy.yml    │
- │      ├── stdlib.md          │       │                                  │
- │      ├── builtins.md        │       └──────────────────────────────────┘
- │      └── ...                │
- │                             │
- │  .github/workflows/         │
- │  └── docs-trigger.yml       │
- └─────────────────────────────┘
+ hql/
+ ├── docs/                      (source of truth — markdown files)
+ │   ├── GUIDE.md
+ │   ├── MANUAL.md
+ │   ├── HQL-SYNTAX.md
+ │   ├── REFERENCE.md
+ │   ├── TYPE-SYSTEM.md
+ │   ├── BUILD.md
+ │   ├── ...
+ │   ├── features/
+ │   │   ├── 01-binding/
+ │   │   ├── 02-class/
+ │   │   └── ...
+ │   └── api/
+ │       ├── stdlib.md
+ │       ├── builtins.md
+ │       └── ...
+ │
+ ├── website/                   (React SPA)
+ │   ├── src/                   (React app)
+ │   ├── public/
+ │   │   └── content/           (generated — gitignored)
+ │   ├── scripts/
+ │   │   └── sync-docs.mjs      (markdown pipeline)
+ │   ├── tests/
+ │   │   ├── *.test.js          (unit)
+ │   │   └── e2e/               (Playwright)
+ │   └── package.json
+ │
+ ├── firebase.json              (hosting config)
+ ├── .firebaserc                (Firebase project binding)
+ ├── CONTRIBUTING.md            (synced into docs)
+ └── .github/workflows/
+     └── deploy-website.yml     (CI/CD)
 ```
 
-**Rule: You edit docs in `hql/docs/`. You never edit files in `react-src/public/content/`.**
+**Rule: You edit docs in `docs/`. You never edit files in `website/public/content/`.**
 
 That directory is generated output — the sync script overwrites it every time.
 
@@ -60,19 +70,19 @@ Here's every step from editing a markdown file to it appearing on hlvm.dev:
       │
       v
  ┌─────────────────────────────────────────────────────────────────────┐
- │  ~/dev/hql/docs/features/01-binding/README.md                      │
+ │  docs/features/01-binding/README.md                                 │
  │                                                                     │
  │  # Variable Binding                                                 │
  │  HQL supports `var`, `const`, and `let` for variable binding.       │
  │  See also [Type System](../../TYPE-SYSTEM.md) for type annotations. │
  └─────────────────────────────────────────────────────────────────────┘
       │
-      │  node scripts/sync-docs.mjs --hql-path ~/dev/hql
+      │  node website/scripts/sync-docs.mjs
       v
  ┌─────────────────────────────────────────────────────────────────────┐
  │  SYNC SCRIPT (sync-docs.mjs)                                        │
  │                                                                     │
- │  1. Discover all .md files in hql/docs/                             │
+ │  1. Discover all .md files in docs/                                 │
  │  2. Exclude internal docs (ARCHITECTURE, SSOT-CONTRACT, etc.)       │
  │  3. For each file:                                                  │
  │     a. Read markdown source                                         │
@@ -87,7 +97,7 @@ Here's every step from editing a markdown file to it appearing on hlvm.dev:
       │
       v
  ┌─────────────────────────────────────────────────────────────────────┐
- │  GENERATED OUTPUT (react-src/public/content/)                       │
+ │  GENERATED OUTPUT (website/public/content/)                         │
  │                                                                     │
  │  public/content/                                                    │
  │  ├── manifest.json         ← sidebar tree, prev/next, search index  │
@@ -111,7 +121,7 @@ Here's every step from editing a markdown file to it appearing on hlvm.dev:
       │  npm run build  (Vite bundles the React SPA)
       v
  ┌─────────────────────────────────────────────────────────────────────┐
- │  BUILT SPA (react-src/dist/)                                        │
+ │  BUILT SPA (website/dist/)                                          │
  │                                                                     │
  │  dist/                                                              │
  │  ├── index.html            ← SPA entry (all routes)                 │
@@ -183,7 +193,7 @@ CONTRIBUTING.md (repo root)        [build](./docs/BUILD.md)       [build](/docs/
 
 ## 4. What Gets Published (and What Doesn't)
 
-### Published: 14 Top-Level Docs
+### Published: Top-Level Docs (14 predefined + auto-discovered extras)
 
 | Source File | URL Slug | Label |
 |---|---|---|
@@ -209,8 +219,8 @@ All `docs/features/NN-name/` directories are scanned. Each gets a main page
 
 ```
 docs/features/01-binding/README.md    → /docs/features/binding
-docs/features/02-functions/README.md  → /docs/features/functions
-docs/features/02-functions/spec.md    → /docs/features/functions/spec
+docs/features/02-class/README.md      → /docs/features/class
+docs/features/03-conditional/README.md→ /docs/features/conditional
 ...
 ```
 
@@ -367,52 +377,44 @@ Generated by `sync-docs.mjs`. Three sections:
 
 ## 7. CI/CD Pipeline
 
-Two GitHub Actions workflows work together for automatic deployment:
+A single GitHub Actions workflow handles deployment:
 
 ```
  ┌──────────────────────────────────────────────────────────────────┐
- │  hql repo: .github/workflows/docs-trigger.yml                    │
+ │  .github/workflows/deploy-website.yml                            │
  │                                                                  │
- │  Trigger: push to main branch with changes in docs/**            │
- │  Action:  POST repository_dispatch "docs-updated"                │
- │           → hlvm-dev/hlvm-web                                    │
- │           (uses HLVM_WEB_DISPATCH_TOKEN secret)                  │
- └──────────────────────────────────────────────────────────────────┘
-            │
-            │  repository_dispatch event
-            v
- ┌──────────────────────────────────────────────────────────────────┐
- │  hlvm-web repo: .github/workflows/deploy.yml                     │
- │                                                                  │
- │  Triggers: push to master | repository_dispatch | manual          │
+ │  Triggers:                                                       │
+ │  • push to main with changes in docs/**, website/**,              │
+ │    firebase.json, CONTRIBUTING.md                                 │
+ │  • manual workflow_dispatch                                       │
  │                                                                  │
  │  Steps:                                                          │
  │  ┌────────────────────────────────────────────────────────────┐  │
- │  │ 1. Checkout hlvm-web repo                                  │  │
- │  │ 2. Sparse checkout hql/docs/ into ./hql-docs-source/       │  │
- │  │ 3. Setup Node 20 + npm cache                               │  │
- │  │ 4. npm ci  (install dependencies)                          │  │
- │  │ 5. node scripts/sync-docs.mjs --hql-path ./hql-docs-source │  │
+ │  │ 1. Checkout hql repo                                       │  │
+ │  │ 2. Setup Node 20 + npm cache                               │  │
+ │  │ 3. npm ci  (install dependencies in website/)              │  │
+ │  │ 4. node website/scripts/sync-docs.mjs                      │  │
+ │  │ 5. npm test  (unit tests gate deploy)                      │  │
  │  │ 6. npm run build  (Vite bundles SPA → dist/)               │  │
  │  │ 7. firebase deploy (dist/ → hlvm.dev)                      │  │
  │  └────────────────────────────────────────────────────────────┘  │
  │                                                                  │
- │  Secrets: FIREBASE_SERVICE_ACCOUNT, (inherited dispatch token)   │
+ │  Secrets: FIREBASE_SERVICE_ACCOUNT                               │
  └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Result:** Edit a doc in `hql/docs/`, push to main, and hlvm.dev updates automatically.
+**Result:** Edit a doc in `docs/`, push to main, and hlvm.dev updates automatically.
 
 ---
 
 ## 8. Testing
 
-Three layers of tests ensure nothing breaks:
+Two layers of tests ensure nothing breaks:
 
 ```
  ┌─────────────────────────────────────────────────────────────────┐
  │  LAYER 1: Unit Tests (vitest + jsdom)                           │
- │  Run: npm test                                                  │
+ │  Run: cd website && npm test                                    │
  │  Speed: ~1 second                                               │
  │                                                                 │
  │  tests/constants.test.js (9 tests)                              │
@@ -434,7 +436,7 @@ Three layers of tests ensure nothing breaks:
                               v
  ┌─────────────────────────────────────────────────────────────────┐
  │  LAYER 2: E2E Tests (Playwright + real Chromium)                │
- │  Run: npm run test:e2e                                          │
+ │  Run: cd website && npm run test:e2e                            │
  │  Speed: ~15 seconds                                             │
  │                                                                 │
  │  tests/e2e/docs.spec.js (19 tests)                              │
@@ -462,29 +464,6 @@ Three layers of tests ensure nothing breaks:
  └─────────────────────────────────────────────────────────────────┘
 ```
 
-### How Playwright Works
-
-```
- ┌──────────────┐         ┌──────────────────┐         ┌─────────────┐
- │  Test Script  │ ──────> │  Playwright API   │ ──────> │  Chromium    │
- │  (Node.js)   │ <────── │  (WebSocket CDP)  │ <────── │  (headless)  │
- └──────────────┘         └──────────────────┘         └─────────────┘
-                                   │
-                            ┌──────┴──────┐
-                            │  Vite Dev    │
-                            │  Server      │
-                            │  :5173       │
-                            └─────────────┘
-
- 1. playwright.config.js tells Playwright to start `npm run dev` on :5173
- 2. Playwright launches headless Chromium
- 3. Test code calls page.goto(), page.click(), page.getByRole(), etc.
- 4. Playwright sends Chrome DevTools Protocol commands to the browser
- 5. Browser executes, returns DOM state
- 6. Test asserts with expect()
- 7. On failure: screenshot + trace saved to test-results/
-```
-
 ---
 
 ## 9. How To: Common Tasks
@@ -493,32 +472,31 @@ Three layers of tests ensure nothing breaks:
 
 ```bash
 # 1. Edit the source file
-vim ~/dev/hql/docs/GUIDE.md
+vim docs/GUIDE.md
 
 # 2. Re-sync to see changes locally
-cd ~/dev/hlvm-web/hlvm-web/react-src
-node scripts/sync-docs.mjs --hql-path ~/dev/hql
+node website/scripts/sync-docs.mjs
 
 # 3. Start dev server (if not running)
-npm run dev
+cd website && npm run dev
 
 # 4. Visit http://localhost:5173/docs/guide
 ```
 
 ### Add a new top-level doc
 
-1. Create the file in `hql/docs/`, e.g., `docs/MY-NEW-DOC.md`
-2. Edit `react-src/scripts/sync-docs.mjs`:
+1. Create the file in `docs/`, e.g., `docs/MY-NEW-DOC.md`
+2. Edit `website/scripts/sync-docs.mjs`:
    - Add to `TOP_LEVEL_DOCS` array:
      ```js
      { file: "MY-NEW-DOC.md", label: "My New Doc", slug: "my-new-doc" },
      ```
-3. Re-sync: `node scripts/sync-docs.mjs --hql-path ~/dev/hql`
+3. Re-sync: `node website/scripts/sync-docs.mjs`
 4. The doc appears in the sidebar under the "Learn" tab
 
 ### Add a new feature doc
 
-1. Create directory: `hql/docs/features/NN-feature-name/`
+1. Create directory: `docs/features/NN-feature-name/`
 2. Add `README.md` (required — this is the main page)
 3. Optionally add `spec.md` or other sub-pages
 4. Re-sync — feature docs are auto-discovered (no script edit needed)
@@ -526,7 +504,7 @@ npm run dev
 ### Run tests after changes
 
 ```bash
-cd ~/dev/hlvm-web/hlvm-web/react-src
+cd website
 
 # Quick: unit tests only (~1 second)
 npm test
@@ -541,13 +519,11 @@ npm test && npm run test:e2e
 ### Deploy manually
 
 ```bash
-cd ~/dev/hlvm-web/hlvm-web/react-src
-
 # Sync + Build
-node scripts/sync-docs.mjs --hql-path ~/dev/hql
-npm run build
+node website/scripts/sync-docs.mjs
+cd website && npm run build
 
-# Deploy
+# Deploy (from repo root)
 cd ..
 npx firebase deploy
 ```
@@ -555,21 +531,17 @@ npx firebase deploy
 ### Deploy automatically (just push)
 
 ```bash
-# Push doc changes to hql repo
-cd ~/dev/hql
+# Push doc changes
 git add docs/
 git commit -m "docs: update guide"
 git push
 
-# docs-trigger.yml fires → deploy.yml runs → hlvm.dev updates
-# (takes ~2 minutes)
+# deploy-website.yml fires → hlvm.dev updates (~2 minutes)
 ```
 
 ---
 
 ## 10. File Reference
-
-### hql repo (source of truth)
 
 | Path | Purpose |
 |---|---|
@@ -577,34 +549,28 @@ git push
 | `docs/features/NN-name/` | Feature documentation (auto-discovered) |
 | `docs/api/*.md` | API reference documentation |
 | `CONTRIBUTING.md` | Contribution guide (synced from repo root) |
-| `.github/workflows/docs-trigger.yml` | Fires webhook to hlvm-web on docs/** changes |
-
-### hlvm-web repo (website)
-
-| Path | Purpose |
-|---|---|
-| `react-src/scripts/sync-docs.mjs` | Markdown transformation pipeline |
-| `react-src/public/content/` | Generated markdown + manifest (gitignored) |
-| `react-src/src/App.jsx` | Routes: `/`, `/docs/*`, `*` (404) |
-| `react-src/src/pages/DocsPage.jsx` | Docs shell with DocsProvider |
-| `react-src/src/contexts/DocsContext.jsx` | Manifest loader, UI state, keyboard shortcuts |
-| `react-src/src/hooks/useDocsFetch.js` | Fetch + cache markdown by path |
-| `react-src/src/components/docs/DocsContent.jsx` | Slug → manifest lookup → fetch → render |
-| `react-src/src/components/docs/MarkdownRenderer.jsx` | react-markdown + plugins + SPA link handling |
-| `react-src/src/components/docs/DocsSidebar.jsx` | 3-tab sidebar with collapsible groups |
-| `react-src/src/components/docs/DocsTableOfContents.jsx` | Auto-generated from h2/h3, scroll spy |
-| `react-src/src/components/docs/DocsPrevNext.jsx` | Bottom prev/next navigation |
-| `react-src/src/components/docs/DocsSearch.jsx` | Cmd+K fuzzy search (Fuse.js) |
-| `react-src/src/components/NavBar.jsx` | Contextual morphing (landing vs docs) |
-| `react-src/src/utils/docs-utils.js` | getActiveTab(), extractHeadings() |
-| `react-src/tests/constants.test.js` | Unit: nav/footer config validation |
-| `react-src/tests/docs-utils.test.js` | Unit: tab routing + heading extraction |
-| `react-src/tests/sync-output.test.js` | Unit: generated content quality regression |
-| `react-src/tests/e2e/docs.spec.js` | E2E: full browser interaction tests |
-| `react-src/playwright.config.js` | Playwright E2E configuration |
-| `react-src/vite.config.js` | Vite build + vitest config |
+| `website/scripts/sync-docs.mjs` | Markdown transformation pipeline |
+| `website/public/content/` | Generated markdown + manifest (gitignored) |
+| `website/src/App.jsx` | Routes: `/`, `/docs/*`, `*` (404) |
+| `website/src/pages/DocsPage.jsx` | Docs shell with DocsProvider |
+| `website/src/contexts/DocsContext.jsx` | Manifest loader, UI state, keyboard shortcuts |
+| `website/src/hooks/useDocsFetch.js` | Fetch + cache markdown by path |
+| `website/src/components/docs/DocsContent.jsx` | Slug → manifest lookup → fetch → render |
+| `website/src/components/docs/MarkdownRenderer.jsx` | react-markdown + plugins + SPA link handling |
+| `website/src/components/docs/DocsSidebar.jsx` | 3-tab sidebar with collapsible groups |
+| `website/src/components/docs/DocsTableOfContents.jsx` | Auto-generated from h2/h3, scroll spy |
+| `website/src/components/docs/DocsPrevNext.jsx` | Bottom prev/next navigation |
+| `website/src/components/docs/DocsSearch.jsx` | Cmd+K fuzzy search (Fuse.js) |
+| `website/src/components/NavBar.jsx` | Contextual morphing (landing vs docs) |
+| `website/src/utils/docs-utils.js` | getActiveTab(), extractHeadings() |
+| `website/tests/constants.test.js` | Unit: nav/footer config validation |
+| `website/tests/docs-utils.test.js` | Unit: tab routing + heading extraction |
+| `website/tests/sync-output.test.js` | Unit: generated content quality regression |
+| `website/tests/e2e/docs.spec.js` | E2E: full browser interaction tests |
+| `website/playwright.config.js` | Playwright E2E configuration |
+| `website/vite.config.js` | Vite build + vitest config |
 | `firebase.json` | Hosting config (SPA rewrite, cache headers) |
-| `.github/workflows/deploy.yml` | CI/CD: sync → build → firebase deploy |
+| `.github/workflows/deploy-website.yml` | CI/CD: sync → build → firebase deploy |
 
 ---
 
@@ -636,10 +602,10 @@ git push
 ## 12. Troubleshooting
 
 **Docs not updating locally?**
-Re-run sync: `node scripts/sync-docs.mjs --hql-path ~/dev/hql`
+Re-run sync: `node website/scripts/sync-docs.mjs`
 
 **Broken links after editing?**
-Run `npm test` — the sync-output tests catch broken `/docs/*` links.
+Run `cd website && npm test` — the sync-output tests catch broken `/docs/*` links.
 
 **New doc not appearing in sidebar?**
 For top-level docs: add to `TOP_LEVEL_DOCS` array in sync-docs.mjs.
@@ -647,11 +613,10 @@ For feature docs: ensure directory matches `docs/features/NN-name/` with a `READ
 
 **E2E tests failing?**
 Ensure dev server isn't running on :5173 already, or Playwright will reuse it.
-Run `npm run test:e2e` from `react-src/` directory.
+Run `npm run test:e2e` from `website/` directory.
 
 **Auto-deploy not triggering?**
-Check that `HLVM_WEB_DISPATCH_TOKEN` secret is set in the hql repo.
-Check that `FIREBASE_SERVICE_ACCOUNT` secret is set in the hlvm-web repo.
+Check that `FIREBASE_SERVICE_ACCOUNT` secret is set in the hql repo GitHub settings.
 
 **Code blocks getting mangled?**
 The sync script protects code with `\x00CODE{n}\x00` placeholders. If you see
