@@ -111,8 +111,8 @@ export function companionOnInteraction(
   };
 }
 
-/** Execute an approved ACT decision via the agent runner. */
-async function handleActFlow(
+/** Execute an approved ACT decision via the agent runner. @internal Exported for testing. */
+export async function handleActFlow(
   event: CompanionEvent,
   decision: CompanionDecision,
   context: CompanionContext,
@@ -171,8 +171,9 @@ async function handleActFlow(
  * Handle ASK_VISION: request screenshot consent, then emit capture_request.
  * The screenshot arrives as a screen.captured Observation through the bus —
  * the next loop iteration picks it up naturally.
+ * @internal Exported for testing.
  */
-async function handleVisionFlow(
+export async function handleVisionFlow(
   event: CompanionEvent,
   context: CompanionContext,
   signal: AbortSignal,
@@ -228,8 +229,9 @@ export async function runCompanionLoop(
       // PII filter
       const redacted = batch.map(redactObservation);
 
-      // DND: skip if user is actively typing (check BEFORE addBatch
-      // so we measure the gap since the previous batch, not the current one)
+      // DND: skip if user was recently active (any observation resets the timer).
+      // Check BEFORE addBatch so we measure the gap since the previous batch.
+      // Note: "quietWhileTypingMs" is a legacy name — it's generic activity-based, not typing-specific.
       const isActive = context.isUserActive(config.quietWhileTypingMs);
 
       // Update rolling context

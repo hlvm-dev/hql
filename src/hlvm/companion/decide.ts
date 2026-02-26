@@ -70,12 +70,21 @@ export function parseDecisionResponse(text: string): CompanionDecision {
   try {
     parsed = JSON.parse(trimmed);
   } catch {
-    // Fallback: extract JSON from markdown fences or surrounding text
-    const match = trimmed.match(/\{[\s\S]*\}/);
-    if (match) {
+    // Fallback 1: extract JSON from markdown fences (non-greedy, handles surrounding text)
+    const fenceMatch = trimmed.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+    if (fenceMatch) {
       try {
-        parsed = JSON.parse(match[0]);
-      } catch { /* fall through to SILENT */ }
+        parsed = JSON.parse(fenceMatch[1]);
+      } catch { /* fall through */ }
+    }
+    // Fallback 2: greedy brace extraction (works when no other braces in text)
+    if (!parsed) {
+      const match = trimmed.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          parsed = JSON.parse(match[0]);
+        } catch { /* fall through to SILENT */ }
+      }
     }
   }
 

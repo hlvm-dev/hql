@@ -14,14 +14,18 @@ interface OAuthServerState {
   tokenRequestBodies: string[];
 }
 
-function startOAuthServer(
+async function startOAuthServer(
   options: { initialExpiresIn?: number } = {},
-): OAuthServerState {
+): Promise<OAuthServerState> {
   const state: OAuthServerState = {
     port: 0,
     tokenRequestBodies: [],
     server: null as unknown as Deno.HttpServer,
   };
+
+  const { promise: listening, resolve: onListening } = Promise.withResolvers<
+    void
+  >();
 
   const server = Deno.serve(
     {
@@ -29,6 +33,7 @@ function startOAuthServer(
       hostname: "127.0.0.1",
       onListen({ port }) {
         state.port = port;
+        onListening();
       },
     },
     async (req) => {
@@ -100,6 +105,7 @@ function startOAuthServer(
   );
 
   state.server = server;
+  await listening;
   return state;
 }
 
@@ -137,8 +143,7 @@ Deno.test({
   sanitizeResources: false,
   fn: async () => {
     await withOauthStorePath(async () => {
-      const oauth = startOAuthServer({ initialExpiresIn: 0 });
-      await new Promise((r) => setTimeout(r, 50));
+      const oauth = await startOAuthServer({ initialExpiresIn: 0 });
 
       const server = {
         name: "oauth-http",
@@ -186,8 +191,7 @@ Deno.test({
   sanitizeResources: false,
   fn: async () => {
     await withOauthStorePath(async () => {
-      const oauth = startOAuthServer({ initialExpiresIn: 3600 });
-      await new Promise((r) => setTimeout(r, 50));
+      const oauth = await startOAuthServer({ initialExpiresIn: 3600 });
       const server = {
         name: "oauth-recover",
         url: `http://127.0.0.1:${oauth.port}/mcp`,
