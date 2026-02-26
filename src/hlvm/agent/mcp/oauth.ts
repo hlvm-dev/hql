@@ -3,10 +3,13 @@
  *
  * Supports:
  * - Bearer challenge parsing (`WWW-Authenticate`)
- * - Protected resource metadata discovery
- * - Authorization server metadata discovery
+ * - Protected resource metadata discovery (via MCP SDK)
+ * - Authorization server metadata discovery (via MCP SDK)
  * - PKCE authorization-code login flow (browser + pasted callback URL/code)
  * - Token persistence and refresh
+ *
+ * Protocol-level OAuth (discovery, PKCE, token exchange, registration, refresh)
+ * is delegated to `@modelcontextprotocol/sdk/client/auth.js`.
  */
 
 import { ValidationError } from "../../../common/error.ts";
@@ -19,26 +22,47 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
 import type { McpServerConfig } from "./types.ts";
 
+import {
+  discoverOAuthServerInfo,
+  exchangeAuthorization,
+  refreshAuthorization,
+  registerClient,
+  startAuthorization,
+} from "@modelcontextprotocol/sdk/client/auth.js";
+import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type {
+  AuthorizationServerMetadata,
+  OAuthClientInformationMixed,
+  OAuthClientMetadata,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
 const MCP_OAUTH_STORE_VERSION = 1;
 const MCP_OAUTH_REDIRECT_URI = "http://127.0.0.1:35017/hlvm/oauth/callback";
 const ACCESS_TOKEN_SKEW_MS = 60_000;
 const OAUTH_CALLBACK_WAIT_TIMEOUT_MS = 120_000;
 
-interface OAuthAuthorizationServerMetadata {
-  issuer?: string;
-  authorization_endpoint?: string;
-  token_endpoint?: string;
-  registration_endpoint?: string;
-  code_challenge_methods_supported?: string[];
-}
+/** SSOT fetch wrapper — `http.fetchRaw` takes `string`, SDK passes `URL|string`. */
+// deno-lint-ignore no-explicit-any
+const ssotFetch: FetchLike = (url, init?) =>
+  http.fetchRaw(String(url), init as any);
 
-interface OAuthTokenResponse {
-  access_token: string;
-  token_type?: string;
-  refresh_token?: string;
-  expires_in?: number;
-  scope?: string;
-}
+/** Client metadata for dynamic registration via `registerClient()`. */
+const HLVM_CLIENT_METADATA = {
+  client_name: "HLVM MCP Client",
+  grant_types: ["authorization_code", "refresh_token"],
+  response_types: ["code"],
+  redirect_uris: [MCP_OAUTH_REDIRECT_URI],
+  token_endpoint_auth_method: "none",
+} as unknown as OAuthClientMetadata;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface McpOAuthRecord {
   key: string;
@@ -71,27 +95,61 @@ interface ParsedBearerChallenge {
   params: Record<string, string>;
 }
 
-interface ParsedMetadata {
-  authorizationServer: string;
-  authorizationEndpoint: string;
-  tokenEndpoint: string;
-  registrationEndpoint?: string;
-  scopesSupported: string[];
-  resource: string;
-}
-
-interface OAuthClientRegistration {
-  clientId: string;
-  clientSecret?: string;
-  registrationClientUri?: string;
-  registrationAccessToken?: string;
-}
-
 export interface McpOAuthLoginOptions {
   output?: (line: string) => void;
   promptInput?: (message: string) => Promise<string>;
   openBrowser?: (url: string) => Promise<void>;
 }
+
+// ---------------------------------------------------------------------------
+// SDK Adapters
+// ---------------------------------------------------------------------------
+
+/** Convert a stored `McpOAuthRecord` to SDK `OAuthClientInformationMixed`. */
+function recordToClientInfo(
+  record: McpOAuthRecord,
+): OAuthClientInformationMixed {
+  return {
+    client_id: record.clientId,
+    ...(record.clientSecret ? { client_secret: record.clientSecret } : {}),
+  };
+}
+
+/** Reconstruct minimal SDK metadata from stored record endpoints. */
+function recordToMetadata(record: McpOAuthRecord): AuthorizationServerMetadata {
+  return {
+    issuer: record.authorizationServer,
+    authorization_endpoint: record.authorizationEndpoint ?? record.authorizationServer,
+    token_endpoint: record.tokenEndpoint,
+    ...(record.registrationEndpoint
+      ? { registration_endpoint: record.registrationEndpoint }
+      : {}),
+    response_types_supported: ["code"],
+  } as AuthorizationServerMetadata;
+}
+
+/** Merge SDK `OAuthTokens` into an existing `McpOAuthRecord`. */
+function tokensToRecord(
+  tokens: OAuthTokens,
+  record: McpOAuthRecord,
+): McpOAuthRecord {
+  const expiresAt = typeof tokens.expires_in === "number"
+    ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+    : record.expiresAt;
+  return {
+    ...record,
+    accessToken: tokens.access_token,
+    tokenType: tokens.token_type ?? record.tokenType,
+    refreshToken: tokens.refresh_token ?? record.refreshToken,
+    scope: tokens.scope ?? record.scope,
+    expiresAt,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Store Persistence
+// ---------------------------------------------------------------------------
 
 function emptyStore(): McpOAuthStore {
   return { version: MCP_OAUTH_STORE_VERSION, records: [] };
@@ -187,6 +245,10 @@ async function removeRecordByKey(key: string): Promise<boolean> {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Token State Helpers
+// ---------------------------------------------------------------------------
+
 function parseExpiresAt(expiresAt?: string): number | null {
   if (!expiresAt) return null;
   const ts = Date.parse(expiresAt);
@@ -205,177 +267,9 @@ function buildBearerHeader(record: McpOAuthRecord): string {
   return `${tokenType} ${record.accessToken}`;
 }
 
-function randomBase64Url(size: number): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(size));
-  return bytesToBase64Url(bytes);
-}
-
-function bytesToBase64Url(bytes: Uint8Array): string {
-  let raw = "";
-  for (let i = 0; i < bytes.length; i++) raw += String.fromCharCode(bytes[i]);
-  return btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-async function pkceChallenge(verifier: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(verifier),
-  );
-  return bytesToBase64Url(new Uint8Array(digest));
-}
-
-function toFormUrlEncoded(params: Record<string, string>): string {
-  const encoded = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) encoded.set(k, v);
-  return encoded.toString();
-}
-
-async function readResponseBody(response: Response): Promise<string> {
-  try {
-    return await response.text();
-  } catch {
-    return "";
-  }
-}
-
-function parseTokenResponse(payload: unknown): OAuthTokenResponse {
-  if (!isObjectValue(payload) || typeof payload.access_token !== "string") {
-    throw new ValidationError(
-      "OAuth token response missing access_token",
-      "mcp_oauth",
-    );
-  }
-  const token = payload as Record<string, unknown>;
-  return {
-    access_token: token.access_token as string,
-    token_type: typeof token.token_type === "string"
-      ? token.token_type
-      : undefined,
-    refresh_token: typeof token.refresh_token === "string"
-      ? token.refresh_token
-      : undefined,
-    expires_in: typeof token.expires_in === "number"
-      ? token.expires_in
-      : undefined,
-    scope: typeof token.scope === "string" ? token.scope : undefined,
-  };
-}
-
-function applyTokenResponse(
-  record: McpOAuthRecord,
-  token: OAuthTokenResponse,
-): McpOAuthRecord {
-  const expiresAt = typeof token.expires_in === "number"
-    ? new Date(Date.now() + token.expires_in * 1000).toISOString()
-    : record.expiresAt;
-  return {
-    ...record,
-    accessToken: token.access_token,
-    tokenType: token.token_type ?? record.tokenType,
-    refreshToken: token.refresh_token ?? record.refreshToken,
-    scope: token.scope ?? record.scope,
-    expiresAt,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-function selectScopes(
-  challenge: ParsedBearerChallenge | null,
-  metadataScopes: string[],
-): string | undefined {
-  const challengeScope = challenge?.params.scope?.trim();
-  if (challengeScope) return challengeScope;
-  if (metadataScopes.includes("offline_access")) return "offline_access";
-  return undefined;
-}
-
-function tokenExchangeParams(
-  record: McpOAuthRecord,
-  fields: Record<string, string>,
-): Record<string, string> {
-  const params: Record<string, string> = {
-    client_id: record.clientId,
-    resource: record.resource ?? record.serverUrl,
-    ...fields,
-  };
-  if (record.clientSecret) {
-    params.client_secret = record.clientSecret;
-  }
-  return params;
-}
-
-async function exchangeAuthorizationCode(
-  record: McpOAuthRecord,
-  code: string,
-  codeVerifier: string,
-  redirectUri: string,
-): Promise<OAuthTokenResponse> {
-  const response = await http.fetchRaw(record.tokenEndpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    body: toFormUrlEncoded(
-      tokenExchangeParams(record, {
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: redirectUri,
-        code_verifier: codeVerifier,
-      }),
-    ),
-  });
-  if (!response.ok) {
-    const body = await readResponseBody(response);
-    throw new ValidationError(
-      `OAuth token exchange failed (${response.status}): ${
-        body || response.statusText
-      }`,
-      "mcp_oauth",
-    );
-  }
-  const payload = await response.json();
-  return parseTokenResponse(payload);
-}
-
-async function refreshAccessToken(
-  record: McpOAuthRecord,
-): Promise<McpOAuthRecord | null> {
-  if (!record.refreshToken) return null;
-  try {
-    const response = await http.fetchRaw(record.tokenEndpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
-      },
-      body: toFormUrlEncoded(
-        tokenExchangeParams(record, {
-          grant_type: "refresh_token",
-          refresh_token: record.refreshToken,
-        }),
-      ),
-    });
-    if (!response.ok) {
-      getAgentLogger().warn(
-        `MCP OAuth refresh failed (${record.serverName}): HTTP ${response.status}`,
-      );
-      return null;
-    }
-    const payload = await response.json();
-    const token = parseTokenResponse(payload);
-    const next = applyTokenResponse(record, token);
-    await upsertRecord(next);
-    return next;
-  } catch (error) {
-    getAgentLogger().warn(
-      `MCP OAuth refresh failed (${record.serverName}): ${
-        getErrorMessage(error)
-      }`,
-    );
-    return null;
-  }
-}
+// ---------------------------------------------------------------------------
+// Bearer Challenge Parsing
+// ---------------------------------------------------------------------------
 
 function splitHeaderParams(input: string): string[] {
   const out: string[] = [];
@@ -423,182 +317,9 @@ export function parseBearerChallengeHeader(
   return { scheme: "Bearer", params };
 }
 
-async function fetchProtectedResourceMetadata(
-  serverUrl: string,
-  challenge: ParsedBearerChallenge | null,
-): Promise<{
-  authorizationServers: string[];
-  scopesSupported: string[];
-  resource: string;
-}> {
-  const resourceMetadata = challenge?.params.resource_metadata;
-  const requestedResource = challenge?.params.resource ?? serverUrl;
-  const metadataUrl = resourceMetadata
-    ? new URL(resourceMetadata)
-    : new URL("/.well-known/oauth-protected-resource", new URL(serverUrl));
-  if (!metadataUrl.searchParams.has("resource")) {
-    metadataUrl.searchParams.set("resource", requestedResource);
-  }
-  const response = await http.fetchRaw(metadataUrl.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
-  if (!response.ok) {
-    throw new ValidationError(
-      `OAuth discovery failed (${response.status}) fetching protected resource metadata`,
-      "mcp_oauth",
-    );
-  }
-  const payload = await response.json();
-  if (!isObjectValue(payload)) {
-    throw new ValidationError(
-      "OAuth protected resource metadata is invalid",
-      "mcp_oauth",
-    );
-  }
-  const meta = payload as Record<string, unknown>;
-  const rawAuthorizationServers = meta.authorization_servers;
-  const authorizationServers = Array.isArray(rawAuthorizationServers)
-    ? rawAuthorizationServers.filter((s): s is string =>
-      typeof s === "string" && s.length > 0
-    )
-    : [];
-  if (authorizationServers.length === 0) {
-    throw new ValidationError(
-      "OAuth protected resource metadata missing authorization_servers",
-      "mcp_oauth",
-    );
-  }
-  const rawScopes = meta.scopes_supported;
-  const scopesSupported = Array.isArray(rawScopes)
-    ? rawScopes.filter((s): s is string =>
-      typeof s === "string" && s.length > 0
-    )
-    : [];
-  const resource = typeof meta.resource === "string" && meta.resource.length > 0
-    ? meta.resource
-    : requestedResource;
-  return { authorizationServers, scopesSupported, resource };
-}
-
-async function fetchAuthorizationServerMetadata(
-  authorizationServer: string,
-): Promise<OAuthAuthorizationServerMetadata> {
-  const issuer = authorizationServer.replace(/\/+$/, "");
-  const candidates = [
-    `${issuer}/.well-known/oauth-authorization-server`,
-    `${issuer}/.well-known/openid-configuration`,
-  ];
-  let lastStatus = 0;
-  for (const url of candidates) {
-    const response = await http.fetchRaw(url, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
-      lastStatus = response.status;
-      continue;
-    }
-    const payload = await response.json();
-    if (!isObjectValue(payload)) continue;
-    return payload as OAuthAuthorizationServerMetadata;
-  }
-  throw new ValidationError(
-    `OAuth discovery failed: no authorization server metadata (${
-      lastStatus || "no response"
-    })`,
-    "mcp_oauth",
-  );
-}
-
-async function discoverMetadata(
-  serverUrl: string,
-  challenge: ParsedBearerChallenge | null,
-): Promise<ParsedMetadata> {
-  const protectedResource = await fetchProtectedResourceMetadata(
-    serverUrl,
-    challenge,
-  );
-  const authorizationServer = protectedResource.authorizationServers[0];
-  const authMetadata = await fetchAuthorizationServerMetadata(
-    authorizationServer,
-  );
-  const authorizationEndpoint = authMetadata.authorization_endpoint;
-  const tokenEndpoint = authMetadata.token_endpoint;
-  if (!authorizationEndpoint || !tokenEndpoint) {
-    throw new ValidationError(
-      "OAuth authorization server metadata missing required endpoints",
-      "mcp_oauth",
-    );
-  }
-  const challengeMethods = authMetadata.code_challenge_methods_supported;
-  if (Array.isArray(challengeMethods) && challengeMethods.length > 0) {
-    const supportsS256 = challengeMethods.includes("S256");
-    if (!supportsS256) {
-      throw new ValidationError(
-        "OAuth authorization server does not advertise PKCE S256 support",
-        "mcp_oauth",
-      );
-    }
-  }
-  return {
-    authorizationServer,
-    authorizationEndpoint,
-    tokenEndpoint,
-    registrationEndpoint: authMetadata.registration_endpoint,
-    scopesSupported: protectedResource.scopesSupported,
-    resource: protectedResource.resource,
-  };
-}
-
-async function registerPublicClient(
-  registrationEndpoint: string,
-): Promise<OAuthClientRegistration> {
-  const response = await http.fetchRaw(registrationEndpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({
-      client_name: "HLVM MCP Client",
-      application_type: "native",
-      grant_types: ["authorization_code", "refresh_token"],
-      response_types: ["code"],
-      redirect_uris: [MCP_OAUTH_REDIRECT_URI],
-      token_endpoint_auth_method: "none",
-    }),
-  });
-  if (!response.ok) {
-    const body = await readResponseBody(response);
-    throw new ValidationError(
-      `OAuth dynamic registration failed (${response.status}): ${
-        body || response.statusText
-      }`,
-      "mcp_oauth",
-    );
-  }
-  const payload = await response.json();
-  if (!isObjectValue(payload) || typeof payload.client_id !== "string") {
-    throw new ValidationError(
-      "OAuth dynamic registration response missing client_id",
-      "mcp_oauth",
-    );
-  }
-  const p = payload as Record<string, unknown>;
-  return {
-    clientId: p.client_id as string,
-    clientSecret: typeof p.client_secret === "string"
-      ? p.client_secret
-      : undefined,
-    registrationClientUri: typeof p.registration_client_uri === "string"
-      ? p.registration_client_uri
-      : undefined,
-    registrationAccessToken: typeof p.registration_access_token === "string"
-      ? p.registration_access_token
-      : undefined,
-  };
-}
+// ---------------------------------------------------------------------------
+// CLI UX Helpers
+// ---------------------------------------------------------------------------
 
 function parseAuthorizationCodeInput(
   value: string,
@@ -787,6 +508,10 @@ async function waitForOAuthCallback(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
 function ensureHttpServerConfig(
   server: McpServerConfig,
 ): asserts server is McpServerConfig & { url: string } {
@@ -797,6 +522,39 @@ function ensureHttpServerConfig(
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Token Refresh (SDK-backed)
+// ---------------------------------------------------------------------------
+
+async function refreshAccessToken(
+  record: McpOAuthRecord,
+): Promise<McpOAuthRecord | null> {
+  if (!record.refreshToken) return null;
+  try {
+    const tokens = await refreshAuthorization(record.authorizationServer, {
+      metadata: recordToMetadata(record),
+      clientInformation: recordToClientInfo(record),
+      refreshToken: record.refreshToken,
+      resource: new URL(record.resource ?? record.serverUrl),
+      fetchFn: ssotFetch,
+    });
+    const next = tokensToRecord(tokens, record);
+    await upsertRecord(next);
+    return next;
+  } catch (error) {
+    getAgentLogger().warn(
+      `MCP OAuth refresh failed (${record.serverName}): ${
+        getErrorMessage(error)
+      }`,
+    );
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 export async function loginMcpHttpServer(
   server: McpServerConfig,
@@ -810,8 +568,14 @@ export async function loginMcpHttpServer(
   const openBrowser = options.openBrowser ??
     ((url: string) => getPlatform().openUrl(url));
 
-  const challenge = null;
-  const metadata = await discoverMetadata(server.url, challenge);
+  // 1. Discover authorization server via SDK
+  const serverInfo = await discoverOAuthServerInfo(server.url, {
+    fetchFn: ssotFetch,
+  });
+  const authServerUrl = serverInfo.authorizationServerUrl;
+  const metadata = serverInfo.authorizationServerMetadata;
+  const resourceMetadata = serverInfo.resourceMetadata;
+
   const key = getServerKey(server);
   if (!key) {
     throw new ValidationError(
@@ -820,49 +584,67 @@ export async function loginMcpHttpServer(
     );
   }
 
+  // 2. Resolve client registration (reuse existing or register new)
   const existing = findRecord(await loadStore(), server);
   const reusableClient = existing &&
-      existing.authorizationServer === metadata.authorizationServer &&
-      existing.tokenEndpoint === metadata.tokenEndpoint
-    ? {
-      clientId: existing.clientId,
-      clientSecret: existing.clientSecret,
-      registrationClientUri: existing.registrationClientUri,
-      registrationAccessToken: existing.registrationAccessToken,
-    }
+      existing.authorizationServer === authServerUrl &&
+      existing.tokenEndpoint ===
+        (metadata?.token_endpoint
+          ? String(metadata.token_endpoint)
+          : existing.tokenEndpoint)
+    ? recordToClientInfo(existing)
     : null;
 
   const staticClientId = getPlatform().env.get("HLVM_MCP_OAUTH_CLIENT_ID");
-  const registration = reusableClient ??
-    (metadata.registrationEndpoint
-      ? await registerPublicClient(metadata.registrationEndpoint)
-      : (staticClientId ? { clientId: staticClientId } : null));
+  let clientInfo: OAuthClientInformationMixed;
 
-  if (!registration) {
+  if (reusableClient) {
+    clientInfo = reusableClient;
+  } else if (metadata?.registration_endpoint) {
+    const fullInfo = await registerClient(authServerUrl, {
+      metadata,
+      clientMetadata: HLVM_CLIENT_METADATA,
+      fetchFn: ssotFetch,
+    });
+    clientInfo = fullInfo;
+  } else if (staticClientId) {
+    clientInfo = { client_id: staticClientId };
+  } else {
     throw new ValidationError(
       "OAuth login requires either dynamic client registration support or HLVM_MCP_OAUTH_CLIENT_ID",
       "mcp_oauth",
     );
   }
 
-  const codeVerifier = randomBase64Url(48);
-  const challengeValue = await pkceChallenge(codeVerifier);
-  const state = randomBase64Url(24);
-  const scope = selectScopes(null, metadata.scopesSupported);
+  // 3. Build scope
+  const scopesSupported = resourceMetadata?.scopes_supported ?? [];
+  const scope = scopesSupported.includes("offline_access")
+    ? "offline_access"
+    : undefined;
 
-  const authorizationUrl = new URL(metadata.authorizationEndpoint);
-  authorizationUrl.searchParams.set("response_type", "code");
-  authorizationUrl.searchParams.set("client_id", registration.clientId);
-  authorizationUrl.searchParams.set("redirect_uri", MCP_OAUTH_REDIRECT_URI);
-  authorizationUrl.searchParams.set("code_challenge", challengeValue);
-  authorizationUrl.searchParams.set("code_challenge_method", "S256");
-  authorizationUrl.searchParams.set("state", state);
-  authorizationUrl.searchParams.set("resource", metadata.resource);
-  if (scope) authorizationUrl.searchParams.set("scope", scope);
+  // 4. Start authorization (PKCE + URL construction via SDK)
+  const resourceUrl = resourceMetadata?.resource
+    ? new URL(String(resourceMetadata.resource))
+    : new URL(server.url);
 
+  const { authorizationUrl, codeVerifier } = await startAuthorization(
+    authServerUrl,
+    {
+      metadata,
+      clientInformation: clientInfo,
+      redirectUrl: MCP_OAUTH_REDIRECT_URI,
+      scope,
+      resource: resourceUrl,
+    },
+  );
+
+  const state = authorizationUrl.searchParams.get("state") ?? "";
+
+  // 5. Open browser + wait for callback
   output(`Open this URL to authorize MCP server '${server.name}':`);
   output(authorizationUrl.toString());
   await openBrowser(authorizationUrl.toString());
+
   let callbackInput = "";
   if (!options.promptInput) {
     const receivedCallbackUrl = await waitForOAuthCallback(
@@ -882,39 +664,44 @@ export async function loginMcpHttpServer(
   }
   const code = parseAuthorizationCodeInput(callbackInput, state);
 
-  const provisionalRecord: McpOAuthRecord = {
+  // 6. Exchange authorization code for tokens via SDK
+  const tokens = await exchangeAuthorization(authServerUrl, {
+    metadata,
+    clientInformation: clientInfo,
+    authorizationCode: code,
+    codeVerifier,
+    redirectUri: MCP_OAUTH_REDIRECT_URI,
+    resource: resourceUrl,
+    fetchFn: ssotFetch,
+  });
+
+  // 7. Persist record
+  const tokenEndpoint = metadata?.token_endpoint
+    ? String(metadata.token_endpoint)
+    : `${authServerUrl}/token`;
+  const authorizationEndpoint = metadata?.authorization_endpoint
+    ? String(metadata.authorization_endpoint)
+    : undefined;
+  const registrationEndpoint = metadata?.registration_endpoint
+    ? String(metadata.registration_endpoint)
+    : undefined;
+
+  const finalRecord = tokensToRecord(tokens, {
     key,
     serverName: server.name,
     serverUrl: server.url,
-    resource: metadata.resource,
-    authorizationServer: metadata.authorizationServer,
-    authorizationEndpoint: metadata.authorizationEndpoint,
-    tokenEndpoint: metadata.tokenEndpoint,
-    registrationEndpoint: metadata.registrationEndpoint,
-    clientId: registration.clientId,
-    clientSecret: registration.clientSecret,
-    registrationClientUri: registration.registrationClientUri,
-    registrationAccessToken: registration.registrationAccessToken,
-    accessToken: "",
+    resource: String(resourceUrl),
+    authorizationServer: authServerUrl,
+    authorizationEndpoint,
+    tokenEndpoint,
+    registrationEndpoint,
+    clientId: clientInfo.client_id,
+    clientSecret: "client_secret" in clientInfo
+      ? clientInfo.client_secret
+      : undefined,
+    accessToken: tokens.access_token,
     updatedAt: new Date().toISOString(),
-  };
-
-  const token = await exchangeAuthorizationCode(
-    provisionalRecord,
-    code,
-    codeVerifier,
-    MCP_OAUTH_REDIRECT_URI,
-  );
-  const finalRecord = applyTokenResponse(
-    {
-      ...provisionalRecord,
-      accessToken: token.access_token,
-      tokenType: token.token_type,
-      refreshToken: token.refresh_token,
-      scope: token.scope,
-    },
-    token,
-  );
+  });
   await upsertRecord(finalRecord);
   output(`OAuth login complete for MCP server '${server.name}'.`);
 }

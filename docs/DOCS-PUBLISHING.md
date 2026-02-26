@@ -622,3 +622,338 @@ Check that `FIREBASE_SERVICE_ACCOUNT` secret is set in the hql repo GitHub setti
 The sync script protects code with `\x00CODE{n}\x00` placeholders. If you see
 raw placeholders in output, the restore step may have a regex mismatch — check
 `transformContent()` in sync-docs.mjs.
+
+
+⏺ Clean for our work (the deno.lock + oauth.ts are unrelated WIP from before). Here's where we are:
+                                                                                                                                                        
+  ---                                                                                                                                                   
+  Current State: Migration Complete
+                                                                                                                                                        
+  commit 51fbc1e  feat: monorepo migration — move website into hql                                                                                    
+  48 files changed, 12242 insertions(+), 156 deletions(-)
+
+  Tests:  sync 65 docs ✓  |  unit 25/25 ✓  |  E2E 19/19 ✓  |  build ✓
+  Stale:  zero references to hlvm-web/react-src/docs-trigger in tracked files
+
+  ---
+  BEFORE: Two-Repo Architecture
+
+   ┌───────────────────────────────────────┐
+   │  REPO 1: github.com/hlvm-dev/hql     │
+   │  ~/dev/hql                            │
+   │                                       │
+   │  docs/                                │
+   │  ├── GUIDE.md                         │
+   │  ├── MANUAL.md                        │
+   │  ├── features/01-binding/...          │
+   │  ├── api/stdlib.md ...                │
+   │  └── DOCS-PUBLISHING.md              │
+   │                                       │
+   │  src/        (HQL transpiler)         │
+   │  tests/      (Deno tests)             │
+   │                                       │
+   │  .github/workflows/                   │
+   │  ├── ci.yml                           │
+   │  ├── release.yml                      │
+   │  └── docs-trigger.yml ◄── DELETED     │
+   │                                       │
+   │  Secrets:                             │
+   │  └── HLVM_WEB_DISPATCH_TOKEN ◄── DEAD │
+   └──────────────────┬────────────────────┘
+                      │
+                      │  push to main (docs/**)
+                      │
+                      ▼
+            ┌─────────────────────┐
+            │  docs-trigger.yml   │
+            │  repository-dispatch│
+            │  (PAT webhook)      │
+            └─────────┬───────────┘
+                      │
+                      │  HTTP POST to github.com/hlvm-dev/hlvm-web
+                      │  event-type: "docs-updated"
+                      ▼
+   ┌───────────────────────────────────────┐
+   │  REPO 2: github.com/hlvm-dev/hlvm-web│
+   │  ~/dev/hlvm-web/hlvm-web             │
+   │                                       │
+   │  react-src/                           │
+   │  ├── src/        (React app)          │
+   │  ├── scripts/                         │
+   │  │   └── sync-docs.mjs               │
+   │  │       walks UP 5 parent dirs       │
+   │  │       looking for sibling hql/     │
+   │  │       or "hql-docs-source"         │
+   │  ├── tests/                           │
+   │  ├── public/content/ (generated)      │
+   │  ├── package.json  name:"react-src"   │
+   │  └── dist/         (build output)     │
+   │                                       │
+   │  firebase.json     public:react-src/  │
+   │  .firebaserc                          │
+   │                                       │
+   │  .github/workflows/                   │
+   │  └── deploy.yml                       │
+   │      ├── checkout hlvm-web            │
+   │      ├── SPARSE checkout hql/docs/    │  ◄── hacky
+   │      │   into ./hql-docs-source/      │
+   │      ├── npm ci                       │
+   │      ├── sync-docs --hql-path         │
+   │      │   ./hql-docs-source            │
+   │      ├── npm run build                │  ◄── no test gate!
+   │      └── firebase deploy              │
+   │                                       │
+   │  Secrets:                             │
+   │  └── FIREBASE_SERVICE_ACCOUNT         │
+   └───────────────────────────────────────┘
+
+  Problems with BEFORE:
+
+  1. Cross-repo coupling — docs live in hql, website lives in hlvm-web, linked by webhook
+  2. PAT secret — HLVM_WEB_DISPATCH_TOKEN needed for cross-repo dispatch
+  3. Sparse checkout hack — CI clones hql/docs/ into a temp dir with a magic name
+  4. Fragile path detection — sync script walks up 5 directories looking for hql/ or hql-docs-source/
+  5. No test gate — deploy.yml shipped code without running any tests
+  6. Two repos to maintain — PRs, issues, secrets, CI configs in two places
+  7. Local dev pain — had to --hql-path ~/dev/hql every time or hope auto-detect works
+
+  ---
+  AFTER: Monorepo Architecture
+
+   ┌───────────────────────────────────────────────────────────────┐
+   │  REPO: github.com/hlvm-dev/hql                               │
+   │  ~/dev/hql                                                    │
+   │                                                               │
+   │  docs/                          ← SOURCE OF TRUTH             │
+   │  ├── GUIDE.md                                                 │
+   │  ├── MANUAL.md                                                │
+   │  ├── HQL-SYNTAX.md                                            │
+   │  ├── REFERENCE.md                                             │
+   │  ├── TYPE-SYSTEM.md                                           │
+   │  ├── features/01-binding/...                                  │
+   │  ├── api/stdlib.md ...                                        │
+   │  └── DOCS-PUBLISHING.md        ← updated for monorepo        │
+   │                                                               │
+   │  website/                       ← REACT SPA (was react-src)   │
+   │  ├── scripts/sync-docs.mjs     ← reads ../docs/ (hardcoded)  │
+   │  ├── src/                       ← React components            │
+   │  │   ├── App.jsx                                              │
+   │  │   ├── pages/DocsPage.jsx                                   │
+   │  │   ├── components/docs/*.jsx                                │
+   │  │   ├── contexts/DocsContext.jsx                              │
+   │  │   └── hooks/useDocsFetch.js                                │
+   │  ├── tests/                     ← 25 unit + 19 E2E           │
+   │  ├── public/content/            ← GENERATED (gitignored)      │
+   │  ├── dist/                      ← BUILD OUTPUT (gitignored)   │
+   │  ├── package.json               ← name: "hlvm-website"        │
+   │  └── playwright.config.js                                     │
+   │                                                               │
+   │  src/              (HQL transpiler — unchanged)               │
+   │  tests/            (Deno tests — unchanged)                   │
+   │                                                               │
+   │  firebase.json     ← public: ./website/dist                   │
+   │  .firebaserc       ← project: hlvm-78dcc                      │
+   │                                                               │
+   │  .gitignore        ← !website/**/*.{js,jsx,mjs} exemptions   │
+   │                                                               │
+   │  .github/workflows/                                           │
+   │  ├── ci.yml                     (unchanged)                   │
+   │  ├── release.yml                (unchanged)                   │
+   │  └── deploy-website.yml         ← NEW (single-repo pipeline) │
+   │                                                               │
+   │  Secrets needed:                                              │
+   │  └── FIREBASE_SERVICE_ACCOUNT   (copy from hlvm-web)          │
+   └───────────────────────────────────────────────────────────────┘
+
+  ---
+  BEFORE vs AFTER: Deploy Pipeline
+
+   ════════════════════════════════════════════════════════════════
+    BEFORE: 2 repos, webhook, sparse checkout, no tests
+   ════════════════════════════════════════════════════════════════
+
+    Developer pushes docs/GUIDE.md to hql main
+         │
+         ▼
+    docs-trigger.yml (hql repo)
+    └─ POST webhook to hlvm-web (needs PAT secret)
+         │
+         ▼
+    deploy.yml (hlvm-web repo)
+    ├─ checkout hlvm-web
+    ├─ sparse checkout hql/docs/ → ./hql-docs-source/
+    ├─ npm ci
+    ├─ sync-docs.mjs --hql-path ./hql-docs-source
+    │  └─ auto-detect: walk 5 parent dirs for hql/
+    ├─ npm run build                          ◄── NO TESTS
+    └─ firebase deploy
+         │
+         ▼
+    hlvm.dev updated (~3-4 min, 2 repos involved)
+
+
+   ════════════════════════════════════════════════════════════════
+    AFTER: 1 repo, direct trigger, hardcoded path, test gate
+   ════════════════════════════════════════════════════════════════
+
+    Developer pushes docs/GUIDE.md to hql main
+         │
+         ▼
+    deploy-website.yml (same repo)
+    ├─ checkout hql                    ← one repo, one checkout
+    ├─ setup node 20 + npm cache
+    ├─ npm ci (website/)
+    ├─ node website/scripts/sync-docs.mjs
+    │  └─ resolve(__dirname, "..") → hardcoded ../docs/
+    ├─ npm test (25 unit tests)        ◄── TEST GATE
+    ├─ npm run build (Vite → dist/)
+    └─ firebase deploy (website/dist/ → hlvm.dev)
+         │
+         ▼
+    hlvm.dev updated (~2 min, 1 repo)
+
+  ---
+  BEFORE vs AFTER: Local Development
+
+   ════════════════════════════════════════════════════════════════
+    BEFORE
+   ════════════════════════════════════════════════════════════════
+
+    cd ~/dev/hlvm-web/hlvm-web/react-src
+    node scripts/sync-docs.mjs --hql-path ~/dev/hql   ← manual path
+    npm run dev
+    # edit docs in ~/dev/hql/docs/
+    # re-run sync every time
+    # hope auto-detect finds sibling hql/
+
+
+   ════════════════════════════════════════════════════════════════
+    AFTER
+   ════════════════════════════════════════════════════════════════
+
+    cd ~/dev/hql/website
+    node scripts/sync-docs.mjs      ← finds ../docs/ automatically
+    npm run dev
+    # edit docs in ../docs/
+    # re-run sync
+    # works for ANY developer who clones hql — zero config
+
+  ---
+  BEFORE vs AFTER: What Was Eliminated
+
+   ELIMINATED                              REPLACED BY
+   ──────────────────────────────────      ────────────────────────────
+   hlvm-web repo (entire repo)             hql/website/ directory
+   docs-trigger.yml (webhook dispatch)     deploy-website.yml (direct)
+   HLVM_WEB_DISPATCH_TOKEN (PAT secret)    (nothing — same repo)
+   sparse checkout of hql/docs/            (nothing — same checkout)
+   5-level parent dir auto-detect          resolve(__dirname, "..")
+   "react-src" directory name              "website"
+   "react-src" package name                "hlvm-website"
+   28-line website/.gitignore              4-line (root handles rest)
+   redundant root gitignore entries        consolidated
+   deploy without tests                    npm test gates deploy
+   dead hqlRoot return value               removed
+   /docs/ link double-prefix bug           fixed
+   flaky Meta+k E2E tests (3 failing)      custom event dispatch (19/19)
+   stale 02-functions in docs              corrected to 02-class
+   "14 top-level docs" (wrong count)       "14 predefined + extras"
+   "Three layers of tests" (wrong)         "Two layers"
+
+  ---
+  BEFORE vs AFTER: Secrets
+
+   BEFORE (hql repo)           BEFORE (hlvm-web repo)
+   ├─ HLVM_WEB_DISPATCH_TOKEN  ├─ FIREBASE_SERVICE_ACCOUNT
+   └─ (ci/release secrets)     └─ (inherited dispatch token)
+
+   AFTER (hql repo only)
+   ├─ FIREBASE_SERVICE_ACCOUNT  ← copy from hlvm-web
+   └─ (ci/release secrets)
+
+   TO DO on GitHub:
+   1. Add FIREBASE_SERVICE_ACCOUNT to hql repo
+   2. Remove HLVM_WEB_DISPATCH_TOKEN from hql repo
+   3. Archive hlvm-web repo (read-only, preserves history)
+
+  ---
+  Data Flow: Doc Sync Pipeline
+
+   docs/GUIDE.md                    (you edit this)
+   docs/features/01-binding/README.md
+   docs/api/stdlib.md
+   CONTRIBUTING.md
+         │
+         │  node website/scripts/sync-docs.mjs
+         │
+         ▼
+   ┌─────────────────────────────────────────────────────────┐
+   │  sync-docs.mjs                                          │
+   │                                                         │
+   │  For each .md file:                                     │
+   │  1. Read source markdown                                │
+   │  2. Strip YAML frontmatter                              │
+   │  3. Protect code blocks (```/`) with \x00CODE{n}\x00   │
+   │  4. Rewrite relative links:                             │
+   │     ../../TYPE-SYSTEM.md → /docs/type-system            │
+   │     ./REFERENCE.md → /docs/reference                    │
+   │     /docs/api/stdlib → /docs/api/stdlib (absolute OK)   │
+   │  5. Map ```hql → ```clojure (syntax highlighting)       │
+   │  6. Restore code blocks                                 │
+   │  7. Write to website/public/content/{slug}.md           │
+   │                                                         │
+   │  Then generate manifest.json:                           │
+   │  ├── sidebar (3 tabs: learn/features/api)               │
+   │  ├── flat (linear order with prev/next pointers)        │
+   │  └── search (headings + excerpts for Fuse.js)           │
+   └─────────────────────────────────────────────────────────┘
+         │
+         │  65 docs + manifest.json
+         ▼
+   website/public/content/          (gitignored, generated)
+   ├── manifest.json
+   ├── guide.md
+   ├── manual.md
+   ├── type-system.md
+   ├── features/binding/readme.md
+   ├── features/class/readme.md
+   ├── api/stdlib.md
+   └── ...
+         │
+         │  npm run build (Vite copies public/ into dist/)
+         ▼
+   website/dist/                    (gitignored, build output)
+   ├── index.html                   (SPA shell)
+   ├── assets/index-*.js            (React bundle, hashed)
+   ├── assets/DocsPage-*.js         (lazy-loaded docs bundle)
+   └── content/                     (markdown + manifest)
+         │
+         │  firebase deploy
+         ▼
+   hlvm.dev
+   ├── /**         → index.html     (SPA rewrite)
+   ├── /assets/**  → 1yr cache      (immutable hashed files)
+   ├── /content/** → 1hr/1day cache  (markdown + manifest)
+   └── /index.html → no-cache        (always fresh)
+         │
+         │  user visits hlvm.dev/docs/features/binding
+         ▼
+   ┌─────────────────────────────────────────────────────────┐
+   │  Browser                                                │
+   │  1. Load index.html (SPA shell)                         │
+   │  2. React Router → DocsPage (lazy)                      │
+   │  3. Fetch /content/manifest.json                        │
+   │  4. Look up slug "features/binding" in manifest.flat    │
+   │  5. Fetch /content/features/binding/readme.md           │
+   │  6. react-markdown + rehype-highlight renders it        │
+   │  7. Sidebar highlights "Binding" under Features tab     │
+   │  8. TOC shows h2/h3 headings with scroll spy            │
+   │  9. Prev/Next links from manifest.flat pointers         │
+   └─────────────────────────────────────────────────────────┘
+
+  ---
+  Status: Committed (51fbc1e), all tests green, clean working tree. Ready to push once you add FIREBASE_SERVICE_ACCOUNT secret to GitHub.
+
+✻ Baked for 1m 38s                                     
+
+❯ it is going to be open sorce. any api key or secrete must not be stored anywhere          

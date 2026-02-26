@@ -65,6 +65,9 @@ async function startMcpOAuthServer(
 
       // --- OAuth Endpoints ---
 
+      // Protected Resource Metadata (RFC 9728)
+      // SDK tries path-aware first: /.well-known/oauth-protected-resource/mcp → 404
+      // Then falls back to root: /.well-known/oauth-protected-resource → 200
       if (url.pathname === "/.well-known/oauth-protected-resource") {
         return Response.json({
           authorization_servers: [`http://127.0.0.1:${state.port}/auth`],
@@ -73,7 +76,9 @@ async function startMcpOAuthServer(
         });
       }
 
-      if (url.pathname === "/auth/.well-known/oauth-authorization-server") {
+      // Authorization Server Metadata (RFC 8414)
+      // SDK constructs: /.well-known/oauth-authorization-server/auth
+      if (url.pathname === "/.well-known/oauth-authorization-server/auth") {
         return Response.json({
           issuer: `http://127.0.0.1:${state.port}/auth`,
           authorization_endpoint:
@@ -81,14 +86,23 @@ async function startMcpOAuthServer(
           token_endpoint: `http://127.0.0.1:${state.port}/oauth/token`,
           registration_endpoint:
             `http://127.0.0.1:${state.port}/oauth/register`,
+          response_types_supported: ["code"],
           code_challenge_methods_supported: ["S256"],
         });
       }
 
+      // Dynamic Client Registration
       if (url.pathname === "/oauth/register") {
-        return Response.json({ client_id: "e2e-test-client" });
+        const body = await req.json();
+        return Response.json({
+          client_id: "e2e-test-client",
+          redirect_uris: body.redirect_uris ?? [
+            "http://127.0.0.1:35017/hlvm/oauth/callback",
+          ],
+        });
       }
 
+      // Token Endpoint
       if (url.pathname === "/oauth/token") {
         const body = await req.text();
         const params = new URLSearchParams(body);

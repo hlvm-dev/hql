@@ -38,6 +38,10 @@ async function startOAuthServer(
     },
     async (req) => {
       const url = new URL(req.url);
+
+      // --- Protected Resource Metadata (RFC 9728) ---
+      // SDK tries path-aware first: /.well-known/oauth-protected-resource/mcp → 404
+      // Then falls back to root: /.well-known/oauth-protected-resource → 200
       if (url.pathname === "/.well-known/oauth-protected-resource") {
         return new Response(
           JSON.stringify({
@@ -48,7 +52,10 @@ async function startOAuthServer(
           { headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.pathname === "/auth/.well-known/oauth-authorization-server") {
+
+      // --- Authorization Server Metadata (RFC 8414) ---
+      // SDK constructs: /.well-known/oauth-authorization-server/auth
+      if (url.pathname === "/.well-known/oauth-authorization-server/auth") {
         return new Response(
           JSON.stringify({
             issuer: `http://127.0.0.1:${state.port}/auth`,
@@ -57,17 +64,28 @@ async function startOAuthServer(
             token_endpoint: `http://127.0.0.1:${state.port}/oauth/token`,
             registration_endpoint:
               `http://127.0.0.1:${state.port}/oauth/register`,
+            response_types_supported: ["code"],
             code_challenge_methods_supported: ["S256"],
           }),
           { headers: { "Content-Type": "application/json" } },
         );
       }
+
+      // --- Dynamic Client Registration ---
       if (url.pathname === "/oauth/register") {
+        const body = await req.json();
         return new Response(
-          JSON.stringify({ client_id: "hlvm-test-client" }),
+          JSON.stringify({
+            client_id: "hlvm-test-client",
+            redirect_uris: body.redirect_uris ?? [
+              "http://127.0.0.1:35017/hlvm/oauth/callback",
+            ],
+          }),
           { headers: { "Content-Type": "application/json" } },
         );
       }
+
+      // --- Token Endpoint ---
       if (url.pathname === "/oauth/token") {
         const body = await req.text();
         state.tokenRequestBodies.push(body);
@@ -169,11 +187,11 @@ Deno.test({
       assertEquals(oauth.tokenRequestBodies.length, 2);
       assertEquals(
         new URLSearchParams(oauth.tokenRequestBodies[0]).get("resource"),
-        `http://127.0.0.1:${oauth.port}`,
+        `http://127.0.0.1:${oauth.port}/`,
       );
       assertEquals(
         new URLSearchParams(oauth.tokenRequestBodies[1]).get("resource"),
-        `http://127.0.0.1:${oauth.port}`,
+        `http://127.0.0.1:${oauth.port}/`,
       );
 
       const removed = await logoutMcpHttpServer(server);
@@ -223,7 +241,7 @@ Deno.test({
       assertEquals(oauth.tokenRequestBodies.length, 2);
       assertEquals(
         new URLSearchParams(oauth.tokenRequestBodies[1]).get("resource"),
-        `http://127.0.0.1:${oauth.port}`,
+        `http://127.0.0.1:${oauth.port}/`,
       );
 
       await oauth.server.shutdown();
