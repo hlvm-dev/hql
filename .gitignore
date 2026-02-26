@@ -66,6 +66,12 @@ tmp/
 temp/
 *.tmp
 
+# Playwright / MCP local artifacts
+.playwright-mcp/
+playwright-report/
+test-results/
+test-*.png
+
 # Test outputs
 test-simple.js
 !test/fixtures/*.js  # Keep test fixtures (these are intentional)
