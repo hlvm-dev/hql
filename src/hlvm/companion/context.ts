@@ -52,6 +52,7 @@ export class CompanionContext {
     }
   }
 
+  /** Build environment summary for LLM prompts. Observations are provided separately by callers. */
   buildPromptContext(): string {
     const lines: string[] = ["# Companion Context"];
     if (this.activeApp) lines.push(`- Active app: ${this.activeApp}`);
@@ -61,16 +62,7 @@ export class CompanionContext {
     if (this.recentClipboard) {
       lines.push(`- Recent clipboard: ${this.recentClipboard.slice(0, 100)}`);
     }
-    lines.push(`- Observation count: ${this.buffer.length}`);
-
-    if (this.buffer.length > 0) {
-      lines.push("\n## Recent Observations");
-      for (const obs of this.buffer.slice(-5)) {
-        lines.push(
-          `- [${obs.kind}] ${obs.timestamp} — ${JSON.stringify(obs.data)}`,
-        );
-      }
-    }
+    lines.push(`- Observation history: ${this.buffer.length} events`);
     return lines.join("\n");
   }
 

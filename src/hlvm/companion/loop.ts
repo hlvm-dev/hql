@@ -193,7 +193,7 @@ async function handleVisionFlow(
   context: CompanionContext,
   signal: AbortSignal,
 ): Promise<void> {
-  void context; // context available for future use
+  context.setState("acting");
 
   let approvalResponse;
   try {

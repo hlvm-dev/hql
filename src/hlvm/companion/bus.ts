@@ -7,7 +7,7 @@
 import type { Observation } from "./types.ts";
 
 export class ObservationBus {
-  private buffer: Observation[] = [];
+  private queue: Observation[] = [];
   private maxSize: number;
   private closed = false;
   private waiters: Array<() => void> = [];
@@ -18,9 +18,10 @@ export class ObservationBus {
 
   append(obs: Observation): boolean {
     if (this.closed) return false;
-    this.buffer.push(obs);
-    if (this.buffer.length > this.maxSize) {
-      this.buffer.shift();
+    this.queue.push(obs);
+    // Cap backpressure: drop oldest unconsumed when over limit
+    if (this.queue.length > this.maxSize) {
+      this.queue.shift();
     }
     // Wake up any waiting async iterators
     const pending = this.waiters.splice(0);
@@ -35,14 +36,14 @@ export class ObservationBus {
   }
 
   get size(): number {
-    return this.buffer.length;
+    return this.queue.length;
   }
 
+  /** Drain pattern: shift items as they're yielded — immune to overflow reindex bugs. */
   async *[Symbol.asyncIterator](): AsyncGenerator<Observation> {
-    let index = 0;
     while (true) {
-      if (index < this.buffer.length) {
-        yield this.buffer[index++];
+      if (this.queue.length > 0) {
+        yield this.queue.shift()!;
       } else if (this.closed) {
         return;
       } else {

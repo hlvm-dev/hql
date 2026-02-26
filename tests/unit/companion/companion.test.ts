@@ -157,12 +157,14 @@ Deno.test("Context: addBatch updates active app and window", () => {
   assertEquals(ctx.getActiveWindowTitle(), "Google");
 });
 
-Deno.test("Context: buildPromptContext includes app info", () => {
+Deno.test("Context: buildPromptContext includes app info but not observations", () => {
   const ctx = new CompanionContext();
   ctx.addBatch([makeObs("app.switch", { appName: "VSCode" })]);
   const prompt = ctx.buildPromptContext();
   assertEquals(prompt.includes("VSCode"), true);
   assertEquals(prompt.includes("Companion Context"), true);
+  // Observations are provided separately by callers — not in context summary
+  assertEquals(prompt.includes("## Recent Observations"), false);
 });
 
 Deno.test("Context: rolling buffer capped", () => {
