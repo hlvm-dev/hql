@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 
-function DocsTableOfContents({ getHeadings, slug }) {
+function DocsTableOfContents({ getHeadings, slug, contentVersion }) {
   const [headings, setHeadings] = useState([]);
   const [activeId, setActiveId] = useState('');
   const observerRef = useRef(null);
@@ -12,7 +12,7 @@ function DocsTableOfContents({ getHeadings, slug }) {
       setHeadings(getHeadings());
     });
     return () => cancelAnimationFrame(id);
-  }, [slug, getHeadings]);
+  }, [slug, getHeadings, contentVersion]);
 
   // IntersectionObserver for scroll-spy
   useEffect(() => {

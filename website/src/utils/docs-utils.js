@@ -1,10 +1,22 @@
+const DOCS_PREFIX = "/docs/";
+
+/**
+ * Convert pathname to docs slug.
+ * e.g. "/docs/guide" -> "guide", "/docs" -> ""
+ */
+export function getDocSlugFromPathname(pathname) {
+  if (!pathname) return "";
+  if (pathname === "/docs") return "";
+  return pathname.startsWith(DOCS_PREFIX) ? pathname.slice(DOCS_PREFIX.length) : "";
+}
+
 /**
  * Determine active tab from a docs slug.
  */
 export function getActiveTab(slug) {
   if (!slug) return 'learn';
-  if (slug.startsWith('features/') || slug.startsWith('features')) return 'features';
-  if (slug.startsWith('api/') || slug.startsWith('api')) return 'api';
+  if (slug.startsWith('features')) return 'features';
+  if (slug.startsWith('api')) return 'api';
   return 'learn';
 }
 

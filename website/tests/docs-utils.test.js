@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { getActiveTab, extractHeadings } from '../src/utils/docs-utils.js';
+import { getActiveTab, getDocSlugFromPathname, extractHeadings } from '../src/utils/docs-utils.js';
 
 // ─── getActiveTab ──────────────────────────────────────
 
@@ -49,6 +49,25 @@ describe('getActiveTab', () => {
     expect(getActiveTab('hql-syntax')).toBe('learn');
     expect(getActiveTab('build')).toBe('learn');
     expect(getActiveTab('testing')).toBe('learn');
+  });
+});
+
+// ─── getDocSlugFromPathname ────────────────────────────
+
+describe('getDocSlugFromPathname', () => {
+  it('extracts docs slug from docs routes', () => {
+    expect(getDocSlugFromPathname('/docs/guide')).toBe('guide');
+    expect(getDocSlugFromPathname('/docs/features/binding')).toBe('features/binding');
+    expect(getDocSlugFromPathname('/docs/api/stdlib')).toBe('api/stdlib');
+  });
+
+  it('returns empty for /docs root and non-doc routes', () => {
+    expect(getDocSlugFromPathname('/docs')).toBe('');
+    expect(getDocSlugFromPathname('/')).toBe('');
+    expect(getDocSlugFromPathname('/pricing')).toBe('');
+    expect(getDocSlugFromPathname('')).toBe('');
+    expect(getDocSlugFromPathname(null)).toBe('');
+    expect(getDocSlugFromPathname(undefined)).toBe('');
   });
 });
 

@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useDocs } from '../../contexts/DocsContext';
 import { ChevronRightIcon } from '../Icons';
-import { getActiveTab } from '../../utils/docs-utils';
+import { getActiveTab, getDocSlugFromPathname } from '../../utils/docs-utils';
 
 function DocsSidebar() {
   const { manifest, sidebarOpen, setSidebarOpen } = useDocs();
   const location = useLocation();
   const [expandedGroups, setExpandedGroups] = useState(new Set());
 
-  const currentSlug = location.pathname.replace('/docs/', '');
+  const currentSlug = getDocSlugFromPathname(location.pathname);
   const activeTab = getActiveTab(currentSlug);
 
   // Auto-expand the group containing the active page

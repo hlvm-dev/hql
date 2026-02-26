@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Fuse from 'fuse.js';
 import { useDocs } from '../../contexts/DocsContext';
@@ -33,6 +33,11 @@ function DocsSearch() {
     return fuse.search(query).slice(0, 12);
   }, [fuse, query]);
 
+  const navigateToResult = useCallback((item) => {
+    setSearchOpen(false);
+    navigate(`/docs/${item.slug}`);
+  }, [navigate, setSearchOpen]);
+
   // Focus input on open
   useEffect(() => {
     if (searchOpen) {
@@ -62,7 +67,7 @@ function DocsSearch() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [searchOpen, results, selectedIndex]);
+  }, [searchOpen, results, selectedIndex, navigateToResult]);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -72,11 +77,6 @@ function DocsSearch() {
       items[selectedIndex].scrollIntoView({ block: 'nearest' });
     }
   }, [selectedIndex]);
-
-  const navigateToResult = (item) => {
-    setSearchOpen(false);
-    navigate(`/docs/${item.slug}`);
-  };
 
   if (!searchOpen) return null;
 

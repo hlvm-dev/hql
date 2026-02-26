@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDocs } from '../../contexts/DocsContext';
 import { useDocsFetch } from '../../hooks/useDocsFetch';
@@ -34,68 +34,64 @@ function DocsContent() {
           return;
         }
       }
-      window.scrollTo({ top: 0 });
+      const scrollContainer = document.querySelector('.app-container.docs-app .scrollable-content');
+      if (scrollContainer) {
+        scrollContainer.scrollTo({ top: 0 });
+      } else {
+        window.scrollTo({ top: 0 });
+      }
     }
   }, [slug, loading, content]);
 
   // Extract headings for TOC after render — depends on content so TOC
   // re-extracts when async fetch completes (not just on slug change)
-  const getHeadings = useCallback(() => {
-    return extractHeadings(contentRef.current);
-  }, [content]);
+  const getHeadings = () => extractHeadings(contentRef.current);
 
   if (!manifest) return null;
 
+  let body = null;
   if (!doc) {
-    return (
-      <div className="docs-content-area">
-        <div className="docs-content" ref={contentRef}>
-          <div className="docs-not-found">
-            <h1>Page Not Found</h1>
-            <p>The documentation page <code>{slug}</code> doesn&apos;t exist.</p>
-            <a href="/docs/guide" onClick={(e) => { e.preventDefault(); navigate('/docs/guide'); }}>
-              Go to Guide
-            </a>
-          </div>
-        </div>
+    body = (
+      <div className="docs-not-found">
+        <h1>Page Not Found</h1>
+        <p>The documentation page <code>{slug}</code> doesn&apos;t exist.</p>
+        <a href="/docs/guide" onClick={(e) => { e.preventDefault(); navigate('/docs/guide'); }}>
+          Go to Guide
+        </a>
       </div>
     );
-  }
-
-  if (loading) {
-    return (
-      <div className="docs-content-area">
-        <div className="docs-content" ref={contentRef}>
-          <div className="docs-loading">
-            <div className="docs-loading-skeleton" />
-            <div className="docs-loading-skeleton" style={{ width: '80%' }} />
-            <div className="docs-loading-skeleton" style={{ width: '60%' }} />
-          </div>
-        </div>
+  } else if (loading) {
+    body = (
+      <div className="docs-loading">
+        <div className="docs-loading-skeleton" />
+        <div className="docs-loading-skeleton" style={{ width: '80%' }} />
+        <div className="docs-loading-skeleton" style={{ width: '60%' }} />
       </div>
     );
-  }
-
-  if (error) {
-    return (
-      <div className="docs-content-area">
-        <div className="docs-content" ref={contentRef}>
-          <div className="docs-error">
-            <h1>Error Loading Page</h1>
-            <p>{error}</p>
-          </div>
-        </div>
+  } else if (error) {
+    body = (
+      <div className="docs-error">
+        <h1>Error Loading Page</h1>
+        <p>{error}</p>
       </div>
+    );
+  } else {
+    body = (
+      <>
+        <MarkdownRenderer content={content} />
+        <DocsPrevNext doc={doc} />
+      </>
     );
   }
 
   return (
     <div className="docs-content-area">
       <div className="docs-content" ref={contentRef}>
-        <MarkdownRenderer content={content} />
-        <DocsPrevNext doc={doc} />
+        {body}
       </div>
-      <DocsTableOfContents getHeadings={getHeadings} slug={slug} />
+      {doc && !loading && !error && (
+        <DocsTableOfContents getHeadings={getHeadings} slug={slug} contentVersion={content} />
+      )}
     </div>
   );
 }

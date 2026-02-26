@@ -16,6 +16,7 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { DOCS_EVENTS } from '../../src/constants/events.js';
 
 // ═══════════════════════════════════════════════════════
 // LANDING PAGE
@@ -237,7 +238,9 @@ test.describe('Search', () => {
   // Ctrl+K / Cmd+K can be intercepted by the browser before reaching the page,
   // so we dispatch the custom event the app already listens for.
   async function openSearch(page) {
-    await page.evaluate(() => window.dispatchEvent(new Event('open-docs-search')));
+    await page.evaluate((eventName) => {
+      window.dispatchEvent(new Event(eventName));
+    }, DOCS_EVENTS.OPEN_SEARCH);
   }
 
   test('search opens, typing finds relevant docs', async ({ page }) => {

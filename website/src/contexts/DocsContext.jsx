@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { DOCS_EVENTS } from '../constants/events';
 
 const DocsContext = createContext();
 
@@ -53,18 +54,25 @@ export function DocsProvider({ children }) {
     const handleOpenSearch = () => setSearchOpen(true);
     const handleToggleSidebar = () => setSidebarOpen((prev) => !prev);
 
-    window.addEventListener('open-docs-search', handleOpenSearch);
-    window.addEventListener('toggle-docs-sidebar', handleToggleSidebar);
+    window.addEventListener(DOCS_EVENTS.OPEN_SEARCH, handleOpenSearch);
+    window.addEventListener(DOCS_EVENTS.TOGGLE_SIDEBAR, handleToggleSidebar);
     return () => {
-      window.removeEventListener('open-docs-search', handleOpenSearch);
-      window.removeEventListener('toggle-docs-sidebar', handleToggleSidebar);
+      window.removeEventListener(DOCS_EVENTS.OPEN_SEARCH, handleOpenSearch);
+      window.removeEventListener(DOCS_EVENTS.TOGGLE_SIDEBAR, handleToggleSidebar);
     };
   }, []);
 
-  const findDocBySlug = useCallback((slug) => {
-    if (!manifest) return null;
-    return manifest.flat.find((d) => d.slug === slug) || null;
+  const docBySlug = useMemo(() => {
+    const map = new Map();
+    for (const doc of manifest?.flat || []) {
+      map.set(doc.slug, doc);
+    }
+    return map;
   }, [manifest]);
+
+  const findDocBySlug = useCallback((slug) => {
+    return docBySlug.get(slug) || null;
+  }, [docBySlug]);
 
   const value = {
     manifest,
