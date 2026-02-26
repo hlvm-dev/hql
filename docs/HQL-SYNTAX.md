@@ -1,7 +1,7 @@
 # HQL Language Syntax Reference
 
 
-HQL (Homoiconic Query Language) is a Lisp dialect that transpiles to JavaScript/TypeScript. This document is the **definitive syntax reference** covering all supported syntax.
+HQL (High-Level Query Language) is a Lisp dialect that transpiles to JavaScript/TypeScript. This document is the **definitive syntax reference** covering all supported syntax.
 
 ---
 

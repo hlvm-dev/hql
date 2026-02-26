@@ -4,9 +4,9 @@
 
 ## Preface
 
-HQL -- the Homoiconic Query Language -- is a programming language born from a simple question: *What if Clojure and TypeScript had a child that compiled to JavaScript?*
+HQL -- the High-Level Query Language -- is a programming language inspired by Swift and Clojure, compiling down to the JavaScript ecosystem.
 
-The answer is a language that wears its Lisp heritage proudly while speaking JavaScript fluently. HQL uses S-expression syntax -- the parenthesized notation that has powered Lisps for over sixty years -- but compiles to standard JavaScript that runs anywhere. It brings the functional elegance of Clojure -- lazy sequences, immutable-by-default data, a rich standard library built on the sequence abstraction -- together with the pragmatism of the JavaScript ecosystem. TypeScript types are first-class citizens, not an afterthought.
+HQL uses S-expression syntax -- the parenthesized notation that has powered Lisps for over sixty years -- but compiles to standard JavaScript that runs anywhere. It brings the functional elegance of Clojure -- lazy sequences, immutable-by-default data, a rich standard library built on the sequence abstraction -- together with Swift's emphasis on clarity and safety, all targeting the pragmatic JavaScript ecosystem. TypeScript types are first-class citizens, not an afterthought.
 
 The core principle is homoiconicity: code is data, and data is code. Every HQL program is a data structure -- a nested list of symbols, numbers, strings, and other lists. This property, shared by all Lisps, enables macros that transform code as naturally as functions transform data. It makes metaprogramming not a special feature but a natural consequence of the language's design.
 
