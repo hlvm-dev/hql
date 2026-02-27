@@ -95,11 +95,12 @@ function DocsSidebar() {
 
   return (
     <>
-      {/* Mobile backdrop */}
       {sidebarOpen && (
-        <div
+        <button
+          type="button"
           className="docs-sidebar-backdrop"
           onClick={() => setSidebarOpen(false)}
+          aria-label="Close documentation sidebar"
         />
       )}
       <aside className={`docs-sidebar ${sidebarOpen ? 'open' : ''}`}>

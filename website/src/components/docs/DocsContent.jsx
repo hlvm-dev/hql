@@ -6,9 +6,10 @@ import MarkdownRenderer from './MarkdownRenderer';
 import DocsPrevNext from './DocsPrevNext';
 import DocsTableOfContents from './DocsTableOfContents';
 import { extractHeadings } from '../../utils/docs-utils';
+import { DEFAULT_DOC_SLUG, DOCS_HOME } from '../../constants';
 
 function DocsContent() {
-  const slug = useParams()['*'] || 'guide';
+  const slug = useParams()['*'] || DEFAULT_DOC_SLUG;
   const navigate = useNavigate();
   const { manifest, findDocBySlug } = useDocs();
   const contentRef = useRef(null);
@@ -16,7 +17,7 @@ function DocsContent() {
   // Redirect bare /docs to /docs/guide
   useEffect(() => {
     if (!slug || slug === '') {
-      navigate('/docs/guide', { replace: true });
+      navigate(DOCS_HOME, { replace: true });
     }
   }, [slug, navigate]);
 
@@ -55,7 +56,7 @@ function DocsContent() {
       <div className="docs-not-found">
         <h1>Page Not Found</h1>
         <p>The documentation page <code>{slug}</code> doesn&apos;t exist.</p>
-        <a href="/docs/guide" onClick={(e) => { e.preventDefault(); navigate('/docs/guide'); }}>
+        <a href={DOCS_HOME} onClick={(e) => { e.preventDefault(); navigate(DOCS_HOME); }}>
           Go to Guide
         </a>
       </div>

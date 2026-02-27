@@ -41,6 +41,16 @@ jobs:
         working-directory: website
         run: npm run build
 
+      - name: Install Playwright browsers
+        working-directory: website
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests
+        working-directory: website
+        run: npm run test:e2e
+        env:
+          CI: true
+
       - name: Deploy to Firebase
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:

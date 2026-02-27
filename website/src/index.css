@@ -742,6 +742,10 @@ a {
   inset: 0;
   background: rgba(0, 0, 0, 0.4);
   z-index: 60;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
 }
 
 /* --- Content area --- */
@@ -1007,7 +1011,6 @@ a {
 .docs-search-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
   z-index: 200;
   display: flex;
   align-items: flex-start;
@@ -1015,7 +1018,19 @@ a {
   padding-top: 15vh;
 }
 
+.docs-search-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
 .docs-search-modal {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: 560px;
   background: var(--hlvm-bg-primary);

@@ -81,8 +81,14 @@ function DocsSearch() {
   if (!searchOpen) return null;
 
   return (
-    <div className="docs-search-overlay" onClick={() => setSearchOpen(false)}>
-      <div className="docs-search-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="docs-search-overlay">
+      <button
+        type="button"
+        className="docs-search-backdrop"
+        onClick={() => setSearchOpen(false)}
+        aria-label="Close search dialog"
+      />
+      <div className="docs-search-modal" role="dialog" aria-modal="true" aria-label="Search documentation">
         <div className="docs-search-input-wrapper">
           <SearchIcon size={18} />
           <input

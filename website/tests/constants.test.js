@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { URLS, NAV_LINKS, DOCS_NAV_TABS, FOOTER_LINKS, BREAKPOINTS } from '../src/constants/index.js';
+import { URLS, NAV_LINKS, DOCS_NAV_TABS, FOOTER_LINKS, BREAKPOINTS, DEFAULT_DOC_SLUG, DOCS_HOME } from '../src/constants/index.js';
 
 describe('URLS', () => {
   it('all URLs are valid format (no typos, proper protocol)', () => {
@@ -47,7 +47,7 @@ describe('NAV_LINKS', () => {
     expect(github.external).toBe(true);
     expect(github.href).toMatch(/github\.com/);
     expect(docs.external).toBe(false);
-    expect(docs.to).toBe('/docs/guide');
+    expect(docs.to).toBe(DOCS_HOME);
   });
 });
 
@@ -78,6 +78,13 @@ describe('FOOTER_LINKS', () => {
     for (const link of externals) {
       expect(link.href, `${link.label} should have href`).toBeDefined();
     }
+  });
+});
+
+describe('DOCS_HOME', () => {
+  it('equals /docs/guide', () => {
+    expect(DOCS_HOME).toBe('/docs/guide');
+    expect(DOCS_HOME).toBe(`/docs/${DEFAULT_DOC_SLUG}`);
   });
 });
 

@@ -9,16 +9,18 @@ export const URLS = {
   YOUTUBE: 'https://www.youtube.com/@hlvm-dev',
 };
 
+export const DEFAULT_DOC_SLUG = 'guide';
+export const DOCS_HOME = `/docs/${DEFAULT_DOC_SLUG}`;
 
 // Navigation Links (landing page)
 export const NAV_LINKS = [
   { label: 'GitHub', href: URLS.GITHUB_REPO, external: true },
-  { label: 'Docs', to: '/docs/guide', external: false },
+  { label: 'Docs', to: DOCS_HOME, external: false },
 ];
 
 // Docs navigation tabs (docs mode NavBar)
 export const DOCS_NAV_TABS = [
-  { id: 'learn', label: 'Learn', to: '/docs/guide' },
+  { id: 'learn', label: 'Learn', to: DOCS_HOME },
   { id: 'features', label: 'Features', to: '/docs/features/binding' },
   { id: 'api', label: 'API', to: '/docs/api/stdlib' },
 ];

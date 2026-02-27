@@ -129,7 +129,9 @@ Pipeline steps:
 5. `npm run lint` in `website/`.
 6. `npm test` in `website/`.
 7. `npm run build` in `website/`.
-8. Deploy to Firebase Hosting.
+8. `npx playwright install --with-deps chromium` in `website/`.
+9. `CI=true npm run test:e2e` in `website/` (runs against preview server).
+10. Deploy to Firebase Hosting.
 
 Required GitHub secret:
 - `FIREBASE_SERVICE_ACCOUNT`
@@ -161,7 +163,12 @@ npm run build
 
 ```bash
 node website/scripts/sync-docs.mjs
-cd website && npm run lint && npm test && npm run build
+cd website
+npm run lint
+npm test
+npm run build
+npx playwright install chromium
+CI=true npm run test:e2e
 cd ..
 npx firebase deploy
 ```
