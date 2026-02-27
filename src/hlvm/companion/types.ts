@@ -108,6 +108,5 @@ export const DEFAULT_COMPANION_CONFIG: CompanionConfig = {
   maxBufferSize: 100,
   quietWhileTypingMs: 5000,
   maxNotifyPerMinute: 3,
-  // Temporary default for manual E2E validation: always emit debug message per batch.
-  debugAlwaysReact: true,
+  debugAlwaysReact: false,
 };
