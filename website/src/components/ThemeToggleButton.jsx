@@ -1,4 +1,4 @@
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme } from '../contexts/useTheme';
 import { SunIcon, MoonIcon } from './Icons';
 
 function ThemeToggleButton({ variant = 'icon', className = 'btn-icon' }) {

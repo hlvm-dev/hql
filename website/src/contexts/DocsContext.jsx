@@ -1,14 +1,6 @@
-/* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { DOCS_EVENTS } from '../constants/events';
-
-const DocsContext = createContext();
-
-export function useDocs() {
-  const ctx = useContext(DocsContext);
-  if (!ctx) throw new Error('useDocs must be used within DocsProvider');
-  return ctx;
-}
+import { DocsContext } from './docs-context';
 
 export function DocsProvider({ children }) {
   const [manifest, setManifest] = useState(null);
@@ -19,19 +11,31 @@ export function DocsProvider({ children }) {
 
   // Load manifest on mount
   useEffect(() => {
-    fetch('/content/manifest.json')
-      .then((res) => {
+    const controller = new AbortController();
+    let mounted = true;
+
+    async function loadManifest() {
+      try {
+        const res = await fetch('/content/manifest.json', { signal: controller.signal });
         if (!res.ok) throw new Error(`Manifest load failed: ${res.status}`);
-        return res.json();
-      })
-      .then((data) => {
+        const data = await res.json();
+        if (!mounted) return;
         setManifest(data);
-        setLoading(false);
-      })
-      .catch((err) => {
+      } catch (err) {
+        if (!mounted || err.name === 'AbortError') return;
         setError(err.message);
-        setLoading(false);
-      });
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadManifest();
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
   }, []);
 
   // Global Cmd+K / Ctrl+K shortcut for search
@@ -74,7 +78,7 @@ export function DocsProvider({ children }) {
     return docBySlug.get(slug) || null;
   }, [docBySlug]);
 
-  const value = {
+  const value = useMemo(() => ({
     manifest,
     loading,
     error,
@@ -83,7 +87,14 @@ export function DocsProvider({ children }) {
     searchOpen,
     setSearchOpen,
     findDocBySlug,
-  };
+  }), [
+    manifest,
+    loading,
+    error,
+    sidebarOpen,
+    searchOpen,
+    findDocBySlug,
+  ]);
 
   return (
     <DocsContext.Provider value={value}>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme } from '../contexts/useTheme';
 import hlvmLight from '../assets/hlvm_dragon.png';
 import hlvmDark from '../assets/hlvm_dragon_dark.png';
 

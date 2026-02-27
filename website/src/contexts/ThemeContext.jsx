@@ -1,9 +1,7 @@
-/* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import hlvmLight from '../assets/hlvm_dragon.png';
 import hlvmDark from '../assets/hlvm_dragon_dark.png';
-
-const ThemeContext = createContext();
+import { ThemeContext } from './theme-context';
 const THEME_KEY = 'hlvm-theme';
 const THEME_PREFERENCE_KEY = 'hlvm-theme-preference';
 
@@ -27,14 +25,6 @@ function getStoredThemePreference() {
     isExplicit: false,
   };
 }
-
-export const useTheme = () => {
-  const context = useContext(ThemeContext);
-  if (!context) {
-    throw new Error('useTheme must be used within a ThemeProvider');
-  }
-  return context;
-};
 
 export const ThemeProvider = ({ children }) => {
   const initialPreference = useMemo(() => getStoredThemePreference(), []);

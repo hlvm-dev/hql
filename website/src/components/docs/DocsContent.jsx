@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useDocs } from '../../contexts/DocsContext';
+import { useDocs } from '../../contexts/useDocs';
 import { useDocsFetch } from '../../hooks/useDocsFetch';
 import MarkdownRenderer from './MarkdownRenderer';
 import DocsPrevNext from './DocsPrevNext';
@@ -46,7 +46,10 @@ function DocsContent() {
 
   // Extract headings for TOC after render — depends on content so TOC
   // re-extracts when async fetch completes (not just on slug change)
-  const getHeadings = () => extractHeadings(contentRef.current);
+  const getHeadings = useCallback(
+    () => extractHeadings(contentRef.current),
+    []
+  );
 
   if (!manifest) return null;
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Fuse from 'fuse.js';
-import { useDocs } from '../../contexts/DocsContext';
+import { useDocs } from '../../contexts/useDocs';
 import { SearchIcon } from '../Icons';
 
 function DocsSearch() {
@@ -55,10 +55,16 @@ function DocsSearch() {
     const handleKeyDown = (e) => {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setSelectedIndex((prev) => Math.min(prev + 1, results.length - 1));
+        setSelectedIndex((prev) => {
+          if (results.length === 0) return 0;
+          return Math.min(prev + 1, results.length - 1);
+        });
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setSelectedIndex((prev) => Math.max(prev - 1, 0));
+        setSelectedIndex((prev) => {
+          if (results.length === 0) return 0;
+          return Math.max(prev - 1, 0);
+        });
       } else if (e.key === 'Enter' && results[selectedIndex]) {
         e.preventDefault();
         navigateToResult(results[selectedIndex].item);
@@ -77,6 +83,17 @@ function DocsSearch() {
       items[selectedIndex].scrollIntoView({ block: 'nearest' });
     }
   }, [selectedIndex]);
+
+  // Clamp selected index when result set shrinks
+  useEffect(() => {
+    if (results.length === 0 && selectedIndex !== 0) {
+      setSelectedIndex(0);
+      return;
+    }
+    if (selectedIndex >= results.length && results.length > 0) {
+      setSelectedIndex(results.length - 1);
+    }
+  }, [results.length, selectedIndex]);
 
   if (!searchOpen) return null;
 

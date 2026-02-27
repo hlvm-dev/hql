@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { useDocs } from '../../contexts/DocsContext';
+import { useDocs } from '../../contexts/useDocs';
 import { ChevronRightIcon } from '../Icons';
 import { getActiveTab, getDocSlugFromPathname } from '../../utils/docs-utils';
 
