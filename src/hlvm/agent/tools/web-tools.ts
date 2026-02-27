@@ -21,6 +21,7 @@ import { getWebCacheValue, setWebCacheValue } from "../web-cache.ts";
 
 import { duckDuckGoSearch } from "./web/duckduckgo.ts";
 import {
+  MAIN_CONTENT_MIN_CHARS,
   parseHtml,
   isHtmlLikeResponse,
   extractReadableContent,
@@ -66,7 +67,6 @@ interface WebFetchArgs {
 
 const DEFAULT_WEB_RESULTS = 5;
 const DEFAULT_HTML_LINKS = 20;
-const MAIN_CONTENT_MIN_CHARS = 200;
 
 // ============================================================
 // Tool Implementations

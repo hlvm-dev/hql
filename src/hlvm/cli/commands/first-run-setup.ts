@@ -19,13 +19,13 @@ import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../../common/ai-messages.ts";
 import { aiEngine } from "../../runtime/ai-runtime.ts";
 import type { AIEngineLifecycle } from "../../runtime/ai-runtime.ts";
 import type { ModelInfo } from "../../providers/types.ts";
+import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 const OLLAMA_SIGNIN_URL_PATTERN = /https:\/\/ollama\.com\/connect\?[^\s"'`]+/i;
-const OLLAMA_SETTINGS_URL = "https://ollama.com/settings";
 const CLOUD_SIGNIN_WAIT_TIMEOUT_MS = 120_000;
 const CLOUD_SIGNIN_WAIT_INTERVAL_MS = 2_000;
 const TOTAL_SETUP_STEPS = 4;

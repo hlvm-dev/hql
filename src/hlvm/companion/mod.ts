@@ -6,23 +6,11 @@
 
 export type {
   Observation,
-  ObservationKind,
-  GateResult,
-  CompanionDecision,
-  CompanionDecisionType,
-  CompanionAction,
-  CompanionEvent,
-  CompanionEventType,
   CompanionResponse,
-  CompanionState,
   CompanionConfig,
 } from "./types.ts";
-export { DEFAULT_COMPANION_CONFIG } from "./types.ts";
-export { ObservationBus } from "./bus.ts";
-export { CompanionContext } from "./context.ts";
-export { redactObservation } from "./redact.ts";
-export { COMPANION_CHANNEL, emitCompanionEvent } from "./loop.ts";
-export { resolveApproval as resolveCompanionResponse, clearAllPendingApprovals } from "./approvals.ts";
+export { COMPANION_CHANNEL } from "./loop.ts";
+export { resolveApproval as resolveCompanionResponse } from "./approvals.ts";
 
 import type { CompanionConfig } from "./types.ts";
 import { DEFAULT_COMPANION_CONFIG } from "./types.ts";

@@ -20,6 +20,7 @@ import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
 import { parseModelString } from "../../providers/registry.ts";
 import type { AgentUIEvent, TraceEvent } from "../../agent/orchestrator.ts";
 import type { PermissionMode } from "../../../common/config/types.ts";
+import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 
 // MARK: - Paid Provider Consent
 
@@ -208,7 +209,6 @@ function isOllamaCloudModelId(modelId: string): boolean {
 
 const DEFAULT_TOOL_OUTPUT_MAX_LINES = 18;
 const DEFAULT_TOOL_OUTPUT_MAX_CHARS = 1000;
-const OLLAMA_SETTINGS_URL = "https://ollama.com/settings";
 
 interface FormattedToolOutput {
   text: string;

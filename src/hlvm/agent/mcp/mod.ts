@@ -5,24 +5,8 @@
  * Uses @modelcontextprotocol/sdk for protocol handling.
  */
 
-// Types
-export type {
-  McpConfig,
-  McpConnectedServer,
-  McpElicitationRequest,
-  McpElicitationResponse,
-  McpHandlers,
-  McpLoadResult,
-  McpPromptInfo,
-  McpPromptMessage,
-  McpResourceContent,
-  McpResourceInfo,
-  McpResourceTemplate,
-  McpSamplingRequest,
-  McpSamplingResponse,
-  McpServerConfig,
-  McpToolInfo,
-} from "./types.ts";
+// Types — only re-export what external consumers need
+export type { McpHandlers } from "./types.ts";
 
 // Config loading & management
 export {
@@ -41,6 +25,3 @@ export type { McpScope, McpServerWithScope } from "./config.ts";
 
 // Tool registration
 export { inferMcpSafetyLevel, loadMcpTools } from "./tools.ts";
-
-// SDK Client (for direct usage)
-export { createSdkMcpClient, SdkMcpClient } from "./sdk-client.ts";

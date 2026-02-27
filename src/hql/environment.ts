@@ -1132,28 +1132,4 @@ export class Environment {
   getParent(): Environment | null {
     return this.parent;
   }
-
-  /**
-   * Get information about all imported modules
-   */
-  getAllImportedModules(): Map<string, string> {
-    const result = new Map<string, string>();
-
-    // Direct iteration avoids intermediate Array.from() allocation
-    for (const path of this.moduleExports.keys()) {
-      const moduleName = path.split("/").pop()?.replace(/\.[^/.]+$/, "") ||
-        path;
-      result.set(moduleName, path);
-    }
-
-    return result;
-  }
-
-  /**
-   * Get all exported symbols from a specific module
-   */
-  getModuleExports(modulePath: string): string[] {
-    const exports = this.moduleExports.get(modulePath);
-    return exports ? Object.keys(exports) : [];
-  }
 }

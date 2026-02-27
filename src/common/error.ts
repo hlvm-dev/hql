@@ -11,7 +11,6 @@
  * All logic from error-handler.ts has been merged into error.ts. See below for details.
  */
 
-import { globalLogger as logger, Logger } from "../logger.ts";
 import { log } from "../hlvm/api/log.ts";
 import { getPlatform } from "../platform/platform.ts";
 import {
@@ -29,8 +28,6 @@ import { extractContextLinesFromSource } from "./context-helpers.ts";
 
 /** Matches HQL error code prefix [HQLxxxx] at start of message */
 const ERROR_CODE_PREFIX_REGEX = /^\[HQL\d{4}\]\s*/;
-const STRIP_ERROR_CODE_REGEX = ERROR_CODE_PREFIX_REGEX;
-
 // Message cleanup patterns (used in formatHQLError)
 const STACK_TRACE_AT_REGEX = /\s+at\s+\S+:\d+:\d+$/;
 const STACK_TRACE_PAREN_REGEX = /\s+\(\S+:\d+:\d+\)$/;
@@ -95,7 +92,7 @@ function extractExistingErrorCode(msg: string): HQLErrorCode | null {
  * Returns the message without the [HQLxxxx] prefix.
  */
 function stripErrorCodeFromMessage(msg: string): string {
-  return msg.replace(STRIP_ERROR_CODE_REGEX, "");
+  return msg.replace(ERROR_CODE_PREFIX_REGEX, "");
 }
 
 /**
@@ -1726,10 +1723,6 @@ export class SourceLocationInfo implements SourceLocation {
     return `${this.filePath}${l}${c}`;
   }
 
-  clone(): SourceLocationInfo {
-    return new SourceLocationInfo(this);
-  }
-
   extractContextLines(
     count = 2,
   ): { line: number; content: string; isError: boolean; column?: number }[] {
@@ -1764,12 +1757,6 @@ export class SourceLocationInfo implements SourceLocation {
 // -----------------------------------------------------------------------------
 
 class ErrorReporter {
-  private logger: Logger;
-
-  constructor(logger?: Logger) {
-    this.logger = logger || new Logger(false);
-  }
-
   async reportError(error: Error | HQLError, isDebug = false): Promise<void> {
     // Prevent double reporting: if already reported, do nothing
     if (isObjectValue(error)) {
@@ -1793,46 +1780,9 @@ class ErrorReporter {
       }
     }
   }
-
-  createParseError(
-    message: string,
-    line: number,
-    column: number,
-    filePath: string,
-    source?: string,
-  ): ParseError {
-    return new ParseError(message, { line, column, filePath, source });
-  }
-
-  createValidationError(
-    message: string,
-    context: string,
-    expectedType?: string,
-    actualType?: string,
-    filePath?: string,
-    line?: number,
-    column?: number,
-  ): ValidationError {
-    return new ValidationError(message, context, {
-      expectedType,
-      actualType,
-      filePath,
-      line,
-      column,
-    });
-  }
-
-  createRuntimeError(
-    message: string,
-    filePath?: string,
-    line?: number,
-    column?: number,
-  ): RuntimeError {
-    return new RuntimeError(message, { filePath, line, column });
-  }
 }
 
-export const globalErrorReporter = new ErrorReporter(logger);
+export const globalErrorReporter = new ErrorReporter();
 
 export async function reportError(
   error: Error | HQLError,

@@ -7,7 +7,7 @@
 // Constants
 // ============================================================
 
-const MAIN_CONTENT_MIN_CHARS = 200;
+export const MAIN_CONTENT_MIN_CHARS = 200;
 const BOILERPLATE_KEYWORDS = [
   "nav",
   "menu",

@@ -20,22 +20,11 @@ export const ANSI_COLORS = {
 export { getThemedAnsi } from "./theme/index.ts";
 
 /**
- * Terminal control sequences for screen manipulation.
- */
-const ANSI_CONTROLS = {
-  CLEAR_SCREEN: "\x1b[2J",      // Clear entire screen
-  CLEAR_SCROLLBACK: "\x1b[3J",  // Clear scrollback buffer (iTerm2, Terminal.app)
-  CURSOR_HOME: "\x1b[H",        // Move cursor to top-left
-  CLEAR_LINE: "\x1b[K",         // Clear from cursor to end of line
-} as const;
-
-/**
  * Clear terminal screen and scrollback buffer.
  * Used for Ctrl+L and Cmd+K screen clear in REPL.
  */
 export function clearTerminal(): void {
   const encoder = new TextEncoder();
-  getPlatform().terminal.stdout.writeSync(encoder.encode(
-    ANSI_CONTROLS.CLEAR_SCROLLBACK + ANSI_CONTROLS.CLEAR_SCREEN + ANSI_CONTROLS.CURSOR_HOME
-  ));
+  // \x1b[3J = clear scrollback, \x1b[2J = clear screen, \x1b[H = cursor home
+  getPlatform().terminal.stdout.writeSync(encoder.encode("\x1b[3J\x1b[2J\x1b[H"));
 }

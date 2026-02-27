@@ -42,7 +42,7 @@ export function needsRuntimeGetSnippet(content: string): boolean {
   return !declaresGet;
 }
 
-export function propagateReportedFlag(source: unknown, target: object): void {
+function propagateReportedFlag(source: unknown, target: object): void {
   if (isObjectValue(source)) {
     if (Reflect.get(source, ERROR_REPORTED_SYMBOL)) {
       Reflect.set(target, ERROR_REPORTED_SYMBOL, true);

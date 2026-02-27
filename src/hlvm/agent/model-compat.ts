@@ -98,10 +98,3 @@ export function classifyAgentFinalResponse(
   };
 }
 
-/**
- * Detect orchestrator-generated failure messages where falling back to plain chat
- * produces a better user-facing response.
- */
-export function isAgentOrchestratorFailureResponse(response: string): boolean {
-  return classifyAgentFinalResponse(response).orchestratorFailureCode !== null;
-}

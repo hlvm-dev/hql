@@ -68,11 +68,6 @@ export class Logger {
   /** Instance property to control logging when no namespace filtering is applied */
   public enabled: boolean;
 
-  /** Property to check if verbose mode is enabled */
-  public get isVerbose(): boolean {
-    return this.enabled;
-  }
-
   /** Timing data for performance tracking (bounded to prevent memory leaks) */
   private timingData = new LRUCache<string, TimingData>(500);
 

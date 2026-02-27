@@ -6,6 +6,9 @@ import {
   platformGetEnv,
 } from "../utils/platform-helpers.ts";
 
+// Shared URL constants
+export const OLLAMA_SETTINGS_URL = "https://ollama.com/settings";
+
 // Pre-compiled patterns for sanitizePackageName
 const NON_ALPHANUMERIC_HYPHEN_REGEX = /[^a-z0-9-]/g;
 const MULTIPLE_HYPHEN_REGEX = /-+/g;

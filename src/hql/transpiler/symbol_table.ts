@@ -61,9 +61,7 @@ export interface SymbolInfo {
   isExported?: boolean;
   isImported?: boolean;
   definition?: HQLNode | IRNode; // Reference to AST/IR node that defines this symbol
-  references?: (HQLNode | IRNode)[]; // References to all usages of this symbol
   location?: { filePath: string; line: number; column: number }; // Source location
-  documentation?: string; // Optional documentation comment
   attributes?: Record<string, unknown>; // Additional attributes (e.g., mutability, visibility)
   meta?: Record<string, unknown>; // extensible for future use
 }
@@ -125,13 +123,6 @@ export class SymbolTable {
   }
 
   /**
-   * Check if a symbol exists directly in the current scope
-   */
-  hasInCurrentScope(name: string): boolean {
-    return this.table.has(name);
-  }
-
-  /**
    * Update properties of an existing symbol
    * Uses single get() instead of has()+get() to avoid double lookup
    */
@@ -151,53 +142,10 @@ export class SymbolTable {
   }
 
   /**
-   * Create a new child scope
-   */
-  createChildScope(scopeName: string): SymbolTable {
-    return new SymbolTable(this, scopeName);
-  }
-
-  /**
-   * Get all symbols in this scope and all parent scopes
-   * Uses iterative approach to avoid O(D²) copying from recursive spread
-   */
-  getAllSymbols(): SymbolInfo[] {
-    const symbols: SymbolInfo[] = [];
-    const seen = new Set<string>();
-
-    // Add symbols from current scope first
-    for (const [name, symbol] of this.table.entries()) {
-      symbols.push(symbol);
-      seen.add(name);
-    }
-
-    // Walk up the parent chain iteratively, skipping shadowed names
-    let current = this.parent;
-    while (current !== null) {
-      for (const [name, symbol] of current.table.entries()) {
-        if (!seen.has(name)) {
-          symbols.push(symbol);
-          seen.add(name);
-        }
-      }
-      current = current.parent;
-    }
-
-    return symbols;
-  }
-
-  /**
    * Clear the current scope only
    */
   clear() {
     this.table.clear();
-  }
-
-  /**
-   * Delete a symbol from the table
-   */
-  delete(name: string): boolean {
-    return this.table.delete(name);
   }
 
   /**

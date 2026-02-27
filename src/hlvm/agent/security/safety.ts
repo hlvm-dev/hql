@@ -18,15 +18,13 @@ import { getTool, type InteractionRequestEvent, type InteractionResponse } from 
 import { DEFAULT_TIMEOUTS } from "../constants.ts";
 import { type AgentPolicy, resolvePolicyDecision } from "../policy.ts";
 import {
-  isObjectValue,
   TEXT_ENCODER,
   truncate,
 } from "../../../common/utils.ts";
 import { isToolArgsObject } from "../validation.ts";
 import { classifyShellCommand } from "./shell-classifier.ts";
+import { canonicalizeForSignature } from "../orchestrator-tool-formatting.ts";
 import type { PermissionMode } from "../../../common/config/types.ts";
-
-// TEXT_ENCODER imported from common/utils.ts (SSOT)
 
 // ============================================================
 // Types
@@ -76,36 +74,6 @@ function getConfirmationStore(
 }
 
 /**
- * Canonicalize object by sorting keys recursively
- *
- * Ensures consistent key ordering for stable hashing.
- * Handles nested objects and arrays.
- *
- * @param obj Object to canonicalize
- * @returns Canonicalized object with sorted keys
- */
-function canonicalizeObject(obj: unknown): unknown {
-  if (obj === null || obj === undefined) {
-    return obj;
-  }
-
-  if (Array.isArray(obj)) {
-    return obj.map(canonicalizeObject);
-  }
-
-  if (isObjectValue(obj)) {
-    const sorted: Record<string, unknown> = {};
-    const keys = Object.keys(obj).sort();
-    for (const key of keys) {
-      sorted[key] = canonicalizeObject((obj as Record<string, unknown>)[key]);
-    }
-    return sorted;
-  }
-
-  return obj;
-}
-
-/**
  * Generate confirmation key for a tool invocation.
  *
  * shell_exec remains strict (per-args). Other read-mostly L1 tools are
@@ -120,7 +88,7 @@ function makeL1Key(toolName: string, args: unknown): string {
     return toolName;
   }
 
-  const canonical = canonicalizeObject(args);
+  const canonical = canonicalizeForSignature(args);
   const argsJson = JSON.stringify(canonical);
   return `${toolName}:${argsJson}`;
 }
