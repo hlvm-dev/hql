@@ -21,6 +21,7 @@ import { clearAllPendingApprovals } from "./approvals.ts";
 import { clearSessionBuffer } from "../store/sse-store.ts";
 import { log } from "../api/log.ts";
 import { config } from "../api/config.ts";
+import { traceCompanion, getCompanionTracePath } from "./trace.ts";
 
 // --- Module-level singleton state ---
 let bus: ObservationBus | null = null;
@@ -46,8 +47,17 @@ export function startCompanion(configUpdate?: Partial<CompanionConfig>): void {
     decisionModel: configUpdate?.decisionModel ?? fallbackModel,
   };
   currentConfig = mergedConfig;
+  traceCompanion("start.requested", {
+    gateModel: currentConfig.gateModel,
+    decisionModel: currentConfig.decisionModel,
+    debugAlwaysReact: currentConfig.debugAlwaysReact,
+    quietWhileTypingMs: currentConfig.quietWhileTypingMs,
+    debounceWindowMs: currentConfig.debounceWindowMs,
+    tracePath: getCompanionTracePath(),
+  });
   if (!currentConfig.enabled) {
     log.info("[companion] start skipped — enabled=false");
+    traceCompanion("start.skipped.disabled");
     return;
   }
   bus = new ObservationBus(currentConfig.maxBufferSize);
@@ -58,9 +68,11 @@ export function startCompanion(configUpdate?: Partial<CompanionConfig>): void {
     (err) => log.error("[companion] loop error", err),
   );
   log.info("[companion] started");
+  traceCompanion("start.completed");
 }
 
 export function stopCompanion(): void {
+  traceCompanion("stop.requested");
   clearAllPendingApprovals();
   abortController?.abort();
   bus?.close();
@@ -71,6 +83,7 @@ export function stopCompanion(): void {
   resetEventSequence();
   clearSessionBuffer(COMPANION_CHANNEL);
   log.info("[companion] stopped");
+  traceCompanion("stop.completed");
 }
 
 export function getCompanionBus(): ObservationBus | null {

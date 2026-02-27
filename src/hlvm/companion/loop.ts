@@ -26,6 +26,7 @@ import { waitForApproval, clearAllPendingApprovals } from "./approvals.ts";
 import { runAgentQuery } from "../agent/agent-runner.ts";
 import { classifyTool } from "../agent/security/safety.ts";
 import { log } from "../api/log.ts";
+import { traceCompanion } from "./trace.ts";
 
 export const COMPANION_CHANNEL = "__companion__";
 
@@ -222,6 +223,7 @@ export async function runCompanionLoop(
 ): Promise<void> {
   context.setState("observing");
   log.debug("[companion] loop started");
+  traceCompanion("loop.started");
 
   const gateLLM = createCompanionLLM(config.gateModel, {
     temperature: 0,
@@ -245,6 +247,11 @@ export async function runCompanionLoop(
 
       // PII filter
       const redacted = batch.map(redactObservation);
+      const kinds = redacted.map((obs) => obs.kind);
+      traceCompanion("loop.batch.received", {
+        count: redacted.length,
+        kinds,
+      });
 
       // DND: skip only on explicit typing-like signals.
       // Poll-based observation traffic (window/app/clipboard) should not keep companion muted.
@@ -262,22 +269,31 @@ export async function runCompanionLoop(
       // Debug mode: emit one visible message for every batch to validate end-to-end flow.
       // Intentionally bypasses DND/gate/decide/rate-limit so users can verify connectivity.
       if (config.debugAlwaysReact) {
-        const kinds = redacted.map((obs) => obs.kind).join(", ");
-        emitCompanionEvent(makeEvent("message", `[debug] observed: ${kinds}`));
+        emitCompanionEvent(makeEvent("message", `[debug] observed: ${kinds.join(", ")}`));
+        traceCompanion("loop.debug_always_react");
         context.setState("observing");
         continue;
       }
 
       if (isActive) {
         log.debug("[companion] skipping — user active");
+        traceCompanion("loop.skipped.dnd_active", {
+          quietWhileTypingMs: config.quietWhileTypingMs,
+          hasTypingSignal,
+        });
         continue;
       }
 
       // Gate
       context.setState("thinking");
       const gate = await gateObservations(redacted, context, gateLLM, signal);
+      traceCompanion("loop.gate.result", {
+        decision: gate.decision,
+        reason: gate.reason,
+      });
       if (gate.decision === "SILENT") {
         context.setState("observing");
+        traceCompanion("loop.skipped.gate_silent");
         continue;
       }
 
@@ -291,8 +307,12 @@ export async function runCompanionLoop(
       const decision = await makeDecision(
         redacted, context, gate.reason, decisionLLM, memoryContext, signal,
       );
+      traceCompanion("loop.decision.result", {
+        type: decision.type,
+      });
       if (decision.type === "SILENT") {
         context.setState("observing");
+        traceCompanion("loop.skipped.decision_silent");
         continue;
       }
 
@@ -307,6 +327,9 @@ export async function runCompanionLoop(
       if (notifyTimestamps.length >= config.maxNotifyPerMinute) {
         log.debug("[companion] rate limited");
         context.setState("observing");
+        traceCompanion("loop.skipped.rate_limited", {
+          maxNotifyPerMinute: config.maxNotifyPerMinute,
+        });
         continue;
       }
       notifyTimestamps.push(now);
@@ -317,17 +340,29 @@ export async function runCompanionLoop(
           actions: decision.actions,
         });
         emitCompanionEvent(event);
+        traceCompanion("loop.emit.action_request", {
+          eventId: event.id,
+          actionCount: decision.actions?.length ?? 0,
+        });
         await handleActFlow(event, decision, context, config, signal);
       } else if (decision.type === "ASK_VISION") {
         const event = makeEvent("vision_request", decision.message ?? "");
         emitCompanionEvent(event);
+        traceCompanion("loop.emit.vision_request", {
+          eventId: event.id,
+        });
         await handleVisionFlow(event, context, signal);
       } else {
         // CHAT / SUGGEST
         const type = decision.type === "SUGGEST" ? "suggestion" : "message";
-        emitCompanionEvent(makeEvent(type, decision.message ?? "", {
+        const event = makeEvent(type, decision.message ?? "", {
           actions: decision.actions,
-        }));
+        });
+        emitCompanionEvent(event);
+        traceCompanion("loop.emit.message_like", {
+          eventId: event.id,
+          eventType: type,
+        });
       }
 
       context.setState("observing");
@@ -336,5 +371,6 @@ export async function runCompanionLoop(
     clearAllPendingApprovals();
     context.setState("idle");
     log.debug("[companion] loop stopped");
+    traceCompanion("loop.stopped");
   }
 }

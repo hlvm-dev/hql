@@ -22,20 +22,31 @@ import {
 } from "../../../companion/mod.ts";
 import type { CompanionEvent } from "../../../companion/types.ts";
 import type { Observation, CompanionResponse, CompanionConfig } from "../../../companion/mod.ts";
+import { traceCompanion } from "../../../companion/trace.ts";
 
 /** POST /api/companion/observe */
 export async function handleCompanionObserve(req: Request): Promise<Response> {
   const bus = getCompanionBus();
-  if (!bus) return jsonError("Companion not running", 503);
+  if (!bus) {
+    traceCompanion("http.observe.rejected.not_running");
+    return jsonError("Companion not running", 503);
+  }
 
   const parsed = await parseJsonBody<Observation | Observation[]>(req);
   if (!parsed.ok) return parsed.response;
 
   const observations = Array.isArray(parsed.value) ? parsed.value : [parsed.value];
   let queued = 0;
+  const kinds: string[] = [];
   for (const obs of observations) {
+    kinds.push(obs.kind);
     if (bus.append(obs)) queued++;
   }
+  traceCompanion("http.observe.accepted", {
+    count: observations.length,
+    queued,
+    kinds,
+  });
 
   return new Response(JSON.stringify({ queued }), {
     status: 201,
@@ -50,6 +61,9 @@ export function handleCompanionStream(req: Request): Response {
   const initialSSEId = Number.isNaN(parsedLastEventId) ? "0" : String(parsedLastEventId);
 
   return createSSEResponse(req, (emit) => {
+    traceCompanion("http.stream.connected", {
+      lastEventId,
+    });
     // Initial state sync — lets clients know the backend is reachable
     // and what the current companion state is. This is the event that
     // breaks the startup chicken-and-egg: Swift defers setEnabled() until
@@ -68,6 +82,10 @@ export function handleCompanionStream(req: Request): Response {
 
     // Replay missed events
     const replay = replayAfter(COMPANION_CHANNEL, lastEventId);
+    traceCompanion("http.stream.replay", {
+      replayCount: replay.events.length,
+      gapDetected: replay.gapDetected,
+    });
     if (replay.gapDetected) {
       const gapSSEId = Number.isNaN(parsedLastEventId)
         ? String(Date.now())
@@ -129,9 +147,11 @@ export async function handleCompanionConfig(req: Request): Promise<Response> {
   if (!parsed.ok) return parsed.response;
 
   const update = parsed.value;
+  traceCompanion("http.config.request", update as Record<string, unknown>);
 
   if (update.enabled === true && !isCompanionRunning()) {
     startCompanion(update);
+    traceCompanion("http.config.started");
     return new Response(
       JSON.stringify({ status: "started", config: getCompanionConfig() }),
       { status: 200, headers: { "Content-Type": "application/json" } },
@@ -140,12 +160,14 @@ export async function handleCompanionConfig(req: Request): Promise<Response> {
 
   if (update.enabled === false && isCompanionRunning()) {
     stopCompanion();
+    traceCompanion("http.config.stopped");
     return new Response(
       JSON.stringify({ status: "stopped", config: getCompanionConfig() }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
   }
 
+  traceCompanion("http.config.unchanged");
   return new Response(
     JSON.stringify({ status: "unchanged", config: getCompanionConfig() }),
     { status: 200, headers: { "Content-Type": "application/json" } },
