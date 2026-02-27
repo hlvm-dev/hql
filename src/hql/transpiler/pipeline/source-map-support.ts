@@ -297,7 +297,7 @@ async function mapPosition(
 function loadSourceMapSync(
   jsFilePath: string,
 ): SourceMapConsumer | null {
-  const DEBUG = getPlatform().env.get("HLVM_DEBUG_ERROR") === "1";
+  const DEBUG = false;
 
   // Normalize file path - convert file:// URLs to regular paths
   let normalizedPath = jsFilePath;
@@ -362,7 +362,7 @@ export function mapPositionSync(
   line: number,
   column: number,
 ): Position | null {
-  const DEBUG = getPlatform().env.get("HLVM_DEBUG_ERROR") === "1";
+  const DEBUG = false;
   if (DEBUG) {
     logger.debug(`[mapPositionSync] Looking up: ${jsFilePath} ${line} ${column}`);
   }
@@ -541,7 +541,7 @@ export function installSourceMapSupport(): void {
       fileName != null && INTERNAL_FRAME_PATTERNS.some(p => fileName.includes(p));
 
     // Check if user wants verbose stack traces
-    const verbose = getPlatform().env.get("HLVM_VERBOSE") === "1";
+    const verbose = false;
 
     // Filter frames unless verbose mode
     const framesToProcess = verbose
@@ -607,7 +607,7 @@ export function installSourceMapSupport(): void {
     // Add note about hidden frames if any were filtered
     if (hiddenCount > 0 && !verbose) {
       lines.push("");
-      lines.push(`(${hiddenCount} internal frame${hiddenCount === 1 ? "" : "s"} hidden. Set HLVM_VERBOSE=1 to show all)`);
+      lines.push(`(${hiddenCount} internal frame${hiddenCount === 1 ? "" : "s"} hidden)`);
     }
 
     return lines.join("\n") + "\n";

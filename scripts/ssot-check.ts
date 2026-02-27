@@ -27,7 +27,7 @@ const CONSOLE_ALLOWLIST = [
   "src/common/runtime-error-handler.ts",
   // Stringified runtime helper: cannot use imports in stringified code
   "src/common/runtime-helper-impl.ts",
-  // DEBUG-gated: console.log only when HLVM_DEBUG_ERROR=1
+  // Technical stack-mapping implementation
   "src/hql/transpiler/pipeline/source-map-support.ts",
 ];
 

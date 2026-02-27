@@ -322,12 +322,6 @@ deno test --allow-all tests/unit/
 deno test --allow-all tests/unit/specific.test.ts
 ```
 
-### Debug Mode
-
-```bash
-HLVM_DEBUG_ERROR=1 deno test --allow-all tests/unit/
-```
-
 ## Test Coverage Goals
 
 All features must have tests.

@@ -20,6 +20,7 @@ import {
   COMPANION_CHANNEL,
   resolveCompanionResponse,
 } from "../../../companion/mod.ts";
+import type { CompanionEvent } from "../../../companion/types.ts";
 import type { Observation, CompanionResponse, CompanionConfig } from "../../../companion/mod.ts";
 
 /** POST /api/companion/observe */
@@ -45,10 +46,43 @@ export async function handleCompanionObserve(req: Request): Promise<Response> {
 /** GET /api/companion/stream */
 export function handleCompanionStream(req: Request): Response {
   const lastEventId = req.headers.get("Last-Event-ID");
+  const parsedLastEventId = lastEventId ? Number.parseInt(lastEventId, 10) : NaN;
+  const initialSSEId = Number.isNaN(parsedLastEventId) ? "0" : String(parsedLastEventId);
 
   return createSSEResponse(req, (emit) => {
+    // Initial state sync — lets clients know the backend is reachable
+    // and what the current companion state is. This is the event that
+    // breaks the startup chicken-and-egg: Swift defers setEnabled() until
+    // it receives proof the backend is up, and this event provides it.
+    const initialEvent: CompanionEvent = {
+      type: "status_change",
+      content: getCompanionState(),
+      id: `comp-init-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+    };
+    emit(formatSSE({
+      id: initialSSEId,
+      event_type: "companion_event",
+      data: initialEvent,
+    }));
+
     // Replay missed events
     const replay = replayAfter(COMPANION_CHANNEL, lastEventId);
+    if (replay.gapDetected) {
+      const gapSSEId = Number.isNaN(parsedLastEventId)
+        ? String(Date.now())
+        : String(parsedLastEventId + 1);
+      emit(formatSSE({
+        id: gapSSEId,
+        event_type: "companion_event",
+        data: {
+          type: "status_change",
+          content: "replay_gap_detected",
+          timestamp: new Date().toISOString(),
+          id: `comp-gap-${Date.now()}`,
+        },
+      }));
+    }
     for (const event of replay.events) {
       emit(formatSSE(event));
     }

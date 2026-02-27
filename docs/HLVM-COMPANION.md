@@ -9,14 +9,14 @@ An always-on, event-driven AI companion that observes user desktop activity and 
   ┌───────────────────────────────────────┐     ┌─────────────────────────────────────────────────┐
   │                                       │     │                                                 │
   │  DesktopObserver                      │     │  HTTP Handlers (companion.ts)                   │
-  │  ├── AX window title (accessibility)  │     │  ├── POST /api/companion/observe                │
+  │  ├── AX window notifications          │     │  ├── POST /api/companion/observe                │
   │  ├── NSWorkspace app switch           │ ──► │  ├── GET  /api/companion/stream (SSE)           │
-  │  ├── NSPasteboard clipboard poll      │     │  ├── POST /api/companion/respond                │
-  │  └── Build/test result hooks          │     │  ├── GET  /api/companion/status                 │
+  │  ├── NSPasteboard change monitor      │     │  ├── POST /api/companion/respond                │
+  │  └── Optional external observations   │     │  ├── GET  /api/companion/status                 │
   │                                       │     │  └── POST /api/companion/config                 │
   │  CompanionStore                       │     │                                                 │
   │  ├── SSE subscription (auto-reconnect)│ ◄── │  Pipeline (loop.ts)                             │
-  │  ├── CompanionBubbleView (approval UI)│     │  ┌─────────────────────────────────────────┐    │
+  │  ├── forwards events to ReplLogViewModel     │  ┌─────────────────────────────────────────┐    │
   │  └── ScreenCaptureManager (vision)    │     │  │ bus → debounce → redact → context       │    │
   │                                       │     │  │      → gate(LLM) → decide(LLM) → emit   │    │
   └───────────────────────────────────────┘     │  │      → [handleActFlow | handleVisionFlow]│    │
@@ -72,7 +72,7 @@ Caps notifications at `maxNotifyPerMinute` (default 3) using a sliding 60-second
 
 ### 9. Dispatch
 
-- **CHAT/SUGGEST**: Emit SSE event directly (type `"message"` or `"suggestion"`)
+- **CHAT/SUGGEST**: Emit SSE event directly (type `"message"` or `"suggestion"`) and render through the normal chat message stream
 - **ACT**: Emit `action_request` → wait for user approval via SSE → execute via `runAgentQuery` with `toolDenylist` preventing recursion (`delegate_agent`, `complete_task`, `ask_user`)
 - **ASK_VISION**: Emit `vision_request` → wait for approval → emit `capture_request` → Swift captures screenshot → sends back as `screen.captured` observation
 
@@ -97,10 +97,10 @@ type ObservationKind =
 
 ```typescript
 type CompanionEventType =
-  | "message"          // CHAT decision → conversational bubble
-  | "suggestion"       // SUGGEST decision → actionable bubble
-  | "action_request"   // ACT decision → approval bubble (Allow/Deny)
-  | "vision_request"   // ASK_VISION → screenshot consent bubble
+  | "message"          // CHAT decision → normal assistant chat message
+  | "suggestion"       // SUGGEST decision → normal assistant chat message
+  | "action_request"   // ACT decision → interaction approval prompt (Allow/Deny)
+  | "vision_request"   // ASK_VISION → screenshot consent prompt
   | "capture_request"  // Approved vision → triggers Swift screenshot capture
   | "action_result"    // Agent execution result
   | "action_cancelled" // Denied, timed out, or aborted
@@ -165,7 +165,7 @@ interface CompanionConfig {
                               │
                    ┌──────────▼──────────┐
                    │  SSE: action_request │
-                   │  or vision_request   │──────► Swift CompanionBubbleView
+                   │  or vision_request   │──────► Swift InteractionBubbleView
                    └──────────┬──────────┘        (Allow / Deny buttons)
                               │
                    waitForApproval(eventId)
@@ -210,24 +210,79 @@ During ACT execution, tool calls are classified by safety level:
 
 ### DesktopObserver
 - **App switch**: `NSWorkspace.didActivateApplicationNotification`
-- **Window title**: Accessibility API (`AXUIElement`) polling
-- **Clipboard**: `NSPasteboard` change count polling (1s interval)
+- **Window title**: Accessibility notifications (`kAXFocusedWindowChangedNotification`, `kAXTitleChangedNotification`) with no timer polling
+- **Clipboard**: `NSPasteboard` change count monitoring via `Timer.scheduledTimer` (1s interval; macOS does not provide a reliable global clipboard-changed event callback)
 
 ### CompanionStore
 - SSE subscription with auto-reconnect on disconnect
-- Event routing: `message`/`suggestion` → notification bubble, `action_request`/`vision_request` → approval bubble
+- App launches companion runtime automatically (always-on by default in current app wiring)
+- Event routing: forwards companion SSE events into `ReplLogViewModel`
+- `message`/`suggestion`/`action_result`/`action_cancelled` are mapped into normal assistant chat messages (`HlvmMessage`)
+- `action_request`/`vision_request` are routed through the existing interaction flow (`InteractionBubbleView`)
 - `capture_request` → `ScreenCaptureManager.captureAndOptimizeScreen()` → `POST /observe` with `screen.captured`
 
-### CompanionBubbleView
-- Reuses `InteractionBubbleView` pattern (Allow/Deny buttons)
-- Animated appearance, auto-dismiss on timeout
+### Chat Rendering
+- Companion output is not a separate floating widget anymore
+- User-visible output uses the same chat pipeline and chat bubbles as normal assistant responses
+- Companion approvals use the same interaction bubble style already used by agent interactions
 
 ## Test Coverage
 
-85 tests covering:
+96 tests covering:
 - **Unit**: bus, debounce, redact, context, gate, decide, approvals (per-module)
 - **HTTP E2E**: All 5 endpoints with real handlers
 - **Pipeline E2E**: Full bus→debounce→redact→context→gate→decide flow
 - **Loop integration**: `runCompanionLoop` with mock LLMs via `setAgentEngine` — CHAT dispatch, gate SILENT skip, ASK_VISION approval/denial, ACT denial, rate limiting
 - **Direct flow**: `handleActFlow` (no-action-found, timeout), `handleVisionFlow` (abort)
 - **Security**: `companionOnInteraction` L0 auto-approve, L1 SSE approval, abort→deny
+
+## Manual E2E (User POV)
+
+Use this checklist to validate the full companion behavior from the app UI.
+
+1. Preconditions
+- Launch HLVM normally.
+- Ensure macOS permissions are granted:
+- Accessibility (for window title/focus observation)
+- Screen Recording (for vision capture path)
+- Open the REPL/chat window (companion output is rendered in normal chat + interaction UI).
+
+2. Observation layer works
+- Switch between apps (Terminal, Xcode, browser).
+- Change focused window/tab titles.
+- Copy single-line and multi-line text.
+- Expected: `[observer] app.switch ...`, `[observer] ui.window.title.changed ...`, `[observer] clipboard.changed ...` logs appear.
+
+3. Backend ingestion and stream are alive
+- From terminal, confirm companion status and stream:
+- `GET /api/companion/status` shows `running: true`
+- `GET /api/companion/stream` stays connected and emits `companion_event` payloads
+
+4. Chat/Suggest path
+- Trigger a high-signal event (for example: copy a clear error message).
+- Expected: companion emits assistant output into the normal chat bubble stream (same surface as standard chat replies).
+
+5. Approval path
+- Trigger `ACT` / `ASK_VISION`.
+- Expected: approval prompt appears through the standard interaction UI (`InteractionBubbleView`) with Allow/Deny.
+
+6. ACT approval path
+- Trigger a scenario where companion proposes an action.
+- Expected sequence:
+- `action_request` interaction prompt appears with `Allow`/`Deny`
+- `Deny` → `action_cancelled`
+- `Allow` → action runs, then `action_result` appears
+
+7. ASK_VISION path
+- Trigger a scenario needing visual context.
+- Expected sequence:
+- `vision_request` interaction prompt appears
+- `Deny` → `action_cancelled`
+- `Allow` → `capture_request` emitted, screenshot captured, `screen.captured` observation sent back
+
+8. Reconnect behavior
+- Briefly drop network/backend connectivity, then restore.
+- Expected:
+- SSE auto-reconnect succeeds
+- Stream resumes
+- If replay window is exceeded, a `status_change` with `replay_gap_detected` is emitted

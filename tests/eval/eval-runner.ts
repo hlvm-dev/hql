@@ -484,7 +484,7 @@ Deno.test({
 });
 
 // ============================================================
-// Live Eval (real LLM — skipped unless --live flag or HLVM_EVAL_LIVE=1)
+// Live Eval (real LLM — skipped unless --live flag)
 // ============================================================
 
 interface LiveEvalCase {
@@ -529,8 +529,7 @@ async function isLLMAvailable(): Promise<boolean> {
   }
 }
 
-const isLiveMode = Deno.args.includes("--live") ||
-  Deno.env.get("HLVM_EVAL_LIVE") === "1";
+const isLiveMode = Deno.args.includes("--live");
 
 if (isLiveMode) {
   for (const liveCase of LIVE_EVAL_CASES) {

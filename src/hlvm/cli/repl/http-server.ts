@@ -75,7 +75,6 @@ import {
 const DEFAULT_PORT = 11435;
 const AI_READY_WAIT_MS = 150;
 const platform = getPlatform();
-const INSTANCE_ID = platform.env.get("HLVM_REPL_INSTANCE_ID") ?? null;
 
 /** Auth token generated on server start — clients must send `Authorization: Bearer <token>` */
 let serverAuthToken: string | null = null;
@@ -402,9 +401,6 @@ async function handleComplete(req: Request): Promise<Response> {
  *                   type: boolean
  *                 definitions:
  *                   type: integer
- *                 instanceId:
- *                   type: string
- *                   nullable: true
  *                 aiReady:
  *                   type: boolean
  *                 authToken:
@@ -416,7 +412,6 @@ function handleHealth(): Response {
     status: "ok",
     initialized: replState !== null,
     definitions: replState?.getDocstrings().size ?? 0,
-    instanceId: INSTANCE_ID,
     aiReady: isRuntimeReadyForAiRequests(),
     authToken: serverAuthToken,
   });

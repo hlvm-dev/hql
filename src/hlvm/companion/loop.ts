@@ -31,6 +31,11 @@ export const COMPANION_CHANNEL = "__companion__";
 
 let eventSeq = 0;
 
+/** Reset event sequence counter. Called on companion stop. */
+export function resetEventSequence(): void {
+  eventSeq = 0;
+}
+
 /** Tools the companion agent must never invoke. */
 const COMPANION_TOOL_DENYLIST = [
   "delegate_agent",
@@ -76,6 +81,17 @@ function createCompanionLLM(
   }
 }
 
+/** Parse tool args defensively; malformed JSON falls back to undefined. */
+function parseToolArgsSafely(toolArgs: string | undefined): unknown {
+  if (!toolArgs) return undefined;
+  try {
+    return JSON.parse(toolArgs);
+  } catch (err) {
+    log.warn("[companion] invalid toolArgs JSON; using undefined", err);
+    return undefined;
+  }
+}
+
 /**
  * Routes tool permission requests through SSE approval.
  * L0 (read-only) tools are auto-approved; L1+ always require user consent.
@@ -87,7 +103,7 @@ export function companionOnInteraction(
     if (event.toolName) {
       const classification = classifyTool(
         event.toolName,
-        event.toolArgs ? JSON.parse(event.toolArgs) : undefined,
+        parseToolArgsSafely(event.toolArgs),
       );
       if (classification.level === "L0") {
         return { approved: true };
@@ -236,6 +252,15 @@ export async function runCompanionLoop(
 
       // Update rolling context
       context.addBatch(redacted);
+
+      // Debug mode: emit one visible message for every batch to validate end-to-end flow.
+      // Intentionally bypasses DND/gate/decide/rate-limit so users can verify connectivity.
+      if (config.debugAlwaysReact) {
+        const kinds = redacted.map((obs) => obs.kind).join(", ");
+        emitCompanionEvent(makeEvent("message", `[debug] observed: ${kinds}`));
+        context.setState("observing");
+        continue;
+      }
 
       if (isActive) {
         log.debug("[companion] skipping — user active");

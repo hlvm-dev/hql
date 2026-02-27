@@ -120,7 +120,7 @@ These files have legitimate technical reasons for direct console access:
 | `src/common/known-identifiers.ts` | Bootstrap guard (`typeof console !== "undefined"`) |
 | `src/common/runtime-error-handler.ts` | Crash handler hooks `console.error` |
 | `src/common/runtime-helper-impl.ts` | Stringified runtime code (cannot use imports) |
-| `src/hql/transpiler/pipeline/source-map-support.ts` | DEBUG-gated (`HLVM_DEBUG_ERROR=1`) |
+| `src/hql/transpiler/pipeline/source-map-support.ts` | Technical stack-mapping implementation |
 
 ### RAW_ERROR_ALLOWLIST (Permanent Exceptions)
 
@@ -156,7 +156,7 @@ These files have legitimate technical reasons for direct console access:
 | `src/common/known-identifiers.ts` | Bootstrap guard (`typeof console !== "undefined"`) |
 | `src/common/runtime-error-handler.ts` | Crash handler hooks `console.error` |
 | `src/common/runtime-helper-impl.ts` | Stringified runtime code (cannot use imports) |
-| `src/hql/transpiler/pipeline/source-map-support.ts` | DEBUG-gated (`HLVM_DEBUG_ERROR=1`) |
+| `src/hql/transpiler/pipeline/source-map-support.ts` | Technical stack-mapping implementation |
 
 ## API Layer (globalThis)
 

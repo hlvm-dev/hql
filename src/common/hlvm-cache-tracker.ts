@@ -137,18 +137,9 @@ function getTempBase(): string {
  * Get the cache directory path
  */
 async function getCacheDir(): Promise<string> {
-  // Allow host to override cache root (useful when packaged or running inside a larger platform like HLVM)
-  let cacheRootBase: string | null = null;
-  try {
-    // If HLVM_CACHE_ROOT is set, use it as absolute base directory for the cache
-    cacheRootBase = p().env.get("HLVM_CACHE_ROOT") || null;
-  } catch {
-    // Ignore if env access is not permitted
-  }
-
   // Use consistent project root calculation
   const defaultProjectRoot = getProjectRoot();
-  let base = cacheRootBase || defaultProjectRoot;
+  let base = defaultProjectRoot;
 
   // If running from compiled binary (deno-compile temp dir), use temp directory instead
   // because the extraction directory is read-only

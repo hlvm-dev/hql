@@ -28,7 +28,7 @@ export function getEnvVar(key: string): string | undefined {
 }
 
 function resolveHlvmDir(): string {
-  const override = getEnvVar("HLVM_DIR") || getEnvVar("HLVM_HOME");
+  const override = getEnvVar("HLVM_DIR");
   if (override) {
     return resolve(override);
   }

@@ -99,6 +99,7 @@ export interface CompanionConfig {
   maxNotifyPerMinute: number;
   gateModel?: string;
   decisionModel?: string;
+  debugAlwaysReact?: boolean;
 }
 
 export const DEFAULT_COMPANION_CONFIG: CompanionConfig = {
@@ -107,4 +108,5 @@ export const DEFAULT_COMPANION_CONFIG: CompanionConfig = {
   maxBufferSize: 100,
   quietWhileTypingMs: 5000,
   maxNotifyPerMinute: 3,
+  debugAlwaysReact: false,
 };

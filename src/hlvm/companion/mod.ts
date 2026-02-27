@@ -9,16 +9,18 @@ export type {
   CompanionResponse,
   CompanionConfig,
 } from "./types.ts";
-export { COMPANION_CHANNEL } from "./loop.ts";
 export { resolveApproval as resolveCompanionResponse } from "./approvals.ts";
 
 import type { CompanionConfig } from "./types.ts";
 import { DEFAULT_COMPANION_CONFIG } from "./types.ts";
 import { ObservationBus } from "./bus.ts";
 import { CompanionContext } from "./context.ts";
-import { runCompanionLoop } from "./loop.ts";
+import { runCompanionLoop, resetEventSequence, COMPANION_CHANNEL } from "./loop.ts";
+export { COMPANION_CHANNEL };
 import { clearAllPendingApprovals } from "./approvals.ts";
+import { clearSessionBuffer } from "../store/sse-store.ts";
 import { log } from "../api/log.ts";
+import { config } from "../api/config.ts";
 
 // --- Module-level singleton state ---
 let bus: ObservationBus | null = null;
@@ -26,9 +28,28 @@ let context: CompanionContext | null = null;
 let abortController: AbortController | null = null;
 let currentConfig: CompanionConfig = { ...DEFAULT_COMPANION_CONFIG };
 
-export function startCompanion(config?: Partial<CompanionConfig>): void {
+function resolveCompanionModelFromConfig(): string | undefined {
+  const configuredModel = config.snapshot.model;
+  if (typeof configuredModel !== "string") return undefined;
+  const trimmed = configuredModel.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function startCompanion(configUpdate?: Partial<CompanionConfig>): void {
   if (bus) return; // already running
-  currentConfig = { ...DEFAULT_COMPANION_CONFIG, ...config, enabled: true };
+  const fallbackModel = resolveCompanionModelFromConfig();
+  const mergedConfig: CompanionConfig = {
+    ...DEFAULT_COMPANION_CONFIG,
+    enabled: true,
+    ...configUpdate,
+    gateModel: configUpdate?.gateModel ?? fallbackModel,
+    decisionModel: configUpdate?.decisionModel ?? fallbackModel,
+  };
+  currentConfig = mergedConfig;
+  if (!currentConfig.enabled) {
+    log.info("[companion] start skipped — enabled=false");
+    return;
+  }
   bus = new ObservationBus(currentConfig.maxBufferSize);
   context = new CompanionContext();
   abortController = new AbortController();
@@ -47,6 +68,8 @@ export function stopCompanion(): void {
   context = null;
   abortController = null;
   currentConfig = { ...DEFAULT_COMPANION_CONFIG };
+  resetEventSequence();
+  clearSessionBuffer(COMPANION_CHANNEL);
   log.info("[companion] stopped");
 }
 

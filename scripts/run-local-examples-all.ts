@@ -21,14 +21,6 @@ const DEFAULT_EXAMPLE_PARALLELISM = Math.max(
   Math.min(8, (globalThis.navigator?.hardwareConcurrency ?? 4) - 1),
 );
 
-function resolveParallelism(): number {
-  const raw = p().env.get("HLVM_EXAMPLES_PARALLEL");
-  if (!raw) return DEFAULT_EXAMPLE_PARALLELISM;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT_EXAMPLE_PARALLELISM;
-  return parsed;
-}
-
 async function listHqlFiles(dir: string): Promise<string[]> {
   const out: string[] = [];
   async function walk(d: string) {
@@ -63,7 +55,7 @@ let passed = 0, failed = 0, skipped = 0;
 console.log("=== LOCAL HLVM HQL Examples Suite ===\n");
 
 const files = await listHqlFiles(examplesDir);
-const parallelism = resolveParallelism();
+const parallelism = DEFAULT_EXAMPLE_PARALLELISM;
 const queue = [...files];
 
 async function runExample(file: string): Promise<void> {

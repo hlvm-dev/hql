@@ -3,10 +3,7 @@
  */
 import { parseArgs } from "@std/cli/parse-args";
 import { globalLogger } from "../../../logger.ts";
-import { getPlatform } from "../../../platform/platform.ts";
 import { platformCwd } from "./platform-helpers.ts";
-
-const platformSetEnv = (key: string, value: string) => getPlatform().env.set(key, value);
 
 export interface CliOptions {
   verbose?: boolean;
@@ -37,15 +34,11 @@ export function parseCliOptions(args: string[]): CliOptions {
 }
 
 /**
- * Apply CLI options to the global logger and runtime environment.
+ * Apply CLI options to the global logger.
  */
 export function applyCliOptions(options: CliOptions): void {
   globalLogger.setEnabled(Boolean(options.verbose));
   globalLogger.setTimingOptions({ showTiming: Boolean(options.showTiming) });
-
-  if (options.forceCache !== undefined) {
-    platformSetEnv("HLVM_FORCE_REBUILD", options.forceCache ? "1" : "0");
-  }
 
   if (options.forceCache === false && options.verbose) {
     const cachePath = `${platformCwd()}/.hlvm-cache`;
