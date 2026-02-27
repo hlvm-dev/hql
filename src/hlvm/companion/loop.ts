@@ -233,6 +233,7 @@ export async function runCompanionLoop(
   });
 
   const notifyTimestamps: number[] = [];
+  let lastTypingActivityTs = 0;
 
   try {
     for await (const batch of debounceObservations(
@@ -245,10 +246,15 @@ export async function runCompanionLoop(
       // PII filter
       const redacted = batch.map(redactObservation);
 
-      // DND: skip if user was recently active (any observation resets the timer).
-      // Check BEFORE addBatch so we measure the gap since the previous batch.
-      // Note: "quietWhileTypingMs" is a legacy name — it's generic activity-based, not typing-specific.
-      const isActive = context.isUserActive(config.quietWhileTypingMs);
+      // DND: skip only on explicit typing-like signals.
+      // Poll-based observation traffic (window/app/clipboard) should not keep companion muted.
+      const hasTypingSignal = redacted.some((obs) =>
+        obs.kind === "ui.selection.changed"
+      );
+      if (hasTypingSignal) {
+        lastTypingActivityTs = Date.now();
+      }
+      const isActive = Date.now() - lastTypingActivityTs < config.quietWhileTypingMs;
 
       // Update rolling context
       context.addBatch(redacted);
