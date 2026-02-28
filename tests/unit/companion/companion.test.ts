@@ -1162,6 +1162,46 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "Loop integration: low-signal observations skipped (accumulated in context only)",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    clearSessionBuffer(COMPANION_CHANNEL);
+
+    const bus = new ObservationBus();
+    const ctx = new CompanionContext();
+    const config = {
+      ...DEFAULT_COMPANION_CONFIG,
+      enabled: true,
+      debounceWindowMs: 10,
+      quietWhileTypingMs: 0,
+    };
+    const ac = new AbortController();
+    const captured: { event_type: string; data: unknown }[] = [];
+    const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
+
+    // Only low-signal observations — should NOT emit any SSE event
+    bus.append(makeObs("app.switch", { appName: "Xcode" }));
+    bus.append(makeObs("clipboard.changed", { text: "hello" }));
+    bus.append(makeObs("ui.window.title.changed", { title: "main.swift" }));
+    bus.close();
+
+    await runCompanionLoop(bus, config, ctx, ac.signal);
+
+    const messageEvents = captured.filter(
+      (e) => (e.data as { type: string }).type === "message",
+    );
+    assertEquals(messageEvents.length, 0, "Low-signal batch should not emit any SSE event");
+
+    // But context should still have the observations
+    assertEquals(ctx.getActiveApp(), "Xcode");
+    assertEquals(ctx.getBufferSize(), 3);
+
+    unsub();
+  },
+});
+
 // --- companionOnInteraction edge cases ---
 
 Deno.test({
@@ -1443,12 +1483,12 @@ Deno.test({
       const captured: { event_type: string; data: unknown }[] = [];
       const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
 
-      // POST observation containing an API key
+      // POST high-signal observation containing an API key
       const resp = await handleCompanionObserve(jsonRequest({
-        kind: "clipboard.changed",
+        kind: "check.failed",
         timestamp: new Date().toISOString(),
-        source: "pasteboard",
-        data: { text: "export API_KEY=sk_live_abc123def456ghi789jklmnop" },
+        source: "build",
+        data: { error: "auth failed with sk_live_abc123def456ghi789jklmnop" },
       }));
       assertEquals(resp.status, 201);
 
