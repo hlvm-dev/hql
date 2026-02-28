@@ -30,6 +30,9 @@ interface SearchResult {
   score?: number;
 }
 
+/** DuckDuckGo server-side date filter values */
+const DDG_DF_PARAM: Record<string, string> = { day: "d", week: "w", month: "m", year: "y" };
+
 export function scoreSearchResults(
   query: string,
   results: SearchResult[],
@@ -162,10 +165,13 @@ export async function duckDuckGoSearch(
   timeoutMs: number | undefined,
   timeRange: SearchTimeRange,
   options?: ToolExecutionOptions,
+  locale?: string,
 ): Promise<Record<string, unknown>> {
-  const endpoint = `https://html.duckduckgo.com/html/?q=${
-    encodeURIComponent(query)
-  }`;
+  const params = new URLSearchParams({ q: query });
+  const df = DDG_DF_PARAM[timeRange];
+  if (df) params.set("df", df);
+  if (locale) params.set("kl", locale);
+  const endpoint = `https://html.duckduckgo.com/html/?${params}`;
   assertUrlAllowed(endpoint, options);
 
   const response = await http.fetchRaw(endpoint, {
@@ -229,6 +235,7 @@ export function registerDuckDuckGo(): void {
         opts.timeoutMs,
         opts.timeRange ?? "all",
         opts.toolOptions,
+        opts.locale,
       );
       let results = raw.results as ProviderSearchResult[];
       if (opts.allowedDomains?.length || opts.blockedDomains?.length) {

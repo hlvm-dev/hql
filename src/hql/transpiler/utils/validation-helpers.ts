@@ -55,9 +55,15 @@ export function validateListLength(
  * Used to propagate source location through IR transformations for accurate error reporting.
  */
 export function extractPosition(node: HQLNode): IR.SourcePosition | undefined {
-  const meta = (node as unknown as { _meta?: { line: number; column: number; filePath?: string } })._meta;
+  const meta = (node as unknown as { _meta?: { line: number; column: number; endLine?: number; endColumn?: number; filePath?: string } })._meta;
   if (meta) {
-    return { line: meta.line, column: meta.column, filePath: meta.filePath };
+    return {
+      line: meta.line,
+      column: meta.column,
+      endLine: meta.endLine,
+      endColumn: meta.endColumn,
+      filePath: meta.filePath,
+    };
   }
   return undefined;
 }

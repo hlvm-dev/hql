@@ -33,6 +33,7 @@ export interface SearchCallOptions {
   allowedDomains?: string[];
   blockedDomains?: string[];
   timeRange?: SearchTimeRange;
+  locale?: string;
   toolOptions?: ToolExecutionOptions;
 }
 

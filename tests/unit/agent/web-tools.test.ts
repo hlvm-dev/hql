@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert";
 import {
   __testOnlyBuildSearchWebCacheKey,
+  resetWebToolBudget,
   WEB_TOOLS,
 } from "../../../src/hlvm/agent/tools/web-tools.ts";
 import {
@@ -225,4 +226,58 @@ Deno.test("search_web validates timeRange", async () => {
     ValidationError,
     "timeRange must be one of",
   );
+});
+
+// ============================================================
+// Locale validation
+// ============================================================
+
+Deno.test("search_web validates locale format", async () => {
+  const search = WEB_TOOLS.search_web;
+  await assertRejects(
+    () =>
+      search.fn(
+        { query: "hlvm", locale: "bad" },
+        "/tmp",
+      ),
+    ValidationError,
+    "locale must be format",
+  );
+});
+
+Deno.test("search_web schema includes locale arg", () => {
+  const meta = WEB_TOOLS.search_web;
+  assert("locale" in meta.args);
+});
+
+// ============================================================
+// Structured error codes
+// ============================================================
+
+Deno.test("validation errors carry structured errorCode in metadata", async () => {
+  try {
+    await WEB_TOOLS.search_web.fn({} as Record<string, unknown>, "/tmp");
+    assert(false, "should have thrown");
+  } catch (err) {
+    assert(err instanceof ValidationError);
+    const meta = (err as ValidationError & { metadata?: Record<string, unknown> }).metadata;
+    assertEquals(meta?.errorCode, "invalid_input");
+  }
+});
+
+// ============================================================
+// Per-run tool budget
+// ============================================================
+
+Deno.test("resetWebToolBudget is callable without error", () => {
+  resetWebToolBudget();
+});
+
+// ============================================================
+// Citation excerpt
+// ============================================================
+
+Deno.test("web_fetch schema documents citation with excerpt", () => {
+  const meta = WEB_TOOLS.web_fetch;
+  assert(meta.returns && "citation" in meta.returns);
 });

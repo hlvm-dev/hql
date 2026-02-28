@@ -25,6 +25,7 @@ import {
 import { globalLogger as logger } from "../../../logger.ts";
 import {
   copyPosition,
+  copyEndPosition,
   extractMeta,
   getIIFEDepth,
   setIIFEDepth,
@@ -401,6 +402,7 @@ function transformMultiArityFn(
     funcName = funcNameNode.name;
     funcId = createId(sanitizeIdentifier(funcName));
     copyPosition(funcNameNode, funcId);
+    copyEndPosition(list, funcId);
     arityClauses = list.elements.slice(2) as ListNode[];
   } else {
     arityClauses = list.elements.slice(1) as ListNode[];
@@ -663,6 +665,7 @@ function transformNamedFn(
 
   const funcId = createId(sanitizeIdentifier(funcName));
   copyPosition(funcNameNode, funcId);
+  copyEndPosition(list, funcId);
 
   const blockPosition = bodyNodes.length > 0 ? bodyNodes[0].position : undefined;
 
@@ -1226,6 +1229,7 @@ function parseParameters(
         : sanitizeIdentifier(paramNameWithoutType);
       const param = createId(paramIdName, { originalName: paramNameWithoutType, typeAnnotation: resolvedType, effectAnnotation: effect });
       copyPosition(elem, param);
+      copyEndPosition(paramList, param);
       params.push(param);
 
       if (
@@ -1344,6 +1348,7 @@ export function parseJsonMapParameters(
 
     const param = createId(sanitizeIdentifier(paramName), { originalName: paramName });
     copyPosition(keyNode, param);
+    copyEndPosition(mapNode, param);
     params.push(param);
 
     const defaultValue = transformNode(valueNode, currentDir);

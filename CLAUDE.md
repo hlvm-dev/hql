@@ -91,3 +91,28 @@ deno task test:unit     # Must pass all tests
 2. **Get user approval**: Confirm the change works as expected with the user before proceeding
 3. **Full test suite last**: Run `deno task test:unit` only after all changes are implemented and approved
 4. Tests must be real (no fake tests that always pass)
+
+## HQL Stdlib Architecture - MANDATORY
+
+**DO NOT directly edit `src/hql/lib/stdlib/js/self-hosted.js`.**
+
+The HQL stdlib has a three-layer architecture:
+
+```
+stdlib.hql (HQL source)  ──transpile──▶  self-hosted.js (JS runtime)
+                                              ▲
+                                              │ imports
+core.js (low-level primitives)  ◀─────────  index.js (router)
+```
+
+| File | Role | Editable? |
+|------|------|-----------|
+| `stdlib.hql` | HQL source definitions (~92 functions) | **YES** — edit here |
+| `self-hosted.js` | Pre-transpiled JS (the actual runtime) | **NO** — generated output |
+| `core.js` | Low-level primitives (first, rest, cons, seq, range) | Only for primitives |
+| `index.js` | Routes functions from self-hosted.js vs core.js | Only to update routing |
+
+**Rules:**
+- To add or modify a stdlib function → edit `stdlib.hql`, then re-transpile
+- `self-hosted.js` is a compiled artifact — direct edits will diverge from the HQL source
+- `index.js` has a `SELF_HOSTED_FUNCTIONS` Set that controls routing — update it when adding new functions

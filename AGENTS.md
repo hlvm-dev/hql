@@ -301,3 +301,34 @@ const currentDir = platform.cwd();
 ### Documentation
 
 Full SSOT contract: `docs/SSOT-CONTRACT.md`
+
+## HQL Stdlib Architecture - MANDATORY
+
+**NEVER directly edit `src/hql/lib/stdlib/js/self-hosted.js`. It is a generated file.**
+
+The HQL standard library uses a three-layer architecture:
+
+1. **`stdlib.hql`** — The HQL source of truth. All stdlib functions are defined here in HQL.
+2. **`self-hosted.js`** — Pre-transpiled JavaScript output. This is what the runtime actually executes. **DO NOT EDIT.**
+3. **`core.js`** — Low-level primitives that cannot be expressed in HQL (first, rest, cons, seq, range, etc.).
+4. **`index.js`** — Routes each function from either `self-hosted.js` or `core.js` via the `SELF_HOSTED_FUNCTIONS` Set.
+
+### Forbidden
+
+```javascript
+// FORBIDDEN - Direct edits to self-hosted.js
+// This file is generated from stdlib.hql. Direct edits cause divergence.
+```
+
+### Correct Workflow
+
+```
+1. Edit stdlib.hql (add/modify function definitions in HQL)
+2. Re-transpile to regenerate self-hosted.js
+3. Update SELF_HOSTED_FUNCTIONS in index.js if adding new functions
+4. Run tests: deno task test:unit
+```
+
+### Why This Matters
+
+Previous sessions edited `self-hosted.js` directly, causing the HQL source (`stdlib.hql`) to fall behind. This makes the "self-hosting" claim false — the language is no longer implementing its own stdlib. Always edit the HQL source first.

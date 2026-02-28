@@ -780,14 +780,16 @@
         (if (in key m) (js-get m key) not-found)))))
 
 // getIn - Get value at nested path
+// Uses a unique sentinel to distinguish "key not found" from "value is nil"
 (fn getIn [m path & args]
-  (let [not-found (first args)]
+  (let [not-found (first args)
+        sentinel {}]  // unique object — never === to any stored value
     (if (=== (js-get path "length") 0)
       m
       (loop [current m, s (seq path)]
         (if s
-          (let [next-val (get current (first s) nil)]
-            (if (nil? next-val)
+          (let [next-val (get current (first s) sentinel)]
+            (if (=== next-val sentinel)
               not-found
               (recur next-val (seq (rest s)))))
           current)))))
@@ -831,15 +833,18 @@
               (if (=== (typeof (js-get rest-path 0)) "number") [] {}))
             rest-path value))))))
 
-// dissoc - Remove keys from map (returns new map)
+// dissoc - Remove keys from map/array (returns new copy)
 (fn dissoc [m & ks]
   (if (nil? m)
     {}
     (if (instanceof m Map)
       (let [r (js-new Map (m))]
         (reduce (fn [acc k] (js-call acc "delete" k) acc) r ks))
-      (let [r {...m}]
-        (reduce (fn [acc k] (delete (js-get acc k)) acc) r ks)))))
+      (if (js-call Array.isArray m)
+        (let [r [...m]]
+          (reduce (fn [acc k] (delete (js-get acc k)) acc) r ks))
+        (let [r {...m}]
+          (reduce (fn [acc k] (delete (js-get acc k)) acc) r ks))))))
 
 // update - Transform value at key with function
 (fn update [m key f]
@@ -852,11 +857,22 @@
     (assocIn m path (f (getIn m path)))))
 
 // merge - Merge multiple maps (later wins, shallow)
+// Handles both plain objects and Maps
 (fn merge [& maps]
   (let [non-nil (filter (fn [m] (not (nil? m))) maps)]
     (if (isEmpty non-nil)
       {}
-      (js-call Object.assign {} ...non-nil))))
+      (if (instanceof (first non-nil) Map)
+        (let [r (js-new Map ())]
+          (reduce (fn [acc m]
+            (if (instanceof m Map)
+              (js-call m "forEach" (fn [v k] (js-call acc "set" k v)))
+              (if (=== (typeof m) "object")
+                (js-call (js-call Object.entries m) "forEach"
+                  (fn [entry] (js-call acc "set" (js-get entry 0) (js-get entry 1))))
+                nil))
+            acc) r non-nil))
+        (js-call Object.assign {} ...non-nil)))))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 14: COLLECTION PROTOCOLS (self-hosted)

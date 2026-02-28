@@ -55,6 +55,7 @@ import {
 } from "./planning.ts";
 import { getAgentLogger } from "./logger.ts";
 import { retrieveMemory, type RetrievalResult } from "../memory/retrieve.ts";
+import { resetWebToolBudget } from "./tools/web-tools.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -361,6 +362,47 @@ export function maybeInjectReminder(
   return false;
 }
 
+function buildProgressSummary(state: LoopState): string {
+  const toolNames = Array.from(
+    new Set(
+      state.toolUses
+        .map((use) => use.toolName)
+        .filter((name): name is string => typeof name === "string" && name.length > 0),
+    ),
+  );
+  const toolPreview = toolNames.slice(0, 6);
+  const extraTools = toolNames.length - toolPreview.length;
+  const latestDraft = state.lastResponse.trim().length > 0
+    ? truncate(state.lastResponse.replace(/\s+/g, " ").trim(), 260)
+    : "none";
+
+  const toolLine = toolPreview.length > 0
+    ? `Tools used: ${toolPreview.join(", ")}${extraTools > 0 ? ` (+${extraTools} more)` : ""}.`
+    : "Tools used: none.";
+
+  return [
+    `Progress so far: ${state.toolUses.length} tool result(s) across ${toolNames.length} tool(s).`,
+    toolLine,
+    `Latest response draft: ${latestDraft}`,
+  ].join("\n");
+}
+
+function buildLimitStopMessage(
+  reason: "timeout" | "max_iterations",
+  state: LoopState,
+  lc: LoopConfig,
+): string {
+  const headline = reason === "timeout"
+    ? `Total timeout (${lc.totalTimeout / 1000}s) exceeded. Task incomplete.`
+    : "Maximum iterations reached. Task incomplete.";
+
+  return [
+    headline,
+    buildProgressSummary(state),
+    "Re-run without --fresh to continue from current context.",
+  ].join("\n");
+}
+
 // ============================================================
 // ReAct Loop
 // ============================================================
@@ -383,6 +425,7 @@ export async function runReActLoop(
   const state = initializeLoopState(config);
   const lc = resolveLoopConfig(config);
   const autoMemoryRecall = config.autoMemoryRecall ?? false;
+  resetWebToolBudget();
 
   addContextMessage(config, { role: "user", content: userRequest });
 
@@ -421,8 +464,7 @@ export async function runReActLoop(
       return state.lastResponse || "Request cancelled by client";
     }
     if (Date.now() > lc.loopDeadline) {
-      return state.lastResponse ||
-        `Total timeout (${lc.totalTimeout / 1000}s) exceeded. Task incomplete.`;
+      return buildLimitStopMessage("timeout", state, lc);
     }
     state.iterations++;
     const iterationStart = Date.now();
@@ -629,5 +671,5 @@ export async function runReActLoop(
     }
   }
 
-  return "Maximum iterations reached. Task incomplete.";
+  return buildLimitStopMessage("max_iterations", state, lc);
 }

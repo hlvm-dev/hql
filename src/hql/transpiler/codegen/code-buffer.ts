@@ -92,10 +92,12 @@ export class CodeBuffer {
 
     // Emit end-position mapping for span support
     // Adjacent mappings let consumers infer spans (VSCode, Chrome DevTools)
+    // endColumn from parser is 1-based exclusive (one past closing paren),
+    // so subtract 2 to get 0-based inclusive (pointing to the last char)
     if (pos?.endLine !== undefined) {
       this.mappings.push({
         generated: { line: this.currentLine, column: this.currentColumn },
-        original: { line: pos.endLine, column: (pos.endColumn ?? 1) - 1 },
+        original: { line: pos.endLine, column: Math.max(0, (pos.endColumn ?? 1) - 2) },
         source: pos.filePath || this.sourceFilePath,
         name: null,
       });

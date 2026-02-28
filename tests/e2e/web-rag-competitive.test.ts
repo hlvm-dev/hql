@@ -28,7 +28,7 @@ import {
   canonicalizeResultUrl,
   rankSearchResults,
 } from "../../src/hlvm/agent/tools/web/search-ranking.ts";
-import { __testOnlyBuildSearchWebCacheKey, WEB_TOOLS } from "../../src/hlvm/agent/tools/web-tools.ts";
+import { __testOnlyBuildSearchWebCacheKey, resetWebToolBudget, WEB_TOOLS } from "../../src/hlvm/agent/tools/web-tools.ts";
 import { ValidationError } from "../../src/common/error.ts";
 import { assertUrlAllowed } from "../../src/hlvm/agent/tools/web/fetch-core.ts";
 
@@ -492,6 +492,53 @@ Deno.test({
         topTwoDistinct,
         `hosts=${topHosts.join(", ")}`,
       );
+
+      // 14) Locale arg accepted in search_web call.
+      resetWebToolBudget();
+      const localeSearch = await WEB_TOOLS.search_web.fn(
+        { query: "locale-test", maxResults: 3, locale: "us-en" },
+        "/tmp",
+      ) as SearchToolResponse;
+      const localePass = typeof localeSearch.count === "number" && localeSearch.count >= 0;
+      record(
+        "locale arg accepted in search_web call",
+        "Claude",
+        localePass,
+        `count=${String(localeSearch.count ?? "n/a")}`,
+      );
+
+      // 15) Structured errorCode on budget exceeded.
+      resetWebToolBudget();
+      let budgetErrorCode: string | undefined;
+      // Exhaust search_web budget (15 calls) then check 16th
+      for (let i = 0; i < 15; i++) {
+        try {
+          await WEB_TOOLS.search_web.fn(
+            { query: `budget-${i}`, maxResults: 1 },
+            "/tmp",
+          );
+        } catch {
+          // ignore intermediate errors
+        }
+      }
+      try {
+        await WEB_TOOLS.search_web.fn(
+          { query: "budget-exceeded", maxResults: 1 },
+          "/tmp",
+        );
+      } catch (err) {
+        if (err instanceof ValidationError) {
+          const meta = (err as ValidationError & { metadata?: Record<string, unknown> }).metadata;
+          budgetErrorCode = meta?.errorCode as string | undefined;
+        }
+      }
+      record(
+        "budget exceeded returns max_uses_exceeded code",
+        "Claude",
+        budgetErrorCode === "max_uses_exceeded",
+        `errorCode=${String(budgetErrorCode ?? "none")}`,
+      );
+      resetWebToolBudget();
     });
 
     printAsciiScoreboard(results);

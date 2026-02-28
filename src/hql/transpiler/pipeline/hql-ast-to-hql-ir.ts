@@ -329,6 +329,8 @@ export function copyPosition(
     target.position = {
       line: typeof meta.line === "number" ? meta.line : undefined,
       column: typeof meta.column === "number" ? meta.column : undefined,
+      endLine: typeof meta.endLine === "number" ? meta.endLine : undefined,
+      endColumn: typeof meta.endColumn === "number" ? meta.endColumn : undefined,
       filePath: typeof meta.filePath === "string" ? meta.filePath : undefined,
     };
   }

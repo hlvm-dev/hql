@@ -61,6 +61,7 @@ interface SearchWebArgs {
   allowedDomains?: string[];
   blockedDomains?: string[];
   timeRange?: SearchTimeRange;
+  locale?: string;
 }
 
 interface WebFetchArgs {
@@ -78,6 +79,52 @@ const DEFAULT_WEB_RESULTS = 5;
 const DEFAULT_HTML_LINKS = 20;
 const SEARCH_TIME_RANGES: SearchTimeRange[] = ["day", "week", "month", "year", "all"];
 
+// ============================================================
+// Structured Error Codes
+// ============================================================
+
+export type WebToolErrorCode = "max_uses_exceeded" | "invalid_input" | "url_not_allowed" | "disabled" | "provider_error";
+
+function webToolError(msg: string, context: string, errorCode: WebToolErrorCode): ValidationError {
+  const err = new ValidationError(msg, context);
+  err.metadata.errorCode = errorCode;
+  return err;
+}
+
+// ============================================================
+// Per-Run Tool Budget
+// ============================================================
+
+const WEB_TOOL_MAX_USES: Record<string, number> = { search_web: 15, web_fetch: 25, fetch_url: 25 };
+const webToolUseCounts = new Map<string, number>();
+
+export function resetWebToolBudget(): void { webToolUseCounts.clear(); }
+
+function checkWebToolBudget(toolName: string): void {
+  const count = (webToolUseCounts.get(toolName) ?? 0) + 1;
+  webToolUseCounts.set(toolName, count);
+  const max = WEB_TOOL_MAX_USES[toolName];
+  if (max !== undefined && count > max) {
+    throw webToolError(
+      `Tool budget exceeded: ${toolName} used ${count}/${max} times`,
+      toolName,
+      "max_uses_exceeded",
+    );
+  }
+}
+
+// ============================================================
+// Locale Validation
+// ============================================================
+
+function resolveLocale(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !/^[a-z]{2}-[a-z]{2}$/i.test(value.trim())) {
+    throw webToolError("locale must be format 'xx-xx' (e.g., 'us-en')", "search_web", "invalid_input");
+  }
+  return value.trim().toLowerCase();
+}
+
 function normalizeDomainList(domains?: string[]): string {
   if (!domains?.length) return "";
   return [...domains]
@@ -94,6 +141,7 @@ function buildSearchWebCacheKey(
   allowedDomains?: string[],
   blockedDomains?: string[],
   timeRange: SearchTimeRange = "all",
+  locale?: string,
 ): string {
   return makeCacheKey(`search_web:${provider}`, [
     query,
@@ -101,6 +149,7 @@ function buildSearchWebCacheKey(
     normalizeDomainList(allowedDomains),
     normalizeDomainList(blockedDomains),
     timeRange,
+    locale ?? "",
   ]);
 }
 
@@ -134,14 +183,15 @@ async function fetchUrl(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   if (!args || typeof args !== "object") {
-    throw new ValidationError("args must be an object", "fetch_url");
+    throw webToolError("args must be an object", "fetch_url", "invalid_input");
   }
 
   const { url, maxBytes, timeoutMs } = args as FetchUrlArgs;
   if (!url || typeof url !== "string") {
-    throw new ValidationError("url is required", "fetch_url");
+    throw webToolError("url is required", "fetch_url", "invalid_input");
   }
 
+  checkWebToolBudget("fetch_url");
   return await fetchUrlInternal(url, maxBytes, timeoutMs, options);
 }
 
@@ -151,13 +201,13 @@ async function webFetch(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   if (!args || typeof args !== "object") {
-    throw new ValidationError("args must be an object", "web_fetch");
+    throw webToolError("args must be an object", "web_fetch", "invalid_input");
   }
 
   const { url, urls, maxChars, timeoutSeconds } = args as WebFetchArgs;
   if (urls?.length) return batchWebFetch(urls, maxChars, timeoutSeconds, options);
   if (!url || typeof url !== "string") {
-    throw new ValidationError("url or urls required", "web_fetch");
+    throw webToolError("url or urls required", "web_fetch", "invalid_input");
   }
 
   return webFetchSingle(url, maxChars, timeoutSeconds, options);
@@ -169,9 +219,10 @@ async function webFetchSingle(
   timeoutSeconds?: number,
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
+  checkWebToolBudget("web_fetch");
   const webConfig = await loadWebConfig();
   if (!webConfig.fetch.enabled) {
-    throw new ValidationError("web fetch is disabled", "web_fetch");
+    throw webToolError("web fetch is disabled", "web_fetch", "disabled");
   }
 
   const resolvedMaxChars = typeof maxChars === "number" && maxChars > 0
@@ -284,7 +335,7 @@ async function webFetchSingle(
     readability: usedReadability,
     firecrawl: usedFirecrawl,
     redirects,
-    citation: { url: finalUrl, title: parsed.title || "", provider: "fetch" } as Citation,
+    citation: { url: finalUrl, title: parsed.title || "", excerpt: (text || "").slice(0, 150), provider: "fetch" } as Citation,
   };
 
   if (webConfig.fetch.cacheTtlMinutes > 0) {
@@ -304,7 +355,7 @@ async function batchWebFetch(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   if (urls.length > MAX_BATCH_URLS) {
-    throw new ValidationError(`Too many URLs (max ${MAX_BATCH_URLS})`, "web_fetch");
+    throw webToolError(`Too many URLs (max ${MAX_BATCH_URLS})`, "web_fetch", "invalid_input");
   }
 
   const results: Record<string, unknown>[] = [];
@@ -338,18 +389,20 @@ async function searchWeb(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   if (!args || typeof args !== "object") {
-    throw new ValidationError("args must be an object", "search_web");
+    throw webToolError("args must be an object", "search_web", "invalid_input");
   }
 
   const typed = args as SearchWebArgs;
   const { query, maxResults, timeoutMs, timeoutSeconds } = typed;
   if (!query || typeof query !== "string") {
-    throw new ValidationError("query is required", "search_web");
+    throw webToolError("query is required", "search_web", "invalid_input");
   }
+
+  checkWebToolBudget("search_web");
 
   const webConfig = await loadWebConfig();
   if (!webConfig.search.enabled) {
-    throw new ValidationError("web search is disabled", "search_web");
+    throw webToolError("web search is disabled", "search_web", "disabled");
   }
 
   const limit = typeof maxResults === "number" && maxResults > 0
@@ -360,6 +413,7 @@ async function searchWeb(
     : toMillis(timeoutSeconds ?? webConfig.search.timeoutSeconds);
 
   const timeRange = resolveSearchTimeRange(typed.timeRange);
+  const locale = resolveLocale(typed.locale);
 
   const cacheKey = buildSearchWebCacheKey(
     webConfig.search.provider,
@@ -368,6 +422,7 @@ async function searchWeb(
     typed.allowedDomains,
     typed.blockedDomains,
     timeRange,
+    locale,
   );
   if (webConfig.search.cacheTtlMinutes > 0) {
     const cached = await getWebCacheValue<Record<string, unknown>>(cacheKey);
@@ -386,6 +441,7 @@ async function searchWeb(
     allowedDomains: typed.allowedDomains,
     blockedDomains: typed.blockedDomains,
     timeRange,
+    locale,
     toolOptions: options,
   });
 
@@ -425,6 +481,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
       allowedDomains: "string[] (optional) - Only include results from these domains",
       blockedDomains: "string[] (optional) - Exclude results from these domains",
       timeRange: "string (optional) - Recency window: day|week|month|year|all (default: all)",
+      locale: "string (optional) - DDG locale hint in 'xx-xx' format (e.g., 'us-en', 'kr-ko')",
     },
     returns: {
       results: "Array<{title, url?, snippet?}>",
