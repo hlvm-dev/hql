@@ -45,9 +45,11 @@ export const PERMISSION_MODES: PermissionMode[] = ["default", "auto-edit", "yolo
 /** User-customized keybindings (action ID -> key combo) */
 export type KeybindingsConfig = Record<string, string>;
 
+export type SearchProvider = "duckduckgo";
+
 export interface WebSearchConfig {
   enabled?: boolean;
-  provider?: "duckduckgo";
+  provider?: SearchProvider;
   maxResults?: number;
   timeoutSeconds?: number;
   cacheTtlMinutes?: number;

@@ -8,6 +8,16 @@ import { ValidationError } from "../../../../common/error.ts";
 import type { ToolExecutionOptions } from "../../registry.ts";
 import { assertUrlAllowed } from "./fetch-core.ts";
 import { decodeHtmlEntities, parseAttributes } from "./html-parser.ts";
+import {
+  rankSearchResults,
+} from "./search-ranking.ts";
+import {
+  isAllowedByDomainFilters,
+  type SearchTimeRange,
+  registerSearchProvider,
+  type SearchCallOptions,
+  type SearchResult as ProviderSearchResult,
+} from "./search-provider.ts";
 
 // ============================================================
 // Types
@@ -20,43 +30,11 @@ interface SearchResult {
   score?: number;
 }
 
-// ============================================================
-// Scoring
-// ============================================================
-
-function tokenizeQuery(query: string): string[] {
-  return query
-    .toLowerCase()
-    .split(/[\s\-_.]+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 3);
-}
-
-function scoreSearchResult(query: string, result: SearchResult): number {
-  const tokens = tokenizeQuery(query);
-  if (tokens.length === 0) return 0;
-  const title = (result.title ?? "").toLowerCase();
-  const snippet = (result.snippet ?? "").toLowerCase();
-  const url = (result.url ?? "").toLowerCase();
-  let score = 0;
-  for (const token of tokens) {
-    if (title.includes(token)) score += 3;
-    if (snippet.includes(token)) score += 1;
-    if (url.includes(token)) score += 1;
-  }
-  if (url.startsWith("https://")) score += 1;
-  return score;
-}
-
 export function scoreSearchResults(
   query: string,
   results: SearchResult[],
 ): SearchResult[] {
-  const scored = results.map((result) => ({
-    ...result,
-    score: scoreSearchResult(query, result),
-  }));
-  return scored.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  return rankSearchResults(query, results, "all");
 }
 
 // ============================================================
@@ -182,6 +160,7 @@ export async function duckDuckGoSearch(
   query: string,
   limit: number,
   timeoutMs: number | undefined,
+  timeRange: SearchTimeRange,
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   const endpoint = `https://html.duckduckgo.com/html/?q=${
@@ -205,8 +184,9 @@ export async function duckDuckGoSearch(
   }
 
   const html = await response.text();
-  const parsedResults = parseDuckDuckGoSearchResults(html, limit);
-  const scored = scoreSearchResults(query, parsedResults);
+  const candidateLimit = Math.max(limit * 4, limit);
+  const parsedResults = parseDuckDuckGoSearchResults(html, candidateLimit);
+  const scored = rankSearchResults(query, parsedResults, timeRange);
   const topResults = scored.slice(0, limit);
 
   return {
@@ -215,4 +195,51 @@ export async function duckDuckGoSearch(
     results: topResults,
     count: topResults.length,
   };
+}
+
+// ============================================================
+// Provider Registration
+// ============================================================
+
+function filterResultsByDomain(
+  results: ProviderSearchResult[],
+  allowed?: string[],
+  blocked?: string[],
+): ProviderSearchResult[] {
+  return results.filter((r) => {
+    if (!r.url) return true;
+    try {
+      const hostname = new URL(r.url).hostname;
+      return isAllowedByDomainFilters(hostname, allowed, blocked);
+    } catch {
+      return true;
+    }
+  });
+}
+
+export function registerDuckDuckGo(): void {
+  registerSearchProvider({
+    name: "duckduckgo",
+    displayName: "DuckDuckGo",
+    requiresApiKey: false,
+    async search(query: string, opts: SearchCallOptions) {
+      const raw = await duckDuckGoSearch(
+        query,
+        opts.limit,
+        opts.timeoutMs,
+        opts.timeRange ?? "all",
+        opts.toolOptions,
+      );
+      let results = raw.results as ProviderSearchResult[];
+      if (opts.allowedDomains?.length || opts.blockedDomains?.length) {
+        results = filterResultsByDomain(results, opts.allowedDomains, opts.blockedDomains);
+      }
+      return {
+        query: raw.query as string,
+        provider: raw.provider as string,
+        results,
+        count: results.length,
+      };
+    },
+  });
 }

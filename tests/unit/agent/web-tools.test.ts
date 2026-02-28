@@ -1,11 +1,15 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert";
-import { WEB_TOOLS } from "../../../src/hlvm/agent/tools/web-tools.ts";
+import {
+  __testOnlyBuildSearchWebCacheKey,
+  WEB_TOOLS,
+} from "../../../src/hlvm/agent/tools/web-tools.ts";
 import {
   parseDuckDuckGoSearchResults,
   scoreSearchResults,
 } from "../../../src/hlvm/agent/tools/web/duckduckgo.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import type { AgentPolicy } from "../../../src/hlvm/agent/policy.ts";
+import { isAllowedByDomainFilters } from "../../../src/hlvm/agent/tools/web/search-provider.ts";
 
 Deno.test("search_web validates query", async () => {
   const search = WEB_TOOLS.search_web;
@@ -118,4 +122,107 @@ Deno.test("parseDuckDuckGoSearchResults supports lite result-link markup and ded
   assertEquals(results.length, 2);
   assertEquals(results[0].url, "https://example.com/same");
   assertEquals(results[1].url, "https://example.com/two");
+});
+
+// ============================================================
+// search_web: domain controls + citations
+// ============================================================
+
+Deno.test("search_web schema includes domain filter args", () => {
+  const meta = WEB_TOOLS.search_web;
+  assert("allowedDomains" in meta.args);
+  assert("blockedDomains" in meta.args);
+  assert("timeRange" in meta.args);
+});
+
+Deno.test("search_web schema declares citation returns", () => {
+  const meta = WEB_TOOLS.search_web;
+  assert(meta.returns && "citations" in meta.returns);
+  assert(meta.returns && "retrievedAt" in meta.returns);
+});
+
+// ============================================================
+// web_fetch: additive citation + batch mode
+// ============================================================
+
+Deno.test("web_fetch schema includes citation and batch args", () => {
+  const meta = WEB_TOOLS.web_fetch;
+  assert("urls" in meta.args);
+  assert(meta.returns && "citation" in meta.returns);
+  assert(meta.returns && "retrievedAt" in meta.returns);
+});
+
+Deno.test("web_fetch rejects more than 5 batch URLs", async () => {
+  const fetch = WEB_TOOLS.web_fetch;
+  await assertRejects(
+    () =>
+      fetch.fn(
+        { urls: ["a", "b", "c", "d", "e", "f"] },
+        "/tmp",
+      ),
+    ValidationError,
+    "Too many URLs",
+  );
+});
+
+Deno.test("web_fetch validates url or urls required", async () => {
+  const fetch = WEB_TOOLS.web_fetch;
+  await assertRejects(
+    () => fetch.fn({ maxChars: 100 }, "/tmp"),
+    ValidationError,
+    "url or urls required",
+  );
+});
+
+// ============================================================
+// cache key + domain matching behavior
+// ============================================================
+
+Deno.test("search_web cache key changes with domain filters and is order-invariant", () => {
+  const base = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5);
+  const allowA = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5, [
+    "a.com",
+    "b.com",
+  ]);
+  const allowB = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5, [
+    "b.com",
+    "a.com",
+  ]);
+  const blocked = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5, [
+    "a.com",
+  ], ["x.com"]);
+  const dayRange = __testOnlyBuildSearchWebCacheKey(
+    "duckduckgo",
+    "bitcoin",
+    5,
+    undefined,
+    undefined,
+    "day",
+  );
+
+  assertEquals(allowA, allowB);
+  assert(base !== allowA);
+  assert(allowA !== blocked);
+  assert(base !== dayRange);
+});
+
+Deno.test("domain filter helper uses exact or subdomain matching only", () => {
+  assertEquals(isAllowedByDomainFilters("api.github.com", ["github.com"]), true);
+  assertEquals(isAllowedByDomainFilters("github.com", ["github.com"]), true);
+  assertEquals(isAllowedByDomainFilters("notgithub.com", ["github.com"]), false);
+  assertEquals(isAllowedByDomainFilters("evil-github.com", ["github.com"]), false);
+  assertEquals(isAllowedByDomainFilters("docs.example.com", undefined, ["example.com"]), false);
+});
+
+Deno.test("search_web validates timeRange", async () => {
+  const search = WEB_TOOLS.search_web;
+  await assertRejects(
+    () =>
+      search.fn(
+        { query: "hlvm", timeRange: "fortnight" },
+        "/tmp",
+      ),
+    ValidationError,
+    "timeRange must be one of",
+  );
 });

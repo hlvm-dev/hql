@@ -35,3 +35,26 @@ Deno.test("web resolver: search config ignores unrelated env vars", () => {
 
   assertEquals(resolved.search.provider, "duckduckgo");
 });
+
+Deno.test("web resolver: accepts explicit duckduckgo provider config", () => {
+  const resolved = resolveWebConfig({
+    search: {
+      provider: "duckduckgo",
+      maxResults: 10,
+    },
+  });
+
+  assertEquals(resolved.search.provider, "duckduckgo");
+  assertEquals(resolved.search.maxResults, 10);
+});
+
+Deno.test("web resolver: keeps duckduckgo as default when no provider specified", () => {
+  const resolved = resolveWebConfig({
+    search: {
+      maxResults: 3,
+    },
+  });
+
+  assertEquals(resolved.search.provider, "duckduckgo");
+  assertEquals(resolved.search.maxResults, 3);
+});

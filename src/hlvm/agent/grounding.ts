@@ -137,6 +137,17 @@ function responseIncorporatesToolData(
   return false;
 }
 
+function hasCitationData(toolUses: ToolUse[]): boolean {
+  return toolUses.some((t) => {
+    try {
+      const parsed = JSON.parse(t.result);
+      return parsed.citation || parsed.citations;
+    } catch {
+      return false;
+    }
+  });
+}
+
 export function checkGrounding(
   response: string,
   toolUses: ToolUse[],
@@ -180,8 +191,9 @@ export function checkGrounding(
       return lower.includes(normalized) || lower.includes(tool.toolName);
     });
     const incorporatesData = responseIncorporatesToolData(response, toolUses);
+    const hasCitations = hasCitationData(toolUses);
 
-    if (!mentionsBasedOn && !mentionsTool && !incorporatesData) {
+    if (!mentionsBasedOn && !mentionsTool && !incorporatesData && !hasCitations) {
       warnings.push(
         "Response does not cite tool sources. Include tool names or 'Based on ...'.",
       );

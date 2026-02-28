@@ -8,11 +8,10 @@ import { getEnvVar } from "../paths.ts";
 import {
   createDefaultWebFetchConfig,
   createDefaultWebSearchConfig,
+  type SearchProvider,
   type WebFetchConfig,
   type WebSearchConfig,
 } from "./types.ts";
-
-type SearchProvider = NonNullable<WebSearchConfig["provider"]>;
 
 export interface ResolvedWebSearchConfig {
   enabled: boolean;
@@ -60,7 +59,7 @@ function resolveWebSearchConfig(
   const defaults = createDefaultWebSearchConfig();
   const resolved: ResolvedWebSearchConfig = {
     enabled: config?.enabled ?? defaults.enabled ?? true,
-    provider: "duckduckgo",
+    provider: config?.provider ?? "duckduckgo",
     maxResults: config?.maxResults ?? defaults.maxResults ?? 5,
     timeoutSeconds: config?.timeoutSeconds ?? defaults.timeoutSeconds ?? 30,
     cacheTtlMinutes: config?.cacheTtlMinutes ?? defaults.cacheTtlMinutes ?? 15,
