@@ -20,7 +20,6 @@ export { COMPANION_CHANNEL };
 import { clearAllPendingApprovals } from "./approvals.ts";
 import { clearSessionBuffer } from "../store/sse-store.ts";
 import { log } from "../api/log.ts";
-import { config } from "../api/config.ts";
 import { traceCompanion, getCompanionTracePath } from "./trace.ts";
 
 // --- Module-level singleton state ---
@@ -29,27 +28,15 @@ let context: CompanionContext | null = null;
 let abortController: AbortController | null = null;
 let currentConfig: CompanionConfig = { ...DEFAULT_COMPANION_CONFIG };
 
-function resolveCompanionModelFromConfig(): string | undefined {
-  const configuredModel = config.snapshot.model;
-  if (typeof configuredModel !== "string") return undefined;
-  const trimmed = configuredModel.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
 export function startCompanion(configUpdate?: Partial<CompanionConfig>): void {
   if (bus) return; // already running
-  const fallbackModel = resolveCompanionModelFromConfig();
   const mergedConfig: CompanionConfig = {
     ...DEFAULT_COMPANION_CONFIG,
     enabled: true,
     ...configUpdate,
-    gateModel: configUpdate?.gateModel ?? fallbackModel,
-    decisionModel: configUpdate?.decisionModel ?? fallbackModel,
   };
   currentConfig = mergedConfig;
   traceCompanion("start.requested", {
-    gateModel: currentConfig.gateModel,
-    decisionModel: currentConfig.decisionModel,
     debugAlwaysReact: currentConfig.debugAlwaysReact,
     quietWhileTypingMs: currentConfig.quietWhileTypingMs,
     debounceWindowMs: currentConfig.debounceWindowMs,

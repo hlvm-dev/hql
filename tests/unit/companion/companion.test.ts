@@ -1,7 +1,7 @@
 /**
  * Companion Agent — Unit Tests
  *
- * Tests: bus, debounce, redact, context, gate (stub + LLM), decide (stub + LLM).
+ * Tests: bus, debounce, redact, context, format, loop (pure data pipe).
  * NO imports from memory/mod.ts — only store.ts via redact.ts (no SQLite).
  */
 
@@ -10,11 +10,8 @@ import { ObservationBus } from "../../../src/hlvm/companion/bus.ts";
 import { debounceObservations } from "../../../src/hlvm/companion/debounce.ts";
 import { redactObservation } from "../../../src/hlvm/companion/redact.ts";
 import { CompanionContext } from "../../../src/hlvm/companion/context.ts";
-import { gateObservations } from "../../../src/hlvm/companion/gate.ts";
-import { makeDecision, parseDecisionResponse, validateDecision } from "../../../src/hlvm/companion/decide.ts";
+import { formatBatch, formatObservationPrompt } from "../../../src/hlvm/companion/format.ts";
 import type { Observation, ObservationKind } from "../../../src/hlvm/companion/types.ts";
-import type { LLMResponse } from "../../../src/hlvm/agent/tool-call.ts";
-import type { LLMFunction } from "../../../src/hlvm/agent/orchestrator-llm.ts";
 
 function makeObs(
   kind: ObservationKind,
@@ -245,190 +242,38 @@ Deno.test({
   },
 });
 
-// --- Mock LLM helpers ---
+// --- Format ---
 
-function mockLLM(content: string): LLMFunction {
-  return async (_messages, _signal?) => ({ content, toolCalls: [] } as LLMResponse);
-}
+Deno.test("formatBatch: formats observations as bullet-point lines", () => {
+  const batch = [
+    makeObs("app.switch", { appName: "Xcode" }),
+    makeObs("check.failed", { error: "lint" }),
+  ];
+  const result = formatBatch(batch);
+  assertEquals(result.includes("- [app.switch] test:"), true);
+  assertEquals(result.includes("- [check.failed] test:"), true);
+  assertEquals(result.includes('"appName":"Xcode"'), true);
+  assertEquals(result.includes('"error":"lint"'), true);
+  // Two lines separated by newline
+  assertEquals(result.split("\n").length, 2);
+});
 
-function throwingLLM(error: Error): LLMFunction {
-  return async () => { throw error; };
-}
-
-// --- Gate: no LLM (backward compat) ---
-
-Deno.test("Gate: no LLM → stub SILENT", async () => {
+Deno.test("formatObservationPrompt: combines context and observations", () => {
   const ctx = new CompanionContext();
-  const result = await gateObservations([makeObs("custom")], ctx);
-  assertEquals(result.decision, "SILENT");
+  ctx.addBatch([makeObs("app.switch", { appName: "VSCode" })]);
+  const batch = [makeObs("check.failed", { error: "build failed" })];
+  const prompt = formatObservationPrompt(batch, ctx);
+
+  assertEquals(prompt.includes("[Companion Observation]"), true);
+  assertEquals(prompt.includes("Companion Context"), true);
+  assertEquals(prompt.includes("VSCode"), true);
+  assertEquals(prompt.includes("## Recent Activity"), true);
+  assertEquals(prompt.includes("check.failed"), true);
+  assertEquals(prompt.includes("build failed"), true);
 });
 
-// --- Gate LLM tests ---
-
-Deno.test("Gate LLM: SILENT response", async () => {
-  const ctx = new CompanionContext();
-  const result = await gateObservations([makeObs("custom")], ctx, mockLLM("SILENT"));
-  assertEquals(result.decision, "SILENT");
-  assertEquals(result.reason, "");
-});
-
-Deno.test("Gate LLM: NOTIFY response with reason", async () => {
-  const ctx = new CompanionContext();
-  const result = await gateObservations(
-    [makeObs("clipboard.changed", { text: "Error: ENOENT" })],
-    ctx,
-    mockLLM("NOTIFY user copied error message"),
-  );
-  assertEquals(result.decision, "NOTIFY");
-  assertEquals(result.reason, "user copied error message");
-});
-
-Deno.test("Gate LLM: error defaults to SILENT", async () => {
-  const ctx = new CompanionContext();
-  const result = await gateObservations(
-    [makeObs("custom")],
-    ctx,
-    throwingLLM(new Error("connection failed")),
-  );
-  assertEquals(result.decision, "SILENT");
-  assertEquals(result.reason, "");
-});
-
-// --- Decision: no LLM (backward compat) ---
-
-Deno.test("Decision: no LLM → stub SILENT", async () => {
-  const ctx = new CompanionContext();
-  const result = await makeDecision([makeObs("custom")], ctx);
-  assertEquals(result.type, "SILENT");
-});
-
-// --- Decision LLM tests ---
-
-Deno.test("Decision LLM: CHAT response", async () => {
-  const ctx = new CompanionContext();
-  const json = JSON.stringify({ type: "CHAT", message: "That error means the file was not found." });
-  const result = await makeDecision([makeObs("custom")], ctx, "error copied", mockLLM(json));
-  assertEquals(result.type, "CHAT");
-  assertEquals(result.message, "That error means the file was not found.");
-});
-
-Deno.test("Decision LLM: SUGGEST response", async () => {
-  const ctx = new CompanionContext();
-  const json = JSON.stringify({ type: "SUGGEST", message: "Try running `npm install` first." });
-  const result = await makeDecision([makeObs("custom")], ctx, "build failed", mockLLM(json));
-  assertEquals(result.type, "SUGGEST");
-  assertEquals(result.message, "Try running `npm install` first.");
-});
-
-Deno.test("Decision LLM: SILENT response", async () => {
-  const ctx = new CompanionContext();
-  const json = JSON.stringify({ type: "SILENT" });
-  const result = await makeDecision([makeObs("custom")], ctx, undefined, mockLLM(json));
-  assertEquals(result.type, "SILENT");
-});
-
-Deno.test("Decision: ACT with actions passes through", () => {
-  const actions = [{ id: "fix-1", label: "Fix it", description: "Run fix", requiresApproval: true }];
-  const result = validateDecision({ type: "ACT", message: "I can fix that", actions });
-  assertEquals(result.type, "ACT");
-  assertEquals(result.actions?.length, 1);
-  assertEquals(result.actions?.[0].id, "fix-1");
-});
-
-Deno.test("Decision: ACT without actions but with message → SUGGEST", () => {
-  const result = validateDecision({ type: "ACT", message: "I can fix that for you" });
-  assertEquals(result.type, "SUGGEST");
-  assertEquals(result.message, "I can fix that for you");
-});
-
-Deno.test("Decision: ACT without actions or message → SILENT", () => {
-  const result = validateDecision({ type: "ACT" });
-  assertEquals(result.type, "SILENT");
-});
-
-Deno.test("Decision: ACT with empty actions array → SUGGEST fallback", () => {
-  const result = validateDecision({ type: "ACT", message: "I can help", actions: [] });
-  // Empty array is falsy for .length check → falls through to message → SUGGEST
-  assertEquals(result.type, "SUGGEST");
-  assertEquals(result.message, "I can help");
-});
-
-Deno.test("Decision: ASK_VISION with message passes through", () => {
-  const result = validateDecision({ type: "ASK_VISION", message: "Let me look at the screen" });
-  assertEquals(result.type, "ASK_VISION");
-  assertEquals(result.message, "Let me look at the screen");
-});
-
-Deno.test("Decision: ASK_VISION without message → SILENT", () => {
-  const result = validateDecision({ type: "ASK_VISION" });
-  assertEquals(result.type, "SILENT");
-});
-
-Deno.test("Decision LLM: malformed JSON → SILENT", () => {
-  const result = parseDecisionResponse("I think you should restart the server");
-  assertEquals(result.type, "SILENT");
-});
-
-Deno.test("Decision LLM: JSON in markdown fences parsed", () => {
-  const text = '```json\n{"type": "CHAT", "message": "Hello there!"}\n```';
-  const result = parseDecisionResponse(text);
-  assertEquals(result.type, "CHAT");
-  assertEquals(result.message, "Hello there!");
-});
-
-Deno.test("Decision LLM: CHAT without message → SILENT", () => {
-  const result = parseDecisionResponse('{"type": "CHAT"}');
-  assertEquals(result.type, "SILENT");
-});
-
-Deno.test("Decision LLM: error defaults to SILENT", async () => {
-  const ctx = new CompanionContext();
-  const result = await makeDecision(
-    [makeObs("custom")],
-    ctx,
-    "error",
-    throwingLLM(new Error("timeout")),
-  );
-  assertEquals(result.type, "SILENT");
-});
-
-Deno.test("Decision LLM: memory context included in messages", async () => {
-  const ctx = new CompanionContext();
-  let capturedMessages: unknown[] = [];
-  const captureLLM: LLMFunction = async (messages, _signal?) => {
-    capturedMessages = messages;
-    return { content: '{"type": "SILENT"}', toolCalls: [] };
-  };
-  await makeDecision(
-    [makeObs("custom")],
-    ctx,
-    "test reason",
-    captureLLM,
-    "User prefers TypeScript.",
-  );
-  const userMsg = (capturedMessages[1] as { content: string }).content;
-  assertEquals(userMsg.includes("User prefers TypeScript."), true);
-});
-
-// --- parseDecisionResponse: ACT/ASK_VISION JSON ---
-
-Deno.test("Decision: ACT JSON with actions array parsed", () => {
-  const json = JSON.stringify({
-    type: "ACT",
-    message: "I'll fix the lint error",
-    actions: [{ id: "fix-1", label: "Fix lint", description: "Run eslint --fix", requiresApproval: true }],
-  });
-  const result = parseDecisionResponse(json);
-  assertEquals(result.type, "ACT");
-  assertEquals(result.actions?.length, 1);
-  assertEquals(result.actions?.[0].description, "Run eslint --fix");
-});
-
-Deno.test("Decision: ASK_VISION JSON parsed", () => {
-  const json = JSON.stringify({ type: "ASK_VISION", message: "Let me see your screen" });
-  const result = parseDecisionResponse(json);
-  assertEquals(result.type, "ASK_VISION");
-  assertEquals(result.message, "Let me see your screen");
+Deno.test("formatBatch: empty batch returns empty string", () => {
+  assertEquals(formatBatch([]), "");
 });
 
 // --- Approval lifecycle ---
@@ -538,131 +383,11 @@ Deno.test({
   },
 });
 
-// --- ACT / VISION flow integration tests ---
-// These test the emitCompanionEvent → approval → SSE pipeline pieces
+// --- companionOnInteraction ---
 
 import { subscribe, clearSessionBuffer } from "../../../src/hlvm/store/sse-store.ts";
-import { emitCompanionEvent, COMPANION_CHANNEL } from "../../../src/hlvm/companion/loop.ts";
+import { emitCompanionEvent, COMPANION_CHANNEL, companionOnInteraction } from "../../../src/hlvm/companion/loop.ts";
 import type { CompanionEvent } from "../../../src/hlvm/companion/types.ts";
-
-Deno.test({
-  name: "ACT flow: action_request emits SSE, approval resolves, action_result emittable",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const captured: unknown[] = [];
-    const unsub = subscribe(COMPANION_CHANNEL, (event) => captured.push(event));
-
-    // Simulate: loop emits action_request
-    const actionEvent: CompanionEvent = {
-      type: "action_request",
-      content: "Fix lint error in main.ts",
-      actions: [{ id: "fix-1", label: "Fix lint", description: "Run eslint --fix", requiresApproval: true }],
-      id: "act-test-1",
-      timestamp: new Date().toISOString(),
-    };
-    emitCompanionEvent(actionEvent);
-
-    // Verify action_request was emitted via SSE
-    assertEquals(captured.length, 1);
-
-    // Simulate: user approves → waitForApproval resolves
-    const approvalPromise = waitForApproval("act-test-1", undefined, 5000);
-    resolveApproval({ eventId: "act-test-1", approved: true, actionId: "fix-1" });
-    const response = await approvalPromise;
-    assertEquals(response.approved, true);
-    assertEquals(response.actionId, "fix-1");
-
-    // Simulate: agent completes → action_result emitted
-    emitCompanionEvent({
-      type: "action_result",
-      content: "Fixed 3 lint errors.",
-      id: "act-test-result-1",
-      timestamp: new Date().toISOString(),
-    });
-    assertEquals(captured.length, 2);
-
-    unsub();
-  },
-});
-
-Deno.test({
-  name: "ACT flow: denied approval emits action_cancelled",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const captured: unknown[] = [];
-    const unsub = subscribe(COMPANION_CHANNEL, (event) => captured.push(event));
-
-    // Emit action_request
-    emitCompanionEvent({
-      type: "action_request",
-      content: "Delete temp files",
-      actions: [{ id: "del-1", label: "Delete", description: "rm -rf /tmp/cache", requiresApproval: true }],
-      id: "act-deny-1",
-      timestamp: new Date().toISOString(),
-    });
-
-    // User denies
-    const approvalPromise = waitForApproval("act-deny-1", undefined, 5000);
-    resolveApproval({ eventId: "act-deny-1", approved: false });
-    const response = await approvalPromise;
-    assertEquals(response.approved, false);
-
-    // Verify cancelled event can be emitted
-    emitCompanionEvent({
-      type: "action_cancelled",
-      content: "Action denied by user.",
-      id: "act-deny-cancel-1",
-      timestamp: new Date().toISOString(),
-    });
-    assertEquals(captured.length, 2);
-
-    unsub();
-  },
-});
-
-Deno.test({
-  name: "VISION flow: vision_request → approval → capture_request emitted",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const captured: unknown[] = [];
-    const unsub = subscribe(COMPANION_CHANNEL, (event) => captured.push(event));
-
-    // Emit vision_request (from decide → loop)
-    emitCompanionEvent({
-      type: "vision_request",
-      content: "Let me see your screen to help debug the layout",
-      id: "vision-test-1",
-      timestamp: new Date().toISOString(),
-    });
-    assertEquals(captured.length, 1);
-
-    // User approves
-    const approvalPromise = waitForApproval("vision-test-1", undefined, 5000);
-    resolveApproval({ eventId: "vision-test-1", approved: true });
-    const response = await approvalPromise;
-    assertEquals(response.approved, true);
-
-    // After approval, loop emits capture_request → Swift captures screenshot
-    emitCompanionEvent({
-      type: "capture_request",
-      content: "Capture screenshot",
-      id: "vision-capture-1",
-      timestamp: new Date().toISOString(),
-    });
-    assertEquals(captured.length, 2);
-
-    unsub();
-  },
-});
-
-// --- companionOnInteraction ---
-// These tests use the exported function from loop.ts
-// We mock classifyTool indirectly by testing with known tool names
-
-import { companionOnInteraction } from "../../../src/hlvm/companion/loop.ts";
 
 Deno.test({
   name: "companionOnInteraction: L0 tool auto-approved",
@@ -990,7 +715,7 @@ Deno.test({
 
     // Emit a companion event
     emitCompanionEvent({
-      type: "suggestion",
+      type: "message",
       content: "Try running npm install",
       id: "sse-stream-test-1",
       timestamp: new Date().toISOString(),
@@ -1022,16 +747,13 @@ Deno.test({
       }));
       assertEquals(obsResp.status, 201);
 
-      // 2. Manually emit an event (simulating what the loop does after gate+decide)
-      //    Since no LLM is configured, the loop gates everything to SILENT.
-      //    So we simulate the decision outcome directly.
+      // 2. Manually emit an event (simulating what the loop does)
       const eventId = "e2e-roundtrip-1";
       emitCompanionEvent({
         type: "action_request",
         content: "Fix lint error?",
         id: eventId,
         timestamp: new Date().toISOString(),
-        actions: [{ id: "fix-1", label: "Fix", description: "eslint --fix", requiresApproval: true }],
       });
 
       // 3. Subscribe to SSE and verify event was delivered
@@ -1176,45 +898,6 @@ Deno.test("Redact: numbers, booleans, null preserved unchanged", () => {
   assertEquals(redacted.data.nothing, null);
 });
 
-// --- Decision: edge cases ---
-
-Deno.test("Decision: case-insensitive type parsing", () => {
-  const result = parseDecisionResponse('{"type": "chat", "message": "hello"}');
-  assertEquals(result.type, "CHAT");
-  assertEquals(result.message, "hello");
-});
-
-Deno.test("Decision: invalid type → SILENT", () => {
-  const result = parseDecisionResponse('{"type": "INVALID", "message": "hello"}');
-  assertEquals(result.type, "SILENT");
-});
-
-Deno.test("Decision: SUGGEST type ignores actions field", () => {
-  const result = validateDecision({
-    type: "SUGGEST",
-    message: "Try this",
-    actions: [{ id: "a1", label: "Do it", description: "cmd", requiresApproval: true }],
-  });
-  assertEquals(result.type, "SUGGEST");
-  assertEquals(result.message, "Try this");
-  // SUGGEST doesn't include actions (only ACT does)
-  assertEquals(result.actions, undefined);
-});
-
-Deno.test("Decision: deeply nested JSON in text extracted", () => {
-  const text = 'Here is my analysis:\n{"type": "SUGGEST", "message": "Run npm test"}\nDone.';
-  const result = parseDecisionResponse(text);
-  assertEquals(result.type, "SUGGEST");
-  assertEquals(result.message, "Run npm test");
-});
-
-Deno.test("Decision: malformed JSON with valid JSON in markdown fences → parsed", () => {
-  const text = 'Let me think about this.\n```json\n{"type": "CHAT", "message": "Check the logs"}\n```\nHere is some extra text with {bad json}';
-  const result = parseDecisionResponse(text);
-  assertEquals(result.type, "CHAT");
-  assertEquals(result.message, "Check the logs");
-});
-
 // --- Redaction: data integrity ---
 
 Deno.test("Redact: original observation not mutated (immutability)", () => {
@@ -1235,36 +918,13 @@ Deno.test("Redact: original observation not mutated (immutability)", () => {
   assertEquals(redacted.data !== original.data, true);
 });
 
-// --- Gate: LLM receives observation data, not just context summary ---
-
-Deno.test("Gate: LLM prompt includes observation data", async () => {
-  const ctx = new CompanionContext();
-  ctx.addBatch([makeObs("app.switch", { appName: "Xcode" })]);
-
-  let capturedPrompt = "";
-  const captureLLM: LLMFunction = async (messages, _signal?) => {
-    capturedPrompt = (messages[1] as { content: string }).content;
-    return { content: "SILENT", toolCalls: [] } as LLMResponse;
-  };
-
-  const batch = [makeObs("check.failed", { error: "Build failed: 3 errors" })];
-  await gateObservations(batch, ctx, captureLLM);
-
-  // Prompt must include BOTH context summary AND observation data
-  assertEquals(capturedPrompt.includes("Xcode"), true);  // from context
-  assertEquals(capturedPrompt.includes("Build failed"), true);  // from observation
-  assertEquals(capturedPrompt.includes("check.failed"), true);  // observation kind
-});
-
 // =====================================================================
-// E2E Pipeline Test
+// E2E Pipeline Tests — Pure Data Pipe
 // =====================================================================
-// Simulates: bus → debounce → redact → context → gate → decide
-// This tests the full pipeline without the loop.ts orchestration
-// (which requires actual SSE/agent infrastructure)
+// Simulates: bus → debounce → redact → context → format → emit
 
 Deno.test({
-  name: "E2E Pipeline: observations flow through bus → debounce → redact → context → gate → decide",
+  name: "E2E Pipeline: observations flow through bus → debounce → redact → context → format",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -1292,29 +952,20 @@ Deno.test({
     ctx.addBatch(redacted);
     assertEquals(ctx.getActiveApp(), "Terminal");
     assertEquals(ctx.getBufferSize(), 2);
-    const prompt = ctx.buildPromptContext();
+    const promptCtx = ctx.buildPromptContext();
+    assertEquals(promptCtx.includes("Terminal"), true);
+
+    // 5. Format — deterministic, no LLM
+    const prompt = formatObservationPrompt(redacted, ctx);
+    assertEquals(prompt.includes("[Companion Observation]"), true);
     assertEquals(prompt.includes("Terminal"), true);
-
-    // 5. Gate — mock LLM that returns NOTIFY for error patterns
-    const gateLLM = mockLLM("NOTIFY user has a file-not-found error");
-    const gate = await gateObservations(redacted, ctx, gateLLM);
-    assertEquals(gate.decision, "NOTIFY");
-    assertEquals(gate.reason.includes("file-not-found"), true);
-
-    // 6. Decide — mock LLM that returns SUGGEST
-    const decideJSON = JSON.stringify({
-      type: "SUGGEST",
-      message: "The file doesn't exist. Check if the path is correct or create the file.",
-    });
-    const decisionLLM = mockLLM(decideJSON);
-    const decision = await makeDecision(redacted, ctx, gate.reason, decisionLLM);
-    assertEquals(decision.type, "SUGGEST");
-    assertEquals(decision.message?.includes("file"), true);
+    assertEquals(prompt.includes("ENOENT"), true);
+    assertEquals(prompt.includes("## Recent Activity"), true);
   },
 });
 
 Deno.test({
-  name: "E2E Pipeline: PII is redacted before reaching gate/decide",
+  name: "E2E Pipeline: PII is redacted before reaching formatted prompt",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -1339,141 +990,63 @@ Deno.test({
     assertEquals(text.includes("sk_live"), false);
     assertEquals(text.includes("[REDACTED"), true);
 
-    // Gate still receives the redacted text (not original)
-    let capturedContent = "";
-    const captureLLM: LLMFunction = async (messages, _signal?) => {
-      capturedContent = (messages[1] as { content: string }).content;
-      return { content: "SILENT", toolCalls: [] };
-    };
-
+    // Formatted prompt must NOT contain original API key
     const ctx = new CompanionContext();
     ctx.addBatch(redacted);
-    await gateObservations(redacted, ctx, captureLLM);
-
-    // The LLM prompt must NOT contain the original API key
-    assertEquals(capturedContent.includes("sk_live"), false);
-    assertEquals(capturedContent.includes("[REDACTED"), true);
-  },
-});
-
-Deno.test({
-  name: "E2E Pipeline: ACT decision with actions validates correctly",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const bus = new ObservationBus();
-    bus.append(makeObs("check.failed", { error: "3 lint errors in main.ts" }));
-    bus.close();
-
-    const batches: Observation[][] = [];
-    for await (const batch of debounceObservations(bus, 50)) {
-      batches.push(batch);
-    }
-
-    const redacted = batches[0].map(redactObservation);
-    const ctx = new CompanionContext();
-    ctx.addBatch(redacted);
-
-    // Gate: NOTIFY
-    const gate = await gateObservations(redacted, ctx, mockLLM("NOTIFY lint check failed"));
-    assertEquals(gate.decision, "NOTIFY");
-
-    // Decide: ACT with actions
-    const actJSON = JSON.stringify({
-      type: "ACT",
-      message: "I can fix those lint errors for you",
-      actions: [
-        { id: "fix-lint", label: "Fix lint", description: "Run eslint --fix on main.ts", requiresApproval: true },
-      ],
-    });
-    const decision = await makeDecision(redacted, ctx, gate.reason, mockLLM(actJSON));
-    assertEquals(decision.type, "ACT");
-    assertEquals(decision.actions?.length, 1);
-    assertEquals(decision.actions?.[0].id, "fix-lint");
-    assertEquals(decision.actions?.[0].requiresApproval, true);
+    const prompt = formatObservationPrompt(redacted, ctx);
+    assertEquals(prompt.includes("sk_live"), false);
+    assertEquals(prompt.includes("[REDACTED"), true);
   },
 });
 
 // =====================================================================
 // runCompanionLoop Integration Tests — direct loop branch coverage
 // =====================================================================
-// Exercises the ACTUAL runCompanionLoop function (loop.ts:200) with
-// mock LLMs injected via setAgentEngine(). Tests the branches that
-// unit tests cannot reach:
-// - CHAT emit dispatch (loop.ts:292-298)
-// - Gate SILENT skip (loop.ts:246-249)
-// - ASK_VISION → handleVisionFlow (loop.ts:288-291 → 175-197)
-// - ACT → handleActFlow denial (loop.ts:282-287 → 115-135)
 
 import { runCompanionLoop } from "../../../src/hlvm/companion/loop.ts";
-import { setAgentEngine, resetAgentEngine } from "../../../src/hlvm/agent/engine.ts";
-import type { AgentLLMConfig } from "../../../src/hlvm/agent/engine.ts";
 import { DEFAULT_COMPANION_CONFIG } from "../../../src/hlvm/companion/types.ts";
 
-/** Mock engine returning predetermined gate/decision LLM responses. */
-function createMockEngine(gateResponse: string, decideResponse: string) {
-  return {
-    createLLM(config: AgentLLMConfig) {
-      // Gate LLM is created with maxTokens=100, decision with maxTokens=1000
-      const isGate = config.options?.maxTokens === 100;
-      const response = isGate ? gateResponse : decideResponse;
-      return async () => ({ content: response, toolCalls: [] });
-    },
-    createSummarizer() {
-      return async () => "";
-    },
-  };
-}
-
 Deno.test({
-  name: "Loop integration: CHAT decision emits 'message' SSE event via runCompanionLoop",
+  name: "Loop integration: observation prompt emitted as 'message' SSE event",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     clearSessionBuffer(COMPANION_CHANNEL);
-    setAgentEngine(createMockEngine(
-      "NOTIFY user has an error",
-      JSON.stringify({ type: "CHAT", message: "That looks like a file-not-found error." }),
-    ));
 
-    try {
-      const bus = new ObservationBus();
-      const ctx = new CompanionContext();
-      const config = {
-        ...DEFAULT_COMPANION_CONFIG,
-        enabled: true,
-        gateModel: "mock-gate",
-        decisionModel: "mock-decide",
-        debounceWindowMs: 10,
-        quietWhileTypingMs: 0,
-      };
-      const ac = new AbortController();
-      const captured: { event_type: string; data: unknown }[] = [];
-      const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
+    const bus = new ObservationBus();
+    const ctx = new CompanionContext();
+    const config = {
+      ...DEFAULT_COMPANION_CONFIG,
+      enabled: true,
+      debounceWindowMs: 10,
+      quietWhileTypingMs: 0,
+    };
+    const ac = new AbortController();
+    const captured: { event_type: string; data: unknown }[] = [];
+    const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
 
-      bus.append(makeObs("check.failed", { error: "ENOENT" }));
-      bus.close();
+    bus.append(makeObs("check.failed", { error: "ENOENT" }));
+    bus.close();
 
-      await runCompanionLoop(bus, config, ctx, ac.signal);
+    await runCompanionLoop(bus, config, ctx, ac.signal);
 
-      const messageEvents = captured.filter(
-        (e) => (e.data as { type: string }).type === "message",
-      );
-      assertEquals(messageEvents.length, 1);
-      assertEquals(
-        ((messageEvents[0].data as { content: string }).content).includes("file-not-found"),
-        true,
-      );
+    const messageEvents = captured.filter(
+      (e) => (e.data as { type: string }).type === "message",
+    );
+    assertEquals(messageEvents.length, 1);
+    const content = (messageEvents[0].data as { content: string }).content;
+    // Should contain formatted observation prompt structure
+    assertEquals(content.includes("[Companion Observation]"), true);
+    assertEquals(content.includes("## Recent Activity"), true);
+    assertEquals(content.includes("check.failed"), true);
+    assertEquals(content.includes("ENOENT"), true);
 
-      unsub();
-    } finally {
-      resetAgentEngine();
-    }
+    unsub();
   },
 });
 
 Deno.test({
-  name: "Loop integration: debugAlwaysReact emits message for every batch without LLMs",
+  name: "Loop integration: debugAlwaysReact emits debug message for every batch",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -1512,216 +1085,42 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Loop integration: gate SILENT → no companion events emitted",
+  name: "Loop integration: DND skip — second batch skipped when user recently active",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     clearSessionBuffer(COMPANION_CHANNEL);
-    setAgentEngine(createMockEngine("SILENT", '{"type":"SILENT"}'));
 
-    try {
-      const bus = new ObservationBus();
-      const ctx = new CompanionContext();
-      const config = {
-        ...DEFAULT_COMPANION_CONFIG,
-        enabled: true,
-        gateModel: "mock-gate",
-        decisionModel: "mock-decide",
-        debounceWindowMs: 10,
-        quietWhileTypingMs: 0,
-      };
-      const ac = new AbortController();
-      const captured: unknown[] = [];
-      const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
+    const bus = new ObservationBus();
+    const ctx = new CompanionContext();
+    const config = {
+      ...DEFAULT_COMPANION_CONFIG,
+      enabled: true,
+      debounceWindowMs: 30,
+      // High quietWhileTypingMs → second batch will be DND-skipped
+      quietWhileTypingMs: 30_000,
+    };
+    const ac = new AbortController();
+    const captured: { event_type: string; data: unknown }[] = [];
+    const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
 
-      bus.append(makeObs("custom", { n: 1 }));
-      bus.close();
+    // First batch: no typing signal → lastTypingActivityTs=0 → isActive=false → processes
+    bus.append(makeObs("check.failed", { error: "err1" }));
+    // Typing signal after first batch → sets lastTypingActivityTs to ~now
+    setTimeout(() => bus.append(makeObs("ui.selection.changed", {})), 80);
+    // Second batch: lastTypingActivityTs recent → isActive=true → DND-skipped
+    setTimeout(() => bus.append(makeObs("check.failed", { error: "err2" })), 150);
+    setTimeout(() => bus.close(), 300);
 
-      await runCompanionLoop(bus, config, ctx, ac.signal);
+    await runCompanionLoop(bus, config, ctx, ac.signal);
 
-      assertEquals(captured.length, 0);
+    // Only 1 message event from first batch — second was DND-skipped
+    const messageEvents = captured.filter(
+      (e) => (e.data as { type: string }).type === "message",
+    );
+    assertEquals(messageEvents.length, 1);
 
-      unsub();
-    } finally {
-      resetAgentEngine();
-    }
-  },
-});
-
-Deno.test({
-  name: "Loop integration: ASK_VISION → approval → capture_request via handleVisionFlow",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    clearSessionBuffer(COMPANION_CHANNEL);
-    setAgentEngine(createMockEngine(
-      "NOTIFY user needs visual help",
-      JSON.stringify({ type: "ASK_VISION", message: "Let me see your screen" }),
-    ));
-
-    try {
-      const bus = new ObservationBus();
-      const ctx = new CompanionContext();
-      const config = {
-        ...DEFAULT_COMPANION_CONFIG,
-        enabled: true,
-        gateModel: "mock-gate",
-        decisionModel: "mock-decide",
-        debounceWindowMs: 10,
-        quietWhileTypingMs: 0,
-      };
-      const ac = new AbortController();
-      const captured: { event_type: string; data: unknown }[] = [];
-
-      // Auto-approve vision_request when it arrives via SSE
-      const unsub = subscribe(COMPANION_CHANNEL, (e) => {
-        captured.push(e);
-        const data = e.data as { type: string; id: string };
-        if (data.type === "vision_request") {
-          setTimeout(() => resolveApproval({ eventId: data.id, approved: true }), 5);
-        }
-      });
-
-      bus.append(makeObs("custom", { help: "layout broken" }));
-      bus.close();
-
-      await runCompanionLoop(bus, config, ctx, ac.signal);
-
-      const types = captured.map((e) => (e.data as { type: string }).type);
-      assertEquals(types.includes("vision_request"), true);
-      assertEquals(types.includes("capture_request"), true);
-
-      unsub();
-    } finally {
-      resetAgentEngine();
-    }
-  },
-});
-
-Deno.test({
-  name: "Loop integration: ACT → denial → action_cancelled via handleActFlow",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    clearSessionBuffer(COMPANION_CHANNEL);
-    setAgentEngine(createMockEngine(
-      "NOTIFY lint check failed",
-      JSON.stringify({
-        type: "ACT",
-        message: "I can fix the lint errors",
-        actions: [{ id: "fix-1", label: "Fix lint", description: "eslint --fix", requiresApproval: true }],
-      }),
-    ));
-
-    try {
-      const bus = new ObservationBus();
-      const ctx = new CompanionContext();
-      const config = {
-        ...DEFAULT_COMPANION_CONFIG,
-        enabled: true,
-        gateModel: "mock-gate",
-        decisionModel: "mock-decide",
-        debounceWindowMs: 10,
-        quietWhileTypingMs: 0,
-      };
-      const ac = new AbortController();
-      const captured: { event_type: string; data: unknown }[] = [];
-
-      // Auto-deny action_request when it arrives via SSE
-      const unsub = subscribe(COMPANION_CHANNEL, (e) => {
-        captured.push(e);
-        const data = e.data as { type: string; id: string };
-        if (data.type === "action_request") {
-          setTimeout(() => resolveApproval({ eventId: data.id, approved: false }), 5);
-        }
-      });
-
-      bus.append(makeObs("check.failed", { error: "3 lint errors" }));
-      bus.close();
-
-      await runCompanionLoop(bus, config, ctx, ac.signal);
-
-      const types = captured.map((e) => (e.data as { type: string }).type);
-      assertEquals(types.includes("action_request"), true);
-      assertEquals(types.includes("action_cancelled"), true);
-
-      // Verify the cancellation message references denial
-      const cancelEvent = captured.find(
-        (e) => (e.data as { type: string }).type === "action_cancelled",
-      );
-      assertEquals(
-        ((cancelEvent!.data as { content: string }).content).includes("denied"),
-        true,
-      );
-
-      unsub();
-    } finally {
-      resetAgentEngine();
-    }
-  },
-});
-
-// --- Additional loop branch tests ---
-// ASK_VISION denial, ACT timeout/no-action, rate limit
-
-import { handleActFlow, handleVisionFlow } from "../../../src/hlvm/companion/loop.ts";
-import type { CompanionConfig } from "../../../src/hlvm/companion/types.ts";
-
-Deno.test({
-  name: "Loop integration: ASK_VISION → denial → action_cancelled via runCompanionLoop",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    clearSessionBuffer(COMPANION_CHANNEL);
-    setAgentEngine(createMockEngine(
-      "NOTIFY user needs help",
-      JSON.stringify({ type: "ASK_VISION", message: "Let me see your screen" }),
-    ));
-
-    try {
-      const bus = new ObservationBus();
-      const ctx = new CompanionContext();
-      const config = {
-        ...DEFAULT_COMPANION_CONFIG,
-        enabled: true,
-        gateModel: "mock-gate",
-        decisionModel: "mock-decide",
-        debounceWindowMs: 10,
-        quietWhileTypingMs: 0,
-      };
-      const ac = new AbortController();
-      const captured: { event_type: string; data: unknown }[] = [];
-
-      // Auto-DENY vision_request
-      const unsub = subscribe(COMPANION_CHANNEL, (e) => {
-        captured.push(e);
-        const data = e.data as { type: string; id: string };
-        if (data.type === "vision_request") {
-          setTimeout(() => resolveApproval({ eventId: data.id, approved: false }), 5);
-        }
-      });
-
-      bus.append(makeObs("custom", { help: "need visual" }));
-      bus.close();
-
-      await runCompanionLoop(bus, config, ctx, ac.signal);
-
-      const types = captured.map((e) => (e.data as { type: string }).type);
-      assertEquals(types.includes("vision_request"), true);
-      assertEquals(types.includes("action_cancelled"), true);
-
-      const cancelEvent = captured.find(
-        (e) => (e.data as { type: string }).type === "action_cancelled",
-      );
-      assertEquals(
-        ((cancelEvent!.data as { content: string }).content).includes("denied"),
-        true,
-      );
-
-      unsub();
-    } finally {
-      resetAgentEngine();
-    }
+    unsub();
   },
 });
 
@@ -1731,390 +1130,39 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     clearSessionBuffer(COMPANION_CHANNEL);
-    setAgentEngine(createMockEngine(
-      "NOTIFY reason",
-      JSON.stringify({ type: "CHAT", message: "response" }),
-    ));
 
-    try {
-      const bus = new ObservationBus();
-      const ctx = new CompanionContext();
-      const config = {
-        ...DEFAULT_COMPANION_CONFIG,
-        enabled: true,
-        gateModel: "mock-gate",
-        decisionModel: "mock-decide",
-        debounceWindowMs: 30,
-        quietWhileTypingMs: 0,
-        maxNotifyPerMinute: 2,
-      };
-      const ac = new AbortController();
-      const captured: { event_type: string; data: unknown }[] = [];
-      const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
-
-      // Push 3 observations with gaps > debounce window to create 3 separate batches
-      bus.append(makeObs("check.failed", { error: "error 1" }));
-      setTimeout(() => bus.append(makeObs("check.failed", { error: "error 2" })), 100);
-      setTimeout(() => bus.append(makeObs("check.failed", { error: "error 3" })), 200);
-      setTimeout(() => bus.close(), 350);
-
-      await runCompanionLoop(bus, config, ctx, ac.signal);
-
-      // Only 2 events should be emitted (3rd is rate-limited)
-      const messageEvents = captured.filter(
-        (e) => (e.data as { type: string }).type === "message",
-      );
-      assertEquals(messageEvents.length, 2);
-
-      unsub();
-    } finally {
-      resetAgentEngine();
-    }
-  },
-});
-
-Deno.test({
-  name: "handleVisionFlow: abort signal → action_cancelled",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    clearSessionBuffer(COMPANION_CHANNEL);
-    const captured: { event_type: string; data: unknown }[] = [];
-    const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
-
+    const bus = new ObservationBus();
     const ctx = new CompanionContext();
-    const ac = new AbortController();
-    const event: CompanionEvent = {
-      type: "vision_request",
-      content: "Let me see",
-      id: "vision-abort-test",
-      timestamp: new Date().toISOString(),
-    };
-
-    // Abort quickly to trigger the catch branch
-    setTimeout(() => ac.abort(), 20);
-
-    await handleVisionFlow(event, ctx, ac.signal);
-
-    const types = captured.map((e) => (e.data as { type: string }).type);
-    assertEquals(types.includes("action_cancelled"), true);
-
-    const cancelEvent = captured.find(
-      (e) => (e.data as { type: string }).type === "action_cancelled",
-    );
-    assertEquals(
-      ((cancelEvent!.data as { content: string }).content).includes("timed out or was cancelled"),
-      true,
-    );
-
-    unsub();
-  },
-});
-
-Deno.test({
-  name: "handleActFlow: no action found after approval → action_cancelled",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    clearSessionBuffer(COMPANION_CHANNEL);
-    const captured: { event_type: string; data: unknown }[] = [];
-    const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
-
-    const ctx = new CompanionContext();
-    const ac = new AbortController();
-    const event: CompanionEvent = {
-      type: "action_request",
-      content: "I can fix it",
-      id: "act-no-action-test",
-      timestamp: new Date().toISOString(),
-    };
-    // Decision with NO actions — defensive guard path
-    const decision = { type: "ACT" as const, message: "I can fix it", actions: [] };
-    const config: CompanionConfig = {
+    const config = {
       ...DEFAULT_COMPANION_CONFIG,
       enabled: true,
-      decisionModel: "mock-decide",
+      debounceWindowMs: 30,
+      quietWhileTypingMs: 0,
+      maxNotifyPerMinute: 2,
     };
-
-    // Pre-schedule approval
-    setTimeout(() => resolveApproval({ eventId: "act-no-action-test", approved: true }), 5);
-
-    await handleActFlow(event, decision, ctx, config, ac.signal);
-
-    const types = captured.map((e) => (e.data as { type: string }).type);
-    assertEquals(types.includes("action_cancelled"), true);
-
-    const cancelEvent = captured.find(
-      (e) => (e.data as { type: string }).type === "action_cancelled",
-    );
-    assertEquals(
-      ((cancelEvent!.data as { content: string }).content).includes("No action found"),
-      true,
-    );
-
-    unsub();
-  },
-});
-
-Deno.test({
-  name: "handleActFlow: approval timeout → action_cancelled",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    clearSessionBuffer(COMPANION_CHANNEL);
+    const ac = new AbortController();
     const captured: { event_type: string; data: unknown }[] = [];
     const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
 
-    const ctx = new CompanionContext();
-    const ac = new AbortController();
-    const event: CompanionEvent = {
-      type: "action_request",
-      content: "Fix it",
-      id: "act-timeout-test",
-      timestamp: new Date().toISOString(),
-    };
-    const decision = {
-      type: "ACT" as const,
-      message: "Fix it",
-      actions: [{ id: "fix-1", label: "Fix", description: "fix", requiresApproval: true }],
-    };
-    const config: CompanionConfig = {
-      ...DEFAULT_COMPANION_CONFIG,
-      enabled: true,
-      decisionModel: "mock-decide",
-    };
+    // Push 3 observations with gaps > debounce window to create 3 separate batches
+    bus.append(makeObs("check.failed", { error: "error 1" }));
+    setTimeout(() => bus.append(makeObs("check.failed", { error: "error 2" })), 100);
+    setTimeout(() => bus.append(makeObs("check.failed", { error: "error 3" })), 200);
+    setTimeout(() => bus.close(), 350);
 
-    // Abort quickly to trigger the catch branch in handleActFlow
-    setTimeout(() => ac.abort(), 20);
+    await runCompanionLoop(bus, config, ctx, ac.signal);
 
-    await handleActFlow(event, decision, ctx, config, ac.signal);
-
-    const types = captured.map((e) => (e.data as { type: string }).type);
-    assertEquals(types.includes("action_cancelled"), true);
-
-    const cancelEvent = captured.find(
-      (e) => (e.data as { type: string }).type === "action_cancelled",
+    // Only 2 events should be emitted (3rd is rate-limited)
+    const messageEvents = captured.filter(
+      (e) => (e.data as { type: string }).type === "message",
     );
-    assertEquals(
-      ((cancelEvent!.data as { content: string }).content).includes("timed out or was cancelled"),
-      true,
-    );
+    assertEquals(messageEvents.length, 2);
 
     unsub();
   },
 });
 
-// =====================================================================
-// Additional branch coverage tests
-// =====================================================================
-// Target: uncovered blocks at lines 73, 87-false, 90-ternary, 138,
-// 145, 159/160, 240, 296
-
-Deno.test({
-  name: "Loop integration: DND skip — second batch skipped when user recently active",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    clearSessionBuffer(COMPANION_CHANNEL);
-    setAgentEngine(createMockEngine(
-      "NOTIFY reason",
-      JSON.stringify({ type: "CHAT", message: "help" }),
-    ));
-
-    try {
-      const bus = new ObservationBus();
-      const ctx = new CompanionContext();
-      const config = {
-        ...DEFAULT_COMPANION_CONFIG,
-        enabled: true,
-        gateModel: "mock-gate",
-        decisionModel: "mock-decide",
-        debounceWindowMs: 30,
-        // High quietWhileTypingMs → second batch will be DND-skipped
-        quietWhileTypingMs: 30_000,
-      };
-      const ac = new AbortController();
-      const captured: { event_type: string; data: unknown }[] = [];
-      const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
-
-      // First batch: isUserActive(30000) → false (lastActivityTs=0) → processes
-      // addBatch() updates lastActivityTs to ~now
-      bus.append(makeObs("check.failed", { error: "err1" }));
-      // Second batch after debounce gap: isUserActive(30000) → true (< 30s since first) → skipped
-      setTimeout(() => bus.append(makeObs("check.failed", { error: "err2" })), 150);
-      setTimeout(() => bus.close(), 300);
-
-      await runCompanionLoop(bus, config, ctx, ac.signal);
-
-      // Only 1 message event from first batch — second was DND-skipped
-      const messageEvents = captured.filter(
-        (e) => (e.data as { type: string }).type === "message",
-      );
-      assertEquals(messageEvents.length, 1);
-
-      unsub();
-    } finally {
-      resetAgentEngine();
-    }
-  },
-});
-
-Deno.test({
-  name: "Loop integration: createCompanionLLM error → graceful degradation (gate SILENT)",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    clearSessionBuffer(COMPANION_CHANNEL);
-    // Mock engine where createLLM throws — hits catch at line 73
-    setAgentEngine({
-      createLLM() {
-        throw new Error("LLM creation failed");
-      },
-      createSummarizer() {
-        return async () => "";
-      },
-    });
-
-    try {
-      const bus = new ObservationBus();
-      const ctx = new CompanionContext();
-      const config = {
-        ...DEFAULT_COMPANION_CONFIG,
-        enabled: true,
-        gateModel: "mock-gate",
-        decisionModel: "mock-decide",
-        debounceWindowMs: 10,
-        quietWhileTypingMs: 0,
-      };
-      const ac = new AbortController();
-      const captured: unknown[] = [];
-      const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
-
-      bus.append(makeObs("check.failed", { error: "build error" }));
-      bus.close();
-
-      await runCompanionLoop(bus, config, ctx, ac.signal);
-
-      // Both LLMs are undefined → gate returns SILENT → no events
-      assertEquals(captured.length, 0);
-
-      unsub();
-    } finally {
-      resetAgentEngine();
-    }
-  },
-});
-
-Deno.test({
-  name: "Loop integration: SUGGEST decision → 'suggestion' SSE event type",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    clearSessionBuffer(COMPANION_CHANNEL);
-    setAgentEngine(createMockEngine(
-      "NOTIFY user might benefit from suggestion",
-      JSON.stringify({ type: "SUGGEST", message: "Try running deno fmt" }),
-    ));
-
-    try {
-      const bus = new ObservationBus();
-      const ctx = new CompanionContext();
-      const config = {
-        ...DEFAULT_COMPANION_CONFIG,
-        enabled: true,
-        gateModel: "mock-gate",
-        decisionModel: "mock-decide",
-        debounceWindowMs: 10,
-        quietWhileTypingMs: 0,
-      };
-      const ac = new AbortController();
-      const captured: { event_type: string; data: unknown }[] = [];
-      const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
-
-      bus.append(makeObs("check.failed", { error: "formatting issues" }));
-      bus.close();
-
-      await runCompanionLoop(bus, config, ctx, ac.signal);
-
-      // SUGGEST maps to "suggestion" (not "message") at line 296
-      const suggestionEvents = captured.filter(
-        (e) => (e.data as { type: string }).type === "suggestion",
-      );
-      assertEquals(suggestionEvents.length, 1);
-      assertEquals(
-        ((suggestionEvents[0].data as { content: string }).content).includes("deno fmt"),
-        true,
-      );
-
-      unsub();
-    } finally {
-      resetAgentEngine();
-    }
-  },
-});
-
-Deno.test({
-  name: "handleActFlow: approved with matching actionId → runAgentQuery executes",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    clearSessionBuffer(COMPANION_CHANNEL);
-    // Set mock engine so runAgentQuery can attempt to run
-    setAgentEngine(createMockEngine("", "done"));
-
-    try {
-      const captured: { event_type: string; data: unknown }[] = [];
-      const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
-
-      const ctx = new CompanionContext();
-      const ac = new AbortController();
-      const event: CompanionEvent = {
-        type: "action_request",
-        content: "Fix lint errors",
-        id: "act-id-match-test",
-        timestamp: new Date().toISOString(),
-      };
-      const decision = {
-        type: "ACT" as const,
-        message: "Fix lint",
-        actions: [
-          { id: "fix-1", label: "Fix A", description: "fix file A", requiresApproval: true },
-          { id: "fix-2", label: "Fix B", description: "fix file B", requiresApproval: true },
-        ],
-      };
-      const config: CompanionConfig = {
-        ...DEFAULT_COMPANION_CONFIG,
-        enabled: true,
-        decisionModel: "mock-decide",
-      };
-
-      // Approve with specific actionId "fix-2" → tests find(a => a.id === actionId) at line 138
-      setTimeout(() => resolveApproval({
-        eventId: "act-id-match-test",
-        approved: true,
-        actionId: "fix-2",
-      }), 5);
-
-      // Safety abort — if runAgentQuery hangs
-      setTimeout(() => ac.abort(), 5_000);
-
-      await handleActFlow(event, decision, ctx, config, ac.signal);
-
-      // Should have action_result (success or Error:) or action_cancelled (abort)
-      // but NOT "No action found" — the actionId matched fix-2
-      const hasNoAction = captured.some(
-        (e) => ((e.data as { content: string }).content || "").includes("No action found"),
-      );
-      assertEquals(hasNoAction, false);
-      // Must have emitted something (action_result or action_cancelled)
-      assertGreater(captured.length, 0);
-
-      unsub();
-    } finally {
-      resetAgentEngine();
-    }
-  },
-});
+// --- companionOnInteraction edge cases ---
 
 Deno.test({
   name: "companionOnInteraction: no toolName → routes through SSE approval",
@@ -2314,5 +1362,216 @@ Deno.test({
 
     reader.releaseLock();
     await resp.body?.cancel();
+  },
+});
+
+// =====================================================================
+// True E2E: startCompanion → HTTP POST observe → loop → SSE delivery
+// =====================================================================
+// Tests the ACTUAL production path: Swift POSTs observation via HTTP,
+// the loop processes it, and the formatted observation prompt arrives
+// on the SSE stream. No manual emitCompanionEvent() — the loop does it.
+
+Deno.test({
+  name: "True E2E: POST /observe → loop processes → formatted prompt arrives on SSE stream",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    if (isCompanionRunning()) stopCompanion();
+    clearSessionBuffer(COMPANION_CHANNEL);
+
+    // Start companion with short debounce and DND disabled
+    startCompanion({
+      debounceWindowMs: 50,
+      quietWhileTypingMs: 0,
+    });
+
+    try {
+      // Subscribe to SSE to capture events from the loop
+      const captured: { event_type: string; data: unknown }[] = [];
+      const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
+
+      // POST a real observation via HTTP handler (this is what Swift does)
+      const resp = await handleCompanionObserve(jsonRequest({
+        kind: "check.failed",
+        timestamp: new Date().toISOString(),
+        source: "xcode-build",
+        data: { error: "Build failed: 3 errors in main.swift" },
+      }));
+      assertEquals(resp.status, 201);
+
+      // Wait for debounce window + processing time
+      // debounce=50ms + buffer for loop iteration
+      await new Promise((r) => setTimeout(r, 300));
+
+      // The loop should have emitted a formatted observation prompt
+      const messageEvents = captured.filter(
+        (e) => (e.data as { type: string }).type === "message",
+      );
+      assertEquals(messageEvents.length >= 1, true, "Expected at least 1 message event from the loop");
+
+      const content = (messageEvents[0].data as { content: string }).content;
+
+      // Verify it's a properly formatted observation prompt (not debug text, not LLM summary)
+      assertEquals(content.includes("[Companion Observation]"), true, "Should have observation header");
+      assertEquals(content.includes("## Recent Activity"), true, "Should have activity section");
+      assertEquals(content.includes("check.failed"), true, "Should include observation kind");
+      assertEquals(content.includes("Build failed"), true, "Should include observation data");
+      assertEquals(content.includes("xcode-build"), true, "Should include observation source");
+
+      unsub();
+    } finally {
+      stopCompanion();
+    }
+  },
+});
+
+Deno.test({
+  name: "True E2E: POST /observe with PII → loop redacts before SSE delivery",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    if (isCompanionRunning()) stopCompanion();
+    clearSessionBuffer(COMPANION_CHANNEL);
+
+    startCompanion({
+      debounceWindowMs: 50,
+      quietWhileTypingMs: 0,
+    });
+
+    try {
+      const captured: { event_type: string; data: unknown }[] = [];
+      const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
+
+      // POST observation containing an API key
+      const resp = await handleCompanionObserve(jsonRequest({
+        kind: "clipboard.changed",
+        timestamp: new Date().toISOString(),
+        source: "pasteboard",
+        data: { text: "export API_KEY=sk_live_abc123def456ghi789jklmnop" },
+      }));
+      assertEquals(resp.status, 201);
+
+      await new Promise((r) => setTimeout(r, 300));
+
+      const messageEvents = captured.filter(
+        (e) => (e.data as { type: string }).type === "message",
+      );
+      assertEquals(messageEvents.length >= 1, true, "Expected message event");
+
+      const content = (messageEvents[0].data as { content: string }).content;
+
+      // PII must be redacted in the SSE-delivered prompt
+      assertEquals(content.includes("sk_live"), false, "API key must be redacted");
+      assertEquals(content.includes("[REDACTED"), true, "Should have redaction marker");
+      assertEquals(content.includes("[Companion Observation]"), true, "Should still be formatted");
+
+      unsub();
+    } finally {
+      stopCompanion();
+    }
+  },
+});
+
+Deno.test({
+  name: "True E2E: POST /observe during DND → no SSE event emitted",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    if (isCompanionRunning()) stopCompanion();
+    clearSessionBuffer(COMPANION_CHANNEL);
+
+    startCompanion({
+      debounceWindowMs: 50,
+      quietWhileTypingMs: 30_000, // very long DND
+    });
+
+    try {
+      const captured: { event_type: string; data: unknown }[] = [];
+      const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
+
+      // First: send a typing signal to activate DND
+      await handleCompanionObserve(jsonRequest({
+        kind: "ui.selection.changed",
+        timestamp: new Date().toISOString(),
+        source: "test",
+        data: {},
+      }));
+
+      // Wait for first batch to process
+      await new Promise((r) => setTimeout(r, 150));
+
+      // Now send the real observation — should be DND-skipped
+      await handleCompanionObserve(jsonRequest({
+        kind: "check.failed",
+        timestamp: new Date().toISOString(),
+        source: "test",
+        data: { error: "should not appear" },
+      }));
+
+      await new Promise((r) => setTimeout(r, 300));
+
+      // The check.failed observation should NOT have produced a message event
+      // (the first batch with ui.selection.changed will produce one since DND wasn't active yet)
+      const messageEvents = captured.filter(
+        (e) => {
+          const data = e.data as { type: string; content: string };
+          return data.type === "message" && data.content.includes("should not appear");
+        },
+      );
+      assertEquals(messageEvents.length, 0, "DND should suppress the second observation");
+
+      unsub();
+    } finally {
+      stopCompanion();
+    }
+  },
+});
+
+Deno.test({
+  name: "True E2E: SSE stream delivers formatted prompt to ReadableStream client",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    if (isCompanionRunning()) stopCompanion();
+    clearSessionBuffer(COMPANION_CHANNEL);
+
+    startCompanion({
+      debounceWindowMs: 50,
+      quietWhileTypingMs: 0,
+    });
+
+    try {
+      // Open SSE stream (this is what Swift's EventSource does)
+      const req = new Request("http://localhost/api/companion/stream");
+      const resp = handleCompanionStream(req);
+      const reader = resp.body!.getReader();
+
+      // Consume initial status_change sync event
+      await readSSEUntil(reader, (t) => t.includes("comp-init-"));
+
+      // POST observation via HTTP
+      await handleCompanionObserve(jsonRequest({
+        kind: "terminal.result",
+        timestamp: new Date().toISOString(),
+        source: "terminal",
+        data: { output: "npm test: 42 passed, 3 failed" },
+      }));
+
+      // Read from SSE stream until the formatted prompt arrives
+      const eventText = await readSSEUntil(reader, (t) =>
+        t.includes("[Companion Observation]") && t.includes("terminal.result")
+      );
+
+      // Verify the SSE payload contains the full formatted prompt
+      assertEquals(eventText.includes("companion_event"), true, "Should be a companion_event");
+      assertEquals(eventText.includes("## Recent Activity"), true, "Should have activity section");
+      assertEquals(eventText.includes("42 passed"), true, "Should include terminal output");
+
+      reader.releaseLock();
+      await resp.body?.cancel();
+    } finally {
+      stopCompanion();
+    }
   },
 });

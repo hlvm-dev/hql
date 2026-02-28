@@ -27,49 +27,17 @@ export interface Observation {
   data: Record<string, unknown>;
 }
 
-export interface GateResult {
-  decision: "SILENT" | "NOTIFY";
-  reason: string;
-}
-
-// --- Decision engine ---
-
-export type CompanionDecisionType =
-  | "SILENT"
-  | "CHAT"
-  | "SUGGEST"
-  | "ACT"
-  | "ASK_VISION";
-
-export interface CompanionDecision {
-  type: CompanionDecisionType;
-  message?: string;
-  actions?: CompanionAction[];
-}
-
-export interface CompanionAction {
-  id: string;
-  label: string;
-  description: string;
-  requiresApproval: boolean;
-}
-
 // --- Events (SSE to client) ---
 
 export type CompanionEventType =
   | "message"
-  | "suggestion"
   | "action_request"
-  | "vision_request"
-  | "capture_request"
-  | "action_result"
   | "action_cancelled"
   | "status_change";
 
 export interface CompanionEvent {
   type: CompanionEventType;
   content: string;
-  actions?: CompanionAction[];
   timestamp: string;
   id: string;
 }
@@ -87,8 +55,6 @@ export interface CompanionResponse {
 export type CompanionState =
   | "idle"
   | "observing"
-  | "thinking"
-  | "acting"
   | "paused";
 
 export interface CompanionConfig {
@@ -97,8 +63,6 @@ export interface CompanionConfig {
   maxBufferSize: number;
   quietWhileTypingMs: number;
   maxNotifyPerMinute: number;
-  gateModel?: string;
-  decisionModel?: string;
   debugAlwaysReact?: boolean;
 }
 

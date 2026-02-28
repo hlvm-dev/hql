@@ -1,29 +1,22 @@
 /**
  * Companion Agent — Main Pipeline Loop
  *
- * Drives: bus → debounce → redact → context → gate → decide → SSE emit.
- * ACT decisions are executed via the agent runner with SSE-based approval.
- * ASK_VISION requests screenshots via the observe pipeline.
+ * Pure data pipe: bus → debounce → redact → context → format → SSE emit.
+ * Zero LLM calls. The main agent receives raw observations and decides everything.
  */
 
 import type {
   CompanionConfig,
-  CompanionDecision,
   CompanionEvent,
 } from "./types.ts";
 import type { ObservationBus } from "./bus.ts";
 import type { CompanionContext } from "./context.ts";
-import type { LLMFunction } from "../agent/orchestrator-llm.ts";
 import type { InteractionRequestEvent, InteractionResponse } from "../agent/registry.ts";
 import { debounceObservations } from "./debounce.ts";
 import { redactObservation } from "./redact.ts";
-import { gateObservations } from "./gate.ts";
-import { makeDecision } from "./decide.ts";
-import { getAgentEngine } from "../agent/engine.ts";
-import { loadMemoryContext } from "../memory/mod.ts";
+import { formatObservationPrompt } from "./format.ts";
 import { pushSSEEvent } from "../store/sse-store.ts";
 import { waitForApproval, clearAllPendingApprovals } from "./approvals.ts";
-import { runAgentQuery } from "../agent/agent-runner.ts";
 import { classifyTool } from "../agent/security/safety.ts";
 import { log } from "../api/log.ts";
 import { traceCompanion } from "./trace.ts";
@@ -37,49 +30,23 @@ export function resetEventSequence(): void {
   eventSeq = 0;
 }
 
-/** Tools the companion agent must never invoke. */
-const COMPANION_TOOL_DENYLIST = [
-  "delegate_agent",
-  "complete_task",
-  "ask_user",
-];
-
 /** Build a companion event with auto-incrementing ID and current timestamp. */
 function makeEvent(
   type: CompanionEvent["type"],
   content: string,
-  extra?: Partial<Pick<CompanionEvent, "actions" | "id">>,
+  extra?: Partial<Pick<CompanionEvent, "id">>,
 ): CompanionEvent {
   return {
     type,
     content,
     id: extra?.id ?? `comp-${++eventSeq}`,
     timestamp: new Date().toISOString(),
-    actions: extra?.actions,
   };
 }
 
 /** Emit a companion event to the SSE channel. */
 export function emitCompanionEvent(event: CompanionEvent): void {
   pushSSEEvent(COMPANION_CHANNEL, "companion_event", event);
-}
-
-/** Create an LLM function for companion use. Returns undefined on failure. */
-function createCompanionLLM(
-  model: string | undefined,
-  options: { temperature: number; maxTokens: number },
-): LLMFunction | undefined {
-  if (!model) return undefined;
-  try {
-    return getAgentEngine().createLLM({
-      model,
-      options,
-      toolDenylist: ["*"],
-    });
-  } catch (err) {
-    log.error("[companion] failed to create LLM", err);
-    return undefined;
-  }
 }
 
 /** Parse tool args defensively; malformed JSON falls back to undefined. */
@@ -128,92 +95,6 @@ export function companionOnInteraction(
   };
 }
 
-/** Execute an approved ACT decision via the agent runner. @internal Exported for testing. */
-export async function handleActFlow(
-  event: CompanionEvent,
-  decision: CompanionDecision,
-  context: CompanionContext,
-  config: CompanionConfig,
-  signal: AbortSignal,
-): Promise<void> {
-  context.setState("acting");
-
-  let approvalResponse;
-  try {
-    approvalResponse = await waitForApproval(event.id, signal);
-  } catch {
-    emitCompanionEvent(makeEvent("action_cancelled", "Action timed out or was cancelled."));
-    return;
-  }
-
-  if (!approvalResponse.approved) {
-    emitCompanionEvent(makeEvent("action_cancelled", "Action denied by user."));
-    return;
-  }
-
-  // Find the approved action (by actionId, fallback to first)
-  const action = decision.actions?.find((a) => a.id === approvalResponse.actionId)
-    ?? decision.actions?.[0];
-  if (!action) {
-    emitCompanionEvent(makeEvent("action_cancelled", "No action found to execute."));
-    return;
-  }
-
-  try {
-    const result = await runAgentQuery({
-      query: action.description,
-      model: config.decisionModel,
-      callbacks: {
-        onInteraction: companionOnInteraction(signal),
-      },
-      permissionMode: "default",
-      toolDenylist: COMPANION_TOOL_DENYLIST,
-      noInput: true,
-      skipSessionHistory: true,
-      signal,
-    });
-
-    emitCompanionEvent(makeEvent("action_result", result.text));
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (signal.aborted || message.includes("abort")) {
-      emitCompanionEvent(makeEvent("action_cancelled", "Action was cancelled."));
-    } else {
-      emitCompanionEvent(makeEvent("action_result", `Error: ${message}`));
-    }
-  }
-}
-
-/**
- * Handle ASK_VISION: request screenshot consent, then emit capture_request.
- * The screenshot arrives as a screen.captured Observation through the bus —
- * the next loop iteration picks it up naturally.
- * @internal Exported for testing.
- */
-export async function handleVisionFlow(
-  event: CompanionEvent,
-  context: CompanionContext,
-  signal: AbortSignal,
-): Promise<void> {
-  context.setState("acting");
-
-  let approvalResponse;
-  try {
-    approvalResponse = await waitForApproval(event.id, signal);
-  } catch {
-    emitCompanionEvent(makeEvent("action_cancelled", "Vision request timed out or was cancelled."));
-    return;
-  }
-
-  if (!approvalResponse.approved) {
-    emitCompanionEvent(makeEvent("action_cancelled", "Vision request denied by user."));
-    return;
-  }
-
-  // Tell the GUI to capture now
-  emitCompanionEvent(makeEvent("capture_request", "Capture screenshot"));
-}
-
 /** Main pipeline loop — runs until signal is aborted or bus is closed. */
 export async function runCompanionLoop(
   bus: ObservationBus,
@@ -224,15 +105,6 @@ export async function runCompanionLoop(
   context.setState("observing");
   log.debug("[companion] loop started");
   traceCompanion("loop.started");
-
-  const gateLLM = createCompanionLLM(config.gateModel, {
-    temperature: 0,
-    maxTokens: 100,
-  });
-  const decisionLLM = createCompanionLLM(config.decisionModel, {
-    temperature: 0.3,
-    maxTokens: 1000,
-  });
 
   const notifyTimestamps: number[] = [];
   let lastTypingActivityTs = 0;
@@ -267,11 +139,10 @@ export async function runCompanionLoop(
       context.addBatch(redacted);
 
       // Debug mode: emit one visible message for every batch to validate end-to-end flow.
-      // Intentionally bypasses DND/gate/decide/rate-limit so users can verify connectivity.
+      // Intentionally bypasses DND/rate-limit so users can verify connectivity.
       if (config.debugAlwaysReact) {
         emitCompanionEvent(makeEvent("message", `[debug] observed: ${kinds.join(", ")}`));
         traceCompanion("loop.debug_always_react");
-        context.setState("observing");
         continue;
       }
 
@@ -281,38 +152,6 @@ export async function runCompanionLoop(
           quietWhileTypingMs: config.quietWhileTypingMs,
           hasTypingSignal,
         });
-        continue;
-      }
-
-      // Gate
-      context.setState("thinking");
-      const gate = await gateObservations(redacted, context, gateLLM, signal);
-      traceCompanion("loop.gate.result", {
-        decision: gate.decision,
-        reason: gate.reason,
-      });
-      if (gate.decision === "SILENT") {
-        context.setState("observing");
-        traceCompanion("loop.skipped.gate_silent");
-        continue;
-      }
-
-      // Decide
-      let memoryContext: string | undefined;
-      if (decisionLLM) {
-        try {
-          memoryContext = await loadMemoryContext(4000);
-        } catch { /* non-fatal */ }
-      }
-      const decision = await makeDecision(
-        redacted, context, gate.reason, decisionLLM, memoryContext, signal,
-      );
-      traceCompanion("loop.decision.result", {
-        type: decision.type,
-      });
-      if (decision.type === "SILENT") {
-        context.setState("observing");
-        traceCompanion("loop.skipped.decision_silent");
         continue;
       }
 
@@ -326,7 +165,6 @@ export async function runCompanionLoop(
       }
       if (notifyTimestamps.length >= config.maxNotifyPerMinute) {
         log.debug("[companion] rate limited");
-        context.setState("observing");
         traceCompanion("loop.skipped.rate_limited", {
           maxNotifyPerMinute: config.maxNotifyPerMinute,
         });
@@ -334,38 +172,14 @@ export async function runCompanionLoop(
       }
       notifyTimestamps.push(now);
 
-      // Emit — branch by decision type
-      if (decision.type === "ACT") {
-        const event = makeEvent("action_request", decision.message ?? "", {
-          actions: decision.actions,
-        });
-        emitCompanionEvent(event);
-        traceCompanion("loop.emit.action_request", {
-          eventId: event.id,
-          actionCount: decision.actions?.length ?? 0,
-        });
-        await handleActFlow(event, decision, context, config, signal);
-      } else if (decision.type === "ASK_VISION") {
-        const event = makeEvent("vision_request", decision.message ?? "");
-        emitCompanionEvent(event);
-        traceCompanion("loop.emit.vision_request", {
-          eventId: event.id,
-        });
-        await handleVisionFlow(event, context, signal);
-      } else {
-        // CHAT / SUGGEST
-        const type = decision.type === "SUGGEST" ? "suggestion" : "message";
-        const event = makeEvent(type, decision.message ?? "", {
-          actions: decision.actions,
-        });
-        emitCompanionEvent(event);
-        traceCompanion("loop.emit.message_like", {
-          eventId: event.id,
-          eventType: type,
-        });
-      }
-
-      context.setState("observing");
+      // Format and emit observation prompt
+      const prompt = formatObservationPrompt(redacted, context);
+      const event = makeEvent("message", prompt);
+      emitCompanionEvent(event);
+      traceCompanion("loop.emit.observation_prompt", {
+        eventId: event.id,
+        observationCount: redacted.length,
+      });
     }
   } finally {
     clearAllPendingApprovals();
