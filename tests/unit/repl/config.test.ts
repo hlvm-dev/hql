@@ -20,10 +20,8 @@ Deno.test("createDefaultToolsConfig - returns deep-cloned defaults", () => {
   const second = createDefaultToolsConfig();
 
   first.web!.search!.enabled = false;
-  first.web!.fetch!.firecrawl!.enabled = true;
 
   assertEquals(second.web?.search?.enabled, true);
-  assertEquals(second.web?.fetch?.firecrawl?.enabled, false);
 });
 
 // ============================================================

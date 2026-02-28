@@ -539,6 +539,17 @@ Deno.test({
         `errorCode=${String(budgetErrorCode ?? "none")}`,
       );
       resetWebToolBudget();
+
+      // 16) Chrome diagnostic fields present in web_fetch response schema.
+      const webFetchMeta = WEB_TOOLS.web_fetch;
+      const chromeFields = ["headlessChrome", "chromeAttempted", "chromeRenderChars"];
+      const hasChromeFields = chromeFields.every(f => webFetchMeta.returns && f in webFetchMeta.returns);
+      record(
+        "web_fetch schema includes Chrome diagnostic fields",
+        "Claude/Codex",
+        Boolean(hasChromeFields),
+        `returns keys: ${Object.keys(webFetchMeta.returns ?? {}).join(", ")}`,
+      );
     });
 
     printAsciiScoreboard(results);

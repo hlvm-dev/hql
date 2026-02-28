@@ -11,6 +11,11 @@ import {
 import { ValidationError } from "../../../src/common/error.ts";
 import type { AgentPolicy } from "../../../src/hlvm/agent/policy.ts";
 import { isAllowedByDomainFilters } from "../../../src/hlvm/agent/tools/web/search-provider.ts";
+import {
+  findSystemChrome,
+  renderWithChrome,
+  shutdownChromeBrowser,
+} from "../../../src/hlvm/agent/tools/web/headless-chrome.ts";
 
 Deno.test("search_web validates query", async () => {
   const search = WEB_TOOLS.search_web;
@@ -280,4 +285,48 @@ Deno.test("resetWebToolBudget is callable without error", () => {
 Deno.test("web_fetch schema documents citation with excerpt", () => {
   const meta = WEB_TOOLS.web_fetch;
   assert(meta.returns && "citation" in meta.returns);
+});
+
+// ============================================================
+// Headless Chrome fallback
+// ============================================================
+
+Deno.test("findSystemChrome returns string or null", async () => {
+  const result = await findSystemChrome();
+  assert(result === null || typeof result === "string");
+});
+
+Deno.test("shutdownChromeBrowser callable without error", async () => {
+  await shutdownChromeBrowser();
+});
+
+Deno.test("web_fetch schema includes Chrome diagnostic fields in returns", () => {
+  const meta = WEB_TOOLS.web_fetch;
+  assert(meta.returns && "headlessChrome" in meta.returns);
+  assert(meta.returns && "chromeAttempted" in meta.returns);
+  assert(meta.returns && "chromeRenderChars" in meta.returns);
+});
+
+Deno.test({
+  name: "renderWithChrome returns null when no Chrome available",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // When Chrome is not available (or env has no Chrome), should return null
+    const originalEnv = Deno.env.get("CHROME_PATH");
+    Deno.env.set("CHROME_PATH", "/nonexistent/chrome/binary");
+    try {
+      const result = await renderWithChrome("https://example.com", 5000);
+      // Should return null (no Chrome at that path, and system Chrome may/may not exist)
+      // The important thing is it doesn't throw
+      assert(result === null || typeof result === "string");
+    } finally {
+      if (originalEnv !== undefined) {
+        Deno.env.set("CHROME_PATH", originalEnv);
+      } else {
+        Deno.env.delete("CHROME_PATH");
+      }
+      await shutdownChromeBrowser();
+    }
+  },
 });

@@ -1,5 +1,5 @@
 /**
- * URL fetching: redirects, byte-limited reading, charset decoding, Firecrawl.
+ * URL fetching: redirects, byte-limited reading, charset decoding.
  * Extracted from web-tools.ts for modularity.
  */
 
@@ -199,75 +199,6 @@ export async function fetchWithRedirects(
   }
 
   throw new ValidationError(`Too many redirects for ${url}`, "web_fetch");
-}
-
-// ============================================================
-// Firecrawl Integration
-// ============================================================
-
-export async function fetchWithFirecrawl(
-  url: string,
-  config: {
-    apiKey?: string;
-    baseUrl: string;
-    onlyMainContent: boolean;
-    maxAgeMs: number;
-    timeoutSeconds: number;
-  },
-  options?: ToolExecutionOptions,
-): Promise<
-  | {
-    content?: string;
-    markdown?: string;
-    title?: string;
-    description?: string;
-  }
-  | null
-> {
-  if (!config.apiKey) return null;
-  const base = config.baseUrl.replace(/\/+$/, "");
-  const endpoint = base.endsWith("/v1/scrape") ? base : `${base}/v1/scrape`;
-  assertUrlAllowed(endpoint, options);
-
-  const timeoutMs = toMillis(config.timeoutSeconds);
-  const headers: Record<string, string> = {
-    "x-api-key": config.apiKey,
-    "Authorization": `Bearer ${config.apiKey}`,
-  };
-  try {
-    const response = await http.post<Record<string, unknown>>(
-      endpoint,
-      {
-        url,
-        formats: ["markdown", "html"],
-        onlyMainContent: config.onlyMainContent,
-        maxAge: config.maxAgeMs,
-        timeout: timeoutMs,
-      },
-      { timeout: timeoutMs, headers },
-    );
-
-    const data = response as Record<string, unknown>;
-    const payload = (data.data as Record<string, unknown> | undefined) ?? data;
-    if (!payload || typeof payload !== "object") return null;
-    const markdown = typeof payload.markdown === "string"
-      ? payload.markdown
-      : undefined;
-    const content = typeof payload.content === "string"
-      ? payload.content
-      : undefined;
-    const metadata =
-      (payload.metadata as Record<string, unknown> | undefined) ?? undefined;
-    const title = metadata && typeof metadata.title === "string"
-      ? metadata.title
-      : undefined;
-    const description = metadata && typeof metadata.description === "string"
-      ? metadata.description
-      : undefined;
-    return { content, markdown, title, description };
-  } catch {
-    return null;
-  }
 }
 
 // ============================================================

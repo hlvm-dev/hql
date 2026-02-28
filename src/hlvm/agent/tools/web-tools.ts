@@ -4,14 +4,14 @@
  * Provides minimal web capabilities:
  * - search_web: query public DuckDuckGo search endpoint
  * - fetch_url: fetch a URL with byte limits and policy checks
- * - web_fetch: readability + Firecrawl enriched fetch
+ * - web_fetch: readability-enriched fetch
  *
  * SSOT: Uses common/http-client.ts for HTTP.
  *
  * Split into modular files:
  * - web/duckduckgo.ts: DuckDuckGo search, result parsing, scoring
  * - web/html-parser.ts: HTML content extraction, boilerplate stripping
- * - web/fetch-core.ts: URL fetching, redirects, byte limits, Firecrawl
+ * - web/fetch-core.ts: URL fetching, redirects, byte limits
  */
 
 import { ValidationError } from "../../../common/error.ts";
@@ -39,9 +39,9 @@ import {
   truncateText,
   readResponseBody,
   fetchWithRedirects,
-  fetchWithFirecrawl,
   fetchUrlInternal,
 } from "./web/fetch-core.ts";
+import { renderWithChrome } from "./web/headless-chrome.ts";
 
 // ============================================================
 // Types
@@ -278,7 +278,6 @@ async function webFetchSingle(
   let textTruncated = parsed.textTruncated;
   let content: string | undefined;
   let usedReadability = false;
-  let usedFirecrawl = false;
 
   if (isHtmlLike && webConfig.fetch.readability && html) {
     const readable = await extractReadableContent(html, finalUrl);
@@ -295,26 +294,38 @@ async function webFetchSingle(
     }
   }
 
-  if (
-    isHtmlLike &&
-    (text?.trim().length ?? 0) < MAIN_CONTENT_MIN_CHARS &&
-    webConfig.fetch.firecrawl.enabled
-  ) {
-    const firecrawl = await fetchWithFirecrawl(
-      finalUrl,
-      webConfig.fetch.firecrawl,
-      options,
-    );
-    if (firecrawl?.content || firecrawl?.markdown) {
-      usedFirecrawl = true;
-      content = firecrawl.markdown ?? firecrawl.content ?? content;
-      if (content) {
-        const truncated = truncateText(content, resolvedMaxChars);
-        text = truncated.text;
-        textTruncated = truncated.truncated;
+  // Headless Chrome fallback for SPAs/JS-rendered pages
+  let chromeAttempted = false;
+  let chromeRenderChars = 0;
+  let chromeAccepted = false;
+  if (isHtmlLike && (text?.trim().length ?? 0) < MAIN_CONTENT_MIN_CHARS) {
+    const chromeHtml = await renderWithChrome(finalUrl, 15_000);
+    if (chromeHtml) {
+      chromeAttempted = true;
+      const reparsed = parseHtml(chromeHtml, resolvedMaxChars, DEFAULT_HTML_LINKS);
+      chromeRenderChars = reparsed.text.trim().length;
+      if (chromeRenderChars >= MAIN_CONTENT_MIN_CHARS) {
+        chromeAccepted = true;
+        text = reparsed.text;
+        textTruncated = reparsed.textTruncated;
+        parsed.title = reparsed.title || parsed.title;
+        parsed.description = reparsed.description || parsed.description;
+        parsed.links = reparsed.links;
+        parsed.linkCount = reparsed.linkCount;
+
+        if (webConfig.fetch.readability) {
+          const readable = await extractReadableContent(chromeHtml, finalUrl);
+          if (readable?.text) {
+            usedReadability = true;
+            text = readable.text;
+            content = readable.content ?? content;
+            if (readable.title) parsed.title = readable.title;
+            const truncated = truncateText(text, resolvedMaxChars);
+            text = truncated.text;
+            textTruncated = textTruncated || truncated.truncated;
+          }
+        }
       }
-      if (firecrawl.title) parsed.title = firecrawl.title;
-      if (firecrawl.description) parsed.description = firecrawl.description;
     }
   }
 
@@ -333,7 +344,9 @@ async function webFetchSingle(
     linkCount: parsed.linkCount,
     content,
     readability: usedReadability,
-    firecrawl: usedFirecrawl,
+    headlessChrome: chromeAccepted,
+    chromeAttempted,
+    chromeRenderChars: chromeAttempted ? chromeRenderChars : undefined,
     redirects,
     citation: { url: finalUrl, title: parsed.title || "", excerpt: (text || "").slice(0, 150), provider: "fetch" } as Citation,
   };
@@ -517,7 +530,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
   web_fetch: {
     fn: webFetch,
     description:
-      "Fetch URL(s) with readability + Firecrawl fallback. Returns main content.",
+      "Fetch URL(s) with readability + headless Chrome fallback. Returns main content.",
     category: "web",
     args: {
       url: "string (optional if urls given) - Single URL to fetch",
@@ -541,7 +554,9 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
       linkCount: "number",
       content: "string (optional)",
       readability: "boolean",
-      firecrawl: "boolean",
+      headlessChrome: "boolean - Chrome rendered content was accepted and used",
+      chromeAttempted: "boolean - Chrome rendering was attempted (thin static content detected)",
+      chromeRenderChars: "number (optional) - chars extracted from Chrome render (only if attempted)",
       redirects: "string[]",
       citation: "Citation (optional) - Source provenance",
       retrievedAt: "string (optional) - ISO 8601 timestamp",

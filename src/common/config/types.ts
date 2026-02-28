@@ -55,15 +55,6 @@ export interface WebSearchConfig {
   cacheTtlMinutes?: number;
 }
 
-export interface WebFetchFirecrawlConfig {
-  enabled?: boolean;
-  apiKey?: string;
-  baseUrl?: string;
-  onlyMainContent?: boolean;
-  maxAgeMs?: number;
-  timeoutSeconds?: number;
-}
-
 export interface WebFetchConfig {
   enabled?: boolean;
   maxChars?: number;
@@ -72,7 +63,6 @@ export interface WebFetchConfig {
   maxRedirects?: number;
   userAgent?: string;
   readability?: boolean;
-  firecrawl?: WebFetchFirecrawlConfig;
 }
 
 export interface ToolsConfig {
@@ -119,14 +109,6 @@ export const DEFAULT_WEB_FETCH_CONFIG: WebFetchConfig = {
   userAgent:
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
   readability: true,
-  firecrawl: {
-    enabled: false,
-    apiKey: "",
-    baseUrl: "https://api.firecrawl.dev",
-    onlyMainContent: true,
-    maxAgeMs: 900000,
-    timeoutSeconds: 30,
-  },
 };
 
 export function createDefaultWebSearchConfig(): WebSearchConfig {
@@ -136,10 +118,7 @@ export function createDefaultWebSearchConfig(): WebSearchConfig {
 }
 
 export function createDefaultWebFetchConfig(): WebFetchConfig {
-  return {
-    ...DEFAULT_WEB_FETCH_CONFIG,
-    firecrawl: { ...DEFAULT_WEB_FETCH_CONFIG.firecrawl },
-  };
+  return { ...DEFAULT_WEB_FETCH_CONFIG };
 }
 
 export function createDefaultToolsConfig(): ToolsConfig {

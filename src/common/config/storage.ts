@@ -151,33 +151,6 @@ function normalizeWebFetchConfig(value: unknown): WebFetchConfig | undefined {
     config.readability = raw.readability;
   }
 
-  if (
-    raw.firecrawl && typeof raw.firecrawl === "object" &&
-    !Array.isArray(raw.firecrawl)
-  ) {
-    const firecrawl = raw.firecrawl as Record<string, unknown>;
-    config.firecrawl = {
-      enabled: typeof firecrawl.enabled === "boolean"
-        ? firecrawl.enabled
-        : config.firecrawl?.enabled,
-      apiKey: typeof firecrawl.apiKey === "string"
-        ? firecrawl.apiKey
-        : config.firecrawl?.apiKey,
-      baseUrl: typeof firecrawl.baseUrl === "string"
-        ? firecrawl.baseUrl
-        : config.firecrawl?.baseUrl,
-      onlyMainContent: typeof firecrawl.onlyMainContent === "boolean"
-        ? firecrawl.onlyMainContent
-        : config.firecrawl?.onlyMainContent,
-      maxAgeMs: typeof firecrawl.maxAgeMs === "number"
-        ? firecrawl.maxAgeMs
-        : config.firecrawl?.maxAgeMs,
-      timeoutSeconds: typeof firecrawl.timeoutSeconds === "number"
-        ? firecrawl.timeoutSeconds
-        : config.firecrawl?.timeoutSeconds,
-    };
-  }
-
   return config;
 }
 

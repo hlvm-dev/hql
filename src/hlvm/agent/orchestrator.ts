@@ -56,6 +56,7 @@ import {
 import { getAgentLogger } from "./logger.ts";
 import { retrieveMemory, type RetrievalResult } from "../memory/retrieve.ts";
 import { resetWebToolBudget } from "./tools/web-tools.ts";
+import { shutdownChromeBrowser } from "./tools/web/headless-chrome.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -427,6 +428,7 @@ export async function runReActLoop(
   const autoMemoryRecall = config.autoMemoryRecall ?? false;
   resetWebToolBudget();
 
+  try {
   addContextMessage(config, { role: "user", content: userRequest });
 
   // Planning (optional)
@@ -672,4 +674,7 @@ export async function runReActLoop(
   }
 
   return buildLimitStopMessage("max_iterations", state, lc);
+  } finally {
+    await shutdownChromeBrowser();
+  }
 }

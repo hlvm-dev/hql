@@ -29,14 +29,6 @@ export interface ResolvedWebFetchConfig {
   maxRedirects: number;
   userAgent: string;
   readability: boolean;
-  firecrawl: {
-    enabled: boolean;
-    apiKey?: string;
-    baseUrl: string;
-    onlyMainContent: boolean;
-    maxAgeMs: number;
-    timeoutSeconds: number;
-  };
 }
 
 export interface ResolvedWebConfig {
@@ -70,7 +62,7 @@ function resolveWebSearchConfig(
 
 function resolveWebFetchConfig(
   config?: WebFetchConfig,
-  env: WebConfigEnv = DEFAULT_WEB_CONFIG_ENV,
+  _env: WebConfigEnv = DEFAULT_WEB_CONFIG_ENV,
 ): ResolvedWebFetchConfig {
   const defaults = createDefaultWebFetchConfig();
   const resolved: ResolvedWebFetchConfig = {
@@ -82,23 +74,7 @@ function resolveWebFetchConfig(
     userAgent: config?.userAgent ?? defaults.userAgent ??
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     readability: config?.readability ?? defaults.readability ?? true,
-    firecrawl: {
-      enabled: config?.firecrawl?.enabled ?? defaults.firecrawl?.enabled ??
-        false,
-      apiKey: config?.firecrawl?.apiKey ?? defaults.firecrawl?.apiKey,
-      baseUrl: config?.firecrawl?.baseUrl ?? defaults.firecrawl?.baseUrl ??
-        "https://api.firecrawl.dev",
-      onlyMainContent: config?.firecrawl?.onlyMainContent ??
-        defaults.firecrawl?.onlyMainContent ?? true,
-      maxAgeMs: config?.firecrawl?.maxAgeMs ?? defaults.firecrawl?.maxAgeMs ??
-        900000,
-      timeoutSeconds: config?.firecrawl?.timeoutSeconds ??
-        defaults.firecrawl?.timeoutSeconds ?? 30,
-    },
   };
-
-  const firecrawlKey = env.get("FIRECRAWL_API_KEY");
-  if (firecrawlKey) resolved.firecrawl.apiKey = firecrawlKey;
 
   return resolved;
 }
