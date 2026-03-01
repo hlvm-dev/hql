@@ -371,10 +371,14 @@ Deno.test("Providers: shouldTriggerSymbol triggers when word exists", () => {
   assert(shouldTriggerSymbol(ctx));
 });
 
-Deno.test("Providers: shouldTriggerSymbol does NOT trigger on empty input", () => {
+Deno.test("Providers: shouldTriggerSymbol triggers on empty input (Tab shows all)", () => {
   const ctx = createContext("", 0);
-  // Empty input should NOT trigger - requires at least 1 character
-  assert(!shouldTriggerSymbol(ctx));
+  assert(shouldTriggerSymbol(ctx));
+});
+
+Deno.test("Providers: shouldTriggerSymbol triggers after whitespace (new token)", () => {
+  const ctx = createContext("(let x ", 7);
+  assert(shouldTriggerSymbol(ctx));
 });
 
 Deno.test("Providers: shouldTriggerSymbol does not trigger in @ mode", () => {

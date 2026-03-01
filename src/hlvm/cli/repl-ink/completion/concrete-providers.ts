@@ -89,13 +89,12 @@ function getDescription(
 
 /**
  * Create applyAction for symbol items.
- * For functions with params: BOTH Tab and Enter produce full form (funcname params...)
+ * For functions with params: SELECT produces full form (funcname params...)
  * with placeholder mode for parameter filling.
  *
  * Opening paren is added if not already present before the completion.
  *
- * SPECIAL: Variables (def, no params) auto-execute - no second Enter needed!
- * This is because (varname) is a complete expression that can run immediately.
+ * Variables are inserted as text only (no auto-execution).
  */
 function createSymbolApplyAction(
   id: string,
@@ -104,8 +103,6 @@ function createSymbolApplyAction(
 ): (action: CompletionAction, context: ApplyContext) => ApplyResult {
   const hasParams = params && params.length > 0;
   const isCallable = itemType === "function" || itemType === "macro" || hasParams;
-  // Variables with no params are complete expressions - can auto-execute
-  const isVariable = itemType === "variable" && !hasParams;
   // Context-aware forms should NOT enter placeholder mode - let dropdown show instead
   const isContextAwareForm = CONTEXT_AWARE_FORMS[id] !== undefined;
   const usesStringPlaceholder = STRING_PLACEHOLDER_FUNCTIONS.has(id);
@@ -135,7 +132,7 @@ function createSymbolApplyAction(
     }
 
     // SELECT action: Smart completion (add parens, params, placeholder mode)
-    // User explicitly chose "full form" by pressing Tab
+    // User explicitly chose "full form" by confirming selection.
 
     // CONTEXT-AWARE FORMS (forget, inspect, describe): Skip placeholder mode!
     // Just insert the function name - let the auto-completion dropdown show options
@@ -199,21 +196,6 @@ function createSymbolApplyAction(
         text: before + insertText + after,
         cursorPosition: ctx.anchorPosition + insertText.length,
         closeDropdown: true,
-      };
-    }
-
-    // For VARIABLES (def, no params): complete expression, auto-execute!
-    // (answer) is complete - no need for second Enter
-    if (isVariable) {
-      const openParen = hasOpeningParen ? "" : "(";
-      const closeParen = hasClosingParen ? "" : ")";
-      const insertText = openParen + id + closeParen;
-      return {
-        text: before + insertText + after,
-        cursorPosition: ctx.anchorPosition + insertText.length,
-        closeDropdown: true,
-        // Auto-execute: no second Enter needed for variables
-        sideEffect: { type: "EXECUTE" },
       };
     }
 
@@ -417,6 +399,17 @@ function createFileApplyAction(
         text: before + insertPath + after,
         cursorPosition: ctx.anchorPosition + insertPath.length,
         closeDropdown: false, // Keep open for drilling
+      };
+    }
+
+    // SELECT on directory: recursive include
+    if (isDir && action === "SELECT") {
+      const insertPath = "@" + cleanPath + " ";
+      return {
+        text: before + insertPath + after,
+        cursorPosition: ctx.anchorPosition + insertPath.length,
+        closeDropdown: true,
+        sideEffect: { type: "INCLUDE_DIRECTORY", path: cleanPath },
       };
     }
 

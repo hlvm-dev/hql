@@ -10,8 +10,8 @@ export const completionKeybindings: Keybinding[] = [
   {
     id: "tab",
     display: "Tab",
-    label: "Complete / drill",
-    description: "Complete or enter directory/show params",
+    label: "Toggle completion",
+    description: "Open/close completion dropdown",
     category: "Completion",
     action: { type: "HANDLER", id: HandlerIds.COMPLETION_ACCEPT },
   },
@@ -19,7 +19,7 @@ export const completionKeybindings: Keybinding[] = [
     id: "enter-completion",
     display: "Enter",
     label: "Select completion",
-    description: "Choose selected item and close dropdown",
+    description: "Apply selected completion (snippet-aware)",
     category: "Completion",
     action: { type: "INFO" },  // Contextual - only in dropdown mode
   },

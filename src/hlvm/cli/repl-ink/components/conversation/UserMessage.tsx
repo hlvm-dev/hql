@@ -8,6 +8,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
+import { highlight } from "../../../repl/syntax.ts";
 
 interface UserMessageProps {
   text: string;
@@ -26,8 +27,8 @@ export function UserMessage({ text, width }: UserMessageProps): React.ReactEleme
         </Text>
       </Box>
       <Box flexGrow={1}>
-        <Text color={isCmd ? sc.status.success : sc.text.primary} bold wrap="wrap">
-          {text}
+        <Text bold wrap="wrap">
+          {highlight(text)}
         </Text>
       </Box>
     </Box>

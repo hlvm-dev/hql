@@ -417,6 +417,8 @@ export function extractCommandQuery(context: CompletionContext): string | null {
  * Only if not in @ mention or / command mode.
  *
  * Triggers in these cases:
+ * - Empty input (Tab should show all available completions)
+ * - Cursor after whitespace (new token boundary, show all completions)
  * - There's a word to complete (e.g., "ad" -> complete "add")
  * - Cursor is after an opening paren/bracket (e.g., "(" -> show all functions)
  * - Cursor is inside a context-aware form (e.g., "(forget |)" -> show memory names)
@@ -445,9 +447,15 @@ export function shouldTriggerSymbol(context: CompletionContext): boolean {
   // No word being typed - check for special contexts
   const { textBeforeCursor } = context;
 
-  // Empty input - DON'T show dropdown (user must type at least 1 char)
+  // Empty input - show all available symbols on explicit Tab.
   if (textBeforeCursor.length === 0) {
-    return false;
+    return true;
+  }
+
+  // Cursor after whitespace means user is starting a new token.
+  // Show all completions on explicit Tab.
+  if (/\s$/.test(textBeforeCursor)) {
+    return true;
   }
 
   // After opening paren/bracket - show available symbols

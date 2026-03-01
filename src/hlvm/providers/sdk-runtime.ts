@@ -202,6 +202,7 @@ export function convertToolDefinitionsToSdk(
 
 type SdkTextPart = { type: "text"; text: string };
 type SdkImagePart = { type: "image"; image: string };
+type SdkFilePart = { type: "file"; data: string; mediaType: string };
 type SdkAssistantPart = SdkTextPart | ToolCallPart;
 
 /**
@@ -211,7 +212,8 @@ type SdkAssistantPart = SdkTextPart | ToolCallPart;
 export interface SdkConvertibleMessage {
   role: string;
   content: string;
-  images?: string[];
+  /** Image/media attachments: structured {data, mimeType} or plain base64 strings */
+  images?: Array<string | { data: string; mimeType: string }>;
   // AgentMessage convention (camelCase)
   toolCalls?: Array<{ id?: string; function: { name: string; arguments: unknown } }>;
   toolName?: string;
@@ -253,12 +255,20 @@ export function convertToSdkMessages(
         result.push({ role: "user", content: msg.content });
         continue;
       }
-      const content: Array<SdkTextPart | SdkImagePart> = [];
+      const content: Array<SdkTextPart | SdkImagePart | SdkFilePart> = [];
       if (msg.content) {
         content.push({ type: "text", text: msg.content });
       }
-      for (const image of msg.images) {
-        content.push({ type: "image", image });
+      for (const img of msg.images) {
+        if (typeof img === "string") {
+          // Legacy: plain base64 string → image part
+          content.push({ type: "image", image: img });
+        } else if (img.mimeType.startsWith("image/")) {
+          content.push({ type: "image", image: img.data });
+        } else {
+          // PDF, audio, video → file part
+          content.push({ type: "file", data: img.data, mediaType: img.mimeType });
+        }
       }
       result.push({ role: "user", content });
       continue;

@@ -1201,6 +1201,80 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "Loop integration: clipboard error content is promoted to emission signal",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    clearSessionBuffer(COMPANION_CHANNEL);
+
+    const bus = new ObservationBus();
+    const ctx = new CompanionContext();
+    const config = {
+      ...DEFAULT_COMPANION_CONFIG,
+      enabled: true,
+      debounceWindowMs: 10,
+      quietWhileTypingMs: 0,
+    };
+    const ac = new AbortController();
+    const captured: { event_type: string; data: unknown }[] = [];
+    const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
+
+    bus.append(makeObs("clipboard.changed", {
+      text: "TypeError: Cannot read properties of undefined at main.ts:42:13",
+    }));
+    bus.close();
+
+    await runCompanionLoop(bus, config, ctx, ac.signal);
+
+    const messageEvents = captured.filter(
+      (e) => (e.data as { type: string }).type === "message",
+    );
+    assertEquals(messageEvents.length, 1, "Clipboard error should trigger emission");
+    const content = (messageEvents[0].data as { content: string }).content;
+    assertEquals(content.includes("clipboard.changed"), true);
+    assertEquals(content.includes("TypeError"), true);
+
+    unsub();
+  },
+});
+
+Deno.test({
+  name: "Loop integration: combined medium signals emit (dev app switch + code/url clipboard)",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    clearSessionBuffer(COMPANION_CHANNEL);
+
+    const bus = new ObservationBus();
+    const ctx = new CompanionContext();
+    const config = {
+      ...DEFAULT_COMPANION_CONFIG,
+      enabled: true,
+      debounceWindowMs: 10,
+      quietWhileTypingMs: 0,
+    };
+    const ac = new AbortController();
+    const captured: { event_type: string; data: unknown }[] = [];
+    const unsub = subscribe(COMPANION_CHANNEL, (e) => captured.push(e));
+
+    bus.append(makeObs("app.switch", { appName: "Xcode" }));
+    bus.append(makeObs("clipboard.changed", {
+      text: "https://stackoverflow.com/questions/12345/swift-typeerror-handling",
+    }));
+    bus.close();
+
+    await runCompanionLoop(bus, config, ctx, ac.signal);
+
+    const messageEvents = captured.filter(
+      (e) => (e.data as { type: string }).type === "message",
+    );
+    assertEquals(messageEvents.length, 1, "Combined medium signals should trigger emission");
+
+    unsub();
+  },
+});
+
 // --- companionOnInteraction edge cases ---
 
 Deno.test({

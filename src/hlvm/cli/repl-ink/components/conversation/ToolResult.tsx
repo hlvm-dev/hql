@@ -34,7 +34,7 @@ function isUnifiedDiffLike(text: string): boolean {
 
 /** Detect content type from the text */
 export function detectContentType(text: string): ContentType {
-  const trimmed = text.trimStart();
+  const trimmed = text.trim();
   // Unified diff format (avoid false positives for plain text starting with '---')
   if (isUnifiedDiffLike(trimmed)) {
     return "diff";
@@ -98,10 +98,10 @@ export function ToolResult({
       {visibleLines.map((line, i) => (
         <Box key={i}>
           <Text
-            color={contentType === "json"
-              ? sc.status.success
-              : tone === "error"
+            color={tone === "error"
               ? sc.status.error
+              : contentType === "json"
+              ? sc.status.success
               : sc.text.secondary}
           >
             {truncateLine(line, width)}
@@ -111,7 +111,7 @@ export function ToolResult({
 
       {truncated && (
         <Text color={tone === "error" ? sc.status.error : sc.text.muted}>
-          … ({remaining} more lines · Ctrl+O to expand, empty prompt)
+          … ({remaining} more lines · Ctrl+O toggles latest, empty prompt)
         </Text>
       )}
     </Box>

@@ -94,13 +94,13 @@ binaryTest("Tab completion: getWordAtCursor extracts word correctly", () => {
 // Tab Priority Logic Tests
 // ============================================================
 
-binaryTest("Tab priority: uses real shouldTabAcceptSuggestion", async () => {
+binaryTest("Tab priority: shouldTabAcceptSuggestion is always false", async () => {
   // Import and test the REAL function from production code
   const { shouldTabAcceptSuggestion } = await import("../../../src/hlvm/cli/repl/tab-logic.ts");
 
-  // Case 1: All conditions met - should accept
+  // Case 1: All conditions met - still false (Tab is reserved for completion toggle)
   const suggestion1 = { full: "test", ghost: "ing" };
-  assertEquals(shouldTabAcceptSuggestion(suggestion1, 4, 4, false), true);
+  assertEquals(shouldTabAcceptSuggestion(suggestion1, 4, 4, false), false);
 
   // Case 2: Cursor not at end - should NOT accept
   assertEquals(shouldTabAcceptSuggestion(suggestion1, 2, 4, false), false);
@@ -112,7 +112,7 @@ binaryTest("Tab priority: uses real shouldTabAcceptSuggestion", async () => {
   assertEquals(shouldTabAcceptSuggestion(null, 4, 4, false), false);
 });
 
-binaryTest("Tab priority: mutual exclusivity of states", async () => {
+binaryTest("Tab priority: suggestion state never changes Tab decision", async () => {
   // When typing, showingCompletions should be cleared
   // This is handled in Input.tsx: clearCompletions() called on non-Tab keys
   const { shouldTabAcceptSuggestion } = await import("../../../src/hlvm/cli/repl/tab-logic.ts");
@@ -122,8 +122,8 @@ binaryTest("Tab priority: mutual exclusivity of states", async () => {
   const suggestion = findSuggestion("(defn", ["(defn foo [x] x)"], new Set());
   assert(suggestion !== null, "Should find suggestion for '(defn'");
 
-  // With suggestion present and not showing completions → Tab should accept
-  assertEquals(shouldTabAcceptSuggestion(suggestion, 5, 5, false), true);
+  // With suggestion present and not showing completions → still false
+  assertEquals(shouldTabAcceptSuggestion(suggestion, 5, 5, false), false);
 
   // With completions showing → Tab should cycle completions, NOT accept suggestion
   assertEquals(shouldTabAcceptSuggestion(suggestion, 5, 5, true), false);

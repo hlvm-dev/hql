@@ -57,13 +57,13 @@ export function FooterHint({
   if (hasPendingPermission) {
     hints = "y/Enter: approve | n/Esc: reject";
   } else if (hasPendingQuestion) {
-    hints = "Type answer + Enter";
+    hints = "Type answer + Enter | Esc: reject";
   } else if (agentStatus && agentStatus.type !== "idle") {
     hints = inConversation
-      ? "Esc: cancel | Ctrl+O: toggle section (empty prompt) | PgUp/PgDn: scroll"
+      ? "Esc: cancel | Ctrl+O: toggle latest section (empty prompt) | PgUp/PgDn: scroll"
       : "Esc: cancel";
   } else if (inConversation) {
-    hints = "Ctrl+O: toggle section (empty prompt) | PgUp/PgDn: scroll";
+    hints = "Esc: exit | Ctrl+O: toggle latest section (empty prompt) | PgUp/PgDn: scroll";
   } else {
     hints = "Ctrl+P | Tab | Ctrl+R";
   }

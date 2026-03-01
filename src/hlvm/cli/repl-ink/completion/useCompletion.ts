@@ -203,12 +203,9 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       const providerDebounceMs = provider.debounceMs ?? debounceMs;
 
       if (isAsyncProvider && !force) {
-        const shouldOpenLoading = !dropdown.state.isOpen || dropdown.state.providerId !== provider.id;
-        if (shouldOpenLoading) {
-          dropdown.open([], context.wordStart, provider.id, text, cursorPosition);
-        }
-
-        // Set loading state immediately
+        // Always refresh loading session with latest anchor + original text/cursor.
+        // This prevents stale items from previous async queries being selectable.
+        dropdown.open([], context.wordStart, provider.id, text, cursorPosition);
         dropdown.setLoading(true);
 
         // Debounce the actual fetch (use provider's debounce setting)
@@ -278,12 +275,6 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
 
           // Navigate: visual only (Up/Down), handled by component
           if (result.action === "navigate") {
-            return true;
-          }
-
-          // Drill: Tab action (go deeper or smart select)
-          if (result.action === "drill") {
-            // Let the component handle executing the DRILL action
             return true;
           }
 
@@ -406,7 +397,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
     const providerId = dropdown.state.providerId;
     if (!providerId) return "";
     const provider = ALL_PROVIDERS.find((p) => p.id === providerId);
-    const baseHelp = provider?.helpText ?? "↑↓ navigate • Tab drill • Enter select • Esc cancel";
+    const baseHelp = provider?.helpText ?? "↑↓ navigate • Tab close • Enter select • Esc cancel";
     // Show docs toggle status: replace "Ctrl+D docs" with "Ctrl+D docs ON/OFF"
     const docsStatus = dropdown.state.showDocPanel ? "ON" : "OFF";
     return baseHelp.replace("Ctrl+D docs", `Ctrl+D docs ${docsStatus}`);

@@ -14,7 +14,7 @@
  *
  *   BARF (push OUT):
  *     Opt+X = forward   (a| b)   →  (a|) b    X for eXpel
- *     Opt+Z = backward  (a |b)   →  a (|b)    Z left of X
+ *     Ctrl+Q = backward (a |b)   →  a (|b)    (Alt+Z reassigned to undo)
  *
  *   STRUCTURE:
  *     Opt+W = Wrap      |foo     →  (|foo)    W for Wrap
@@ -61,7 +61,7 @@ export const pareditKeybindings: Keybinding[] = [
   },
   {
     id: "barf-backward",
-    display: "⌥Z",
+    display: "Ctrl+Q",
     label: "Barf backward",
     description: "(a |b) → a (|b) — push first expr out",
     category: "Paredit",

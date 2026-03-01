@@ -101,7 +101,7 @@ export interface UseDropdownStateReturn {
  *
  * // Handle keyboard navigation
  * const result = dropdown.handleKey("ArrowDown");
- * if (result.action === "confirm") {
+ * if (result.action === "select") {
  *   applyCompletion(dropdown.selectedItem);
  *   dropdown.close();
  * }

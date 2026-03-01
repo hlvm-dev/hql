@@ -35,14 +35,30 @@ const defaultMap = new Map<string, string>();
  * normalizeKeyInput("j", { ctrl: true, ... }) -> "ctrl+j"
  */
 export function normalizeKeyInput(input: string, key: Key): string | null {
+  // Special keys first (Tab, Enter, Esc, arrows, delete keys).
+  // This avoids misclassifying raw control bytes (e.g., Tab as Ctrl+I).
+  let specialKey: string | null = null;
+  if (key.tab || (!key.ctrl && input === "\t")) specialKey = "tab";
+  else if (key.return || (!key.ctrl && (input === "\r" || input === "\n"))) specialKey = "enter";
+  else if (key.backspace) specialKey = "backspace";
+  else if (key.delete) specialKey = "delete";
+  else if (key.upArrow) specialKey = "up";
+  else if (key.downArrow) specialKey = "down";
+  else if (key.leftArrow) specialKey = "left";
+  else if (key.rightArrow) specialKey = "right";
+  else if (key.escape && (!input || input === "\x1b")) specialKey = "esc";
+
   const parts: string[] = [];
   let char = input;
   let isCtrl = key.ctrl;
+  const isPureEsc = specialKey === "esc";
 
   // Handle Ctrl codes: Ctrl+A=1, Ctrl+B=2, ... Ctrl+Z=26
   if (input && input.length === 1) {
     const code = input.charCodeAt(0);
-    if (code >= 1 && code <= 26) {
+    // Keep plain tab/newline/return as special keys, but allow explicit Ctrl+I/J/M.
+    const isPlainSpecialControl = !key.ctrl && (code === 9 || code === 10 || code === 13);
+    if (code >= 1 && code <= 26 && !isPlainSpecialControl) {
       char = String.fromCharCode(code + 96); // Convert to a-z
       isCtrl = true;
     }
@@ -51,8 +67,13 @@ export function normalizeKeyInput(input: string, key: Key): string | null {
   // Build modifier prefix in consistent order
   if (isCtrl) parts.push("ctrl");
   if (key.meta) parts.push("cmd");
-  if (key.escape && !isCtrl) parts.push("alt");
+  if (key.escape && !isCtrl && !isPureEsc) parts.push("alt");
   if (key.shift) parts.push("shift");
+
+  if (specialKey) {
+    parts.push(specialKey);
+    return parts.join("+");
+  }
 
   // Add the key character
   if (char && char.length === 1) {
@@ -149,6 +170,23 @@ export function getEffectiveDisplay(keybindingId: string): string | null {
  * "⌥G" -> "alt+g"
  */
 function displayToCombo(display: string): string | null {
+  const normalizedDisplay = display.toLowerCase().trim();
+  const SPECIAL_DISPLAY_MAP: Readonly<Record<string, string>> = {
+    tab: "tab",
+    enter: "enter",
+    esc: "esc",
+    escape: "esc",
+    up: "up",
+    down: "down",
+    left: "left",
+    right: "right",
+    backspace: "backspace",
+    delete: "delete",
+  };
+  if (SPECIAL_DISPLAY_MAP[normalizedDisplay]) {
+    return SPECIAL_DISPLAY_MAP[normalizedDisplay];
+  }
+
   // Handle "^X" format (caret notation)
   if (display.startsWith("^") && display.length === 2) {
     return `ctrl+${display[1].toLowerCase()}`;

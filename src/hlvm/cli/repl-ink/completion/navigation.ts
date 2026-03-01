@@ -19,7 +19,7 @@ import { MAX_VISIBLE_ITEMS } from "./types.ts";
  * @param currentIndex - Current selected index
  * @param itemCount - Total number of items
  * @param isDropdownVisible - Whether dropdown is currently visible
- * @param shiftKey - Whether shift is held (for Shift+Tab)
+ * @param shiftKey - Whether shift is held (unused)
  * @returns Navigation result with new index and action
  */
 export function handleNavigationKey(
@@ -48,11 +48,10 @@ export function handleNavigationKey(
       };
 
     case "Tab":
-      // Tab = DRILL intent (go deeper or smart select with params)
-      // Shift+Tab also drills (no cycling - use Up/Down to navigate)
+      // Tab closes/toggles dropdown; selection remains explicit via Enter.
       return {
-        newIndex: currentIndex,
-        action: "drill",
+        newIndex: -1,
+        action: "cancel",
       };
 
     case "Enter":

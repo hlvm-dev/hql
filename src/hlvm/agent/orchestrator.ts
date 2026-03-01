@@ -415,6 +415,7 @@ export async function runReActLoop(
   userRequest: string,
   config: OrchestratorConfig,
   llmFunction: LLMFunction,
+  images?: Array<{ data: string; mimeType: string }>,
 ): Promise<string> {
   if (!config.l1Confirmations) {
     config = { ...config, l1Confirmations: new Map<string, boolean>() };
@@ -427,7 +428,7 @@ export async function runReActLoop(
   resetWebToolBudget();
 
   try {
-  addContextMessage(config, { role: "user", content: userRequest });
+  addContextMessage(config, { role: "user", content: userRequest, images });
 
   // Planning (optional)
   if (

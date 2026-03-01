@@ -96,6 +96,8 @@ export const HandlerIds = {
   EDIT_DELETE_TO_START: "edit.delete-to-start",
   EDIT_DELETE_TO_END: "edit.delete-to-end",
   EDIT_DELETE_WORD_BACK: "edit.delete-word-back",
+  EDIT_UNDO: "edit.undo",
+  EDIT_REDO: "edit.redo",
 
   // Navigation
   NAV_WORD_BACK: "nav.word-back",

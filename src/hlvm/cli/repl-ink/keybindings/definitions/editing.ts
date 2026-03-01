@@ -44,4 +44,20 @@ export const editingKeybindings: Keybinding[] = [
     category: "Editing",
     action: { type: "HANDLER", id: HandlerIds.EDIT_DELETE_WORD_BACK },
   },
+  {
+    id: "alt+z",
+    display: "Alt+Z",
+    label: "Undo",
+    description: "Undo last edit",
+    category: "Editing",
+    action: { type: "HANDLER", id: HandlerIds.EDIT_UNDO },
+  },
+  {
+    id: "alt+shift+z",
+    display: "Alt+Shift+Z",
+    label: "Redo",
+    description: "Redo last undone edit",
+    category: "Editing",
+    action: { type: "HANDLER", id: HandlerIds.EDIT_REDO },
+  },
 ];

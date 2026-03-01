@@ -34,6 +34,8 @@ export interface Message {
    * Messages loaded from a session transcript should set this to true.
    */
   fromSession?: boolean;
+  /** Image/media attachments for vision-capable models (base64 data + MIME type) */
+  images?: Array<{ data: string; mimeType: string }>;
   /** Tool calls made by assistant (for native tool calling conversation flow) */
   toolCalls?: Array<
     { id?: string; function: { name: string; arguments: unknown } }

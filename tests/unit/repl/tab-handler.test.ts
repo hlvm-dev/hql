@@ -14,10 +14,10 @@ import { getWordAtCursor } from "../../../src/hlvm/cli/repl/string-utils.ts";
 // shouldTabAcceptSuggestion() - Testing REAL production code
 // ============================================================
 
-Deno.test("shouldTabAcceptSuggestion: accepts when all conditions met", () => {
+Deno.test("shouldTabAcceptSuggestion: always false when all conditions met", () => {
   const suggestion = { full: "(+ 1 2)", ghost: " 2)" };
   const result = shouldTabAcceptSuggestion(suggestion, 4, 4, false);
-  assertEquals(result, true);
+  assertEquals(result, false);
 });
 
 Deno.test("shouldTabAcceptSuggestion: rejects when cursor not at end", () => {
@@ -41,7 +41,7 @@ Deno.test("shouldTabAcceptSuggestion: all condition combinations", () => {
   // Exhaustive test of condition logic
   const testCases = [
     // suggestion, cursor, length, showing, expected
-    { suggestion: { full: "a", ghost: "b" }, cursor: 1, length: 1, showing: false, expected: true },
+    { suggestion: { full: "a", ghost: "b" }, cursor: 1, length: 1, showing: false, expected: false },
     { suggestion: { full: "a", ghost: "b" }, cursor: 0, length: 1, showing: false, expected: false },
     { suggestion: { full: "a", ghost: "b" }, cursor: 1, length: 1, showing: true, expected: false },
     { suggestion: null, cursor: 1, length: 1, showing: false, expected: false },
@@ -60,7 +60,7 @@ Deno.test("shouldTabAcceptSuggestion: all condition combinations", () => {
 // Integration: shouldTabAcceptSuggestion with real suggester
 // ============================================================
 
-Deno.test("integration: Tab decision with real findSuggestion", () => {
+Deno.test("integration: Tab decision with real findSuggestion remains false", () => {
   // Real scenario: user types "(defn", history has "(defn foo [x] x)"
   // Note: findSuggestion uses startsWith, so input must be prefix of history
   const value = "(defn";
@@ -76,7 +76,7 @@ Deno.test("integration: Tab decision with real findSuggestion", () => {
     value.length,  // value length
     false          // not showing completions
   );
-  assertEquals(shouldAccept, true);
+  assertEquals(shouldAccept, false);
 });
 
 Deno.test("integration: Tab rejects during completion cycling", () => {

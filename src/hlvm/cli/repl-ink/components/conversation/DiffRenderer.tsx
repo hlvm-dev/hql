@@ -33,6 +33,19 @@ interface DiffRendererProps {
 
 const HUNK_HEADER_RE = /@@ -(\d+),?\d* \+(\d+),?\d* @@/;
 
+function isDiffMetadataLine(line: string): boolean {
+  return line.startsWith("diff --git ") ||
+    line.startsWith("index ") ||
+    line.startsWith("new file mode ") ||
+    line.startsWith("deleted file mode ") ||
+    line.startsWith("similarity index ") ||
+    line.startsWith("rename from ") ||
+    line.startsWith("rename to ") ||
+    line.startsWith("copy from ") ||
+    line.startsWith("copy to ") ||
+    line.startsWith("Binary files ");
+}
+
 /**
  * Parse unified diff text into structured DiffLine entries.
  * Tracks old/new line counters independently per hunk.
@@ -45,6 +58,15 @@ export function parseDiffLines(diffContent: string): DiffLine[] {
   let inHunk = false;
 
   for (const line of rawLines) {
+    // New file section header (section boundary only; keep renderer concise by
+    // skipping this metadata line itself).
+    if (line.startsWith("diff --git ")) {
+      inHunk = false;
+      oldLine = 0;
+      newLine = 0;
+      continue;
+    }
+
     // Hunk header
     const hunkMatch = line.match(HUNK_HEADER_RE);
     if (hunkMatch) {
@@ -55,8 +77,8 @@ export function parseDiffLines(diffContent: string): DiffLine[] {
       continue;
     }
 
-    // File headers (before first hunk)
-    if (!inHunk && (line.startsWith("---") || line.startsWith("+++"))) {
+    // File headers + metadata (before first hunk in a section)
+    if (!inHunk && ((line.startsWith("---") || line.startsWith("+++")) || isDiffMetadataLine(line))) {
       result.push({ type: "file-header", content: line });
       continue;
     }
@@ -323,7 +345,7 @@ export default function DiffRenderer({
     elements.push(
       <Box key="truncated">
         <Text color={sc.text.muted}>
-          ... ({truncatedCount} more lines · Ctrl+O to expand, empty prompt)
+          ... ({truncatedCount} more lines · Ctrl+O toggles latest, empty prompt)
         </Text>
       </Box>,
     );

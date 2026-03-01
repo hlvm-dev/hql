@@ -52,6 +52,9 @@ export function useAttachments(): UseAttachmentsReturn {
   // Use ref for nextId to avoid useCallback dependency issues and ensure
   // synchronous access to current value (no stale closure problems)
   const nextIdRef = useRef(1);
+  // Invalidation token for async attachment operations.
+  // Incremented on clear so stale in-flight results don't get appended later.
+  const generationRef = useRef(0);
   const [lastError, setLastError] = useState<AttachmentError | null>(null);
 
   /**
@@ -70,11 +73,15 @@ export function useAttachments(): UseAttachmentsReturn {
    */
   const addAttachmentWithId = useCallback(async (path: string, id: number): Promise<Attachment | AttachmentError> => {
     setLastError(null);
+    const generation = generationRef.current;
 
     const result = await createAttachment(path, id);
 
     if (isAttachment(result)) {
-      setAttachments((prev: AnyAttachment[]) => [...prev, result]);
+      // Ignore stale async completions from previous cleared sessions.
+      if (generation === generationRef.current) {
+        setAttachments((prev: AnyAttachment[]) => [...prev, result]);
+      }
     } else {
       setLastError(result);
     }
@@ -111,6 +118,7 @@ export function useAttachments(): UseAttachmentsReturn {
    * Clear all attachments (call after submit)
    */
   const clearAttachments = useCallback(() => {
+    generationRef.current += 1;
     setAttachments([]);
     nextIdRef.current = 1;  // Reset ID counter
     setLastError(null);

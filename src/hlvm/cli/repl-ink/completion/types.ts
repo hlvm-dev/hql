@@ -30,6 +30,7 @@ export type CompletionSideEffect =
   | { type: "ADD_ATTACHMENT"; path: string }
   | { type: "ENTER_PLACEHOLDER_MODE"; params: string[]; startPos: number }
   | { type: "EXECUTE" }  // Execute command immediately (for slash commands)
+  | { type: "INCLUDE_DIRECTORY"; path: string }  // Recursive directory include
   | { type: "NONE" };
 
 /** Result of applying a completion action */
@@ -299,9 +300,9 @@ export interface NavigationResult {
   /**
    * Action to take:
    * - "navigate": Visual navigation only (Up/Down)
-   * - "drill": Go deeper / smart select (Tab)
    * - "select": Choose and close (Enter)
-   * - "cancel": Abort completion (Escape)
+   * - "cancel": Abort/close completion (Escape, Tab)
+   * - "drill": Reserved for provider-specific drill semantics
    * - "none": No action
    */
   readonly action: "navigate" | "drill" | "select" | "cancel" | "none";
@@ -401,9 +402,9 @@ export const RENDER_MAX_WIDTH = {
 
 /** Help text shown in dropdown (simplified for clean UI) */
 export const PROVIDER_HELP_TEXT = {
-  SIMPLE: "Tab select • Enter insert • Ctrl+D docs • Esc",
-  DRILL: "Tab drill • Enter insert • Ctrl+D docs • Esc",
-  COMMAND: "Tab run • Enter run • Ctrl+D docs • Esc",
+  SIMPLE: "Tab close • Enter select • Shift+Enter insert • Ctrl+D docs • Esc",
+  DRILL: "Tab close • Enter select • Shift+Enter insert • Ctrl+D docs • Esc",
+  COMMAND: "Tab close • Enter run • Ctrl+D docs • Esc",
 } as const;
 
 /** Debounce for async providers */

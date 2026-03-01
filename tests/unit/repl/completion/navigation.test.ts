@@ -48,18 +48,18 @@ Deno.test("Navigation: ArrowUp wraps from first to last", () => {
   assertEquals(result.action, "navigate");
 });
 
-Deno.test("Navigation: Tab drills into selection", () => {
+Deno.test("Navigation: Tab cancels (closes) dropdown", () => {
   const result = handleNavigationKey("Tab", 1, 5, true, false);
 
-  assertEquals(result.newIndex, 1); // Tab doesn't change index, it drills
-  assertEquals(result.action, "drill");
+  assertEquals(result.newIndex, -1);
+  assertEquals(result.action, "cancel");
 });
 
-Deno.test("Navigation: Shift+Tab also drills", () => {
+Deno.test("Navigation: Shift+Tab also cancels dropdown", () => {
   const result = handleNavigationKey("Tab", 2, 5, true, true);
 
-  assertEquals(result.newIndex, 2); // Tab doesn't change index, it drills
-  assertEquals(result.action, "drill");
+  assertEquals(result.newIndex, -1);
+  assertEquals(result.action, "cancel");
 });
 
 Deno.test("Navigation: Enter selects current item", () => {

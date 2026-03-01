@@ -201,6 +201,8 @@ export interface AgentRunnerOptions {
   skipSessionHistory?: boolean;
   signal?: AbortSignal;
   messageHistory?: import("./context.ts").Message[];
+  /** Image/media attachments for vision-capable models */
+  images?: Array<{ data: string; mimeType: string }>;
   /** Pre-fetched model info to avoid duplicate provider API calls */
   modelInfo?: ModelInfo | null;
   /** Reuse an existing session (skips policy/MCP/LLM setup) */
@@ -388,6 +390,7 @@ export async function runAgentQuery(
         ensureMcpLoaded: session.ensureMcpLoaded,
       },
       session.llm,
+      options.images,
     );
 
     if (sessionEntry) {

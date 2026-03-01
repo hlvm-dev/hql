@@ -61,7 +61,7 @@ export function ThinkingIndicator({
       {hiddenBodyLineCount > 0 && (
         <Box marginLeft={2}>
           <Text color={sc.text.muted}>
-            … ({hiddenBodyLineCount} more lines · Ctrl+O to expand, empty prompt)
+            … ({hiddenBodyLineCount} more lines · Ctrl+O toggles latest, empty prompt)
           </Text>
         </Box>
       )}

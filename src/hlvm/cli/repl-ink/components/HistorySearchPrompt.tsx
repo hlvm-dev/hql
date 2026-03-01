@@ -8,8 +8,8 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { HistorySearchState } from "../hooks/useHistorySearch.ts";
-import { HighlightedText } from "./HighlightedText.tsx";
 import { useTheme } from "../../theme/index.ts";
+import { highlight } from "../../repl/syntax.ts";
 
 // ============================================================
 // Main Component
@@ -45,11 +45,7 @@ export function HistorySearchPrompt({ state }: HistorySearchPromptProps): React.
         <Text dimColor>'</Text>
         <Text>: </Text>
         {selectedMatch ? (
-          <HighlightedText
-            text={selectedMatch.text}
-            matchIndices={selectedMatch.matchIndices}
-            underline
-          />
+          <Text>{highlight(selectedMatch.text)}</Text>
         ) : query ? (
           <Text dimColor italic>no match</Text>
         ) : (

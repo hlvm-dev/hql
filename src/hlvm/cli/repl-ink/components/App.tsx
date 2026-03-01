@@ -32,6 +32,7 @@ import { useAlternateBuffer } from "../hooks/useAlternateBuffer.ts";
 import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { clearTerminal } from "../../ansi.ts";
+import { getUnclosedDepth, highlight } from "../../repl/syntax.ts";
 import { useTheme } from "../../theme/index.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { resetContext } from "../../repl/context.ts";
@@ -106,7 +107,7 @@ function convertMessagesToHistory(
 
       entries.push({
         id: id++,
-        input: msg.content,
+        input: sanitizeHistoryInput(msg.content),
         result: hasAssistant
           ? { success: true, value: nextMsg.content }
           : { success: true, value: undefined },
@@ -139,6 +140,15 @@ function stringifyOutput(value: unknown): string {
       return "";
     }
   }
+}
+
+/**
+ * Keep history input rendering stable by stripping terminal control bytes that
+ * can leak from key sequences while preserving tabs/newlines.
+ */
+function sanitizeHistoryInput(input: string): string {
+  const withoutAnsi = input.replace(/\x1B\[[0-9;?]*[ -/]*[@-~]/g, "");
+  return withoutAnsi.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "");
 }
 
 /**
@@ -360,7 +370,10 @@ function AppContent(
   }, [nextId]);
   const addHistoryEntry = useCallback((input: string, result: EvalResult) => {
     const id = nextIdRef.current;
-    setHistory((prev: HistoryEntry[]) => [...prev, { id, input, result }]);
+    setHistory((prev: HistoryEntry[]) => [
+      ...prev,
+      { id, input: sanitizeHistoryInput(input), result },
+    ]);
     setNextId((n: number) => n + 1);
   }, []);
 
@@ -588,7 +601,10 @@ function AppContent(
     return true;
   }, []);
 
-  const runConversation = useCallback(async (query: string) => {
+  const runConversation = useCallback(async (
+    query: string,
+    images?: Array<{ data: string; mimeType: string }>,
+  ) => {
     // Guard: prevent double agent start — set ref atomically before any async work
     if (agentControllerRef.current) return;
     const controller = new AbortController();
@@ -615,6 +631,7 @@ function AppContent(
       const result = await runAgentQuery({
         query,
         model,
+        images,
         signal: controller.signal,
         callbacks: {
           onToken: (text: string) => {
@@ -883,8 +900,13 @@ function AppContent(
 
       // Natural language → agent conversation mode
       if (isNaturalLanguage(expandedCode)) {
+        // Convert media attachments to images array for vision models
+        const images = attachments
+          ?.filter((a): a is import("../../repl/attachment.ts").Attachment =>
+            "base64Data" in a && a.type !== "text")
+          .map(a => ({ data: a.base64Data, mimeType: a.mimeType }));
         setIsEvaluating(true);
-        runConversation(expandedCode);
+        runConversation(expandedCode, images?.length ? images : undefined);
         return;
       }
 
@@ -1197,15 +1219,23 @@ function AppContent(
       <Static<BannerItem> {...staticBannerProps} />
 
       {/* History of inputs and outputs */}
-      {history.map((entry: HistoryEntry) => (
-        <Box key={entry.id} flexDirection="column" marginBottom={1}>
-          <Box>
-            <Text color={color("primary")} bold>{"hlvm>"}</Text>
-            <Text>{entry.input}</Text>
+      {history.map((entry: HistoryEntry) => {
+        const lines = entry.input.split("\n");
+        const unclosedDepth = lines.length > 1 ? getUnclosedDepth(entry.input) : 0;
+        return (
+          <Box key={entry.id} flexDirection="column" marginBottom={1}>
+            {lines.map((line: string, lineIndex: number) => (
+              <Box key={`${entry.id}-${lineIndex}`}>
+                <Text color={color("primary")} bold>
+                  {lineIndex === 0 ? "hlvm>" : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
+                </Text>
+                <Text>{highlight(line)}</Text>
+              </Box>
+            ))}
+            <Output result={entry.result} />
           </Box>
-          <Output result={entry.result} />
-        </Box>
-      ))}
+        );
+      })}
 
       {/* Session Picker */}
       {activePanel === "picker" && (
@@ -1302,7 +1332,7 @@ function AppContent(
       {activePanel === "conversation" && (
           <ConversationPanel
             items={conversation.items}
-            width={Math.max(40, terminalWidth - 2)}
+            width={Math.max(20, terminalWidth - 2)}
             allowToggleHotkeys={allowConversationToggleHotkeys}
             interactionRequest={pendingInteraction}
             interactionQueueLength={interactionQueue.length}

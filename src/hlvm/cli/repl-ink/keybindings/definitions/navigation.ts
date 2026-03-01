@@ -69,6 +69,14 @@ export const navigationKeybindings: Keybinding[] = [
     category: "Navigation",
     action: { type: "HANDLER", id: HandlerIds.NAV_INSERT_NEWLINE },
   },
+  {
+    id: "ctrl+j",
+    display: "Ctrl+J",
+    label: "Insert newline",
+    description: "Universal terminal newline shortcut",
+    category: "Navigation",
+    action: { type: "HANDLER", id: HandlerIds.NAV_INSERT_NEWLINE },
+  },
 
   // Arrow navigation (contextual - behavior changes based on cursor position)
   {

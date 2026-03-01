@@ -8,6 +8,7 @@
 import type {
   CompanionConfig,
   CompanionEvent,
+  Observation,
 } from "./types.ts";
 import { EMISSION_SIGNAL_KINDS } from "./types.ts";
 import type { ObservationBus } from "./bus.ts";
@@ -60,6 +61,105 @@ function parseToolArgsSafely(toolArgs: string | undefined): unknown {
     log.warn("[companion] invalid toolArgs JSON; using undefined", err);
     return undefined;
   }
+}
+
+interface BatchSignalClassification {
+  shouldEmit: boolean;
+  reasons: string[];
+  mediumSignalCount: number;
+}
+
+const ERROR_OR_FAILURE_PATTERN =
+  /\b(error|failed|failure|exception|panic|fatal|traceback|stack trace|segmentation fault|enoent|eacces|syntaxerror|typeerror|referenceerror)\b/i;
+
+const CODE_OR_URL_PATTERN =
+  /(```|https?:\/\/|^\s*at\s+\S+|\b(import|export|function|class|const|let|var|def|fn)\b)/im;
+
+const WINDOW_ERROR_PATTERN =
+  /\b(error|failed|failure|crash|exception|panic|fatal)\b/i;
+
+const DEV_APP_NAMES = new Set([
+  "xcode",
+  "terminal",
+  "iterm",
+  "iterm2",
+  "vscode",
+  "visual studio code",
+  "cursor",
+  "intellij idea",
+  "webstorm",
+  "pycharm",
+  "clion",
+  "zed",
+  "sublime text",
+  "neovim",
+  "vim",
+  "emacs",
+]);
+
+function getStringData(obs: Observation, key: string): string | null {
+  const value = obs.data[key];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function classifyBatchSignal(batch: Observation[]): BatchSignalClassification {
+  const reasons: string[] = [];
+  const mediumSignals = new Set<string>();
+
+  for (const obs of batch) {
+    if (EMISSION_SIGNAL_KINDS.has(obs.kind)) {
+      reasons.push(`hard:${obs.kind}`);
+      return { shouldEmit: true, reasons, mediumSignalCount: mediumSignals.size };
+    }
+
+    if (obs.kind === "clipboard.changed") {
+      const text = getStringData(obs, "text");
+      if (!text) continue;
+      if (ERROR_OR_FAILURE_PATTERN.test(text)) {
+        reasons.push("hard:clipboard.error_or_trace");
+        return { shouldEmit: true, reasons, mediumSignalCount: mediumSignals.size };
+      }
+      if (text.length >= 24 && CODE_OR_URL_PATTERN.test(text)) {
+        mediumSignals.add("medium:clipboard.code_or_url");
+      }
+      continue;
+    }
+
+    if (obs.kind === "ui.window.title.changed" || obs.kind === "ui.window.focused") {
+      const title = getStringData(obs, "title");
+      if (!title) continue;
+      if (WINDOW_ERROR_PATTERN.test(title)) {
+        reasons.push("hard:window.error_title");
+        return { shouldEmit: true, reasons, mediumSignalCount: mediumSignals.size };
+      }
+      if (CODE_OR_URL_PATTERN.test(title)) {
+        mediumSignals.add("medium:window.code_or_url_title");
+      }
+      continue;
+    }
+
+    if (obs.kind === "app.switch") {
+      const appName = getStringData(obs, "appName");
+      if (!appName) continue;
+      if (DEV_APP_NAMES.has(appName.toLowerCase())) {
+        mediumSignals.add("medium:app.dev_tool_switch");
+      }
+    }
+  }
+
+  if (mediumSignals.size >= 2) {
+    reasons.push(...mediumSignals);
+    reasons.push("decision:combined_medium_signals");
+    return { shouldEmit: true, reasons, mediumSignalCount: mediumSignals.size };
+  }
+
+  return {
+    shouldEmit: false,
+    reasons: [...mediumSignals],
+    mediumSignalCount: mediumSignals.size,
+  };
 }
 
 /**
@@ -157,13 +257,14 @@ export async function runCompanionLoop(
         continue;
       }
 
-      // Signal filter: only emit when batch has high-signal observations.
-      // Low-signal events (app.switch, window title, etc.) are still accumulated
-      // in context but don't warrant interrupting the user.
-      const hasHighSignal = redacted.some((obs) => EMISSION_SIGNAL_KINDS.has(obs.kind));
-      if (!hasHighSignal) {
+      const signalClassification = classifyBatchSignal(redacted);
+      if (!signalClassification.shouldEmit) {
         log.debug("[companion] skipping — no high-signal observations");
-        traceCompanion("loop.skipped.low_signal", { kinds });
+        traceCompanion("loop.skipped.low_signal", {
+          kinds,
+          reasons: signalClassification.reasons,
+          mediumSignalCount: signalClassification.mediumSignalCount,
+        });
         continue;
       }
 
@@ -191,6 +292,7 @@ export async function runCompanionLoop(
       traceCompanion("loop.emit.observation_prompt", {
         eventId: event.id,
         observationCount: redacted.length,
+        signalReasons: signalClassification.reasons,
       });
     }
   } finally {

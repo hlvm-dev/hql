@@ -33,7 +33,6 @@ import {
   type PareditResult,
 } from "../../repl/paredit.ts";
 import { findSuggestion, acceptSuggestion, type Suggestion } from "../../repl/suggester.ts";
-import { shouldTabAcceptSuggestion } from "../../repl/tab-logic.ts";
 import { calculateWordBackPosition, calculateWordForwardPosition } from "../../repl/keyboard.ts";
 import { isSupportedMedia, detectMimeType, getAttachmentType, getDisplayName, shouldCollapseText } from "../../repl/attachment.ts";
 import { useAttachments, type AnyAttachment } from "../hooks/useAttachments.ts";
@@ -47,7 +46,6 @@ import {
   useCompletion,
   Dropdown,
   ATTACHMENT_PLACEHOLDER,
-  STRING_PLACEHOLDER_FUNCTIONS,
   getWordAtCursor,
   type CompletionItem,
   type CompletionAction,
@@ -55,8 +53,6 @@ import {
 
 // FRP Context - reactive state
 import { useReplContext } from "../context/index.ts";
-import { log } from "../../../api/log.ts";
-import { getErrorMessage } from "../../../../common/utils.ts";
 import { deleteWordPreservingDelimiters } from "../utils/text-editing.ts";
 
 // Handler Registry - for palette/keybinding execution
@@ -169,6 +165,14 @@ export function Input({
   const pasteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastInputTimeRef = useRef<number>(0);
 
+  // Undo/redo stacks (refs to avoid re-render on push)
+  const undoStackRef = useRef<Array<{value: string, cursorPos: number}>>([]);
+  const redoStackRef = useRef<Array<{value: string, cursorPos: number}>>([]);
+  // Async operation guards
+  const pendingAttachmentOpsRef = useRef(0);
+  const asyncEffectVersionRef = useRef(0);
+  const valueRef = useRef(value);
+
   // Track if text change was from cycling (Up/Down) vs typing
   // When cycling, we don't want to re-filter the dropdown
   const textChangeFromCyclingRef = useRef(false);
@@ -180,6 +184,9 @@ export function Input({
   useEffect(() => {
     disabledRef.current = disabled;
   }, [disabled]);
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
 
   // Update cursor pos when value changes externally
   useEffect(() => {
@@ -300,23 +307,32 @@ export function Input({
       return;
     }
 
+    const { word } = getWordAtCursor(textBefore, cursorPos);
+    const trimmedBefore = textBefore.trimStart();
+    const lastAt = textBefore.lastIndexOf("@");
+    const isInMention = lastAt >= 0 && !textBefore.slice(lastAt + 1).includes(" ");
+    const isInCommand = trimmedBefore.startsWith("/") && !trimmedBefore.includes(" ");
+
     // GENERIC: Re-trigger for ANY provider when dropdown is already open (live filtering)
-    // This enables VS Code-like behavior where typing filters the dropdown items
-    // The completion system will close dropdown if no items match
+    // Auto-close first when there is no meaningful completion context.
     if (completion.isVisible) {
+      if (word.length === 0 && !isInMention && !isInCommand) {
+        completion.close();
+        return;
+      }
       triggerCompletionRef.current(value, cursorPos);
       return;
     }
 
     // @mention triggers FileProvider
-    const lastAt = textBefore.lastIndexOf("@");
-    if (lastAt >= 0) {
-      const queryPart = textBefore.slice(lastAt + 1);
+    const mentionAt = textBefore.lastIndexOf("@");
+    if (mentionAt >= 0) {
+      const queryPart = textBefore.slice(mentionAt + 1);
       const isAbsolutePath = queryPart.startsWith("/") || queryPart.startsWith("~");
       // Valid @mention context: no spaces (unless absolute path), no ) or "
       if ((!queryPart.includes(" ") || isAbsolutePath) && !queryPart.includes(")") && !queryPart.includes("\"")) {
-        const charBefore = lastAt === 0 ? " " : textBefore[lastAt - 1];
-        if (charBefore === " " || charBefore === "\t" || charBefore === "(" || charBefore === "[" || lastAt === 0) {
+        const charBefore = mentionAt === 0 ? " " : textBefore[mentionAt - 1];
+        if (charBefore === " " || charBefore === "\t" || charBefore === "(" || charBefore === "[" || mentionAt === 0) {
           triggerCompletionRef.current(value, cursorPos);
           return;
         }
@@ -324,30 +340,9 @@ export function Input({
     }
 
     // /command triggers CommandProvider (only at start)
-    if (textBefore.trimStart().startsWith("/") && !textBefore.includes(" ")) {
+    if (trimmedBefore.startsWith("/") && !trimmedBefore.includes(" ")) {
       triggerCompletionRef.current(value, cursorPos);
       return;
-    }
-
-    // AUTO-POPUP: Symbol completions when typing 1+ characters
-    // This enables VS Code-like IntelliSense behavior
-    const { word } = getWordAtCursor(textBefore, cursorPos);
-    if (word.length >= 1) {
-      triggerCompletionRef.current(value, cursorPos);
-      return;
-    }
-
-    // AUTO-CLOSE: Close dropdown when no meaningful word to complete
-    // Single responsibility: this useEffect controls ALL dropdown open/close for symbols
-    if (completion.isVisible && word.length === 0) {
-      // Check if we're NOT in @mention or /command mode (they have their own rules)
-      const lastAt = textBefore.lastIndexOf("@");
-      const isInMention = lastAt >= 0 && !textBefore.slice(lastAt + 1).includes(" ");
-      const isInCommand = textBefore.trimStart().startsWith("/") && !textBefore.includes(" ");
-
-      if (!isInMention && !isInCommand) {
-        completion.close();
-      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, cursorPos, historySearch.state.isSearching, placeholders, placeholderIndex]);
@@ -430,11 +425,43 @@ export function Input({
     setCursorPos(newPlaceholders[0].start);
   }, [completion]);
 
+  // Helper: push current state to undo stack (call BEFORE each mutation)
+  const pushUndo = useCallback(() => {
+    const stack = undoStackRef.current;
+    const last = stack[stack.length - 1];
+    if (last && last.value === value && last.cursorPos === cursorPos) return;
+    stack.push({ value, cursorPos });
+    if (stack.length > 100) stack.shift();
+    redoStackRef.current = []; // new mutation kills redo branch
+  }, [value, cursorPos]);
+
+  // Helper: undo last edit
+  const undo = useCallback(() => {
+    const stack = undoStackRef.current;
+    if (stack.length === 0) return;
+    const entry = stack.pop()!;
+    redoStackRef.current.push({ value, cursorPos });
+    onChange(entry.value);
+    setCursorPos(entry.cursorPos);
+  }, [value, cursorPos, onChange]);
+
+  // Helper: redo last undone edit
+  const redo = useCallback(() => {
+    const stack = redoStackRef.current;
+    if (stack.length === 0) return;
+    const entry = stack.pop()!;
+    undoStackRef.current.push({ value, cursorPos });
+    onChange(entry.value);
+    setCursorPos(entry.cursorPos);
+  }, [value, cursorPos, onChange]);
+
   // Helper: execute completion action (GENERIC - uses item.applyAction)
   // This replaces the old applyCompletionSelection with provider-defined behavior
   const executeCompletionAction = useCallback((item: CompletionItem, action: CompletionAction) => {
     const context = completion.getApplyContext();
     if (!context) return; // No active completion session
+
+    pushUndo();
 
     // Let the item define how to apply the action
     const result = item.applyAction(action, context);
@@ -442,6 +469,7 @@ export function Input({
     // Handle side effects from providers
     if (result.sideEffect?.type === "ADD_ATTACHMENT") {
       // Media file attachment
+      pendingAttachmentOpsRef.current += 1;
       const id = reserveNextId();
       const mimeType = detectMimeType(result.sideEffect.path);
       const type = getAttachmentType(mimeType);
@@ -451,18 +479,46 @@ export function Input({
       onChange(finalText);
       const placeholderLen = ATTACHMENT_PLACEHOLDER.length;
       setCursorPos(result.cursorPosition - placeholderLen + displayName.length);
-      addAttachmentWithId(result.sideEffect.path, id);
+      void addAttachmentWithId(result.sideEffect.path, id).finally(() => {
+        pendingAttachmentOpsRef.current = Math.max(0, pendingAttachmentOpsRef.current - 1);
+      });
     } else if (result.sideEffect?.type === "ENTER_PLACEHOLDER_MODE") {
       // Function param completion
       onChange(result.text);
       enterPlaceholderMode(result.sideEffect.params, result.sideEffect.startPos);
+    } else if (result.sideEffect?.type === "INCLUDE_DIRECTORY") {
+      // Recursive directory include — read all files and add as text attachment
+      const dirPath = result.sideEffect.path;
+      const baseText = result.text;
+      const effectVersion = asyncEffectVersionRef.current;
+      onChange(baseText);
+      setCursorPos(result.cursorPosition);
+      import("../../repl/dir-reader.ts").then(({ readDirectoryRecursive }) =>
+        readDirectoryRecursive(dirPath).then((content) => {
+          // Ignore stale completion effects after submit/clear or user edits.
+          if (effectVersion !== asyncEffectVersionRef.current) return;
+          if (valueRef.current !== baseText) return;
+          const textAttachment = addTextAttachment(content);
+          const dirToken = `@${dirPath} `;
+          const nextText = baseText.includes(dirToken)
+            ? baseText.replace(dirToken, `${textAttachment.displayName} `)
+            : `${baseText} ${textAttachment.displayName}`;
+          onChange(nextText);
+          setCursorPos(nextText.length);
+        })
+          .catch(() => { /* silently fail — user still has the @path */ })
+      );
     } else if (result.sideEffect?.type === "EXECUTE") {
       // Command execution - close dropdown and submit immediately (single Enter)
       completion.close();
       const finalText = result.text.trim();
       onSubmit(finalText, attachments.length > 0 ? attachments : undefined);
+      asyncEffectVersionRef.current += 1;
+      pendingAttachmentOpsRef.current = 0;
       onChange("");
       setCursorPos(0);
+      setHistoryIndex(-1);
+      setTempInput("");
       clearAttachments();
       return; // Early return - already closed dropdown
     } else {
@@ -475,7 +531,7 @@ export function Input({
     if (result.closeDropdown) {
       completion.close();
     }
-  }, [completion, onChange, onSubmit, attachments, clearAttachments, reserveNextId, addAttachmentWithId, enterPlaceholderMode]);
+  }, [completion, onChange, onSubmit, attachments, reserveNextId, addAttachmentWithId, addTextAttachment, enterPlaceholderMode, pushUndo, clearAttachments]);
 
   // Helper: move to next placeholder (Tab)
   const nextPlaceholder = useCallback(() => {
@@ -640,15 +696,20 @@ export function Input({
 
   // Helper: insert text at cursor
   const insertAt = useCallback((text: string) => {
+    pushUndo();
     const newValue = value.slice(0, cursorPos) + text + value.slice(cursorPos);
     onChange(newValue);
     setCursorPos(cursorPos + text.length);
-  }, [value, cursorPos, onChange]);
+  }, [value, cursorPos, onChange, pushUndo]);
 
   // Note: deleteBack was removed - now using deleteBackWithPairSupport() from syntax.ts
 
   // Helper: reset state after submit (DRY helper)
   const resetAfterSubmit = useCallback(() => {
+    asyncEffectVersionRef.current += 1;
+    pendingAttachmentOpsRef.current = 0;
+    undoStackRef.current = [];
+    redoStackRef.current = [];
     setHistoryIndex(-1);
     setTempInput("");
     completion.close();
@@ -694,16 +755,18 @@ export function Input({
       insertAt(openChar);
       return;
     }
+    pushUndo();
     const newValue = value.slice(0, cursorPos) + openChar + closeChar + value.slice(cursorPos);
     onChange(newValue);
     setCursorPos(cursorPos + 1); // Cursor between the pair
-  }, [value, cursorPos, onChange, insertAt]);
+  }, [value, cursorPos, onChange, insertAt, pushUndo]);
 
 
   // Helper: delete word backward (Ctrl+W)
   // Accepts optional parameters to work on any value (for placeholder cleanup)
   // LISP-aware: treats parens/brackets as word boundaries
   const deleteWord = useCallback((targetValue?: string, targetCursor?: number) => {
+    pushUndo();
     const v = targetValue ?? value;
     const c = targetCursor ?? cursorPos;
 
@@ -737,7 +800,7 @@ export function Input({
     }
     onChange(before.slice(0, pos) + v.slice(c));
     setCursorPos(pos);
-  }, [value, cursorPos, onChange]);
+  }, [value, cursorPos, onChange, pushUndo]);
 
   // Helper: get value with placeholders cleaned up (DRY for Ctrl+W/U/K)
   const getCleanedValue = useCallback((): { v: string; c: number } => {
@@ -763,6 +826,8 @@ export function Input({
   // FIX H5: Capture value directly to avoid stale closure
   const navigateHistory = useCallback((direction: number) => {
     if (history.length === 0) return;
+
+    pushUndo();
 
     // Clear paste buffer to prevent data corruption
     if (pasteTimeoutRef.current) {
@@ -799,107 +864,33 @@ export function Input({
         setCursorPos(tempInput.length);
       }
     }
-  }, [history, historyIndex, tempInput, value, onChange]);
+  }, [history, historyIndex, tempInput, value, onChange, pushUndo]);
 
-  // Helper: generate AI example for a function (Shift+Tab in dropdown)
-  // Streams example code from Ollama and replaces input with it
-  const generateExample = useCallback(async (fnName: string) => {
-    try {
-      // Close dropdown first
-      completion.close();
-
-      // Dynamically import the example function from AI module
-      const { example } = await import("../../../../hql/lib/stdlib/js/ai.js");
-
-      // Stream and accumulate the example
-      let result = "";
-      for await (const chunk of example(fnName)) {
-        result += chunk;
-        // Update input as it streams (live preview)
-        const trimmed = result.trim();
-        onChange(trimmed);
-        setCursorPos(trimmed.length);
-      }
-
-      // Final cleanup - trim whitespace and any backticks/markdown
-      let finalResult = result.trim();
-      // Remove markdown code blocks if AI returned them
-      if (finalResult.startsWith("```")) {
-        const lines = finalResult.split("\n");
-        // Remove first line (```hql or ```)
-        lines.shift();
-        // Remove last line if it's just ```)
-        if (lines[lines.length - 1]?.trim() === "```") {
-          lines.pop();
-        }
-        finalResult = lines.join("\n").trim();
-      }
-      // Remove inline code backticks when they wrap the whole output
-      if (finalResult.startsWith("`") && finalResult.endsWith("`")) {
-        const inner = finalResult.slice(1, -1);
-        if (!inner.includes("`") && !inner.includes("${")) {
-          finalResult = inner;
-        }
-      }
-
-      onChange(finalResult);
-      setCursorPos(finalResult.length);
-
-    } catch (err: unknown) {
-      // Handle errors gracefully
-      const errorMsg = getErrorMessage(err);
-      // Only log cancellation errors, don't show to user
-      if (errorMsg !== "Cancelled" && !errorMsg.includes("AbortError")) {
-        log.error(`Example generation error: ${errorMsg}`);
-      }
-    }
-  }, [completion, onChange]);
-
-  // Helper: handle tab completion when dropdown is NOT visible
-  // Opens dropdown and selects first item (no auto-apply - use Tab again to confirm)
+  // Helper: Tab completion toggle.
+  // Behavior: open dropdown when closed, close it when open.
   // FIX: Use triggerCompletionRef to avoid stale closure issues with completion object
   const handleTab = useCallback(async () => {
-    // Special case: Param insertion when cursor is after function name + space: (ask |
-    const beforeCursor = value.slice(0, cursorPos);
-    const match = beforeCursor.match(/\(([a-zA-Z_][a-zA-Z0-9_?!-]*)\s+$/);
-    if (match) {
-      const funcName = match[1];
-      if (STRING_PLACEHOLDER_FUNCTIONS.has(funcName)) {
-        const hasClosingParen = value[cursorPos] === ")";
-        const insertText = "\"\"" + (hasClosingParen ? "" : ")");
-        const newValue = value.slice(0, cursorPos) + insertText + value.slice(cursorPos);
-        onChange(newValue);
-        setCursorPos(cursorPos + 1);
-        return;
-      }
-      if (signatures.has(funcName)) {
-        const params = signatures.get(funcName)!;
-        if (params.length > 0) {
-          const hasClosingParen = value[cursorPos] === ")";
-          const paramsText = params.join(" ") + (hasClosingParen ? "" : ")");
-          const newValue = value.slice(0, cursorPos) + paramsText + value.slice(cursorPos);
-          onChange(newValue);
-          enterPlaceholderMode(params, cursorPos);
-          return;
-        }
-      }
+    // Toggle behavior: if dropdown is open, Tab closes it (never auto-select on Tab).
+    if (completion.isVisible) {
+      completion.close();
+      return;
     }
 
-    // Trigger completion and open dropdown (first item selected, NOT applied)
-    // User must press Tab again to confirm and apply the selection
+    // Trigger completion and open dropdown (first item may be selected visually, never applied on Tab).
     // Use ref to ensure we always have the latest triggerCompletion function
     await triggerCompletionRef.current(value, cursorPos, true);
-  }, [value, cursorPos, signatures, onChange, enterPlaceholderMode]);
+  }, [value, cursorPos, completion]);
 
   // ============================================================
   // Handler Registry Registration
   // Register handlers for palette/keybinding execution
   // ============================================================
   useEffect(() => {
-    // Paredit helper using current value/cursorPos closure
+    // Paredit helper using current value/cursorPos closure (with undo)
     const applyParedit = (fn: PareditFn) => {
       const result = fn(value, cursorPos);
       if (result) {
+        pushUndo();
         onChange(result.newValue);
         setCursorPos(result.newCursor);
       }
@@ -915,18 +906,23 @@ export function Input({
       }
     }, "Input");
     registerHandler(HandlerIds.EDIT_DELETE_TO_START, () => {
+      pushUndo();
       const { v, c } = getCleanedValue();
       onChange(v.slice(c));
       setCursorPos(0);
     }, "Input");
     registerHandler(HandlerIds.EDIT_DELETE_TO_END, () => {
+      pushUndo();
       const { v, c } = getCleanedValue();
       onChange(v.slice(0, c));
     }, "Input");
     registerHandler(HandlerIds.EDIT_DELETE_WORD_BACK, () => {
+      pushUndo();
       const { v, c } = getCleanedValue();
       deleteWord(v, c);
     }, "Input");
+    registerHandler(HandlerIds.EDIT_UNDO, undo, "Input");
+    registerHandler(HandlerIds.EDIT_REDO, redo, "Input");
 
     // Navigation handlers
     registerHandler(HandlerIds.NAV_WORD_BACK, moveWordBack, "Input");
@@ -981,6 +977,8 @@ export function Input({
       unregisterHandler(HandlerIds.EDIT_DELETE_TO_START);
       unregisterHandler(HandlerIds.EDIT_DELETE_TO_END);
       unregisterHandler(HandlerIds.EDIT_DELETE_WORD_BACK);
+      unregisterHandler(HandlerIds.EDIT_UNDO);
+      unregisterHandler(HandlerIds.EDIT_REDO);
       // Navigation
       unregisterHandler(HandlerIds.NAV_WORD_BACK);
       unregisterHandler(HandlerIds.NAV_WORD_FORWARD);
@@ -1010,13 +1008,16 @@ export function Input({
     value, cursorPos, suggestion, placeholders, placeholderIndex,
     onChange, moveWordBack, moveWordForward, deleteWord, handleTab,
     completion, historySearch.actions, exitPlaceholderMode, getCleanedValue,
-    insertAt, acceptAndApplySuggestion, clearPasteBuffer,
+    insertAt, acceptAndApplySuggestion, clearPasteBuffer, undo, redo, pushUndo,
   ]);
 
   // Main input handler
   useInput((input, key) => {
     // Use ref to avoid stale closure - disabled prop can change during evaluation
     if (disabledRef.current) return;
+    // Some terminals emit raw \t for Tab without setting key.tab.
+    // Treat both forms as Tab for deterministic completion toggle behavior.
+    const isTabKey = key.tab || input === "\t";
 
     // ============================================================
     // HISTORY SEARCH MODE (Ctrl+R)
@@ -1033,6 +1034,7 @@ export function Input({
       if (key.return) {
         const selected = historySearch.actions.confirm();
         if (selected !== null) {
+          pushUndo();
           onChange(selected);
           setCursorPos(selected.length);
         }
@@ -1141,7 +1143,7 @@ export function Input({
         !key.meta &&
         !key.escape &&
         !key.return &&
-        !key.tab &&
+        !isTabKey &&
         !key.backspace &&
         !key.delete &&
         !key.upArrow &&
@@ -1241,10 +1243,11 @@ export function Input({
     // This handles BOTH key.escape AND key.meta since macOS Terminal sends ESC sequences
     // IMPORTANT: Skip this block if Ctrl is pressed to let Ctrl handler run
     if ((key.escape || key.meta) && !key.ctrl) {
-      // Paredit helper using current value/cursorPos closure
+      // Paredit helper using current value/cursorPos closure (with undo)
       const applyParedit = (fn: PareditFn) => {
         const result = fn(value, cursorPos);
         if (result) {
+          pushUndo();
           onChange(result.newValue);
           setCursorPos(result.newCursor);
         }
@@ -1290,7 +1293,7 @@ export function Input({
         //   Option+s = Slurp forward   (S for Slurp)
         //   Option+a = Slurp backward  (A left of S)
         //   Option+x = Barf forward    (X for eXpel)
-        //   Option+z = Barf backward   (Z left of X)
+        //   Option+z = Undo            (reassigned from barf-backward)
         //   Option+w = Wrap            (W for Wrap)
         //   Option+u = Unwrap/Splice   (U for Unwrap)
         //   Option+r = Raise           (R for Raise)
@@ -1300,7 +1303,8 @@ export function Input({
         case 's': applyParedit(slurpForward); return;   // Opt+S: (a|) b → (a| b)
         case 'a': applyParedit(slurpBackward); return;  // Opt+A: a (|b) → (a |b)
         case 'x': applyParedit(barfForward); return;    // Opt+X: (a| b) → (a|) b
-        case 'z': applyParedit(barfBackward); return;   // Opt+Z: (a |b) → a (|b)
+        case 'z': undo(); return;                        // Alt+Z: Undo
+        case 'Z': redo(); return;                        // Alt+Shift+Z: Redo
         case 'w': applyParedit(wrapSexp); return;       // Opt+W: |foo → (|foo)
         case 'u': applyParedit(spliceSexp); return;     // Opt+U: ((|a)) → (|a)
         case 'r': applyParedit(raiseSexp); return;      // Opt+R: (x (|y)) → (|y)
@@ -1310,18 +1314,23 @@ export function Input({
 
       // Only treat as "pure ESC" if no input character (actual ESC key press)
       if (!input || input.length === 0) {
+        // Pure ESC key: close dropdown first (do not clear input).
+        if (completion.isVisible) {
+          completion.close();
+          return;
+        }
+
         // Pure ESC key - immediately clear input (Claude Code behavior)
 
         // Exit placeholder mode
         if (isInPlaceholderMode()) {
           exitPlaceholderModeAndCleanup();
         }
-        // Close completion dropdown
-        if (completion.isVisible) {
-          completion.close();
-        }
 
         // Clear input immediately
+        asyncEffectVersionRef.current += 1;
+        pendingAttachmentOpsRef.current = 0;
+        pushUndo();
         onChange("");
         setCursorPos(0);
         clearAttachments();
@@ -1333,7 +1342,7 @@ export function Input({
     // Placeholder mode handling (highest priority)
     if (isInPlaceholderMode()) {
       // Tab navigates placeholders
-      if (key.tab) {
+      if (isTabKey) {
         if (key.shift) {
           previousPlaceholder();
         } else {
@@ -1354,6 +1363,7 @@ export function Input({
 
       // Backspace in placeholder mode
       if (key.backspace || key.delete) {
+        pushUndo();
         if (backspaceInPlaceholder()) {
           return;
         }
@@ -1464,47 +1474,49 @@ export function Input({
         return;
       }
 
-      // Shift+Tab: Generate AI example for selected function
-      // Streams an example usage from Ollama and replaces input with it
-      if (key.tab && key.shift && selectedItem) {
-        // Only generate examples for functions/macros/keywords (not files/directories/commands)
-        const exampleTypes = ["function", "macro", "keyword", "operator", "variable"];
-        if (exampleTypes.includes(selectedItem.type)) {
-          generateExample(selectedItem.label);
-        }
+      // Tab toggles dropdown only (open/close). It never applies selection.
+      // Selection is explicit via Enter.
+      if (isTabKey) {
+        handleTab();
         return;
       }
 
-      // Tab: DRILL if available, else SELECT
-      // - Directories: drill in (keep dropdown open)
-      // - Functions with params: select + params (enter placeholder mode)
-      // - Others: simple select
-      if (key.tab && selectedItem) {
-        const action: CompletionAction = selectedItem.availableActions.includes("DRILL")
-          ? "DRILL"
-          : "SELECT";
-        executeCompletionAction(selectedItem, action);
-        return;
-      }
-
-      // Enter: SELECT for commands (executes immediately), INSERT for others (text insertion)
-      // Commands need SELECT to trigger EXECUTE side effect for immediate execution
-      // Non-commands use INSERT so user can reference functions without calling them
+      // Enter confirms selection in snippet-aware mode (SELECT).
+      // Shift+Enter keeps plain-text insertion (INSERT) for non-command items.
       if (key.return && selectedItem) {
-        const action: CompletionAction = selectedItem.type === "command" ? "SELECT" : "INSERT";
+        const action: CompletionAction = (selectedItem.type !== "command" && key.shift)
+          ? "INSERT"
+          : "SELECT";
         executeCompletionAction(selectedItem, action);
         return;
       }
     }
 
     // Enter - submit if balanced OR if it's an @mention query
-    if (key.return) {
+    // Skip if Ctrl is pressed (Ctrl+J = ASCII 10 = newline, handled in Ctrl block)
+    if (key.return && !key.ctrl) {
+      // Wait for async attachment resolution before submit so placeholders map to real attachments.
+      if (pendingAttachmentOpsRef.current > 0) {
+        return;
+      }
+
       // If there's a ghost text suggestion, accept it first then submit
       // This makes slash commands like /config execute immediately when completed
       let finalValue = value;
       if (suggestion) {
         finalValue = acceptSuggestion(suggestion);
         setSuggestion(null);
+      }
+
+      // Backslash-Enter: replace trailing \ with newline for explicit multi-line
+      const charBeforeCursor = cursorPos > 0 ? finalValue[cursorPos - 1] : '';
+      if (charBeforeCursor === '\\') {
+        pushUndo();
+        const before = finalValue.slice(0, cursorPos - 1);
+        const after = finalValue.slice(cursorPos);
+        onChange(before + "\n" + after);
+        setCursorPos(cursorPos); // cursor at same offset (now after the \n)
+        return;
       }
 
       const trimmed = finalValue.trim();
@@ -1524,15 +1536,12 @@ export function Input({
       return;
     }
 
-    // Tab - open completion dropdown (when not already visible)
-    if (key.tab) {
-      // Ghost text suggestion takes priority when at end of line
-      if (shouldTabAcceptSuggestion(suggestion, cursorPos, value.length, completion.isVisible)) {
-        acceptAndApplySuggestion();
-      } else {
-        // Open dropdown (Shift+Tab same as Tab when dropdown not visible)
-        handleTab();
-      }
+    // Tab always controls completion dropdown visibility.
+    // It never accepts ghost text directly.
+    if (isTabKey) {
+      // Open dropdown (Shift+Tab same as Tab when dropdown not visible)
+      // or close it if already visible (toggle behavior in handleTab).
+      handleTab();
       return;
     }
 
@@ -1580,10 +1589,11 @@ export function Input({
     const isCtrlCode = ctrlCode >= 1 && ctrlCode <= 26;
 
     if (key.ctrl || isCtrlCode) {
-      // Paredit helper using current value/cursorPos closure
+      // Paredit helper using current value/cursorPos closure (with undo)
       const applyParedit = (fn: PareditFn) => {
         const result = fn(value, cursorPos);
         if (result) {
+          pushUndo();
           onChange(result.newValue);
           setCursorPos(result.newCursor);
         }
@@ -1612,12 +1622,14 @@ export function Input({
           return;
         }
         case "u": { // Ctrl+U = Delete to start of line
+          pushUndo();
           const { v, c } = getCleanedValue();
           onChange(v.slice(c));
           setCursorPos(0);
           return;
         }
         case "k": { // Ctrl+K = Delete to end of line
+          pushUndo();
           const { v, c } = getCleanedValue();
           onChange(v.slice(0, c));
           return;
@@ -1649,6 +1661,10 @@ export function Input({
         case "l": applyParedit(raiseSexp); return;      // Ctrl+L = Raise
         case "o": applyParedit(killSexp); return;       // Ctrl+O = Kill
 
+        case "j": // Ctrl+J = insert newline (universal terminal convention)
+          insertAt("\n");
+          return;
+
         // Note: Ctrl+P = Command Palette (handled in App.tsx)
         // Note: Ctrl+D = EOF (handled in App.tsx)
         // Note: Ctrl+B = Tasks Panel (handled in App.tsx)
@@ -1663,6 +1679,7 @@ export function Input({
     // Dropdown close is handled by the auto-trigger useEffect (single responsibility)
     if (key.backspace || key.delete) {
       if (cursorPos > 0) {
+        pushUndo();
         // Check for empty quote pair first: "|" or '|'
         if (isInsideEmptyQuotePair(value, cursorPos)) {
           const newValue = value.slice(0, cursorPos - 1) + value.slice(cursorPos + 1);
