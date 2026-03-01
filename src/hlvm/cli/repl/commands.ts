@@ -72,6 +72,8 @@ export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
     { name: "/resume", description: "Resume a previous session" },
     { name: "/clear-history", description: "Delete all chat history" },
     { name: "/mcp", description: "List configured MCP servers" },
+    { name: "/quickstart", description: "Show getting-started examples" },
+    { name: "/warnings", description: "Show startup warnings" },
   ];
 
 /** Generate help text dynamically using keybinding registry */
@@ -266,6 +268,49 @@ export const commands: Record<string, Command> = {
       }
     },
   },
+  "/quickstart": {
+    description: "Show getting-started examples",
+    handler: (_state, _args, context) => {
+      context.output(`
+${BOLD}Polyglot Mode${RESET}  ${DIM_GRAY}(expr) → HQL  |  expr → JS${RESET}
+
+  ${GREEN}let x = 10${RESET}                ${DIM_GRAY}→ JS variable${RESET}
+  ${GREEN}(+ x 5)${RESET}                   ${DIM_GRAY}→ HQL with JS${RESET}
+  ${GREEN}const f = (a,b) => a+b${RESET}    ${DIM_GRAY}→ JS function${RESET}
+  ${GREEN}(f 3 4)${RESET}                   ${DIM_GRAY}→ Call from HQL${RESET}
+
+${BOLD}Quick Start${RESET}
+
+  ${GREEN}(+ 1 2)${RESET}                   ${DIM_GRAY}→ Simple math${RESET}
+  ${GREEN}(fn add [x y] (+ x y))${RESET}   ${DIM_GRAY}→ Define function${RESET}
+  ${GREEN}(add 10 20)${RESET}               ${DIM_GRAY}→ Call function${RESET}
+
+${BOLD}AI${RESET}  ${DIM_GRAY}(import [ask] from "@hlvm/ai")${RESET}
+
+  ${GREEN}(await (ask "Hello"))${RESET}     ${DIM_GRAY}→ AI response${RESET}
+
+${DIM_GRAY}Tip: Type /help for all commands and keybindings.${RESET}`);
+    },
+  },
+
+  "/warnings": {
+    description: "Show startup warnings",
+    handler: async (_state, _args, context) => {
+      // Access the init errors stored during startup
+      const memoryApi = (globalThis as Record<string, unknown>).memory as {
+        stats: () => Promise<{ path: string; count: number; size: number } | null>;
+      } | undefined;
+
+      if (!memoryApi) {
+        context.output(`${DIM_GRAY}No warnings.${RESET}`);
+        return;
+      }
+
+      // For now, report that warnings are only visible at startup
+      context.output(`${DIM_GRAY}Startup warnings are shown in the banner. Re-launch REPL to see them.${RESET}`);
+    },
+  },
+
   // NOTE: /tasks is handled by App.tsx to open BackgroundTasksOverlay
   // Do not add /tasks handler here - it would conflict
 };

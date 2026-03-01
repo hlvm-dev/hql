@@ -199,6 +199,8 @@ export type AgentUIEvent =
     iteration: number;
     toolCount: number;
     durationMs: number;
+    inputTokens?: number;
+    outputTokens?: number;
   }
   | InteractionRequestEvent;
 
@@ -639,6 +641,8 @@ export async function runReActLoop(
           iteration: state.iterations,
           toolCount: result.toolCallsMade,
           durationMs: Date.now() - iterationStart,
+          inputTokens: usage.promptTokens || undefined,
+          outputTokens: usage.completionTokens || undefined,
         });
       }
 

@@ -109,7 +109,7 @@ function renderItem(
         />
       );
     case "turn_stats":
-      return <TurnStats toolCount={item.toolCount} durationMs={item.durationMs} />;
+      return <TurnStats toolCount={item.toolCount} durationMs={item.durationMs} inputTokens={item.inputTokens} outputTokens={item.outputTokens} />;
     case "error":
       return <ErrorMessage text={item.text} />;
     case "info":

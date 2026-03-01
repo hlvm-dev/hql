@@ -35,7 +35,7 @@ export interface ThemePalette {
 export const sicp: ThemePalette = {
   primary: "#663399",      // Rebecca Purple (the actual SICP book cover purple!)
   secondary: "#dc3545",    // RED (book's iconic red rectangle!)
-  accent: "#f8f8f2",       // White/light (like the lambda starburst)
+  accent: "#e8dcc8",       // Warm parchment (SICP book page tone)
   success: "#daa520",      // Goldenrod (warm gold for labels - from lambda starburst)
   warning: "#ffd700",      // Gold/Yellow (bright lambda glow)
   error: "#dc3545",        // Red

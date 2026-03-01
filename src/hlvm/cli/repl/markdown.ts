@@ -15,13 +15,13 @@
  * - Word wrapping
  */
 
-import { ANSI_COLORS } from "../ansi.ts";
-
-const { BOLD, DIM_GRAY, CYAN, GREEN, RESET } = ANSI_COLORS;
+import { getThemedAnsi } from "../theme/index.ts";
 
 // Additional ANSI codes
+const BOLD = "\x1b[1m";
 const ITALIC = "\x1b[3m";
 const UNDERLINE = "\x1b[4m";
+const RESET = "\x1b[0m";
 
 // Pre-compiled regex patterns for performance (avoid compilation on each call)
 const HORIZONTAL_RULE_REGEX = /^[-*_]{3,}$/;
@@ -39,13 +39,18 @@ const ITALIC_ASTERISK_REGEX = /\*([^*]+)\*/g;
 const ITALIC_UNDERSCORE_REGEX = /_([^_]+)_/g;
 const LINK_REGEX = /\[([^\]]+)\]\(([^)]+)\)/g;
 
+/** Strip ANSI codes for length calculation */
+const stripAnsi = (s: string) => s.replace(ANSI_STRIP_REGEX, "");
+
 /**
  * Render markdown string to ANSI terminal output
  */
 export function renderMarkdown(text: string, width = 80): string {
+  const t = getThemedAnsi();
   const lines = text.split("\n");
   const result: string[] = [];
   let inCodeBlock = false;
+  const codeBlockLines: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -54,17 +59,26 @@ export function renderMarkdown(text: string, width = 80): string {
     if (line.startsWith("```")) {
       if (!inCodeBlock) {
         inCodeBlock = true;
-        result.push(`${DIM_GRAY}┌${"─".repeat(Math.min(width - 2, 60))}${RESET}`);
+        codeBlockLines.length = 0;
       } else {
         inCodeBlock = false;
-        result.push(`${DIM_GRAY}└${"─".repeat(Math.min(width - 2, 60))}${RESET}`);
+        // Render closed code box
+        const boxWidth = Math.min(width, 62);
+        const innerWidth = boxWidth - 4; // 2 border chars + 2 padding spaces
+        result.push(`${t.muted}\u250c${"\u2500".repeat(boxWidth - 2)}\u2510${RESET}`);
+        for (const codeLine of codeBlockLines) {
+          const visible = stripAnsi(codeLine);
+          const padLen = Math.max(0, innerWidth - visible.length);
+          result.push(`${t.muted}\u2502${RESET} ${codeLine}${" ".repeat(padLen)} ${t.muted}\u2502${RESET}`);
+        }
+        result.push(`${t.muted}\u2514${"\u2500".repeat(boxWidth - 2)}\u2518${RESET}`);
       }
       continue;
     }
 
-    // Inside code block - render as-is with dim styling
+    // Inside code block - accumulate lines
     if (inCodeBlock) {
-      result.push(`${DIM_GRAY}│${RESET} ${line}`);
+      codeBlockLines.push(line);
       continue;
     }
 
@@ -76,7 +90,7 @@ export function renderMarkdown(text: string, width = 80): string {
 
     // Horizontal rule
     if (HORIZONTAL_RULE_REGEX.test(line.trim())) {
-      result.push(`${DIM_GRAY}${"─".repeat(Math.min(width, 60))}${RESET}`);
+      result.push(`${t.muted}${"\u2500".repeat(Math.min(width, 60))}${RESET}`);
       continue;
     }
 
@@ -85,13 +99,13 @@ export function renderMarkdown(text: string, width = 80): string {
     if (headerMatch) {
       const level = headerMatch[1].length;
       const content = headerMatch[2];
-      const formatted = formatInline(content);
+      const formatted = formatInline(content, t);
 
       if (level === 1) {
-        result.push(`${BOLD}${CYAN}${formatted}${RESET}`);
-        result.push(`${CYAN}${"═".repeat(Math.min(content.length, width))}${RESET}`);
+        result.push(`${BOLD}${t.primary}${formatted}${RESET}`);
+        result.push(`${t.primary}${"\u2550".repeat(Math.min(content.length, width))}${RESET}`);
       } else if (level === 2) {
-        result.push(`${BOLD}${GREEN}${formatted}${RESET}`);
+        result.push(`${BOLD}${t.secondary}${formatted}${RESET}`);
       } else {
         result.push(`${BOLD}${formatted}${RESET}`);
       }
@@ -101,8 +115,8 @@ export function renderMarkdown(text: string, width = 80): string {
     // Blockquote
     if (line.startsWith(">")) {
       const content = line.slice(1).trim();
-      const formatted = formatInline(content);
-      const wrapped = wordWrap(`${DIM_GRAY}│${RESET} ${ITALIC}${formatted}${RESET}`, width - 4);
+      const formatted = formatInline(content, t);
+      const wrapped = wordWrap(`${t.muted}\u2502${RESET} ${ITALIC}${formatted}${RESET}`, width - 4);
       result.push(...wrapped.map(l => `  ${l}`));
       continue;
     }
@@ -112,10 +126,10 @@ export function renderMarkdown(text: string, width = 80): string {
     if (ulMatch) {
       const indent = ulMatch[1].length;
       const content = ulMatch[2];
-      const formatted = formatInline(content);
-      const bullet = indent > 0 ? "◦" : "•";
+      const formatted = formatInline(content, t);
+      const bullet = indent > 0 ? "\u25e6" : "\u2022";
       const wrapped = wordWrap(formatted, width - indent - 4);
-      result.push(`${" ".repeat(indent)}  ${CYAN}${bullet}${RESET} ${wrapped[0]}`);
+      result.push(`${" ".repeat(indent)}  ${t.secondary}${bullet}${RESET} ${wrapped[0]}`);
       for (let j = 1; j < wrapped.length; j++) {
         result.push(`${" ".repeat(indent + 4)}${wrapped[j]}`);
       }
@@ -128,9 +142,9 @@ export function renderMarkdown(text: string, width = 80): string {
       const indent = olMatch[1].length;
       const num = olMatch[2];
       const content = olMatch[3];
-      const formatted = formatInline(content);
+      const formatted = formatInline(content, t);
       const wrapped = wordWrap(formatted, width - indent - 5);
-      result.push(`${" ".repeat(indent)}  ${CYAN}${num}.${RESET} ${wrapped[0]}`);
+      result.push(`${" ".repeat(indent)}  ${t.secondary}${num}.${RESET} ${wrapped[0]}`);
       for (let j = 1; j < wrapped.length; j++) {
         result.push(`${" ".repeat(indent + 5)}${wrapped[j]}`);
       }
@@ -138,7 +152,7 @@ export function renderMarkdown(text: string, width = 80): string {
     }
 
     // Regular paragraph - wrap and format inline
-    const formatted = formatInline(line);
+    const formatted = formatInline(line, t);
     const wrapped = wordWrap(formatted, width);
     result.push(...wrapped);
   }
@@ -150,11 +164,11 @@ export function renderMarkdown(text: string, width = 80): string {
  * Format inline markdown (bold, italic, code, links)
  * Uses pre-compiled module-level regex patterns for performance
  */
-function formatInline(text: string): string {
+function formatInline(text: string, t: ReturnType<typeof getThemedAnsi>): string {
   let result = text;
 
   // Inline code (must be before bold/italic to avoid conflicts)
-  result = result.replace(INLINE_CODE_REGEX, `${DIM_GRAY}$1${RESET}`);
+  result = result.replace(INLINE_CODE_REGEX, `${t.accent}$1${RESET}`);
 
   // Bold
   result = result.replace(BOLD_ASTERISK_REGEX, `${BOLD}$1${RESET}`);
@@ -164,8 +178,8 @@ function formatInline(text: string): string {
   result = result.replace(ITALIC_ASTERISK_REGEX, `${ITALIC}$1${RESET}`);
   result = result.replace(ITALIC_UNDERSCORE_REGEX, `${ITALIC}$1${RESET}`);
 
-  // Links [text](url) - show text in cyan, url in dim
-  result = result.replace(LINK_REGEX, `${CYAN}${UNDERLINE}$1${RESET} ${DIM_GRAY}($2)${RESET}`);
+  // Links [text](url) - show text in accent, url in muted
+  result = result.replace(LINK_REGEX, `${t.accent}${UNDERLINE}$1${RESET} ${t.muted}($2)${RESET}`);
 
   return result;
 }
@@ -176,9 +190,6 @@ function formatInline(text: string): string {
  */
 function wordWrap(text: string, width: number): string[] {
   if (width <= 0) width = 80;
-
-  // Strip ANSI codes for length calculation (uses module-level regex)
-  const stripAnsi = (s: string) => s.replace(ANSI_STRIP_REGEX, "");
 
   const words = text.split(/\s+/);
   const lines: string[] = [];

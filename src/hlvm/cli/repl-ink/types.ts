@@ -67,6 +67,8 @@ export interface TurnStatsItem {
   id: string;
   toolCount: number;
   durationMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 /** Error message */

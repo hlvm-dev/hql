@@ -4,6 +4,7 @@
  */
 
 import { ANSI_COLORS } from "../ansi.ts";
+import { getSyntaxAnsi } from "../theme/index.ts";
 import {
   KERNEL_PRIMITIVES,
   BINDING_KEYWORDS,
@@ -15,7 +16,7 @@ import {
   MACRO_SET as BASE_MACRO_SET,
 } from "../../../common/known-identifiers.ts";
 
-const { SICP_PURPLE, CYAN, RED, YELLOW, DIM_GRAY, BOLD, RESET } = ANSI_COLORS;
+const { BOLD, RESET } = ANSI_COLORS;
 
 // ============================================================
 // Token Types
@@ -283,37 +284,30 @@ function tokenizeCached(input: string): Token[] {
 // ============================================================
 
 /**
- * Color map for token types.
- * SICP Theme (Structure and Interpretation of Computer Programs):
- * - Keywords: SICP_PURPLE (#663399) - special forms, control flow
- * - Macros: RED - threading, quote, utility macros (distinct from keywords)
- * - Strings: RED (SICP accent color)
- * - Numbers: CYAN
- * - Booleans: YELLOW
- * - Nil/null: DIM_GRAY
- * - Delimiters: DIM_GRAY (subtle)
- * - Function calls: SICP_PURPLE (symbols in function position)
+ * Theme-aware token color map. Called per highlight() invocation
+ * so colors update when the user switches themes at runtime.
+ * hexCache in theme/index.ts makes hex->ANSI O(1) after first call.
  */
-const TOKEN_COLORS: Partial<Record<TokenType, string>> = {
-  string: RED,
-  number: CYAN,
-  keyword: SICP_PURPLE,
-  macro: RED,           // Macros get red (SICP accent) - distinct from keywords
-  operator: CYAN,
-  comment: DIM_GRAY,
-  boolean: YELLOW,
-  nil: DIM_GRAY,
-  // Delimiters - subtle gray to fade into background
-  "open-paren": DIM_GRAY,
-  "close-paren": DIM_GRAY,
-  "open-bracket": DIM_GRAY,
-  "close-bracket": DIM_GRAY,
-  "open-brace": DIM_GRAY,
-  "close-brace": DIM_GRAY,
-};
-
-// Color for symbols in function position (after open paren)
-const FUNCTION_CALL_COLOR = SICP_PURPLE;
+function getTokenColors(): Partial<Record<TokenType, string>> & { functionCall: string } {
+  const sc = getSyntaxAnsi();
+  return {
+    string: sc.string,
+    number: sc.number,
+    keyword: sc.keyword,
+    macro: sc.macro,
+    operator: sc.operator,
+    comment: sc.comment,
+    boolean: sc.boolean,
+    nil: sc.nil,
+    "open-paren": sc.delimiter,
+    "close-paren": sc.delimiter,
+    "open-bracket": sc.delimiter,
+    "close-bracket": sc.delimiter,
+    "open-brace": sc.delimiter,
+    "close-brace": sc.delimiter,
+    functionCall: sc.functionCall,
+  };
+}
 
 /**
  * Highlight input string with ANSI colors.
@@ -328,6 +322,7 @@ export function highlight(input: string, bracketPositions: number | number[] | n
 
   const tokens = tokenizeCached(input);
   const parts: string[] = [];
+  const tokenColors = getTokenColors();
 
   // Normalize to Set for O(1) lookup (skip allocation when no highlights)
   const highlightSet: ReadonlySet<number> | null = bracketPositions === null
@@ -351,21 +346,24 @@ export function highlight(input: string, bracketPositions: number | number[] | n
     lastNonWhitespaceType = token.type;
   }
 
+  // Bracket highlight color (bold + accent)
+  const bracketHighlightColor = tokenColors.functionCall; // always defined from getSyntaxAnsi()
+
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     const isFunctionPosition = functionPositionTokens.has(i);
 
     // Determine color with priority:
-    // 1. Macros ALWAYS stay red (even in function position) - signals non-standard evaluation
-    // 2. Function position gets purple (for user-defined functions, operators)
+    // 1. Macros ALWAYS use macro color (even in function position) - signals non-standard evaluation
+    // 2. Function position gets functionCall color (for user-defined functions, operators)
     // 3. Otherwise use token type color
     let color: string | undefined;
     if (token.type === "macro") {
-      color = TOKEN_COLORS.macro;  // Always red
+      color = tokenColors.macro;
     } else if (isFunctionPosition) {
-      color = FUNCTION_CALL_COLOR;  // Purple for function position
+      color = tokenColors.functionCall;
     } else {
-      color = TOKEN_COLORS[token.type];
+      color = tokenColors[token.type];
     }
 
     // Check if this token contains any highlighted bracket positions
@@ -394,8 +392,8 @@ export function highlight(input: string, bracketPositions: number | number[] | n
         } else {
           tokenParts.push(beforeMatch);
         }
-        // Highlight the bracket with bold cyan + underline for visibility
-        tokenParts.push(BOLD, CYAN, matchChar, RESET);
+        // Highlight the bracket with bold + accent color for visibility
+        tokenParts.push(BOLD, bracketHighlightColor, matchChar, RESET);
         lastEnd = relPos + 1;
       }
 

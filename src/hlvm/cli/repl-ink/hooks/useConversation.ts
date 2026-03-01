@@ -98,6 +98,8 @@ export interface UseConversationResult {
   addInfo: (text: string) => void;
   /** Reset agent status to idle */
   resetStatus: () => void;
+  /** Finalize conversation: clean up transient items (thinking) and reset status */
+  finalize: () => void;
   /** Clear all items */
   clear: () => void;
 }
@@ -217,6 +219,8 @@ export function useConversation(): UseConversationResult {
               id: nextId(),
               toolCount: event.toolCount,
               durationMs: event.durationMs,
+              inputTokens: event.inputTokens,
+              outputTokens: event.outputTokens,
             },
           ];
         });
@@ -272,11 +276,16 @@ export function useConversation(): UseConversationResult {
     setAgentStatus({ type: "idle" });
   }, []);
 
+  const finalize = useCallback(() => {
+    setAgentStatus({ type: "idle" });
+    setItems((prev: ConversationItem[]) => cleanupTransientItems(prev));
+  }, []);
+
   const clear = useCallback(() => {
     setItems([]);
     setAgentStatus({ type: "idle" });
     idCounter.current = 0;
   }, []);
 
-  return { items, agentStatus, addEvent, addUserMessage, addAssistantText, addError, addInfo, resetStatus, clear };
+  return { items, agentStatus, addEvent, addUserMessage, addAssistantText, addError, addInfo, resetStatus, finalize, clear };
 }

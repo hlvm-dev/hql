@@ -22,7 +22,10 @@ build: stdlib
 	@echo "📦 Embedding HLVM packages..."
 	@./scripts/embed-packages.ts
 	@echo "🔨 Building HLVM binary..."
-	@deno compile --allow-all --no-check --config deno.json --output $(BINARY) src/hlvm/cli/cli.ts
+	@deno compile --allow-all --no-check --config deno.json \
+		--include src/hql/lib/stdlib/js/index.js \
+		--include src/hql/lib/stdlib/js/ai.js \
+		--output $(BINARY) src/hlvm/cli/cli.ts
 	@echo "✅ Done! Binary: ./$(BINARY)"
 	@ls -lh $(BINARY)
 

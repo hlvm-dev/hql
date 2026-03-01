@@ -63,7 +63,7 @@ export function StreamingStatus({
 
   return (
     <Box>
-      <Text color={color("primary")}>{spinner}</Text>
+      <Text color={color("secondary")}>{spinner}</Text>
       <Text color={color("warning")}> {statusWord} </Text>
       <Text dimColor>(esc to interrupt · {time})</Text>
     </Box>

@@ -106,3 +106,21 @@ export function getThemedAnsi(): Record<keyof ThemePalette | "reset", string> {
     reset: ANSI_RESET,
   };
 }
+
+/** Syntax token -> themed ANSI color mapping for REPL highlighting */
+export function getSyntaxAnsi(): Record<string, string> & { reset: string } {
+  const theme = getCurrentTheme();
+  return {
+    keyword: hexToAnsi(theme.primary),
+    macro: hexToAnsi(theme.secondary),
+    string: hexToAnsi(theme.secondary),
+    number: hexToAnsi(theme.accent),
+    operator: hexToAnsi(theme.accent),
+    boolean: hexToAnsi(theme.warning),
+    nil: hexToAnsi(theme.muted),
+    comment: hexToAnsi(theme.muted),
+    delimiter: hexToAnsi(theme.muted),
+    functionCall: hexToAnsi(theme.primary),
+    reset: ANSI_RESET,
+  };
+}

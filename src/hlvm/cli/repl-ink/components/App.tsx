@@ -72,7 +72,6 @@ interface BannerItem {
   id: string;
   memoryNames: string[];
   aiExports: string[];
-  readyTime: number;
   errors: string[];
   session: SessionMeta | null;
 }
@@ -707,7 +706,7 @@ function AppContent(
       interactionResolversRef.current.clear();
       setInteractionQueue([]);
       setIsEvaluating(false);
-      conversation.resetStatus();
+      conversation.finalize();
     }
   }, [conversation]);
 
@@ -732,9 +731,10 @@ function AppContent(
       agentControllerRef.current = null;
     }
     setIsEvaluating(false);
-    conversation.resetStatus();
     if (options?.clearConversation) {
       conversation.clear();
+    } else {
+      conversation.finalize();
     }
     setFooterContextUsageLabel("");
     setActivePanel("none");
@@ -1178,14 +1178,15 @@ function AppContent(
       id: "banner",
       memoryNames,
       aiExports: init.aiExports,
-      readyTime: init.readyTime,
       errors: init.errors,
       session: currentSession,
     }]
     : [];
 
-  const isInputVisible = activePanel === "none" || activePanel === "conversation" ||
-    activePanel === "palette" || activePanel === "config-overlay" || activePanel === "tasks-overlay";
+  // Input visible: always for normal/overlay modes, ONLY for question dialogs during conversation
+  const isInputVisible = activePanel === "none" ||
+    activePanel === "palette" || activePanel === "config-overlay" || activePanel === "tasks-overlay" ||
+    (activePanel === "conversation" && pendingInteraction?.mode === "question");
   const isInputDisabled = init.loading || activePanel === "palette" ||
     activePanel === "config-overlay" || activePanel === "tasks-overlay" ||
     (activePanel === "conversation" &&
@@ -1193,16 +1194,15 @@ function AppContent(
         (isEvaluating && pendingInteraction?.mode !== "question")));
   // Keep Ctrl+O section toggles from conflicting with Input paredit Ctrl+O.
   // Safe contexts:
+  // - conversation mode without input visible (Input hidden, no conflict)
   // - input disabled (agent actively running / permission mode / overlays)
   // - empty prompt (paredit no-op)
-  const allowConversationToggleHotkeys = isInputDisabled || input.length === 0;
+  const allowConversationToggleHotkeys = !isInputVisible || isInputDisabled || input.length === 0;
   const renderBannerItem = (item: BannerItem): React.ReactElement => (
     <Box key={item.id}>
       <Banner
-        loading={false}
         memoryNames={item.memoryNames}
         aiExports={item.aiExports}
-        readyTime={item.readyTime}
         errors={item.errors}
         session={item.session}
       />
@@ -1218,8 +1218,8 @@ function AppContent(
       )}
       <Static<BannerItem> {...staticBannerProps} />
 
-      {/* History of inputs and outputs */}
-      {history.map((entry: HistoryEntry) => {
+      {/* History of inputs and outputs (hidden during conversation to prevent ghost rendering) */}
+      {activePanel !== "conversation" && history.map((entry: HistoryEntry) => {
         const lines = entry.input.split("\n");
         const unclosedDepth = lines.length > 1 ? getUnclosedDepth(entry.input) : 0;
         return (
@@ -1353,8 +1353,8 @@ function AppContent(
           />
         )}
 
-      {/* Footer hint (show when input is visible, overlay draws on top) */}
-      {isInputVisible &&
+      {/* Footer hint (visible during normal mode, overlays, and conversation mode) */}
+      {(isInputVisible || activePanel === "conversation") &&
         (
           <FooterHint
             modelName={footerModelName}
