@@ -8,9 +8,6 @@
 
 import * as IR from "../../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode } from "../../type/hql_ast.ts";
-import {
-  TransformError,
-} from "../../../../common/error.ts";
 
 // Type for transform node function passed from main module
 export type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;

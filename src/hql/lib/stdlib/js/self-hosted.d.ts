@@ -59,6 +59,7 @@ export declare function div(...args: any[]): any;
 export declare function mod(...args: any[]): any;
 export declare function eq(...args: any[]): any;
 export declare function neq(...args: any[]): any;
+export declare function deepEqInternal(...args: any[]): any;
 export declare function deepEq(...args: any[]): any;
 export declare function lt(...args: any[]): any;
 export declare function gt(...args: any[]): any;

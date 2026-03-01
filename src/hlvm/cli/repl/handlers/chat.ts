@@ -25,7 +25,6 @@ import { pushSSEEvent, SESSIONS_CHANNEL } from "../../../store/sse-store.ts";
 import { autoConfigureInitialClaudeCodeModel } from "../../../../common/ai-default-model.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { classifyError } from "../../../agent/error-taxonomy.ts";
-import { log } from "../../../api/log.ts";
 import {
   jsonError,
   ndjsonLine,

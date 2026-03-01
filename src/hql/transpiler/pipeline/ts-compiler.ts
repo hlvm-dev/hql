@@ -214,8 +214,15 @@ declare function fetch(url: string, init?: RequestInit): Promise<Response>;
 
 // HQL Runtime Helper Type Declarations
 declare function __hql_get<T>(arr: T[], index: number): T | undefined;
+declare function __hql_get<T>(arr: T[], index: number, defaultValue: T): T;
 declare function __hql_get<T extends object, K extends keyof T>(obj: T, key: K): T[K];
+declare function __hql_get<T extends object, K extends keyof T>(
+  obj: T,
+  key: K,
+  defaultValue: T[K],
+): T[K];
 declare function __hql_get(obj: unknown, key: string | number): unknown;
+declare function __hql_get(obj: unknown, key: string | number, defaultValue: unknown): unknown;
 
 declare function __hql_call<T, R>(fn: (this: T, ...args: unknown[]) => R, thisArg: T, ...args: unknown[]): R;
 
@@ -298,8 +305,19 @@ declare const __hql_nil: null;
 
 // Additional runtime helpers (for hash maps, ranges, etc.)
 declare function __hql_getNumeric<T>(arr: T[], index: number): T | undefined;
+declare function __hql_getNumeric<T>(arr: T[], index: number, defaultValue: T): T;
 declare function __hql_getNumeric<T extends object, K extends keyof T>(obj: T, key: K): T[K];
+declare function __hql_getNumeric<T extends object, K extends keyof T>(
+  obj: T,
+  key: K,
+  defaultValue: T[K],
+): T[K];
 declare function __hql_getNumeric(obj: unknown, key: string | number): unknown;
+declare function __hql_getNumeric(
+  obj: unknown,
+  key: string | number,
+  defaultValue: unknown,
+): unknown;
 
 declare function __hql_hash_map(...entries: unknown[]): Record<string, unknown>;
 
@@ -337,7 +355,7 @@ declare function count(coll: Iterable<any> | null | undefined): number;
 declare function second<T>(coll: Iterable<T> | null | undefined): T | undefined;
 declare function last<T>(coll: Iterable<T> | null | undefined): T | undefined;
 declare function isEmpty(coll: Iterable<any> | null | undefined): boolean;
-declare function some<T>(pred: (item: T) => boolean, coll: Iterable<T> | null | undefined): boolean;
+declare function some<T, R>(pred: (item: T) => R, coll: Iterable<T> | null | undefined): R | null;
 declare function every<T>(pred: (item: T) => boolean, coll: Iterable<T> | null | undefined): boolean;
 declare function notAny<T>(pred: (item: T) => boolean, coll: Iterable<T> | null | undefined): boolean;
 declare function notEvery<T>(pred: (item: T) => boolean, coll: Iterable<T> | null | undefined): boolean;
@@ -380,12 +398,14 @@ declare function into<T>(target: any, from: Iterable<T> | null | undefined): any
 declare function next<T>(coll: Iterable<T> | null | undefined): Iterable<T> | null;
 declare function empty(coll: any): any;
 
-// Map operations (using HQL-specific names to avoid conflicts)
-// Note: get, keys, vals conflict with common JS idioms - use getIn, assoc, etc.
-declare function getIn(obj: any, keys: any[]): any;
+// Map operations
+declare function get(obj: any, key: any, notFound?: any): any;
+declare function getIn(obj: any, keys: any[], notFound?: any): any;
+declare function keys(obj: any): any[];
 declare function assoc(map: any, key: any, value: any): any;
 declare function assocIn(map: any, keys: any[], value: any): any;
 declare function dissoc(map: any, ...keys: any[]): any;
+declare function update(map: any, key: any, fn: (v: any) => any): any;
 declare function updateIn(map: any, keys: any[], fn: (v: any) => any): any;
 declare function merge(...maps: any[]): any;
 
@@ -432,8 +452,7 @@ declare function isAssociative(value: any): boolean;
 declare function isSequential(value: any): boolean;
 declare function isReduced(value: any): boolean;
 
-// Arithmetic helpers (HQL-specific, avoiding common user names)
-// Note: add, sub, mul, div are common user function names - not declared
+// Arithmetic helpers
 declare function inc(n: number): number;
 declare function dec(n: number): number;
 declare function mod(a: number, b: number): number;
@@ -441,6 +460,7 @@ declare function mod(a: number, b: number): number;
 // Comparison (HQL-specific, min/max already in Math interface)
 declare function eq<T>(a: T, b: T): boolean;
 declare function neq<T>(a: T, b: T): boolean;
+declare function deepEq(a: any, b: any): boolean;
 declare function lt(...nums: number[]): boolean;
 declare function gt(...nums: number[]): boolean;
 declare function lte(...nums: number[]): boolean;
@@ -453,6 +473,15 @@ declare function eduction<T, R>(xform: any, coll: Iterable<T>): Iterable<R>;
 declare function completing<A, R>(rf: (acc: A, item: any) => A, cf?: (acc: A) => R): any;
 declare function reduced<T>(value: T): any;
 declare function unreduced<T>(value: any): T;
+declare function mapT(fn: (item: any) => any): any;
+declare function filterT(pred: (item: any) => boolean): any;
+declare function takeT(n: number): any;
+declare function dropT(n: number): any;
+declare function takeWhileT(pred: (item: any) => boolean): any;
+declare function dropWhileT(pred: (item: any) => boolean): any;
+declare function distinctT(): any;
+declare function partitionAllT(n: number): any;
+declare function composeTransducers(...xforms: any[]): any;
 
 // String functions (HQL-specific, avoiding conflicts with common names)
 // Note: split, join, replace, includes conflict with JS builtins - not declared

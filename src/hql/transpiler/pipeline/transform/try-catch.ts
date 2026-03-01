@@ -10,7 +10,6 @@
 import * as IR from "../../type/hql_ir.ts";
 import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../../type/hql_ast.ts";
 import {
-  TransformError,
   ValidationError,
 } from "../../../../common/error.ts";
 import { sanitizeIdentifier } from "../../../../common/utils.ts";

@@ -158,7 +158,6 @@ export async function aiCommand(args: string[]): Promise<void> {
       }
 
       const catalogIndex = await buildCatalogIndex();
-      const columns = getPlatform().terminal.consoleSize().columns || 80;
       const nameWidth = 30;
       const tagsWidth = 20;
 

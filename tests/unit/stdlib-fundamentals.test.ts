@@ -147,9 +147,9 @@ Deno.test("isEmpty: works with lazy sequences", () => {
   assertEquals(isEmpty(nonEmptySeq), false);
 });
 
-Deno.test("some: finds first truthy value", () => {
+Deno.test("some: returns first truthy predicate result", () => {
   const result = some((x) => x > 5, [1, 2, 6, 3]);
-  assertEquals(result, 6);
+  assertEquals(result, true);
 });
 
 Deno.test("some: returns null when no match", () => {
@@ -157,14 +157,24 @@ Deno.test("some: returns null when no match", () => {
   assertEquals(result, null);
 });
 
-Deno.test("some: returns first match", () => {
+Deno.test("some: boolean predicates return boolean", () => {
   const result = some((x) => x % 2 === 0, [1, 3, 4, 6, 8]);
-  assertEquals(result, 4); // First even number
+  assertEquals(result, true);
 });
 
-Deno.test("some: works with identity check", () => {
+Deno.test("some: equality predicates return boolean", () => {
   const result = some((x) => x === 5, [1, 2, 5, 6, 5]);
-  assertEquals(result, 5);
+  assertEquals(result, true);
+});
+
+Deno.test("some: returns non-boolean predicate value", () => {
+  const result = some((x) => (x > 2 ? `hit-${x}` : null), [1, 2, 3, 4]);
+  assertEquals(result, "hit-3");
+});
+
+Deno.test("some: works with identity function", () => {
+  const result = some((x) => x, [0, null, "", "ok", "later"]);
+  assertEquals(result, "ok");
 });
 
 Deno.test("some: returns null for null collection", () => {
@@ -179,7 +189,7 @@ Deno.test("some: short-circuits (doesn't evaluate all)", () => {
     return x > 2;
   }, [1, 2, 3, 4, 5]);
 
-  assertEquals(result, 3);
+  assertEquals(result, true);
   assertEquals(count, 3); // Should stop at third element
 });
 
@@ -352,7 +362,7 @@ Deno.test("Integration: cons + some + comp", () => {
   assertEquals(hasEven(list), null); // No evens
 
   const list2 = cons(2, list);
-  assertEquals(hasEven(list2), 2); // Has even
+  assertEquals(hasEven(list2), true); // Has even
 });
 
 Deno.test("Integration: Real-world data pipeline", () => {

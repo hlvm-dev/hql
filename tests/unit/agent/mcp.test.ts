@@ -552,14 +552,14 @@ Deno.test({ name: "Integration: sampling round-trip via setHandlers", sanitizeOp
   let samplingCalled = false;
   let samplingRequest: unknown = null;
   result.setHandlers({
-    onSampling: async (req) => {
+    onSampling: (req) => {
       samplingCalled = true;
       samplingRequest = req;
-      return {
+      return Promise.resolve({
         role: "assistant" as const,
         content: { type: "text" as const, text: "The answer is 4" },
         model: "test-model",
-      };
+      });
     },
   });
 
@@ -601,13 +601,13 @@ Deno.test({ name: "Integration: elicitation round-trip via setHandlers", sanitiz
   let elicitationCalled = false;
   let elicitationMessage = "";
   result.setHandlers({
-    onElicitation: async (req) => {
+    onElicitation: (req) => {
       elicitationCalled = true;
       elicitationMessage = req.message;
-      return {
+      return Promise.resolve({
         action: "accept" as const,
         content: { confirmed: true },
-      };
+      });
     },
   });
 

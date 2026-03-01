@@ -4,7 +4,6 @@
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode } from "../type/hql_ast.ts";
 import {
-  TransformError,
   ValidationError,
 } from "../../../common/error.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";

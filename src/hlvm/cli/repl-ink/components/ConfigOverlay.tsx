@@ -21,8 +21,8 @@ import { handleTextEditingKey } from "../utils/text-editing.ts";
 import {
   type ConfigKey,
   type HlvmConfig,
-  CONFIG_KEYS,
   DEFAULT_CONFIG,
+  PERMISSION_MODES,
   validateValue,
 } from "../../../../common/config/types.ts";
 import { useTheme, THEME_NAMES, type ThemeName } from "../../theme/index.ts";
@@ -74,6 +74,15 @@ interface FieldMeta {
 }
 
 type Mode = "navigate" | "edit";
+type EditableConfigKey =
+  | "model"
+  | "endpoint"
+  | "temperature"
+  | "maxTokens"
+  | "theme"
+  | "agentMode"
+  | "sessionMemory"
+  | "permissionMode";
 
 // ============================================================
 // Layout Constants
@@ -82,15 +91,24 @@ type Mode = "navigate" | "edit";
 const OVERLAY_WIDTH = 68;
 const PADDING = { top: 1, bottom: 1, left: 3, right: 3 };
 const HEADER_ROWS = 2;  // Title row + empty row
-const CONTENT_START = PADDING.top + HEADER_ROWS;  // 3
-const VISIBLE_FIELDS = CONFIG_KEYS.length;  // 5 fields
-// Layout: top(1) + header(1) + empty(1) + fields(5) + empty(1) + footer(1) + bottom(1) = 11
-const OVERLAY_HEIGHT = PADDING.top + HEADER_ROWS + VISIBLE_FIELDS + 1 + 1 + PADDING.bottom;  // 11
+const CONTENT_START = PADDING.top + HEADER_ROWS;
+const OVERLAY_CONFIG_KEYS: readonly EditableConfigKey[] = [
+  "model",
+  "endpoint",
+  "temperature",
+  "maxTokens",
+  "theme",
+  "agentMode",
+  "sessionMemory",
+  "permissionMode",
+];
+const VISIBLE_FIELDS = OVERLAY_CONFIG_KEYS.length;
+const OVERLAY_HEIGHT = PADDING.top + HEADER_ROWS + VISIBLE_FIELDS + 1 + 1 + PADDING.bottom;
 const BG_COLOR = OVERLAY_BG_COLOR;
-const SELECTED_BG_COLOR: RGB = [55, 55, 65];  // Brighter background for selected row
+const SELECTED_BG_COLOR: RGB = [55, 55, 65];
 
 // Config field metadata
-const FIELD_META: Record<ConfigKey, FieldMeta> = {
+const FIELD_META: Record<EditableConfigKey, FieldMeta> = {
   model: {
     label: "Model",
     description: "AI model",
@@ -118,7 +136,47 @@ const FIELD_META: Record<ConfigKey, FieldMeta> = {
     type: "select",
     options: THEME_NAMES,
   },
+  agentMode: {
+    label: "Agent Mode",
+    description: "HLVM / Claude",
+    type: "select",
+    options: ["hlvm", "claude-code-agent"],
+  },
+  sessionMemory: {
+    label: "Session Mem",
+    description: "Remember context",
+    type: "select",
+    options: ["true", "false"],
+  },
+  permissionMode: {
+    label: "Permission",
+    description: "Tool approval mode",
+    type: "select",
+    options: PERMISSION_MODES,
+  },
 };
+
+const OVERLAY_FALLBACK_VALUES: Record<EditableConfigKey, string> = {
+  model: DEFAULT_CONFIG.model,
+  endpoint: DEFAULT_CONFIG.endpoint,
+  temperature: String(DEFAULT_CONFIG.temperature),
+  maxTokens: String(DEFAULT_CONFIG.maxTokens),
+  theme: DEFAULT_CONFIG.theme,
+  agentMode: "hlvm",
+  sessionMemory: "true",
+  permissionMode: "default",
+};
+
+function clampSelectedIndex(index: number): number {
+  if (index < 0) return 0;
+  if (index >= OVERLAY_CONFIG_KEYS.length) return OVERLAY_CONFIG_KEYS.length - 1;
+  return index;
+}
+
+function parseOptionValue(key: EditableConfigKey, value: string): unknown {
+  if (key === "sessionMemory") return value === "true";
+  return value;
+}
 
 // ============================================================
 // Helpers
@@ -148,7 +206,9 @@ export function ConfigOverlay({
 
   // Config state
   const [config, setConfig] = useState<HlvmConfig>(DEFAULT_CONFIG);
-  const [selectedIndex, setSelectedIndex] = useState(initialState?.selectedIndex ?? 0);
+  const [selectedIndex, setSelectedIndex] = useState(
+    clampSelectedIndex(initialState?.selectedIndex ?? 0),
+  );
   const [mode, setMode] = useState<Mode>("navigate");
   const [editValue, setEditValue] = useState("");
   const [editCursor, setEditCursor] = useState(0);
@@ -173,7 +233,7 @@ export function ConfigOverlay({
   }), [theme]);
 
   // Current field info
-  const selectedKey = CONFIG_KEYS[selectedIndex];
+  const selectedKey = OVERLAY_CONFIG_KEYS[selectedIndex];
   const fieldMeta = FIELD_META[selectedKey];
 
   // Get options for current field
@@ -237,9 +297,9 @@ export function ConfigOverlay({
   }, [selectedIndex, onStateChange]);
 
   // Format value for display
-  const formatValue = useCallback((key: ConfigKey, value: unknown): string => {
+  const formatValue = useCallback((key: EditableConfigKey, value: unknown): string => {
     if (value == null) {
-      return String(DEFAULT_CONFIG[key as keyof HlvmConfig]);
+      return OVERLAY_FALLBACK_VALUES[key];
     }
     if (key === "temperature" && typeof value === "number") {
       return value.toFixed(1);
@@ -248,7 +308,7 @@ export function ConfigOverlay({
   }, []);
 
   // Check if value is default
-  const isDefault = useCallback((key: ConfigKey): boolean => {
+  const isDefault = useCallback((key: EditableConfigKey): boolean => {
     return config[key as keyof HlvmConfig] === DEFAULT_CONFIG[key as keyof HlvmConfig];
   }, [config]);
 
@@ -257,7 +317,7 @@ export function ConfigOverlay({
     const options = getOptions();
     if (options.length === 0) return;
 
-    const currentValue = String(config[selectedKey as keyof HlvmConfig]);
+    const currentValue = formatValue(selectedKey, config[selectedKey as keyof HlvmConfig]);
     const currentIdx = options.indexOf(currentValue);
     let nextIdx: number;
 
@@ -267,23 +327,23 @@ export function ConfigOverlay({
       nextIdx = (currentIdx + direction + options.length) % options.length;
     }
 
-    const newValue = options[nextIdx];
+    const newValue = parseOptionValue(selectedKey, options[nextIdx]);
     const configApi = getConfigApi();
 
     if (configApi?.set) {
       configApi.set(selectedKey, newValue).then(() => {
-        setConfig({ ...config, [selectedKey]: newValue });
+        setConfig((prev: HlvmConfig) => ({ ...prev, [selectedKey]: newValue }));
         if (selectedKey === "theme") {
           setTheme(newValue as ThemeName);
         }
         if (selectedKey === "model") {
-          updateModelInfo(newValue);
+          updateModelInfo(String(newValue));
         }
       }).catch((e) => {
         setError(e instanceof Error ? e.message : "Update failed");
       });
     }
-  }, [selectedKey, config, getOptions, setTheme, updateModelInfo]);
+  }, [selectedKey, config, getOptions, setTheme, updateModelInfo, formatValue]);
 
   // Save text input value - use config API for single source of truth
   const saveValue = useCallback(async () => {
@@ -295,7 +355,7 @@ export function ConfigOverlay({
       parsedValue = parseInt(editValue, 10);
     }
 
-    const validation = validateValue(selectedKey, parsedValue);
+    const validation = validateValue(selectedKey as ConfigKey, parsedValue);
     if (!validation.valid) {
       setError(validation.error || "Invalid value");
       return;
@@ -306,7 +366,7 @@ export function ConfigOverlay({
 
       if (configApi?.set) {
         await configApi.set(selectedKey, parsedValue);
-        setConfig({ ...config, [selectedKey]: parsedValue });
+        setConfig((prev: HlvmConfig) => ({ ...prev, [selectedKey]: parsedValue }));
         setMode("navigate");
         setEditValue("");
         setEditCursor(0);
@@ -372,7 +432,7 @@ export function ConfigOverlay({
     // === Config field rows ===
     for (let i = 0; i < VISIBLE_FIELDS; i++) {
       const rowY = pos.y + CONTENT_START + i;
-      const key = CONFIG_KEYS[i];
+      const key = OVERLAY_CONFIG_KEYS[i];
       const meta = FIELD_META[key];
       const value = config[key as keyof HlvmConfig];
       const isSelected = i === selectedIndex;
@@ -590,7 +650,7 @@ export function ConfigOverlay({
         return;
       }
       if (key.downArrow) {
-        setSelectedIndex((i: number) => Math.min(CONFIG_KEYS.length - 1, i + 1));
+        setSelectedIndex((i: number) => Math.min(OVERLAY_CONFIG_KEYS.length - 1, i + 1));
         setError(null);
         return;
       }
@@ -652,7 +712,7 @@ export function ConfigOverlay({
 
         if (configApi?.set) {
           configApi.set(selectedKey, defaultValue).then(() => {
-            setConfig({ ...config, [selectedKey]: defaultValue });
+            setConfig((prev: HlvmConfig) => ({ ...prev, [selectedKey]: defaultValue }));
             if (selectedKey === "theme") {
               setTheme(defaultValue as ThemeName);
             }

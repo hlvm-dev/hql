@@ -4,7 +4,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Box, Static, Text, useApp, useInput } from "ink";
+import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";
@@ -19,6 +19,7 @@ import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
 import { ModelBrowser } from "./ModelBrowser.tsx";
 import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
+import { ConversationPanel } from "./ConversationPanel.tsx";
 import type { KeybindingAction } from "../keybindings/index.ts";
 import {
   executeHandler,
@@ -26,6 +27,8 @@ import {
 } from "../keybindings/index.ts";
 import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
+import { useConversation } from "../hooks/useConversation.ts";
+import { useAlternateBuffer } from "../hooks/useAlternateBuffer.ts";
 import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { clearTerminal } from "../../ansi.ts";
@@ -39,6 +42,7 @@ import type {
   SessionMessage,
   SessionMeta,
 } from "../../repl/session/types.ts";
+import type { InteractionRequestEvent, InteractionResponse } from "../../../agent/registry.ts";
 import { SessionManager } from "../../repl/session/manager.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { ensureError } from "../../../../common/utils.ts";
@@ -61,6 +65,23 @@ interface CurrentEval {
   cancelled?: boolean;
   taskId?: string;
   historyId?: number;
+}
+
+interface BannerItem {
+  id: string;
+  memoryNames: string[];
+  aiExports: string[];
+  readyTime: number;
+  errors: string[];
+  session: SessionMeta | null;
+}
+
+interface ConfigSnapshotApi {
+  snapshot?: {
+    model?: unknown;
+    contextWindow?: unknown;
+  };
+  subscribe?: (listener: (config: Record<string, unknown>) => void) => () => void;
 }
 
 interface AppProps {
@@ -233,6 +254,7 @@ function AppContent(
 
   // Unified panel state - only one panel can be open at a time
   // "palette", "config-overlay", and "tasks-overlay" are overlays (input visible but disabled), others hide input entirely
+  // "conversation" renders the agent conversation panel
   type ActivePanel =
     | "none"
     | "picker"
@@ -240,7 +262,8 @@ function AppContent(
     | "tasks-overlay"
     | "models"
     | "palette"
-    | "model-setup";
+    | "model-setup"
+    | "conversation";
   const [activePanel, setActivePanel] = useState<ActivePanel>("none");
 
   // Track where ModelBrowser was opened from (for back navigation)
@@ -284,6 +307,40 @@ function AppContent(
 
   // Theme from context (auto-updates when theme changes)
   const { color } = useTheme();
+
+  // Terminal width for responsive layout
+  const { stdout } = useStdout();
+  const terminalWidth = stdout?.columns ?? 80;
+
+  // Conversation state for agent mode
+  const conversation = useConversation();
+  const [interactionQueue, setInteractionQueue] = useState<InteractionRequestEvent[]>([]);
+  const pendingInteraction = interactionQueue[0];
+  const agentControllerRef = useRef<AbortController | null>(null);
+  const interactionResolversRef = useRef<
+    Map<string, (response: InteractionResponse) => void>
+  >(new Map());
+  const [footerModelName, setFooterModelName] = useState<string>("");
+  const [footerContextUsageLabel, setFooterContextUsageLabel] = useState<string>("");
+  const shouldUseAlternateBuffer = activePanel === "conversation" &&
+    conversation.items.length >= 80;
+  useAlternateBuffer(shouldUseAlternateBuffer);
+
+  useEffect(() => {
+    const cfgApi = (globalThis as Record<string, unknown>).config as ConfigSnapshotApi | undefined;
+    if (!cfgApi) return;
+
+    const normalizeModel = (value: unknown): string =>
+      typeof value === "string" ? value.replace("ollama/", "") : "";
+
+    setFooterModelName(normalizeModel(cfgApi.snapshot?.model));
+
+    if (cfgApi.subscribe) {
+      return cfgApi.subscribe((cfg) => {
+        setFooterModelName(normalizeModel(cfg.model));
+      });
+    }
+  }, []);
 
   // Show model setup overlay if default model needs to be downloaded (only once)
   useEffect(() => {
@@ -496,6 +553,176 @@ function AppContent(
     recordSessionTurn,
   ]);
 
+  // ============================================================
+  // Agent conversation handler
+  // ============================================================
+
+  /** Detect if input looks like natural language rather than code */
+  const isNaturalLanguage = useCallback((input: string): boolean => {
+    const trimmed = input.trim();
+    // Commands start with / or .
+    if (trimmed.startsWith("/") || trimmed.startsWith(".")) return false;
+    // HQL/Lisp: starts with ( or [
+    if (trimmed.startsWith("(") || trimmed.startsWith("[")) return false;
+    // HQL/Lisp: ends with ) or ] (multi-line expression)
+    if (trimmed.endsWith(")") || trimmed.endsWith("]")) return false;
+    // JavaScript-like: starts with const/let/var/function/class/import/export or assignment
+    if (/^(const|let|var|function|class|import|export|async|return|if|else|for|while|switch|try|throw|new|typeof|delete)\s/.test(trimmed)) return false;
+    // Short single-word inputs could be JS variable lookup
+    if (/^\w+$/.test(trimmed)) return false;
+    // Assignment patterns (including destructuring)
+    if (/^\w+\s*=/.test(trimmed) || /^(const|let|var)\s/.test(trimmed)) return false;
+    // Property access / method calls
+    if (/^\w+\.\w+/.test(trimmed)) return false;
+    // Numeric or boolean literals
+    if (/^[-+]?\d/.test(trimmed) || trimmed === "true" || trimmed === "false" || trimmed === "null" || trimmed === "undefined") return false;
+    // Backtick template literals
+    if (trimmed.startsWith("`") || trimmed.startsWith("'") || trimmed.startsWith('"')) return false;
+    // Arrow functions or object literals
+    if (trimmed.startsWith("{") || trimmed.includes("=>")) return false;
+    // Operator expressions (e.g., "1 + 2", "x && y")
+    if (/\w+\s*[+\-*/%&|<>=!?:]+\s*\w+/.test(trimmed)) return false;
+    // Must have spaces to be natural language (single words handled above)
+    if (!trimmed.includes(" ")) return false;
+    // Multi-word input that doesn't match any code pattern → likely natural language
+    return true;
+  }, []);
+
+  const runConversation = useCallback(async (query: string) => {
+    // Guard: prevent double agent start — set ref atomically before any async work
+    if (agentControllerRef.current) return;
+    const controller = new AbortController();
+    agentControllerRef.current = controller;
+
+    setActivePanel("conversation");
+    setFooterContextUsageLabel("");
+    conversation.addUserMessage(query);
+
+    try {
+      // Lazy import to avoid loading agent code at REPL startup
+      const { runAgentQuery, ensureAgentReady } = await import("../../../agent/agent-runner.ts");
+      const cfgApi = (globalThis as Record<string, unknown>).config as ConfigSnapshotApi | undefined;
+      const model = typeof cfgApi?.snapshot?.model === "string"
+        ? cfgApi.snapshot.model
+        : undefined;
+      if (model) {
+        conversation.addInfo("Initializing agent...");
+        await ensureAgentReady(model);
+        if (controller.signal.aborted) return;
+      }
+
+      let textBuffer = "";
+      const result = await runAgentQuery({
+        query,
+        model,
+        signal: controller.signal,
+        callbacks: {
+          onToken: (text: string) => {
+            textBuffer += text;
+            conversation.addAssistantText(textBuffer, true);
+          },
+          onAgentEvent: (event) => {
+            conversation.addEvent(event);
+          },
+          onInteraction: (event: InteractionRequestEvent) => {
+            setInteractionQueue((prev: InteractionRequestEvent[]) => {
+              if (prev.some((item) => item.requestId === event.requestId)) return prev;
+              return [...prev, event];
+            });
+            // Wait for user response — reject if agent is aborted
+            return new Promise<InteractionResponse>((resolve, reject) => {
+              let settled = false;
+              const finalizeRequest = () => {
+                interactionResolversRef.current.delete(event.requestId);
+                setInteractionQueue((prev: InteractionRequestEvent[]) =>
+                  prev.filter((item) => item.requestId !== event.requestId)
+                );
+                controller.signal.removeEventListener("abort", onAbort);
+              };
+              const onAbort = () => {
+                if (settled) return;
+                settled = true;
+                finalizeRequest();
+                reject(new Error("Agent interaction aborted"));
+              };
+              const handler = (response: InteractionResponse) => {
+                if (settled) return;
+                settled = true;
+                finalizeRequest();
+                resolve(response);
+              };
+              interactionResolversRef.current.set(event.requestId, handler);
+              controller.signal.addEventListener("abort", onAbort, { once: true });
+            });
+          },
+        },
+      });
+
+      // Finalize assistant message
+      if (textBuffer) {
+        conversation.addAssistantText(textBuffer, false);
+      } else if (result.text) {
+        conversation.addAssistantText(result.text, false);
+      }
+
+      // Footer context usage (Gemini-style compact indicator)
+      const usage = result.stats.usage;
+      const rawContextWindow = cfgApi?.snapshot?.contextWindow;
+      if (usage && typeof rawContextWindow === "number" && rawContextWindow > 0) {
+        const pct = Math.max(
+          0,
+          Math.min(100, Math.round((usage.totalTokens / rawContextWindow) * 100)),
+        );
+        setFooterContextUsageLabel(`${pct}% ctx`);
+      } else if (usage) {
+        setFooterContextUsageLabel(`${usage.totalTokens} tok`);
+      } else {
+        setFooterContextUsageLabel("");
+      }
+    } catch (error) {
+      if (controller.signal.aborted) {
+        conversation.addInfo("Cancelled");
+      } else {
+        conversation.addError(ensureError(error).message);
+      }
+    } finally {
+      agentControllerRef.current = null;
+      interactionResolversRef.current.clear();
+      setInteractionQueue([]);
+      setIsEvaluating(false);
+      conversation.resetStatus();
+    }
+  }, [conversation]);
+
+  const handleInteractionResponse = useCallback((requestId: string, response: InteractionResponse) => {
+    const resolver = interactionResolversRef.current.get(requestId);
+    if (!resolver) return;
+    resolver(response);
+  }, []);
+
+  const closeConversationMode = useCallback((options?: { clearConversation?: boolean }) => {
+    // Resolve all queued interactions as denied so orchestrator is never left hanging.
+    for (const interaction of interactionQueue) {
+      const resolver = interactionResolversRef.current.get(interaction.requestId);
+      if (resolver) {
+        resolver({ approved: false });
+      }
+    }
+    interactionResolversRef.current.clear();
+    setInteractionQueue([]);
+    if (agentControllerRef.current) {
+      agentControllerRef.current.abort();
+      agentControllerRef.current = null;
+    }
+    setIsEvaluating(false);
+    conversation.resetStatus();
+    if (options?.clearConversation) {
+      conversation.clear();
+    }
+    setFooterContextUsageLabel("");
+    setActivePanel("none");
+  }, [conversation, interactionQueue]);
+
   const handleSubmit = useCallback(
     async (code: string, attachments?: AnyAttachment[]) => {
       if (!code.trim()) return;
@@ -518,6 +745,21 @@ function AppContent(
       const normalized = trimmedLower.startsWith(".")
         ? "/" + trimmedLower.slice(1)
         : trimmedLower;
+      const isPanelCommand = normalized === "/config" ||
+        normalized === "/tasks" || normalized === "/bg" ||
+        normalized === "/resume" || normalized === "/clear";
+      const isAnyCommand = isPanelCommand || isCommand(code);
+
+      // If there's a pending question interaction, route non-command input as the answer.
+      // Commands must still work while a question prompt is active.
+      if (pendingInteraction?.mode === "question" && !isAnyCommand) {
+        conversation.addUserMessage(code.trim());
+        handleInteractionResponse(pendingInteraction.requestId, {
+          approved: true,
+          userInput: code.trim(),
+        });
+        return;
+      }
 
       // Handle /config command - show floating overlay
       if (normalized === "/config") {
@@ -600,11 +842,18 @@ function AppContent(
         setNextId(1);
         setHasBeenCleared(true);
         setClearKey((k: number) => k + 1);
+        interactionResolversRef.current.clear();
+        setInteractionQueue([]);
+        conversation.clear();
+        setFooterContextUsageLabel("");
+        if (activePanel === "conversation") {
+          closeConversationMode({ clearConversation: true });
+        }
         return;
       }
 
       // Commands (supports both /command and .command)
-      if (isCommand(code)) {
+      if (isAnyCommand) {
         const output = await handleCommand(code, repl, exit, replState);
         if (output !== null) {
           addHistoryEntry(code, {
@@ -622,6 +871,20 @@ function AppContent(
           success: false,
           error: new Error("Evaluation already running. Use /bg or Esc."),
         });
+        return;
+      }
+      if (agentControllerRef.current) {
+        addHistoryEntry(code, {
+          success: false,
+          error: new Error("Agent is already running. Press Esc to cancel."),
+        });
+        return;
+      }
+
+      // Natural language → agent conversation mode
+      if (isNaturalLanguage(expandedCode)) {
+        setIsEvaluating(true);
+        runConversation(expandedCode);
         return;
       }
 
@@ -737,6 +1000,13 @@ function AppContent(
       suppressHistoryOutput,
       streamEvalToTask,
       recordSessionTurn,
+      isNaturalLanguage,
+      runConversation,
+      conversation,
+      activePanel,
+      closeConversationMode,
+      pendingInteraction,
+      handleInteractionResponse,
     ],
   );
 
@@ -819,8 +1089,42 @@ function AppContent(
       setNextId(1);
       setHasBeenCleared(true); // Hide banner after clear
       setClearKey((k: number) => k + 1); // Force full re-render
+      interactionResolversRef.current.clear();
+      setInteractionQueue([]);
+      conversation.clear();
+      setFooterContextUsageLabel("");
+      // Also clear conversation if in conversation mode
+      if (activePanel === "conversation") {
+        closeConversationMode({ clearConversation: true });
+      }
       return;
     }
+    // Interaction response keys (y/n/Enter) during conversation permission dialogs
+    if (activePanel === "conversation" && pendingInteraction) {
+      if (pendingInteraction.mode === "permission") {
+        if (char === "y" || key.return) {
+          handleInteractionResponse(pendingInteraction.requestId, { approved: true });
+          return;
+        }
+        if (char === "n" || key.escape) {
+          handleInteractionResponse(pendingInteraction.requestId, { approved: false });
+          return;
+        }
+      }
+      if (pendingInteraction.mode === "question" && key.escape) {
+        handleInteractionResponse(pendingInteraction.requestId, {
+          approved: false,
+        });
+        return;
+      }
+    }
+
+    // ESC during conversation: abort agent and return to normal REPL
+    if (key.escape && activePanel === "conversation") {
+      closeConversationMode();
+      return;
+    }
+
     // ESC during evaluation: abort and cancel
     // This actually stops the evaluation (if it supports AbortSignal)
     // Use ref to avoid stale closure issue
@@ -847,7 +1151,7 @@ function AppContent(
   });
 
   // Prepare banner items for Static component (renders once, never re-renders)
-  const bannerItems = showBanner && !hasBeenCleared && bannerRendered
+  const bannerItems: BannerItem[] = showBanner && !hasBeenCleared && bannerRendered
     ? [{
       id: "banner",
       memoryNames,
@@ -858,26 +1162,39 @@ function AppContent(
     }]
     : [];
 
+  const isInputVisible = activePanel === "none" || activePanel === "conversation" ||
+    activePanel === "palette" || activePanel === "config-overlay" || activePanel === "tasks-overlay";
+  const isInputDisabled = init.loading || activePanel === "palette" ||
+    activePanel === "config-overlay" || activePanel === "tasks-overlay" ||
+    (activePanel === "conversation" &&
+      (pendingInteraction?.mode === "permission" ||
+        (isEvaluating && pendingInteraction?.mode !== "question")));
+  // Keep Ctrl+O section toggles from conflicting with Input paredit Ctrl+O.
+  // Safe contexts:
+  // - input disabled (agent actively running / permission mode / overlays)
+  // - empty prompt (paredit no-op)
+  const allowConversationToggleHotkeys = isInputDisabled || input.length === 0;
+  const renderBannerItem = (item: BannerItem): React.ReactElement => (
+    <Box key={item.id}>
+      <Banner
+        loading={false}
+        memoryNames={item.memoryNames}
+        aiExports={item.aiExports}
+        readyTime={item.readyTime}
+        errors={item.errors}
+        session={item.session}
+      />
+    </Box>
+  );
+  const staticBannerProps = { items: bannerItems, children: renderBannerItem };
+
   return (
     <Box key={clearKey} flexDirection="column" paddingX={1}>
       {/* Banner rendered via Static to prevent double-render issues */}
       {showBanner && !hasBeenCleared && !bannerRendered && (
         <Text dimColor>Loading HLVM...</Text>
       )}
-      <Static items={bannerItems}>
-        {(item, _index) => (
-          <Box key={item.id}>
-            <Banner
-              loading={false}
-              memoryNames={item.memoryNames}
-              aiExports={item.aiExports}
-              readyTime={item.readyTime}
-              errors={item.errors}
-              session={item.session}
-            />
-          </Box>
-        )}
-      </Static>
+      <Static<BannerItem> {...staticBannerProps} />
 
       {/* History of inputs and outputs */}
       {history.map((entry: HistoryEntry) => (
@@ -981,28 +1298,46 @@ function AppContent(
         />
       )}
 
+      {/* Conversation Panel (agent mode) */}
+      {activePanel === "conversation" && (
+          <ConversationPanel
+            items={conversation.items}
+            width={Math.max(40, terminalWidth - 2)}
+            allowToggleHotkeys={allowConversationToggleHotkeys}
+            interactionRequest={pendingInteraction}
+            interactionQueueLength={interactionQueue.length}
+            onInteractionResponse={handleInteractionResponse}
+          />
+      )}
+
       {/* Input line (hidden when modal panels are open, but visible under overlay) */}
       {/* FRP: Input now gets history, bindings, signatures, docstrings from ReplContext */}
       {/* Note: CommandPalette, ConfigOverlay, and BackgroundTasksOverlay are true overlays, so Input stays visible underneath */}
-      {(activePanel === "none" || activePanel === "palette" ||
-        activePanel === "config-overlay" || activePanel === "tasks-overlay") &&
+      {isInputVisible &&
         (
           <Input
             value={input}
             onChange={setInput}
             onSubmit={handleSubmit}
-            disabled={init.loading || activePanel === "palette" ||
-              activePanel === "config-overlay" ||
-              activePanel === "tasks-overlay"}
+            disabled={isInputDisabled}
           />
         )}
 
       {/* Footer hint (show when input is visible, overlay draws on top) */}
-      {(activePanel === "none" || activePanel === "palette" ||
-        activePanel === "config-overlay" || activePanel === "tasks-overlay") &&
-        !isEvaluating && <FooterHint />}
+      {isInputVisible &&
+        (
+          <FooterHint
+            modelName={footerModelName}
+            agentStatus={activePanel === "conversation" ? conversation.agentStatus : undefined}
+            contextUsageLabel={activePanel === "conversation" ? footerContextUsageLabel : ""}
+            interactionQueueLength={activePanel === "conversation" ? interactionQueue.length : 0}
+            inConversation={activePanel === "conversation"}
+            hasPendingPermission={activePanel === "conversation" && pendingInteraction?.mode === "permission"}
+            hasPendingQuestion={activePanel === "conversation" && pendingInteraction?.mode === "question"}
+          />
+        )}
 
-      {isEvaluating && <Text dimColor>...</Text>}
+      {isEvaluating && activePanel !== "conversation" && <Text dimColor>...</Text>}
     </Box>
   );
 }

@@ -317,11 +317,11 @@ Deno.test("reuseSession: stale memory is replaced with fresh DB content", async 
 
     const fakeSession: AgentSession = {
       context,
-      llm: async () => ({ content: "", toolCalls: [], usage: { inputTokens: 0, outputTokens: 0 } }),
+      llm: () => Promise.resolve({ content: "", toolCalls: [], usage: { inputTokens: 0, outputTokens: 0 } }),
       policy: null,
       l1Confirmations: new Map(),
       toolOwnerId: "test",
-      dispose: async () => {},
+      dispose: () => Promise.resolve(),
       profile: ENGINE_PROFILES.normal,
       isFrontierModel: false,
       modelTier: "mid",
@@ -358,7 +358,7 @@ Deno.test("Pre-compaction: flush logic injects memory_write prompt and prevents 
   const context = new ContextManager({
     maxTokens: 300,
     overflowStrategy: "summarize",
-    llmSummarize: async () => "summary",
+    llmSummarize: () => Promise.resolve("summary"),
     compactionThreshold: 0.5,
     preserveSystem: true,
     minMessages: 2,
@@ -408,11 +408,11 @@ Deno.test("cachedSession: memory refresh happens on session reuse path", async (
 
     const fakeSession: AgentSession = {
       context,
-      llm: async () => ({ content: "", toolCalls: [], usage: { inputTokens: 0, outputTokens: 0 } }),
+      llm: () => Promise.resolve({ content: "", toolCalls: [], usage: { inputTokens: 0, outputTokens: 0 } }),
       policy: null,
       l1Confirmations: new Map(),
       toolOwnerId: "test",
-      dispose: async () => {},
+      dispose: () => Promise.resolve(),
       profile: ENGINE_PROFILES.normal,
       isFrontierModel: false,
       modelTier: "mid",

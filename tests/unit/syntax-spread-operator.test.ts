@@ -484,3 +484,29 @@ Deno.test("Spread: method call with rest parameter spread", async () => {
   `);
   assertEquals(result, [1, 2, 3]);
 });
+
+////////////////////////////////////////////////////////////////////////////////
+// Section: Regression — spread in let binding value (not destructuring)
+////////////////////////////////////////////////////////////////////////////////
+
+Deno.test("Spread: let with spread-copy in 3-element let form", async () => {
+  // (let [r [...items]] body) — [...items] is an array literal, not a pattern.
+  // Regression: transpiler mistakenly treated this as destructuring.
+  const result = await run(`
+    (let [src [1 2 3]]
+      (let [r [...src]]
+        (js-set r 0 99)
+        r))
+  `);
+  assertEquals(result, [99, 2, 3]);
+});
+
+Deno.test("Spread: let with spread-copy does not mutate original", async () => {
+  const result = await run(`
+    (let [src [10 20 30]]
+      (let [copy [...src]]
+        (js-set copy 1 999)
+        src))
+  `);
+  assertEquals(result, [10, 20, 30]);
+});

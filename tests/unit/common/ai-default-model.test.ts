@@ -45,19 +45,20 @@ Deno.test("autoConfigureInitialClaudeCodeModel sets claude default for first-use
       modelConfigured: false,
       agentMode: undefined,
     }),
-    getStatus: async () => {
+    getStatus: () => {
       statusCalls++;
-      return { available: true };
+      return Promise.resolve({ available: true });
     },
-    listModels: async () => {
+    listModels: () => {
       listCalls++;
-      return [
+      return Promise.resolve([
         { name: "claude-sonnet-4-5-20251015" },
         { name: "claude-opus-4-1-20251101" },
-      ];
+      ]);
     },
-    patchConfig: async (patch) => {
+    patchConfig: (patch) => {
       updates.push(patch as Record<string, unknown>);
+      return Promise.resolve();
     },
     now: () => nextNow(),
   });
@@ -80,10 +81,11 @@ Deno.test("autoConfigureInitialClaudeCodeModel preserves existing agentMode", as
       modelConfigured: false,
       agentMode: "claude-code-agent",
     }),
-    getStatus: async () => ({ available: true }),
-    listModels: async () => [{ name: "claude-sonnet-4-5-20251015" }],
-    patchConfig: async (patch) => {
+    getStatus: () => Promise.resolve({ available: true }),
+    listModels: () => Promise.resolve([{ name: "claude-sonnet-4-5-20251015" }]),
+    patchConfig: (patch) => {
       updates.push(patch as Record<string, unknown>);
+      return Promise.resolve();
     },
     now: () => nextNow(),
   });
@@ -103,16 +105,17 @@ Deno.test("autoConfigureInitialClaudeCodeModel does nothing when model is alread
       modelConfigured: true,
       agentMode: undefined,
     }),
-    getStatus: async () => {
+    getStatus: () => {
       statusCalls++;
-      return { available: true };
+      return Promise.resolve({ available: true });
     },
-    listModels: async () => {
+    listModels: () => {
       listCalls++;
-      return [];
+      return Promise.resolve([]);
     },
-    patchConfig: async () => {
+    patchConfig: () => {
       patchCalls++;
+      return Promise.resolve();
     },
     now: () => nextNow(),
   });
@@ -134,16 +137,17 @@ Deno.test("autoConfigureInitialClaudeCodeModel does nothing when claude-code is 
       modelConfigured: false,
       agentMode: undefined,
     }),
-    getStatus: async () => {
+    getStatus: () => {
       statusCalls++;
-      return { available: false };
+      return Promise.resolve({ available: false });
     },
-    listModels: async () => {
+    listModels: () => {
       listCalls++;
-      return [{ name: "claude-sonnet-4-5-20251015" }];
+      return Promise.resolve([{ name: "claude-sonnet-4-5-20251015" }]);
     },
-    patchConfig: async () => {
+    patchConfig: () => {
       patchCalls++;
+      return Promise.resolve();
     },
     now: () => nextNow(),
   });

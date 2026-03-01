@@ -387,7 +387,6 @@ Deno.test({
 
 import { subscribe, clearSessionBuffer } from "../../../src/hlvm/store/sse-store.ts";
 import { emitCompanionEvent, COMPANION_CHANNEL, companionOnInteraction } from "../../../src/hlvm/companion/loop.ts";
-import type { CompanionEvent } from "../../../src/hlvm/companion/types.ts";
 
 Deno.test({
   name: "companionOnInteraction: L0 tool auto-approved",
@@ -1265,7 +1264,7 @@ Deno.test({
   name: "Companion lifecycle: startCompanion respects enabled=false and does not start",
   sanitizeOps: false,
   sanitizeResources: false,
-  async fn() {
+  fn() {
     if (isCompanionRunning()) stopCompanion();
     startCompanion({ enabled: false });
     assertEquals(isCompanionRunning(), false);
@@ -1276,7 +1275,7 @@ Deno.test({
   name: "Companion lifecycle: stopCompanion resets event sequence and clears SSE buffer",
   sanitizeOps: false,
   sanitizeResources: false,
-  async fn() {
+  fn() {
     clearSessionBuffer(COMPANION_CHANNEL);
 
     // Start companion to initialize state

@@ -239,8 +239,8 @@ async function launchChrome(): Promise<string | null> {
   return browserWsUrl;
 }
 
-async function ensureBrowser(): Promise<string | null> {
-  if (browserWsUrl) return browserWsUrl;
+function ensureBrowser(): Promise<string | null> {
+  if (browserWsUrl) return Promise.resolve(browserWsUrl);
   if (launchPromise) return launchPromise;
 
   launchPromise = launchChrome().finally(() => {

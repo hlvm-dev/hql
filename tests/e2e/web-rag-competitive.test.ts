@@ -82,7 +82,7 @@ async function withIsolatedSearchRegistry(
     name: FAKE_PROVIDER_NAME,
     displayName: "DuckDuckGo (deterministic-e2e)",
     requiresApiKey: false,
-    async search(query: string, opts: SearchCallOptions) {
+    search(query: string, opts: SearchCallOptions) {
       assertUrlAllowed("https://example.com", opts.toolOptions);
       const corpus = [
         {
@@ -164,12 +164,12 @@ async function withIsolatedSearchRegistry(
       const ranked = rankSearchResults(query, filtered, opts.timeRange ?? "all")
         .slice(0, opts.limit);
 
-      return {
+      return Promise.resolve({
         query,
         provider: FAKE_PROVIDER_NAME,
         results: ranked,
         count: ranked.length,
-      };
+      });
     },
   });
 

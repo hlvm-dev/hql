@@ -13,8 +13,6 @@ import {
   isIgnored,
   loadGitignore,
   SKIP_DIRS,
-  SKIP_EXTENSIONS,
-  SKIP_EXACT_NAMES,
   shouldSkipFile,
 } from "../../../common/file-utils.ts";
 
@@ -45,8 +43,7 @@ export interface FileIndex {
 
 const CACHE_TTL = 60000; // 1 minute cache
 
-// SKIP_DIRS, SKIP_EXTENSIONS, SKIP_EXACT_NAMES, shouldSkipFile
-// imported from ../../../common/file-utils.ts (SSOT)
+// SKIP_DIRS + shouldSkipFile imported from ../../../common/file-utils.ts (SSOT)
 
 // ============================================================
 // Cache

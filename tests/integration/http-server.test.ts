@@ -13,19 +13,19 @@ import type { Message as AgentMessage } from "../../src/hlvm/agent/context.ts";
 
 class IntegrationAgentEngine implements AgentEngine {
   createLLM(config: AgentLLMConfig) {
-    return async () => {
+    return () => {
       const text = "integration-agent-ok";
       config.onToken?.(text);
-      return {
+      return Promise.resolve({
         content: text,
         toolCalls: [],
         usage: { inputTokens: 8, outputTokens: 4 },
-      };
+      });
     };
   }
 
   createSummarizer(_model?: string) {
-    return async (_messages: AgentMessage[]) => "integration-summary";
+    return (_messages: AgentMessage[]) => Promise.resolve("integration-summary");
   }
 }
 

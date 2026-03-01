@@ -1,13 +1,11 @@
 :root {
   /* Dragon fire purple - standard color */
   --color-hlvm-purple: #803692;
-  --color-hlvm-purple-hover: #6b2e7a;
 
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   --font-mono: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Fira Mono', 'Roboto Mono', 'Courier New', monospace;
 
   --nav-height: 60px;
-  --footer-height: 48px;
   --max-width: 1280px;
 
   /* Docs layout */
@@ -27,7 +25,6 @@
   --hlvm-text-muted: #9ca3af;
 
   --hlvm-border: #e5e7eb;
-  --hlvm-border-secondary: #d1d5db;
 
   --hlvm-hover: rgba(0, 0, 0, 0.05);
   --hlvm-shadow: rgba(0, 0, 0, 0.1);
@@ -51,7 +48,6 @@
   --hlvm-text-muted: #9ca3af;
 
   --hlvm-border: #262626;
-  --hlvm-border-secondary: #404040;
 
   --hlvm-hover: rgba(255, 255, 255, 0.05);
   --hlvm-shadow: rgba(0, 0, 0, 0.5);
@@ -644,10 +640,37 @@ a {
 
 /* --- Sidebar --- */
 
+/* Shared: thin scrollbar, hidden until hover */
+.subtle-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.subtle-scroll:hover {
+  scrollbar-color: var(--hlvm-border) transparent;
+}
+
+.subtle-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.subtle-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.subtle-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.subtle-scroll:hover::-webkit-scrollbar-thumb {
+  background: var(--hlvm-border);
+}
+
 .docs-sidebar {
   position: sticky;
-  top: 0;
-  height: calc(100vh - var(--nav-height) - var(--footer-height));
+  top: var(--nav-height);
+  height: calc(100vh - var(--nav-height));
   overflow-y: auto;
   border-right: 1px solid var(--hlvm-border);
   padding: 1.5rem 0;
@@ -929,8 +952,8 @@ a {
 
 .docs-toc {
   position: sticky;
-  top: 0;
-  max-height: calc(100vh - var(--nav-height) - var(--footer-height) - 3rem);
+  top: var(--nav-height);
+  max-height: calc(100vh - var(--nav-height));
   overflow-y: auto;
   padding-right: 1rem;
   padding-top: 2rem;
@@ -1153,6 +1176,21 @@ a {
 .docs-not-found h1,
 .docs-error h1 {
   margin-bottom: 0.5rem;
+}
+
+.docs-error button {
+  margin-top: 1rem;
+  padding: 0.5rem 1.5rem;
+  border: 1px solid var(--hlvm-border);
+  border-radius: 6px;
+  background: var(--hlvm-bg-secondary);
+  color: var(--hlvm-text-primary);
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.docs-error button:hover {
+  background: var(--hlvm-bg-tertiary);
 }
 
 /* --- View Transitions API --- */

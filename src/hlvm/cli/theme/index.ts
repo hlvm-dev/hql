@@ -4,14 +4,19 @@
  * React Context-based theming (preferred approach):
  * - ThemeProvider: Wrap app to enable theming
  * - useTheme(): Access theme in any component
+ * - useSemanticColors(): Access structured semantic color tokens
  *
  * ANSI helpers (for raw terminal output):
  * - getThemedAnsi(): Get ANSI escape codes for current theme
  */
 
+import { useMemo } from "react";
 import { THEMES, type ThemeName, type ThemePalette } from "./palettes.ts";
 import { config } from "../../api/config.ts";
+import { buildSemanticColors, type SemanticColors } from "./semantic.ts";
+import { useTheme } from "./ThemeContext.tsx";
 export { THEMES, THEME_NAMES, type ThemeName, type ThemePalette } from "./palettes.ts";
+export { type SemanticColors } from "./semantic.ts";
 
 // ============================================================
 // React Context-based theming (preferred)
@@ -24,6 +29,25 @@ export {
   type ThemeContextValue,
   type ThemeProviderProps,
 } from "./ThemeContext.tsx";
+
+// ============================================================
+// Semantic Colors Hook
+// ============================================================
+
+/**
+ * useSemanticColors - Access structured semantic color tokens.
+ * Derives all colors from current theme palette — no new values.
+ *
+ * @example
+ * ```tsx
+ * const sc = useSemanticColors();
+ * return <Text color={sc.status.success}>Done</Text>;
+ * ```
+ */
+export function useSemanticColors(): SemanticColors {
+  const { theme } = useTheme();
+  return useMemo(() => buildSemanticColors(theme), [theme]);
+}
 
 // ============================================================
 // ANSI Terminal Output (for non-React code)

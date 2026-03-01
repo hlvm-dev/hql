@@ -26,6 +26,7 @@ export interface SearchProviderResponse {
   provider: string;
   results: SearchResult[];
   count: number;
+  diagnostics?: Record<string, unknown>;
 }
 
 export type SearchTimeRange = "day" | "week" | "month" | "year" | "all";

@@ -11,7 +11,7 @@ import { DEFAULT_DOC_SLUG, DOCS_HOME } from '../../constants';
 function DocsContent() {
   const slug = useParams()['*'] || DEFAULT_DOC_SLUG;
   const navigate = useNavigate();
-  const { manifest, findDocBySlug } = useDocs();
+  const { findDocBySlug } = useDocs();
   const contentRef = useRef(null);
 
   // Redirect bare /docs to /docs/guide
@@ -35,12 +35,8 @@ function DocsContent() {
           return;
         }
       }
-      const scrollContainer = document.querySelector('.app-container.docs-app .scrollable-content');
-      if (scrollContainer) {
-        scrollContainer.scrollTo({ top: 0 });
-      } else {
-        window.scrollTo({ top: 0 });
-      }
+      const scroller = contentRef.current?.closest('.scrollable-content');
+      (scroller || window).scrollTo({ top: 0 });
     }
   }, [slug, loading, content]);
 
@@ -50,8 +46,6 @@ function DocsContent() {
     () => extractHeadings(contentRef.current),
     []
   );
-
-  if (!manifest) return null;
 
   let body = null;
   if (!doc) {

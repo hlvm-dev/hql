@@ -21,6 +21,7 @@ import {
   GET_NUMERIC_HELPER,
   GET_OP_HELPER,
   VECTOR_SYMBOL,
+  EMPTY_ARRAY_SYMBOL,
 } from "../../../common/runtime-helper-impl.ts";
 import { globalLogger as logger } from "../../../logger.ts";
 import {
@@ -66,6 +67,7 @@ import * as tryCatchModule from "./transform/try-catch.ts";
 import * as literalsModule from "./transform/literals.ts";
 import { globalSymbolTable, type SymbolTable } from "../symbol_table.ts";
 import { getSymbolTable, type CompilerContext } from "../compiler-context.ts";
+import { extractAndNormalizeType } from "../tokenizer/type-tokenizer.ts";
 
 // Module-level symbol table for current IR transformation
 // Set by transformToIR, used throughout the transformation
@@ -929,6 +931,76 @@ function initializeTransformFactory(): void {
           ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
           : parsed;
       };
+      const parseFunctionTypeParameters = (
+        paramsNode: HQLNode,
+      ): Array<{ name?: string; type: IR.IRTypeExpression; optional?: boolean }> => {
+        if (paramsNode.type !== "list") {
+          throw new TransformError(
+            "function type parameters must be a vector",
+            extractMeta(paramsNode) ?? nodeMeta,
+          );
+        }
+
+        const paramsList = paramsNode as ListNode;
+        const elementsWithPrefix = paramsList.elements;
+        let params = elementsWithPrefix;
+
+        if (elementsWithPrefix.length > 0 && elementsWithPrefix[0].type === "symbol") {
+          const head = (elementsWithPrefix[0] as SymbolNode).name;
+          if (head === VECTOR_SYMBOL || head === EMPTY_ARRAY_SYMBOL) {
+            params = elementsWithPrefix.slice(1);
+          }
+        }
+
+        return params.map((paramNode, index) => {
+          // Rest parameter syntax in native type expressions: (-> [(rest T)] R)
+          if (paramNode.type === "list") {
+            const paramList = paramNode as ListNode;
+            if (
+              paramList.elements.length >= 2 &&
+              paramList.elements[0].type === "symbol" &&
+              (((paramList.elements[0] as SymbolNode).name === "rest") ||
+                ((paramList.elements[0] as SymbolNode).name === "..."))
+            ) {
+              return {
+                name: `...arg${index}`,
+                type: toTypeExpr(paramList.elements[1]),
+              };
+            }
+          }
+
+          if (paramNode.type === "symbol") {
+            const { name: parsedName, type: parsedType } = extractAndNormalizeType(
+              (paramNode as SymbolNode).name,
+            );
+
+            if (parsedType !== undefined) {
+              const optional = parsedName.endsWith("?");
+              const bareName = optional ? parsedName.slice(0, -1) : parsedName;
+              if (!bareName) {
+                throw new TransformError(
+                  "function type parameter name cannot be empty",
+                  extractMeta(paramNode) ?? nodeMeta,
+                );
+              }
+
+              return {
+                name: sanitizeIdentifier(bareName),
+                optional,
+                type: {
+                  type: IR.IRNodeType.TypeReference,
+                  name: parsedType,
+                } as IR.IRTypeReference,
+              };
+            }
+          }
+
+          return {
+            name: `arg${index}`,
+            type: toTypeExpr(paramNode),
+          };
+        });
+      };
 
       switch (opName) {
         case "|": {
@@ -1132,11 +1204,11 @@ function initializeTransformFactory(): void {
               nodeMeta,
             );
           }
-          // Parse parameters - simplified for now
+          const parameters = parseFunctionTypeParameters(elements[1]);
           const returnType = parseTypeExpression(elements[elements.length - 1]);
           return {
             type: IR.IRNodeType.FunctionTypeExpr,
-            parameters: [], // Simplified - full param parsing would be more complex
+            parameters,
             returnType: typeof returnType === "string"
               ? ({ type: IR.IRNodeType.TypeReference, name: returnType } as IR.IRTypeReference)
               : returnType,
@@ -1880,8 +1952,18 @@ export function transformHQLNodeToIR(
       break;
     default: {
       const fallback = (node as { type?: string }).type ?? "unknown";
-      logger.warn(`Unknown node type: ${fallback}`);
-      result = null;
+      const meta = extractMeta(node as HQLNode);
+      throw new ValidationError(
+        `Unknown HQL AST node type: '${fallback}'`,
+        "HQL AST to IR transformation",
+        "literal | symbol | list",
+        fallback,
+        {
+          filePath: typeof meta?.filePath === "string" ? meta.filePath : undefined,
+          line: typeof meta?.line === "number" ? meta.line : undefined,
+          column: typeof meta?.column === "number" ? meta.column : undefined,
+        },
+      );
     }
   }
   return copyPosition(node, result);
@@ -2406,15 +2488,6 @@ function transformOptionalChainMethodCall(
 function transformSymbol(sym: SymbolNode): IR.IRNode {
   let name = sym.name;
   let isJS = false;
-
-  // Special handling for placeholder symbol
-  if (name === "_") {
-    // Transform it to a string literal "_" instead of an identifier
-    return {
-      type: IR.IRNodeType.StringLiteral,
-      value: "_",
-    } as IR.IRStringLiteral;
-  }
 
   // Handle operators as first-class values (e.g., for (reduce + 0 nums))
   // When an operator symbol appears in value position, call runtime lookup

@@ -90,6 +90,10 @@ interface WebFetchArgs {
 const DEFAULT_WEB_RESULTS = 5;
 const DEFAULT_HTML_LINKS = 20;
 const MAX_WEB_CHARS = 200_000;
+const LOW_CONFIDENCE_SCORE_THRESHOLD = 4;
+const DEFAULT_PREFETCH_TARGETS = 2;
+const LOW_CONFIDENCE_PREFETCH_TARGETS = 3;
+const LOW_CONFIDENCE_RELATED_LINKS_LIMIT = 4;
 
 // ============================================================
 // Structured Error Codes
@@ -181,8 +185,66 @@ function buildSearchWebCacheKey(
   ]);
 }
 
+function averageResultScore(results: SearchResult[]): number | undefined {
+  const scored = results.filter((r) => typeof r.score === "number" && Number.isFinite(r.score));
+  if (scored.length === 0) return undefined;
+  return scored.reduce((sum, r) => sum + (r.score ?? 0), 0) / scored.length;
+}
+
+function isLowConfidenceResults(results: SearchResult[]): boolean {
+  const avg = averageResultScore(results);
+  return avg !== undefined && avg < LOW_CONFIDENCE_SCORE_THRESHOLD;
+}
+
+function selectDiversePrefetchTargets(results: SearchResult[], maxTargets: number): SearchResult[] {
+  const targetLimit = Math.max(0, maxTargets);
+  if (targetLimit === 0) return [];
+  const prefetchCandidates = results.filter((r) => r.url);
+  const prefetchTargets: SearchResult[] = [];
+  const prefetchHosts = new Set<string>();
+
+  // Pass 1: pick unique hosts.
+  for (const r of prefetchCandidates) {
+    if (prefetchTargets.length >= targetLimit) break;
+    try {
+      const host = new URL(r.url!).hostname.toLowerCase();
+      if (prefetchHosts.has(host)) continue;
+      prefetchHosts.add(host);
+      prefetchTargets.push(r);
+    } catch {
+      prefetchTargets.push(r);
+    }
+  }
+
+  // Pass 2: backfill from remaining (allows same-host fallback).
+  if (prefetchTargets.length < targetLimit) {
+    for (const r of prefetchCandidates) {
+      if (prefetchTargets.length >= targetLimit) break;
+      if (!prefetchTargets.includes(r)) prefetchTargets.push(r);
+    }
+  }
+  return prefetchTargets;
+}
+
+function collectLowConfidenceRelatedLinks(
+  results: SearchResult[],
+  maxLinks = LOW_CONFIDENCE_RELATED_LINKS_LIMIT,
+): string[] {
+  const unique = new Set<string>();
+  for (const r of results) {
+    for (const link of r.relatedLinks ?? []) {
+      if (unique.has(link)) continue;
+      unique.add(link);
+      if (unique.size >= maxLinks) return [...unique];
+    }
+  }
+  return [...unique];
+}
+
 export const __testOnlyBuildSearchWebCacheKey = buildSearchWebCacheKey;
 export const __testOnlyFormatSearchWebResult = formatSearchWebResult;
+export const __testOnlySelectDiversePrefetchTargets = selectDiversePrefetchTargets;
+export const __testOnlyAverageResultScore = averageResultScore;
 
 function resolveSearchTimeRange(value: unknown): SearchTimeRange {
   if (value === undefined) return "all";
@@ -234,12 +296,12 @@ async function webFetch(
   }
 
   const { url, urls, maxChars, timeoutSeconds } = args as WebFetchArgs;
-  if (urls?.length) return batchWebFetch(urls, maxChars, timeoutSeconds, options);
+  if (urls?.length) return await batchWebFetch(urls, maxChars, timeoutSeconds, options);
   if (!url || typeof url !== "string") {
     throw webToolError("url or urls required", "web_fetch", "invalid_input");
   }
 
-  return webFetchSingle(url, maxChars, timeoutSeconds, options);
+  return await webFetchSingle(url, maxChars, timeoutSeconds, options);
 }
 
 async function webFetchSingle(
@@ -478,13 +540,18 @@ async function searchWeb(
     reformulate: typed.reformulate,
   });
 
-  // --- Lightweight prefetch: fetch top 2 result pages, extract passages + metadata ---
+  // --- Lightweight prefetch: fetch top results pages, extract passages + metadata ---
   const shouldPrefetch = typed.prefetch !== false;  // default true
+  const lowConfidenceBeforePrefetch = isLowConfidenceResults(result.results);
+  let prefetchCandidateCount = 0;
+  let prefetchTargets: SearchResult[] = [];
   let anyDateEnriched = false;
   if (shouldPrefetch) {
-    const prefetchTargets = result.results
-      .filter((r) => r.url)
-      .slice(0, 2);  // top 2 only
+    prefetchCandidateCount = result.results.filter((r) => r.url).length;
+    const prefetchTargetCount = lowConfidenceBeforePrefetch
+      ? LOW_CONFIDENCE_PREFETCH_TARGETS
+      : DEFAULT_PREFETCH_TARGETS;
+    prefetchTargets = selectDiversePrefetchTargets(result.results, prefetchTargetCount);
 
     const PREFETCH_TIMEOUT = Math.min(timeout ?? 5000, 5000);  // capped at 5s
     const PREFETCH_MAX_BYTES = 32_000;  // ~32KB raw HTML per page
@@ -571,7 +638,23 @@ async function searchWeb(
       excerpt: r.snippet,
       provider: result.provider,
     }));
-  const enriched = { ...result, citations };
+  const avgScoreFinal = averageResultScore(result.results);
+  const diagnostics = {
+    score: {
+      avgScore: avgScoreFinal,
+      lowConfidence: avgScoreFinal !== undefined && avgScoreFinal < LOW_CONFIDENCE_SCORE_THRESHOLD,
+      threshold: LOW_CONFIDENCE_SCORE_THRESHOLD,
+    },
+    prefetch: {
+      enabled: shouldPrefetch,
+      candidateCount: prefetchCandidateCount,
+      targetCount: prefetchTargets.length,
+      targetUrls: prefetchTargets.map((r) => r.url).filter((u): u is string => Boolean(u)),
+      adaptiveDepth: lowConfidenceBeforePrefetch,
+    },
+    provider: result.diagnostics ?? undefined,
+  };
+  const enriched = { ...result, citations, diagnostics };
 
   if (webConfig.search.cacheTtlMinutes > 0) {
     await setWebCacheValue(cacheKey, enriched, webConfig.search.cacheTtlMinutes);
@@ -592,6 +675,7 @@ function formatSearchWebResult(raw: unknown): { returnDisplay: string; llmConten
 
   const queryStr = typeof data.query === "string" ? data.query : "";
   const provider = typeof data.provider === "string" ? data.provider : "search";
+  const lowConfidence = isLowConfidenceResults(results);
   const lines: string[] = [`Search: "${queryStr}" (${results.length} results, ${provider})\n`];
 
   for (let i = 0; i < results.length; i++) {
@@ -612,8 +696,26 @@ function formatSearchWebResult(raw: unknown): { returnDisplay: string; llmConten
     lines.push("");
   }
 
-  const text = lines.join("\n").trimEnd();
-  return { returnDisplay: text, llmContent: text };
+  const displayText = lines.join("\n").trimEnd();
+  const llmSupplements: string[] = [];
+  if (lowConfidence) {
+    llmSupplements.push(
+      "Tip: Results have low relevance scores. Consider refining your search with more specific terms.",
+    );
+    const relatedLinks = collectLowConfidenceRelatedLinks(results);
+    if (relatedLinks.length > 0) {
+      llmSupplements.push(
+        `Related links to check:\n${relatedLinks.map((u) => `- ${u}`).join("\n")}`,
+      );
+    }
+    llmSupplements.push(
+      "If evidence remains weak, explicitly say confidence is low and ask for a narrower query or more context.",
+    );
+  }
+  const llmText = llmSupplements.length > 0
+    ? `${displayText}\n\n${llmSupplements.join("\n\n")}`
+    : displayText;
+  return { returnDisplay: displayText, llmContent: llmText };
 }
 
 // ============================================================
@@ -645,6 +747,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
       count: "number",
       provider: "string",
       citations: "Citation[] - Structured provenance for each result",
+      diagnostics: "object (optional) - Verbose ranking/prefetch diagnostics",
       retrievedAt: "string - ISO 8601 timestamp of retrieval",
     },
     safetyLevel: "L0",

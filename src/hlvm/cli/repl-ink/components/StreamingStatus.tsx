@@ -8,9 +8,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "../../theme/index.ts";
-
-// Braille spinner frames (smooth animation)
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+import { BRAILLE_SPINNER_FRAMES } from "../ui-constants.ts";
+import { useSpinnerFrame } from "../hooks/useSpinnerFrame.ts";
 
 // Claude-style status words
 const STATUS_WORDS = ["Thinking…", "Tinkering…", "Whisking…", "Pondering…"];
@@ -38,7 +37,7 @@ export function StreamingStatus({
   startTime,
 }: StreamingStatusProps): React.ReactElement | null {
   const { color } = useTheme();
-  const [frame, setFrame] = useState(0);
+  const frame = useSpinnerFrame(isStreaming);
   const [elapsed, setElapsed] = useState(0);
 
   // Pick a random status word once per streaming session
@@ -46,21 +45,20 @@ export function StreamingStatus({
     return STATUS_WORDS[Math.floor(Math.random() * STATUS_WORDS.length)];
   }, [startTime]);
 
-  // Spinner animation and time update
+  // Time update while streaming
   useEffect(() => {
     if (!isStreaming) return;
 
     const interval = setInterval(() => {
-      setFrame((f: number) => (f + 1) % SPINNER_FRAMES.length);
       setElapsed(Date.now() - startTime);
-    }, 80);
+    }, 250);
 
     return () => clearInterval(interval);
   }, [isStreaming, startTime]);
 
   if (!isStreaming) return null;
 
-  const spinner = SPINNER_FRAMES[frame];
+  const spinner = BRAILLE_SPINNER_FRAMES[frame];
   const time = formatElapsed(elapsed);
 
   return (

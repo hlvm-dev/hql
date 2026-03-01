@@ -159,7 +159,7 @@ export async function handleChatMode(
 
     // Auto-persist important user facts to memory (best-effort, non-blocking)
     const userContent = body.messages?.[body.messages.length - 1]?.content ?? "";
-    autoSaveUserFacts(userContent, fullText).catch(() => {});
+    autoSaveUserFacts(userContent, fullText);
   }
 }
 
@@ -329,10 +329,10 @@ async function injectMemorySystemMessage(
  *
  * Writes to canonical memory DB.
  */
-async function autoSaveUserFacts(
+function autoSaveUserFacts(
   userMessage: string,
   _assistantResponse: string,
-): Promise<void> {
+): void {
   if (!userMessage || userMessage.length < 5) return;
 
   const lower = userMessage.toLowerCase();

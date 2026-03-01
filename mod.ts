@@ -89,6 +89,8 @@ export interface TranspileOptions extends Record<string, unknown> {
   sourceContent?: string;
   /** Suppress TS2304 "Cannot find name" errors (for REPL where bindings are on globalThis) */
   suppressUnknownNameErrors?: boolean;
+  /** Preserve macro-time state across calls (intended for interactive REPL workflows) */
+  preserveMacroState?: boolean;
 }
 
 export interface RunOptions extends TranspileOptions {

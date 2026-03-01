@@ -5,11 +5,9 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
   APICallError,
-  EmptyResponseBodyError,
   LoadAPIKeyError,
   NoContentGeneratedError,
   NoSuchModelError,
-  RetryError,
 } from "ai";
 import { classifyError, getRecoveryHint } from "../../../src/hlvm/agent/error-taxonomy.ts";
 import { TimeoutError } from "../../../src/common/timeout-utils.ts";

@@ -3,6 +3,7 @@ import {
   canonicalizeResultUrl,
   dedupeSearchResults,
   deduplicateSnippetPassages,
+  domainAuthorityBoost,
   extractRelevantPassages,
   rankSearchResults,
   scorePassage,
@@ -80,28 +81,28 @@ Deno.test("rankSearchResults returns empty when timeRange filters out all result
 
 Deno.test("rankSearchResults applies source diversity penalty", () => {
   const ranked = rankSearchResults(
-    "hlvm docs",
+    "hlvm info",
     [
       {
-        title: "Docs A1",
-        url: "https://docs.example.com/a1",
-        snippet: "hlvm docs guide",
+        title: "Info A1",
+        url: "https://blog.example.com/a1",
+        snippet: "hlvm info guide",
       },
       {
-        title: "Docs A2",
-        url: "https://docs.example.com/a2",
-        snippet: "hlvm docs reference",
+        title: "Info A2",
+        url: "https://blog.example.com/a2",
+        snippet: "hlvm info reference",
       },
       {
-        title: "Docs B1",
+        title: "Info B1",
         url: "https://community.example.org/post",
-        snippet: "hlvm docs tutorial",
+        snippet: "hlvm info tutorial",
       },
     ],
     "all",
   );
 
-  assertEquals(ranked[0].url, "https://docs.example.com/a1");
+  assertEquals(ranked[0].url, "https://blog.example.com/a1");
   assertEquals(ranked[1].url, "https://community.example.org/post");
 });
 
@@ -218,6 +219,18 @@ Deno.test("generateQueryVariants respects maxVariants cap", () => {
   assert(v2.length <= 2);
 });
 
+Deno.test("generateQueryVariants preserves version tokens during qualifier drop", () => {
+  const variants = generateQueryVariants("deno 2.2 release notes", 2);
+  assert(variants.length > 0);
+  assert(variants.some((v) => v.includes("2.2")));
+});
+
+Deno.test("generateQueryVariants preserves year tokens during qualifier drop", () => {
+  const variants = generateQueryVariants("tensorflow 2025 tutorial updates", 2);
+  assert(variants.length > 0);
+  assert(variants.some((v) => v.includes("2025")));
+});
+
 // ============================================================
 // deduplicateSnippetPassages
 // ============================================================
@@ -259,4 +272,53 @@ Deno.test("extractPublicationDate extracts time datetime", () => {
 Deno.test("extractPublicationDate returns undefined when no date metadata", () => {
   const html = `<html><head><title>No dates here</title></head><body><p>Just text</p></body></html>`;
   assertEquals(extractPublicationDate(html), undefined);
+});
+
+Deno.test("extractPublicationDate extracts JSON-LD datePublished", () => {
+  const html = `<html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"NewsArticle","datePublished":"2025-03-17T09:30:00Z"}</script></head><body></body></html>`;
+  assertEquals(extractPublicationDate(html), "2025-03-17T09:30:00Z");
+});
+
+Deno.test("extractPublicationDate extracts nested JSON-LD datePublished", () => {
+  const html = `<html><head><script type="application/ld+json">{"@graph":[{"@type":"BreadcrumbList"},{"@type":"BlogPosting","datePublished":"2025-06-01"}]}</script></head><body></body></html>`;
+  assertEquals(extractPublicationDate(html), "2025-06-01");
+});
+
+// ============================================================
+// domainAuthorityBoost
+// ============================================================
+
+Deno.test("domainAuthorityBoost returns 0 for normal URLs", () => {
+  assertEquals(domainAuthorityBoost("https://blog.example.com/post"), 0);
+  assertEquals(domainAuthorityBoost("https://www.random-site.io/article"), 0);
+});
+
+Deno.test("domainAuthorityBoost boosts .edu and .gov TLDs", () => {
+  assertEquals(domainAuthorityBoost("https://www.stanford.edu/research"), 0.3);
+  assertEquals(domainAuthorityBoost("https://data.gov/datasets"), 0.3);
+});
+
+Deno.test("domainAuthorityBoost boosts docs/developer subdomains", () => {
+  assertEquals(domainAuthorityBoost("https://docs.example.com/guide"), 0.2 + 0.1); // subdomain + path
+  assertEquals(domainAuthorityBoost("https://developer.mozilla.org/en-US"), 0.2);
+  assertEquals(domainAuthorityBoost("https://api.stripe.com/v1"), 0.2);
+});
+
+Deno.test("domainAuthorityBoost boosts /docs/ and /guide/ path segments", () => {
+  assertEquals(domainAuthorityBoost("https://example.com/docs/getting-started"), 0.1);
+  assertEquals(domainAuthorityBoost("https://example.com/guide/intro"), 0.1);
+  assertEquals(domainAuthorityBoost("https://example.com/tutorial/basics"), 0.1);
+});
+
+Deno.test("rankSearchResults ranks authoritative URL higher than equivalent normal URL", () => {
+  const ranked = rankSearchResults(
+    "python tutorial",
+    [
+      { title: "Python Tutorial", url: "https://random-seo-blog.com/python", snippet: "python tutorial guide" },
+      { title: "Python Tutorial", url: "https://docs.python.org/tutorial/intro", snippet: "python tutorial guide" },
+    ],
+    "all",
+  );
+  // The docs.python.org result should rank first (subdomain boost + path boost)
+  assertEquals(ranked[0].url, "https://docs.python.org/tutorial/intro");
 });

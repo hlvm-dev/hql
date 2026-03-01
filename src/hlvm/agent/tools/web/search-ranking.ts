@@ -294,6 +294,31 @@ export function extractRelevantPassages(
 }
 
 // ============================================================
+// Domain Authority
+// ============================================================
+
+const AUTHORITY_TLDS = new Set(["edu", "gov"]);
+const AUTHORITY_SUBDOMAINS = new Set(["docs", "developer", "api", "wiki", "learn", "reference"]);
+const AUTHORITY_PATH_SEGMENTS = new Set(["docs", "documentation", "guide", "tutorial", "api", "reference"]);
+
+/** URL-pattern domain authority boost (no hardcoded domain map). */
+export function domainAuthorityBoost(url: string): number {
+  try {
+    const parsed = new URL(url);
+    let boost = 0;
+    const hostParts = parsed.hostname.toLowerCase().split(".");
+    const tld = hostParts[hostParts.length - 1];
+    if (AUTHORITY_TLDS.has(tld)) boost += 0.3;
+    if (hostParts.length >= 2 && AUTHORITY_SUBDOMAINS.has(hostParts[0])) boost += 0.2;
+    const pathSegments = parsed.pathname.toLowerCase().split("/").filter(Boolean);
+    if (pathSegments.some((seg) => AUTHORITY_PATH_SEGMENTS.has(seg))) boost += 0.1;
+    return boost;
+  } catch {
+    return 0;
+  }
+}
+
+// ============================================================
 // Ranking
 // ============================================================
 
@@ -325,7 +350,8 @@ export function rankSearchResults(
   const scored = deduped
     .map((result) => {
       const ageDays = extractResultAgeDays(result);
-      const score = relevanceScore(query, result) + recencyBoost(ageDays, timeRange);
+      const rawScore = relevanceScore(query, result) + recencyBoost(ageDays, timeRange);
+      const score = rawScore * (1 + domainAuthorityBoost(result.url ?? ""));
       return { result, ageDays, baseScore: score, host: resultHost(result.url) };
     })
     .filter((entry) => isInsideTimeRange(entry.ageDays, timeRange));
@@ -336,7 +362,7 @@ export function rankSearchResults(
   const candidates = (scored.length > 0 ? scored : deduped.map((result) => ({
     result,
     ageDays: extractResultAgeDays(result),
-    baseScore: relevanceScore(query, result),
+    baseScore: relevanceScore(query, result) * (1 + domainAuthorityBoost(result.url ?? "")),
     host: resultHost(result.url),
   }))).sort((a, b) => b.baseScore - a.baseScore);
 

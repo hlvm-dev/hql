@@ -1497,7 +1497,6 @@ async function loadRemoteModule(
   await tryImportSources(
     sources,
     moduleName,
-    modulePath,
     env,
     `Imported ${moduleType} module: ${moduleName}${
       moduleType === "NPM" ? ` (${modulePath.substring(4)})` : ""
@@ -1847,7 +1846,6 @@ async function transpileTypeScriptToJavaScript(
 async function tryImportSources(
   sources: ModuleImporter[],
   moduleName: string,
-  modulePath: string,
   env: Environment,
   loggerMsg: string,
   errorMsg: string,
@@ -1921,20 +1919,13 @@ function processLetDefinition(
   expr: SList,
   env: Environment,
 ): void {
-  try {
-    if (!isSymbol(expr.elements[1])) return;
+  if (!isSymbol(expr.elements[1])) return;
 
-    const name = expr.elements[1].name;
-    const value = evaluateForMacro(expr.elements[2], env, logger);
+  const name = expr.elements[1].name;
+  const value = evaluateForMacro(expr.elements[2], env, logger);
 
-    env.define(name, isLiteral(value) ? value.value : value);
-    logger.debug(`Registered variable for macros: ${name}`);
-  } catch (error) {
-    const symbolName = isSymbol(expr.elements[1])
-      ? expr.elements[1].name
-      : "unknown";
-    throw error;
-  }
+  env.define(name, isLiteral(value) ? value.value : value);
+  logger.debug(`Registered variable for macros: ${name}`);
 }
 
 /**
@@ -1944,31 +1935,24 @@ function processFunctionDefinition(
   expr: SList,
   env: Environment,
 ): void {
-  try {
-    if (!isSymbol(expr.elements[1]) || expr.elements[2].type !== "list") return;
+  if (!isSymbol(expr.elements[1]) || expr.elements[2].type !== "list") return;
 
-    const fnName = expr.elements[1].name;
-    const fn = (...args: unknown[]) => {
-      try {
-        return `${fnName}(${args.join(", ")})`;
-      } catch (error) {
-        logger.error(
-          `Error executing function ${fnName}: ${getErrorMessage(error)}`,
-        );
-        return null;
-      }
-    };
+  const fnName = expr.elements[1].name;
+  const fn = (...args: unknown[]) => {
+    try {
+      return `${fnName}(${args.join(", ")})`;
+    } catch (error) {
+      logger.error(
+        `Error executing function ${fnName}: ${getErrorMessage(error)}`,
+      );
+      return null;
+    }
+  };
 
-    Object.defineProperty(fn, "isDefFunction", { value: true });
-    env.define(fnName, fn);
+  Object.defineProperty(fn, "isDefFunction", { value: true });
+  env.define(fnName, fn);
 
-    logger.debug(`Registered function for macros: ${fnName}`);
-  } catch (error) {
-    const symbolName = isSymbol(expr.elements[1])
-      ? expr.elements[1].name
-      : "unknown";
-    throw error;
-  }
+  logger.debug(`Registered function for macros: ${fnName}`);
 }
 
 /**

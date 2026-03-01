@@ -876,9 +876,8 @@ Deno.test({
 
 Deno.test({
   name: "E2E: checkToolSafety - L0 deny-list commands NOT auto-approved (require prompt, classified L2)",
-  async fn() {
+  fn() {
     clearAllL1Confirmations();
-    const store = new Map<string, boolean>();
 
     // These match L0 allowlist BUT hit the deny-list → L2
     // In default mode with no onInteraction handler, L2 prompts would block on stdin
@@ -980,9 +979,8 @@ Deno.test({
 
 Deno.test({
   name: "E2E: checkToolSafety - metachar commands are L2 even when base cmd is L0",
-  async fn() {
+  fn() {
     clearAllL1Confirmations();
-    const store = new Map<string, boolean>();
 
     // git status is L0 but piped version must be L2
     const pipedResult = classifyTool("shell_exec", { command: "git status | head" });
@@ -996,9 +994,8 @@ Deno.test({
 
 Deno.test({
   name: "E2E: checkToolSafety - dangerous commands blocked even in auto-edit mode",
-  async fn() {
+  fn() {
     clearAllL1Confirmations();
-    const store = new Map<string, boolean>();
 
     // L2 commands should NOT be auto-approved in auto-edit mode
     const dangerousCommands = [
@@ -1123,9 +1120,8 @@ Deno.test({
 
 Deno.test({
   name: "E2E: checkToolSafety - new L0 commands NOT auto-approved in default mode if metachar present",
-  async fn() {
+  fn() {
     clearAllL1Confirmations();
-    const store = new Map<string, boolean>();
 
     // These are L0 base commands but with metachar → L2, would need prompt
     const metaCharCommands = [

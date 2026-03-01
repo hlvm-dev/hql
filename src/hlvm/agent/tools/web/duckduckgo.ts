@@ -188,31 +188,75 @@ export function generateQueryVariants(query: string, maxVariants = 2): string[] 
   if (words.length < 2) return [];
 
   const variants: string[] = [];
+  const limit = Math.min(Math.max(0, maxVariants), 2);
+  const normalizedWords = words.map((w) =>
+    w.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9.]+$/gi, "")
+  );
 
   // Reorder: swap first and last significant words
-  if (words.length >= 2) {
+  if (words.length >= 2 && variants.length < limit) {
     const reordered = [...words];
     [reordered[0], reordered[reordered.length - 1]] = [reordered[reordered.length - 1], reordered[0]];
     const v = reordered.join(" ");
     if (v !== query.trim()) variants.push(v);
   }
 
-  // Drop qualifier: remove shortest word (only if result >= 2 words)
-  if (words.length >= 3 && variants.length < maxVariants) {
-    const shortest = words.reduce((min, w) => w.length < min.length ? w : min, words[0]);
-    const dropped = words.filter((w) => w !== shortest).join(" ");
-    if (dropped.split(/\s+/).length >= 2 && dropped !== query.trim()) {
-      variants.push(dropped);
+  // Drop qualifier: avoid dropping version/year tokens (e.g., 2.2, 2025).
+  if (words.length >= 3 && variants.length < limit) {
+    const dropQualifierWords = new Set([
+      "change",
+      "changes",
+      "docs",
+      "documentation",
+      "guide",
+      "intro",
+      "latest",
+      "new",
+      "note",
+      "notes",
+      "release",
+      "tutorial",
+      "update",
+      "updates",
+    ]);
+    const isVersionToken = (token: string): boolean => /\d/.test(token);
+    let dropIndex = -1;
+
+    for (let i = 0; i < normalizedWords.length; i++) {
+      const token = normalizedWords[i];
+      if (!token || isVersionToken(token)) continue;
+      if (!dropQualifierWords.has(token)) continue;
+      if (dropIndex === -1 || token.length < normalizedWords[dropIndex].length) {
+        dropIndex = i;
+      }
+    }
+
+    if (dropIndex === -1) {
+      for (let i = 0; i < normalizedWords.length; i++) {
+        const token = normalizedWords[i];
+        if (!token || isVersionToken(token)) continue;
+        if (token.length > 4) continue;
+        if (dropIndex === -1 || token.length < normalizedWords[dropIndex].length) {
+          dropIndex = i;
+        }
+      }
+    }
+
+    if (dropIndex >= 0) {
+      const dropped = words.filter((_w, idx) => idx !== dropIndex).join(" ");
+      if (dropped.split(/\s+/).length >= 2 && dropped !== query.trim()) {
+        variants.push(dropped);
+      }
     }
   }
 
   // Add context for how-to/what-is queries
   const lower = query.trim().toLowerCase();
-  if (variants.length < maxVariants && (lower.startsWith("how to") || lower.startsWith("what is"))) {
+  if (variants.length < limit && (lower.startsWith("how to") || lower.startsWith("what is"))) {
     variants.push(`${query.trim()} guide`);
   }
 
-  return variants.slice(0, Math.min(maxVariants, 2));
+  return variants.slice(0, limit);
 }
 
 // ============================================================
@@ -220,6 +264,15 @@ export function generateQueryVariants(query: string, maxVariants = 2): string[] 
 // ============================================================
 
 const MAX_DDG_PAGES = 2;
+const LOW_CONFIDENCE_SECOND_PASS_SCORE = 3;
+
+function averageDefinedScore(results: SearchResult[], sampleSize = 5): number | undefined {
+  const scored = results
+    .slice(0, Math.max(1, sampleSize))
+    .filter((r) => typeof r.score === "number" && Number.isFinite(r.score));
+  if (scored.length === 0) return undefined;
+  return scored.reduce((sum, r) => sum + (r.score ?? 0), 0) / scored.length;
+}
 
 async function fetchDdgPage(
   query: string,
@@ -277,31 +330,50 @@ export async function duckDuckGoSearch(
   const filtered1 = (allowedDomains?.length || blockedDomains?.length)
     ? filterResultsByDomain(scored1, allowedDomains, blockedDomains)
     : scored1;
+  const initialAvgScore = averageDefinedScore(filtered1, limit);
+  const lowConfidence = initialAvgScore !== undefined &&
+    initialAvgScore < LOW_CONFIDENCE_SECOND_PASS_SCORE;
+  const needsCoverageExpansion = filtered1.length < limit && page1.length > 0;
+  const diagnostics: Record<string, unknown> = {
+    avgScoreInitial: initialAvgScore,
+    lowConfidenceInitial: lowConfidence,
+    lowConfidenceThreshold: LOW_CONFIDENCE_SECOND_PASS_SCORE,
+    needsCoverageExpansion,
+    lowConfidenceRetryTriggered: false,
+    variantQueries: [] as string[],
+  };
 
-  // If page 1 is insufficient, fire page 2 + query variants in parallel
-  if (filtered1.length < limit && page1.length > 0) {
+  // Run a second pass when either coverage is low or first-pass confidence is low.
+  if ((needsCoverageExpansion || lowConfidence) && page1.length > 0) {
     const variantTimeout = Math.max(2000, Math.floor((timeoutMs ?? 30000) / 3));
     const fetches: Promise<SearchResult[]>[] = [];
 
     // Page 2 of original query
-    if (MAX_DDG_PAGES > 1) {
+    if (needsCoverageExpansion && MAX_DDG_PAGES > 1) {
       fetches.push(
         fetchDdgPage(query, timeRange, locale, variantTimeout, options, page1.length)
           .catch(() => [] as SearchResult[]),
       );
     }
 
-    // Query variants (best-effort)
+    // Query variants (best-effort). Use one variant for confidence retry.
     if (reformulate) {
-      const variants = generateQueryVariants(query);
-      for (const variant of variants) {
+      const variants = generateQueryVariants(query, needsCoverageExpansion ? 2 : 1);
+      diagnostics.variantQueries = variants;
+      const variantSubset = needsCoverageExpansion ? variants : variants.slice(0, 1);
+      for (const variant of variantSubset) {
         fetches.push(
           fetchDdgPage(variant, timeRange, locale, variantTimeout, options)
             .catch(() => [] as SearchResult[]),
         );
       }
+      if (!needsCoverageExpansion && variantSubset.length > 0) {
+        diagnostics.lowConfidenceRetryTriggered = true;
+        diagnostics.lowConfidenceRetryQuery = variantSubset[0];
+      }
     }
 
+    diagnostics.secondPassFetches = fetches.length;
     const settled = await Promise.allSettled(fetches);
     for (const outcome of settled) {
       if (outcome.status === "fulfilled" && outcome.value.length > 0) {
@@ -323,12 +395,14 @@ export async function duckDuckGoSearch(
       ? filterResultsByDomain(scored, allowedDomains, blockedDomains)
       : scored;
   const topResults = filtered.slice(0, limit);
+  diagnostics.avgScoreFinal = averageDefinedScore(topResults, limit);
 
   return {
     query,
     provider: "duckduckgo",
     results: topResults,
     count: topResults.length,
+    diagnostics,
   };
 }
 
@@ -358,6 +432,7 @@ export function registerDuckDuckGo(): void {
         provider: raw.provider as string,
         results: raw.results as ProviderSearchResult[],
         count: raw.count as number,
+        diagnostics: (raw as { diagnostics?: Record<string, unknown> }).diagnostics,
       };
     },
   });

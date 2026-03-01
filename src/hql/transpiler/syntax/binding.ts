@@ -32,7 +32,6 @@ import {
 } from "../utils/ir-tree-walker.ts";
 import {
   createId,
-  createReturn,
   ensureReturnStatement,
   createExprStmt,
   createCall,
@@ -104,8 +103,16 @@ function transformBinding(
         const secondList = secondElem?.type === "list"
           ? secondElem as ListNode
           : null;
+        const secondVecInner = secondList && hasVectorPrefix(secondList)
+          ? secondList.elements.slice(1)
+          : null;
+        const secondIsSpreadLiteral = !!(
+          secondVecInner &&
+          secondVecInner.some((e) => e.type === "symbol" && (e as SymbolNode).name.startsWith("..."))
+        );
         const secondLooksLikePattern = !!(
           secondList &&
+          !secondIsSpreadLiteral &&
           (hasVectorPrefix(secondList) || hasHashMapPrefix(secondList) || secondIsDefaultForm)
         );
 

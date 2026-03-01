@@ -636,7 +636,7 @@ function parseStringLiteral(tokenValue: string): SExp {
 
 function parseTemplateLiteral(
   tokenValue: string,
-  _state: ParserState,
+  state: ParserState,
   position: SourcePosition,
 ): SExp {
   // Remove surrounding backticks
@@ -667,30 +667,53 @@ function parseTemplateLiteral(
         i++;
       }
 
+      if (braceDepth !== 0) {
+        throw new ParseError(
+          "Unclosed template interpolation: missing '}'",
+          position,
+        );
+      }
+
       // Slice once: excludes the final closing brace (i-1)
       const exprStr = content.slice(exprStart, braceDepth === 0 ? i - 1 : i);
 
       // Parse the expression
-      if (exprStr.trim().length > 0) {
-        try {
-          const exprTokens = tokenize(exprStr, position.filePath);
-          const exprState: ParserState = {
-            tokens: exprTokens,
-            currentPos: 0,
-            input: exprStr,
-            filePath: position.filePath,
-            quasiquoteDepth: 0,
-            parsingDepth: 0,  // Reset depth for template interpolation
-          };
-          const expr = parseExpression(exprState);
-          parts.push(expr);
-        } catch (error) {
-          const errorMsg = getErrorMessage(error);
+      if (exprStr.trim().length === 0) {
+        throw new ParseError(
+          "Empty expression in template literal interpolation",
+          position,
+        );
+      }
+      try {
+        const exprTokens = tokenize(exprStr, position.filePath);
+        const exprState: ParserState = {
+          tokens: exprTokens,
+          currentPos: 0,
+          input: exprStr,
+          filePath: position.filePath,
+          quasiquoteDepth: state.quasiquoteDepth,
+          // Preserve current depth so nested template interpolation participates
+          // in global parser depth limits instead of resetting to zero.
+          parsingDepth: state.parsingDepth,
+        };
+        const expr = parseExpression(exprState);
+        if (exprState.currentPos !== exprTokens.length) {
+          const extraToken = exprTokens[exprState.currentPos];
           throw new ParseError(
-            `Invalid expression in template literal interpolation: ${exprStr}\nError: ${errorMsg}`,
+            `Template interpolation must contain exactly one expression; unexpected token '${extraToken.value}'`,
             position,
           );
         }
+        parts.push(expr);
+      } catch (error) {
+        if (error instanceof ParseError) {
+          throw error;
+        }
+        const errorMsg = getErrorMessage(error);
+        throw new ParseError(
+          `Invalid expression in template literal interpolation: ${exprStr}\nError: ${errorMsg}`,
+          position,
+        );
       }
     } else if (content[i] === "\\") {
       // Handle escape sequences using shared utility (eliminates 50+ lines of duplication)

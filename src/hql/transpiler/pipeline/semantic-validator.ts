@@ -25,9 +25,18 @@ interface Scope {
   /** Parent scope (null for global scope) */
   parent: Scope | null;
   /** Variables declared in this scope, mapped to their declaration info */
-  declarations: Map<string, { position: IR.SourcePosition; statementIndex: number }>;
+  declarations: Map<
+    string,
+    { position: IR.SourcePosition; statementIndex: number }
+  >;
   /** Current statement index (for tracking declaration order) */
   currentStatementIndex: number;
+}
+
+interface PendingDeclaration {
+  name: string;
+  position: IR.SourcePosition | undefined;
+  kind: "const" | "let" | "var";
 }
 
 /**
@@ -65,7 +74,7 @@ function declareVariable(
   scope: Scope,
   name: string,
   position: IR.SourcePosition | undefined,
-  kind: "const" | "let" | "var"
+  kind: "const" | "let" | "var",
 ): void {
   // Check for duplicate in current scope
   if (isDeclaredInScope(scope, name)) {
@@ -74,7 +83,8 @@ function declareVariable(
     const firstDeclLine = firstDecl.position.line || 1;
 
     // Include line number in format :line: that tests expect
-    const errorMsg = `Identifier '${name}' has already been declared at :${currentLine}: (first at :${firstDeclLine}:)`;
+    const errorMsg =
+      `Identifier '${name}' has already been declared at :${currentLine}: (first at :${firstDeclLine}:)`;
 
     throw new ValidationError(
       errorMsg,
@@ -83,7 +93,7 @@ function declareVariable(
         filePath: position?.filePath || "unknown",
         line: currentLine,
         column: position?.column,
-      }
+      },
     );
   }
 
@@ -93,7 +103,119 @@ function declareVariable(
     statementIndex: scope.currentStatementIndex,
   });
 
-  logger.debug(`Declared '${name}' (${kind}) at statement index ${scope.currentStatementIndex}`);
+  logger.debug(
+    `Declared '${name}' (${kind}) at statement index ${scope.currentStatementIndex}`,
+  );
+}
+
+/**
+ * Collect declarations introduced by a node at the current block level.
+ * This is used by validateBlock's pre-declaration pass so TDZ checks can
+ * detect references to later declarations.
+ */
+function collectDeclarationsFromNode(node: IR.IRNode): PendingDeclaration[] {
+  switch (node.type) {
+    case IR.IRNodeType.VariableDeclaration: {
+      const varDecl = node as IR.IRVariableDeclaration;
+      const declarations: PendingDeclaration[] = [];
+      for (const declarator of varDecl.declarations) {
+        const names = extractIdentifiersFromPattern(declarator.id);
+        for (const name of names) {
+          declarations.push({
+            name,
+            position: declarator.position,
+            kind: varDecl.kind,
+          });
+        }
+      }
+      return declarations;
+    }
+
+    case IR.IRNodeType.FunctionDeclaration:
+    case IR.IRNodeType.FnFunctionDeclaration: {
+      const fnDecl = node as IR.IRFunctionDeclaration;
+      return fnDecl.id
+        ? [{ name: fnDecl.id.name, position: fnDecl.position, kind: "const" }]
+        : [];
+    }
+
+    case IR.IRNodeType.ClassDeclaration: {
+      const classDecl = node as IR.IRClassDeclaration;
+      return classDecl.id
+        ? [{
+          name: classDecl.id.name,
+          position: classDecl.position,
+          kind: "const",
+        }]
+        : [];
+    }
+
+    case IR.IRNodeType.EnumDeclaration: {
+      const enumDecl = node as IR.IREnumDeclaration;
+      return enumDecl.id
+        ? [{
+          name: enumDecl.id.name,
+          position: enumDecl.position,
+          kind: "const",
+        }]
+        : [];
+    }
+
+    case IR.IRNodeType.ConstEnumDeclaration: {
+      const constEnumDecl = node as IR.IRConstEnumDeclaration;
+      return constEnumDecl.id
+        ? [{
+          name: constEnumDecl.id.name,
+          position: constEnumDecl.position,
+          kind: "const",
+        }]
+        : [];
+    }
+
+    case IR.IRNodeType.AbstractClassDeclaration: {
+      const abstractClassDecl = node as IR.IRAbstractClassDeclaration;
+      return abstractClassDecl.id
+        ? [{
+          name: abstractClassDecl.id.name,
+          position: abstractClassDecl.position,
+          kind: "const",
+        }]
+        : [];
+    }
+
+    case IR.IRNodeType.ExportVariableDeclaration: {
+      const exportVarDecl = node as IR.IRExportVariableDeclaration;
+      return collectDeclarationsFromNode(exportVarDecl.declaration);
+    }
+
+    case IR.IRNodeType.ExportNamedDeclaration: {
+      const exportDecl = node as IR.IRExportNamedDeclaration;
+      return exportDecl.declaration
+        ? collectDeclarationsFromNode(exportDecl.declaration)
+        : [];
+    }
+
+    default:
+      return [];
+  }
+}
+
+/**
+ * First pass over a block: register declarations and detect duplicates.
+ */
+function predeclareBlock(scope: Scope, nodes: IR.IRNode[]): void {
+  for (let i = 0; i < nodes.length; i++) {
+    scope.currentStatementIndex = i;
+    const declarations = collectDeclarationsFromNode(nodes[i]);
+    for (const declaration of declarations) {
+      declareVariable(
+        scope,
+        declaration.name,
+        declaration.position,
+        declaration.kind,
+      );
+    }
+  }
 }
 
 /**
@@ -117,7 +239,9 @@ function extractIdentifiersFromPattern(pattern: IR.IRNode): string[] {
       identifiers.push(...extractIdentifiersFromPattern(prop.value));
     }
     if (objectPattern.rest) {
-      identifiers.push(...extractIdentifiersFromPattern(objectPattern.rest.argument));
+      identifiers.push(
+        ...extractIdentifiersFromPattern(objectPattern.rest.argument),
+      );
     }
   } else if (pattern.type === IR.IRNodeType.RestElement) {
     const rest = pattern as IR.IRRestElement;
@@ -155,7 +279,7 @@ function checkTDZInExpression(scope: Scope, node: IR.IRNode): void {
             filePath: identifier.position?.filePath || "unknown",
             line: identifier.position?.line,
             column: identifier.position?.column,
-          }
+          },
         );
       }
     }
@@ -166,16 +290,25 @@ function checkTDZInExpression(scope: Scope, node: IR.IRNode): void {
  * Validate a block of statements
  */
 function validateBlock(scope: Scope, nodes: IR.IRNode[]): void {
+  // Two-pass strategy:
+  // 1) Register all declarations in block order.
+  // 2) Validate statements with a complete declaration table for TDZ checks.
+  predeclareBlock(scope, nodes);
+
   for (let i = 0; i < nodes.length; i++) {
     scope.currentStatementIndex = i;
-    validateNode(scope, nodes[i]);
+    validateNode(scope, nodes[i], true);
   }
 }
 
 /**
  * Validate a single IR node
  */
-function validateNode(scope: Scope, node: IR.IRNode): void {
+function validateNode(
+  scope: Scope,
+  node: IR.IRNode,
+  declarationsPreRegistered: boolean = false,
+): void {
   if (!node) return;
 
   switch (node.type) {
@@ -195,11 +328,14 @@ function validateNode(scope: Scope, node: IR.IRNode): void {
         }
       }
 
-      // Then register the declarations
-      for (const declarator of varDecl.declarations) {
-        const identifiers = extractIdentifiersFromPattern(declarator.id);
-        for (const name of identifiers) {
-          declareVariable(scope, name, declarator.position, varDecl.kind);
+      // If this node was not pre-registered by validateBlock (e.g. declaration
+      // nested in a non-block context), register declarations now.
+      if (!declarationsPreRegistered) {
+        for (const declarator of varDecl.declarations) {
+          const identifiers = extractIdentifiersFromPattern(declarator.id);
+          for (const name of identifiers) {
+            declareVariable(scope, name, declarator.position, varDecl.kind);
+          }
         }
       }
       break;
@@ -209,8 +345,8 @@ function validateNode(scope: Scope, node: IR.IRNode): void {
     case IR.IRNodeType.FnFunctionDeclaration: {
       const funcDecl = node as IR.IRFunctionDeclaration;
 
-      // Declare the function name in the current scope
-      if (funcDecl.id) {
+      // Declare when this node wasn't pre-registered in a surrounding block pass.
+      if (!declarationsPreRegistered && funcDecl.id) {
         declareVariable(scope, funcDecl.id.name, funcDecl.position, "const");
       }
 
@@ -221,7 +357,12 @@ function validateNode(scope: Scope, node: IR.IRNode): void {
       for (const param of funcDecl.params) {
         const paramNames = extractIdentifiersFromPattern(param as IR.IRNode);
         for (const name of paramNames) {
-          declareVariable(functionScope, name, (param as IR.IRNode).position, "const");
+          declareVariable(
+            functionScope,
+            name,
+            (param as IR.IRNode).position,
+            "const",
+          );
         }
       }
 
@@ -238,14 +379,24 @@ function validateNode(scope: Scope, node: IR.IRNode): void {
 
       // If named function expression, declare name in its own scope
       if (funcExpr.id) {
-        declareVariable(functionScope, funcExpr.id.name, funcExpr.position, "const");
+        declareVariable(
+          functionScope,
+          funcExpr.id.name,
+          funcExpr.position,
+          "const",
+        );
       }
 
       // Declare parameters
       for (const param of funcExpr.params) {
         const paramNames = extractIdentifiersFromPattern(param as IR.IRNode);
         for (const name of paramNames) {
-          declareVariable(functionScope, name, (param as IR.IRNode).position, "const");
+          declareVariable(
+            functionScope,
+            name,
+            (param as IR.IRNode).position,
+            "const",
+          );
         }
       }
 
@@ -265,8 +416,8 @@ function validateNode(scope: Scope, node: IR.IRNode): void {
     case IR.IRNodeType.ClassDeclaration: {
       const classDecl = node as IR.IRClassDeclaration;
 
-      // Declare class name
-      if (classDecl.id) {
+      // Declare when this node wasn't pre-registered in a surrounding block pass.
+      if (!declarationsPreRegistered && classDecl.id) {
         declareVariable(scope, classDecl.id.name, classDecl.position, "const");
       }
 
@@ -326,9 +477,16 @@ function validateNode(scope: Scope, node: IR.IRNode): void {
       if (tryStmt.handler) {
         const catchScope = createScope(scope);
         if (tryStmt.handler.param) {
-          const paramNames = extractIdentifiersFromPattern(tryStmt.handler.param);
+          const paramNames = extractIdentifiersFromPattern(
+            tryStmt.handler.param,
+          );
           for (const name of paramNames) {
-            declareVariable(catchScope, name, tryStmt.handler.param.position, "const");
+            declareVariable(
+              catchScope,
+              name,
+              tryStmt.handler.param.position,
+              "const",
+            );
           }
         }
         validateNode(catchScope, tryStmt.handler.body);

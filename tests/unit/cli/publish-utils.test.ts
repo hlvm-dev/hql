@@ -110,7 +110,7 @@ Deno.test("resolveNextPublishVersion - both remote and local, remote higher", as
   const result = await resolveNextPublishVersion(
     "1.2.3",
     "1.0.0",
-    async (_msg, def) => def,
+    (_msg, def) => Promise.resolve(def),
     incrementPatchVersion,
     "jsr",
   );
@@ -121,7 +121,7 @@ Deno.test("resolveNextPublishVersion - both remote and local, local higher", asy
   const result = await resolveNextPublishVersion(
     "1.0.0",
     "1.2.3",
-    async (_msg, def) => def,
+    (_msg, def) => Promise.resolve(def),
     incrementPatchVersion,
     "jsr",
   );
@@ -132,7 +132,7 @@ Deno.test("resolveNextPublishVersion - equal versions", async () => {
   const result = await resolveNextPublishVersion(
     "1.0.0",
     "1.0.0",
-    async (_msg, def) => def,
+    (_msg, def) => Promise.resolve(def),
     incrementPatchVersion,
     "jsr",
   );
@@ -143,7 +143,7 @@ Deno.test("resolveNextPublishVersion - remote only", async () => {
   const result = await resolveNextPublishVersion(
     "2.0.0",
     null,
-    async (_msg, def) => def,
+    (_msg, def) => Promise.resolve(def),
     incrementPatchVersion,
     "npm",
   );
@@ -154,7 +154,7 @@ Deno.test("resolveNextPublishVersion - local only", async () => {
   const result = await resolveNextPublishVersion(
     null,
     "0.5.0",
-    async (_msg, def) => def,
+    (_msg, def) => Promise.resolve(def),
     incrementPatchVersion,
     "npm",
   );
@@ -165,7 +165,7 @@ Deno.test("resolveNextPublishVersion - neither remote nor local", async () => {
   const result = await resolveNextPublishVersion(
     null,
     null,
-    async (_msg, def) => def,
+    (_msg, def) => Promise.resolve(def),
     incrementPatchVersion,
     "jsr",
   );

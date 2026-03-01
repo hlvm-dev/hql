@@ -1,0 +1,104 @@
+/**
+ * HLVM Ink REPL - Type Definitions
+ *
+ * Re-exports + conversation display types for the REPL agent UI.
+ * These types bridge AgentUIEvent (from orchestrator) → renderable UI items.
+ */
+
+// Re-export EvalResult from evaluator.ts (used by Output, App, useRepl)
+export type { EvalResult } from "../repl/evaluator.ts";
+
+// ============================================================
+// Tool Call Display
+// ============================================================
+
+/** Display state for a single tool call within a tool group */
+export interface ToolCallDisplay {
+  id: string;
+  name: string;
+  argsSummary: string;
+  status: "pending" | "running" | "success" | "error";
+  resultText?: string;
+  durationMs?: number;
+  toolIndex: number;
+  toolTotal: number;
+}
+
+// ============================================================
+// Conversation Items
+// ============================================================
+
+/** User message in the conversation */
+export interface UserItem {
+  type: "user";
+  id: string;
+  text: string;
+  ts: number;
+}
+
+/** Assistant (model) response — may be streaming */
+export interface AssistantItem {
+  type: "assistant";
+  id: string;
+  text: string;
+  isPending: boolean;
+  ts: number;
+}
+
+/** Thinking/reasoning indicator */
+export interface ThinkingItem {
+  type: "thinking";
+  id: string;
+  summary: string;
+  iteration: number;
+}
+
+/** Group of tool calls executed together */
+export interface ToolGroupItem {
+  type: "tool_group";
+  id: string;
+  tools: ToolCallDisplay[];
+  ts: number;
+}
+
+/** Turn completion statistics */
+export interface TurnStatsItem {
+  type: "turn_stats";
+  id: string;
+  toolCount: number;
+  durationMs: number;
+}
+
+/** Error message */
+export interface ErrorItem {
+  type: "error";
+  id: string;
+  text: string;
+}
+
+/** Informational message */
+export interface InfoItem {
+  type: "info";
+  id: string;
+  text: string;
+}
+
+/** Discriminated union of all renderable conversation items */
+export type ConversationItem =
+  | UserItem
+  | AssistantItem
+  | ThinkingItem
+  | ToolGroupItem
+  | TurnStatsItem
+  | ErrorItem
+  | InfoItem;
+
+// ============================================================
+// Agent Footer Status
+// ============================================================
+
+/** Agent status for the footer display */
+export type AgentFooterStatus =
+  | { type: "idle" }
+  | { type: "thinking" }
+  | { type: "running_tool"; toolName: string; toolIndex: number; toolTotal: number };

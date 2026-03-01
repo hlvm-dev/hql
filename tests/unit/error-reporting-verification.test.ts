@@ -121,7 +121,7 @@ Deno.test("Error Reporting: Runtime - property access on undefined", async () =>
   );
 });
 
-Deno.test("Error Reporting: Runtime - accurate location for shadowed binding", async () => {
+Deno.test("Error Reporting: Compile-time TDZ - accurate location for shadowed binding", async () => {
   const code = `
 (let foo "abc")
 
@@ -134,12 +134,15 @@ Deno.test("Error Reporting: Runtime - accurate location for shadowed binding", a
 (broken)
 `;
 
-  const { error, filePath } = await runFileExpectRuntimeError(code);
-  assertEquals(error.sourceLocation.filePath, filePath);
-  // With proper source maps, the error is now reported at the actual error location (line 5)
-  // where the TDZ error occurs when accessing 'foo' before its declaration
-  // Note: JavaScript TDZ errors are reported at the ACCESS point, not the DECLARATION point
-  assertEquals(error.sourceLocation.line, 5);
+  try {
+    await transpile(code);
+    assert(false, "Expected compile-time TDZ validation error");
+  } catch (error) {
+    const err = error as { message?: string; sourceLocation?: { line?: number } };
+    assertStringIncludes(err.message ?? "", "Cannot access 'foo' before initialization");
+    // Leading newline in test string means access site is line 5.
+    assertEquals(err.sourceLocation?.line, 5);
+  }
 });
 
 Deno.test("Error Reporting: Runtime - type error in operation", async () => {

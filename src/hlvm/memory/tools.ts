@@ -16,7 +16,7 @@ export function setMemoryModelTier(tier: MemoryModelTier): void {
   _memoryModelTier = tier;
 }
 
-async function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
+function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
   if (!isToolArgsObject(args)) {
     throw new ValidationError("args must be an object", "memory_write");
   }
@@ -50,17 +50,17 @@ async function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
     invalidatedCount = invalidated.length;
   }
 
-  return {
+  return Promise.resolve({
     written: true,
     target,
     section: section || undefined,
     factId,
     linkedEntities,
     invalidated: invalidatedCount,
-  };
+  });
 }
 
-async function memorySearch(args: unknown): Promise<Record<string, unknown>> {
+function memorySearch(args: unknown): Promise<Record<string, unknown>> {
   if (!isToolArgsObject(args)) {
     throw new ValidationError("args must be an object", "memory_search");
   }
@@ -76,7 +76,7 @@ async function memorySearch(args: unknown): Promise<Record<string, unknown>> {
     : 5;
 
   const results = retrieveMemory(query, limit);
-  return {
+  return Promise.resolve({
     query,
     results: results.map((result) => ({
       source: result.file,
@@ -85,10 +85,10 @@ async function memorySearch(args: unknown): Promise<Record<string, unknown>> {
       score: Math.round(result.score * 100) / 100,
     })),
     count: results.length,
-  };
+  });
 }
 
-async function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
+function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
   if (!isToolArgsObject(args)) {
     throw new ValidationError("args must be an object", "memory_edit");
   }
@@ -103,12 +103,12 @@ async function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
     }
 
     const invalidated = invalidateFactsByCategory(section.trim());
-    return {
+    return Promise.resolve({
       edited: invalidated > 0,
       action: "delete_section",
       section,
       invalidated,
-    };
+    });
   }
 
   if (action === "replace") {
@@ -122,7 +122,7 @@ async function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
     }
 
     const count = replaceInFacts(find, replaceWith);
-    return { edited: count > 0, action: "replace", replacements: count };
+    return Promise.resolve({ edited: count > 0, action: "replace", replacements: count });
   }
 
   throw new ValidationError('action must be "delete_section" or "replace"', "memory_edit");

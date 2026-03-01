@@ -170,6 +170,36 @@ Deno.test("Stdlib comparison: neq with equal values", async () => {
   assertEquals(result, false);
 });
 
+Deno.test("Stdlib comparison: deepEq nested structures", async () => {
+  const code = `(deepEq [1 [2 3] {"x": 4}] [1 [2 3] {"x": 4}])`;
+  const result = await run(code);
+  assertEquals(result, true);
+});
+
+Deno.test("Stdlib comparison: deepEq handles cyclic objects", async () => {
+  const code = `
+(let a {"v": 1})
+(js-set a "self" a)
+(let b {"v": 1})
+(js-set b "self" b)
+(deepEq a b)
+`;
+  const result = await run(code);
+  assertEquals(result, true);
+});
+
+Deno.test("Stdlib comparison: deepEq detects differences in cyclic objects", async () => {
+  const code = `
+(let a {"v": 1})
+(js-set a "self" a)
+(let b {"v": 2})
+(js-set b "self" b)
+(deepEq a b)
+`;
+  const result = await run(code);
+  assertEquals(result, false);
+});
+
 Deno.test("Stdlib comparison: lt basic", async () => {
   const code = `(lt 1 2)`;
   const result = await run(code);

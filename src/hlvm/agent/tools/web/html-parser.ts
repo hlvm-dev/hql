@@ -305,9 +305,33 @@ export function parseHtml(
 
 /**
  * Extract publication date from HTML structured metadata.
- * Checks article:published_time, meta date/publish_date, and <time datetime>.
+ * Checks article:published_time, meta date/publish_date, JSON-LD datePublished,
+ * and <time datetime>.
  */
 export function extractPublicationDate(html: string): string | undefined {
+  const isValidDate = (value: string): boolean => !Number.isNaN(Date.parse(value));
+  const findJsonLdDate = (value: unknown): string | undefined => {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const fromArray = findJsonLdDate(item);
+        if (fromArray) return fromArray;
+      }
+      return undefined;
+    }
+    if (!value || typeof value !== "object") return undefined;
+    const record = value as Record<string, unknown>;
+    const direct = record.datePublished ?? record.dateCreated ?? record.uploadDate;
+    if (typeof direct === "string") {
+      const candidate = direct.trim();
+      if (candidate && isValidDate(candidate)) return candidate;
+    }
+    for (const nested of Object.values(record)) {
+      const fromNested = findJsonLdDate(nested);
+      if (fromNested) return fromNested;
+    }
+    return undefined;
+  };
+
   const metaRegex = /<meta\s+[^>]*>/gi;
   let match: RegExpExecArray | null;
   while ((match = metaRegex.exec(html)) !== null) {
@@ -322,7 +346,25 @@ export function extractPublicationDate(html: string): string | undefined {
       name === "publish_date" ||
       name === "publishdate"
     ) {
-      if (!Number.isNaN(Date.parse(content))) return content;
+      if (isValidDate(content)) return content;
+    }
+  }
+
+  // Fallback: JSON-LD blocks with datePublished/dateCreated/uploadDate.
+  const jsonLdRegex =
+    /<script\b[^>]*\btype\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  while ((match = jsonLdRegex.exec(html)) !== null) {
+    const rawJson = decodeHtmlEntities((match[1] ?? "").trim())
+      .replace(/^\s*<!--/, "")
+      .replace(/-->\s*$/, "")
+      .trim();
+    if (!rawJson) continue;
+    try {
+      const parsed = JSON.parse(rawJson);
+      const jsonLdDate = findJsonLdDate(parsed);
+      if (jsonLdDate) return jsonLdDate;
+    } catch {
+      // Best-effort parse; ignore malformed JSON-LD.
     }
   }
 
@@ -330,7 +372,7 @@ export function extractPublicationDate(html: string): string | undefined {
   const timeMatch = html.match(/<time\b[^>]*\bdatetime\s*=\s*["']([^"']+)["'][^>]*>/i);
   if (timeMatch?.[1]) {
     const dt = timeMatch[1].trim();
-    if (!Number.isNaN(Date.parse(dt))) return dt;
+    if (isValidDate(dt)) return dt;
   }
 
   return undefined;

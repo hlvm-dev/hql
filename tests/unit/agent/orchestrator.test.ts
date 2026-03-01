@@ -84,9 +84,9 @@ Deno.test({
             ensureCalls += 1;
             if (!TOOL_REGISTRY[toolName]) {
               TOOL_REGISTRY[toolName] = {
-                fn: async (args: unknown) => {
+                fn: (args: unknown) => {
                   const message = (args as { message?: unknown }).message;
-                  return `echo:${typeof message === "string" ? message : ""}`;
+                  return Promise.resolve(`echo:${typeof message === "string" ? message : ""}`);
                 },
                 description: "lazy mcp test tool",
                 args: { message: "string" },
@@ -783,9 +783,9 @@ Deno.test({
     const controller = new AbortController();
     const startedAt = Date.now();
 
-    const llm = async () => {
+    const llm = () => {
       calls += 1;
-      throw new Error("Rate limit exceeded (429)");
+      return Promise.reject(new Error("Rate limit exceeded (429)"));
     };
 
     const abortTimer = setTimeout(() => controller.abort(), 50);
@@ -1440,7 +1440,7 @@ Deno.test({
 
     // Weak tier at iteration 5 → should NOT inject (not % 7)
     {
-      const { config, context } = makeReminderConfig();
+      const { config } = makeReminderConfig();
       const state = makeLoopState({ iterations: 5, iterationsSinceReminder: 3 });
       const lc = makeLoopConfig({ modelTier: "weak" });
 
@@ -1450,7 +1450,7 @@ Deno.test({
 
     // Weak tier at iteration 0 → should NOT inject (state.iterations > 0 required)
     {
-      const { config, context } = makeReminderConfig();
+      const { config } = makeReminderConfig();
       const state = makeLoopState({ iterations: 0, iterationsSinceReminder: 3 });
       const lc = makeLoopConfig({ modelTier: "weak" });
 

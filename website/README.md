@@ -15,7 +15,7 @@ node scripts/sync-docs.mjs
 npm run dev         # http://localhost:5173
 
 # Run tests
-npm test            # 25 unit tests (vitest)
+npm test            # unit tests (vitest)
 npm run test:e2e    # 19 E2E tests (Playwright)
 ```
 

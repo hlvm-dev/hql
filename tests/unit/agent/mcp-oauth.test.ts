@@ -171,14 +171,15 @@ Deno.test({
       let authUrl = "";
       await loginMcpHttpServer(server, {
         output: () => {},
-        openBrowser: async (url) => {
+        openBrowser: (url) => {
           authUrl = url;
+          return Promise.resolve();
         },
-        promptInput: async () => {
+        promptInput: () => {
           const state = new URL(authUrl).searchParams.get("state") ?? "";
-          return `http://127.0.0.1:35017/hlvm/oauth/callback?code=abc123&state=${
+          return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=abc123&state=${
             encodeURIComponent(state)
-          }`;
+          }`);
         },
       });
 
@@ -218,14 +219,15 @@ Deno.test({
       let authUrl = "";
       await loginMcpHttpServer(server, {
         output: () => {},
-        openBrowser: async (url) => {
+        openBrowser: (url) => {
           authUrl = url;
+          return Promise.resolve();
         },
-        promptInput: async () => {
+        promptInput: () => {
           const state = new URL(authUrl).searchParams.get("state") ?? "";
-          return `http://127.0.0.1:35017/hlvm/oauth/callback?code=init-code&state=${
+          return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=init-code&state=${
             encodeURIComponent(state)
-          }`;
+          }`);
         },
       });
 

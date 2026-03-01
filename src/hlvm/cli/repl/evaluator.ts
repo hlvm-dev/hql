@@ -29,6 +29,7 @@ const REPL_RUN_OPTIONS = {
   baseDir: getPlatform().process.cwd(),
   currentFile: "<repl>",
   suppressUnknownNameErrors: true,  // REPL bindings are on globalThis, not known to TypeScript
+  preserveMacroState: true,         // REPL should preserve macro-time helpers between inputs
 } as const;
 
 export interface EvalResult {

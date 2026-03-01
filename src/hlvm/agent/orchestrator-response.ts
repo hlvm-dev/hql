@@ -20,7 +20,6 @@ import {
 import {
   advancePlanState,
   extractStepDoneId,
-  formatPlanForContext,
   stripStepMarkers,
 } from "./planning.ts";
 import { type OrchestratorConfig, WEB_TOOL_NAMES } from "./orchestrator.ts";

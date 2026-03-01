@@ -47,7 +47,7 @@ function DocsTableOfContents({ getHeadings, slug, contentVersion }) {
   if (headings.length === 0) return null;
 
   return (
-    <aside className="docs-toc">
+    <aside className="docs-toc subtle-scroll">
       <div className="docs-toc-header">On this page</div>
       <nav className="docs-toc-nav">
         {headings.map((h) => (

@@ -152,7 +152,7 @@ Deno.test("Stdlib: some auto-loaded", async () => {
 (some greaterThan5 [1 2 6 3])
 `;
   const result = await run(code);
-  assertEquals(result, 6);
+  assertEquals(result, true);
 });
 
 Deno.test("Stdlib: some returns null when no match", async () => {

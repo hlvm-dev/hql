@@ -11,7 +11,6 @@
 import * as IR from "../../type/hql_ir.ts";
 import type { HQLNode, ListNode, SymbolNode } from "../../type/hql_ast.ts";
 import {
-  TransformError,
   ValidationError,
 } from "../../../../common/error.ts";
 import { validateTransformed } from "../../utils/validation-helpers.ts";

@@ -157,3 +157,53 @@ Deno.test("Parser: import statement validation", () => {
   const result = parse('(import [add] from "./math.hql")');
   assertEquals(result.length, 1);
 });
+
+Deno.test("Parser: template interpolation must contain one expression", () => {
+  assertThrows(
+    () => parse("`value=${a b}`"),
+    ParseError,
+    "must contain exactly one expression",
+  );
+});
+
+Deno.test("Parser: template interpolation cannot be empty", () => {
+  assertThrows(
+    () => parse("`value=${}`"),
+    ParseError,
+    "Empty expression in template literal interpolation",
+  );
+});
+
+Deno.test("Parser: template interpolation rejects unclosed expression", () => {
+  assertThrows(
+    () => parse("`value=${{a}`"),
+    ParseError,
+    "Unclosed template interpolation",
+  );
+});
+
+Deno.test("Parser: template interpolation with single expression is valid", () => {
+  const result = parse("`value=${(+ 1 2)}`");
+  assertEquals(result.length, 1);
+});
+
+Deno.test("Parser: nested template interpolation respects max parsing depth", () => {
+  // PARSER_LIMITS.MAX_PARSING_DEPTH is 128.
+  // Outer form depth is below the limit, interpolation expression depth is also below
+  // the limit, but combined depth should exceed the global limit when propagated.
+  const outerDepth = 100;
+  const interpolationDepth = 40;
+  let interpolationExpr = "x";
+
+  for (let i = 0; i < interpolationDepth; i++) {
+    interpolationExpr = `(+ 1 ${interpolationExpr})`;
+  }
+  const template = "`value=${" + interpolationExpr + "}`";
+  const source = "(".repeat(outerDepth) + template + ")".repeat(outerDepth);
+
+  assertThrows(
+    () => parse(source),
+    ParseError,
+    "Maximum nesting depth exceeded",
+  );
+});

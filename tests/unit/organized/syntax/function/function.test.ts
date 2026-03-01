@@ -382,6 +382,15 @@ Deno.test("Function: placeholder - all placeholders", async () => {
   assertEquals(result, 30);
 });
 
+Deno.test("Function: underscore symbol remains identifier outside placeholder calls", async () => {
+  const code = `
+(let _ 42)
+_
+`;
+  const result = await run(code);
+  assertEquals(result, 42);
+});
+
 // ============================================================================
 // SECTION 6: COMPREHENSIVE (1 test)
 // ============================================================================

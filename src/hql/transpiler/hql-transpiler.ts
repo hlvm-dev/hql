@@ -1,7 +1,7 @@
 // src/hql/transpiler/hql-transpiler.ts - Modified to support dependency injection
 import { parse } from "./pipeline/parser.ts";
 import { Environment } from "../environment.ts";
-import { expandMacros, type MacroExpanderOptions } from "../s-exp/macro.ts";
+import { expandMacros, resetMacroState, type MacroExpanderOptions } from "../s-exp/macro.ts";
 import { processImports } from "../imports.ts";
 import { convertToHqlAst as convert } from "../s-exp/macro-reader.ts";
 import { transformAST } from "../transformer.ts";
@@ -51,6 +51,8 @@ interface ProcessOptions {
   showTypeWarnings?: boolean;
   /** Suppress TS2304 "Cannot find name" errors (for REPL where bindings are on globalThis) */
   suppressUnknownNameErrors?: boolean;
+  /** Keep macro-time interpreter/env across calls (REPL use-case). Default false (hermetic). */
+  preserveMacroState?: boolean;
 }
 
 /**
@@ -90,6 +92,12 @@ async function runExpansionPipeline(
   macroOptions: MacroExpanderOptions,
   context?: CompilerContext,
 ): Promise<{ env: Environment; expanded: SExp[] }> {
+  // Default behavior is hermetic per compilation unit.
+  // REPL and similar interactive flows can opt into persistence.
+  if (!options.preserveMacroState) {
+    resetMacroState();
+  }
+
   const env = await setupEnvironment(options, context);
   const sexps = parseSource(hqlSource, options);
   const canonicalSexps = transformToCanonical(sexps, options, context);

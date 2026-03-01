@@ -499,8 +499,19 @@ Deno.test("Pure Function: rejects aliased impure function calls", async () => {
   await assertRejects(
     async () => await run(code),
     Error,
-    "unknown function",
+    "impure",
   );
+});
+
+Deno.test("Pure Function: allows aliased pure function calls", async () => {
+  const code = `
+(fx plus1 [x] (+ x 1))
+(const g plus1)
+(fx ok [x] (g x))
+(ok 5)
+`;
+  const result = await run(code);
+  assertEquals(result, 6);
 });
 
 Deno.test("Pure Function: rejects direct inline function invocation", async () => {
@@ -664,6 +675,31 @@ Deno.test("Pure Function: rejects impure callback at call-site", async () => {
     async () => await run(code),
     Error,
     "Pure function",
+  );
+});
+
+Deno.test("Pure Function: call-site allows alias of pure callback", async () => {
+  const code = `
+(fx double [x] (* x 2))
+(const g double)
+(fx apply-pure [f:(fx Int Int) x:Int] (f x))
+(apply-pure g 5)
+`;
+  const result = await run(code);
+  assertEquals(result, 10);
+});
+
+Deno.test("Pure Function: call-site rejects alias of impure callback", async () => {
+  const code = `
+(fn impure [x] (console.log x) x)
+(const g impure)
+(fx apply-pure [f:(fx Int Int) x:Int] (f x))
+(apply-pure g 5)
+`;
+  await assertRejects(
+    async () => await run(code),
+    Error,
+    "impure",
   );
 });
 

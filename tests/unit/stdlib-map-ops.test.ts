@@ -120,6 +120,26 @@ Deno.test("dissoc: nil map returns empty object", async () => {
   assertEquals(result, {});
 });
 
+Deno.test("dissoc: remove index from array", async () => {
+  const result = await run(`(dissoc [10 20 30] 1)`);
+  assertEquals(result[0], 10);
+  assertEquals(result[1], undefined);
+  assertEquals(result[2], 30);
+});
+
+Deno.test("dissoc: remove from Map", async () => {
+  const result = await run(`
+    (let [m (js-new Map)]
+      (js-call m "set" "a" 1)
+      (js-call m "set" "b" 2)
+      (js-call m "set" "c" 3)
+      (let [r (dissoc m "b")]
+        (list (js-call r "has" "a") (js-call r "has" "b") (js-get r "size"))))`);
+  assertEquals(result[0], true);   // "a" still present
+  assertEquals(result[1], false);  // "b" removed
+  assertEquals(result[2], 2);     // size is 2
+});
+
 // =============================================================================
 // update(map, key, fn)
 // =============================================================================

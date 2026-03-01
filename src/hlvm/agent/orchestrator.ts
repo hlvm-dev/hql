@@ -23,7 +23,6 @@ import type { ToolFilterState } from "./engine.ts";
 import {
   ContextOverflowError,
   type ContextManager,
-  type Message,
 } from "./context.ts";
 import type { GroundingMode, ModelTier } from "./constants.ts";
 import type { PermissionMode } from "../../common/config/types.ts";
@@ -42,7 +41,6 @@ import {
   toTokenUsage,
   UsageTracker,
 } from "./usage.ts";
-import type { LLMResponse, ToolCall } from "./tool-call.ts";
 export type { LLMResponse, ToolCall } from "./tool-call.ts";
 import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
 import {

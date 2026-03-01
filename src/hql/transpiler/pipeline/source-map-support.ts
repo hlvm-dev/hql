@@ -6,7 +6,7 @@
  *
  * Key Functions:
  * - loadSourceMap: Load and cache source maps for transpiled files
- * - mapPosition: Convert JS position to HQL position using source map
+ * - mapPositionSync: Convert JS position to HQL position using source map
  * - installSourceMapSupport: Hook into Error.prepareStackTrace
  *
  * @module source-map-support
@@ -212,62 +212,6 @@ async function loadSourceMap(
   }
 
   return null;
-}
-
-/**
- * Map a JavaScript position to original HQL position
- *
- * Uses the source map to find the original HQL source location
- * for a given position in generated JavaScript code.
- *
- * @param jsFilePath - Path to the JavaScript file
- * @param line - Line number in JavaScript (1-indexed)
- * @param column - Column number in JavaScript (0-indexed)
- * @returns Original HQL position, or null if mapping not found
- *
- * @example
- * const original = await mapPosition("/tmp/output.js", 127, 5);
- * if (original) {
- *   console.log(`HQL location: ${original.source}:${original.line}:${original.column}`);
- *   // Output: "HQL location: app.hql:5:2"
- * }
- */
-async function mapPosition(
-  jsFilePath: string,
-  line: number,
-  column: number,
-): Promise<Position | null> {
-  const consumer = await loadSourceMap(jsFilePath);
-
-  if (!consumer) {
-    return null;
-  }
-
-  try {
-    const original = consumer.originalPositionFor({
-      line,
-      column,
-      bias: SourceMapConsumer.GREATEST_LOWER_BOUND,
-    });
-
-    if (!original.source || original.line === null) {
-      return null;
-    }
-
-    return {
-      source: original.source,
-      line: original.line,
-      column: original.column ?? 0,
-      name: original.name ?? undefined,
-    };
-  } catch (error) {
-    logger.warn(
-      `Failed to map position ${line}:${column} in ${jsFilePath}: ${
-        getErrorMessage(error)
-      }`,
-    );
-    return null;
-  }
 }
 
 /**

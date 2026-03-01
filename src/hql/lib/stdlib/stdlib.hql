@@ -425,16 +425,17 @@
 (fn isEmpty [coll]
   (nil? (seq coll)))
 
-// some - Returns first item where predicate returns truthy, or nil
+// some - Returns first truthy predicate result, or nil (Clojure semantics)
 // Short-circuits on first match
 (fn some [pred coll]
   (when (not (isFunction pred))
     (throw (js/TypeError (str "some: predicate must be a function, got " (typeof pred)))))
   (loop [s (seq coll)]
     (if s
-      (if (pred (first s))
-        (first s)
-        (recur (seq (rest s))))
+      (let [result (pred (first s))]
+        (if result
+          result
+          (recur (seq (rest s)))))
       nil)))
 
 // every - Returns true if predicate returns truthy for all items
@@ -559,56 +560,75 @@
 
 (fn neq [a b] (not (=== a b)))
 
-// deepEq - Structural/deep equality for arrays, objects, Maps, Sets
-// Recursively compares nested structures; uses === for primitives
-(fn deepEq [a b]
+// deepEqInternal - Structural/deep equality with cycle tracking
+// seenAB / seenBA are WeakMaps that store previously compared object pairs.
+(fn deepEqInternal [a b seenAB seenBA]
   (if (=== a b)
     true
     (if (or (nil? a) (nil? b))
       false
-      (if (and (isArray a) (isArray b))
-        (if (not (=== (js-get a "length") (js-get b "length")))
-          false
-          (loop [i 0]
-            (if (>= i (js-get a "length"))
-              true
-              (if (deepEq (js-get a i) (js-get b i))
-                (recur (+ i 1))
-                false))))
-        (if (and (instanceof a Map) (instanceof b Map))
-          (if (not (=== (js-get a "size") (js-get b "size")))
+      (if (or (not (=== (typeof a) "object")) (not (=== (typeof b) "object")))
+        false
+        (let [mappedB (js-call seenAB "get" a)
+              mappedA (js-call seenBA "get" b)]
+          (if (or
+                (and (not (nil? mappedB)) (not (=== mappedB b)))
+                (and (not (nil? mappedA)) (not (=== mappedA a))))
             false
-            (let [keys-a (js-call Array.from (js-call a "keys"))]
-              (loop [i 0]
-                (if (>= i (js-get keys-a "length"))
-                  true
-                  (let [k (js-get keys-a i)]
-                    (if (and (js-call b "has" k) (deepEq (js-call a "get" k) (js-call b "get" k)))
-                      (recur (+ i 1))
-                      false))))))
-          (if (and (instanceof a Set) (instanceof b Set))
-            (if (not (=== (js-get a "size") (js-get b "size")))
-              false
-              (let [arr-a (js-call Array.from a)]
-                (loop [i 0]
-                  (if (>= i (js-get arr-a "length"))
-                    true
-                    (if (js-call b "has" (js-get arr-a i))
-                      (recur (+ i 1))
-                      false)))))
-            (if (and (isObject a) (isObject b))
-              (let [keys-a (js-call Object.keys a)
-                    keys-b (js-call Object.keys b)]
-                (if (not (=== (js-get keys-a "length") (js-get keys-b "length")))
-                  false
-                  (loop [i 0]
-                    (if (>= i (js-get keys-a "length"))
-                      true
-                      (let [k (js-get keys-a i)]
-                        (if (and (in k b) (deepEq (js-get a k) (js-get b k)))
+            (if (or
+                  (and (not (nil? mappedB)) (=== mappedB b))
+                  (and (not (nil? mappedA)) (=== mappedA a)))
+              true
+              (let [_seenAB (js-call seenAB "set" a b)
+                    _seenBA (js-call seenBA "set" b a)]
+                (if (and (isArray a) (isArray b))
+                  (if (not (=== (js-get a "length") (js-get b "length")))
+                    false
+                    (loop [i 0]
+                      (if (>= i (js-get a "length"))
+                        true
+                        (if (deepEqInternal (js-get a i) (js-get b i) seenAB seenBA)
                           (recur (+ i 1))
-                          false))))))
-              false)))))))
+                          false))))
+                  (if (and (instanceof a Map) (instanceof b Map))
+                    (if (not (=== (js-get a "size") (js-get b "size")))
+                      false
+                      (let [keys-a (js-call Array.from (js-call a "keys"))]
+                        (loop [i 0]
+                          (if (>= i (js-get keys-a "length"))
+                            true
+                            (let [k (js-get keys-a i)]
+                              (if (and (js-call b "has" k) (deepEqInternal (js-call a "get" k) (js-call b "get" k) seenAB seenBA))
+                                (recur (+ i 1))
+                                false))))))
+                    (if (and (instanceof a Set) (instanceof b Set))
+                      (if (not (=== (js-get a "size") (js-get b "size")))
+                        false
+                        (let [arr-a (js-call Array.from a)]
+                          (loop [i 0]
+                            (if (>= i (js-get arr-a "length"))
+                              true
+                              (if (js-call b "has" (js-get arr-a i))
+                                (recur (+ i 1))
+                                false)))))
+                      (if (and (isObject a) (isObject b))
+                        (let [keys-a (js-call Object.keys a)
+                              keys-b (js-call Object.keys b)]
+                          (if (not (=== (js-get keys-a "length") (js-get keys-b "length")))
+                            false
+                            (loop [i 0]
+                              (if (>= i (js-get keys-a "length"))
+                                true
+                                (let [k (js-get keys-a i)]
+                                  (if (and (in k b) (deepEqInternal (js-get a k) (js-get b k) seenAB seenBA))
+                                    (recur (+ i 1))
+                                    false))))))
+                        false))))))))))))
+
+// deepEq - Structural/deep equality for arrays, objects, Maps, Sets
+// Recursively compares nested structures; uses === for primitives; cycle-safe.
+(fn deepEq [a b]
+  (deepEqInternal a b (js-new WeakMap ()) (js-new WeakMap ())))
 
 // Variadic chained comparison: (lt a b c) means a<b AND b<c
 (fn lt [& nums]
@@ -841,7 +861,7 @@
       (let [r (js-new Map (m))]
         (reduce (fn [acc k] (js-call acc "delete" k) acc) r ks))
       (if (js-call Array.isArray m)
-        (let [r [...m]]
+        (let [r (js-call Array.from m)]
           (reduce (fn [acc k] (delete (js-get acc k)) acc) r ks))
         (let [r {...m}]
           (reduce (fn [acc k] (delete (js-get acc k)) acc) r ks))))))

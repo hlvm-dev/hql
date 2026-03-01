@@ -10,7 +10,6 @@ import {
   formatServerEntry,
   parseClaudeCodeMcpJson,
 } from "../../../src/hlvm/agent/mcp/config.ts";
-import type { McpServerWithScope } from "../../../src/hlvm/agent/mcp/config.ts";
 
 // ============================================================
 // parseClaudeCodeMcpJson — Pure parsing tests
@@ -286,4 +285,3 @@ Deno.test("formatServerEntry - claude-code scope", () => {
   assertEquals(entry.scopeLabel, "Claude Code");
   assertEquals(entry.transport, "stdio");
 });
-

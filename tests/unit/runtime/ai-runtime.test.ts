@@ -6,9 +6,9 @@ Deno.test("aiEngine.isRunning checks ollama provider explicitly", async () => {
   const originalStatus = ai.status;
   let providerNameArg: string | undefined;
 
-  (ai as { status: (providerName?: string) => Promise<{ available: boolean }> }).status = async (providerName?: string) => {
+  (ai as { status: (providerName?: string) => Promise<{ available: boolean }> }).status = (providerName?: string) => {
     providerNameArg = providerName;
-    return { available: true };
+    return Promise.resolve({ available: true });
   };
 
   try {
@@ -23,9 +23,8 @@ Deno.test("aiEngine.isRunning checks ollama provider explicitly", async () => {
 Deno.test("aiEngine.isRunning returns false when ollama status check throws", async () => {
   const originalStatus = ai.status;
 
-  (ai as { status: (providerName?: string) => Promise<{ available: boolean }> }).status = async () => {
-    throw new Error("offline");
-  };
+  (ai as { status: (providerName?: string) => Promise<{ available: boolean }> }).status = () =>
+    Promise.reject(new Error("offline"));
 
   try {
     const running = await aiEngine.isRunning();

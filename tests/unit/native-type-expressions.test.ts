@@ -167,6 +167,25 @@ Deno.test("Mapped type: basic", () => {
 });
 
 // ============================================================================
+// Native Function Types: (-> [params] Return)
+// ============================================================================
+
+Deno.test("Function type: positional param types", () => {
+  const result = hqlToTypeScript(`(type UnaryFn (-> [number] string))`);
+  assertStringIncludes(result, "type UnaryFn = (arg0: number) => string;");
+});
+
+Deno.test("Function type: named and optional typed params", () => {
+  const result = hqlToTypeScript(`(type Handler (-> [value:number opts?:string] boolean))`);
+  assertStringIncludes(result, "type Handler = (value: number, opts?: string) => boolean;");
+});
+
+Deno.test("Function type: rest param in native syntax", () => {
+  const result = hqlToTypeScript(`(type Collector (-> [(rest (array number))] number))`);
+  assertStringIncludes(result, "type Collector = (...arg0: number[]) => number;");
+});
+
+// ============================================================================
 // Native Readonly Type: (readonly T)
 // ============================================================================
 

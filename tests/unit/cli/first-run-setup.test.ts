@@ -16,7 +16,6 @@ import {
   parseParamSize,
   pickBestCloudModel,
   runFirstTimeSetup,
-  runOllamaSignin,
   verifyOllamaCloudModelAccess,
 } from "../../../src/hlvm/cli/commands/first-run-setup.ts";
 import { aiEngine } from "../../../src/hlvm/runtime/ai-runtime.ts";

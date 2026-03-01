@@ -31,8 +31,6 @@ function DocsSidebar() {
     setSidebarOpen(false);
   }, [location.pathname, setSidebarOpen]);
 
-  if (!manifest) return null;
-
   const items = manifest.sidebar[activeTab] || [];
 
   const toggleGroup = (slug) => {
@@ -103,7 +101,7 @@ function DocsSidebar() {
           aria-label="Close documentation sidebar"
         />
       )}
-      <aside className={`docs-sidebar ${sidebarOpen ? 'open' : ''}`}>
+      <aside className={`docs-sidebar subtle-scroll ${sidebarOpen ? 'open' : ''}`}>
         <nav className="docs-sidebar-nav">
           {items.map(renderItem)}
         </nav>

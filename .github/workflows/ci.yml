@@ -78,3 +78,34 @@ jobs:
 
       - name: Interop tests
         run: deno task test:interop
+
+  website:
+    name: Website checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Sync docs
+        run: node website/scripts/sync-docs.mjs
+
+      - name: Lint
+        working-directory: website
+        run: npm run lint
+
+      - name: Test
+        working-directory: website
+        run: npm test
+
+      - name: Build
+        working-directory: website
+        run: npm run build

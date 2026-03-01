@@ -329,7 +329,7 @@ Deno.test({
     registerTool("testGenTool", {
       description: "temp tool for generation test",
       args: {},
-      fn: async () => "ok",
+      fn: () => Promise.resolve("ok"),
     });
 
     try {

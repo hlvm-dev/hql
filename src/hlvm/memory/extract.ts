@@ -52,10 +52,10 @@ function extractFactsFromText(text: string): Array<{ category: string; content: 
   return facts;
 }
 
-export async function extractSessionFacts(
+export function extractSessionFacts(
   messages: SessionMessage[],
   modelTier: MemoryModelTier,
-): Promise<{ factsExtracted: number; entitiesCreated: number }> {
+): { factsExtracted: number; entitiesCreated: number } {
   if (modelTier !== "frontier") return { factsExtracted: 0, entitiesCreated: 0 };
 
   const userMessages = messages

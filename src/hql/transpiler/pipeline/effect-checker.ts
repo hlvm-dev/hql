@@ -2,6 +2,7 @@ import * as IR from "../type/hql_ir.ts";
 import { forEachNode } from "../utils/ir-tree-walker.ts";
 import { buildSignatureTable, lookupFunctionSignature } from "./effects/effect-env.ts";
 import {
+  buildGlobalCallableAliasEffects,
   checkPureFunctionBody,
   checkPureParameterCallSites,
 } from "./effects/effect-infer.ts";
@@ -16,6 +17,7 @@ import { toEffectValidationError } from "./effects/effect-errors.ts";
  */
 export function checkEffects(ir: IR.IRProgram): void {
   const signatures = buildSignatureTable(ir);
+  const topLevelAliases = buildGlobalCallableAliasEffects(ir, signatures);
 
   forEachNode(ir, (node) => {
     if (node.type === IR.IRNodeType.FnFunctionDeclaration) {
@@ -28,7 +30,7 @@ export function checkEffects(ir: IR.IRProgram): void {
           fn,
         );
       }
-      const callableParams = checkPureFunctionBody(fn, signatures);
+      const callableParams = checkPureFunctionBody(fn, signatures, topLevelAliases);
       const sig = lookupFunctionSignature(fn.id.name, signatures);
       if (sig) sig.callableParams = callableParams;
       return;
@@ -37,7 +39,11 @@ export function checkEffects(ir: IR.IRProgram): void {
     if (node.type === IR.IRNodeType.FunctionExpression) {
       const fnExpr = node as IR.IRFunctionExpression;
       if (!fnExpr.pure) return;
-      const callableParams = checkPureFunctionBody(fnExpr, signatures);
+      const callableParams = checkPureFunctionBody(
+        fnExpr,
+        signatures,
+        topLevelAliases,
+      );
       if (fnExpr.id) {
         const sig = lookupFunctionSignature(fnExpr.id.name, signatures);
         if (sig) sig.callableParams = callableParams;

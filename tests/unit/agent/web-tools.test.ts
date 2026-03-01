@@ -1,7 +1,9 @@
 import { assert, assertEquals, assertNotEquals, assertRejects } from "jsr:@std/assert";
 import {
+  __testOnlyAverageResultScore,
   __testOnlyBuildSearchWebCacheKey,
   __testOnlyFormatSearchWebResult,
+  __testOnlySelectDiversePrefetchTargets,
   resetWebToolBudget,
   WEB_TOOLS,
 } from "../../../src/hlvm/agent/tools/web-tools.ts";
@@ -465,7 +467,7 @@ Deno.test({
 
     const queriesSeen: string[] = [];
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: string | URL | Request, _init?: RequestInit) => {
+    globalThis.fetch = ((input: string | URL | Request, _init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       const parsed = new URL(url);
       const q = parsed.searchParams.get("q") ?? "";
@@ -480,7 +482,7 @@ Deno.test({
         body = fakeDdgHtml([`https://example.com/variant-${queriesSeen.length}`]);
       }
 
-      return new Response(body, { status: 200, headers: { "Content-Type": "text/html" } });
+      return Promise.resolve(new Response(body, { status: 200, headers: { "Content-Type": "text/html" } }));
     }) as typeof globalThis.fetch;
 
     try {
@@ -506,4 +508,187 @@ Deno.test({
       globalThis.fetch = originalFetch;
     }
   },
+});
+
+Deno.test({
+  name: "duckDuckGoSearch low-confidence results trigger one variant retry even when limit is met",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    function fakeDdgHtml(urls: string[], label: string): string {
+      const items = urls.map((u) =>
+        `<a class="result__a" href="${u}">${label}</a>
+         <a class="result__snippet">${label}</a>`
+      ).join("\n");
+      return `<html><body>${items}</body></html>`;
+    }
+
+    const query = "obscure 2026 signal";
+    const expectedVariant = generateQueryVariants(query, 1)[0];
+    assert(expectedVariant, "expected at least one variant");
+
+    const queriesSeen: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = ((input: string | URL | Request, _init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const parsed = new URL(url);
+      const q = parsed.searchParams.get("q") ?? "";
+      queriesSeen.push(q);
+
+      // Original query already has 5 results (meets limit) but they are low-relevance.
+      if (q === query) {
+        const body = fakeDdgHtml([
+          "https://example.com/a",
+          "https://example.com/b",
+          "https://example.com/c",
+          "https://example.com/d",
+          "https://example.com/e",
+        ], "generic page");
+        return Promise.resolve(new Response(body, { status: 200, headers: { "Content-Type": "text/html" } }));
+      }
+
+      const body = fakeDdgHtml(["https://example.com/variant-retry"], "variant page");
+      return Promise.resolve(new Response(body, { status: 200, headers: { "Content-Type": "text/html" } }));
+    }) as typeof globalThis.fetch;
+
+    try {
+      const raw = await duckDuckGoSearch(query, 5, 10000, "all", undefined, undefined, undefined, undefined, true);
+      const diagnostics = (raw.diagnostics ?? {}) as Record<string, unknown>;
+      assertEquals(diagnostics.lowConfidenceRetryTriggered, true);
+      assert(queriesSeen.includes(expectedVariant), `missing retry query: ${expectedVariant}`);
+      assert(queriesSeen.length >= 2, `expected >=2 requests, got ${queriesSeen.length}`);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  },
+});
+
+// ============================================================
+// formatResult — quality hint in llmContent only
+// ============================================================
+
+Deno.test("formatResult appends low-relevance tip in llmContent only when avg score < 4", () => {
+  const raw = {
+    query: "obscure topic",
+    provider: "duckduckgo",
+    count: 2,
+    results: [
+      { title: "Result A", url: "https://a.com", snippet: "unrelated", score: 2 },
+      { title: "Result B", url: "https://b.com", snippet: "also unrelated", score: 3 },
+    ],
+  };
+  const formatted = __testOnlyFormatSearchWebResult(raw);
+  assert(formatted !== null);
+  assert(!formatted!.returnDisplay.includes("Tip:"), "tip should NOT be in returnDisplay");
+  assert(formatted!.llmContent.includes("Tip: Results have low relevance scores"), "tip should be in llmContent");
+});
+
+Deno.test("formatResult omits tip when avg score >= 4", () => {
+  const raw = {
+    query: "well matched topic",
+    provider: "duckduckgo",
+    count: 2,
+    results: [
+      { title: "Good A", url: "https://a.com", snippet: "relevant", score: 8 },
+      { title: "Good B", url: "https://b.com", snippet: "relevant", score: 6 },
+    ],
+  };
+  const formatted = __testOnlyFormatSearchWebResult(raw);
+  assert(formatted !== null);
+  assert(!formatted!.llmContent.includes("Tip:"), "no tip when scores are good");
+  assertEquals(formatted!.returnDisplay, formatted!.llmContent);
+});
+
+Deno.test("formatResult computes avg from defined scores only (skips undefined)", () => {
+  const raw = {
+    query: "mixed scores",
+    provider: "duckduckgo",
+    count: 3,
+    results: [
+      { title: "Scored", url: "https://a.com", snippet: "text", score: 8 },
+      { title: "Unscored", url: "https://b.com", snippet: "text" },
+      { title: "Also Unscored", url: "https://c.com", snippet: "text" },
+    ],
+  };
+  const formatted = __testOnlyFormatSearchWebResult(raw);
+  assert(formatted !== null);
+  // Only 1 scored result with score=8 → avg=8 → no tip
+  assert(!formatted!.llmContent.includes("Tip:"), "avg of defined scores (8) >= 4, no tip");
+});
+
+Deno.test("formatResult includes relatedLinks and uncertainty hint only in llmContent on low confidence", () => {
+  const raw = {
+    query: "uncertain query",
+    provider: "duckduckgo",
+    count: 1,
+    results: [
+      {
+        title: "Weak Result",
+        url: "https://example.com/weak",
+        snippet: "weak match",
+        score: 2,
+        relatedLinks: ["https://docs.example.com/ref", "https://other.example.org/guide"],
+      },
+    ],
+  };
+  const formatted = __testOnlyFormatSearchWebResult(raw);
+  assert(formatted !== null);
+  assert(!formatted!.returnDisplay.includes("Related links to check:"));
+  assert(!formatted!.returnDisplay.includes("confidence is low"));
+  assert(formatted!.llmContent.includes("Related links to check:"));
+  assert(formatted!.llmContent.includes("https://docs.example.com/ref"));
+  assert(formatted!.llmContent.includes("confidence is low"));
+});
+
+// ============================================================
+// Diverse prefetch targeting
+// ============================================================
+
+Deno.test("diverse prefetch selects unique hosts first, backfills to 2", () => {
+  const results = [
+    { title: "A", url: "https://example.com/a", snippet: "a" },
+    { title: "B", url: "https://example.com/b", snippet: "b" },
+    { title: "C", url: "https://other.com/c", snippet: "c" },
+  ];
+  const prefetchTargets = __testOnlySelectDiversePrefetchTargets(results, 2);
+  assertEquals(prefetchTargets.length, 2);
+  assertEquals(prefetchTargets[0].url, "https://example.com/a");
+  assertEquals(prefetchTargets[1].url, "https://other.com/c"); // skipped example.com/b
+});
+
+Deno.test("diverse prefetch backfills same-host when all results share one domain", () => {
+  const results = [
+    { title: "A", url: "https://same.com/a", snippet: "a" },
+    { title: "B", url: "https://same.com/b", snippet: "b" },
+    { title: "C", url: "https://same.com/c", snippet: "c" },
+  ];
+
+  const prefetchTargets = __testOnlySelectDiversePrefetchTargets(results, 2);
+
+  // Pass 1 gets A (unique host), pass 2 backfills B
+  assertEquals(prefetchTargets.length, 2);
+  assertEquals(prefetchTargets[0].url, "https://same.com/a");
+  assertEquals(prefetchTargets[1].url, "https://same.com/b");
+});
+
+Deno.test("adaptive prefetch can select 3 targets for low-confidence searches", () => {
+  const results = [
+    { title: "A", url: "https://a.com/1", snippet: "a" },
+    { title: "B", url: "https://a.com/2", snippet: "b" },
+    { title: "C", url: "https://b.com/3", snippet: "c" },
+    { title: "D", url: "https://c.com/4", snippet: "d" },
+  ];
+  const prefetchTargets = __testOnlySelectDiversePrefetchTargets(results, 3);
+  assertEquals(prefetchTargets.length, 3);
+  assertEquals(prefetchTargets[0].url, "https://a.com/1");
+  assertEquals(prefetchTargets[1].url, "https://b.com/3");
+  assertEquals(prefetchTargets[2].url, "https://c.com/4");
+});
+
+Deno.test("average score helper returns undefined when no scored results", () => {
+  const avg = __testOnlyAverageResultScore([
+    { title: "A", url: "https://a.com" },
+    { title: "B", url: "https://b.com" },
+  ]);
+  assertEquals(avg, undefined);
 });

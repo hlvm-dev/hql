@@ -42,6 +42,7 @@ interface InferenceContext {
   signatures: SignatureTable;
   paramEffects: ReturnType<typeof buildParameterEffectTable>;
   typeEnv: Map<string, ValueKind>;
+  callableAliases: Map<string, Effect>;
   purityRelevantParams?: Set<string>;
 }
 
@@ -139,6 +140,15 @@ function inferCalleeEffect(callee: IR.IRNode, ctx: InferenceContext): EffectResu
           message: unknownFunctionCallMessage(ctx.fnName, name),
         });
       }
+      return impureResult({
+        node: callee,
+        message: impureFunctionCallMessage(ctx.fnName, name),
+      });
+    }
+
+    const aliasEffect = ctx.callableAliases.get(name);
+    if (aliasEffect === "Pure") return pureResult();
+    if (aliasEffect === "Impure") {
       return impureResult({
         node: callee,
         message: impureFunctionCallMessage(ctx.fnName, name),
@@ -272,6 +282,19 @@ function inferNodeEffect(node: IR.IRNode, ctx: InferenceContext): EffectResult {
             : "Untyped" as ValueKind;
         if (kind !== "Untyped") {
           ctx.typeEnv.set(varName, kind);
+        }
+
+        // Track callable aliases for purity checks through indirection.
+        const aliasTarget = declarator.init
+          ? unwrapCallableAliasInitializer(declarator.init)
+          : null;
+        if (aliasTarget) {
+          const aliasEffect = resolveArgumentCallableEffect(
+            aliasTarget,
+            ctx.signatures,
+            ctx.callableAliases,
+          );
+          ctx.callableAliases.set(varName, aliasEffect);
         }
       }
       return inferChildrenEffect(node, ctx);
@@ -468,6 +491,7 @@ function describeArgument(node: IR.IRNode): string {
 function resolveArgumentCallableEffect(
   arg: IR.IRNode,
   signatures: SignatureTable,
+  aliasEffects?: ReadonlyMap<string, Effect>,
 ): Effect {
   if (arg.type === IR.IRNodeType.FunctionExpression) {
     const fnExpr = arg as IR.IRFunctionExpression;
@@ -483,6 +507,7 @@ function resolveArgumentCallableEffect(
         "Impure",
       ),
       typeEnv: new Map(),
+      callableAliases: new Map(aliasEffects ? aliasEffects.entries() : []),
     };
     const result = inferNodeEffect(fnExpr.body, ctx);
     return result.effect === "Pure" ? "Pure" : "Impure";
@@ -490,6 +515,8 @@ function resolveArgumentCallableEffect(
 
   if (arg.type === IR.IRNodeType.Identifier) {
     const name = (arg as IR.IRIdentifier).name;
+    const aliasedEffect = aliasEffects?.get(name);
+    if (aliasedEffect) return aliasedEffect;
     const signature = lookupFunctionSignature(name, signatures);
     if (signature) return signature.effect;
     const externEffect = getFunctionEffect(name);
@@ -550,6 +577,7 @@ function inferCallbackEffect(
       signatures: ctx.signatures,
       paramEffects: buildParameterEffectTable(fnExpr.params, cbName, "Impure"),
       typeEnv: new Map(ctx.typeEnv),
+      callableAliases: new Map(ctx.callableAliases),
     };
     const bodyResult = inferNodeEffect(fnExpr.body, cbCtx);
     if (bodyResult.effect === "Impure") {
@@ -577,6 +605,15 @@ function inferCallbackEffect(
 
     // Check first-class operators (arithmetic, comparison)
     if (FIRST_CLASS_OPERATORS.has(name)) return pureResult();
+
+    const aliasEffect = ctx.callableAliases.get(name);
+    if (aliasEffect === "Pure") return pureResult();
+    if (aliasEffect === "Impure") {
+      return impureResult({
+        node: arg,
+        message: impureCallbackMessage(ctx.fnName, name, methodName),
+      });
+    }
 
     // Check function signatures (other fx functions)
     const signature = lookupFunctionSignature(name, ctx.signatures);
@@ -610,7 +647,11 @@ function inferCallbackEffect(
     arg.type === IR.IRNodeType.MemberExpression ||
     arg.type === IR.IRNodeType.JsMethodAccess
   ) {
-    const effect = resolveArgumentCallableEffect(arg, ctx.signatures);
+    const effect = resolveArgumentCallableEffect(
+      arg,
+      ctx.signatures,
+      ctx.callableAliases,
+    );
     if (isSubeffect(effect, "Pure")) return pureResult();
     return impureResult({
       node: arg,
@@ -627,6 +668,7 @@ function inferCallbackEffect(
 export function checkPureFunctionBody(
   fnNode: IR.IRFnFunctionDeclaration | IR.IRFunctionExpression,
   signatures: SignatureTable,
+  initialAliases?: ReadonlyMap<string, Effect>,
 ): Set<string> {
   const fnName = fnNode.id?.name ?? "<anonymous fx>";
 
@@ -647,6 +689,7 @@ export function checkPureFunctionBody(
     signatures,
     paramEffects: buildParameterEffectTable(fnNode.params, fnName, "Pure"),
     typeEnv,
+    callableAliases: new Map(initialAliases ? initialAliases.entries() : []),
     purityRelevantParams,
   };
 
@@ -661,6 +704,8 @@ export function checkPureParameterCallSites(
   ir: IR.IRProgram,
   signatures: SignatureTable,
 ): void {
+  const topLevelAliases = buildGlobalCallableAliasEffects(ir, signatures);
+
   forEachNode(ir, (node) => {
     if (node.type !== IR.IRNodeType.CallExpression) return;
     const call = node as IR.IRCallExpression;
@@ -677,7 +722,11 @@ export function checkPureParameterCallSites(
       if (!isCallable) continue;
 
       const argument = call.arguments[i];
-      const argumentEffect = resolveArgumentCallableEffect(argument, signatures);
+      const argumentEffect = resolveArgumentCallableEffect(
+        argument,
+        signatures,
+        topLevelAliases,
+      );
       if (isSubeffect(argumentEffect, "Pure")) continue;
 
       throw toEffectValidationError(
@@ -686,4 +735,94 @@ export function checkPureParameterCallSites(
       );
     }
   });
+}
+
+function isCallableAliasTarget(node: IR.IRNode): boolean {
+  return node.type === IR.IRNodeType.Identifier ||
+    node.type === IR.IRNodeType.FunctionExpression ||
+    node.type === IR.IRNodeType.MemberExpression ||
+    node.type === IR.IRNodeType.JsMethodAccess;
+}
+
+function unwrapCallableAliasInitializer(node: IR.IRNode): IR.IRNode | null {
+  if (isCallableAliasTarget(node)) return node;
+
+  // Const bindings are wrapped with __hql_deepFreeze(...) in IR.
+  // Preserve callable alias tracking by looking through this wrapper.
+  if (node.type === IR.IRNodeType.CallExpression) {
+    const call = node as IR.IRCallExpression;
+    if (
+      call.callee.type === IR.IRNodeType.Identifier &&
+      (call.callee as IR.IRIdentifier).name === "__hql_deepFreeze" &&
+      call.arguments.length >= 1
+    ) {
+      const inner = call.arguments[0];
+      return isCallableAliasTarget(inner) ? inner : null;
+    }
+  }
+
+  return null;
+}
+
+function registerAliasesFromVariableDeclaration(
+  declaration: IR.IRVariableDeclaration,
+  aliases: Map<string, Effect>,
+  signatures: SignatureTable,
+): void {
+  for (const declarator of declaration.declarations) {
+    if (declarator.id.type !== IR.IRNodeType.Identifier) continue;
+    if (!declarator.init) continue;
+
+    const aliasTarget = unwrapCallableAliasInitializer(declarator.init);
+    if (!aliasTarget) continue;
+
+    const aliasName = (declarator.id as IR.IRIdentifier).name;
+    const aliasEffect = resolveArgumentCallableEffect(
+      aliasTarget,
+      signatures,
+      aliases,
+    );
+    aliases.set(aliasName, aliasEffect);
+  }
+}
+
+export function buildGlobalCallableAliasEffects(
+  ir: IR.IRProgram,
+  signatures: SignatureTable,
+): Map<string, Effect> {
+  const aliases = new Map<string, Effect>();
+
+  for (const node of ir.body) {
+    switch (node.type) {
+      case IR.IRNodeType.VariableDeclaration:
+        registerAliasesFromVariableDeclaration(
+          node as IR.IRVariableDeclaration,
+          aliases,
+          signatures,
+        );
+        break;
+
+      case IR.IRNodeType.ExportVariableDeclaration:
+        registerAliasesFromVariableDeclaration(
+          (node as IR.IRExportVariableDeclaration).declaration,
+          aliases,
+          signatures,
+        );
+        break;
+
+      case IR.IRNodeType.ExportNamedDeclaration: {
+        const exportDecl = node as IR.IRExportNamedDeclaration;
+        if (exportDecl.declaration?.type === IR.IRNodeType.VariableDeclaration) {
+          registerAliasesFromVariableDeclaration(
+            exportDecl.declaration as IR.IRVariableDeclaration,
+            aliases,
+            signatures,
+          );
+        }
+        break;
+      }
+    }
+  }
+
+  return aliases;
 }

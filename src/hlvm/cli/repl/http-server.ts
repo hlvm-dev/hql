@@ -79,11 +79,6 @@ const platform = getPlatform();
 /** Auth token generated on server start — clients must send `Authorization: Bearer <token>` */
 let serverAuthToken: string | null = null;
 
-/** Get the current server auth token (for tests or UI client bootstrap) */
-function getServerAuthToken(): string | null {
-  return serverAuthToken;
-}
-
 function resolvePort(): number {
   const portOverride = platform.env.get("HLVM_REPL_PORT");
   if (!portOverride) return DEFAULT_PORT;

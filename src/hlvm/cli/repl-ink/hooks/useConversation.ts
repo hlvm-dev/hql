@@ -1,0 +1,282 @@
+/**
+ * useConversation — Accumulates AgentUIEvent stream into ConversationItem[].
+ *
+ * Transforms raw agent events into structured, renderable conversation items.
+ *
+ * Lifecycle rules (following Gemini CLI pattern):
+ * - Thinking items are TRANSIENT — removed when turn ends (turn_stats)
+ * - Assistant text updates find ANY pending assistant item (not just last)
+ * - turn_stats cleans up thinking items and finalizes pending assistants
+ * - addUserMessage cleans up orphaned thinking/pending from incomplete turns
+ */
+
+import { useState, useCallback, useRef } from "react";
+import type { AgentUIEvent } from "../../../agent/orchestrator.ts";
+import type {
+  AgentFooterStatus,
+  ConversationItem,
+  ThinkingItem,
+  ToolCallDisplay,
+  ToolGroupItem,
+} from "../types.ts";
+
+// ============================================================
+// Helpers
+// ============================================================
+
+/** Remove all thinking items and finalize any pending assistant items */
+function cleanupTransientItems(items: ConversationItem[]): ConversationItem[] {
+  return items.flatMap((item: ConversationItem) => {
+    if (item.type === "thinking") return [];
+    if (item.type === "assistant" && item.isPending) {
+      return [{ ...item, isPending: false }];
+    }
+    return [item];
+  });
+}
+
+function upsertThinkingItem(
+  items: ConversationItem[],
+  iteration: number,
+  summary: string,
+  nextId: () => string,
+): ConversationItem[] {
+  const idx = items.findIndex(
+    (item: ConversationItem) => item.type === "thinking" && item.iteration === iteration,
+  );
+  if (idx < 0) {
+    const thinking: ThinkingItem = {
+      type: "thinking",
+      id: nextId(),
+      summary,
+      iteration,
+    };
+    return [...items, thinking];
+  }
+  const next = [...items];
+  const current = next[idx];
+  if (current.type !== "thinking") return items;
+  next[idx] = { ...current, summary };
+  return next;
+}
+
+function findMatchingRunningToolIndex(
+  tools: ToolCallDisplay[],
+  name: string,
+  argsSummary: string,
+): number {
+  const exactIdx = tools.findIndex(
+    (tool: ToolCallDisplay) =>
+      tool.status === "running" &&
+      tool.name === name &&
+      tool.argsSummary === argsSummary,
+  );
+  if (exactIdx >= 0) return exactIdx;
+  return tools.findIndex(
+    (tool: ToolCallDisplay) => tool.name === name && tool.status === "running",
+  );
+}
+
+// ============================================================
+// Hook
+// ============================================================
+
+export interface UseConversationResult {
+  /** Accumulated conversation items */
+  items: ConversationItem[];
+  /** Current agent status for footer display */
+  agentStatus: AgentFooterStatus;
+  /** Process an incoming agent event */
+  addEvent: (event: AgentUIEvent) => void;
+  /** Add a user message (also cleans up orphaned transient items) */
+  addUserMessage: (text: string) => void;
+  /** Add/update assistant text (streaming or final) */
+  addAssistantText: (text: string, isPending: boolean) => void;
+  /** Add an error message */
+  addError: (text: string) => void;
+  /** Add an info message */
+  addInfo: (text: string) => void;
+  /** Reset agent status to idle */
+  resetStatus: () => void;
+  /** Clear all items */
+  clear: () => void;
+}
+
+export function useConversation(): UseConversationResult {
+  const [items, setItems] = useState<ConversationItem[]>([]);
+  const [agentStatus, setAgentStatus] = useState<AgentFooterStatus>({ type: "idle" });
+  // Counter for generating unique IDs (items + tools)
+  const idCounter = useRef(0);
+  const nextId = () => `ci-${++idCounter.current}`;
+
+  const addEvent = useCallback((event: AgentUIEvent) => {
+    switch (event.type) {
+      case "thinking":
+        setAgentStatus({ type: "thinking" });
+        setItems((prev: ConversationItem[]) =>
+          upsertThinkingItem(prev, event.iteration, "", nextId)
+        );
+        break;
+
+      case "thinking_update":
+        setAgentStatus({ type: "thinking" });
+        setItems((prev: ConversationItem[]) =>
+          upsertThinkingItem(prev, event.iteration, event.summary, nextId)
+        );
+        break;
+
+      case "tool_start": {
+        setAgentStatus({
+          type: "running_tool",
+          toolName: event.name,
+          toolIndex: event.toolIndex,
+          toolTotal: event.toolTotal,
+        });
+        const toolId = nextId();
+        const tool: ToolCallDisplay = {
+          id: toolId,
+          name: event.name,
+          argsSummary: event.argsSummary,
+          status: "running",
+          toolIndex: event.toolIndex,
+          toolTotal: event.toolTotal,
+        };
+        setItems((prev: ConversationItem[]) => {
+          const lastNonThinkingIdx = prev.findLastIndex(
+            (item: ConversationItem) => item.type !== "thinking",
+          );
+          const lastNonThinking = lastNonThinkingIdx >= 0
+            ? prev[lastNonThinkingIdx]
+            : undefined;
+
+          if (lastNonThinking?.type === "tool_group") {
+            const next = [...prev];
+            const group = { ...lastNonThinking, tools: [...lastNonThinking.tools, tool] };
+            next[lastNonThinkingIdx] = group;
+            return next;
+          }
+          // New tool group
+          const group: ToolGroupItem = {
+            type: "tool_group",
+            id: nextId(),
+            tools: [tool],
+            ts: Date.now(),
+          };
+          return [...prev, group];
+        });
+        break;
+      }
+
+      case "tool_end":
+        setItems((prev: ConversationItem[]) => {
+          const groupIdx = prev.findLastIndex((item: ConversationItem) =>
+            item.type === "tool_group" &&
+            findMatchingRunningToolIndex(item.tools, event.name, event.argsSummary) >= 0
+          );
+          if (groupIdx < 0) return prev;
+
+          const groupItem = prev[groupIdx];
+          if (groupItem.type !== "tool_group") return prev;
+          const resolvedIdx = findMatchingRunningToolIndex(
+            groupItem.tools,
+            event.name,
+            event.argsSummary,
+          );
+          if (resolvedIdx < 0) return prev;
+
+          const next = [...prev];
+          const updatedTools = [...groupItem.tools];
+          updatedTools[resolvedIdx] = {
+            ...updatedTools[resolvedIdx],
+            status: event.success ? "success" : "error",
+            resultText: event.content,
+            durationMs: event.durationMs,
+          };
+          next[groupIdx] = { ...groupItem, tools: updatedTools };
+
+          // If all tools are done, the model typically continues summarizing.
+          const allDone = updatedTools.every(
+            (tool: ToolCallDisplay) => tool.status === "success" || tool.status === "error",
+          );
+          if (allDone) {
+            setAgentStatus({ type: "thinking" });
+          }
+          return next;
+        });
+        break;
+
+      case "turn_stats":
+        setAgentStatus({ type: "idle" });
+        setItems((prev: ConversationItem[]) => {
+          // Clean up transient items (thinking indicators, pending assistants)
+          const cleaned = cleanupTransientItems(prev);
+          return [
+            ...cleaned,
+            {
+              type: "turn_stats" as const,
+              id: nextId(),
+              toolCount: event.toolCount,
+              durationMs: event.durationMs,
+            },
+          ];
+        });
+        break;
+
+      case "interaction_request":
+        // Interaction requests are handled separately by the ConversationPanel
+        break;
+    }
+  }, []);
+
+  const addUserMessage = useCallback((text: string) => {
+    setItems((prev: ConversationItem[]) => {
+      // Clean up orphaned transient items from any incomplete previous turn
+      const cleaned = cleanupTransientItems(prev);
+      return [...cleaned, { type: "user" as const, id: nextId(), text, ts: Date.now() }];
+    });
+  }, []);
+
+  const addAssistantText = useCallback((text: string, isPending: boolean) => {
+    setItems((prev: ConversationItem[]) => {
+      // Search backwards for any pending assistant item to update
+      for (let i = prev.length - 1; i >= 0; i--) {
+        const item = prev[i];
+        if (item.type === "assistant" && item.isPending) {
+          const next = [...prev];
+          next[i] = { ...item, text, isPending };
+          return next;
+        }
+      }
+      // Also update the last assistant item even if finalized (for re-streaming)
+      const lastIdx = prev.length - 1;
+      const last = lastIdx >= 0 ? prev[lastIdx] : undefined;
+      if (last?.type === "assistant") {
+        const next = [...prev];
+        next[lastIdx] = { ...last, text, isPending };
+        return next;
+      }
+      // Create new assistant item
+      return [...prev, { type: "assistant" as const, id: nextId(), text, isPending, ts: Date.now() }];
+    });
+  }, []);
+
+  const addError = useCallback((text: string) => {
+    setItems((prev: ConversationItem[]) => [...prev, { type: "error" as const, id: nextId(), text }]);
+  }, []);
+
+  const addInfo = useCallback((text: string) => {
+    setItems((prev: ConversationItem[]) => [...prev, { type: "info" as const, id: nextId(), text }]);
+  }, []);
+
+  const resetStatus = useCallback(() => {
+    setAgentStatus({ type: "idle" });
+  }, []);
+
+  const clear = useCallback(() => {
+    setItems([]);
+    setAgentStatus({ type: "idle" });
+    idCounter.current = 0;
+  }, []);
+
+  return { items, agentStatus, addEvent, addUserMessage, addAssistantText, addError, addInfo, resetStatus, clear };
+}

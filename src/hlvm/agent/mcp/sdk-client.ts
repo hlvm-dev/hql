@@ -446,7 +446,7 @@ export class SdkMcpClient {
       getAgentLogger().debug(`No SDK schema for notification method: ${method}`);
       return;
     }
-    this.client.setNotificationHandler(schema, async (notification) => {
+    this.client.setNotificationHandler(schema, (notification) => {
       handler(notification.params);
     });
   }

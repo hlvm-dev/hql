@@ -373,7 +373,7 @@ Deno.test({
   name: "Registry: resolveTools supports allowlist + denylist with dynamic tools",
   fn() {
     registerTool("test_resolve_dynamic", {
-      fn: async () => "ok",
+      fn: () => Promise.resolve("ok"),
       description: "temporary dynamic tool",
       args: {},
     });
