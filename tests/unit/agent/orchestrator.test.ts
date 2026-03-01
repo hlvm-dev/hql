@@ -1487,7 +1487,8 @@ Deno.test({
   fn() {
     assertEquals(WEB_TOOL_NAMES.has("web_fetch"), true);
     assertEquals(WEB_TOOL_NAMES.has("search_web"), true);
-    assertEquals(WEB_TOOL_NAMES.has("web_browse"), true);
+    assertEquals(WEB_TOOL_NAMES.has("fetch_url"), true);
+    assertEquals(WEB_TOOL_NAMES.has("web_browse"), false);
     assertEquals(WEB_TOOL_NAMES.has("read_file"), false);
     assertEquals(WEB_TOOL_NAMES.has("shell_exec"), false);
   },

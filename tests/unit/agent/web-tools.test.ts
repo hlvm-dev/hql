@@ -1,16 +1,23 @@
-import { assert, assertEquals, assertRejects } from "jsr:@std/assert";
+import { assert, assertEquals, assertNotEquals, assertRejects } from "jsr:@std/assert";
 import {
   __testOnlyBuildSearchWebCacheKey,
+  __testOnlyFormatSearchWebResult,
   resetWebToolBudget,
   WEB_TOOLS,
 } from "../../../src/hlvm/agent/tools/web-tools.ts";
 import {
+  duckDuckGoSearch,
+  generateQueryVariants,
   parseDuckDuckGoSearchResults,
   scoreSearchResults,
 } from "../../../src/hlvm/agent/tools/web/duckduckgo.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import type { AgentPolicy } from "../../../src/hlvm/agent/policy.ts";
 import { isAllowedByDomainFilters } from "../../../src/hlvm/agent/tools/web/search-provider.ts";
+import {
+  dedupeSearchResults,
+  rankSearchResults,
+} from "../../../src/hlvm/agent/tools/web/search-ranking.ts";
 import {
   findSystemChrome,
   renderWithChrome,
@@ -151,10 +158,10 @@ Deno.test("search_web schema declares citation returns", () => {
 // web_fetch: additive citation + batch mode
 // ============================================================
 
-Deno.test("web_fetch schema includes citation and batch args", () => {
+Deno.test("web_fetch schema includes citations and batch args", () => {
   const meta = WEB_TOOLS.web_fetch;
   assert("urls" in meta.args);
-  assert(meta.returns && "citation" in meta.returns);
+  assert(meta.returns && "citations" in meta.returns);
   assert(meta.returns && "retrievedAt" in meta.returns);
 });
 
@@ -282,9 +289,9 @@ Deno.test("resetWebToolBudget is callable without error", () => {
 // Citation excerpt
 // ============================================================
 
-Deno.test("web_fetch schema documents citation with excerpt", () => {
+Deno.test("web_fetch schema documents citations with excerpt", () => {
   const meta = WEB_TOOLS.web_fetch;
-  assert(meta.returns && "citation" in meta.returns);
+  assert(meta.returns && "citations" in meta.returns);
 });
 
 // ============================================================
@@ -327,6 +334,176 @@ Deno.test({
         Deno.env.delete("CHROME_PATH");
       }
       await shutdownChromeBrowser();
+    }
+  },
+});
+
+// ============================================================
+// Prefetch cache key differentiation
+// ============================================================
+
+Deno.test("search cache key differs with prefetch on vs off", () => {
+  const keyOn = __testOnlyBuildSearchWebCacheKey("duckduckgo", "test", 5, undefined, undefined, "all", undefined, true);
+  const keyOff = __testOnlyBuildSearchWebCacheKey("duckduckgo", "test", 5, undefined, undefined, "all", undefined, false);
+  assertNotEquals(keyOn, keyOff);
+});
+
+Deno.test("search_web schema includes prefetch arg and passages return", () => {
+  const meta = WEB_TOOLS.search_web;
+  assert("prefetch" in meta.args);
+  assert(meta.returns && "results[].passages" in meta.returns);
+});
+
+// ============================================================
+// formatResult — compact text output
+// ============================================================
+
+Deno.test("formatResult returns compact text, not JSON", () => {
+  const raw = {
+    query: "deno 2.2 release",
+    provider: "duckduckgo",
+    count: 2,
+    results: [
+      { title: "Deno 2.2 Release Notes", url: "https://deno.com/blog/v2.2", snippet: "Deno 2.2 introduces workspaces", publishedDate: "2026-02-15", passages: ["The new release includes faster startup"] },
+      { title: "What's New in Deno", url: "https://blog.example.com/deno-22", snippet: "Deno adds monorepo support" },
+    ],
+  };
+  const formatted = __testOnlyFormatSearchWebResult(raw);
+  assert(formatted !== null);
+  assert(formatted!.returnDisplay.includes('Search: "deno 2.2 release"'));
+  assert(formatted!.returnDisplay.includes("[1] Deno 2.2 Release Notes"));
+  assert(formatted!.returnDisplay.includes("Published: 2026-02-15"));
+  assert(formatted!.returnDisplay.includes("> The new release includes faster startup"));
+  assert(!formatted!.returnDisplay.includes("{"));  // not JSON
+});
+
+Deno.test("formatResult shows pageDescription alongside snippet when both exist", () => {
+  const raw = {
+    query: "test",
+    provider: "duckduckgo",
+    count: 1,
+    results: [
+      {
+        title: "Test Page",
+        url: "https://example.com/test",
+        snippet: "Short DDG snippet",
+        pageDescription: "A much longer and richer description extracted from the page metadata",
+      },
+    ],
+  };
+  const formatted = __testOnlyFormatSearchWebResult(raw);
+  assert(formatted !== null);
+  // Both snippet AND pageDescription should appear (not just snippet)
+  assert(formatted!.returnDisplay.includes("> Short DDG snippet"));
+  assert(formatted!.returnDisplay.includes("> A much longer and richer description"));
+});
+
+Deno.test("formatResult raw result still has full results array", () => {
+  const raw = {
+    query: "test",
+    provider: "duckduckgo",
+    count: 1,
+    results: [{ title: "Result", url: "https://example.com", snippet: "snippet" }],
+    citations: [{ url: "https://example.com", title: "Result" }],
+  };
+  // formatResult only produces display text; raw object is untouched
+  const formatted = __testOnlyFormatSearchWebResult(raw);
+  assert(formatted !== null);
+  assert(Array.isArray(raw.results));
+  assertEquals(raw.results.length, 1);
+  assertEquals(raw.citations.length, 1);
+});
+
+// ============================================================
+// Cache key versioning: reformulate on vs off
+// ============================================================
+
+Deno.test("search cache key differs with reformulate on vs off", () => {
+  const keyOn = __testOnlyBuildSearchWebCacheKey("duckduckgo", "test", 5, undefined, undefined, "all", undefined, true, true);
+  const keyOff = __testOnlyBuildSearchWebCacheKey("duckduckgo", "test", 5, undefined, undefined, "all", undefined, true, false);
+  assertNotEquals(keyOn, keyOff);
+});
+
+// ============================================================
+// Reformulation merge/dedup (helper composition)
+// ============================================================
+
+Deno.test("dedupeSearchResults + rankSearchResults merge overlapping results correctly", () => {
+  const query1Results = [
+    { title: "Result A", url: "https://example.com/a", snippet: "deno release notes" },
+    { title: "Result B", url: "https://example.com/b", snippet: "deno features overview" },
+  ];
+  const query2Results = [
+    { title: "Result A (dup)", url: "https://example.com/a", snippet: "deno release notes (variant)" },
+    { title: "Result C", url: "https://example.com/c", snippet: "deno typescript support" },
+  ];
+  const merged = [...query1Results, ...query2Results];
+  const deduped = dedupeSearchResults(merged);
+  assertEquals(deduped.length, 3); // A + B + C (A deduped)
+  const ranked = rankSearchResults("deno release", deduped, "all");
+  const limited = ranked.slice(0, 2);
+  assertEquals(limited.length, 2);  // respects limit
+});
+
+// ============================================================
+// Reformulation integration: duckDuckGoSearch with fetch stub
+// ============================================================
+
+Deno.test({
+  name: "duckDuckGoSearch with reformulate=true fires variant queries and merges results",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // Build fake DDG HTML for original query (only 1 result — triggers reformulation)
+    function fakeDdgHtml(urls: string[]): string {
+      const items = urls.map((u) =>
+        `<a class="result__a" href="${u}">${u.split("/").pop()}</a>
+         <a class="result__snippet">Snippet for ${u.split("/").pop()}</a>`
+      ).join("\n");
+      return `<html><body>${items}</body></html>`;
+    }
+
+    const queriesSeen: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request, _init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const parsed = new URL(url);
+      const q = parsed.searchParams.get("q") ?? "";
+      queriesSeen.push(q);
+
+      // Original query returns 1 result (not enough → triggers variants)
+      // Variant queries return 1 different result each
+      let body: string;
+      if (q === "deno 2.2 release") {
+        body = fakeDdgHtml(["https://example.com/original"]);
+      } else {
+        body = fakeDdgHtml([`https://example.com/variant-${queriesSeen.length}`]);
+      }
+
+      return new Response(body, { status: 200, headers: { "Content-Type": "text/html" } });
+    }) as typeof globalThis.fetch;
+
+    try {
+      const raw = await duckDuckGoSearch("deno 2.2 release", 5, 10000, "all", undefined, undefined, undefined, undefined, true);
+      const results = raw.results as Array<{ url?: string }>;
+
+      // Should have fired variant queries
+      const variants = generateQueryVariants("deno 2.2 release");
+      assert(variants.length > 0, "should generate at least 1 variant");
+
+      // Verify variant queries were actually sent (more than just the original + page2)
+      assert(queriesSeen.length >= 2, `expected >=2 queries, got ${queriesSeen.length}: ${queriesSeen.join(", ")}`);
+
+      // Results should be merged and deduped from original + variants
+      assert(results.length >= 2, `expected >=2 merged results, got ${results.length}`);
+
+      // Original URL should be present
+      assert(results.some((r) => r.url === "https://example.com/original"), "original result missing");
+
+      // At least one variant result should be present
+      assert(results.some((r) => r.url?.includes("variant")), "no variant results merged");
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   },
 });

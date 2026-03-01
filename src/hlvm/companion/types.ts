@@ -32,7 +32,10 @@ export interface Observation {
 export type CompanionEventType =
   | "message"
   | "action_request"
+  | "action_result"
   | "action_cancelled"
+  | "vision_request"
+  | "capture_request"
   | "status_change";
 
 export interface CompanionEvent {
@@ -49,6 +52,24 @@ export interface CompanionResponse {
   reply?: string;
   visionRequestId?: string;
 }
+
+// --- Signal classification (SSOT for debounce triage + loop emission) ---
+
+/** Observations worth preserving during batch overflow triage. */
+export const TRIAGE_PRIORITY_KINDS: ReadonlySet<ObservationKind> = new Set([
+  "check.failed",
+  "check.passed",
+  "terminal.result",
+  "screen.captured",
+  "app.switch",
+]);
+
+/** Observations that warrant emitting a prompt to the user (interrupt-worthy). */
+export const EMISSION_SIGNAL_KINDS: ReadonlySet<ObservationKind> = new Set([
+  "check.failed",
+  "terminal.result",
+  "screen.captured",
+]);
 
 // --- Lifecycle ---
 

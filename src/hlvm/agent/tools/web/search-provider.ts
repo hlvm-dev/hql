@@ -16,6 +16,9 @@ export interface SearchResult {
   snippet?: string;
   score?: number;
   publishedDate?: string;
+  passages?: string[];        // Prefetched relevant passages (max 3, max 280 chars each)
+  pageDescription?: string;   // Enriched description from prefetched page metadata
+  relatedLinks?: string[];    // Cross-domain links extracted from prefetched page
 }
 
 export interface SearchProviderResponse {
@@ -27,6 +30,9 @@ export interface SearchProviderResponse {
 
 export type SearchTimeRange = "day" | "week" | "month" | "year" | "all";
 
+/** SSOT list of valid time-range values for search tools. */
+export const SEARCH_TIME_RANGES: readonly SearchTimeRange[] = ["day", "week", "month", "year", "all"];
+
 export interface SearchCallOptions {
   limit: number;
   timeoutMs?: number;
@@ -35,6 +41,7 @@ export interface SearchCallOptions {
   timeRange?: SearchTimeRange;
   locale?: string;
   toolOptions?: ToolExecutionOptions;
+  reformulate?: boolean;      // Enable query reformulation for wider recall (default: true)
 }
 
 export interface SearchProviderSpec {
@@ -107,7 +114,7 @@ export function resolveSearchProvider(
 // Domain Filtering (SSOT)
 // ============================================================
 
-function normalizeDomain(input: string): string {
+export function normalizeDomain(input: string): string {
   return input
     .trim()
     .toLowerCase()

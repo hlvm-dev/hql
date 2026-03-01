@@ -33,12 +33,14 @@ const TIME_RANGE_MAX_DAYS: Record<SearchTimeRange, number> = {
   all: Number.POSITIVE_INFINITY,
 };
 
-function tokenizeQuery(query: string): string[] {
-  return query
-    .toLowerCase()
-    .split(/[\s\-_.]+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 2);
+export function tokenizeQuery(query: string): string[] {
+  return [...new Set(
+    query
+      .toLowerCase()
+      .split(/[\s\-_.]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 2),
+  )];
 }
 
 function normalizePathname(pathname: string): string {
@@ -211,6 +213,108 @@ export function dedupeSearchResults(results: SearchResult[]): SearchResult[] {
   return [...bestByCanonical.values()];
 }
 
+// ============================================================
+// Passage Extraction
+// ============================================================
+
+const PASSAGE_MAX_CHARS = 280;
+const PASSAGE_MIN_CHARS = 40;
+
+/**
+ * Score a lowercased paragraph against query tokens.
+ * Components: coverage (fraction of tokens present) × (TF + proximity).
+ * - TF: sum of log(1 + occurrences) dampens high-frequency repetition.
+ * - Proximity: bonus when ≥2 tokens match — shorter span between first
+ *   occurrences of distinct tokens → higher bonus (1 / (1 + span/100)).
+ */
+export function scorePassage(lower: string, tokens: string[]): number {
+  const positions: number[] = [];  // first-occurrence index per matched token
+  let tf = 0;
+
+  for (const t of tokens) {
+    let idx = lower.indexOf(t);
+    if (idx === -1) continue;
+    positions.push(idx);
+    // Count all occurrences for TF
+    let count = 0;
+    while (idx !== -1) {
+      count++;
+      idx = lower.indexOf(t, idx + t.length);
+    }
+    tf += Math.log(1 + count);
+  }
+
+  if (positions.length === 0) return 0;
+
+  const coverage = positions.length / tokens.length;
+
+  // Proximity bonus: only meaningful with ≥2 matched tokens
+  let proximity = 0;
+  if (positions.length >= 2) {
+    const span = Math.max(...positions) - Math.min(...positions);
+    proximity = 1 / (1 + span / 100);
+  }
+
+  return coverage * (tf + proximity);
+}
+
+export function extractRelevantPassages(
+  query: string,
+  text: string,
+  maxPassages = 3,
+): string[] {
+  if (!text || !query) return [];
+
+  const tokens = tokenizeQuery(query);
+  if (tokens.length === 0) return [];
+
+  // Split into paragraphs at double-newline or single-newline boundaries
+  const paragraphs = text
+    .split(/\n{2,}|\n/)
+    .map((p) => p.trim())
+    .filter((p) => p.length >= PASSAGE_MIN_CHARS);
+
+  if (paragraphs.length === 0) return [];
+
+  // Score each paragraph: coverage × (term-frequency + proximity bonus)
+  const scored = paragraphs.map((p) => {
+    const lower = p.toLowerCase();
+    return { text: p, score: scorePassage(lower, tokens) };
+  });
+
+  return scored
+    .filter((s) => s.score > 0)             // Must match at least 1 query token
+    .sort((a, b) => b.score - a.score)       // Best matches first
+    .slice(0, maxPassages)
+    .map((s) =>
+      s.text.length > PASSAGE_MAX_CHARS
+        ? s.text.slice(0, PASSAGE_MAX_CHARS - 1) + "\u2026"
+        : s.text
+    );
+}
+
+// ============================================================
+// Ranking
+// ============================================================
+
+/** Drop passages that substantially overlap with the DDG snippet (Jaccard > 0.6). */
+export function deduplicateSnippetPassages(snippet: string, passages: string[]): string[] {
+  if (!snippet || passages.length === 0) return passages;
+  const snippetTokens = new Set(tokenizeQuery(snippet));
+  if (snippetTokens.size === 0) return passages;
+
+  return passages.filter((passage) => {
+    const passageTokens = new Set(tokenizeQuery(passage));
+    if (passageTokens.size === 0) return true;
+    let intersection = 0;
+    for (const t of snippetTokens) {
+      if (passageTokens.has(t)) intersection++;
+    }
+    const union = new Set([...snippetTokens, ...passageTokens]).size;
+    return union === 0 || (intersection / union) <= 0.6;
+  });
+}
+
 export function rankSearchResults(
   query: string,
   results: SearchResult[],
@@ -225,6 +329,9 @@ export function rankSearchResults(
       return { result, ageDays, baseScore: score, host: resultHost(result.url) };
     })
     .filter((entry) => isInsideTimeRange(entry.ageDays, timeRange));
+
+  // When a non-"all" timeRange filters out everything, return empty (no silent fallback to stale)
+  if (scored.length === 0 && timeRange !== "all") return [];
 
   const candidates = (scored.length > 0 ? scored : deduped.map((result) => ({
     result,

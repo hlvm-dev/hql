@@ -265,7 +265,7 @@ export interface OrchestratorConfig {
 export const WEB_TOOL_NAMES = new Set([
   "web_fetch",
   "search_web",
-  "web_browse",
+  "fetch_url",
 ]);
 
 const MEMORY_RECALL_RESULT_LIMIT = 3;

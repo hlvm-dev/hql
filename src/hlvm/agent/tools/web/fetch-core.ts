@@ -5,6 +5,7 @@
 
 import { http } from "../../../../common/http-client.ts";
 import { ValidationError } from "../../../../common/error.ts";
+import { withRetry } from "../../../../common/retry.ts";
 import { getNetworkPolicyDeniedUrl, isNetworkAllowed } from "../../policy.ts";
 import type { ToolExecutionOptions } from "../../registry.ts";
 import { RESOURCE_LIMITS } from "../../constants.ts";
@@ -154,6 +155,24 @@ export async function readResponseBody(
 }
 
 // ============================================================
+// Transient Error Detection
+// ============================================================
+
+/** Returns true for HTTP status codes or network errors that are worth retrying. */
+export function isTransientHttpError(error: unknown): boolean {
+  if (error instanceof Response) {
+    const s = error.status;
+    return s === 429 || s === 502 || s === 503 || s === 504;
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return msg.includes("timeout") || msg.includes("econnreset") ||
+      msg.includes("fetch failed") || msg.includes("network");
+  }
+  return false;
+}
+
+// ============================================================
 // Redirect Following
 // ============================================================
 
@@ -171,11 +190,14 @@ export async function fetchWithRedirects(
 
   for (let attempt = 0; attempt <= redirectLimit; attempt++) {
     assertUrlAllowed(current, options);
-    const response = await http.fetchRaw(current, {
-      timeout: timeoutMs,
-      headers,
-      redirect: "manual",
-    });
+    const response = await withRetry(
+      () => http.fetchRaw(current, {
+        timeout: timeoutMs,
+        headers,
+        redirect: "manual",
+      }),
+      { maxAttempts: 2, initialDelayMs: 500, shouldRetry: isTransientHttpError },
+    );
     const status = response.status;
     const isRedirect = status === 301 || status === 302 || status === 303 ||
       status === 307 || status === 308;
@@ -205,6 +227,8 @@ export async function fetchWithRedirects(
 // Simple URL Fetch
 // ============================================================
 
+const DEFAULT_FETCH_URL_MAX_REDIRECTS = 3;
+
 export async function fetchUrlInternal(
   url: string,
   maxBytes: number | undefined,
@@ -219,11 +243,13 @@ export async function fetchUrlInternal(
   truncated: boolean;
   text: string;
 }> {
-  assertUrlAllowed(url, options);
-
-  const response = await http.fetchRaw(url, {
-    timeout: timeoutMs,
-  });
+  const { finalUrl, response } = await fetchWithRedirects(
+    url,
+    timeoutMs,
+    {},
+    DEFAULT_FETCH_URL_MAX_REDIRECTS,
+    options,
+  );
 
   const limit = typeof maxBytes === "number" && maxBytes > 0
     ? maxBytes
@@ -231,7 +257,7 @@ export async function fetchUrlInternal(
   const body = await readResponseBody(response, limit);
 
   return {
-    url,
+    url: finalUrl,
     status: response.status,
     ok: response.ok,
     contentType: response.headers.get("content-type") ?? "",

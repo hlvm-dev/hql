@@ -23,7 +23,7 @@ import {
   formatPlanForContext,
   stripStepMarkers,
 } from "./planning.ts";
-import type { OrchestratorConfig } from "./orchestrator.ts";
+import { type OrchestratorConfig, WEB_TOOL_NAMES } from "./orchestrator.ts";
 import type {
   LoopConfig,
   LoopDirective,
@@ -576,7 +576,6 @@ export async function handlePostToolExecution(
   }
 
   // --- Web tool tracking (for mid-conversation reminders) ---
-  const WEB_TOOL_NAMES = new Set(["web_fetch", "search_web", "web_browse"]);
   state.lastToolsIncludedWeb = result.toolCalls.some(
     (tc) => WEB_TOOL_NAMES.has(tc.toolName),
   );

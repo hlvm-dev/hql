@@ -303,6 +303,39 @@ export function parseHtml(
   };
 }
 
+/**
+ * Extract publication date from HTML structured metadata.
+ * Checks article:published_time, meta date/publish_date, and <time datetime>.
+ */
+export function extractPublicationDate(html: string): string | undefined {
+  const metaRegex = /<meta\s+[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = metaRegex.exec(html)) !== null) {
+    const attrs = parseAttributes(match[0]);
+    const name = (attrs.name ?? "").toLowerCase();
+    const property = (attrs.property ?? "").toLowerCase();
+    const content = (attrs.content ?? "").trim();
+    if (!content) continue;
+    if (
+      property === "article:published_time" ||
+      name === "date" ||
+      name === "publish_date" ||
+      name === "publishdate"
+    ) {
+      if (!Number.isNaN(Date.parse(content))) return content;
+    }
+  }
+
+  // Fallback: first <time datetime="...">
+  const timeMatch = html.match(/<time\b[^>]*\bdatetime\s*=\s*["']([^"']+)["'][^>]*>/i);
+  if (timeMatch?.[1]) {
+    const dt = timeMatch[1].trim();
+    if (!Number.isNaN(Date.parse(dt))) return dt;
+  }
+
+  return undefined;
+}
+
 export function isHtmlLikeResponse(contentType: string, body: string): boolean {
   const normalizedType = contentType.toLowerCase();
   if (

@@ -13,6 +13,10 @@ import {
   type WebSearchConfig,
 } from "./types.ts";
 
+/** Single source of truth for the user-agent string across all web tools. */
+export const DEFAULT_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
 export interface ResolvedWebSearchConfig {
   enabled: boolean;
   provider: SearchProvider;
@@ -71,8 +75,7 @@ function resolveWebFetchConfig(
     timeoutSeconds: config?.timeoutSeconds ?? defaults.timeoutSeconds ?? 30,
     cacheTtlMinutes: config?.cacheTtlMinutes ?? defaults.cacheTtlMinutes ?? 15,
     maxRedirects: config?.maxRedirects ?? defaults.maxRedirects ?? 3,
-    userAgent: config?.userAgent ?? defaults.userAgent ??
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    userAgent: config?.userAgent ?? defaults.userAgent ?? DEFAULT_USER_AGENT,
     readability: config?.readability ?? defaults.readability ?? true,
   };
 

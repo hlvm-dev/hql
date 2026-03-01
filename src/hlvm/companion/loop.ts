@@ -8,8 +8,8 @@
 import type {
   CompanionConfig,
   CompanionEvent,
-  ObservationKind,
 } from "./types.ts";
+import { EMISSION_SIGNAL_KINDS } from "./types.ts";
 import type { ObservationBus } from "./bus.ts";
 import type { CompanionContext } from "./context.ts";
 import type { InteractionRequestEvent, InteractionResponse } from "../agent/registry.ts";
@@ -24,15 +24,6 @@ import { traceCompanion } from "./trace.ts";
 
 export const COMPANION_CHANNEL = "__companion__";
 
-/**
- * Observation kinds worth reacting to. Everything else is context
- * (accumulated in the rolling buffer) but not worth interrupting the user.
- */
-const HIGH_SIGNAL_KINDS: ReadonlySet<ObservationKind> = new Set([
-  "check.failed",
-  "terminal.result",
-  "screen.captured",
-]);
 
 let eventSeq = 0;
 
@@ -169,7 +160,7 @@ export async function runCompanionLoop(
       // Signal filter: only emit when batch has high-signal observations.
       // Low-signal events (app.switch, window title, etc.) are still accumulated
       // in context but don't warrant interrupting the user.
-      const hasHighSignal = redacted.some((obs) => HIGH_SIGNAL_KINDS.has(obs.kind));
+      const hasHighSignal = redacted.some((obs) => EMISSION_SIGNAL_KINDS.has(obs.kind));
       if (!hasHighSignal) {
         log.debug("[companion] skipping — no high-signal observations");
         traceCompanion("loop.skipped.low_signal", { kinds });

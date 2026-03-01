@@ -5,10 +5,13 @@
 
 import { http } from "../../../../common/http-client.ts";
 import { ValidationError } from "../../../../common/error.ts";
+import { withRetry } from "../../../../common/retry.ts";
+import { DEFAULT_USER_AGENT } from "../../../../common/config/web-resolver.ts";
 import type { ToolExecutionOptions } from "../../registry.ts";
-import { assertUrlAllowed } from "./fetch-core.ts";
+import { assertUrlAllowed, isTransientHttpError } from "./fetch-core.ts";
 import { decodeHtmlEntities, parseAttributes } from "./html-parser.ts";
 import {
+  dedupeSearchResults,
   rankSearchResults,
 } from "./search-ranking.ts";
 import {
@@ -31,7 +34,7 @@ interface SearchResult {
 }
 
 /** DuckDuckGo server-side date filter values */
-const DDG_DF_PARAM: Record<string, string> = { day: "d", week: "w", month: "m", year: "y" };
+const DDG_DF_PARAM: Partial<Record<SearchTimeRange, string>> = { day: "d", week: "w", month: "m", year: "y" };
 
 export function scoreSearchResults(
   query: string,
@@ -156,55 +159,7 @@ export function parseDuckDuckGoSearchResults(
 }
 
 // ============================================================
-// Search Implementation
-// ============================================================
-
-export async function duckDuckGoSearch(
-  query: string,
-  limit: number,
-  timeoutMs: number | undefined,
-  timeRange: SearchTimeRange,
-  options?: ToolExecutionOptions,
-  locale?: string,
-): Promise<Record<string, unknown>> {
-  const params = new URLSearchParams({ q: query });
-  const df = DDG_DF_PARAM[timeRange];
-  if (df) params.set("df", df);
-  if (locale) params.set("kl", locale);
-  const endpoint = `https://html.duckduckgo.com/html/?${params}`;
-  assertUrlAllowed(endpoint, options);
-
-  const response = await http.fetchRaw(endpoint, {
-    timeout: timeoutMs,
-    headers: {
-      "Accept": "text/html",
-      "User-Agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    },
-  });
-  if (!response.ok) {
-    throw new ValidationError(
-      `DuckDuckGo search failed with HTTP ${response.status}`,
-      "search_web",
-    );
-  }
-
-  const html = await response.text();
-  const candidateLimit = Math.max(limit * 4, limit);
-  const parsedResults = parseDuckDuckGoSearchResults(html, candidateLimit);
-  const scored = rankSearchResults(query, parsedResults, timeRange);
-  const topResults = scored.slice(0, limit);
-
-  return {
-    query,
-    provider: "duckduckgo",
-    results: topResults,
-    count: topResults.length,
-  };
-}
-
-// ============================================================
-// Provider Registration
+// Domain Filtering
 // ============================================================
 
 function filterResultsByDomain(
@@ -223,6 +178,164 @@ function filterResultsByDomain(
   });
 }
 
+// ============================================================
+// Query Reformulation
+// ============================================================
+
+/** Generate query variants for wider recall (pure string, no LLM). */
+export function generateQueryVariants(query: string, maxVariants = 2): string[] {
+  const words = query.trim().split(/\s+/).filter((w) => w.length > 0);
+  if (words.length < 2) return [];
+
+  const variants: string[] = [];
+
+  // Reorder: swap first and last significant words
+  if (words.length >= 2) {
+    const reordered = [...words];
+    [reordered[0], reordered[reordered.length - 1]] = [reordered[reordered.length - 1], reordered[0]];
+    const v = reordered.join(" ");
+    if (v !== query.trim()) variants.push(v);
+  }
+
+  // Drop qualifier: remove shortest word (only if result >= 2 words)
+  if (words.length >= 3 && variants.length < maxVariants) {
+    const shortest = words.reduce((min, w) => w.length < min.length ? w : min, words[0]);
+    const dropped = words.filter((w) => w !== shortest).join(" ");
+    if (dropped.split(/\s+/).length >= 2 && dropped !== query.trim()) {
+      variants.push(dropped);
+    }
+  }
+
+  // Add context for how-to/what-is queries
+  const lower = query.trim().toLowerCase();
+  if (variants.length < maxVariants && (lower.startsWith("how to") || lower.startsWith("what is"))) {
+    variants.push(`${query.trim()} guide`);
+  }
+
+  return variants.slice(0, Math.min(maxVariants, 2));
+}
+
+// ============================================================
+// Search Implementation
+// ============================================================
+
+const MAX_DDG_PAGES = 2;
+
+async function fetchDdgPage(
+  query: string,
+  timeRange: SearchTimeRange,
+  locale: string | undefined,
+  timeoutMs: number | undefined,
+  options: ToolExecutionOptions | undefined,
+  offset?: number,
+): Promise<SearchResult[]> {
+  const params = new URLSearchParams({ q: query });
+  const df = DDG_DF_PARAM[timeRange];
+  if (df) params.set("df", df);
+  if (locale) params.set("kl", locale);
+  if (offset && offset > 0) params.set("s", String(offset));
+  const endpoint = `https://html.duckduckgo.com/html/?${params}`;
+  assertUrlAllowed(endpoint, options);
+
+  const response = await withRetry(
+    () => http.fetchRaw(endpoint, {
+      timeout: timeoutMs,
+      headers: {
+        "Accept": "text/html",
+        "User-Agent": DEFAULT_USER_AGENT,
+      },
+    }),
+    { maxAttempts: 2, initialDelayMs: 500, shouldRetry: isTransientHttpError },
+  );
+  if (!response.ok) {
+    throw new ValidationError(
+      `DuckDuckGo search failed with HTTP ${response.status}`,
+      "search_web",
+    );
+  }
+
+  const html = await response.text();
+  return parseDuckDuckGoSearchResults(html, Math.max(30, 20));
+}
+
+export async function duckDuckGoSearch(
+  query: string,
+  limit: number,
+  timeoutMs: number | undefined,
+  timeRange: SearchTimeRange,
+  options?: ToolExecutionOptions,
+  locale?: string,
+  allowedDomains?: string[],
+  blockedDomains?: string[],
+  reformulate = true,
+): Promise<Record<string, unknown>> {
+  const page1 = await fetchDdgPage(query, timeRange, locale, timeoutMs, options);
+  let allResults: SearchResult[] = [...page1];
+
+  // Rank page 1 to check if we need more results
+  const scored1 = rankSearchResults(query, allResults, timeRange);
+  const filtered1 = (allowedDomains?.length || blockedDomains?.length)
+    ? filterResultsByDomain(scored1, allowedDomains, blockedDomains)
+    : scored1;
+
+  // If page 1 is insufficient, fire page 2 + query variants in parallel
+  if (filtered1.length < limit && page1.length > 0) {
+    const variantTimeout = Math.max(2000, Math.floor((timeoutMs ?? 30000) / 3));
+    const fetches: Promise<SearchResult[]>[] = [];
+
+    // Page 2 of original query
+    if (MAX_DDG_PAGES > 1) {
+      fetches.push(
+        fetchDdgPage(query, timeRange, locale, variantTimeout, options, page1.length)
+          .catch(() => [] as SearchResult[]),
+      );
+    }
+
+    // Query variants (best-effort)
+    if (reformulate) {
+      const variants = generateQueryVariants(query);
+      for (const variant of variants) {
+        fetches.push(
+          fetchDdgPage(variant, timeRange, locale, variantTimeout, options)
+            .catch(() => [] as SearchResult[]),
+        );
+      }
+    }
+
+    const settled = await Promise.allSettled(fetches);
+    for (const outcome of settled) {
+      if (outcome.status === "fulfilled" && outcome.value.length > 0) {
+        allResults.push(...outcome.value);
+      }
+    }
+
+    // Dedup via canonical URL (SSOT)
+    allResults = dedupeSearchResults(allResults) as SearchResult[];
+  }
+
+  // Re-rank the full merged set
+  const scored = allResults.length === page1.length && filtered1.length >= limit
+    ? scored1
+    : rankSearchResults(query, allResults, timeRange);
+  const filtered = allResults.length === page1.length && filtered1.length >= limit
+    ? filtered1
+    : (allowedDomains?.length || blockedDomains?.length)
+      ? filterResultsByDomain(scored, allowedDomains, blockedDomains)
+      : scored;
+  const topResults = filtered.slice(0, limit);
+
+  return {
+    query,
+    provider: "duckduckgo",
+    results: topResults,
+    count: topResults.length,
+  };
+}
+
+// ============================================================
+// Provider Registration
+// ============================================================
+
 export function registerDuckDuckGo(): void {
   registerSearchProvider({
     name: "duckduckgo",
@@ -236,16 +349,15 @@ export function registerDuckDuckGo(): void {
         opts.timeRange ?? "all",
         opts.toolOptions,
         opts.locale,
+        opts.allowedDomains,
+        opts.blockedDomains,
+        opts.reformulate ?? true,
       );
-      let results = raw.results as ProviderSearchResult[];
-      if (opts.allowedDomains?.length || opts.blockedDomains?.length) {
-        results = filterResultsByDomain(results, opts.allowedDomains, opts.blockedDomains);
-      }
       return {
         query: raw.query as string,
         provider: raw.provider as string,
-        results,
-        count: results.length,
+        results: raw.results as ProviderSearchResult[],
+        count: raw.count as number,
       };
     },
   });

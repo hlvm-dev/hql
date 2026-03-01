@@ -14,15 +14,19 @@
  * - web/fetch-core.ts: URL fetching, redirects, byte limits
  */
 
+import { pooledMap } from "@std/async";
 import { ValidationError } from "../../../common/error.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 import { loadWebConfig } from "../web-config.ts";
 import { getWebCacheValue, setWebCacheValue } from "../web-cache.ts";
 
 import {
+  normalizeDomain,
   resolveSearchProvider,
+  SEARCH_TIME_RANGES,
   type SearchTimeRange,
   type Citation,
+  type SearchResult,
 } from "./web/search-provider.ts";
 import { initSearchProviders } from "./web/search-provider-bootstrap.ts";
 import {
@@ -30,6 +34,7 @@ import {
   parseHtml,
   isHtmlLikeResponse,
   extractReadableContent,
+  extractPublicationDate,
 } from "./web/html-parser.ts";
 import {
   DEFAULT_WEB_MAX_BYTES,
@@ -42,6 +47,11 @@ import {
   fetchUrlInternal,
 } from "./web/fetch-core.ts";
 import { renderWithChrome } from "./web/headless-chrome.ts";
+import {
+  deduplicateSnippetPassages,
+  extractRelevantPassages,
+  rankSearchResults,
+} from "./web/search-ranking.ts";
 
 // ============================================================
 // Types
@@ -62,6 +72,8 @@ interface SearchWebArgs {
   blockedDomains?: string[];
   timeRange?: SearchTimeRange;
   locale?: string;
+  prefetch?: boolean;       // Auto-fetch top results and extract relevant passages (default: true)
+  reformulate?: boolean;    // Enable query reformulation for wider recall (default: true)
 }
 
 interface WebFetchArgs {
@@ -77,13 +89,13 @@ interface WebFetchArgs {
 
 const DEFAULT_WEB_RESULTS = 5;
 const DEFAULT_HTML_LINKS = 20;
-const SEARCH_TIME_RANGES: SearchTimeRange[] = ["day", "week", "month", "year", "all"];
+const MAX_WEB_CHARS = 200_000;
 
 // ============================================================
 // Structured Error Codes
 // ============================================================
 
-export type WebToolErrorCode = "max_uses_exceeded" | "invalid_input" | "url_not_allowed" | "disabled" | "provider_error";
+export type WebToolErrorCode = "max_uses_exceeded" | "invalid_input" | "disabled";
 
 function webToolError(msg: string, context: string, errorCode: WebToolErrorCode): ValidationError {
   const err = new ValidationError(msg, context);
@@ -117,6 +129,18 @@ function checkWebToolBudget(toolName: string): void {
 // Locale Validation
 // ============================================================
 
+async function checkCacheHit(
+  key: string,
+  ttlMinutes: number,
+): Promise<Record<string, unknown> | null> {
+  if (ttlMinutes <= 0) return null;
+  const cached = await getWebCacheValue<Record<string, unknown>>(key);
+  if (!cached) return null;
+  const { retrievedAt: _cachedRetrievedAt, ...rest } =
+    cached as Record<string, unknown> & { retrievedAt?: unknown };
+  return { ...rest, cached: true, retrievedAt: new Date().toISOString() };
+}
+
 function resolveLocale(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string" || !/^[a-z]{2}-[a-z]{2}$/i.test(value.trim())) {
@@ -128,7 +152,7 @@ function resolveLocale(value: unknown): string | undefined {
 function normalizeDomainList(domains?: string[]): string {
   if (!domains?.length) return "";
   return [...domains]
-    .map((d) => d.trim().toLowerCase())
+    .map(normalizeDomain)
     .filter((d) => d.length > 0)
     .sort()
     .join(",");
@@ -142,6 +166,8 @@ function buildSearchWebCacheKey(
   blockedDomains?: string[],
   timeRange: SearchTimeRange = "all",
   locale?: string,
+  prefetch?: boolean,
+  reformulate?: boolean,
 ): string {
   return makeCacheKey(`search_web:${provider}`, [
     query,
@@ -150,10 +176,13 @@ function buildSearchWebCacheKey(
     normalizeDomainList(blockedDomains),
     timeRange,
     locale ?? "",
+    prefetch === false ? "nopf" : "pf",
+    reformulate === false ? "norf" : "rf",
   ]);
 }
 
 export const __testOnlyBuildSearchWebCacheKey = buildSearchWebCacheKey;
+export const __testOnlyFormatSearchWebResult = formatSearchWebResult;
 
 function resolveSearchTimeRange(value: unknown): SearchTimeRange {
   if (value === undefined) return "all";
@@ -225,20 +254,17 @@ async function webFetchSingle(
     throw webToolError("web fetch is disabled", "web_fetch", "disabled");
   }
 
-  const resolvedMaxChars = typeof maxChars === "number" && maxChars > 0
-    ? maxChars
-    : webConfig.fetch.maxChars;
+  assertUrlAllowed(url, options);
+
+  const resolvedMaxChars = Math.min(
+    typeof maxChars === "number" && maxChars > 0 ? maxChars : webConfig.fetch.maxChars,
+    MAX_WEB_CHARS,
+  );
   const timeoutMs = toMillis(timeoutSeconds ?? webConfig.fetch.timeoutSeconds);
 
   const cacheKey = makeCacheKey("web_fetch", [url, resolvedMaxChars]);
-  if (webConfig.fetch.cacheTtlMinutes > 0) {
-    const cached = await getWebCacheValue<Record<string, unknown>>(cacheKey);
-    if (cached) {
-      const { retrievedAt: _cachedRetrievedAt, ...rest } =
-        cached as Record<string, unknown> & { retrievedAt?: unknown };
-      return { ...rest, cached: true, retrievedAt: new Date().toISOString() };
-    }
-  }
+  const cachedFetch = await checkCacheHit(cacheKey, webConfig.fetch.cacheTtlMinutes);
+  if (cachedFetch) return cachedFetch;
 
   const headers: Record<string, string> = {
     "User-Agent": webConfig.fetch.userAgent,
@@ -348,7 +374,7 @@ async function webFetchSingle(
     chromeAttempted,
     chromeRenderChars: chromeAttempted ? chromeRenderChars : undefined,
     redirects,
-    citation: { url: finalUrl, title: parsed.title || "", excerpt: (text || "").slice(0, 150), provider: "fetch" } as Citation,
+    citations: [{ url: finalUrl, title: parsed.title || "", excerpt: (text || "").slice(0, 150), provider: "fetch" }] as Citation[],
   };
 
   if (webConfig.fetch.cacheTtlMinutes > 0) {
@@ -372,18 +398,15 @@ async function batchWebFetch(
   }
 
   const results: Record<string, unknown>[] = [];
-  for (let i = 0; i < urls.length; i += BATCH_CONCURRENCY) {
-    const batch = urls.slice(i, i + BATCH_CONCURRENCY);
-    const settled = await Promise.allSettled(
-      batch.map((u) => webFetchSingle(u, maxChars, timeoutSeconds, options)),
-    );
-    for (const [idx, r] of settled.entries()) {
-      results.push(
-        r.status === "fulfilled"
-          ? r.value
-          : { url: batch[idx], error: String(r.reason), ok: false },
-      );
+  const fetcher = pooledMap(BATCH_CONCURRENCY, urls, async (u) => {
+    try {
+      return await webFetchSingle(u, maxChars, timeoutSeconds, options);
+    } catch (err) {
+      return { url: u, error: String(err), ok: false } as Record<string, unknown>;
     }
+  });
+  for await (const result of fetcher) {
+    results.push(result);
   }
 
   return {
@@ -436,15 +459,11 @@ async function searchWeb(
     typed.blockedDomains,
     timeRange,
     locale,
+    typed.prefetch,
+    typed.reformulate,
   );
-  if (webConfig.search.cacheTtlMinutes > 0) {
-    const cached = await getWebCacheValue<Record<string, unknown>>(cacheKey);
-    if (cached) {
-      const { retrievedAt: _cachedRetrievedAt, ...rest } =
-        cached as Record<string, unknown> & { retrievedAt?: unknown };
-      return { ...rest, cached: true, retrievedAt: new Date().toISOString() };
-    }
-  }
+  const cachedSearch = await checkCacheHit(cacheKey, webConfig.search.cacheTtlMinutes);
+  if (cachedSearch) return cachedSearch;
 
   initSearchProviders();
   const provider = resolveSearchProvider(webConfig.search.provider, false);
@@ -456,7 +475,92 @@ async function searchWeb(
     timeRange,
     locale,
     toolOptions: options,
+    reformulate: typed.reformulate,
   });
+
+  // --- Lightweight prefetch: fetch top 2 result pages, extract passages + metadata ---
+  const shouldPrefetch = typed.prefetch !== false;  // default true
+  let anyDateEnriched = false;
+  if (shouldPrefetch) {
+    const prefetchTargets = result.results
+      .filter((r) => r.url)
+      .slice(0, 2);  // top 2 only
+
+    const PREFETCH_TIMEOUT = Math.min(timeout ?? 5000, 5000);  // capped at 5s
+    const PREFETCH_MAX_BYTES = 32_000;  // ~32KB raw HTML per page
+    const PREFETCH_MAX_TEXT = 8_000;    // 8K chars for passage extraction
+
+    const settled = await Promise.allSettled(
+      prefetchTargets.map(async (r) => {
+        const { response } = await fetchWithRedirects(
+          r.url!,
+          PREFETCH_TIMEOUT,
+          { "User-Agent": webConfig.fetch.userAgent },
+          2,  // max 2 redirects
+          options,
+        );
+        const body = await readResponseBody(response, PREFETCH_MAX_BYTES);
+        const rawHtml = body.text;
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!isHtmlLikeResponse(contentType, rawHtml)) {
+          return { url: r.url!, passages: [] as string[] };
+        }
+        const parsed = parseHtml(rawHtml, PREFETCH_MAX_TEXT, 3);
+        let passages = extractRelevantPassages(query, parsed.text);
+        // Snippet-passage dedup
+        if (r.snippet) {
+          passages = deduplicateSnippetPassages(r.snippet, passages);
+        }
+        // Extract publication date from HTML metadata
+        const pubDate = extractPublicationDate(rawHtml);
+        // Cross-domain links only
+        let relatedLinks: string[] | undefined;
+        if (parsed.links.length > 0) {
+          try {
+            const sourceHost = new URL(r.url!).hostname.toLowerCase();
+            relatedLinks = parsed.links.filter((link) => {
+              try { return new URL(link).hostname.toLowerCase() !== sourceHost; }
+              catch { return false; }
+            });
+            if (relatedLinks.length === 0) relatedLinks = undefined;
+          } catch { /* skip */ }
+        }
+        return {
+          url: r.url!,
+          passages,
+          description: parsed.description,
+          title: parsed.title,
+          publishedDate: pubDate,
+          relatedLinks,
+        };
+      }),
+    );
+
+    // Attach enrichment to matching results (best-effort)
+    for (const outcome of settled) {
+      if (outcome.status !== "fulfilled") continue;
+      const v = outcome.value;
+      const target = result.results.find((r) => r.url === v.url);
+      if (!target) continue;
+      if (v.passages.length > 0) target.passages = v.passages;
+      if (v.description && (!target.snippet || v.description.length > target.snippet.length)) {
+        target.pageDescription = v.description;
+      }
+      const isGenericTitle = !target.title || target.title.length < 5 ||
+        /^(untitled|home|index|page)$/i.test(target.title.trim());
+      if (v.title && isGenericTitle) target.title = v.title;
+      if (v.relatedLinks) target.relatedLinks = v.relatedLinks;
+      if (v.publishedDate && !target.publishedDate) {
+        target.publishedDate = v.publishedDate;
+        anyDateEnriched = true;
+      }
+    }
+  }
+
+  // Re-rank after date enrichment (recency boosts now apply)
+  if (anyDateEnriched) {
+    result.results = rankSearchResults(query, result.results, timeRange).slice(0, limit);
+  }
 
   const now = new Date().toISOString();
   const citations: Citation[] = result.results
@@ -477,6 +581,42 @@ async function searchWeb(
 }
 
 // ============================================================
+// Result Formatting
+// ============================================================
+
+function formatSearchWebResult(raw: unknown): { returnDisplay: string; llmContent: string } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  const results = data.results as SearchResult[] | undefined;
+  if (!Array.isArray(results)) return null;
+
+  const queryStr = typeof data.query === "string" ? data.query : "";
+  const provider = typeof data.provider === "string" ? data.provider : "search";
+  const lines: string[] = [`Search: "${queryStr}" (${results.length} results, ${provider})\n`];
+
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const header = `[${i + 1}] ${r.title}${r.url ? ` \u2014 ${r.url}` : ""}`;
+    lines.push(header);
+    if (r.publishedDate) lines.push(`    Published: ${r.publishedDate}`);
+    if (r.snippet) lines.push(`    > ${r.snippet}`);
+    // Show pageDescription when it adds info beyond the snippet
+    if (r.pageDescription && r.pageDescription !== r.snippet) {
+      lines.push(`    > ${r.pageDescription}`);
+    }
+    if (r.passages?.length) {
+      for (const p of r.passages) {
+        lines.push(`    > ${p}`);
+      }
+    }
+    lines.push("");
+  }
+
+  const text = lines.join("\n").trimEnd();
+  return { returnDisplay: text, llmContent: text };
+}
+
+// ============================================================
 // Tool Registry
 // ============================================================
 
@@ -484,8 +624,9 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
   search_web: {
     fn: searchWeb,
     description:
-      "Search the web for a query using DuckDuckGo. Returns snippets and URLs.",
+      "Search the web using DuckDuckGo. Returns snippets, URLs, and auto-prefetched relevant passages from top results.",
     category: "web",
+    formatResult: formatSearchWebResult,
     args: {
       query: "string - Search query",
       maxResults: "number (optional) - Max results (default: 5)",
@@ -495,9 +636,12 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
       blockedDomains: "string[] (optional) - Exclude results from these domains",
       timeRange: "string (optional) - Recency window: day|week|month|year|all (default: all)",
       locale: "string (optional) - DDG locale hint in 'xx-xx' format (e.g., 'us-en', 'kr-ko')",
+      prefetch: "boolean (optional) - Auto-fetch top results and extract relevant passages (default: true)",
+      reformulate: "boolean (optional) - Generate query variants for wider recall (default: true)",
     },
     returns: {
-      results: "Array<{title, url?, snippet?}>",
+      results: "Array<{title, url?, snippet?, passages?, pageDescription?, relatedLinks?}>",
+      "results[].passages": "string[] (optional) - Relevant passages extracted from prefetched page content (max 3, max 280 chars each)",
       count: "number",
       provider: "string",
       citations: "Citation[] - Structured provenance for each result",
@@ -558,7 +702,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
       chromeAttempted: "boolean - Chrome rendering was attempted (thin static content detected)",
       chromeRenderChars: "number (optional) - chars extracted from Chrome render (only if attempted)",
       redirects: "string[]",
-      citation: "Citation (optional) - Source provenance",
+      citations: "Citation[] - Source provenance",
       retrievedAt: "string (optional) - ISO 8601 timestamp",
     },
     safetyLevel: "L0",

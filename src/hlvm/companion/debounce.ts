@@ -5,19 +5,12 @@
  */
 
 import type { Observation } from "./types.ts";
-
-/** High-signal observation kinds that survive triage. */
-const HIGH_SIGNAL = new Set([
-  "check.failed",
-  "check.passed",
-  "terminal.result",
-  "app.switch",
-]);
+import { TRIAGE_PRIORITY_KINDS } from "./types.ts";
 
 function triageBatch(batch: Observation[], maxSize: number): Observation[] {
   if (batch.length <= maxSize) return batch;
-  const high = batch.filter((o) => HIGH_SIGNAL.has(o.kind));
-  const low = batch.filter((o) => !HIGH_SIGNAL.has(o.kind));
+  const high = batch.filter((o) => TRIAGE_PRIORITY_KINDS.has(o.kind));
+  const low = batch.filter((o) => !TRIAGE_PRIORITY_KINDS.has(o.kind));
   // Keep all high-signal, fill remaining with newest low-signal
   const remaining = maxSize - high.length;
   return remaining > 0

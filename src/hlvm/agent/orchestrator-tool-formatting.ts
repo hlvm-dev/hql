@@ -168,9 +168,10 @@ export function generateArgsSummary(
       return typeof a.expression === "string"
         ? truncate(a.expression, 80)
         : "";
-    case "web_search":
+    case "search_web":
       return typeof a.query === "string" ? truncate(a.query, 80) : "";
-    case "web_browse":
+    case "web_fetch":
+    case "fetch_url":
       return typeof a.url === "string" ? truncate(a.url, 80) : "";
     default: {
       try {

@@ -48,7 +48,7 @@ type SearchToolResponse = Record<string, unknown> & {
 };
 
 type WebFetchSingleResponse = Record<string, unknown> & {
-  citation?: unknown;
+  citations?: unknown[];
   retrievedAt?: string;
   status?: number;
   text?: string;
@@ -357,7 +357,7 @@ Deno.test({
         { url: makeDataUrl("Single", "single fetch body"), maxChars: 4000 },
         "/tmp",
       ) as WebFetchSingleResponse;
-      const webFetchProvenance = typeof single.citation === "object" &&
+      const webFetchProvenance = Array.isArray(single.citations) && single.citations.length > 0 &&
         typeof single.retrievedAt === "string";
       record(
         "web_fetch single response includes provenance",
