@@ -10,9 +10,11 @@ import type { ReplState } from "./state.ts";
 import { log } from "../../api/log.ts";
 import { ImportError } from "../../../common/error.ts";
 import { ensureError } from "../../../common/utils.ts";
+import * as StdlibModule from "../../../hql/lib/stdlib/js/index.js";
+import * as AiModule from "../../../hql/lib/stdlib/js/ai.js";
 
-const STDLIB_IMPORT_PATH = "../../../hql/lib/stdlib/js/index.js";
-const AI_IMPORT_PATH = "../../../hql/lib/stdlib/js/ai.js";
+const STDLIB_IMPORT_PATH = "embedded:stdlib/index.js";
+const AI_IMPORT_PATH = "embedded:stdlib/ai.js";
 
 export interface ModuleLoaderOptions {
   state: ReplState;
@@ -66,9 +68,7 @@ export async function loadStdlibModules(
 
   // Phase 1: Load stdlib/index.js (general functions)
   try {
-    const stdlib = await import(STDLIB_IMPORT_PATH);
-
-    for (const [name, value] of Object.entries(stdlib)) {
+    for (const [name, value] of Object.entries(StdlibModule)) {
       if (typeof value === "function" && !name.startsWith("_")) {
         state.addJsFunction(name, value as (...args: unknown[]) => unknown);
         result.stdlibExports.push(name);
@@ -82,12 +82,10 @@ export async function loadStdlibModules(
 
   // Phase 2: Load stdlib/ai.js (AI functions)
   try {
-    const aiModule = await import(AI_IMPORT_PATH) as Record<string, unknown>;
-
     const exportedNames: string[] = [];
 
     // Extract all exports (skip internal helpers starting with _)
-    for (const name of Object.keys(aiModule)) {
+    for (const name of Object.keys(AiModule)) {
       if (name.startsWith("_") || name === "default") continue;
       exportedNames.push(name);
     }
@@ -96,7 +94,7 @@ export async function loadStdlibModules(
     const globalAny = globalThis as Record<string, unknown>;
 
     for (const name of exportedNames) {
-      const value = aiModule[name];
+      const value = (AiModule as Record<string, unknown>)[name];
 
       // Set on globalThis (makes available in JS evaluation context)
       globalAny[name] = value;

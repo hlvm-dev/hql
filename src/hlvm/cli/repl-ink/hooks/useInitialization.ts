@@ -76,6 +76,7 @@ export function useInitialization(state: ReplState): InitializationState {
         }
 
         setErrors(loadErrors);
+        (globalThis as Record<string, unknown>).__hlvmStartupWarnings = loadErrors;
         refreshKeybindingLookup();
 
         // Register API names for tab completion
@@ -96,11 +97,21 @@ export function useInitialization(state: ReplState): InitializationState {
         setLoading(false);
         setReady(true);
       } catch (error) {
-        setErrors([getErrorMessage(error)]);
+        const startupErrors = [getErrorMessage(error)];
+        setErrors(startupErrors);
+        (globalThis as Record<string, unknown>).__hlvmStartupWarnings = startupErrors;
         setLoading(false);
       }
     })();
   }, [state]);
 
-  return { loading, ready, aiExports, readyTime, errors, needsModelSetup, modelToSetup };
+  return {
+    loading,
+    ready,
+    aiExports,
+    readyTime,
+    errors,
+    needsModelSetup,
+    modelToSetup,
+  };
 }

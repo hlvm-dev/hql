@@ -3,7 +3,7 @@
  * Full-featured REPL with rich banner, keyboard shortcuts, completions
  */
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
@@ -30,9 +30,10 @@ import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
 import { useAlternateBuffer } from "../hooks/useAlternateBuffer.ts";
 import type { EvalResult } from "../types.ts";
+import { StreamingState as ConversationStreamingState } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { clearTerminal } from "../../ansi.ts";
-import { getUnclosedDepth, highlight } from "../../repl/syntax.ts";
+import { getUnclosedDepth, tokenize, type TokenType } from "../../repl/syntax.ts";
 import { useTheme } from "../../theme/index.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { resetContext } from "../../repl/context.ts";
@@ -572,6 +573,7 @@ function AppContent(
   /** Detect if input looks like natural language rather than code */
   const isNaturalLanguage = useCallback((input: string): boolean => {
     const trimmed = input.trim();
+    if (!trimmed) return false;
     // Commands start with / or .
     if (trimmed.startsWith("/") || trimmed.startsWith(".")) return false;
     // HQL/Lisp: starts with ( or [
@@ -580,8 +582,18 @@ function AppContent(
     if (trimmed.endsWith(")") || trimmed.endsWith("]")) return false;
     // JavaScript-like: starts with const/let/var/function/class/import/export or assignment
     if (/^(const|let|var|function|class|import|export|async|return|if|else|for|while|switch|try|throw|new|typeof|delete)\s/.test(trimmed)) return false;
-    // Short single-word inputs could be JS variable lookup
-    if (/^\w+$/.test(trimmed)) return false;
+    // Single-token identifiers: treat as chat only when not a known binding.
+    // This allows "hello" to open agent chat, while keeping bound symbols code-first.
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) {
+      const lowered = trimmed.toLowerCase();
+      if (
+        lowered === "true" || lowered === "false" || lowered === "null" ||
+        lowered === "undefined" || lowered === "nan" || lowered === "infinity"
+      ) {
+        return false;
+      }
+      return !replState.hasBinding(trimmed);
+    }
     // Assignment patterns (including destructuring)
     if (/^\w+\s*=/.test(trimmed) || /^(const|let|var)\s/.test(trimmed)) return false;
     // Property access / method calls
@@ -594,11 +606,13 @@ function AppContent(
     if (trimmed.startsWith("{") || trimmed.includes("=>")) return false;
     // Operator expressions (e.g., "1 + 2", "x && y")
     if (/\w+\s*[+\-*/%&|<>=!?:]+\s*\w+/.test(trimmed)) return false;
-    // Must have spaces to be natural language (single words handled above)
+    // Single-token punctuation chat prompts like "hello?" should still route to agent.
+    if (!trimmed.includes(" ") && /[!?.,]$/.test(trimmed)) return true;
+    // Remaining single-token non-code input defaults to code path.
     if (!trimmed.includes(" ")) return false;
     // Multi-word input that doesn't match any code pattern → likely natural language
     return true;
-  }, []);
+  }, [replState]);
 
   const runConversation = useCallback(async (
     query: string,
@@ -900,11 +914,33 @@ function AppContent(
 
       // Natural language → agent conversation mode
       if (isNaturalLanguage(expandedCode)) {
-        // Convert media attachments to images array for vision models
-        const images = attachments
+        // Convert media attachments to structured payload for multimodal models.
+        // Fail fast on generic/untyped binary payloads with explicit guidance.
+        const mediaAttachments = attachments
           ?.filter((a): a is import("../../repl/attachment.ts").Attachment =>
             "base64Data" in a && a.type !== "text")
-          .map(a => ({ data: a.base64Data, mimeType: a.mimeType }));
+          ?? [];
+
+        const unsupported = mediaAttachments.filter((a) => {
+          if (a.mimeType.startsWith("image/")) return false;
+          if (a.mimeType.startsWith("audio/")) return false;
+          if (a.mimeType.startsWith("video/")) return false;
+          if (a.mimeType === "application/pdf") return false;
+          return true;
+        });
+
+        if (unsupported.length > 0) {
+          const modelLabel = footerModelName || "current model";
+          addHistoryEntry(code, {
+            success: false,
+            error: new Error(
+              `Attachment unsupported: ${unsupported[0].mimeType} is not supported by model ${modelLabel}.`,
+            ),
+          });
+          return;
+        }
+
+        const images = mediaAttachments.map((a) => ({ data: a.base64Data, mimeType: a.mimeType }));
         setIsEvaluating(true);
         runConversation(expandedCode, images?.length ? images : undefined);
         return;
@@ -1029,6 +1065,7 @@ function AppContent(
       closeConversationMode,
       pendingInteraction,
       handleInteractionResponse,
+      footerModelName,
     ],
   );
 
@@ -1184,14 +1221,19 @@ function AppContent(
     : [];
 
   // Input visible: always for normal/overlay modes, ONLY for question dialogs during conversation
+  const isConversationInputVisible = activePanel === "conversation" &&
+    (conversation.streamingState === ConversationStreamingState.Idle ||
+      pendingInteraction?.mode === "question");
   const isInputVisible = activePanel === "none" ||
     activePanel === "palette" || activePanel === "config-overlay" || activePanel === "tasks-overlay" ||
-    (activePanel === "conversation" && pendingInteraction?.mode === "question");
+    isConversationInputVisible;
+  const isConversationBusy = conversation.streamingState === ConversationStreamingState.Responding ||
+    conversation.streamingState === ConversationStreamingState.WaitingForConfirmation;
   const isInputDisabled = init.loading || activePanel === "palette" ||
     activePanel === "config-overlay" || activePanel === "tasks-overlay" ||
     (activePanel === "conversation" &&
       (pendingInteraction?.mode === "permission" ||
-        (isEvaluating && pendingInteraction?.mode !== "question")));
+        (isConversationBusy && pendingInteraction?.mode !== "question")));
   // Keep Ctrl+O section toggles from conflicting with Input paredit Ctrl+O.
   // Safe contexts:
   // - conversation mode without input visible (Input hidden, no conflict)
@@ -1209,6 +1251,26 @@ function AppContent(
     </Box>
   );
   const staticBannerProps = { items: bannerItems, children: renderBannerItem };
+  const tokenColor = (type: TokenType): string | undefined => {
+    switch (type) {
+      case "string":
+        return color("secondary");
+      case "number":
+        return color("accent");
+      case "keyword":
+      case "macro":
+        return color("primary");
+      case "comment":
+      case "whitespace":
+        return color("muted");
+      case "boolean":
+        return color("warning");
+      case "operator":
+        return color("accent");
+      default:
+        return undefined;
+    }
+  };
 
   return (
     <Box key={clearKey} flexDirection="column" paddingX={1}>
@@ -1229,7 +1291,15 @@ function AppContent(
                 <Text color={color("primary")} bold>
                   {lineIndex === 0 ? "hlvm>" : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
                 </Text>
-                <Text>{highlight(line)}</Text>
+                <Box>
+                  {tokenize(line).map((token, tokenIdx) => (
+                    <React.Fragment key={`${entry.id}-${lineIndex}-${tokenIdx}`}>
+                      <Text color={tokenColor(token.type)}>
+                        {token.value}
+                      </Text>
+                    </React.Fragment>
+                  ))}
+                </Box>
               </Box>
             ))}
             <Output result={entry.result} />
@@ -1333,12 +1403,16 @@ function AppContent(
           <ConversationPanel
             items={conversation.items}
             width={Math.max(20, terminalWidth - 2)}
+            streamingState={conversation.streamingState}
             allowToggleHotkeys={allowConversationToggleHotkeys}
             interactionRequest={pendingInteraction}
             interactionQueueLength={interactionQueue.length}
             onInteractionResponse={handleInteractionResponse}
           />
       )}
+
+      {/* Push input/footer to the visual bottom when there is spare terminal space */}
+      <Box flexGrow={1} />
 
       {/* Input line (hidden when modal panels are open, but visible under overlay) */}
       {/* FRP: Input now gets history, bindings, signatures, docstrings from ReplContext */}
@@ -1358,7 +1432,10 @@ function AppContent(
         (
           <FooterHint
             modelName={footerModelName}
-            agentStatus={activePanel === "conversation" ? conversation.agentStatus : undefined}
+            streamingState={activePanel === "conversation"
+              ? conversation.streamingState
+              : undefined}
+            activeTool={activePanel === "conversation" ? conversation.activeTool : undefined}
             contextUsageLabel={activePanel === "conversation" ? footerContextUsageLabel : ""}
             interactionQueueLength={activePanel === "conversation" ? interactionQueue.length : 0}
             inConversation={activePanel === "conversation"}

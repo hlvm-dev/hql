@@ -295,19 +295,21 @@ ${DIM_GRAY}Tip: Type /help for all commands and keybindings.${RESET}`);
 
   "/warnings": {
     description: "Show startup warnings",
-    handler: async (_state, _args, context) => {
-      // Access the init errors stored during startup
-      const memoryApi = (globalThis as Record<string, unknown>).memory as {
-        stats: () => Promise<{ path: string; count: number; size: number } | null>;
-      } | undefined;
+    handler: (_state, _args, context) => {
+      const warnings = (globalThis as Record<string, unknown>).__hlvmStartupWarnings;
+      const lines = Array.isArray(warnings)
+        ? warnings.filter((line: unknown): line is string => typeof line === "string" && line.length > 0)
+        : [];
 
-      if (!memoryApi) {
-        context.output(`${DIM_GRAY}No warnings.${RESET}`);
+      if (lines.length === 0) {
+        context.output(`${DIM_GRAY}No startup warnings.${RESET}`);
         return;
       }
 
-      // For now, report that warnings are only visible at startup
-      context.output(`${DIM_GRAY}Startup warnings are shown in the banner. Re-launch REPL to see them.${RESET}`);
+      context.output(`${BOLD}Startup warnings:${RESET}`);
+      for (const warning of lines) {
+        context.output(`${YELLOW}•${RESET} ${warning}`);
+      }
     },
   },
 

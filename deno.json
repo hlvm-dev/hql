@@ -30,6 +30,8 @@
     "esbuild-wasm": "npm:esbuild-wasm@^0.17.0",
     "jsdom": "npm:jsdom@22.1.0",
     "@mozilla/readability": "npm:@mozilla/readability@0.5.0"
+    ,
+    "lowlight": "npm:lowlight@3"
   },
   "lint": {
     "include": ["src/", "tests/", "scripts/"],

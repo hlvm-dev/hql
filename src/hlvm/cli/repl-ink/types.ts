@@ -96,11 +96,15 @@ export type ConversationItem =
   | InfoItem;
 
 // ============================================================
-// Agent Footer Status
+// Conversation Streaming State
 // ============================================================
 
-/** Agent status for the footer display */
-export type AgentFooterStatus =
-  | { type: "idle" }
-  | { type: "thinking" }
-  | { type: "running_tool"; toolName: string; toolIndex: number; toolTotal: number };
+/**
+ * Streaming lifecycle state for conversation mode.
+ * Single runtime source for spinner/footer/input/dialog behavior.
+ */
+export enum StreamingState {
+  Idle = "idle",
+  Responding = "responding",
+  WaitingForConfirmation = "waiting_for_confirmation",
+}

@@ -1,23 +1,20 @@
 /**
  * Footer Component
  *
- * Minimal footer: model name right-aligned.
- * Shows agent status + interaction hints only during conversation mode.
+ * Minimal footer:
+ * - Center: streaming state / interaction hints
+ * - Right: model + context usage
  */
 
 import React from "react";
 import { Text, Box } from "ink";
 import { useSemanticColors } from "../../theme/index.ts";
-import { BRAILLE_SPINNER_FRAMES } from "../ui-constants.ts";
-import { useSpinnerFrame } from "../hooks/useSpinnerFrame.ts";
-import type { AgentFooterStatus } from "../types.ts";
-
-// ============================================================
-// Types
-// ============================================================
+import type { StreamingState } from "../types.ts";
+import { StreamingState as ConversationStreamingState } from "../types.ts";
 
 interface FooterProps {
-  agentStatus?: AgentFooterStatus;
+  streamingState?: StreamingState;
+  activeTool?: { name: string; toolIndex: number; toolTotal: number };
   modelName?: string;
   /** Compact context/tokens indicator (e.g., "35% ctx", "4.2k tok") */
   contextUsageLabel?: string;
@@ -31,12 +28,9 @@ interface FooterProps {
   hasPendingQuestion?: boolean;
 }
 
-// ============================================================
-// Component
-// ============================================================
-
 export function FooterHint({
-  agentStatus,
+  streamingState,
+  activeTool,
   modelName,
   contextUsageLabel,
   interactionQueueLength = 0,
@@ -47,57 +41,49 @@ export function FooterHint({
   const sc = useSemanticColors();
   const model = modelName ?? "";
 
-  // Spinner animation for thinking/running states
-  const isAnimating = agentStatus?.type === "thinking" ||
-    agentStatus?.type === "running_tool";
-  const frame = useSpinnerFrame(isAnimating);
+  let centerText = "";
+  let centerColor = sc.text.muted;
 
-  // Conversation-mode hints (only shown during agent interactions)
-  let conversationHints = "";
-  if (hasPendingPermission) {
-    conversationHints = "y/Enter: approve | n/Esc: reject";
-  } else if (hasPendingQuestion) {
-    conversationHints = "Type answer + Enter | Esc: reject";
-  } else if (agentStatus && agentStatus.type !== "idle") {
-    conversationHints = inConversation
-      ? "Esc: cancel | PgUp/PgDn: scroll"
-      : "Esc: cancel";
-  } else if (inConversation) {
-    conversationHints = "Esc: exit | PgUp/PgDn: scroll";
+  if (inConversation) {
+    if (hasPendingPermission) {
+      centerText = "Awaiting approval: y/Enter approve · n/Esc reject";
+      centerColor = sc.status.warning;
+    } else if (hasPendingQuestion) {
+      centerText = "Awaiting answer: type response + Enter · Esc reject";
+      centerColor = sc.status.warning;
+    } else if (streamingState === ConversationStreamingState.WaitingForConfirmation) {
+      centerText = "Waiting for confirmation";
+      centerColor = sc.status.warning;
+    } else if (streamingState === ConversationStreamingState.Responding && activeTool) {
+      // Show tool progress in footer only when we have a concrete running tool.
+      // Generic "Thinking..." is rendered in the conversation panel to avoid duplication.
+      centerText = `Running ${activeTool.name} (${activeTool.toolIndex}/${activeTool.toolTotal})`;
+      centerColor = sc.status.warning;
+    } else {
+      centerText = "Esc: exit · PgUp/PgDn: scroll";
+      centerColor = sc.text.muted;
+    }
+
+    if (interactionQueueLength > 1) {
+      centerText += ` · +${interactionQueueLength - 1} queued`;
+    }
   }
-  if (interactionQueueLength > 1) {
-    conversationHints += ` | +${interactionQueueLength - 1} queued`;
-  }
+
+  const rightParts: string[] = [];
+  if (contextUsageLabel) rightParts.push(contextUsageLabel);
+  if (model) rightParts.push(model);
 
   return (
-    <Box flexGrow={1} flexDirection="row" justifyContent="flex-end">
-      {/* Agent status (conversation mode only) */}
-      {inConversation && (
-        <Box flexGrow={1}>
-          {agentStatus?.type === "thinking" && (
-            <Text color={sc.status.warning}>
-              {BRAILLE_SPINNER_FRAMES[frame]} Thinking...
-            </Text>
-          )}
-          {agentStatus?.type === "running_tool" && (
-            <Text color={sc.status.warning}>
-              {BRAILLE_SPINNER_FRAMES[frame]} Running {agentStatus.toolName} ({agentStatus.toolIndex}/{agentStatus.toolTotal})
-            </Text>
-          )}
-          {conversationHints && (
-            <Box justifyContent="flex-end" flexGrow={1}>
-              <Text color={sc.text.muted}>{conversationHints}</Text>
-            </Box>
-          )}
-        </Box>
-      )}
+    <Box flexGrow={1} flexDirection="row" justifyContent="space-between">
+      <Box flexGrow={1} justifyContent="center">
+        <Text color={centerColor}>{centerText}</Text>
+      </Box>
 
-      {/* Model name — always right-aligned */}
-      {model && (
+      <Box flexShrink={0} marginLeft={1}>
         <Text color={sc.text.muted}>
-          {contextUsageLabel ? `${contextUsageLabel} · ` : ""}{model}
+          {rightParts.join(" · ")}
         </Text>
-      )}
+      </Box>
     </Box>
   );
 }

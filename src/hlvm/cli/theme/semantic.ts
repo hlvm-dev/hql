@@ -40,6 +40,15 @@ export interface SemanticColors {
     success: string;
     error: string;
   };
+  syntax: {
+    keyword: string;
+    string: string;
+    number: string;
+    comment: string;
+    function: string;
+    operator: string;
+    default: string;
+  };
 }
 
 // ============================================================
@@ -77,6 +86,15 @@ export function buildSemanticColors(palette: ThemePalette): SemanticColors {
       running: palette.warning,
       success: palette.success,
       error: palette.error,
+    },
+    syntax: {
+      keyword: palette.primary,
+      string: palette.secondary,
+      number: palette.accent,
+      comment: palette.muted,
+      function: palette.success,
+      operator: palette.accent,
+      default: palette.text,
     },
   };
 }

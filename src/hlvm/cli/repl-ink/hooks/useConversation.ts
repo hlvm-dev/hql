@@ -13,12 +13,13 @@
 import { useState, useCallback, useRef } from "react";
 import type { AgentUIEvent } from "../../../agent/orchestrator.ts";
 import type {
-  AgentFooterStatus,
   ConversationItem,
+  StreamingState,
   ThinkingItem,
   ToolCallDisplay,
   ToolGroupItem,
 } from "../types.ts";
+import { StreamingState as ConversationStreamingState } from "../types.ts";
 
 // ============================================================
 // Helpers
@@ -84,8 +85,10 @@ function findMatchingRunningToolIndex(
 export interface UseConversationResult {
   /** Accumulated conversation items */
   items: ConversationItem[];
-  /** Current agent status for footer display */
-  agentStatus: AgentFooterStatus;
+  /** Current streaming state for conversation mode */
+  streamingState: StreamingState;
+  /** Currently active tool metadata for status display */
+  activeTool?: { name: string; toolIndex: number; toolTotal: number };
   /** Process an incoming agent event */
   addEvent: (event: AgentUIEvent) => void;
   /** Add a user message (also cleans up orphaned transient items) */
@@ -96,7 +99,7 @@ export interface UseConversationResult {
   addError: (text: string) => void;
   /** Add an info message */
   addInfo: (text: string) => void;
-  /** Reset agent status to idle */
+  /** Reset stream state to idle */
   resetStatus: () => void;
   /** Finalize conversation: clean up transient items (thinking) and reset status */
   finalize: () => void;
@@ -106,7 +109,12 @@ export interface UseConversationResult {
 
 export function useConversation(): UseConversationResult {
   const [items, setItems] = useState<ConversationItem[]>([]);
-  const [agentStatus, setAgentStatus] = useState<AgentFooterStatus>({ type: "idle" });
+  const [streamingState, setStreamingState] = useState<StreamingState>(
+    ConversationStreamingState.Idle,
+  );
+  const [activeTool, setActiveTool] = useState<
+    { name: string; toolIndex: number; toolTotal: number } | undefined
+  >(undefined);
   // Counter for generating unique IDs (items + tools)
   const idCounter = useRef(0);
   const nextId = () => `ci-${++idCounter.current}`;
@@ -114,23 +122,25 @@ export function useConversation(): UseConversationResult {
   const addEvent = useCallback((event: AgentUIEvent) => {
     switch (event.type) {
       case "thinking":
-        setAgentStatus({ type: "thinking" });
+        setStreamingState(ConversationStreamingState.Responding);
+        setActiveTool(undefined);
         setItems((prev: ConversationItem[]) =>
           upsertThinkingItem(prev, event.iteration, "", nextId)
         );
         break;
 
       case "thinking_update":
-        setAgentStatus({ type: "thinking" });
+        setStreamingState(ConversationStreamingState.Responding);
+        setActiveTool(undefined);
         setItems((prev: ConversationItem[]) =>
           upsertThinkingItem(prev, event.iteration, event.summary, nextId)
         );
         break;
 
       case "tool_start": {
-        setAgentStatus({
-          type: "running_tool",
-          toolName: event.name,
+        setStreamingState(ConversationStreamingState.Responding);
+        setActiveTool({
+          name: event.name,
           toolIndex: event.toolIndex,
           toolTotal: event.toolTotal,
         });
@@ -201,14 +211,16 @@ export function useConversation(): UseConversationResult {
             (tool: ToolCallDisplay) => tool.status === "success" || tool.status === "error",
           );
           if (allDone) {
-            setAgentStatus({ type: "thinking" });
+            setStreamingState(ConversationStreamingState.Responding);
+            setActiveTool(undefined);
           }
           return next;
         });
         break;
 
       case "turn_stats":
-        setAgentStatus({ type: "idle" });
+        setStreamingState(ConversationStreamingState.Idle);
+        setActiveTool(undefined);
         setItems((prev: ConversationItem[]) => {
           // Clean up transient items (thinking indicators, pending assistants)
           const cleaned = cleanupTransientItems(prev);
@@ -227,6 +239,7 @@ export function useConversation(): UseConversationResult {
         break;
 
       case "interaction_request":
+        setStreamingState(ConversationStreamingState.WaitingForConfirmation);
         // Interaction requests are handled separately by the ConversationPanel
         break;
     }
@@ -273,19 +286,34 @@ export function useConversation(): UseConversationResult {
   }, []);
 
   const resetStatus = useCallback(() => {
-    setAgentStatus({ type: "idle" });
+    setStreamingState(ConversationStreamingState.Idle);
+    setActiveTool(undefined);
   }, []);
 
   const finalize = useCallback(() => {
-    setAgentStatus({ type: "idle" });
+    setStreamingState(ConversationStreamingState.Idle);
+    setActiveTool(undefined);
     setItems((prev: ConversationItem[]) => cleanupTransientItems(prev));
   }, []);
 
   const clear = useCallback(() => {
     setItems([]);
-    setAgentStatus({ type: "idle" });
+    setStreamingState(ConversationStreamingState.Idle);
+    setActiveTool(undefined);
     idCounter.current = 0;
   }, []);
 
-  return { items, agentStatus, addEvent, addUserMessage, addAssistantText, addError, addInfo, resetStatus, finalize, clear };
+  return {
+    items,
+    streamingState,
+    activeTool,
+    addEvent,
+    addUserMessage,
+    addAssistantText,
+    addError,
+    addInfo,
+    resetStatus,
+    finalize,
+    clear,
+  };
 }

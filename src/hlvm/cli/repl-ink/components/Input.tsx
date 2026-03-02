@@ -313,10 +313,17 @@ export function Input({
     const isInMention = lastAt >= 0 && !textBefore.slice(lastAt + 1).includes(" ");
     const isInCommand = trimmedBefore.startsWith("/") && !trimmedBefore.includes(" ");
 
-    // GENERIC: Re-trigger for ANY provider when dropdown is already open (live filtering)
-    // Auto-close first when there is no meaningful completion context.
+    // GENERIC: Re-trigger for ANY provider when dropdown is already open (live filtering).
+    // IMPORTANT: symbol provider intentionally supports empty/whitespace contexts on explicit Tab.
+    // Do not auto-close symbol dropdown when word.length === 0.
     if (completion.isVisible) {
-      if (word.length === 0 && !isInMention && !isInCommand) {
+      const activeProvider = completion.renderProps?.providerId;
+      const shouldAutoClose =
+        word.length === 0 &&
+        !isInMention &&
+        !isInCommand &&
+        activeProvider !== "symbol";
+      if (shouldAutoClose) {
         completion.close();
         return;
       }
@@ -1016,8 +1023,9 @@ export function Input({
     // Use ref to avoid stale closure - disabled prop can change during evaluation
     if (disabledRef.current) return;
     // Some terminals emit raw \t for Tab without setting key.tab.
-    // Treat both forms as Tab for deterministic completion toggle behavior.
-    const isTabKey = key.tab || input === "\t";
+    // Others emit Ctrl+I (ASCII 9). Treat all forms as Tab for deterministic toggle behavior.
+    const inputCharCode = input?.charCodeAt(0) ?? 0;
+    const isTabKey = key.tab || input === "\t" || inputCharCode === 9 || (key.ctrl && input === "i");
 
     // ============================================================
     // HISTORY SEARCH MODE (Ctrl+R)

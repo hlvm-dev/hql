@@ -30,13 +30,14 @@ export function TurnStats({ toolCount, durationMs, inputTokens, outputTokens }: 
   const duration = formatDurationMs(durationMs);
   const tools = toolCount === 0 ? "" : toolCount === 1 ? "1 tool" : `${toolCount} tools`;
 
-  // Build token summary: "↑2.8k ↓420 tokens"
+  // Build token summary with explicit direction labels.
+  // Example: "in 2.8k tok · out 420 tok"
   let tokenPart = "";
   if (inputTokens || outputTokens) {
     const segments: string[] = [];
-    if (inputTokens) segments.push(`\u2191${formatTokens(inputTokens)}`);
-    if (outputTokens) segments.push(`\u2193${formatTokens(outputTokens)}`);
-    tokenPart = segments.join(" ") + " tokens";
+    if (inputTokens) segments.push(`in ${formatTokens(inputTokens)} tok`);
+    if (outputTokens) segments.push(`out ${formatTokens(outputTokens)} tok`);
+    tokenPart = segments.join(" · ");
   }
 
   const parts = [tools, duration, tokenPart].filter(Boolean).join(" \u00b7 ");

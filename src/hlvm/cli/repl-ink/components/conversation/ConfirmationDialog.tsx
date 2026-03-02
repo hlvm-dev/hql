@@ -17,6 +17,18 @@ interface ConfirmationDialogProps {
 
 export function ConfirmationDialog({ toolName, toolArgs }: ConfirmationDialogProps): React.ReactElement {
   const sc = useSemanticColors();
+  const parsedArgs = (() => {
+    if (!toolArgs) return [];
+    try {
+      const normalized = JSON.stringify(JSON.parse(toolArgs), null, 2);
+      return normalized.split("\n");
+    } catch {
+      return toolArgs.split("\n");
+    }
+  })();
+  const maxArgLines = 10;
+  const visibleArgLines = parsedArgs.slice(0, maxArgLines);
+  const hiddenArgLines = Math.max(0, parsedArgs.length - visibleArgLines.length);
 
   return (
     <Box
@@ -28,7 +40,7 @@ export function ConfirmationDialog({ toolName, toolArgs }: ConfirmationDialogPro
     >
       <Box>
         <Text color={sc.status.warning} bold>
-          {"⚠ Permission required"}
+          {"⚠ Permission Required"}
         </Text>
       </Box>
       {toolName && (
@@ -37,12 +49,19 @@ export function ConfirmationDialog({ toolName, toolArgs }: ConfirmationDialogPro
           <Text color={sc.text.primary} bold>{toolName}</Text>
         </Box>
       )}
-      {toolArgs && (
-        <Box>
-          <Text color={sc.text.secondary}>Args: </Text>
-          <Text color={sc.text.muted} wrap="truncate-end">
-            {toolArgs}
-          </Text>
+      {visibleArgLines.length > 0 && (
+        <Box flexDirection="column" marginTop={0}>
+          <Text color={sc.text.secondary}>Args:</Text>
+          <Box paddingLeft={1} flexDirection="column">
+            {visibleArgLines.map((line: string, i: number) => (
+              <React.Fragment key={i}>
+                <Text color={sc.text.muted} wrap="truncate-end">{line}</Text>
+              </React.Fragment>
+            ))}
+            {hiddenArgLines > 0 && (
+              <Text color={sc.text.muted}>… {hiddenArgLines} more line{hiddenArgLines === 1 ? "" : "s"}</Text>
+            )}
+          </Box>
         </Box>
       )}
       <Box marginTop={1}>

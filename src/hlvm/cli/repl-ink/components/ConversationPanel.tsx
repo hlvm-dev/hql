@@ -7,7 +7,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
-import type { ConversationItem } from "../types.ts";
+import type { ConversationItem, StreamingState } from "../types.ts";
 import type { InteractionRequestEvent, InteractionResponse } from "../../../agent/registry.ts";
 import {
   AssistantMessage,
@@ -30,6 +30,7 @@ import { useSemanticColors } from "../../theme/index.ts";
 interface ConversationPanelProps {
   items: ConversationItem[];
   width: number;
+  streamingState?: StreamingState;
   /** Whether section toggle hotkeys should be active (avoid conflicts with input editing) */
   allowToggleHotkeys?: boolean;
   /** Pending interaction request (permission or question) */
@@ -122,6 +123,7 @@ function renderItem(
 export function ConversationPanel({
   items,
   width,
+  streamingState,
   allowToggleHotkeys = true,
   interactionRequest,
   interactionQueueLength = 0,
@@ -132,6 +134,7 @@ export function ConversationPanel({
   const terminalRows = stdout?.rows ?? 24;
   const reservedRows = interactionRequest ? 14 : 10;
   const visibleCount = getConversationVisibleCount(terminalRows, { reservedRows });
+  const shouldVirtualize = items.length > visibleCount;
   const [scrollOffset, setScrollOffset] = useState(0);
   const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(
     () => new Set(),
@@ -140,11 +143,16 @@ export function ConversationPanel({
     () => new Set(),
   );
 
-  const pendingStart = useMemo(() => getPendingStartIndex(items), [items]);
+  const pendingStart = useMemo(
+    () => shouldVirtualize ? getPendingStartIndex(items) : items.length,
+    [items, shouldVirtualize],
+  );
   const staticItems = useMemo(() => items.slice(0, pendingStart), [items, pendingStart]);
   const pendingItems = useMemo(() => items.slice(pendingStart), [items, pendingStart]);
-  const maxPendingVisible = Math.max(2, Math.floor(visibleCount * 0.5));
-  const hiddenPendingCount = Math.max(0, pendingItems.length - maxPendingVisible);
+  const maxPendingVisible = shouldVirtualize ? Math.max(2, Math.floor(visibleCount * 0.5)) : pendingItems.length;
+  const hiddenPendingCount = shouldVirtualize
+    ? Math.max(0, pendingItems.length - maxPendingVisible)
+    : 0;
   const visiblePendingItems = useMemo(
     () => hiddenPendingCount > 0 ? pendingItems.slice(-maxPendingVisible) : pendingItems,
     [pendingItems, hiddenPendingCount, maxPendingVisible],
@@ -242,6 +250,10 @@ export function ConversationPanel({
 
   return (
     <Box flexDirection="column" width={width}>
+      {items.length === 0 && streamingState && (
+        <Text color={sc.text.muted}>Conversation starting...</Text>
+      )}
+
       {scrollOffset > 0 && (
         <Text color={sc.status.warning}>
           Scrolled up · Ctrl+↓ to jump to latest
