@@ -13,22 +13,21 @@ import {
   isNetworkAllowed,
   type AgentPolicy,
 } from "../../../src/hlvm/agent/policy.ts";
+import {
+  cleanupWorkspaceDir,
+  ensureWorkspaceDir,
+} from "./workspace-test-helpers.ts";
 
 const TEST_WORKSPACE = "/tmp/hlvm-agent-policy-test";
 
 async function setupWorkspace() {
   const platform = getPlatform();
-  await platform.fs.mkdir(TEST_WORKSPACE, { recursive: true });
+  await ensureWorkspaceDir(TEST_WORKSPACE);
   await platform.fs.mkdir(`${TEST_WORKSPACE}/.hlvm`, { recursive: true });
 }
 
 async function cleanupWorkspace() {
-  const platform = getPlatform();
-  try {
-    await platform.fs.remove(TEST_WORKSPACE, { recursive: true });
-  } catch {
-    // ignore
-  }
+  await cleanupWorkspaceDir(TEST_WORKSPACE);
 }
 
 Deno.test({

@@ -8,6 +8,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 import type { ConversationItem, StreamingState } from "../types.ts";
+import { StreamingState as ConversationStreamingState } from "../types.ts";
 import type { InteractionRequestEvent, InteractionResponse } from "../../../agent/registry.ts";
 import {
   AssistantMessage,
@@ -85,6 +86,7 @@ function getToggleTargets(items: ConversationItem[]): ToggleTarget[] {
 function renderItem(
   item: ConversationItem,
   width: number,
+  streamingState: StreamingState | undefined,
   isToolExpanded: (toolId: string) => boolean,
   isThinkingExpanded: (thinkingId: string) => boolean,
 ): React.ReactElement | null {
@@ -99,6 +101,7 @@ function renderItem(
           summary={item.summary}
           iteration={item.iteration}
           expanded={isThinkingExpanded(item.id)}
+          isAnimating={streamingState === ConversationStreamingState.Responding}
         />
       );
     case "tool_group":
@@ -268,7 +271,7 @@ export function ConversationPanel({
 
       {visibleStaticItems.map((item: ConversationItem) => (
         <Box key={item.id}>
-          {renderItem(item, width, isToolExpanded, isThinkingExpanded)}
+          {renderItem(item, width, streamingState, isToolExpanded, isThinkingExpanded)}
         </Box>
       ))}
 
@@ -280,7 +283,7 @@ export function ConversationPanel({
 
       {visiblePendingItems.map((item: ConversationItem) => (
         <Box key={item.id}>
-          {renderItem(item, width, isToolExpanded, isThinkingExpanded)}
+          {renderItem(item, width, streamingState, isToolExpanded, isThinkingExpanded)}
         </Box>
       ))}
 

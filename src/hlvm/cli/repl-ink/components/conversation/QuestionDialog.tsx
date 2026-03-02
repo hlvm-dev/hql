@@ -38,7 +38,7 @@ export function QuestionDialog({ question }: QuestionDialogProps): React.ReactEl
       )}
       <Box marginTop={1}>
         <Text color={sc.text.muted}>
-          Type your answer and press <Text bold color={sc.text.primary}>Enter</Text>
+          Answer at <Text bold color={sc.text.primary}>answer&gt;</Text> below, then press <Text bold color={sc.text.primary}>Enter</Text>
         </Text>
       </Box>
     </Box>

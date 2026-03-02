@@ -10,6 +10,10 @@ import {
   SecurityError,
 } from "../../../src/hlvm/agent/security/path-sandbox.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import {
+  cleanupWorkspaceDir,
+  ensureWorkspaceDir,
+} from "./workspace-test-helpers.ts";
 
 // Test workspace setup
 const TEST_WORKSPACE = "/tmp/hlvm-test-workspace";
@@ -17,25 +21,16 @@ const TEST_WORKSPACE = "/tmp/hlvm-test-workspace";
 // Helper to ensure test workspace exists
 async function setupTestWorkspace() {
   const platform = getPlatform();
-  try {
-    await platform.fs.mkdir(TEST_WORKSPACE, { recursive: true });
-    // Create a test file
-    await platform.fs.writeTextFile(`${TEST_WORKSPACE}/test.txt`, "test");
-    // Create a test directory
-    await platform.fs.mkdir(`${TEST_WORKSPACE}/subdir`, { recursive: true });
-  } catch {
-    // Workspace might already exist
-  }
+  await ensureWorkspaceDir(TEST_WORKSPACE);
+  // Create a test file
+  await platform.fs.writeTextFile(`${TEST_WORKSPACE}/test.txt`, "test");
+  // Create a test directory
+  await platform.fs.mkdir(`${TEST_WORKSPACE}/subdir`, { recursive: true });
 }
 
 // Helper to cleanup test workspace
 async function cleanupTestWorkspace() {
-  const platform = getPlatform();
-  try {
-    await platform.fs.remove(TEST_WORKSPACE, { recursive: true });
-  } catch {
-    // Ignore cleanup errors
-  }
+  await cleanupWorkspaceDir(TEST_WORKSPACE);
 }
 
 Deno.test({

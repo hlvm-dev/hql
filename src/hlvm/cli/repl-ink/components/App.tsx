@@ -30,7 +30,6 @@ import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
 import { useAlternateBuffer } from "../hooks/useAlternateBuffer.ts";
 import type { EvalResult } from "../types.ts";
-import { StreamingState as ConversationStreamingState } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { clearTerminal } from "../../ansi.ts";
 import { getUnclosedDepth, tokenize, type TokenType } from "../../repl/syntax.ts";
@@ -75,6 +74,11 @@ interface BannerItem {
   aiExports: string[];
   errors: string[];
   session: SessionMeta | null;
+}
+
+interface QueuedConversationTurn {
+  query: string;
+  images?: Array<{ data: string; mimeType: string }>;
 }
 
 interface ConfigSnapshotApi {
@@ -326,12 +330,41 @@ function AppContent(
   const conversation = useConversation();
   const [interactionQueue, setInteractionQueue] = useState<InteractionRequestEvent[]>([]);
   const pendingInteraction = interactionQueue[0];
+
+  const prepareConversationMediaPayload = useCallback((attachments?: AnyAttachment[]) => {
+    const mediaAttachments = attachments
+      ?.filter((a): a is import("../../repl/attachment.ts").Attachment =>
+        "base64Data" in a && a.type !== "text")
+      ?? [];
+
+    const unsupported = mediaAttachments.filter((a) => {
+      if (a.mimeType.startsWith("image/")) return false;
+      if (a.mimeType.startsWith("audio/")) return false;
+      if (a.mimeType.startsWith("video/")) return false;
+      if (a.mimeType === "application/pdf") return false;
+      return true;
+    });
+
+    if (unsupported.length > 0) {
+      return {
+        images: undefined,
+        unsupportedMimeType: unsupported[0].mimeType,
+      };
+    }
+
+    return {
+      images: mediaAttachments.map((a) => ({ data: a.base64Data, mimeType: a.mimeType })),
+      unsupportedMimeType: undefined,
+    };
+  }, []);
+
   const agentControllerRef = useRef<AbortController | null>(null);
   const interactionResolversRef = useRef<
     Map<string, (response: InteractionResponse) => void>
   >(new Map());
   const [footerModelName, setFooterModelName] = useState<string>("");
   const [footerContextUsageLabel, setFooterContextUsageLabel] = useState<string>("");
+  const [pendingConversationQueue, setPendingConversationQueue] = useState<QueuedConversationTurn[]>([]);
   const shouldUseAlternateBuffer = activePanel === "conversation" &&
     conversation.items.length >= 80;
   useAlternateBuffer(shouldUseAlternateBuffer);
@@ -705,7 +738,7 @@ function AppContent(
         );
         setFooterContextUsageLabel(`${pct}% ctx`);
       } else if (usage) {
-        setFooterContextUsageLabel(`${usage.totalTokens} tok`);
+        setFooterContextUsageLabel(`${usage.totalTokens} tokens`);
       } else {
         setFooterContextUsageLabel("");
       }
@@ -750,9 +783,21 @@ function AppContent(
     } else {
       conversation.finalize();
     }
+    setPendingConversationQueue([]);
     setFooterContextUsageLabel("");
     setActivePanel("none");
   }, [conversation, interactionQueue]);
+
+  useEffect(() => {
+    if (activePanel !== "conversation") return;
+    if (agentControllerRef.current) return;
+    if (pendingConversationQueue.length === 0) return;
+
+    const [nextTurn, ...rest] = pendingConversationQueue;
+    setPendingConversationQueue(rest);
+    setIsEvaluating(true);
+    void runConversation(nextTurn.query, nextTurn.images);
+  }, [activePanel, pendingConversationQueue, runConversation]);
 
   const handleSubmit = useCallback(
     async (code: string, attachments?: AnyAttachment[]) => {
@@ -904,6 +949,28 @@ function AppContent(
         });
         return;
       }
+
+      // Conversation mode: keep input active and queue turns while the agent is running.
+      if (activePanel === "conversation") {
+        const { images, unsupportedMimeType } = prepareConversationMediaPayload(attachments);
+        if (unsupportedMimeType) {
+          conversation.addError(`Attachment unsupported: ${unsupportedMimeType}`);
+          return;
+        }
+        const imagePayload = images && images.length > 0 ? images : undefined;
+        if (agentControllerRef.current) {
+          setPendingConversationQueue((prev: QueuedConversationTurn[]) => [
+            ...prev,
+            { query: expandedCode, images: imagePayload },
+          ]);
+          conversation.addInfo("Queued message. It will run after current response.");
+          return;
+        }
+        setIsEvaluating(true);
+        runConversation(expandedCode, imagePayload);
+        return;
+      }
+
       if (agentControllerRef.current) {
         addHistoryEntry(code, {
           success: false,
@@ -916,31 +983,18 @@ function AppContent(
       if (isNaturalLanguage(expandedCode)) {
         // Convert media attachments to structured payload for multimodal models.
         // Fail fast on generic/untyped binary payloads with explicit guidance.
-        const mediaAttachments = attachments
-          ?.filter((a): a is import("../../repl/attachment.ts").Attachment =>
-            "base64Data" in a && a.type !== "text")
-          ?? [];
-
-        const unsupported = mediaAttachments.filter((a) => {
-          if (a.mimeType.startsWith("image/")) return false;
-          if (a.mimeType.startsWith("audio/")) return false;
-          if (a.mimeType.startsWith("video/")) return false;
-          if (a.mimeType === "application/pdf") return false;
-          return true;
-        });
-
-        if (unsupported.length > 0) {
+        const { images, unsupportedMimeType } = prepareConversationMediaPayload(attachments);
+        if (unsupportedMimeType) {
           const modelLabel = footerModelName || "current model";
           addHistoryEntry(code, {
             success: false,
             error: new Error(
-              `Attachment unsupported: ${unsupported[0].mimeType} is not supported by model ${modelLabel}.`,
+              `Attachment unsupported: ${unsupportedMimeType} is not supported by model ${modelLabel}.`,
             ),
           });
           return;
         }
 
-        const images = mediaAttachments.map((a) => ({ data: a.base64Data, mimeType: a.mimeType }));
         setIsEvaluating(true);
         runConversation(expandedCode, images?.length ? images : undefined);
         return;
@@ -1066,6 +1120,7 @@ function AppContent(
       pendingInteraction,
       handleInteractionResponse,
       footerModelName,
+      prepareConversationMediaPayload,
     ],
   );
 
@@ -1106,7 +1161,7 @@ function AppContent(
     }
   }, []);
 
-  // Global shortcuts (Ctrl+C exit, Ctrl+L/Cmd+K clear, Ctrl+P palette, Ctrl+B tasks, ESC cancel)
+  // Global shortcuts (Ctrl+C exit, Ctrl+L/Cmd+K clear, Ctrl+P palette, Ctrl+B tasks, ESC cancel-in-place)
   useInput((char, key) => {
     if (key.ctrl && char === "c") {
       replState.flushHistorySync();
@@ -1178,9 +1233,16 @@ function AppContent(
       }
     }
 
-    // ESC during conversation: abort agent and return to normal REPL
+    // ESC during conversation:
+    // - running: cancel in-place (keep chat surface)
+    // - idle: exit conversation mode
     if (key.escape && activePanel === "conversation") {
-      closeConversationMode();
+      if (agentControllerRef.current) {
+        agentControllerRef.current.abort();
+        setIsEvaluating(false);
+      } else {
+        closeConversationMode();
+      }
       return;
     }
 
@@ -1220,20 +1282,14 @@ function AppContent(
     }]
     : [];
 
-  // Input visible: always for normal/overlay modes, ONLY for question dialogs during conversation
-  const isConversationInputVisible = activePanel === "conversation" &&
-    (conversation.streamingState === ConversationStreamingState.Idle ||
-      pendingInteraction?.mode === "question");
+  // Input visible: always for normal/overlay modes and always visible in conversation mode.
+  const isConversationInputVisible = activePanel === "conversation";
   const isInputVisible = activePanel === "none" ||
     activePanel === "palette" || activePanel === "config-overlay" || activePanel === "tasks-overlay" ||
     isConversationInputVisible;
-  const isConversationBusy = conversation.streamingState === ConversationStreamingState.Responding ||
-    conversation.streamingState === ConversationStreamingState.WaitingForConfirmation;
   const isInputDisabled = init.loading || activePanel === "palette" ||
     activePanel === "config-overlay" || activePanel === "tasks-overlay" ||
-    (activePanel === "conversation" &&
-      (pendingInteraction?.mode === "permission" ||
-        (isConversationBusy && pendingInteraction?.mode !== "question")));
+    (activePanel === "conversation" && pendingInteraction?.mode === "permission");
   // Keep Ctrl+O section toggles from conflicting with Input paredit Ctrl+O.
   // Safe contexts:
   // - conversation mode without input visible (Input hidden, no conflict)
@@ -1424,6 +1480,8 @@ function AppContent(
             onChange={setInput}
             onSubmit={handleSubmit}
             disabled={isInputDisabled}
+            highlightMode={activePanel === "conversation" ? "chat" : "code"}
+            promptLabel={activePanel === "conversation" && pendingInteraction?.mode === "question" ? "answer>" : "hlvm>"}
           />
         )}
 
@@ -1438,6 +1496,7 @@ function AppContent(
             activeTool={activePanel === "conversation" ? conversation.activeTool : undefined}
             contextUsageLabel={activePanel === "conversation" ? footerContextUsageLabel : ""}
             interactionQueueLength={activePanel === "conversation" ? interactionQueue.length : 0}
+            queuedUserTurnCount={activePanel === "conversation" ? pendingConversationQueue.length : 0}
             inConversation={activePanel === "conversation"}
             hasPendingPermission={activePanel === "conversation" && pendingInteraction?.mode === "permission"}
             hasPendingQuestion={activePanel === "conversation" && pendingInteraction?.mode === "question"}

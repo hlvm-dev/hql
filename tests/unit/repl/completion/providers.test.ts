@@ -273,6 +273,11 @@ Deno.test("Providers: shouldTriggerFileMention does not trigger mid-word", () =>
   assert(!shouldTriggerFileMention(ctx));
 });
 
+Deno.test("Providers: shouldTriggerFileMention triggers inline for explicit absolute/tilde paths", () => {
+  const ctx = createContext("t@~/Desktop", 11);
+  assert(shouldTriggerFileMention(ctx));
+});
+
 Deno.test("Providers: shouldTriggerFileMention does not trigger without @", () => {
   const ctx = createContext("hello", 5);
   assert(!shouldTriggerFileMention(ctx));

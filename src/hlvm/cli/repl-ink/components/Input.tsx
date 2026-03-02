@@ -47,6 +47,10 @@ import {
   Dropdown,
   ATTACHMENT_PLACEHOLDER,
   getWordAtCursor,
+  buildContext as buildCompletionContext,
+  shouldTriggerFileMention,
+  extractMentionQuery,
+  shouldTriggerCommand,
   type CompletionItem,
   type CompletionAction,
 } from "../completion/index.ts";
@@ -107,6 +111,10 @@ interface InputProps {
   onChange: (value: string) => void;
   onSubmit: (value: string, attachments?: AnyAttachment[]) => void;
   disabled?: boolean;
+  /** "chat" disables code token coloring for natural-language turns */
+  highlightMode?: "code" | "chat";
+  /** Override first-line prompt label (e.g. "answer>") */
+  promptLabel?: string;
   // FRP: history, bindings, signatures, docstrings now come from ReplContext
 }
 
@@ -115,6 +123,8 @@ export function Input({
   onChange,
   onSubmit,
   disabled = false,
+  highlightMode = "code",
+  promptLabel = "hlvm>",
 }: InputProps): React.ReactElement {
   // FRP: Get all reactive state from context
   const { bindings: userBindings, signatures, docstrings, history, memoryNames } = useReplContext();
@@ -331,28 +341,41 @@ export function Input({
       return;
     }
 
-    // @mention triggers FileProvider
-    const mentionAt = textBefore.lastIndexOf("@");
-    if (mentionAt >= 0) {
-      const queryPart = textBefore.slice(mentionAt + 1);
-      const isAbsolutePath = queryPart.startsWith("/") || queryPart.startsWith("~");
-      // Valid @mention context: no spaces (unless absolute path), no ) or "
-      if ((!queryPart.includes(" ") || isAbsolutePath) && !queryPart.includes(")") && !queryPart.includes("\"")) {
-        const charBefore = mentionAt === 0 ? " " : textBefore[mentionAt - 1];
-        if (charBefore === " " || charBefore === "\t" || charBefore === "(" || charBefore === "[" || mentionAt === 0) {
-          triggerCompletionRef.current(value, cursorPos);
-          return;
-        }
-      }
+    const completionContext = buildCompletionContext(
+      value,
+      cursorPos,
+      userBindings,
+      signatures,
+      docstrings,
+      memoryNamesSet,
+    );
+
+    // @mention auto-trigger uses provider SSOT trigger/query rules.
+    if (
+      shouldTriggerFileMention(completionContext) &&
+      extractMentionQuery(completionContext) !== null
+    ) {
+      triggerCompletionRef.current(value, cursorPos);
+      return;
     }
 
-    // /command triggers CommandProvider (only at start)
-    if (trimmedBefore.startsWith("/") && !trimmedBefore.includes(" ")) {
+    // /command auto-trigger uses provider SSOT trigger rules.
+    if (shouldTriggerCommand(completionContext)) {
       triggerCompletionRef.current(value, cursorPos);
       return;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, cursorPos, historySearch.state.isSearching, placeholders, placeholderIndex]);
+  }, [
+    value,
+    cursorPos,
+    historySearch.state.isSearching,
+    placeholders,
+    placeholderIndex,
+    userBindings,
+    signatures,
+    docstrings,
+    memoryNamesSet,
+  ]);
 
   // Helper: check if in placeholder mode
   const isInPlaceholderMode = useCallback(() => {
@@ -1481,6 +1504,12 @@ export function Input({
         completion.close();
         return;
       }
+      // Directory drill: keep browsing into selected directory without closing dropdown.
+      // Uses RightArrow to avoid conflict with global Tab toggle behavior.
+      if (key.rightArrow && selectedItem?.availableActions.includes("DRILL")) {
+        executeCompletionAction(selectedItem, "DRILL");
+        return;
+      }
 
       // Tab toggles dropdown only (open/close). It never applies selection.
       // Selection is explicit via Enter.
@@ -1846,10 +1875,13 @@ export function Input({
   // Helper: render text with placeholder highlighting
   // OPTIMIZED: O(n) single pass instead of O(n²) nested loops
   const renderWithPlaceholders = (text: string, startOffset: number): string => {
+    const renderHighlighted = (chunk: string, bracketPositions: number[] | null): string =>
+      highlightMode === "chat" ? chunk : highlight(chunk, bracketPositions);
+
     const sliceBrackets = getBracketPositionsForSlice(startOffset, startOffset + text.length);
 
     if (!isInPlaceholderMode() || placeholders.length === 0) {
-      return highlight(text, sliceBrackets);
+      return renderHighlighted(text, sliceBrackets);
     }
 
     // Filter placeholders that overlap with this text range [startOffset, startOffset + text.length)
@@ -1859,7 +1891,7 @@ export function Input({
       .filter(({ ph }: { ph: Placeholder }) => ph.start < endOffset && ph.start + ph.length > startOffset);
 
     if (relevantPhs.length === 0) {
-      return highlight(text, sliceBrackets);
+      return renderHighlighted(text, sliceBrackets);
     }
 
     // Build result in single pass through text, iterating placeholders once
@@ -1889,7 +1921,7 @@ export function Input({
             const chunkBrackets = getBracketPositionsForSlice(chunkStart, chunkEnd);
             // Adjust positions to be relative to the slice being highlighted
             const adjustedBrackets = chunkBrackets?.map(p => p - textPos) ?? null;
-            result += highlight(text.slice(textPos, phStartInText), adjustedBrackets);
+            result += renderHighlighted(text.slice(textPos, phStartInText), adjustedBrackets);
           }
 
           // Render placeholder text with styling
@@ -1897,7 +1929,7 @@ export function Input({
           const phText = text.slice(Math.max(textPos, phStartInText), phEndInText);
 
           if (ph.touched) {
-            result += highlight(phText, null);
+            result += renderHighlighted(phText, null);
           } else if (originalIdx === placeholderIndex) {
             result += getThemedAnsi().accent + phText + RESET;
           } else {
@@ -1914,7 +1946,7 @@ export function Input({
         const chunkEnd = startOffset + nextPhStart;
         const chunkBrackets = getBracketPositionsForSlice(chunkStart, chunkEnd);
         const adjustedBrackets = chunkBrackets?.map(p => p - textPos) ?? null;
-        result += highlight(text.slice(textPos, nextPhStart), adjustedBrackets);
+        result += renderHighlighted(text.slice(textPos, nextPhStart), adjustedBrackets);
         textPos = nextPhStart;
       } else {
         // No more placeholders - render rest of text
@@ -1922,7 +1954,7 @@ export function Input({
         const chunkEnd = startOffset + text.length;
         const chunkBrackets = getBracketPositionsForSlice(chunkStart, chunkEnd);
         const adjustedBrackets = chunkBrackets?.map(p => p - textPos) ?? null;
-        result += highlight(text.slice(textPos), adjustedBrackets);
+        result += renderHighlighted(text.slice(textPos), adjustedBrackets);
         break;
       }
     }
@@ -1955,7 +1987,7 @@ export function Input({
     const isCurrentLine = lineIndex === cursorLine;
     // Show depth indicator on continuation lines: "..1>" or "..2>" etc.
     const prompt = lineIndex === 0
-      ? "hlvm>"
+      ? promptLabel
       : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>");
 
     if (!isCurrentLine) {

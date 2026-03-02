@@ -6,51 +6,29 @@
  * artifacts from two consecutive builds.
  */
 
-const OUTPUT_FILES = [
-  "src/hql/lib/stdlib/js/self-hosted.js",
-  "src/hql/lib/stdlib/js/self-hosted.d.ts",
-];
-
-async function runBuild() {
-  const command = new Deno.Command("deno", {
-    args: ["task", "stdlib:build"],
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const output = await command.output();
-  if (!output.success) {
-    Deno.exit(output.code);
-  }
-}
-
-async function snapshot(files: string[]) {
-  const result = new Map<string, string>();
-  for (const file of files) {
-    result.set(file, await Deno.readTextFile(file));
-  }
-  return result;
-}
-
-function compare(a: Map<string, string>, b: Map<string, string>) {
-  const mismatches: string[] = [];
-  for (const [file, textA] of a.entries()) {
-    if (textA !== b.get(file)) {
-      mismatches.push(file);
-    }
-  }
-  return mismatches;
-}
+import {
+  compareSnapshots,
+  runStdlibBuild,
+  snapshotFiles,
+  STDLIB_GENERATED_FILES,
+} from "./stdlib-check-helpers.ts";
 
 async function main() {
   console.log("Running stdlib build (pass 1)...");
-  await runBuild();
-  const pass1 = await snapshot(OUTPUT_FILES);
+  const pass1Build = await runStdlibBuild();
+  if (!pass1Build.success) {
+    Deno.exit(pass1Build.code);
+  }
+  const pass1 = await snapshotFiles(STDLIB_GENERATED_FILES);
 
   console.log("Running stdlib build (pass 2)...");
-  await runBuild();
-  const pass2 = await snapshot(OUTPUT_FILES);
+  const pass2Build = await runStdlibBuild();
+  if (!pass2Build.success) {
+    Deno.exit(pass2Build.code);
+  }
+  const pass2 = await snapshotFiles(STDLIB_GENERATED_FILES);
 
-  const mismatches = compare(pass1, pass2);
+  const mismatches = compareSnapshots(pass1, pass2);
   if (mismatches.length > 0) {
     console.error(
       [

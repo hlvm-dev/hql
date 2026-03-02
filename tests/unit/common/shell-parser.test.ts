@@ -154,6 +154,7 @@ Deno.test("parseShellCommand - detects pipe operator", () => {
 
   assertEquals(result.hasPipes, true);
   assertEquals(result.hasChaining, false);
+  assertEquals(result.args, ["grep", "test"]);
 });
 
 Deno.test("parseShellCommand - detects semicolon chaining", () => {
@@ -161,6 +162,7 @@ Deno.test("parseShellCommand - detects semicolon chaining", () => {
 
   assertEquals(result.hasPipes, false);
   assertEquals(result.hasChaining, true);
+  assertEquals(result.args, ["hello", "echo", "world"]);
 });
 
 Deno.test("parseShellCommand - detects AND operator", () => {
@@ -168,6 +170,7 @@ Deno.test("parseShellCommand - detects AND operator", () => {
 
   assertEquals(result.hasPipes, false);
   assertEquals(result.hasChaining, true);
+  assertEquals(result.args, ["test", "cd", "test"]);
 });
 
 Deno.test("parseShellCommand - detects OR operator", () => {
@@ -175,6 +178,22 @@ Deno.test("parseShellCommand - detects OR operator", () => {
 
   assertEquals(result.hasPipes, false);
   assertEquals(result.hasChaining, true);
+  assertEquals(result.args, ["-f", "file", "echo", "missing"]);
+});
+
+Deno.test("parseShellCommand - detects chaining without surrounding spaces", () => {
+  const result = parseShellCommand("echo a&&echo b");
+
+  assertEquals(result.hasPipes, false);
+  assertEquals(result.hasChaining, true);
+  assertEquals(result.args, ["a", "echo", "b"]);
+});
+
+Deno.test("parseShellCommand - detects redirect operator without leaking tokens", () => {
+  const result = parseShellCommand("cat foo > out.txt");
+
+  assertEquals(result.hasRedirects, true);
+  assertEquals(result.args, ["foo", "out.txt"]);
 });
 
 Deno.test("parseShellCommand - pipe in quotes is safe", () => {

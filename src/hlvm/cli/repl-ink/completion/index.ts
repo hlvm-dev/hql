@@ -72,4 +72,10 @@ export {
 // Utility Functions for Auto-Trigger Detection
 // ============================================================
 
-export { getWordAtCursor } from "./providers.ts";
+export {
+  getWordAtCursor,
+  buildContext,
+  shouldTriggerFileMention,
+  extractMentionQuery,
+  shouldTriggerCommand,
+} from "./providers.ts";

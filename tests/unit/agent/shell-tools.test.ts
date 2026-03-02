@@ -13,6 +13,10 @@ import {
   type ShellScriptArgs,
 } from "../../../src/hlvm/agent/tools/shell-tools.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import {
+  cleanupWorkspaceDir,
+  ensureWorkspaceDir,
+} from "./workspace-test-helpers.ts";
 
 // Test workspace
 const TEST_WORKSPACE = "/tmp/hlvm-shell-test";
@@ -20,26 +24,17 @@ const TEST_WORKSPACE = "/tmp/hlvm-shell-test";
 // Setup/cleanup helpers
 async function setupWorkspace() {
   const platform = getPlatform();
-  try {
-    await platform.fs.mkdir(TEST_WORKSPACE, { recursive: true });
+  await ensureWorkspaceDir(TEST_WORKSPACE);
 
-    // Create a test file
-    await platform.fs.writeTextFile(
-      `${TEST_WORKSPACE}/test.txt`,
-      "Hello, world!",
-    );
-  } catch {
-    // Workspace might already exist
-  }
+  // Create a test file
+  await platform.fs.writeTextFile(
+    `${TEST_WORKSPACE}/test.txt`,
+    "Hello, world!",
+  );
 }
 
 async function cleanupWorkspace() {
-  const platform = getPlatform();
-  try {
-    await platform.fs.remove(TEST_WORKSPACE, { recursive: true });
-  } catch {
-    // Ignore cleanup errors
-  }
+  await cleanupWorkspaceDir(TEST_WORKSPACE);
 }
 
 // ============================================================

@@ -15,15 +15,18 @@ interface ThinkingIndicatorProps {
   summary: string;
   iteration: number;
   expanded?: boolean;
+  /** Disable animation when the stream is paused (e.g. waiting for permission) */
+  isAnimating?: boolean;
 }
 
 export function ThinkingIndicator({
   summary,
   iteration,
   expanded = false,
+  isAnimating = true,
 }: ThinkingIndicatorProps): React.ReactElement {
   const sc = useSemanticColors();
-  const frame = useSpinnerFrame(true);
+  const frame = useSpinnerFrame(isAnimating);
 
   // Split summary into subject (first line) and body (rest) — Gemini pattern
   const lines = summary ? summary.split("\n") : [];

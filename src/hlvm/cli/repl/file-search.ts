@@ -69,8 +69,8 @@ async function indexDirectory(baseDir: string): Promise<FileIndex> {
       for await (const entry of platform.fs.readDir(dir)) {
         const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
 
-        // Skip hidden files/dirs (except specific ones)
-        if (entry.name.startsWith(".") && entry.name !== ".github") {
+        // Skip hidden files/dirs by default in mention completion.
+        if (entry.name.startsWith(".")) {
           continue;
         }
 
@@ -188,7 +188,18 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
     try {
       const results: FileMatch[] = [];
       const partialLower = partial.toLowerCase(); // Pre-compute once outside loop
+      const includeHidden = partial.startsWith(".");
       for await (const entry of getPlatform().fs.readDir(parentDir)) {
+        // Keep hidden files out by default, unless user explicitly starts with "."
+        if (!includeHidden && entry.name.startsWith(".")) {
+          continue;
+        }
+        if (entry.isDirectory && SKIP_DIRS.has(entry.name)) {
+          continue;
+        }
+        if (!entry.isDirectory && shouldSkipFile(entry.name)) {
+          continue;
+        }
         const nameLower = entry.name.toLowerCase();
         if (partial && !nameLower.includes(partialLower)) {
           continue;
@@ -201,7 +212,11 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
           matchIndices: [],
         });
       }
-      results.sort((a, b) => b.score - a.score);
+      results.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+        return a.path.localeCompare(b.path);
+      });
       return results.slice(0, maxResults);
     } catch {
       return [];

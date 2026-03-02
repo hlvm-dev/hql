@@ -117,6 +117,13 @@ export function parseShellCommand(command: string): ParsedCommand {
     throw new ShellParseError("Empty command");
   }
 
+  const pushCurrentArg = () => {
+    if (current) {
+      args.push(current);
+      current = "";
+    }
+  };
+
   for (const char of trimmed) {
     position++;
 
@@ -198,32 +205,44 @@ export function parseShellCommand(command: string): ParsedCommand {
     }
     if (pendingAmp) {
       if (char === "&") {
+        // && is a chaining operator and acts as an argument boundary
+        pushCurrentArg();
         hasChaining = true;
         consumed = true;
+      } else {
+        // Single & is not treated as chaining here - preserve literal behavior
+        current += "&";
       }
-      // Single & at end: not a recognized multi-char operator
       pendingAmp = false;
     }
 
+    if (consumed) {
+      continue;
+    }
+
     // Start new pending operators (only if char wasn't consumed as part of a multi-char op)
-    if (!consumed) {
-      if (char === "|") {
-        pendingPipe = true;
-      } else if (char === "&") {
-        pendingAmp = true;
-      } else if (char === ";") {
-        hasChaining = true;
-      } else if (char === ">" || char === "<") {
-        hasRedirects = true;
-      }
+    if (char === "|") {
+      // Pipe/operator chars are delimiters and must not leak into args
+      pushCurrentArg();
+      pendingPipe = true;
+      continue;
+    } else if (char === "&") {
+      // Defer until next char so we can distinguish && from single &
+      pendingAmp = true;
+      continue;
+    } else if (char === ";") {
+      pushCurrentArg();
+      hasChaining = true;
+      continue;
+    } else if (char === ">" || char === "<") {
+      pushCurrentArg();
+      hasRedirects = true;
+      continue;
     }
 
     // Whitespace delimiter outside quotes
     if (char === " " || char === "\t") {
-      if (current) {
-        args.push(current);
-        current = "";
-      }
+      pushCurrentArg();
       continue;
     }
 
@@ -235,7 +254,10 @@ export function parseShellCommand(command: string): ParsedCommand {
   if (pendingPipe) {
     hasPipes = true;
   }
-  // pendingAmp at end: single trailing & is not &&, so we don't set hasChaining
+  // pendingAmp at end: single trailing & is not &&, preserve literal behavior
+  if (pendingAmp) {
+    current += "&";
+  }
 
   // Check for unclosed quotes
   if (inQuote) {
@@ -248,9 +270,7 @@ export function parseShellCommand(command: string): ParsedCommand {
   }
 
   // Add final argument
-  if (current) {
-    args.push(current);
-  }
+  pushCurrentArg();
 
   // Empty result
   if (args.length === 0) {

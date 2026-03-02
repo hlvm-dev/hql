@@ -20,27 +20,21 @@ import {
   type WriteFileArgs,
 } from "../../../src/hlvm/agent/tools/file-tools.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import {
+  cleanupWorkspaceDir,
+  ensureWorkspaceDir,
+} from "./workspace-test-helpers.ts";
 
 // Test workspace
 const TEST_WORKSPACE = "/tmp/hlvm-agent-test";
 
 // Setup/cleanup helpers
 async function setupWorkspace() {
-  const platform = getPlatform();
-  try {
-    await platform.fs.mkdir(TEST_WORKSPACE, { recursive: true });
-  } catch {
-    // Already exists
-  }
+  await ensureWorkspaceDir(TEST_WORKSPACE);
 }
 
 async function cleanupWorkspace() {
-  const platform = getPlatform();
-  try {
-    await platform.fs.remove(TEST_WORKSPACE, { recursive: true });
-  } catch {
-    // Ignore cleanup errors
-  }
+  await cleanupWorkspaceDir(TEST_WORKSPACE);
 }
 
 // ============================================================

@@ -16,10 +16,12 @@ interface FooterProps {
   streamingState?: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   modelName?: string;
-  /** Compact context/tokens indicator (e.g., "35% ctx", "4.2k tok") */
+  /** Compact context/tokens indicator (e.g., "35% ctx", "4200 tokens") */
   contextUsageLabel?: string;
   /** Number of queued interactions */
   interactionQueueLength?: number;
+  /** Number of queued user chat turns */
+  queuedUserTurnCount?: number;
   /** Whether conversation panel is active */
   inConversation?: boolean;
   /** Whether a permission dialog is pending */
@@ -34,6 +36,7 @@ export function FooterHint({
   modelName,
   contextUsageLabel,
   interactionQueueLength = 0,
+  queuedUserTurnCount = 0,
   inConversation,
   hasPendingPermission,
   hasPendingQuestion,
@@ -49,23 +52,30 @@ export function FooterHint({
       centerText = "Awaiting approval: y/Enter approve · n/Esc reject";
       centerColor = sc.status.warning;
     } else if (hasPendingQuestion) {
-      centerText = "Awaiting answer: type response + Enter · Esc reject";
+      centerText = "Awaiting answer: use hlvm> prompt + Enter · Esc reject";
       centerColor = sc.status.warning;
     } else if (streamingState === ConversationStreamingState.WaitingForConfirmation) {
       centerText = "Waiting for confirmation";
       centerColor = sc.status.warning;
-    } else if (streamingState === ConversationStreamingState.Responding && activeTool) {
-      // Show tool progress in footer only when we have a concrete running tool.
-      // Generic "Thinking..." is rendered in the conversation panel to avoid duplication.
-      centerText = `Running ${activeTool.name} (${activeTool.toolIndex}/${activeTool.toolTotal})`;
+    } else if (streamingState === ConversationStreamingState.Responding) {
+      if (activeTool) {
+        // Show tool progress in footer only when we have a concrete running tool.
+        // Generic "Thinking..." is rendered in the conversation panel to avoid duplication.
+        centerText = `Running ${activeTool.name} (${activeTool.toolIndex}/${activeTool.toolTotal}) · Esc cancel`;
+      } else {
+        centerText = "Esc cancel · PgUp/PgDn scroll";
+      }
       centerColor = sc.status.warning;
     } else {
-      centerText = "Esc: exit · PgUp/PgDn: scroll";
+      centerText = "PgUp/PgDn scroll";
       centerColor = sc.text.muted;
     }
 
     if (interactionQueueLength > 1) {
       centerText += ` · +${interactionQueueLength - 1} queued`;
+    }
+    if (queuedUserTurnCount > 0) {
+      centerText += ` · +${queuedUserTurnCount} queued message${queuedUserTurnCount === 1 ? "" : "s"}`;
     }
   }
 

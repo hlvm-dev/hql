@@ -31,12 +31,12 @@ export function TurnStats({ toolCount, durationMs, inputTokens, outputTokens }: 
   const tools = toolCount === 0 ? "" : toolCount === 1 ? "1 tool" : `${toolCount} tools`;
 
   // Build token summary with explicit direction labels.
-  // Example: "in 2.8k tok · out 420 tok"
+  // Example: "in 2.8k tokens · out 420 tokens"
   let tokenPart = "";
   if (inputTokens || outputTokens) {
     const segments: string[] = [];
-    if (inputTokens) segments.push(`in ${formatTokens(inputTokens)} tok`);
-    if (outputTokens) segments.push(`out ${formatTokens(outputTokens)} tok`);
+    if (inputTokens) segments.push(`in ${formatTokens(inputTokens)} tokens`);
+    if (outputTokens) segments.push(`out ${formatTokens(outputTokens)} tokens`);
     tokenPart = segments.join(" · ");
   }
 

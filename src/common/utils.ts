@@ -43,8 +43,7 @@ const RESERVED_IDENTIFIER_KEYWORDS = new Set([
 
 const STATIC_HQL_IMPORT_PATTERN =
   /^\s*import[\s{][^;]*from\s+['"]([^'"]+\.hql)['"]/m;
-const DYNAMIC_HQL_IMPORT_PATTERN =
-  /import\(\s*['"]([^'"]+\.hql)['"]\s*\)/;
+const DYNAMIC_HQL_IMPORT_PATTERN = /import\(\s*['"]([^'"]+\.hql)['"]\s*\)/;
 
 /**
  * Pre-compiled regex for splitting text into lines.
@@ -97,7 +96,10 @@ function sanitizeBasicIdentifier(
   if (name.includes("-")) {
     if (options.useCamelCase) {
       // Convert to camelCase: "foo-bar" -> "fooBar"
-      sanitized = name.replace(CAMEL_CASE_REGEX, (_, char) => char.toUpperCase());
+      sanitized = name.replace(
+        CAMEL_CASE_REGEX,
+        (_, char) => char.toUpperCase(),
+      );
     } else {
       // Convert to snake_case: "foo-bar" -> "foo_bar"
       sanitized = name.replace(HYPHEN_REGEX, "_");
@@ -134,7 +136,9 @@ export async function readFile(
     return await getPlatform().fs.readTextFile(filePath);
   } catch (error) {
     throw new Error(
-      `Reading file ${filePath}${context ? ` (${context})` : ""}: ${getErrorMessage(error)}`,
+      `Reading file ${filePath}${context ? ` (${context})` : ""}: ${
+        getErrorMessage(error)
+      }`,
     );
   }
 }
@@ -168,8 +172,9 @@ export async function findActualFilePath(
     }
   }
 
-  const basename = filePath.split("/").pop() ?? filePath;
-  const fallbackPath = `${getPlatform().process.cwd()}/${basename}`;
+  const platform = getPlatform();
+  const basename = platform.path.basename(filePath);
+  const fallbackPath = platform.path.join(platform.process.cwd(), basename);
 
   if (await fileExists(fallbackPath)) {
     logger?.debug?.(`Found file at fallback location: ${fallbackPath}`);
@@ -231,11 +236,17 @@ export function truncateText(
   text: string,
   maxChars: number,
 ): { text: string; truncated: boolean } {
-  if (maxChars <= 0 || text.length <= maxChars) return { text, truncated: false };
+  if (maxChars <= 0 || text.length <= maxChars) {
+    return { text, truncated: false };
+  }
   return { text: text.slice(0, maxChars), truncated: true };
 }
 
-export function truncateMiddle(text: string, maxLen: number, headRatio = 0.4): string {
+export function truncateMiddle(
+  text: string,
+  maxLen: number,
+  headRatio = 0.4,
+): string {
   if (text.length <= maxLen) return text;
 
   const separator = "\n\n... [truncated middle] ...\n\n";
@@ -365,7 +376,11 @@ export function addWithSanitized(set: Set<string>, name: string): void {
  * @param name - Name key (may contain hyphens)
  * @param value - Value to associate with both keys
  */
-export function setWithSanitized<T>(map: Map<string, T>, name: string, value: T): void {
+export function setWithSanitized<T>(
+  map: Map<string, T>,
+  name: string,
+  value: T,
+): void {
   map.set(name, value);
   const sanitized = hyphenToUnderscore(name);
   if (sanitized !== name) {

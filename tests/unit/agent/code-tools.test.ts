@@ -14,6 +14,10 @@ import {
   type GetStructureArgs,
 } from "../../../src/hlvm/agent/tools/code-tools.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import {
+  cleanupWorkspaceDir,
+  ensureWorkspaceDir,
+} from "./workspace-test-helpers.ts";
 
 // Test workspace
 const TEST_WORKSPACE = "/tmp/hlvm-code-test";
@@ -22,7 +26,7 @@ const TEST_WORKSPACE = "/tmp/hlvm-code-test";
 async function setupWorkspace() {
   const platform = getPlatform();
   try {
-    await platform.fs.mkdir(TEST_WORKSPACE, { recursive: true });
+    await ensureWorkspaceDir(TEST_WORKSPACE);
 
     // Create test code files
     await platform.fs.mkdir(`${TEST_WORKSPACE}/src`, { recursive: true });
@@ -84,12 +88,7 @@ export const DEFAULT_TIMEOUT = 5000;
 }
 
 async function cleanupWorkspace() {
-  const platform = getPlatform();
-  try {
-    await platform.fs.remove(TEST_WORKSPACE, { recursive: true });
-  } catch {
-    // Ignore cleanup errors
-  }
+  await cleanupWorkspaceDir(TEST_WORKSPACE);
 }
 
 // ============================================================

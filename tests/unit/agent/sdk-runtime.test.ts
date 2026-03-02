@@ -225,6 +225,34 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "convertToSdkMessages: user message with structured image + file media",
+  fn() {
+    const messages: SdkConvertibleMessage[] = [
+      {
+        role: "user",
+        content: "Analyze these attachments",
+        images: [
+          { data: "base64-image", mimeType: "image/png" },
+          { data: "base64-pdf", mimeType: "application/pdf" },
+        ],
+      },
+    ];
+    const result = convertToSdkMessages(messages);
+    assertEquals(result.length, 1);
+    assertEquals(result[0].role, "user");
+    // deno-lint-ignore no-explicit-any
+    const content = (result[0] as any).content;
+    assertEquals(Array.isArray(content), true);
+    assertEquals(content[0].type, "text");
+    assertEquals(content[1].type, "image");
+    assertEquals(content[1].image, "base64-image");
+    assertEquals(content[2].type, "file");
+    assertEquals(content[2].data, "base64-pdf");
+    assertEquals(content[2].mediaType, "application/pdf");
+  },
+});
+
 // ============================================================
 // mapSdkUsage
 // ============================================================

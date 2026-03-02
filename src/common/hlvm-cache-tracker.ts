@@ -6,8 +6,19 @@ const path = () => p().path;
 const fs = () => p().fs;
 import { transpileHqlInJs } from "../hql/bundler-internal.ts";
 import { globalLogger as logger } from "../logger.ts";
-import { sanitizeIdentifier, getErrorMessage, normalizePath, hyphenToUnderscore, TEXT_ENCODER } from "./utils.ts";
-import { isHqlFile, isJsFile } from "./import-utils.ts";
+import {
+  getErrorMessage,
+  hyphenToUnderscore,
+  normalizePath,
+  sanitizeIdentifier,
+  TEXT_ENCODER,
+} from "./utils.ts";
+import {
+  isHqlFile,
+  isJsFile,
+  isRemoteModule,
+  isRemoteUrl,
+} from "./import-utils.ts";
 import { LRUCache } from "./lru-cache.ts";
 import { RuntimeError } from "./error.ts";
 
@@ -121,7 +132,10 @@ function getProjectRoot(): string {
   // Calculate project root from this file's location
   // This file is at: src/common/hlvm-cache-tracker.ts
   // Project root is: ../../ from here
-  return path().join(path().dirname(path().fromFileUrl(import.meta.url)), "../..");
+  return path().join(
+    path().dirname(path().fromFileUrl(import.meta.url)),
+    "../..",
+  );
 }
 
 function getTempBase(): string {
@@ -170,8 +184,9 @@ export async function getRuntimeCacheDir(): Promise<string> {
 }
 
 // Pre-computed hex lookup table — avoids per-byte toString(16).padStart(2, "0")
-const HEX_TABLE: string[] = Array.from({ length: 256 }, (_, i) =>
-  i.toString(16).padStart(2, "0")
+const HEX_TABLE: string[] = Array.from(
+  { length: 256 },
+  (_, i) => i.toString(16).padStart(2, "0"),
 );
 const textEncoder = TEXT_ENCODER;
 
@@ -208,8 +223,12 @@ export async function getContentHash(filePath: string): Promise<string> {
     contentHashCache.set(filePath, hash);
     return hash;
   } catch (error) {
-    logger.debug(`Error getting content hash for ${filePath}: ${getErrorMessage(error)}`);
-    throw new RuntimeError(`Failed to hash ${filePath}: ${getErrorMessage(error)}`);
+    logger.debug(
+      `Error getting content hash for ${filePath}: ${getErrorMessage(error)}`,
+    );
+    throw new RuntimeError(
+      `Failed to hash ${filePath}: ${getErrorMessage(error)}`,
+    );
   }
 }
 
@@ -301,12 +320,20 @@ async function processCachedImports(
 
     // Process all imports, not just HQL files
     try {
+      if (isRemoteImportPath(importPath)) {
+        logger.debug(`Skipping remote import path: ${importPath}`);
+        continue;
+      }
+
       // Try to resolve the import relative to the source file
       let resolvedOriginalPath = "";
 
       if (importPath.startsWith(".")) {
         // Relative import
-        resolvedOriginalPath = path().resolve(path().dirname(sourcePath), importPath);
+        resolvedOriginalPath = path().resolve(
+          path().dirname(sourcePath),
+          importPath,
+        );
       } else {
         // Try to resolve from project root or various other locations
         const cwd = p().process.cwd();
@@ -335,7 +362,6 @@ async function processCachedImports(
       // Single get() instead of has()+get() to avoid double lookup
       const mappedPath = importPathMap.get(resolvedOriginalPath);
       if (mappedPath !== undefined) {
-
         // IMPORTANT: For JS files importing HQL, prefer JS over TS
         let finalPath = mappedPath;
         if (
@@ -439,7 +465,9 @@ async function processCachedImports(
         logger.debug(`Resolved import path: ${fullImport} -> ${newImport}`);
       }
     } catch (error) {
-      logger.debug(`Error processing import ${importPath}: ${getErrorMessage(error)}`);
+      logger.debug(
+        `Error processing import ${importPath}: ${getErrorMessage(error)}`,
+      );
       // Skip this import if there's an error
       continue;
     }
@@ -456,7 +484,6 @@ async function joinAndEnsureDirExists(...parts: string[]): Promise<string> {
   await fs().ensureDir(path().dirname(result));
   return result;
 }
-
 
 /**
  * Recursively copy a directory and all its contents
@@ -628,7 +655,11 @@ export async function createTempDir(
   const cacheDir = await getCacheDir();
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).substring(2, 8);
-  const dirPath = path().join(cacheDir, "temp", `${prefix}-${timestamp}-${random}`);
+  const dirPath = path().join(
+    cacheDir,
+    "temp",
+    `${prefix}-${timestamp}-${random}`,
+  );
 
   await fs().ensureDir(dirPath);
   logger.debug(`Created temp directory: ${dirPath}`);
@@ -692,7 +723,9 @@ export async function processJavaScriptFile(filePath: string): Promise<void> {
     registerImportMapping(filePath, cachedPath);
     logger.debug(`Processed JavaScript file ${filePath} -> ${cachedPath}`);
   } catch (error) {
-    logger.debug(`Error processing JavaScript file ${filePath}: ${getErrorMessage(error)}`);
+    logger.debug(
+      `Error processing JavaScript file ${filePath}: ${getErrorMessage(error)}`,
+    );
   } finally {
     inProgressJs.delete(filePath);
   }
@@ -718,10 +751,11 @@ async function processJavaScriptImports(
 }
 
 function isAbsoluteImportPath(importPath: string): boolean {
-  return importPath.startsWith("file://") ||
-    importPath.startsWith("http") ||
-    importPath.startsWith("npm:") ||
-    importPath.startsWith("jsr:");
+  return importPath.startsWith("file://") || isRemoteImportPath(importPath);
+}
+
+function isRemoteImportPath(importPath: string): boolean {
+  return isRemoteUrl(importPath) || isRemoteModule(importPath);
 }
 
 interface ImportRewriteContext {
@@ -754,9 +788,7 @@ async function rewriteRelativeImports(
       }
     } catch (error) {
       logger.debug(
-        `Error processing import ${importPath}: ${
-          getErrorMessage(error)
-        }`,
+        `Error processing import ${importPath}: ${getErrorMessage(error)}`,
       );
     }
   }
@@ -910,7 +942,10 @@ async function processTsImportsInJs(
     content,
     TS_IMPORT_REGEX,
     async ({ importPath, fullImport }) => {
-      const resolvedImportPath = path().resolve(path().dirname(filePath), importPath);
+      const resolvedImportPath = path().resolve(
+        path().dirname(filePath),
+        importPath,
+      );
 
       if (!await fs().exists(resolvedImportPath)) {
         logger.debug(`Could not find TS file: ${resolvedImportPath}`);
@@ -958,7 +993,10 @@ async function rewriteHqlImportsInJs(
     content,
     HLVM_HQL_IMPORT_REGEX,
     async ({ importPath, fullImport }) => {
-      const resolvedImportPath = path().resolve(path().dirname(filePath), importPath);
+      const resolvedImportPath = path().resolve(
+        path().dirname(filePath),
+        importPath,
+      );
 
       if (!await fs().exists(resolvedImportPath)) {
         logger.debug(`Could not find HQL file: ${resolvedImportPath}`);
@@ -990,9 +1028,7 @@ async function rewriteHqlImportsInJs(
         }
       } catch (error) {
         logger.debug(
-          `Failed to create placeholder JS file: ${
-            getErrorMessage(error)
-          }`,
+          `Failed to create placeholder JS file: ${getErrorMessage(error)}`,
         );
       }
 
@@ -1169,7 +1205,10 @@ async function processHqlFile(sourceFile: string): Promise<string> {
         preserveRelative: true,
       });
       registerImportMapping(sourceFile, cached);
-      registerImportMapping(sourceFile.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"), cached);
+      registerImportMapping(
+        sourceFile.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"),
+        cached,
+      );
       return cached;
     }
     inProgressHql.add(sourceFile);
@@ -1206,7 +1245,10 @@ async function processHqlFile(sourceFile: string): Promise<string> {
     await copyNeighborFiles(sourceFile, path().dirname(cachedTsPath));
 
     // Run the transpiler via bundler
-    const tsContent = await transpileHqlInJs(sourceFile, path().dirname(sourceFile));
+    const tsContent = await transpileHqlInJs(
+      sourceFile,
+      path().dirname(sourceFile),
+    );
     const processedContent = await processNestedImports(
       tsContent,
       sourceFile,
@@ -1218,16 +1260,17 @@ async function processHqlFile(sourceFile: string): Promise<string> {
 
     // Register the mapping for future use
     registerImportMapping(sourceFile, cachedTsPath);
-    registerImportMapping(sourceFile.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"), cachedTsPath);
+    registerImportMapping(
+      sourceFile.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"),
+      cachedTsPath,
+    );
 
     logger.debug(`Processed HQL file ${sourceFile} to ${cachedTsPath}`);
 
     return cachedTsPath;
   } catch (error) {
     logger.error(
-      `Error processing HQL file ${sourceFile}: ${
-        getErrorMessage(error)
-      }`,
+      `Error processing HQL file ${sourceFile}: ${getErrorMessage(error)}`,
     );
     throw error;
   } finally {

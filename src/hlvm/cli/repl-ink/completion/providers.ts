@@ -333,7 +333,10 @@ export function createCompletionItem(
 
 /**
  * Check if @ mention should be triggered.
- * Triggers when @ is typed at start of line, after whitespace, or after (
+ * Triggers when @ is typed:
+ * - at start of line,
+ * - after whitespace / list delimiters,
+ * - or inline for explicit path forms like @~/, @/, @./
  */
 export function shouldTriggerFileMention(context: CompletionContext): boolean {
   const { textBeforeCursor } = context;
@@ -354,7 +357,13 @@ export function shouldTriggerFileMention(context: CompletionContext): boolean {
   }
 
   const charBefore = textBeforeCursor[lastAt - 1];
-  return charBefore === " " || charBefore === "\t" || charBefore === "(" || charBefore === "[";
+  if (charBefore === " " || charBefore === "\t" || charBefore === "(" || charBefore === "[") {
+    return true;
+  }
+
+  // Allow inline explicit path mentions (e.g., t@~/desk) without enabling email-like mid-word mentions.
+  const firstCharAfterAt = textBeforeCursor[lastAt + 1] ?? "";
+  return firstCharAfterAt === "/" || firstCharAfterAt === "~" || firstCharAfterAt === ".";
 }
 
 /**
