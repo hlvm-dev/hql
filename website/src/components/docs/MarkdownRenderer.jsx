@@ -1,35 +1,23 @@
-import { useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeSlug from 'rehype-slug';
-// Base highlight.js styles (theme colors overridden in index.css per data-theme)
-import 'highlight.js/styles/github.css';
 
 /**
  * Renders markdown content with GFM, syntax highlighting, heading IDs,
- * and SPA-aware link handling.
+ * and internal docs navigation links.
  */
 function MarkdownRenderer({ content }) {
-  const navigate = useNavigate();
-
-  const components = useMemo(() => ({
-    // Intercept links for SPA navigation
-    a({ href, children, ...props }) {
-      // Internal /docs/ links → SPA navigate
+  const components = {
+    a({ href, children, node, ...props }) {
+      void node;
+      // Internal /docs/ links
       if (href && href.startsWith('/docs/')) {
         return (
-          <a
-            href={href}
-            onClick={(e) => {
-              e.preventDefault();
-              navigate(href);
-            }}
-            {...props}
-          >
+          <Link href={href} {...props}>
             {children}
-          </a>
+          </Link>
         );
       }
 
@@ -51,7 +39,6 @@ function MarkdownRenderer({ content }) {
       );
     },
 
-    // Better table rendering
     table({ children, ...props }) {
       return (
         <div className="docs-table-wrapper">
@@ -60,7 +47,6 @@ function MarkdownRenderer({ content }) {
       );
     },
 
-    // Code blocks with copy button
     pre({ children, ...props }) {
       return (
         <div className="docs-code-block">
@@ -68,7 +54,7 @@ function MarkdownRenderer({ content }) {
         </div>
       );
     },
-  }), [navigate]);
+  };
 
   if (!content) return null;
 

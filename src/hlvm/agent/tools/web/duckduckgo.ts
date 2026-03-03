@@ -11,6 +11,7 @@ import type { ToolExecutionOptions } from "../../registry.ts";
 import { assertUrlAllowed, isTransientHttpError } from "./fetch-core.ts";
 import { decodeHtmlEntities, parseAttributes } from "./html-parser.ts";
 import {
+  assessSearchConfidence,
   dedupeSearchResults,
   rankSearchResults,
 } from "./search-ranking.ts";
@@ -266,14 +267,6 @@ export function generateQueryVariants(query: string, maxVariants = 2): string[] 
 const MAX_DDG_PAGES = 2;
 const LOW_CONFIDENCE_SECOND_PASS_SCORE = 3;
 
-function averageDefinedScore(results: SearchResult[], sampleSize = 5): number | undefined {
-  const scored = results
-    .slice(0, Math.max(1, sampleSize))
-    .filter((r) => typeof r.score === "number" && Number.isFinite(r.score));
-  if (scored.length === 0) return undefined;
-  return scored.reduce((sum, r) => sum + (r.score ?? 0), 0) / scored.length;
-}
-
 async function fetchDdgPage(
   query: string,
   timeRange: SearchTimeRange,
@@ -330,17 +323,24 @@ export async function duckDuckGoSearch(
   const filtered1 = (allowedDomains?.length || blockedDomains?.length)
     ? filterResultsByDomain(scored1, allowedDomains, blockedDomains)
     : scored1;
-  const initialAvgScore = averageDefinedScore(filtered1, limit);
-  const lowConfidence = initialAvgScore !== undefined &&
-    initialAvgScore < LOW_CONFIDENCE_SECOND_PASS_SCORE;
+  const initialConfidence = assessSearchConfidence(query, filtered1, {
+    sampleSize: limit,
+    scoreThreshold: LOW_CONFIDENCE_SECOND_PASS_SCORE,
+    diversityThreshold: 0.35,
+    coverageThreshold: 0.5,
+  });
+  const lowConfidence = initialConfidence.lowConfidence;
   const needsCoverageExpansion = filtered1.length < limit && page1.length > 0;
   const diagnostics: Record<string, unknown> = {
-    avgScoreInitial: initialAvgScore,
+    avgScoreInitial: initialConfidence.avgScore,
     lowConfidenceInitial: lowConfidence,
     lowConfidenceThreshold: LOW_CONFIDENCE_SECOND_PASS_SCORE,
+    confidenceReasonInitial: initialConfidence.reason,
+    confidenceReasonsInitial: initialConfidence.reasons,
     needsCoverageExpansion,
     lowConfidenceRetryTriggered: false,
     variantQueries: [] as string[],
+    secondPassFetches: 0,
   };
 
   // Run a second pass when either coverage is low or first-pass confidence is low.
@@ -395,7 +395,16 @@ export async function duckDuckGoSearch(
       ? filterResultsByDomain(scored, allowedDomains, blockedDomains)
       : scored;
   const topResults = filtered.slice(0, limit);
-  diagnostics.avgScoreFinal = averageDefinedScore(topResults, limit);
+  const finalConfidence = assessSearchConfidence(query, topResults, {
+    sampleSize: limit,
+    scoreThreshold: LOW_CONFIDENCE_SECOND_PASS_SCORE,
+    diversityThreshold: 0.35,
+    coverageThreshold: 0.5,
+  });
+  diagnostics.avgScoreFinal = finalConfidence.avgScore;
+  diagnostics.lowConfidenceFinal = finalConfidence.lowConfidence;
+  diagnostics.confidenceReasonFinal = finalConfidence.reason;
+  diagnostics.confidenceReasonsFinal = finalConfidence.reasons;
 
   return {
     query,

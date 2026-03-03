@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useEffect, useRef } from 'react';
 
 function DocsTableOfContents({ getHeadings, slug, contentVersion }) {
@@ -7,7 +9,6 @@ function DocsTableOfContents({ getHeadings, slug, contentVersion }) {
 
   // Re-extract headings when slug or content changes
   useEffect(() => {
-    // Wait for next frame to ensure DOM is rendered
     const id = requestAnimationFrame(() => {
       setHeadings(getHeadings());
     });
@@ -22,7 +23,6 @@ function DocsTableOfContents({ getHeadings, slug, contentVersion }) {
 
     const observer = new IntersectionObserver(
       (entries) => {
-        // Find the topmost visible heading
         const visible = entries
           .filter((e) => e.isIntersecting)
           .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);

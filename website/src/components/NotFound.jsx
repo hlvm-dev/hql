@@ -1,6 +1,6 @@
-import { Link } from 'react-router-dom'
-import NavBar from './NavBar'
-import Footer from './Footer'
+import Link from 'next/link';
+import NavBar from './NavBar';
+import Footer from './Footer';
 
 function NotFound() {
   return (
@@ -12,7 +12,7 @@ function NotFound() {
             <div className="hero-content">
               <h1 className="hero-title">404</h1>
               <p className="hero-tagline">Page not found</p>
-              <Link to="/" className="btn btn-primary hero-cta">
+              <Link href="/" className="btn btn-primary hero-cta">
                 Back to Home
               </Link>
             </div>
@@ -21,7 +21,7 @@ function NotFound() {
       </div>
       <Footer />
     </div>
-  )
+  );
 }
 
-export default NotFound
+export default NotFound;

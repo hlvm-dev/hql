@@ -40,12 +40,12 @@ export function TurnStats({ toolCount, durationMs, inputTokens, outputTokens }: 
     tokenPart = segments.join(" · ");
   }
 
-  const parts = [tools, duration, tokenPart].filter(Boolean).join(" \u00b7 ");
+  const parts = [tools, duration, tokenPart].filter(Boolean).join(" · ");
 
   return (
     <Box marginY={1}>
-      <Text color={sc.text.muted} dimColor>
-        {`\u2500\u2500\u2500 ${parts} \u2500\u2500\u2500`}
+      <Text color={sc.text.muted}>
+        {`── ${parts} ──`}
       </Text>
     </Box>
   );

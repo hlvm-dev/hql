@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { ArrowLeftIcon, ArrowRightIcon } from '../Icons';
 
 function DocsPrevNext({ doc }) {
@@ -10,7 +10,7 @@ function DocsPrevNext({ doc }) {
   return (
     <nav className="docs-prev-next" aria-label="Previous and next pages">
       {prev ? (
-        <Link to={`/docs/${prev}`} className="docs-prev-next-link docs-prev" viewTransition>
+        <Link href={`/docs/${prev}`} className="docs-prev-next-link docs-prev">
           <ArrowLeftIcon size={14} />
           <span>Previous</span>
         </Link>
@@ -18,7 +18,7 @@ function DocsPrevNext({ doc }) {
         <div />
       )}
       {next ? (
-        <Link to={`/docs/${next}`} className="docs-prev-next-link docs-next" viewTransition>
+        <Link href={`/docs/${next}`} className="docs-prev-next-link docs-next">
           <span>Next</span>
           <ArrowRightIcon size={14} />
         </Link>

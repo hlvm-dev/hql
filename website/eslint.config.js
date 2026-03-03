@@ -1,15 +1,21 @@
-import js from '@eslint/js'
-import globals from 'globals'
-import react from 'eslint-plugin-react'
-import reactHooks from 'eslint-plugin-react-hooks'
-import reactRefresh from 'eslint-plugin-react-refresh'
-import jsxA11y from 'eslint-plugin-jsx-a11y'
+import js from '@eslint/js';
+import globals from 'globals';
+import react from 'eslint-plugin-react';
+import reactHooks from 'eslint-plugin-react-hooks';
+import reactRefresh from 'eslint-plugin-react-refresh';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
 
 export default [
-  { ignores: ['dist'] },
+  { ignores: ['dist', 'out', '.next'] },
   {
-    files: ['*.config.js'],
+    files: ['*.config.js', '*.config.mjs'],
     languageOptions: { globals: globals.node },
+  },
+  {
+    files: ['app/**/*.{js,jsx}', 'src/lib/**/*.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
   },
   {
     files: ['**/*.{js,jsx}'],
@@ -43,4 +49,10 @@ export default [
       ],
     },
   },
-]
+  {
+    files: ['app/**/*.{js,jsx}', 'src/lib/**/*.js'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+];

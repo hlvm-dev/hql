@@ -33,6 +33,7 @@ export {
   matchCustomKeybinding,
   isDefaultDisabled,
   getEffectiveDisplay,
+  normalizeKeyInput,
 } from "./keybinding-lookup.ts";
 
 // Re-export handler registry functions

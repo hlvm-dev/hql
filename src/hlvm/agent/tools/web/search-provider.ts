@@ -30,9 +30,26 @@ export interface SearchProviderResponse {
 }
 
 export type SearchTimeRange = "day" | "week" | "month" | "year" | "all";
+export type SearchDepthProfile = "low" | "medium" | "high";
 
 /** SSOT list of valid time-range values for search tools. */
 export const SEARCH_TIME_RANGES: readonly SearchTimeRange[] = ["day", "week", "month", "year", "all"];
+/** SSOT list of valid depth profiles for search tools. */
+export const SEARCH_DEPTH_PROFILES: readonly SearchDepthProfile[] = ["low", "medium", "high"];
+
+export interface SearchDepthDefaults {
+  maxResults: number;
+  prefetch: boolean;
+  reformulate: boolean;
+  prefetchTargets: number;
+}
+
+/** SSOT defaults used by searchDepth profile resolution. */
+export const SEARCH_DEPTH_DEFAULTS: Record<SearchDepthProfile, SearchDepthDefaults> = {
+  low: { maxResults: 3, prefetch: false, reformulate: false, prefetchTargets: 0 },
+  medium: { maxResults: 5, prefetch: true, reformulate: true, prefetchTargets: 2 },
+  high: { maxResults: 8, prefetch: true, reformulate: true, prefetchTargets: 3 },
+};
 
 export interface SearchCallOptions {
   limit: number;
@@ -43,6 +60,7 @@ export interface SearchCallOptions {
   locale?: string;
   toolOptions?: ToolExecutionOptions;
   reformulate?: boolean;      // Enable query reformulation for wider recall (default: true)
+  searchDepth?: SearchDepthProfile;
 }
 
 export interface SearchProviderSpec {

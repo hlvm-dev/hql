@@ -37,10 +37,8 @@ export function ToolCallItem({ tool, width, expanded = false }: ToolCallItemProp
   const argsWidth = Math.max(0, width - fixedWidth);
   const argsSummary = truncate(tool.argsSummary, argsWidth);
 
-  // Color tool name based on status
-  const nameColor = tool.status === "error" ? sc.status.error
-    : tool.status === "success" ? sc.text.primary
-    : sc.text.primary;
+  const nameColor = tool.status === "error" ? sc.status.error : sc.text.primary;
+  const argsColor = tool.status === "error" ? sc.status.error : sc.text.secondary;
 
   return (
     <Box flexDirection="column">
@@ -50,19 +48,29 @@ export function ToolCallItem({ tool, width, expanded = false }: ToolCallItemProp
         <Text> </Text>
         <Text bold color={nameColor}>{tool.name}</Text>
         {argsSummary && (
-          <Text color={sc.text.muted}>
-            {" " + argsSummary}
+          <Text color={argsColor}>
+            {" "}{argsSummary}
           </Text>
         )}
-        {durationStr && <Text dimColor> {durationStr}</Text>}
+        {durationStr && <Text color={sc.text.muted}> · {durationStr}</Text>}
       </Box>
 
       {/* Result sub-line (indented), routed by ToolResult (diff/json/plain) */}
       {tool.resultText && tool.status !== "running" && (
-        <Box marginLeft={2} flexDirection="column">
+        <Box
+          marginLeft={2}
+          flexDirection="column"
+          borderStyle="single"
+          borderLeft
+          borderRight={false}
+          borderTop={false}
+          borderBottom={false}
+          borderColor={tool.status === "error" ? sc.status.error : sc.border.default}
+          paddingLeft={1}
+        >
           <ToolResult
             text={tool.resultText}
-            width={Math.max(10, width - 4)}
+            width={Math.max(10, width - 6)}
             maxLines={tool.status === "error" ? 12 : 8}
             expanded={expanded}
             tone={tool.status === "error" ? "error" : "default"}

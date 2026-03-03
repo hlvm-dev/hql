@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import hlvmLight from '../assets/hlvm_dragon.png';
-import hlvmDark from '../assets/hlvm_dragon_dark.png';
+'use client';
+
+import { useEffect, useState } from 'react';
 import { ThemeContext } from './theme-context';
+
 const THEME_KEY = 'hlvm-theme';
 const THEME_PREFERENCE_KEY = 'hlvm-theme-preference';
+const LIGHT_FAVICON = '/hlvm_dragon.png';
+const DARK_FAVICON = '/hlvm_dragon_dark.png';
 
 function getStoredThemePreference() {
   const storedTheme = localStorage.getItem(THEME_KEY);
@@ -27,9 +30,15 @@ function getStoredThemePreference() {
 }
 
 export const ThemeProvider = ({ children }) => {
-  const initialPreference = useMemo(() => getStoredThemePreference(), []);
-  const [theme, setTheme] = useState(initialPreference.theme);
-  const [isExplicitTheme, setIsExplicitTheme] = useState(initialPreference.isExplicit);
+  const [theme, setTheme] = useState('light');
+  const [isExplicitTheme, setIsExplicitTheme] = useState(false);
+
+  // Resolve persisted/system preference after mount (browser-only APIs).
+  useEffect(() => {
+    const initialPreference = getStoredThemePreference();
+    setTheme(initialPreference.theme);
+    setIsExplicitTheme(initialPreference.isExplicit);
+  }, []);
 
   // Listen for OS theme changes and automatically update
   useEffect(() => {
@@ -40,10 +49,9 @@ export const ThemeProvider = ({ children }) => {
         setTheme(e.matches ? 'dark' : 'light');
       }
     };
-    
-    // Add listener for OS theme changes
+
     mediaQuery.addEventListener('change', handleThemeChange);
-    
+
     return () => {
       mediaQuery.removeEventListener('change', handleThemeChange);
     };
@@ -51,18 +59,15 @@ export const ThemeProvider = ({ children }) => {
 
   // Apply theme changes
   useEffect(() => {
-    // Add transitioning class
     document.documentElement.classList.add('theme-transitioning');
-    
-    // Set the theme
     document.documentElement.setAttribute('data-theme', theme);
-    
+
     // Update favicon based on theme
     const favicon = document.getElementById('favicon-light');
     if (favicon) {
-      favicon.href = theme === 'dark' ? hlvmDark : hlvmLight;
+      favicon.href = theme === 'dark' ? DARK_FAVICON : LIGHT_FAVICON;
     }
-    
+
     // Persist only explicit user preference. System mode stays dynamic.
     if (isExplicitTheme) {
       localStorage.setItem(THEME_KEY, theme);
@@ -71,18 +76,17 @@ export const ThemeProvider = ({ children }) => {
       localStorage.removeItem(THEME_KEY);
       localStorage.setItem(THEME_PREFERENCE_KEY, 'system');
     }
-    
-    // Remove transitioning class after animation
+
     const timer = setTimeout(() => {
       document.documentElement.classList.remove('theme-transitioning');
     }, 300);
-    
+
     return () => clearTimeout(timer);
   }, [theme, isExplicitTheme]);
 
   const toggleTheme = () => {
     setIsExplicitTheme(true);
-    setTheme(prevTheme => prevTheme === 'light' ? 'dark' : 'light');
+    setTheme((prevTheme) => (prevTheme === 'light' ? 'dark' : 'light'));
   };
 
   return (

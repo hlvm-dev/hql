@@ -9,6 +9,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
+import { TOGGLE_LATEST_HINT } from "../../ui-constants.ts";
 
 // ============================================================
 // Types
@@ -345,7 +346,7 @@ export default function DiffRenderer({
     elements.push(
       <Box key="truncated">
         <Text color={sc.text.muted}>
-          ... ({truncatedCount} more lines · Ctrl+O toggles latest, empty prompt)
+          ... ({truncatedCount} more lines · {TOGGLE_LATEST_HINT})
         </Text>
       </Box>,
     );

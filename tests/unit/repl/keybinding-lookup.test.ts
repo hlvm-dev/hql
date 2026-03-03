@@ -48,6 +48,19 @@ Deno.test("normalizeKeyInput: alt+enter maps correctly", () => {
   assertEquals(normalizeKeyInput("\r", makeKey({ escape: true, return: true })), "alt+enter");
 });
 
+Deno.test("normalizeKeyInput: ESC-prefixed enter payload maps to alt+enter", () => {
+  assertEquals(normalizeKeyInput("\x1b\r", makeKey()), "alt+enter");
+});
+
+Deno.test("normalizeKeyInput: CSI-u modified enter maps to alt+enter", () => {
+  assertEquals(normalizeKeyInput("\x1b[13;3u", makeKey()), "alt+enter");
+  assertEquals(normalizeKeyInput("\x1b[13;2u", makeKey()), "alt+enter");
+});
+
+Deno.test("normalizeKeyInput: legacy modifyOtherKeys enter maps to alt+enter", () => {
+  assertEquals(normalizeKeyInput("\x1b[27;3;13~", makeKey()), "alt+enter");
+});
+
 Deno.test("normalizeKeyInput: cmd+enter maps correctly", () => {
   assertEquals(normalizeKeyInput("\r", makeKey({ meta: true, return: true })), "cmd+enter");
 });

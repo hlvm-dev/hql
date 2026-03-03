@@ -1,42 +1,12 @@
+'use client';
+
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { DOCS_EVENTS } from '../constants/events';
 import { DocsContext } from './docs-context';
 
-export function DocsProvider({ children }) {
-  const [manifest, setManifest] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+export function DocsProvider({ children, manifest }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-
-  // Load manifest on mount
-  useEffect(() => {
-    const controller = new AbortController();
-    let mounted = true;
-
-    async function loadManifest() {
-      try {
-        const res = await fetch('/content/manifest.json', { signal: controller.signal });
-        if (!res.ok) throw new Error(`Manifest load failed: ${res.status}`);
-        const data = await res.json();
-        if (!mounted) return;
-        setManifest(data);
-      } catch (err) {
-        if (!mounted || err.name === 'AbortError') return;
-        setError(err.message);
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    loadManifest();
-    return () => {
-      mounted = false;
-      controller.abort();
-    };
-  }, []);
 
   // Global Cmd+K / Ctrl+K shortcut for search
   useEffect(() => {
@@ -49,6 +19,7 @@ export function DocsProvider({ children }) {
         setSearchOpen(false);
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [searchOpen]);
@@ -80,8 +51,8 @@ export function DocsProvider({ children }) {
 
   const value = useMemo(() => ({
     manifest,
-    loading,
-    error,
+    loading: false,
+    error: null,
     sidebarOpen,
     setSidebarOpen,
     searchOpen,
@@ -89,8 +60,6 @@ export function DocsProvider({ children }) {
     findDocBySlug,
   }), [
     manifest,
-    loading,
-    error,
     sidebarOpen,
     searchOpen,
     findDocBySlug,

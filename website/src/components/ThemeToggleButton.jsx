@@ -1,9 +1,11 @@
+'use client';
+
 import { useTheme } from '../contexts/useTheme';
 import { SunIcon, MoonIcon } from './Icons';
 
 function ThemeToggleButton({ variant = 'icon', className = 'btn-icon' }) {
   const { theme, toggleTheme } = useTheme();
-  
+
   if (variant === 'text') {
     return (
       <button
@@ -14,7 +16,7 @@ function ThemeToggleButton({ variant = 'icon', className = 'btn-icon' }) {
       </button>
     );
   }
-  
+
   return (
     <button
       className={className}

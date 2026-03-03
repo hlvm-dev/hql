@@ -1,12 +1,14 @@
+'use client';
+
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import Fuse from 'fuse.js';
 import { useDocs } from '../../contexts/useDocs';
 import { SearchIcon } from '../Icons';
 
 function DocsSearch() {
   const { manifest, searchOpen, setSearchOpen } = useDocs();
-  const navigate = useNavigate();
+  const router = useRouter();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef(null);
@@ -35,15 +37,14 @@ function DocsSearch() {
 
   const navigateToResult = useCallback((item) => {
     setSearchOpen(false);
-    navigate(`/docs/${item.slug}`);
-  }, [navigate, setSearchOpen]);
+    router.push(`/docs/${item.slug}`);
+  }, [router, setSearchOpen]);
 
   // Focus input on open
   useEffect(() => {
     if (searchOpen) {
       setQuery('');
       setSelectedIndex(0);
-      // Small delay for DOM render
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [searchOpen]);

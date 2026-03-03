@@ -1,15 +1,18 @@
+'use client';
+
 import { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useDocs } from '../../contexts/useDocs';
 import { ChevronRightIcon } from '../Icons';
 import { getActiveTab, getDocSlugFromPathname } from '../../utils/docs-utils';
 
 function DocsSidebar() {
   const { manifest, sidebarOpen, setSidebarOpen } = useDocs();
-  const location = useLocation();
+  const pathname = usePathname() || '';
   const [expandedGroups, setExpandedGroups] = useState(new Set());
 
-  const currentSlug = getDocSlugFromPathname(location.pathname);
+  const currentSlug = getDocSlugFromPathname(pathname);
   const activeTab = getActiveTab(currentSlug);
 
   // Auto-expand the group containing the active page
@@ -29,9 +32,9 @@ function DocsSidebar() {
   // Close sidebar on navigation (mobile)
   useEffect(() => {
     setSidebarOpen(false);
-  }, [location.pathname, setSidebarOpen]);
+  }, [pathname, setSidebarOpen]);
 
-  const items = manifest.sidebar[activeTab] || [];
+  const items = manifest?.sidebar?.[activeTab] || [];
 
   const toggleGroup = (slug) => {
     setExpandedGroups((prev) => {
@@ -66,9 +69,8 @@ function DocsSidebar() {
               {item.children.map((child) => (
                 <Link
                   key={child.slug}
-                  to={`/docs/${child.slug}`}
+                  href={`/docs/${child.slug}`}
                   className={`docs-sidebar-link docs-sidebar-child ${child.slug === currentSlug ? 'active' : ''}`}
-                  viewTransition
                 >
                   {child.label}
                 </Link>
@@ -82,9 +84,8 @@ function DocsSidebar() {
     return (
       <Link
         key={item.slug}
-        to={`/docs/${item.slug}`}
+        href={`/docs/${item.slug}`}
         className={`docs-sidebar-link ${isActive ? 'active' : ''}`}
-        viewTransition
       >
         {item.label}
       </Link>

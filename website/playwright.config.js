@@ -15,11 +15,11 @@ export default defineConfig({
   },
   webServer: {
     command: isCI
-      ? `npm run preview -- --host 127.0.0.1 --port ${ciPort}`
-      : 'npm run dev -- --host 127.0.0.1 --port 5173',
+      ? `npm run dev -- --hostname 127.0.0.1 --port ${ciPort}`
+      : 'npm run dev -- --hostname 127.0.0.1 --port 5173',
     port: isCI ? ciPort : 5173,
     reuseExistingServer: !isCI,
-    timeout: 15_000,
+    timeout: 30_000,
   },
   projects: [
     { name: 'chromium', use: { browserName: 'chromium' } },

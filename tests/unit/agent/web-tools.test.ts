@@ -264,6 +264,11 @@ Deno.test("search_web schema includes locale arg", () => {
   assert("locale" in meta.args);
 });
 
+Deno.test("search_web schema includes searchDepth arg", () => {
+  const meta = WEB_TOOLS.search_web;
+  assert("searchDepth" in meta.args);
+});
+
 // ============================================================
 // Structured error codes
 // ============================================================
@@ -345,9 +350,57 @@ Deno.test({
 // ============================================================
 
 Deno.test("search cache key differs with prefetch on vs off", () => {
-  const keyOn = __testOnlyBuildSearchWebCacheKey("duckduckgo", "test", 5, undefined, undefined, "all", undefined, true);
-  const keyOff = __testOnlyBuildSearchWebCacheKey("duckduckgo", "test", 5, undefined, undefined, "all", undefined, false);
+  const keyOn = __testOnlyBuildSearchWebCacheKey(
+    "duckduckgo",
+    "test",
+    5,
+    undefined,
+    undefined,
+    "all",
+    undefined,
+    "medium",
+    true,
+  );
+  const keyOff = __testOnlyBuildSearchWebCacheKey(
+    "duckduckgo",
+    "test",
+    5,
+    undefined,
+    undefined,
+    "all",
+    undefined,
+    "medium",
+    false,
+  );
   assertNotEquals(keyOn, keyOff);
+});
+
+Deno.test("search cache key differs with searchDepth profile", () => {
+  const low = __testOnlyBuildSearchWebCacheKey(
+    "duckduckgo",
+    "test",
+    5,
+    undefined,
+    undefined,
+    "all",
+    undefined,
+    "low",
+    true,
+    true,
+  );
+  const high = __testOnlyBuildSearchWebCacheKey(
+    "duckduckgo",
+    "test",
+    5,
+    undefined,
+    undefined,
+    "all",
+    undefined,
+    "high",
+    true,
+    true,
+  );
+  assertNotEquals(low, high);
 });
 
 Deno.test("search_web schema includes prefetch arg and passages return", () => {
@@ -421,8 +474,30 @@ Deno.test("formatResult raw result still has full results array", () => {
 // ============================================================
 
 Deno.test("search cache key differs with reformulate on vs off", () => {
-  const keyOn = __testOnlyBuildSearchWebCacheKey("duckduckgo", "test", 5, undefined, undefined, "all", undefined, true, true);
-  const keyOff = __testOnlyBuildSearchWebCacheKey("duckduckgo", "test", 5, undefined, undefined, "all", undefined, true, false);
+  const keyOn = __testOnlyBuildSearchWebCacheKey(
+    "duckduckgo",
+    "test",
+    5,
+    undefined,
+    undefined,
+    "all",
+    undefined,
+    "medium",
+    true,
+    true,
+  );
+  const keyOff = __testOnlyBuildSearchWebCacheKey(
+    "duckduckgo",
+    "test",
+    5,
+    undefined,
+    undefined,
+    "all",
+    undefined,
+    "medium",
+    true,
+    false,
+  );
   assertNotEquals(keyOn, keyOff);
 });
 
@@ -581,16 +656,17 @@ Deno.test("formatResult appends low-relevance tip in llmContent only when avg sc
   assert(formatted !== null);
   assert(!formatted!.returnDisplay.includes("Tip:"), "tip should NOT be in returnDisplay");
   assert(formatted!.llmContent.includes("Tip: Results have low relevance scores"), "tip should be in llmContent");
+  assert(formatted!.llmContent.includes("Confidence reason:"), "confidence reason should be included in llmContent");
 });
 
 Deno.test("formatResult omits tip when avg score >= 4", () => {
   const raw = {
-    query: "well matched topic",
+    query: "well matched",
     provider: "duckduckgo",
     count: 2,
     results: [
-      { title: "Good A", url: "https://a.com", snippet: "relevant", score: 8 },
-      { title: "Good B", url: "https://b.com", snippet: "relevant", score: 6 },
+      { title: "Good A", url: "https://a.com", snippet: "well matched guide", score: 8 },
+      { title: "Good B", url: "https://b.com", snippet: "well matched tutorial", score: 6 },
     ],
   };
   const formatted = __testOnlyFormatSearchWebResult(raw);
@@ -601,13 +677,13 @@ Deno.test("formatResult omits tip when avg score >= 4", () => {
 
 Deno.test("formatResult computes avg from defined scores only (skips undefined)", () => {
   const raw = {
-    query: "mixed scores",
+    query: "mixed",
     provider: "duckduckgo",
     count: 3,
     results: [
-      { title: "Scored", url: "https://a.com", snippet: "text", score: 8 },
-      { title: "Unscored", url: "https://b.com", snippet: "text" },
-      { title: "Also Unscored", url: "https://c.com", snippet: "text" },
+      { title: "Scored", url: "https://a.com", snippet: "mixed query match", score: 8 },
+      { title: "Unscored", url: "https://b.com", snippet: "mixed reference" },
+      { title: "Also Unscored", url: "https://c.com", snippet: "mixed docs" },
     ],
   };
   const formatted = __testOnlyFormatSearchWebResult(raw);
@@ -691,4 +767,13 @@ Deno.test("average score helper returns undefined when no scored results", () =>
     { title: "B", url: "https://b.com" },
   ]);
   assertEquals(avg, undefined);
+});
+
+Deno.test("search_web validates searchDepth", async () => {
+  const search = WEB_TOOLS.search_web;
+  await assertRejects(
+    () => search.fn({ query: "hlvm", searchDepth: "ultra" }, "/tmp"),
+    ValidationError,
+    "searchDepth must be one of",
+  );
 });

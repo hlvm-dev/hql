@@ -146,6 +146,133 @@ function relevanceScore(query: string, result: SearchResult): number {
   }, url.startsWith("https://") ? 1 : 0);
 }
 
+const LOW_SIGNAL_PATH_SEGMENTS = new Set([
+  "amp",
+  "archive",
+  "author",
+  "category",
+  "page",
+  "search",
+  "tag",
+  "tags",
+]);
+
+function keywordRepetitionRatio(text: string): number {
+  const tokens = tokenizeQuery(text);
+  if (tokens.length === 0) return 0;
+  const total = text
+    .toLowerCase()
+    .split(/[\s\-_.]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2).length;
+  if (total === 0) return 0;
+  return 1 - (tokens.length / total);
+}
+
+/** Bounded quality penalty to down-rank thin/low-signal pages. */
+export function sourceQualityPenalty(result: SearchResult): number {
+  const title = (result.title ?? "").trim();
+  const snippet = (result.snippet ?? "").trim();
+  const titleLower = title.toLowerCase();
+  const snippetLower = snippet.toLowerCase();
+  let penalty = 0;
+
+  if (!title || title.length < 8) penalty += 0.8;
+  if (!snippet || snippet.length < 35) penalty += 1.0;
+  if (titleLower && snippetLower && snippetLower === titleLower) penalty += 0.4;
+  if (/^(home|index|page|untitled)$/i.test(title)) penalty += 0.6;
+  if (keywordRepetitionRatio(`${title} ${snippet}`) > 0.28) penalty += 0.8;
+
+  if (result.url) {
+    try {
+      const parsed = new URL(result.url);
+      const pathSegments = parsed.pathname.toLowerCase().split("/").filter(Boolean);
+      if (pathSegments.some((seg) => LOW_SIGNAL_PATH_SEGMENTS.has(seg))) {
+        penalty += 0.8;
+      }
+      if (pathSegments.length === 0) penalty += 0.2;
+    } catch {
+      penalty += 0.2;
+    }
+  }
+
+  return Math.min(2.5, penalty);
+}
+
+export type SearchConfidenceReason = "ok" | "low_score" | "low_diversity" | "low_coverage" | "mixed";
+
+export interface SearchConfidenceAssessment {
+  lowConfidence: boolean;
+  reason: SearchConfidenceReason;
+  reasons: Array<"low_score" | "low_diversity" | "low_coverage">;
+  avgScore?: number;
+  hostDiversity: number;
+  queryCoverage: number;
+  considered: number;
+  scoredCount: number;
+}
+
+export interface SearchConfidenceOptions {
+  sampleSize?: number;
+  scoreThreshold?: number;
+  diversityThreshold?: number;
+  coverageThreshold?: number;
+}
+
+/** Shared confidence assessment used by retries, enrichment depth, and formatting hints. */
+export function assessSearchConfidence(
+  query: string,
+  results: SearchResult[],
+  options: SearchConfidenceOptions = {},
+): SearchConfidenceAssessment {
+  const sampleSize = Math.max(1, options.sampleSize ?? 5);
+  const scoreThreshold = options.scoreThreshold ?? 4;
+  const diversityThreshold = options.diversityThreshold ?? 0.4;
+  const coverageThreshold = options.coverageThreshold ?? 0.55;
+
+  const sample = results.slice(0, sampleSize);
+  const considered = sample.length;
+  const scored = sample.filter((r) => typeof r.score === "number" && Number.isFinite(r.score));
+  const avgScore = scored.length > 0
+    ? scored.reduce((sum, r) => sum + (r.score ?? 0), 0) / scored.length
+    : undefined;
+
+  const uniqueHosts = new Set(
+    sample.map((r) => resultHost(r.url)).filter((h): h is string => Boolean(h)),
+  ).size;
+  const hostDiversity = considered > 0 ? uniqueHosts / considered : 1;
+
+  const queryTokens = tokenizeQuery(query);
+  const mergedText = sample
+    .map((r) => `${r.title ?? ""} ${r.snippet ?? ""} ${r.url ?? ""}`.toLowerCase())
+    .join(" ");
+  const matchedQueryTokens = queryTokens.filter((t) => mergedText.includes(t)).length;
+  const queryCoverage = queryTokens.length > 0 ? matchedQueryTokens / queryTokens.length : 1;
+
+  const reasons: Array<"low_score" | "low_diversity" | "low_coverage"> = [];
+  if (avgScore === undefined || avgScore < scoreThreshold) reasons.push("low_score");
+  if (considered >= 3 && hostDiversity < diversityThreshold) reasons.push("low_diversity");
+  if (queryTokens.length >= 2 && queryCoverage < coverageThreshold) reasons.push("low_coverage");
+
+  const lowConfidence = reasons.length > 0;
+  const reason: SearchConfidenceReason = !lowConfidence
+    ? "ok"
+    : reasons.length === 1
+      ? reasons[0]
+      : "mixed";
+
+  return {
+    lowConfidence,
+    reason,
+    reasons,
+    avgScore,
+    hostDiversity,
+    queryCoverage,
+    considered,
+    scoredCount: scored.length,
+  };
+}
+
 function qualityScore(result: SearchResult): number {
   return (result.title?.length ?? 0) + (result.snippet?.length ?? 0) + ((result.score ?? 0) * 8);
 }
@@ -351,7 +478,7 @@ export function rankSearchResults(
     .map((result) => {
       const ageDays = extractResultAgeDays(result);
       const rawScore = relevanceScore(query, result) + recencyBoost(ageDays, timeRange);
-      const score = rawScore * (1 + domainAuthorityBoost(result.url ?? ""));
+      const score = rawScore * (1 + domainAuthorityBoost(result.url ?? "")) - sourceQualityPenalty(result);
       return { result, ageDays, baseScore: score, host: resultHost(result.url) };
     })
     .filter((entry) => isInsideTimeRange(entry.ageDays, timeRange));
@@ -362,7 +489,8 @@ export function rankSearchResults(
   const candidates = (scored.length > 0 ? scored : deduped.map((result) => ({
     result,
     ageDays: extractResultAgeDays(result),
-    baseScore: relevanceScore(query, result) * (1 + domainAuthorityBoost(result.url ?? "")),
+    baseScore: relevanceScore(query, result) * (1 + domainAuthorityBoost(result.url ?? "")) -
+      sourceQualityPenalty(result),
     host: resultHost(result.url),
   }))).sort((a, b) => b.baseScore - a.baseScore);
 

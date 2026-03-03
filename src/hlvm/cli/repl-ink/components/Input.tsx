@@ -9,7 +9,6 @@ import {
   highlight,
   findMatchingParen,
   isBalanced,
-  getUnclosedDepth,
   forwardSexp,
   backwardSexp,
   backwardUpSexp,
@@ -67,6 +66,7 @@ import {
   matchCustomKeybinding,
   isDefaultDisabled,
   executeHandler,
+  normalizeKeyInput,
 } from "../keybindings/index.ts";
 
 // Helper: apply a paredit operation and return new value/cursor
@@ -1047,6 +1047,8 @@ export function Input({
     const hasPendingEsc = escSequenceTimerRef.current !== null;
     const recentEscPrefix = nowMs - lastEscPrefixAtRef.current < ESC_PREFIX_ENTER_GRACE_MS;
     const isEscPrefixedEnterInput = input === "\x1b\r" || input === "\x1b\n";
+    const isProtocolModifiedEnterInput =
+      /^\x1b\[13;\d+u$/.test(input ?? "") || /^\x1b\[27;\d+;13~$/.test(input ?? "");
     const isPureEscPrefixEvent =
       key.escape &&
       !key.ctrl &&
@@ -1065,7 +1067,7 @@ export function Input({
     const isTabKey = key.tab || input === "\t" || inputCharCode === 9 || (key.ctrl && input === "i");
 
     // Some terminals emit Option+Enter as one ESC-prefixed payload.
-    if (isEscPrefixedEnterInput && !key.ctrl) {
+    if ((isEscPrefixedEnterInput || isProtocolModifiedEnterInput) && !key.ctrl) {
       insertAt("\n");
       return;
     }
@@ -1148,6 +1150,19 @@ export function Input({
       }
 
       // Ignore other keys during search
+      return;
+    }
+
+    // Unified newline chords via keybinding normalization (Gemini-like reliability):
+    // Alt/Opt+Enter, Cmd+Enter, Shift+Enter, Ctrl+J.
+    const normalizedCombo = normalizeKeyInput(input, key);
+    if (
+      normalizedCombo === "alt+enter" ||
+      normalizedCombo === "cmd+enter" ||
+      normalizedCombo === "shift+enter" ||
+      normalizedCombo === "ctrl+j"
+    ) {
+      insertAt("\n");
       return;
     }
 
@@ -2023,16 +2038,13 @@ export function Input({
     charCount += lineLen + 1; // +1 for newline
   }
 
-  // Calculate unclosed depth for continuation prompt (memoized per render)
-  const unclosedDepth = lines.length > 1 ? getUnclosedDepth(value) : 0;
-
   // Render a single line with cursor if applicable
   const renderLine = (line: string, lineIndex: number, lineStartOffset: number): React.ReactNode => {
     const isCurrentLine = lineIndex === cursorLine;
-    // Show depth indicator on continuation lines: "..1>" or "..2>" etc.
+    // Continuation lines align with the primary prompt to behave like a text area.
     const prompt = lineIndex === 0
       ? promptLabel
-      : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>");
+      : " ".repeat(promptLabel.length);
 
     if (!isCurrentLine) {
       // No cursor on this line

@@ -1,4 +1,7 @@
 # Website-specific (everything else handled by root .gitignore)
+.next/
+out/
+dist/
 dist-ssr
 *.local
 public/content/

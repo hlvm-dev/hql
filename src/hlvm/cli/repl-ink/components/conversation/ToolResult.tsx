@@ -10,6 +10,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import DiffRenderer from "./DiffRenderer.tsx";
+import { TOGGLE_LATEST_HINT } from "../../ui-constants.ts";
 
 interface ToolResultProps {
   text: string;
@@ -111,7 +112,7 @@ export function ToolResult({
 
       {truncated && (
         <Text color={tone === "error" ? sc.status.error : sc.text.muted}>
-          … ({remaining} more lines · Ctrl+O toggles latest, empty prompt)
+          … ({remaining} more lines · {TOGGLE_LATEST_HINT})
         </Text>
       )}
     </Box>

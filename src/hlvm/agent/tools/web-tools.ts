@@ -22,7 +22,10 @@ import { getWebCacheValue, setWebCacheValue } from "../web-cache.ts";
 
 import {
   normalizeDomain,
+  SEARCH_DEPTH_DEFAULTS,
+  SEARCH_DEPTH_PROFILES,
   resolveSearchProvider,
+  type SearchDepthProfile,
   SEARCH_TIME_RANGES,
   type SearchTimeRange,
   type Citation,
@@ -48,9 +51,11 @@ import {
 } from "./web/fetch-core.ts";
 import { renderWithChrome } from "./web/headless-chrome.ts";
 import {
+  assessSearchConfidence,
   deduplicateSnippetPassages,
   extractRelevantPassages,
   rankSearchResults,
+  sourceQualityPenalty,
 } from "./web/search-ranking.ts";
 
 // ============================================================
@@ -72,6 +77,7 @@ interface SearchWebArgs {
   blockedDomains?: string[];
   timeRange?: SearchTimeRange;
   locale?: string;
+  searchDepth?: SearchDepthProfile;
   prefetch?: boolean;       // Auto-fetch top results and extract relevant passages (default: true)
   reformulate?: boolean;    // Enable query reformulation for wider recall (default: true)
 }
@@ -91,8 +97,12 @@ const DEFAULT_WEB_RESULTS = 5;
 const DEFAULT_HTML_LINKS = 20;
 const MAX_WEB_CHARS = 200_000;
 const LOW_CONFIDENCE_SCORE_THRESHOLD = 4;
+const LOW_CONFIDENCE_DIVERSITY_THRESHOLD = 0.4;
+const LOW_CONFIDENCE_COVERAGE_THRESHOLD = 0.55;
+const DEFAULT_SEARCH_DEPTH: SearchDepthProfile = "medium";
 const DEFAULT_PREFETCH_TARGETS = 2;
 const LOW_CONFIDENCE_PREFETCH_TARGETS = 3;
+const MAX_PREFETCH_TARGETS = 4;
 const LOW_CONFIDENCE_RELATED_LINKS_LIMIT = 4;
 
 // ============================================================
@@ -170,6 +180,7 @@ function buildSearchWebCacheKey(
   blockedDomains?: string[],
   timeRange: SearchTimeRange = "all",
   locale?: string,
+  searchDepth: SearchDepthProfile = DEFAULT_SEARCH_DEPTH,
   prefetch?: boolean,
   reformulate?: boolean,
 ): string {
@@ -180,6 +191,7 @@ function buildSearchWebCacheKey(
     normalizeDomainList(blockedDomains),
     timeRange,
     locale ?? "",
+    searchDepth,
     prefetch === false ? "nopf" : "pf",
     reformulate === false ? "norf" : "rf",
   ]);
@@ -191,9 +203,12 @@ function averageResultScore(results: SearchResult[]): number | undefined {
   return scored.reduce((sum, r) => sum + (r.score ?? 0), 0) / scored.length;
 }
 
-function isLowConfidenceResults(results: SearchResult[]): boolean {
-  const avg = averageResultScore(results);
-  return avg !== undefined && avg < LOW_CONFIDENCE_SCORE_THRESHOLD;
+function assessToolSearchConfidence(query: string, results: SearchResult[]) {
+  return assessSearchConfidence(query, results, {
+    scoreThreshold: LOW_CONFIDENCE_SCORE_THRESHOLD,
+    diversityThreshold: LOW_CONFIDENCE_DIVERSITY_THRESHOLD,
+    coverageThreshold: LOW_CONFIDENCE_COVERAGE_THRESHOLD,
+  });
 }
 
 function selectDiversePrefetchTargets(results: SearchResult[], maxTargets: number): SearchResult[] {
@@ -239,6 +254,30 @@ function collectLowConfidenceRelatedLinks(
     }
   }
   return [...unique];
+}
+
+function resolveSearchDepth(value: unknown): SearchDepthProfile {
+  if (value === undefined) return DEFAULT_SEARCH_DEPTH;
+  if (typeof value !== "string") {
+    throw new ValidationError(
+      `searchDepth must be one of: ${SEARCH_DEPTH_PROFILES.join(", ")}`,
+      "search_web",
+    );
+  }
+  const normalized = value.trim().toLowerCase();
+  if (SEARCH_DEPTH_PROFILES.includes(normalized as SearchDepthProfile)) {
+    return normalized as SearchDepthProfile;
+  }
+  throw new ValidationError(
+    `searchDepth must be one of: ${SEARCH_DEPTH_PROFILES.join(", ")}`,
+    "search_web",
+  );
+}
+
+function resolvePrefetchTargetCount(baseTargetCount: number, lowConfidence: boolean): number {
+  const boundedBase = Math.max(0, baseTargetCount);
+  if (!lowConfidence) return boundedBase;
+  return Math.min(MAX_PREFETCH_TARGETS, Math.max(boundedBase, LOW_CONFIDENCE_PREFETCH_TARGETS));
 }
 
 export const __testOnlyBuildSearchWebCacheKey = buildSearchWebCacheKey;
@@ -503,12 +542,19 @@ async function searchWeb(
     throw webToolError("web search is disabled", "search_web", "disabled");
   }
 
+  const searchDepth = resolveSearchDepth(typed.searchDepth);
+  const depthDefaults = SEARCH_DEPTH_DEFAULTS[searchDepth];
   const limit = typeof maxResults === "number" && maxResults > 0
     ? maxResults
-    : webConfig.search.maxResults ?? DEFAULT_WEB_RESULTS;
+    : typed.searchDepth !== undefined
+      ? depthDefaults.maxResults
+      : webConfig.search.maxResults ?? DEFAULT_WEB_RESULTS;
   const timeout = typeof timeoutMs === "number" && timeoutMs > 0
     ? timeoutMs
     : toMillis(timeoutSeconds ?? webConfig.search.timeoutSeconds);
+  const resolvedPrefetch = typed.prefetch ?? depthDefaults.prefetch;
+  const resolvedReformulate = typed.reformulate ?? depthDefaults.reformulate;
+  const profilePrefetchTargets = depthDefaults.prefetchTargets;
 
   const timeRange = resolveSearchTimeRange(typed.timeRange);
   const locale = resolveLocale(typed.locale);
@@ -521,8 +567,9 @@ async function searchWeb(
     typed.blockedDomains,
     timeRange,
     locale,
-    typed.prefetch,
-    typed.reformulate,
+    searchDepth,
+    resolvedPrefetch,
+    resolvedReformulate,
   );
   const cachedSearch = await checkCacheHit(cacheKey, webConfig.search.cacheTtlMinutes);
   if (cachedSearch) return cachedSearch;
@@ -537,20 +584,26 @@ async function searchWeb(
     timeRange,
     locale,
     toolOptions: options,
-    reformulate: typed.reformulate,
+    reformulate: resolvedReformulate,
+    searchDepth,
   });
 
   // --- Lightweight prefetch: fetch top results pages, extract passages + metadata ---
-  const shouldPrefetch = typed.prefetch !== false;  // default true
-  const lowConfidenceBeforePrefetch = isLowConfidenceResults(result.results);
+  const shouldPrefetch = resolvedPrefetch;
+  const confidenceBeforePrefetch = assessToolSearchConfidence(query, result.results);
+  const lowConfidenceBeforePrefetch = confidenceBeforePrefetch.lowConfidence;
   let prefetchCandidateCount = 0;
   let prefetchTargets: SearchResult[] = [];
   let anyDateEnriched = false;
   if (shouldPrefetch) {
     prefetchCandidateCount = result.results.filter((r) => r.url).length;
-    const prefetchTargetCount = lowConfidenceBeforePrefetch
-      ? LOW_CONFIDENCE_PREFETCH_TARGETS
+    const defaultPrefetchTargetCount = profilePrefetchTargets > 0
+      ? profilePrefetchTargets
       : DEFAULT_PREFETCH_TARGETS;
+    const prefetchTargetCount = resolvePrefetchTargetCount(
+      defaultPrefetchTargetCount,
+      lowConfidenceBeforePrefetch,
+    );
     prefetchTargets = selectDiversePrefetchTargets(result.results, prefetchTargetCount);
 
     const PREFETCH_TIMEOUT = Math.min(timeout ?? 5000, 5000);  // capped at 5s
@@ -638,12 +691,29 @@ async function searchWeb(
       excerpt: r.snippet,
       provider: result.provider,
     }));
-  const avgScoreFinal = averageResultScore(result.results);
+  const confidenceFinal = assessToolSearchConfidence(query, result.results);
+  const qualityPenaltiesApplied = result.results
+    .filter((r) => sourceQualityPenalty(r) > 0)
+    .length;
+  const providerDiagnostics = result.diagnostics as Record<string, unknown> | undefined;
+  const recoveryTriggered = providerDiagnostics?.lowConfidenceRetryTriggered === true;
   const diagnostics = {
+    profile: {
+      selectedDepth: searchDepth,
+      resolvedOptions: {
+        maxResults: limit,
+        prefetch: shouldPrefetch,
+        reformulate: resolvedReformulate,
+      },
+    },
     score: {
-      avgScore: avgScoreFinal,
-      lowConfidence: avgScoreFinal !== undefined && avgScoreFinal < LOW_CONFIDENCE_SCORE_THRESHOLD,
+      avgScore: confidenceFinal.avgScore,
+      lowConfidence: confidenceFinal.lowConfidence,
       threshold: LOW_CONFIDENCE_SCORE_THRESHOLD,
+      confidenceReason: confidenceFinal.reason,
+      confidenceReasons: confidenceFinal.reasons,
+      hostDiversity: confidenceFinal.hostDiversity,
+      queryCoverage: confidenceFinal.queryCoverage,
     },
     prefetch: {
       enabled: shouldPrefetch,
@@ -652,7 +722,9 @@ async function searchWeb(
       targetUrls: prefetchTargets.map((r) => r.url).filter((u): u is string => Boolean(u)),
       adaptiveDepth: lowConfidenceBeforePrefetch,
     },
-    provider: result.diagnostics ?? undefined,
+    recoveryTriggered,
+    qualityPenaltiesApplied,
+    provider: providerDiagnostics ?? undefined,
   };
   const enriched = { ...result, citations, diagnostics };
 
@@ -675,7 +747,8 @@ function formatSearchWebResult(raw: unknown): { returnDisplay: string; llmConten
 
   const queryStr = typeof data.query === "string" ? data.query : "";
   const provider = typeof data.provider === "string" ? data.provider : "search";
-  const lowConfidence = isLowConfidenceResults(results);
+  const confidence = assessToolSearchConfidence(queryStr, results);
+  const lowConfidence = confidence.lowConfidence;
   const lines: string[] = [`Search: "${queryStr}" (${results.length} results, ${provider})\n`];
 
   for (let i = 0; i < results.length; i++) {
@@ -702,6 +775,7 @@ function formatSearchWebResult(raw: unknown): { returnDisplay: string; llmConten
     llmSupplements.push(
       "Tip: Results have low relevance scores. Consider refining your search with more specific terms.",
     );
+    llmSupplements.push(`Confidence reason: ${confidence.reason}`);
     const relatedLinks = collectLowConfidenceRelatedLinks(results);
     if (relatedLinks.length > 0) {
       llmSupplements.push(
@@ -738,6 +812,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
       blockedDomains: "string[] (optional) - Exclude results from these domains",
       timeRange: "string (optional) - Recency window: day|week|month|year|all (default: all)",
       locale: "string (optional) - DDG locale hint in 'xx-xx' format (e.g., 'us-en', 'kr-ko')",
+      searchDepth: "string (optional) - Search profile: low|medium|high (default: medium)",
       prefetch: "boolean (optional) - Auto-fetch top results and extract relevant passages (default: true)",
       reformulate: "boolean (optional) - Generate query variants for wider recall (default: true)",
     },

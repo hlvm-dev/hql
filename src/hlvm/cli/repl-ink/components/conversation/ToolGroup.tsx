@@ -45,6 +45,7 @@ export function ToolGroup({
   ).length;
   const total = tools.length;
   const isAllDone = completed === total;
+  const hasError = tools.some((t) => t.status === "error");
 
   // Map aggregate status to border color
   let borderColor: string;
@@ -65,6 +66,14 @@ export function ToolGroup({
   // Inner width accounts for border + padding (2 border chars + 2 padding chars = 4)
   const innerWidth = Math.max(10, width - 4);
   const showProgressBar = !isAllDone && innerWidth >= 28;
+  const statusLabel = status === "running"
+    ? "running"
+    : hasError
+    ? "failed"
+    : isAllDone
+    ? "complete"
+    : "pending";
+  const countLabel = isAllDone ? `(${total})` : `(${completed}/${total})`;
 
   return (
     <Box
@@ -77,12 +86,20 @@ export function ToolGroup({
     >
       {/* Header with progress */}
       <Box justifyContent="space-between">
-        <Text bold color={borderColor}>
-          {isAllDone ? `Tools (${total})` : `Tools (${completed}/${total})`}
-        </Text>
-        {showProgressBar && (
-          <ProgressBar current={completed} total={total} width={Math.min(15, innerWidth - 20)} />
-        )}
+        <Box>
+          <Text bold color={borderColor}>Tools</Text>
+          <Text color={sc.text.secondary}> {countLabel}</Text>
+          <Text color={sc.text.muted}> · {statusLabel}</Text>
+        </Box>
+        <Box>
+          {showProgressBar && (
+            <>
+              <ProgressBar current={completed} total={total} width={Math.min(14, innerWidth - 26)} />
+              <Text color={sc.text.muted}> </Text>
+            </>
+          )}
+          <Text color={sc.text.muted}>{completed}/{total}</Text>
+        </Box>
       </Box>
 
       {/* Tool items */}

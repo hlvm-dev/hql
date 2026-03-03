@@ -1,6 +1,6 @@
 # HLVM Website
 
-React SPA for [hlvm.dev](https://hlvm.dev). Serves documentation, landing page, and download links.
+Next.js static-export site for [hlvm.dev](https://hlvm.dev). Serves documentation, landing page, and download links.
 
 ## Development
 
@@ -12,11 +12,11 @@ npm ci
 node scripts/sync-docs.mjs
 
 # Start dev server
-npm run dev         # http://localhost:5173
+npm run dev         # http://localhost:3000
 
 # Run tests
 npm test            # unit tests (vitest)
-npm run test:e2e    # 19 E2E tests (Playwright)
+npm run test:e2e    # E2E tests (Playwright)
 ```
 
 ## Deployment
@@ -24,5 +24,7 @@ npm run test:e2e    # 19 E2E tests (Playwright)
 Automatic via GitHub Actions on push to `main` when `docs/**`, `website/**`, or `firebase.json` change.
 
 Manual: `node scripts/sync-docs.mjs && npm run build && cd .. && npx firebase deploy`
+
+Firebase now serves Next static export output from `website/out`.
 
 See `docs/DOCS-PUBLISHING.md` for the full pipeline documentation.

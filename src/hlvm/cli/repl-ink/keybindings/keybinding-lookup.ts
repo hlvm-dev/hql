@@ -35,6 +35,26 @@ const defaultMap = new Map<string, string>();
  * normalizeKeyInput("j", { ctrl: true, ... }) -> "ctrl+j"
  */
 export function normalizeKeyInput(input: string, key: Key): string | null {
+  // macOS terminals can emit Option+Enter as a single ESC-prefixed payload.
+  // Normalize this explicitly so higher layers can treat it as Alt+Enter.
+  if (input && input.startsWith("\x1b") && (input.endsWith("\r") || input.endsWith("\n"))) {
+    return "alt+enter";
+  }
+
+  // Modified Enter from CSI-u / modifyOtherKeys protocols.
+  // Examples:
+  // - \x1b[13;3u    (Alt+Enter)
+  // - \x1b[13;2u    (Shift+Enter)
+  // - \x1b[27;3;13~ (legacy Alt+Enter form)
+  // We normalize all modified-enter protocol payloads to alt+enter because
+  // higher-level behavior is the same: insert newline (not submit).
+  if (
+    input &&
+    (/^\x1b\[13;\d+u$/.test(input) || /^\x1b\[27;\d+;13~$/.test(input))
+  ) {
+    return "alt+enter";
+  }
+
   // Special keys first (Tab, Enter, Esc, arrows, delete keys).
   // This avoids misclassifying raw control bytes (e.g., Tab as Ctrl+I).
   let specialKey: string | null = null;

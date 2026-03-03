@@ -1,21 +1,22 @@
 {
   "hosting": {
-    "public": "./website/dist",
+    "public": "./website/out",
     "cleanUrls": true,
     "ignore": [
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
     ],
-    "rewrites": [
+    "redirects": [
       {
-        "source": "**",
-        "destination": "/index.html"
+        "source": "/docs",
+        "destination": "/docs/guide",
+        "type": 301
       }
     ],
     "headers": [
       {
-        "source": "assets/**",
+        "source": "_next/static/**",
         "headers": [
           {
             "key": "Cache-Control",
@@ -33,7 +34,7 @@
         ]
       },
       {
-        "source": "index.html",
+        "source": "**/*.html",
         "headers": [
           {
             "key": "Cache-Control",

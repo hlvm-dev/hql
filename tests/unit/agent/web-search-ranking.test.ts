@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "jsr:@std/assert";
 import {
+  assessSearchConfidence,
   canonicalizeResultUrl,
   dedupeSearchResults,
   deduplicateSnippetPassages,
@@ -7,6 +8,7 @@ import {
   extractRelevantPassages,
   rankSearchResults,
   scorePassage,
+  sourceQualityPenalty,
 } from "../../../src/hlvm/agent/tools/web/search-ranking.ts";
 import { generateQueryVariants } from "../../../src/hlvm/agent/tools/web/duckduckgo.ts";
 import { extractPublicationDate } from "../../../src/hlvm/agent/tools/web/html-parser.ts";
@@ -310,6 +312,21 @@ Deno.test("domainAuthorityBoost boosts /docs/ and /guide/ path segments", () => 
   assertEquals(domainAuthorityBoost("https://example.com/tutorial/basics"), 0.1);
 });
 
+Deno.test("sourceQualityPenalty penalizes thin low-signal pages", () => {
+  const thin = sourceQualityPenalty({
+    title: "Home",
+    url: "https://example.com/tag/python",
+    snippet: "python python python python python",
+  });
+  const rich = sourceQualityPenalty({
+    title: "Python asyncio TaskGroup guide",
+    url: "https://docs.example.com/python/asyncio/taskgroup",
+    snippet: "Detailed explanation of structured concurrency, cancellation semantics, and examples.",
+  });
+  assert(thin > rich);
+  assert(thin > 0);
+});
+
 Deno.test("rankSearchResults ranks authoritative URL higher than equivalent normal URL", () => {
   const ranked = rankSearchResults(
     "python tutorial",
@@ -321,4 +338,45 @@ Deno.test("rankSearchResults ranks authoritative URL higher than equivalent norm
   );
   // The docs.python.org result should rank first (subdomain boost + path boost)
   assertEquals(ranked[0].url, "https://docs.python.org/tutorial/intro");
+});
+
+Deno.test("rankSearchResults applies quality penalties to thin SEO-like pages", () => {
+  const ranked = rankSearchResults(
+    "python asyncio taskgroup",
+    [
+      {
+        title: "Home",
+        url: "https://random-site.example.com/tag/python-asyncio-taskgroup",
+        snippet: "python asyncio taskgroup python asyncio taskgroup python asyncio taskgroup",
+      },
+      {
+        title: "Python asyncio TaskGroup guide",
+        url: "https://example.com/docs/python/taskgroup",
+        snippet: "Practical guide with cancellation behavior, error groups, and structured concurrency examples.",
+      },
+    ],
+    "all",
+  );
+  assertEquals(ranked[0].url, "https://example.com/docs/python/taskgroup");
+});
+
+Deno.test("assessSearchConfidence reports low_diversity when top results are same host", () => {
+  const confidence = assessSearchConfidence("hlvm search", [
+    { title: "A", url: "https://same.com/a", snippet: "hlvm search guide", score: 8 },
+    { title: "B", url: "https://same.com/b", snippet: "hlvm search reference", score: 8 },
+    { title: "C", url: "https://same.com/c", snippet: "hlvm search docs", score: 8 },
+    { title: "D", url: "https://same.com/d", snippet: "hlvm search tips", score: 8 },
+  ], { diversityThreshold: 0.5 });
+  assertEquals(confidence.lowConfidence, true);
+  assert(confidence.reasons.includes("low_diversity"));
+});
+
+Deno.test("assessSearchConfidence reports low_coverage when query tokens are poorly matched", () => {
+  const confidence = assessSearchConfidence("python asyncio taskgroup cancellation", [
+    { title: "General Python guide", url: "https://a.com", snippet: "python guide", score: 7 },
+    { title: "Python basics", url: "https://b.com", snippet: "python basics", score: 7 },
+    { title: "Python intro", url: "https://c.com", snippet: "python intro", score: 7 },
+  ], { coverageThreshold: 0.8 });
+  assertEquals(confidence.lowConfidence, true);
+  assert(confidence.reasons.includes("low_coverage"));
 });
