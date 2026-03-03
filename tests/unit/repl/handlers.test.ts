@@ -574,6 +574,20 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Handlers: isAgentReady / markAgentReady - model-scoped readiness",
+  fn() {
+    const modelA = "ollama/llama3.2:1b";
+    const modelB = "openai/gpt-4.1-mini";
+    assertEquals(isAgentReady(modelA), false);
+    assertEquals(isAgentReady(modelB), false);
+
+    markAgentReady(modelA);
+    assertEquals(isAgentReady(modelA), true);
+    assertEquals(isAgentReady(modelB), false);
+  },
+});
+
+Deno.test({
   name: "Handlers: cancelSessionRequests - returns 0 for unknown session",
   fn() {
     const count = cancelSessionRequests("non-existent-session");

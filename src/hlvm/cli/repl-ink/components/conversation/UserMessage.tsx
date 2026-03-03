@@ -8,7 +8,6 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
-import { highlight } from "../../../repl/syntax.ts";
 
 interface UserMessageProps {
   text: string;
@@ -17,18 +16,17 @@ interface UserMessageProps {
 
 export function UserMessage({ text, width }: UserMessageProps): React.ReactElement {
   const sc = useSemanticColors();
-  const isCmd = text.startsWith("/");
 
   return (
     <Box width={width} marginTop={1} marginBottom={1}>
       <Box width={3} flexShrink={0}>
-        <Text color={isCmd ? sc.status.success : sc.text.primary} bold>
+        <Text color={sc.text.secondary} bold>
           {"> "}
         </Text>
       </Box>
       <Box flexGrow={1}>
-        <Text bold wrap="wrap">
-          {highlight(text)}
+        <Text color={sc.text.secondary} wrap="wrap">
+          {text}
         </Text>
       </Box>
     </Box>

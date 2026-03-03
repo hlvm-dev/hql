@@ -5,28 +5,31 @@
  */
 
 import React from "react";
-import { Text, Box } from "ink";
+import { Text, Box, useStdout } from "ink";
 import type { EvalResult } from "../types.ts";
-import { renderMarkdown, hasMarkdown } from "../../repl/markdown.ts";
+import { hasMarkdown } from "../../repl/markdown.ts";
 import { useStreaming } from "../hooks/useStreaming.ts";
 import { StreamingStatus } from "./StreamingStatus.tsx";
 import { formatValue } from "../../repl/formatter.ts";  // Single Source of Truth
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import type { EvalTask } from "../../repl/task-manager/types.ts";
+import { MarkdownDisplay } from "./markdown/index.ts";
 
 export function Output({ result }: { result: EvalResult }): React.ReactElement | null {
   const { color } = useTheme();
+  const { stdout } = useStdout();
+  const markdownWidth = Math.max(20, (stdout?.columns ?? 80) - 4);
 
   if (result.suppressOutput) return null;
 
   if (result.streamTaskId) {
-    return <StreamingTaskOutput taskId={result.streamTaskId} />;
+    return <StreamingTaskOutput taskId={result.streamTaskId} width={markdownWidth} />;
   }
 
   // Streaming (async iterator)
   if (result.value && typeof result.value === "object" && Symbol.asyncIterator in (result.value as object)) {
-    return <StreamingOutput iterator={result.value as AsyncIterableIterator<string>} />;
+    return <StreamingOutput iterator={result.value as AsyncIterableIterator<string>} width={markdownWidth} />;
   }
 
   // Error
@@ -45,13 +48,13 @@ export function Output({ result }: { result: EvalResult }): React.ReactElement |
 
   // Apply markdown rendering for AI string responses
   if (typeof result.value === "string" && hasMarkdown(result.value)) {
-    return <Text>{renderMarkdown(result.value)}</Text>;
+    return <MarkdownDisplay text={result.value} width={markdownWidth} />;
   }
 
   return <Text>{formatted}</Text>;
 }
 
-function StreamingTaskOutput({ taskId }: { taskId: string }): React.ReactElement | null {
+function StreamingTaskOutput({ taskId, width }: { taskId: string; width: number }): React.ReactElement | null {
   const { color } = useTheme();
   const { tasks } = useTaskManager();
 
@@ -73,9 +76,9 @@ function StreamingTaskOutput({ taskId }: { taskId: string }): React.ReactElement
         />
       )}
       {showOutput && (
-        <Text>
-          {isDone && hasMarkdown(output) ? renderMarkdown(output) : output}
-        </Text>
+        isDone && hasMarkdown(output)
+          ? <MarkdownDisplay text={output} width={width} />
+          : <Text>{output}</Text>
       )}
       {isStreaming && !showOutput && <Text color={color("muted")}>▋</Text>}
       {task.status === "failed" && task.error && (
@@ -90,9 +93,10 @@ function StreamingTaskOutput({ taskId }: { taskId: string }): React.ReactElement
 
 interface StreamingOutputProps {
   iterator: AsyncIterableIterator<string>;
+  width: number;
 }
 
-function StreamingOutput({ iterator }: StreamingOutputProps): React.ReactElement {
+function StreamingOutput({ iterator, width }: StreamingOutputProps): React.ReactElement {
   const { color } = useTheme();
 
   // Higher throttle (100ms) = fewer re-renders = smoother streaming
@@ -118,9 +122,9 @@ function StreamingOutput({ iterator }: StreamingOutputProps): React.ReactElement
         />
       )}
       {displayText && (
-        <Text>
-          {isDone && hasMarkdown(displayText) ? renderMarkdown(displayText) : displayText}
-        </Text>
+        isDone && hasMarkdown(displayText)
+          ? <MarkdownDisplay text={displayText} width={width} />
+          : <Text>{displayText}</Text>
       )}
       {isStreaming && !displayText && <Text color={color("muted")}>▋</Text>}
     </Box>

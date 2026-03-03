@@ -23,6 +23,22 @@ export const commandKeybindings: Keybinding[] = [
     action: { type: "SLASH_COMMAND", cmd: "/config" },
   },
   {
+    id: "/model",
+    display: "/model",
+    label: "Model picker",
+    description: "Open model picker or show current model",
+    category: "Commands",
+    action: { type: "SLASH_COMMAND", cmd: "/model" },
+  },
+  {
+    id: "/status",
+    display: "/status",
+    label: "Show status",
+    description: "Display AI/model/startup status",
+    category: "Commands",
+    action: { type: "SLASH_COMMAND", cmd: "/status" },
+  },
+  {
     id: "/clear",
     display: "/clear",
     label: "Clear screen",

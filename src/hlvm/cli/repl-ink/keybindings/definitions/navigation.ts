@@ -9,17 +9,17 @@ import { HandlerIds } from "../handler-registry.ts";
 export const navigationKeybindings: Keybinding[] = [
   // Word navigation
   {
-    id: "opt+left",
-    display: "Opt+Left",
-    displayByPlatform: { linux: "Alt+Left", win32: "Ctrl+Left" },
+    id: "alt+left",
+    display: "Alt+Left",
+    displayByPlatform: { darwin: "Opt+Left", win32: "Ctrl+Left" },
     label: "Word backward",
     category: "Navigation",
     action: { type: "HANDLER", id: HandlerIds.NAV_WORD_BACK },
   },
   {
-    id: "opt+right",
-    display: "Opt+Right",
-    displayByPlatform: { linux: "Alt+Right", win32: "Ctrl+Right" },
+    id: "alt+right",
+    display: "Alt+Right",
+    displayByPlatform: { darwin: "Opt+Right", win32: "Ctrl+Right" },
     label: "Word forward",
     category: "Navigation",
     action: { type: "HANDLER", id: HandlerIds.NAV_WORD_FORWARD },
@@ -61,9 +61,9 @@ export const navigationKeybindings: Keybinding[] = [
 
   // Multi-line
   {
-    id: "opt+enter",
-    display: "Opt+Enter",
-    displayByPlatform: { linux: "Alt+Enter" },
+    id: "alt+enter",
+    display: "Alt+Enter",
+    displayByPlatform: { darwin: "Opt+Enter" },
     label: "Insert newline",
     description: "For multi-line input",
     category: "Navigation",

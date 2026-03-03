@@ -52,7 +52,7 @@ export function FooterHint({
       centerText = "Awaiting approval: y/Enter approve · n/Esc reject";
       centerColor = sc.status.warning;
     } else if (hasPendingQuestion) {
-      centerText = "Awaiting answer: use hlvm> prompt + Enter · Esc reject";
+      centerText = "Awaiting answer: use answer> prompt + Enter · Esc reject";
       centerColor = sc.status.warning;
     } else if (streamingState === ConversationStreamingState.WaitingForConfirmation) {
       centerText = "Waiting for confirmation";

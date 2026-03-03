@@ -43,3 +43,11 @@ Deno.test("normalizeKeyInput: pure escape maps to esc", () => {
 Deno.test("normalizeKeyInput: option/meta key sequence maps to alt+char", () => {
   assertEquals(normalizeKeyInput("z", makeKey({ escape: true })), "alt+z");
 });
+
+Deno.test("normalizeKeyInput: alt+enter maps correctly", () => {
+  assertEquals(normalizeKeyInput("\r", makeKey({ escape: true, return: true })), "alt+enter");
+});
+
+Deno.test("normalizeKeyInput: cmd+enter maps correctly", () => {
+  assertEquals(normalizeKeyInput("\r", makeKey({ meta: true, return: true })), "cmd+enter");
+});

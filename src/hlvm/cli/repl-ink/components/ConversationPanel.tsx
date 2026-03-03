@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Box, Text, useInput, useStdout } from "ink";
+import { Box, Static, Text, useInput } from "ink";
 import type { ConversationItem, StreamingState } from "../types.ts";
 import { StreamingState as ConversationStreamingState } from "../types.ts";
 import type { InteractionRequestEvent, InteractionResponse } from "../../../agent/registry.ts";
@@ -21,11 +21,6 @@ import {
   TurnStats,
   UserMessage,
 } from "./conversation/index.ts";
-import {
-  clampConversationScrollOffset,
-  computeConversationViewport,
-  getConversationVisibleCount,
-} from "../utils/conversation-viewport.ts";
 import { useSemanticColors } from "../../theme/index.ts";
 
 interface ConversationPanelProps {
@@ -133,12 +128,6 @@ export function ConversationPanel({
   onInteractionResponse,
 }: ConversationPanelProps): React.ReactElement {
   const sc = useSemanticColors();
-  const { stdout } = useStdout();
-  const terminalRows = stdout?.rows ?? 24;
-  const reservedRows = interactionRequest ? 14 : 10;
-  const visibleCount = getConversationVisibleCount(terminalRows, { reservedRows });
-  const shouldVirtualize = items.length > visibleCount;
-  const [scrollOffset, setScrollOffset] = useState(0);
   const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -147,33 +136,11 @@ export function ConversationPanel({
   );
 
   const pendingStart = useMemo(
-    () => shouldVirtualize ? getPendingStartIndex(items) : items.length,
-    [items, shouldVirtualize],
+    () => getPendingStartIndex(items),
+    [items],
   );
   const staticItems = useMemo(() => items.slice(0, pendingStart), [items, pendingStart]);
   const pendingItems = useMemo(() => items.slice(pendingStart), [items, pendingStart]);
-  const maxPendingVisible = shouldVirtualize ? Math.max(2, Math.floor(visibleCount * 0.5)) : pendingItems.length;
-  const hiddenPendingCount = shouldVirtualize
-    ? Math.max(0, pendingItems.length - maxPendingVisible)
-    : 0;
-  const visiblePendingItems = useMemo(
-    () => hiddenPendingCount > 0 ? pendingItems.slice(-maxPendingVisible) : pendingItems,
-    [pendingItems, hiddenPendingCount, maxPendingVisible],
-  );
-  // Reserve viewport budget for pending items so static history window does not overflow.
-  const effectiveStaticVisibleCount = Math.max(0, visibleCount - visiblePendingItems.length);
-  const pageStep = Math.max(1, Math.floor(Math.max(1, effectiveStaticVisibleCount) * 0.8));
-
-  const viewport = useMemo(
-    () => computeConversationViewport(staticItems.length, effectiveStaticVisibleCount, scrollOffset),
-    [staticItems.length, effectiveStaticVisibleCount, scrollOffset],
-  );
-
-  useEffect(() => {
-    setScrollOffset((prev: number) =>
-      clampConversationScrollOffset(prev, staticItems.length, effectiveStaticVisibleCount)
-    );
-  }, [staticItems.length, effectiveStaticVisibleCount]);
 
   useEffect(() => {
     if (items.length === 0) {
@@ -182,10 +149,10 @@ export function ConversationPanel({
     }
   }, [items.length]);
 
-  const visibleStaticItems = staticItems.slice(viewport.start, viewport.end);
+  // Toggle targets only apply to current pending section to avoid re-rendering committed history.
   const toggleTargets = useMemo(
-    () => getToggleTargets([...visibleStaticItems, ...visiblePendingItems]),
-    [visibleStaticItems, visiblePendingItems],
+    () => getToggleTargets(pendingItems),
+    [pendingItems],
   );
 
   const isToolExpanded = (toolId: string): boolean => expandedToolIds.has(toolId);
@@ -222,34 +189,14 @@ export function ConversationPanel({
       }
       return;
     }
-    if (key.pageUp) {
-      setScrollOffset((prev: number) =>
-        clampConversationScrollOffset(
-          prev + pageStep,
-          staticItems.length,
-          effectiveStaticVisibleCount,
-        )
-      );
-      return;
-    }
-    if (key.pageDown) {
-      setScrollOffset((prev: number) =>
-        clampConversationScrollOffset(
-          prev - pageStep,
-          staticItems.length,
-          effectiveStaticVisibleCount,
-        )
-      );
-      return;
-    }
-    if (key.ctrl && key.downArrow) {
-      setScrollOffset(0);
-      return;
-    }
-    if (key.ctrl && key.upArrow) {
-      setScrollOffset(viewport.maxOffset);
-    }
   });
+
+  const renderStaticItem = (item: ConversationItem): React.ReactElement => (
+    <Box key={item.id}>
+      {renderItem(item, width, streamingState, isToolExpanded, isThinkingExpanded)}
+    </Box>
+  );
+  const staticProps = { items: staticItems, children: renderStaticItem };
 
   return (
     <Box flexDirection="column" width={width}>
@@ -257,41 +204,16 @@ export function ConversationPanel({
         <Text color={sc.text.muted}>Conversation starting...</Text>
       )}
 
-      {scrollOffset > 0 && (
-        <Text color={sc.status.warning}>
-          Scrolled up · Ctrl+↓ to jump to latest
-        </Text>
+      {/* Committed history is rendered once and never reflowed, eliminating jumpy updates. */}
+      {staticItems.length > 0 && (
+        <Static<ConversationItem> {...staticProps} />
       )}
 
-      {viewport.hiddenAbove > 0 && (
-        <Text color={sc.text.muted}>
-          … {viewport.hiddenAbove} earlier item{viewport.hiddenAbove === 1 ? "" : "s"} hidden (PgUp)
-        </Text>
-      )}
-
-      {visibleStaticItems.map((item: ConversationItem) => (
+      {pendingItems.map((item: ConversationItem) => (
         <Box key={item.id}>
           {renderItem(item, width, streamingState, isToolExpanded, isThinkingExpanded)}
         </Box>
       ))}
-
-      {hiddenPendingCount > 0 && (
-        <Text color={sc.text.muted}>
-          … {hiddenPendingCount} earlier pending item{hiddenPendingCount === 1 ? "" : "s"} hidden
-        </Text>
-      )}
-
-      {visiblePendingItems.map((item: ConversationItem) => (
-        <Box key={item.id}>
-          {renderItem(item, width, streamingState, isToolExpanded, isThinkingExpanded)}
-        </Box>
-      ))}
-
-      {viewport.hiddenBelow > 0 && (
-        <Text color={sc.text.muted}>
-          … {viewport.hiddenBelow} newer item{viewport.hiddenBelow === 1 ? "" : "s"} hidden (PgDn)
-        </Text>
-      )}
 
       {interactionRequest && onInteractionResponse && (
         <Box flexDirection="column" marginTop={1}>

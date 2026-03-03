@@ -389,7 +389,15 @@ function createFileApplyAction(
 
   return (action: CompletionAction, ctx: ApplyContext): ApplyResult => {
     const before = ctx.text.slice(0, ctx.anchorPosition);
-    const after = ctx.text.slice(ctx.cursorPosition);
+    // Replace the FULL current mention token (not just up to cursor).
+    // This prevents tail duplication when cursor is in the middle of an @path.
+    let mentionEnd = Math.max(ctx.cursorPosition, ctx.anchorPosition);
+    while (mentionEnd < ctx.text.length) {
+      const ch = ctx.text[mentionEnd];
+      if (/\s/.test(ch) || ch === ")" || ch === "]" || ch === "}") break;
+      mentionEnd++;
+    }
+    const after = ctx.text.slice(mentionEnd);
 
     // DRILL on directory: drill in, keep dropdown open for further navigation
     if (isDir && action === "DRILL") {

@@ -6,6 +6,7 @@
  */
 
 import { getPlatform } from "../platform/platform.ts";
+import { RuntimeError } from "./error.ts";
 
 // SSOT: Use platform layer for all file/path operations
 const path = () => getPlatform().path;
@@ -77,8 +78,13 @@ export function getHlvmDir(): string {
     let candidate = resolveHlvmDir();
     if (!ensureWritableDir(candidate)) {
       const fallback = join(getPlatform().process.cwd(), ".hlvm");
-      ensureWritableDir(fallback);
-      candidate = fallback;
+      if (ensureWritableDir(fallback)) {
+        candidate = fallback;
+      } else {
+        throw new RuntimeError(
+          `Unable to find writable HLVM directory (tried: ${candidate}, ${fallback})`,
+        );
+      }
     }
     _hlvmDir = candidate;
   }

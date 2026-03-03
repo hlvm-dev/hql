@@ -48,7 +48,7 @@ import { SessionManager } from "../../repl/session/manager.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { ensureError } from "../../../../common/utils.ts";
 import { normalizeModelId } from "../../../../common/config/types.ts";
-import { ReplProvider, useReplContext } from "../context/index.ts";
+import { ReplProvider } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { log } from "../../../api/log.ts";
 
@@ -70,10 +70,9 @@ interface CurrentEval {
 
 interface BannerItem {
   id: string;
-  memoryNames: string[];
   aiExports: string[];
   errors: string[];
-  session: SessionMeta | null;
+  modelName: string;
 }
 
 interface QueuedConversationTurn {
@@ -185,9 +184,6 @@ function AppContent(
   { showBanner = true, sessionOptions, replState }: AppContentProps,
 ): React.ReactElement {
   const { exit } = useApp();
-
-  // Get reactive state from context (bindings, docstrings, memoryNames auto-update)
-  const { memoryNames } = useReplContext();
 
   const repl = useRepl({ state: replState });
 
@@ -678,6 +674,9 @@ function AppContent(
         query,
         model,
         images,
+        // REPL UX: avoid model-initiated ask_user detours for simple chat turns.
+        // Keep direct conversational flow unless explicit permission prompts are needed.
+        toolDenylist: ["ask_user", "delegate_agent", "complete_task"],
         signal: controller.signal,
         callbacks: {
           onToken: (text: string) => {
@@ -817,13 +816,19 @@ function AppContent(
       }
 
       // Handle commands that need React state (pickers/panels)
-      const trimmedLower = code.trim().toLowerCase();
-      const normalized = trimmedLower.startsWith(".")
-        ? "/" + trimmedLower.slice(1)
-        : trimmedLower;
-      const isPanelCommand = normalized === "/config" ||
-        normalized === "/tasks" || normalized === "/bg" ||
-        normalized === "/resume" || normalized === "/clear";
+      const trimmedInput = code.trim();
+      const normalizedInput = trimmedInput.startsWith(".")
+        ? "/" + trimmedInput.slice(1)
+        : trimmedInput;
+      const [rawCommand = "", ...argTokens] = normalizedInput.split(/\s+/);
+      const commandName = rawCommand.toLowerCase();
+      const commandArgs = argTokens.join(" ").trim();
+      const opensModelPicker = commandName === "/models" ||
+        (commandName === "/model" && commandArgs.length === 0);
+      const isPanelCommand = commandName === "/config" ||
+        commandName === "/tasks" || commandName === "/bg" ||
+        commandName === "/resume" || commandName === "/clear" ||
+        opensModelPicker;
       const isAnyCommand = isPanelCommand || isCommand(code);
 
       // If there's a pending question interaction, route non-command input as the answer.
@@ -838,19 +843,19 @@ function AppContent(
       }
 
       // Handle /config command - show floating overlay
-      if (normalized === "/config") {
+      if (commandName === "/config") {
         setActivePanel("config-overlay");
         return;
       }
 
       // Handle /tasks command - show background tasks overlay
-      if (normalized === "/tasks") {
+      if (commandName === "/tasks") {
         setActivePanel("tasks-overlay");
         return;
       }
 
       // Handle /bg command - push current evaluation to background
-      if (normalized === "/bg") {
+      if (commandName === "/bg") {
         const activeEval = currentEvalRef.current;
         if (activeEval && !activeEval.backgrounded) {
           activeEval.backgrounded = true;
@@ -884,7 +889,7 @@ function AppContent(
       }
 
       // Handle /resume command
-      if (normalized === "/resume") {
+      if (commandName === "/resume") {
         // SSOT: Try session.list() API (sessions are global now)
         const sessionApi = (globalThis as Record<string, unknown>).session as {
           list: (options?: { limit?: number }) => Promise<SessionMeta[]>;
@@ -911,8 +916,15 @@ function AppContent(
         return;
       }
 
+      // Handle /model and /models commands - open model picker
+      if (opensModelPicker) {
+        setModelBrowserParent("none");
+        setActivePanel("models");
+        return;
+      }
+
       // Handle /clear command - clear screen and history (fallback for Cmd+K)
-      if (normalized === "/clear") {
+      if (commandName === "/clear") {
         clearTerminal();
         setHistory([]);
         setNextId(1);
@@ -959,11 +971,15 @@ function AppContent(
         }
         const imagePayload = images && images.length > 0 ? images : undefined;
         if (agentControllerRef.current) {
+          const wasQueueEmpty = pendingConversationQueue.length === 0;
           setPendingConversationQueue((prev: QueuedConversationTurn[]) => [
             ...prev,
             { query: expandedCode, images: imagePayload },
           ]);
-          conversation.addInfo("Queued message. It will run after current response.");
+          // Keep queue signal concise; avoid spamming repeated info lines that cause reflow.
+          if (wasQueueEmpty) {
+            conversation.addInfo("Queued message. It will run after current response.");
+          }
           return;
         }
         setIsEvaluating(true);
@@ -1116,6 +1132,7 @@ function AppContent(
       runConversation,
       conversation,
       activePanel,
+      pendingConversationQueue,
       closeConversationMode,
       pendingInteraction,
       handleInteractionResponse,
@@ -1275,10 +1292,9 @@ function AppContent(
   const bannerItems: BannerItem[] = showBanner && !hasBeenCleared && bannerRendered
     ? [{
       id: "banner",
-      memoryNames,
       aiExports: init.aiExports,
       errors: init.errors,
-      session: currentSession,
+      modelName: footerModelName,
     }]
     : [];
 
@@ -1299,10 +1315,9 @@ function AppContent(
   const renderBannerItem = (item: BannerItem): React.ReactElement => (
     <Box key={item.id}>
       <Banner
-        memoryNames={item.memoryNames}
         aiExports={item.aiExports}
         errors={item.errors}
-        session={item.session}
+        modelName={item.modelName}
       />
     </Box>
   );

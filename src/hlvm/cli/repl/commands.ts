@@ -11,6 +11,7 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { listSessions } from "../../store/conversation-store.ts";
 import { handleDeleteAllSessions } from "./handlers/sessions.ts";
+import { normalizeModelId } from "../../../common/config/types.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -67,6 +68,9 @@ export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
     { name: "/memory", description: "Show memory file location and stats" },
     { name: "/forget", description: "Remove a definition from memory" },
     { name: "/config", description: "View/set configuration" },
+    { name: "/model", description: "Show or set current model" },
+    { name: "/models", description: "Open model picker" },
+    { name: "/status", description: "Show runtime status" },
     { name: "/tasks", description: "View background tasks" },
     { name: "/bg", description: "Push current eval to background" },
     { name: "/resume", description: "Resume a previous session" },
@@ -228,6 +232,81 @@ export const commands: Record<string, Command> = {
     description: "View/set configuration",
     handler: async (_state, args) => {
       await handleConfigCommand(args);
+    },
+  },
+
+  "/model": {
+    description: "Show or set current model",
+    handler: async (_state, args, context) => {
+      const modelArg = args.trim();
+      const configApi = (globalThis as Record<string, unknown>).config as
+        | {
+          snapshot?: { model?: unknown };
+          set?: (key: string, value: unknown) => Promise<unknown>;
+        }
+        | undefined;
+
+      if (!configApi) {
+        context.output(`${YELLOW}Configuration API not initialized.${RESET}`);
+        return;
+      }
+
+      if (!modelArg) {
+        const current = typeof configApi.snapshot?.model === "string"
+          ? configApi.snapshot.model
+          : "not configured";
+        context.output(`${BOLD}Current model:${RESET} ${current}`);
+        context.output(`${DIM_GRAY}Tip: /model <provider/model> to set (or /models to browse).${RESET}`);
+        return;
+      }
+
+      const normalized = normalizeModelId(modelArg);
+      if (!normalized) {
+        context.output(`${YELLOW}Invalid model ID.${RESET} Use format ${CYAN}provider/model${RESET}.`);
+        return;
+      }
+
+      if (!configApi.set) {
+        context.output(`${YELLOW}Config setter unavailable in this context.${RESET}`);
+        return;
+      }
+
+      await configApi.set("model", normalized);
+      context.output(`${GREEN}Default model set to ${normalized}.${RESET}`);
+    },
+  },
+
+  "/models": {
+    description: "Open model picker",
+    handler: (_state, _args, context) => {
+      context.output(`${DIM_GRAY}Use /models in the interactive REPL to open the model picker.${RESET}`);
+    },
+  },
+
+  "/status": {
+    description: "Show runtime status",
+    handler: (_state, _args, context) => {
+      const configApi = (globalThis as Record<string, unknown>).config as
+        | {
+          snapshot?: { model?: unknown };
+        }
+        | undefined;
+      const model = typeof configApi?.snapshot?.model === "string"
+        ? configApi.snapshot.model
+        : "not configured";
+      const aiApi = (globalThis as Record<string, unknown>).ai as
+        | { chat?: unknown }
+        | undefined;
+      const aiStatus = aiApi?.chat ? "ready" : "off";
+      const warnings = (globalThis as Record<string, unknown>).__hlvmStartupWarnings;
+      const warningCount = Array.isArray(warnings)
+        ? warnings.filter((line: unknown) => typeof line === "string" && line.length > 0).length
+        : 0;
+
+      context.output(`${BOLD}Status:${RESET}`);
+      context.output(`  ${CYAN}AI:${RESET} ${aiStatus}`);
+      context.output(`  ${CYAN}Model:${RESET} ${model}`);
+      context.output(`  ${CYAN}Startup warnings:${RESET} ${warningCount}`);
     },
   },
 

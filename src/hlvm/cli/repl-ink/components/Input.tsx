@@ -73,7 +73,10 @@ import {
 // Shared by handler registry, useInput, and Option+key handler
 type PareditFn = (input: string, pos: number) => PareditResult | null;
 
-// ESC key clears input immediately (no timeout)
+// ESC disambiguation timeout:
+// Some terminals send Option/Alt chords as ESC-prefixed sequences (ESC + key).
+// Delay pure ESC handling briefly so modified chords (e.g., Option+Enter) are not swallowed.
+const ESC_SEQUENCE_TIMEOUT_MS = 35;
 
 // Paste detection: only buffer when we have definite paste indicators
 // Multi-char input or newlines START buffering
@@ -182,6 +185,7 @@ export function Input({
   const pendingAttachmentOpsRef = useRef(0);
   const asyncEffectVersionRef = useRef(0);
   const valueRef = useRef(value);
+  const escSequenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Track if text change was from cycling (Up/Down) vs typing
   // When cycling, we don't want to re-filter the dropdown
@@ -271,6 +275,9 @@ export function Input({
     return () => {
       if (pasteTimeoutRef.current) {
         clearTimeout(pasteTimeoutRef.current);
+      }
+      if (escSequenceTimerRef.current) {
+        clearTimeout(escSequenceTimerRef.current);
       }
     };
   }, []);
@@ -757,6 +764,24 @@ export function Input({
     pasteBufferRef.current = '';
   }, []);
 
+  // Helper: cancel pending pure-ESC action (used when ESC is actually a prefix)
+  const cancelPendingEsc = useCallback(() => {
+    if (escSequenceTimerRef.current) {
+      clearTimeout(escSequenceTimerRef.current);
+      escSequenceTimerRef.current = null;
+    }
+  }, []);
+
+  // Helper: schedule pure ESC handling after a short timeout.
+  // If a follow-up key arrives, we cancel and treat ESC as a prefix.
+  const schedulePureEscAction = useCallback((action: () => void) => {
+    cancelPendingEsc();
+    escSequenceTimerRef.current = setTimeout(() => {
+      escSequenceTimerRef.current = null;
+      action();
+    }, ESC_SEQUENCE_TIMEOUT_MS);
+  }, [cancelPendingEsc]);
+
   // Helper: accept and apply suggestion (DRY helper)
   const acceptAndApplySuggestion = useCallback(() => {
     if (!suggestion) return false;
@@ -1045,6 +1070,19 @@ export function Input({
   useInput((input, key) => {
     // Use ref to avoid stale closure - disabled prop can change during evaluation
     if (disabledRef.current) return;
+    const hasPendingEsc = escSequenceTimerRef.current !== null;
+    const isPureEscPrefixEvent =
+      key.escape &&
+      !key.ctrl &&
+      !key.meta &&
+      !key.return &&
+      (!input || input.length === 0 || input === "\x1b");
+
+    // Any non-pure-ESC event means previous ESC was a prefix (Alt/Option sequence), not a standalone ESC press.
+    if (!isPureEscPrefixEvent) {
+      cancelPendingEsc();
+    }
+
     // Some terminals emit raw \t for Tab without setting key.tab.
     // Others emit Ctrl+I (ASCII 9). Treat all forms as Tab for deterministic toggle behavior.
     const inputCharCode = input?.charCodeAt(0) ?? 0;
@@ -1304,8 +1342,9 @@ export function Input({
         return;
       }
 
-      // Check for ESC/Option + Enter (insert newline)
-      if (key.return) {
+      // Check for ESC/Option + Enter (insert newline).
+      // Some terminals send raw \r/\n here without key.return=true.
+      if (key.return || input === "\r" || input === "\n") {
         insertAt("\n");
         return;
       }
@@ -1343,28 +1382,28 @@ export function Input({
         case 'k': applyParedit(killSexp); return;       // Opt+K: (a |b c) → (a |)
       }
 
-      // Only treat as "pure ESC" if no input character (actual ESC key press)
-      if (!input || input.length === 0) {
-        // Pure ESC key: close dropdown first (do not clear input).
-        if (completion.isVisible) {
-          completion.close();
-          return;
-        }
+      // Treat pure ESC as a potential prefix first; only run ESC action if no follow-up key arrives.
+      if (isPureEscPrefixEvent) {
+        schedulePureEscAction(() => {
+          // Pure ESC key: close dropdown first (do not clear input).
+          if (completion.isVisible) {
+            completion.close();
+            return;
+          }
 
-        // Pure ESC key - immediately clear input (Claude Code behavior)
+          // Exit placeholder mode
+          if (isInPlaceholderMode()) {
+            exitPlaceholderModeAndCleanup();
+          }
 
-        // Exit placeholder mode
-        if (isInPlaceholderMode()) {
-          exitPlaceholderModeAndCleanup();
-        }
-
-        // Clear input immediately
-        asyncEffectVersionRef.current += 1;
-        pendingAttachmentOpsRef.current = 0;
-        pushUndo();
-        onChange("");
-        setCursorPos(0);
-        clearAttachments();
+          // Clear input
+          asyncEffectVersionRef.current += 1;
+          pendingAttachmentOpsRef.current = 0;
+          pushUndo();
+          onChange("");
+          setCursorPos(0);
+          clearAttachments();
+        });
       }
       return;
     }
@@ -1504,16 +1543,15 @@ export function Input({
         completion.close();
         return;
       }
-      // Directory drill: keep browsing into selected directory without closing dropdown.
-      // Uses RightArrow to avoid conflict with global Tab toggle behavior.
-      if (key.rightArrow && selectedItem?.availableActions.includes("DRILL")) {
-        executeCompletionAction(selectedItem, "DRILL");
-        return;
-      }
-
-      // Tab toggles dropdown only (open/close). It never applies selection.
-      // Selection is explicit via Enter.
+      // Tab behavior in dropdown:
+      // - Shift+Tab on directory => DRILL (continue browsing)
+      // - Tab => toggle close/open (never auto-select)
+      // - Selection remains explicit via Enter
       if (isTabKey) {
+        if (key.shift && selectedItem?.availableActions.includes("DRILL")) {
+          executeCompletionAction(selectedItem, "DRILL");
+          return;
+        }
         handleTab();
         return;
       }
@@ -1527,6 +1565,18 @@ export function Input({
         executeCompletionAction(selectedItem, action);
         return;
       }
+    }
+
+    // Modified Enter inserts a newline (multi-line chat/code authoring)
+    // Supports common agent-CLI conventions: Shift+Enter, Alt/Option+Enter, Cmd+Enter.
+    const isEnterLikeInput = key.return || input === "\r" || input === "\n";
+    if (
+      isEnterLikeInput &&
+      !key.ctrl &&
+      (key.shift || key.meta || key.escape || hasPendingEsc)
+    ) {
+      insertAt("\n");
+      return;
     }
 
     // Enter - submit if balanced OR if it's an @mention query

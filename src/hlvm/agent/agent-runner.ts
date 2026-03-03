@@ -66,6 +66,28 @@ const DEFAULT_AGENT_PATH_ROOTS = [
 // ============================================================
 const sessionCache = new Map<string, AgentSession>();
 
+function toCacheKey(
+  workspace: string,
+  model: string,
+  opts?: {
+    contextWindow?: number;
+    toolDenylist?: string[];
+  },
+): string {
+  const contextWindowKey = typeof opts?.contextWindow === "number"
+    ? String(opts.contextWindow)
+    : "default";
+  const denylistKey = opts?.toolDenylist?.length
+    ? [...new Set(opts.toolDenylist)].sort().join(",")
+    : "";
+  return [
+    `workspace:${workspace}`,
+    `model:${model}`,
+    `contextWindow:${contextWindowKey}`,
+    `deny:${denylistKey}`,
+  ].join("|");
+}
+
 /** Get or create a cached session for a global:model pair. */
 export async function getOrCreateCachedSession(
   workspace: string,
@@ -77,7 +99,7 @@ export async function getOrCreateCachedSession(
     modelInfo?: ModelInfo | null;
   },
 ): Promise<AgentSession> {
-  const key = `global:${model}`;
+  const key = toCacheKey(workspace, model, opts);
   const existing = sessionCache.get(key);
   if (existing) return existing;
 
@@ -158,8 +180,8 @@ export async function reuseSession(
   };
 }
 
-function deriveDefaultSessionKey(_workspace: string): string {
-  return "default";
+function deriveDefaultSessionKey(workspace: string, model: string): string {
+  return `default:${workspace}:${model}`;
 }
 
 function mergePolicyPathRoots(
@@ -305,7 +327,7 @@ export async function runAgentQuery(
   const useExternalHistory = !!options.messageHistory;
   const sessionKey = (skipSessionHistory || useExternalHistory)
     ? null
-    : deriveDefaultSessionKey(workspace);
+    : deriveDefaultSessionKey(workspace, model);
   let sessionEntry: AgentSessionEntry | null = null;
 
   try {

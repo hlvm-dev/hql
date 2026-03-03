@@ -52,14 +52,14 @@ export async function handleAgentMode(
   requestId: string,
   modelInfo?: ModelInfo | null,
 ): Promise<void> {
-  let agentReadyPromise = getAgentReadyPromise();
+  let agentReadyPromise = getAgentReadyPromise(resolvedModel);
   if (!agentReadyPromise) {
     agentReadyPromise = ensureAgentReady(resolvedModel, (msg) => log.info(msg))
       .catch((err) => {
-        setAgentReadyPromise(null);
+        setAgentReadyPromise(resolvedModel, null);
         throw err;
       });
-    setAgentReadyPromise(agentReadyPromise);
+    setAgentReadyPromise(resolvedModel, agentReadyPromise);
   }
   await agentReadyPromise;
 

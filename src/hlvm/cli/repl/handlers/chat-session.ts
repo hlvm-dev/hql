@@ -52,24 +52,39 @@ export const activeRequests = new Map<string, {
   sessionId: string;
   cancel?: () => void;
 }>();
-let agentReadyPromise: Promise<void> | null = null;
+const DEFAULT_AGENT_READY_KEY = "__default__";
+const agentReadyPromises = new Map<string, Promise<void>>();
 
-export function isAgentReady(): boolean {
-  return agentReadyPromise !== null;
+function getAgentReadyKey(model?: string): string {
+  const trimmed = model?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : DEFAULT_AGENT_READY_KEY;
 }
 
-export function markAgentReady(): void {
-  if (!agentReadyPromise) {
-    agentReadyPromise = Promise.resolve();
+export function isAgentReady(model?: string): boolean {
+  if (typeof model === "string") {
+    return agentReadyPromises.has(getAgentReadyKey(model));
   }
+  return agentReadyPromises.size > 0;
 }
 
-export function getAgentReadyPromise(): Promise<void> | null {
-  return agentReadyPromise;
+export function markAgentReady(model?: string): void {
+  agentReadyPromises.set(getAgentReadyKey(model), Promise.resolve());
 }
 
-export function setAgentReadyPromise(p: Promise<void> | null): void {
-  agentReadyPromise = p;
+export function getAgentReadyPromise(model?: string): Promise<void> | null {
+  return agentReadyPromises.get(getAgentReadyKey(model)) ?? null;
+}
+
+export function setAgentReadyPromise(
+  model: string | undefined,
+  p: Promise<void> | null,
+): void {
+  const key = getAgentReadyKey(model);
+  if (p) {
+    agentReadyPromises.set(key, p);
+  } else {
+    agentReadyPromises.delete(key);
+  }
 }
 
 export function pushSessionUpdatedEvent(sessionId: string): void {

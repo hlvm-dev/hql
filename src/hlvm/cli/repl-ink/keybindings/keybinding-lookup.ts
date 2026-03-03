@@ -200,7 +200,7 @@ function displayToCombo(display: string): string | null {
       const mod = parts[i].toLowerCase();
       if (mod === "ctrl" || mod === "control") normalized.push("ctrl");
       else if (mod === "cmd" || mod === "meta" || mod === "⌘") normalized.push("cmd");
-      else if (mod === "alt" || mod === "option" || mod === "⌥") normalized.push("alt");
+      else if (mod === "alt" || mod === "option" || mod === "opt" || mod === "⌥") normalized.push("alt");
       else if (mod === "shift" || mod === "⇧") normalized.push("shift");
     }
     const key = parts[parts.length - 1].toLowerCase();
@@ -223,7 +223,7 @@ function normalizeStoredCombo(combo: string): string {
   for (const part of parts) {
     if (part === "control") normalized.push("ctrl");
     else if (part === "meta" || part === "command") normalized.push("cmd");
-    else if (part === "option") normalized.push("alt");
+    else if (part === "option" || part === "opt") normalized.push("alt");
     else normalized.push(part);
   }
 

@@ -6,7 +6,6 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { version as VERSION } from "../../../../../mod.ts";
-import type { SessionMeta } from "../../repl/session/types.ts";
 import { useTheme } from "../../theme/index.ts";
 
 // =============================================================================
@@ -29,14 +28,14 @@ const SYMBOLS = {
 } as const;
 
 interface BannerProps {
-  memoryNames: string[];
   aiExports: string[];
   errors: string[];
-  session?: SessionMeta | null;
+  modelName?: string;
 }
 
-export function Banner({ memoryNames, aiExports, errors, session }: BannerProps): React.ReactElement {
+export function Banner({ aiExports, errors, modelName }: BannerProps): React.ReactElement {
   const { color } = useTheme();
+  const model = modelName?.trim() ?? "";
 
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -60,14 +59,9 @@ export function Banner({ memoryNames, aiExports, errors, session }: BannerProps)
               dimColor={aiExports.length === 0}>
           AI {aiExports.length > 0 ? "ready" : "off"}
         </Text>
-        <Text dimColor> · </Text>
-        <Text dimColor={memoryNames.length === 0}>
-          Memory: {memoryNames.length > 0 ? `${memoryNames.length} defs` : "empty"}
-        </Text>
-        <Text dimColor> · </Text>
-        <Text dimColor={!session}>
-          Session: {session ? session.title : "new"}
-        </Text>
+        {model && (
+          <Text dimColor> · {model}</Text>
+        )}
       </Box>
 
       {/* Compact warnings */}
