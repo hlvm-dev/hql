@@ -30,7 +30,6 @@ export type CompletionSideEffect =
   | { type: "ADD_ATTACHMENT"; path: string }
   | { type: "ENTER_PLACEHOLDER_MODE"; params: string[]; startPos: number }
   | { type: "EXECUTE" }  // Execute command immediately (for slash commands)
-  | { type: "INCLUDE_DIRECTORY"; path: string }  // Recursive directory include
   | { type: "NONE" };
 
 /** Result of applying a completion action */
@@ -402,8 +401,8 @@ export const RENDER_MAX_WIDTH = {
 
 /** Help text shown in dropdown (simplified for clean UI) */
 export const PROVIDER_HELP_TEXT = {
-  SIMPLE: "Tab close • Enter select • Shift+Enter insert • Ctrl+D docs • Esc",
-  DRILL: "Tab close • Shift+Tab drill dir • Enter select • Shift+Enter insert • Ctrl+D docs • Esc",
+  SIMPLE: "Tab close • Enter select • Shift/Alt/Cmd+Enter newline • Ctrl+D docs • Esc",
+  DRILL: "Tab close • Shift+Tab drill dir • Enter select • Shift/Alt/Cmd+Enter newline • Ctrl+D docs • Esc",
   COMMAND: "Tab close • Enter run • Ctrl+D docs • Esc",
 } as const;
 

@@ -76,7 +76,8 @@ type PareditFn = (input: string, pos: number) => PareditResult | null;
 // ESC disambiguation timeout:
 // Some terminals send Option/Alt chords as ESC-prefixed sequences (ESC + key).
 // Delay pure ESC handling briefly so modified chords (e.g., Option+Enter) are not swallowed.
-const ESC_SEQUENCE_TIMEOUT_MS = 35;
+const ESC_SEQUENCE_TIMEOUT_MS = 120;
+const ESC_PREFIX_ENTER_GRACE_MS = 280;
 
 // Paste detection: only buffer when we have definite paste indicators
 // Multi-char input or newlines START buffering
@@ -183,9 +184,8 @@ export function Input({
   const redoStackRef = useRef<Array<{value: string, cursorPos: number}>>([]);
   // Async operation guards
   const pendingAttachmentOpsRef = useRef(0);
-  const asyncEffectVersionRef = useRef(0);
-  const valueRef = useRef(value);
   const escSequenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastEscPrefixAtRef = useRef(0);
 
   // Track if text change was from cycling (Up/Down) vs typing
   // When cycling, we don't want to re-filter the dropdown
@@ -198,9 +198,6 @@ export function Input({
   useEffect(() => {
     disabledRef.current = disabled;
   }, [disabled]);
-  useEffect(() => {
-    valueRef.current = value;
-  }, [value]);
 
   // Update cursor pos when value changes externally
   useEffect(() => {
@@ -523,34 +520,11 @@ export function Input({
       // Function param completion
       onChange(result.text);
       enterPlaceholderMode(result.sideEffect.params, result.sideEffect.startPos);
-    } else if (result.sideEffect?.type === "INCLUDE_DIRECTORY") {
-      // Recursive directory include — read all files and add as text attachment
-      const dirPath = result.sideEffect.path;
-      const baseText = result.text;
-      const effectVersion = asyncEffectVersionRef.current;
-      onChange(baseText);
-      setCursorPos(result.cursorPosition);
-      import("../../repl/dir-reader.ts").then(({ readDirectoryRecursive }) =>
-        readDirectoryRecursive(dirPath).then((content) => {
-          // Ignore stale completion effects after submit/clear or user edits.
-          if (effectVersion !== asyncEffectVersionRef.current) return;
-          if (valueRef.current !== baseText) return;
-          const textAttachment = addTextAttachment(content);
-          const dirToken = `@${dirPath} `;
-          const nextText = baseText.includes(dirToken)
-            ? baseText.replace(dirToken, `${textAttachment.displayName} `)
-            : `${baseText} ${textAttachment.displayName}`;
-          onChange(nextText);
-          setCursorPos(nextText.length);
-        })
-          .catch(() => { /* silently fail — user still has the @path */ })
-      );
     } else if (result.sideEffect?.type === "EXECUTE") {
       // Command execution - close dropdown and submit immediately (single Enter)
       completion.close();
       const finalText = result.text.trim();
       onSubmit(finalText, attachments.length > 0 ? attachments : undefined);
-      asyncEffectVersionRef.current += 1;
       pendingAttachmentOpsRef.current = 0;
       onChange("");
       setCursorPos(0);
@@ -568,7 +542,7 @@ export function Input({
     if (result.closeDropdown) {
       completion.close();
     }
-  }, [completion, onChange, onSubmit, attachments, reserveNextId, addAttachmentWithId, addTextAttachment, enterPlaceholderMode, pushUndo, clearAttachments]);
+  }, [completion, onChange, onSubmit, attachments, reserveNextId, addAttachmentWithId, enterPlaceholderMode, pushUndo, clearAttachments]);
 
   // Helper: move to next placeholder (Tab)
   const nextPlaceholder = useCallback(() => {
@@ -743,7 +717,6 @@ export function Input({
 
   // Helper: reset state after submit (DRY helper)
   const resetAfterSubmit = useCallback(() => {
-    asyncEffectVersionRef.current += 1;
     pendingAttachmentOpsRef.current = 0;
     undoStackRef.current = [];
     redoStackRef.current = [];
@@ -1070,7 +1043,10 @@ export function Input({
   useInput((input, key) => {
     // Use ref to avoid stale closure - disabled prop can change during evaluation
     if (disabledRef.current) return;
+    const nowMs = Date.now();
     const hasPendingEsc = escSequenceTimerRef.current !== null;
+    const recentEscPrefix = nowMs - lastEscPrefixAtRef.current < ESC_PREFIX_ENTER_GRACE_MS;
+    const isEscPrefixedEnterInput = input === "\x1b\r" || input === "\x1b\n";
     const isPureEscPrefixEvent =
       key.escape &&
       !key.ctrl &&
@@ -1087,6 +1063,12 @@ export function Input({
     // Others emit Ctrl+I (ASCII 9). Treat all forms as Tab for deterministic toggle behavior.
     const inputCharCode = input?.charCodeAt(0) ?? 0;
     const isTabKey = key.tab || input === "\t" || inputCharCode === 9 || (key.ctrl && input === "i");
+
+    // Some terminals emit Option+Enter as one ESC-prefixed payload.
+    if (isEscPrefixedEnterInput && !key.ctrl) {
+      insertAt("\n");
+      return;
+    }
 
     // ============================================================
     // HISTORY SEARCH MODE (Ctrl+R)
@@ -1166,6 +1148,18 @@ export function Input({
       }
 
       // Ignore other keys during search
+      return;
+    }
+
+    // Modified Enter always inserts newline (global multiline behavior),
+    // including when completion dropdown is open.
+    const isEnterLikeInput = key.return || input === "\r" || input === "\n";
+    if (
+      isEnterLikeInput &&
+      !key.ctrl &&
+      (key.shift || key.meta || key.escape || hasPendingEsc || recentEscPrefix)
+    ) {
+      insertAt("\n");
       return;
     }
 
@@ -1384,7 +1378,9 @@ export function Input({
 
       // Treat pure ESC as a potential prefix first; only run ESC action if no follow-up key arrives.
       if (isPureEscPrefixEvent) {
+        lastEscPrefixAtRef.current = Date.now();
         schedulePureEscAction(() => {
+          lastEscPrefixAtRef.current = 0;
           // Pure ESC key: close dropdown first (do not clear input).
           if (completion.isVisible) {
             completion.close();
@@ -1397,7 +1393,6 @@ export function Input({
           }
 
           // Clear input
-          asyncEffectVersionRef.current += 1;
           pendingAttachmentOpsRef.current = 0;
           pushUndo();
           onChange("");
@@ -1538,6 +1533,20 @@ export function Input({
         }
         return;
       }
+      if (key.leftArrow) {
+        completion.close();
+        if (cursorPos > 0) setCursorPos(cursorPos - 1);
+        return;
+      }
+      if (key.rightArrow) {
+        completion.close();
+        if (cursorPos < value.length) {
+          setCursorPos(cursorPos + 1);
+        } else if (suggestion) {
+          acceptAndApplySuggestion();
+        }
+        return;
+      }
       if (key.escape) {
         // Cancel and close dropdown
         completion.close();
@@ -1556,27 +1565,12 @@ export function Input({
         return;
       }
 
-      // Enter confirms selection in snippet-aware mode (SELECT).
-      // Shift+Enter keeps plain-text insertion (INSERT) for non-command items.
-      if (key.return && selectedItem) {
-        const action: CompletionAction = (selectedItem.type !== "command" && key.shift)
-          ? "INSERT"
-          : "SELECT";
-        executeCompletionAction(selectedItem, action);
+      // Enter confirms selection (SELECT).
+      // Modified enter (Shift/Alt/Cmd+Enter) is handled earlier as newline.
+      if ((key.return || input === "\r" || input === "\n") && selectedItem) {
+        executeCompletionAction(selectedItem, "SELECT");
         return;
       }
-    }
-
-    // Modified Enter inserts a newline (multi-line chat/code authoring)
-    // Supports common agent-CLI conventions: Shift+Enter, Alt/Option+Enter, Cmd+Enter.
-    const isEnterLikeInput = key.return || input === "\r" || input === "\n";
-    if (
-      isEnterLikeInput &&
-      !key.ctrl &&
-      (key.shift || key.meta || key.escape || hasPendingEsc)
-    ) {
-      insertAt("\n");
-      return;
     }
 
     // Enter - submit if balanced OR if it's an @mention query

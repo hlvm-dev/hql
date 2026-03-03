@@ -410,14 +410,13 @@ function createFileApplyAction(
       };
     }
 
-    // SELECT on directory: recursive include
+    // SELECT on directory: insert directory path for continued navigation/reference
     if (isDir && action === "SELECT") {
-      const insertPath = "@" + cleanPath + " ";
+      const insertPath = "@" + cleanPath + (cleanPath.endsWith("/") ? "" : "/");
       return {
         text: before + insertPath + after,
         cursorPosition: ctx.anchorPosition + insertPath.length,
-        closeDropdown: true,
-        sideEffect: { type: "INCLUDE_DIRECTORY", path: cleanPath },
+        closeDropdown: false, // keep open so user can continue drilling/selecting nested items
       };
     }
 
