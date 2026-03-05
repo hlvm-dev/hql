@@ -9,7 +9,6 @@
  */
 
 import { assertEquals, assertNotEquals } from "jsr:@std/assert";
-import { getPlatform } from "../../../src/platform/platform.ts";
 import {
   getMcpOAuthAuthorizationHeader,
   loginMcpHttpServer,
@@ -18,6 +17,11 @@ import {
 } from "../../../src/hlvm/agent/mcp/oauth.ts";
 import { SdkMcpClient } from "../../../src/hlvm/agent/mcp/sdk-client.ts";
 import type { McpServerConfig } from "../../../src/hlvm/agent/mcp/types.ts";
+import {
+  serveWithRetry,
+  withServePermissionGuard,
+  withOAuthStorePath,
+} from "./oauth-test-helpers.ts";
 
 // ============================================================
 // Server Setup
@@ -51,7 +55,7 @@ async function startMcpOAuthServer(
     return token;
   }
 
-  const server = Deno.serve(
+  const server = await serveWithRetry(
     {
       port: 0,
       hostname: "127.0.0.1",
@@ -249,24 +253,15 @@ function handleJsonRpc(body: any): any {
 async function withOauthStorePath<T>(
   fn: (storePath: string) => Promise<T>,
 ): Promise<T> {
-  const platform = getPlatform();
-  const previous = platform.env.get("HLVM_MCP_OAUTH_PATH");
-  const dir = await Deno.makeTempDir({ prefix: "hlvm-mcp-oauth-e2e-" });
-  const path = platform.path.join(dir, "mcp-oauth.json");
-  platform.env.set("HLVM_MCP_OAUTH_PATH", path);
-  try {
-    return await fn(path);
-  } finally {
-    platform.env.set("HLVM_MCP_OAUTH_PATH", previous ?? "");
-    await platform.fs.remove(dir, { recursive: true });
-  }
+  return await withOAuthStorePath("hlvm-mcp-oauth-e2e-", fn);
 }
 
 /** Login helper — captures auth URL and injects callback with state */
-async function doLogin(server: McpServerConfig): Promise<void> {
+async function doLogin(server: McpServerConfig, storePath: string): Promise<void> {
   let authUrl = "";
   await loginMcpHttpServer(server, {
     output: () => {},
+    storePath,
     openBrowser: (url) => {
       authUrl = url;
       return Promise.resolve();
@@ -284,8 +279,9 @@ async function doLogin(server: McpServerConfig): Promise<void> {
 async function callEcho(
   serverConfig: McpServerConfig,
   message: string,
+  storePath: string,
 ): Promise<string> {
-  const header = await getMcpOAuthAuthorizationHeader(serverConfig);
+  const header = await getMcpOAuthAuthorizationHeader(serverConfig, { storePath });
   assertNotEquals(header, null, "Expected valid auth header");
 
   const client = new SdkMcpClient({
@@ -313,29 +309,33 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    await withOauthStorePath(async () => {
-      const srv = await startMcpOAuthServer();
-      const serverConfig: McpServerConfig = {
-        name: "e2e-test",
-        url: `http://127.0.0.1:${srv.port}/mcp`,
-      };
+    await withServePermissionGuard(async () => {
+      await withOauthStorePath(async (storePath) => {
+        const srv = await startMcpOAuthServer();
+        const serverConfig: McpServerConfig = {
+          name: "e2e-test",
+          url: `http://127.0.0.1:${srv.port}/mcp`,
+        };
 
-      // Login via OAuth flow
-      await doLogin(serverConfig);
+        // Login via OAuth flow
+        await doLogin(serverConfig, storePath);
 
-      // Verify we got a valid auth header
-      const header = await getMcpOAuthAuthorizationHeader(serverConfig);
-      assertEquals(typeof header, "string");
-      assertEquals(header!.startsWith("Bearer "), true);
+        // Verify we got a valid auth header
+        const header = await getMcpOAuthAuthorizationHeader(serverConfig, {
+          storePath,
+        });
+        assertEquals(typeof header, "string");
+        assertEquals(header!.startsWith("Bearer "), true);
 
-      // Make authenticated MCP tool call
-      const result = await callEcho(serverConfig, "hello world");
-      assertEquals(result, "echo: hello world");
+        // Make authenticated MCP tool call
+        const result = await callEcho(serverConfig, "hello world", storePath);
+        assertEquals(result, "echo: hello world");
 
-      // Verify token was issued (counter incremented)
-      assertEquals(srv.tokenCounter >= 1, true);
+        // Verify token was issued (counter incremented)
+        assertEquals(srv.tokenCounter >= 1, true);
 
-      await srv.server.shutdown();
+        await srv.server.shutdown();
+      });
     });
   },
 });
@@ -345,29 +345,33 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    await withOauthStorePath(async () => {
-      // Token expires immediately (0 seconds)
-      const srv = await startMcpOAuthServer({ initialExpiresIn: 0 });
-      const serverConfig: McpServerConfig = {
-        name: "e2e-refresh",
-        url: `http://127.0.0.1:${srv.port}/mcp`,
-      };
+    await withServePermissionGuard(async () => {
+      await withOauthStorePath(async (storePath) => {
+        // Token expires immediately (0 seconds)
+        const srv = await startMcpOAuthServer({ initialExpiresIn: 0 });
+        const serverConfig: McpServerConfig = {
+          name: "e2e-refresh",
+          url: `http://127.0.0.1:${srv.port}/mcp`,
+        };
 
-      await doLogin(serverConfig);
-      const initialCount = srv.tokenCounter;
+        await doLogin(serverConfig, storePath);
+        const initialCount = srv.tokenCounter;
 
-      // getMcpOAuthAuthorizationHeader should auto-refresh the expired token
-      const header = await getMcpOAuthAuthorizationHeader(serverConfig);
-      assertEquals(typeof header, "string");
+        // getMcpOAuthAuthorizationHeader should auto-refresh the expired token
+        const header = await getMcpOAuthAuthorizationHeader(serverConfig, {
+          storePath,
+        });
+        assertEquals(typeof header, "string");
 
-      // Token counter should have incremented (refresh issued a new token)
-      assertEquals(srv.tokenCounter > initialCount, true);
+        // Token counter should have incremented (refresh issued a new token)
+        assertEquals(srv.tokenCounter > initialCount, true);
 
-      // The refreshed token should work for MCP calls
-      const result = await callEcho(serverConfig, "refreshed");
-      assertEquals(result, "echo: refreshed");
+        // The refreshed token should work for MCP calls
+        const result = await callEcho(serverConfig, "refreshed", storePath);
+        assertEquals(result, "echo: refreshed");
 
-      await srv.server.shutdown();
+        await srv.server.shutdown();
+      });
     });
   },
 });
@@ -377,51 +381,56 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    await withOauthStorePath(async () => {
-      const srv = await startMcpOAuthServer({ initialExpiresIn: 3600 });
-      const serverConfig: McpServerConfig = {
-        name: "e2e-recover",
-        url: `http://127.0.0.1:${srv.port}/mcp`,
-      };
+    await withServePermissionGuard(async () => {
+      await withOauthStorePath(async (storePath) => {
+        const srv = await startMcpOAuthServer({ initialExpiresIn: 3600 });
+        const serverConfig: McpServerConfig = {
+          name: "e2e-recover",
+          url: `http://127.0.0.1:${srv.port}/mcp`,
+        };
 
-      await doLogin(serverConfig);
+        await doLogin(serverConfig, storePath);
 
-      // Verify initial call works
-      const result1 = await callEcho(serverConfig, "before");
-      assertEquals(result1, "echo: before");
+        // Verify initial call works
+        const result1 = await callEcho(serverConfig, "before", storePath);
+        assertEquals(result1, "echo: before");
 
-      // Invalidate all tokens (simulates server-side revocation)
-      srv.validTokens.clear();
+        // Invalidate all tokens (simulates server-side revocation)
+        srv.validTokens.clear();
 
-      // Attempt a call with the now-invalid token — should fail with 401
-      const header = await getMcpOAuthAuthorizationHeader(serverConfig);
-      const failClient = new SdkMcpClient({
-        ...serverConfig,
-        headers: { Authorization: header! },
+        // Attempt a call with the now-invalid token — should fail with 401
+        const header = await getMcpOAuthAuthorizationHeader(serverConfig, {
+          storePath,
+        });
+        const failClient = new SdkMcpClient({
+          ...serverConfig,
+          headers: { Authorization: header! },
+        });
+        let got401 = false;
+        try {
+          await failClient.start();
+        } catch {
+          // StreamableHTTPClientTransport throws on 401 during init
+          got401 = true;
+        } finally {
+          await failClient.close();
+        }
+        assertEquals(got401, true, "Expected 401 error from invalidated token");
+
+        // Recover via refresh token
+        const recovered = await recoverMcpOAuthFromUnauthorized(
+          serverConfig,
+          `Bearer error="invalid_token", resource_metadata="http://127.0.0.1:${srv.port}/.well-known/oauth-protected-resource"`,
+          { storePath },
+        );
+        assertEquals(recovered, true);
+
+        // New token should work
+        const result2 = await callEcho(serverConfig, "after", storePath);
+        assertEquals(result2, "echo: after");
+
+        await srv.server.shutdown();
       });
-      let got401 = false;
-      try {
-        await failClient.start();
-      } catch {
-        // StreamableHTTPClientTransport throws on 401 during init
-        got401 = true;
-      } finally {
-        await failClient.close();
-      }
-      assertEquals(got401, true, "Expected 401 error from invalidated token");
-
-      // Recover via refresh token
-      const recovered = await recoverMcpOAuthFromUnauthorized(
-        serverConfig,
-        `Bearer error="invalid_token", resource_metadata="http://127.0.0.1:${srv.port}/.well-known/oauth-protected-resource"`,
-      );
-      assertEquals(recovered, true);
-
-      // New token should work
-      const result2 = await callEcho(serverConfig, "after");
-      assertEquals(result2, "echo: after");
-
-      await srv.server.shutdown();
     });
   },
 });
@@ -431,36 +440,44 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    await withOauthStorePath(async () => {
-      const srv = await startMcpOAuthServer();
-      const serverConfig: McpServerConfig = {
-        name: "e2e-logout",
-        url: `http://127.0.0.1:${srv.port}/mcp`,
-      };
+    await withServePermissionGuard(async () => {
+      await withOauthStorePath(async (storePath) => {
+        const srv = await startMcpOAuthServer();
+        const serverConfig: McpServerConfig = {
+          name: "e2e-logout",
+          url: `http://127.0.0.1:${srv.port}/mcp`,
+        };
 
-      await doLogin(serverConfig);
+        await doLogin(serverConfig, storePath);
 
-      // Verify we have a valid token
-      const headerBefore = await getMcpOAuthAuthorizationHeader(serverConfig);
-      assertNotEquals(headerBefore, null);
+        // Verify we have a valid token
+        const headerBefore = await getMcpOAuthAuthorizationHeader(serverConfig, {
+          storePath,
+        });
+        assertNotEquals(headerBefore, null);
 
-      // Verify tool call works
-      const result = await callEcho(serverConfig, "pre-logout");
-      assertEquals(result, "echo: pre-logout");
+        // Verify tool call works
+        const result = await callEcho(serverConfig, "pre-logout", storePath);
+        assertEquals(result, "echo: pre-logout");
 
-      // Logout
-      const removed = await logoutMcpHttpServer(serverConfig);
-      assertEquals(removed, true);
+        // Logout
+        const removed = await logoutMcpHttpServer(serverConfig, { storePath });
+        assertEquals(removed, true);
 
-      // Credentials should be cleared
-      const headerAfter = await getMcpOAuthAuthorizationHeader(serverConfig);
-      assertEquals(headerAfter, null);
+        // Credentials should be cleared
+        const headerAfter = await getMcpOAuthAuthorizationHeader(serverConfig, {
+          storePath,
+        });
+        assertEquals(headerAfter, null);
 
-      // Double-logout returns false
-      const removedAgain = await logoutMcpHttpServer(serverConfig);
-      assertEquals(removedAgain, false);
+        // Double-logout returns false
+        const removedAgain = await logoutMcpHttpServer(serverConfig, {
+          storePath,
+        });
+        assertEquals(removedAgain, false);
 
-      await srv.server.shutdown();
+        await srv.server.shutdown();
+      });
     });
   },
 });

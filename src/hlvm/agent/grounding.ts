@@ -8,6 +8,7 @@
  */
 
 import { hasTool } from "./registry.ts";
+import type { Citation } from "./tools/web/search-provider.ts";
 
 // ============================================================
 // Types
@@ -137,7 +138,11 @@ function responseIncorporatesToolData(
   return false;
 }
 
-function hasCitationData(toolUses: ToolUse[]): boolean {
+function hasCitationData(
+  toolUses: ToolUse[],
+  citationSpans: Citation[] = [],
+): boolean {
+  if (citationSpans.length > 0) return true;
   return toolUses.some((t) => {
     try {
       const parsed = JSON.parse(t.result);
@@ -151,6 +156,7 @@ function hasCitationData(toolUses: ToolUse[]): boolean {
 export function checkGrounding(
   response: string,
   toolUses: ToolUse[],
+  citationSpans: Citation[] = [],
 ): GroundingCheckResult {
   const warnings: string[] = [];
   const lower = response.toLowerCase();
@@ -191,7 +197,7 @@ export function checkGrounding(
       return lower.includes(normalized) || lower.includes(tool.toolName);
     });
     const incorporatesData = responseIncorporatesToolData(response, toolUses);
-    const hasCitations = hasCitationData(toolUses);
+    const hasCitations = hasCitationData(toolUses, citationSpans);
 
     if (!mentionsBasedOn && !mentionsTool && !incorporatesData && !hasCitations) {
       warnings.push(

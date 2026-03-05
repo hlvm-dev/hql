@@ -15,7 +15,16 @@ import {
 } from "../../../src/hlvm/agent/tools/web/duckduckgo.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import type { AgentPolicy } from "../../../src/hlvm/agent/policy.ts";
-import { isAllowedByDomainFilters } from "../../../src/hlvm/agent/tools/web/search-provider.ts";
+import {
+  isAllowedByDomainFilters,
+  registerSearchProvider,
+  resetSearchProviders,
+  type SearchCallOptions,
+} from "../../../src/hlvm/agent/tools/web/search-provider.ts";
+import {
+  initSearchProviders,
+  resetSearchProviderBootstrap,
+} from "../../../src/hlvm/agent/tools/web/search-provider-bootstrap.ts";
 import {
   dedupeSearchResults,
   rankSearchResults,
@@ -25,6 +34,21 @@ import {
   renderWithChrome,
   shutdownChromeBrowser,
 } from "../../../src/hlvm/agent/tools/web/headless-chrome.ts";
+
+async function withIsolatedSearchRegistry(
+  fn: () => Promise<void>,
+): Promise<void> {
+  resetSearchProviderBootstrap();
+  resetSearchProviders();
+  initSearchProviders();
+  try {
+    await fn();
+  } finally {
+    resetSearchProviderBootstrap();
+    resetSearchProviders();
+    initSearchProviders();
+  }
+}
 
 Deno.test("search_web validates query", async () => {
   const search = WEB_TOOLS.search_web;
@@ -776,4 +800,139 @@ Deno.test("search_web validates searchDepth", async () => {
     ValidationError,
     "searchDepth must be one of",
   );
+});
+
+Deno.test({
+  name: "search_web auto deep round triggers on low-confidence results",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withIsolatedSearchRegistry(async () => {
+      const queriesSeen: string[] = [];
+      const query = `deno 2.2 sqlite builtin changes ${crypto.randomUUID().slice(0, 8)}`;
+      registerSearchProvider({
+        name: "duckduckgo",
+        displayName: "deterministic-low-confidence",
+      requiresApiKey: false,
+      search(query: string, opts: SearchCallOptions) {
+        queriesSeen.push(query);
+        if (queriesSeen.length === 1) {
+          return Promise.resolve({
+            query,
+            provider: "duckduckgo",
+            count: 1,
+            results: [
+              {
+                title: "Home",
+                url: "https://generic.example.com/home",
+                snippet: "welcome page",
+              },
+            ],
+            diagnostics: { round: 1, limit: opts.limit },
+          });
+        }
+        return Promise.resolve({
+          query,
+          provider: "duckduckgo",
+          count: 2,
+          results: [
+            {
+              title: "Deno 2.2 SQLite Builtin Release Notes",
+              url: "https://docs.deno.com/runtime/sqlite/",
+              snippet: "Deno 2.2 sqlite builtin changes and migration notes",
+            },
+            {
+              title: "Deno 2.2 Blog",
+              url: "https://deno.com/blog/v2.2",
+              snippet: "What's new in deno 2.2 release",
+            },
+          ],
+          diagnostics: { round: 2, limit: opts.limit },
+        });
+      },
+    });
+
+    resetWebToolBudget();
+    const result = await WEB_TOOLS.search_web.fn(
+      {
+        query,
+        maxResults: 3,
+        prefetch: false,
+        reformulate: false,
+      },
+      "/tmp",
+    ) as Record<string, unknown>;
+
+    const diagnostics = result.diagnostics as Record<string, unknown>;
+    const deep = diagnostics.deep as Record<string, unknown>;
+    assertEquals(queriesSeen.length, 2);
+    assertEquals(deep.autoTriggered, true);
+    assertEquals(deep.rounds, 2);
+      assert(Array.isArray(deep.queryTrail));
+    });
+  },
+});
+
+Deno.test({
+  name: "search_web auto deep round stays off for high-confidence results",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withIsolatedSearchRegistry(async () => {
+      const queriesSeen: string[] = [];
+      const uniqueToken = crypto.randomUUID().slice(0, 8);
+      const query = `python asyncio taskgroup tutorial ${uniqueToken}`;
+      registerSearchProvider({
+        name: "duckduckgo",
+        displayName: "deterministic-high-confidence",
+      requiresApiKey: false,
+      search(query: string, opts: SearchCallOptions) {
+        queriesSeen.push(query);
+        return Promise.resolve({
+          query,
+          provider: "duckduckgo",
+          count: 3,
+          results: [
+            {
+              title: "Python asyncio TaskGroup Documentation",
+              url: "https://docs.python.org/3/library/asyncio-task.html",
+              snippet: `TaskGroup structured concurrency asyncio tutorial reference ${uniqueToken}`,
+              score: 12,
+            },
+            {
+              title: "TaskGroup Guide",
+              url: "https://realpython.com/python311-exception-groups/",
+              snippet: `python asyncio taskgroup tutorial and guide ${uniqueToken}`,
+              score: 8,
+            },
+            {
+              title: "TaskGroup Examples",
+              url: "https://superfastpython.com/asyncio-taskgroup/",
+              snippet: `asyncio taskgroup examples for Python ${uniqueToken}`,
+              score: 7,
+            },
+          ],
+          diagnostics: { limit: opts.limit },
+        });
+      },
+    });
+
+    resetWebToolBudget();
+    const result = await WEB_TOOLS.search_web.fn(
+      {
+        query,
+        maxResults: 3,
+        prefetch: false,
+        reformulate: false,
+      },
+      "/tmp",
+    ) as Record<string, unknown>;
+
+    const diagnostics = result.diagnostics as Record<string, unknown>;
+    const deep = diagnostics.deep as Record<string, unknown>;
+    assertEquals(queriesSeen.length, 1);
+      assertEquals(deep.autoTriggered, false);
+      assertEquals(deep.rounds, 1);
+    });
+  },
 });

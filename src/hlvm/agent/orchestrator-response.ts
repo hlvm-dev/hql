@@ -11,6 +11,10 @@ import { DEFAULT_MAX_TOOL_CALLS } from "./constants.ts";
 import { SlidingWindowRateLimiter } from "../../common/rate-limiter.ts";
 import { isObjectValue, TEXT_ENCODER } from "../../common/utils.ts";
 import { checkGrounding } from "./grounding.ts";
+import {
+  attributeCitationSpans,
+  buildCitationSourceIndex,
+} from "./tools/web/citation-spans.ts";
 import type { LLMResponse, ToolCall } from "./tool-call.ts";
 import {
   AGENT_ORCHESTRATOR_FAILURE_MESSAGES,
@@ -54,6 +58,7 @@ const TOOL_SEARCH_BASELINE_ALLOWLIST = [
   "edit_file",
   "shell_exec",
 ] as const;
+const MAX_PASSAGE_INDEX_ENTRIES = 300;
 
 function areListsEqual(a?: string[], b?: string[]): boolean {
   if (!a && !b) return true;
@@ -384,9 +389,21 @@ export function handleFinalResponse(
     return { action: "return", value: finalResponse };
   }
 
+  const citationSpans = (state.passageIndex?.length ?? 0) > 0
+    ? attributeCitationSpans(finalResponse, state.passageIndex ?? [])
+    : [];
+  const groundingCitations = citationSpans.map((span) => ({
+    ...span.citation,
+    startIndex: span.startIndex,
+    endIndex: span.endIndex,
+    confidence: span.confidence,
+    spanText: span.spanText,
+    sourceKind: span.sourceKind,
+  }));
+
   // Grounding checks
   if (lc.groundingMode !== "off" && state.toolUses.length > 0) {
-    const grounding = checkGrounding(finalResponse, state.toolUses);
+    const grounding = checkGrounding(finalResponse, state.toolUses, groundingCitations);
     config.onTrace?.({
       type: "grounding_check",
       mode: lc.groundingMode,
@@ -572,6 +589,18 @@ export async function handlePostToolExecution(
   }
   if (result.toolCallsMade > 0) {
     state.groundingRetries = 0;
+  }
+
+  // Build citation source index from raw web tool payloads (for span attribution).
+  const citationSources = buildCitationSourceIndex(
+    result.results.map((execution, i) => ({
+      toolName: result.toolCalls[i]?.toolName ?? "",
+      result: execution.result,
+    })).filter((item) => item.toolName.length > 0),
+  );
+  if (citationSources.length > 0) {
+    state.passageIndex = [...(state.passageIndex ?? []), ...citationSources]
+      .slice(-MAX_PASSAGE_INDEX_ENTRIES);
   }
 
   // --- Web tool tracking (for mid-conversation reminders) ---

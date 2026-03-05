@@ -21,6 +21,7 @@ import type { ToolUse } from "./grounding.ts";
 import { UsageTracker } from "./usage.ts";
 import { assertMaxBytes } from "../../common/limits.ts";
 import type { OrchestratorConfig } from "./orchestrator.ts";
+import type { CitationSourceEntry } from "./tools/web/citation-spans.ts";
 
 /** Result of tool execution */
 export interface ToolExecutionResult {
@@ -58,6 +59,8 @@ export interface LoopState {
   memoryFlushedThisCycle: boolean;
   /** Whether automatic memory recall has already been injected for this user turn */
   memoryRecallInjected: boolean;
+  /** Indexed citation candidates extracted from recent web tool results. */
+  passageIndex?: CitationSourceEntry[];
 }
 
 /** Resolved constants from OrchestratorConfig, computed once at loop start.
@@ -122,6 +125,7 @@ export function initializeLoopState(config: OrchestratorConfig): LoopState {
     iterationsSinceReminder: 3, // Start at cooldown to avoid immediate reminder
     memoryFlushedThisCycle: false,
     memoryRecallInjected: false,
+    passageIndex: [],
   };
 }
 

@@ -99,6 +99,11 @@ export interface McpOAuthLoginOptions {
   output?: (line: string) => void;
   promptInput?: (message: string) => Promise<string>;
   openBrowser?: (url: string) => Promise<void>;
+  storePath?: string;
+}
+
+export interface McpOAuthStoreOptions {
+  storePath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,16 +177,17 @@ function getServerKey(server: McpServerConfig): string | null {
   }
 }
 
-function getStorePath(): string {
+function getStorePath(storePath?: string): string {
+  if (storePath) return storePath;
   const override = getPlatform().env.get("HLVM_MCP_OAUTH_PATH");
   if (override) return override;
   return getMcpOAuthPath();
 }
 
-async function loadStore(): Promise<McpOAuthStore> {
+async function loadStore(storePath?: string): Promise<McpOAuthStore> {
   const platform = getPlatform();
   try {
-    const raw = await platform.fs.readTextFile(getStorePath());
+    const raw = await platform.fs.readTextFile(getStorePath(storePath));
     const parsed = JSON.parse(raw) as unknown;
     if (!isObjectValue(parsed) || parsed.version !== MCP_OAUTH_STORE_VERSION) {
       return emptyStore();
@@ -205,9 +211,12 @@ async function loadStore(): Promise<McpOAuthStore> {
   }
 }
 
-async function saveStore(store: McpOAuthStore): Promise<void> {
+async function saveStore(
+  store: McpOAuthStore,
+  storePath?: string,
+): Promise<void> {
   const payload = JSON.stringify(store, null, 2) + "\n";
-  const path = getStorePath();
+  const path = getStorePath(storePath);
   await atomicWriteTextFile(path, payload);
   try {
     await getPlatform().fs.chmod(path, 0o600);
@@ -225,23 +234,29 @@ function findRecord(
   return store.records.find((r) => r.key === key) ?? null;
 }
 
-async function upsertRecord(record: McpOAuthRecord): Promise<void> {
-  const store = await loadStore();
+async function upsertRecord(
+  record: McpOAuthRecord,
+  storePath?: string,
+): Promise<void> {
+  const store = await loadStore(storePath);
   const idx = store.records.findIndex((r) => r.key === record.key);
   if (idx === -1) {
     store.records.push(record);
   } else {
     store.records[idx] = record;
   }
-  await saveStore(store);
+  await saveStore(store, storePath);
 }
 
-async function removeRecordByKey(key: string): Promise<boolean> {
-  const store = await loadStore();
+async function removeRecordByKey(
+  key: string,
+  storePath?: string,
+): Promise<boolean> {
+  const store = await loadStore(storePath);
   const next = store.records.filter((r) => r.key !== key);
   if (next.length === store.records.length) return false;
   store.records = next;
-  await saveStore(store);
+  await saveStore(store, storePath);
   return true;
 }
 
@@ -529,6 +544,7 @@ function ensureHttpServerConfig(
 
 async function refreshAccessToken(
   record: McpOAuthRecord,
+  storePath?: string,
 ): Promise<McpOAuthRecord | null> {
   if (!record.refreshToken) return null;
   try {
@@ -540,7 +556,7 @@ async function refreshAccessToken(
       fetchFn: ssotFetch,
     });
     const next = tokensToRecord(tokens, record);
-    await upsertRecord(next);
+    await upsertRecord(next, storePath);
     return next;
   } catch (error) {
     getAgentLogger().warn(
@@ -585,7 +601,7 @@ export async function loginMcpHttpServer(
   }
 
   // 2. Resolve client registration (reuse existing or register new)
-  const existing = findRecord(await loadStore(), server);
+  const existing = findRecord(await loadStore(options.storePath), server);
   const reusableClient = existing &&
       existing.authorizationServer === authServerUrl &&
       existing.tokenEndpoint ===
@@ -702,22 +718,23 @@ export async function loginMcpHttpServer(
     accessToken: tokens.access_token,
     updatedAt: new Date().toISOString(),
   });
-  await upsertRecord(finalRecord);
+  await upsertRecord(finalRecord, options.storePath);
   output(`OAuth login complete for MCP server '${server.name}'.`);
 }
 
 export async function getMcpOAuthAuthorizationHeader(
   server: McpServerConfig,
+  options: McpOAuthStoreOptions = {},
 ): Promise<string | null> {
-  const store = await loadStore();
+  const store = await loadStore(options.storePath);
   const record = findRecord(store, server);
   if (!record) return null;
 
   let activeRecord = record;
   if (tokenNeedsRefresh(record)) {
-    const refreshed = await refreshAccessToken(record);
+    const refreshed = await refreshAccessToken(record, options.storePath);
     if (!refreshed) {
-      await removeRecordByKey(record.key);
+      await removeRecordByKey(record.key, options.storePath);
       return null;
     }
     activeRecord = refreshed;
@@ -729,20 +746,21 @@ export async function getMcpOAuthAuthorizationHeader(
 export async function recoverMcpOAuthFromUnauthorized(
   server: McpServerConfig,
   wwwAuthenticateHeader: string | null,
+  options: McpOAuthStoreOptions = {},
 ): Promise<boolean> {
   const challenge = parseBearerChallengeHeader(wwwAuthenticateHeader);
   if (!challenge) return false;
 
-  const store = await loadStore();
+  const store = await loadStore(options.storePath);
   const record = findRecord(store, server);
   if (!record) return false;
 
   if (!record.refreshToken) {
     return false;
   }
-  const refreshed = await refreshAccessToken(record);
+  const refreshed = await refreshAccessToken(record, options.storePath);
   if (!refreshed) {
-    await removeRecordByKey(record.key);
+    await removeRecordByKey(record.key, options.storePath);
     return false;
   }
   return true;
@@ -750,8 +768,9 @@ export async function recoverMcpOAuthFromUnauthorized(
 
 export async function logoutMcpHttpServer(
   server: McpServerConfig,
+  options: McpOAuthStoreOptions = {},
 ): Promise<boolean> {
   const key = getServerKey(server);
   if (!key) return false;
-  return await removeRecordByKey(key);
+  return await removeRecordByKey(key, options.storePath);
 }

@@ -1,5 +1,4 @@
 import { assertEquals } from "jsr:@std/assert";
-import { getPlatform } from "../../../src/platform/platform.ts";
 import {
   getMcpOAuthAuthorizationHeader,
   loginMcpHttpServer,
@@ -7,6 +6,11 @@ import {
   parseBearerChallengeHeader,
   recoverMcpOAuthFromUnauthorized,
 } from "../../../src/hlvm/agent/mcp/oauth.ts";
+import {
+  serveWithRetry,
+  withServePermissionGuard,
+  withOAuthStorePath,
+} from "./oauth-test-helpers.ts";
 
 interface OAuthServerState {
   port: number;
@@ -27,7 +31,7 @@ async function startOAuthServer(
     void
   >();
 
-  const server = Deno.serve(
+  const server = await serveWithRetry(
     {
       port: 0,
       hostname: "127.0.0.1",
@@ -130,17 +134,7 @@ async function startOAuthServer(
 async function withOauthStorePath<T>(
   fn: (storePath: string) => Promise<T>,
 ): Promise<T> {
-  const platform = getPlatform();
-  const previous = platform.env.get("HLVM_MCP_OAUTH_PATH");
-  const dir = await Deno.makeTempDir({ prefix: "hlvm-mcp-oauth-test-" });
-  const path = platform.path.join(dir, "mcp-oauth.json");
-  platform.env.set("HLVM_MCP_OAUTH_PATH", path);
-  try {
-    return await fn(path);
-  } finally {
-    platform.env.set("HLVM_MCP_OAUTH_PATH", previous ?? "");
-    await platform.fs.remove(dir, { recursive: true });
-  }
+  return await withOAuthStorePath("hlvm-mcp-oauth-test-", fn);
 }
 
 Deno.test("MCP OAuth: parses Bearer challenge parameters", () => {
@@ -160,46 +154,52 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    await withOauthStorePath(async () => {
-      const oauth = await startOAuthServer({ initialExpiresIn: 0 });
+    await withServePermissionGuard(async () => {
+      await withOauthStorePath(async (storePath) => {
+        const oauth = await startOAuthServer({ initialExpiresIn: 0 });
 
-      const server = {
-        name: "oauth-http",
-        url: `http://127.0.0.1:${oauth.port}/mcp`,
-      };
+        const server = {
+          name: "oauth-http",
+          url: `http://127.0.0.1:${oauth.port}/mcp`,
+        };
 
-      let authUrl = "";
-      await loginMcpHttpServer(server, {
-        output: () => {},
-        openBrowser: (url) => {
-          authUrl = url;
-          return Promise.resolve();
-        },
-        promptInput: () => {
-          const state = new URL(authUrl).searchParams.get("state") ?? "";
-          return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=abc123&state=${
-            encodeURIComponent(state)
-          }`);
-        },
+        let authUrl = "";
+        await loginMcpHttpServer(server, {
+          output: () => {},
+          storePath,
+          openBrowser: (url) => {
+            authUrl = url;
+            return Promise.resolve();
+          },
+          promptInput: () => {
+            const state = new URL(authUrl).searchParams.get("state") ?? "";
+            return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=abc123&state=${
+              encodeURIComponent(state)
+            }`);
+          },
+        });
+
+        const header = await getMcpOAuthAuthorizationHeader(server, { storePath });
+        assertEquals(header, "Bearer refreshed-token");
+        assertEquals(oauth.tokenRequestBodies.length, 2);
+        assertEquals(
+          new URLSearchParams(oauth.tokenRequestBodies[0]).get("resource"),
+          `http://127.0.0.1:${oauth.port}/`,
+        );
+        assertEquals(
+          new URLSearchParams(oauth.tokenRequestBodies[1]).get("resource"),
+          `http://127.0.0.1:${oauth.port}/`,
+        );
+
+        const removed = await logoutMcpHttpServer(server, { storePath });
+        assertEquals(removed, true);
+        assertEquals(
+          await getMcpOAuthAuthorizationHeader(server, { storePath }),
+          null,
+        );
+
+        await oauth.server.shutdown();
       });
-
-      const header = await getMcpOAuthAuthorizationHeader(server);
-      assertEquals(header, "Bearer refreshed-token");
-      assertEquals(oauth.tokenRequestBodies.length, 2);
-      assertEquals(
-        new URLSearchParams(oauth.tokenRequestBodies[0]).get("resource"),
-        `http://127.0.0.1:${oauth.port}/`,
-      );
-      assertEquals(
-        new URLSearchParams(oauth.tokenRequestBodies[1]).get("resource"),
-        `http://127.0.0.1:${oauth.port}/`,
-      );
-
-      const removed = await logoutMcpHttpServer(server);
-      assertEquals(removed, true);
-      assertEquals(await getMcpOAuthAuthorizationHeader(server), null);
-
-      await oauth.server.shutdown();
     });
   },
 });
@@ -209,44 +209,48 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    await withOauthStorePath(async () => {
-      const oauth = await startOAuthServer({ initialExpiresIn: 3600 });
-      const server = {
-        name: "oauth-recover",
-        url: `http://127.0.0.1:${oauth.port}/mcp`,
-      };
+    await withServePermissionGuard(async () => {
+      await withOauthStorePath(async (storePath) => {
+        const oauth = await startOAuthServer({ initialExpiresIn: 3600 });
+        const server = {
+          name: "oauth-recover",
+          url: `http://127.0.0.1:${oauth.port}/mcp`,
+        };
 
-      let authUrl = "";
-      await loginMcpHttpServer(server, {
-        output: () => {},
-        openBrowser: (url) => {
-          authUrl = url;
-          return Promise.resolve();
-        },
-        promptInput: () => {
-          const state = new URL(authUrl).searchParams.get("state") ?? "";
-          return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=init-code&state=${
-            encodeURIComponent(state)
-          }`);
-        },
+        let authUrl = "";
+        await loginMcpHttpServer(server, {
+          output: () => {},
+          storePath,
+          openBrowser: (url) => {
+            authUrl = url;
+            return Promise.resolve();
+          },
+          promptInput: () => {
+            const state = new URL(authUrl).searchParams.get("state") ?? "";
+            return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=init-code&state=${
+              encodeURIComponent(state)
+            }`);
+          },
+        });
+
+        const recovered = await recoverMcpOAuthFromUnauthorized(
+          server,
+          'Bearer error="invalid_token", resource_metadata="https://example.test/.well-known/oauth-protected-resource"',
+          { storePath },
+        );
+        assertEquals(recovered, true);
+        assertEquals(
+          await getMcpOAuthAuthorizationHeader(server, { storePath }),
+          "Bearer refreshed-token",
+        );
+        assertEquals(oauth.tokenRequestBodies.length, 2);
+        assertEquals(
+          new URLSearchParams(oauth.tokenRequestBodies[1]).get("resource"),
+          `http://127.0.0.1:${oauth.port}/`,
+        );
+
+        await oauth.server.shutdown();
       });
-
-      const recovered = await recoverMcpOAuthFromUnauthorized(
-        server,
-        'Bearer error="invalid_token", resource_metadata="https://example.test/.well-known/oauth-protected-resource"',
-      );
-      assertEquals(recovered, true);
-      assertEquals(
-        await getMcpOAuthAuthorizationHeader(server),
-        "Bearer refreshed-token",
-      );
-      assertEquals(oauth.tokenRequestBodies.length, 2);
-      assertEquals(
-        new URLSearchParams(oauth.tokenRequestBodies[1]).get("resource"),
-        `http://127.0.0.1:${oauth.port}/`,
-      );
-
-      await oauth.server.shutdown();
     });
   },
 });

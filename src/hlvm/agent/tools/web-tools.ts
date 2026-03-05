@@ -19,6 +19,7 @@ import { ValidationError } from "../../../common/error.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 import { loadWebConfig } from "../web-config.ts";
 import { getWebCacheValue, setWebCacheValue } from "../web-cache.ts";
+import { generateQueryVariants } from "./web/duckduckgo.ts";
 
 import {
   normalizeDomain,
@@ -52,6 +53,7 @@ import {
 import { renderWithChrome } from "./web/headless-chrome.ts";
 import {
   assessSearchConfidence,
+  dedupeSearchResults,
   deduplicateSnippetPassages,
   extractRelevantPassages,
   rankSearchResults,
@@ -104,6 +106,9 @@ const DEFAULT_PREFETCH_TARGETS = 2;
 const LOW_CONFIDENCE_PREFETCH_TARGETS = 3;
 const MAX_PREFETCH_TARGETS = 4;
 const LOW_CONFIDENCE_RELATED_LINKS_LIMIT = 4;
+const AUTO_DEEP_MAX_ROUNDS = 1;
+const AUTO_DEEP_EXTRA_RESULTS = 3;
+const AUTO_DEEP_MAX_RESULTS = 12;
 
 // ============================================================
 // Structured Error Codes
@@ -278,6 +283,29 @@ function resolvePrefetchTargetCount(baseTargetCount: number, lowConfidence: bool
   const boundedBase = Math.max(0, baseTargetCount);
   if (!lowConfidence) return boundedBase;
   return Math.min(MAX_PREFETCH_TARGETS, Math.max(boundedBase, LOW_CONFIDENCE_PREFETCH_TARGETS));
+}
+
+function buildAutoDeepFollowupQuery(
+  query: string,
+  confidenceReason: string,
+): string {
+  const trimmed = query.trim();
+  if (!trimmed) return trimmed;
+
+  const [variant] = generateQueryVariants(trimmed, 1);
+  if (variant && variant !== trimmed) return variant;
+
+  const lower = trimmed.toLowerCase();
+  if (confidenceReason === "low_coverage" && !/\b(docs|documentation|reference)\b/.test(lower)) {
+    return `${trimmed} official documentation reference`;
+  }
+  if (confidenceReason === "low_diversity" && !/\b(alternative|independent|comparison)\b/.test(lower)) {
+    return `${trimmed} independent sources`;
+  }
+  if (!/\b(official|reference|guide)\b/.test(lower)) {
+    return `${trimmed} official reference guide`;
+  }
+  return trimmed;
 }
 
 export const __testOnlyBuildSearchWebCacheKey = buildSearchWebCacheKey;
@@ -588,9 +616,67 @@ async function searchWeb(
     searchDepth,
   });
 
+  // --- Auto deep round: one bounded extra search when confidence is low ---
+  const deepDiagnostics: {
+    autoTriggered: boolean;
+    rounds: number;
+    triggerReason: string;
+    queryTrail: string[];
+    recovered: boolean;
+  } = {
+    autoTriggered: false,
+    rounds: 1,
+    triggerReason: "none",
+    queryTrail: [query],
+    recovered: false,
+  };
+
+  let confidenceBeforeDeep = assessToolSearchConfidence(query, result.results);
+  if (confidenceBeforeDeep.lowConfidence && AUTO_DEEP_MAX_ROUNDS > 0) {
+    const followupQuery = buildAutoDeepFollowupQuery(query, confidenceBeforeDeep.reason);
+    if (followupQuery && followupQuery !== query) {
+      deepDiagnostics.autoTriggered = true;
+      deepDiagnostics.rounds = 2;
+      deepDiagnostics.triggerReason = confidenceBeforeDeep.reason;
+      deepDiagnostics.queryTrail.push(followupQuery);
+
+      const deepLimit = Math.min(
+        AUTO_DEEP_MAX_RESULTS,
+        Math.max(limit, limit + AUTO_DEEP_EXTRA_RESULTS),
+      );
+
+      const deepResult = await provider.search(followupQuery, {
+        limit: deepLimit,
+        timeoutMs: timeout,
+        allowedDomains: typed.allowedDomains,
+        blockedDomains: typed.blockedDomains,
+        timeRange,
+        locale,
+        toolOptions: options,
+        reformulate: true,
+        searchDepth: "high",
+      });
+
+      const merged = dedupeSearchResults([...result.results, ...deepResult.results]);
+      result.results = rankSearchResults(query, merged, timeRange).slice(0, limit);
+      result.count = result.results.length;
+      result.diagnostics = {
+        ...(result.diagnostics as Record<string, unknown> ?? {}),
+        deepRound: {
+          query: followupQuery,
+          mergedCount: merged.length,
+          providerDiagnostics: deepResult.diagnostics ?? undefined,
+        },
+      };
+
+      confidenceBeforeDeep = assessToolSearchConfidence(query, result.results);
+      deepDiagnostics.recovered = !confidenceBeforeDeep.lowConfidence;
+    }
+  }
+
   // --- Lightweight prefetch: fetch top results pages, extract passages + metadata ---
   const shouldPrefetch = resolvedPrefetch;
-  const confidenceBeforePrefetch = assessToolSearchConfidence(query, result.results);
+  const confidenceBeforePrefetch = confidenceBeforeDeep;
   const lowConfidenceBeforePrefetch = confidenceBeforePrefetch.lowConfidence;
   let prefetchCandidateCount = 0;
   let prefetchTargets: SearchResult[] = [];
@@ -722,6 +808,7 @@ async function searchWeb(
       targetUrls: prefetchTargets.map((r) => r.url).filter((u): u is string => Boolean(u)),
       adaptiveDepth: lowConfidenceBeforePrefetch,
     },
+    deep: deepDiagnostics,
     recoveryTriggered,
     qualityPenaltiesApplied,
     provider: providerDiagnostics ?? undefined,

@@ -151,3 +151,25 @@ Deno.test({
     assert(result.warnings.length >= 1);
   },
 });
+
+Deno.test({
+  name: "Grounding: citation spans mark response as grounded",
+  fn() {
+    const toolUses: ToolUse[] = [
+      { toolName: "search_web", result: "non-json formatted result" },
+    ];
+    const result = checkGrounding(
+      "TaskGroup cancels sibling tasks on failure.",
+      toolUses,
+      [{
+        url: "https://docs.python.org/3/library/asyncio-task.html",
+        title: "asyncio task docs",
+        startIndex: 0,
+        endIndex: 42,
+        confidence: 0.78,
+      }],
+    );
+    assertEquals(result.grounded, true);
+    assertEquals(result.warnings.length, 0);
+  },
+});

@@ -77,6 +77,11 @@ export interface Citation {
   title: string;
   excerpt?: string;
   provider?: string;
+  startIndex?: number;
+  endIndex?: number;
+  confidence?: number;
+  spanText?: string;
+  sourceKind?: "snippet" | "passage";
 }
 
 // ============================================================
