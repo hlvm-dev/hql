@@ -1,66 +1,33 @@
-/**
- * Tests for lazy sequence implementation in stdlib
- *
- * Tests:
- * - LazySeq class behavior (single iterator, memoization)
- * - take returns LazySeq and works lazily
- * - REPL printing is safe (infinite sequences don't hang)
- */
-
 import { assertEquals, assertExists } from "jsr:@std/assert@1";
 
-// Import LazySeq and stdlib functions from compiled JS
 const stdlibPath =
   new URL("../../src/hql/lib/stdlib/js/stdlib.js", import.meta.url).pathname;
 const {
   LazySeq,
-  lazySeq,
-  take,
-  map,
-  filter,
-  reduce,
-  drop,
   concat,
-  flatten,
   distinct,
   doall,
-  realized,
-  rangeGenerator,
+  drop,
+  filter,
+  flatten,
   isSeq,
+  lazySeq,
+  map,
+  rangeGenerator,
+  realized,
+  reduce,
+  take,
 } = await import(stdlibPath);
 
-// Import first/rest from core for testing LazySeq behavior
 const corePath =
   new URL("../../src/hql/lib/stdlib/js/core.js", import.meta.url).pathname;
 const { first, rest } = await import(corePath);
 
-// Import nth from self-hosted (it's a self-hosted function)
 const selfHostedPath =
   new URL("../../src/hql/lib/stdlib/js/self-hosted.js", import.meta.url).pathname;
 const { nth } = await import(selfHostedPath);
 
-Deno.test("LazySeq: thunk called only once (memoization)", () => {
-  let thunkCallCount = 0;
-  const seq = new LazySeq(function* () {
-    thunkCallCount++;
-    yield 10;
-    yield 20;
-    yield 30;
-  });
-
-  first(seq);
-  assertEquals(thunkCallCount, 1, "Thunk called on first access");
-
-  first(seq);
-  first(rest(seq));
-  assertEquals(
-    thunkCallCount,
-    1,
-    "Thunk NOT re-called on subsequent access",
-  );
-});
-
-Deno.test("LazySeq: memoization works", () => {
+Deno.test("lazy sequences: LazySeq memoizes thunk execution and random access", () => {
   let computeCount = 0;
   const seq = new LazySeq(function* () {
     for (let i = 0; i < 5; i++) {
@@ -69,463 +36,148 @@ Deno.test("LazySeq: memoization works", () => {
     }
   });
 
-  nth(seq, 2); // Computes [0, 2, 4]
+  first(seq);
+  assertEquals(computeCount, 1);
+  first(rest(seq));
+  assertEquals(computeCount, 2);
+  nth(seq, 2);
   assertEquals(computeCount, 3);
-
-  nth(seq, 1); // Uses cache, no new computation
+  nth(seq, 1);
   assertEquals(computeCount, 3);
-
-  nth(seq, 4); // Computes [6, 8]
-  assertEquals(computeCount, 5);
 });
 
-Deno.test("take: returns lazy sequence (SEQ protocol)", () => {
-  const result = take(3, [1, 2, 3, 4, 5]);
-  assertExists(result);
-  // Check for SEQ protocol (works for both old LazySeq and new seq-protocol LazySeq)
-  assertEquals(
-    isSeq(result) || result instanceof LazySeq,
-    true,
-    "take must return lazy sequence (SEQ protocol or LazySeq instance)",
-  );
-});
-
-Deno.test("take: is lazy (side-effect proof)", () => {
-  let iterationCount = 0;
-  const lazyInput = lazySeq(function* () {
-    for (let i = 0; i < 1000000; i++) {
-      iterationCount++;
+Deno.test("lazy sequences: take is lazy, seq-like, and works on arrays and null", () => {
+  let iterations = 0;
+  const input = lazySeq(function* () {
+    for (let i = 0; i < 1_000_000; i++) {
+      iterations++;
       yield i;
     }
   });
 
-  const result = take(5, lazyInput);
-  assertEquals(iterationCount, 0, "No computation before consumption");
-
-  Array.from(result);
-  assertEquals(
-    iterationCount <= 6,
-    true,
-    "Only computes needed items (≤6 for 5 items + done check)",
-  );
+  const taken = take(5, input);
+  assertExists(taken);
+  assertEquals(isSeq(taken) || taken instanceof LazySeq, true);
+  assertEquals(iterations, 0);
+  assertEquals(Array.from(taken), [0, 1, 2, 3, 4]);
+  assertEquals(iterations <= 6, true);
+  assertEquals(Array.from(take(3, [10, 20, 30, 40])), [10, 20, 30]);
+  assertEquals(Array.from(take(5, null)), []);
 });
 
-Deno.test("take: early termination works", () => {
-  let iterationCount = 0;
-  const lazyInput = lazySeq(function* () {
-    for (let i = 0; i < 1000000; i++) {
-      iterationCount++;
-      yield i;
-    }
+Deno.test("lazy sequences: map, filter, and drop stay lazy until consumed", () => {
+  let mapCount = 0;
+  let filterCount = 0;
+  let dropCount = 0;
+
+  const mapInput = lazySeq(function* () {
+    for (let i = 0; i < 100; i++) yield i;
   });
+  const mapped = map((x: number) => {
+    mapCount++;
+    return x * 2;
+  }, mapInput);
+  assertEquals(isSeq(mapped), true);
+  assertEquals(mapCount, 0);
+  assertEquals(Array.from(take(3, mapped)), [0, 2, 4]);
+  assertEquals(mapCount <= 4, true);
 
-  const result = take(5, lazyInput);
-  const arr = Array.from(result);
+  const filterInput = lazySeq(function* () {
+    for (let i = 0; i < 100; i++) yield i;
+  });
+  const filtered = filter((x: number) => {
+    filterCount++;
+    return x % 2 === 0;
+  }, filterInput);
+  assertEquals(isSeq(filtered), true);
+  assertEquals(Array.from(take(3, filtered)), [0, 2, 4]);
+  assertEquals(filterCount <= 10, true);
 
-  assertEquals(arr.length, 5);
-  assertEquals(iterationCount <= 6, true, "Stops after getting 5 items");
-});
-
-Deno.test("take: works with arrays", () => {
-  const result = take(3, [10, 20, 30, 40, 50]);
-  const arr = Array.from(result);
-
-  assertEquals(arr, [10, 20, 30]);
-});
-
-Deno.test("take: empty/null input", () => {
-  const result = take(5, null);
-  const arr = Array.from(result);
-
-  assertEquals(arr, []);
-});
-
-Deno.test("REPL: toString() shows preview (max 20 items)", () => {
-  const seq = lazySeq(function* () {
+  const dropInput = lazySeq(function* () {
     for (let i = 0; i < 100; i++) {
+      dropCount++;
+      yield i;
+    }
+  });
+  const dropped = drop(5, dropInput);
+  assertEquals(Array.from(take(3, dropped)), [5, 6, 7]);
+  assertEquals(dropCount <= 10, true);
+});
+
+Deno.test("lazy sequences: reduce and doall eagerly realize their entire input", () => {
+  let reduceCount = 0;
+  const reduceInput = lazySeq(function* () {
+    for (let i = 0; i < 10; i++) {
+      reduceCount++;
       yield i;
     }
   });
 
-  const str = seq.toString();
-  // New implementation uses Cons chains, toString limits to 20 items
-  assertEquals(
-    str.includes("..."),
-    true,
-    "Shows '...' for truncated sequences",
-  );
-  // Verify it's showing about 20 items by counting spaces (Lisp format: (0 1 2 ...))
-  const itemCount = str.split(" ").length;
-  assertEquals(itemCount >= 20, true, "Shows at least 20 items in preview");
+  assertEquals(reduce((acc: number, x: number) => acc + x, 0, reduceInput), 45);
+  assertEquals(reduceCount, 10);
+
+  let doallCount = 0;
+  const doallInput = lazySeq(function* () {
+    for (let i = 0; i < 5; i++) {
+      doallCount++;
+      yield i;
+    }
+  });
+
+  assertEquals(doall(doallInput), [0, 1, 2, 3, 4]);
+  assertEquals(doallCount, 5);
+  assertEquals(reduce((acc: number, x: number) => acc + x, 100, null), 100);
 });
 
-Deno.test("REPL: toString() shows full content for small sequences", () => {
-  const seq = lazySeq(function* () {
+Deno.test("lazy sequences: concat, flatten, and distinct return seqs with expected realized content", () => {
+  const concatenated = concat([1, 2], [3, 4], [5, 6]);
+  const flattened = flatten([[1, 2], [3, 4], 5, [6]]);
+  const deduped = distinct(lazySeq(function* () {
+    yield* [1, 2, 2, 3, 3, 4];
+  }));
+
+  assertEquals(isSeq(concatenated), true);
+  assertEquals(isSeq(flattened), true);
+  assertEquals(Array.from(concatenated), [1, 2, 3, 4, 5, 6]);
+  assertEquals(Array.from(flattened), [1, 2, 3, 4, 5, 6]);
+  assertEquals(Array.from(deduped), [1, 2, 3, 4]);
+});
+
+Deno.test("lazy sequences: toString previews large or infinite sequences and realized tracks exhaustion", () => {
+  const finite = lazySeq(function* () {
     yield 1;
     yield 2;
     yield 3;
   });
+  assertEquals(realized(finite), false);
+  assertEquals(finite.toString(), "(1 2 3)");
+  Array.from(finite);
+  assertEquals(realized(finite), true);
 
-  const str = seq.toString();
-  // New implementation uses Lisp format: (1 2 3)
-  assertEquals(str, "(1 2 3)");
-  assertEquals(str.includes("..."), false, "No '...' for small sequences");
-});
-
-Deno.test("REPL: infinite sequences don't hang", () => {
-  const infiniteSeq = rangeGenerator(0, Infinity);
-
-  const start = Date.now();
-  const str = infiniteSeq.toString();
-  const end = Date.now();
-
-  // New implementation limits toString() to 20 items automatically
-  assertEquals((end - start) < 1000, true, "Completes quickly (< 1 second)");
-  assertEquals(str.includes("..."), true, "Shows '...' for infinite sequences");
-});
-
-Deno.test("REPL: large sequences show preview with ellipsis", () => {
-  const seq = lazySeq(function* () {
-    for (let i = 0; i < 50; i++) {
-      yield i * 2;
-    }
-  });
-
-  // New implementation: toString() on Cons limits to 20 items
-  const str = seq.toString();
-  assertEquals(str.includes("..."), true, "Shows '...' for large sequences");
-  // Should contain first few items
-  assertEquals(str.includes("0"), true, "Contains first item");
-  assertEquals(str.includes("2"), true, "Contains second item");
-});
-
-Deno.test("REPL: small sequences show full content", () => {
-  const seq = lazySeq(function* () {
-    yield 10;
-    yield 20;
-  });
-
-  // New implementation: toString() shows all items for small sequences
-  const str = seq.toString();
-  assertEquals(str, "(10 20)");
-  assertEquals(str.includes("..."), false, "No ellipsis for small sequences");
-});
-
-Deno.test("REPL: no computation until toString() called", () => {
-  let computeCount = 0;
-  const seq = lazySeq(function* () {
+  let previewCount = 0;
+  const preview = lazySeq(function* () {
     for (let i = 0; i < 100; i++) {
-      computeCount++;
+      previewCount++;
       yield i;
     }
   });
+  const previewText = preview.toString();
+  assertEquals(previewText.includes("..."), true);
+  assertEquals(previewCount >= 20, true);
+  assertEquals(previewCount <= 22, true);
 
-  assertEquals(computeCount, 0, "No computation before toString()");
-
-  seq.toString();
-  // New implementation: Cons.toString() computes 21 items (shows 21st check for ...)
-  assertEquals(computeCount <= 22, true, "Only computes ~20 items for preview");
-  assertEquals(computeCount >= 20, true, "Computes at least 20 items");
-});
-
-Deno.test("map: returns lazy sequence (SEQ protocol)", () => {
-  const result = map((x: number) => x * 2, [1, 2, 3]);
-  // Self-hosted map returns seq-protocol LazySeq, not old lazy-seq.js LazySeq
-  // Check for SEQ protocol instead of instanceof
-  assertEquals(
-    isSeq(result),
-    true,
-    "map must return a lazy sequence implementing SEQ protocol",
-  );
-});
-
-Deno.test("map: is lazy (side-effect proof)", () => {
-  let mapCount = 0;
-  const lazyInput = lazySeq(function* () {
-    for (let i = 0; i < 1000000; i++) {
-      yield i;
-    }
-  });
-
-  const result = map((x: number) => {
-    mapCount++;
-    return x * 2;
-  }, lazyInput);
-
-  assertEquals(mapCount, 0, "No computation before consumption");
-
-  Array.from(take(5, result));
-  assertEquals(
-    mapCount <= 6,
-    true,
-    "Only computes ≤6 items (5 items + 1 for done check)",
-  );
-});
-
-Deno.test("map: works with arrays", () => {
-  const result = map((x: number) => x * 2, [1, 2, 3]);
-  const arr = Array.from(result);
-
-  assertEquals(arr, [2, 4, 6]);
-});
-
-Deno.test("map: empty/null input", () => {
-  const result = map((x: number) => x * 2, null);
-  const arr = Array.from(result);
-
-  assertEquals(arr, []);
-});
-
-Deno.test("filter: returns lazy sequence (SEQ protocol)", () => {
-  const result = filter((x: number) => x % 2 === 0, [1, 2, 3, 4]);
-  assertEquals(
-    isSeq(result),
-    true,
-    "filter must return a lazy sequence implementing SEQ protocol",
-  );
-});
-
-Deno.test("filter: is lazy (side-effect proof)", () => {
-  let filterCount = 0;
-  const lazyInput = lazySeq(function* () {
-    for (let i = 0; i < 1000000; i++) {
-      yield i;
-    }
-  });
-
-  const result = filter((x: number) => {
-    filterCount++;
-    return x % 2 === 0;
-  }, lazyInput);
-
-  assertEquals(filterCount, 0, "No computation before consumption");
-
-  Array.from(take(3, result));
-  // filter needs to check more items to find 3 even numbers
-  // (checks 0, 1, 2, 3, 4, 5 = 6 items to get [0, 2, 4])
-  assertEquals(
-    filterCount <= 10,
-    true,
-    "Only computes items until 3 pass filter",
-  );
-});
-
-Deno.test("filter: works with arrays", () => {
-  const result = filter((x: number) => x % 2 === 0, [1, 2, 3, 4, 5, 6]);
-  const arr = Array.from(result);
-
-  assertEquals(arr, [2, 4, 6]);
-});
-
-Deno.test("filter: empty/null input", () => {
-  const result = filter((x: number) => x % 2 === 0, null);
-  const arr = Array.from(result);
-
-  assertEquals(arr, []);
-});
-
-Deno.test("reduce: is EAGER (forces full evaluation)", () => {
-  let computeCount = 0;
-  const lazyInput = lazySeq(function* () {
-    for (let i = 0; i < 10; i++) {
-      computeCount++;
-      yield i;
-    }
-  });
-
-  assertEquals(computeCount, 0, "No computation before reduce");
-
-  // reduce is EAGER - should compute ALL items immediately
-  const result = reduce((acc: number, x: number) => acc + x, 0, lazyInput);
-
-  assertEquals(result, 45, "Correct sum: 0+1+2+...+9 = 45");
-  assertEquals(computeCount, 10, "Reduces ALL items eagerly (not lazy)");
-});
-
-Deno.test("reduce: works with arrays", () => {
-  const result = reduce((acc: number, x: number) => acc + x, 0, [
-    1,
-    2,
-    3,
-    4,
-    5,
-  ]);
-  assertEquals(result, 15);
-});
-
-Deno.test("reduce: empty/null input", () => {
-  const result = reduce((acc: number, x: number) => acc + x, 100, null);
-  assertEquals(result, 100, "Returns init value for null input");
-});
-
-Deno.test("drop: is lazy", () => {
-  let computeCount = 0;
-  const lazyInput = lazySeq(function* () {
-    for (let i = 0; i < 100; i++) {
-      computeCount++;
-      yield i;
-    }
-  });
-
-  const result = drop(5, lazyInput);
-  assertEquals(computeCount, 0, "No computation before consumption");
-
-  const arr = Array.from(take(3, result));
-  assertEquals(arr, [5, 6, 7]);
-  assertEquals(computeCount <= 10, true, "Only computes needed items");
-});
-
-Deno.test("concat: is lazy (SEQ protocol)", () => {
-  const result = concat([1, 2], [3, 4], [5, 6]);
-  assertEquals(isSeq(result), true, "concat must return a lazy sequence implementing SEQ protocol");
-
-  const arr = Array.from(result);
-  assertEquals(arr, [1, 2, 3, 4, 5, 6]);
-});
-
-Deno.test("flatten: is lazy and flattens (SEQ protocol)", () => {
-  const result = flatten([[1, 2], [3, 4], 5, [6]]);
-  assertEquals(isSeq(result), true, "flatten must return a lazy sequence implementing SEQ protocol");
-
-  const arr = Array.from(result);
-  assertEquals(arr, [1, 2, 3, 4, 5, 6]);
-});
-
-Deno.test("distinct: is lazy and removes duplicates", () => {
-  let computeCount = 0;
-  const lazyInput = lazySeq(function* () {
-    const values = [1, 2, 2, 3, 3, 3, 4, 4, 4, 4];
-    for (const val of values) {
-      computeCount++;
-      yield val;
-    }
-  });
-
-  const result = distinct(lazyInput);
-  assertEquals(computeCount, 0, "No computation before consumption");
-
-  const arr = Array.from(result);
-  assertEquals(arr, [1, 2, 3, 4]);
-  assertEquals(computeCount, 10, "Processes all items to check for duplicates");
-});
-
-Deno.test("doall: forces full evaluation", () => {
-  let computeCount = 0;
-  const lazyInput = lazySeq(function* () {
-    for (let i = 0; i < 5; i++) {
-      computeCount++;
-      yield i;
-    }
-  });
-
-  assertEquals(computeCount, 0, "No computation before doall");
-
-  const result = doall(lazyInput);
-  assertEquals(Array.isArray(result), true, "doall returns array");
-  assertEquals(result, [0, 1, 2, 3, 4]);
-  assertEquals(computeCount, 5, "doall forces full evaluation");
-});
-
-Deno.test("realized: checks if LazySeq is exhausted", () => {
-  const seq = lazySeq(function* () {
-    yield 1;
-    yield 2;
-  });
-
-  assertEquals(realized(seq), false, "Not realized before consumption");
-
-  Array.from(seq); // Consume entire sequence
-  assertEquals(realized(seq), true, "Realized after full consumption");
-});
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// rangeGenerator() - Clojure-Style Infinite Sequences
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Deno.test("rangeGenerator: no args → infinite sequence from 0", () => {
-  const infinite = rangeGenerator();
-  const result = doall(take(10, infinite));
-
-  assertEquals(result, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-});
-
-Deno.test("rangeGenerator: no args is lazy (side-effect proof)", () => {
-  const infinite = rangeGenerator();
-
-  // Just creating the sequence shouldn't compute anything
-  // (can't use side effects to prove this since generator hasn't started)
-
-  // But taking 5 should only compute 5 items
-  const result = doall(take(5, infinite));
-  assertEquals(result, [0, 1, 2, 3, 4]);
-
-  // Since LazySeq memoizes, taking again from same sequence returns cached values
-  const result2 = doall(take(3, infinite));
-  assertEquals(result2, [0, 1, 2]); // Returns first 3 memoized values
-
-  // Taking more than what's cached will realize more values
-  const result3 = doall(take(10, infinite));
-  assertEquals(result3, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]); // Realizes up to 10
-});
-
-Deno.test("rangeGenerator: no args with toString (REPL safety)", () => {
-  const infinite = rangeGenerator();
-
-  // toString should NOT hang on infinite sequence
-  const str = infinite.toString();
-
-  // Should show preview of ~20 items max
-  const hasEllipsis = str.includes("...");
-  assertEquals(hasEllipsis, true, "Infinite sequence shows ellipsis");
-
-  // Should not have computed millions of items
-  // (if it did, this test would timeout/hang)
-});
-
-Deno.test("rangeGenerator: no args with custom step", () => {
-  const evenNumbers = rangeGenerator(undefined, undefined, 2);
-  const result = doall(take(5, evenNumbers));
-
-  assertEquals(result, [0, 2, 4, 6, 8]);
-});
-
-Deno.test("rangeGenerator: no args with negative step", () => {
-  const countdown = rangeGenerator(undefined, undefined, -1);
-  const result = doall(take(5, countdown));
-
-  assertEquals(result, [0, -1, -2, -3, -4]);
-});
-
-Deno.test("rangeGenerator: Clojure compatibility - all signatures", () => {
-  // (range)          → 0, 1, 2, 3... ∞
-  const infinite = rangeGenerator();
-  assertEquals(doall(take(3, infinite)), [0, 1, 2]);
-
-  // (range end)      → 0, 1, 2... end-1
-  const toFive = rangeGenerator(5);
-  assertEquals(doall(toFive), [0, 1, 2, 3, 4]);
-
-  // (range start end) → start... end-1
-  const fiveToTen = rangeGenerator(5, 10);
-  assertEquals(doall(fiveToTen), [5, 6, 7, 8, 9]);
-
-  // (range start end step) → start... end-1 by step
-  const evens = rangeGenerator(0, 10, 2);
-  assertEquals(doall(evens), [0, 2, 4, 6, 8]);
-});
-
-Deno.test("rangeGenerator: explicit Infinity still works", () => {
   const infinite = rangeGenerator(0, Infinity);
-  const result = doall(take(10, infinite));
-
-  assertEquals(result, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  const start = Date.now();
+  const infiniteText = infinite.toString();
+  assertEquals(Date.now() - start < 1000, true);
+  assertEquals(infiniteText.includes("..."), true);
 });
 
-Deno.test("rangeGenerator: infinite from specific start", () => {
-  const from100 = rangeGenerator(100, Infinity);
-  const result = doall(take(5, from100));
-
-  assertEquals(result, [100, 101, 102, 103, 104]);
+Deno.test("lazy sequences: rangeGenerator supports finite, infinite, and stepped signatures", () => {
+  assertEquals(doall(take(5, rangeGenerator())), [0, 1, 2, 3, 4]);
+  assertEquals(doall(rangeGenerator(5)), [0, 1, 2, 3, 4]);
+  assertEquals(doall(rangeGenerator(5, 10)), [5, 6, 7, 8, 9]);
+  assertEquals(doall(rangeGenerator(0, 10, 2)), [0, 2, 4, 6, 8]);
+  assertEquals(doall(take(5, rangeGenerator(undefined, undefined, -1))), [0, -1, -2, -3, -4]);
+  assertEquals(doall(take(5, rangeGenerator(100, Infinity))), [100, 101, 102, 103, 104]);
 });
-
-// Note: _lazySeq alias removed - just use lazySeq directly

@@ -1,115 +1,61 @@
-// Test optional chaining — transpilation AND runtime execution
-import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import {
+  assertEquals,
+  assertStringIncludes,
+} from "jsr:@std/assert";
 import { transpile } from "../../src/hql/transpiler/index.ts";
 import { run } from "./helpers.ts";
 
-// ============================================================================
-// SECTION 1: TRANSPILATION TESTS (verify correct JS output)
-// ============================================================================
-
-Deno.test("Optional chaining transpile: basic property access", async () => {
-  const result = await transpile("(const name user?.name)");
-  assertStringIncludes(result.code, "user?.name");
-});
-
-Deno.test("Optional chaining transpile: nested chain", async () => {
-  const result = await transpile("(const city data?.user?.address?.city)");
-  assertStringIncludes(result.code, "data?.user?.address?.city");
-});
-
-Deno.test("Optional chaining transpile: mixed regular and optional access", async () => {
-  const result = await transpile("(const x obj?.a.b?.c)");
-  assertStringIncludes(result.code, "?.a");
-  assertStringIncludes(result.code, ".b");
-  assertStringIncludes(result.code, "?.c");
-});
-
-Deno.test("Optional chaining transpile: method call", async () => {
-  const result = await transpile('(const greeting (obj?.greet "World"))');
-  assertStringIncludes(result.code, "obj?.greet");
-});
-
-// ============================================================================
-// SECTION 2: RUNTIME TESTS (verify actual execution)
-// ============================================================================
-
-Deno.test("Optional chaining runtime: nil returns undefined", async () => {
-  const result = await run(`
-    (var obj nil)
-    obj?.name
+Deno.test("optional chaining: transpilation preserves property, nested, and method chains", async () => {
+  const property = await transpile(`
+    (let user {})
+    (const name user?.name)
   `);
-  assertEquals(result, undefined);
-});
-
-Deno.test("Optional chaining runtime: valid object returns value", async () => {
-  const result = await run(`
-    (var user {name: "Alice"})
-    user?.name
+  const nested = await transpile(`
+    (let data {})
+    (const city data?.user?.address?.city)
   `);
-  assertEquals(result, "Alice");
-});
-
-Deno.test("Optional chaining runtime: nested chain on nil", async () => {
-  const result = await run(`
-    (var data nil)
-    data?.user?.address?.city
+  const mixed = await transpile(`
+    (let obj {})
+    (const x obj?.a.b?.c)
   `);
-  assertEquals(result, undefined);
-});
-
-Deno.test("Optional chaining runtime: nested chain on valid object", async () => {
-  const result = await run(`
-    (var data {user: {address: {city: "Seoul"}}})
-    data?.user?.address?.city
+  const method = await transpile(`
+    (let obj {})
+    (const greeting (obj?.greet "World"))
   `);
-  assertEquals(result, "Seoul");
+
+  assertStringIncludes(property.code, "user?.name");
+  assertStringIncludes(nested.code, "data?.user?.address?.city");
+  assertStringIncludes(mixed.code, "?.a");
+  assertStringIncludes(mixed.code, ".b");
+  assertStringIncludes(mixed.code, "?.c");
+  assertStringIncludes(method.code, "obj?.greet");
 });
 
-Deno.test("Optional chaining runtime: nil in middle of chain", async () => {
-  const result = await run(`
-    (var data {user: nil})
-    data?.user?.address?.city
-  `);
-  assertEquals(result, undefined);
-});
-
-Deno.test("Optional chaining runtime: mixed regular and optional", async () => {
-  const result = await run(`
-    (var obj {a: {b: {c: 42}}})
-    obj?.a.b?.c
-  `);
-  assertEquals(result, 42);
-});
-
-Deno.test("Optional chaining runtime: method call on nil", async () => {
-  const result = await run(`
-    (var obj nil)
-    (obj?.toString)
-  `);
-  assertEquals(result, undefined);
-});
-
-Deno.test("Optional chaining runtime: method call on valid object", async () => {
-  const result = await run(`
-    (var arr [1 2 3])
-    (arr?.includes 2)
-  `);
-  assertEquals(result, true);
-});
-
-Deno.test("Optional chaining runtime: with nullish coalescing fallback", async () => {
+Deno.test("optional chaining: nil short-circuits nested property access and supports nullish fallback", async () => {
   const result = await run(`
     (var user nil)
-    (?? user?.name "unknown")
+    [user?.name user?.profile?.city (?? user?.name "unknown")]
   `);
-  assertEquals(result, "unknown");
+
+  assertEquals(result, [undefined, undefined, "unknown"]);
 });
 
-Deno.test("Optional chaining runtime: empty object nested access", async () => {
+Deno.test("optional chaining: valid objects return nested values through mixed regular and optional access", async () => {
   const result = await run(`
-    (var x {})
-    x?.a?.b?.c
+    (var data {user: {address: {city: "Seoul"}}})
+    (var obj {a: {b: {c: 42}}})
+    [data?.user?.address?.city obj?.a.b?.c]
   `);
-  assertEquals(result, undefined);
+
+  assertEquals(result, ["Seoul", 42]);
+});
+
+Deno.test("optional chaining: optional method calls return undefined for nil and real values for live objects", async () => {
+  const result = await run(`
+    (var none nil)
+    (var arr [1 2 3])
+    [(none?.toString) (arr?.includes 2)]
+  `);
+
+  assertEquals(result, [undefined, true]);
 });

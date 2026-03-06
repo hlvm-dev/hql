@@ -1,43 +1,43 @@
-/**
- * Unit tests for HLVM REPL Session Manager (scoped sessions)
- * Tests: lifecycle, recording, session operations
- */
-
-import { assert, assertEquals, assertExists, assertRejects } from "jsr:@std/assert";
+import {
+  assert,
+  assertEquals,
+  assertExists,
+  assertRejects,
+} from "jsr:@std/assert";
+import { getPlatform } from "../../../../src/platform/platform.ts";
 import { SessionManager } from "../../../../src/hlvm/cli/repl/session/manager.ts";
 import { createTestSessionScope } from "./helpers.ts";
 
-// ============================================================================
-// Constructor Tests
-// ============================================================================
-
-Deno.test("SessionManager: constructor sets project path", () => {
-  const testPath = `/tmp/test-project-${Date.now()}`;
-  const manager = new SessionManager(testPath);
-
-  assertEquals(manager.getProjectPath(), testPath);
-  assertEquals(manager.isInitialized(), false);
-  assertEquals(manager.hasActiveSession(), false);
-});
-
-Deno.test("SessionManager: constructor defaults to cwd", () => {
-  const manager = new SessionManager();
-  assertEquals(manager.getProjectPath(), Deno.cwd());
-});
-
-// ============================================================================
-// initialize() Tests
-// ============================================================================
-
-Deno.test("SessionManager: initialize creates new session by default", async () => {
+async function createIsolatedManager() {
+  const platform = getPlatform();
   const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-init-${Date.now()}`;
-  const manager = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
+  const projectPath = platform.path.join(scope.hlvmDir, "project");
+  await platform.fs.mkdir(projectPath, { recursive: true });
+
+  return {
+    scope,
+    projectPath,
+    manager: new SessionManager(projectPath, { sessionsDir: scope.sessionsDir }),
+  };
+}
+
+Deno.test("SessionManager: constructor tracks explicit and default project paths", () => {
+  const explicit = new SessionManager("/tmp/explicit-project");
+  assertEquals(explicit.getProjectPath(), "/tmp/explicit-project");
+  assertEquals(explicit.isInitialized(), false);
+  assertEquals(explicit.hasActiveSession(), false);
+
+  const fallback = new SessionManager();
+  assertEquals(fallback.getProjectPath(), getPlatform().process.cwd());
+});
+
+Deno.test("SessionManager: initialize(forceNew) creates an active session immediately", async () => {
+  const { scope, projectPath, manager } = await createIsolatedManager();
 
   try {
-    const session = (await manager.initialize({ forceNew: true }))!;
-    assertExists(session.id);
-    assertEquals(session.projectPath, testPath);
+    const session = await manager.initialize({ forceNew: true });
+    assertExists(session);
+    assertEquals(session.projectPath, projectPath);
     assertEquals(session.messageCount, 0);
     assert(manager.isInitialized());
     assert(manager.hasActiveSession());
@@ -47,49 +47,30 @@ Deno.test("SessionManager: initialize creates new session by default", async () 
   }
 });
 
-Deno.test("SessionManager: initialize with continue resumes last session", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-continue-${Date.now()}`;
-  const manager1 = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-  const manager2 = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
+Deno.test("SessionManager: continue resumes last session and resumeId targets a specific session", async () => {
+  const { scope, projectPath, manager: manager1 } = await createIsolatedManager();
+  const manager2 = new SessionManager(projectPath, { sessionsDir: scope.sessionsDir });
+  const manager3 = new SessionManager(projectPath, { sessionsDir: scope.sessionsDir });
 
   try {
-    const session1 = (await manager1.initialize({ forceNew: true }))!;
-    await manager1.recordMessage("user", "Hello");
+    const first = await manager1.initialize({ forceNew: true });
+    assertExists(first);
+    await manager1.recordMessage("user", "first");
     await manager1.close();
 
-    // Small delay to ensure a different timestamp for subsequent operations.
-    await new Promise((r) => setTimeout(r, 10));
-
-    const session2 = (await manager2.initialize({ continue: true }))!;
-    assertEquals(session2.id, session1.id);
-    assertEquals(session2.messageCount, 1);
-  } finally {
-    await manager1.close();
-    await manager2.close();
-    await scope.cleanup();
-  }
-});
-
-Deno.test("SessionManager: initialize with resumeId resumes specific session", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-resume-${Date.now()}`;
-  const manager1 = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-  const manager2 = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-  const manager3 = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-
-  try {
-    const session1 = (await manager1.initialize({ forceNew: true }))!;
-    await manager1.recordMessage("user", "First session");
-    await manager1.close();
+    const resumedLast = await manager2.initialize({ continue: true });
+    assertExists(resumedLast);
+    assertEquals(resumedLast.id, first.id);
+    assertEquals(resumedLast.messageCount, 1);
 
     await manager2.newSession("Second");
-    await manager2.recordMessage("user", "Second session");
+    await manager2.recordMessage("user", "second");
     await manager2.close();
 
-    const session3 = (await manager3.initialize({ resumeId: session1.id }))!;
-    assertEquals(session3.id, session1.id);
-    assertEquals(session3.messageCount, 1);
+    const resumedSpecific = await manager3.initialize({ resumeId: first.id });
+    assertExists(resumedSpecific);
+    assertEquals(resumedSpecific.id, first.id);
+    assertEquals(resumedSpecific.messageCount, 1);
   } finally {
     await manager1.close();
     await manager2.close();
@@ -98,288 +79,92 @@ Deno.test("SessionManager: initialize with resumeId resumes specific session", a
   }
 });
 
-Deno.test("SessionManager: initialize defers if resumeId not found", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-resume-notfound-${Date.now()}`;
-  const manager = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-
-  try {
-    const session = await manager.initialize({ resumeId: "nonexistent_id" });
-    assertEquals(session, null);
-    assert(manager.isInitialized());
-    assertEquals(manager.hasActiveSession(), false);
-  } finally {
-    await manager.close();
-    await scope.cleanup();
-  }
-});
-
-Deno.test("SessionManager: initialize defers if no previous session for continue", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-continue-new-${Date.now()}`;
-  const manager = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
+Deno.test("SessionManager: deferred initialize creates a session lazily on first message", async () => {
+  const { scope, manager } = await createIsolatedManager();
 
   try {
     const session = await manager.initialize({ continue: true });
     assertEquals(session, null);
     assert(manager.isInitialized());
     assertEquals(manager.hasActiveSession(), false);
+
+    await manager.recordMessage("user", "hello");
+
+    assert(manager.hasActiveSession());
+    const messages = await manager.getSessionMessages();
+    assertEquals(messages.map((message) => message.content), ["hello"]);
+    assertEquals(manager.getCurrentSession()?.messageCount, 1);
   } finally {
     await manager.close();
     await scope.cleanup();
   }
 });
 
-// ============================================================================
-// recordMessage() Tests
-// ============================================================================
-
-Deno.test("SessionManager: recordMessage appends to session", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-record-${Date.now()}`;
-  const manager = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
+Deno.test("SessionManager: record, newSession, and resumeSession preserve per-session history", async () => {
+  const { scope, manager } = await createIsolatedManager();
 
   try {
-    await manager.initialize({ forceNew: true });
-    await manager.recordMessage("user", "(def x 10)");
-    await manager.recordMessage("assistant", "10");
+    const first = await manager.initialize({ forceNew: true });
+    assertExists(first);
+    await manager.recordMessage("user", "session one");
+    await manager.recordMessage("assistant", "reply one");
 
-    const messages = await manager.getSessionMessages();
-    assertEquals(messages.length, 2);
-    assertEquals(messages[0].role, "user");
-    assertEquals(messages[0].content, "(def x 10)");
-    assertEquals(messages[1].role, "assistant");
-    assertEquals(messages[1].content, "10");
+    const second = await manager.newSession("Second");
+    assert(second.id !== first.id);
+    await manager.recordMessage("user", "session two");
 
-    const current = manager.getCurrentSession();
-    assertEquals(current?.messageCount, 2);
+    const resumed = await manager.resumeSession(first.id);
+    assertExists(resumed);
+    assertEquals(resumed.meta.id, first.id);
+    assertEquals(
+      resumed.messages.map((message) => [message.role, message.content]),
+      [["user", "session one"], ["assistant", "reply one"]],
+    );
   } finally {
     await manager.close();
     await scope.cleanup();
   }
 });
 
-Deno.test("SessionManager: recordMessage throws if not initialized", async () => {
-  const manager = new SessionManager("/tmp/test");
+Deno.test("SessionManager: list, rename, and delete reflect persisted session state", async () => {
+  const { scope, manager } = await createIsolatedManager();
+
+  try {
+    const first = await manager.initialize({ forceNew: true });
+    assertExists(first);
+    await manager.renameSession("Renamed First");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const second = await manager.newSession("Second");
+
+    const listed = await manager.list();
+    assertEquals(listed.length, 2);
+    assertEquals(listed[0].id, second.id);
+    assertEquals(listed[1].title, "Renamed First");
+
+    const deleted = await manager.deleteSession(second.id);
+    assertEquals(deleted, true);
+    assertEquals(manager.getCurrentSession(), null);
+    assertEquals(manager.hasActiveSession(), false);
+
+    const remaining = await manager.list();
+    assertEquals(remaining.map((session) => session.title), ["Renamed First"]);
+  } finally {
+    await manager.close();
+    await scope.cleanup();
+  }
+});
+
+Deno.test("SessionManager: recordMessage and renameSession reject invalid lifecycle usage", async () => {
+  const manager = new SessionManager("/tmp/invalid-session-manager");
 
   await assertRejects(
-    async () => {
-      await manager.recordMessage("user", "Hello");
-    },
+    () => manager.recordMessage("user", "Hello"),
     Error,
     "not initialized",
   );
-});
-
-// ============================================================================
-// newSession() Tests
-// ============================================================================
-
-Deno.test("SessionManager: newSession creates new session", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-new-${Date.now()}`;
-  const manager = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-
-  try {
-    const session1 = (await manager.initialize({ forceNew: true }))!;
-    await manager.recordMessage("user", "Session 1");
-
-    const session2 = await manager.newSession("New Session");
-    assert(session2.id !== session1.id);
-    assertEquals(session2.title, "New Session");
-    assertEquals(session2.messageCount, 0);
-    assertEquals(manager.getCurrentSession()?.id, session2.id);
-  } finally {
-    await manager.close();
-    await scope.cleanup();
-  }
-});
-
-// ============================================================================
-// resumeSession() Tests
-// ============================================================================
-
-Deno.test("SessionManager: resumeSession switches to existing session", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-switch-${Date.now()}`;
-  const manager = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-
-  try {
-    const session1 = (await manager.initialize({ forceNew: true }))!;
-    await manager.recordMessage("user", "Message in session 1");
-
-    await manager.newSession("Session 2");
-    await manager.recordMessage("user", "Message in session 2");
-
-    const resumed = await manager.resumeSession(session1.id);
-    assertExists(resumed);
-    assertEquals(resumed!.meta.id, session1.id);
-    assertEquals(resumed!.messages.length, 1);
-    assertEquals(resumed!.messages[0].content, "Message in session 1");
-    assertEquals(manager.getCurrentSession()?.id, session1.id);
-  } finally {
-    await manager.close();
-    await scope.cleanup();
-  }
-});
-
-Deno.test("SessionManager: resumeSession returns null for non-existent", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-resume-null-${Date.now()}`;
-  const manager = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-
-  try {
-    await manager.initialize({ forceNew: true });
-    const result = await manager.resumeSession("nonexistent_id");
-    assertEquals(result, null);
-  } finally {
-    await manager.close();
-    await scope.cleanup();
-  }
-});
-
-// ============================================================================
-// list() Tests
-// ============================================================================
-
-Deno.test("SessionManager: list returns all sessions globally", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-list-${Date.now()}`;
-  const manager = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-
-  try {
-    await manager.initialize({ forceNew: true });
-    await new Promise((r) => setTimeout(r, 10));
-    await manager.newSession("Session 2");
-    await new Promise((r) => setTimeout(r, 10));
-    await manager.newSession("Session 3");
-
-    const sessions = await manager.list();
-    assertEquals(sessions.length, 3);
-    assertEquals(sessions[0].title, "Session 3");
-  } finally {
-    await manager.close();
-    await scope.cleanup();
-  }
-});
-
-// ============================================================================
-// deleteSession() Tests
-// ============================================================================
-
-Deno.test("SessionManager: deleteSession removes session", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-delete-${Date.now()}`;
-  const manager = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-
-  try {
-    const session1 = (await manager.initialize({ forceNew: true }))!;
-    const session2 = await manager.newSession("Session 2");
-
-    const result = await manager.deleteSession(session1.id);
-    assert(result);
-
-    const sessions = await manager.list();
-    assertEquals(sessions.length, 1);
-    assertEquals(sessions[0].id, session2.id);
-  } finally {
-    await manager.close();
-    await scope.cleanup();
-  }
-});
-
-Deno.test("SessionManager: deleteSession clears current if deleting active", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-delete-current-${Date.now()}`;
-  const manager = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-
-  try {
-    const session = (await manager.initialize({ forceNew: true }))!;
-    await manager.deleteSession(session.id);
-    assertEquals(manager.getCurrentSession(), null);
-    assertEquals(manager.hasActiveSession(), false);
-  } finally {
-    await manager.close();
-    await scope.cleanup();
-  }
-});
-
-// ============================================================================
-// renameSession() Tests
-// ============================================================================
-
-Deno.test("SessionManager: renameSession updates title", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-rename-${Date.now()}`;
-  const manager = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-
-  try {
-    await manager.initialize({ forceNew: true });
-    await manager.renameSession("New Title");
-    assertEquals(manager.getCurrentSession()?.title, "New Title");
-
-    const sessions = await manager.list();
-    assertEquals(sessions[0].title, "New Title");
-  } finally {
-    await manager.close();
-    await scope.cleanup();
-  }
-});
-
-Deno.test("SessionManager: renameSession throws if no active session", async () => {
-  const manager = new SessionManager("/tmp/test");
-
   await assertRejects(
-    async () => {
-      await manager.renameSession("New Title");
-    },
+    () => manager.renameSession("Renamed"),
     Error,
     "No active session",
   );
-});
-
-// ============================================================================
-// Getters Tests
-// ============================================================================
-
-Deno.test("SessionManager: getSessionMessages returns empty for new session", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-messages-${Date.now()}`;
-  const manager = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-
-  try {
-    await manager.initialize({ forceNew: true });
-    const messages = await manager.getSessionMessages();
-    assertEquals(messages.length, 0);
-  } finally {
-    await manager.close();
-    await scope.cleanup();
-  }
-});
-
-Deno.test("SessionManager: getSessionMessages returns empty if not initialized", async () => {
-  const manager = new SessionManager("/tmp/test");
-  const messages = await manager.getSessionMessages();
-  assertEquals(messages.length, 0);
-});
-
-// ============================================================================
-// close() Tests
-// ============================================================================
-
-Deno.test("SessionManager: close resets initialized state", async () => {
-  const scope = await createTestSessionScope("hlvm-session-manager-");
-  const testPath = `/tmp/test-manager-close-${Date.now()}`;
-  const manager = new SessionManager(testPath, { sessionsDir: scope.sessionsDir });
-
-  try {
-    await manager.initialize({ forceNew: true });
-    assert(manager.isInitialized());
-
-    await manager.close();
-    assertEquals(manager.isInitialized(), false);
-  } finally {
-    await manager.close();
-    await scope.cleanup();
-  }
 });

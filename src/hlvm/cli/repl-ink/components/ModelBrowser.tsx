@@ -30,7 +30,6 @@ import { handleTextEditingKey, isCtrlShortcut } from "../utils/text-editing.ts";
 import {
   normalizeModelBrowserSearchQuery,
   normalizeModelBrowserSearchState,
-  shouldLoadCloudModels,
 } from "../utils/model-browser-loading.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { isOllamaAuthErrorMessage } from "../../../../common/ollama-auth.ts";
@@ -41,12 +40,22 @@ import { aiEngine } from "../../../runtime/ai-runtime.ts";
 import { capabilitiesToDisplayTags } from "../../../providers/types.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
 import { isOllamaCloudModel } from "../../../providers/ollama/cloud.ts";
+import {
+  findProviderMetaKey,
+  getProviderSearchTerms,
+  parseModelString,
+} from "../../../providers/index.ts";
+import {
+  hasModelDiscoveryData,
+  type ModelDiscoverySnapshot,
+  readModelDiscoverySnapshot,
+  refreshModelDiscoverySnapshot,
+} from "../../../providers/model-discovery-store.ts";
 import { calculateScrollWindow } from "../completion/navigation.ts";
 import { ListSearchField } from "./ListSearchField.tsx";
 import {
   DEFAULT_TERMINAL_WIDTH,
   MIN_PANEL_WIDTH,
-  MODEL_BROWSER_MAX_WIDTH,
   PANEL_PADDING,
 } from "../ui-constants.ts";
 
@@ -285,24 +294,28 @@ function toCloudModel(model: ModelInfo): CloudModel | null {
   };
 }
 
-/**
- * Get remote models from provider catalog via ai API.
- */
-async function fetchRemoteModels(): Promise<RemoteModel[]> {
-  try {
-    // Always use Ollama catalog for installable local-runtime models.
-    const catalog = await ai.models.catalog("ollama");
-    const models = catalog
-      .filter((m) => isPracticalModel(m.name))
-      .map((m) => toRemoteModel(m));
-
-    models.sort((a, b) =>
+function toRemoteModels(models: ModelInfo[]): RemoteModel[] {
+  return models
+    .filter((m) => isPracticalModel(m.name))
+    .map((m) => toRemoteModel(m))
+    .sort((a, b) =>
       parseSizeToBytes(a.size || "") - parseSizeToBytes(b.size || "")
     );
-    return models;
-  } catch {
-    return [];
-  }
+}
+
+function toCloudModels(models: ModelInfo[]): CloudModel[] {
+  return models
+    .map(toCloudModel)
+    .filter((model): model is CloudModel => model !== null);
+}
+
+function applyDiscoverySnapshot(
+  snapshot: ModelDiscoverySnapshot,
+  setRemoteModels: React.Dispatch<React.SetStateAction<RemoteModel[]>>,
+  setCloudModels: React.Dispatch<React.SetStateAction<CloudModel[]>>,
+): void {
+  setRemoteModels(toRemoteModels(snapshot.remoteModels));
+  setCloudModels(toCloudModels(snapshot.cloudModels));
 }
 
 /** Filter models based on current mode */
@@ -332,6 +345,20 @@ function filterByMode(
   }
 }
 
+function getDisplayModelSearchText(model: DisplayModel): string {
+  const [parsedProvider] = parseModelString(model.name);
+  const providerKey = parsedProvider ?? findProviderMetaKey(model.provider);
+  const providerTerms = getProviderSearchTerms(providerKey);
+
+  return [
+    model.name,
+    model.provider ?? "",
+    model.description ?? "",
+    ...(model.capabilities ?? []),
+    ...providerTerms,
+  ].join("\n").toLowerCase();
+}
+
 type ModelStatusKind =
   | "pending-delete"
   | "active"
@@ -339,7 +366,19 @@ type ModelStatusKind =
   | "downloading"
   | "cancelled"
   | "failed"
+  | "needs-key"
+  | "cloud"
   | "available";
+
+function isApiProviderCloudModel(model: DisplayModel): boolean {
+  return Boolean(model.capabilities?.includes("cloud")) && !model.isLocal &&
+    model.name.includes("/") && !model.name.startsWith("ollama/");
+}
+
+function isPullableOllamaCloudModel(model: DisplayModel): boolean {
+  return Boolean(model.capabilities?.includes("cloud")) && !model.isLocal &&
+    (!model.name.includes("/") || model.name.startsWith("ollama/"));
+}
 
 function getModelStatusKind(
   model: DisplayModel,
@@ -352,6 +391,8 @@ function getModelStatusKind(
   if (model.downloadStatus === "downloading") return "downloading";
   if (model.downloadStatus === "cancelled") return "cancelled";
   if (model.downloadStatus === "failed") return "failed";
+  if (model.needsKey) return "needs-key";
+  if (isApiProviderCloudModel(model)) return "cloud";
   return "available";
 }
 
@@ -369,6 +410,10 @@ function getModelStatusLabel(kind: ModelStatusKind): string {
       return "cancelled";
     case "failed":
       return "failed";
+    case "needs-key":
+      return "needs key";
+    case "cloud":
+      return "cloud";
     case "available":
       return "not installed";
   }
@@ -388,6 +433,8 @@ function getStatusIndicator(kind: ModelStatusKind): string {
       return "⊘ ";
     case "failed":
       return "✗ ";
+    case "needs-key":
+    case "cloud":
     case "available":
       return "☁ ";
   }
@@ -420,11 +467,15 @@ function ModelItem({
     case "pending-delete":
     case "cancelled":
     case "failed":
+    case "needs-key":
       indicatorColor = color("error");
       break;
     case "active":
     case "installed":
       indicatorColor = color("success");
+      break;
+    case "cloud":
+      indicatorColor = color("accent");
       break;
     case "downloading":
       indicatorColor = color("warning");
@@ -538,7 +589,7 @@ export function ModelBrowser({
     MIN_PANEL_WIDTH,
     (stdout?.columns ?? DEFAULT_TERMINAL_WIDTH) - PANEL_PADDING,
   );
-  const panelWidth = Math.min(MODEL_BROWSER_MAX_WIDTH, availableWidth);
+  const panelWidth = availableWidth;
   const contentWidth = panelWidth - 4;
 
   // State
@@ -552,9 +603,9 @@ export function ModelBrowser({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCursor, setSearchCursor] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [cloudLoading, setCloudLoading] = useState(false);
-  const [cloudLoaded, setCloudLoaded] = useState(false);
-  const [cloudLoadFailed, setCloudLoadFailed] = useState(false);
+  const [discoveryLoading, setDiscoveryLoading] = useState(true);
+  const [discoveryRefreshing, setDiscoveryRefreshing] = useState(false);
+  const [discoveryRefreshFailed, setDiscoveryRefreshFailed] = useState(false);
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -627,7 +678,7 @@ export function ModelBrowser({
     return { byModel, activeByModel };
   }, [tasks]);
 
-  // Fetch installed Ollama models only. Cloud models are loaded on demand.
+  // Fetch installed Ollama models only. Discovery catalogs are snapshot-backed.
   const fetchModels = useCallback(async () => {
     try {
       const models = await ai.models.list("ollama");
@@ -644,80 +695,50 @@ export function ModelBrowser({
     fetchModels();
   }, [fetchModels]);
 
-  // Fetch remote models from Ollama registry on mount
+  // Load cached discovery immediately, then refresh once in the background.
   useEffect(() => {
     let cancelled = false;
-    fetchRemoteModels().then((models) => {
-      if (!cancelled) {
-        setRemoteModels(models);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const shouldLoadCloudModelsNow = useMemo(
-    () =>
-      shouldLoadCloudModels({
-        filterMode,
-        searchQuery: normalizedSearchQuery,
-        currentModel,
-      }),
-    [currentModel, filterMode, normalizedSearchQuery],
-  );
-
-  useEffect(() => {
-    if (!shouldLoadCloudModelsNow) {
-      setCloudLoadFailed(false);
-      return;
-    }
-  }, [shouldLoadCloudModelsNow]);
-
-  useEffect(() => {
-    setCloudLoadFailed(false);
-  }, [filterMode]);
-
-  useEffect(() => {
-    if (
-      cloudLoaded ||
-      cloudLoading ||
-      cloudLoadFailed ||
-      !shouldLoadCloudModelsNow
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    setCloudLoading(true);
-
-    void ai.models.listAll({ excludeProviders: ["ollama"] })
-      .then((models) => {
+    void readModelDiscoverySnapshot()
+      .then((snapshot) => {
         if (cancelled) return;
-        setCloudModels(
-          models
-            .map(toCloudModel)
-            .filter((model): model is CloudModel => model !== null),
+        applyDiscoverySnapshot(snapshot, setRemoteModels, setCloudModels);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDiscoveryLoading(false);
+        }
+      });
+
+    setDiscoveryRefreshing(true);
+    setDiscoveryRefreshFailed(false);
+    void refreshModelDiscoverySnapshot()
+      .then((result) => {
+        if (cancelled) return;
+        applyDiscoverySnapshot(
+          result.snapshot,
+          setRemoteModels,
+          setCloudModels,
         );
-        setCloudLoadFailed(false);
-        setCloudLoaded(true);
+        setDiscoveryRefreshFailed(
+          result.failed && !hasModelDiscoveryData(result.snapshot),
+        );
       })
       .catch(() => {
         if (!cancelled) {
-          setCloudModels([]);
-          setCloudLoadFailed(true);
+          setDiscoveryRefreshFailed(true);
         }
       })
       .finally(() => {
         if (!cancelled) {
-          setCloudLoading(false);
+          setDiscoveryRefreshing(false);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [cloudLoaded, cloudLoading, cloudLoadFailed, shouldLoadCloudModelsNow]);
+    // Intentionally empty: browser open is the refresh boundary.
+  }, []);
 
   // Reactive Ollama Cloud signin: on auth error during cloud model pull,
   // spawn `ollama signin` then retry pull
@@ -902,11 +923,7 @@ export function ModelBrowser({
     const q = normalizedSearchQuery.toLowerCase();
     if (q) {
       filtered = filtered.filter(
-        (m) =>
-          m.name.toLowerCase().includes(q) ||
-          (m.provider?.toLowerCase().includes(q) ?? false) ||
-          (m.capabilities?.some((c) => c.toLowerCase().includes(q)) ?? false) ||
-          (m.description?.toLowerCase().includes(q) ?? false),
+        (m) => getDisplayModelSearchText(m).includes(q),
       );
     }
 
@@ -968,16 +985,6 @@ export function ModelBrowser({
       clearStatus();
     };
 
-    // API provider cloud models — have "provider/" prefix and are not Ollama. Select directly.
-    const isApiProviderCloud = (m: DisplayModel) =>
-      m.capabilities?.includes("cloud") && !m.isLocal &&
-      m.name.includes("/") && !m.name.startsWith("ollama/");
-
-    // Ollama cloud models — no provider prefix or "ollama/" prefix. Need pull + possibly signin.
-    const isOllamaCloudModel_ = (m: DisplayModel) =>
-      m.capabilities?.includes("cloud") && !m.isLocal &&
-      (!m.name.includes("/") || m.name.startsWith("ollama/"));
-
     const performSelectionAction = () => {
       const model = displayModels[selection.index] ?? displayModels[0];
       if (!model) return;
@@ -1001,7 +1008,7 @@ export function ModelBrowser({
       }
 
       // API provider cloud models: select directly (always available, no download)
-      if (isApiProviderCloud(model) && onSelectModel) {
+      if (isApiProviderCloudModel(model) && onSelectModel) {
         void selectAsDefaultModel(model.name);
         return;
       }
@@ -1017,7 +1024,7 @@ export function ModelBrowser({
       // Non-local models (including Ollama cloud) go through pull
       if (
         !model.isLocal && model.downloadStatus !== "downloading" &&
-        !isApiProviderCloud(model)
+        !isApiProviderCloudModel(model)
       ) {
         // Remember which model to auto-select after pull completes
         if (onSelectModel) pendingSelectRef.current = model.name;
@@ -1078,7 +1085,7 @@ export function ModelBrowser({
       const model = displayModels[selection.index];
       if (model.docsUrl) {
         openUrl(model.docsUrl);
-      } else if (isOllamaCloudModel_(model)) {
+      } else if (isPullableOllamaCloudModel(model)) {
         openUrl("https://ollama.com/cloud");
       } else {
         openUrl(getOllamaUrl(model.name));
@@ -1091,7 +1098,9 @@ export function ModelBrowser({
       const model = displayModels[selection.index];
 
       // Cloud models can't be deleted (API provider or Ollama cloud)
-      if (isApiProviderCloud(model) || isOllamaCloudModel_(model)) {
+      if (
+        isApiProviderCloudModel(model) || isPullableOllamaCloudModel(model)
+      ) {
         setStatusMessage("Cloud models can't be deleted");
         return;
       }
@@ -1219,6 +1228,10 @@ export function ModelBrowser({
   const nextFilter = FILTER_LABELS[FILTER_CYCLE[nextFilterIdx]];
   const selectedModel = displayModels[selection.index] ?? displayModels[0] ??
     null;
+  const hasDiscoveryResults = remoteModels.length > 0 || cloudModels.length > 0;
+  const emptyStateMessage = discoveryRefreshFailed && !hasDiscoveryResults
+    ? "Model catalog unavailable. Retry in a moment."
+    : FILTER_EMPTY[activeFilterMode];
 
   return (
     <Box
@@ -1288,16 +1301,19 @@ export function ModelBrowser({
 
       {/* Loading */}
       {loading && <Text dimColor>Loading installed models...</Text>}
-      {!loading &&
-        cloudLoading &&
-        (activeFilterMode === "cloud" || normalizedSearchQuery.length > 0) && (
-        <Text dimColor>Loading cloud models...</Text>
+      {!loading && discoveryLoading && (
+        <Text dimColor>Loading model catalog...</Text>
+      )}
+      {!loading && !discoveryLoading && discoveryRefreshing &&
+        !hasDiscoveryResults && (
+        <Text dimColor>Refreshing model catalog...</Text>
       )}
 
       {/* Model list */}
-      {!loading && displayModels.length === 0 && (
+      {!loading && !discoveryLoading && !discoveryRefreshing &&
+        displayModels.length === 0 && (
         <Text dimColor wrap="truncate-end">
-          {FILTER_EMPTY[activeFilterMode]}
+          {emptyStateMessage}
         </Text>
       )}
 

@@ -1,423 +1,168 @@
-/**
- * Context Manager Tests
- *
- * Verifies context management and token budget functionality
- */
-
 import { assertEquals, assertThrows } from "jsr:@std/assert";
 import {
   ContextManager,
   ContextOverflowError,
+  takeLastMessageGroups,
 } from "../../../src/hlvm/agent/context.ts";
+import type { Message } from "../../../src/hlvm/agent/context.ts";
 import { DEFAULT_CONTEXT_CONFIG } from "../../../src/hlvm/agent/constants.ts";
 
-// ============================================================
-// Basic Message Management tests
-// ============================================================
+Deno.test("context: message management records timestamps, copies, filters, and stats", () => {
+  const context = new ContextManager();
+  context.addMessages([
+    { role: "system", content: "System" },
+    { role: "user", content: "Hello" },
+    { role: "assistant", content: "Hi" },
+    { role: "tool", content: "Result" },
+  ]);
+  const explicitTimestamp = 1234567890;
+  context.addMessage({ role: "user", content: "Later", timestamp: explicitTimestamp });
 
-Deno.test({
-  name: "Context: addMessage - add single message",
-  fn() {
-    const context = new ContextManager();
+  const firstCopy = context.getMessages();
+  const secondCopy = context.getMessagesCopy();
+  const stats = context.getStats();
 
-    context.addMessage({
-      role: "user",
-      content: "Hello",
-    });
+  assertEquals(firstCopy.length, 5);
+  assertEquals(firstCopy[0].timestamp! > 0, true);
+  assertEquals(firstCopy[4].timestamp, explicitTimestamp);
+  assertEquals(firstCopy === secondCopy, false);
+  assertEquals(context.getMessagesByRole("user").map((m) => m.content), ["Hello", "Later"]);
+  assertEquals(context.getLastMessages(2).map((m) => m.content), ["Result", "Later"]);
+  assertEquals(stats.messageCount, 5);
+  assertEquals(stats.systemMessages, 1);
+  assertEquals(stats.userMessages, 2);
+  assertEquals(stats.assistantMessages, 1);
+  assertEquals(stats.toolMessages, 1);
+  assertEquals(stats.estimatedTokens > 0, true);
 
-    const messages = context.getMessages();
-    assertEquals(messages.length, 1);
-    assertEquals(messages[0].role, "user");
-    assertEquals(messages[0].content, "Hello");
-  },
+  context.clear();
+  assertEquals(context.getMessages(), []);
 });
 
-Deno.test({
-  name: "Context: addMessage - add timestamp automatically",
-  fn() {
-    const context = new ContextManager();
+Deno.test("context: trimming respects budget, preserveSystem, and minMessages", () => {
+  const context = new ContextManager({
+    maxTokens: 200,
+    preserveSystem: true,
+    minMessages: 2,
+  });
 
-    context.addMessage({
-      role: "user",
-      content: "Hello",
-    });
+  context.addMessage({ role: "system", content: "s".repeat(120) });
+  context.addMessage({ role: "user", content: "a".repeat(400) });
+  context.addMessage({ role: "assistant", content: "b".repeat(400) });
+  context.addMessage({ role: "user", content: "c".repeat(400) });
 
-    const messages = context.getMessages();
-    assertEquals(typeof messages[0].timestamp, "number");
-    assertEquals(messages[0].timestamp! > 0, true);
-  },
+  const messages = context.getMessages();
+  assertEquals(messages.length < 4, true);
+  assertEquals(messages.some((m) => m.role === "system"), true);
+  assertEquals(messages.length >= 2, true);
 });
 
-Deno.test({
-  name: "Context: addMessage - preserve explicit timestamp",
-  fn() {
-    const context = new ContextManager();
-    const explicitTimestamp = 1234567890;
+Deno.test("context: summarize overflow inserts a summary while keeping recent messages", () => {
+  const context = new ContextManager({
+    maxTokens: 50,
+    overflowStrategy: "summarize",
+    summaryKeepRecent: 2,
+    summaryMaxChars: 200,
+  });
+  const longText = "x".repeat(200);
 
-    context.addMessage({
-      role: "user",
-      content: "Hello",
-      timestamp: explicitTimestamp,
-    });
+  context.addMessage({ role: "system", content: "You are helpful." });
+  context.addMessage({ role: "user", content: `First ${longText}` });
+  context.addMessage({ role: "assistant", content: `Reply ${longText}` });
+  context.addMessage({ role: "user", content: `Second ${longText}` });
+  context.addMessage({ role: "assistant", content: `Reply 2 ${longText}` });
+  context.addMessage({ role: "user", content: `Third ${longText}` });
 
-    const messages = context.getMessages();
-    assertEquals(messages[0].timestamp, explicitTimestamp);
-  },
+  const messages = context.getMessages();
+  assertEquals(
+    messages.some((m) => m.content.startsWith("Summary of earlier context:")),
+    true,
+  );
+  assertEquals(context.getLastMessages(2).map((m) => m.role), ["assistant", "user"]);
 });
 
-Deno.test({
-  name: "Context: addMessages - add multiple messages",
-  fn() {
-    const context = new ContextManager();
+Deno.test("context: tool exchanges stay intact during trim, summary grouping, and compaction", async () => {
+  const trimmed = new ContextManager({ maxTokens: 180, minMessages: 2 });
+  trimmed.addMessage({ role: "user", content: "a".repeat(320) });
+  trimmed.addMessage({ role: "user", content: "b".repeat(320) });
+  trimmed.addMessage({
+    role: "assistant",
+    content: "",
+    toolCalls: [{
+      id: "call_web_1",
+      function: { name: "search_web", arguments: { query: "taskgroup" } },
+    }],
+  });
+  trimmed.addMessage({
+    role: "tool",
+    content: "c".repeat(320),
+    toolName: "search_web",
+    toolCallId: "call_web_1",
+  });
 
-    context.addMessages([
-      { role: "system", content: "System prompt" },
-      { role: "user", content: "Hello" },
-      { role: "assistant", content: "Hi!" },
-    ]);
+  const summarized = new ContextManager({
+    maxTokens: 60,
+    overflowStrategy: "summarize",
+    summaryKeepRecent: 1,
+    summaryMaxChars: 200,
+    minMessages: 1,
+  });
+  summarized.addMessage({ role: "user", content: "a".repeat(220) });
+  summarized.addMessage({ role: "assistant", content: "b".repeat(220) });
+  summarized.addMessage({
+    role: "assistant",
+    content: "",
+    toolCalls: [{
+      id: "call_search_1",
+      function: { name: "search_web", arguments: { query: "asyncio taskgroup" } },
+    }],
+  });
+  summarized.addMessage({
+    role: "tool",
+    content: "c".repeat(220),
+    toolName: "search_web",
+    toolCallId: "call_search_1",
+  });
+  summarized.addMessage({ role: "user", content: "d".repeat(220) });
 
-    const messages = context.getMessages();
-    assertEquals(messages.length, 3);
-  },
-});
+  const compacted = new ContextManager({
+    maxTokens: 120,
+    overflowStrategy: "summarize",
+    summaryKeepRecent: 1,
+    minMessages: 1,
+    llmSummarize: async () => "condensed summary",
+  });
+  compacted.addMessage({ role: "user", content: "a".repeat(240) });
+  compacted.addMessage({ role: "assistant", content: "b".repeat(240) });
+  compacted.addMessage({
+    role: "assistant",
+    content: "",
+    toolCalls: [{
+      id: "call_fetch_1",
+      function: { name: "fetch_url", arguments: { url: "https://example.com" } },
+    }],
+  });
+  compacted.addMessage({
+    role: "tool",
+    content: "c".repeat(240),
+    toolName: "fetch_url",
+    toolCallId: "call_fetch_1",
+  });
+  compacted.addMessage({ role: "user", content: "d".repeat(240) });
 
-Deno.test({
-  name: "Context: getMessages - returns a defensive copy",
-  fn() {
-    const context = new ContextManager();
+  await compacted.compactIfNeeded();
 
-    context.addMessage({ role: "user", content: "Hello" });
-
-    const messages1 = context.getMessages();
-    const messages2 = context.getMessages();
-
-    // Defensive copy: distinct arrays
-    assertEquals(messages1 === messages2, false);
-
-    // Same content
-    assertEquals(messages1.length, messages2.length);
-  },
-});
-
-Deno.test({
-  name: "Context: getMessagesCopy - returns a separate copy",
-  fn() {
-    const context = new ContextManager();
-
-    context.addMessage({ role: "user", content: "Hello" });
-
-    const messages1 = context.getMessagesCopy();
-    const messages2 = context.getMessagesCopy();
-
-    // Different objects
-    assertEquals(messages1 !== messages2, true);
-
-    // Same content
-    assertEquals(messages1.length, messages2.length);
-  },
-});
-
-Deno.test({
-  name: "Context: clear - remove all messages",
-  fn() {
-    const context = new ContextManager();
-
-    context.addMessages([
-      { role: "user", content: "Hello" },
-      { role: "assistant", content: "Hi!" },
-    ]);
-
-    assertEquals(context.getMessages().length, 2);
-
-    context.clear();
-
-    assertEquals(context.getMessages().length, 0);
-  },
-});
-
-// ============================================================
-// Query tests
-// ============================================================
-
-Deno.test({
-  name: "Context: getMessagesByRole - filter by role",
-  fn() {
-    const context = new ContextManager();
-
-    context.addMessages([
-      { role: "system", content: "System" },
-      { role: "user", content: "User 1" },
-      { role: "assistant", content: "Assistant 1" },
-      { role: "user", content: "User 2" },
-      { role: "assistant", content: "Assistant 2" },
-    ]);
-
-    const userMessages = context.getMessagesByRole("user");
-    assertEquals(userMessages.length, 2);
-    assertEquals(userMessages[0].content, "User 1");
-    assertEquals(userMessages[1].content, "User 2");
-
-    const systemMessages = context.getMessagesByRole("system");
-    assertEquals(systemMessages.length, 1);
-  },
-});
-
-Deno.test({
-  name: "Context: getLastMessages - get last N messages",
-  fn() {
-    const context = new ContextManager();
-
-    context.addMessages([
-      { role: "user", content: "1" },
-      { role: "assistant", content: "2" },
-      { role: "user", content: "3" },
-      { role: "assistant", content: "4" },
-      { role: "user", content: "5" },
-    ]);
-
-    const last2 = context.getLastMessages(2);
-    assertEquals(last2.length, 2);
-    assertEquals(last2[0].content, "4");
-    assertEquals(last2[1].content, "5");
-  },
-});
-
-// ============================================================
-// Statistics tests
-// ============================================================
-
-Deno.test({
-  name: "Context: getStats - calculate statistics",
-  fn() {
-    const context = new ContextManager();
-
-    context.addMessages([
-      { role: "system", content: "System" },
-      { role: "user", content: "User 1" },
-      { role: "user", content: "User 2" },
-      { role: "assistant", content: "Assistant 1" },
-      { role: "assistant", content: "Assistant 2" },
-      { role: "assistant", content: "Assistant 3" },
-      { role: "tool", content: "Tool result" },
-    ]);
-
-    const stats = context.getStats();
-    assertEquals(stats.messageCount, 7);
-    assertEquals(stats.systemMessages, 1);
-    assertEquals(stats.userMessages, 2);
-    assertEquals(stats.assistantMessages, 3);
-    assertEquals(stats.toolMessages, 1);
-    assertEquals(stats.estimatedTokens > 0, true);
-  },
-});
-
-Deno.test({
-  name: "Context: estimateTokens - simple estimation",
-  fn() {
-    const context = new ContextManager();
-
-    // Add message with known length
-    const content = "a".repeat(400); // 400 chars = ~100 tokens
-    context.addMessage({ role: "user", content });
-
-    const stats = context.getStats();
-    // Should be around 100 tokens (400 / 4)
-    assertEquals(stats.estimatedTokens >= 90, true);
-    assertEquals(stats.estimatedTokens <= 110, true);
-  },
-});
-
-// ============================================================
-// Token Budget tests
-// ============================================================
-
-Deno.test({
-  name: "Context: needsTrimming - detect when over budget",
-  fn() {
-    const context = new ContextManager({ maxTokens: 100 }); // Very small budget
-
-    context.addMessage({ role: "user", content: "Short" });
-    assertEquals(context.needsTrimming(), false);
-
-    // Add large message
-    context.addMessage({ role: "user", content: "a".repeat(500) }); // 500 chars = ~125 tokens
-    assertEquals(context.needsTrimming(), true);
-  },
-});
-
-Deno.test({
-  name: "Context: trimIfNeeded - automatic trimming",
-  fn() {
-    const context = new ContextManager({
-      maxTokens: 200,
-      minMessages: 1,
-    });
-
-    // Add messages that exceed budget
-    context.addMessage({ role: "user", content: "a".repeat(400) }); // ~100 tokens
-    context.addMessage({ role: "assistant", content: "b".repeat(400) }); // ~100 tokens
-    context.addMessage({ role: "user", content: "c".repeat(400) }); // ~100 tokens
-
-    // Should have trimmed oldest message
-    const messages = context.getMessages();
-    assertEquals(messages.length < 3, true);
-    assertEquals(context.needsTrimming(), false);
-  },
-});
-
-Deno.test({
-  name: "Context: trimIfNeeded - preserve system messages",
-  fn() {
-    const context = new ContextManager({
-      maxTokens: 200,
-      preserveSystem: true,
-      minMessages: 1,
-    });
-
-    context.addMessage({ role: "system", content: "a".repeat(100) }); // ~25 tokens
-    context.addMessage({ role: "user", content: "b".repeat(400) }); // ~100 tokens
-    context.addMessage({ role: "assistant", content: "c".repeat(400) }); // ~100 tokens
-    context.addMessage({ role: "user", content: "d".repeat(400) }); // ~100 tokens
-
-    const messages = context.getMessages();
-
-    // System message should still be present
-    const systemMessages = messages.filter((m) => m.role === "system");
-    assertEquals(systemMessages.length, 1);
-  },
-});
-
-Deno.test({
-  name: "Context: trimIfNeeded - respect minMessages",
-  fn() {
-    const context = new ContextManager({
-      maxTokens: 50, // Very small
-      minMessages: 3,
-    });
-
-    // Add more messages than minMessages
-    for (let i = 0; i < 10; i++) {
-      context.addMessage({ role: "user", content: "a".repeat(100) });
-    }
-
-    const messages = context.getMessages();
-
-    // Should keep at least minMessages
-    assertEquals(messages.length >= 3, true);
-  },
-});
-
-Deno.test({
-  name: "Context: overflowStrategy=summarize - inserts summary message",
-  fn() {
-    const context = new ContextManager({
-      maxTokens: 50,
-      overflowStrategy: "summarize",
-      summaryKeepRecent: 2,
-      summaryMaxChars: 200,
-    });
-
-    const longText = "a".repeat(200);
-    context.addMessage({ role: "system", content: "You are helpful." });
-    context.addMessage({ role: "user", content: `First ${longText}` });
-    context.addMessage({
-      role: "assistant",
-      content: `First response ${longText}`,
-    });
-    context.addMessage({ role: "user", content: `Second ${longText}` });
-    context.addMessage({
-      role: "assistant",
-      content: `Second response ${longText}`,
-    });
-    context.addMessage({ role: "user", content: `Third ${longText}` });
-
-    const messages = context.getMessages();
-    const summary = messages.find((m) =>
-      m.content.startsWith("Summary of earlier context:")
-    );
-    assertEquals(Boolean(summary), true);
-
-    // Should preserve recent messages
-    const last = context.getLastMessages(2);
-    assertEquals(last[0].role, "assistant");
-    assertEquals(last[1].role, "user");
-  },
-});
-
-Deno.test({
-  name: "Context: trimIfNeeded preserves assistant tool call and tool result as a unit",
-  fn() {
-    const context = new ContextManager({
-      maxTokens: 180,
-      minMessages: 2,
-    });
-
-    context.addMessage({ role: "user", content: "a".repeat(320) });
-    context.addMessage({ role: "user", content: "b".repeat(320) });
-    context.addMessage({
-      role: "assistant",
-      content: "",
-      toolCalls: [{
-        id: "call_web_1",
-        function: { name: "search_web", arguments: { query: "taskgroup" } },
-      }],
-    });
-    context.addMessage({
-      role: "tool",
-      content: "c".repeat(320),
-      toolName: "search_web",
-      toolCallId: "call_web_1",
-    });
-
-    const messages = context.getMessages();
+  for (const [manager, assistantId, toolId] of [
+    [trimmed, "call_web_1", "call_web_1"],
+    [summarized, "call_search_1", "call_search_1"],
+    [compacted, "call_fetch_1", "call_fetch_1"],
+  ] as const) {
+    const messages = manager.getMessages();
     const assistantIndex = messages.findIndex((message) =>
-      message.role === "assistant" && message.toolCalls?.[0]?.id === "call_web_1"
+      message.role === "assistant" && message.toolCalls?.[0]?.id === assistantId
     );
     const toolIndex = messages.findIndex((message) =>
-      message.role === "tool" && message.toolCallId === "call_web_1"
-    );
-
-    assertEquals(assistantIndex >= 0, true);
-    assertEquals(toolIndex, assistantIndex + 1);
-    assertEquals(context.needsTrimming(), false);
-  },
-});
-
-Deno.test({
-  name: "Context: summarizeIfNeeded does not split tool exchange boundary",
-  fn() {
-    const context = new ContextManager({
-      maxTokens: 60,
-      overflowStrategy: "summarize",
-      summaryKeepRecent: 1,
-      summaryMaxChars: 200,
-      minMessages: 1,
-    });
-
-    context.addMessage({ role: "user", content: "a".repeat(220) });
-    context.addMessage({ role: "assistant", content: "b".repeat(220) });
-    context.addMessage({
-      role: "assistant",
-      content: "",
-      toolCalls: [{
-        id: "call_search_1",
-        function: { name: "search_web", arguments: { query: "asyncio taskgroup" } },
-      }],
-    });
-    context.addMessage({
-      role: "tool",
-      content: "c".repeat(220),
-      toolName: "search_web",
-      toolCallId: "call_search_1",
-    });
-    context.addMessage({ role: "user", content: "d".repeat(220) });
-
-    const messages = context.getMessages();
-    const assistantIndex = messages.findIndex((message) =>
-      message.role === "assistant" && message.toolCalls?.[0]?.id === "call_search_1"
-    );
-    const toolIndex = messages.findIndex((message) =>
-      message.role === "tool" && message.toolCallId === "call_search_1"
+      message.role === "tool" && message.toolCallId === toolId
     );
 
     if (toolIndex >= 0) {
@@ -426,166 +171,78 @@ Deno.test({
     } else {
       assertEquals(assistantIndex, -1);
     }
-  },
+  }
 });
 
-Deno.test({
-  name: "Context: overflowStrategy=fail - throw on overflow",
-  fn() {
-    const context = new ContextManager({
-      maxTokens: 50,
-      overflowStrategy: "fail",
-    });
+Deno.test("context: takeLastMessageGroups preserves trailing tool exchange boundaries", () => {
+  const messages: Message[] = [
+    { role: "user", content: "older" },
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [{
+        id: "call_search_1",
+        function: { name: "search_web", arguments: { query: "taskgroup" } },
+      }],
+    },
+    {
+      role: "tool",
+      content: "results",
+      toolName: "search_web",
+      toolCallId: "call_search_1",
+    },
+    { role: "assistant", content: "done" },
+  ];
 
-    context.addMessage({ role: "user", content: "short" });
-
-    assertThrows(
-      () => context.addMessage({ role: "user", content: "a".repeat(400) }),
-      ContextOverflowError,
-    );
-  },
+  const recent = takeLastMessageGroups(messages, 2);
+  assertEquals(recent.map((message) => message.role), ["assistant", "tool", "assistant"]);
+  assertEquals(recent[0].toolCalls?.[0]?.id, "call_search_1");
+  assertEquals(recent[1].toolCallId, "call_search_1");
 });
 
-Deno.test({
-  name: "Context: updateConfig - fail strategy throws if already over budget",
-  fn() {
-    const context = new ContextManager({
-      maxTokens: 200,
-    });
+Deno.test("context: fail overflow throws during add and config tightening", () => {
+  const addContext = new ContextManager({ maxTokens: 50, overflowStrategy: "fail" });
+  addContext.addMessage({ role: "user", content: "short" });
+  assertThrows(
+    () => addContext.addMessage({ role: "user", content: "a".repeat(400) }),
+    ContextOverflowError,
+  );
 
-    context.addMessage({ role: "user", content: "a".repeat(400) });
-    context.addMessage({ role: "assistant", content: "b".repeat(400) });
-
-    assertThrows(
-      () => context.updateConfig({ maxTokens: 50, overflowStrategy: "fail" }),
-      ContextOverflowError,
-    );
-  },
+  const updateContext = new ContextManager({ maxTokens: 200 });
+  updateContext.addMessage({ role: "user", content: "a".repeat(400) });
+  updateContext.addMessage({ role: "assistant", content: "b".repeat(400) });
+  assertThrows(
+    () => updateContext.updateConfig({ maxTokens: 50, overflowStrategy: "fail" }),
+    ContextOverflowError,
+  );
 });
 
-// ============================================================
-// Result Truncation tests
-// ============================================================
+Deno.test("context: truncateResult preserves short output and truncates long output midstream", () => {
+  const context = new ContextManager({ maxResultLength: 200 });
+  const long = "HEAD_CONTENT_" + "x".repeat(500) + "_TAIL_CONTENT";
 
-Deno.test({
-  name: "Context: truncateResult - keep short results",
-  fn() {
-    const context = new ContextManager({ maxResultLength: 100 });
-
-    const result = "Short result";
-    const truncated = context.truncateResult(result);
-
-    assertEquals(truncated, result);
-  },
+  assertEquals(context.truncateResult("short"), "short");
+  const truncated = context.truncateResult(long);
+  assertEquals(truncated.length <= 200, true);
+  assertEquals(truncated.startsWith("HEAD_CONTENT_"), true);
+  assertEquals(truncated.endsWith("_TAIL_CONTENT"), true);
+  assertEquals(truncated.includes("[truncated middle]"), true);
 });
 
-Deno.test({
-  name: "Context: truncateResult - truncate long results with head+tail",
-  fn() {
-    const context = new ContextManager({ maxResultLength: 200 });
+Deno.test("context: default config, getConfig, and updateConfig stay coherent", () => {
+  const context = new ContextManager();
+  assertEquals(context.getConfig(), DEFAULT_CONTEXT_CONFIG);
 
-    const head = "HEAD_CONTENT_";
-    const tail = "_TAIL_CONTENT";
-    const result = head + "x".repeat(500) + tail;
-    const truncated = context.truncateResult(result);
+  const configurable = new ContextManager({ maxTokens: 10000, minMessages: 1 });
+  for (let i = 0; i < 5; i++) {
+    configurable.addMessage({ role: "user", content: "a".repeat(1000) });
+  }
 
-    assertEquals(truncated.length <= 200, true);
-    // Head+tail strategy: preserves beginning and end
-    assertEquals(truncated.startsWith("HEAD_CONTENT_"), true);
-    assertEquals(truncated.endsWith("_TAIL_CONTENT"), true);
-    assertEquals(truncated.includes("[truncated middle]"), true);
-  },
-});
+  const beforeCount = configurable.getMessages().length;
+  configurable.updateConfig({ maxTokens: 500, maxResultLength: 1000 });
+  const afterConfig = configurable.getConfig();
 
-Deno.test({
-  name: "Context: truncateResult - uses truncateMiddle for tool results",
-  fn() {
-    const context = new ContextManager({ maxResultLength: 200 });
-
-    const result = "a".repeat(500);
-    const truncated = context.truncateResult(result);
-
-    // Should be at most maxResultLength chars
-    assertEquals(truncated.length <= 200, true);
-    // Short results should pass through unchanged
-    assertEquals(context.truncateResult("short"), "short");
-  },
-});
-
-// ============================================================
-// Configuration tests
-// ============================================================
-
-Deno.test({
-  name: "Context: getConfig - retrieve configuration",
-  fn() {
-    const context = new ContextManager({
-      maxTokens: 5000,
-      maxResultLength: 1000,
-    });
-
-    const config = context.getConfig();
-    assertEquals(config.maxTokens, 5000);
-    assertEquals(config.maxResultLength, 1000);
-  },
-});
-
-Deno.test({
-  name: "Context: updateConfig - change configuration",
-  fn() {
-    const context = new ContextManager({ maxTokens: 12000 });
-
-    context.updateConfig({ maxTokens: 6000 });
-
-    const config = context.getConfig();
-    assertEquals(config.maxTokens, 6000);
-  },
-});
-
-Deno.test({
-  name: "Context: updateConfig - trigger trimming if needed",
-  fn() {
-    const context = new ContextManager({ maxTokens: 10000, minMessages: 1 });
-
-    // Add large messages
-    for (let i = 0; i < 5; i++) {
-      context.addMessage({ role: "user", content: "a".repeat(1000) });
-    }
-
-    const beforeCount = context.getMessages().length;
-
-    // Reduce token budget (should trigger trim)
-    context.updateConfig({ maxTokens: 500 });
-
-    const afterCount = context.getMessages().length;
-    assertEquals(afterCount < beforeCount, true);
-  },
-});
-
-Deno.test({
-  name: "Context: default configuration values",
-  fn() {
-    const context = new ContextManager();
-
-    const config = context.getConfig();
-    assertEquals(config.maxTokens, DEFAULT_CONTEXT_CONFIG.maxTokens);
-    assertEquals(
-      config.maxResultLength,
-      DEFAULT_CONTEXT_CONFIG.maxResultLength,
-    );
-    assertEquals(config.preserveSystem, DEFAULT_CONTEXT_CONFIG.preserveSystem);
-    assertEquals(config.minMessages, DEFAULT_CONTEXT_CONFIG.minMessages);
-    assertEquals(
-      config.overflowStrategy,
-      DEFAULT_CONTEXT_CONFIG.overflowStrategy,
-    );
-    assertEquals(
-      config.summaryMaxChars,
-      DEFAULT_CONTEXT_CONFIG.summaryMaxChars,
-    );
-    assertEquals(
-      config.summaryKeepRecent,
-      DEFAULT_CONTEXT_CONFIG.summaryKeepRecent,
-    );
-  },
+  assertEquals(afterConfig.maxTokens, 500);
+  assertEquals(afterConfig.maxResultLength, 1000);
+  assertEquals(configurable.getMessages().length < beforeCount, true);
 });

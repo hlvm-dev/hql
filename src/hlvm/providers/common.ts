@@ -112,16 +112,3 @@ export function extractSignal(
 ): AbortSignal | undefined {
   return options?.signal;
 }
-
-// =============================================================================
-// Tool Call ID Generation
-// =============================================================================
-
-/**
- * Generate a unique tool call ID.
- * Uses random base-36 string for collision resistance across turns.
- * SSOT: All providers must use this instead of index-based IDs.
- */
-export function generateToolCallId(): string {
-  return `call_${Math.random().toString(36).slice(2, 11)}`;
-}

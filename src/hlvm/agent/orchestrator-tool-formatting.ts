@@ -97,16 +97,14 @@ export function buildToolObservation(
   };
 }
 
-/** Deduplicate identical tool calls (same name + same args) within a single turn */
+/**
+ * Preserve same-turn tool calls exactly as produced by the model.
+ *
+ * Duplicate collapsing is unsafe for side-effectful tools and can silently drop
+ * legitimate work (`write_file`, memory mutations, shell actions).
+ */
 export function deduplicateToolCalls(calls: ToolCall[]): ToolCall[] {
-  if (calls.length <= 1) return calls;
-  const seen = new Set<string>();
-  return calls.filter((call) => {
-    const key = `${call.toolName}:${stableStringifyArgs(call.args, false)}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return calls;
 }
 
 /**
@@ -210,6 +208,7 @@ export function buildToolErrorResult(
   error: string,
   startedAt: number,
   config: OrchestratorConfig,
+  toolCallId?: string,
 ): ToolExecutionResult {
   const result: ToolExecutionResult = {
     success: false,
@@ -222,6 +221,7 @@ export function buildToolErrorResult(
   config.onTrace?.({
     type: "tool_result",
     toolName,
+    toolCallId,
     success: false,
     error,
     display: error,
@@ -391,6 +391,7 @@ export function buildToolRequiredMessage(allowlist?: string[]): string {
 export function emitToolSuccess(
   config: OrchestratorConfig,
   toolName: string,
+  toolCallId: string | undefined,
   llmContent: string,
   summaryDisplay: string,
   returnDisplay: string,
@@ -402,6 +403,7 @@ export function emitToolSuccess(
   config.onTrace?.({
     type: "tool_result",
     toolName,
+    toolCallId,
     success: true,
     result: llmContent,
     display: returnDisplay,

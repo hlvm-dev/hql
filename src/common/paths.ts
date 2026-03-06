@@ -160,6 +160,27 @@ export function getWebCachePath(): string {
 }
 
 /**
+ * Get the cloud model catalog cache path (~/.hlvm/cloud-model-catalog.json)
+ */
+export function getCloudModelCatalogCachePath(): string {
+  return join(getHlvmDir(), "cloud-model-catalog.json");
+}
+
+/**
+ * Get the unified model discovery cache path (~/.hlvm/model-discovery.json)
+ */
+export function getModelDiscoveryCachePath(): string {
+  return join(getHlvmDir(), "model-discovery.json");
+}
+
+/**
+ * Get the Ollama catalog cache path (~/.hlvm/ollama-catalog.json)
+ */
+export function getOllamaCatalogCachePath(): string {
+  return join(getHlvmDir(), "ollama-catalog.json");
+}
+
+/**
  * Get the sessions directory (~/.hlvm/sessions)
  */
 export function getSessionsDir(): string {

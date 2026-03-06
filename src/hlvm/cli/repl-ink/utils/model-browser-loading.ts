@@ -1,9 +1,3 @@
-export interface ModelBrowserLoadState {
-  filterMode: string;
-  searchQuery: string;
-  currentModel?: string;
-}
-
 export interface NormalizedModelBrowserSearchState {
   query: string;
   cursor: number;
@@ -32,18 +26,4 @@ export function normalizeModelBrowserSearchState(
     query: query.slice(prefixLength),
     cursor: Math.max(0, cursor - prefixLength),
   };
-}
-
-function isConfiguredApiProviderModel(model?: string): boolean {
-  return Boolean(model && model.includes("/") && !model.startsWith("ollama/"));
-}
-
-export function shouldLoadCloudModels(
-  state: ModelBrowserLoadState,
-): boolean {
-  const normalizedQuery = normalizeModelBrowserSearchQuery(state.searchQuery)
-    .trim();
-  return state.filterMode === "cloud" ||
-    normalizedQuery.length >= 2 ||
-    isConfiguredApiProviderModel(state.currentModel);
 }

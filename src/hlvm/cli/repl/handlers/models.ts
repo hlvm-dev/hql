@@ -5,16 +5,34 @@
  */
 
 import { ai } from "../../../api/ai.ts";
-import { pushSSEEvent, subscribe, replayAfter } from "../../../store/sse-store.ts";
+import {
+  pushSSEEvent,
+  replayAfter,
+  subscribe,
+} from "../../../store/sse-store.ts";
 import type { RouteParams } from "../http-router.ts";
-import { parseJsonBody, jsonError, ndjsonLine, textEncoder, formatSSE, createSSEResponse } from "../http-utils.ts";
+import {
+  createSSEResponse,
+  formatSSE,
+  jsonError,
+  ndjsonLine,
+  parseJsonBody,
+  textEncoder,
+} from "../http-utils.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { listRegisteredProviders } from "../../../providers/index.ts";
+import {
+  readModelDiscoverySnapshot,
+  refreshModelDiscoverySnapshot,
+} from "../../../providers/model-discovery-store.ts";
 import { isRuntimeReadyForAiRequests } from "../../commands/serve.ts";
 
 const MODELS_CHANNEL = "__models__";
 
-function pushModelsUpdated(reason: string, detail?: Record<string, unknown>): void {
+function pushModelsUpdated(
+  reason: string,
+  detail?: Record<string, unknown>,
+): void {
   pushSSEEvent(MODELS_CHANNEL, "models_updated", { reason, ...(detail ?? {}) });
 }
 
@@ -49,7 +67,11 @@ export function handleModelsStream(req: Request): Response {
     // Replay buffered events for reconnecting clients.
     const replay = replayAfter(MODELS_CHANNEL, lastEventId);
     if (replay.gapDetected) {
-      emit(`event: models_updated\ndata: ${JSON.stringify({ reason: "replay_gap" })}\n\n`);
+      emit(
+        `event: models_updated\ndata: ${
+          JSON.stringify({ reason: "replay_gap" })
+        }\n\n`,
+      );
     } else {
       for (const event of replay.events) {
         emit(formatSSE(event));
@@ -60,10 +82,16 @@ export function handleModelsStream(req: Request): Response {
     // If runtime is already ready but the client missed the event (fresh connect
     // with empty buffer, or buffer compacted), tell it immediately.
     const hasRuntimeReadyReplay = replay.events.some(
-      (e) => e.event_type === "models_updated" && (e.data as Record<string, unknown>)?.reason === "runtime_ready",
+      (e) =>
+        e.event_type === "models_updated" &&
+        (e.data as Record<string, unknown>)?.reason === "runtime_ready",
     );
     if (isRuntimeReadyForAiRequests() && !hasRuntimeReadyReplay) {
-      emit(`event: models_updated\ndata: ${JSON.stringify({ reason: "runtime_ready" })}\n\n`);
+      emit(
+        `event: models_updated\ndata: ${
+          JSON.stringify({ reason: "runtime_ready" })
+        }\n\n`,
+      );
     }
 
     const unsubscribe = subscribe(MODELS_CHANNEL, (event) => {
@@ -205,7 +233,7 @@ export function handlePullModel(req: Request): Response {
 
       if (!parsed.ok) {
         controller.enqueue(textEncoder.encode(
-          ndjsonLine({ event: "error", message: "Invalid request" })
+          ndjsonLine({ event: "error", message: "Invalid request" }),
         ));
         controller.close();
         return;
@@ -214,25 +242,30 @@ export function handlePullModel(req: Request): Response {
       const { name, provider } = parsed.value;
       if (!name) {
         controller.enqueue(textEncoder.encode(
-          ndjsonLine({ event: "error", message: "Missing model name" })
+          ndjsonLine({ event: "error", message: "Missing model name" }),
         ));
         controller.close();
         return;
       }
 
       try {
-        for await (const progress of ai.models.pull(name, provider, req.signal)) {
+        for await (
+          const progress of ai.models.pull(name, provider, req.signal)
+        ) {
           controller.enqueue(textEncoder.encode(
-            ndjsonLine({ event: "progress", ...progress })
+            ndjsonLine({ event: "progress", ...progress }),
           ));
         }
         controller.enqueue(textEncoder.encode(
-          ndjsonLine({ event: "complete", name })
+          ndjsonLine({ event: "complete", name }),
         ));
-        pushModelsUpdated("pull_complete", { name, provider: provider ?? null });
+        pushModelsUpdated("pull_complete", {
+          name,
+          provider: provider ?? null,
+        });
       } catch (error) {
         controller.enqueue(textEncoder.encode(
-          ndjsonLine({ event: "error", message: getErrorMessage(error) })
+          ndjsonLine({ event: "error", message: getErrorMessage(error) }),
         ));
       }
 
@@ -291,7 +324,10 @@ export async function handleDeleteModel(
 ): Promise<Response> {
   const deleted = await ai.models.remove(params.name, params.provider);
   if (!deleted) return jsonError("Model not found or cannot be deleted", 404);
-  pushModelsUpdated("deleted", { name: params.name, provider: params.provider });
+  pushModelsUpdated("deleted", {
+    name: params.name,
+    provider: params.provider,
+  });
   return Response.json({ deleted: true });
 }
 
@@ -316,8 +352,14 @@ export async function handleDeleteModel(
  *                     $ref: '#/components/schemas/ModelInfo'
  */
 export async function handleModelCatalog(): Promise<Response> {
-  const catalog = await ai.models.catalog("ollama");
-  return Response.json({ models: catalog });
+  const snapshot = await readModelDiscoverySnapshot();
+  if (snapshot.remoteModels.length > 0) {
+    void refreshModelDiscoverySnapshot();
+    return Response.json({ models: snapshot.remoteModels });
+  }
+
+  const refreshed = await refreshModelDiscoverySnapshot();
+  return Response.json({ models: refreshed.snapshot.remoteModels });
 }
 
 /**

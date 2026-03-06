@@ -55,3 +55,95 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  name: "Session Store: loadSessionMessages preserves empty assistant tool-call messages",
+  async fn() {
+    const platform = getPlatform();
+    const tempDir = await platform.fs.makeTempDir({
+      prefix: "hlvm-session-store-toolcalls-",
+    });
+    const sessionsDir = platform.path.join(tempDir, "sessions");
+    await platform.fs.mkdir(sessionsDir, { recursive: true });
+    const scope = { sessionsDir };
+
+    try {
+      const entry = await createSession("tool-call-session", scope);
+      const transcript: Message[] = [
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{
+            id: "call_read_1",
+            function: { name: "read_file", arguments: { path: "README.md" } },
+          }],
+        },
+        {
+          role: "tool",
+          content: "file body",
+          toolName: "read_file",
+          toolCallId: "call_read_1",
+        },
+      ];
+
+      const updated = await appendSessionMessages(entry, transcript, scope);
+      const loaded = await loadSessionMessages(updated, scope);
+
+      assertEquals(loaded.length, 2);
+      assertEquals(loaded[0].role, "assistant");
+      assertEquals(loaded[0].toolCalls?.[0]?.id, "call_read_1");
+      assertEquals(loaded[1].role, "tool");
+      assertEquals(loaded[1].toolCallId, "call_read_1");
+    } finally {
+      await platform.fs.remove(tempDir, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name: "Session Store: loadSessionMessages extends transcript tail to include leading tool-call boundary",
+  async fn() {
+    const platform = getPlatform();
+    const tempDir = await platform.fs.makeTempDir({
+      prefix: "hlvm-session-store-tail-boundary-",
+    });
+    const sessionsDir = platform.path.join(tempDir, "sessions");
+    await platform.fs.mkdir(sessionsDir, { recursive: true });
+    const scope = { sessionsDir };
+
+    try {
+      const entry = await createSession("tail-boundary-session", scope);
+      const transcript: Message[] = [
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{
+            id: "call_read_1",
+            function: { name: "read_file", arguments: { path: "README.md" } },
+          }],
+        },
+        {
+          role: "tool",
+          content: "file body",
+          toolName: "read_file",
+          toolCallId: "call_read_1",
+        },
+        ...Array.from({ length: 499 }, (_, index): Message => ({
+          role: "user",
+          content: `filler-${index}`,
+        })),
+      ];
+
+      const updated = await appendSessionMessages(entry, transcript, scope);
+      const loaded = await loadSessionMessages(updated, scope);
+
+      assertEquals(loaded.length, 501);
+      assertEquals(loaded[0].role, "assistant");
+      assertEquals(loaded[0].toolCalls?.[0]?.id, "call_read_1");
+      assertEquals(loaded[1].role, "tool");
+      assertEquals(loaded[1].toolCallId, "call_read_1");
+    } finally {
+      await platform.fs.remove(tempDir, { recursive: true });
+    }
+  },
+});

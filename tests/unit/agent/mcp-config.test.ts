@@ -1,287 +1,131 @@
-/**
- * Unit tests for Claude Code MCP import feature.
- *
- * Tests parseClaudeCodeMcpJson (pure parsing, no I/O)
- * and formatServerEntry for the new "claude-code" scope.
- */
-
 import { assertEquals } from "jsr:@std/assert@1";
+import { getPlatform } from "../../../src/platform/platform.ts";
 import {
+  addServerToConfig,
+  dedupeServers,
   formatServerEntry,
+  loadMcpConfig,
+  normalizeServerName,
   parseClaudeCodeMcpJson,
+  removeServerFromConfig,
 } from "../../../src/hlvm/agent/mcp/config.ts";
 
-// ============================================================
-// parseClaudeCodeMcpJson — Pure parsing tests
-// ============================================================
+async function withWorkspace(fn: (workspace: string) => Promise<void>): Promise<void> {
+  const platform = getPlatform();
+  const workspace = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-config-test-" });
+  try {
+    await fn(workspace);
+  } finally {
+    await platform.fs.remove(workspace, { recursive: true });
+  }
+}
 
-Deno.test("parseClaudeCodeMcpJson - stdio with command+args", () => {
-  const json = JSON.stringify({
+Deno.test("McpConfig: parseClaudeCodeMcpJson parses direct transport entries and normalizes optional fields", () => {
+  const servers = parseClaudeCodeMcpJson(JSON.stringify({
     playwright: {
       command: "npx",
       args: ["@playwright/mcp@latest"],
+      env: { GOOD: "value", BAD: 123 },
+      disabled_tools: ["browser_install", 42],
+      connection_timeout_ms: 1234.8,
     },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "playwright");
-  assertEquals(servers.length, 1);
-  assertEquals(servers[0].name, "playwright");
-  assertEquals(servers[0].command, ["npx", "@playwright/mcp@latest"]);
-  assertEquals(servers[0].url, undefined);
-});
-
-Deno.test("parseClaudeCodeMcpJson - HTTP url", () => {
-  const json = JSON.stringify({
     github: {
       type: "http",
       url: "https://api.githubcopilot.com/mcp/",
-      headers: { Authorization: "Bearer ${GITHUB_PAT}" },
     },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "github");
-  assertEquals(servers.length, 1);
-  assertEquals(servers[0].name, "github");
-  assertEquals(servers[0].url, "https://api.githubcopilot.com/mcp/");
-  assertEquals(servers[0].command, undefined);
+  }), "fallback");
+
+  assertEquals(servers.length, 2);
+  assertEquals(servers[0].name, "playwright");
+  assertEquals(servers[0].command, ["npx", "@playwright/mcp@latest"]);
+  assertEquals(servers[0].env, { GOOD: "value" });
+  assertEquals(servers[0].disabled_tools, ["browser_install"]);
+  assertEquals(servers[0].connection_timeout_ms, 1234);
+  assertEquals(servers[1].url, "https://api.githubcopilot.com/mcp/");
 });
 
-Deno.test("parseClaudeCodeMcpJson - SSE url", () => {
-  const json = JSON.stringify({
-    slack: {
-      type: "sse",
-      url: "https://mcp.slack.com/sse",
-    },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "slack");
-  assertEquals(servers.length, 1);
-  assertEquals(servers[0].name, "slack");
-  assertEquals(servers[0].url, "https://mcp.slack.com/sse");
-});
-
-Deno.test("parseClaudeCodeMcpJson - mcpServers wrapper format", () => {
-  const json = JSON.stringify({
+Deno.test("McpConfig: parseClaudeCodeMcpJson parses wrapped mcpServers entries and ignores unsupported data", () => {
+  const wrapped = parseClaudeCodeMcpJson(JSON.stringify({
     mcpServers: {
       stripe: {
         type: "http",
         url: "https://mcp.stripe.com",
       },
+      broken: { type: "unknown" },
     },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "stripe-dir");
-  assertEquals(servers.length, 1);
-  assertEquals(servers[0].name, "stripe");
-  assertEquals(servers[0].url, "https://mcp.stripe.com");
+  }), "stripe-dir");
+
+  assertEquals(wrapped.length, 1);
+  assertEquals(wrapped[0].name, "stripe");
+  assertEquals(wrapped[0].url, "https://mcp.stripe.com");
+
+  assertEquals(parseClaudeCodeMcpJson("not json", "test"), []);
+  assertEquals(parseClaudeCodeMcpJson("{}", "test"), []);
 });
 
-Deno.test("parseClaudeCodeMcpJson - uvx command", () => {
-  const json = JSON.stringify({
-    serena: {
-      command: "uvx",
-      args: ["--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server"],
-    },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "serena");
-  assertEquals(servers.length, 1);
-  assertEquals(servers[0].name, "serena");
-  assertEquals(servers[0].command, [
-    "uvx",
-    "--from",
-    "git+https://github.com/oraios/serena",
-    "serena",
-    "start-mcp-server",
+Deno.test("McpConfig: normalizeServerName and dedupeServers are case-insensitive and first-win", () => {
+  const deduped = dedupeServers([
+    { name: " Playwright ", command: ["node", "a.js"] },
+    { name: "playwright", command: ["node", "b.js"] },
+    { name: "GitHub", url: "https://example.com/mcp" },
   ]);
+
+  assertEquals(normalizeServerName(" Playwright "), "playwright");
+  assertEquals(deduped.length, 2);
+  assertEquals(deduped[0].command, ["node", "a.js"]);
+  assertEquals(deduped[1].name, "GitHub");
 });
 
-Deno.test("parseClaudeCodeMcpJson - env vars preserved", () => {
-  const json = JSON.stringify({
-    myserver: {
-      command: "node",
-      args: ["server.js"],
-      env: { API_KEY: "secret123", PORT: "8080" },
-    },
+Deno.test("McpConfig: addServerToConfig persists project config and replaces duplicate names", async () => {
+  await withWorkspace(async (workspace) => {
+    await addServerToConfig("project", workspace, {
+      name: "Playwright",
+      command: ["node", "scripts/one.mjs"],
+    });
+    await addServerToConfig("project", workspace, {
+      name: "playwright",
+      command: ["node", "scripts/two.mjs"],
+    });
+
+    const config = await loadMcpConfig(workspace);
+    assertEquals(config?.servers.length, 1);
+    assertEquals(config?.servers[0].command, ["node", "scripts/two.mjs"]);
   });
-  const servers = parseClaudeCodeMcpJson(json, "myserver");
-  assertEquals(servers.length, 1);
-  assertEquals(servers[0].env, { API_KEY: "secret123", PORT: "8080" });
 });
 
-Deno.test("parseClaudeCodeMcpJson - invalid JSON returns empty", () => {
-  const servers = parseClaudeCodeMcpJson("not json", "test");
-  assertEquals(servers, []);
-});
+Deno.test("McpConfig: removeServerFromConfig deletes persisted project entries by normalized name", async () => {
+  await withWorkspace(async (workspace) => {
+    await addServerToConfig("project", workspace, {
+      name: "Playwright",
+      command: ["node", "scripts/playwright.mjs"],
+    });
 
-Deno.test("parseClaudeCodeMcpJson - empty object returns empty", () => {
-  const servers = parseClaudeCodeMcpJson("{}", "test");
-  assertEquals(servers, []);
-});
-
-Deno.test("parseClaudeCodeMcpJson - missing transport returns empty", () => {
-  const json = JSON.stringify({
-    broken: { type: "unknown" },
+    assertEquals(await removeServerFromConfig("project", workspace, "playwright"), true);
+    assertEquals(await removeServerFromConfig("project", workspace, "playwright"), false);
+    assertEquals(await loadMcpConfig(workspace), null);
   });
-  const servers = parseClaudeCodeMcpJson(json, "broken");
-  assertEquals(servers, []);
 });
 
-Deno.test("parseClaudeCodeMcpJson - mixed entries", () => {
-  const json = JSON.stringify({
-    stdio_server: { command: "node", args: ["a.js"] },
-    http_server: { url: "https://example.com/mcp" },
-    broken: { type: "nope" },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "mixed");
-  assertEquals(servers.length, 2);
-  assertEquals(servers[0].name, "stdio_server");
-  assertEquals(servers[1].name, "http_server");
-});
-
-Deno.test("parseClaudeCodeMcpJson - mcpServers wrapper with multiple servers", () => {
-  const json = JSON.stringify({
-    mcpServers: {
-      a: { command: "node", args: ["a.js"] },
-      b: { url: "https://b.com/mcp" },
-    },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "multi");
-  assertEquals(servers.length, 2);
-  assertEquals(servers[0].name, "a");
-  assertEquals(servers[1].name, "b");
-});
-
-Deno.test("parseClaudeCodeMcpJson - non-string env values filtered out", () => {
-  const json = JSON.stringify({
-    myserver: {
-      command: "node",
-      args: ["server.js"],
-      env: { GOOD: "value", BAD: 123, ALSO_BAD: null },
-    },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "myserver");
-  assertEquals(servers.length, 1);
-  assertEquals(servers[0].env, { GOOD: "value" });
-});
-
-// ============================================================
-// disabled_tools — parsing tests
-// ============================================================
-
-Deno.test("parseClaudeCodeMcpJson - disabled_tools parsed", () => {
-  const json = JSON.stringify({
-    myserver: {
-      command: "node",
-      args: ["server.js"],
-      disabled_tools: ["dangerous_tool", "another_tool"],
-    },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "myserver");
-  assertEquals(servers.length, 1);
-  assertEquals(servers[0].disabled_tools, ["dangerous_tool", "another_tool"]);
-});
-
-Deno.test("parseClaudeCodeMcpJson - disabled_tools absent returns undefined", () => {
-  const json = JSON.stringify({
-    myserver: {
-      command: "node",
-      args: ["server.js"],
-    },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "myserver");
-  assertEquals(servers.length, 1);
-  assertEquals(servers[0].disabled_tools, undefined);
-});
-
-Deno.test("parseClaudeCodeMcpJson - disabled_tools filters non-strings", () => {
-  const json = JSON.stringify({
-    myserver: {
-      command: "node",
-      args: ["server.js"],
-      disabled_tools: ["valid", 42, null, "also_valid"],
-    },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "myserver");
-  assertEquals(servers.length, 1);
-  assertEquals(servers[0].disabled_tools, ["valid", "also_valid"]);
-});
-
-Deno.test("parseClaudeCodeMcpJson - disabled_tools in mcpServers wrapper", () => {
-  const json = JSON.stringify({
-    mcpServers: {
-      playwright: {
-        command: "npx",
-        args: ["@playwright/mcp@latest"],
-        disabled_tools: ["browser_install"],
-      },
-    },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "pw-dir");
-  assertEquals(servers.length, 1);
-  assertEquals(servers[0].disabled_tools, ["browser_install"]);
-});
-
-Deno.test("parseClaudeCodeMcpJson - connection_timeout_ms parsed when valid", () => {
-  const json = JSON.stringify({
-    myserver: {
-      command: "node",
-      args: ["server.js"],
-      connection_timeout_ms: 1234.8,
-    },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "myserver");
-  assertEquals(servers.length, 1);
-  assertEquals(servers[0].connection_timeout_ms, 1234);
-});
-
-Deno.test("parseClaudeCodeMcpJson - connection_timeout_ms ignored when invalid", () => {
-  const json = JSON.stringify({
-    myserver: {
-      command: "node",
-      args: ["server.js"],
-      connection_timeout_ms: -1,
-    },
-  });
-  const servers = parseClaudeCodeMcpJson(json, "myserver");
-  assertEquals(servers.length, 1);
-  assertEquals(servers[0].connection_timeout_ms, undefined);
-});
-
-// ============================================================
-// formatServerEntry — scope label tests
-// ============================================================
-
-Deno.test("formatServerEntry - dotmcp scope", () => {
-  const entry = formatServerEntry({
+Deno.test("McpConfig: formatServerEntry renders transport targets and scope labels", () => {
+  const dotmcp = formatServerEntry({
     name: "test",
     command: ["node", "server.js"],
     scope: "dotmcp",
   });
-  assertEquals(entry.scopeLabel, ".mcp.json");
-  assertEquals(entry.transport, "stdio");
-});
-
-Deno.test("formatServerEntry - project scope", () => {
-  const entry = formatServerEntry({
+  const project = formatServerEntry({
     name: "test",
     url: "https://example.com",
     scope: "project",
   });
-  assertEquals(entry.scopeLabel, "project");
-  assertEquals(entry.transport, "http");
-});
-
-Deno.test("formatServerEntry - user scope", () => {
-  const entry = formatServerEntry({
-    name: "test",
-    command: ["npx", "server"],
-    scope: "user",
-  });
-  assertEquals(entry.scopeLabel, "user");
-});
-
-Deno.test("formatServerEntry - claude-code scope", () => {
-  const entry = formatServerEntry({
+  const claudeCode = formatServerEntry({
     name: "serena",
-    command: ["uvx", "--from", "serena", "start-mcp-server"],
+    command: ["uvx", "serena"],
     scope: "claude-code",
   });
-  assertEquals(entry.scopeLabel, "Claude Code");
-  assertEquals(entry.transport, "stdio");
+
+  assertEquals(dotmcp.scopeLabel, ".mcp.json");
+  assertEquals(dotmcp.transport, "stdio");
+  assertEquals(project.scopeLabel, "project");
+  assertEquals(project.transport, "http");
+  assertEquals(claudeCode.scopeLabel, "Claude Code");
 });

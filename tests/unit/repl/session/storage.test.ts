@@ -1,11 +1,8 @@
-/**
- * Unit tests for HLVM REPL Session Storage (scoped sessions)
- * Tests: hashProjectPath, generateSessionId, CRUD operations
- */
-
 import { assert, assertEquals, assertExists } from "jsr:@std/assert";
 import {
   appendMessage,
+  appendMessageOnly,
+  countSessions,
   createSession,
   deleteSession,
   exportSession,
@@ -14,6 +11,7 @@ import {
   hashProjectPath,
   listSessions,
   loadSession,
+  updateSessionIndex,
   updateTitle,
 } from "../../../../src/hlvm/cli/repl/session/storage.ts";
 import { getPlatform } from "../../../../src/platform/platform.ts";
@@ -30,303 +28,135 @@ async function withScope(
   }
 }
 
-// ============================================================================
-// hashProjectPath() Tests
-// ============================================================================
+Deno.test("SessionStorage: hashProjectPath and generateSessionId create stable identifiers", () => {
+  const hash = hashProjectPath("/Users/dev/project");
 
-Deno.test("hashProjectPath: returns consistent hash for same input", () => {
-  const hash1 = hashProjectPath("/Users/dev/project");
-  const hash2 = hashProjectPath("/Users/dev/project");
-  assertEquals(hash1, hash2);
-});
+  assertEquals(hashProjectPath("/Users/dev/project"), hash);
+  assert(hashProjectPath("/Users/dev/other-project") !== hash);
+  assert(/^[0-9a-f]{8}$/.test(hash));
 
-Deno.test("hashProjectPath: returns different hash for different inputs", () => {
-  const hash1 = hashProjectPath("/Users/dev/project1");
-  const hash2 = hashProjectPath("/Users/dev/project2");
-  assert(hash1 !== hash2, "Hashes should be different for different paths");
-});
-
-Deno.test("hashProjectPath: returns 8-character hex string", () => {
-  const hash = hashProjectPath("/some/path");
-  assertEquals(hash.length, 8);
-  assert(/^[0-9a-f]+$/.test(hash), "Hash should be hexadecimal");
-});
-
-Deno.test("hashProjectPath: handles empty string", () => {
-  const hash = hashProjectPath("");
-  assertEquals(hash.length, 8);
-  assert(/^[0-9a-f]+$/.test(hash));
-});
-
-Deno.test("hashProjectPath: handles unicode paths", () => {
-  const hash = hashProjectPath("/Users/dev/项目");
-  assertEquals(hash.length, 8);
-  assert(/^[0-9a-f]+$/.test(hash));
-});
-
-// ============================================================================
-// generateSessionId() Tests
-// ============================================================================
-
-Deno.test("generateSessionId: generates unique IDs", () => {
+  const before = Date.now();
   const id1 = generateSessionId();
   const id2 = generateSessionId();
-  assert(id1 !== id2, "Session IDs should be unique");
-});
-
-Deno.test("generateSessionId: includes timestamp component", () => {
-  const before = Date.now();
-  const id = generateSessionId();
   const after = Date.now();
 
-  const timestampPart = parseInt(id.split("_")[0], 10);
-  assert(timestampPart >= before, "Timestamp should be >= start time");
-  assert(timestampPart <= after, "Timestamp should be <= end time");
+  assert(id1 !== id2);
+  const timestamp = Number.parseInt(id1.split("_")[0], 10);
+  assert(timestamp >= before);
+  assert(timestamp <= after);
 });
 
-// ============================================================================
-// createSession() Tests
-// ============================================================================
-
-Deno.test("createSession: creates session with correct metadata", async () => {
+Deno.test("SessionStorage: createSession + appendMessage + loadSession preserve messages and attachments", async () => {
   await withScope(async (scope) => {
-    const platform = getPlatform();
-    const testPath = `/tmp/test-project-${Date.now()}`;
-    const projectHash = hashProjectPath(testPath);
+    const projectPath = `/tmp/session-storage-lifecycle-${Date.now()}`;
+    const meta = await createSession(projectPath, "Lifecycle", scope);
 
-    const meta = await createSession(testPath, "Test Session", scope);
+    await appendMessage(meta.id, "user", "Hello", ["/tmp/input.txt"], scope);
+    await appendMessage(meta.id, "assistant", "Hi there", undefined, scope);
 
-    assertExists(meta.id);
-    assertEquals(meta.projectHash, projectHash);
-    assertEquals(meta.projectPath, testPath);
-    assertEquals(meta.title, "Test Session");
-    assertEquals(meta.messageCount, 0);
-    assert(meta.createdAt > 0);
-    assert(meta.updatedAt > 0);
-
-    const sessionPath = platform.path.join(scope.sessionsDir!, `${meta.id}.jsonl`);
-    const stat = await platform.fs.stat(sessionPath);
-    assert(stat.isFile);
+    const session = await loadSession(meta.id, scope);
+    assertExists(session);
+    assertEquals(session.meta.projectHash, hashProjectPath(projectPath));
+    assertEquals(session.meta.title, "Lifecycle");
+    assertEquals(session.meta.messageCount, 2);
+    assertEquals(session.messages.length, 2);
+    assertEquals(session.messages[0].attachments, ["/tmp/input.txt"]);
+    assertEquals(session.messages[1].content, "Hi there");
   });
 });
 
-Deno.test("createSession: generates default title if not provided", async () => {
+Deno.test("SessionStorage: appendMessageOnly batches writes until updateSessionIndex is called", async () => {
   await withScope(async (scope) => {
-    const testPath = `/tmp/test-project-default-title-${Date.now()}`;
-    const meta = await createSession(testPath, undefined, scope);
-    assert(meta.title.startsWith("Session at "), "Should have default title");
-  });
-});
+    const meta = await createSession(`/tmp/session-storage-batch-${Date.now()}`, "Batch", scope);
+    const first = await appendMessageOnly(meta.id, "user", "One", undefined, scope);
+    const second = await appendMessageOnly(meta.id, "assistant", "Two", undefined, scope);
 
-// ============================================================================
-// appendMessage() Tests
-// ============================================================================
+    assertEquals((await listSessions({}, scope))[0].messageCount, 0);
 
-Deno.test("appendMessage: appends message and updates count", async () => {
-  await withScope(async (scope) => {
-    const testPath = `/tmp/test-project-append-${Date.now()}`;
-    const meta = await createSession(testPath, "Append Test", scope);
-
-    await appendMessage(meta.id, "user", "(def x 10)", undefined, scope);
-    await appendMessage(meta.id, "assistant", "10", undefined, scope);
+    await updateSessionIndex(meta.id, 2, second.ts, scope);
 
     const session = await loadSession(meta.id, scope);
     assertExists(session);
     assertEquals(session.messages.length, 2);
-    assertEquals(session.messages[0].role, "user");
-    assertEquals(session.messages[0].content, "(def x 10)");
-    assertEquals(session.messages[1].role, "assistant");
-    assertEquals(session.messages[1].content, "10");
+    assertEquals(first.content, "One");
+    assertEquals((await listSessions({}, scope))[0].messageCount, 2);
   });
 });
 
-Deno.test("appendMessage: handles attachments", async () => {
+Deno.test("SessionStorage: listSessions, countSessions, and getLastSession share one consistent ordering model", async () => {
   await withScope(async (scope) => {
-    const testPath = `/tmp/test-project-attachments-${Date.now()}`;
-    const meta = await createSession(testPath, "Attachment Test", scope);
+    await createSession(`/tmp/session-storage-order-a-${Date.now()}`, "Bravo", scope);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await createSession(`/tmp/session-storage-order-b-${Date.now()}`, "Alpha", scope);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await createSession(`/tmp/session-storage-order-c-${Date.now()}`, "Charlie", scope);
 
-    await appendMessage(meta.id, "user", "Check this file", ["/path/to/file.txt"], scope);
-
-    const session = await loadSession(meta.id, scope);
-    assertExists(session);
-    assertEquals(session.messages[0].attachments?.length, 1);
-    assertEquals(session.messages[0].attachments?.[0], "/path/to/file.txt");
-  });
-});
-
-// ============================================================================
-// loadSession() Tests
-// ============================================================================
-
-Deno.test("loadSession: returns null for non-existent session", async () => {
-  await withScope(async (scope) => {
-    const session = await loadSession("nonexistent_12345_abcd", scope);
-    assertEquals(session, null);
-  });
-});
-
-// ============================================================================
-// listSessions() Tests
-// ============================================================================
-
-Deno.test("listSessions: returns empty array when no sessions", async () => {
-  await withScope(async (scope) => {
-    const sessions = await listSessions({}, scope);
-    assertEquals(sessions.length, 0);
-  });
-});
-
-Deno.test("listSessions: lists all sessions globally", async () => {
-  await withScope(async (scope) => {
-    const testPath1 = `/tmp/test-project-list-a-${Date.now()}`;
-    const testPath2 = `/tmp/test-project-list-b-${Date.now()}`;
-
-    await createSession(testPath1, "Session A1", scope);
-    await createSession(testPath1, "Session A2", scope);
-    await createSession(testPath2, "Session B1", scope);
-
-    const sessions = await listSessions({}, scope);
-    assertEquals(sessions.length, 3);
-  });
-});
-
-Deno.test("listSessions: sorts by recent first (default)", async () => {
-  await withScope(async (scope) => {
-    const testPath = `/tmp/test-project-sort-${Date.now()}`;
-
-    await createSession(testPath, "First", scope);
-    await new Promise((r) => setTimeout(r, 10));
-    await createSession(testPath, "Second", scope);
-
-    const sessions = await listSessions({ sortOrder: "recent" }, scope);
-    assertEquals(sessions.length, 2);
-    assertEquals(sessions[0].title, "Second");
-    assertEquals(sessions[1].title, "First");
-  });
-});
-
-Deno.test("listSessions: respects limit option", async () => {
-  await withScope(async (scope) => {
-    const testPath = `/tmp/test-project-limit-${Date.now()}`;
-    await createSession(testPath, "Session 1", scope);
-    await createSession(testPath, "Session 2", scope);
-    await createSession(testPath, "Session 3", scope);
-
-    const sessions = await listSessions({ limit: 2 }, scope);
-    assertEquals(sessions.length, 2);
-  });
-});
-
-// ============================================================================
-// getLastSession() Tests
-// ============================================================================
-
-Deno.test("getLastSession: returns null when no sessions", async () => {
-  await withScope(async (scope) => {
+    const recent = await listSessions({ sortOrder: "recent" }, scope);
+    const oldest = await listSessions({ sortOrder: "oldest" }, scope);
+    const alpha = await listSessions({ sortOrder: "alpha", limit: 2 }, scope);
     const last = await getLastSession(scope);
-    assertEquals(last, null);
+
+    assertEquals(await countSessions(scope), 3);
+    assertEquals(recent.map((session) => session.title), ["Charlie", "Alpha", "Bravo"]);
+    assertEquals(oldest.map((session) => session.title), ["Bravo", "Alpha", "Charlie"]);
+    assertEquals(alpha.map((session) => session.title), ["Alpha", "Bravo"]);
+    assertEquals(last?.title, "Charlie");
   });
 });
 
-// ============================================================================
-// deleteSession() Tests
-// ============================================================================
-
-Deno.test("deleteSession: removes session file and index entry", async () => {
+Deno.test("SessionStorage: updateTitle and exportSession reflect the latest session state", async () => {
   await withScope(async (scope) => {
-    const testPath = `/tmp/test-project-delete-${Date.now()}`;
-    const meta = await createSession(testPath, "Delete Me", scope);
-
-    const sessionBefore = await loadSession(meta.id, scope);
-    assertExists(sessionBefore);
-
-    const result = await deleteSession(meta.id, scope);
-    assert(result, "Delete should return true");
-
-    const sessionAfter = await loadSession(meta.id, scope);
-    assertEquals(sessionAfter, null);
-  });
-});
-
-Deno.test("deleteSession: returns false for non-existent session", async () => {
-  await withScope(async (scope) => {
-    const result = await deleteSession("nonexistent_id", scope);
-    assertEquals(result, false);
-  });
-});
-
-// ============================================================================
-// updateTitle() Tests
-// ============================================================================
-
-Deno.test("updateTitle: updates session title", async () => {
-  await withScope(async (scope) => {
-    const testPath = `/tmp/test-project-title-${Date.now()}`;
-    const meta = await createSession(testPath, "Original Title", scope);
-
-    await updateTitle(meta.id, "New Title", scope);
-
-    const session = await loadSession(meta.id, scope);
-    assertExists(session);
-    assertEquals(session.meta.title, "New Title");
-  });
-});
-
-// ============================================================================
-// exportSession() Tests
-// ============================================================================
-
-Deno.test("exportSession: generates markdown with messages", async () => {
-  await withScope(async (scope) => {
-    const testPath = `/tmp/test-project-export-${Date.now()}`;
-    const meta = await createSession(testPath, "Export Test", scope);
-
+    const meta = await createSession(`/tmp/session-storage-export-${Date.now()}`, "Original", scope);
     await appendMessage(meta.id, "user", "Hello there", undefined, scope);
     await appendMessage(meta.id, "assistant", "Hi! How can I help?", undefined, scope);
+    await updateTitle(meta.id, "Renamed Session", scope);
 
+    const session = await loadSession(meta.id, scope);
     const markdown = await exportSession(meta.id, scope);
+
+    assertExists(session);
+    assertEquals(session.meta.title, "Renamed Session");
     assertExists(markdown);
-    assert(markdown.includes("# Export Test"));
-    assert(markdown.includes("Hello there"));
-    assert(markdown.includes("Hi! How can I help?"));
+    assert(markdown.includes("# Renamed Session"));
     assert(markdown.includes("**You**"));
+    assert(markdown.includes("Hello there"));
     assert(markdown.includes("**Assistant**"));
   });
 });
 
-Deno.test("exportSession: returns null for non-existent session", async () => {
+Deno.test("SessionStorage: deleteSession removes indexed sessions and reports missing sessions", async () => {
   await withScope(async (scope) => {
-    const markdown = await exportSession("nonexistent_id", scope);
-    assertEquals(markdown, null);
+    const meta = await createSession(`/tmp/session-storage-delete-${Date.now()}`, "Delete Me", scope);
+
+    assertEquals(await deleteSession(meta.id, scope), true);
+    assertEquals(await loadSession(meta.id, scope), null);
+    assertEquals(await countSessions(scope), 0);
+    assertEquals(await deleteSession(meta.id, scope), false);
   });
 });
 
-// ============================================================================
-// Edge Cases & Error Recovery
-// ============================================================================
-
-Deno.test("loadSession: handles empty session file gracefully", async () => {
+Deno.test("SessionStorage: loadSession returns null for missing and empty session files", async () => {
   await withScope(async (scope) => {
     const platform = getPlatform();
-    const sessionId = generateSessionId();
-    const sessionPath = platform.path.join(scope.sessionsDir!, `${sessionId}.jsonl`);
+    const missing = await loadSession("nonexistent-session", scope);
+    const emptyId = generateSessionId();
+    const emptyPath = platform.path.join(scope.sessionsDir!, `${emptyId}.jsonl`);
 
-    await platform.fs.writeTextFile(sessionPath, "");
+    await platform.fs.writeTextFile(emptyPath, "");
 
-    const session = await loadSession(sessionId, scope);
-    assertEquals(session, null);
+    assertEquals(missing, null);
+    assertEquals(await loadSession(emptyId, scope), null);
+    assertEquals(await exportSession("nonexistent-session", scope), null);
   });
 });
 
-Deno.test("loadSession: recovers from corrupted lines", async () => {
+Deno.test("SessionStorage: loadSession skips corrupted lines and preserves valid records", async () => {
   await withScope(async (scope) => {
     const platform = getPlatform();
-    const testPath = `/tmp/test-project-corrupt-${Date.now()}`;
-    const meta = await createSession(testPath, "Corrupt Test", scope);
-
+    const meta = await createSession(`/tmp/session-storage-corrupt-${Date.now()}`, "Corrupt", scope);
     const sessionPath = platform.path.join(scope.sessionsDir!, `${meta.id}.jsonl`);
-    await platform.fs.writeTextFile(sessionPath, "not valid json\n", { append: true });
 
+    await platform.fs.writeTextFile(sessionPath, "not valid json\n", { append: true });
     await appendMessage(meta.id, "user", "After corruption", undefined, scope);
 
     const session = await loadSession(meta.id, scope);

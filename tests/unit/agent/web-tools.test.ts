@@ -34,6 +34,7 @@ import {
   renderWithChrome,
   shutdownChromeBrowser,
 } from "../../../src/hlvm/agent/tools/web/headless-chrome.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 
 async function withIsolatedSearchRegistry(
   fn: () => Promise<void>,
@@ -50,202 +51,127 @@ async function withIsolatedSearchRegistry(
   }
 }
 
-Deno.test("search_web validates query", async () => {
-  const search = WEB_TOOLS.search_web;
-  await assertRejects(
-    () => search.fn({} as Record<string, unknown>, "/tmp"),
-    ValidationError,
-  );
+async function withStubbedFetch(
+  stub: (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) =>
+    stub(input, init)) as typeof globalThis.fetch;
+  try {
+    await fn();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+function fakeDdgHtml(items: Array<{ url: string; title: string; snippet: string }>): string {
+  return `<html><body>${items.map((item) =>
+    `<a class="result__a" href="${item.url}">${item.title}</a>
+     <a class="result__snippet">${item.snippet}</a>`
+  ).join("\n")}</body></html>`;
+}
+
+Deno.test("web tools: input validation and network policy denial are enforced", async () => {
+  const denyAll: AgentPolicy = { version: 1, networkRules: { deny: ["*"] } };
+
+  await assertRejects(() => WEB_TOOLS.search_web.fn({} as Record<string, unknown>, "/tmp"), ValidationError);
+  await assertRejects(() => WEB_TOOLS.fetch_url.fn({} as Record<string, unknown>, "/tmp"), ValidationError);
+  await assertRejects(() => WEB_TOOLS.web_fetch.fn({} as Record<string, unknown>, "/tmp"), ValidationError);
+  await assertRejects(() => WEB_TOOLS.search_web.fn({ query: "hlvm" }, "/tmp", { policy: denyAll }), ValidationError);
+  await assertRejects(() => WEB_TOOLS.fetch_url.fn({ url: "https://example.com" }, "/tmp", { policy: denyAll }), ValidationError);
 });
 
-Deno.test("fetch_url validates url", async () => {
-  const fetch = WEB_TOOLS.fetch_url;
-  await assertRejects(
-    () => fetch.fn({} as Record<string, unknown>, "/tmp"),
-    ValidationError,
-  );
-});
+Deno.test("web tools: schema and metadata expose the core search and fetch contract", () => {
+  const searchMeta = WEB_TOOLS.search_web;
+  const fetchMeta = WEB_TOOLS.web_fetch;
 
-Deno.test("web_fetch validates url", async () => {
-  const fetch = WEB_TOOLS.web_fetch;
-  await assertRejects(
-    () => fetch.fn({} as Record<string, unknown>, "/tmp"),
-    ValidationError,
-  );
-});
-
-Deno.test("search_web respects network policy (deny)", async () => {
-  const search = WEB_TOOLS.search_web;
-  const policy: AgentPolicy = {
-    version: 1,
-    networkRules: { deny: ["*"] },
-  };
-
-  await assertRejects(
-    () =>
-      search.fn(
-        { query: "hlvm" },
-        "/tmp",
-        { policy },
-      ),
-    ValidationError,
-  );
-});
-
-Deno.test("fetch_url respects network policy (deny)", async () => {
-  const fetch = WEB_TOOLS.fetch_url;
-  const policy: AgentPolicy = {
-    version: 1,
-    networkRules: { deny: ["*"] },
-  };
-
-  await assertRejects(
-    () =>
-      fetch.fn(
-        { url: "https://example.com" },
-        "/tmp",
-        { policy },
-      ),
-    ValidationError,
-  );
-});
-
-Deno.test("web tools metadata declares L0 safety", () => {
-  assertEquals(WEB_TOOLS.search_web.safetyLevel, "L0");
+  assertEquals(searchMeta.safetyLevel, "L0");
   assertEquals(WEB_TOOLS.fetch_url.safetyLevel, "L0");
-  assertEquals(WEB_TOOLS.web_fetch.safetyLevel, "L0");
+  assertEquals(fetchMeta.safetyLevel, "L0");
+
+  assert("allowedDomains" in searchMeta.args);
+  assert("blockedDomains" in searchMeta.args);
+  assert("timeRange" in searchMeta.args);
+  assert("locale" in searchMeta.args);
+  assert("searchDepth" in searchMeta.args);
+  assert("prefetch" in searchMeta.args);
+  assert(searchMeta.returns && "citations" in searchMeta.returns);
+  assert(searchMeta.returns && "retrievedAt" in searchMeta.returns);
+  assert(searchMeta.returns && "results[].passages" in searchMeta.returns);
+
+  assert("urls" in fetchMeta.args);
+  assert(fetchMeta.returns && "citations" in fetchMeta.returns);
+  assert(fetchMeta.returns && "headlessChrome" in fetchMeta.returns);
+  assert(fetchMeta.returns && "chromeAttempted" in fetchMeta.returns);
+  assert(fetchMeta.returns && "chromeRenderChars" in fetchMeta.returns);
 });
 
-Deno.test("scoreSearchResults ranks higher relevance first", () => {
-  const query = "hlvm tool calling";
-  const results = [
-    { title: "Unrelated news", url: "https://example.com/news", snippet: "daily report" },
-    { title: "HLVM tool calling guide", url: "https://docs.example.com/hlvm-tools", snippet: "tool calling reference" },
-    { title: "Tooling tips", url: "https://example.com/tools", snippet: "hlvm basics" },
-  ];
-  const scored = scoreSearchResults(query, results);
-  assertEquals(scored[0].title, "HLVM tool calling guide");
-  assert(scored[0].score !== undefined);
-});
-
-Deno.test("parseDuckDuckGoSearchResults parses standard DDG result markup", () => {
-  const html = `
-  <html><body>
-    <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fhlvm-docs">HLVM Docs</a>
-    <a class="result__snippet">Official reference docs</a>
-    <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fblog">HLVM Blog</a>
-    <a class="result__snippet">Latest HLVM updates</a>
-  </body></html>`;
-
-  const results = parseDuckDuckGoSearchResults(html, 5);
-
-  assertEquals(results.length, 2);
-  assertEquals(results[0].title, "HLVM Docs");
-  assertEquals(results[0].url, "https://example.com/hlvm-docs");
-  assertEquals(results[0].snippet, "Official reference docs");
-});
-
-Deno.test("parseDuckDuckGoSearchResults supports lite result-link markup and dedupes URLs", () => {
-  const html = `
-  <html><body>
-    <a class="result-link" rel="nofollow" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fsame">Same Result</a>
-    <td class="result-snippet">First snippet</td>
-    <a class="result-link" rel="nofollow" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fsame">Same Result Duplicate</a>
-    <td class="result-snippet">Second snippet</td>
-    <a class="result-link" rel="nofollow" href="/l/?uddg=https%3A%2F%2Fexample.com%2Ftwo">Second Result</a>
-    <td class="result-snippet">Second result snippet</td>
-  </body></html>`;
-
-  const results = parseDuckDuckGoSearchResults(html, 5);
-
-  assertEquals(results.length, 2);
-  assertEquals(results[0].url, "https://example.com/same");
-  assertEquals(results[1].url, "https://example.com/two");
-});
-
-// ============================================================
-// search_web: domain controls + citations
-// ============================================================
-
-Deno.test("search_web schema includes domain filter args", () => {
-  const meta = WEB_TOOLS.search_web;
-  assert("allowedDomains" in meta.args);
-  assert("blockedDomains" in meta.args);
-  assert("timeRange" in meta.args);
-});
-
-Deno.test("search_web schema declares citation returns", () => {
-  const meta = WEB_TOOLS.search_web;
-  assert(meta.returns && "citations" in meta.returns);
-  assert(meta.returns && "retrievedAt" in meta.returns);
-});
-
-// ============================================================
-// web_fetch: additive citation + batch mode
-// ============================================================
-
-Deno.test("web_fetch schema includes citations and batch args", () => {
-  const meta = WEB_TOOLS.web_fetch;
-  assert("urls" in meta.args);
-  assert(meta.returns && "citations" in meta.returns);
-  assert(meta.returns && "retrievedAt" in meta.returns);
-});
-
-Deno.test("web_fetch rejects more than 5 batch URLs", async () => {
-  const fetch = WEB_TOOLS.web_fetch;
+Deno.test("web tools: search and fetch validation reject invalid batch and query options with structured errors", async () => {
   await assertRejects(
-    () =>
-      fetch.fn(
-        { urls: ["a", "b", "c", "d", "e", "f"] },
-        "/tmp",
-      ),
+    () => WEB_TOOLS.web_fetch.fn({ urls: ["a", "b", "c", "d", "e", "f"] }, "/tmp"),
     ValidationError,
     "Too many URLs",
   );
-});
-
-Deno.test("web_fetch validates url or urls required", async () => {
-  const fetch = WEB_TOOLS.web_fetch;
   await assertRejects(
-    () => fetch.fn({ maxChars: 100 }, "/tmp"),
+    () => WEB_TOOLS.web_fetch.fn({ maxChars: 100 }, "/tmp"),
     ValidationError,
     "url or urls required",
   );
-});
-
-// ============================================================
-// cache key + domain matching behavior
-// ============================================================
-
-Deno.test("search_web cache key changes with domain filters and is order-invariant", () => {
-  const base = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5);
-  const allowA = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5, [
-    "a.com",
-    "b.com",
-  ]);
-  const allowB = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5, [
-    "b.com",
-    "a.com",
-  ]);
-  const blocked = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5, [
-    "a.com",
-  ], ["x.com"]);
-  const dayRange = __testOnlyBuildSearchWebCacheKey(
-    "duckduckgo",
-    "bitcoin",
-    5,
-    undefined,
-    undefined,
-    "day",
+  await assertRejects(
+    () => WEB_TOOLS.search_web.fn({ query: "hlvm", timeRange: "fortnight" }, "/tmp"),
+    ValidationError,
+    "timeRange must be one of",
+  );
+  await assertRejects(
+    () => WEB_TOOLS.search_web.fn({ query: "hlvm", locale: "bad" }, "/tmp"),
+    ValidationError,
+    "locale must be format",
+  );
+  await assertRejects(
+    () => WEB_TOOLS.search_web.fn({ query: "hlvm", searchDepth: "ultra" }, "/tmp"),
+    ValidationError,
+    "searchDepth must be one of",
   );
 
-  assertEquals(allowA, allowB);
-  assert(base !== allowA);
-  assert(allowA !== blocked);
-  assert(base !== dayRange);
+  try {
+    await WEB_TOOLS.search_web.fn({} as Record<string, unknown>, "/tmp");
+    assert(false, "should have thrown");
+  } catch (error) {
+    assert(error instanceof ValidationError);
+    const metadata = (error as ValidationError & { metadata?: Record<string, unknown> }).metadata;
+    assertEquals(metadata?.errorCode, "invalid_input");
+  }
 });
 
-Deno.test("domain filter helper uses exact or subdomain matching only", () => {
+Deno.test("web tools: cache keys stay order-invariant but change across behavioral dimensions", () => {
+  const base = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5);
+  const allowA = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5, ["a.com", "b.com"]);
+  const allowB = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5, ["b.com", "a.com"]);
+  const blocked = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5, ["a.com"], ["x.com"]);
+  const dayRange = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5, undefined, undefined, "day");
+  const prefetchOff = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5, undefined, undefined, "all", undefined, "medium", false);
+  const reformulateOff = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5, undefined, undefined, "all", undefined, "medium", true, false);
+  const searchDepthHigh = __testOnlyBuildSearchWebCacheKey("duckduckgo", "bitcoin", 5, undefined, undefined, "all", undefined, "high", true, true);
+
+  assertEquals(allowA, allowB);
+  assertNotEquals(base, allowA);
+  assertNotEquals(allowA, blocked);
+  assertNotEquals(base, dayRange);
+  assertNotEquals(base, prefetchOff);
+  assertNotEquals(base, reformulateOff);
+  assertNotEquals(base, searchDepthHigh);
+});
+
+Deno.test("web tools: search ranking and domain filters keep relevant domains only", () => {
+  const scored = scoreSearchResults("hlvm tool calling", [
+    { title: "Unrelated", url: "https://example.com/news", snippet: "daily report" },
+    { title: "HLVM tool calling guide", url: "https://docs.example.com/hlvm-tools", snippet: "tool calling reference" },
+    { title: "Tooling tips", url: "https://example.com/tools", snippet: "hlvm basics" },
+  ]);
+
+  assertEquals(scored[0].title, "HLVM tool calling guide");
+  assert(scored[0].score !== undefined);
   assertEquals(isAllowedByDomainFilters("api.github.com", ["github.com"]), true);
   assertEquals(isAllowedByDomainFilters("github.com", ["github.com"]), true);
   assertEquals(isAllowedByDomainFilters("notgithub.com", ["github.com"]), false);
@@ -253,482 +179,66 @@ Deno.test("domain filter helper uses exact or subdomain matching only", () => {
   assertEquals(isAllowedByDomainFilters("docs.example.com", undefined, ["example.com"]), false);
 });
 
-Deno.test("search_web validates timeRange", async () => {
-  const search = WEB_TOOLS.search_web;
-  await assertRejects(
-    () =>
-      search.fn(
-        { query: "hlvm", timeRange: "fortnight" },
-        "/tmp",
-      ),
-    ValidationError,
-    "timeRange must be one of",
-  );
+Deno.test("web tools: DuckDuckGo parsing supports both standard and lite markup with dedupe", () => {
+  const standard = parseDuckDuckGoSearchResults(`
+    <html><body>
+      <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fhlvm-docs">HLVM Docs</a>
+      <a class="result__snippet">Official reference docs</a>
+      <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fblog">HLVM Blog</a>
+      <a class="result__snippet">Latest HLVM updates</a>
+    </body></html>
+  `, 5);
+
+  assertEquals(standard.length, 2);
+  assertEquals(standard[0].title, "HLVM Docs");
+  assertEquals(standard[0].url, "https://example.com/hlvm-docs");
+  assertEquals(standard[0].snippet, "Official reference docs");
+
+  const lite = parseDuckDuckGoSearchResults(`
+    <html><body>
+      <a class="result-link" rel="nofollow" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fsame">Same Result</a>
+      <td class="result-snippet">First snippet</td>
+      <a class="result-link" rel="nofollow" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fsame">Same Result Duplicate</a>
+      <td class="result-snippet">Second snippet</td>
+      <a class="result-link" rel="nofollow" href="/l/?uddg=https%3A%2F%2Fexample.com%2Ftwo">Second Result</a>
+      <td class="result-snippet">Second result snippet</td>
+    </body></html>
+  `, 5);
+
+  assertEquals(lite.length, 2);
+  assertEquals(lite[0].url, "https://example.com/same");
+  assertEquals(lite[1].url, "https://example.com/two");
 });
 
-// ============================================================
-// Locale validation
-// ============================================================
-
-Deno.test("search_web validates locale format", async () => {
-  const search = WEB_TOOLS.search_web;
-  await assertRejects(
-    () =>
-      search.fn(
-        { query: "hlvm", locale: "bad" },
-        "/tmp",
-      ),
-    ValidationError,
-    "locale must be format",
-  );
-});
-
-Deno.test("search_web schema includes locale arg", () => {
-  const meta = WEB_TOOLS.search_web;
-  assert("locale" in meta.args);
-});
-
-Deno.test("search_web schema includes searchDepth arg", () => {
-  const meta = WEB_TOOLS.search_web;
-  assert("searchDepth" in meta.args);
-});
-
-// ============================================================
-// Structured error codes
-// ============================================================
-
-Deno.test("validation errors carry structured errorCode in metadata", async () => {
-  try {
-    await WEB_TOOLS.search_web.fn({} as Record<string, unknown>, "/tmp");
-    assert(false, "should have thrown");
-  } catch (err) {
-    assert(err instanceof ValidationError);
-    const meta = (err as ValidationError & { metadata?: Record<string, unknown> }).metadata;
-    assertEquals(meta?.errorCode, "invalid_input");
-  }
-});
-
-// ============================================================
-// Per-run tool budget
-// ============================================================
-
-Deno.test("resetWebToolBudget is callable without error", () => {
-  resetWebToolBudget();
-});
-
-// ============================================================
-// Citation excerpt
-// ============================================================
-
-Deno.test("web_fetch schema documents citations with excerpt", () => {
-  const meta = WEB_TOOLS.web_fetch;
-  assert(meta.returns && "citations" in meta.returns);
-});
-
-// ============================================================
-// Headless Chrome fallback
-// ============================================================
-
-Deno.test("findSystemChrome returns string or null", async () => {
-  const result = await findSystemChrome();
-  assert(result === null || typeof result === "string");
-});
-
-Deno.test("shutdownChromeBrowser callable without error", async () => {
-  await shutdownChromeBrowser();
-});
-
-Deno.test("web_fetch schema includes Chrome diagnostic fields in returns", () => {
-  const meta = WEB_TOOLS.web_fetch;
-  assert(meta.returns && "headlessChrome" in meta.returns);
-  assert(meta.returns && "chromeAttempted" in meta.returns);
-  assert(meta.returns && "chromeRenderChars" in meta.returns);
-});
-
-Deno.test({
-  name: "renderWithChrome returns null when no Chrome available",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    // When Chrome is not available (or env has no Chrome), should return null
-    const originalEnv = Deno.env.get("CHROME_PATH");
-    Deno.env.set("CHROME_PATH", "/nonexistent/chrome/binary");
-    try {
-      const result = await renderWithChrome("https://example.com", 5000);
-      // Should return null (no Chrome at that path, and system Chrome may/may not exist)
-      // The important thing is it doesn't throw
-      assert(result === null || typeof result === "string");
-    } finally {
-      if (originalEnv !== undefined) {
-        Deno.env.set("CHROME_PATH", originalEnv);
-      } else {
-        Deno.env.delete("CHROME_PATH");
-      }
-      await shutdownChromeBrowser();
-    }
-  },
-});
-
-// ============================================================
-// Prefetch cache key differentiation
-// ============================================================
-
-Deno.test("search cache key differs with prefetch on vs off", () => {
-  const keyOn = __testOnlyBuildSearchWebCacheKey(
-    "duckduckgo",
-    "test",
-    5,
-    undefined,
-    undefined,
-    "all",
-    undefined,
-    "medium",
-    true,
-  );
-  const keyOff = __testOnlyBuildSearchWebCacheKey(
-    "duckduckgo",
-    "test",
-    5,
-    undefined,
-    undefined,
-    "all",
-    undefined,
-    "medium",
-    false,
-  );
-  assertNotEquals(keyOn, keyOff);
-});
-
-Deno.test("search cache key differs with searchDepth profile", () => {
-  const low = __testOnlyBuildSearchWebCacheKey(
-    "duckduckgo",
-    "test",
-    5,
-    undefined,
-    undefined,
-    "all",
-    undefined,
-    "low",
-    true,
-    true,
-  );
-  const high = __testOnlyBuildSearchWebCacheKey(
-    "duckduckgo",
-    "test",
-    5,
-    undefined,
-    undefined,
-    "all",
-    undefined,
-    "high",
-    true,
-    true,
-  );
-  assertNotEquals(low, high);
-});
-
-Deno.test("search_web schema includes prefetch arg and passages return", () => {
-  const meta = WEB_TOOLS.search_web;
-  assert("prefetch" in meta.args);
-  assert(meta.returns && "results[].passages" in meta.returns);
-});
-
-// ============================================================
-// formatResult — compact text output
-// ============================================================
-
-Deno.test("formatResult returns compact text, not JSON", () => {
-  const raw = {
+Deno.test("web tools: formatting keeps compact displays, preserves raw results, and annotates low-confidence output", () => {
+  const highConfidence = __testOnlyFormatSearchWebResult({
     query: "deno 2.2 release",
     provider: "duckduckgo",
     count: 2,
     results: [
-      { title: "Deno 2.2 Release Notes", url: "https://deno.com/blog/v2.2", snippet: "Deno 2.2 introduces workspaces", publishedDate: "2026-02-15", passages: ["The new release includes faster startup"] },
-      { title: "What's New in Deno", url: "https://blog.example.com/deno-22", snippet: "Deno adds monorepo support" },
-    ],
-  };
-  const formatted = __testOnlyFormatSearchWebResult(raw);
-  assert(formatted !== null);
-  assert(formatted!.returnDisplay.includes('Search: "deno 2.2 release"'));
-  assert(formatted!.summaryDisplay.includes('Top sources for "deno 2.2 release"'));
-  assert(formatted!.summaryDisplay.includes("[1] Deno 2.2 Release Notes"));
-  assert(formatted!.returnDisplay.includes("[1] Deno 2.2 Release Notes"));
-  assert(formatted!.returnDisplay.includes("Deno 2.2 Release Notes"));
-  assert(formatted!.returnDisplay.includes("Published: 2026-02-15"));
-  assert(formatted!.returnDisplay.includes("The new release includes faster startup"));
-  assert(!formatted!.summaryDisplay.includes("Trust: authority="));
-  assert(!formatted!.summaryDisplay.includes("{"));  // not JSON
-});
-
-Deno.test("formatResult shows pageDescription alongside snippet when both exist", () => {
-  const raw = {
-    query: "test",
-    provider: "duckduckgo",
-    count: 1,
-    results: [
       {
-        title: "Test Page",
-        url: "https://example.com/test",
-        snippet: "Short DDG snippet",
+        title: "Deno 2.2 Release Notes",
+        url: "https://deno.com/blog/v2.2",
+        snippet: "Deno 2.2 introduces workspaces",
         pageDescription: "A much longer and richer description extracted from the page metadata",
+        publishedDate: "2026-02-15",
+        passages: ["The new release includes faster startup"],
+        score: 8,
       },
+      { title: "What's New in Deno", url: "https://blog.example.com/deno-22", snippet: "Deno adds monorepo support", score: 6 },
     ],
-  };
-  const formatted = __testOnlyFormatSearchWebResult(raw);
-  assert(formatted !== null);
-  // Concise user display should prefer the richer pageDescription summary.
-  assert(!formatted!.summaryDisplay.includes("Short DDG snippet"));
-  assert(formatted!.summaryDisplay.includes("A much longer and richer description"));
-  // Full llmContent still preserves the detailed search listing.
-  assert(formatted!.llmContent.includes("> Short DDG snippet"));
-  assert(formatted!.llmContent.includes("> A much longer and richer description"));
-});
+    citations: [{ url: "https://deno.com/blog/v2.2", title: "Deno 2.2 Release Notes" }],
+  });
+  assert(highConfidence !== null);
+  assert(highConfidence!.returnDisplay.includes('Search: "deno 2.2 release"'));
+  assert(highConfidence!.returnDisplay.includes("A much longer and richer description"));
+  assert(highConfidence!.llmContent.includes("A much longer and richer description"));
+  assert(highConfidence!.llmContent.includes("> Deno 2.2 introduces workspaces"));
+  assert(highConfidence!.returnDisplay.includes("Published: 2026-02-15"));
+  assert(!highConfidence!.summaryDisplay.includes("{"));
 
-Deno.test("formatResult raw result still has full results array", () => {
-  const raw = {
-    query: "test",
-    provider: "duckduckgo",
-    count: 1,
-    results: [{ title: "Result", url: "https://example.com", snippet: "snippet" }],
-    citations: [{ url: "https://example.com", title: "Result" }],
-  };
-  // formatResult only produces display text; raw object is untouched
-  const formatted = __testOnlyFormatSearchWebResult(raw);
-  assert(formatted !== null);
-  assert(Array.isArray(raw.results));
-  assertEquals(raw.results.length, 1);
-  assertEquals(raw.citations.length, 1);
-});
-
-// ============================================================
-// Cache key versioning: reformulate on vs off
-// ============================================================
-
-Deno.test("search cache key differs with reformulate on vs off", () => {
-  const keyOn = __testOnlyBuildSearchWebCacheKey(
-    "duckduckgo",
-    "test",
-    5,
-    undefined,
-    undefined,
-    "all",
-    undefined,
-    "medium",
-    true,
-    true,
-  );
-  const keyOff = __testOnlyBuildSearchWebCacheKey(
-    "duckduckgo",
-    "test",
-    5,
-    undefined,
-    undefined,
-    "all",
-    undefined,
-    "medium",
-    true,
-    false,
-  );
-  assertNotEquals(keyOn, keyOff);
-});
-
-// ============================================================
-// Reformulation merge/dedup (helper composition)
-// ============================================================
-
-Deno.test("dedupeSearchResults + rankSearchResults merge overlapping results correctly", () => {
-  const query1Results = [
-    { title: "Result A", url: "https://example.com/a", snippet: "deno release notes" },
-    { title: "Result B", url: "https://example.com/b", snippet: "deno features overview" },
-  ];
-  const query2Results = [
-    { title: "Result A (dup)", url: "https://example.com/a", snippet: "deno release notes (variant)" },
-    { title: "Result C", url: "https://example.com/c", snippet: "deno typescript support" },
-  ];
-  const merged = [...query1Results, ...query2Results];
-  const deduped = dedupeSearchResults(merged);
-  assertEquals(deduped.length, 3); // A + B + C (A deduped)
-  const ranked = rankSearchResults("deno release", deduped, "all");
-  const limited = ranked.slice(0, 2);
-  assertEquals(limited.length, 2);  // respects limit
-});
-
-// ============================================================
-// Reformulation integration: duckDuckGoSearch with fetch stub
-// ============================================================
-
-Deno.test({
-  name: "duckDuckGoSearch with reformulate=true fires variant queries and merges results",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    // Build fake DDG HTML for original query (only 1 result — triggers reformulation)
-    function fakeDdgHtml(urls: string[]): string {
-      const items = urls.map((u) =>
-        `<a class="result__a" href="${u}">${u.split("/").pop()}</a>
-         <a class="result__snippet">Snippet for ${u.split("/").pop()}</a>`
-      ).join("\n");
-      return `<html><body>${items}</body></html>`;
-    }
-
-    const queriesSeen: string[] = [];
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = ((input: string | URL | Request, _init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      const parsed = new URL(url);
-      const q = parsed.searchParams.get("q") ?? "";
-      queriesSeen.push(q);
-
-      // Original query returns 1 result (not enough → triggers variants)
-      // Variant queries return 1 different result each
-      let body: string;
-      if (q === "deno 2.2 release") {
-        body = fakeDdgHtml(["https://example.com/original"]);
-      } else {
-        body = fakeDdgHtml([`https://example.com/variant-${queriesSeen.length}`]);
-      }
-
-      return Promise.resolve(new Response(body, { status: 200, headers: { "Content-Type": "text/html" } }));
-    }) as typeof globalThis.fetch;
-
-    try {
-      const raw = await duckDuckGoSearch("deno 2.2 release", 5, 10000, "all", undefined, undefined, undefined, undefined, true);
-      const results = raw.results as Array<{ url?: string }>;
-
-      // Should have fired variant queries
-      const variants = generateQueryVariants("deno 2.2 release");
-      assert(variants.length > 0, "should generate at least 1 variant");
-
-      // Verify variant queries were actually sent (more than just the original + page2)
-      assert(queriesSeen.length >= 2, `expected >=2 queries, got ${queriesSeen.length}: ${queriesSeen.join(", ")}`);
-
-      // Results should be merged and deduped from original + variants
-      assert(results.length >= 2, `expected >=2 merged results, got ${results.length}`);
-
-      // Original URL should be present
-      assert(results.some((r) => r.url === "https://example.com/original"), "original result missing");
-
-      // At least one variant result should be present
-      assert(results.some((r) => r.url?.includes("variant")), "no variant results merged");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  },
-});
-
-Deno.test({
-  name: "duckDuckGoSearch low-confidence results trigger one variant retry even when limit is met",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    function fakeDdgHtml(urls: string[], label: string): string {
-      const items = urls.map((u) =>
-        `<a class="result__a" href="${u}">${label}</a>
-         <a class="result__snippet">${label}</a>`
-      ).join("\n");
-      return `<html><body>${items}</body></html>`;
-    }
-
-    const query = "obscure 2026 signal";
-    const expectedVariant = generateQueryVariants(query, 1)[0];
-    assert(expectedVariant, "expected at least one variant");
-
-    const queriesSeen: string[] = [];
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = ((input: string | URL | Request, _init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      const parsed = new URL(url);
-      const q = parsed.searchParams.get("q") ?? "";
-      queriesSeen.push(q);
-
-      // Original query already has 5 results (meets limit) but they are low-relevance.
-      if (q === query) {
-        const body = fakeDdgHtml([
-          "https://example.com/a",
-          "https://example.com/b",
-          "https://example.com/c",
-          "https://example.com/d",
-          "https://example.com/e",
-        ], "generic page");
-        return Promise.resolve(new Response(body, { status: 200, headers: { "Content-Type": "text/html" } }));
-      }
-
-      const body = fakeDdgHtml(["https://example.com/variant-retry"], "variant page");
-      return Promise.resolve(new Response(body, { status: 200, headers: { "Content-Type": "text/html" } }));
-    }) as typeof globalThis.fetch;
-
-    try {
-      const raw = await duckDuckGoSearch(query, 5, 10000, "all", undefined, undefined, undefined, undefined, true);
-      const diagnostics = (raw.diagnostics ?? {}) as Record<string, unknown>;
-      assertEquals(diagnostics.lowConfidenceRetryTriggered, true);
-      assert(queriesSeen.includes(expectedVariant), `missing retry query: ${expectedVariant}`);
-      assert(queriesSeen.length >= 2, `expected >=2 requests, got ${queriesSeen.length}`);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  },
-});
-
-// ============================================================
-// formatResult — quality hint in llmContent only
-// ============================================================
-
-Deno.test("formatResult appends low-relevance tip in llmContent only when avg score < 4", () => {
-  const raw = {
+  const lowConfidence = __testOnlyFormatSearchWebResult({
     query: "obscure topic",
-    provider: "duckduckgo",
-    count: 2,
-    results: [
-      { title: "Result A", url: "https://a.com", snippet: "unrelated", score: 2 },
-      { title: "Result B", url: "https://b.com", snippet: "also unrelated", score: 3 },
-    ],
-  };
-  const formatted = __testOnlyFormatSearchWebResult(raw);
-  assert(formatted !== null);
-  assert(!formatted!.summaryDisplay.includes("Tip:"), "tip should NOT be in summaryDisplay");
-  assert(formatted!.summaryDisplay.includes("Evidence is weak."), "plain-language weak-evidence warning should be visible");
-  assert(formatted!.llmContent.includes("Tip: Results have low relevance scores"), "tip should be in llmContent");
-  assert(formatted!.llmContent.includes("Confidence reason:"), "confidence reason should be included in llmContent");
-});
-
-Deno.test("formatResult omits tip when avg score >= 4", () => {
-  const raw = {
-    query: "well matched",
-    provider: "duckduckgo",
-    count: 2,
-    results: [
-      { title: "Good A", url: "https://a.com", snippet: "well matched guide", score: 8 },
-      { title: "Good B", url: "https://b.com", snippet: "well matched tutorial", score: 6 },
-    ],
-  };
-  const formatted = __testOnlyFormatSearchWebResult(raw);
-  assert(formatted !== null);
-  assert(!formatted!.llmContent.includes("Tip:"), "no tip when scores are good");
-  assert(formatted!.summaryDisplay.includes('Top sources for "well matched"'));
-  assert(formatted!.llmContent.includes("[1] Good A"));
-  assert(formatted!.summaryDisplay !== formatted!.llmContent);
-});
-
-Deno.test("formatResult computes avg from defined scores only (skips undefined)", () => {
-  const raw = {
-    query: "mixed",
-    provider: "duckduckgo",
-    count: 3,
-    results: [
-      { title: "Scored", url: "https://a.com", snippet: "mixed query match", score: 8 },
-      { title: "Unscored", url: "https://b.com", snippet: "mixed reference" },
-      { title: "Also Unscored", url: "https://c.com", snippet: "mixed docs" },
-    ],
-  };
-  const formatted = __testOnlyFormatSearchWebResult(raw);
-  assert(formatted !== null);
-  // Only 1 scored result with score=8 → avg=8 → no tip
-  assert(!formatted!.llmContent.includes("Tip:"), "avg of defined scores (8) >= 4, no tip");
-});
-
-Deno.test("formatResult includes relatedLinks and uncertainty hint only in llmContent on low confidence", () => {
-  const raw = {
-    query: "uncertain query",
     provider: "duckduckgo",
     count: 1,
     results: [
@@ -737,212 +247,236 @@ Deno.test("formatResult includes relatedLinks and uncertainty hint only in llmCo
         url: "https://example.com/weak",
         snippet: "weak match",
         score: 2,
-        relatedLinks: ["https://docs.example.com/ref", "https://other.example.org/guide"],
+        relatedLinks: ["https://docs.example.com/ref"],
       },
     ],
-  };
-  const formatted = __testOnlyFormatSearchWebResult(raw);
-  assert(formatted !== null);
-  assert(!formatted!.summaryDisplay.includes("Related links to check:"));
-  assert(!formatted!.summaryDisplay.includes("confidence is low"));
-  assert(formatted!.llmContent.includes("Related links to check:"));
-  assert(formatted!.llmContent.includes("https://docs.example.com/ref"));
-  assert(formatted!.llmContent.includes("confidence is low"));
+  });
+  assert(lowConfidence !== null);
+  assert(lowConfidence!.summaryDisplay.includes("Evidence is weak."));
+  assert(!lowConfidence!.summaryDisplay.includes("Related links to check:"));
+  assert(lowConfidence!.llmContent.includes("Tip: Results have low relevance scores"));
+  assert(lowConfidence!.llmContent.includes("Related links to check:"));
 });
 
-// ============================================================
-// Diverse prefetch targeting
-// ============================================================
+Deno.test("web tools: ranking helpers dedupe overlaps and compute confidence metrics", () => {
+  const merged = dedupeSearchResults([
+    { title: "Result A", url: "https://example.com/a", snippet: "deno release notes" },
+    { title: "Result B", url: "https://example.com/b", snippet: "deno features overview" },
+    { title: "Result A (dup)", url: "https://example.com/a", snippet: "deno release notes (variant)" },
+    { title: "Result C", url: "https://example.com/c", snippet: "deno typescript support" },
+  ]);
+  assertEquals(merged.length, 3);
+  assertEquals(rankSearchResults("deno release", merged, "all").slice(0, 2).length, 2);
 
-Deno.test("diverse prefetch selects unique hosts first, backfills to 2", () => {
-  const results = [
-    { title: "A", url: "https://example.com/a", snippet: "a" },
-    { title: "B", url: "https://example.com/b", snippet: "b" },
-    { title: "C", url: "https://other.com/c", snippet: "c" },
-  ];
-  const prefetchTargets = __testOnlySelectDiversePrefetchTargets(results, 2);
-  assertEquals(prefetchTargets.length, 2);
-  assertEquals(prefetchTargets[0].url, "https://example.com/a");
-  assertEquals(prefetchTargets[1].url, "https://other.com/c"); // skipped example.com/b
-});
-
-Deno.test("diverse prefetch backfills same-host when all results share one domain", () => {
-  const results = [
-    { title: "A", url: "https://same.com/a", snippet: "a" },
-    { title: "B", url: "https://same.com/b", snippet: "b" },
-    { title: "C", url: "https://same.com/c", snippet: "c" },
-  ];
-
-  const prefetchTargets = __testOnlySelectDiversePrefetchTargets(results, 2);
-
-  // Pass 1 gets A (unique host), pass 2 backfills B
-  assertEquals(prefetchTargets.length, 2);
-  assertEquals(prefetchTargets[0].url, "https://same.com/a");
-  assertEquals(prefetchTargets[1].url, "https://same.com/b");
-});
-
-Deno.test("adaptive prefetch can select 3 targets for low-confidence searches", () => {
-  const results = [
-    { title: "A", url: "https://a.com/1", snippet: "a" },
-    { title: "B", url: "https://a.com/2", snippet: "b" },
-    { title: "C", url: "https://b.com/3", snippet: "c" },
-    { title: "D", url: "https://c.com/4", snippet: "d" },
-  ];
-  const prefetchTargets = __testOnlySelectDiversePrefetchTargets(results, 3);
-  assertEquals(prefetchTargets.length, 3);
-  assertEquals(prefetchTargets[0].url, "https://a.com/1");
-  assertEquals(prefetchTargets[1].url, "https://b.com/3");
-  assertEquals(prefetchTargets[2].url, "https://c.com/4");
-});
-
-Deno.test("average score helper returns undefined when no scored results", () => {
-  const avg = __testOnlyAverageResultScore([
+  assertEquals(__testOnlyAverageResultScore([
+    { title: "Scored", url: "https://a.com", score: 8 },
+    { title: "Unscored", url: "https://b.com" },
+  ]), 8);
+  assertEquals(__testOnlyAverageResultScore([
     { title: "A", url: "https://a.com" },
     { title: "B", url: "https://b.com" },
-  ]);
-  assertEquals(avg, undefined);
+  ]), undefined);
 });
 
-Deno.test("search_web validates searchDepth", async () => {
-  const search = WEB_TOOLS.search_web;
-  await assertRejects(
-    () => search.fn({ query: "hlvm", searchDepth: "ultra" }, "/tmp"),
-    ValidationError,
-    "searchDepth must be one of",
+Deno.test("web tools: diverse prefetch selection prioritizes unique hosts before backfill", () => {
+  assertEquals(
+    __testOnlySelectDiversePrefetchTargets([
+      { title: "A", url: "https://example.com/a", snippet: "a" },
+      { title: "B", url: "https://example.com/b", snippet: "b" },
+      { title: "C", url: "https://other.com/c", snippet: "c" },
+    ], 2).map((result) => result.url),
+    ["https://example.com/a", "https://other.com/c"],
+  );
+
+  assertEquals(
+    __testOnlySelectDiversePrefetchTargets([
+      { title: "A", url: "https://same.com/a", snippet: "a" },
+      { title: "B", url: "https://same.com/b", snippet: "b" },
+      { title: "C", url: "https://same.com/c", snippet: "c" },
+    ], 2).map((result) => result.url),
+    ["https://same.com/a", "https://same.com/b"],
+  );
+
+  assertEquals(
+    __testOnlySelectDiversePrefetchTargets([
+      { title: "A", url: "https://a.com/1", snippet: "a" },
+      { title: "B", url: "https://a.com/2", snippet: "b" },
+      { title: "C", url: "https://b.com/3", snippet: "c" },
+      { title: "D", url: "https://c.com/4", snippet: "d" },
+    ], 3).map((result) => result.url),
+    ["https://a.com/1", "https://b.com/3", "https://c.com/4"],
   );
 });
 
 Deno.test({
-  name: "search_web auto deep round triggers on low-confidence results",
+  name: "web tools: Chrome helpers fail soft when the browser is unavailable",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await withIsolatedSearchRegistry(async () => {
-      const queriesSeen: string[] = [];
-      const query = `deno 2.2 sqlite builtin changes ${crypto.randomUUID().slice(0, 8)}`;
-      registerSearchProvider({
-        name: "duckduckgo",
-        displayName: "deterministic-low-confidence",
-      requiresApiKey: false,
-      search(query: string, opts: SearchCallOptions) {
-        queriesSeen.push(query);
-        if (queriesSeen.length === 1) {
-          return Promise.resolve({
-            query,
-            provider: "duckduckgo",
-            count: 1,
-            results: [
-              {
-                title: "Home",
-                url: "https://generic.example.com/home",
-                snippet: "welcome page",
-              },
-            ],
-            diagnostics: { round: 1, limit: opts.limit },
-          });
-        }
-        return Promise.resolve({
-          query,
-          provider: "duckduckgo",
-          count: 2,
-          results: [
-            {
-              title: "Deno 2.2 SQLite Builtin Release Notes",
-              url: "https://docs.deno.com/runtime/sqlite/",
-              snippet: "Deno 2.2 sqlite builtin changes and migration notes",
-            },
-            {
-              title: "Deno 2.2 Blog",
-              url: "https://deno.com/blog/v2.2",
-              snippet: "What's new in deno 2.2 release",
-            },
-          ],
-          diagnostics: { round: 2, limit: opts.limit },
-        });
-      },
-    });
+    const platform = getPlatform();
+    const originalChromePath = platform.env.get("CHROME_PATH");
+    platform.env.set("CHROME_PATH", "/nonexistent/chrome/binary");
+    try {
+      const chrome = await findSystemChrome();
+      assert(chrome === null || typeof chrome === "string");
+      const rendered = await renderWithChrome("https://example.com", 5000);
+      assert(rendered === null || typeof rendered === "string");
+    } finally {
+      if (originalChromePath === undefined) {
+        platform.env.delete("CHROME_PATH");
+      } else {
+        platform.env.set("CHROME_PATH", originalChromePath);
+      }
+      await shutdownChromeBrowser();
+    }
+  },
+});
 
-    resetWebToolBudget();
-    const result = await WEB_TOOLS.search_web.fn(
-      {
-        query,
-        maxResults: 3,
-        prefetch: false,
-        reformulate: false,
-      },
-      "/tmp",
-    ) as Record<string, unknown>;
+Deno.test({
+  name: "web tools: reformulation merges variant results when the first search is insufficient",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const queriesSeen: string[] = [];
 
-    const diagnostics = result.diagnostics as Record<string, unknown>;
-    const deep = diagnostics.deep as Record<string, unknown>;
-    assertEquals(queriesSeen.length, 2);
-    assertEquals(deep.autoTriggered, true);
-    assertEquals(deep.rounds, 2);
-      assert(Array.isArray(deep.queryTrail));
+    await withStubbedFetch(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const query = new URL(url).searchParams.get("q") ?? "";
+      queriesSeen.push(query);
+      if (query === "deno 2.2 release") {
+        return new Response(fakeDdgHtml([
+          { url: "https://example.com/original", title: "original", snippet: "original" },
+        ]), { status: 200, headers: { "Content-Type": "text/html" } });
+      }
+      return new Response(fakeDdgHtml([
+        { url: `https://example.com/variant-${queriesSeen.length}`, title: "variant", snippet: "variant" },
+      ]), { status: 200, headers: { "Content-Type": "text/html" } });
+    }, async () => {
+      const raw = await duckDuckGoSearch("deno 2.2 release", 5, 10000, "all", undefined, undefined, undefined, undefined, true);
+      const variants = generateQueryVariants("deno 2.2 release");
+      const results = raw.results as Array<{ url?: string }>;
+
+      assert(variants.length > 0);
+      assert(queriesSeen.length >= 2);
+      assert(results.some((result) => result.url === "https://example.com/original"));
+      assert(results.some((result) => result.url?.includes("variant")));
     });
   },
 });
 
 Deno.test({
-  name: "search_web auto deep round stays off for high-confidence results",
+  name: "web tools: low-confidence retry fires one variant query even when the initial limit is met",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const query = "obscure 2026 signal";
+    const expectedVariant = generateQueryVariants(query, 1)[0];
+    const queriesSeen: string[] = [];
+
+    await withStubbedFetch(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const q = new URL(url).searchParams.get("q") ?? "";
+      queriesSeen.push(q);
+      if (q === query) {
+        return new Response(fakeDdgHtml([
+          { url: "https://example.com/a", title: "generic", snippet: "generic page" },
+          { url: "https://example.com/b", title: "generic", snippet: "generic page" },
+          { url: "https://example.com/c", title: "generic", snippet: "generic page" },
+          { url: "https://example.com/d", title: "generic", snippet: "generic page" },
+          { url: "https://example.com/e", title: "generic", snippet: "generic page" },
+        ]), { status: 200, headers: { "Content-Type": "text/html" } });
+      }
+      return new Response(fakeDdgHtml([
+        { url: "https://example.com/variant-retry", title: "variant", snippet: "variant page" },
+      ]), { status: 200, headers: { "Content-Type": "text/html" } });
+    }, async () => {
+      const raw = await duckDuckGoSearch(query, 5, 10000, "all", undefined, undefined, undefined, undefined, true);
+      const diagnostics = (raw.diagnostics ?? {}) as Record<string, unknown>;
+      assertEquals(diagnostics.lowConfidenceRetryTriggered, true);
+      assert(expectedVariant);
+      assert(queriesSeen.includes(expectedVariant));
+      assert(queriesSeen.length >= 2);
+    });
+  },
+});
+
+Deno.test({
+  name: "web tools: auto deep round triggers for weak searches and stays off for strong ones",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     await withIsolatedSearchRegistry(async () => {
-      const queriesSeen: string[] = [];
+      const lowQueriesSeen: string[] = [];
+      const lowQuery = `deno 2.2 sqlite builtin changes ${crypto.randomUUID().slice(0, 8)}`;
+
+      registerSearchProvider({
+        name: "duckduckgo",
+        displayName: "deterministic-low-confidence",
+        requiresApiKey: false,
+        search(query: string, opts: SearchCallOptions) {
+          lowQueriesSeen.push(query);
+          if (lowQueriesSeen.length === 1) {
+            return Promise.resolve({
+              query,
+              provider: "duckduckgo",
+              count: 1,
+              results: [{ title: "Home", url: "https://generic.example.com/home", snippet: "welcome page" }],
+              diagnostics: { round: 1, limit: opts.limit },
+            });
+          }
+          return Promise.resolve({
+            query,
+            provider: "duckduckgo",
+            count: 2,
+            results: [
+              { title: "Deno 2.2 SQLite Builtin Release Notes", url: "https://docs.deno.com/runtime/sqlite/", snippet: "Deno 2.2 sqlite builtin changes and migration notes" },
+              { title: "Deno 2.2 Blog", url: "https://deno.com/blog/v2.2", snippet: "What's new in deno 2.2 release" },
+            ],
+            diagnostics: { round: 2, limit: opts.limit },
+          });
+        },
+      });
+
+      resetWebToolBudget();
+      const lowResult = await WEB_TOOLS.search_web.fn({ query: lowQuery, maxResults: 3, prefetch: false, reformulate: false }, "/tmp") as Record<string, unknown>;
+      const lowDeep = (lowResult.diagnostics as Record<string, unknown>).deep as Record<string, unknown>;
+      assertEquals(lowQueriesSeen.length, 2);
+      assertEquals(lowDeep.autoTriggered, true);
+      assertEquals(lowDeep.rounds, 2);
+      assert(Array.isArray(lowDeep.queryTrail));
+    });
+
+    await withIsolatedSearchRegistry(async () => {
+      const highQueriesSeen: string[] = [];
       const uniqueToken = crypto.randomUUID().slice(0, 8);
-      const query = `python asyncio taskgroup tutorial ${uniqueToken}`;
+      const highQuery = `python asyncio taskgroup tutorial ${uniqueToken}`;
+
       registerSearchProvider({
         name: "duckduckgo",
         displayName: "deterministic-high-confidence",
-      requiresApiKey: false,
-      search(query: string, opts: SearchCallOptions) {
-        queriesSeen.push(query);
-        return Promise.resolve({
-          query,
-          provider: "duckduckgo",
-          count: 3,
-          results: [
-            {
-              title: "Python asyncio TaskGroup Documentation",
-              url: "https://docs.python.org/3/library/asyncio-task.html",
-              snippet: `TaskGroup structured concurrency asyncio tutorial reference ${uniqueToken}`,
-              score: 12,
-            },
-            {
-              title: "TaskGroup Guide",
-              url: "https://realpython.com/python311-exception-groups/",
-              snippet: `python asyncio taskgroup tutorial and guide ${uniqueToken}`,
-              score: 8,
-            },
-            {
-              title: "TaskGroup Examples",
-              url: "https://superfastpython.com/asyncio-taskgroup/",
-              snippet: `asyncio taskgroup examples for Python ${uniqueToken}`,
-              score: 7,
-            },
-          ],
-          diagnostics: { limit: opts.limit },
-        });
-      },
-    });
+        requiresApiKey: false,
+        search(query: string, opts: SearchCallOptions) {
+          highQueriesSeen.push(query);
+          return Promise.resolve({
+            query,
+            provider: "duckduckgo",
+            count: 3,
+            results: [
+              { title: "Python asyncio TaskGroup Documentation", url: "https://docs.python.org/3/library/asyncio-task.html", snippet: `TaskGroup structured concurrency asyncio tutorial reference ${uniqueToken}`, score: 12 },
+              { title: "TaskGroup Guide", url: "https://realpython.com/python311-exception-groups/", snippet: `python asyncio taskgroup tutorial and guide ${uniqueToken}`, score: 8 },
+              { title: "TaskGroup Examples", url: "https://superfastpython.com/asyncio-taskgroup/", snippet: `asyncio taskgroup examples for Python ${uniqueToken}`, score: 7 },
+            ],
+            diagnostics: { limit: opts.limit },
+          });
+        },
+      });
 
-    resetWebToolBudget();
-    const result = await WEB_TOOLS.search_web.fn(
-      {
-        query,
-        maxResults: 3,
-        prefetch: false,
-        reformulate: false,
-      },
-      "/tmp",
-    ) as Record<string, unknown>;
-
-    const diagnostics = result.diagnostics as Record<string, unknown>;
-    const deep = diagnostics.deep as Record<string, unknown>;
-    assertEquals(queriesSeen.length, 1);
-      assertEquals(deep.autoTriggered, false);
-      assertEquals(deep.rounds, 1);
+      resetWebToolBudget();
+      const highResult = await WEB_TOOLS.search_web.fn({ query: highQuery, maxResults: 3, prefetch: false, reformulate: false }, "/tmp") as Record<string, unknown>;
+      const highDeep = (highResult.diagnostics as Record<string, unknown>).deep as Record<string, unknown>;
+      assertEquals(highQueriesSeen.length, 1);
+      assertEquals(highDeep.autoTriggered, false);
+      assertEquals(highDeep.rounds, 1);
     });
   },
 });

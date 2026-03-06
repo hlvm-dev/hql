@@ -227,9 +227,12 @@ export async function runCompanionLoop(
         kinds,
       });
 
-      // DND: skip only on explicit typing-like signals.
-      // Poll-based observation traffic (window/app/clipboard) should not keep companion muted.
-      const hasTypingSignal = redacted.some((obs) =>
+      // DND: mute when user is rapidly active (burst of observations).
+      // A single app.switch or clipboard change is fine, but 3+ observations
+      // in one debounce window signals the user is actively working and
+      // shouldn't be interrupted.
+      const isBurst = redacted.length >= 3;
+      const hasTypingSignal = isBurst || redacted.some((obs) =>
         obs.kind === "ui.selection.changed"
       );
       if (hasTypingSignal) {

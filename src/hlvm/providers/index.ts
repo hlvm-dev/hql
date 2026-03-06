@@ -14,43 +14,50 @@
 // Types
 export type {
   AIProvider,
+  ChatOptions,
+  ChatStructuredResponse,
+  GenerateOptions,
+  Message,
+  MessageRole,
+  ModelCapabilityFlags,
+  ModelInfo,
   ProviderCapability,
   ProviderConfig,
   ProviderFactory,
+  ProviderMessage,
   ProviderStatus,
+  ProviderToolCall,
+  PullProgress,
   RegisteredProvider,
-  GenerateOptions,
-  ChatOptions,
   ToolDefinition,
   ToolFunctionDefinition,
-  ProviderToolCall,
-  ChatStructuredResponse,
-  Message,
-  ProviderMessage,
-  MessageRole,
-  ModelInfo,
-  ModelCapabilityFlags,
-  PullProgress,
 } from "./types.ts";
 
 // Capability helpers
 export {
-  capabilitiesToFlags,
   capabilitiesToDisplayTags,
+  capabilitiesToFlags,
   formatCapabilityTags,
 } from "./types.ts";
 
+// Shared metadata
+export {
+  findProviderMetaKey,
+  getProviderMeta,
+  getProviderSearchTerms,
+} from "./provider-meta.ts";
+
 // Registry
 export {
-  registerProvider,
-  getProvider,
   getDefaultProvider,
+  getProvider,
   getProviderDefaultConfig,
-  setDefaultProvider,
-  hasProvider,
-  parseModelString,
   getProviderForModel,
+  hasProvider,
   listRegisteredProviders,
+  parseModelString,
+  registerProvider,
+  setDefaultProvider,
 } from "./registry.ts";
 
 // Provider implementations

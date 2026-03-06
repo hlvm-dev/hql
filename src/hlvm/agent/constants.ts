@@ -372,7 +372,7 @@ export const ENGINE_PROFILES = {
 // Agent Defaults
 // ============================================================
 
-/** Max session history messages to load (prevents context pollution) */
+/** Max session history exchange groups to load (prevents mid-tool-exchange resume) */
 export const MAX_SESSION_HISTORY = 10;
 
 /** Cloud/frontier provider prefixes (SSOT for detectFrontierModel + isLocalModel) */

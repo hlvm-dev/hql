@@ -50,7 +50,7 @@ import {
 } from "./constants.ts";
 import type { PermissionMode } from "../../common/config/types.ts";
 import { UsageTracker } from "./usage.ts";
-import { ContextManager } from "./context.ts";
+import { ContextManager, takeLastMessageGroups } from "./context.ts";
 import type { ModelInfo } from "../providers/types.ts";
 import {
   classifyAgentFinalResponse,
@@ -356,7 +356,10 @@ export async function runAgentQuery(
     } else if (sessionKey) {
       sessionEntry = await getOrCreateSession(sessionKey);
       const historyMessages = await loadSessionMessages(sessionEntry);
-      const recentHistory = historyMessages.slice(-MAX_SESSION_HISTORY);
+      const recentHistory = takeLastMessageGroups(
+        historyMessages,
+        MAX_SESSION_HISTORY,
+      );
       for (const message of recentHistory) {
         session.context.addMessage({ ...message, fromSession: true });
       }

@@ -16,8 +16,8 @@ import type {
   ProviderToolCall,
   ToolDefinition,
 } from "./types.ts";
-import { generateToolCallId } from "./common.ts";
 import { normalizeToolArgs } from "../agent/validation.ts";
+import { generateToolCallId } from "../agent/tool-call.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { ValidationError } from "../../common/error.ts";
 
@@ -43,6 +43,12 @@ const SUPPORTED_SDK_PROVIDERS = new Set<SdkProviderName>([
   "ollama",
 ]);
 
+const REQUIRED_API_KEY_ENV_VARS: Partial<Record<SdkProviderName, string>> = {
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  google: "GOOGLE_API_KEY",
+};
+
 function toNonEmptyString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -57,6 +63,25 @@ function withApiPathSuffix(
   if (!base) return undefined;
   const normalized = base.replace(/\/+$/, "");
   return normalized.endsWith(suffix) ? normalized : `${normalized}${suffix}`;
+}
+
+function getRequiredApiKey(
+  providerName: SdkProviderName,
+  explicitApiKey?: string,
+): string {
+  const configured = toNonEmptyString(explicitApiKey);
+  if (configured) return configured;
+
+  const envVar = REQUIRED_API_KEY_ENV_VARS[providerName];
+  if (!envVar) return "";
+
+  const envApiKey = toNonEmptyString(getPlatform().env.get(envVar));
+  if (envApiKey) return envApiKey;
+
+  throw new ValidationError(
+    `${envVar} is not set. Export it to use ${providerName}/ models.`,
+    "provider_sdk_runtime",
+  );
 }
 
 export function assertSupportedSdkProvider(
@@ -109,9 +134,8 @@ export async function createSdkLanguageModel(
 
   switch (providerName) {
     case "openai": {
+      const apiKey = getRequiredApiKey(providerName, spec.apiKey);
       const { createOpenAI } = await import("@ai-sdk/openai");
-      const apiKey = toNonEmptyString(spec.apiKey) ??
-        getPlatform().env.get("OPENAI_API_KEY") ?? "";
       const baseURL = withApiPathSuffix(
         toNonEmptyString(spec.endpoint) ??
           getPlatform().env.get("OPENAI_BASE_URL"),
@@ -122,9 +146,8 @@ export async function createSdkLanguageModel(
     }
 
     case "anthropic": {
+      const apiKey = getRequiredApiKey(providerName, spec.apiKey);
       const { createAnthropic } = await import("@ai-sdk/anthropic");
-      const apiKey = toNonEmptyString(spec.apiKey) ??
-        getPlatform().env.get("ANTHROPIC_API_KEY") ?? "";
       const baseURL = withApiPathSuffix(
         toNonEmptyString(spec.endpoint) ??
           getPlatform().env.get("ANTHROPIC_BASE_URL"),
@@ -138,9 +161,8 @@ export async function createSdkLanguageModel(
     }
 
     case "google": {
+      const apiKey = getRequiredApiKey(providerName, spec.apiKey);
       const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
-      const apiKey = toNonEmptyString(spec.apiKey) ??
-        getPlatform().env.get("GOOGLE_API_KEY") ?? "";
       const baseURL = withApiPathSuffix(
         toNonEmptyString(spec.endpoint) ??
           getPlatform().env.get("GOOGLE_BASE_URL"),
@@ -215,11 +237,15 @@ export interface SdkConvertibleMessage {
   /** Image/media attachments: structured {data, mimeType} or plain base64 strings */
   images?: Array<string | { data: string; mimeType: string }>;
   // AgentMessage convention (camelCase)
-  toolCalls?: Array<{ id?: string; function: { name: string; arguments: unknown } }>;
+  toolCalls?: Array<
+    { id?: string; function: { name: string; arguments: unknown } }
+  >;
   toolName?: string;
   toolCallId?: string;
   // ProviderMessage convention (snake_case)
-  tool_calls?: Array<{ id?: string; function: { name: string; arguments: unknown } }>;
+  tool_calls?: Array<
+    { id?: string; function: { name: string; arguments: unknown } }
+  >;
   tool_name?: string;
   tool_call_id?: string;
 }
@@ -245,14 +271,14 @@ export function convertToSdkMessages(
   }
 
   const result: ModelMessage[] = [];
-  let pendingToolCallIds = new Set<string>();
+  let pendingToolCalls: Array<{ id: string; name: string }> = [];
   if (systemParts.length > 0) {
     result.push({ role: "system", content: systemParts.join("\n\n") });
   }
 
   for (const msg of nonSystemMessages) {
     if (msg.role === "user") {
-      pendingToolCallIds = new Set();
+      pendingToolCalls = [];
       if (!msg.images?.length) {
         result.push({ role: "user", content: msg.content });
         continue;
@@ -269,7 +295,11 @@ export function convertToSdkMessages(
           content.push({ type: "image", image: img.data });
         } else {
           // PDF, audio, video → file part
-          content.push({ type: "file", data: img.data, mediaType: img.mimeType });
+          content.push({
+            type: "file",
+            data: img.data,
+            mediaType: img.mimeType,
+          });
         }
       }
       result.push({ role: "user", content });
@@ -280,13 +310,13 @@ export function convertToSdkMessages(
       const toolCalls = msg.toolCalls ?? msg.tool_calls;
       if (toolCalls?.length) {
         const parts: SdkAssistantPart[] = [];
-        const resolvedToolCallIds: string[] = [];
+        const resolvedToolCalls: Array<{ id: string; name: string }> = [];
         if (msg.content) {
           parts.push({ type: "text", text: msg.content });
         }
         for (const tc of toolCalls) {
           const toolCallId = tc.id ?? generateToolCallId();
-          resolvedToolCallIds.push(toolCallId);
+          resolvedToolCalls.push({ id: toolCallId, name: tc.function.name });
           parts.push({
             type: "tool-call",
             toolCallId,
@@ -294,28 +324,46 @@ export function convertToSdkMessages(
             input: normalizeToolArgs(tc.function.arguments),
           });
         }
-        pendingToolCallIds = new Set(resolvedToolCallIds);
+        pendingToolCalls = resolvedToolCalls;
         result.push({ role: "assistant", content: parts });
       } else {
-        pendingToolCallIds = new Set();
+        pendingToolCalls = [];
         result.push({ role: "assistant", content: msg.content });
       }
       continue;
     }
 
     // role === "tool"
+    const toolName = msg.toolName ?? msg.tool_name;
     let toolCallId = msg.toolCallId ?? msg.tool_call_id;
-    if (!toolCallId && pendingToolCallIds.size === 1) {
-      toolCallId = [...pendingToolCallIds][0];
+    if (
+      !toolCallId &&
+      pendingToolCalls.length === 1 &&
+      (typeof toolName !== "string" || pendingToolCalls[0].name === toolName)
+    ) {
+      toolCallId = pendingToolCalls[0].id;
     }
-    if (!toolCallId || !pendingToolCallIds.has(toolCallId)) {
+    if (!toolCallId && pendingToolCalls.length > 1) {
+      const sameNameMatches = typeof toolName === "string"
+        ? pendingToolCalls.filter((call) => call.name === toolName)
+        : [];
+      if (sameNameMatches.length === 1) {
+        toolCallId = sameNameMatches[0].id;
+      }
+    }
+    if (!toolCallId) {
       continue;
     }
+    const pendingIndex = pendingToolCalls.findIndex((call) => call.id === toolCallId);
+    if (pendingIndex < 0) {
+      continue;
+    }
+    pendingToolCalls = pendingToolCalls.filter((call) => call.id !== toolCallId);
 
     const toolResultPart = {
       type: "tool-result" as const,
       toolCallId,
-      toolName: msg.toolName ?? msg.tool_name ?? "unknown",
+      toolName: toolName ?? "unknown",
       output: { type: "text" as const, value: msg.content },
     };
     const previous = result[result.length - 1];

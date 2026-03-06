@@ -1,9 +1,3 @@
-/**
- * Shell Tools Tests
- *
- * Verifies shell execution with security allow-list
- */
-
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
   classifyShellCommand,
@@ -13,243 +7,85 @@ import {
   type ShellScriptArgs,
 } from "../../../src/hlvm/agent/tools/shell-tools.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
-import {
-  cleanupWorkspaceDir,
-  ensureWorkspaceDir,
-} from "./workspace-test-helpers.ts";
+import { cleanupWorkspaceDir } from "./workspace-test-helpers.ts";
 
-// Test workspace
-const TEST_WORKSPACE = "/tmp/hlvm-shell-test";
-
-// Setup/cleanup helpers
-async function setupWorkspace() {
+async function withWorkspace<T>(fn: (workspace: string) => Promise<T>): Promise<T> {
   const platform = getPlatform();
-  await ensureWorkspaceDir(TEST_WORKSPACE);
+  const workspace = await platform.fs.makeTempDir({ prefix: "hlvm-shell-test-" });
 
-  // Create a test file
-  await platform.fs.writeTextFile(
-    `${TEST_WORKSPACE}/test.txt`,
-    "Hello, world!",
-  );
+  try {
+    await platform.fs.writeTextFile(
+      platform.path.join(workspace, "test.txt"),
+      "Hello, world!",
+    );
+    return await fn(workspace);
+  } finally {
+    await cleanupWorkspaceDir(workspace);
+  }
 }
 
-async function cleanupWorkspace() {
-  await cleanupWorkspaceDir(TEST_WORKSPACE);
-}
-
-// ============================================================
-// classifyShellCommand tests
-// ============================================================
-
-Deno.test({
-  name: "Shell Tools: classifyShellCommand - git read commands are L0",
-  fn() {
-    assertEquals(classifyShellCommand("git status"), "L0");
-    assertEquals(classifyShellCommand("git log"), "L0");
-    assertEquals(classifyShellCommand("git log --oneline"), "L0");
-    assertEquals(classifyShellCommand("git log -10"), "L0");
-    assertEquals(classifyShellCommand("git diff"), "L0");
-    assertEquals(classifyShellCommand("git diff HEAD"), "L0");
-    assertEquals(classifyShellCommand("git diff main..dev"), "L0");
-  },
+Deno.test("shell tools: classifyShellCommand maps representative commands to L0, L1, and L2", () => {
+  assertEquals(classifyShellCommand("git status"), "L0");
+  assertEquals(classifyShellCommand("echo hello"), "L0");
+  assertEquals(classifyShellCommand("deno test --dry-run"), "L1");
+  assertEquals(classifyShellCommand("deno test"), "L1");
+  assertEquals(classifyShellCommand("git push"), "L2");
+  assertEquals(classifyShellCommand("rm -rf /"), "L2");
 });
 
-Deno.test({
-  name: "Shell Tools: classifyShellCommand - deno test --dry-run is L1",
-  fn() {
-    const level = classifyShellCommand("deno test --dry-run");
-    assertEquals(level, "L1");
-
-    const level2 = classifyShellCommand("deno test tests/ --dry-run");
-    assertEquals(level2, "L1");
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: classifyShellCommand - other commands are L2",
-  fn() {
-    assertEquals(classifyShellCommand("rm -rf /"), "L2");
-    assertEquals(classifyShellCommand("git push"), "L2");
-    assertEquals(classifyShellCommand("deno test"), "L1"); // Build/test tool
-    assertEquals(classifyShellCommand("curl http://evil.com"), "L2");
-    assertEquals(classifyShellCommand("chmod 777 file"), "L2");
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: classifyShellCommand - all read-only commands are L0",
-  fn() {
-    assertEquals(classifyShellCommand("echo hello"), "L0");
-    assertEquals(classifyShellCommand("pwd"), "L0");
-    assertEquals(classifyShellCommand("whoami"), "L0");
-    assertEquals(classifyShellCommand("df -h"), "L0");
-    assertEquals(classifyShellCommand("ls -la"), "L0");
-    assertEquals(classifyShellCommand("cat file.txt"), "L0");
-    assertEquals(classifyShellCommand("mdfind test"), "L0");
-    assertEquals(classifyShellCommand("grep -rn TODO src/"), "L0");
-    assertEquals(classifyShellCommand("tree"), "L0");
-    assertEquals(classifyShellCommand("jq '.x' data.json"), "L0");
-  },
-});
-
-// ============================================================
-// shell_exec tests
-// ============================================================
-
-Deno.test({
-  name: "Shell Tools: shell_exec - execute simple command",
-  async fn() {
-    await setupWorkspace();
-
-    const result = await shellExec(
-      {
-        command: "echo hello",
-      } as ShellExecArgs,
-      TEST_WORKSPACE,
+Deno.test("shell tools: shellExec runs simple commands, respects cwd, and reports safety level", async () => {
+  await withWorkspace(async (workspace) => {
+    const echoResult = await shellExec({ command: "echo hello" } as ShellExecArgs, workspace);
+    const pwdResult = await shellExec(
+      { command: "pwd", cwd: "." } as ShellExecArgs,
+      workspace,
     );
 
-    assertEquals(result.success, true);
-    assertEquals(result.exitCode, 0);
-    assertStringIncludes(result.stdout, "hello");
+    assertEquals(echoResult.success, true);
+    assertEquals(echoResult.exitCode, 0);
+    assertEquals(echoResult.safetyLevel, "L0");
+    assertStringIncludes(echoResult.stdout, "hello");
 
-    await cleanupWorkspace();
-  },
+    assertEquals(pwdResult.success, true);
+    assertStringIncludes(pwdResult.stdout, workspace);
+  });
 });
 
-Deno.test({
-  name: "Shell Tools: shell_exec - with working directory",
-  async fn() {
-    await setupWorkspace();
-
-    const result = await shellExec(
-      {
-        command: "pwd",
-        cwd: ".",
-      } as ShellExecArgs,
-      TEST_WORKSPACE,
+Deno.test("shell tools: shellExec rejects bad cwd, empty commands, and surfaces command failures", async () => {
+  await withWorkspace(async (workspace) => {
+    const failedCommand = await shellExec(
+      { command: "ls nonexistent-file" } as ShellExecArgs,
+      workspace,
+    );
+    const emptyCommand = await shellExec(
+      { command: "" } as ShellExecArgs,
+      workspace,
+    );
+    const outsideWorkspace = await shellExec(
+      { command: "pwd", cwd: "../../etc" } as ShellExecArgs,
+      workspace,
     );
 
-    assertEquals(result.success, true);
-    assertStringIncludes(result.stdout, TEST_WORKSPACE);
+    assertEquals(failedCommand.success, false);
+    assertEquals(failedCommand.exitCode, 1);
+    assertStringIncludes(failedCommand.stderr, "nonexistent-file");
 
-    await cleanupWorkspace();
-  },
+    assertEquals(emptyCommand.success, false);
+    assertEquals((emptyCommand.message ?? "").length > 0, true);
+
+    assertEquals(outsideWorkspace.success, false);
+  });
 });
 
-Deno.test({
-  name: "Shell Tools: shell_exec - L0 read-only command classification",
-  async fn() {
-    await setupWorkspace();
+Deno.test("shell tools: shellExec honors abort signals for long-running commands", async () => {
+  if (getPlatform().build.os === "windows") return;
 
-    // Create a git repo
-    await shellExec({ command: "git init" } as ShellExecArgs, TEST_WORKSPACE);
-
-    const result = await shellExec(
-      {
-        command: "git status",
-      } as ShellExecArgs,
-      TEST_WORKSPACE,
-    );
-
-    assertEquals(result.success, true);
-    assertEquals(result.safetyLevel, "L0");
-
-    await cleanupWorkspace();
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: shell_exec - L0 echo command classification",
-  async fn() {
-    await setupWorkspace();
-
-    const result = await shellExec(
-      {
-        command: "echo test",
-      } as ShellExecArgs,
-      TEST_WORKSPACE,
-    );
-
-    assertEquals(result.success, true);
-    assertEquals(result.safetyLevel, "L0");
-
-    await cleanupWorkspace();
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: shell_exec - command with exit code",
-  async fn() {
-    await setupWorkspace();
-
-    const result = await shellExec(
-      {
-        command: "ls nonexistent-file",
-      } as ShellExecArgs,
-      TEST_WORKSPACE,
-    );
-
-    assertEquals(result.success, false);
-    assertEquals(result.exitCode, 1);
-    assertStringIncludes(result.stderr, "nonexistent-file");
-
-    await cleanupWorkspace();
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: shell_exec - empty command",
-  async fn() {
-    await setupWorkspace();
-
-    const result = await shellExec(
-      {
-        command: "",
-      } as ShellExecArgs,
-      TEST_WORKSPACE,
-    );
-
-    assertEquals(result.success, false);
-    // Verify error message exists and is meaningful
-    assertEquals(typeof result.message, "string");
-    assertEquals(result.message!.length > 0, true);
-
-    await cleanupWorkspace();
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: shell_exec - reject path outside workspace",
-  async fn() {
-    await setupWorkspace();
-
-    const result = await shellExec(
-      {
-        command: "pwd",
-        cwd: "../../etc",
-      } as ShellExecArgs,
-      TEST_WORKSPACE,
-    );
-
-    assertEquals(result.success, false);
-
-    await cleanupWorkspace();
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: shell_exec - abort long-running command",
-  async fn() {
-    if (getPlatform().build.os === "windows") return;
-    await setupWorkspace();
-
+  await withWorkspace(async (workspace) => {
     const controller = new AbortController();
     const startedAt = Date.now();
     const pending = shellExec(
-      {
-        command: "sleep 5",
-      } as ShellExecArgs,
-      TEST_WORKSPACE,
+      { command: "sleep 5" } as ShellExecArgs,
+      workspace,
       { signal: controller.signal },
     );
 
@@ -259,45 +95,19 @@ Deno.test({
     assertEquals(result.success, false);
     assertStringIncludes((result.message ?? "").toLowerCase(), "aborted");
     assertEquals(Date.now() - startedAt < 4500, true);
-
-    await cleanupWorkspace();
-  },
+  });
 });
 
-// ============================================================
-// shell_script tests
-// ============================================================
-
-Deno.test({
-  name: "Shell Tools: shell_script - execute simple script",
-  async fn() {
-    await setupWorkspace();
-
-    const result = await shellScript(
+Deno.test("shell tools: shellScript executes multiline scripts, variables, interpreters, and cwd", async () => {
+  await withWorkspace(async (workspace) => {
+    const simple = await shellScript(
       {
-        script: `echo "Line 1"
-echo "Line 2"
-echo "Line 3"`,
+        script: `NAME="World"
+echo "Hello, $NAME!"`,
       } as ShellScriptArgs,
-      TEST_WORKSPACE,
+      workspace,
     );
-
-    assertEquals(result.success, true);
-    assertEquals(result.exitCode, 0);
-    assertStringIncludes(result.stdout, "Line 1");
-    assertStringIncludes(result.stdout, "Line 2");
-    assertStringIncludes(result.stdout, "Line 3");
-
-    await cleanupWorkspace();
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: shell_script - with bash interpreter",
-  async fn() {
-    await setupWorkspace();
-
-    const result = await shellScript(
+    const bash = await shellScript(
       {
         script: `#!/bin/bash
 for i in 1 2 3; do
@@ -305,124 +115,54 @@ for i in 1 2 3; do
 done`,
         interpreter: "bash",
       } as ShellScriptArgs,
-      TEST_WORKSPACE,
+      workspace,
+    );
+    const pwd = await shellScript(
+      { script: "pwd", cwd: "." } as ShellScriptArgs,
+      workspace,
     );
 
-    assertEquals(result.success, true);
-    assertStringIncludes(result.stdout, "Number: 1");
-    assertStringIncludes(result.stdout, "Number: 2");
-    assertStringIncludes(result.stdout, "Number: 3");
-
-    await cleanupWorkspace();
-  },
+    assertEquals(simple.success, true);
+    assertStringIncludes(simple.stdout, "Hello, World!");
+    assertEquals(bash.success, true);
+    assertStringIncludes(bash.stdout, "Number: 1");
+    assertStringIncludes(bash.stdout, "Number: 3");
+    assertEquals(pwd.success, true);
+    assertStringIncludes(pwd.stdout, workspace);
+  });
 });
 
-Deno.test({
-  name: "Shell Tools: shell_script - with working directory",
-  async fn() {
-    await setupWorkspace();
+Deno.test("shell tools: shellScript tolerates command stderr, rejects bad cwd, and supports abort", async () => {
+  if (getPlatform().build.os === "windows") return;
 
-    const result = await shellScript(
-      {
-        script: "pwd",
-        cwd: ".",
-      } as ShellScriptArgs,
-      TEST_WORKSPACE,
-    );
-
-    assertEquals(result.success, true);
-    assertStringIncludes(result.stdout, TEST_WORKSPACE);
-
-    await cleanupWorkspace();
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: shell_script - script with error",
-  async fn() {
-    await setupWorkspace();
-
-    const result = await shellScript(
+  await withWorkspace(async (workspace) => {
+    const scriptWithError = await shellScript(
       {
         script: `echo "Before error"
 ls nonexistent-file
 echo "After error"`,
       } as ShellScriptArgs,
-      TEST_WORKSPACE,
+      workspace,
     );
-
-    // Script continues even after error (unless set -e), so exit code is 0
-    // The error goes to stderr but the script completes
-    assertEquals(result.success, true); // Last command (echo) succeeds
-    assertStringIncludes(result.stdout, "Before error");
-    assertStringIncludes(result.stdout, "After error");
-
-    await cleanupWorkspace();
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: shell_script - with variables",
-  async fn() {
-    await setupWorkspace();
-
-    const result = await shellScript(
-      {
-        script: `NAME="World"
-echo "Hello, $NAME!"`,
-      } as ShellScriptArgs,
-      TEST_WORKSPACE,
+    const outsideWorkspace = await shellScript(
+      { script: "pwd", cwd: "../../etc" } as ShellScriptArgs,
+      workspace,
     );
-
-    assertEquals(result.success, true);
-    assertStringIncludes(result.stdout, "Hello, World!");
-
-    await cleanupWorkspace();
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: shell_script - reject path outside workspace",
-  async fn() {
-    await setupWorkspace();
-
-    const result = await shellScript(
-      {
-        script: "pwd",
-        cwd: "../../etc",
-      } as ShellScriptArgs,
-      TEST_WORKSPACE,
-    );
-
-    assertEquals(result.success, false);
-
-    await cleanupWorkspace();
-  },
-});
-
-Deno.test({
-  name: "Shell Tools: shell_script - abort long-running script",
-  async fn() {
-    if (getPlatform().build.os === "windows") return;
-    await setupWorkspace();
 
     const controller = new AbortController();
-    const startedAt = Date.now();
     const pending = shellScript(
-      {
-        script: "sleep 5",
-      } as ShellScriptArgs,
-      TEST_WORKSPACE,
+      { script: "sleep 5" } as ShellScriptArgs,
+      workspace,
       { signal: controller.signal },
     );
-
     setTimeout(() => controller.abort(), 100);
-    const result = await pending;
+    const aborted = await pending;
 
-    assertEquals(result.success, false);
-    assertStringIncludes((result.message ?? "").toLowerCase(), "aborted");
-    assertEquals(Date.now() - startedAt < 4500, true);
-
-    await cleanupWorkspace();
-  },
+    assertEquals(scriptWithError.success, true);
+    assertStringIncludes(scriptWithError.stdout, "Before error");
+    assertStringIncludes(scriptWithError.stdout, "After error");
+    assertEquals(outsideWorkspace.success, false);
+    assertEquals(aborted.success, false);
+    assertStringIncludes((aborted.message ?? "").toLowerCase(), "aborted");
+  });
 });

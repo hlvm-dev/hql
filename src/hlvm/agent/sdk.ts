@@ -45,7 +45,31 @@ export interface ChatResult {
   /** Final text response from the agent. */
   text: string;
   /** Tool calls made during this turn. */
-  toolCalls: Array<{ name: string; args: unknown; result?: unknown }>;
+  toolCalls: Array<{ id?: string; name: string; args: unknown; result?: unknown }>;
+}
+
+function resolveToolResultTarget(
+  toolCalls: ChatResult["toolCalls"],
+  event: Extract<TraceEvent, { type: "tool_result" }>,
+): ChatResult["toolCalls"][number] | undefined {
+  if (event.toolCallId) {
+    return toolCalls.findLast((tc) => tc.id === event.toolCallId);
+  }
+
+  const unresolved = toolCalls.filter((tc) => tc.result === undefined);
+  const sameNameMatches = unresolved.filter((tc) => tc.name === event.toolName);
+  if (sameNameMatches.length === 1) {
+    return sameNameMatches[0];
+  }
+
+  if (
+    unresolved.length === 1 &&
+    (event.toolName === undefined || unresolved[0].name === event.toolName)
+  ) {
+    return unresolved[0];
+  }
+
+  return undefined;
 }
 
 /** Programmatic agent interface with conversation memory. */
@@ -89,11 +113,15 @@ export class Agent {
     const toolCalls: ChatResult["toolCalls"] = [];
     const onTrace = (event: TraceEvent): void => {
       if (event.type === "tool_call") {
-        toolCalls.push({ name: event.toolName, args: event.args });
+        toolCalls.push({
+          id: event.toolCallId,
+          name: event.toolName,
+          args: event.args,
+        });
       }
       if (event.type === "tool_result") {
-        const last = toolCalls.findLast((tc) => tc.name === event.toolName);
-        if (last) last.result = event.result;
+        const match = resolveToolResultTarget(toolCalls, event);
+        if (match) match.result = event.result;
       }
       this.config.onTrace?.(event);
     };

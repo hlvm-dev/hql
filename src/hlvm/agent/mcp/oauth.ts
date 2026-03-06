@@ -46,19 +46,28 @@ const MCP_OAUTH_REDIRECT_URI = "http://127.0.0.1:35017/hlvm/oauth/callback";
 const ACCESS_TOKEN_SKEW_MS = 60_000;
 const OAUTH_CALLBACK_WAIT_TIMEOUT_MS = 120_000;
 
-/** SSOT fetch wrapper — `http.fetchRaw` takes `string`, SDK passes `URL|string`. */
+/**
+ * SSOT fetch wrapper — SDK's FetchLike passes `(URL|string, RequestInit?)` but
+ * `http.fetchRaw` expects `HttpOptions & RequestInit`. The intersection's `headers`
+ * field is structurally incompatible (`Record<string,string>` vs `HeadersInit`),
+ * so a cast is required. At runtime the SDK only passes standard RequestInit values.
+ */
 // deno-lint-ignore no-explicit-any
 const ssotFetch: FetchLike = (url, init?) =>
   http.fetchRaw(String(url), init as any);
 
-/** Client metadata for dynamic registration via `registerClient()`. */
-const HLVM_CLIENT_METADATA = {
+/**
+ * Client metadata for dynamic registration via `registerClient()`.
+ * SDK's OAuthClientMetadata (zod v4) infers `redirect_uris` as `string[]`
+ * so a direct type annotation works without casts.
+ */
+const HLVM_CLIENT_METADATA: OAuthClientMetadata = {
   client_name: "HLVM MCP Client",
   grant_types: ["authorization_code", "refresh_token"],
   response_types: ["code"],
   redirect_uris: [MCP_OAUTH_REDIRECT_URI],
   token_endpoint_auth_method: "none",
-} as unknown as OAuthClientMetadata;
+};
 
 // ---------------------------------------------------------------------------
 // Types

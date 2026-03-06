@@ -1,18 +1,13 @@
-/**
- * Unit tests for HLVM REPL Memory Persistence
- * Tests: def/defn persistence, loading, compaction, serialization
- */
-
-import { assertEquals, assertExists, assert } from "jsr:@std/assert";
+import { assert, assertEquals, assertExists } from "jsr:@std/assert";
 import {
-  serializeValue,
-  getMemoryFilePath,
   appendToMemory,
-  loadMemory,
   compactMemory,
   forgetFromMemory,
-  getMemoryStats,
+  getMemoryFilePath,
   getMemoryNames,
+  getMemoryStats,
+  loadMemory,
+  serializeValue,
 } from "../../../src/hlvm/cli/repl/memory.ts";
 import { evaluate } from "../../../src/hlvm/cli/repl/evaluator.ts";
 import { ReplState } from "../../../src/hlvm/cli/repl/state.ts";
@@ -20,10 +15,11 @@ import { initializeRuntime } from "../../../src/common/runtime-initializer.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 
 const fs = () => getPlatform().fs;
-const platformPath = () => getPlatform().path;
-const getMemoryDir = () => platformPath().dirname(getMemoryFilePath());
+const path = () => getPlatform().path;
+const getMemoryDir = () => path().dirname(getMemoryFilePath());
 
-// Helper to clean memory file before tests
+await initializeRuntime();
+
 async function cleanMemory(): Promise<void> {
   const filePath = getMemoryFilePath();
   if (await fs().exists(filePath)) {
@@ -31,555 +27,185 @@ async function cleanMemory(): Promise<void> {
   }
 }
 
-// Helper to create memory file with content
 async function createMemoryFile(content: string): Promise<void> {
   await fs().mkdir(getMemoryDir(), { recursive: true });
   await fs().writeTextFile(getMemoryFilePath(), content);
 }
 
 async function readMemoryFileIfExists(): Promise<string | null> {
-  const filePath = getMemoryFilePath();
-  if (!await fs().exists(filePath)) {
+  if (!await fs().exists(getMemoryFilePath())) {
     return null;
   }
-  return await fs().readTextFile(filePath);
+  return await fs().readTextFile(getMemoryFilePath());
 }
 
-// Initialize runtime once
-await initializeRuntime();
+async function evaluateWithState(code: string, state: ReplState): Promise<void> {
+  const result = await evaluate(code, state);
+  assert(result.success, result.error?.message ?? `evaluation failed: ${code}`);
+}
 
-// ============================================================
-// serializeValue() tests
-// ============================================================
+async function loadInto(state: ReplState) {
+  state.setLoadingMemory(true);
+  try {
+    return await loadMemory(async (code: string) => {
+      const result = await evaluate(code, state);
+      return { success: result.success, error: result.error };
+    });
+  } finally {
+    state.setLoadingMemory(false);
+  }
+}
 
-Deno.test("serializeValue: numbers", () => {
+Deno.test("memory: serializeValue covers primitives, nesting, and rejects unsupported values", () => {
+  const circular: Record<string, unknown> = { ok: true };
+  circular["self"] = circular;
+
   assertEquals(serializeValue(42), "42");
-  assertEquals(serializeValue(3.14), "3.14");
-  assertEquals(serializeValue(-10), "-10");
-  assertEquals(serializeValue(0), "0");
-});
-
-Deno.test("serializeValue: strings", () => {
-  assertEquals(serializeValue("hello"), '"hello"');
-  assertEquals(serializeValue(""), '""');
-  assertEquals(serializeValue('with "quotes"'), '"with \\"quotes\\""');
-  assertEquals(serializeValue("with\nnewline"), '"with\\nnewline"');
-  assertEquals(serializeValue("with\ttab"), '"with\\ttab"');
-});
-
-Deno.test("serializeValue: booleans", () => {
-  assertEquals(serializeValue(true), "true");
-  assertEquals(serializeValue(false), "false");
-});
-
-Deno.test("serializeValue: null and undefined", () => {
-  assertEquals(serializeValue(null), "null");
-  assertEquals(serializeValue(undefined), null); // undefined can't be serialized
-});
-
-Deno.test("serializeValue: arrays", () => {
-  assertEquals(serializeValue([1, 2, 3]), "[1 2 3]");
-  assertEquals(serializeValue([]), "[]");
-  assertEquals(serializeValue(["a", "b"]), '["a" "b"]');
-  assertEquals(serializeValue([1, [2, 3]]), "[1 [2 3]]");
-});
-
-Deno.test("serializeValue: objects", () => {
-  assertEquals(serializeValue({ a: 1 }), '{"a": 1}');
-  assertEquals(serializeValue({}), "{}");
-  assertEquals(serializeValue({ x: 1, y: 2 }), '{"x": 1, "y": 2}');
-  assertEquals(serializeValue({ nested: { a: 1 } }), '{"nested": {"a": 1}}');
-});
-
-Deno.test("serializeValue: functions return null", () => {
+  assertEquals(serializeValue("hello\nworld"), '"hello\\nworld"');
+  assertEquals(serializeValue([1, { nested: [2, 3] }]), '[1 {"nested": [2 3]}]');
+  assertEquals(serializeValue(undefined), null);
   assertEquals(serializeValue(() => {}), null);
-  assertEquals(serializeValue(function foo() {}), null);
+  assertEquals(serializeValue(circular), null);
 });
 
-Deno.test("serializeValue: circular reference returns null", () => {
-  const obj: Record<string, unknown> = { a: 1 };
-  obj.self = obj;
-  assertEquals(serializeValue(obj), null);
-});
-
-// ============================================================
-// Memory file operations
-// ============================================================
-
-Deno.test("getMemoryFilePath: returns correct path", () => {
-  const path = getMemoryFilePath();
-  assert(path.endsWith("/.hlvm/memory.hql"));
-});
-
-Deno.test("appendToMemory: creates file and appends def", async () => {
+Deno.test("memory: appendToMemory persists defs, defns, and skips unserializable values", async () => {
   await cleanMemory();
 
-  await appendToMemory("testVar", "def", 42);
+  await appendToMemory("x", "def", 1);
+  await appendToMemory("x", "def", 2);
+  await appendToMemory("double", "defn", "(defn double [n] (* n 2))");
+  await appendToMemory("bad", "def", () => {});
 
   const content = await fs().readTextFile(getMemoryFilePath());
-  assert(content.includes("(def testVar 42)"));
+  assertEquals((content.match(/\(def x/g) ?? []).length, 1);
+  assert(content.includes("(def x 2)"));
+  assert(content.includes("(defn double [n] (* n 2))"));
+  assert(!content.includes("bad"));
 });
 
-Deno.test("appendToMemory: appends defn with source code", async () => {
+Deno.test("memory: append fallback preserves malformed existing content", async () => {
   await cleanMemory();
 
-  await appendToMemory("testFn", "defn", "(defn testFn [x] (* x 2))");
-
-  const content = await fs().readTextFile(getMemoryFilePath());
-  assert(content.includes("(defn testFn [x] (* x 2))"));
-});
-
-Deno.test("appendToMemory: preserves existing content when parse yields no definitions", async () => {
-  await cleanMemory();
-
-  const content = `// HLVM Memory - auto-persisted definitions
+  await createMemoryFile(`// HLVM Memory - auto-persisted definitions
 // Edit freely - compacted on REPL startup
 
 /**
  * Missing end
 (defn existingFn [] 1)
-`;
-  await createMemoryFile(content);
+`);
 
   await appendToMemory("newFn", "defn", "(defn newFn [] 2)");
 
-  const updated = await fs().readTextFile(getMemoryFilePath());
-  assert(updated.includes("(defn existingFn [] 1)"));
-  assert(updated.includes("(defn newFn [] 2)"));
+  const content = await fs().readTextFile(getMemoryFilePath());
+  assert(content.includes("(defn existingFn [] 1)"));
+  assert(content.includes("(defn newFn [] 2)"));
 });
 
-Deno.test("appendToMemory: skips unserializable values", async () => {
+Deno.test("memory: compact, forget, names, and stats share one canonical file view", async () => {
   await cleanMemory();
 
-  // Functions can't be serialized for def
-  await appendToMemory("myFn", "def", () => {});
-
-  const content = await readMemoryFileIfExists();
-  assert(!content || !content.includes("myFn"));
-});
-
-// ============================================================
-// Compaction tests
-// ============================================================
-
-Deno.test("compactMemory: removes duplicates", async () => {
-  await cleanMemory();
-
-  // Write duplicates manually
   await createMemoryFile(`; HLVM Memory
 (def x 1)
-(def y 2)
-(def x 10)
+(def keep 2)
+(def x 3)
+(defn square [n] (* n n))
 `);
 
-  const result = await compactMemory();
+  const compacted = await compactMemory();
+  assertEquals(compacted, { before: 4, after: 3 });
 
-  assertEquals(result.before, 3);
-  assertEquals(result.after, 2);
-
-  const newContent = await fs().readTextFile(getMemoryFilePath());
-  const xMatches = newContent.match(/\(def x/g) || [];
-  assertEquals(xMatches.length, 1);
-  assert(newContent.includes("(def x 10)")); // Latest value kept
-});
-
-Deno.test("compactMemory: handles empty file", async () => {
-  await cleanMemory();
-
-  const result = await compactMemory();
-
-  assertEquals(result.before, 0);
-  assertEquals(result.after, 0);
-});
-
-// ============================================================
-// Loading tests
-// ============================================================
-
-Deno.test("loadMemory: loads definitions", async () => {
-  await cleanMemory();
-
-  // Create memory file with definitions
-  const content = `; HLVM Memory
-(def loadTestX 42)
-(defn loadTestDouble [n] (* n 2))
-`;
-  await fs().mkdir(getMemoryDir(), { recursive: true });
-  await fs().writeTextFile(getMemoryFilePath(), content);
-
-  const state = new ReplState();
-  state.setLoadingMemory(true);
-
-  const result = await loadMemory(async (code: string) => {
-    const r = await evaluate(code, state);
-    return { success: r.success, error: r.error };
-  });
-
-  state.setLoadingMemory(false);
-
-  assertEquals(result.count, 2);
-  assertEquals(result.errors.length, 0);
-});
-
-Deno.test("loadMemory: handles malformed code gracefully", async () => {
-  await cleanMemory();
-
-  // Create memory file with some bad syntax
-  const content = `; HLVM Memory
-(def goodVar 42)
-(def badVar
-(defn goodFn [x] x)
-`;
-  await fs().mkdir(getMemoryDir(), { recursive: true });
-  await fs().writeTextFile(getMemoryFilePath(), content);
-
-  const state = new ReplState();
-  state.setLoadingMemory(true);
-
-  const result = await loadMemory(async (code: string) => {
-    const r = await evaluate(code, state);
-    return { success: r.success, error: r.error };
-  });
-
-  state.setLoadingMemory(false);
-
-  // Should load what it can, skip what it can't
-  assert(result.count >= 1);
-});
-
-// ============================================================
-// Forget tests
-// ============================================================
-
-Deno.test("forgetFromMemory: removes specific definition", async () => {
-  await cleanMemory();
-
-  const content = `; HLVM Memory
-(def keepMe 1)
-(def forgetMe 2)
-(def alsoKeep 3)
-`;
-  await fs().mkdir(getMemoryDir(), { recursive: true });
-  await fs().writeTextFile(getMemoryFilePath(), content);
-
-  const removed = await forgetFromMemory("forgetMe");
-
+  const removed = await forgetFromMemory("keep");
   assertEquals(removed, true);
-
-  const newContent = await fs().readTextFile(getMemoryFilePath());
-  assert(!newContent.includes("forgetMe"));
-  assert(newContent.includes("keepMe"));
-  assert(newContent.includes("alsoKeep"));
-});
-
-Deno.test("forgetFromMemory: returns false for non-existent name", async () => {
-  await cleanMemory();
-
-  const content = `; HLVM Memory
-(def x 1)
-`;
-  await fs().mkdir(getMemoryDir(), { recursive: true });
-  await fs().writeTextFile(getMemoryFilePath(), content);
-
-  const removed = await forgetFromMemory("nonExistent");
-
-  assertEquals(removed, false);
-});
-
-// ============================================================
-// Stats tests
-// ============================================================
-
-Deno.test("getMemoryStats: returns correct stats", async () => {
-  await cleanMemory();
-
-  const content = `; HLVM Memory
-(def a 1)
-(def b 2)
-(defn c [x] x)
-`;
-  await fs().mkdir(getMemoryDir(), { recursive: true });
-  await fs().writeTextFile(getMemoryFilePath(), content);
-
-  const stats = await getMemoryStats();
-
-  assertExists(stats);
-  assertEquals(stats!.count, 3);
-  assert(stats!.size > 0);
-  assert(stats!.path.endsWith("memory.hql"));
-});
-
-Deno.test("getMemoryNames: returns all names", async () => {
-  await cleanMemory();
-
-  const content = `; HLVM Memory
-(def alpha 1)
-(defn beta [x] x)
-(def gamma 3)
-`;
-  await fs().mkdir(getMemoryDir(), { recursive: true });
-  await fs().writeTextFile(getMemoryFilePath(), content);
+  assertEquals(await forgetFromMemory("missing"), false);
 
   const names = await getMemoryNames();
+  assertEquals(names, ["x", "square"]);
 
-  assertEquals(names.length, 3);
-  assert(names.includes("alpha"));
-  assert(names.includes("beta"));
-  assert(names.includes("gamma"));
+  const stats = await getMemoryStats();
+  assertExists(stats);
+  assertEquals(stats.path, getMemoryFilePath());
+  assertEquals(stats.count, 2);
+  assert(stats.size > 0);
 });
 
-// ============================================================
-// Integration: def/defn persist correctly via evaluator
-// ============================================================
-
-Deno.test("integration: def persists evaluated value", async () => {
+Deno.test("memory: loadMemory skips malformed forms and reports evaluator failures", async () => {
   await cleanMemory();
 
-  const state = new ReplState();
-
-  // Evaluate (def x (+ 1 2)) - should persist VALUE 3, not expression
-  await evaluate("(def intTestX (+ 10 32))", state);
-
-  const content = await fs().readTextFile(getMemoryFilePath());
-  assert(content.includes("(def intTestX 42)"));
-  assert(!content.includes("(+ 10 32)")); // Should NOT contain expression
-});
-
-Deno.test("integration: defn persists source code", async () => {
-  await cleanMemory();
-
-  const state = new ReplState();
-
-  await evaluate("(defn intTestFn [n] (* n 2))", state);
-
-  const content = await fs().readTextFile(getMemoryFilePath());
-  assert(content.includes("(defn intTestFn [n] (* n 2))"));
-});
-
-Deno.test("integration: let does NOT persist", async () => {
-  await cleanMemory();
-
-  const state = new ReplState();
-
-  await evaluate("(let noPersistLet 999)", state);
-
-  const content = await readMemoryFileIfExists();
-  assert(!content || !content.includes("noPersistLet"), "let should NOT persist to memory");
-});
-
-Deno.test("integration: const does NOT persist", async () => {
-  await cleanMemory();
-
-  const state = new ReplState();
-
-  await evaluate("(const noPersistConst 888)", state);
-
-  const content = await readMemoryFileIfExists();
-  assert(!content || !content.includes("noPersistConst"), "const should NOT persist to memory");
-});
-
-Deno.test("integration: fn does NOT persist", async () => {
-  await cleanMemory();
-
-  const state = new ReplState();
-
-  await evaluate("(fn noPersistFn [x] x)", state);
-
-  const content = await readMemoryFileIfExists();
-  assert(
-    !content || !content.includes("noPersistFn"),
-    "fn should NOT persist to memory (only defn should)",
-  );
-});
-
-Deno.test("integration: loading does not re-persist", async () => {
-  await cleanMemory();
-
-  // Create initial memory
-  const content = `; HLVM Memory
-(def reloadTest 42)
-`;
-  await fs().mkdir(getMemoryDir(), { recursive: true });
-  await fs().writeTextFile(getMemoryFilePath(), content);
-
-  const beforeSize = (await fs().stat(getMemoryFilePath())).size;
-
-  // Load memory (simulating REPL restart)
-  const state = new ReplState();
-  state.setLoadingMemory(true);
-  await loadMemory(async (code: string) => {
-    const r = await evaluate(code, state);
-    return { success: r.success, error: r.error };
-  });
-  state.setLoadingMemory(false);
-
-  const afterSize = (await fs().stat(getMemoryFilePath())).size;
-
-  // File should not have grown
-  assertEquals(afterSize, beforeSize);
-});
-
-// ============================================================
-// Edge cases
-// ============================================================
-
-Deno.test("edge: unicode in values", async () => {
-  await cleanMemory();
-
-  const state = new ReplState();
-  await evaluate('(def unicodeTest "こんにちは")', state);
-
-  const content = await fs().readTextFile(getMemoryFilePath());
-  assert(content.includes("こんにちは"));
-});
-
-Deno.test("edge: special characters in strings", async () => {
-  await cleanMemory();
-
-  const state = new ReplState();
-  await evaluate('(def specialChars "a\\nb\\tc")', state);
-
-  const content = await fs().readTextFile(getMemoryFilePath());
-  assert(content.includes("specialChars"));
-});
-
-Deno.test("edge: nested data structures", async () => {
-  await cleanMemory();
-
-  const state = new ReplState();
-  await evaluate('(def nestedData {"a": [1, 2, {"b": 3}]})', state);
-
-  const content = await fs().readTextFile(getMemoryFilePath());
-  assert(content.includes("nestedData"));
-});
-
-Deno.test("edge: corrupted file with unclosed paren skips malformed, loads rest", async () => {
-  await cleanMemory();
-
-  // Create corrupted memory file with unclosed paren
-  const corruptedContent = `; HLVM Memory
-(def good1 100)
+  await createMemoryFile(`; HLVM Memory
+(def good 42)
 (def broken
-(def good2 200)
-(defn workingFn [x] (* x 2))
-`;
-  await fs().mkdir(getMemoryDir(), { recursive: true });
-  await fs().writeTextFile(getMemoryFilePath(), corruptedContent);
+(defn ok [x] (* x 2))
+(def fail 0)
+`);
+
+  const loaded: string[] = [];
+  const result = await loadMemory(async (code: string) => {
+    loaded.push(code);
+    if (code.includes("(def fail 0)")) {
+      return { success: false, error: new Error("boom") };
+    }
+    return { success: true };
+  });
+
+  assertEquals(loaded, ["(def good 42)", "(defn ok [x] (* x 2))", "(def fail 0)"]);
+  assertEquals(result.count, 2);
+  assertEquals(result.errors, ["fail: boom"]);
+});
+
+Deno.test("memory: REPL persistence stores def values and defn source only", async () => {
+  await cleanMemory();
 
   const state = new ReplState();
-  state.setLoadingMemory(true);
-  const loadResult = await loadMemory(async (code: string) => {
-    const r = await evaluate(code, state);
-    return { success: r.success, error: r.error };
-  });
-  state.setLoadingMemory(false);
+  await evaluateWithState("(def persistedValue (+ 10 32))", state);
+  await evaluateWithState("(defn persistedFn [n] (* n 2))", state);
+  await evaluateWithState("(let localOnly 1)", state);
+  await evaluateWithState("(const localConst 2)", state);
+  await evaluateWithState("(fn localFn [x] x)", state);
 
-  // Should load 3 definitions, skipping the malformed one
-  assertEquals(loadResult.count, 3, "Should load 3 valid definitions");
-  assertEquals(loadResult.errors.length, 0, "Should have no errors");
-
-  // Verify each value works
-  const g1 = await evaluate("good1", state);
-  const g2 = await evaluate("good2", state);
-  const fn = await evaluate("(workingFn 5)", state);
-
-  assertEquals(g1.value, 100, "good1 should be 100");
-  assertEquals(g2.value, 200, "good2 should be 200");
-  assertEquals(fn.value, 10, "workingFn(5) should be 10");
-});
-
-// ============================================================
-// Round-trip tests - verify loaded values actually work
-// ============================================================
-
-Deno.test("round-trip: def value is usable after reload", async () => {
-  await cleanMemory();
-
-  // Step 1: Define a value and persist it
-  const state1 = new ReplState();
-  await evaluate("(def roundTripValue 42)", state1);
-
-  // Verify it was persisted
   const content = await fs().readTextFile(getMemoryFilePath());
-  assert(content.includes("(def roundTripValue 42)"), "Value should be persisted");
-
-  // Step 2: Simulate REPL restart - new state, load from memory
-  const state2 = new ReplState();
-  state2.setLoadingMemory(true);
-  const loadResult = await loadMemory(async (code: string) => {
-    const r = await evaluate(code, state2);
-    return { success: r.success, error: r.error };
-  });
-  state2.setLoadingMemory(false);
-
-  assertEquals(loadResult.count, 1, "Should load 1 definition");
-  assertEquals(loadResult.errors.length, 0, "Should have no errors");
-
-  // Step 3: Verify the value is actually usable
-  const useResult = await evaluate("roundTripValue", state2);
-  assert(useResult.success, "Should be able to use loaded value");
-  assertEquals(useResult.value, 42, "Loaded value should equal original");
+  assert(content.includes("(def persistedValue 42)"));
+  assert(content.includes("(defn persistedFn [n] (* n 2))"));
+  assert(!content.includes("(+ 10 32)"));
+  assert(!content.includes("localOnly"));
+  assert(!content.includes("localConst"));
+  assert(!content.includes("localFn"));
 });
 
-Deno.test("round-trip: defn function executes after reload", async () => {
+Deno.test("memory: round-trip reload keeps persisted definitions usable and non-duplicated", async () => {
   await cleanMemory();
 
-  // Step 1: Define a function and persist it
-  const state1 = new ReplState();
-  await evaluate("(defn roundTripDouble [x] (* x 2))", state1);
+  const initialState = new ReplState();
+  await evaluateWithState('(def greeting "こんにちは")', initialState);
+  await evaluateWithState('(def nestedData {"a": [1 2 {"b": 3}]})', initialState);
+  await evaluateWithState('(defn triple [n] (* n 3))', initialState);
 
-  // Verify it was persisted
-  const content = await fs().readTextFile(getMemoryFilePath());
-  assert(content.includes("(defn roundTripDouble [x] (* x 2))"), "Function should be persisted");
+  const before = await fs().stat(getMemoryFilePath());
 
-  // Step 2: Simulate REPL restart
-  const state2 = new ReplState();
-  state2.setLoadingMemory(true);
-  const loadResult = await loadMemory(async (code: string) => {
-    const r = await evaluate(code, state2);
-    return { success: r.success, error: r.error };
-  });
-  state2.setLoadingMemory(false);
+  const reloadedState = new ReplState();
+  const result = await loadInto(reloadedState);
+  assertEquals(result.count, 3);
+  assertEquals(result.errors, []);
 
-  assertEquals(loadResult.count, 1, "Should load 1 definition");
-  assertEquals(loadResult.errors.length, 0, "Should have no errors");
+  const greeting = await evaluate("greeting", reloadedState);
+  const nested = await evaluate("nestedData", reloadedState);
+  const triple = await evaluate("(triple 5)", reloadedState);
+  assertEquals(greeting.value, "こんにちは");
+  assertEquals(nested.value, { a: [1, 2, { b: 3 }] });
+  assertEquals(triple.value, 15);
 
-  // Step 3: Verify the function actually executes
-  const callResult = await evaluate("(roundTripDouble 21)", state2);
-  assert(callResult.success, "Should be able to call loaded function");
-  assertEquals(callResult.value, 42, "Function should compute correct result");
+  const after = await fs().stat(getMemoryFilePath());
+  assertEquals(after.size, before.size);
 });
 
-Deno.test("round-trip: multiple definitions persist and load correctly", async () => {
+Deno.test("memory: stats return empty shape when memory file is absent", async () => {
   await cleanMemory();
 
-  // Step 1: Define multiple values and functions
-  const state1 = new ReplState();
-  await evaluate("(def rtMultiA 10)", state1);
-  await evaluate("(def rtMultiB 20)", state1);
-  await evaluate("(defn rtMultiAdd [x y] (+ x y))", state1);
-
-  // Step 2: Simulate REPL restart
-  const state2 = new ReplState();
-  state2.setLoadingMemory(true);
-  const loadResult = await loadMemory(async (code: string) => {
-    const r = await evaluate(code, state2);
-    return { success: r.success, error: r.error };
+  const stats = await getMemoryStats();
+  assertExists(stats);
+  assertEquals(stats, {
+    path: getMemoryFilePath(),
+    count: 0,
+    size: 0,
   });
-  state2.setLoadingMemory(false);
-
-  assertEquals(loadResult.count, 3, "Should load 3 definitions");
-
-  // Step 3: Verify all definitions work together
-  const result = await evaluate("(rtMultiAdd rtMultiA rtMultiB)", state2);
-  assert(result.success, "Should be able to use all loaded definitions");
-  assertEquals(result.value, 30, "Computation should use loaded values");
-});
-
-// Clean up after all tests
-Deno.test("cleanup removes memory file", async () => {
-  await createMemoryFile(`; HLVM Memory\n(def cleanupTest 1)\n`);
-  assert(await fs().exists(getMemoryFilePath()));
-  await cleanMemory();
-  assertEquals(await fs().exists(getMemoryFilePath()), false);
+  assertEquals(await readMemoryFileIfExists(), null);
 });

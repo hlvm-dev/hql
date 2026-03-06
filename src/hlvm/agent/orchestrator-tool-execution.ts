@@ -129,6 +129,7 @@ export async function executeToolCall(
   config.onTrace?.({
     type: "tool_call",
     toolName: toolCall.toolName,
+    toolCallId: toolCall.id,
     args: coercedArgs,
   });
   config.onAgentEvent?.({
@@ -154,6 +155,7 @@ export async function executeToolCall(
         `Unknown tool: ${toolCall.toolName}.${hint}`,
         startedAt,
         config,
+        toolCall.id,
       );
     }
 
@@ -164,6 +166,7 @@ export async function executeToolCall(
         `Tool not allowed by orchestrator: ${toolCall.toolName}`,
         startedAt,
         config,
+        toolCall.id,
       );
     }
 
@@ -175,6 +178,7 @@ export async function executeToolCall(
         `Invalid arguments for ${toolCall.toolName}: ${details}`,
         startedAt,
         config,
+        toolCall.id,
       );
     }
 
@@ -190,6 +194,7 @@ export async function executeToolCall(
               `shell_exec does not support ${getUnsafeReason(parsed)}. Use shell_script for complex commands.`,
               startedAt,
               config,
+              toolCall.id,
             );
           }
         } catch { /* parse errors handled later by executor */ }
@@ -214,6 +219,7 @@ export async function executeToolCall(
         `Tool execution denied by user: ${toolCall.toolName}`,
         startedAt,
         config,
+        toolCall.id,
       );
     }
 
@@ -227,6 +233,7 @@ export async function executeToolCall(
       emitToolSuccess(
         config,
         toolCall.toolName,
+        toolCall.id,
         llmContent,
         summaryDisplay,
         returnDisplay,
@@ -283,6 +290,7 @@ export async function executeToolCall(
             message,
             startedAt,
             config,
+            toolCall.id,
           );
         }
       } else {
@@ -291,6 +299,7 @@ export async function executeToolCall(
           message,
           startedAt,
           config,
+          toolCall.id,
         );
       }
     }
@@ -304,6 +313,7 @@ export async function executeToolCall(
     emitToolSuccess(
       config,
       toolCall.toolName,
+      toolCall.id,
       llmContent,
       summaryDisplay,
       returnDisplay,
@@ -325,6 +335,7 @@ export async function executeToolCall(
       getErrorMessage(error),
       startedAt,
       config,
+      toolCall.id,
     );
   }
 }

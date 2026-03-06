@@ -242,6 +242,42 @@ export function getTranscriptPath(
 // Transcript helpers
 // ============================================================
 
+function findTailResetIndex(records: Record<string, unknown>[]): number {
+  for (let i = records.length - 1; i >= 0; i--) {
+    const record = records[i];
+    if (isObjectValue(record) && record.type === "compaction") {
+      return i + 1;
+    }
+  }
+  return 0;
+}
+
+function startsMidToolExchange(records: Record<string, unknown>[]): boolean {
+  const start = findTailResetIndex(records);
+  for (let i = start; i < records.length; i++) {
+    const record = records[i];
+    if (!isObjectValue(record)) continue;
+    if (record.type !== "message" && record.type !== "compaction") continue;
+    if (record.type === "compaction") return false;
+    return record.role === "tool";
+  }
+  return false;
+}
+
+async function readTranscriptTail(
+  path: string,
+): Promise<Record<string, unknown>[]> {
+  let limit = MAX_TRANSCRIPT_ENTRIES;
+
+  while (true) {
+    const records = await readJsonLinesTail<Record<string, unknown>>(path, limit);
+    if (!startsMidToolExchange(records) || records.length < limit) {
+      return records;
+    }
+    limit *= 2;
+  }
+}
+
 function toTranscriptEntry(message: Message): TranscriptEntry | null {
   if (message.role === "system") return null;
   const timestamp = message.timestamp ?? Date.now();
@@ -265,10 +301,7 @@ export async function loadSessionMessages(
 ): Promise<Message[]> {
   const path = getTranscriptPath(entry, scope);
   try {
-    const records = await readJsonLinesTail<Record<string, unknown>>(
-      path,
-      MAX_TRANSCRIPT_ENTRIES,
-    );
+    const records = await readTranscriptTail(path);
     let messages: Message[] = [];
 
     for (const parsed of records) {
@@ -290,17 +323,18 @@ export async function loadSessionMessages(
       } else {
         const role = String(parsed.role ?? "");
         const content = String(parsed.content ?? "");
-        // Fix 13: Only skip empty content for non-tool roles (tool results can be legitimately empty)
+        const toolCalls = Array.isArray(parsed.toolCalls) && parsed.toolCalls.length > 0
+          ? parsed.toolCalls as Message["toolCalls"]
+          : undefined;
+        // Preserve empty assistant tool-call messages and empty tool results.
         if (role === "system") continue;
-        if (content.trim() === "" && role !== "tool") continue;
+        if (content.trim() === "" && role !== "tool" && !toolCalls) continue;
         const msg: Message = {
           role: role as MessageRole,
           content,
           timestamp,
         };
-        if (Array.isArray(parsed.toolCalls) && parsed.toolCalls.length > 0) {
-          msg.toolCalls = parsed.toolCalls as Message["toolCalls"];
-        }
+        if (toolCalls) msg.toolCalls = toolCalls;
         if (typeof parsed.toolName === "string") msg.toolName = parsed.toolName;
         if (typeof parsed.toolCallId === "string") {
           msg.toolCallId = parsed.toolCallId;

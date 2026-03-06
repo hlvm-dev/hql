@@ -19,35 +19,17 @@ import {
   getDefaultProvider,
   getProvider,
   getProviderForModel,
-  listRegisteredProviders,
   type Message,
   type ModelInfo,
   parseModelString,
   type ProviderStatus,
   type PullProgress,
 } from "../providers/index.ts";
+import {
+  listAllProviderModels,
+  type ModelListAllOptions,
+} from "../providers/model-list.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
-
-/** Provider-level metadata exposed to GUI thin clients (SSOT). */
-const PROVIDER_META: Record<string, { subtitle?: string; docsUrl?: string }> = {
-  ollama: { subtitle: "Local models", docsUrl: "https://ollama.com/library" },
-  anthropic: {
-    subtitle: "Claude AI models",
-    docsUrl: "https://docs.anthropic.com/en/docs/about-claude/models",
-  },
-  openai: {
-    subtitle: "GPT models",
-    docsUrl: "https://platform.openai.com/docs/models",
-  },
-  google: {
-    subtitle: "Gemini models",
-    docsUrl: "https://ai.google.dev/gemini-api/docs/models",
-  },
-  "claude-code": {
-    subtitle: "Claude AI models (Max)",
-    docsUrl: "https://docs.anthropic.com/en/docs/about-claude/models",
-  },
-};
 
 // ============================================================================
 // Helper Types
@@ -67,11 +49,6 @@ interface ProviderRequestOptions {
   model?: string;
   signal?: AbortSignal;
   raw?: Record<string, unknown>;
-}
-
-interface ModelListAllOptions {
-  includeProviders?: string[];
-  excludeProviders?: string[];
 }
 
 // ============================================================================
@@ -134,31 +111,6 @@ function createAiApi() {
       ...options,
       model: resolveModelName(options?.model),
     } as T;
-  }
-
-  function tagProviderModels(
-    providerName: string,
-    provider: AIProvider,
-    models: ModelInfo[],
-  ): ModelInfo[] {
-    if (models.length === 0) {
-      return models;
-    }
-
-    const isCloud = providerName !== "ollama";
-    const meta = PROVIDER_META[providerName];
-    return models.map((model) => ({
-      ...model,
-      metadata: {
-        ...model.metadata,
-        provider: providerName,
-        providerDisplayName: provider.displayName ?? providerName,
-        apiKeyConfigured: provider.apiKeyConfigured,
-        ...(isCloud ? { cloud: true } : {}),
-        ...(meta?.subtitle ? { providerSubtitle: meta.subtitle } : {}),
-        ...(meta?.docsUrl ? { providerDocsUrl: meta.docsUrl } : {}),
-      },
-    }));
   }
 
   return {
@@ -233,72 +185,7 @@ function createAiApi() {
        * @example (ai.models.listAll)
        */
       listAll: async (options?: ModelListAllOptions): Promise<ModelInfo[]> => {
-        const includeProviders = options?.includeProviders;
-        const excludeProviders = new Set(options?.excludeProviders ?? []);
-        const providerNames = listRegisteredProviders().filter((name) =>
-          (!includeProviders || includeProviders.includes(name)) &&
-          !excludeProviders.has(name)
-        );
-        const results = await Promise.all(
-          providerNames.map(async (name) => {
-            try {
-              const provider = getProvider(name);
-              if (!provider?.models?.list) return [];
-              let models: ModelInfo[] = [];
-
-              try {
-                models = await provider.models.list();
-              } catch {
-                // Keep empty; listAll should still return whatever other providers have.
-              }
-
-              if (
-                name === "ollama" &&
-                models.length === 0 &&
-                provider.models.catalog
-              ) {
-                try {
-                  models = await provider.models.catalog();
-                } catch {
-                  // Keep empty; listAll should still return whatever other providers have.
-                }
-              }
-
-              return tagProviderModels(name, provider, models);
-            } catch {
-              return [];
-            }
-          }),
-        );
-        const allModels = results.flat();
-
-        // Deduplicate: when the same model appears from multiple providers,
-        // prefer the provider where apiKeyConfigured is true over false.
-        const byName = new Map<string, ModelInfo[]>();
-        for (const m of allModels) {
-          const existing = byName.get(m.name);
-          if (existing) existing.push(m);
-          else byName.set(m.name, [m]);
-        }
-
-        const deduped: ModelInfo[] = [];
-        for (const models of byName.values()) {
-          if (models.length <= 1) {
-            deduped.push(...models);
-            continue;
-          }
-          const hasConfigured = models.some((m) =>
-            m.metadata?.apiKeyConfigured === true
-          );
-          if (hasConfigured) {
-            for (const m of models) {
-              if (m.metadata?.apiKeyConfigured !== false) deduped.push(m);
-            }
-          } else {
-            deduped.push(...models);
-          }
-        }
-        return deduped;
+        return await listAllProviderModels(options);
       },
 
       /**

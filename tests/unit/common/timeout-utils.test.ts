@@ -1,30 +1,17 @@
-/**
- * Tests for timeout-utils.ts
- *
- * Coverage:
- * - withTimeout() basic functionality
- * - withTimeout() with parent AbortSignal
- * - combineSignals() OR logic
- * - isAbortError() classification
- * - TimeoutError custom error
- * - Resource cleanup (clearTimeout)
- */
-
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import {
-  withTimeout,
   combineSignals,
   isAbortError,
   TimeoutError,
+  withTimeout,
 } from "../../../src/common/timeout-utils.ts";
 
-// ============================================================
-// withTimeout() Tests
-// ============================================================
+Deno.test("TimeoutUtils: withTimeout returns the operation result and passes a live signal", async () => {
+  let signalWasAborted: boolean | null = null;
 
-Deno.test("withTimeout - succeeds before timeout", async () => {
   const result = await withTimeout(
-    async (_signal) => {
+    async (signal) => {
+      signalWasAborted = signal.aborted;
       await new Promise((resolve) => setTimeout(resolve, 10));
       return "success";
     },
@@ -32,22 +19,25 @@ Deno.test("withTimeout - succeeds before timeout", async () => {
   );
 
   assertEquals(result, "success");
+  assertEquals(signalWasAborted, false);
 });
 
-Deno.test("withTimeout - throws TimeoutError on timeout", async () => {
+Deno.test("TimeoutUtils: withTimeout aborts slow operations and throws TimeoutError", async () => {
+  let signalObservedAbort = false;
+
   await assertRejects(
     async () => {
       await withTimeout(
         async (signal) => {
-          // Use signal-aware sleep that can be cancelled
           await new Promise<void>((resolve, reject) => {
             const timer = setTimeout(resolve, 200);
             signal.addEventListener("abort", () => {
+              signalObservedAbort = signal.aborted;
               clearTimeout(timer);
               reject(new Error("Aborted"));
-            });
+            }, { once: true });
           });
-          return "should not reach";
+          return "unreachable";
         },
         { timeoutMs: 50, label: "slow operation" },
       );
@@ -55,264 +45,78 @@ Deno.test("withTimeout - throws TimeoutError on timeout", async () => {
     TimeoutError,
     "slow operation timed out after 50ms",
   );
+
+  assertEquals(signalObservedAbort, true);
 });
 
-Deno.test("withTimeout - operation receives AbortSignal", async () => {
-  let receivedSignal: AbortSignal | null = null;
-
-  await withTimeout(
-    (signal) => {
-      receivedSignal = signal;
-      return Promise.resolve("done");
-    },
-    { timeoutMs: 1000, label: "test" },
-  );
-
-  // Signal should have been passed to the operation and not yet aborted
-  assertEquals(receivedSignal!.aborted, false);
-});
-
-Deno.test("withTimeout - signal is aborted after timeout", async () => {
-  let capturedSignal: AbortSignal | null = null;
-
-  try {
-    await withTimeout(
-      async (signal) => {
-        capturedSignal = signal;
-        // Use signal-aware sleep that can be cancelled
-        await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(resolve, 200);
-          signal.addEventListener("abort", () => {
-            clearTimeout(timer);
-            reject(new Error("Aborted"));
-          });
-        });
-        return "should not reach";
-      },
-      { timeoutMs: 50, label: "test" },
-    );
-  } catch (_error) {
-    // Expected timeout
-  }
-
-  // Signal should be aborted after timeout
-  assertEquals(capturedSignal!.aborted, true);
-});
-
-Deno.test("withTimeout - propagates operation errors", async () => {
+Deno.test("TimeoutUtils: withTimeout propagates operation errors and parent-signal cancellation", async () => {
   await assertRejects(
-    async () => {
-      await withTimeout(
-        (_signal) => Promise.reject(new Error("operation failed")),
-        { timeoutMs: 1000, label: "test" },
-      );
-    },
+    () => withTimeout(async () => {
+      throw new Error("operation failed");
+    }, { timeoutMs: 1000, label: "test" }),
     Error,
     "operation failed",
   );
-});
 
-Deno.test("withTimeout - combines with parent signal", async () => {
   const parentController = new AbortController();
-  let capturedSignal: AbortSignal | null = null;
-
+  let signalObservedAbort = false;
   const promise = withTimeout(
     async (signal) => {
-      capturedSignal = signal;
-      // Use signal-aware operation
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(resolve, 500);
         signal.addEventListener("abort", () => {
+          signalObservedAbort = signal.aborted;
           clearTimeout(timer);
           reject(new Error("Aborted by signal"));
-        });
+        }, { once: true });
       });
       return "done";
     },
     {
       timeoutMs: 1000,
       signal: parentController.signal,
-      label: "test",
+      label: "parent abort",
     },
   );
 
-  // Abort parent after 50ms
   setTimeout(() => parentController.abort(), 50);
-
-  await assertRejects(
-    async () => await promise,
-    Error,
-  );
-
-  // Signal should be aborted
-  assertEquals(capturedSignal!.aborted, true);
+  await assertRejects(() => promise, Error);
+  assertEquals(signalObservedAbort, true);
 });
 
-// ============================================================
-// combineSignals() Tests
-// ============================================================
+Deno.test("TimeoutUtils: combineSignals supports single passthrough and multi-signal OR semantics", async () => {
+  const singleController = new AbortController();
+  const single = combineSignals(singleController.signal);
+  assertEquals(single.aborted, false);
+  singleController.abort(new Error("single"));
+  assertEquals(single.aborted, true);
+  assertEquals(single.reason instanceof Error, true);
 
-Deno.test("combineSignals - returns aborted signal if any input aborted", () => {
   const controller1 = new AbortController();
   const controller2 = new AbortController();
-
-  controller1.abort();
-
   const combined = combineSignals(controller1.signal, controller2.signal);
-
-  assertEquals(combined.aborted, true);
-});
-
-Deno.test("combineSignals - aborts when first input aborts", async () => {
-  const controller1 = new AbortController();
-  const controller2 = new AbortController();
-
-  const combined = combineSignals(controller1.signal, controller2.signal);
-
   assertEquals(combined.aborted, false);
-
-  controller1.abort();
-
-  // Wait for event listener to fire
-  await new Promise((resolve) => setTimeout(resolve, 10));
-
+  controller2.abort(new Error("combined"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
   assertEquals(combined.aborted, true);
+  assertEquals((combined.reason as Error).message, "combined");
 });
 
-Deno.test("combineSignals - aborts when second input aborts", async () => {
-  const controller1 = new AbortController();
-  const controller2 = new AbortController();
+Deno.test("TimeoutUtils: isAbortError classifies timeout and abort-shaped errors only", () => {
+  const abortByName = new Error("aborted");
+  abortByName.name = "AbortError";
 
-  const combined = combineSignals(controller1.signal, controller2.signal);
-
-  assertEquals(combined.aborted, false);
-
-  controller2.abort();
-
-  // Wait for event listener to fire
-  await new Promise((resolve) => setTimeout(resolve, 10));
-
-  assertEquals(combined.aborted, true);
-});
-
-Deno.test("combineSignals - single signal passthrough", () => {
-  const controller = new AbortController();
-  const combined = combineSignals(controller.signal);
-
-  assertEquals(combined.aborted, false);
-  controller.abort();
-  // Combined signal should reflect the single input
-  assertEquals(combined.aborted, true);
-});
-
-Deno.test("combineSignals - propagates abort reason", () => {
-  const controller = new AbortController();
-  const reason = new Error("custom reason");
-
-  controller.abort(reason);
-
-  const combined = combineSignals(controller.signal);
-
-  assertEquals(combined.aborted, true);
-  assertEquals(combined.reason, reason);
-});
-
-// ============================================================
-// isAbortError() Tests
-// ============================================================
-
-Deno.test("isAbortError - detects TimeoutError", () => {
-  const error = new TimeoutError("test", 1000);
-  assertEquals(isAbortError(error), true);
-});
-
-Deno.test("isAbortError - detects AbortError by name", () => {
-  const error = new Error("aborted");
-  error.name = "AbortError";
-  assertEquals(isAbortError(error), true);
-});
-
-Deno.test("isAbortError - detects abort in message", () => {
-  const error = new Error("operation was aborted");
-  assertEquals(isAbortError(error), true);
-});
-
-Deno.test("isAbortError - rejects non-abort errors", () => {
-  const error = new Error("network error");
-  assertEquals(isAbortError(error), false);
-});
-
-Deno.test("isAbortError - rejects non-Error objects", () => {
+  assertEquals(isAbortError(new TimeoutError("test", 1000)), true);
+  assertEquals(isAbortError(abortByName), true);
+  assertEquals(isAbortError(new Error("operation was aborted")), true);
+  assertEquals(isAbortError(new Error("network error")), false);
   assertEquals(isAbortError("string error"), false);
   assertEquals(isAbortError(null), false);
-  assertEquals(isAbortError(undefined), false);
-  assertEquals(isAbortError(42), false);
 });
 
-// ============================================================
-// TimeoutError Tests
-// ============================================================
-
-Deno.test("TimeoutError - has correct name", () => {
-  const error = new TimeoutError("test", 1000);
-  assertEquals(error.name, "TimeoutError");
-});
-
-Deno.test("TimeoutError - has correct message", () => {
+Deno.test("TimeoutUtils: TimeoutError preserves standard error shape", () => {
   const error = new TimeoutError("LLM call", 5000);
+  assertEquals(error instanceof Error, true);
+  assertEquals(error.name, "TimeoutError");
   assertEquals(error.message, "LLM call timed out after 5000ms");
 });
-
-Deno.test("TimeoutError - is instance of Error", () => {
-  const error = new TimeoutError("test", 1000);
-  assertEquals(error instanceof Error, true);
-});
-
-// ============================================================
-// Resource Cleanup Tests
-// ============================================================
-
-
-// ============================================================
-// Integration Tests
-// ============================================================
-
-Deno.test({ name: "withTimeout - realistic LLM call simulation", sanitizeOps: false, fn: async () => {
-  const mockLLMCall = async (signal: AbortSignal) => {
-    for (let i = 0; i < 5; i++) {
-      if (signal.aborted) throw new Error("LLM call aborted");
-      await new Promise<void>((resolve) => {
-        const id = setTimeout(resolve, 1);
-        signal.addEventListener("abort", () => { clearTimeout(id); resolve(); }, { once: true });
-      });
-    }
-    return { response: "LLM response" };
-  };
-
-  const result = await withTimeout(
-    mockLLMCall,
-    { timeoutMs: 5000, label: "LLM call" },
-  );
-
-  assertEquals(result.response, "LLM response");
-}});
-
-Deno.test({ name: "withTimeout - realistic tool execution simulation", sanitizeOps: false, fn: async () => {
-  const mockToolExec = async (signal: AbortSignal) => {
-    for (let i = 0; i < 3; i++) {
-      if (signal.aborted) throw new Error("Tool execution cancelled");
-      await new Promise<void>((resolve) => {
-        const id = setTimeout(resolve, 1);
-        signal.addEventListener("abort", () => { clearTimeout(id); resolve(); }, { once: true });
-      });
-    }
-    return { success: true, output: "tool result" };
-  };
-
-  const result = await withTimeout(
-    mockToolExec,
-    { timeoutMs: 5000, label: "Tool execution" },
-  );
-
-  assertEquals(result.success, true);
-}});

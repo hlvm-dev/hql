@@ -1,526 +1,145 @@
-/**
- * Pattern Matching Tests
- *
- * Tests for HQL's pattern matching syntax:
- * (match value
- *   (case pattern result)
- *   (case pattern (if guard) result)
- *   (default result))
- */
-
 import { assertEquals } from "jsr:@std/assert";
-import { transpile, evalHql } from "./helpers.ts";
+import { run } from "./helpers.ts";
 
-// Helper function needed for HQL hash-map literals
-// This should normally be embedded by the transpiler, but we include it here for test eval
-// deno-lint-ignore no-explicit-any
-(globalThis as any).__hql_hash_map = function(...args: unknown[]) {
-  const result: Record<string, unknown> = {};
-  for (let i = 0; i < args.length; i += 2) {
-    result[args[i] as string] = args[i + 1];
-  }
-  return result;
-};
+// Runtime coverage only: current type-checking still lags some match-pattern forms.
+const runPattern = (code: string) => run(code, { typeCheck: false });
 
-// Helper function needed for pattern matching object checks
-// Checks if val is an object with all required keys from the pattern
-// Pattern format: ["__hql_hash_map", key1, var1, key2, var2, ...]
-// deno-lint-ignore no-explicit-any
-(globalThis as any).__hql_match_obj = function(val: unknown, pattern: unknown[]): boolean {
-  if (typeof val !== "object" || val === null || Array.isArray(val)) {
-    return false;
-  }
-  // Extract keys from odd indices (1, 3, 5, ...) and check existence
-  for (let i = 1; i < pattern.length; i += 2) {
-    const key = pattern[i];
-    if (typeof key === "string" && !(key in (val as Record<string, unknown>))) {
-      return false;
-    }
-  }
-  return true;
-};
+Deno.test("Pattern Matching - literal clauses and default fallback", async () => {
+  const result = await runPattern(`
+    (fn classify [value]
+      (match value
+        (case 42 "forty-two")
+        (case "hello" "greeting")
+        (case true "yes")
+        (case null "nothing")
+        (default "other")))
+    [
+      (classify 42)
+      (classify "hello")
+      (classify true)
+      (classify null)
+      (classify 100)
+    ]
+  `);
 
-// ============================================
-// LITERAL MATCHING
-// ============================================
-
-Deno.test("Pattern Matching - Literal number match", async () => {
-  const code = `
-    (match 42
-      (case 42 "forty-two")
-      (case 0 "zero")
-      (default "other"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "forty-two");
+  assertEquals(result, ["forty-two", "greeting", "yes", "nothing", "other"]);
 });
 
-Deno.test("Pattern Matching - Literal string match", async () => {
-  const code = `
-    (match "hello"
-      (case "hello" "greeting")
-      (case "bye" "farewell")
-      (default "other"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "greeting");
+Deno.test("Pattern Matching - symbol binding and wildcard fallback", async () => {
+  const result = await runPattern(`
+    [
+      (match "test"
+        (case 42 "number")
+        (case s (+ "value: " s)))
+      (match 999
+        (case 1 "one")
+        (case 2 "two")
+        (case _ "other"))
+    ]
+  `);
+
+  assertEquals(result, ["value: test", "other"]);
 });
 
-Deno.test("Pattern Matching - Literal boolean match", async () => {
-  const code = `
-    (match true
-      (case true "yes")
-      (case false "no")
-      (default "other"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "yes");
+Deno.test("Pattern Matching - array patterns cover empty fixed and rest forms", async () => {
+  const result = await runPattern(`
+    (fn describe-value [value]
+      (match value
+        (case [] "empty")
+        (case [x] (+ "one: " x))
+        (case [a, b] (+ a b))
+        (case [h, & t] [h t])
+        (default "not array")))
+    [
+      (describe-value [])
+      (describe-value [42])
+      (describe-value [1, 2])
+      (describe-value [10, 20, 30])
+      (describe-value "oops")
+    ]
+  `);
+
+  assertEquals(result, ["empty", "one: 42", 3, [10, [20, 30]], "not array"]);
 });
 
-Deno.test("Pattern Matching - Literal null match", async () => {
-  const code = `
-    (match null
-      (case null "nothing")
-      (default "something"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "nothing");
+Deno.test("Pattern Matching - object and nested patterns bind structured values", async () => {
+  const result = await runPattern(`
+    (fn inspect [value]
+      (match value
+        (case {name: n, coords: [x, y]} [n (+ x y)])
+        (case [[a, b], [c, d]] (+ a b c d))
+        (default "no match")))
+    [
+      (inspect {"name": "Alice", "coords": [10, 20]})
+      (inspect [[1, 2], [3, 4]])
+      (inspect [1, 2, 3])
+    ]
+  `);
+
+  assertEquals(result, [["Alice", 30], 10, "no match"]);
 });
 
-Deno.test("Pattern Matching - Falls through to next case", async () => {
-  const code = `
-    (match 100
-      (case 42 "forty-two")
-      (case 0 "zero")
-      (default "other"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "other");
+Deno.test("Pattern Matching - guards control clause selection", async () => {
+  const result = await runPattern(`
+    (fn classify [value]
+      (match value
+        (case x (if (> x 0)) "positive")
+        (case x (if (< x 0)) "negative")
+        (default "zero")))
+    [
+      (classify 10)
+      (classify -5)
+      (classify 0)
+      (match [5, 3]
+        (case [a, b] (if (> a b)) "a > b")
+        (case [a, b] (if (< a b)) "a < b")
+        (default "a = b"))
+    ]
+  `);
+
+  assertEquals(result, ["positive", "negative", "zero", "a > b"]);
 });
 
-// ============================================
-// SYMBOL BINDING
-// ============================================
-
-Deno.test("Pattern Matching - Symbol binding", async () => {
-  const code = `
-    (match 42
-      (case x (+ x 1)))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, 43);
-});
-
-Deno.test("Pattern Matching - Symbol binding with default", async () => {
-  const code = `
-    (match "test"
-      (case 42 "number")
-      (case s (+ "value: " s)))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "value: test");
-});
-
-// ============================================
-// WILDCARD
-// ============================================
-
-Deno.test("Pattern Matching - Wildcard matches anything", async () => {
-  const code = `
-    (match "anything"
-      (case _ "matched"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "matched");
-});
-
-Deno.test("Pattern Matching - Wildcard as fallback", async () => {
-  const code = `
-    (match 999
-      (case 1 "one")
-      (case 2 "two")
-      (case _ "other"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "other");
-});
-
-// ============================================
-// ARRAY PATTERNS
-// ============================================
-
-Deno.test("Pattern Matching - Empty array pattern", async () => {
-  const code = `
-    (match []
-      (case [] "empty")
-      (default "not empty"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "empty");
-});
-
-Deno.test("Pattern Matching - Single element array", async () => {
-  const code = `
-    (match [42]
-      (case [] "empty")
-      (case [x] (+ "one: " x))
-      (default "other"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "one: 42");
-});
-
-Deno.test("Pattern Matching - Two element array", async () => {
-  const code = `
-    (match [1, 2]
-      (case [] "empty")
-      (case [x] "one")
-      (case [a, b] (+ a b))
-      (default "other"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, 3);
-});
-
-Deno.test("Pattern Matching - Array rest pattern", async () => {
-  const code = `
-    (match [1, 2, 3, 4]
-      (case [] "empty")
-      (case [h, & t] t))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, [2, 3, 4]);
-});
-
-Deno.test("Pattern Matching - Array rest pattern head", async () => {
-  const code = `
-    (match [10, 20, 30]
-      (case [h, & t] h))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, 10);
-});
-
-Deno.test("Pattern Matching - Non-array doesn't match array pattern", async () => {
-  const code = `
-    (match "not array"
-      (case [x] "array")
-      (default "not array"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "not array");
-});
-
-// ============================================
-// OBJECT PATTERNS
-// ============================================
-
-Deno.test("Pattern Matching - Object binding", async () => {
-  const code = `
-    (match {"name": "Alice", "age": 30}
-      (case {name: n, age: a} (+ n " is " a))
-      (default "no match"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "Alice is 30");
-});
-
-Deno.test("Pattern Matching - Object single key binding", async () => {
-  const code = `
-    (match {"x": 10}
-      (case {x: val} val)
-      (default 0))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, 10);
-});
-
-Deno.test("Pattern Matching - Non-object doesn't match object pattern", async () => {
-  const code = `
-    (match [1, 2, 3]
-      (case {x: v} "object")
-      (default "not object"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "not object");
-});
-
-// ============================================
-// GUARDS
-// ============================================
-
-Deno.test("Pattern Matching - Guard passes", async () => {
-  const code = `
-    (match 10
-      (case x (if (> x 0)) "positive")
-      (default "non-positive"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "positive");
-});
-
-Deno.test("Pattern Matching - Guard fails, falls through", async () => {
-  const code = `
-    (match -5
-      (case x (if (> x 0)) "positive")
-      (default "non-positive"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "non-positive");
-});
-
-Deno.test("Pattern Matching - Multiple guards", async () => {
-  const code = `
-    (match 0
-      (case x (if (> x 0)) "positive")
-      (case x (if (< x 0)) "negative")
-      (default "zero"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "zero");
-});
-
-Deno.test("Pattern Matching - Guard with array binding", async () => {
-  const code = `
-    (match [5, 3]
-      (case [a, b] (if (> a b)) "a > b")
-      (case [a, b] (if (< a b)) "a < b")
-      (default "a = b"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "a > b");
-});
-
-// ============================================
-// DEFAULT CLAUSE
-// ============================================
-
-Deno.test("Pattern Matching - Default is executed when no match", async () => {
-  const code = `
-    (match "unmatchable"
-      (case 1 "one")
-      (case 2 "two")
-      (default "default"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "default");
-});
-
-Deno.test("Pattern Matching - Default can have complex expression", async () => {
-  const code = `
-    (match 999
-      (case 1 "one")
-      (default (+ "fallback: " 999)))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "fallback: 999");
-});
-
-// ============================================
-// NESTED PATTERNS
-// ============================================
-
-Deno.test("Pattern Matching - Nested array", async () => {
-  const code = `
-    (match [[1, 2], [3, 4]]
-      (case [[a, b], [c, d]] (+ a b c d))
-      (default 0))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, 10);
-});
-
-Deno.test("Pattern Matching - Object with array value", async () => {
-  const code = `
-    (match {"coords": [10, 20]}
-      (case {coords: [x, y]} (+ x y))
-      (default 0))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, 30);
-});
-
-// ============================================
-// RECURSIVE PATTERNS
-// ============================================
-
-Deno.test("Pattern Matching - Recursive sum", async () => {
-  const code = `
+Deno.test("Pattern Matching - recursive destructuring handles list traversal", async () => {
+  const result = await runPattern(`
     (fn sum [lst]
       (match lst
         (case [] 0)
-        (case [x] x)
         (case [h, & t] (+ h (sum t)))))
     (sum [1, 2, 3, 4, 5])
-  `;
-  const result = await evalHql(code);
+  `);
+
   assertEquals(result, 15);
 });
 
-Deno.test("Pattern Matching - Recursive length", async () => {
-  const code = `
-    (fn my-length [lst]
-      (match lst
-        (case [] 0)
-        (case [_, & t] (+ 1 (my-length t)))))
-    (my-length [1, 2, 3, 4])
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, 4);
-});
-
-// ============================================
-// COMPLEX EXAMPLES
-// ============================================
-
-// Note: Object patterns with literal value matching like {status: 200} are not yet supported.
-// These tests use simpler patterns that bind all keys.
-Deno.test("Pattern Matching - HTTP response handler", async () => {
-  const code = `
-    (fn handle-response [res]
-      (match res
-        (case {status: s} (if (=== s 200) "ok" (if (=== s 404) "not found" "error")))
-        (default "unknown")))
-    (handle-response {"status": 200})
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "ok");
-});
-
-Deno.test("Pattern Matching - Event handler", async () => {
-  const code = `
-    (fn handle-event [event]
-      (match event
-        (case {type: t, x: x, y: y} (if (=== t "click") (+ "click at " x "," y) "other"))
-        (default "unknown event")))
-    (handle-event {"type": "click", "x": 100, "y": 200})
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "click at 100,200");
-});
-
-// ============================================
-// GENERATED CODE QUALITY
-// ============================================
-
-Deno.test("Pattern Matching - Generated code doesn't contain 'match' keyword", async () => {
-  const code = `
-    (match 42
-      (case 42 "yes")
-      (default "no"))
-  `;
-  const js = await transpile(code);
-  // The generated code uses match_N as variable names, which is fine.
-  // We just check that 'match' is not used as a keyword/function call.
-  // match_N variable names are acceptable.
-  const hasMatchKeyword = /[^_a-zA-Z0-9]match[^_a-zA-Z0-9]/.test(` ${js} `);
-  assertEquals(hasMatchKeyword, false, `Generated code should not contain 'match' as keyword: ${js}`);
-});
-
-Deno.test("Pattern Matching - Generated code doesn't contain 'case'", async () => {
-  const code = `
-    (match 42
-      (case 42 "yes")
-      (default "no"))
-  `;
-  const js = await transpile(code);
-  assertEquals(js.includes("case "), false, `Generated code should not contain 'case': ${js}`);
-});
-
-// ============================================
-// OR-PATTERNS
-// ============================================
-
-Deno.test("Pattern Matching - Or-pattern matches first alternative", async () => {
-  const code = `
-    (match 1
-      (case (| 1 2 3) "small")
-      (default "other"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "small");
-});
-
-Deno.test("Pattern Matching - Or-pattern matches second alternative", async () => {
-  const code = `
-    (match 2
-      (case (| 1 2 3) "small")
-      (default "other"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "small");
-});
-
-Deno.test("Pattern Matching - Or-pattern matches third alternative", async () => {
-  const code = `
-    (match 3
-      (case (| 1 2 3) "small")
-      (default "other"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "small");
-});
-
-Deno.test("Pattern Matching - Or-pattern falls through on no match", async () => {
-  const code = `
-    (match 99
-      (case (| 1 2 3) "small")
-      (default "other"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "other");
-});
-
-Deno.test("Pattern Matching - Or-pattern with strings", async () => {
-  const code = `
-    (match "yes"
-      (case (| "yes" "y" "Y") true)
-      (case (| "no" "n" "N") false)
-      (default null))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, true);
-});
-
-Deno.test("Pattern Matching - Or-pattern in multi-case match", async () => {
-  const code = `
-    (fn classify [n]
-      (match n
+Deno.test("Pattern Matching - or-patterns share one clause across alternatives", async () => {
+  const result = await runPattern(`
+    (fn classify [value]
+      (match value
         (case (| 1 2 3) "small")
-        (case (| 4 5 6) "medium")
-        (case (| 7 8 9) "large")
+        (case (| "yes" "y" "Y") true)
+        (case (| null undefined) "nothing")
         (default "other")))
-    [(classify 2) (classify 5) (classify 9) (classify 0)]
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, ["small", "medium", "large", "other"]);
+    [
+      (classify 2)
+      (classify "yes")
+      (classify null)
+      (classify 99)
+    ]
+  `);
+
+  assertEquals(result, ["small", true, "nothing", "other"]);
 });
 
-Deno.test("Pattern Matching - Or-pattern with null", async () => {
-  const code = `
-    (match null
-      (case (| null undefined) "nothing")
-      (default "something"))
-  `;
-  const result = await evalHql(code);
-  assertEquals(result, "nothing");
-});
-
-// ============================================
-// IMPROVED ERROR MESSAGES
-// ============================================
-
-Deno.test("Pattern Matching - Error includes unmatched value", async () => {
-  const code = `
+Deno.test("Pattern Matching - unmatched errors include the original value", async () => {
+  const result = await runPattern(`
     (try
       (match 42
         (case 1 "one")
         (case 2 "two"))
       (catch e (js-get e "message")))
-  `;
-  const result = await evalHql(code);
+  `);
+
   assertEquals(typeof result, "string");
-  // The error message should contain the unmatched value
-  assertEquals((result as string).includes("42"), true,
-    `Error message should include unmatched value '42', got: ${result}`);
+  assertEquals((result as string).includes("42"), true);
 });

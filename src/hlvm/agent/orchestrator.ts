@@ -110,10 +110,11 @@ export type TraceEvent =
     content?: string;
     toolCalls?: number;
   }
-  | { type: "tool_call"; toolName: string; args: unknown }
+  | { type: "tool_call"; toolName: string; toolCallId?: string; args: unknown }
   | {
     type: "tool_result";
     toolName: string;
+    toolCallId?: string;
     success: boolean;
     result?: unknown;
     error?: string;

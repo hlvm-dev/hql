@@ -12,6 +12,7 @@ import { createFixtureLLM } from "../../../src/hlvm/agent/llm-fixtures.ts";
 import type { LlmFixture } from "../../../src/hlvm/agent/llm-fixtures.ts";
 import type { AgentSession } from "../../../src/hlvm/agent/session.ts";
 import { ENGINE_PROFILES } from "../../../src/hlvm/agent/constants.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 
 /** Create a minimal AgentSession with a fixture LLM. */
 function createTestSession(fixture: LlmFixture): AgentSession {
@@ -168,4 +169,46 @@ Deno.test("Agent.chat() collects tool calls via onTrace", async () => {
   assertEquals(traceEvents.length > 0, true);
 
   await agent.dispose();
+});
+
+Deno.test("Agent.chat() correlates repeated tool names by toolCallId", async () => {
+  const platform = getPlatform();
+  const tempDir = await platform.fs.makeTempDir({ prefix: "hlvm-agent-sdk-" });
+  const fileA = platform.path.join(tempDir, "a.txt");
+  const fileB = platform.path.join(tempDir, "b.txt");
+  await platform.fs.writeTextFile(fileA, "alpha");
+  await platform.fs.writeTextFile(fileB, "beta");
+
+  try {
+    const fixture: LlmFixture = {
+      version: 1,
+      cases: [{
+        name: "duplicate-tool-name",
+        steps: [
+          {
+            toolCalls: [
+              { id: "read_a", toolName: "read_file", args: { path: fileA } },
+              { id: "read_b", toolName: "read_file", args: { path: fileB } },
+            ],
+          },
+          { response: "done" },
+        ],
+      }],
+    };
+
+    const agent = new Agent({ workspace: tempDir });
+    injectSession(agent, createTestSession(fixture));
+
+    const result = await agent.chat("Read both files");
+
+    assertEquals(result.toolCalls.length, 2);
+    assertEquals(result.toolCalls[0].id, "read_a");
+    assertEquals(String(result.toolCalls[0].result).includes("alpha"), true);
+    assertEquals(result.toolCalls[1].id, "read_b");
+    assertEquals(String(result.toolCalls[1].result).includes("beta"), true);
+
+    await agent.dispose();
+  } finally {
+    await platform.fs.remove(tempDir, { recursive: true });
+  }
 });

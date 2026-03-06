@@ -1,168 +1,11 @@
-/**
- * HTTP Utils Tests
- *
- * Verifies JSON error responses, CORS headers (with origin-based restriction),
- * NDJSON formatting, and request body parsing with size/type validation.
- */
-
 import { assertEquals } from "jsr:@std/assert";
 import {
-  jsonError,
   addCorsHeaders,
   isLocalhostOrigin,
+  jsonError,
   ndjsonLine,
   parseJsonBody,
 } from "../../../src/hlvm/cli/repl/http-utils.ts";
-
-// MARK: - jsonError
-
-Deno.test({
-  name: "Utils: jsonError - returns correct status and body",
-  async fn() {
-    const resp = jsonError("Not found", 404);
-    assertEquals(resp.status, 404);
-    const body = await resp.json();
-    assertEquals(body.error, "Not found");
-  },
-});
-
-Deno.test({
-  name: "Utils: jsonError - 400 bad request",
-  async fn() {
-    const resp = jsonError("Bad input", 400);
-    assertEquals(resp.status, 400);
-    const body = await resp.json();
-    assertEquals(body.error, "Bad input");
-  },
-});
-
-// MARK: - isLocalhostOrigin
-
-Deno.test({
-  name: "Utils: isLocalhostOrigin - accepts http://localhost:3000",
-  fn() {
-    assertEquals(isLocalhostOrigin("http://localhost:3000"), true);
-  },
-});
-
-Deno.test({
-  name: "Utils: isLocalhostOrigin - accepts http://127.0.0.1:8080",
-  fn() {
-    assertEquals(isLocalhostOrigin("http://127.0.0.1:8080"), true);
-  },
-});
-
-Deno.test({
-  name: "Utils: isLocalhostOrigin - accepts http://localhost (no port)",
-  fn() {
-    assertEquals(isLocalhostOrigin("http://localhost"), true);
-  },
-});
-
-Deno.test({
-  name: "Utils: isLocalhostOrigin - rejects http://evil.com",
-  fn() {
-    assertEquals(isLocalhostOrigin("http://evil.com"), false);
-  },
-});
-
-Deno.test({
-  name: "Utils: isLocalhostOrigin - rejects empty string",
-  fn() {
-    assertEquals(isLocalhostOrigin(""), false);
-  },
-});
-
-Deno.test({
-  name: "Utils: isLocalhostOrigin - rejects http://localhost.evil.com",
-  fn() {
-    assertEquals(isLocalhostOrigin("http://localhost.evil.com"), false);
-  },
-});
-
-// MARK: - addCorsHeaders
-
-Deno.test({
-  name: "Utils: addCorsHeaders - sets origin for localhost",
-  fn() {
-    const resp = addCorsHeaders(new Response("ok"), "http://localhost:3000");
-    assertEquals(resp.headers.get("Access-Control-Allow-Origin"), "http://localhost:3000");
-    assertEquals(resp.headers.get("Vary"), "Origin");
-  },
-});
-
-Deno.test({
-  name: "Utils: addCorsHeaders - sets origin for 127.0.0.1",
-  fn() {
-    const resp = addCorsHeaders(new Response("ok"), "http://127.0.0.1:8080");
-    assertEquals(resp.headers.get("Access-Control-Allow-Origin"), "http://127.0.0.1:8080");
-  },
-});
-
-Deno.test({
-  name: "Utils: addCorsHeaders - omits origin for non-localhost",
-  fn() {
-    const resp = addCorsHeaders(new Response("ok"), "http://evil.com");
-    assertEquals(resp.headers.get("Access-Control-Allow-Origin"), null);
-    assertEquals(resp.headers.get("Vary"), "Origin");
-  },
-});
-
-Deno.test({
-  name: "Utils: addCorsHeaders - omits origin when no origin provided",
-  fn() {
-    const resp = addCorsHeaders(new Response("ok"));
-    assertEquals(resp.headers.get("Access-Control-Allow-Origin"), null);
-    assertEquals(resp.headers.get("Vary"), "Origin");
-  },
-});
-
-Deno.test({
-  name: "Utils: addCorsHeaders - includes Authorization in allowed headers",
-  fn() {
-    const resp = addCorsHeaders(new Response("ok"), "http://localhost:3000");
-    const allowedHeaders = resp.headers.get("Access-Control-Allow-Headers") ?? "";
-    assertEquals(allowedHeaders.includes("Authorization"), true);
-  },
-});
-
-Deno.test({
-  name: "Utils: addCorsHeaders - preserves existing headers",
-  fn() {
-    const resp = addCorsHeaders(new Response("ok", {
-      headers: { "X-Custom": "value" },
-    }), "http://localhost:3000");
-    assertEquals(resp.headers.get("X-Custom"), "value");
-    assertEquals(resp.headers.get("Access-Control-Allow-Origin"), "http://localhost:3000");
-  },
-});
-
-Deno.test({
-  name: "Utils: addCorsHeaders - sets methods header",
-  fn() {
-    const resp = addCorsHeaders(new Response("ok"), "http://localhost:3000");
-    assertEquals(resp.headers.get("Access-Control-Allow-Methods"), "GET, POST, PATCH, DELETE, OPTIONS");
-  },
-});
-
-// MARK: - ndjsonLine
-
-Deno.test({
-  name: "Utils: ndjsonLine - formats object with trailing newline",
-  fn() {
-    const line = ndjsonLine({ event: "token", text: "hello" });
-    assertEquals(line, '{"event":"token","text":"hello"}\n');
-  },
-});
-
-Deno.test({
-  name: "Utils: ndjsonLine - handles null",
-  fn() {
-    assertEquals(ndjsonLine(null), "null\n");
-  },
-});
-
-// MARK: - parseJsonBody
 
 function jsonRequest(body: unknown, headers?: Record<string, string>): Request {
   return new Request("http://localhost/test", {
@@ -172,116 +15,138 @@ function jsonRequest(body: unknown, headers?: Record<string, string>): Request {
   });
 }
 
-Deno.test({
-  name: "Utils: parseJsonBody - parses valid JSON",
-  async fn() {
-    const req = jsonRequest({ name: "test", count: 42 });
-    const result = await parseJsonBody<{ name: string; count: number }>(req);
-    assertEquals(result.ok, true);
-    if (result.ok) {
-      assertEquals(result.value.name, "test");
-      assertEquals(result.value.count, 42);
-    }
-  },
+async function assertErrorResponse(
+  result: Awaited<ReturnType<typeof parseJsonBody>>,
+  status: number,
+  message?: string,
+): Promise<void> {
+  assertEquals(result.ok, false);
+  if (result.ok) return;
+  assertEquals(result.response.status, status);
+  if (message) {
+    const body = await result.response.json();
+    assertEquals(body.error, message);
+  }
+}
+
+Deno.test("HttpUtils: jsonError returns the requested error payload", async () => {
+  const response = jsonError("Bad input", 400);
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), { error: "Bad input" });
 });
 
-Deno.test({
-  name: "Utils: parseJsonBody - rejects invalid JSON",
-  async fn() {
-    const req = new Request("http://localhost/test", {
+Deno.test("HttpUtils: isLocalhostOrigin only accepts localhost variants", () => {
+  assertEquals(isLocalhostOrigin("http://localhost:3000"), true);
+  assertEquals(isLocalhostOrigin("http://127.0.0.1:8080"), true);
+  assertEquals(isLocalhostOrigin("http://evil.com"), false);
+  assertEquals(isLocalhostOrigin("http://localhost.evil.com"), false);
+  assertEquals(isLocalhostOrigin(""), false);
+});
+
+Deno.test("HttpUtils: addCorsHeaders echoes trusted origins and sets required CORS headers", () => {
+  const response = addCorsHeaders(new Response("ok"), "http://localhost:3000");
+
+  assertEquals(response.headers.get("Access-Control-Allow-Origin"), "http://localhost:3000");
+  assertEquals(response.headers.get("Vary"), "Origin");
+  assertEquals(
+    response.headers.get("Access-Control-Allow-Methods"),
+    "GET, POST, PATCH, DELETE, OPTIONS",
+  );
+  assertEquals(
+    response.headers.get("Access-Control-Allow-Headers")?.includes("Authorization"),
+    true,
+  );
+});
+
+Deno.test("HttpUtils: addCorsHeaders blocks untrusted origins and preserves existing headers", () => {
+  const response = addCorsHeaders(
+    new Response("ok", { headers: { "X-Custom": "value" } }),
+    "http://evil.com",
+  );
+
+  assertEquals(response.headers.get("Access-Control-Allow-Origin"), null);
+  assertEquals(response.headers.get("Vary"), "Origin");
+  assertEquals(response.headers.get("X-Custom"), "value");
+});
+
+Deno.test("HttpUtils: ndjsonLine always appends a trailing newline", () => {
+  assertEquals(ndjsonLine({ event: "token", text: "hello" }), '{"event":"token","text":"hello"}\n');
+  assertEquals(ndjsonLine(null), "null\n");
+});
+
+Deno.test("HttpUtils: parseJsonBody parses valid JSON bodies", async () => {
+  const result = await parseJsonBody<{ name: string; count: number }>(
+    jsonRequest({ name: "test", count: 42 }),
+  );
+
+  assertEquals(result.ok, true);
+  if (!result.ok) return;
+  assertEquals(result.value, { name: "test", count: 42 });
+});
+
+Deno.test("HttpUtils: parseJsonBody rejects non-JSON content types", async () => {
+  await assertErrorResponse(
+    await parseJsonBody(new Request("http://localhost/test", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: '{"ok":true}',
+    })),
+    400,
+    "Content-Type must be application/json",
+  );
+
+  await assertErrorResponse(
+    await parseJsonBody(new Request("http://localhost/test", {
+      method: "POST",
+      body: '{"ok":true}',
+    })),
+    400,
+    "Content-Type must be application/json",
+  );
+});
+
+Deno.test("HttpUtils: parseJsonBody rejects invalid JSON and missing bodies", async () => {
+  await assertErrorResponse(
+    await parseJsonBody(new Request("http://localhost/test", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "not json {{{",
-    });
-    const result = await parseJsonBody(req);
-    assertEquals(result.ok, false);
-    if (!result.ok) {
-      assertEquals(result.response.status, 400);
-      const body = await result.response.json();
-      assertEquals(body.error, "Invalid JSON");
-    }
-  },
-});
+    })),
+    400,
+    "Invalid JSON",
+  );
 
-Deno.test({
-  name: "Utils: parseJsonBody - rejects missing body",
-  async fn() {
-    const req = new Request("http://localhost/test", {
+  await assertErrorResponse(
+    await parseJsonBody(new Request("http://localhost/test", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-    });
-    const result = await parseJsonBody(req);
-    assertEquals(result.ok, false);
-    if (!result.ok) {
-      assertEquals(result.response.status, 400);
-    }
-  },
-});
+    })),
+    400,
+    "Missing body",
+  );
 
-Deno.test({
-  name: "Utils: parseJsonBody - rejects wrong content-type",
-  async fn() {
-    const req = new Request("http://localhost/test", {
+  await assertErrorResponse(
+    await parseJsonBody(new Request("http://localhost/test", {
       method: "POST",
-      headers: { "Content-Type": "text/plain" },
-      body: '{"ok": true}',
-    });
-    const result = await parseJsonBody(req);
-    assertEquals(result.ok, false);
-    if (!result.ok) {
-      assertEquals(result.response.status, 400);
-      const body = await result.response.json();
-      assertEquals(body.error, "Content-Type must be application/json");
-    }
-  },
+      headers: { "Content-Type": "application/json" },
+      body: "",
+    })),
+    400,
+    "Missing body",
+  );
 });
 
-Deno.test({
-  name: "Utils: parseJsonBody - rejects oversized content-length",
-  async fn() {
-    const req = new Request("http://localhost/test", {
+Deno.test("HttpUtils: parseJsonBody enforces request size limits", async () => {
+  await assertErrorResponse(
+    await parseJsonBody(new Request("http://localhost/test", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Content-Length": "2000000",
       },
-      body: '{"ok": true}',
-    });
-    const result = await parseJsonBody(req);
-    assertEquals(result.ok, false);
-    if (!result.ok) {
-      assertEquals(result.response.status, 413);
-    }
-  },
-});
-
-Deno.test({
-  name: "Utils: parseJsonBody - rejects auto-set text/plain content-type",
-  async fn() {
-    const req = new Request("http://localhost/test", {
-      method: "POST",
-      body: '{"ok": true}',
-    });
-    const result = await parseJsonBody(req);
-    assertEquals(result.ok, false);
-    if (!result.ok) {
-      assertEquals(result.response.status, 400);
-    }
-  },
-});
-
-Deno.test({
-  name: "Utils: parseJsonBody - accepts empty string body",
-  async fn() {
-    const req = new Request("http://localhost/test", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "",
-    });
-    const result = await parseJsonBody(req);
-    assertEquals(result.ok, false);
-    if (!result.ok) {
-      assertEquals(result.response.status, 400);
-    }
-  },
+      body: '{"ok":true}',
+    })),
+    413,
+    "Request too large",
+  );
 });

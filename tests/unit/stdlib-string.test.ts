@@ -1,153 +1,71 @@
-// @ts-nocheck: Testing HQL package integration
-// Test suite for @hlvm/string package
-// Tests embedded stdlib package imports using @hlvm/string syntax
-
-import { assertEquals } from "jsr:@std/assert@1";
+import { assertEquals } from "jsr:@std/assert";
 import { run } from "./helpers.ts";
 
-Deno.test("@hlvm/string - split basic", async () => {
-  const code = `
-    (import [split] from "@hlvm/string")
-    (split "a,b,c" ",")
-  `;
-  const result = await run(code);
-  assertEquals(result, ["a", "b", "c"]);
+Deno.test("@hlvm/string: split and join cover representative separators", async () => {
+  const result = await run(`
+    (import [split, join] from "@hlvm/string")
+    [
+      (split "a,b,c" ",")
+      (split "hello-world-test" "-")
+      (join ["x" "y" "z"] "-")
+      (join ["hello" "world"] " ")
+    ]
+  `);
+
+  assertEquals(result, [
+    ["a", "b", "c"],
+    ["hello", "world", "test"],
+    "x-y-z",
+    "hello world",
+  ]);
 });
 
-Deno.test("@hlvm/string - split with different separator", async () => {
-  const code = `
-    (import [split] from "@hlvm/string")
-    (split "hello-world-test" "-")
-  `;
-  const result = await run(code);
-  assertEquals(result, ["hello", "world", "test"]);
+Deno.test("@hlvm/string: trim, upper-case, and lower-case interoperate with imported helpers", async () => {
+  const result = await run(`
+    (import [trim, upper-case, lower-case] from "@hlvm/string")
+    [
+      (trim "  hello  ")
+      (upper-case "hello")
+      (lower-case "WORLD")
+    ]
+  `);
+
+  assertEquals(result, ["hello", "HELLO", "world"]);
 });
 
-Deno.test("@hlvm/string - join basic", async () => {
-  const code = `
-    (import [join] from "@hlvm/string")
-    (join ["x" "y" "z"] "-")
-  `;
-  const result = await run(code);
-  assertEquals(result, "x-y-z");
-});
-
-Deno.test("@hlvm/string - join with space", async () => {
-  const code = `
-    (import [join] from "@hlvm/string")
-    (join ["hello" "world"] " ")
-  `;
-  const result = await run(code);
-  assertEquals(result, "hello world");
-});
-
-Deno.test("@hlvm/string - trim whitespace", async () => {
-  const code = `
-    (import [trim] from "@hlvm/string")
-    (trim "  hello  ")
-  `;
-  const result = await run(code);
-  assertEquals(result, "hello");
-});
-
-Deno.test("@hlvm/string - upper-case", async () => {
-  const code = `
-    (import [upper-case] from "@hlvm/string")
-    (upper-case "hello")
-  `;
-  const result = await run(code);
-  assertEquals(result, "HELLO");
-});
-
-Deno.test("@hlvm/string - lower-case", async () => {
-  const code = `
-    (import [lower-case] from "@hlvm/string")
-    (lower-case "WORLD")
-  `;
-  const result = await run(code);
-  assertEquals(result, "world");
-});
-
-Deno.test("@hlvm/string - multiple imports together", async () => {
-  const code = `
-    (import [split, join, trim] from "@hlvm/string")
-    (var parts (split "  a , b , c  " ","))
+Deno.test("@hlvm/string: aliased and multiple imports compose with core functions", async () => {
+  const result = await run(`
+    (import [split as str-split, join, trim, upper-case] from "@hlvm/string")
+    (var parts (str-split "  a , b , c  " ","))
     (var trimmed (doall (map trim parts)))
-    (join trimmed "-")
-  `;
-  const result = await run(code);
-  assertEquals(result, "a-b-c");
+    [(join trimmed "-") (doall (map upper-case (str-split "hello world" " ")))]
+  `);
+
+  assertEquals(result, ["a-b-c", ["HELLO", "WORLD"]]);
 });
 
-Deno.test("@hlvm/string - aliased import", async () => {
-  const code = `
-    (import [split as str-split] from "@hlvm/string")
-    (str-split "foo:bar" ":")
-  `;
-  const result = await run(code);
-  assertEquals(result, ["foo", "bar"]);
+Deno.test("@hlvm/string: prefix and suffix predicates preserve true and false cases", async () => {
+  const result = await run(`
+    (import [starts-with?, ends-with?] from "@hlvm/string")
+    [
+      (starts-with? "hello world" "hello")
+      (starts-with? "hello world" "world")
+      (ends-with? "hello world" "world")
+      (ends-with? "hello world" "hello")
+    ]
+  `);
+
+  assertEquals(result, [true, false, true, false]);
 });
 
-Deno.test("@hlvm/string - works with core functions", async () => {
-  const code = `
-    (import [split, upper-case] from "@hlvm/string")
-    (var words (split "hello world" " "))
-    (doall (map upper-case words))
-  `;
-  const result = await run(code);
-  assertEquals(result, ["HELLO", "WORLD"]);
-});
-
-Deno.test("@hlvm/string - starts-with? true case", async () => {
-  const code = `
-    (import [starts-with?] from "@hlvm/string")
-    (starts-with? "hello world" "hello")
-  `;
-  const result = await run(code);
-  assertEquals(result, true);
-});
-
-Deno.test("@hlvm/string - starts-with? false case", async () => {
-  const code = `
-    (import [starts-with?] from "@hlvm/string")
-    (starts-with? "hello world" "world")
-  `;
-  const result = await run(code);
-  assertEquals(result, false);
-});
-
-Deno.test("@hlvm/string - ends-with? true case", async () => {
-  const code = `
-    (import [ends-with?] from "@hlvm/string")
-    (ends-with? "hello world" "world")
-  `;
-  const result = await run(code);
-  assertEquals(result, true);
-});
-
-Deno.test("@hlvm/string - ends-with? false case", async () => {
-  const code = `
-    (import [ends-with?] from "@hlvm/string")
-    (ends-with? "hello world" "hello")
-  `;
-  const result = await run(code);
-  assertEquals(result, false);
-});
-
-Deno.test("@hlvm/string - replace basic", async () => {
-  const code = `
+Deno.test("@hlvm/string: replace handles substitutions and removals", async () => {
+  const result = await run(`
     (import [replace] from "@hlvm/string")
-    (replace "hello world" "world" "there")
-  `;
-  const result = await run(code);
-  assertEquals(result, "hello there");
-});
+    [
+      (replace "hello world" "world" "there")
+      (replace "hello world" " world" "")
+    ]
+  `);
 
-Deno.test("@hlvm/string - replace with empty string", async () => {
-  const code = `
-    (import [replace] from "@hlvm/string")
-    (replace "hello world" " world" "")
-  `;
-  const result = await run(code);
-  assertEquals(result, "hello");
+  assertEquals(result, ["hello there", "hello"]);
 });

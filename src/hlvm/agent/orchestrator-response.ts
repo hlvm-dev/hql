@@ -13,7 +13,11 @@ import {
   buildCitationSourceIndex,
 } from "./tools/web/citation-spans.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
-import type { LLMResponse, ToolCall } from "./tool-call.ts";
+import {
+  ensureToolCallIds,
+  type LLMResponse,
+  type ToolCall,
+} from "./tool-call.ts";
 import {
   AGENT_ORCHESTRATOR_FAILURE_MESSAGES,
   looksLikeToolCallJsonAnywhere,
@@ -129,8 +133,7 @@ export async function processAgentResponse(
     ? agentResponse.toolCalls
     : [];
 
-  // Deduplicate identical tool calls (same name + same args) within a turn.
-  const toolCalls = deduplicateToolCalls(rawToolCalls);
+  const toolCalls = ensureToolCallIds(deduplicateToolCalls(rawToolCalls));
 
   if (toolCalls.length === 0) {
     if (content) {

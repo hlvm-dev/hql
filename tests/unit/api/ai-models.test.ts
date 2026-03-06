@@ -50,6 +50,23 @@ Deno.test("ai.models.listAll filters providers and preserves provider metadata",
   );
 });
 
+Deno.test("ai.models.listAll preserves same bare model name across providers", async () => {
+  registerListProvider("list-all-shared-alpha", "shared-model");
+  registerListProvider("list-all-shared-beta", "shared-model");
+
+  const models = await ai.models.listAll({
+    includeProviders: ["list-all-shared-alpha", "list-all-shared-beta"],
+  });
+
+  assertEquals(
+    models.map((model) => `${model.metadata?.provider}/${model.name}`).sort(),
+    [
+      "list-all-shared-alpha/shared-model",
+      "list-all-shared-beta/shared-model",
+    ],
+  );
+});
+
 Deno.test("ai.models.listAll falls back to Ollama catalog when local list is empty", async () => {
   const originalOllama = getProvider("ollama");
   const originalOllamaConfig = getProviderDefaultConfig("ollama") ?? undefined;

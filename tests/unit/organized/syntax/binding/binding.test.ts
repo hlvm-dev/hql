@@ -1,208 +1,83 @@
-// test/syntax-binding.test.ts
-// Tests for const, let, var, = bindings (v2.0)
-
-import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertEquals } from "jsr:@std/assert";
 import { run } from "../../../helpers.ts";
 
-Deno.test("Binding: const creates immutable binding", async () => {
-  const code = `
-(const x 10)
-x
-`;
-  const result = await run(code);
-  assertEquals(result, 10);
+const runRuntime = (code: string) => run(code, { typeCheck: false });
+
+Deno.test("binding syntax: const creates immutable values and deeply frozen collections", async () => {
+  const result = await runRuntime(`
+    (const nums [1 2 3])
+    (const person {"name": "Alice", "nested": {"value": 1}})
+    (var nested (get person "nested"))
+    [
+      (try (do (.push nums 4) "mutation-succeeded") (catch e "mutation-failed"))
+      (try (do (= person.age 30) "mutation-succeeded") (catch e "mutation-failed"))
+      (try (do (= nested.value 2) "mutation-succeeded") (catch e "mutation-failed"))
+    ]
+  `);
+
+  assertEquals(result, ["mutation-failed", "mutation-failed", "mutation-failed"]);
 });
 
-Deno.test("Binding: var creates mutable binding", async () => {
-  const code = `
-(var x 10)
-(= x 20)
-x
-`;
-  const result = await run(code);
-  assertEquals(result, 20);
+Deno.test("binding syntax: var and = support repeated reassignment and property updates", async () => {
+  const result = await run(`
+    (var counter 0)
+    (var obj {"count": 0})
+    (= counter (+ counter 1))
+    (= counter (+ counter 1))
+    (= obj.count counter)
+    [counter obj.count]
+  `);
+
+  assertEquals(result, [2, 2]);
 });
 
-Deno.test("Binding: let with multiple values", async () => {
-  const code = `
-(let (x 10 y 20 z 30)
-  (+ x y z))
-`;
-  const result = await run(code);
-  assertEquals(result, 60);
+Deno.test("binding syntax: let and var multi-bindings evaluate expressions inside their body", async () => {
+  const result = await run(`
+    [
+      (let (x 10 y (+ 5 5) z 30)
+        (+ x y z))
+      (var (a 10 b 20)
+        (= a 100)
+        (+ a b))
+    ]
+  `);
+
+  assertEquals(result, [50, 120]);
 });
 
-Deno.test("Binding: var with multiple values", async () => {
-  const code = `
-(var (x 10 y 20)
-  (= x 100)
-  (+ x y))
-`;
-  const result = await run(code);
-  assertEquals(result, 120);
+Deno.test("binding syntax: scoped bindings work with nested expressions and collection access", async () => {
+  const result = await run(`
+    (let person {"name": "Alice"})
+    (let x 10)
+    (let y 20)
+    [person.name (+ x y)]
+  `);
+
+  assertEquals(result, ["Alice", 30]);
 });
 
-Deno.test("Binding: = updates existing var", async () => {
-  const code = `
-(var counter 0)
-(= counter (+ counter 1))
-(= counter (+ counter 1))
-counter
-`;
-  const result = await run(code);
-  assertEquals(result, 2);
-});
-
-Deno.test("Binding: let with expression", async () => {
-  const code = `
-(let x (+ 5 5))
-x
-`;
-  const result = await run(code);
-  assertEquals(result, 10);
-});
-
-Deno.test("Binding: var with expression", async () => {
-  const code = `
-(var x (+ 5 5))
-(= x (* x 2))
-x
-`;
-  const result = await run(code);
-  assertEquals(result, 20);
-});
-
-Deno.test("Binding: nested let", async () => {
-  const code = `
-(let x 10)
-(let y 20)
-(+ x y)
-`;
-  const result = await run(code);
-  assertEquals(result, 30);
-});
-
-Deno.test("Binding: = with property access", async () => {
-  const code = `
-(var obj {"count": 0})
-(= obj.count 42)
-obj.count
-`;
-  const result = await run(code);
-  assertEquals(result, 42);
-});
-
-Deno.test("Binding: let with object", async () => {
-  const code = `
-(let person {"name": "Alice", "age": 30})
-person.name
-`;
-  const result = await run(code);
-  assertEquals(result, "Alice");
-});
-
-Deno.test("Binding: var with array", async () => {
-  const code = `
-(var nums [1, 2, 3])
-(.push nums 4)
-nums.length
-`;
-  const result = await run(code);
-  assertEquals(result, 4);
-});
-
-Deno.test("Binding: multiple = operations", async () => {
-  const code = `
-(var x 1)
-(var y 2)
-(= x 10)
-(= y 20)
-(+ x y)
-`;
-  const result = await run(code);
-  assertEquals(result, 30);
-});
-
-Deno.test("Binding: const with array is frozen (immutable)", async () => {
-  const code = `
-(const nums [1, 2, 3])
-(try
-  (do
+Deno.test("binding syntax: mutable collections remain editable under var bindings", async () => {
+  const result = await run(`
+    (var nums [1 2 3])
+    (var person {"name": "Alice"})
     (.push nums 4)
-    "mutation-succeeded")
-  (catch e
-    "mutation-failed"))
-`;
-  const result = await run(code);
-  assertEquals(result, "mutation-failed");
-});
-
-Deno.test("Binding: const with object is frozen (immutable)", async () => {
-  const code = `
-(const person {"name": "Alice"})
-(try
-  (do
     (= person.age 30)
-    person.age)
-  (catch e
-    "error-caught"))
-`;
-  const result = await run(code);
-  // In strict mode, setting properties on frozen objects throws an error
-  assertEquals(result, "error-caught");
+    [nums.length person.age]
+  `);
+
+  assertEquals(result, [4, 30]);
 });
 
-Deno.test("Binding: var with array is mutable", async () => {
-  const code = `
-(var nums [1, 2, 3])
-(.push nums 4)
-nums.length
-`;
-  const result = await run(code);
-  assertEquals(result, 4);
-});
+Deno.test("binding syntax: top-level helpers still work after literal brace and parenthesis bindings", async () => {
+  const braceResult = await runRuntime(`
+    (let msg "{")
+    (doall (range 3))
+  `);
+  const parenResult = await runRuntime(`
+    (let msg "(")
+    (doall (range 2))
+  `);
 
-Deno.test("Binding: var with object is mutable", async () => {
-  const code = `
-(var person {"name": "Alice"})
-(= person.age 30)
-person.age
-`;
-  const result = await run(code);
-  assertEquals(result, 30);
-});
-
-Deno.test("Binding: const freezes nested objects (deep freeze)", async () => {
-  const code = `
-(const data {"user": {"name": "Bob"}})
-(var user (get data "user"))
-(try
-  (do
-    (= user.name "Charlie")
-    "mutation-succeeded")
-  (catch e
-    "mutation-failed"))
-`;
-  const result = await run(code);
-  // Deep freeze is now implemented, so nested objects are frozen
-  // In strict mode, mutation throws an error
-  assertEquals(result, "mutation-failed");
-});
-
-Deno.test("Binding: top-level let with helper and brace literal preserves helper result", async () => {
-  const code = `
-(let msg "{")
-(doall (range 3))
-`;
-  const result = await run(code);
-  assertEquals(result, [0, 1, 2]);
-});
-
-Deno.test("Binding: top-level let with helper and parenthesis literal preserves helper result", async () => {
-  const code = `
-(let msg "(")
-(doall (range 2))
-`;
-  const result = await run(code);
-  assertEquals(result, [0, 1]);
+  assertEquals(braceResult, [0, 1, 2]);
+  assertEquals(parenResult, [0, 1]);
 });

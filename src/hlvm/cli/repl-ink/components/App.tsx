@@ -600,7 +600,7 @@ function AppContent(
       } finally {
         finalizeForeground();
       }
-    })();
+    })().catch(() => {/* guard against unhandled rejection */});
   }, [
     updateEvalOutput,
     completeEvalTask,
@@ -734,6 +734,7 @@ function AppContent(
             return new Promise<InteractionResponse>((resolve, reject) => {
               let settled = false;
               const finalizeRequest = () => {
+                if (!interactionResolversRef.current.has(event.requestId)) return;
                 interactionResolversRef.current.delete(event.requestId);
                 setInteractionQueue((prev: InteractionRequestEvent[]) =>
                   prev.filter((item) => item.requestId !== event.requestId)

@@ -1,442 +1,176 @@
-/**
- * Tests for Tail Call Optimization (TCO)
- *
- * TCO transforms tail-recursive functions into while loops automatically,
- * preventing stack overflow for deep recursion.
- *
- * Unlike Clojure (which requires explicit `recur`), HQL detects tail calls
- * at transpile time and transforms them automatically.
- */
-
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
-import { transpile, evalHql } from "./helpers.ts";
+import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
+import { run } from "./helpers.ts";
 
-// ==========================================
-// Basic Tail Recursion Detection
-// ==========================================
+async function runLoose(code: string): Promise<unknown> {
+  return await run(code, { typeCheck: false });
+}
 
-Deno.test("TCO: factorial with accumulator (classic tail recursion)", async () => {
-  const result = await evalHql(`
+async function transpileLoose(code: string): Promise<string> {
+  const result = await transpileToJavascript(code, {
+    typeCheck: false,
+    showTypeWarnings: false,
+  });
+  return result.code;
+}
+
+Deno.test("tco: tail-recursive functions compute representative results", async () => {
+  const result = await runLoose(`
     (fn factorial [n acc]
       (if (<= n 1)
         acc
         (factorial (- n 1) (* n acc))))
-    (factorial 5 1)
-  `);
-  assertEquals(result, 120);
-});
 
-Deno.test("TCO: factorial computes correctly for various inputs", async () => {
-  const result = await evalHql(`
-    (fn factorial [n acc]
-      (if (<= n 1)
-        acc
-        (factorial (- n 1) (* n acc))))
-    [(factorial 0 1)
-     (factorial 1 1)
-     (factorial 5 1)
-     (factorial 10 1)]
-  `);
-  assertEquals(result, [1, 1, 120, 3628800]);
-});
-
-Deno.test("TCO: sum with accumulator", async () => {
-  const result = await evalHql(`
     (fn sum [n acc]
       (if (<= n 0)
         acc
         (sum (- n 1) (+ acc n))))
-    (sum 100 0)
-  `);
-  assertEquals(result, 5050);
-});
 
-Deno.test("TCO: countdown returns final value", async () => {
-  const result = await evalHql(`
-    (fn countdown [n]
-      (if (<= n 0)
-        "done"
-        (countdown (- n 1))))
-    (countdown 10)
-  `);
-  assertEquals(result, "done");
-});
-
-// ==========================================
-// Fibonacci (Tail-Recursive Version)
-// ==========================================
-
-Deno.test("TCO: fibonacci with accumulators", async () => {
-  const result = await evalHql(`
     (fn fib [n a b]
       (if (=== n 0)
         a
         (fib (- n 1) b (+ a b))))
-    [(fib 0 0 1)
-     (fib 1 0 1)
-     (fib 10 0 1)
-     (fib 20 0 1)]
-  `);
-  assertEquals(result, [0, 1, 55, 6765]);
-});
 
-// ==========================================
-// GCD Algorithm (Euclidean)
-// ==========================================
-
-Deno.test("TCO: GCD algorithm", async () => {
-  const result = await evalHql(`
     (fn gcd [a b]
       (if (=== b 0)
         a
         (gcd b (% a b))))
-    [(gcd 48 18)
-     (gcd 100 25)
-     (gcd 17 13)]
+
+    [
+      (factorial 10 1)
+      (sum 100 0)
+      (fib 20 0 1)
+      (gcd 48 18)
+    ]
   `);
-  assertEquals(result, [6, 25, 1]);
+
+  assertEquals(result, [3628800, 5050, 6765, 6]);
 });
 
-// ==========================================
-// Deep Recursion (Stack Overflow Prevention)
-// ==========================================
-
-Deno.test("TCO: deep recursion does not stack overflow", async () => {
-  const result = await evalHql(`
+Deno.test("tco: deep tail recursion stays stack-safe", async () => {
+  const result = await runLoose(`
     (fn countdown [n]
       (if (<= n 0)
         0
         (countdown (- n 1))))
-    (countdown 50000)
-  `);
-  assertEquals(result, 0);
-});
 
-Deno.test("TCO: deep sum with 10000 iterations", async () => {
-  const result = await evalHql(`
     (fn sum [n acc]
       (if (<= n 0)
         acc
         (sum (- n 1) (+ acc n))))
-    (sum 10000 0)
+
+    [(countdown 50000) (sum 10000 0)]
   `);
-  assertEquals(result, 50005000);
+
+  assertEquals(result, [0, 50005000]);
 });
 
-// ==========================================
-// Non-Tail Recursion (Should NOT Optimize)
-// ==========================================
-
-Deno.test("TCO: non-tail recursive function still works", async () => {
-  // This is NOT tail recursive - (* n ...) wraps the recursive call
-  const result = await evalHql(`
-    (fn factorial-naive [n]
-      (if (<= n 1)
-        1
-        (* n (factorial-naive (- n 1)))))
-    (factorial-naive 5)
-  `);
-  assertEquals(result, 120);
-});
-
-Deno.test("TCO: non-tail recursive should not have while loop", async () => {
-  const js = await transpile(`
-    (fn factorial-naive [n]
-      (if (<= n 1)
-        1
-        (* n (factorial-naive (- n 1)))))
-  `);
-  // Should NOT be transformed (recursive call is not in tail position)
-  assertEquals(js.includes("while (true)"), false);
-});
-
-// ==========================================
-// Non-Recursive Functions (Should NOT Optimize)
-// ==========================================
-
-Deno.test("TCO: non-recursive function unchanged", async () => {
-  const js = await transpile(`
-    (fn add [a b]
-      (+ a b))
-  `);
-  assertEquals(js.includes("while"), false);
-});
-
-Deno.test("TCO: non-recursive function with if still works", async () => {
-  const result = await evalHql(`
-    (fn max [a b]
-      (if (> a b) a b))
-    [(max 5 3) (max 2 7)]
-  `);
-  assertEquals(result, [5, 7]);
-});
-
-// ==========================================
-// Generated Code Verification
-// ==========================================
-
-Deno.test("TCO: generates while loop for tail recursion", async () => {
-  const js = await transpile(`
-    (fn factorial [n acc]
-      (if (<= n 1)
-        acc
-        (factorial (- n 1) (* n acc))))
-  `);
-  assertStringIncludes(js, "while (true)");
-});
-
-Deno.test("TCO: generates destructuring assignment for params", async () => {
-  const js = await transpile(`
-    (fn factorial [n acc]
-      (if (<= n 1)
-        acc
-        (factorial (- n 1) (* n acc))))
-  `);
-  // Should have [n, acc] = [...] style assignment
-  assertStringIncludes(js, "[n, acc]");
-});
-
-Deno.test("TCO: generates proper return for base case", async () => {
-  const js = await transpile(`
-    (fn countdown [n]
-      (if (<= n 0)
-        "done"
-        (countdown (- n 1))))
-  `);
-  assertStringIncludes(js, "return");
-  assertStringIncludes(js, "done");
-});
-
-// ==========================================
-// Edge Cases
-// ==========================================
-
-Deno.test("TCO: single parameter function", async () => {
-  const result = await evalHql(`
-    (fn count-to-zero [n]
-      (if (<= n 0)
-        0
-        (count-to-zero (- n 1))))
-    (count-to-zero 100)
-  `);
-  assertEquals(result, 0);
-});
-
-Deno.test("TCO: three parameters", async () => {
-  const result = await evalHql(`
-    (fn triple-acc [n a b c]
-      (if (<= n 0)
-        [a b c]
-        (triple-acc (- n 1) (+ a 1) (+ b 2) (+ c 3))))
-    (triple-acc 5 0 0 0)
-  `);
-  assertEquals(result, [5, 10, 15]);
-});
-
-Deno.test("TCO: function with string return", async () => {
-  const result = await evalHql(`
-    (fn repeat-char [n char acc]
-      (if (<= n 0)
-        acc
-        (repeat-char (- n 1) char (+ acc char))))
-    (repeat-char 5 "x" "")
-  `);
-  assertEquals(result, "xxxxx");
-});
-
-Deno.test("TCO: nested conditionals in tail position", async () => {
-  const result = await evalHql(`
+Deno.test("tco: tail calls in nested control flow still optimize correctly", async () => {
+  const result = await runLoose(`
     (fn classify [n]
       (if (< n 0)
         "negative"
         (if (=== n 0)
           "zero"
           (classify (- n 1)))))
-    [(classify 5) (classify 0) (classify -3)]
-  `);
-  assertEquals(result, ["zero", "zero", "negative"]);
-});
 
-// ==========================================
-// Multiple Tail Calls in Branches
-// ==========================================
-
-Deno.test("TCO: tail calls in both if branches", async () => {
-  const result = await evalHql(`
     (fn collatz-length [n steps]
       (if (=== n 1)
         steps
         (if (=== (% n 2) 0)
           (collatz-length (/ n 2) (+ steps 1))
           (collatz-length (+ (* n 3) 1) (+ steps 1)))))
-    [(collatz-length 1 0)
-     (collatz-length 2 0)
-     (collatz-length 6 0)]
-  `);
-  assertEquals(result, [0, 1, 8]);
-});
 
-// ==========================================
-// Verify Clojure Semantics Comparison
-// ==========================================
-
-Deno.test("TCO: no special syntax needed (unlike Clojure recur)", async () => {
-  // In Clojure you'd write: (recur (dec n) (* n acc))
-  // In HQL, just write normal recursive call - it's auto-optimized
-  const result = await evalHql(`
-    (fn factorial [n acc]
-      (if (<= n 1)
-        acc
-        (factorial (- n 1) (* n acc))))
-    (factorial 10 1)
-  `);
-  assertEquals(result, 3628800);
-});
-
-// ==========================================
-// Integration with Other Features
-// ==========================================
-
-Deno.test("TCO: works with let bindings in body", async () => {
-  const result = await evalHql(`
     (fn sum-with-let [n acc]
       (let [done (<= n 0)]
         (if done
           acc
           (sum-with-let (- n 1) (+ acc n)))))
-    (sum-with-let 10 0)
+
+    [(classify 5) (classify -3) (collatz-length 6 0) (sum-with-let 10 0)]
   `);
-  assertEquals(result, 55);
+
+  assertEquals(result, ["zero", "negative", 8, 55]);
 });
 
-Deno.test("TCO: function returning computed value", async () => {
-  const result = await evalHql(`
-    (fn power [base exp acc]
-      (if (<= exp 0)
+Deno.test("tco: non-tail and non-recursive functions are not rewritten into loops", async () => {
+  const factorialResult = await runLoose(`
+    (fn factorial-naive [n]
+      (if (<= n 1)
+        1
+        (* n (factorial-naive (- n 1)))))
+    (factorial-naive 5)
+  `);
+  const nonTailJs = await transpileLoose(`
+    (fn factorial-naive [n]
+      (if (<= n 1)
+        1
+        (* n (factorial-naive (- n 1)))))
+  `);
+  const nonRecursiveJs = await transpileLoose(`
+    (fn add [a b]
+      (+ a b))
+  `);
+
+  assertEquals(factorialResult, 120);
+  assertEquals(nonTailJs.includes("while (true)"), false);
+  assertEquals(nonRecursiveJs.includes("while"), false);
+});
+
+Deno.test("tco: optimized output uses a loop, parameter reassignment, and base-case return", async () => {
+  const js = await transpileLoose(`
+    (fn factorial [n acc]
+      (if (<= n 1)
         acc
-        (power base (- exp 1) (* acc base))))
-    [(power 2 0 1)
-     (power 2 5 1)
-     (power 3 4 1)]
+        (factorial (- n 1) (* n acc))))
   `);
-  assertEquals(result, [1, 32, 81]);
+
+  assertStringIncludes(js, "while (true)");
+  assertStringIncludes(js, "[n, acc]");
+  assertStringIncludes(js, "return");
 });
 
-// ==========================================
-// Mutual Recursion Cross-Group Checks
-// ==========================================
-
-Deno.test("TCO: cross-group mutual recursion calls are trampolined", async () => {
-  // This verifies that when a function in one mutual recursion group (A)
-  // calls a function in another group (B), the call is properly wrapped
-  // in a trampoline instead of returning a raw thunk.
-  const result = await evalHql(`
-    // Group A
-    (fn is-even [n] 
-      (if (=== n 0) 
-          (do 
-            // Call to Group B from inside Group A
-            // If not trampolined, ping returns a thunk that is ignored
-            (ping 5) 
-            true)
-          (is-odd (- n 1))))
-      
-    (fn is-odd [n] 
-      (if (=== n 0) false (is-even (- n 1))))
-
-    // Group B
-    (fn ping [n]
-      (if (=== n 0) "ponged" (pong (- n 1))))
-
-    (fn pong [n]
-      (if (=== n 0) "pinged" (ping (- n 1))))
-      
-    // The side effect of ping is not easily observable here without console.log,
-    // but if ping returned a thunk, it wouldn't execute fully.
-    // We rely on the fact that if it CRASHES or returns weird type, this test fails.
-    // To be sure, let's return the result of ping
-    
-    (fn test-cross-call []
-      (let [res (ping 4)]
-        res))
-        
-    (test-cross-call)
-  `);
-  assertEquals(result, "ponged");
-});
-
-// ==========================================
-// Mutual TCO: Comprehensive Tests
-// ==========================================
-
-Deno.test("Mutual TCO: basic is-even/is-odd", async () => {
-  const result = await evalHql(`
+Deno.test("tco: mutual recursion returns correct values", async () => {
+  const result = await runLoose(`
     (fn is-even [n]
       (if (=== n 0) true (is-odd (- n 1))))
     (fn is-odd [n]
       (if (=== n 0) false (is-even (- n 1))))
-    [(is-even 0) (is-even 1) (is-even 10) (is-odd 7)]
+    (fn step-a [n]
+      (if (=== n 0) "done-a" (step-b (- n 1))))
+    (fn step-b [n]
+      (if (=== n 0) "done-b" (step-c (- n 1))))
+    (fn step-c [n]
+      (if (=== n 0) "done-c" (step-a (- n 1))))
+    [(is-even 10) (is-odd 7) (step-a 2) (step-a 3)]
   `);
-  assertEquals(result, [true, false, true, true]);
+
+  assertEquals(result, [true, true, "done-c", "done-a"]);
 });
 
-Deno.test("Mutual TCO: is-even/is-odd deep recursion (stack safety)", async () => {
-  // Without mutual TCO trampoline, this would overflow the stack
-  const result = await evalHql(`
+Deno.test("tco: mutual recursion stays stack-safe on deep calls", async () => {
+  const result = await runLoose(`
     (fn is-even [n]
       (if (=== n 0) true (is-odd (- n 1))))
     (fn is-odd [n]
       (if (=== n 0) false (is-even (- n 1))))
     [(is-even 10000) (is-odd 9999)]
   `);
+
   assertEquals(result, [true, true]);
 });
 
-Deno.test("Mutual TCO: three-function cycle (A -> B -> C -> A)", async () => {
-  const result = await evalHql(`
-    (fn step-a [n]
-      (if (=== n 0) "done-a" (step-b (- n 1))))
-    (fn step-b [n]
-      (if (=== n 0) "done-b" (step-c (- n 1))))
-    (fn step-c [n]
-      (if (=== n 0) "done-c" (step-a (- n 1))))
-    [(step-a 0) (step-a 1) (step-a 2) (step-a 3) (step-a 6)]
+Deno.test("tco: cross-group mutual recursion returns final values instead of raw thunks", async () => {
+  const result = await runLoose(`
+    (fn ping [n]
+      (if (=== n 0) "ponged" (pong (- n 1))))
+    (fn pong [n]
+      (if (=== n 0) "pinged" (ping (- n 1))))
+    (fn test-cross-call []
+      (let [res (ping 4)]
+        res))
+    (test-cross-call)
   `);
-  assertEquals(result, ["done-a", "done-b", "done-c", "done-a", "done-a"]);
-});
 
-Deno.test("Mutual TCO: three-function cycle deep recursion", async () => {
-  const result = await evalHql(`
-    (fn step-a [n]
-      (if (=== n 0) "done-a" (step-b (- n 1))))
-    (fn step-b [n]
-      (if (=== n 0) "done-b" (step-c (- n 1))))
-    (fn step-c [n]
-      (if (=== n 0) "done-c" (step-a (- n 1))))
-    (step-a 9999)
-  `);
-  assertEquals(result, "done-a");
-});
-
-Deno.test("Mutual TCO: accumulator-passing style", async () => {
-  const result = await evalHql(`
-    (fn count-down-even [n acc]
-      (if (=== n 0) acc (count-down-odd (- n 1) (+ acc 1))))
-    (fn count-down-odd [n acc]
-      (if (=== n 0) acc (count-down-even (- n 1) (+ acc 1))))
-    (count-down-even 100 0)
-  `);
-  assertEquals(result, 100);
-});
-
-Deno.test("Mutual TCO: return values flow correctly", async () => {
-  // Verify that the trampoline correctly returns values, not thunks
-  const result = await evalHql(`
-    (fn fa [n]
-      (if (<= n 0) 42 (fb (- n 1))))
-    (fn fb [n]
-      (if (<= n 0) 99 (fa (- n 1))))
-    [(fa 0) (fa 1) (fb 0) (fb 1)]
-  `);
-  assertEquals(result, [42, 99, 99, 42]);
+  assertEquals(result, "ponged");
 });

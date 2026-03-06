@@ -10,6 +10,12 @@
 import type { ModelInfo, ProviderCapability } from "../types.ts";
 import { API_TIMEOUT_MS, CATALOG_CACHE_TTL_MS } from "../common.ts";
 import { http } from "../../../common/http-client.ts";
+import {
+  ensureHlvmDir,
+  getOllamaCatalogCachePath,
+} from "../../../common/paths.ts";
+import { isFileNotFoundError, isObjectValue } from "../../../common/utils.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,10 +59,52 @@ const DEFAULT_MAX_VARIANTS = 3;
 
 let liveCatalogData: ScrapedCatalog | null = null;
 let liveFetchTimestamp = 0;
+let inFlightCatalogFetch: Promise<ScrapedCatalog | null> | null = null;
+
+interface CatalogCacheRecord {
+  timestamp: number;
+  data: ScrapedCatalog;
+}
 
 function isLiveCacheValid(): boolean {
   return liveCatalogData !== null &&
     Date.now() - liveFetchTimestamp < CATALOG_CACHE_TTL_MS;
+}
+
+async function readDiskCatalogCache(): Promise<CatalogCacheRecord | null> {
+  const platform = getPlatform();
+  try {
+    const raw = await platform.fs.readTextFile(getOllamaCatalogCachePath());
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isObjectValue(parsed)) return null;
+    const data = isObjectValue(parsed.data) ? parsed.data : null;
+    const models = Array.isArray(data?.models) ? data.models : null;
+    if (typeof parsed.timestamp !== "number" || !models) return null;
+    return {
+      timestamp: parsed.timestamp,
+      data: { models: models as ScrapedModel[] },
+    };
+  } catch (error) {
+    if (isFileNotFoundError(error)) return null;
+    return null;
+  }
+}
+
+async function writeDiskCatalogCache(data: ScrapedCatalog): Promise<void> {
+  try {
+    await ensureHlvmDir();
+    await getPlatform().fs.writeTextFile(
+      getOllamaCatalogCachePath(),
+      JSON.stringify(
+        {
+          timestamp: Date.now(),
+          data,
+        } satisfies CatalogCacheRecord,
+      ),
+    );
+  } catch {
+    // Best-effort cache persistence only.
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -69,22 +117,39 @@ function isLiveCacheValid(): boolean {
  */
 async function fetchLiveCatalog(): Promise<ScrapedCatalog | null> {
   if (isLiveCacheValid()) return liveCatalogData;
+  if (inFlightCatalogFetch) return await inFlightCatalogFetch;
 
-  try {
-    const response = await http.fetchRaw(LIVE_CATALOG_URL, {
-      timeout: API_TIMEOUT_MS,
-    });
-    if (!response.ok) return liveCatalogData;
-
-    const data = await response.json() as ScrapedCatalog;
-    if (data?.models?.length > 0) {
-      liveCatalogData = data;
-      liveFetchTimestamp = Date.now();
+  inFlightCatalogFetch = (async (): Promise<ScrapedCatalog | null> => {
+    const diskCache = await readDiskCatalogCache();
+    if (diskCache?.data?.models?.length) {
+      liveCatalogData = diskCache.data;
+      liveFetchTimestamp = diskCache.timestamp;
+      if (isLiveCacheValid()) {
+        return liveCatalogData;
+      }
     }
-    return liveCatalogData;
-  } catch {
-    return liveCatalogData;
-  }
+
+    try {
+      const response = await http.fetchRaw(LIVE_CATALOG_URL, {
+        timeout: API_TIMEOUT_MS,
+      });
+      if (!response.ok) return liveCatalogData;
+
+      const data = await response.json() as ScrapedCatalog;
+      if (data?.models?.length > 0) {
+        liveCatalogData = data;
+        liveFetchTimestamp = Date.now();
+        await writeDiskCatalogCache(data);
+      }
+      return liveCatalogData;
+    } catch {
+      return liveCatalogData;
+    } finally {
+      inFlightCatalogFetch = null;
+    }
+  })();
+
+  return await inFlightCatalogFetch;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,4 +234,10 @@ export async function getOllamaCatalogAsync(
   const liveData = await fetchLiveCatalog();
   if (!liveData) return [];
   return buildCatalog(liveData, options.maxVariants ?? DEFAULT_MAX_VARIANTS);
+}
+
+export function resetOllamaCatalogCacheForTests(): void {
+  liveCatalogData = null;
+  liveFetchTimestamp = 0;
+  inFlightCatalogFetch = null;
 }

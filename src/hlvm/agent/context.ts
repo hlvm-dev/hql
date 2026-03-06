@@ -152,6 +152,45 @@ function flattenMessageGroups(groups: MessageGroup[]): Message[] {
   return groups.flatMap((group) => group.messages);
 }
 
+function splitRecentMessageGroups(
+  messages: Message[],
+  keepRecentMessages: number,
+  modelKey?: string,
+): { toSummarize: Message[]; recentMessages: Message[] } {
+  if (messages.length === 0 || keepRecentMessages <= 0) {
+    return { toSummarize: [...messages], recentMessages: [] };
+  }
+
+  const groups = buildMessageGroups(messages, modelKey);
+  if (groups.length === 0) {
+    return { toSummarize: [], recentMessages: [] };
+  }
+
+  let recentCount = 0;
+  let splitGroupIndex = groups.length;
+  for (let i = groups.length - 1; i >= 0; i--) {
+    if (recentCount >= keepRecentMessages) break;
+    recentCount += groups[i].messageCount;
+    splitGroupIndex = i;
+  }
+
+  return {
+    toSummarize: flattenMessageGroups(groups.slice(0, splitGroupIndex)),
+    recentMessages: flattenMessageGroups(groups.slice(splitGroupIndex)),
+  };
+}
+
+export function takeLastMessageGroups(
+  messages: Message[],
+  maxGroups: number,
+  modelKey?: string,
+): Message[] {
+  if (maxGroups <= 0 || messages.length === 0) return [];
+  const groups = buildMessageGroups(messages, modelKey);
+  if (groups.length <= maxGroups) return [...messages];
+  return flattenMessageGroups(groups.slice(-maxGroups));
+}
+
 /** Context manager configuration */
 export interface ContextConfig {
   /** Maximum tokens allowed in context (default: 12000) */
@@ -309,10 +348,12 @@ export class ContextManager {
     );
 
     if (nonSystem.length <= keepRecent) return;
-
-    const splitIndex = Math.max(0, nonSystem.length - keepRecent);
-    const toSummarize = nonSystem.slice(0, splitIndex);
-    const recentMessages = nonSystem.slice(splitIndex);
+    const { toSummarize, recentMessages } = splitRecentMessageGroups(
+      nonSystem,
+      keepRecent,
+      this.config.modelKey,
+    );
+    if (toSummarize.length === 0) return;
 
     try {
       const summary = await this.config.llmSummarize(toSummarize);
@@ -561,23 +602,14 @@ export class ContextManager {
       return;
     }
 
-    const groups = buildMessageGroups(nonSystem, this.config.modelKey);
-    if (groups.length === 0) return;
-
-    let recentCount = 0;
-    let splitGroupIndex = groups.length;
-    for (let i = groups.length - 1; i >= 0; i--) {
-      if (recentCount >= keepRecent) break;
-      recentCount += groups[i].messageCount;
-      splitGroupIndex = i;
-    }
-
-    if (splitGroupIndex <= 0) {
+    const { toSummarize, recentMessages } = splitRecentMessageGroups(
+      nonSystem,
+      keepRecent,
+      this.config.modelKey,
+    );
+    if (toSummarize.length === 0) {
       return;
     }
-
-    const toSummarize = flattenMessageGroups(groups.slice(0, splitGroupIndex));
-    const recentMessages = flattenMessageGroups(groups.slice(splitGroupIndex));
 
     const summary = this.buildSummary(toSummarize);
     const summaryMessage: Message = {
