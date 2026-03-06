@@ -183,7 +183,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "convertToSdkMessages: tool result messages",
+  name: "convertToSdkMessages: standalone tool result messages are dropped as orphans",
   fn() {
     const messages: SdkConvertibleMessage[] = [
       {
@@ -194,13 +194,65 @@ Deno.test({
       },
     ];
     const result = convertToSdkMessages(messages);
-    assertEquals(result.length, 1);
-    assertEquals(result[0].role, "tool");
+    assertEquals(result.length, 0);
+  },
+});
+
+Deno.test({
+  name: "convertToSdkMessages: groups consecutive tool results after assistant tool uses",
+  fn() {
+    const messages: SdkConvertibleMessage[] = [
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          { id: "tc_1", function: { name: "search", arguments: { query: "a" } } },
+          { id: "tc_2", function: { name: "read", arguments: { path: "b" } } },
+        ],
+      },
+      {
+        role: "tool",
+        content: "search result",
+        toolCallId: "tc_1",
+        toolName: "search",
+      },
+      {
+        role: "tool",
+        content: "read result",
+        toolCallId: "tc_2",
+        toolName: "read",
+      },
+    ];
+
+    const result = convertToSdkMessages(messages);
+    assertEquals(result.length, 2);
+    assertEquals(result[0].role, "assistant");
+    assertEquals(result[1].role, "tool");
     // deno-lint-ignore no-explicit-any
-    const content = (result[0] as any).content;
-    assertEquals(content[0].type, "tool-result");
+    const content = (result[1] as any).content;
+    assertEquals(Array.isArray(content), true);
+    assertEquals(content.length, 2);
     assertEquals(content[0].toolCallId, "tc_1");
-    assertEquals(content[0].toolName, "search");
+    assertEquals(content[1].toolCallId, "tc_2");
+  },
+});
+
+Deno.test({
+  name: "convertToSdkMessages: drops orphan tool results without matching preceding assistant tool use",
+  fn() {
+    const messages: SdkConvertibleMessage[] = [
+      { role: "user", content: "hello" },
+      {
+        role: "tool",
+        content: "orphan result",
+        toolCallId: "tc_orphan",
+        toolName: "search",
+      },
+    ];
+
+    const result = convertToSdkMessages(messages);
+    assertEquals(result.length, 1);
+    assertEquals(result[0].role, "user");
   },
 });
 

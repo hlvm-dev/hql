@@ -10,7 +10,7 @@
 import { RuntimeError } from "../../../common/error.ts";
 import { http } from "../../../common/http-client.ts";
 import { parseJsonLine } from "../../../common/jsonl.ts";
-import { JSON_HEADERS, throwOnHttpError } from "../common.ts";
+import { API_TIMEOUT_MS, JSON_HEADERS, throwOnHttpError } from "../common.ts";
 import type { ModelInfo, ProviderStatus, PullProgress } from "../types.ts";
 
 // ============================================================================
@@ -177,7 +177,7 @@ async function jsonRequest<T>(
     method,
     headers: JSON_HEADERS,
     signal,
-    timeout: 8_000,
+    timeout: API_TIMEOUT_MS,
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
 
@@ -374,7 +374,7 @@ export async function removeModel(
 export async function checkStatus(endpoint: string): Promise<ProviderStatus> {
   try {
     // Ollama returns empty response on /
-    const response = await http.fetchRaw(endpoint, { timeout: 8_000 });
+    const response = await http.fetchRaw(endpoint, { timeout: API_TIMEOUT_MS });
     if (response.ok) {
       // Try to get version
       try {

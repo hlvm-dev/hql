@@ -15,34 +15,47 @@
  * - r: Reset all to defaults
  */
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useInput } from "ink";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import {
   type ConfigKey,
-  type HlvmConfig,
   DEFAULT_CONFIG,
+  type HlvmConfig,
+  normalizeModelId,
   PERMISSION_MODES,
   validateValue,
 } from "../../../../common/config/types.ts";
-import { useTheme, THEME_NAMES, type ThemeName } from "../../theme/index.ts";
+import {
+  buildSelectedModelConfigUpdates,
+  persistSelectedModelConfig,
+} from "../../../../common/config/model-selection.ts";
+import { ai } from "../../../api/ai.ts";
+import { THEME_NAMES, type ThemeName, useTheme } from "../../theme/index.ts";
 import {
   fetchModelInfo,
   formatCapabilityTags,
   type ModelInfo,
 } from "../utils/model-info.ts";
 import {
-  clearOverlay,
   ansi,
-  hexToRgb,
-  type RGB,
-  OVERLAY_BG_COLOR,
-  fg,
   bg,
   calcOverlayPosition,
+  clearOverlay,
+  fg,
+  hexToRgb,
+  OVERLAY_BG_COLOR,
+  type RGB,
   writeToTerminal,
 } from "../overlay/index.ts";
 import { CURSOR_BLINK_MS } from "../ui-constants.ts";
+import { buildCursorWindowDisplay } from "../utils/cursor-window.ts";
 
 // ============================================================
 // Types
@@ -70,7 +83,7 @@ interface FieldMeta {
   label: string;
   description: string;
   type: FieldType;
-  options?: string[];  // For select type
+  options?: string[]; // For select type
 }
 
 type Mode = "navigate" | "edit";
@@ -90,7 +103,7 @@ type EditableConfigKey =
 
 const OVERLAY_WIDTH = 68;
 const PADDING = { top: 1, bottom: 1, left: 3, right: 3 };
-const HEADER_ROWS = 2;  // Title row + empty row
+const HEADER_ROWS = 2; // Title row + empty row
 const CONTENT_START = PADDING.top + HEADER_ROWS;
 const OVERLAY_CONFIG_KEYS: readonly EditableConfigKey[] = [
   "model",
@@ -103,8 +116,8 @@ const OVERLAY_CONFIG_KEYS: readonly EditableConfigKey[] = [
   "permissionMode",
 ];
 const VISIBLE_FIELDS = OVERLAY_CONFIG_KEYS.length;
-const OVERLAY_HEIGHT = PADDING.top + HEADER_ROWS + VISIBLE_FIELDS + 1 + 1 + PADDING.bottom;
-const BG_COLOR = OVERLAY_BG_COLOR;
+const OVERLAY_HEIGHT = PADDING.top + HEADER_ROWS + VISIBLE_FIELDS + 1 + 1 +
+  PADDING.bottom;
 const SELECTED_BG_COLOR: RGB = [55, 55, 65];
 
 // Config field metadata
@@ -169,7 +182,9 @@ const OVERLAY_FALLBACK_VALUES: Record<EditableConfigKey, string> = {
 
 function clampSelectedIndex(index: number): number {
   if (index < 0) return 0;
-  if (index >= OVERLAY_CONFIG_KEYS.length) return OVERLAY_CONFIG_KEYS.length - 1;
+  if (index >= OVERLAY_CONFIG_KEYS.length) {
+    return OVERLAY_CONFIG_KEYS.length - 1;
+  }
   return index;
 }
 
@@ -185,11 +200,14 @@ function parseOptionValue(key: EditableConfigKey, value: string): unknown {
 /** SSOT accessor for config API */
 interface ConfigApi {
   set: (key: string, value: unknown) => Promise<unknown>;
+  patch?: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<unknown>;
   reset?: () => Promise<HlvmConfig>;
   all?: Promise<HlvmConfig>;
 }
 function getConfigApi(): ConfigApi | undefined {
-  return (globalThis as Record<string, unknown>).config as ConfigApi | undefined;
+  return (globalThis as Record<string, unknown>).config as
+    | ConfigApi
+    | undefined;
 }
 
 // ============================================================
@@ -228,7 +246,7 @@ export function ConfigOverlay({
     primary: hexToRgb(theme.primary) as RGB,
     muted: hexToRgb(theme.muted) as RGB,
     error: hexToRgb(theme.error) as RGB,
-    bgStyle: bg(BG_COLOR),
+    bgStyle: bg(OVERLAY_BG_COLOR),
     selectedBgStyle: bg(SELECTED_BG_COLOR),
   }), [theme]);
 
@@ -255,37 +273,42 @@ export function ConfigOverlay({
   }, []);
 
   // Fetch available models - 100% SSOT via ai.models API (no fallback)
-  const fetchOllamaModels = useCallback(async (_endpoint: string, currentModel: string) => {
+  const fetchOllamaModels = useCallback(async (currentModel: string) => {
     try {
-      // 100% SSOT: Use ai.models API only - no direct fetch fallback
-      const aiApi = (globalThis as Record<string, unknown>).ai as {
-        models: { list: () => Promise<{ name: string }[]> };
-      } | undefined;
-
-      if (aiApi?.models?.list) {
-        const modelList = await aiApi.models.list();
-        const models = modelList.map((m: { name: string }) => `ollama/${m.name}`);
-        setAvailableModels(models.length > 0 ? models : [currentModel || DEFAULT_CONFIG.model]);
-      } else {
-        // API not ready - show current model only (no direct fetch bypass)
-        setAvailableModels([currentModel || DEFAULT_CONFIG.model]);
-      }
+      const modelList = await ai.models.list("ollama");
+      const models = modelList
+        .map((m) => normalizeModelId(m.name))
+        .filter((model): model is string => typeof model === "string");
+      setAvailableModels(
+        models.length > 0 ? models : [currentModel || DEFAULT_CONFIG.model],
+      );
     } catch {
       setAvailableModels([currentModel || DEFAULT_CONFIG.model]);
     }
   }, []);
+
+  const applyModelSelection = useCallback(async (modelName: string) => {
+    const configApi = getConfigApi();
+    const updates = buildSelectedModelConfigUpdates(modelName);
+    const normalized = await persistSelectedModelConfig(configApi, modelName);
+    setConfig((prev: HlvmConfig) => ({
+      ...prev,
+      ...updates,
+      model: normalized,
+    }));
+    updateModelInfo(normalized);
+    setError(null);
+  }, [updateModelInfo]);
 
   // Load config on mount - use config API for single source of truth
   useEffect(() => {
     const configApi = getConfigApi();
 
     const loadConfigFromApi = async () => {
-      const cfg = configApi?.all
-        ? await configApi.all
-        : DEFAULT_CONFIG;
+      const cfg = configApi?.all ? await configApi.all : DEFAULT_CONFIG;
       setConfig(cfg);
       updateModelInfo(cfg.model);
-      fetchOllamaModels(cfg.endpoint || DEFAULT_CONFIG.endpoint, cfg.model);
+      fetchOllamaModels(cfg.model);
     };
 
     loadConfigFromApi();
@@ -297,19 +320,23 @@ export function ConfigOverlay({
   }, [selectedIndex, onStateChange]);
 
   // Format value for display
-  const formatValue = useCallback((key: EditableConfigKey, value: unknown): string => {
-    if (value == null) {
-      return OVERLAY_FALLBACK_VALUES[key];
-    }
-    if (key === "temperature" && typeof value === "number") {
-      return value.toFixed(1);
-    }
-    return String(value);
-  }, []);
+  const formatValue = useCallback(
+    (key: EditableConfigKey, value: unknown): string => {
+      if (value == null) {
+        return OVERLAY_FALLBACK_VALUES[key];
+      }
+      if (key === "temperature" && typeof value === "number") {
+        return value.toFixed(1);
+      }
+      return String(value);
+    },
+    [],
+  );
 
   // Check if value is default
   const isDefault = useCallback((key: EditableConfigKey): boolean => {
-    return config[key as keyof HlvmConfig] === DEFAULT_CONFIG[key as keyof HlvmConfig];
+    return config[key as keyof HlvmConfig] ===
+      DEFAULT_CONFIG[key as keyof HlvmConfig];
   }, [config]);
 
   // Cycle through options for select fields - use config API for single source of truth
@@ -317,7 +344,10 @@ export function ConfigOverlay({
     const options = getOptions();
     if (options.length === 0) return;
 
-    const currentValue = formatValue(selectedKey, config[selectedKey as keyof HlvmConfig]);
+    const currentValue = formatValue(
+      selectedKey,
+      config[selectedKey as keyof HlvmConfig],
+    );
     const currentIdx = options.indexOf(currentValue);
     let nextIdx: number;
 
@@ -330,20 +360,24 @@ export function ConfigOverlay({
     const newValue = parseOptionValue(selectedKey, options[nextIdx]);
     const configApi = getConfigApi();
 
+    if (selectedKey === "model") {
+      applyModelSelection(String(newValue)).catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : "Update failed");
+      });
+      return;
+    }
+
     if (configApi?.set) {
       configApi.set(selectedKey, newValue).then(() => {
         setConfig((prev: HlvmConfig) => ({ ...prev, [selectedKey]: newValue }));
         if (selectedKey === "theme") {
           setTheme(newValue as ThemeName);
         }
-        if (selectedKey === "model") {
-          updateModelInfo(String(newValue));
-        }
       }).catch((e) => {
         setError(e instanceof Error ? e.message : "Update failed");
       });
     }
-  }, [selectedKey, config, getOptions, setTheme, updateModelInfo, formatValue]);
+  }, [selectedKey, getOptions, setTheme, formatValue, applyModelSelection]);
 
   // Save text input value - use config API for single source of truth
   const saveValue = useCallback(async () => {
@@ -366,7 +400,10 @@ export function ConfigOverlay({
 
       if (configApi?.set) {
         await configApi.set(selectedKey, parsedValue);
-        setConfig((prev: HlvmConfig) => ({ ...prev, [selectedKey]: parsedValue }));
+        setConfig((prev: HlvmConfig) => ({
+          ...prev,
+          [selectedKey]: parsedValue,
+        }));
         setMode("navigate");
         setEditValue("");
         setEditCursor(0);
@@ -392,7 +429,12 @@ export function ConfigOverlay({
     // content is the visible text (without ANSI codes for length calculation)
     // styledContent is the actual output with ANSI styling
     // rowBgStyle is optional - uses default bgStyle if not provided
-    const drawRow = (y: number, styledContent: string, visibleLen: number, rowBgStyle?: string) => {
+    const drawRow = (
+      y: number,
+      styledContent: string,
+      visibleLen: number,
+      rowBgStyle?: string,
+    ) => {
       const bg = rowBgStyle || bgStyle;
       output += ansi.cursorTo(pos.x, y) + bg;
       output += styledContent;
@@ -418,12 +460,13 @@ export function ConfigOverlay({
     const title = "Configuration";
     const hints = "d: default  r: reset all";
     const headerPad = contentWidth - title.length - hints.length;
-    const headerContent = " ".repeat(PADDING.left)
-      + fg(colors.primary) + ansi.bold + title + ansi.reset + bgStyle
-      + " ".repeat(Math.max(1, headerPad))
-      + fg(colors.muted) + hints + ansi.reset + bgStyle
-      + " ".repeat(PADDING.right);
-    const headerVisibleLen = PADDING.left + title.length + Math.max(1, headerPad) + hints.length + PADDING.right;
+    const headerContent = " ".repeat(PADDING.left) +
+      fg(colors.primary) + ansi.bold + title + ansi.reset + bgStyle +
+      " ".repeat(Math.max(1, headerPad)) +
+      fg(colors.muted) + hints + ansi.reset + bgStyle +
+      " ".repeat(PADDING.right);
+    const headerVisibleLen = PADDING.left + title.length +
+      Math.max(1, headerPad) + hints.length + PADDING.right;
     drawRow(headerY, headerContent, headerVisibleLen);
 
     // === Empty row after header ===
@@ -474,16 +517,18 @@ export function ConfigOverlay({
       if (isEditing) {
         // Edit mode: show editable value with cursor
         const maxEditWidth = contentWidth - 14 - 2; // Remaining space after label
-        const displayValue = editValue.slice(0, maxEditWidth);
-        const displayCursor = Math.min(editCursor, displayValue.length);
+        const display = buildCursorWindowDisplay(
+          editValue,
+          editCursor,
+          maxEditWidth,
+        );
 
-        rowContent += displayValue.slice(0, displayCursor);
-        const charAtCursor = displayValue[displayCursor] || " ";
+        rowContent += display.beforeCursor;
         rowContent += cursorVisible
-          ? ansi.inverse + charAtCursor + ansi.reset + rowBg
-          : charAtCursor;
-        rowContent += displayValue.slice(displayCursor + 1);
-        visibleLen += displayValue.length + 1; // +1 for cursor char
+          ? ansi.inverse + display.cursorChar + ansi.reset + rowBg
+          : display.cursorChar;
+        rowContent += display.afterCursor;
+        visibleLen += display.renderWidth;
       } else {
         // Navigate mode
         const formattedValue = formatValue(key, value);
@@ -512,10 +557,12 @@ export function ConfigOverlay({
 
         // Capability tags for model field (if there's room)
         if (isModelField && capabilityTags) {
-          const usedWidth = PADDING.left + 14 + (isSelectType ? 4 : 0) + displayValue.length + displayDefault.length;
+          const usedWidth = PADDING.left + 14 + (isSelectType ? 4 : 0) +
+            displayValue.length + displayDefault.length;
           const remainingSpace = OVERLAY_WIDTH - usedWidth - PADDING.right - 1;
           if (remainingSpace >= capabilityTags.length + 1) {
-            rowContent += " " + fg(colors.muted) + capabilityTags + ansi.reset + rowBg;
+            rowContent += " " + fg(colors.muted) + capabilityTags + ansi.reset +
+              rowBg;
             visibleLen += 1 + capabilityTags.length;
           }
         }
@@ -551,10 +598,14 @@ export function ConfigOverlay({
       footerColor = colors.muted;
     }
 
-    const footerContent = " ".repeat(PADDING.left)
-      + fg(footerColor) + footerText + ansi.reset + bgStyle
-      + " ".repeat(PADDING.right);
-    drawRow(footerY, footerContent, PADDING.left + footerText.length + PADDING.right);
+    const footerContent = " ".repeat(PADDING.left) +
+      fg(footerColor) + footerText + ansi.reset + bgStyle +
+      " ".repeat(PADDING.right);
+    drawRow(
+      footerY,
+      footerContent,
+      PADDING.left + footerText.length + PADDING.right,
+    );
 
     // === Bottom padding ===
     for (let i = 1; i <= PADDING.bottom; i++) {
@@ -564,7 +615,20 @@ export function ConfigOverlay({
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
     writeToTerminal(output);
-  }, [config, selectedIndex, mode, editValue, editCursor, cursorVisible, error, colors, formatValue, isDefault, modelInfo, fieldMeta.type]);
+  }, [
+    config,
+    selectedIndex,
+    mode,
+    editValue,
+    editCursor,
+    cursorVisible,
+    error,
+    colors,
+    formatValue,
+    isDefault,
+    modelInfo,
+    fieldMeta.type,
+  ]);
 
   // Draw cursor only (optimized for blink in edit mode)
   // Uses selectedBgStyle since edit mode is always on the selected row
@@ -578,23 +642,32 @@ export function ConfigOverlay({
 
     const contentWidth = OVERLAY_WIDTH - PADDING.left - PADDING.right;
     const maxEditWidth = contentWidth - 14 - 2; // label + selection indicator
-    const displayValue = editValue.slice(0, maxEditWidth);
-    const displayCursor = Math.min(editCursor, displayValue.length);
-    const cursorX = pos.x + PADDING.left + 14 + displayCursor; // label width + cursor pos
+    const display = buildCursorWindowDisplay(
+      editValue,
+      editCursor,
+      maxEditWidth,
+    );
+    const cursorX = pos.x + PADDING.left + 14 + display.beforeCursor.length; // label width + cursor pos
 
-    const charAtCursor = displayValue[displayCursor] || " ";
     const cursorStyle = cursorVisible
-      ? ansi.inverse + charAtCursor + ansi.reset
-      : charAtCursor;
+      ? ansi.inverse + display.cursorChar + ansi.reset
+      : display.cursorChar;
 
     // Use selectedBgStyle - edit mode is always on the selected row
-    const output = ansi.cursorSave + ansi.cursorHide
-      + ansi.cursorTo(cursorX, rowY)
-      + colors.selectedBgStyle + cursorStyle
-      + ansi.cursorRestore + ansi.cursorShow;
+    const output = ansi.cursorSave + ansi.cursorHide +
+      ansi.cursorTo(cursorX, rowY) +
+      colors.selectedBgStyle + cursorStyle +
+      ansi.cursorRestore + ansi.cursorShow;
 
     writeToTerminal(output);
-  }, [mode, selectedIndex, editValue, editCursor, cursorVisible, colors.selectedBgStyle]);
+  }, [
+    mode,
+    selectedIndex,
+    editValue,
+    editCursor,
+    cursorVisible,
+    colors.selectedBgStyle,
+  ]);
 
   // Cursor blink effect
   useEffect(() => {
@@ -650,7 +723,9 @@ export function ConfigOverlay({
         return;
       }
       if (key.downArrow) {
-        setSelectedIndex((i: number) => Math.min(OVERLAY_CONFIG_KEYS.length - 1, i + 1));
+        setSelectedIndex((i: number) =>
+          Math.min(OVERLAY_CONFIG_KEYS.length - 1, i + 1)
+        );
         setError(null);
         return;
       }
@@ -710,14 +785,21 @@ export function ConfigOverlay({
         const defaultValue = DEFAULT_CONFIG[selectedKey as keyof HlvmConfig];
         const configApi = getConfigApi();
 
+        if (selectedKey === "model") {
+          applyModelSelection(String(defaultValue)).catch((e: unknown) => {
+            setError(e instanceof Error ? e.message : "Reset failed");
+          });
+          return;
+        }
+
         if (configApi?.set) {
           configApi.set(selectedKey, defaultValue).then(() => {
-            setConfig((prev: HlvmConfig) => ({ ...prev, [selectedKey]: defaultValue }));
+            setConfig((prev: HlvmConfig) => ({
+              ...prev,
+              [selectedKey]: defaultValue,
+            }));
             if (selectedKey === "theme") {
               setTheme(defaultValue as ThemeName);
-            }
-            if (selectedKey === "model") {
-              updateModelInfo(String(defaultValue));
             }
             setError(null);
           }).catch((e) => {

@@ -75,25 +75,39 @@ export function linkFactEntities(factId: number, text: string): number {
   const entities = extractEntitiesFromText(text);
   if (entities.length === 0) return 0;
 
-  const entityIds: number[] = [];
-  for (const entity of entities) {
-    const entityId = upsertEntity(entity.name, entity.type);
-    if (entityId) entityIds.push(entityId);
-  }
-
-  // Link each entity to the fact (self-loop records "entity appears in fact")
-  for (const entityId of entityIds) {
-    addRelationship(entityId, entityId, "appears_in", factId);
-  }
-
-  // Link co-occurring entities to each other
-  for (let i = 0; i < entityIds.length; i++) {
-    for (let j = i + 1; j < entityIds.length; j++) {
-      addRelationship(entityIds[i], entityIds[j], "co_occurs", factId);
+  const db = getFactDb();
+  db.exec("BEGIN");
+  try {
+    const entityIds: number[] = [];
+    for (const entity of entities) {
+      const entityId = upsertEntity(entity.name, entity.type);
+      if (entityId) entityIds.push(entityId);
     }
-  }
 
-  return entityIds.length;
+    // Prepare statement once, reuse for all relationship inserts
+    const insertRel = db.prepare(
+      "INSERT INTO relationships(from_entity, to_entity, relation, fact_id, valid_from) VALUES(?, ?, ?, ?, ?)",
+    );
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Link each entity to the fact (self-loop records "entity appears in fact")
+    for (const entityId of entityIds) {
+      insertRel.run(entityId, entityId, "appears_in", factId, today);
+    }
+
+    // Link co-occurring entities to each other
+    for (let i = 0; i < entityIds.length; i++) {
+      for (let j = i + 1; j < entityIds.length; j++) {
+        insertRel.run(entityIds[i], entityIds[j], "co_occurs", factId, today);
+      }
+    }
+
+    db.exec("COMMIT");
+    return entityIds.length;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function getConnectedFacts(entityName: string, limit = 10): number[] {

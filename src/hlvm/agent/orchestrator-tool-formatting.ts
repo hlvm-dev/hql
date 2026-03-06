@@ -4,12 +4,19 @@
  */
 
 import { getTool, hasTool } from "./registry.ts";
-import { truncate } from "../../common/utils.ts";
+import { isObjectValue, truncate } from "../../common/utils.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
 import { getRecoveryHint } from "./error-taxonomy.ts";
 import type { ToolCall } from "./tool-call.ts";
-import type { OrchestratorConfig } from "./orchestrator.ts";
+import type { OrchestratorConfig, ToolEventMeta, WebSearchToolEventMeta } from "./orchestrator.ts";
 import type { ToolExecutionResult } from "./orchestrator-state.ts";
+import type { FormattedToolResult } from "./registry.ts";
+import type { SearchResult } from "./tools/web/search-provider.ts";
+import { summarizeToolResult } from "./tool-result-summary.ts";
+import {
+  domainAuthorityBoost,
+  sourceQualityPenalty,
+} from "./tools/web/search-ranking.ts";
 
 export function stringifyToolResult(result: unknown): string {
   return safeStringify(result, 2);
@@ -19,8 +26,8 @@ export function buildToolResultOutputs(
   toolName: string,
   result: unknown,
   config: OrchestratorConfig,
-): { llmContent: string; returnDisplay: string } {
-  let formatted: { returnDisplay: string; llmContent?: string } | null = null;
+): { llmContent: string; summaryDisplay: string; returnDisplay: string } {
+  let formatted: FormattedToolResult | null = null;
   try {
     const tool = hasTool(toolName, config.toolOwnerId)
       ? getTool(toolName, config.toolOwnerId)
@@ -31,15 +38,18 @@ export function buildToolResultOutputs(
   }
 
   if (formatted && formatted.returnDisplay) {
+    const summaryDisplay = formatted.summaryDisplay ??
+      summarizeToolResult(toolName, result, formatted.returnDisplay);
     const returnDisplay = formatted.returnDisplay;
     const llmContent = formatted.llmContent ??
       config.context.truncateResult(returnDisplay);
-    return { llmContent, returnDisplay };
+    return { llmContent, summaryDisplay, returnDisplay };
   }
 
   const returnDisplay = stringifyToolResult(result);
+  const summaryDisplay = summarizeToolResult(toolName, result, returnDisplay);
   const llmContent = config.context.truncateResult(returnDisplay);
-  return { llmContent, returnDisplay };
+  return { llmContent, summaryDisplay, returnDisplay };
 }
 
 /** Check if tool result content indicates failure despite no exception.
@@ -158,9 +168,15 @@ export function generateArgsSummary(
     case "shell_exec":
       return typeof a.command === "string" ? truncate(a.command, 80) : "";
     case "search_code":
-      return `'${truncate(String(a.query ?? ""), 40)}'${
+      return `'${truncate(String(a.pattern ?? a.query ?? ""), 40)}'${
         a.path ? ` in ${a.path}` : ""
       }`;
+    case "find_symbol":
+      return `'${truncate(String(a.name ?? ""), 40)}'${
+        a.path ? ` in ${a.path}` : ""
+      }`;
+    case "get_structure":
+      return typeof a.path === "string" ? truncate(a.path, 80) : "";
     case "edit_file":
     case "write_file":
       return typeof a.path === "string" ? truncate(a.path, 80) : "";
@@ -173,6 +189,12 @@ export function generateArgsSummary(
     case "web_fetch":
     case "fetch_url":
       return typeof a.url === "string" ? truncate(a.url, 80) : "";
+    case "memory_search":
+      return typeof a.query === "string" ? truncate(a.query, 80) : "";
+    case "memory_write":
+      return typeof a.content === "string" ? truncate(a.content, 80) : "";
+    case "memory_edit":
+      return typeof a.action === "string" ? truncate(a.action, 80) : "";
     default: {
       try {
         return truncate(JSON.stringify(a), 80);
@@ -193,6 +215,7 @@ export function buildToolErrorResult(
     success: false,
     error,
     llmContent: error,
+    summaryDisplay: error,
     returnDisplay: error,
   };
 
@@ -208,11 +231,114 @@ export function buildToolErrorResult(
     name: toolName,
     success: false,
     content: error,
+    summary: error,
     durationMs: Date.now() - startedAt,
     argsSummary: "",
   });
 
   return result;
+}
+
+function toFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function toSearchResults(value: unknown): SearchResult[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is SearchResult => isObjectValue(item));
+}
+
+function toTrustLevel(
+  lowConfidence: boolean | undefined,
+  authorityHits: number,
+  qualityPenaltiesApplied: number,
+  resultCount: number,
+): "high" | "medium" | "low" {
+  if (lowConfidence) return "low";
+  if (resultCount === 0) return "medium";
+  const authorityRatio = authorityHits / resultCount;
+  if (qualityPenaltiesApplied === 0 && authorityRatio >= 0.35) return "high";
+  if (qualityPenaltiesApplied > 0 && authorityRatio < 0.2) return "low";
+  return "medium";
+}
+
+function extractWebSearchEventMeta(result: unknown): WebSearchToolEventMeta | undefined {
+  if (!isObjectValue(result)) return undefined;
+
+  const diagnostics = isObjectValue(result.diagnostics) ? result.diagnostics : null;
+  const deep = diagnostics && isObjectValue(diagnostics.deep) ? diagnostics.deep : null;
+  const score = diagnostics && isObjectValue(diagnostics.score) ? diagnostics.score : null;
+  const results = toSearchResults(result.results);
+  const resultCount = toFiniteNumber(result.count) ?? results.length;
+  const citationsCount = Array.isArray(result.citations) ? result.citations.length : undefined;
+
+  const authorityHits = results.reduce(
+    (count, entry) => count + (domainAuthorityBoost(entry.url ?? "") >= 0.2 ? 1 : 0),
+    0,
+  );
+  const qualityPenaltiesApplied = toFiniteNumber(diagnostics?.qualityPenaltiesApplied) ??
+    results.reduce(
+      (count, entry) => count + (sourceQualityPenalty(entry) > 0 ? 1 : 0),
+      0,
+    );
+
+  const deepMeta = deep
+    ? {
+      autoTriggered: deep.autoTriggered === true,
+      rounds: toFiniteNumber(deep.rounds) ?? 1,
+      triggerReason: typeof deep.triggerReason === "string" ? deep.triggerReason : "none",
+      queryTrail: Array.isArray(deep.queryTrail)
+        ? deep.queryTrail.filter((v): v is string => typeof v === "string")
+        : [],
+      recovered: deep.recovered === true,
+    }
+    : undefined;
+
+  const scoreMeta = score
+    ? {
+      lowConfidence: typeof score.lowConfidence === "boolean"
+        ? score.lowConfidence
+        : undefined,
+      confidenceReason: typeof score.confidenceReason === "string"
+        ? score.confidenceReason
+        : undefined,
+      avgScore: toFiniteNumber(score.avgScore),
+      hostDiversity: toFiniteNumber(score.hostDiversity),
+      queryCoverage: toFiniteNumber(score.queryCoverage),
+    }
+    : undefined;
+
+  const lowConfidence = scoreMeta?.lowConfidence;
+  const trustLevel = toTrustLevel(
+    lowConfidence,
+    authorityHits,
+    qualityPenaltiesApplied,
+    Math.max(1, resultCount),
+  );
+  const sourceGuard = {
+    warning: Boolean(lowConfidence) || qualityPenaltiesApplied > 0,
+    trustLevel,
+    authorityHits,
+    qualityPenaltiesApplied,
+    resultCount,
+  };
+
+  if (!deepMeta && !scoreMeta && citationsCount === undefined && resultCount === 0) {
+    return undefined;
+  }
+  return {
+    deep: deepMeta,
+    score: scoreMeta,
+    sourceGuard,
+    citationsCount,
+  };
+}
+
+function extractToolEventMeta(toolName: string, result: unknown): ToolEventMeta | undefined {
+  if (!(toolName === "search_web" || toolName.endsWith("_search_web"))) return undefined;
+  const webSearch = extractWebSearchEventMeta(result);
+  if (!webSearch) return undefined;
+  return { webSearch };
 }
 
 /** Build a simple tool-allowed predicate from allow/deny lists */
@@ -266,10 +392,13 @@ export function emitToolSuccess(
   config: OrchestratorConfig,
   toolName: string,
   llmContent: string,
+  summaryDisplay: string,
   returnDisplay: string,
   startedAt: number,
   args?: unknown,
+  rawResult?: unknown,
 ): void {
+  const meta = extractToolEventMeta(toolName, rawResult);
   config.onTrace?.({
     type: "tool_result",
     toolName,
@@ -282,7 +411,9 @@ export function emitToolSuccess(
     name: toolName,
     success: true,
     content: returnDisplay,
+    summary: summaryDisplay,
     durationMs: Date.now() - startedAt,
     argsSummary: generateArgsSummary(toolName, args),
+    meta,
   });
 }

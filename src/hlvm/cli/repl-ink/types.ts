@@ -7,6 +7,8 @@
 
 // Re-export EvalResult from evaluator.ts (used by Output, App, useRepl)
 export type { EvalResult } from "../repl/evaluator.ts";
+import type { Citation } from "../../agent/tools/web/search-provider.ts";
+import type { ToolEventMeta } from "../../agent/orchestrator.ts";
 
 // ============================================================
 // Tool Call Display
@@ -18,11 +20,15 @@ export interface ToolCallDisplay {
   name: string;
   argsSummary: string;
   status: "pending" | "running" | "success" | "error";
+  resultSummaryText?: string;
   resultText?: string;
+  resultMeta?: ToolEventMeta;
   durationMs?: number;
   toolIndex: number;
   toolTotal: number;
 }
+
+export type AssistantCitation = Citation;
 
 // ============================================================
 // Conversation Items
@@ -41,6 +47,7 @@ export interface AssistantItem {
   type: "assistant";
   id: string;
   text: string;
+  citations?: AssistantCitation[];
   isPending: boolean;
   ts: number;
 }

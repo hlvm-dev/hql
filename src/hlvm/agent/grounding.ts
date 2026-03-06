@@ -32,12 +32,48 @@ const TOOL_NAME_PATTERN = "[a-zA-Z0-9_-]{2,}";
 
 /** Common English words to exclude from token matching (module-level constant) */
 const COMMON_WORDS = new Set([
-  "this", "that", "with", "from", "have", "been", "were", "will",
-  "your", "their", "about", "would", "there", "could", "other",
-  "which", "when", "each", "make", "like", "into", "over", "such",
-  "after", "also", "most", "some", "than", "them", "then",
-  "true", "false", "null", "undefined", "string", "number",
-  "result", "error", "success", "found", "total", "count",
+  "this",
+  "that",
+  "with",
+  "from",
+  "have",
+  "been",
+  "were",
+  "will",
+  "your",
+  "their",
+  "about",
+  "would",
+  "there",
+  "could",
+  "other",
+  "which",
+  "when",
+  "each",
+  "make",
+  "like",
+  "into",
+  "over",
+  "such",
+  "after",
+  "also",
+  "most",
+  "some",
+  "than",
+  "them",
+  "then",
+  "true",
+  "false",
+  "null",
+  "undefined",
+  "string",
+  "number",
+  "result",
+  "error",
+  "success",
+  "found",
+  "total",
+  "count",
 ]);
 
 const TOOL_CLAIM_PATTERNS: RegExp[] = [
@@ -76,11 +112,21 @@ function responseIncorporatesToolData(
   response: string,
   toolUses: ToolUse[],
 ): boolean {
-  const responseLower = response.toLowerCase();
-
   // Pre-filter: skip tools with empty results
   const nonEmptyTools = toolUses.filter((t) => t.result && t.result.length > 0);
   if (nonEmptyTools.length === 0) return false;
+
+  // Tokenize response once into Sets for O(1) lookups.
+  // Keep numbers separate so trailing sentence punctuation like "4."
+  // still matches a tool result value of "4".
+  const responseLower = response.toLowerCase();
+  const responseNumbers = new Set(
+    responseLower.match(/\b\d+(?:\.\d+)?\b/g) ?? [],
+  );
+  const responseTokens = new Set(
+    responseLower.match(/[a-z_][\w.-]*/g)?.map((t) => t.toLowerCase()) ?? [],
+  );
+  if (responseNumbers.size === 0 && responseTokens.size === 0) return false;
 
   // Single-pass: collect unique numbers and significant tokens across all tool results
   const numberSet = new Set<string>();
@@ -123,13 +169,13 @@ function responseIncorporatesToolData(
 
   // Check numbers first (cheaper — typically fewer)
   for (const n of numberSet) {
-    if (responseLower.includes(n)) return true;
+    if (responseNumbers.has(n)) return true;
   }
 
   // Check significant tokens — require at least 2 matches
   let matches = 0;
   for (const token of tokenSet) {
-    if (responseLower.includes(token)) {
+    if (responseTokens.has(token)) {
       matches++;
       if (matches >= 2) return true;
     }
@@ -138,19 +184,34 @@ function responseIncorporatesToolData(
   return false;
 }
 
+const CITATION_BACKED_TOOL_NAMES = new Set([
+  "search_web",
+  "web_fetch",
+  "fetch_url",
+]);
+
+function toolUseHasCitationPayload(toolUse: ToolUse): boolean {
+  try {
+    const parsed = JSON.parse(toolUse.result);
+    return Boolean(parsed.citation || parsed.citations);
+  } catch {
+    return false;
+  }
+}
+
+function isCitationBackedToolUse(toolUse: ToolUse): boolean {
+  return CITATION_BACKED_TOOL_NAMES.has(toolUse.toolName) ||
+    toolUseHasCitationPayload(toolUse);
+}
+
 function hasCitationData(
   toolUses: ToolUse[],
   citationSpans: Citation[] = [],
 ): boolean {
-  if (citationSpans.length > 0) return true;
-  return toolUses.some((t) => {
-    try {
-      const parsed = JSON.parse(t.result);
-      return parsed.citation || parsed.citations;
-    } catch {
-      return false;
-    }
-  });
+  const hasAnyCitations = citationSpans.length > 0 ||
+    toolUses.some(toolUseHasCitationPayload);
+  if (!hasAnyCitations) return false;
+  return toolUses.length > 0 && toolUses.every(isCitationBackedToolUse);
 }
 
 export function checkGrounding(
@@ -191,7 +252,8 @@ export function checkGrounding(
 
   // Rule 2: If tools were used, response should be grounded in tool data
   if (toolUses.length > 0) {
-    const mentionsBasedOn = lower.includes("based on") || lower.includes("according to");
+    const mentionsBasedOn = lower.includes("based on") ||
+      lower.includes("according to");
     const mentionsTool = toolUses.some((tool) => {
       const normalized = tool.toolName.replace(/_/g, " ");
       return lower.includes(normalized) || lower.includes(tool.toolName);
@@ -199,7 +261,9 @@ export function checkGrounding(
     const incorporatesData = responseIncorporatesToolData(response, toolUses);
     const hasCitations = hasCitationData(toolUses, citationSpans);
 
-    if (!mentionsBasedOn && !mentionsTool && !incorporatesData && !hasCitations) {
+    if (
+      !mentionsBasedOn && !mentionsTool && !incorporatesData && !hasCitations
+    ) {
       warnings.push(
         "Response does not cite tool sources. Include tool names or 'Based on ...'.",
       );

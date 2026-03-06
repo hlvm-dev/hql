@@ -27,6 +27,7 @@ export const createClaudeCodeProvider = createCloudProvider({
   // No envVarName — auth is via OAuth, always "configured"
   noModelsError: "No Claude Code models available. Run `claude login` to authenticate.",
   publicCatalogProvider: "anthropic",
+  allowPublicCatalogFallback: false,
   createApi: (_apiKey) => ({
     listModels: (ep) => api.listModels(ep),
     checkStatus: (ep) => api.checkStatus(ep),

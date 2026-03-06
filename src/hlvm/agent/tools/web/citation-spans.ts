@@ -84,14 +84,26 @@ function normalizeText(input: string): string {
   return input.replace(/\s+/g, " ").trim();
 }
 
+function hasNonAsciiText(input: string): boolean {
+  return /[^\x00-\x7F]/.test(input);
+}
+
+function minimumSharedTokensForText(input: string): number {
+  return hasNonAsciiText(input) ? 1 : DEFAULT_MIN_SHARED_TOKENS;
+}
+
 function tokenize(input: string): string[] {
   const tokens = normalizeText(input)
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
+    .match(/[\p{L}\p{N}]+(?:[-_.][\p{L}\p{N}]+)*/gu) ?? [];
+  const minLength = hasNonAsciiText(input) ? 1 : 3;
+  const filtered = tokens
     .map((token) => token.trim())
-    .filter((token) => token.length >= 3 && !STOP_WORDS.has(token));
-  return [...new Set(tokens)];
+    .filter((token) =>
+      token.length >= minLength &&
+      (!/^[a-z]+$/.test(token) || !STOP_WORDS.has(token))
+    );
+  return [...new Set(filtered)];
 }
 
 function makeCitation(
@@ -120,7 +132,7 @@ function addSourceEntry(
   const sourceText = normalizeText(text);
   if (sourceText.length < MIN_SOURCE_TEXT_CHARS) return;
   const tokens = tokenize(sourceText);
-  if (tokens.length < DEFAULT_MIN_SHARED_TOKENS) return;
+  if (tokens.length < minimumSharedTokensForText(sourceText)) return;
 
   const key = `${citation.url}|${sourceKind}|${sourceText.toLowerCase()}`;
   if (seen.has(key)) return;
@@ -175,7 +187,12 @@ function collectFromFetchLikePayload(
   entries: CitationSourceEntry[],
   seen: Set<string>,
 ): void {
-  const citation = makeCitation(payload.url, payload.title, payload.description, "fetch");
+  const citation = makeCitation(
+    payload.url,
+    payload.title,
+    payload.description,
+    "fetch",
+  );
   addSourceEntry(entries, seen, citation, "passage", payload.text);
 
   const citations = Array.isArray(payload.citations) ? payload.citations : [];
@@ -225,7 +242,9 @@ export function buildCitationSourceIndex(
   return entries;
 }
 
-function splitSentenceSpans(text: string): Array<{ start: number; end: number; text: string }> {
+function splitSentenceSpans(
+  text: string,
+): Array<{ start: number; end: number; text: string }> {
   const spans: Array<{ start: number; end: number; text: string }> = [];
   const sentenceRegex = /[^.!?\n]+[.!?\n]?/g;
   let match: RegExpExecArray | null;
@@ -269,7 +288,9 @@ function mergeAdjacentSpans(
       previous.spanText = responseText
         .slice(previous.startIndex, previous.endIndex)
         .trim();
-      if (previous.sourceKind !== "passage" && current.sourceKind === "passage") {
+      if (
+        previous.sourceKind !== "passage" && current.sourceKind === "passage"
+      ) {
         previous.sourceKind = "passage";
       }
       continue;
@@ -298,7 +319,10 @@ export function attributeCitationSpans(
   const attributed: CitationSpan[] = [];
   for (const sentence of splitSentenceSpans(responseText)) {
     const sentenceTokens = tokenize(sentence.text);
-    if (sentenceTokens.length < minSharedTokens) continue;
+    const sentenceMinSharedTokens = hasNonAsciiText(sentence.text)
+      ? 1
+      : minSharedTokens;
+    if (sentenceTokens.length < sentenceMinSharedTokens) continue;
     const sentenceTokenSet = new Set(sentenceTokens);
 
     let best:
@@ -309,9 +333,14 @@ export function attributeCitationSpans(
       | null = null;
 
     for (const candidate of sourceWithSets) {
+      const sharedTokenThreshold =
+        hasNonAsciiText(sentence.text) || hasNonAsciiText(candidate.sourceText)
+          ? 1
+          : minSharedTokens;
       const shared = intersectionCount(sentenceTokens, candidate.tokenSet);
-      if (shared < minSharedTokens) continue;
-      const unionSize = new Set([...sentenceTokenSet, ...candidate.tokenSet]).size;
+      if (shared < sharedTokenThreshold) continue;
+      const unionSize =
+        new Set([...sentenceTokenSet, ...candidate.tokenSet]).size;
       if (unionSize === 0) continue;
       const jaccard = shared / unionSize;
       const coverage = shared / sentenceTokens.length;
@@ -334,4 +363,3 @@ export function attributeCitationSpans(
 
   return mergeAdjacentSpans(responseText, attributed);
 }
-

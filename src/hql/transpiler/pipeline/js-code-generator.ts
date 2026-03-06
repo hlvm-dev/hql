@@ -162,7 +162,7 @@ export async function generateJavaScript(
   // ============================================================================
   // STEP 3: Chain source maps (HQL → TS → JS = HQL → JS)
   // ============================================================================
-  let sourceMap: string | undefined;
+  let sourceMapObj: Record<string, unknown> | undefined;
   let chainedTsToHql: TsToHqlLookup | undefined;
 
   // Auto-embed sourcesContent: read from file if not explicitly provided
@@ -186,9 +186,9 @@ export async function generateJavaScript(
       PRELUDE_LINE_COUNT,
     );
 
-    sourceMap = JSON.stringify(chainedMap.map);
+    sourceMapObj = chainedMap.map;
     chainedTsToHql = chainedMap.tsToHql;
-    logger.debug(`Chained source map: ${sourceMap.length} bytes`);
+    logger.debug(`Chained source map generated`);
   } else if (options.generateSourceMap !== false) {
     // Fallback: use HQL→TS map only
     const fallbackMap = createSourceMapFromMappings(
@@ -197,7 +197,7 @@ export async function generateJavaScript(
       tsFileName.replace(/\.ts$/, ".js"),
       hqlSource,
     );
-    sourceMap = JSON.stringify(fallbackMap);
+    sourceMapObj = fallbackMap;
   }
 
   // ============================================================================
@@ -256,10 +256,8 @@ export async function generateJavaScript(
     code = `'use strict';\n${code}`;
 
     // Adjust source map for prepended line: prepend empty line group
-    if (sourceMap) {
-      const mapObj = JSON.parse(sourceMap);
-      mapObj.mappings = ";" + mapObj.mappings;
-      sourceMap = JSON.stringify(mapObj);
+    if (sourceMapObj) {
+      sourceMapObj.mappings = ";" + (sourceMapObj.mappings as string);
     }
   }
 
@@ -268,6 +266,7 @@ export async function generateJavaScript(
     `Total pipeline: ${totalTime.toFixed(2)}ms`,
   );
 
+  const sourceMap = sourceMapObj ? JSON.stringify(sourceMapObj) : undefined;
   return {
     code,
     sourceMap,

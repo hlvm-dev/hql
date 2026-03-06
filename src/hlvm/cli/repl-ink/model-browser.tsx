@@ -8,34 +8,36 @@ import React, { useCallback, useRef } from "react";
 import { render, useApp } from "ink";
 import { ThemeProvider } from "../theme/index.ts";
 import { ModelBrowser } from "./components/ModelBrowser.tsx";
-import { getErrorMessage } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { config } from "../../api/config.ts";
-import { normalizeModelId, type AgentMode } from "../../../common/config/types.ts";
-import { AGENT_MODEL_SUFFIX } from "../../providers/claude-code/provider.ts";
+import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
 
 export interface ModelBrowserOptions {
   endpoint?: string;
   currentModel?: string;
+  currentModelConfigured?: boolean;
 }
 
 export interface ModelBrowserResult {
   code: number;
   selectedModel?: string;
-  agentMode?: AgentMode;
 }
 
 interface ModelBrowserAppProps {
   endpoint?: string;
   currentModel?: string;
+  currentModelConfigured?: boolean;
   onSelect: (model: string) => void;
   onCancel: () => void;
 }
 
-function ModelBrowserApp({ endpoint, currentModel, onSelect, onCancel }: ModelBrowserAppProps): React.ReactElement {
+function ModelBrowserApp(
+  { endpoint, currentModel, currentModelConfigured, onSelect, onCancel }: ModelBrowserAppProps,
+): React.ReactElement {
   const { exit } = useApp();
   const doneRef = useRef(false);
+  const selectedModelRef = useRef<string | undefined>(undefined);
 
   const finish = useCallback((model?: string) => {
     if (doneRef.current) return;
@@ -49,32 +51,19 @@ function ModelBrowserApp({ endpoint, currentModel, onSelect, onCancel }: ModelBr
   }, [exit, onCancel, onSelect]);
 
   const handleSelect = useCallback(async (modelName: string) => {
-    const normalized = normalizeModelId(modelName);
-    if (!normalized) return;
-    try {
-      await config.set("model", normalized);
-      // Persist agentMode for Claude models with :agent suffix
-      if (normalized.endsWith(AGENT_MODEL_SUFFIX)) {
-        await config.set("agentMode", "claude-code-agent");
-      } else if (normalized.startsWith("claude-code/")) {
-        await config.set("agentMode", "hlvm");
-      }
-    } catch (error) {
-      log.raw.error(`Failed to set model: ${getErrorMessage(error)}`);
-      finish();
-      return;
-    }
-    finish(normalized);
-  }, [finish]);
+    const normalized = await persistSelectedModelConfig(config, modelName);
+    selectedModelRef.current = normalized;
+  }, []);
 
   const handleClose = useCallback(() => {
-    finish();
+    finish(selectedModelRef.current);
   }, [finish]);
 
   return (
     <ModelBrowser
       endpoint={endpoint}
       currentModel={currentModel}
+      isCurrentModelConfigured={currentModelConfigured}
       onSelectModel={handleSelect}
       onClose={handleClose}
     />
@@ -88,6 +77,8 @@ export async function startModelBrowser(options: ModelBrowserOptions = {}): Prom
   }
 
   const currentModel = options.currentModel ?? config.snapshot.model;
+  const currentModelConfigured = options.currentModelConfigured ??
+    (config.snapshot.modelConfigured === true);
   const endpoint = options.endpoint ?? config.snapshot.endpoint;
   let selectedModel: string | undefined;
 
@@ -96,6 +87,7 @@ export async function startModelBrowser(options: ModelBrowserOptions = {}): Prom
       <ModelBrowserApp
         endpoint={endpoint}
         currentModel={currentModel}
+        currentModelConfigured={currentModelConfigured}
         onSelect={(model) => {
           selectedModel = model;
         }}
@@ -107,10 +99,5 @@ export async function startModelBrowser(options: ModelBrowserOptions = {}): Prom
   );
 
   await waitUntilExit();
-  const agentMode: AgentMode | undefined = selectedModel?.endsWith(AGENT_MODEL_SUFFIX)
-    ? "claude-code-agent"
-    : selectedModel?.startsWith("claude-code/")
-      ? "hlvm"
-      : undefined;
-  return { code: 0, selectedModel, agentMode };
+  return { code: 0, selectedModel };
 }

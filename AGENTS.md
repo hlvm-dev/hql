@@ -39,6 +39,9 @@ For `hlvm ask`:
 - `--verbose` enables agent header, tool labels, stats, and trace events.
 
 Do not add new CLI flags unless explicitly requested.
+Do not add new config knobs, persisted UI preferences, global modes, or toggleable behaviors unless explicitly requested.
+Do not turn a one-off UX tweak into an option surface "just in case". Prefer one strong default over extra switches.
+If a change can be shipped by improving the default behavior, do that instead of adding flags, settings, or mode selectors.
 
 ## Declarative Over Imperative - MANDATORY
 

@@ -238,9 +238,13 @@ function selectDiversePrefetchTargets(results: SearchResult[], maxTargets: numbe
 
   // Pass 2: backfill from remaining (allows same-host fallback).
   if (prefetchTargets.length < targetLimit) {
+    const seen = new Set(prefetchTargets);
     for (const r of prefetchCandidates) {
       if (prefetchTargets.length >= targetLimit) break;
-      if (!prefetchTargets.includes(r)) prefetchTargets.push(r);
+      if (!seen.has(r)) {
+        seen.add(r);
+        prefetchTargets.push(r);
+      }
     }
   }
   return prefetchTargets;
@@ -312,6 +316,77 @@ export const __testOnlyBuildSearchWebCacheKey = buildSearchWebCacheKey;
 export const __testOnlyFormatSearchWebResult = formatSearchWebResult;
 export const __testOnlySelectDiversePrefetchTargets = selectDiversePrefetchTargets;
 export const __testOnlyAverageResultScore = averageResultScore;
+
+function formatFetchUrlResult(
+  raw: unknown,
+): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  const url = typeof data.url === "string" ? data.url : "";
+  const text = typeof data.text === "string" ? data.text : "";
+  if (!url || !text) return null;
+  const status = typeof data.status === "number" ? data.status : undefined;
+  const contentType = typeof data.contentType === "string" ? data.contentType : "";
+  const detailLines = [`URL: ${url}`];
+  if (status !== undefined) detailLines.push(`Status: ${status}`);
+  if (contentType) detailLines.push(`Type: ${contentType}`);
+  detailLines.push("");
+  detailLines.push(text);
+  const detailText = detailLines.join("\n").trimEnd();
+  return {
+    summaryDisplay: `Fetched ${url}`,
+    returnDisplay: detailText,
+    llmContent: detailText,
+  };
+}
+
+function formatWebFetchResult(
+  raw: unknown,
+): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+
+  if (data.batch === true && Array.isArray(data.results)) {
+    const count = typeof data.count === "number" ? data.count : data.results.length;
+    const errors = typeof data.errors === "number" ? data.errors : 0;
+    const detailLines = [`Fetched ${count} URL${count === 1 ? "" : "s"}`];
+    for (let i = 0; i < data.results.length; i++) {
+      const entry = data.results[i];
+      if (!entry || typeof entry !== "object") continue;
+      const record = entry as Record<string, unknown>;
+      const url = typeof record.url === "string" ? record.url : `URL ${i + 1}`;
+      const title = typeof record.title === "string" ? record.title : "";
+      const error = typeof record.error === "string" ? record.error : "";
+      detailLines.push(
+        `[${i + 1}] ${url}${title ? ` — ${title}` : ""}${error ? ` (error: ${error})` : ""}`,
+      );
+    }
+    return {
+      summaryDisplay: errors > 0
+        ? `Fetched ${count - errors} of ${count} URLs`
+        : `Fetched ${count} URL${count === 1 ? "" : "s"}`,
+      returnDisplay: detailLines.join("\n").trimEnd(),
+      llmContent: JSON.stringify(data, null, 2),
+    };
+  }
+
+  const url = typeof data.url === "string" ? data.url : "";
+  const text = typeof data.text === "string" ? data.text : "";
+  if (!url || !text) return null;
+  const title = typeof data.title === "string" ? data.title : "";
+  const description = typeof data.description === "string" ? data.description : "";
+  const detailLines = [`URL: ${url}`];
+  if (title) detailLines.push(`Title: ${title}`);
+  if (description) detailLines.push(`Description: ${description}`);
+  detailLines.push("");
+  detailLines.push(text);
+  const detailText = detailLines.join("\n").trimEnd();
+  return {
+    summaryDisplay: title ? `Fetched ${url}\nTitle: ${title}` : `Fetched ${url}`,
+    returnDisplay: detailText,
+    llmContent: detailText,
+  };
+}
 
 function resolveSearchTimeRange(value: unknown): SearchTimeRange {
   if (value === undefined) return "all";
@@ -826,7 +901,9 @@ async function searchWeb(
 // Result Formatting
 // ============================================================
 
-function formatSearchWebResult(raw: unknown): { returnDisplay: string; llmContent: string } | null {
+function formatSearchWebResult(
+  raw: unknown,
+): { summaryDisplay: string; returnDisplay: string; llmContent: string } | null {
   if (!raw || typeof raw !== "object") return null;
   const data = raw as Record<string, unknown>;
   const results = data.results as SearchResult[] | undefined;
@@ -836,27 +913,48 @@ function formatSearchWebResult(raw: unknown): { returnDisplay: string; llmConten
   const provider = typeof data.provider === "string" ? data.provider : "search";
   const confidence = assessToolSearchConfidence(queryStr, results);
   const lowConfidence = confidence.lowConfidence;
-  const lines: string[] = [`Search: "${queryStr}" (${results.length} results, ${provider})\n`];
+  const topResults = results.slice(0, 4);
+  const detailLines: string[] = [`Search: "${queryStr}" (${results.length} results, ${provider})\n`];
 
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     const header = `[${i + 1}] ${r.title}${r.url ? ` \u2014 ${r.url}` : ""}`;
-    lines.push(header);
-    if (r.publishedDate) lines.push(`    Published: ${r.publishedDate}`);
-    if (r.snippet) lines.push(`    > ${r.snippet}`);
-    // Show pageDescription when it adds info beyond the snippet
+    detailLines.push(header);
+    if (r.publishedDate) detailLines.push(`    Published: ${r.publishedDate}`);
+    if (r.snippet) detailLines.push(`    > ${r.snippet}`);
     if (r.pageDescription && r.pageDescription !== r.snippet) {
-      lines.push(`    > ${r.pageDescription}`);
+      detailLines.push(`    > ${r.pageDescription}`);
     }
     if (r.passages?.length) {
       for (const p of r.passages) {
-        lines.push(`    > ${p}`);
+        detailLines.push(`    > ${p}`);
       }
     }
-    lines.push("");
+    detailLines.push("");
   }
 
-  const displayText = lines.join("\n").trimEnd();
+  const displayLines: string[] = [
+    `Top sources for "${queryStr}" (${results.length} results, ${provider})`,
+  ];
+  if (topResults.length > 0) {
+    displayLines.push("");
+    for (let i = 0; i < topResults.length; i++) {
+      const r = topResults[i];
+      displayLines.push(`[${i + 1}] ${r.title}${r.url ? ` — ${r.url}` : ""}`);
+      if (r.publishedDate) displayLines.push(`    Published: ${r.publishedDate}`);
+      const summary = r.passages?.[0] ?? r.pageDescription ?? r.snippet;
+      if (summary) displayLines.push(`    ${summary}`);
+    }
+    if (results.length > topResults.length) {
+      displayLines.push(`+${results.length - topResults.length} more results`);
+    }
+  }
+  if (lowConfidence) {
+    displayLines.push("");
+    displayLines.push("Evidence is weak. Results may be noisy or incomplete.");
+  }
+
+  const summaryText = displayLines.join("\n").trimEnd();
   const llmSupplements: string[] = [];
   if (lowConfidence) {
     llmSupplements.push(
@@ -873,10 +971,11 @@ function formatSearchWebResult(raw: unknown): { returnDisplay: string; llmConten
       "If evidence remains weak, explicitly say confidence is low and ask for a narrower query or more context.",
     );
   }
+  const detailText = detailLines.join("\n").trimEnd();
   const llmText = llmSupplements.length > 0
-    ? `${displayText}\n\n${llmSupplements.join("\n\n")}`
-    : displayText;
-  return { returnDisplay: displayText, llmContent: llmText };
+    ? `${detailText}\n\n${llmSupplements.join("\n\n")}`
+    : detailText;
+  return { summaryDisplay: summaryText, returnDisplay: detailText, llmContent: llmText };
 }
 
 // ============================================================
@@ -935,6 +1034,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
     },
     safetyLevel: "L0",
     safety: "Read-only web fetch (auto-approved).",
+    formatResult: formatFetchUrlResult,
   },
   web_fetch: {
     fn: webFetch,
@@ -972,5 +1072,6 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
     },
     safetyLevel: "L0",
     safety: "Read-only web fetch (auto-approved).",
+    formatResult: formatWebFetchResult,
   },
 };

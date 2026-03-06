@@ -54,6 +54,7 @@ import {
 import { getAgentLogger } from "./logger.ts";
 import { retrieveMemory, type RetrievalResult } from "../memory/retrieve.ts";
 import { resetWebToolBudget } from "./tools/web-tools.ts";
+import type { Citation } from "./tools/web/search-provider.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -171,6 +172,39 @@ export type TraceEvent =
   };
 
 /** Agent UI event for display in CLI/GUI */
+export interface WebSearchToolEventMeta {
+  deep?: {
+    autoTriggered: boolean;
+    rounds: number;
+    triggerReason: string;
+    queryTrail: string[];
+    recovered: boolean;
+  };
+  score?: {
+    lowConfidence?: boolean;
+    confidenceReason?: string;
+    avgScore?: number;
+    hostDiversity?: number;
+    queryCoverage?: number;
+  };
+  sourceGuard?: {
+    warning: boolean;
+    trustLevel: "high" | "medium" | "low";
+    authorityHits: number;
+    qualityPenaltiesApplied: number;
+    resultCount: number;
+  };
+  citationsCount?: number;
+}
+
+export interface ToolEventMeta {
+  webSearch?: WebSearchToolEventMeta;
+}
+
+export interface FinalResponseMeta {
+  citationSpans: Citation[];
+}
+
 export type AgentUIEvent =
   | { type: "thinking"; iteration: number }
   | {
@@ -190,8 +224,10 @@ export type AgentUIEvent =
     name: string;
     success: boolean;
     content: string;
+    summary?: string;
     durationMs: number;
     argsSummary: string;
+    meta?: ToolEventMeta;
   }
   | {
     type: "turn_stats";
@@ -215,6 +251,7 @@ export interface OrchestratorConfig {
   maxDenials?: number;
   onTrace?: (event: TraceEvent) => void;
   onAgentEvent?: (event: AgentUIEvent) => void;
+  onFinalResponseMeta?: (meta: FinalResponseMeta) => void;
   llmTimeout?: number;
   toolTimeout?: number;
   maxRetries?: number;

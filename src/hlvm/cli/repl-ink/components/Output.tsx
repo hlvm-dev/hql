@@ -15,11 +15,12 @@ import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import type { EvalTask } from "../../repl/task-manager/types.ts";
 import { MarkdownDisplay } from "./markdown/index.ts";
+import { DEFAULT_TERMINAL_WIDTH, PANEL_PADDING } from "../ui-constants.ts";
 
 export function Output({ result }: { result: EvalResult }): React.ReactElement | null {
   const { color } = useTheme();
   const { stdout } = useStdout();
-  const markdownWidth = Math.max(20, (stdout?.columns ?? 80) - 4);
+  const markdownWidth = Math.max(20, (stdout?.columns ?? DEFAULT_TERMINAL_WIDTH) - PANEL_PADDING);
 
   if (result.suppressOutput) return null;
 

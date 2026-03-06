@@ -450,10 +450,14 @@ Deno.test("formatResult returns compact text, not JSON", () => {
   const formatted = __testOnlyFormatSearchWebResult(raw);
   assert(formatted !== null);
   assert(formatted!.returnDisplay.includes('Search: "deno 2.2 release"'));
+  assert(formatted!.summaryDisplay.includes('Top sources for "deno 2.2 release"'));
+  assert(formatted!.summaryDisplay.includes("[1] Deno 2.2 Release Notes"));
   assert(formatted!.returnDisplay.includes("[1] Deno 2.2 Release Notes"));
+  assert(formatted!.returnDisplay.includes("Deno 2.2 Release Notes"));
   assert(formatted!.returnDisplay.includes("Published: 2026-02-15"));
-  assert(formatted!.returnDisplay.includes("> The new release includes faster startup"));
-  assert(!formatted!.returnDisplay.includes("{"));  // not JSON
+  assert(formatted!.returnDisplay.includes("The new release includes faster startup"));
+  assert(!formatted!.summaryDisplay.includes("Trust: authority="));
+  assert(!formatted!.summaryDisplay.includes("{"));  // not JSON
 });
 
 Deno.test("formatResult shows pageDescription alongside snippet when both exist", () => {
@@ -472,9 +476,12 @@ Deno.test("formatResult shows pageDescription alongside snippet when both exist"
   };
   const formatted = __testOnlyFormatSearchWebResult(raw);
   assert(formatted !== null);
-  // Both snippet AND pageDescription should appear (not just snippet)
-  assert(formatted!.returnDisplay.includes("> Short DDG snippet"));
-  assert(formatted!.returnDisplay.includes("> A much longer and richer description"));
+  // Concise user display should prefer the richer pageDescription summary.
+  assert(!formatted!.summaryDisplay.includes("Short DDG snippet"));
+  assert(formatted!.summaryDisplay.includes("A much longer and richer description"));
+  // Full llmContent still preserves the detailed search listing.
+  assert(formatted!.llmContent.includes("> Short DDG snippet"));
+  assert(formatted!.llmContent.includes("> A much longer and richer description"));
 });
 
 Deno.test("formatResult raw result still has full results array", () => {
@@ -678,7 +685,8 @@ Deno.test("formatResult appends low-relevance tip in llmContent only when avg sc
   };
   const formatted = __testOnlyFormatSearchWebResult(raw);
   assert(formatted !== null);
-  assert(!formatted!.returnDisplay.includes("Tip:"), "tip should NOT be in returnDisplay");
+  assert(!formatted!.summaryDisplay.includes("Tip:"), "tip should NOT be in summaryDisplay");
+  assert(formatted!.summaryDisplay.includes("Evidence is weak."), "plain-language weak-evidence warning should be visible");
   assert(formatted!.llmContent.includes("Tip: Results have low relevance scores"), "tip should be in llmContent");
   assert(formatted!.llmContent.includes("Confidence reason:"), "confidence reason should be included in llmContent");
 });
@@ -696,7 +704,9 @@ Deno.test("formatResult omits tip when avg score >= 4", () => {
   const formatted = __testOnlyFormatSearchWebResult(raw);
   assert(formatted !== null);
   assert(!formatted!.llmContent.includes("Tip:"), "no tip when scores are good");
-  assertEquals(formatted!.returnDisplay, formatted!.llmContent);
+  assert(formatted!.summaryDisplay.includes('Top sources for "well matched"'));
+  assert(formatted!.llmContent.includes("[1] Good A"));
+  assert(formatted!.summaryDisplay !== formatted!.llmContent);
 });
 
 Deno.test("formatResult computes avg from defined scores only (skips undefined)", () => {
@@ -733,8 +743,8 @@ Deno.test("formatResult includes relatedLinks and uncertainty hint only in llmCo
   };
   const formatted = __testOnlyFormatSearchWebResult(raw);
   assert(formatted !== null);
-  assert(!formatted!.returnDisplay.includes("Related links to check:"));
-  assert(!formatted!.returnDisplay.includes("confidence is low"));
+  assert(!formatted!.summaryDisplay.includes("Related links to check:"));
+  assert(!formatted!.summaryDisplay.includes("confidence is low"));
   assert(formatted!.llmContent.includes("Related links to check:"));
   assert(formatted!.llmContent.includes("https://docs.example.com/ref"));
   assert(formatted!.llmContent.includes("confidence is low"));

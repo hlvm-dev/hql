@@ -16,7 +16,7 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { resolveToolPath, createPolicyPathChecker } from "../path-utils.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
-import { escapeRegExp } from "../../../common/utils.ts";
+import { escapeRegExp, isObjectValue } from "../../../common/utils.ts";
 import { formatToolError, okTool, failTool } from "../tool-results.ts";
 import { walkDirectory, loadGitignore } from "../../../common/file-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
@@ -574,6 +574,130 @@ export async function getStructure(
 // Tool Registry
 // ============================================================
 
+function pluralize(noun: string, count: number): string {
+  return count === 1 ? noun : `${noun}s`;
+}
+
+function formatSearchCodeResult(
+  result: unknown,
+): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+  if (!isObjectValue(result) || result.success !== true) return null;
+  const matchesRaw = Array.isArray(result.matches)
+    ? result.matches.filter(isObjectValue)
+    : [];
+  const count = typeof result.count === "number" ? result.count : matchesRaw.length;
+  const message = typeof result.message === "string"
+    ? result.message
+    : `Found ${count} matches`;
+
+  if (count === 0) {
+    return {
+      summaryDisplay: "No code matches found",
+      returnDisplay: message,
+      llmContent: JSON.stringify({ message, matches: [], count }, null, 2),
+    };
+  }
+
+  const fileCount = new Set(
+    matchesRaw.map((match) => typeof match.file === "string" ? match.file : "").filter(Boolean),
+  ).size;
+  const first = matchesRaw[0];
+  const firstFile = typeof first?.file === "string" ? first.file : "";
+  const firstLine = typeof first?.line === "number" ? first.line : undefined;
+  const summaryLines = [
+    `Found ${count} matches in ${fileCount} ${pluralize("file", fileCount)}`,
+  ];
+  if (firstFile && firstLine !== undefined) {
+    summaryLines.push(`Top hit: ${firstFile}:${firstLine}`);
+  }
+
+  const detailLines = [message];
+  for (let i = 0; i < matchesRaw.length; i++) {
+    const match = matchesRaw[i];
+    const file = typeof match.file === "string" ? match.file : "unknown";
+    const line = typeof match.line === "number" ? match.line : 0;
+    const content = typeof match.content === "string" ? match.content.trim() : "";
+    detailLines.push("");
+    detailLines.push(`[${i + 1}] ${file}:${line}`);
+    if (content) detailLines.push(`    ${content}`);
+  }
+
+  return {
+    summaryDisplay: summaryLines.join("\n"),
+    returnDisplay: detailLines.join("\n").trimEnd(),
+    llmContent: JSON.stringify({ message, matches: matchesRaw, count }, null, 2),
+  };
+}
+
+function formatFindSymbolResult(
+  result: unknown,
+): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+  if (!isObjectValue(result) || result.success !== true) return null;
+  const symbolsRaw = Array.isArray(result.symbols)
+    ? result.symbols.filter(isObjectValue)
+    : [];
+  const count = typeof result.count === "number" ? result.count : symbolsRaw.length;
+  const message = typeof result.message === "string"
+    ? result.message
+    : `Found ${count} ${pluralize("symbol", count)}`;
+
+  const detailLines = [message];
+  for (let i = 0; i < symbolsRaw.length; i++) {
+    const symbol = symbolsRaw[i];
+    const file = typeof symbol.file === "string" ? symbol.file : "unknown";
+    const line = typeof symbol.line === "number" ? symbol.line : 0;
+    const type = typeof symbol.type === "string" ? symbol.type : "symbol";
+    const name = typeof symbol.name === "string" ? symbol.name : "";
+    detailLines.push(`[${i + 1}] ${file}:${line} [${type}] ${name}`.trimEnd());
+  }
+
+  return {
+    summaryDisplay: count > 0 ? message : "No matching symbols found",
+    returnDisplay: detailLines.join("\n").trimEnd(),
+    llmContent: JSON.stringify({ message, symbols: symbolsRaw, count }, null, 2),
+  };
+}
+
+function renderTreeNode(
+  node: TreeNode,
+  prefix: string = "",
+  isLast: boolean = true,
+): string[] {
+  const marker = prefix ? (isLast ? "└─ " : "├─ ") : "";
+  const nodeLabel = node.type === "directory" ? `${node.name}/` : node.name;
+  const lines = [`${prefix}${marker}${nodeLabel}`];
+  const children = node.children ?? [];
+  const nextPrefix = prefix ? `${prefix}${isLast ? "   " : "│  "}` : "";
+  for (let i = 0; i < children.length; i++) {
+    lines.push(...renderTreeNode(children[i], nextPrefix, i === children.length - 1));
+  }
+  return lines;
+}
+
+function isTreeNode(value: unknown): value is TreeNode {
+  return isObjectValue(value) &&
+    typeof value.name === "string" &&
+    (value.type === "file" || value.type === "directory");
+}
+
+function formatGetStructureResult(
+  result: unknown,
+): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+  if (!isObjectValue(result) || result.success !== true || !isTreeNode(result.tree)) {
+    return null;
+  }
+  const tree = result.tree;
+  const message = typeof result.message === "string"
+    ? result.message
+    : "Retrieved structure";
+  const renderedTree = renderTreeNode(tree).join("\n");
+  return {
+    summaryDisplay: message,
+    returnDisplay: `${message}\n\n${renderedTree}`.trimEnd(),
+    llmContent: JSON.stringify({ message, tree }, null, 2),
+  };
+}
+
 /**
  * All code tools with metadata
  */
@@ -598,6 +722,7 @@ export const CODE_TOOLS = {
       count: "number - Number of matches (on success)",
       message: "string - Human-readable result message",
     },
+    formatResult: formatSearchCodeResult,
   },
   find_symbol: {
     fn: findSymbol,
@@ -617,6 +742,7 @@ export const CODE_TOOLS = {
       count: "number - Number of matches (on success)",
       message: "string - Human-readable result message",
     },
+    formatResult: formatFindSymbolResult,
   },
   get_structure: {
     fn: getStructure,
@@ -634,5 +760,6 @@ export const CODE_TOOLS = {
       tree: "TreeNode - Directory tree structure (on success)",
       message: "string - Human-readable result message",
     },
+    formatResult: formatGetStructureResult,
   },
 } as const;

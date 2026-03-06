@@ -10,12 +10,10 @@
  */
 
 import type { ModelInfo, ProviderCapability } from "./types.ts";
+import { CATALOG_CACHE_TTL_MS } from "./common.ts";
 import { http } from "../../common/http-client.ts";
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
-
-/** Cache TTL: 1 hour (models don't change every minute) */
-const CACHE_TTL_MS = 60 * 60 * 1000;
 
 /** Provider prefixes in OpenRouter model IDs */
 const PROVIDER_PREFIXES: Record<string, string> = {
@@ -46,9 +44,11 @@ interface OpenRouterModel {
 
 let cachedModels: ModelInfo[] | null = null;
 let cacheTimestamp = 0;
+let inFlightCatalogFetch: Promise<ModelInfo[]> | null = null;
 
 function isCacheValid(): boolean {
-  return cachedModels !== null && Date.now() - cacheTimestamp < CACHE_TTL_MS;
+  return cachedModels !== null &&
+    Date.now() - cacheTimestamp < CATALOG_CACHE_TTL_MS;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,20 +62,33 @@ function isCacheValid(): boolean {
  */
 async function fetchPublicCatalog(): Promise<ModelInfo[]> {
   if (isCacheValid()) return cachedModels!;
+  if (inFlightCatalogFetch) return await inFlightCatalogFetch;
 
-  try {
-    const response = await http.fetchRaw(OPENROUTER_MODELS_URL, {
-      timeout: 10_000,
-    });
-    if (!response.ok) return cachedModels ?? [];
+  inFlightCatalogFetch = (async (): Promise<ModelInfo[]> => {
+    try {
+      const response = await http.fetchRaw(OPENROUTER_MODELS_URL, {
+        timeout: 10_000,
+      });
+      if (!response.ok) return cachedModels ?? [];
 
-    const result = await response.json() as { data: OpenRouterModel[] };
-    cachedModels = (result.data ?? []).map(toModelInfo);
-    cacheTimestamp = Date.now();
-    return cachedModels;
-  } catch {
-    return cachedModels ?? [];
-  }
+      const result = await response.json() as { data: OpenRouterModel[] };
+      cachedModels = (result.data ?? []).map(toModelInfo);
+      cacheTimestamp = Date.now();
+      return cachedModels;
+    } catch {
+      return cachedModels ?? [];
+    } finally {
+      inFlightCatalogFetch = null;
+    }
+  })();
+
+  return await inFlightCatalogFetch;
+}
+
+export function resetPublicCatalogCacheForTests(): void {
+  cachedModels = null;
+  cacheTimestamp = 0;
+  inFlightCatalogFetch = null;
 }
 
 /**

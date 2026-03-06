@@ -148,6 +148,88 @@ export function hqlToTypeScript(hql: string): string {
 }
 
 // ============================================================================
+// Temp Directory Helpers
+// ============================================================================
+
+/**
+ * Execute a function with a temporary directory, cleaning up afterwards.
+ * SSOT for temp dir management in unit tests.
+ */
+export async function withTempDir<T>(
+  fn: (dir: string) => Promise<T>,
+): Promise<T> {
+  const tempDir = await Deno.makeTempDir({ prefix: "hlvm-test-" });
+  try {
+    return await fn(tempDir);
+  } finally {
+    try {
+      await Deno.remove(tempDir, { recursive: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+/**
+ * Execute a function with a temporary HLVM_DIR set in the environment.
+ * Saves/restores the previous HLVM_DIR and resets the paths cache.
+ */
+export async function withTempHlvmDir(
+  fn: () => Promise<void>,
+): Promise<void> {
+  const { resetHlvmDirCacheForTests } = await import(
+    "../../src/common/paths.ts"
+  );
+  const platform = getPlatform();
+  const previousHlvmDir = platform.env.get("HLVM_DIR");
+  const tempDir = await platform.fs.makeTempDir({
+    prefix: "hlvm-test-hlvmdir-",
+  });
+
+  platform.env.set("HLVM_DIR", tempDir);
+  resetHlvmDirCacheForTests();
+
+  try {
+    await fn();
+  } finally {
+    if (previousHlvmDir === undefined) {
+      platform.env.delete("HLVM_DIR");
+    } else {
+      platform.env.set("HLVM_DIR", previousHlvmDir);
+    }
+    resetHlvmDirCacheForTests();
+
+    try {
+      await platform.fs.remove(tempDir, { recursive: true });
+    } catch {
+      // Best-effort cleanup for temp test directory.
+    }
+  }
+}
+
+/**
+ * Create a temp directory with a given file structure.
+ * Keys are relative paths, values are file contents (null = directory only).
+ */
+export async function createTempTree(
+  structure: Record<string, string | null>,
+): Promise<string> {
+  const platform = getPlatform();
+  const tmpDir = await Deno.makeTempDir({ prefix: "hlvm-test-tree-" });
+
+  for (const [filePath, content] of Object.entries(structure)) {
+    const fullPath = platform.path.join(tmpDir, filePath);
+    const dir = platform.path.dirname(fullPath);
+    await Deno.mkdir(dir, { recursive: true });
+    if (content !== null) {
+      await Deno.writeTextFile(fullPath, content);
+    }
+  }
+
+  return tmpDir;
+}
+
+// ============================================================================
 // Console Capture Helpers
 // ============================================================================
 

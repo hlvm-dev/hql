@@ -1588,9 +1588,10 @@ export function Input({
       }
     }
 
-    // Enter - submit if balanced OR if it's an @mention query
-    // Skip if Ctrl is pressed (Ctrl+J = ASCII 10 = newline, handled in Ctrl block)
-    if (key.return && !key.ctrl) {
+    // Enter - submit if balanced OR if it's an @mention query.
+    // Treat raw CR/LF as Enter too (some terminals/paste flows set key.return=false).
+    // Skip if Ctrl is pressed (Ctrl+J = ASCII 10 = newline, handled in Ctrl block).
+    if (isEnterLikeInput && !key.ctrl) {
       // Wait for async attachment resolution before submit so placeholders map to real attachments.
       if (pendingAttachmentOpsRef.current > 0) {
         return;

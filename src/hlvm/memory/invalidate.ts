@@ -34,11 +34,12 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 
 export function detectConflicts(content: string, category: string): ConflictCandidate[] {
   const categoryTrimmed = category.trim();
+  const contentTokens = tokenize(content);
   const candidates = searchFactsFts(content, 12)
     .filter((fact) => fact.category === categoryTrimmed)
     .filter((fact) => fact.content !== content)
     .map((fact) => {
-      const overlap = jaccard(tokenize(content), tokenize(fact.content));
+      const overlap = jaccard(contentTokens, tokenize(fact.content));
       return {
         factId: fact.id,
         content: fact.content,

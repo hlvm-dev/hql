@@ -147,8 +147,10 @@ export async function handleAgentMode(
               name: event.name,
               success: event.success,
               content: event.content,
+              summary: event.summary,
               duration_ms: event.durationMs,
               args_summary: event.argsSummary,
+              meta: event.meta,
             });
             break;
           }

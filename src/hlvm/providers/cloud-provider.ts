@@ -41,6 +41,8 @@ export interface CloudProviderSpec {
   envVarName?: string;
   noModelsError: string;
   publicCatalogProvider: string;
+  /** Allow fallback to OpenRouter public catalog when live provider listing is unavailable. */
+  allowPublicCatalogFallback?: boolean;
   /** Create the API adapter. For API-key providers, captures apiKey in closures. */
   createApi(apiKey: string): CloudProviderApi;
   /** Transform model name before API calls (e.g. strip :agent suffix). */
@@ -71,6 +73,9 @@ export function createCloudProvider(
           if (live.length > 0) {
             return spec.transformModels ? spec.transformModels(live) : live;
           }
+        }
+        if (spec.allowPublicCatalogFallback === false) {
+          return [];
         }
         const pub = await fetchPublicModelsForProvider(
           spec.publicCatalogProvider,

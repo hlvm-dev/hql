@@ -28,6 +28,7 @@ export interface ToolExecutionResult {
   success: boolean;
   result?: unknown;
   llmContent?: string;
+  summaryDisplay?: string;
   returnDisplay?: string;
   error?: string;
 }

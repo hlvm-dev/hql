@@ -391,7 +391,9 @@ export class SdkMcpClient {
         if (!this.pendingRequests.has(method)) {
           this.pendingRequests.set(method, []);
         }
-        this.pendingRequests.get(method)!.push({
+        const queue = this.pendingRequests.get(method);
+        if (!queue) return;
+        queue.push({
           params: request.params,
           resolve,
           reject,

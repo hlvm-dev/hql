@@ -9,9 +9,26 @@ Complete guide to building HLVM binaries.
 - **Deno** 1.40+ ([install](https://deno.land/))
 - **Git**
 
+### macOS Native Builds
+
+HLVM uses `deno compile` to build the native `hlvm` binary. On macOS, that
+goes through Apple's native toolchain, so `make build`, `make repl`, `make test`,
+and the platform build targets may require Command Line Tools and an accepted
+Xcode/Apple SDK license first.
+
 ### Optional
 
 - **Make** (for build commands)
+
+## Quick Start REPL
+
+Build the native binary and launch the REPL:
+
+```bash
+make repl
+```
+
+This compiles `./hlvm` first, then launches its REPL.
 
 ## Quick Build
 
@@ -47,13 +64,21 @@ make test
 
 Builds binary and runs smoke tests.
 
-### Build and Launch REPL
+### Start REPL
 
 ```bash
-make fast
+make repl
 ```
 
-Builds and immediately opens REPL.
+Builds the native `hlvm` binary and launches its REPL.
+
+### Start Ink REPL
+
+```bash
+make ink
+```
+
+Builds the native `hlvm` binary and launches the Ink REPL.
 
 ### Install System-Wide
 

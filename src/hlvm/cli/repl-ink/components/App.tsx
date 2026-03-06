@@ -16,6 +16,7 @@ import {
   type PaletteState,
 } from "./CommandPaletteOverlay.tsx";
 import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
+import { ShortcutsOverlay } from "./ShortcutsOverlay.tsx";
 import { ModelBrowser } from "./ModelBrowser.tsx";
 import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
@@ -29,13 +30,14 @@ import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
 import { useAlternateBuffer } from "../hooks/useAlternateBuffer.ts";
-import type { EvalResult } from "../types.ts";
+import type { AssistantCitation, EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { clearTerminal } from "../../ansi.ts";
 import { getUnclosedDepth, tokenize, type TokenType } from "../../repl/syntax.ts";
 import { useTheme } from "../../theme/index.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { resetContext } from "../../repl/context.ts";
+import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 import { isCommand, runCommand } from "../../repl/commands.ts";
 import type {
   Session,
@@ -48,6 +50,7 @@ import { SessionManager } from "../../repl/session/manager.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { ensureError } from "../../../../common/utils.ts";
 import { normalizeModelId } from "../../../../common/config/types.ts";
+import { persistSelectedModelConfig } from "../../../../common/config/model-selection.ts";
 import { ReplProvider } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { log } from "../../../api/log.ts";
@@ -83,6 +86,7 @@ interface QueuedConversationTurn {
 interface ConfigSnapshotApi {
   snapshot?: {
     model?: unknown;
+    modelConfigured?: unknown;
     contextWindow?: unknown;
   };
   subscribe?: (listener: (config: Record<string, unknown>) => void) => () => void;
@@ -263,13 +267,15 @@ function AppContent(
   const currentEvalRef = useRef<CurrentEval | null>(null);
 
   // Unified panel state - only one panel can be open at a time
-  // "palette", "config-overlay", and "tasks-overlay" are overlays (input visible but disabled), others hide input entirely
+  // "palette", "config-overlay", "tasks-overlay", and "shortcuts-overlay" are overlays
+  // (input visible but disabled), others hide input entirely
   // "conversation" renders the agent conversation panel
   type ActivePanel =
     | "none"
     | "picker"
     | "config-overlay"
     | "tasks-overlay"
+    | "shortcuts-overlay"
     | "models"
     | "palette"
     | "model-setup"
@@ -320,7 +326,7 @@ function AppContent(
 
   // Terminal width for responsive layout
   const { stdout } = useStdout();
-  const terminalWidth = stdout?.columns ?? 80;
+  const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
 
   // Conversation state for agent mode
   const conversation = useConversation();
@@ -358,6 +364,8 @@ function AppContent(
   const interactionResolversRef = useRef<
     Map<string, (response: InteractionResponse) => void>
   >(new Map());
+  const [configuredModelId, setConfiguredModelId] = useState<string>("");
+  const [isConfiguredModelExplicit, setIsConfiguredModelExplicit] = useState(false);
   const [footerModelName, setFooterModelName] = useState<string>("");
   const [footerContextUsageLabel, setFooterContextUsageLabel] = useState<string>("");
   const [pendingConversationQueue, setPendingConversationQueue] = useState<QueuedConversationTurn[]>([]);
@@ -372,10 +380,16 @@ function AppContent(
     const normalizeModel = (value: unknown): string =>
       typeof value === "string" ? value.replace("ollama/", "") : "";
 
+    setConfiguredModelId(
+      typeof cfgApi.snapshot?.model === "string" ? cfgApi.snapshot.model : "",
+    );
+    setIsConfiguredModelExplicit(cfgApi.snapshot?.modelConfigured === true);
     setFooterModelName(normalizeModel(cfgApi.snapshot?.model));
 
     if (cfgApi.subscribe) {
       return cfgApi.subscribe((cfg) => {
+        setConfiguredModelId(typeof cfg.model === "string" ? cfg.model : "");
+        setIsConfiguredModelExplicit(cfg.modelConfigured === true);
         setFooterModelName(normalizeModel(cfg.model));
       });
     }
@@ -602,6 +616,7 @@ function AppContent(
   /** Detect if input looks like natural language rather than code */
   const isNaturalLanguage = useCallback((input: string): boolean => {
     const trimmed = input.trim();
+    const hasWhitespace = /\s/.test(trimmed);
     if (!trimmed) return false;
     // Commands start with / or .
     if (trimmed.startsWith("/") || trimmed.startsWith(".")) return false;
@@ -634,11 +649,21 @@ function AppContent(
     // Arrow functions or object literals
     if (trimmed.startsWith("{") || trimmed.includes("=>")) return false;
     // Operator expressions (e.g., "1 + 2", "x && y")
-    if (/\w+\s*[+\-*/%&|<>=!?:]+\s*\w+/.test(trimmed)) return false;
+    // Operator expressions (e.g., "1 + 2", "x&&y", "a+b").
+    // IMPORTANT: Avoid classifying hyphenated natural-language words like "Web-RAG" as code.
+    if (/[A-Za-z0-9_]\s*(?:[+*/%]|&&|\|\||===?|!==?|<=?|>=?)\s*[A-Za-z0-9_]/.test(trimmed)) {
+      return false;
+    }
+    if (
+      /[A-Za-z0-9_]\s+-\s+[A-Za-z0-9_]/.test(trimmed) ||
+      /[-+]?\d+\s*-\s*[-+]?\d+/.test(trimmed)
+    ) {
+      return false;
+    }
     // Single-token punctuation chat prompts like "hello?" should still route to agent.
-    if (!trimmed.includes(" ") && /[!?.,]$/.test(trimmed)) return true;
+    if (!hasWhitespace && /[!?.,]$/.test(trimmed)) return true;
     // Remaining single-token non-code input defaults to code path.
-    if (!trimmed.includes(" ")) return false;
+    if (!hasWhitespace) return false;
     // Multi-word input that doesn't match any code pattern → likely natural language
     return true;
   }, [replState]);
@@ -659,10 +684,20 @@ function AppContent(
     try {
       // Lazy import to avoid loading agent code at REPL startup
       const { runAgentQuery, ensureAgentReady } = await import("../../../agent/agent-runner.ts");
+      const { reconcileConfiguredClaudeCodeModel } = await import(
+        "../../../../common/ai-default-model.ts"
+      );
       const cfgApi = (globalThis as Record<string, unknown>).config as ConfigSnapshotApi | undefined;
-      const model = typeof cfgApi?.snapshot?.model === "string"
+      let model = typeof cfgApi?.snapshot?.model === "string"
         ? cfgApi.snapshot.model
         : undefined;
+      if (!images && model?.startsWith("claude-code/")) {
+        const repaired = await reconcileConfiguredClaudeCodeModel();
+        if (typeof repaired === "string" && repaired.length > 0) {
+          model = repaired;
+          setFooterModelName(repaired.replace("ollama/", ""));
+        }
+      }
       if (model) {
         conversation.addInfo("Initializing agent...");
         await ensureAgentReady(model);
@@ -670,6 +705,7 @@ function AppContent(
       }
 
       let textBuffer = "";
+      let finalCitations: AssistantCitation[] | undefined;
       const result = await runAgentQuery({
         query,
         model,
@@ -685,6 +721,9 @@ function AppContent(
           },
           onAgentEvent: (event) => {
             conversation.addEvent(event);
+          },
+          onFinalResponseMeta: (meta) => {
+            finalCitations = meta.citationSpans as AssistantCitation[] | undefined;
           },
           onInteraction: (event: InteractionRequestEvent) => {
             setInteractionQueue((prev: InteractionRequestEvent[]) => {
@@ -722,9 +761,9 @@ function AppContent(
 
       // Finalize assistant message
       if (textBuffer) {
-        conversation.addAssistantText(textBuffer, false);
+        conversation.addAssistantText(textBuffer, false, finalCitations);
       } else if (result.text) {
-        conversation.addAssistantText(result.text, false);
+        conversation.addAssistantText(result.text, false, finalCitations);
       }
 
       // Footer context usage (Gemini-style compact indicator)
@@ -817,6 +856,10 @@ function AppContent(
 
       // Handle commands that need React state (pickers/panels)
       const trimmedInput = code.trim();
+      const forceConversationPrompt = (() => {
+        const match = trimmedInput.match(/^>\s+([\s\S]+)$/);
+        return match ? match[1].trim() : undefined;
+      })();
       const normalizedInput = trimmedInput.startsWith(".")
         ? "/" + trimmedInput.slice(1)
         : trimmedInput;
@@ -834,10 +877,10 @@ function AppContent(
       // If there's a pending question interaction, route non-command input as the answer.
       // Commands must still work while a question prompt is active.
       if (pendingInteraction?.mode === "question" && !isAnyCommand) {
-        conversation.addUserMessage(code.trim());
+        conversation.addUserMessage(forceConversationPrompt ?? code.trim());
         handleInteractionResponse(pendingInteraction.requestId, {
           approved: true,
-          userInput: code.trim(),
+          userInput: forceConversationPrompt ?? code.trim(),
         });
         return;
       }
@@ -970,11 +1013,12 @@ function AppContent(
           return;
         }
         const imagePayload = images && images.length > 0 ? images : undefined;
+        const conversationQuery = forceConversationPrompt ?? expandedCode;
         if (agentControllerRef.current) {
           const wasQueueEmpty = pendingConversationQueue.length === 0;
           setPendingConversationQueue((prev: QueuedConversationTurn[]) => [
             ...prev,
-            { query: expandedCode, images: imagePayload },
+            { query: conversationQuery, images: imagePayload },
           ]);
           // Keep queue signal concise; avoid spamming repeated info lines that cause reflow.
           if (wasQueueEmpty) {
@@ -983,7 +1027,7 @@ function AppContent(
           return;
         }
         setIsEvaluating(true);
-        runConversation(expandedCode, imagePayload);
+        runConversation(conversationQuery, imagePayload);
         return;
       }
 
@@ -996,7 +1040,8 @@ function AppContent(
       }
 
       // Natural language → agent conversation mode
-      if (isNaturalLanguage(expandedCode)) {
+      const candidateConversationQuery = forceConversationPrompt ?? expandedCode;
+      if (forceConversationPrompt || isNaturalLanguage(candidateConversationQuery)) {
         // Convert media attachments to structured payload for multimodal models.
         // Fail fast on generic/untyped binary payloads with explicit guidance.
         const { images, unsupportedMimeType } = prepareConversationMediaPayload(attachments);
@@ -1012,7 +1057,7 @@ function AppContent(
         }
 
         setIsEvaluating(true);
-        runConversation(expandedCode, images?.length ? images : undefined);
+        runConversation(candidateConversationQuery, images?.length ? images : undefined);
         return;
       }
 
@@ -1184,6 +1229,17 @@ function AppContent(
       replState.flushHistorySync();
       exit();
     }
+    if (
+      char === "?" && !key.ctrl && !key.meta && !key.escape &&
+      (activePanel === "none" || activePanel === "conversation" || activePanel === "shortcuts-overlay") &&
+      input.length === 0 &&
+      pendingInteraction?.mode !== "question"
+    ) {
+      setActivePanel((prev: ActivePanel) =>
+        prev === "shortcuts-overlay" ? "none" : "shortcuts-overlay"
+      );
+      return;
+    }
     if (key.ctrl && char === "p") {
       // Debounce: prevent rapid toggles during streaming re-renders
       const now = Date.now();
@@ -1301,10 +1357,12 @@ function AppContent(
   // Input visible: always for normal/overlay modes and always visible in conversation mode.
   const isConversationInputVisible = activePanel === "conversation";
   const isInputVisible = activePanel === "none" ||
-    activePanel === "palette" || activePanel === "config-overlay" || activePanel === "tasks-overlay" ||
+    activePanel === "palette" || activePanel === "config-overlay" ||
+    activePanel === "tasks-overlay" || activePanel === "shortcuts-overlay" ||
     isConversationInputVisible;
   const isInputDisabled = init.loading || activePanel === "palette" ||
     activePanel === "config-overlay" || activePanel === "tasks-overlay" ||
+    activePanel === "shortcuts-overlay" ||
     (activePanel === "conversation" && pendingInteraction?.mode === "permission");
   // Keep Ctrl+O section toggles from conflicting with Input paredit Ctrl+O.
   // Safe contexts:
@@ -1417,26 +1475,36 @@ function AppContent(
         <BackgroundTasksOverlay onClose={() => setActivePanel("none")} />
       )}
 
+      {/* Shortcuts Overlay (True Floating Overlay) */}
+      {activePanel === "shortcuts-overlay" && (
+        <ShortcutsOverlay onClose={() => setActivePanel("none")} />
+      )}
+
       {/* Model Browser Panel */}
       {activePanel === "models" && (
         <ModelBrowser
+          currentModel={configuredModelId}
+          isCurrentModelConfigured={isConfiguredModelExplicit}
           onClose={() => {
             setActivePanel(modelBrowserParent);
             setModelBrowserParent("none");
           }}
+          onModelSet={(modelName: string) => {
+            const normalizedModel = normalizeModelId(modelName) ?? modelName;
+            addHistoryEntry("", {
+              success: true,
+              value: `✓ Default model: ${normalizedModel}`,
+              isCommandOutput: true,
+            });
+          }}
           onSelectModel={async (modelName: string) => {
-            const normalizedModel = normalizeModelId(modelName);
-            if (!normalizedModel) return;
-            // SSOT: Use config API only
             const configApi = (globalThis as Record<string, unknown>).config as
               | {
                 set: (key: string, value: unknown) => Promise<unknown>;
+                patch?: (updates: Partial<Record<string, unknown>>) => Promise<unknown>;
               }
               | undefined;
-
-            if (configApi?.set) {
-              await configApi.set("model", normalizedModel);
-            }
+            await persistSelectedModelConfig(configApi, modelName);
           }}
         />
       )}

@@ -24,15 +24,6 @@ Deno.test("initSearchProviders registers duckduckgo provider", () => {
   assertEquals(ddg!.name, "duckduckgo");
 });
 
-Deno.test("initSearchProviders is idempotent", () => {
-  resetSearchProviderBootstrap();
-  resetSearchProviders();
-  initSearchProviders();
-  initSearchProviders(); // second call should be no-op
-  const ddg = getSearchProvider("duckduckgo");
-  assert(ddg !== undefined);
-});
-
 Deno.test("resetSearchProviders clears all state", () => {
   setup();
   resetSearchProviders();

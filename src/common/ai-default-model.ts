@@ -19,6 +19,7 @@ import { RuntimeError } from "./error.ts";
 let defaultModelEnsured = false;
 const CLAUDE_CODE_PROVIDER = "claude-code";
 const CLAUDE_CODE_AGENT_SUFFIX = ":agent";
+const CLAUDE_DATE_SUFFIX_REGEX = /-20\d{6}$/;
 const CLAUDE_BOOTSTRAP_CACHE_MS = 30_000;
 let claudeBootstrapProbeAt = 0;
 let claudeBootstrapProbeResult: string | null = null;
@@ -38,6 +39,17 @@ export function getConfiguredModel(): string {
 function normalizeProviderLocalModelName(name: string): string {
   const slash = name.indexOf("/");
   return slash >= 0 ? name.slice(slash + 1) : name;
+}
+
+function stripClaudeAgentSuffix(name: string): string {
+  return name.endsWith(CLAUDE_CODE_AGENT_SUFFIX)
+    ? name.slice(0, -CLAUDE_CODE_AGENT_SUFFIX.length)
+    : name;
+}
+
+function normalizeClaudeMatchKey(name: string): string {
+  return stripClaudeAgentSuffix(normalizeProviderLocalModelName(name).toLowerCase())
+    .replace(/\./g, "-");
 }
 
 function getClaudeFamilyScore(name: string): number {
@@ -67,7 +79,9 @@ export function selectPreferredClaudeCodeModel(models: ModelInfo[]): string | nu
   const candidates = models
     .map((model) => normalizeProviderLocalModelName(model.name))
     .filter((name) =>
-      name.startsWith("claude-") && !name.endsWith(CLAUDE_CODE_AGENT_SUFFIX)
+      name.startsWith("claude-") &&
+      !name.endsWith(CLAUDE_CODE_AGENT_SUFFIX) &&
+      !name.includes(".")
     );
 
   if (candidates.length === 0) return null;
@@ -79,6 +93,68 @@ export function selectPreferredClaudeCodeModel(models: ModelInfo[]): string | nu
   });
 
   return candidates[0] ?? null;
+}
+
+function findBestClaudeMatch(
+  requestedModelName: string,
+  availableModels: string[],
+): string | null {
+  const requestedLocal = normalizeProviderLocalModelName(requestedModelName);
+  const requestedHasAgent = requestedLocal.endsWith(CLAUDE_CODE_AGENT_SUFFIX);
+  const requestedBase = stripClaudeAgentSuffix(requestedLocal);
+  const requestedKey = normalizeClaudeMatchKey(requestedLocal);
+
+  const availableSet = new Set(availableModels);
+  if (availableSet.has(requestedLocal)) return requestedLocal;
+  if (availableSet.has(requestedBase)) {
+    const maybeAgent = requestedHasAgent
+      ? `${requestedBase}${CLAUDE_CODE_AGENT_SUFFIX}`
+      : requestedBase;
+    if (availableSet.has(maybeAgent)) return maybeAgent;
+    return requestedBase;
+  }
+
+  const normalizedToOriginal = new Map<string, string>();
+  for (const model of availableModels) {
+    const key = normalizeClaudeMatchKey(model);
+    if (!normalizedToOriginal.has(key)) {
+      normalizedToOriginal.set(key, model);
+    }
+  }
+
+  const normalizedExact = normalizedToOriginal.get(requestedKey);
+  if (normalizedExact) {
+    const normalizedBase = stripClaudeAgentSuffix(normalizedExact);
+    if (!requestedHasAgent) return normalizedBase;
+    const agentVariant = `${normalizedBase}${CLAUDE_CODE_AGENT_SUFFIX}`;
+    return availableSet.has(agentVariant) ? agentVariant : normalizedBase;
+  }
+
+  const candidates = availableModels
+    .filter((model) => {
+      const base = stripClaudeAgentSuffix(model);
+      const key = normalizeClaudeMatchKey(base);
+      return key === requestedKey || key.startsWith(`${requestedKey}-`);
+    })
+    .map((model) => stripClaudeAgentSuffix(model));
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => {
+    const scoreDiff = scoreClaudeModel(b) - scoreClaudeModel(a);
+    if (scoreDiff !== 0) return scoreDiff;
+    const aHasDate = CLAUDE_DATE_SUFFIX_REGEX.test(a) ? 1 : 0;
+    const bHasDate = CLAUDE_DATE_SUFFIX_REGEX.test(b) ? 1 : 0;
+    if (aHasDate !== bHasDate) return bHasDate - aHasDate;
+    return b.localeCompare(a);
+  });
+
+  const selectedBase = candidates[0];
+  if (!selectedBase) return null;
+  if (!requestedHasAgent) return selectedBase;
+
+  const agentVariant = `${selectedBase}${CLAUDE_CODE_AGENT_SUFFIX}`;
+  return availableSet.has(agentVariant) ? agentVariant : selectedBase;
 }
 
 interface ClaudeBootstrapDeps {
@@ -158,6 +234,87 @@ export async function autoConfigureInitialClaudeCodeModel(
   });
   claudeBootstrapProbeResult = selectedModelId;
   return selectedModelId;
+}
+
+interface ClaudeModelRepairDeps {
+  getSnapshot: () => Pick<HlvmConfig, "model">;
+  listModels: (providerName?: string) => Promise<ModelInfo[]>;
+  patchConfig: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<void>;
+}
+
+function getClaudeModelRepairDeps(): ClaudeModelRepairDeps {
+  return {
+    getSnapshot: () => config.snapshot,
+    listModels: (providerName?: string) => ai.models.list(providerName),
+    patchConfig: async (updates) => {
+      await config.patch(updates);
+    },
+  };
+}
+
+interface ClaudeModelResolveDeps {
+  listModels: (providerName?: string) => Promise<ModelInfo[]>;
+}
+
+function getClaudeModelResolveDeps(): ClaudeModelResolveDeps {
+  return {
+    listModels: (providerName?: string) => ai.models.list(providerName),
+  };
+}
+
+/**
+ * Resolve Claude Code model aliases (e.g. dotted "claude-sonnet-4.5") to a
+ * compatible provider-native model id when possible.
+ *
+ * Returns the original model id when no better match can be found.
+ */
+export async function resolveCompatibleClaudeCodeModel(
+  modelId: string,
+  depsOverride: Partial<ClaudeModelResolveDeps> = {},
+): Promise<string> {
+  const deps = { ...getClaudeModelResolveDeps(), ...depsOverride };
+  const [providerName, modelName] = parseModelString(modelId);
+  if (providerName !== CLAUDE_CODE_PROVIDER || !modelName) {
+    return modelId;
+  }
+
+  let models: ModelInfo[];
+  try {
+    models = await deps.listModels(CLAUDE_CODE_PROVIDER);
+  } catch {
+    return modelId;
+  }
+  if (models.length === 0) return modelId;
+
+  const available = models
+    .map((m) => normalizeProviderLocalModelName(m.name))
+    .filter((name) => name.startsWith("claude-"));
+
+  const repaired = findBestClaudeMatch(modelName, available);
+  if (!repaired) return modelId;
+  return `${CLAUDE_CODE_PROVIDER}/${repaired}`;
+}
+
+/**
+ * Repair legacy Claude Code model ids (e.g. dotted aliases like "claude-sonnet-4.5")
+ * by mapping them to available provider-native ids from live model discovery.
+ *
+ * Returns the repaired full model id when patched, otherwise null.
+ */
+export async function reconcileConfiguredClaudeCodeModel(
+  depsOverride: Partial<ClaudeModelRepairDeps> = {},
+): Promise<string | null> {
+  const deps = { ...getClaudeModelRepairDeps(), ...depsOverride };
+  const snapshot = deps.getSnapshot();
+  if (!snapshot.model) return null;
+
+  const repairedFullModel = await resolveCompatibleClaudeCodeModel(snapshot.model, {
+    listModels: deps.listModels,
+  });
+  if (repairedFullModel === snapshot.model) return null;
+
+  await deps.patchConfig({ model: repairedFullModel });
+  return repairedFullModel;
 }
 
 export function isModelInstalled(models: ModelInfo[], target: string): boolean {

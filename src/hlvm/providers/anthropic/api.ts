@@ -5,12 +5,10 @@
  * This module keeps only provider-specific model discovery and status checks.
  */
 
-import { JSON_HEADERS } from "../common.ts";
+import { ANTHROPIC_VERSION, API_TIMEOUT_MS, JSON_HEADERS } from "../common.ts";
 import { http } from "../../../common/http-client.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import type { ModelInfo, ProviderStatus } from "../types.ts";
-
-export const ANTHROPIC_VERSION = "2023-06-01";
 
 function authHeaders(apiKey: string): Record<string, string> {
   return {
@@ -39,7 +37,7 @@ export async function listModels(
   const url = `${endpoint}/v1/models?limit=100`;
   const response = await http.fetchRaw(url, {
     headers: authHeaders(apiKey),
-    timeout: 8_000,
+    timeout: API_TIMEOUT_MS,
   });
   if (!response.ok) return [];
 
@@ -63,7 +61,7 @@ export async function checkStatus(
     const url = `${endpoint}/v1/models?limit=1`;
     const response = await http.fetchRaw(url, {
       headers: authHeaders(apiKey),
-      timeout: 8_000,
+      timeout: API_TIMEOUT_MS,
     });
     return {
       available: response.status !== 401,

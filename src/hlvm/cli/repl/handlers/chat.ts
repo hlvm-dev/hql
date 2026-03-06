@@ -22,7 +22,10 @@ import {
   validateExpectedVersion,
 } from "../../../store/conversation-store.ts";
 import { pushSSEEvent, SESSIONS_CHANNEL } from "../../../store/sse-store.ts";
-import { autoConfigureInitialClaudeCodeModel } from "../../../../common/ai-default-model.ts";
+import {
+  autoConfigureInitialClaudeCodeModel,
+  reconcileConfiguredClaudeCodeModel,
+} from "../../../../common/ai-default-model.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { classifyError } from "../../../agent/error-taxonomy.ts";
 import {
@@ -233,6 +236,10 @@ export async function handleChat(req: Request): Promise<Response> {
   let cfgSnapshot = config.snapshot;
   if (!body.model && !cfgSnapshot.modelConfigured) {
     await autoConfigureInitialClaudeCodeModel();
+    cfgSnapshot = config.snapshot;
+  }
+  if (!body.model) {
+    await reconcileConfiguredClaudeCodeModel();
     cfgSnapshot = config.snapshot;
   }
   const resolvedModel = body.model ?? cfgSnapshot.model;

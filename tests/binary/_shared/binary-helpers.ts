@@ -121,6 +121,12 @@ export function assertSuccessWithOutput(result: CommandResult, expected: string)
   assertOutput(result, expected);
 }
 
+/** Assert command succeeded and output contains all expected substrings */
+export function assertSuccessWithOutputs(result: CommandResult, ...expected: string[]): void {
+  assertSuccess(result);
+  expected.forEach((value) => assertOutput(result, value));
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // TEST WRAPPER (reduces boilerplate)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -267,20 +273,40 @@ export function transpileAndRunWithDeno(hqlCode: string): Promise<CommandResult>
   return compileAndRunWith(hqlCode, "deno");
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TEMP DIRECTORY HELPERS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 /**
- * Execute a function with a temporary directory, cleaning up afterwards
+ * Create a temporary directory, run callback, and clean up.
  */
 export async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
-  const tempDir = await Deno.makeTempDir({ prefix: "hlvm-test-" });
+  const dir = await Deno.makeTempDir({ prefix: "hlvm-binary-test-" });
   try {
-    return await fn(tempDir);
+    return await fn(dir);
   } finally {
-    try {
-      await Deno.remove(tempDir, { recursive: true });
-    } catch {
-      // Ignore cleanup errors
-    }
+    await Deno.remove(dir, { recursive: true }).catch(() => {});
   }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LOCK FILE HELPERS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function tryAcquireCompileLock(): Promise<Deno.FsFile | null> {
+  try {
+    return await Deno.open(COMPILE_LOCK_PATH, { write: true, createNew: true });
+  } catch {
+    return null;
+  }
+}
+
+async function waitForCompiledBinary(): Promise<void> {
+  for (let i = 0; i < 120; i++) {
+    if (await fileExists(BINARY_PATH)) return;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error(`Timed out waiting for compiled binary at ${BINARY_PATH}`);
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -296,27 +322,6 @@ async function removeIfExists(path: string): Promise<void> {
   try {
     await Deno.remove(path);
   } catch {
-    // Ignore if missing.
+    // ignore
   }
-}
-
-async function tryAcquireCompileLock(): Promise<Deno.FsFile | null> {
-  try {
-    return await Deno.open(COMPILE_LOCK_PATH, { createNew: true, write: true });
-  } catch {
-    return null;
-  }
-}
-
-async function waitForCompiledBinary(): Promise<void> {
-  const timeoutMs = 180_000;
-  const pollMs = 100;
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    if (await fileExists(BINARY_PATH)) return;
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
-
-  throw new Error(`Timed out waiting for compiled binary at ${BINARY_PATH}`);
 }

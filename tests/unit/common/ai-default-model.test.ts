@@ -1,6 +1,8 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
   autoConfigureInitialClaudeCodeModel,
+  reconcileConfiguredClaudeCodeModel,
+  resolveCompatibleClaudeCodeModel,
   selectPreferredClaudeCodeModel,
 } from "../../../src/common/ai-default-model.ts";
 import { DEFAULT_MODEL_ID } from "../../../src/common/config/types.ts";
@@ -32,6 +34,16 @@ Deno.test("selectPreferredClaudeCodeModel ignores :agent variants and provider-p
 
   const selected = selectPreferredClaudeCodeModel(models);
   assertEquals(selected, "claude-opus-4-1-20251101");
+});
+
+Deno.test("selectPreferredClaudeCodeModel ignores dotted aliases from public catalogs", () => {
+  const models: ModelInfo[] = [
+    { name: "claude-sonnet-4.5" },
+    { name: "claude-opus-4.6" },
+  ];
+
+  const selected = selectPreferredClaudeCodeModel(models);
+  assertEquals(selected, null);
 });
 
 Deno.test("autoConfigureInitialClaudeCodeModel sets claude default for first-use users", async () => {
@@ -156,4 +168,68 @@ Deno.test("autoConfigureInitialClaudeCodeModel does nothing when claude-code is 
   assertEquals(statusCalls, 1);
   assertEquals(listCalls, 0);
   assertEquals(patchCalls, 0);
+});
+
+Deno.test("reconcileConfiguredClaudeCodeModel repairs dotted Claude model aliases", async () => {
+  const updates: Array<Record<string, unknown>> = [];
+
+  const result = await reconcileConfiguredClaudeCodeModel({
+    getSnapshot: () => ({ model: "claude-code/claude-sonnet-4.5" }),
+    listModels: () =>
+      Promise.resolve([
+        { name: "claude-sonnet-4-6" },
+        { name: "claude-sonnet-4-5-20250929" },
+        { name: "claude-opus-4-6" },
+      ]),
+    patchConfig: (patch) => {
+      updates.push(patch as Record<string, unknown>);
+      return Promise.resolve();
+    },
+  });
+
+  assertEquals(result, "claude-code/claude-sonnet-4-5-20250929");
+  assertEquals(updates.length, 1);
+  assertEquals(updates[0].model, "claude-code/claude-sonnet-4-5-20250929");
+});
+
+Deno.test("reconcileConfiguredClaudeCodeModel no-ops when configured model is already valid", async () => {
+  let patchCalls = 0;
+
+  const result = await reconcileConfiguredClaudeCodeModel({
+    getSnapshot: () => ({ model: "claude-code/claude-sonnet-4-6" }),
+    listModels: () =>
+      Promise.resolve([
+        { name: "claude-sonnet-4-6" },
+        { name: "claude-sonnet-4-5-20250929" },
+      ]),
+    patchConfig: () => {
+      patchCalls++;
+      return Promise.resolve();
+    },
+  });
+
+  assertEquals(result, null);
+  assertEquals(patchCalls, 0);
+});
+
+Deno.test("resolveCompatibleClaudeCodeModel normalizes explicit dotted claude model", async () => {
+  const resolved = await resolveCompatibleClaudeCodeModel(
+    "claude-code/claude-sonnet-4.5",
+    {
+      listModels: () =>
+        Promise.resolve([
+          { name: "claude-sonnet-4-6" },
+          { name: "claude-sonnet-4-5-20250929" },
+          { name: "claude-opus-4-6" },
+        ]),
+    },
+  );
+  assertEquals(resolved, "claude-code/claude-sonnet-4-5-20250929");
+});
+
+Deno.test("resolveCompatibleClaudeCodeModel keeps non-claude models unchanged", async () => {
+  const resolved = await resolveCompatibleClaudeCodeModel("openai/gpt-5", {
+    listModels: () => Promise.resolve([]),
+  });
+  assertEquals(resolved, "openai/gpt-5");
 });

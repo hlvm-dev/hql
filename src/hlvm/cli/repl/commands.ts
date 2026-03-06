@@ -12,6 +12,7 @@ import { log } from "../../api/log.ts";
 import { listSessions } from "../../store/conversation-store.ts";
 import { handleDeleteAllSessions } from "./handlers/sessions.ts";
 import { normalizeModelId } from "../../../common/config/types.ts";
+import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -243,6 +244,7 @@ export const commands: Record<string, Command> = {
         | {
           snapshot?: { model?: unknown };
           set?: (key: string, value: unknown) => Promise<unknown>;
+          patch?: (updates: Partial<Record<string, unknown>>) => Promise<unknown>;
         }
         | undefined;
 
@@ -260,18 +262,17 @@ export const commands: Record<string, Command> = {
         return;
       }
 
-      const normalized = normalizeModelId(modelArg);
-      if (!normalized) {
+      if (!normalizeModelId(modelArg)) {
         context.output(`${YELLOW}Invalid model ID.${RESET} Use format ${CYAN}provider/model${RESET}.`);
         return;
       }
 
-      if (!configApi.set) {
+      if (!configApi.set && !configApi.patch) {
         context.output(`${YELLOW}Config setter unavailable in this context.${RESET}`);
         return;
       }
 
-      await configApi.set("model", normalized);
+      const normalized = await persistSelectedModelConfig(configApi, modelArg);
       context.output(`${GREEN}Default model set to ${normalized}.${RESET}`);
     },
   },

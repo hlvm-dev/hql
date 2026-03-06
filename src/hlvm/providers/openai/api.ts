@@ -5,17 +5,10 @@
  * This module keeps only provider-specific model discovery and status checks.
  */
 
-import { JSON_HEADERS } from "../common.ts";
+import { API_TIMEOUT_MS, bearerAuthHeaders } from "../common.ts";
 import { http } from "../../../common/http-client.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import type { ModelInfo, ProviderStatus } from "../types.ts";
-
-function authHeaders(apiKey: string): Record<string, string> {
-  return {
-    ...JSON_HEADERS,
-    "Authorization": `Bearer ${apiKey}`,
-  };
-}
 
 /** Non-chat model prefixes to exclude from listing */
 const NON_CHAT_PREFIXES = [
@@ -39,8 +32,8 @@ export async function listModels(
 ): Promise<ModelInfo[]> {
   const url = `${endpoint}/v1/models`;
   const response = await http.fetchRaw(url, {
-    headers: authHeaders(apiKey),
-    timeout: 8_000,
+    headers: bearerAuthHeaders(apiKey),
+    timeout: API_TIMEOUT_MS,
   });
   if (!response.ok) return [];
 
@@ -64,8 +57,8 @@ export async function checkStatus(
   try {
     const url = `${endpoint}/v1/models`;
     const response = await http.fetchRaw(url, {
-      headers: authHeaders(apiKey),
-      timeout: 8_000,
+      headers: bearerAuthHeaders(apiKey),
+      timeout: API_TIMEOUT_MS,
     });
     return {
       available: response.ok,

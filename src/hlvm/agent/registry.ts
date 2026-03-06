@@ -84,6 +84,12 @@ export type ToolFunction = (
 ) => Promise<unknown>;
 
 /** Tool metadata with function and documentation */
+export interface FormattedToolResult {
+  summaryDisplay?: string;
+  returnDisplay: string;
+  llmContent?: string;
+}
+
 export interface ToolMetadata {
   fn: ToolFunction;
   description: string;
@@ -98,10 +104,7 @@ export interface ToolMetadata {
   /** Skip argument validation (used for dynamic tools with unknown schemas) */
   skipValidation?: boolean;
   /** Optional formatter for tool results (for display/LLM output) */
-  formatResult?: (result: unknown) => {
-    returnDisplay: string;
-    llmContent?: string;
-  } | null;
+  formatResult?: (result: unknown) => FormattedToolResult | null;
 }
 
 /** Condensed tool summary used by the tool_search meta tool. */

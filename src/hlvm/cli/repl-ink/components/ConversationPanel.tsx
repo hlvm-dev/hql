@@ -7,9 +7,10 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, Static, Text, useInput } from "ink";
-import type { ConversationItem, StreamingState } from "../types.ts";
+import type { AssistantCitation, ConversationItem, StreamingState } from "../types.ts";
 import { StreamingState as ConversationStreamingState } from "../types.ts";
 import type { InteractionRequestEvent, InteractionResponse } from "../../../agent/registry.ts";
+import { getPlatform } from "../../../../platform/platform.ts";
 import {
   AssistantMessage,
   ConfirmationDialog,
@@ -78,6 +79,17 @@ function getToggleTargets(items: ConversationItem[]): ToggleTarget[] {
   return targets;
 }
 
+function getLatestCitation(items: ConversationItem[]): AssistantCitation | undefined {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type !== "assistant") continue;
+    const citations = Array.isArray(item.citations) ? item.citations : [];
+    if (citations.length === 0) continue;
+    return citations[0];
+  }
+  return undefined;
+}
+
 function renderItem(
   item: ConversationItem,
   width: number,
@@ -89,7 +101,14 @@ function renderItem(
     case "user":
       return <UserMessage text={item.text} width={width} />;
     case "assistant":
-      return <AssistantMessage text={item.text} isPending={item.isPending} width={width} />;
+      return (
+        <AssistantMessage
+          text={item.text}
+          citations={item.citations}
+          isPending={item.isPending}
+          width={width}
+        />
+      );
     case "thinking":
       return (
         <ThinkingIndicator
@@ -180,20 +199,37 @@ export function ConversationPanel({
   useInput((char, key) => {
     const ctrlCode = char?.charCodeAt(0) ?? 0;
     const isCtrlO = (key.ctrl && char?.toLowerCase() === "o") || ctrlCode === 15;
+    const isCtrlY = (key.ctrl && char?.toLowerCase() === "y") || ctrlCode === 25;
     if (!items.length) return;
-    if (interactionRequest?.mode !== "question" && isCtrlO) {
-      if (!allowToggleHotkeys) return;
+    if (interactionRequest?.mode === "question") return;
+    if (!allowToggleHotkeys) return;
+
+    if (isCtrlO) {
       const target = toggleTargets[toggleTargets.length - 1];
       if (target) {
         toggleTarget(target);
       }
       return;
     }
+    if (isCtrlY) {
+      const citation = getLatestCitation(items);
+      if (!citation?.url) {
+        return;
+      }
+      void getPlatform().openUrl(citation.url).catch(() => {});
+      return;
+    }
   });
 
   const renderStaticItem = (item: ConversationItem): React.ReactElement => (
     <Box key={item.id}>
-      {renderItem(item, width, streamingState, isToolExpanded, isThinkingExpanded)}
+      {renderItem(
+        item,
+        width,
+        streamingState,
+        isToolExpanded,
+        isThinkingExpanded,
+      )}
     </Box>
   );
   const staticProps = { items: staticItems, children: renderStaticItem };
@@ -211,7 +247,13 @@ export function ConversationPanel({
 
       {pendingItems.map((item: ConversationItem) => (
         <Box key={item.id}>
-          {renderItem(item, width, streamingState, isToolExpanded, isThinkingExpanded)}
+          {renderItem(
+            item,
+            width,
+            streamingState,
+            isToolExpanded,
+            isThinkingExpanded,
+          )}
         </Box>
       ))}
 

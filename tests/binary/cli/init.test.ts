@@ -3,10 +3,13 @@
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 import { runCLI, withTempDir } from "../_shared/binary-helpers.ts";
 
+const platform = getPlatform();
+
 Deno.test({
-  name: "CLI hql init: creates hql.json with -y flag",
+  name: "CLI hql init: creates hql.json with default config",
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
@@ -14,11 +17,12 @@ Deno.test({
       const result = await runCLI("hql", ["init", "-y"], { cwd: dir });
       assertEquals(result.success, true, `Init failed: ${result.stderr}`);
 
-      // Check hql.json was created
-      const hqlJson = await Deno.readTextFile(`${dir}/hql.json`);
+      const hqlJson = await platform.fs.readTextFile(`${dir}/hql.json`);
       const config = JSON.parse(hqlJson);
-      assertEquals(typeof config.name, "string");
-      assertEquals(typeof config.version, "string");
+      assertEquals(config.version, "0.0.1");
+      assertEquals(config.exports, "./mod.hql");
+      assertEquals(config.name.startsWith("@"), true);
+      assertEquals(config.name.includes("/"), true);
     });
   },
 });
@@ -32,9 +36,8 @@ Deno.test({
       const result = await runCLI("hql", ["init", "-y"], { cwd: dir });
       assertEquals(result.success, true, `Init failed: ${result.stderr}`);
 
-      // Check mod.hql was created
-      const modHql = await Deno.readTextFile(`${dir}/mod.hql`);
-      assertStringIncludes(modHql, "fn"); // Should have sample function code
+      const modHql = await platform.fs.readTextFile(`${dir}/mod.hql`);
+      assertStringIncludes(modHql, "fn");
     });
   },
 });
@@ -48,8 +51,7 @@ Deno.test({
       const result = await runCLI("hql", ["init", "-y"], { cwd: dir });
       assertEquals(result.success, true, `Init failed: ${result.stderr}`);
 
-      // Check .gitignore was created
-      const gitignore = await Deno.readTextFile(`${dir}/.gitignore`);
+      const gitignore = await platform.fs.readTextFile(`${dir}/.gitignore`);
       assertStringIncludes(gitignore, ".hlvm-cache");
     });
   },
@@ -64,9 +66,8 @@ Deno.test({
       const result = await runCLI("hql", ["init", "-y"], { cwd: dir });
       assertEquals(result.success, true, `Init failed: ${result.stderr}`);
 
-      // Check README.md was created
-      const readme = await Deno.readTextFile(`${dir}/README.md`);
-      assertStringIncludes(readme, "#"); // Should have markdown header
+      const readme = await platform.fs.readTextFile(`${dir}/README.md`);
+      assertStringIncludes(readme, "#");
     });
   },
 });
@@ -77,9 +78,8 @@ Deno.test({
   sanitizeOps: false,
   async fn() {
     const result = await runCLI("hql", ["init", "--help"]);
-    // Should show help information
     const output = result.stdout + result.stderr;
-    const hasHelp = output.includes("init") || output.includes("Initialize") || output.includes("--yes");
-    assertEquals(hasHelp, true, `Expected help output for init, got: ${output}`);
+    assertStringIncludes(output, "hlvm hql init");
+    assertStringIncludes(output, "--yes");
   },
 });

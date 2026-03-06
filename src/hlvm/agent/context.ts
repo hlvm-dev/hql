@@ -62,14 +62,94 @@ function estimateToolCallChars(message: Message): number {
       if (typeof tc.function.arguments === "string") {
         argsLen = tc.function.arguments.length;
       } else {
-        try {
-          argsLen = JSON.stringify(tc.function.arguments).length;
-        } catch { /* circular ref — skip */ }
+        // Cache stringified length to avoid repeated JSON.stringify on same object
+        const cached = (tc as Record<string, unknown>)._cachedArgLen;
+        if (typeof cached === "number") {
+          argsLen = cached;
+        } else {
+          try {
+            argsLen = JSON.stringify(tc.function.arguments).length;
+            (tc as Record<string, unknown>)._cachedArgLen = argsLen;
+          } catch { /* circular ref — skip */ }
+        }
       }
     }
     chars += nameLen + argsLen + 20; // overhead for id, structure
   }
   return chars;
+}
+
+function hasAssistantToolCalls(message: Message): boolean {
+  return message.role === "assistant" && (message.toolCalls?.length ?? 0) > 0;
+}
+
+function getAssistantToolCallIds(message: Message): Set<string> {
+  if (!hasAssistantToolCalls(message)) return new Set();
+  return new Set(
+    (message.toolCalls ?? [])
+      .map((call) => typeof call.id === "string" ? call.id : undefined)
+      .filter((id): id is string => !!id),
+  );
+}
+
+interface MessageGroup {
+  messages: Message[];
+  messageCount: number;
+  estimatedTokens: number;
+}
+
+function estimateMessageTokens(
+  message: Message,
+  modelKey?: string,
+): number {
+  return estimateTokensFromCharCount(
+    message.content.length + estimateToolCallChars(message),
+    modelKey,
+  );
+}
+
+function buildMessageGroups(
+  messages: Message[],
+  modelKey?: string,
+): MessageGroup[] {
+  const groups: MessageGroup[] = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
+    const groupMessages: Message[] = [message];
+
+    if (hasAssistantToolCalls(message)) {
+      const toolCallIds = getAssistantToolCallIds(message);
+      while (i + 1 < messages.length && messages[i + 1].role === "tool") {
+        const next = messages[i + 1];
+        const nextToolCallId = next.toolCallId;
+        if (
+          toolCallIds.size > 0 &&
+          typeof nextToolCallId === "string" &&
+          !toolCallIds.has(nextToolCallId)
+        ) {
+          break;
+        }
+        groupMessages.push(next);
+        i++;
+      }
+    }
+
+    groups.push({
+      messages: groupMessages,
+      messageCount: groupMessages.length,
+      estimatedTokens: groupMessages.reduce(
+        (sum, entry) => sum + estimateMessageTokens(entry, modelKey),
+        0,
+      ),
+    });
+  }
+
+  return groups;
+}
+
+function flattenMessageGroups(groups: MessageGroup[]): Message[] {
+  return groups.flatMap((group) => group.messages);
 }
 
 /** Context manager configuration */
@@ -412,6 +492,12 @@ export class ContextManager {
       return;
     }
 
+    const nonSystemGroups = buildMessageGroups(
+      nonSystemMessages,
+      this.config.modelKey,
+    );
+    if (nonSystemGroups.length === 0) return;
+
     // O(n) trim: compute total tokens, subtract from front until under budget
     let systemChars = 0;
     if (this.config.preserveSystem) {
@@ -423,31 +509,30 @@ export class ContextManager {
       systemChars,
       this.config.modelKey,
     );
-    let nonSystemChars = 0;
-    for (const m of nonSystemMessages) {
-      nonSystemChars += m.content.length + estimateToolCallChars(m);
-    }
-    let nonSystemTokens = estimateTokensFromCharCount(
-      nonSystemChars,
-      this.config.modelKey,
+    let nonSystemTokens = nonSystemGroups.reduce(
+      (sum, group) => sum + group.estimatedTokens,
+      0,
     );
-    const maxTrim = nonSystemMessages.length - this.config.minMessages;
-    let startIdx = 0;
+    let remainingMessages = nonSystemMessages.length;
+    let startGroupIdx = 0;
 
     while (
-      startIdx < maxTrim &&
+      startGroupIdx < nonSystemGroups.length &&
       (systemTokens + nonSystemTokens) > this.config.maxTokens
     ) {
-      const msg = nonSystemMessages[startIdx];
-      nonSystemTokens -= estimateTokensFromCharCount(
-        msg.content.length + estimateToolCallChars(msg),
-        this.config.modelKey,
-      );
-      startIdx++;
+      const nextGroup = nonSystemGroups[startGroupIdx];
+      if (remainingMessages - nextGroup.messageCount < this.config.minMessages) {
+        break;
+      }
+      nonSystemTokens -= nextGroup.estimatedTokens;
+      remainingMessages -= nextGroup.messageCount;
+      startGroupIdx++;
     }
 
-    if (startIdx > 0) {
-      const trimmedMessages = nonSystemMessages.slice(startIdx);
+    if (startGroupIdx > 0) {
+      const trimmedMessages = flattenMessageGroups(
+        nonSystemGroups.slice(startGroupIdx),
+      );
       this.setMessages(
         this.config.preserveSystem
           ? [...systemMessages, ...trimmedMessages]
@@ -476,9 +561,23 @@ export class ContextManager {
       return;
     }
 
-    const splitIndex = Math.max(0, nonSystem.length - keepRecent);
-    const toSummarize = nonSystem.slice(0, splitIndex);
-    const recentMessages = nonSystem.slice(splitIndex);
+    const groups = buildMessageGroups(nonSystem, this.config.modelKey);
+    if (groups.length === 0) return;
+
+    let recentCount = 0;
+    let splitGroupIndex = groups.length;
+    for (let i = groups.length - 1; i >= 0; i--) {
+      if (recentCount >= keepRecent) break;
+      recentCount += groups[i].messageCount;
+      splitGroupIndex = i;
+    }
+
+    if (splitGroupIndex <= 0) {
+      return;
+    }
+
+    const toSummarize = flattenMessageGroups(groups.slice(0, splitGroupIndex));
+    const recentMessages = flattenMessageGroups(groups.slice(splitGroupIndex));
 
     const summary = this.buildSummary(toSummarize);
     const summaryMessage: Message = {

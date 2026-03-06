@@ -70,7 +70,8 @@ function walkChildren(
   node: IR.IRNode,
   fn: (child: IR.IRNode) => boolean,
 ): boolean {
-  for (const key of Object.keys(node)) {
+  for (const key in node) {
+    if (!Object.hasOwn(node, key)) continue;
     if (IR_SKIP_KEYS.has(key)) continue;
 
     const value = (node as unknown as Record<string, unknown>)[key];
@@ -185,7 +186,8 @@ function walkChildrenInScope(
   fn: (child: IR.IRNode) => boolean,
   _options: ScopeWalkOptions = {},
 ): boolean {
-  for (const key of Object.keys(node)) {
+  for (const key in node) {
+    if (!Object.hasOwn(node, key)) continue;
     if (IR_SKIP_KEYS.has(key)) continue;
 
     const value = (node as unknown as Record<string, unknown>)[key];

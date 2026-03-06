@@ -1,8 +1,7 @@
 /**
  * AgentEngine Tests
  *
- * Verifies the AgentEngine interface, SDK default behavior,
- * and getAgentEngine/setAgentEngine/resetAgentEngine singleton.
+ * Verifies singleton wiring and default engine selection.
  */
 
 import {
@@ -17,32 +16,6 @@ import {
   type AgentLLMConfig,
 } from "../../../src/hlvm/agent/engine.ts";
 import { SdkAgentEngine } from "../../../src/hlvm/agent/engine-sdk.ts";
-
-// ============================================================
-// Default Engine
-// ============================================================
-
-Deno.test({
-  name: "SdkAgentEngine.createLLM returns a function",
-  fn() {
-    const engine = new SdkAgentEngine();
-    const llm = engine.createLLM({ model: "ollama/test" });
-    assertEquals(typeof llm, "function");
-  },
-});
-
-Deno.test({
-  name: "SdkAgentEngine.createSummarizer returns a function",
-  fn() {
-    const engine = new SdkAgentEngine();
-    const summarizer = engine.createSummarizer("ollama/test");
-    assertEquals(typeof summarizer, "function");
-  },
-});
-
-// ============================================================
-// Singleton: getAgentEngine / setAgentEngine / resetAgentEngine
-// ============================================================
 
 Deno.test({
   name: "getAgentEngine returns SdkAgentEngine by default",

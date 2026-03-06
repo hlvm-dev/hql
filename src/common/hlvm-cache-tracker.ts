@@ -343,11 +343,12 @@ async function processCachedImports(
           path().resolve(path().dirname(sourcePath), importPath),
         ];
 
-        for (const possiblePath of possiblePaths) {
-          if (await fs().exists(possiblePath)) {
-            resolvedOriginalPath = possiblePath;
-            break;
-          }
+        const existResults = await Promise.all(
+          possiblePaths.map((pp) => fs().exists(pp)),
+        );
+        const foundIdx = existResults.indexOf(true);
+        if (foundIdx !== -1) {
+          resolvedOriginalPath = possiblePaths[foundIdx];
         }
 
         if (!resolvedOriginalPath) {
@@ -440,11 +441,12 @@ async function processCachedImports(
 
         // Check if any of these paths exist
         let foundCachedPath = "";
-        for (const cachedImportPath of cachedImportPaths) {
-          if (await fs().exists(cachedImportPath)) {
-            foundCachedPath = cachedImportPath;
-            break;
-          }
+        const cachedExistResults = await Promise.all(
+          cachedImportPaths.map((cp) => fs().exists(cp)),
+        );
+        const cachedFoundIdx = cachedExistResults.indexOf(true);
+        if (cachedFoundIdx !== -1) {
+          foundCachedPath = cachedImportPaths[cachedFoundIdx];
         }
 
         if (!foundCachedPath) {

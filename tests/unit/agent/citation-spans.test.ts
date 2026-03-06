@@ -14,7 +14,8 @@ Deno.test("buildCitationSourceIndex extracts snippets and passages from search_w
           {
             title: "NIST AI RMF",
             url: "https://nist.gov/ai/rmf",
-            snippet: "NIST AI RMF update introduces governance and measurement changes.",
+            snippet:
+              "NIST AI RMF update introduces governance and measurement changes.",
             passages: [
               "The update emphasizes governance, map, measure, and manage functions.",
             ],
@@ -53,11 +54,17 @@ Deno.test("attributeCitationSpans maps matching sentences with offsets and confi
 
   assertEquals(spans.length >= 1, true);
   const first = spans[0];
-  assertEquals(first.citation.url, "https://docs.python.org/3/library/asyncio-task.html");
+  assertEquals(
+    first.citation.url,
+    "https://docs.python.org/3/library/asyncio-task.html",
+  );
   assert(first.startIndex >= 0);
   assert(first.endIndex > first.startIndex);
   assert(first.confidence >= 0.3);
-  assertEquals(response.slice(first.startIndex, first.endIndex), first.spanText);
+  assertEquals(
+    response.slice(first.startIndex, first.endIndex),
+    first.spanText,
+  );
 });
 
 Deno.test("attributeCitationSpans skips weak overlap", () => {
@@ -70,7 +77,8 @@ Deno.test("attributeCitationSpans skips weak overlap", () => {
           {
             title: "Unrelated",
             url: "https://example.com/unrelated",
-            snippet: "This page discusses coffee brewing methods and espresso extraction.",
+            snippet:
+              "This page discusses coffee brewing methods and espresso extraction.",
           },
         ],
       },
@@ -82,4 +90,33 @@ Deno.test("attributeCitationSpans skips weak overlap", () => {
     sourceIndex,
   );
   assertEquals(spans.length, 0);
+});
+
+Deno.test("attributeCitationSpans supports localized text", () => {
+  const sourceIndex = buildCitationSourceIndex([
+    {
+      toolName: "search_web",
+      result: {
+        provider: "duckduckgo",
+        results: [
+          {
+            title: "파이썬 TaskGroup",
+            url: "https://docs.python.org/ko/3/library/asyncio-task.html",
+            snippet:
+              "파이썬 태스크그룹은 구조적 동시성을 제공하고 실패 시 형제 작업을 취소합니다.",
+          },
+        ],
+      },
+    },
+  ]);
+
+  const response =
+    "파이썬 태스크그룹은 구조적 동시성을 제공하고 실패 시 형제 작업을 취소합니다.";
+  const spans = attributeCitationSpans(response, sourceIndex);
+
+  assertEquals(spans.length, 1);
+  assertEquals(
+    spans[0]?.citation.url,
+    "https://docs.python.org/ko/3/library/asyncio-task.html",
+  );
 });

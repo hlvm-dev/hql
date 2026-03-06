@@ -8,6 +8,7 @@
  * Refresh:     deno task publish-catalog  (scrape + push to gist)
  */
 import type { ModelInfo, ProviderCapability } from "../types.ts";
+import { API_TIMEOUT_MS, CATALOG_CACHE_TTL_MS } from "../common.ts";
 import { http } from "../../../common/http-client.ts";
 
 // ---------------------------------------------------------------------------
@@ -44,9 +45,6 @@ interface ScrapedCatalog {
 const LIVE_CATALOG_URL =
   "https://gist.githubusercontent.com/boraseoksoon/b8c5e2a44ec9cb01cbaa010a8953304c/raw/ollama_models.json";
 
-/** Cache TTL: 1 hour */
-const CACHE_TTL_MS = 60 * 60 * 1000;
-
 const DEFAULT_MAX_VARIANTS = 3;
 
 // ---------------------------------------------------------------------------
@@ -58,7 +56,7 @@ let liveFetchTimestamp = 0;
 
 function isLiveCacheValid(): boolean {
   return liveCatalogData !== null &&
-    Date.now() - liveFetchTimestamp < CACHE_TTL_MS;
+    Date.now() - liveFetchTimestamp < CATALOG_CACHE_TTL_MS;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +72,7 @@ async function fetchLiveCatalog(): Promise<ScrapedCatalog | null> {
 
   try {
     const response = await http.fetchRaw(LIVE_CATALOG_URL, {
-      timeout: 8_000,
+      timeout: API_TIMEOUT_MS,
     });
     if (!response.ok) return liveCatalogData;
 

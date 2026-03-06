@@ -10,6 +10,7 @@ import { config } from "../../api/config.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 import { readSingleKey } from "../utils/input.ts";
 import { ValidationError } from "../../../common/error.ts";
+import { isOllamaAuthErrorMessage } from "../../../common/ollama-auth.ts";
 import { isObjectValue, truncate } from "../../../common/utils.ts";
 import { shouldSuppressFinalResponse } from "../../agent/model-compat.ts";
 import { classifyError, getRecoveryHint } from "../../agent/error-taxonomy.ts";
@@ -17,7 +18,7 @@ import { ensureAgentReady, runAgentQuery } from "../../agent/agent-runner.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../agent/constants.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
-import { parseModelString } from "../../providers/registry.ts";
+import { parseModelString } from "../../providers/index.ts";
 import type { AgentUIEvent, TraceEvent } from "../../agent/orchestrator.ts";
 import type { PermissionMode } from "../../../common/config/types.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
@@ -251,6 +252,20 @@ export function formatToolOutputForDefaultMode(
   return { text, truncated };
 }
 
+export function summarizeToolEventForDefaultMode(
+  toolName: string,
+  summary?: string,
+  content?: string,
+): string {
+  const candidate = summary?.trim();
+  if (candidate) {
+    const firstLine = candidate.split("\n").map((line) => line.trim()).find(Boolean) ?? candidate;
+    return truncate(firstLine.replace(/\s+/g, " "), 80);
+  }
+  const formatted = formatToolOutputForDefaultMode(toolName, content ?? "");
+  return formatted.text;
+}
+
 export interface CloudAuthRecoveryState {
   executionError: unknown;
   resolvedModel: string;
@@ -406,7 +421,30 @@ export async function askCommand(args: string[]): Promise<void> {
   const { getConfiguredModel } = await import(
     "../../../common/ai-default-model.ts"
   );
-  const resolvedModel = modelOverride ?? getConfiguredModel();
+  if (!modelOverride) {
+    const { reconcileConfiguredClaudeCodeModel } = await import(
+      "../../../common/ai-default-model.ts"
+    );
+    const repaired = await reconcileConfiguredClaudeCodeModel();
+    if (repaired) {
+      modelOverride = repaired;
+    }
+  }
+
+  let resolvedModel = modelOverride ?? getConfiguredModel();
+  {
+    const { resolveCompatibleClaudeCodeModel } = await import(
+      "../../../common/ai-default-model.ts"
+    );
+    const normalized = await resolveCompatibleClaudeCodeModel(resolvedModel);
+    if (normalized !== resolvedModel) {
+      resolvedModel = normalized;
+      if (modelOverride) {
+        modelOverride = normalized;
+      }
+    }
+  }
+
   const model = modelOverride ?? undefined;
   const rawContextWindow = isObjectValue(config.snapshot)
     ? config.snapshot.contextWindow
@@ -485,19 +523,31 @@ export async function askCommand(args: string[]): Promise<void> {
         if (toolInProgress) {
           const icon = event.success ? "\x1b[32m\u2713\x1b[0m" : "\x1b[31m\u2717\x1b[0m";
           const dur = event.durationMs ? ` \x1b[2m(${(event.durationMs / 1000).toFixed(1)}s)\x1b[0m` : "";
-          const summary = event.success
-            ? truncate(event.content, 40)
-            : `Error: ${truncate(event.content, 40)}`;
-          log.raw.write(`\r\x1b[K  ${icon} ${event.name} ${event.argsSummary} \x1b[2m\u2192\x1b[0m ${summary}${dur}\n`);
+          const summary = summarizeToolEventForDefaultMode(
+            event.name,
+            event.summary,
+            event.content,
+          );
+          const renderedSummary = event.success ? summary : `Error: ${summary}`;
+          log.raw.write(`\r\x1b[K  ${icon} ${event.name} ${event.argsSummary} \x1b[2m\u2192\x1b[0m ${renderedSummary}${dur}\n`);
           toolInProgress = false;
         } else {
           // tool_end without tool_start (shouldn't happen, but handle gracefully)
           if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
           if (!event.success) {
-            log.raw.log(`[${event.name}] Error: ${truncate(event.content.trim(), 300)}\n`);
+            const summary = summarizeToolEventForDefaultMode(
+              event.name,
+              event.summary,
+              event.content,
+            );
+            log.raw.log(`[${event.name}] Error: ${summary}\n`);
           } else {
-            const formatted = formatToolOutputForDefaultMode(event.name, event.content);
-            if (formatted.text) log.raw.log(`${formatted.text}\n`);
+            const summary = summarizeToolEventForDefaultMode(
+              event.name,
+              event.summary,
+              event.content,
+            );
+            if (summary) log.raw.log(`${summary}\n`);
           }
         }
         break;
@@ -571,7 +621,6 @@ export async function askCommand(args: string[]): Promise<void> {
   }
 
   const {
-    isOllamaAuthErrorMessage,
     runOllamaSignin,
     verifyOllamaCloudModelAccess,
   } = await import(

@@ -82,7 +82,6 @@
     "check:stdlib:generated": "deno run -A scripts/check-stdlib-generated.ts",
     "check:stdlib:deterministic": "deno run -A scripts/check-stdlib-deterministic.ts",
     "check:prod:p0": "deno task ssot:check && deno task check:stdlib:generated && deno task check:stdlib:deterministic && deno task test:conformance",
-    "eval": "HLVM_DISABLE_AI_AUTOSTART=1 deno test --allow-all tests/eval/eval-runner.ts",
     "test:interop": "HLVM_DISABLE_AI_AUTOSTART=1 deno test --allow-all tests/interop/**/*.test.ts",
     "test:ci": "deno task ssot:check && deno task test:unit",
     "build:npm": "deno run -A scripts/build-npm.ts",

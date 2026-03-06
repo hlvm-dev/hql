@@ -13,6 +13,8 @@
 import { useState, useCallback, useRef } from "react";
 import type { AgentUIEvent } from "../../../agent/orchestrator.ts";
 import type {
+  AssistantCitation,
+  AssistantItem,
   ConversationItem,
   StreamingState,
   ThinkingItem,
@@ -94,7 +96,7 @@ export interface UseConversationResult {
   /** Add a user message (also cleans up orphaned transient items) */
   addUserMessage: (text: string) => void;
   /** Add/update assistant text (streaming or final) */
-  addAssistantText: (text: string, isPending: boolean) => void;
+  addAssistantText: (text: string, isPending: boolean, citations?: AssistantCitation[]) => void;
   /** Add an error message */
   addError: (text: string) => void;
   /** Add an info message */
@@ -201,7 +203,9 @@ export function useConversation(): UseConversationResult {
           updatedTools[resolvedIdx] = {
             ...updatedTools[resolvedIdx],
             status: event.success ? "success" : "error",
+            resultSummaryText: event.summary ?? event.content,
             resultText: event.content,
+            resultMeta: event.meta,
             durationMs: event.durationMs,
           };
           next[groupIdx] = { ...groupItem, tools: updatedTools };
@@ -253,27 +257,39 @@ export function useConversation(): UseConversationResult {
     });
   }, []);
 
-  const addAssistantText = useCallback((text: string, isPending: boolean) => {
+  const addAssistantText = useCallback((
+    text: string,
+    isPending: boolean,
+    citations?: AssistantCitation[],
+  ) => {
     setItems((prev: ConversationItem[]) => {
-      // Search backwards for any pending assistant item to update
+      // Single backward pass: find pending assistant (priority) and last assistant
+      let pendingIdx = -1;
+      let lastAssistantIdx = -1;
       for (let i = prev.length - 1; i >= 0; i--) {
         const item = prev[i];
-        if (item.type === "assistant" && item.isPending) {
-          const next = [...prev];
-          next[i] = { ...item, text, isPending };
-          return next;
+        if (item.type === "assistant") {
+          if (item.isPending && pendingIdx < 0) pendingIdx = i;
+          if (lastAssistantIdx < 0) lastAssistantIdx = i;
+          if (pendingIdx >= 0 && lastAssistantIdx >= 0) break;
         }
       }
-      // Also update the last assistant item even if finalized (for re-streaming)
-      const lastIdx = prev.length - 1;
-      const last = lastIdx >= 0 ? prev[lastIdx] : undefined;
-      if (last?.type === "assistant") {
+      const targetIdx = pendingIdx >= 0 ? pendingIdx : lastAssistantIdx;
+      if (targetIdx >= 0) {
+        const target = prev[targetIdx] as AssistantItem;
         const next = [...prev];
-        next[lastIdx] = { ...last, text, isPending };
+        next[targetIdx] = { ...target, text, isPending, citations };
         return next;
       }
       // Create new assistant item
-      return [...prev, { type: "assistant" as const, id: nextId(), text, isPending, ts: Date.now() }];
+      return [...prev, {
+        type: "assistant" as const,
+        id: nextId(),
+        text,
+        citations,
+        isPending,
+        ts: Date.now(),
+      }];
     });
   }, []);
 

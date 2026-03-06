@@ -5,17 +5,19 @@
  * This module keeps only provider-specific model discovery and status checks.
  */
 
-import { JSON_HEADERS } from "../common.ts";
+import {
+  ANTHROPIC_VERSION,
+  API_TIMEOUT_MS,
+  bearerAuthHeaders,
+} from "../common.ts";
 import { http } from "../../../common/http-client.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import type { ModelInfo, ProviderStatus } from "../types.ts";
 import { getClaudeCodeToken } from "./auth.ts";
-import { ANTHROPIC_VERSION } from "../anthropic/api.ts";
 
 function oauthHeaders(token: string): Record<string, string> {
   return {
-    ...JSON_HEADERS,
-    "Authorization": `Bearer ${token}`,
+    ...bearerAuthHeaders(token),
     "anthropic-version": ANTHROPIC_VERSION,
     "anthropic-beta": "oauth-2025-04-20",
   };
@@ -33,7 +35,7 @@ export async function listModels(
     const url = `${endpoint}/v1/models?limit=100`;
     const response = await http.fetchRaw(url, {
       headers: oauthHeaders(token),
-      timeout: 8_000,
+      timeout: API_TIMEOUT_MS,
     });
     if (!response.ok) return [];
 
@@ -62,7 +64,7 @@ export async function checkStatus(
     const url = `${endpoint}/v1/models?limit=1`;
     const response = await http.fetchRaw(url, {
       headers: oauthHeaders(token),
-      timeout: 8_000,
+      timeout: API_TIMEOUT_MS,
     });
     return {
       available: response.status !== 401 && response.status !== 403,

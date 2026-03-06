@@ -129,8 +129,7 @@ function recencyBoost(ageDays: number | undefined, timeRange: SearchTimeRange): 
   return Math.max(0, (maxDays - ageDays) / maxDays) * 3;
 }
 
-function relevanceScore(query: string, result: SearchResult): number {
-  const tokens = tokenizeQuery(query);
+function relevanceScore(tokens: string[], result: SearchResult): number {
   if (tokens.length === 0) return 0;
 
   const title = (result.title ?? "").toLowerCase();
@@ -462,7 +461,7 @@ export function deduplicateSnippetPassages(snippet: string, passages: string[]):
     for (const t of snippetTokens) {
       if (passageTokens.has(t)) intersection++;
     }
-    const union = new Set([...snippetTokens, ...passageTokens]).size;
+    const union = snippetTokens.size + passageTokens.size - intersection;
     return union === 0 || (intersection / union) <= 0.6;
   });
 }
@@ -473,29 +472,28 @@ export function rankSearchResults(
   timeRange: SearchTimeRange = "all",
 ): SearchResult[] {
   const deduped = dedupeSearchResults(results);
+  const tokens = tokenizeQuery(query);
 
-  const scored = deduped
-    .map((result) => {
-      const ageDays = extractResultAgeDays(result);
-      const rawScore = relevanceScore(query, result) + recencyBoost(ageDays, timeRange);
-      const score = rawScore * (1 + domainAuthorityBoost(result.url ?? "")) - sourceQualityPenalty(result);
-      return { result, ageDays, baseScore: score, host: resultHost(result.url) };
-    })
+  // Score once: base relevance + authority - quality penalty, with conditional recency boost
+  const scored = deduped.map((result) => {
+    const ageDays = extractResultAgeDays(result);
+    const base = relevanceScore(tokens, result) + recencyBoost(ageDays, timeRange);
+    const score = base * (1 + domainAuthorityBoost(result.url ?? "")) - sourceQualityPenalty(result);
+    return { result, ageDays, baseScore: score, host: resultHost(result.url) };
+  });
+
+  const candidates = scored
     .filter((entry) => isInsideTimeRange(entry.ageDays, timeRange));
 
   // When a non-"all" timeRange filters out everything, return empty (no silent fallback to stale)
-  if (scored.length === 0 && timeRange !== "all") return [];
+  if (candidates.length === 0 && timeRange !== "all") return [];
 
-  const candidates = (scored.length > 0 ? scored : deduped.map((result) => ({
-    result,
-    ageDays: extractResultAgeDays(result),
-    baseScore: relevanceScore(query, result) * (1 + domainAuthorityBoost(result.url ?? "")) -
-      sourceQualityPenalty(result),
-    host: resultHost(result.url),
-  }))).sort((a, b) => b.baseScore - a.baseScore);
+  // Fall back to all scored results if time-range filter removed everything (timeRange === "all" case)
+  const sorted = (candidates.length > 0 ? candidates : scored)
+    .sort((a, b) => b.baseScore - a.baseScore);
 
   const seenByHost = new Map<string, number>();
-  const diversified = candidates.map((entry) => {
+  const diversified = sorted.map((entry) => {
     const seenCount = entry.host ? (seenByHost.get(entry.host) ?? 0) : 0;
     if (entry.host) seenByHost.set(entry.host, seenCount + 1);
     const diversityPenalty = seenCount * 1.25;

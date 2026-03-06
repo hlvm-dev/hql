@@ -11,6 +11,7 @@
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { getCustomInstructionsPath } from "../../common/paths.ts";
 import {
+  closeFactDb,
   extractSessionFacts,
   loadMemoryContext,
   setMemoryModelTier,
@@ -19,6 +20,7 @@ import { setAgentLogger } from "./logger.ts";
 import {
   ensureDefaultModelInstalled,
   getConfiguredModel,
+  resolveCompatibleClaudeCodeModel,
 } from "../../common/ai-default-model.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { type AgentSession, createAgentSession } from "./session.ts";
@@ -26,6 +28,7 @@ import { getAgentEngine } from "./engine.ts";
 import { createDelegateHandler } from "./delegation.ts";
 import {
   type AgentUIEvent,
+  type FinalResponseMeta,
   type InteractionRequestEvent,
   type InteractionResponse,
   runReActLoop,
@@ -124,6 +127,7 @@ export async function disposeAllSessions(): Promise<void> {
   const sessions = [...sessionCache.values()];
   sessionCache.clear();
   await Promise.allSettled(sessions.map((s) => s.dispose()));
+  closeFactDb();
 }
 
 /**
@@ -204,6 +208,7 @@ function mergePolicyPathRoots(
 export interface AgentRunnerCallbacks {
   onToken?: (text: string) => void;
   onAgentEvent?: (event: AgentUIEvent) => void;
+  onFinalResponseMeta?: (meta: FinalResponseMeta) => void;
   onTrace?: (event: TraceEvent) => void;
   onInteraction?: (
     event: InteractionRequestEvent,
@@ -233,6 +238,7 @@ export interface AgentRunnerOptions {
 
 export interface AgentRunnerResult {
   text: string;
+  finalResponseMeta?: FinalResponseMeta;
   finalResponseState: {
     suppressFinalResponse: boolean;
     orchestratorFailureCode: AgentOrchestratorFailureCode | null;
@@ -295,7 +301,8 @@ export async function runAgentQuery(
     skipSessionHistory = false,
   } = options;
   const permissionMode: PermissionMode = options.permissionMode ?? "default";
-  const model = options.model ?? getConfiguredModel();
+  let model = options.model ?? getConfiguredModel();
+  model = await resolveCompatibleClaudeCodeModel(model);
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const profile = ENGINE_PROFILES.normal;
 
@@ -381,6 +388,7 @@ export async function runAgentQuery(
     const usageTracker = new UsageTracker();
     setMemoryModelTier(session.modelTier);
 
+    let finalResponseMeta: FinalResponseMeta | undefined;
     const text = await runReActLoop(
       query,
       {
@@ -392,6 +400,10 @@ export async function runAgentQuery(
         policy,
         onTrace: callbacks.onTrace,
         onAgentEvent: callbacks.onAgentEvent,
+        onFinalResponseMeta: (meta) => {
+          finalResponseMeta = meta;
+          callbacks.onFinalResponseMeta?.(meta);
+        },
         onInteraction: callbacks.onInteraction,
         noInput,
         delegate,
@@ -438,6 +450,7 @@ export async function runAgentQuery(
     const finalResponseState = classifyAgentFinalResponse(text);
     return {
       text,
+      finalResponseMeta,
       finalResponseState,
       stats: {
         messageCount: stats.messageCount,

@@ -6,11 +6,17 @@
 
 VERSION := 0.0.1
 BINARY := hlvm
+CLI_ENTRY := src/hlvm/cli/cli.ts
 
 # Transpile stdlib.hql → self-hosted.js
 stdlib:
 	@echo "Building stdlib from HQL source..."
 	@deno run -A scripts/build-stdlib.ts
+
+# Embed HQL packages for development and binary builds
+embed-packages:
+	@echo "📦 Embedding HLVM packages..."
+	@./scripts/embed-packages.ts
 
 # Generate OpenAPI specification
 openapi:
@@ -18,14 +24,12 @@ openapi:
 	@deno task openapi
 
 # Quick build for current computer
-build: stdlib
-	@echo "📦 Embedding HLVM packages..."
-	@./scripts/embed-packages.ts
+build: stdlib embed-packages
 	@echo "🔨 Building HLVM binary..."
 	@deno compile --allow-all --no-check --config deno.json \
 		--include src/hql/lib/stdlib/js/index.js \
 		--include src/hql/lib/stdlib/js/ai.js \
-		--output $(BINARY) src/hlvm/cli/cli.ts
+		--output $(BINARY) $(CLI_ENTRY)
 	@echo "✅ Done! Binary: ./$(BINARY)"
 	@ls -lh $(BINARY)
 
@@ -55,35 +59,27 @@ test: build
 	@echo "✅ All tests passed!"
 
 # Build for Mac (Intel)
-build-mac-intel:
-	@echo "📦 Embedding HLVM packages..."
-	@./scripts/embed-packages.ts
+build-mac-intel: stdlib embed-packages
 	@echo "🍎 Building for Mac Intel..."
-	@deno compile --allow-all --no-check --target x86_64-apple-darwin --output hlvm-mac-intel src/hlvm/cli/cli.ts
+	@deno compile --allow-all --no-check --target x86_64-apple-darwin --output hlvm-mac-intel $(CLI_ENTRY)
 	@echo "✅ Created: hlvm-mac-intel"
 
 # Build for Mac (Apple Silicon)
-build-mac-arm:
-	@echo "📦 Embedding HLVM packages..."
-	@./scripts/embed-packages.ts
+build-mac-arm: stdlib embed-packages
 	@echo "🍎 Building for Mac ARM..."
-	@deno compile --allow-all --no-check --target aarch64-apple-darwin --output hlvm-mac-arm src/hlvm/cli/cli.ts
+	@deno compile --allow-all --no-check --target aarch64-apple-darwin --output hlvm-mac-arm $(CLI_ENTRY)
 	@echo "✅ Created: hlvm-mac-arm"
 
 # Build for Linux
-build-linux:
-	@echo "📦 Embedding HLVM packages..."
-	@./scripts/embed-packages.ts
+build-linux: stdlib embed-packages
 	@echo "🐧 Building for Linux..."
-	@deno compile --allow-all --no-check --target x86_64-unknown-linux-gnu --output hlvm-linux src/hlvm/cli/cli.ts
+	@deno compile --allow-all --no-check --target x86_64-unknown-linux-gnu --output hlvm-linux $(CLI_ENTRY)
 	@echo "✅ Created: hlvm-linux"
 
 # Build for Windows
-build-windows:
-	@echo "📦 Embedding HLVM packages..."
-	@./scripts/embed-packages.ts
+build-windows: stdlib embed-packages
 	@echo "🪟 Building for Windows..."
-	@deno compile --allow-all --no-check --target x86_64-pc-windows-msvc --output hlvm-windows.exe src/hlvm/cli/cli.ts
+	@deno compile --allow-all --no-check --target x86_64-pc-windows-msvc --output hlvm-windows.exe $(CLI_ENTRY)
 	@echo "✅ Created: hlvm-windows.exe"
 
 # Build for ALL platforms (for distribution)
@@ -96,18 +92,16 @@ all: build-mac-intel build-mac-arm build-linux build-windows
 
 # Build with AI (includes embedded Ollama)
 # Requires: resources/ai-engine (Ollama binary)
-build-ai:
+build-ai: stdlib embed-packages
 	@if [ ! -f resources/ai-engine ]; then \
 		echo "❌ Missing resources/ai-engine"; \
 		echo "   Run: make setup-ai"; \
 		exit 1; \
 	fi
-	@echo "📦 Embedding HLVM packages..."
-	@./scripts/embed-packages.ts
 	@echo "🤖 Building HLVM with AI (includes Ollama)..."
 	@deno compile --allow-all --no-check --config deno.json \
 		--include resources/ai-engine \
-		--output $(BINARY) src/hlvm/cli/cli.ts
+		--output $(BINARY) $(CLI_ENTRY)
 	@echo "✅ Done! AI-enabled binary: ./$(BINARY)"
 	@ls -lh $(BINARY)
 
@@ -150,8 +144,8 @@ help:
 	@echo ""
 	@echo "Commands:"
 	@echo "  make              - Build for current computer"
-	@echo "  make repl         - Build and launch REPL"
-	@echo "  make ink          - Build and launch Ink REPL (experimental)"
+	@echo "  make repl         - Build binary and launch REPL"
+	@echo "  make ink          - Build binary and launch Ink REPL (experimental)"
 	@echo "  make install      - Install system-wide"
 	@echo "  make test         - Build and test"
 	@echo "  make all          - Build for all platforms"
@@ -168,6 +162,6 @@ help:
 	@echo "  make build-linux"
 	@echo "  make build-windows"
 
-.PHONY: stdlib openapi build install repl ink test all clean help
+.PHONY: stdlib embed-packages openapi build install repl ink test all clean help
 .PHONY: build-mac-intel build-mac-arm build-linux build-windows
 .PHONY: build-ai setup-ai test-ai

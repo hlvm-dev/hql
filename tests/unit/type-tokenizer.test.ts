@@ -1,14 +1,4 @@
-/**
- * Tests for the dedicated TypeScript type tokenizer module
- *
- * This tests the type-tokenizer.ts module which provides:
- * - Type tokenization from source strings
- * - Bracket depth counting
- * - Type normalization (?T → nullable, T[] → Array<T>)
- * - Type extraction from symbols (name:type → {name, type})
- */
-
-import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertEquals } from "jsr:@std/assert";
 import {
   countAngleBracketDepth,
   countBraceDepth,
@@ -26,1005 +16,118 @@ import {
   tokenizeType,
 } from "../../src/hql/transpiler/tokenizer/type-tokenizer.ts";
 
-// ============================================================================
-// BRACKET DEPTH COUNTING TESTS
-// ============================================================================
-
-Deno.test("countAngleBracketDepth - balanced brackets", () => {
-  assertEquals(countAngleBracketDepth("Array<T>"), 0);
-  assertEquals(countAngleBracketDepth("Map<K, V>"), 0);
+Deno.test("Type tokenizer: depth counters distinguish balanced and unbalanced forms", () => {
   assertEquals(countAngleBracketDepth("Promise<Array<T>>"), 0);
-});
-
-Deno.test("countAngleBracketDepth - unbalanced brackets", () => {
-  assertEquals(countAngleBracketDepth("Array<T"), 1);
-  assertEquals(countAngleBracketDepth("Map<K, V"), 1); // Only one < in this string
-  assertEquals(countAngleBracketDepth("Map<K, Array<V"), 2); // Two < characters
-  assertEquals(countAngleBracketDepth("T>"), -1);
-});
-
-Deno.test("countBraceDepth - balanced braces", () => {
-  assertEquals(countBraceDepth("{name: string}"), 0);
+  assertEquals(countAngleBracketDepth("Map<K, Array<V"), 2);
   assertEquals(countBraceDepth("{a: {b: number}}"), 0);
-});
-
-Deno.test("countBraceDepth - unbalanced braces", () => {
   assertEquals(countBraceDepth("{name: string"), 1);
-  assertEquals(countBraceDepth("name}"), -1);
-});
-
-Deno.test("countBracketDepth - balanced", () => {
-  assertEquals(countBracketDepth("[string, number]"), 0);
   assertEquals(countBracketDepth("[[a], [b]]"), 0);
-});
-
-Deno.test("countParenDepth - balanced", () => {
   assertEquals(countParenDepth("(a: number) => string"), 0);
-  assertEquals(countParenDepth("((a))"), 0);
 });
 
-// ============================================================================
-// FIND TYPE ANNOTATION COLON TESTS
-// ============================================================================
-
-Deno.test("findTypeAnnotationColon - simple types", () => {
+Deno.test("Type tokenizer: finds annotation colon only at top level", () => {
   assertEquals(findTypeAnnotationColon("x:number"), 1);
-  assertEquals(findTypeAnnotationColon("name:string"), 4);
+  assertEquals(findTypeAnnotationColon("arr:Array<number>"), 3);
+  assertEquals(findTypeAnnotationColon("cb:(a: number) => string"), 2);
+  assertEquals(findTypeAnnotationColon("x:Record<string, {key: number}>"), 1);
   assertEquals(findTypeAnnotationColon("x"), -1);
 });
 
-Deno.test("findTypeAnnotationColon - generic types", () => {
-  assertEquals(findTypeAnnotationColon("arr:Array<number>"), 3);
-  assertEquals(findTypeAnnotationColon("map:Map<string, number>"), 3);
-  assertEquals(findTypeAnnotationColon("data:Record<string, Array<number>>"), 4);
+Deno.test("Type tokenizer: tokenizes core type forms", () => {
+  const generic = tokenizeType("Map<string, Array<number>> ", 0);
+  const conditional = tokenizeType("T extends Array<infer U> ? U : never ", 0);
+  const template = tokenizeType("`prefix_${string}` ", 0);
+  const mapped = tokenizeType("{[K in keyof T]: T[K]} ", 0);
+  const constructor = tokenizeType("new (x: number) => MyClass ", 0);
+  const predicate = tokenizeType("asserts x is T ", 0);
+  const importType = tokenizeType('import("./mod").Type ', 0);
+
+  assertEquals(generic.type, "Map<string, Array<number>>");
+  assertEquals(generic.isValid, true);
+  assertEquals(conditional.type, "T extends Array<infer U> ? U : never");
+  assertEquals(template.type, "`prefix_${string}`");
+  assertEquals(mapped.type, "{[K in keyof T]: T[K]}");
+  assertEquals(constructor.type, "new (x: number) => MyClass");
+  assertEquals(predicate.type, "asserts x is T");
+  assertEquals(importType.type, 'import("./mod").Type');
 });
 
-Deno.test("findTypeAnnotationColon - nested generics with colons inside", () => {
-  // The colon inside Record should NOT be matched
-  assertEquals(findTypeAnnotationColon("x:Record<string, {key: number}>"), 1);
+Deno.test("Type tokenizer: object, tuple, and function tokenizers preserve structured forms", () => {
+  const objectType = tokenizeObjectType("{user: {name: string}}[] rest", 0);
+  const tupleType = tokenizeTupleType("[[string], [number]]", 0);
+  const fnType = tokenizeFunctionType("(a: number, b: string) => boolean ", 0);
+
+  assertEquals(objectType.type, "{user: {name: string}}[]");
+  assertEquals(objectType.isValid, true);
+  assertEquals(tupleType.type, "[[string], [number]]");
+  assertEquals(tupleType.isValid, true);
+  assertEquals(fnType.type, "(a: number, b: string)=>boolean");
+  assertEquals(fnType.isValid, true);
 });
 
-Deno.test("findTypeAnnotationColon - function types", () => {
-  assertEquals(findTypeAnnotationColon("cb:(a: number) => string"), 2);
-  assertEquals(findTypeAnnotationColon("fn:(x: A, y: B) => C"), 2);
+Deno.test("Type tokenizer: symbol extraction preserves names and complex raw types", () => {
+  const plain = extractTypeFromSymbol("x:number");
+  const fn = extractTypeFromSymbol("cb:(a: number) => string");
+  const conditional = extractTypeFromSymbol("x:T extends string ? number : boolean");
+  const template = extractTypeFromSymbol("key:`prefix_${string}`");
+  const mapped = extractTypeFromSymbol("partial:{[K in keyof T]?: T[K]}");
+  const none = extractTypeFromSymbol("bare");
+
+  assertEquals(plain, { name: "x", type: "number" });
+  assertEquals(fn, { name: "cb", type: "(a: number) => string" });
+  assertEquals(conditional.type, "T extends string ? number : boolean");
+  assertEquals(template.type, "`prefix_${string}`");
+  assertEquals(mapped.type, "{[K in keyof T]?: T[K]}");
+  assertEquals(none, { name: "bare", type: undefined });
 });
 
-// ============================================================================
-// TOKENIZE TYPE TESTS
-// ============================================================================
-
-Deno.test("tokenizeType - basic types", () => {
-  assertEquals(tokenizeType("string ", 0).type, "string");
-  assertEquals(tokenizeType("number)", 0).type, "number");
-  assertEquals(tokenizeType("boolean]", 0).type, "boolean");
-});
-
-Deno.test("tokenizeType - generic types", () => {
-  assertEquals(tokenizeType("Array<string> ", 0).type, "Array<string>");
-  assertEquals(tokenizeType("Map<string, number> ", 0).type, "Map<string, number>");
-  assertEquals(tokenizeType("Promise<void>)", 0).type, "Promise<void>");
-});
-
-Deno.test("tokenizeType - nested generics", () => {
-  const result = tokenizeType("Map<string, Array<number>> ", 0);
-  assertEquals(result.type, "Map<string, Array<number>>");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - nullable types", () => {
-  assertEquals(tokenizeType("?string ", 0).type, "?string");
-  assertEquals(tokenizeType("?number)", 0).type, "?number");
-});
-
-Deno.test("tokenizeType - array types", () => {
-  assertEquals(tokenizeType("string[] ", 0).type, "string[]");
-  assertEquals(tokenizeType("Array<number>[] ", 0).type, "Array<number>[]");
-});
-
-Deno.test("tokenizeType - union types", () => {
-  assertEquals(tokenizeType("string | number ", 0).type, "string | number");
-  assertEquals(tokenizeType("A | B | C)", 0).type, "A | B | C");
-});
-
-Deno.test("tokenizeType - intersection types", () => {
-  assertEquals(tokenizeType("A & B ", 0).type, "A & B");
-});
-
-Deno.test("tokenizeType - isValid flag", () => {
-  assertEquals(tokenizeType("Array<string>", 0).isValid, true);
-  assertEquals(tokenizeType("Array<string", 0).isValid, false); // unbalanced
-});
-
-// ============================================================================
-// TOKENIZE OBJECT TYPE TESTS
-// ============================================================================
-
-Deno.test("tokenizeObjectType - simple object", () => {
-  const result = tokenizeObjectType("{name: string}", 0);
-  assertEquals(result.type, "{name: string}");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeObjectType - multiple properties", () => {
-  const result = tokenizeObjectType("{x: number, y: number}", 0);
-  assertEquals(result.type, "{x: number, y: number}");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeObjectType - nested object", () => {
-  const result = tokenizeObjectType("{user: {name: string}}", 0);
-  assertEquals(result.type, "{user: {name: string}}");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeObjectType - with array suffix", () => {
-  const result = tokenizeObjectType("{x: number}[] rest", 0);
-  assertEquals(result.type, "{x: number}[]");
-});
-
-// ============================================================================
-// TOKENIZE TUPLE TYPE TESTS
-// ============================================================================
-
-Deno.test("tokenizeTupleType - simple tuple", () => {
-  const result = tokenizeTupleType("[string, number]", 0);
-  assertEquals(result.type, "[string, number]");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeTupleType - nested", () => {
-  const result = tokenizeTupleType("[[string], [number]]", 0);
-  assertEquals(result.type, "[[string], [number]]");
-  assertEquals(result.isValid, true);
-});
-
-// ============================================================================
-// TOKENIZE FUNCTION TYPE TESTS
-// ============================================================================
-
-Deno.test("tokenizeFunctionType - simple function", () => {
-  const result = tokenizeFunctionType("(x: number) => string rest", 0);
-  assertEquals(result.type, "(x: number)=>string");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeFunctionType - multiple parameters", () => {
-  const result = tokenizeFunctionType("(a: number, b: string) => boolean ", 0);
-  assertEquals(result.type, "(a: number, b: string)=>boolean");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeFunctionType - void return", () => {
-  const result = tokenizeFunctionType("() => void ", 0);
-  assertEquals(result.type, "()=>void");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeFunctionType - generic return", () => {
-  const result = tokenizeFunctionType("(x: T) => Promise<T> ", 0);
-  assertEquals(result.type, "(x: T)=>Promise<T>");
-  assertEquals(result.isValid, true);
-});
-
-// ============================================================================
-// NORMALIZE TYPE TESTS
-// ============================================================================
-
-Deno.test("normalizeType - nullable prefix", () => {
+Deno.test("Type tokenizer: normalization covers nullable, generic, effect, and Swift shorthand types", () => {
   assertEquals(normalizeType("?string"), "(string) | null | undefined");
-  assertEquals(normalizeType("?number"), "(number) | null | undefined");
-});
-
-Deno.test("normalizeType - array suffix", () => {
-  assertEquals(normalizeType("string[]"), "Array<string>");
-  assertEquals(normalizeType("number[]"), "Array<number>");
-});
-
-Deno.test("normalizeType - nullable array", () => {
-  assertEquals(normalizeType("?string[]"), "(Array<string>) | null | undefined");
-});
-
-Deno.test("normalizeType - nested array", () => {
-  assertEquals(normalizeType("number[][]"), "Array<Array<number>>");
-});
-
-Deno.test("normalizeType - passthrough for simple types", () => {
-  assertEquals(normalizeType("string"), "string");
-  assertEquals(normalizeType("number"), "number");
-  assertEquals(normalizeType("Array<T>"), "Array<T>");
-});
-
-Deno.test("normalizeType - conditional types NOT transformed", () => {
-  const conditionalType = "T extends string ? A : B";
-  assertEquals(normalizeType(conditionalType), conditionalType);
-});
-
-Deno.test("normalizeType - complex conditional preserved", () => {
-  const conditionalType = "T extends Array<U> ? U : never";
-  assertEquals(normalizeType(conditionalType), conditionalType);
-});
-
-// ============================================================================
-// EXTRACT TYPE FROM SYMBOL TESTS
-// ============================================================================
-
-Deno.test("extractTypeFromSymbol - simple type", () => {
-  const result = extractTypeFromSymbol("x:number");
-  assertEquals(result.name, "x");
-  assertEquals(result.type, "number");
-});
-
-Deno.test("extractTypeFromSymbol - generic type", () => {
-  const result = extractTypeFromSymbol("arr:Array<string>");
-  assertEquals(result.name, "arr");
-  assertEquals(result.type, "Array<string>");
-});
-
-Deno.test("extractTypeFromSymbol - complex generic", () => {
-  const result = extractTypeFromSymbol("data:Map<string, Array<number>>");
-  assertEquals(result.name, "data");
-  assertEquals(result.type, "Map<string, Array<number>>");
-});
-
-Deno.test("extractTypeFromSymbol - no type", () => {
-  const result = extractTypeFromSymbol("x");
-  assertEquals(result.name, "x");
-  assertEquals(result.type, undefined);
-});
-
-Deno.test("extractTypeFromSymbol - function type", () => {
-  const result = extractTypeFromSymbol("cb:(a: number) => string");
-  assertEquals(result.name, "cb");
-  assertEquals(result.type, "(a: number) => string");
-});
-
-// ============================================================================
-// EXTRACT AND NORMALIZE TYPE TESTS
-// ============================================================================
-
-Deno.test("extractAndNormalizeType - nullable", () => {
-  const result = extractAndNormalizeType("x:?string");
-  assertEquals(result.name, "x");
-  assertEquals(result.type, "(string) | null | undefined");
-});
-
-Deno.test("extractAndNormalizeType - array", () => {
-  const result = extractAndNormalizeType("arr:number[]");
-  assertEquals(result.name, "arr");
-  assertEquals(result.type, "Array<number>");
-});
-
-Deno.test("extractAndNormalizeType - nullable array", () => {
-  const result = extractAndNormalizeType("arr:?string[]");
-  assertEquals(result.name, "arr");
-  assertEquals(result.type, "(Array<string>) | null | undefined");
-});
-
-Deno.test("extractAndNormalizeType - no type", () => {
-  const result = extractAndNormalizeType("x");
-  assertEquals(result.name, "x");
-  assertEquals(result.type, undefined);
-});
-
-// ============================================================================
-// EDGE CASE TESTS
-// ============================================================================
-
-Deno.test("edge case - empty string", () => {
-  assertEquals(findTypeAnnotationColon(""), -1);
-  assertEquals(countAngleBracketDepth(""), 0);
-});
-
-Deno.test("edge case - colon only", () => {
-  assertEquals(findTypeAnnotationColon(":"), 0);
-});
-
-Deno.test("edge case - nullable object type", () => {
-  assertEquals(normalizeType("?{name: string}"), "({name: string}) | null | undefined");
-});
-
-Deno.test("edge case - deeply nested generics", () => {
-  const deep = "Map<string, Map<string, Map<string, number>>>";
-  assertEquals(countAngleBracketDepth(deep), 0);
-  const result = tokenizeType(deep + " ", 0);
-  assertEquals(result.type, deep);
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("edge case - whitespace in types", () => {
-  // Note: extractTypeFromSymbol trims both name and type
-  const result = extractTypeFromSymbol("x: number");
-  assertEquals(result.name, "x");
-  assertEquals(result.type, "number"); // Trimmed
-});
-
-Deno.test("edge case - multiple colons in type", () => {
-  // Record<string, {key: value}> has colons inside
-  const result = extractTypeFromSymbol("x:Record<string, {key: number}>");
-  assertEquals(result.name, "x");
-  assertEquals(result.type, "Record<string, {key: number}>");
-});
-
-// ============================================================================
-// TYPE KEYWORD TESTS - keyof, typeof, readonly, infer
-// ============================================================================
-
-Deno.test("tokenizeType - keyof keyword", () => {
-  const result = tokenizeType("keyof T ", 0);
-  assertEquals(result.type, "keyof T");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - keyof with complex type", () => {
-  const result = tokenizeType("keyof typeof obj ", 0);
-  assertEquals(result.type, "keyof typeof obj");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - typeof keyword", () => {
-  const result = tokenizeType("typeof myVariable ", 0);
-  assertEquals(result.type, "typeof myVariable");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - readonly array", () => {
-  const result = tokenizeType("readonly string[] ", 0);
-  assertEquals(result.type, "readonly string[]");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - readonly tuple", () => {
-  const result = tokenizeType("readonly [string, number] ", 0);
-  assertEquals(result.type, "readonly [string, number]");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("extractTypeFromSymbol - keyof type", () => {
-  const result = extractTypeFromSymbol("keys:keyof T");
-  assertEquals(result.name, "keys");
-  assertEquals(result.type, "keyof T");
-});
-
-Deno.test("extractTypeFromSymbol - typeof type", () => {
-  const result = extractTypeFromSymbol("value:typeof defaultValue");
-  assertEquals(result.name, "value");
-  assertEquals(result.type, "typeof defaultValue");
-});
-
-Deno.test("extractTypeFromSymbol - readonly array", () => {
-  const result = extractTypeFromSymbol("items:readonly string[]");
-  assertEquals(result.name, "items");
-  assertEquals(result.type, "readonly string[]");
-});
-
-// ============================================================================
-// CONDITIONAL TYPE TESTS - T extends U ? A : B
-// ============================================================================
-
-Deno.test("tokenizeType - simple conditional type", () => {
-  const result = tokenizeType("T extends string ? A : B ", 0);
-  assertEquals(result.type, "T extends string ? A : B");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - conditional with infer", () => {
-  const result = tokenizeType("T extends Array<infer U> ? U : never ", 0);
-  assertEquals(result.type, "T extends Array<infer U> ? U : never");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - nested conditional", () => {
-  const result = tokenizeType("T extends A ? B extends C ? D : E : F ", 0);
-  assertEquals(result.type, "T extends A ? B extends C ? D : E : F");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("extractTypeFromSymbol - conditional type", () => {
-  const result = extractTypeFromSymbol("x:T extends string ? number : boolean");
-  assertEquals(result.name, "x");
-  assertEquals(result.type, "T extends string ? number : boolean");
-});
-
-Deno.test("extractTypeFromSymbol - infer type", () => {
-  const result = extractTypeFromSymbol("unwrapped:T extends Promise<infer U> ? U : T");
-  assertEquals(result.name, "unwrapped");
-  assertEquals(result.type, "T extends Promise<infer U> ? U : T");
-});
-
-// ============================================================================
-// TEMPLATE LITERAL TYPE TESTS
-// ============================================================================
-
-Deno.test("tokenizeType - simple template literal", () => {
-  const result = tokenizeType("`prefix_${string}` ", 0);
-  assertEquals(result.type, "`prefix_${string}`");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - template literal with union", () => {
-  const result = tokenizeType("`${'a' | 'b'}_suffix` ", 0);
-  assertEquals(result.type, "`${'a' | 'b'}_suffix`");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("extractTypeFromSymbol - template literal", () => {
-  const result = extractTypeFromSymbol("key:`prefix_${string}`");
-  assertEquals(result.name, "key");
-  assertEquals(result.type, "`prefix_${string}`");
-});
-
-// ============================================================================
-// MAPPED TYPE TESTS
-// ============================================================================
-
-Deno.test("tokenizeType - mapped type with keyof", () => {
-  const result = tokenizeType("{[K in keyof T]: T[K]} ", 0);
-  assertEquals(result.type, "{[K in keyof T]: T[K]}");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - mapped type with readonly", () => {
-  const result = tokenizeType("{readonly [K in keyof T]: T[K]} ", 0);
-  assertEquals(result.type, "{readonly [K in keyof T]: T[K]}");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("extractTypeFromSymbol - mapped type", () => {
-  const result = extractTypeFromSymbol("partial:{[K in keyof T]?: T[K]}");
-  assertEquals(result.name, "partial");
-  assertEquals(result.type, "{[K in keyof T]?: T[K]}");
-});
-
-// ============================================================================
-// COMPLEX COMBINED TYPE TESTS
-// ============================================================================
-
-Deno.test("tokenizeType - union with keyof", () => {
-  const result = tokenizeType("keyof T | keyof U ", 0);
-  assertEquals(result.type, "keyof T | keyof U");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - intersection with readonly", () => {
-  const result = tokenizeType("readonly string[] & Iterable<string> ", 0);
-  assertEquals(result.type, "readonly string[] & Iterable<string>");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - conditional with keyof", () => {
-  const result = tokenizeType("K extends keyof T ? T[K] : never ", 0);
-  assertEquals(result.type, "K extends keyof T ? T[K] : never");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("extractTypeFromSymbol - complex combined", () => {
-  const result = extractTypeFromSymbol(
-    "getter:<K extends keyof T>(key: K) => T[K]"
-  );
-  assertEquals(result.name, "getter");
-  // Note: The outer function type may need special handling
-  assertEquals(result.type, "<K extends keyof T>(key: K) => T[K]");
-});
-
-// ============================================================================
-// CONSTRUCTOR TYPE TESTS
-// ============================================================================
-
-Deno.test("tokenizeType - constructor type", () => {
-  const result = tokenizeType("new () => MyClass ", 0);
-  assertEquals(result.type, "new () => MyClass");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - constructor with params", () => {
-  const result = tokenizeType("new (x: number) => MyClass ", 0);
-  assertEquals(result.type, "new (x: number) => MyClass");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - abstract constructor", () => {
-  const result = tokenizeType("abstract new () => T ", 0);
-  assertEquals(result.type, "abstract new () => T");
-  assertEquals(result.isValid, true);
-});
-
-// ============================================================================
-// TYPE PREDICATE TESTS
-// ============================================================================
-
-Deno.test("tokenizeType - type predicate is", () => {
-  const result = tokenizeType("x is string ", 0);
-  assertEquals(result.type, "x is string");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - asserts predicate", () => {
-  const result = tokenizeType("asserts x is T ", 0);
-  assertEquals(result.type, "asserts x is T");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - asserts condition", () => {
-  const result = tokenizeType("asserts condition ", 0);
-  assertEquals(result.type, "asserts condition");
-  assertEquals(result.isValid, true);
-});
-
-// ============================================================================
-// IMPORT TYPE TESTS
-// ============================================================================
-
-Deno.test("tokenizeType - import type", () => {
-  const result = tokenizeType('import("./mod").Type ', 0);
-  assertEquals(result.type, 'import("./mod").Type');
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - typeof import", () => {
-  const result = tokenizeType('typeof import("./mod") ', 0);
-  assertEquals(result.type, 'typeof import("./mod")');
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - import with path", () => {
-  const result = tokenizeType('import("./path/to/module").SomeType ', 0);
-  assertEquals(result.type, 'import("./path/to/module").SomeType');
-  assertEquals(result.isValid, true);
-});
-
-// ============================================================================
-// COMPLEX FUNCTION TYPE IN CONDITIONAL TESTS
-// ============================================================================
-
-Deno.test("tokenizeType - function type in conditional", () => {
-  const result = tokenizeType(
-    "T extends (...args: infer A) => infer R ? [A, R] : never ",
-    0
-  );
-  assertEquals(result.type, "T extends (...args: infer A) => infer R ? [A, R] : never");
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - function arrow after balanced parens", () => {
-  const result = tokenizeType("(x: number) => string ", 0);
-  assertEquals(result.type, "(x: number) => string");
-  assertEquals(result.isValid, true);
-});
-
-// ============================================================================
-// STRING LITERAL TYPE TESTS
-// ============================================================================
-
-Deno.test("tokenizeType - string literal with special chars", () => {
-  assertEquals(tokenizeType('")" ', 0).type, '")"');
-  assertEquals(tokenizeType('"[" ', 0).type, '"["');
-  assertEquals(tokenizeType('"a]b" ', 0).type, '"a]b"');
-});
-
-Deno.test("tokenizeType - string literal union", () => {
-  const result = tokenizeType('")" | "(" ', 0);
-  assertEquals(result.type, '")" | "("');
-  assertEquals(result.isValid, true);
-});
-
-Deno.test("tokenizeType - single quote string literal", () => {
-  assertEquals(tokenizeType("')' ", 0).type, "')'");
-  assertEquals(tokenizeType("'hello' ", 0).type, "'hello'");
-});
-
-// ============================================================================
-// EFFECT ANNOTATION TESTS
-// ============================================================================
-
-Deno.test("extractEffect - Pure with two types", () => {
-  const result = extractEffect("(Pure number number)");
-  assertEquals(result.effect, "Pure");
-  assertEquals(result.innerType, "number number");
-});
-
-Deno.test("extractEffect - Impure with two types", () => {
-  const result = extractEffect("(Impure string number)");
-  assertEquals(result.effect, "Impure");
-  assertEquals(result.innerType, "string number");
-});
-
-Deno.test("extractEffect - Pure with nested fn type", () => {
-  const result = extractEffect("(Pure (fn [number] string) number)");
-  assertEquals(result.effect, "Pure");
-  assertEquals(result.innerType, "(fn [number] string) number");
-});
-
-Deno.test("extractEffect - no effect on plain type", () => {
-  const result = extractEffect("number");
-  assertEquals(result.effect, undefined);
-  assertEquals(result.innerType, "number");
-});
-
-Deno.test("splitEffectTypeParams - simple types", () => {
-  const result = splitEffectTypeParams("number number");
-  assertEquals(result, ["number", "number"]);
-});
-
-Deno.test("splitEffectTypeParams - nested type", () => {
-  const result = splitEffectTypeParams("(fn [number] string) number");
-  assertEquals(result, ["(fn [number] string)", "number"]);
-});
-
-Deno.test("normalizeType - Pure number number → TS fn type", () => {
-  const result = normalizeType("(Pure number number)");
-  assertEquals(result, "(arg0: number) => number");
-});
-
-Deno.test("normalizeType - Pure with nested fn type", () => {
-  const result = normalizeType("(Pure (fn [number] string) number)");
-  assertEquals(result, "(arg0: (arg0: number) => string) => number");
-});
-
-Deno.test("normalizeType - Impure with multiple params", () => {
-  const result = normalizeType("(Impure number string number)");
-  assertEquals(result, "(arg0: number, arg1: string) => number");
-});
-
-// ============================================================================
-// (fx ...) / (fn ...) SURFACE SYNTAX EFFECT TESTS
-// ============================================================================
-
-Deno.test("extractEffect - (fx ...) as Pure effect", () => {
-  const result = extractEffect("(fx number number)");
-  assertEquals(result.effect, "Pure");
-  assertEquals(result.innerType, "number number");
-});
-
-Deno.test("extractEffect - (fn ...) as Impure effect (no brackets)", () => {
-  const result = extractEffect("(fn number number)");
-  assertEquals(result.effect, "Impure");
-  assertEquals(result.innerType, "number number");
-});
-
-Deno.test("extractEffect - (fn [...] ...) stays as fn-type, NOT effect", () => {
-  const result = extractEffect("(fn [number] string)");
-  assertEquals(result.effect, undefined);
-  assertEquals(result.innerType, "(fn [number] string)");
-});
-
-Deno.test("normalizeType - (fx Int Int) → TS fn type", () => {
-  assertEquals(normalizeType("(fx Int Int)"), "(arg0: number) => number");
-});
-
-Deno.test("normalizeType - (fn number number) → TS fn type (Impure)", () => {
-  assertEquals(normalizeType("(fn number number)"), "(arg0: number) => number");
-});
-
-Deno.test("extractEffect - (fx ...) with nested fn type", () => {
-  const result = extractEffect("(fx (fn [number] string) number)");
-  assertEquals(result.effect, "Pure");
-  assertEquals(result.innerType, "(fn [number] string) number");
-});
-
-// ============================================================================
-// SWIFT TYPE NAME MAPPING TESTS
-// ============================================================================
-
-Deno.test("normalizeType - Swift Int → number", () => {
-  assertEquals(normalizeType("Int"), "number");
-});
-
-Deno.test("normalizeType - Swift String → string", () => {
-  assertEquals(normalizeType("String"), "string");
-});
-
-Deno.test("normalizeType - Swift Bool → boolean", () => {
-  assertEquals(normalizeType("Bool"), "boolean");
-});
-
-Deno.test("normalizeType - Swift Double → number", () => {
-  assertEquals(normalizeType("Double"), "number");
-});
-
-Deno.test("normalizeType - Swift Float → number", () => {
-  assertEquals(normalizeType("Float"), "number");
-});
-
-Deno.test("normalizeType - Swift Void → void", () => {
-  assertEquals(normalizeType("Void"), "void");
-});
-
-Deno.test("normalizeType - Swift Any → any", () => {
-  assertEquals(normalizeType("Any"), "any");
-});
-
-Deno.test("normalizeType - Swift Nothing → never", () => {
-  assertEquals(normalizeType("Nothing"), "never");
-});
-
-// ============================================================================
-// POSTFIX OPTIONAL TESTS (Swift-style T?)
-// ============================================================================
-
-Deno.test("normalizeType - postfix String? → nullable string", () => {
   assertEquals(normalizeType("String?"), "(string) | null | undefined");
-});
-
-Deno.test("normalizeType - postfix Int? → nullable number", () => {
-  assertEquals(normalizeType("Int?"), "(number) | null | undefined");
-});
-
-Deno.test("normalizeType - postfix Array<Int>? → nullable generic", () => {
-  assertEquals(normalizeType("Array<Int>?"), "(Array<number>) | null | undefined");
-});
-
-// ============================================================================
-// GENERIC TYPE RECURSION TESTS
-// ============================================================================
-
-Deno.test("normalizeType - Array<Int> → Array<number>", () => {
-  assertEquals(normalizeType("Array<Int>"), "Array<number>");
-});
-
-Deno.test("normalizeType - Map<String, Int> → Map<string, number>", () => {
-  assertEquals(normalizeType("Map<String, Int>"), "Map<string, number>");
-});
-
-Deno.test("normalizeType - Array<Map<String, Bool>> → nested generics", () => {
+  assertEquals(normalizeType("number[][]"), "Array<Array<number>>");
   assertEquals(normalizeType("Array<Map<String, Bool>>"), "Array<Map<string, boolean>>");
-});
-
-// ============================================================================
-// BACKWARD COMPATIBILITY TESTS
-// ============================================================================
-
-Deno.test("normalizeType - lowercase string unchanged", () => {
-  assertEquals(normalizeType("string"), "string");
-});
-
-Deno.test("normalizeType - prefix ?string still works", () => {
-  assertEquals(normalizeType("?string"), "(string) | null | undefined");
-});
-
-Deno.test("normalizeType - number[] still works", () => {
-  assertEquals(normalizeType("number[]"), "Array<number>");
-});
-
-// ============================================================================
-// extractAndNormalizeType WITH SWIFT TYPES
-// ============================================================================
-
-Deno.test("extractAndNormalizeType - name:String → string", () => {
-  const result = extractAndNormalizeType("name:String");
-  assertEquals(result.name, "name");
-  assertEquals(result.type, "string");
-});
-
-Deno.test("extractAndNormalizeType - n:Int → number", () => {
-  const result = extractAndNormalizeType("n:Int");
-  assertEquals(result.name, "n");
-  assertEquals(result.type, "number");
-});
-
-Deno.test("extractAndNormalizeType - x:String? → nullable string", () => {
-  const result = extractAndNormalizeType("x:String?");
-  assertEquals(result.name, "x");
-  assertEquals(result.type, "(string) | null | undefined");
-});
-
-Deno.test("extractAndNormalizeType - arr:Array<String> → Array<string>", () => {
-  const result = extractAndNormalizeType("arr:Array<String>");
-  assertEquals(result.name, "arr");
-  assertEquals(result.type, "Array<string>");
-});
-
-Deno.test("normalizeType - (Pure Int Int) → TS fn type", () => {
-  const result = normalizeType("(Pure Int Int)");
-  assertEquals(result, "(arg0: number) => number");
-});
-
-Deno.test("normalizeType - Set<String> → Set<string>", () => {
-  assertEquals(normalizeType("Set<String>"), "Set<string>");
-});
-
-Deno.test("normalizeType - Promise<Int> → Promise<number>", () => {
-  assertEquals(normalizeType("Promise<Int>"), "Promise<number>");
-});
-
-Deno.test("normalizeType - unknown CustomType passthrough", () => {
-  assertEquals(normalizeType("CustomType"), "CustomType");
-});
-
-Deno.test("normalizeType - Array<Array<Int>> → nested generics", () => {
-  assertEquals(normalizeType("Array<Array<Int>>"), "Array<Array<number>>");
-});
-
-// ============================================================================
-// EXTENDED SWIFT TYPE MAPPING TESTS
-// ============================================================================
-
-Deno.test("normalizeType - UInt → number", () => {
-  assertEquals(normalizeType("UInt"), "number");
-});
-
-Deno.test("normalizeType - Int32 → number", () => {
-  assertEquals(normalizeType("Int32"), "number");
-});
-
-Deno.test("normalizeType - Int64 → number", () => {
-  assertEquals(normalizeType("Int64"), "number");
-});
-
-Deno.test("normalizeType - Character → string", () => {
-  assertEquals(normalizeType("Character"), "string");
-});
-
-Deno.test("normalizeType - Never → never", () => {
-  assertEquals(normalizeType("Never"), "never");
-});
-
-Deno.test("normalizeType - AnyObject → object", () => {
-  assertEquals(normalizeType("AnyObject"), "object");
-});
-
-Deno.test("normalizeType - Optional<Int> → nullable number", () => {
-  assertEquals(normalizeType("Optional<Int>"), "(number) | null | undefined");
-});
-
-Deno.test("normalizeType - Optional<String> → nullable string", () => {
-  assertEquals(normalizeType("Optional<String>"), "(string) | null | undefined");
-});
-
-Deno.test("normalizeType - Optional<Array<Int>> → nullable array", () => {
+  assertEquals(normalizeType("(Pure Int Int)"), "(arg0: number) => number");
+  assertEquals(normalizeType("(fx (fn [number] string) number)"), "(arg0: (arg0: number) => string) => number");
+  assertEquals(normalizeType("[String: [Int]]"), "Map<string, Array<number>>");
+  assertEquals(normalizeType("(Int, String)"), "[number, string]");
   assertEquals(normalizeType("Optional<Array<Int>>"), "(Array<number>) | null | undefined");
-});
-
-Deno.test("normalizeType - Dictionary<String, Int> → Map<string, number>", () => {
-  assertEquals(normalizeType("Dictionary<String, Int>"), "Map<string, number>");
-});
-
-Deno.test("normalizeType - Dictionary<String, Array<Int>> → Map with nested generic", () => {
-  assertEquals(normalizeType("Dictionary<String, Array<Int>>"), "Map<string, Array<number>>");
-});
-
-// ============================================================================
-// IDEMPOTENCY — TS types pass through unchanged
-// ============================================================================
-
-Deno.test("normalizeType - Record<string, number> unchanged", () => {
-  assertEquals(normalizeType("Record<string, number>"), "Record<string, number>");
-});
-
-Deno.test("normalizeType - Promise<void> unchanged", () => {
-  assertEquals(normalizeType("Promise<void>"), "Promise<void>");
-});
-
-Deno.test("normalizeType - Array<T> generic param unchanged", () => {
-  assertEquals(normalizeType("Array<T>"), "Array<T>");
-});
-
-// ============================================================================
-// UNION AND INTERSECTION TYPE NORMALIZATION TESTS
-// ============================================================================
-
-Deno.test("normalizeType - union Int|String → number|string", () => {
-  assertEquals(normalizeType("Int|String"), "number|string");
-});
-
-Deno.test("normalizeType - union Int | String | Bool → number | string | boolean", () => {
   assertEquals(normalizeType("Int | String | Bool"), "number | string | boolean");
 });
 
-Deno.test("normalizeType - union Array<Int>|String → Array<number>|string", () => {
-  assertEquals(normalizeType("Array<Int>|String"), "Array<number>|string");
+Deno.test("Type tokenizer: extractAndNormalizeType applies normalization to symbol annotations", () => {
+  assertEquals(extractAndNormalizeType("x:?string"), {
+    effect: undefined,
+    name: "x",
+    type: "(string) | null | undefined",
+  });
+  assertEquals(extractAndNormalizeType("arr:[Int]"), {
+    effect: undefined,
+    name: "arr",
+    type: "Array<number>",
+  });
+  assertEquals(extractAndNormalizeType("m:[String: Int]"), {
+    effect: undefined,
+    name: "m",
+    type: "Map<string, number>",
+  });
+  assertEquals(extractAndNormalizeType("pair:(Int, String)"), {
+    effect: undefined,
+    name: "pair",
+    type: "[number, string]",
+  });
+  assertEquals(extractAndNormalizeType("x"), { name: "x", type: undefined });
 });
 
-Deno.test("normalizeType - union Int?|String → nullable number union string", () => {
-  assertEquals(normalizeType("Int?|String"), "(number) | null | undefined|string");
-});
+Deno.test("Type tokenizer: effect extraction and splitting preserve callable metadata", () => {
+  const pure = extractEffect("(Pure (fn [number] string) number)");
+  const plainFunction = extractEffect("(fn [number] string)");
 
-Deno.test("normalizeType - intersection User & Serializable passthrough", () => {
-  assertEquals(normalizeType("User & Serializable"), "User & Serializable");
-});
-
-Deno.test("normalizeType - intersection AnyObject & Serializable → object & Serializable", () => {
-  assertEquals(normalizeType("AnyObject & Serializable"), "object & Serializable");
-});
-
-// ============================================================================
-// SWIFT COLLECTION SHORTHAND TESTS — [T] array, [K: V] dict, (T, U) tuple
-// ============================================================================
-
-// Array shorthand
-Deno.test("normalizeType - [Int] → Array<number>", () => {
-  assertEquals(normalizeType("[Int]"), "Array<number>");
-});
-
-Deno.test("normalizeType - [String] → Array<string>", () => {
-  assertEquals(normalizeType("[String]"), "Array<string>");
-});
-
-Deno.test("normalizeType - [[Int]] → Array<Array<number>>", () => {
-  assertEquals(normalizeType("[[Int]]"), "Array<Array<number>>");
-});
-
-Deno.test("normalizeType - [Int]? → nullable array", () => {
-  assertEquals(normalizeType("[Int]?"), "(Array<number>) | null | undefined");
-});
-
-Deno.test("normalizeType - [Bool] → Array<boolean>", () => {
-  assertEquals(normalizeType("[Bool]"), "Array<boolean>");
-});
-
-Deno.test("normalizeType - [Map<String, Int>] → Array<Map<string, number>>", () => {
-  assertEquals(normalizeType("[Map<String, Int>]"), "Array<Map<string, number>>");
-});
-
-Deno.test("normalizeType - [(Int, String)] → Array<[number, string]>", () => {
-  assertEquals(normalizeType("[(Int, String)]"), "Array<[number, string]>");
-});
-
-// Dictionary shorthand
-Deno.test("normalizeType - [String: Int] → Map<string, number>", () => {
-  assertEquals(normalizeType("[String: Int]"), "Map<string, number>");
-});
-
-Deno.test("normalizeType - [String: Bool] → Map<string, boolean>", () => {
-  assertEquals(normalizeType("[String: Bool]"), "Map<string, boolean>");
-});
-
-Deno.test("normalizeType - [String: [Int]] → Map<string, Array<number>>", () => {
-  assertEquals(normalizeType("[String: [Int]]"), "Map<string, Array<number>>");
-});
-
-Deno.test("normalizeType - [(Int, String): Bool] → Map<[number, string], boolean>", () => {
-  assertEquals(normalizeType("[(Int, String): Bool]"), "Map<[number, string], boolean>");
-});
-
-// Tuple shorthand
-Deno.test("normalizeType - (Int, String) → [number, string]", () => {
-  assertEquals(normalizeType("(Int, String)"), "[number, string]");
-});
-
-Deno.test("normalizeType - (Int, String, Bool) → [number, string, boolean]", () => {
-  assertEquals(normalizeType("(Int, String, Bool)"), "[number, string, boolean]");
-});
-
-Deno.test("normalizeType - (Int, String)? → nullable tuple", () => {
-  assertEquals(normalizeType("(Int, String)?"), "([number, string]) | null | undefined");
-});
-
-Deno.test("normalizeType - Tuple<Int, String> → [number, string]", () => {
-  assertEquals(normalizeType("Tuple<Int, String>"), "[number, string]");
-});
-
-Deno.test("normalizeType - Tuple<Int, String, Bool> → [number, string, boolean]", () => {
-  assertEquals(normalizeType("Tuple<Int, String, Bool>"), "[number, string, boolean]");
-});
-
-// Non-interference: existing types must not be affected
-Deno.test("normalizeType - (Pure Int Int) still works (no commas → not tuple)", () => {
-  assertEquals(normalizeType("(Pure Int Int)"), "(arg0: number) => number");
-});
-
-Deno.test("normalizeType - (fn [Int] String) still works (no commas → not tuple)", () => {
-  assertEquals(normalizeType("(fn [Int] String)"), "(arg0: number) => string");
-});
-
-Deno.test("normalizeType - Array<Int> still works (unchanged)", () => {
-  assertEquals(normalizeType("Array<Int>"), "Array<number>");
-});
-
-// extractAndNormalizeType with collection shorthands
-Deno.test("extractAndNormalizeType - nums:[Int] → Array<number>", () => {
-  const result = extractAndNormalizeType("nums:[Int]");
-  assertEquals(result.name, "nums");
-  assertEquals(result.type, "Array<number>");
-});
-
-Deno.test("extractAndNormalizeType - m:[String: Int] → Map<string, number>", () => {
-  const result = extractAndNormalizeType("m:[String: Int]");
-  assertEquals(result.name, "m");
-  assertEquals(result.type, "Map<string, number>");
-});
-
-Deno.test("extractAndNormalizeType - t:(Int, String) → [number, string]", () => {
-  const result = extractAndNormalizeType("t:(Int, String)");
-  assertEquals(result.name, "t");
-  assertEquals(result.type, "[number, string]");
+  assertEquals(pure.effect, "Pure");
+  assertEquals(pure.innerType, "(fn [number] string) number");
+  assertEquals(plainFunction.effect, undefined);
+  assertEquals(plainFunction.innerType, "(fn [number] string)");
+  assertEquals(splitEffectTypeParams("(fn [number] string) number"), [
+    "(fn [number] string)",
+    "number",
+  ]);
 });

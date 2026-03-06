@@ -10,6 +10,12 @@ import {
 import {
   parseDiffLines,
 } from "../../../src/hlvm/cli/repl-ink/components/conversation/DiffRenderer.tsx";
+import {
+  buildCitationRenderView,
+} from "../../../src/hlvm/cli/repl-ink/components/conversation/AssistantMessage.tsx";
+import {
+  resolveToolResultText,
+} from "../../../src/hlvm/cli/repl-ink/components/conversation/ToolCallItem.tsx";
 
 Deno.test("detectContentType - identifies diff", () => {
   const diff = `diff --git a/a.ts b/a.ts\n@@ -1,1 +1,1 @@\n-old\n+new`;
@@ -105,4 +111,73 @@ Deno.test("parseDiffLines - ignores metadata before first hunk", () => {
   const lines = parseDiffLines(diff);
   assertEquals(lines.some((l) => l.content.startsWith("diff --git")), false);
   assertEquals(lines.some((l) => l.type === "hunk-header"), true);
+});
+
+Deno.test("buildCitationRenderView - injects markers and builds source list", () => {
+  const text = "NIST updated AI RMF guidance in 2025.";
+  const view = buildCitationRenderView(text, [
+    {
+      url: "https://www.nist.gov/ai-rmf",
+      title: "NIST AI RMF",
+      startIndex: 0,
+      endIndex: 32,
+      confidence: 0.84,
+      sourceKind: "passage",
+    },
+  ]);
+
+  assertEquals(view.text.includes("[1]"), true);
+  assertEquals(view.sources.length, 1);
+  assertEquals(view.sources[0]?.index, 1);
+  assertEquals(view.sources[0]?.url, "https://www.nist.gov/ai-rmf");
+});
+
+Deno.test("buildCitationRenderView - groups multiple spans from same URL", () => {
+  const text = "Sentence one. Sentence two.";
+  const view = buildCitationRenderView(text, [
+    {
+      url: "https://example.com/doc",
+      title: "Doc",
+      startIndex: 0,
+      endIndex: 12,
+      confidence: 0.5,
+    },
+    {
+      url: "https://example.com/doc",
+      title: "Doc",
+      startIndex: 13,
+      endIndex: 26,
+      confidence: 0.7,
+    },
+  ]);
+
+  assertEquals(view.sources.length, 1);
+  assertEquals(view.sources[0]?.spans.length, 2);
+  assertEquals(view.sources[0]?.confidence, 0.7);
+});
+
+Deno.test("resolveToolResultText prefers summary when collapsed", () => {
+  assertEquals(
+    resolveToolResultText(
+      {
+        resultSummaryText: "Found 12 matches in 4 files",
+        resultText: "{\n  \"matches\": [ ... ]\n}",
+      },
+      false,
+    ),
+    "Found 12 matches in 4 files",
+  );
+});
+
+Deno.test("resolveToolResultText uses full detail when expanded", () => {
+  assertEquals(
+    resolveToolResultText(
+      {
+        resultSummaryText: "Found 12 matches in 4 files",
+        resultText: "{\n  \"matches\": [ ... ]\n}",
+      },
+      true,
+    ),
+    "{\n  \"matches\": [ ... ]\n}",
+  );
 });

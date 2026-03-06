@@ -5,7 +5,6 @@
 
 import {
   getTool,
-  hasTool,
   normalizeToolName,
   prepareToolArgsForExecution,
   searchTools,
@@ -114,14 +113,17 @@ export async function executeToolCall(
   }
 
   const normalizedArgs = sanitizeArgs(normalizeToolArgs(toolCall.args));
-  const toolExists = hasTool(toolCall.toolName, config.toolOwnerId);
-  const preparedArgs = toolExists
-    ? prepareToolArgsForExecution(
+  let preparedArgs: ReturnType<typeof prepareToolArgsForExecution> | undefined;
+  try {
+    preparedArgs = prepareToolArgsForExecution(
       toolCall.toolName,
       normalizedArgs,
       config.toolOwnerId,
-    )
-    : undefined;
+    );
+  } catch {
+    // Tool not found — handled below
+  }
+  const toolExists = preparedArgs !== undefined;
   const coercedArgs = preparedArgs?.coercedArgs ?? normalizedArgs;
   // Emit trace event: tool call
   config.onTrace?.({
@@ -217,7 +219,7 @@ export async function executeToolCall(
 
     if (toolCall.toolName === "delegate_agent" && config.delegate) {
       const result = await config.delegate(coercedArgs, config);
-      const { llmContent, returnDisplay } = buildToolResultOutputs(
+      const { llmContent, summaryDisplay, returnDisplay } = buildToolResultOutputs(
         toolCall.toolName,
         result,
         config,
@@ -226,14 +228,17 @@ export async function executeToolCall(
         config,
         toolCall.toolName,
         llmContent,
+        summaryDisplay,
         returnDisplay,
         startedAt,
         coercedArgs,
+        result,
       );
       return {
         success: true,
         result,
         llmContent,
+        summaryDisplay,
         returnDisplay,
       };
     }
@@ -290,7 +295,7 @@ export async function executeToolCall(
       }
     }
 
-    const { llmContent, returnDisplay } = buildToolResultOutputs(
+    const { llmContent, summaryDisplay, returnDisplay } = buildToolResultOutputs(
       toolCall.toolName,
       result,
       config,
@@ -300,15 +305,18 @@ export async function executeToolCall(
       config,
       toolCall.toolName,
       llmContent,
+      summaryDisplay,
       returnDisplay,
       startedAt,
       coercedArgs,
+      result,
     );
 
     return {
       success: true,
       result,
       llmContent,
+      summaryDisplay,
       returnDisplay,
     };
   } catch (error) {

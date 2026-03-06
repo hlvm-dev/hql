@@ -15,6 +15,7 @@
  */
 
 import { getPlatform } from "../../../../platform/platform.ts";
+import { DEFAULT_TERMINAL_HEIGHT, DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 
 // ANSI escape sequences
 const ESC = "\x1b";
@@ -93,11 +94,11 @@ export function getTerminalSize(): { columns: number; rows: number } {
   try {
     const size = getPlatform().terminal.consoleSize();
     return {
-      columns: size.columns || 80,
-      rows: size.rows || 24,
+      columns: size.columns || DEFAULT_TERMINAL_WIDTH,
+      rows: size.rows || DEFAULT_TERMINAL_HEIGHT,
     };
   } catch {
-    return { columns: 80, rows: 24 };
+    return { columns: DEFAULT_TERMINAL_WIDTH, rows: DEFAULT_TERMINAL_HEIGHT };
   }
 }
 

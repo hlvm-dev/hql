@@ -2,22 +2,11 @@
 // Test suite for @hlvm/fs package
 
 import { assertEquals } from "jsr:@std/assert@1";
-import { run } from "./helpers.ts";
+import { run, withTempDir } from "./helpers.ts";
 import { join } from "jsr:@std/path@1";
 
-async function withIsolatedFsTest(
-  fn: (dir: string) => Promise<void>,
-): Promise<void> {
-  const testDir = await Deno.makeTempDir({ prefix: "hlvm-fs-test-" });
-  try {
-    await fn(testDir);
-  } finally {
-    await Deno.remove(testDir, { recursive: true });
-  }
-}
-
 Deno.test("@hlvm/fs - write and read file", async () => {
-  await withIsolatedFsTest(async (testDir) => {
+  await withTempDir(async (testDir) => {
     const testFile = join(testDir, "test1.txt");
     const code = `
       (import [write, read] from "@hlvm/fs")
@@ -30,7 +19,7 @@ Deno.test("@hlvm/fs - write and read file", async () => {
 });
 
 Deno.test("@hlvm/fs - exists? returns true", async () => {
-  await withIsolatedFsTest(async (testDir) => {
+  await withTempDir(async (testDir) => {
     const testFile = join(testDir, "test2.txt");
     await Deno.writeTextFile(testFile, "content");
 
@@ -44,7 +33,7 @@ Deno.test("@hlvm/fs - exists? returns true", async () => {
 });
 
 Deno.test("@hlvm/fs - exists? returns false", async () => {
-  await withIsolatedFsTest(async (testDir) => {
+  await withTempDir(async (testDir) => {
     const testFile = join(testDir, "nonexistent.txt");
 
     const code = `
@@ -57,7 +46,7 @@ Deno.test("@hlvm/fs - exists? returns false", async () => {
 });
 
 Deno.test("@hlvm/fs - remove file", async () => {
-  await withIsolatedFsTest(async (testDir) => {
+  await withTempDir(async (testDir) => {
     const testFile = join(testDir, "test3.txt");
     await Deno.writeTextFile(testFile, "to be deleted");
 
@@ -79,7 +68,7 @@ Deno.test("@hlvm/fs - remove file", async () => {
 });
 
 Deno.test("@hlvm/fs - write overwrites existing", async () => {
-  await withIsolatedFsTest(async (testDir) => {
+  await withTempDir(async (testDir) => {
     const testFile = join(testDir, "test4.txt");
     await Deno.writeTextFile(testFile, "old content");
 
@@ -94,7 +83,7 @@ Deno.test("@hlvm/fs - write overwrites existing", async () => {
 });
 
 Deno.test("@hlvm/fs - multiple operations", async () => {
-  await withIsolatedFsTest(async (testDir) => {
+  await withTempDir(async (testDir) => {
     const testFile = join(testDir, "test5.txt");
 
     // Check before write
@@ -130,7 +119,7 @@ Deno.test("@hlvm/fs - multiple operations", async () => {
 });
 
 Deno.test("@hlvm/fs - read then use content", async () => {
-  await withIsolatedFsTest(async (testDir) => {
+  await withTempDir(async (testDir) => {
     const testFile = join(testDir, "test6.txt");
     await Deno.writeTextFile(testFile, "hello world");
 

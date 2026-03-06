@@ -16,6 +16,8 @@ import { getOllamaCatalogAsync } from "../../providers/ollama/catalog.ts";
 import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
 import { pullModelWithProgress } from "../../../common/ai-default-model.ts";
 import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../../common/ai-messages.ts";
+import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
+import { isOllamaAuthErrorMessage } from "../../../common/ollama-auth.ts";
 import { aiEngine } from "../../runtime/ai-runtime.ts";
 import type { AIEngineLifecycle } from "../../runtime/ai-runtime.ts";
 import type { ModelInfo } from "../../providers/types.ts";
@@ -97,11 +99,6 @@ export async function pickBestCloudModel(): Promise<ModelInfo | null> {
     (a, b) => parseParamSize(b.parameterSize) - parseParamSize(a.parameterSize),
   );
   return cloudTools[0] ?? null;
-}
-
-/** Detect auth/sign-in errors from Ollama HTTP responses. */
-export function isOllamaAuthErrorMessage(message: string): boolean {
-  return /unauthorized|auth|401|sign.?in/i.test(message);
 }
 
 /** Extract Ollama sign-in URL from command output, if present. */
@@ -263,12 +260,7 @@ async function fallbackToModelBrowser(): Promise<string | null> {
   log.raw.log(style("Opening model browser...\n", ANSI.yellow));
   const { startModelBrowser } = await import("../repl-ink/model-browser.tsx");
   const result = await startModelBrowser();
-  if (result.selectedModel) {
-    await config.set("modelConfigured", true);
-    return result.selectedModel;
-  }
-  await config.set("modelConfigured", true);
-  return null;
+  return result.selectedModel ?? null;
 }
 
 export interface FirstRunSetupDeps {
@@ -299,8 +291,7 @@ function getDefaultFirstRunSetupDeps(): FirstRunSetupDeps {
     pullWithSignin,
     fallbackToModelBrowser,
     saveConfiguredModel: async (modelId: string) => {
-      await config.set("model", modelId);
-      await config.set("modelConfigured", true);
+      await persistSelectedModelConfig(config, modelId);
     },
     logRaw: (message: string) => log.raw.log(message),
     logError: (message: string) => log.error(message),

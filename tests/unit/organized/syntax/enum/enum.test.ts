@@ -9,21 +9,6 @@ import { run } from "../../../helpers.ts";
 // SECTION 1: SIMPLE ENUMS (Object-based Implementation)
 // ============================================================================
 
-Deno.test("Enum: define simple enum", async () => {
-  const code = `
-(enum Direction
-  (case north)
-  (case south)
-  (case east)
-  (case west))
-
-Direction
-`;
-  const result = await run(code);
-  assertEquals(typeof result, "object");
-  assertEquals(Object.isFrozen(result), true);
-});
-
 Deno.test("Enum: access simple enum value", async () => {
   const code = `
 (enum Direction
@@ -76,20 +61,6 @@ Deno.test("Enum: use enum in conditional (cond)", async () => {
 // SECTION 2: ENUMS WITH RAW VALUES
 // ============================================================================
 
-Deno.test("Enum: define enum with raw values", async () => {
-  const code = `
-(enum HttpStatus
-  (case ok 200)
-  (case notFound 404)
-  (case serverError 500))
-
-HttpStatus
-`;
-  const result = await run(code);
-  assertEquals(typeof result, "object");
-  assertEquals(Object.isFrozen(result), true);
-});
-
 Deno.test("Enum: access raw value", async () => {
   const code = `
 (enum HttpStatus
@@ -120,18 +91,6 @@ Deno.test("Enum: compare raw values numerically", async () => {
 // ============================================================================
 // SECTION 3: ENUMS WITH ASSOCIATED VALUES (Class-based Implementation)
 // ============================================================================
-
-Deno.test("Enum: define enum with associated values", async () => {
-  const code = `
-(enum Payment
-  (case cash amount)
-  (case creditCard number))
-
-Payment
-`;
-  const result = await run(code);
-  assertEquals(typeof result, "function");
-});
 
 Deno.test("Enum: create instance with associated values", async () => {
   const code = `

@@ -3,10 +3,7 @@
  * Extracted from orchestrator.ts for modularity.
  */
 
-import {
-  ContextOverflowError,
-  type Message,
-} from "./context.ts";
+import { ContextOverflowError, type Message } from "./context.ts";
 import { DEFAULT_MAX_TOOL_CALLS } from "./constants.ts";
 import { SlidingWindowRateLimiter } from "../../common/rate-limiter.ts";
 import { isObjectValue, TEXT_ENCODER } from "../../common/utils.ts";
@@ -15,6 +12,7 @@ import {
   attributeCitationSpans,
   buildCitationSourceIndex,
 } from "./tools/web/citation-spans.ts";
+import type { Citation } from "./tools/web/search-provider.ts";
 import type { LLMResponse, ToolCall } from "./tool-call.ts";
 import {
   AGENT_ORCHESTRATOR_FAILURE_MESSAGES,
@@ -41,9 +39,7 @@ import {
   deduplicateToolCalls,
   stringifyToolResult,
 } from "./orchestrator-tool-formatting.ts";
-import {
-  executeToolCalls,
-} from "./orchestrator-tool-execution.ts";
+import { executeToolCalls } from "./orchestrator-tool-execution.ts";
 import { callLLMWithRetry, type LLMFunction } from "./orchestrator-llm.ts";
 import type { ToolUse } from "./grounding.ts";
 
@@ -75,7 +71,9 @@ function parseToolSearchAllowlist(result: unknown): string[] {
   const payload = result as Record<string, unknown>;
 
   const suggested = Array.isArray(payload.suggested_allowlist)
-    ? payload.suggested_allowlist.filter((v): v is string => typeof v === "string")
+    ? payload.suggested_allowlist.filter((v): v is string =>
+      typeof v === "string"
+    )
     : [];
   if (suggested.length > 0) return suggested;
 
@@ -291,6 +289,10 @@ export function handleFinalResponse(
   lc: LoopConfig,
   config: OrchestratorConfig,
 ): LoopDirective {
+  const emitFinalResponseMeta = (citations: Citation[] = []): void => {
+    config.onFinalResponseMeta?.({ citationSpans: citations });
+  };
+
   if (
     lc.requireToolCalls &&
     result.toolCallsMade === 0 &&
@@ -386,6 +388,7 @@ export function handleFinalResponse(
       });
       return { action: "continue" };
     }
+    emitFinalResponseMeta();
     return { action: "return", value: finalResponse };
   }
 
@@ -403,7 +406,11 @@ export function handleFinalResponse(
 
   // Grounding checks
   if (lc.groundingMode !== "off" && state.toolUses.length > 0) {
-    const grounding = checkGrounding(finalResponse, state.toolUses, groundingCitations);
+    const grounding = checkGrounding(
+      finalResponse,
+      state.toolUses,
+      groundingCitations,
+    );
     config.onTrace?.({
       type: "grounding_check",
       mode: lc.groundingMode,
@@ -429,9 +436,11 @@ export function handleFinalResponse(
       const warningText = `\n\n[Grounding warnings]\n- ${
         grounding.warnings.join("\n- ")
       }`;
+      emitFinalResponseMeta(groundingCitations);
       return { action: "return", value: `${finalResponse}${warningText}` };
     }
   }
+  emitFinalResponseMeta(groundingCitations);
   return { action: "return", value: finalResponse };
 }
 
@@ -518,14 +527,19 @@ export async function handlePostToolExecution(
     const allowedUniverse = currentAllowlist?.length
       ? new Set(currentAllowlist)
       : null;
-    const unique = Array.from(new Set([
-      ...TOOL_SEARCH_BASELINE_ALLOWLIST,
-      ...rawAllowlist,
-    ]));
+    const unique = Array.from(
+      new Set([
+        ...TOOL_SEARCH_BASELINE_ALLOWLIST,
+        ...rawAllowlist,
+      ]),
+    );
     const nextAllowlist = allowedUniverse
       ? unique.filter((name) => allowedUniverse.has(name))
       : unique;
-    if (nextAllowlist.length === 0 || areListsEqual(currentAllowlist, nextAllowlist)) {
+    if (
+      nextAllowlist.length === 0 ||
+      areListsEqual(currentAllowlist, nextAllowlist)
+    ) {
       continue;
     }
 
@@ -540,7 +554,8 @@ export async function handlePostToolExecution(
       : "";
     addContextMessage(config, {
       role: "user",
-      content: `Tool context narrowed to: ${preview}${extra}. Continue using this focused tool set unless another tool_search changes it.`,
+      content:
+        `Tool context narrowed to: ${preview}${extra}. Continue using this focused tool set unless another tool_search changes it.`,
     });
   }
 

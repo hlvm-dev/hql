@@ -9,7 +9,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { HistorySearchState } from "../hooks/useHistorySearch.ts";
 import { useTheme } from "../../theme/index.ts";
-import { highlight } from "../../repl/syntax.ts";
+import { HighlightedText } from "./HighlightedText.tsx";
 
 // ============================================================
 // Main Component
@@ -27,7 +27,9 @@ interface HistorySearchPromptProps {
  * (reverse-i-search)`query': matched_result
  * ```
  */
-export function HistorySearchPrompt({ state }: HistorySearchPromptProps): React.ReactElement | null {
+export function HistorySearchPrompt(
+  { state }: HistorySearchPromptProps,
+): React.ReactElement | null {
   const { color } = useTheme();
 
   if (!state.isSearching) {
@@ -43,14 +45,18 @@ export function HistorySearchPrompt({ state }: HistorySearchPromptProps): React.
         <Text dimColor>`</Text>
         <Text color={color("success")}>{query}</Text>
         <Text dimColor>'</Text>
-        <Text>: </Text>
-        {selectedMatch ? (
-          <Text>{highlight(selectedMatch.text)}</Text>
-        ) : query ? (
-          <Text dimColor italic>no match</Text>
-        ) : (
-          <Text dimColor italic>type to search</Text>
-        )}
+        <Text>:</Text>
+        {selectedMatch
+          ? (
+            <HighlightedText
+              text={selectedMatch.text}
+              matchIndices={selectedMatch.matchIndices}
+              highlightColor={color("warning")}
+            />
+          )
+          : query
+          ? <Text dimColor italic>no match</Text>
+          : <Text dimColor italic>type to search</Text>}
       </Box>
       <Box marginLeft={2}>
         <Text dimColor>
@@ -59,7 +65,9 @@ export function HistorySearchPrompt({ state }: HistorySearchPromptProps): React.
             : matches.length === 1
             ? "1 match (Enter select, Esc cancel)"
             : matches.length > 1
-            ? `${selectedIndex + 1}/${matches.length} matches (Ctrl+R next, Ctrl+S prev, Enter select, Esc cancel)`
+            ? `${
+              selectedIndex + 1
+            }/${matches.length} matches (Ctrl+R next, Ctrl+S prev, Enter select, Esc cancel)`
             : "type to search (Esc cancel)"}
         </Text>
       </Box>

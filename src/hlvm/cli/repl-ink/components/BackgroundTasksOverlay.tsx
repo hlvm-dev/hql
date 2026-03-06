@@ -12,22 +12,32 @@
  * - Theme-aware colors
  */
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useInput } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import type { EvalTask } from "../../repl/task-manager/types.ts";
 import { isEvalTask, isTaskActive } from "../../repl/task-manager/types.ts";
-import { formatEvalTaskResultLines, sortEvalTasks } from "../utils/eval-task-results.ts";
+import { calculateScrollWindow } from "../completion/navigation.ts";
 import {
-  clearOverlay,
+  formatEvalTaskResultLines,
+  sortEvalTasks,
+} from "../utils/eval-task-results.ts";
+import {
   ansi,
-  hexToRgb,
-  type RGB,
-  OVERLAY_BG_COLOR,
-  fg,
   bg,
   calcOverlayPosition,
+  clearOverlay,
+  fg,
+  hexToRgb,
+  OVERLAY_BG_COLOR,
+  type RGB,
   writeToTerminal,
 } from "../overlay/index.ts";
 import { truncate } from "../../../../common/utils.ts";
@@ -49,10 +59,9 @@ type ViewMode = "list" | "result";
 const OVERLAY_WIDTH = 60;
 const OVERLAY_HEIGHT = 20;
 const PADDING = { top: 1, bottom: 1, left: 2, right: 2 };
-const HEADER_ROWS = 3;  // header + hint + empty
+const HEADER_ROWS = 3; // header + hint + empty
 const CONTENT_START = PADDING.top + HEADER_ROWS;
 const VISIBLE_ROWS = OVERLAY_HEIGHT - CONTENT_START - PADDING.bottom - 2; // -2 for footer
-const BG_COLOR = OVERLAY_BG_COLOR;
 
 // ============================================================
 // Helpers
@@ -60,7 +69,9 @@ const BG_COLOR = OVERLAY_BG_COLOR;
 
 /** Pad string to exact length */
 function padTo(str: string, len: number): string {
-  return str.length >= len ? str.slice(0, len) : str + " ".repeat(len - str.length);
+  return str.length >= len
+    ? str.slice(0, len)
+    : str + " ".repeat(len - str.length);
 }
 
 // ============================================================
@@ -88,13 +99,13 @@ export function BackgroundTasksOverlay({
     error: hexToRgb(theme.error) as RGB,
     muted: hexToRgb(theme.muted) as RGB,
     accent: hexToRgb(theme.accent) as RGB,
-    bgStyle: bg(BG_COLOR),
+    bgStyle: bg(OVERLAY_BG_COLOR),
   }), [theme]);
 
   // Filter and sort tasks
   const evalTasks = useMemo(
     () => sortEvalTasks(tasks.filter(isEvalTask)),
-    [tasks]
+    [tasks],
   );
 
   // Get viewing task
@@ -105,7 +116,7 @@ export function BackgroundTasksOverlay({
   // Format result for display
   const resultLines = useMemo(
     () => (viewingTask ? formatEvalTaskResultLines(viewingTask) : []),
-    [viewingTask]
+    [viewingTask],
   );
 
   // Reset selection if out of bounds
@@ -179,7 +190,12 @@ export function BackgroundTasksOverlay({
     // === Content rows ===
     if (viewMode === "list") {
       // Task list view
-      const visibleTasks = evalTasks.slice(0, VISIBLE_ROWS);
+      const window = calculateScrollWindow(
+        selectedIndex,
+        evalTasks.length,
+        VISIBLE_ROWS,
+      );
+      const visibleTasks = evalTasks.slice(window.start, window.end);
 
       for (let row = 0; row < VISIBLE_ROWS; row++) {
         const rowY = pos.y + CONTENT_START + row;
@@ -193,30 +209,54 @@ export function BackgroundTasksOverlay({
               output += fg(colors.muted) + "No tasks" + ansi.reset + bgStyle;
               return PADDING.left + 8;
             }
-            return 0;  // Empty row
+            return 0; // Empty row
           }
 
-          const isSelected = row === selectedIndex;
+          const actualIndex = window.start + row;
+          const isSelected = actualIndex === selectedIndex;
 
           // Status icon and color
           let icon: string;
           let iconColor: RGB;
           switch (task.status) {
-            case "running": icon = "⏳"; iconColor = colors.warning; break;
-            case "completed": icon = "✓"; iconColor = colors.success; break;
-            case "failed": icon = "✗"; iconColor = colors.error; break;
-            case "cancelled": icon = "○"; iconColor = colors.muted; break;
-            default: icon = "○"; iconColor = colors.muted;
+            case "running":
+              icon = "⏳";
+              iconColor = colors.warning;
+              break;
+            case "completed":
+              icon = "✓";
+              iconColor = colors.success;
+              break;
+            case "failed":
+              icon = "✗";
+              iconColor = colors.error;
+              break;
+            case "cancelled":
+              icon = "○";
+              iconColor = colors.muted;
+              break;
+            default:
+              icon = "○";
+              iconColor = colors.muted;
           }
 
           // Status text
           let statusText: string;
           switch (task.status) {
-            case "running": statusText = "running"; break;
-            case "completed": statusText = "done"; break;
-            case "failed": statusText = "failed"; break;
-            case "cancelled": statusText = "cancelled"; break;
-            default: statusText = task.status;
+            case "running":
+              statusText = "running";
+              break;
+            case "completed":
+              statusText = "done";
+              break;
+            case "failed":
+              statusText = "failed";
+              break;
+            case "cancelled":
+              statusText = "cancelled";
+              break;
+            default:
+              statusText = task.status;
           }
 
           // Build row with selection highlight
@@ -235,11 +275,14 @@ export function BackgroundTasksOverlay({
           if (isSelected) output += bg(colors.warning) + ansi.fg(30, 30, 30);
           else output += bgStyle;
           output += " ";
-          len += 2;  // icon + space
+          len += 2; // icon + space
 
           // Preview (truncated)
           const previewMaxLen = contentWidth - 15;
-          const preview = padTo(truncate(task.preview, previewMaxLen), previewMaxLen);
+          const preview = padTo(
+            truncate(task.preview, previewMaxLen),
+            previewMaxLen,
+          );
           output += preview;
           len += previewMaxLen;
 
@@ -256,7 +299,10 @@ export function BackgroundTasksOverlay({
     } else {
       // Result view
       const maxResultRows = VISIBLE_ROWS;
-      const visibleLines = resultLines.slice(resultScrollOffset, resultScrollOffset + maxResultRows);
+      const visibleLines = resultLines.slice(
+        resultScrollOffset,
+        resultScrollOffset + maxResultRows,
+      );
 
       for (let row = 0; row < VISIBLE_ROWS; row++) {
         const rowY = pos.y + CONTENT_START + row;
@@ -270,7 +316,10 @@ export function BackgroundTasksOverlay({
             output += fg(colors.muted) + text + ansi.reset + bgStyle;
             return PADDING.left + text.length;
           }
-          if (row === VISIBLE_ROWS - 1 && resultScrollOffset + maxResultRows < resultLines.length) {
+          if (
+            row === VISIBLE_ROWS - 1 &&
+            resultScrollOffset + maxResultRows < resultLines.length
+          ) {
             // Show "more below" indicator
             const text = "↓ more below...";
             output += " ".repeat(PADDING.left);
@@ -283,7 +332,7 @@ export function BackgroundTasksOverlay({
             output += truncatedLine;
             return PADDING.left + truncatedLine.length;
           }
-          return 0;  // Empty row
+          return 0; // Empty row
         });
       }
     }
@@ -303,7 +352,8 @@ export function BackgroundTasksOverlay({
       const midPad = contentWidth - footerText.length - countText.length;
       output += " ".repeat(Math.max(1, midPad));
       output += countText;
-      return PADDING.left + footerText.length + Math.max(1, midPad) + countText.length;
+      return PADDING.left + footerText.length + Math.max(1, midPad) +
+        countText.length;
     });
 
     // === Bottom padding ===
@@ -314,7 +364,15 @@ export function BackgroundTasksOverlay({
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
     writeToTerminal(output);
-  }, [colors, evalTasks, selectedIndex, viewMode, viewingTask, resultLines, resultScrollOffset]);
+  }, [
+    colors,
+    evalTasks,
+    selectedIndex,
+    viewMode,
+    viewingTask,
+    resultLines,
+    resultScrollOffset,
+  ]);
 
   // Draw overlay on changes
   useEffect(() => {
@@ -352,7 +410,8 @@ export function BackgroundTasksOverlay({
       }
       if (key.downArrow || input === "j") {
         setResultScrollOffset((o: number) =>
-          Math.min(Math.max(0, resultLines.length - VISIBLE_ROWS), o + 1));
+          Math.min(Math.max(0, resultLines.length - VISIBLE_ROWS), o + 1)
+        );
         return;
       }
       if (key.pageUp || input === "u") {
@@ -361,7 +420,11 @@ export function BackgroundTasksOverlay({
       }
       if (key.pageDown || input === "d") {
         setResultScrollOffset((o: number) =>
-          Math.min(Math.max(0, resultLines.length - VISIBLE_ROWS), o + VISIBLE_ROWS));
+          Math.min(
+            Math.max(0, resultLines.length - VISIBLE_ROWS),
+            o + VISIBLE_ROWS,
+          )
+        );
         return;
       }
       return;

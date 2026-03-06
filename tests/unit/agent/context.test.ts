@@ -345,6 +345,91 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Context: trimIfNeeded preserves assistant tool call and tool result as a unit",
+  fn() {
+    const context = new ContextManager({
+      maxTokens: 180,
+      minMessages: 2,
+    });
+
+    context.addMessage({ role: "user", content: "a".repeat(320) });
+    context.addMessage({ role: "user", content: "b".repeat(320) });
+    context.addMessage({
+      role: "assistant",
+      content: "",
+      toolCalls: [{
+        id: "call_web_1",
+        function: { name: "search_web", arguments: { query: "taskgroup" } },
+      }],
+    });
+    context.addMessage({
+      role: "tool",
+      content: "c".repeat(320),
+      toolName: "search_web",
+      toolCallId: "call_web_1",
+    });
+
+    const messages = context.getMessages();
+    const assistantIndex = messages.findIndex((message) =>
+      message.role === "assistant" && message.toolCalls?.[0]?.id === "call_web_1"
+    );
+    const toolIndex = messages.findIndex((message) =>
+      message.role === "tool" && message.toolCallId === "call_web_1"
+    );
+
+    assertEquals(assistantIndex >= 0, true);
+    assertEquals(toolIndex, assistantIndex + 1);
+    assertEquals(context.needsTrimming(), false);
+  },
+});
+
+Deno.test({
+  name: "Context: summarizeIfNeeded does not split tool exchange boundary",
+  fn() {
+    const context = new ContextManager({
+      maxTokens: 60,
+      overflowStrategy: "summarize",
+      summaryKeepRecent: 1,
+      summaryMaxChars: 200,
+      minMessages: 1,
+    });
+
+    context.addMessage({ role: "user", content: "a".repeat(220) });
+    context.addMessage({ role: "assistant", content: "b".repeat(220) });
+    context.addMessage({
+      role: "assistant",
+      content: "",
+      toolCalls: [{
+        id: "call_search_1",
+        function: { name: "search_web", arguments: { query: "asyncio taskgroup" } },
+      }],
+    });
+    context.addMessage({
+      role: "tool",
+      content: "c".repeat(220),
+      toolName: "search_web",
+      toolCallId: "call_search_1",
+    });
+    context.addMessage({ role: "user", content: "d".repeat(220) });
+
+    const messages = context.getMessages();
+    const assistantIndex = messages.findIndex((message) =>
+      message.role === "assistant" && message.toolCalls?.[0]?.id === "call_search_1"
+    );
+    const toolIndex = messages.findIndex((message) =>
+      message.role === "tool" && message.toolCallId === "call_search_1"
+    );
+
+    if (toolIndex >= 0) {
+      assertEquals(assistantIndex >= 0, true);
+      assertEquals(toolIndex, assistantIndex + 1);
+    } else {
+      assertEquals(assistantIndex, -1);
+    }
+  },
+});
+
+Deno.test({
   name: "Context: overflowStrategy=fail - throw on overflow",
   fn() {
     const context = new ContextManager({

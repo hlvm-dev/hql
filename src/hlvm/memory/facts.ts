@@ -187,15 +187,18 @@ export function replaceInFacts(findText: string, replaceWith: string): number {
   const db = getFactDb();
   const { sanitized } = sanitizeSensitiveContent(replaceWith);
 
-  const rows = db.prepare(
-    `SELECT id, content FROM facts
-     WHERE valid_until IS NULL AND instr(content, ?) > 0`,
-  ).all(findText) as Array<{ id: number; content: string }>;
-
-  if (rows.length === 0) return 0;
-
   db.exec("BEGIN");
   try {
+    const rows = db.prepare(
+      `SELECT id, content FROM facts
+       WHERE valid_until IS NULL AND instr(content, ?) > 0`,
+    ).all(findText) as Array<{ id: number; content: string }>;
+
+    if (rows.length === 0) {
+      db.exec("COMMIT");
+      return 0;
+    }
+
     for (const row of rows) {
       const newContent = row.content.replaceAll(findText, sanitized);
       db.prepare("UPDATE facts SET content = ? WHERE id = ?").run(newContent, row.id);
@@ -205,12 +208,11 @@ export function replaceInFacts(findText: string, replaceWith: string): number {
       db.prepare("INSERT INTO facts_fts(rowid, content) VALUES(?, ?)").run(row.id, newContent);
     }
     db.exec("COMMIT");
+    return rows.length;
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
   }
-
-  return rows.length;
 }
 
 export function searchFactsFts(

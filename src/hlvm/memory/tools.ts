@@ -5,6 +5,7 @@
 import { ValidationError } from "../../common/error.ts";
 import { isToolArgsObject } from "../agent/validation.ts";
 import type { ToolMetadata } from "../agent/registry.ts";
+import { isObjectValue } from "../../common/utils.ts";
 import { insertFact, invalidateFactsByCategory, replaceInFacts } from "./facts.ts";
 import { retrieveMemory } from "./retrieve.ts";
 import { autoInvalidateConflicts, detectConflicts, type MemoryModelTier } from "./invalidate.ts";
@@ -128,6 +129,63 @@ function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
   throw new ValidationError('action must be "delete_section" or "replace"', "memory_edit");
 }
 
+function formatMemorySearchResult(
+  result: unknown,
+): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+  if (!isObjectValue(result) || !Array.isArray(result.results)) return null;
+  const count = typeof result.count === "number" ? result.count : result.results.length;
+  if (count === 0) {
+    return {
+      summaryDisplay: "No memory results found",
+      returnDisplay: "No memory results found",
+      llmContent: JSON.stringify(result, null, 2),
+    };
+  }
+  const detailLines = [`Found ${count} memory result${count === 1 ? "" : "s"}`];
+  for (let i = 0; i < result.results.length; i++) {
+    const entry = result.results[i];
+    if (!isObjectValue(entry)) continue;
+    const source = typeof entry.source === "string" ? entry.source : "memory";
+    const text = typeof entry.text === "string" ? entry.text : "";
+    detailLines.push(`[${i + 1}] ${source}`);
+    if (text) detailLines.push(`    ${text}`);
+  }
+  return {
+    summaryDisplay: `Found ${count} memory result${count === 1 ? "" : "s"}`,
+    returnDisplay: detailLines.join("\n").trimEnd(),
+    llmContent: JSON.stringify(result, null, 2),
+  };
+}
+
+function formatMemoryWriteResult(
+  result: unknown,
+): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+  if (!isObjectValue(result) || result.written !== true) return null;
+  const target = typeof result.target === "string" ? result.target : "memory";
+  const factId = typeof result.factId === "number" ? result.factId : undefined;
+  const detail = factId !== undefined ? `Saved to ${target} (#${factId})` : `Saved to ${target}`;
+  return {
+    summaryDisplay: detail,
+    returnDisplay: detail,
+    llmContent: JSON.stringify(result, null, 2),
+  };
+}
+
+function formatMemoryEditResult(
+  result: unknown,
+): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+  if (!isObjectValue(result) || result.edited !== true) return null;
+  const action = typeof result.action === "string" ? result.action : "edit";
+  const detail = action === "replace"
+    ? `Updated memory${typeof result.replacements === "number" ? ` (${result.replacements} replacements)` : ""}`
+    : `Updated memory section${typeof result.section === "string" ? `: ${result.section}` : ""}`;
+  return {
+    summaryDisplay: detail,
+    returnDisplay: detail,
+    llmContent: JSON.stringify(result, null, 2),
+  };
+}
+
 export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
   memory_write: {
     fn: memoryWrite,
@@ -164,6 +222,7 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     },
     safetyLevel: "L0",
     safety: "Local-only write to canonical memory DB",
+    formatResult: formatMemoryWriteResult,
   },
   memory_search: {
     fn: memorySearch,
@@ -183,6 +242,7 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     },
     safetyLevel: "L0",
     safety: "Local-only read from canonical memory DB",
+    formatResult: formatMemorySearchResult,
   },
   memory_edit: {
     fn: memoryEdit,
@@ -207,5 +267,6 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     },
     safetyLevel: "L0",
     safety: "Local-only edits in canonical memory DB",
+    formatResult: formatMemoryEditResult,
   },
 };

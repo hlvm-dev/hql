@@ -3,7 +3,10 @@
  */
 
 import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
-import { checkGrounding, type ToolUse } from "../../../src/hlvm/agent/grounding.ts";
+import {
+  checkGrounding,
+  type ToolUse,
+} from "../../../src/hlvm/agent/grounding.ts";
 
 Deno.test({
   name: "Grounding: no tools, no tool result -> grounded",
@@ -108,7 +111,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Grounding: response incorporates numeric data from tool result -> grounded",
+  name:
+    "Grounding: response incorporates numeric data from tool result -> grounded",
   fn() {
     const toolUses: ToolUse[] = [
       { toolName: "compute", result: "4" },
@@ -123,7 +127,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Grounding: response incorporates large number from tool result -> grounded",
+  name:
+    "Grounding: response incorporates large number from tool result -> grounded",
   fn() {
     const toolUses: ToolUse[] = [
       { toolName: "list_files", result: '{"count": 270, "files": [...]}' },
@@ -171,5 +176,28 @@ Deno.test({
     );
     assertEquals(result.grounded, true);
     assertEquals(result.warnings.length, 0);
+  },
+});
+
+Deno.test({
+  name: "Grounding: citation spans do not excuse uncited non-web tool claims",
+  fn() {
+    const toolUses: ToolUse[] = [
+      { toolName: "search_web", result: "non-json formatted result" },
+      { toolName: "list_files", result: '{"count": 270, "files": [...]}' },
+    ];
+    const result = checkGrounding(
+      "TaskGroup cancels sibling tasks on failure. I found some files in the directory.",
+      toolUses,
+      [{
+        url: "https://docs.python.org/3/library/asyncio-task.html",
+        title: "asyncio task docs",
+        startIndex: 0,
+        endIndex: 42,
+        confidence: 0.78,
+      }],
+    );
+    assertEquals(result.grounded, false);
+    assert(result.warnings.length >= 1);
   },
 });

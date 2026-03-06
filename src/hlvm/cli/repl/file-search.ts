@@ -9,6 +9,7 @@
 
 import { fuzzyMatchPath, binarySearchInsertIdx } from "./fuzzy.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { CLI_CACHE_TTL_MS } from "../repl-ink/ui-constants.ts";
 import {
   isIgnored,
   loadGitignore,
@@ -41,7 +42,7 @@ export interface FileIndex {
 // Constants
 // ============================================================
 
-const CACHE_TTL = 60000; // 1 minute cache
+// Cache TTL imported from shared UI constants (SSOT)
 
 // SKIP_DIRS + shouldSkipFile imported from ../../../common/file-utils.ts (SSOT)
 
@@ -112,7 +113,7 @@ async function indexDirectory(baseDir: string): Promise<FileIndex> {
 export async function getFileIndex(forceRefresh = false): Promise<FileIndex> {
   const now = Date.now();
 
-  if (!forceRefresh && indexCache && (now - indexCache.timestamp) < CACHE_TTL) {
+  if (!forceRefresh && indexCache && (now - indexCache.timestamp) < CLI_CACHE_TTL_MS) {
     return indexCache;
   }
 

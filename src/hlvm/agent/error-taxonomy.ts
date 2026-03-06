@@ -41,56 +41,31 @@ function isTimeoutError(err: unknown, message: string): boolean {
   return err instanceof TimeoutError || message.includes("timeout");
 }
 
+// Compiled regex patterns for error classification (module-level, created once)
+const RE_RATE_LIMIT = /rate limit|too many requests|429/;
+const RE_TRANSIENT_NETWORK = /econnreset|econnrefused|enetunreach|enotfound|etimedout|http 50[023]/;
+const RE_AUTH = /api key not configured|api key not valid|incorrect api key|invalid api key|invalid x-api-key|authentication_error|exceeded your current quota|insufficient_quota|http 40[13]/;
+const RE_CONTEXT_OVERFLOW = /context length|maximum context|token limit|too many tokens|exceeds the model|prompt is too long/;
+const RE_PERMANENT = /invalid request|invalid model|invalid parameter|bad request|http 400|http 422|http 501|not allowed|permission denied|denied by user/;
+
 function isRateLimitError(message: string): boolean {
-  return message.includes("rate limit") || message.includes("too many requests") ||
-    message.includes("429");
+  return RE_RATE_LIMIT.test(message);
 }
 
 function isTransientNetworkError(message: string): boolean {
-  return message.includes("econnreset") ||
-    message.includes("econnrefused") ||
-    message.includes("enetunreach") ||
-    message.includes("enotfound") ||
-    message.includes("etimedout") ||
-    message.includes("http 500") ||
-    message.includes("http 502") ||
-    message.includes("http 503");
+  return RE_TRANSIENT_NETWORK.test(message);
 }
 
 function isAuthError(message: string): boolean {
-  return message.includes("api key not configured") ||
-    message.includes("api key not valid") ||
-    message.includes("incorrect api key") ||
-    message.includes("invalid api key") ||
-    message.includes("invalid x-api-key") ||
-    message.includes("authentication_error") ||
-    message.includes("exceeded your current quota") ||
-    message.includes("insufficient_quota") ||
-    message.includes("http 401") ||
-    message.includes("http 403");
+  return RE_AUTH.test(message);
 }
 
 function isContextOverflowError(message: string): boolean {
-  return message.includes("context length") ||
-    message.includes("maximum context") ||
-    message.includes("token limit") ||
-    message.includes("too many tokens") ||
-    message.includes("exceeds the model") ||
-    message.includes("prompt is too long");
+  return RE_CONTEXT_OVERFLOW.test(message);
 }
 
 function isPermanentError(message: string): boolean {
-  return message.includes("invalid request") ||
-    message.includes("invalid model") ||
-    message.includes("invalid parameter") ||
-    message.includes("bad request") ||
-    // Fix 10/11: Detect HTTP status codes from throwOnHttpError
-    message.includes("http 400") ||
-    message.includes("http 422") ||
-    message.includes("http 501") ||
-    message.includes("not allowed") ||
-    message.includes("permission denied") ||
-    message.includes("denied by user");
+  return RE_PERMANENT.test(message);
 }
 
 export function classifyError(err: unknown): ClassifiedError {

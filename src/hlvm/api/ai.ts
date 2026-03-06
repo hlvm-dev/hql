@@ -69,6 +69,11 @@ interface ProviderRequestOptions {
   raw?: Record<string, unknown>;
 }
 
+interface ModelListAllOptions {
+  includeProviders?: string[];
+  excludeProviders?: string[];
+}
+
 // ============================================================================
 // AI API Object
 // ============================================================================
@@ -129,6 +134,31 @@ function createAiApi() {
       ...options,
       model: resolveModelName(options?.model),
     } as T;
+  }
+
+  function tagProviderModels(
+    providerName: string,
+    provider: AIProvider,
+    models: ModelInfo[],
+  ): ModelInfo[] {
+    if (models.length === 0) {
+      return models;
+    }
+
+    const isCloud = providerName !== "ollama";
+    const meta = PROVIDER_META[providerName];
+    return models.map((model) => ({
+      ...model,
+      metadata: {
+        ...model.metadata,
+        provider: providerName,
+        providerDisplayName: provider.displayName ?? providerName,
+        apiKeyConfigured: provider.apiKeyConfigured,
+        ...(isCloud ? { cloud: true } : {}),
+        ...(meta?.subtitle ? { providerSubtitle: meta.subtitle } : {}),
+        ...(meta?.docsUrl ? { providerDocsUrl: meta.docsUrl } : {}),
+      },
+    }));
   }
 
   return {
@@ -202,8 +232,13 @@ function createAiApi() {
        * Tags each model with metadata.provider and metadata.providerDisplayName
        * @example (ai.models.listAll)
        */
-      listAll: async (): Promise<ModelInfo[]> => {
-        const providerNames = listRegisteredProviders();
+      listAll: async (options?: ModelListAllOptions): Promise<ModelInfo[]> => {
+        const includeProviders = options?.includeProviders;
+        const excludeProviders = new Set(options?.excludeProviders ?? []);
+        const providerNames = listRegisteredProviders().filter((name) =>
+          (!includeProviders || includeProviders.includes(name)) &&
+          !excludeProviders.has(name)
+        );
         const results = await Promise.all(
           providerNames.map(async (name) => {
             try {
@@ -217,23 +252,19 @@ function createAiApi() {
                 // Keep empty; listAll should still return whatever other providers have.
               }
 
-              if (models.length === 0) return [];
-              const isCloud = name !== "ollama";
-              const meta = PROVIDER_META[name];
-              return models.map((m) => ({
-                ...m,
-                metadata: {
-                  ...m.metadata,
-                  provider: name,
-                  providerDisplayName: provider.displayName ?? name,
-                  apiKeyConfigured: provider.apiKeyConfigured,
-                  ...(isCloud ? { cloud: true } : {}),
-                  ...(meta?.subtitle
-                    ? { providerSubtitle: meta.subtitle }
-                    : {}),
-                  ...(meta?.docsUrl ? { providerDocsUrl: meta.docsUrl } : {}),
-                },
-              }));
+              if (
+                name === "ollama" &&
+                models.length === 0 &&
+                provider.models.catalog
+              ) {
+                try {
+                  models = await provider.models.catalog();
+                } catch {
+                  // Keep empty; listAll should still return whatever other providers have.
+                }
+              }
+
+              return tagProviderModels(name, provider, models);
             } catch {
               return [];
             }

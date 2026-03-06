@@ -58,8 +58,10 @@ export interface ReadFileArgs {
 
 /** Result of read_file operation */
 interface ReadFileResult extends FileOperationResult {
+  path?: string;
   content?: string;
   size?: number;
+  truncated?: boolean;
 }
 
 /** Arguments for write_file tool */
@@ -247,6 +249,7 @@ export async function readFile(
     if (userMax !== undefined && userMax > 0 && content.length > userMax) {
       const truncated = content.slice(0, userMax);
       return okTool({
+        path: args.path,
         content: truncated,
         size: stat.size,
         truncated: true,
@@ -256,6 +259,7 @@ export async function readFile(
     }
 
     return okTool({
+      path: args.path,
       content,
       size: stat.size,
       message: `Read ${stat.size} bytes from ${args.path}`,
@@ -864,7 +868,7 @@ function getCommonParentDirectory(
 
 function formatListFilesResult(
   result: unknown,
-): { returnDisplay: string; llmContent?: string } | null {
+): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
   if (!isObjectValue(result)) return null;
   if (result.success !== true) return null;
   const entriesRaw = (result as { entries?: unknown }).entries;
@@ -895,6 +899,7 @@ function formatListFilesResult(
     }));
 
   return {
+    summaryDisplay: message,
     returnDisplay: display,
     llmContent: JSON.stringify(
       {
@@ -905,6 +910,30 @@ function formatListFilesResult(
       null,
       2,
     ),
+  };
+}
+
+function formatReadFileResult(
+  result: unknown,
+): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+  if (!isObjectValue(result) || result.success !== true) return null;
+  const content = typeof result.content === "string" ? result.content : undefined;
+  if (content === undefined) return null;
+  const path = typeof result.path === "string" ? result.path : "file";
+  const size = typeof result.size === "number" ? result.size : undefined;
+  const message = typeof result.message === "string" && result.message.trim()
+    ? result.message
+    : `Read ${path}`;
+  const detailLines = [`File: ${path}`];
+  if (size !== undefined) {
+    detailLines.push(`Size: ${size} bytes`);
+  }
+  detailLines.push("");
+  detailLines.push(content);
+  return {
+    summaryDisplay: message,
+    returnDisplay: detailLines.join("\n").trimEnd(),
+    llmContent: detailLines.join("\n").trimEnd(),
   };
 }
 
@@ -931,10 +960,13 @@ export const FILE_TOOLS = {
     },
     returns: {
       success: "boolean - Whether the operation succeeded",
+      path: "string - File path (on success)",
       content: "string - File contents (on success)",
       size: "number - File size in bytes (on success)",
+      truncated: "boolean - Whether content was truncated by maxBytes (on success)",
       message: "string - Human-readable result message",
     },
+    formatResult: formatReadFileResult,
   },
   write_file: {
     fn: writeFile,

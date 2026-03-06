@@ -13,6 +13,7 @@ import { log } from "../../../api/log.ts";
 import { loadRecentMessages } from "../../../store/message-utils.ts";
 import { type Message } from "../../../providers/index.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
+import { CLI_CACHE_TTL_MS } from "../../repl-ink/ui-constants.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { loadMemoryContext } from "../../../memory/mod.ts";
 import { insertFact, linkFactEntities } from "../../../memory/mod.ts";
@@ -50,7 +51,6 @@ let _catalogCache: {
   data: Awaited<ReturnType<typeof ai.models.catalog>>;
   expiry: number;
 } | null = null;
-const CATALOG_CACHE_TTL_MS = 60_000;
 
 export async function modelSupportsTools(
   modelName: string,
@@ -64,7 +64,7 @@ export async function modelSupportsTools(
     if (!_catalogCache || now > _catalogCache.expiry) {
       _catalogCache = {
         data: await ai.models.catalog(),
-        expiry: now + CATALOG_CACHE_TTL_MS,
+        expiry: now + CLI_CACHE_TTL_MS,
       };
     }
     const catalog = _catalogCache.data;

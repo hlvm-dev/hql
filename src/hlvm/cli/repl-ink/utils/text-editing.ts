@@ -41,6 +41,31 @@ export interface KeyInfo {
   rightArrow?: boolean;
 }
 
+/**
+ * Normalize Ctrl+key input across terminals.
+ * Some terminals set `key.ctrl=true`, others send bare ASCII control codes.
+ */
+export function getNormalizedCtrlInput(
+  input: string,
+  key: KeyInfo,
+): string | null {
+  const ctrlCode = input?.charCodeAt(0) ?? 0;
+  const isCtrlCode = ctrlCode >= 1 && ctrlCode <= 26;
+  if (!key.ctrl && !isCtrlCode) return null;
+  if (isCtrlCode) return String.fromCharCode(ctrlCode + 96);
+
+  const normalized = input.toLowerCase();
+  return normalized || null;
+}
+
+export function isCtrlShortcut(
+  input: string,
+  key: KeyInfo,
+  shortcut: string,
+): boolean {
+  return getNormalizedCtrlInput(input, key) === shortcut.toLowerCase();
+}
+
 // ============================================================
 // Line Navigation
 // ============================================================
@@ -71,29 +96,31 @@ export function handleCtrlE(value: string, _cursor: number): TextEditResult {
  * Includes: "", '', "", '', ``, «»
  */
 const PAIRED_DELIMITERS: Record<string, string> = {
-  '"': '"',   // ASCII double quotes
-  "'": "'",   // ASCII single quotes
-  '`': '`',   // Backticks
-  "\u201C": "\u201D",   // Smart double quotes (U+201C, U+201D): " and "
-  "\u2018": "\u2019",   // Smart single quotes (U+2018, U+2019): ' and '
-  "«": "»",   // Guillemets
+  '"': '"', // ASCII double quotes
+  "'": "'", // ASCII single quotes
+  "`": "`", // Backticks
+  "\u201C": "\u201D", // Smart double quotes (U+201C, U+201D): " and "
+  "\u2018": "\u2019", // Smart single quotes (U+2018, U+2019): ' and '
+  "«": "»", // Guillemets
 };
 
 /**
  * Find if cursor is inside a paired delimiter and return the positions.
  * Returns { openPos, closePos } or null if not inside delimiters.
- * 
+ *
  * For self-closing delimiters like "" or '', we need to count occurrences
  * to determine if we're inside (odd count before = inside).
  */
 function findEnclosingDelimiters(
   value: string,
-  cursor: number
-): { openPos: number; closePos: number; openChar: string; closeChar: string } | null {
+  cursor: number,
+):
+  | { openPos: number; closePos: number; openChar: string; closeChar: string }
+  | null {
   // For each delimiter type, check if cursor is inside
   for (const [openChar, closeChar] of Object.entries(PAIRED_DELIMITERS)) {
     const isSelfClosing = openChar === closeChar;
-    
+
     if (isSelfClosing) {
       // Self-closing delimiter (like "" or '')
       // Count occurrences before cursor
@@ -105,7 +132,7 @@ function findEnclosingDelimiters(
           lastPos = i;
         }
       }
-      
+
       // If odd count, we're inside a string
       if (count % 2 === 1 && lastPos >= 0) {
         // Find closing delimiter after cursor
@@ -129,7 +156,7 @@ function findEnclosingDelimiters(
           depth--;
         }
       }
-      
+
       if (openPos >= 0) {
         // Find matching close after cursor
         depth = 0;
@@ -145,51 +172,60 @@ function findEnclosingDelimiters(
       }
     }
   }
-  
+
   return null;
 }
 
 /**
  * Delete word backward while preserving enclosing paired delimiters.
- * 
+ *
  * Example: (ask "hello|") → Ctrl+W → (ask "|")
- * 
+ *
  * Returns null if not inside delimiters (caller should use default behavior).
  */
-export function deleteWordPreservingDelimiters(value: string, cursor: number): TextEditResult | null {
+export function deleteWordPreservingDelimiters(
+  value: string,
+  cursor: number,
+): TextEditResult | null {
   const delimiters = findEnclosingDelimiters(value, cursor);
   if (!delimiters) return null;
-  
+
   const { openPos, closePos } = delimiters;
   const contentStart = openPos + 1;
   const contentEnd = closePos;
-  
+
   // Only apply if cursor is actually inside the delimiters (not on them)
   if (cursor <= contentStart || cursor > contentEnd) return null;
-  
+
   // Get content inside delimiters
   const contentBefore = value.slice(contentStart, cursor);
-  
+
   // Find where to delete to (within the delimited content)
   let deleteToPos = cursor;
-  
+
   // Skip trailing whitespace
-  while (deleteToPos > contentStart && contentBefore[deleteToPos - contentStart - 1] === ' ') {
+  while (
+    deleteToPos > contentStart &&
+    contentBefore[deleteToPos - contentStart - 1] === " "
+  ) {
     deleteToPos--;
   }
-  
+
   // Delete word (stop at space or content start)
-  while (deleteToPos > contentStart && contentBefore[deleteToPos - contentStart - 1] !== ' ') {
+  while (
+    deleteToPos > contentStart &&
+    contentBefore[deleteToPos - contentStart - 1] !== " "
+  ) {
     deleteToPos--;
   }
-  
-  // If cursor was right after opening delimiter and nothing to delete, 
+
+  // If cursor was right after opening delimiter and nothing to delete,
   // return null to allow default behavior
   if (deleteToPos === cursor) return null;
-  
+
   // Build new value: everything before delete point + everything from cursor onward
   const newValue = value.slice(0, deleteToPos) + value.slice(cursor);
-  
+
   return { value: newValue, cursor: deleteToPos };
 }
 
@@ -238,7 +274,10 @@ export function handleWordBack(value: string, cursor: number): TextEditResult {
 }
 
 /** Alt+F / Ctrl+Right: Move word forward */
-export function handleWordForward(value: string, cursor: number): TextEditResult {
+export function handleWordForward(
+  value: string,
+  cursor: number,
+): TextEditResult {
   return { value, cursor: calculateWordForwardPosition(value, cursor) };
 }
 
@@ -252,7 +291,10 @@ export function handleLeftArrow(value: string, cursor: number): TextEditResult {
 }
 
 /** Right Arrow: Move cursor right */
-export function handleRightArrow(value: string, cursor: number): TextEditResult {
+export function handleRightArrow(
+  value: string,
+  cursor: number,
+): TextEditResult {
   return { value, cursor: Math.min(value.length, cursor + 1) };
 }
 
@@ -261,7 +303,11 @@ export function handleRightArrow(value: string, cursor: number): TextEditResult 
 // ============================================================
 
 /** Insert character(s) at cursor position */
-export function insertChar(value: string, cursor: number, char: string): TextEditResult {
+export function insertChar(
+  value: string,
+  cursor: number,
+  char: string,
+): TextEditResult {
   return {
     value: value.slice(0, cursor) + char + value.slice(cursor),
     cursor: cursor + char.length,
@@ -291,7 +337,7 @@ export function handleTextEditingKey(
   input: string,
   key: KeyInfo,
   value: string,
-  cursor: number
+  cursor: number,
 ): TextEditResult | null {
   // Backspace/Delete - handle first (highest priority)
   if (key.backspace || key.delete) {
@@ -299,8 +345,9 @@ export function handleTextEditingKey(
   }
 
   // Ctrl shortcuts
-  if (key.ctrl) {
-    switch (input) {
+  const normalizedCtrlInput = getNormalizedCtrlInput(input, key);
+  if (normalizedCtrlInput) {
+    switch (normalizedCtrlInput) {
       case "a":
         return handleCtrlA(value, cursor);
       case "e":

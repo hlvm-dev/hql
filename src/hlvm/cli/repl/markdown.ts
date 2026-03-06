@@ -16,6 +16,7 @@
  */
 
 import { getThemedAnsi } from "../theme/index.ts";
+import { DEFAULT_TERMINAL_WIDTH } from "../repl-ink/ui-constants.ts";
 
 // Additional ANSI codes
 const BOLD = "\x1b[1m";
@@ -45,7 +46,7 @@ const stripAnsi = (s: string) => s.replace(ANSI_STRIP_REGEX, "");
 /**
  * Render markdown string to ANSI terminal output
  */
-export function renderMarkdown(text: string, width = 80): string {
+export function renderMarkdown(text: string, width = DEFAULT_TERMINAL_WIDTH): string {
   const t = getThemedAnsi();
   const lines = text.split("\n");
   const result: string[] = [];
@@ -189,7 +190,7 @@ function formatInline(text: string, t: ReturnType<typeof getThemedAnsi>): string
  * Handles ANSI codes correctly (doesn't count them in width)
  */
 function wordWrap(text: string, width: number): string[] {
-  if (width <= 0) width = 80;
+  if (width <= 0) width = DEFAULT_TERMINAL_WIDTH;
 
   const words = text.split(/\s+/);
   const lines: string[] = [];

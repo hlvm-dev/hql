@@ -1,5 +1,8 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
-import { formatToolOutputForDefaultMode } from "../../../src/hlvm/cli/commands/ask.ts";
+import {
+  formatToolOutputForDefaultMode,
+  summarizeToolEventForDefaultMode,
+} from "../../../src/hlvm/cli/commands/ask.ts";
 
 Deno.test("formatToolOutputForDefaultMode keeps short plain output", () => {
   const result = formatToolOutputForDefaultMode(
@@ -25,4 +28,13 @@ Deno.test("formatToolOutputForDefaultMode truncates very long multiline output",
   const result = formatToolOutputForDefaultMode("web_fetch", content);
   assertEquals(result.truncated, true);
   assertEquals(result.text, "[web_fetch] Completed.");
+});
+
+Deno.test("summarizeToolEventForDefaultMode prefers explicit summary", () => {
+  const result = summarizeToolEventForDefaultMode(
+    "search_code",
+    "Found 12 matches in 4 files\nTop hit: src/app.ts:18",
+    "{\"matches\":[...]}",
+  );
+  assertEquals(result, "Found 12 matches in 4 files");
 });

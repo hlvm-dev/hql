@@ -8,6 +8,8 @@
  * @see https://ollama.com/library
  */
 
+import { ai } from "../../../api/ai.ts";
+import { parseModelString } from "../../../providers/index.ts";
 import type { ModelInfo, ProviderCapability } from "../../../providers/types.ts";
 
 // Re-export for backwards compatibility
@@ -32,7 +34,7 @@ const modelInfoCache = new Map<string, ModelInfo>();
  * Extract model name without provider prefix
  * "ollama/qwen2.5-coder:1.5b" -> "qwen2.5-coder:1.5b"
  */
-export function extractModelName(fullName: string): string {
+function extractModelName(fullName: string): string {
   return fullName.replace(/^ollama\//, "");
 }
 
@@ -45,10 +47,12 @@ export function extractModelName(fullName: string): string {
  * Returns canonical ModelInfo type from providers/types.ts
  */
 export async function fetchModelInfo(modelName: string): Promise<ModelInfo> {
+  const [providerName, parsedModelName] = parseModelString(modelName);
   const displayName = extractModelName(modelName);
 
   // Check cache first
-  const cached = modelInfoCache.get(displayName);
+  const cacheKey = providerName ? `${providerName}/${parsedModelName}` : displayName;
+  const cached = modelInfoCache.get(cacheKey);
   if (cached) return cached;
 
   // Default info (fallback)
@@ -59,42 +63,28 @@ export async function fetchModelInfo(modelName: string): Promise<ModelInfo> {
   };
 
   try {
-    // Use ai.models API for single source of truth
-    const aiApi = (globalThis as Record<string, unknown>).ai as {
-      models: {
-        get: (name: string) => Promise<{
-          capabilities?: ProviderCapability[];
-          family?: string;
-          parameterSize?: string;
-          quantization?: string;
-        } | null>;
+    const result = await ai.models.get(
+      parsedModelName,
+      providerName ?? undefined,
+    );
+    if (result) {
+      const info: ModelInfo = {
+        name: modelName,
+        displayName,
+        family: result.family,
+        parameterSize: result.parameterSize,
+        quantization: result.quantization,
+        capabilities: result.capabilities,
       };
-    } | undefined;
 
-    // 100% SSOT: Use ai.models API only - no direct fetch fallback
-    if (aiApi?.models?.get) {
-      const result = await aiApi.models.get(displayName);
-      if (result) {
-        const info: ModelInfo = {
-          name: modelName,
-          displayName,
-          family: result.family,
-          parameterSize: result.parameterSize,
-          quantization: result.quantization,
-          capabilities: result.capabilities,
-        };
-
-        modelInfoCache.set(displayName, info);
-        return info;
-      }
+      modelInfoCache.set(cacheKey, info);
+      return info;
     }
-    // No fallback - if API not ready, return default info
 
-    modelInfoCache.set(displayName, defaultInfo);
+    modelInfoCache.set(cacheKey, defaultInfo);
     return defaultInfo;
   } catch {
-    // Network error - use default
-    modelInfoCache.set(displayName, defaultInfo);
+    modelInfoCache.set(cacheKey, defaultInfo);
     return defaultInfo;
   }
 }

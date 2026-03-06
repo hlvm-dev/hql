@@ -94,8 +94,8 @@ class CdpClient {
             for (const fn of handlers) fn(msg.params);
           }
         }
-      } catch {
-        // Ignore malformed messages
+      } catch (e) {
+        getAgentLogger().debug?.(`CDP: malformed message ignored: ${e}`);
       }
     };
     this.ws.onerror = () => {
@@ -354,14 +354,18 @@ export async function renderWithChrome(
       );
 
       // Close tab (browser-level command, no sessionId)
-      await cdp.send("Target.closeTarget", { targetId }).catch(() => {});
+      await cdp.send("Target.closeTarget", { targetId }).catch((e) => {
+        getAgentLogger().debug?.(`CDP: closeTarget failed: ${e}`);
+      });
       targetId = undefined;
 
       return evalResult?.result?.value ?? null;
     } finally {
       activeRenders--;
       if (targetId && cdp) {
-        await cdp.send("Target.closeTarget", { targetId }).catch(() => {});
+        await cdp.send("Target.closeTarget", { targetId }).catch((e) => {
+          getAgentLogger().debug?.(`CDP: cleanup closeTarget failed: ${e}`);
+        });
       }
       cdp?.close();
     }

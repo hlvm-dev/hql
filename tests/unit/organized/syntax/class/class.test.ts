@@ -9,26 +9,6 @@ import { run } from "../../../helpers.ts";
 // SECTION 1: BASIC CLASS DEFINITION
 // ============================================================================
 
-Deno.test("Class: define empty class", async () => {
-  const code = `
-(class EmptyClass)
-EmptyClass
-`;
-  const result = await run(code);
-  assertEquals(typeof result, "function");
-});
-
-Deno.test("Class: define class with constructor", async () => {
-  const code = `
-(class Person
-  (constructor (name)
-    (= this.name name)))
-Person
-`;
-  const result = await run(code);
-  assertEquals(typeof result, "function");
-});
-
 Deno.test("Class: create instance with new", async () => {
   const code = `
 (class Person

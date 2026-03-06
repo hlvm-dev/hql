@@ -11,23 +11,35 @@
  * - Optimized rendering (cursor-only updates for blink)
  */
 
-import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useInput } from "ink";
-import { registry, getDisplay, CATEGORY_ORDER } from "../keybindings/index.ts";
-import type { KeybindingAction, KeybindingMatch, KeybindingCategory } from "../keybindings/index.ts";
+import { CATEGORY_ORDER, getDisplay, registry } from "../keybindings/index.ts";
+import type {
+  KeybindingAction,
+  KeybindingCategory,
+  KeybindingMatch,
+} from "../keybindings/index.ts";
 import {
-  clearOverlay,
   ansi,
-  hexToRgb,
-  type RGB,
-  fg,
   bg,
   calcOverlayPosition,
+  clearOverlay,
+  fg,
+  hexToRgb,
+  OVERLAY_BG_COLOR,
+  type RGB,
   writeToTerminal,
 } from "../overlay/index.ts";
 import { useTheme } from "../../theme/index.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import { CURSOR_BLINK_MS } from "../ui-constants.ts";
+import { buildCursorWindowDisplay } from "../utils/cursor-window.ts";
 
 // ============================================================
 // Types
@@ -43,7 +55,7 @@ export interface PaletteState {
 
 /** Key combination for rebinding */
 export interface KeyCombo {
-  key: string;       // The main key (e.g., "a", "ArrowUp", "Enter")
+  key: string; // The main key (e.g., "a", "ArrowUp", "Enter")
   ctrl?: boolean;
   meta?: boolean;
   alt?: boolean;
@@ -82,11 +94,9 @@ interface PaletteListData {
 const PALETTE_WIDTH = 58;
 const PALETTE_HEIGHT = 24;
 const PADDING = { top: 2, bottom: 2, left: 4, right: 4 };
-const HEADER_ROWS = 4;  // header + empty + search + empty
+const HEADER_ROWS = 4; // header + empty + search + empty
 const CONTENT_START = PADDING.top + HEADER_ROWS;
 const VISIBLE_ROWS = PALETTE_HEIGHT - CONTENT_START - PADDING.bottom;
-const BG_COLOR: RGB = [35, 35, 40];
-
 // ============================================================
 // Helpers
 // ============================================================
@@ -156,8 +166,12 @@ export function CommandPaletteOverlay({
   // Initialize state from props (persistent across open/close)
   const [query, setQuery] = useState(initialState?.query ?? "");
   const [cursorPos, setCursorPos] = useState(initialState?.cursorPos ?? 0);
-  const [selectedIndex, setSelectedIndex] = useState(initialState?.selectedIndex ?? 0);
-  const [scrollOffset, setScrollOffset] = useState(initialState?.scrollOffset ?? 0);
+  const [selectedIndex, setSelectedIndex] = useState(
+    initialState?.selectedIndex ?? 0,
+  );
+  const [scrollOffset, setScrollOffset] = useState(
+    initialState?.scrollOffset ?? 0,
+  );
   const [cursorVisible, setCursorVisible] = useState(true);
   const overlayPosRef = useRef({ x: 0, y: 0 });
   const isFirstRender = useRef(true);
@@ -174,7 +188,7 @@ export function CommandPaletteOverlay({
     category: hexToRgb(theme.accent) as RGB,
     primary: hexToRgb(theme.primary) as RGB,
     muted: hexToRgb(theme.muted) as RGB,
-    bgStyle: bg(BG_COLOR),
+    bgStyle: bg(OVERLAY_BG_COLOR),
   }), [theme]);
 
   // Search results and derived data
@@ -235,19 +249,17 @@ export function CommandPaletteOverlay({
 
     const searchY = pos.y + PADDING.top + 2;
     const contentWidth = PALETTE_WIDTH - PADDING.left - PADDING.right;
-    const displayQuery = query.slice(0, contentWidth - 2);
-    const displayCursorPos = Math.min(cursorPos, displayQuery.length);
-    const cursorX = pos.x + PADDING.left + displayCursorPos;
+    const display = buildCursorWindowDisplay(query, cursorPos, contentWidth);
+    const cursorX = pos.x + PADDING.left + display.beforeCursor.length;
 
-    const charAtCursor = displayQuery[displayCursorPos] || " ";
     const cursorStyle = cursorVisible
-      ? ansi.inverse + charAtCursor + ansi.reset
-      : charAtCursor;
+      ? ansi.inverse + display.cursorChar + ansi.reset
+      : display.cursorChar;
 
-    const output = ansi.cursorSave + ansi.cursorHide
-      + ansi.cursorTo(cursorX, searchY)
-      + colors.bgStyle + cursorStyle
-      + ansi.cursorRestore + ansi.cursorShow;
+    const output = ansi.cursorSave + ansi.cursorHide +
+      ansi.cursorTo(cursorX, searchY) +
+      colors.bgStyle + cursorStyle +
+      ansi.cursorRestore + ansi.cursorShow;
 
     writeToTerminal(output);
   }, [query, cursorPos, cursorVisible, colors.bgStyle]);
@@ -297,23 +309,19 @@ export function CommandPaletteOverlay({
       const rebindText = "Press new key combo...";
       output += fg(colors.highlight);
       output += cursorVisible
-        ? ansi.inverse + rebindText[0] + ansi.reset + bgStyle + fg(colors.highlight) + rebindText.slice(1)
+        ? ansi.inverse + rebindText[0] + ansi.reset + bgStyle +
+          fg(colors.highlight) + rebindText.slice(1)
         : rebindText;
       output += ansi.reset + bgStyle;
       output += " ".repeat(contentWidth - rebindText.length);
     } else if (query) {
-      const displayQuery = query.slice(0, contentWidth - 2);
-      const displayCursorPos = Math.min(cursorPos, displayQuery.length);
-
-      output += displayQuery.slice(0, displayCursorPos);
-
-      const charAtCursor = displayQuery[displayCursorPos] || " ";
+      const display = buildCursorWindowDisplay(query, cursorPos, contentWidth);
+      output += display.beforeCursor;
       output += cursorVisible
-        ? ansi.inverse + charAtCursor + ansi.reset + bgStyle
-        : charAtCursor;
-
-      output += displayQuery.slice(displayCursorPos + 1);
-      output += " ".repeat(Math.max(0, contentWidth - displayQuery.length - 1));
+        ? ansi.inverse + display.cursorChar + ansi.reset + bgStyle
+        : display.cursorChar;
+      output += display.afterCursor;
+      output += " ".repeat(Math.max(0, contentWidth - display.renderWidth));
     } else {
       // Placeholder with cursor
       output += fg(colors.muted);
@@ -329,7 +337,10 @@ export function CommandPaletteOverlay({
     drawEmptyRow(searchY + 1);
 
     // === Content rows ===
-    const visibleList = flatList.slice(scrollOffset, scrollOffset + VISIBLE_ROWS);
+    const visibleList = flatList.slice(
+      scrollOffset,
+      scrollOffset + VISIBLE_ROWS,
+    );
     const selectedItem = selectableItems[selectedIndex];
 
     for (let row = 0; row < VISIBLE_ROWS; row++) {
@@ -408,8 +419,8 @@ export function CommandPaletteOverlay({
     const hintText = rebindMode
       ? "esc=cancel"
       : onRebind
-        ? "tab=rebind ⌨=shortcut"
-        : "⌨=shortcut only";
+      ? "tab=rebind ⌨=shortcut"
+      : "⌨=shortcut only";
     const posText = selectableItems.length > 0
       ? `${selectedIndex + 1}/${selectableItems.length}`
       : "";
@@ -417,7 +428,8 @@ export function CommandPaletteOverlay({
     output += ansi.cursorTo(pos.x, footerY) + bgStyle;
     output += " ".repeat(PADDING.left);
     output += fg(colors.muted) + hintText;
-    const middlePad = PALETTE_WIDTH - PADDING.left - hintText.length - posText.length - PADDING.right;
+    const middlePad = PALETTE_WIDTH - PADDING.left - hintText.length -
+      posText.length - PADDING.right;
     output += " ".repeat(Math.max(1, middlePad));
     output += posText + ansi.reset + bgStyle;
     output += " ".repeat(PADDING.right);
@@ -425,7 +437,18 @@ export function CommandPaletteOverlay({
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
     writeToTerminal(output);
-  }, [query, cursorPos, cursorVisible, flatList, selectableItems, selectedIndex, scrollOffset, colors, rebindMode, onRebind]);
+  }, [
+    query,
+    cursorPos,
+    cursorVisible,
+    flatList,
+    selectableItems,
+    selectedIndex,
+    scrollOffset,
+    colors,
+    rebindMode,
+    onRebind,
+  ]);
 
   // Cursor blink effect
   useEffect(() => {
@@ -445,7 +468,15 @@ export function CommandPaletteOverlay({
   useEffect(() => {
     drawPalette();
     isFirstRender.current = false;
-  }, [query, cursorPos, selectedIndex, scrollOffset, flatList, drawPalette, rebindMode]);
+  }, [
+    query,
+    cursorPos,
+    selectedIndex,
+    scrollOffset,
+    flatList,
+    drawPalette,
+    rebindMode,
+  ]);
 
   // Reset cursor visibility when typing
   useEffect(() => {
@@ -482,14 +513,31 @@ export function CommandPaletteOverlay({
 
       // Build key combo from key press
       const combo: KeyCombo = {
-        key: input || (key.return ? "Enter" : key.tab ? "Tab" :
-              key.upArrow ? "ArrowUp" : key.downArrow ? "ArrowDown" :
-              key.leftArrow ? "ArrowLeft" : key.rightArrow ? "ArrowRight" :
-              key.backspace ? "Backspace" : key.delete ? "Delete" :
-              key.pageUp ? "PageUp" : key.pageDown ? "PageDown" : "unknown"),
+        key: input ||
+          (key.return
+            ? "Enter"
+            : key.tab
+            ? "Tab"
+            : key.upArrow
+            ? "ArrowUp"
+            : key.downArrow
+            ? "ArrowDown"
+            : key.leftArrow
+            ? "ArrowLeft"
+            : key.rightArrow
+            ? "ArrowRight"
+            : key.backspace
+            ? "Backspace"
+            : key.delete
+            ? "Delete"
+            : key.pageUp
+            ? "PageUp"
+            : key.pageDown
+            ? "PageDown"
+            : "unknown"),
         ctrl: key.ctrl,
         meta: key.meta,
-        alt: key.escape,  // Option/Alt on macOS sends escape
+        alt: key.escape, // Option/Alt on macOS sends escape
         shift: key.shift,
       };
 
@@ -537,14 +585,18 @@ export function CommandPaletteOverlay({
     // Note: Ctrl+P removed - it's handled by App.tsx for toggle (open/close)
     if (key.upArrow) {
       if (selectableItems.length === 0) return;
-      setSelectedIndex((i: number) => (i <= 0 ? selectableItems.length - 1 : i - 1));
+      setSelectedIndex((
+        i: number,
+      ) => (i <= 0 ? selectableItems.length - 1 : i - 1));
       return;
     }
 
     // Ctrl+N for navigate down (Emacs-style)
     if (key.downArrow || (key.ctrl && input === "n")) {
       if (selectableItems.length === 0) return;
-      setSelectedIndex((i: number) => (i >= selectableItems.length - 1 ? 0 : i + 1));
+      setSelectedIndex((
+        i: number,
+      ) => (i >= selectableItems.length - 1 ? 0 : i + 1));
       return;
     }
 
@@ -556,7 +608,9 @@ export function CommandPaletteOverlay({
 
     if (key.pageDown) {
       if (selectableItems.length === 0) return;
-      setSelectedIndex((i: number) => Math.min(selectableItems.length - 1, i + VISIBLE_ROWS));
+      setSelectedIndex((i: number) =>
+        Math.min(selectableItems.length - 1, i + VISIBLE_ROWS)
+      );
       return;
     }
 

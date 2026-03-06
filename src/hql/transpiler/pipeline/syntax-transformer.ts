@@ -95,10 +95,12 @@ export function transformSyntax(ast: SExp[], context?: CompilerContext): SExp[] 
     }
   }
 
-  logger.debug(
-    "=== Symbol Table after Registration phase ===\n" +
-      JSON.stringify(currentSymbolTable.dump(), null, 2),
-  );
+  if (logger.enabled) {
+    logger.debug(
+      "=== Symbol Table after Registration phase ===\n" +
+        JSON.stringify(currentSymbolTable.dump(), null, 2),
+    );
+  }
 
   // === Phase 2: Transform nodes ===
   const transformed: SExp[] = [];

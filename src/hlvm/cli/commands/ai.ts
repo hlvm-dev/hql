@@ -13,6 +13,7 @@ import { startModelBrowser } from "../repl-ink/model-browser.tsx";
 import { getOllamaCatalogAsync } from "../../providers/ollama/catalog.ts";
 import { formatBytes } from "../../../common/limits.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { DEFAULT_TERMINAL_WIDTH } from "../repl-ink/ui-constants.ts";
 import { truncate } from "../../../common/utils.ts";
 import { getTaskManager, isModelPullTask, type ModelPullTask } from "../repl/task-manager/index.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
@@ -202,7 +203,7 @@ export async function aiCommand(args: string[]): Promise<void> {
         return rank(a) - rank(b) || a.createdAt - b.createdAt;
       });
 
-      const columns = getPlatform().terminal.consoleSize().columns || 80;
+      const columns = getPlatform().terminal.consoleSize().columns || DEFAULT_TERMINAL_WIDTH;
       const nameWidth = Math.min(
         Math.max(...sorted.map((t) => t.modelName.length), 10) + 2,
         32,

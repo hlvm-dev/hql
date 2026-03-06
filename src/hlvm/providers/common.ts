@@ -16,6 +16,23 @@ export const JSON_HEADERS: Record<string, string> = {
   "Content-Type": "application/json",
 };
 
+/** Standard timeout for provider API requests (model listing, status checks). */
+export const API_TIMEOUT_MS = 8_000;
+
+/** Cache TTL for model catalogs (1 hour). */
+export const CATALOG_CACHE_TTL_MS = 60 * 60 * 1000;
+
+/** Anthropic API version header value. Used by Anthropic and Claude Code providers. */
+export const ANTHROPIC_VERSION = "2023-06-01";
+
+/** Build Bearer auth headers with JSON content type. Used by OpenAI and Claude Code. */
+export function bearerAuthHeaders(token: string): Record<string, string> {
+  return {
+    ...JSON_HEADERS,
+    "Authorization": `Bearer ${token}`,
+  };
+}
+
 // =============================================================================
 // JSON Parsing
 // =============================================================================

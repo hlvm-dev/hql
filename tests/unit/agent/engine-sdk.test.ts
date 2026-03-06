@@ -149,9 +149,22 @@ Deno.test({
 });
 
 Deno.test({
-  name: "convertToSdkMessages: tool message",
+  name: "convertToSdkMessages: tool message after assistant tool call",
   fn() {
     const messages: Message[] = [
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "call_789",
+            function: {
+              name: "read_file",
+              arguments: { path: "foo.ts" },
+            },
+          },
+        ],
+      },
       {
         role: "tool",
         content: "File contents here",
@@ -160,9 +173,10 @@ Deno.test({
       },
     ];
     const result = convertToSdkMessages(messages);
-    assertEquals(result.length, 1);
-    assertEquals(result[0].role, "tool");
-    const content = result[0].content as Array<Record<string, unknown>>;
+    assertEquals(result.length, 2);
+    assertEquals(result[0].role, "assistant");
+    assertEquals(result[1].role, "tool");
+    const content = result[1].content as Array<Record<string, unknown>>;
     assertEquals(content.length, 1);
     assertEquals(content[0].type, "tool-result");
     assertEquals((content[0] as { toolCallId: string }).toolCallId, "call_789");

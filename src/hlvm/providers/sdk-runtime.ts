@@ -245,12 +245,14 @@ export function convertToSdkMessages(
   }
 
   const result: ModelMessage[] = [];
+  let pendingToolCallIds = new Set<string>();
   if (systemParts.length > 0) {
     result.push({ role: "system", content: systemParts.join("\n\n") });
   }
 
   for (const msg of nonSystemMessages) {
     if (msg.role === "user") {
+      pendingToolCallIds = new Set();
       if (!msg.images?.length) {
         result.push({ role: "user", content: msg.content });
         continue;
@@ -278,34 +280,53 @@ export function convertToSdkMessages(
       const toolCalls = msg.toolCalls ?? msg.tool_calls;
       if (toolCalls?.length) {
         const parts: SdkAssistantPart[] = [];
+        const resolvedToolCallIds: string[] = [];
         if (msg.content) {
           parts.push({ type: "text", text: msg.content });
         }
         for (const tc of toolCalls) {
+          const toolCallId = tc.id ?? generateToolCallId();
+          resolvedToolCallIds.push(toolCallId);
           parts.push({
             type: "tool-call",
-            toolCallId: tc.id ?? generateToolCallId(),
+            toolCallId,
             toolName: tc.function.name,
             input: normalizeToolArgs(tc.function.arguments),
           });
         }
+        pendingToolCallIds = new Set(resolvedToolCallIds);
         result.push({ role: "assistant", content: parts });
       } else {
+        pendingToolCallIds = new Set();
         result.push({ role: "assistant", content: msg.content });
       }
       continue;
     }
 
     // role === "tool"
-    result.push({
-      role: "tool",
-      content: [{
-        type: "tool-result",
-        toolCallId: msg.toolCallId ?? msg.tool_call_id ?? generateToolCallId(),
-        toolName: msg.toolName ?? msg.tool_name ?? "unknown",
-        output: { type: "text", value: msg.content },
-      }],
-    });
+    let toolCallId = msg.toolCallId ?? msg.tool_call_id;
+    if (!toolCallId && pendingToolCallIds.size === 1) {
+      toolCallId = [...pendingToolCallIds][0];
+    }
+    if (!toolCallId || !pendingToolCallIds.has(toolCallId)) {
+      continue;
+    }
+
+    const toolResultPart = {
+      type: "tool-result" as const,
+      toolCallId,
+      toolName: msg.toolName ?? msg.tool_name ?? "unknown",
+      output: { type: "text" as const, value: msg.content },
+    };
+    const previous = result[result.length - 1];
+    if (previous?.role === "tool" && Array.isArray(previous.content)) {
+      previous.content.push(toolResultPart);
+    } else {
+      result.push({
+        role: "tool",
+        content: [toolResultPart],
+      });
+    }
   }
 
   return result;

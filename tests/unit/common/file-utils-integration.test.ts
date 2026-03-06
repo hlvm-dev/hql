@@ -11,27 +11,7 @@ import {
   loadGitignore,
   isIgnored,
 } from "../../../src/common/file-utils.ts";
-import { getPlatform } from "../../../src/platform/platform.ts";
-
-/** Create a temp directory structure for testing */
-async function createTempTree(
-  structure: Record<string, string | null>,
-): Promise<string> {
-  const platform = getPlatform();
-  const tmpDir = await Deno.makeTempDir({ prefix: "file-utils-test-" });
-
-  for (const [path, content] of Object.entries(structure)) {
-    const fullPath = platform.path.join(tmpDir, path);
-    const dir = platform.path.dirname(fullPath);
-    await Deno.mkdir(dir, { recursive: true });
-    if (content !== null) {
-      await Deno.writeTextFile(fullPath, content);
-    }
-    // null means directory-only (already created by mkdir)
-  }
-
-  return tmpDir;
-}
+import { createTempTree } from "../helpers.ts";
 
 /** Collect all paths from walkDirectory */
 async function collectPaths(
