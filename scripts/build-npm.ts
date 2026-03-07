@@ -7,7 +7,10 @@
  * Usage: deno run -A scripts/build-npm.ts
  */
 
+import { getPlatform } from "../src/platform/platform.ts";
 import { build, emptyDir } from "jsr:@deno/dnt";
+
+const platform = getPlatform();
 
 const outDir = "./npm";
 await emptyDir(outDir);
@@ -26,7 +29,7 @@ await build({
   },
   package: {
     name: "@hlvm/hql",
-    version: Deno.env.get("VERSION") || "0.1.0",
+    version: platform.env.get("VERSION") || "0.1.0",
     type: "module",
     license: "MIT",
     description: "AI-native runtime infrastructure — HQL, JavaScript, and agent SDK",

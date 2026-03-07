@@ -1,5 +1,9 @@
 #!/usr/bin/env -S deno run -A
 
+import { getPlatform } from "../src/platform/platform.ts";
+
+const platform = getPlatform();
+
 export const STDLIB_GENERATED_FILES = [
   "src/hql/lib/stdlib/js/self-hosted.js",
   "src/hql/lib/stdlib/js/self-hosted.d.ts",
@@ -25,12 +29,11 @@ export async function runCommand(
 ): Promise<RunResult> {
   const stdoutMode = options.stdout ?? "piped";
   const stderrMode = options.stderr ?? "piped";
-  const command = new Deno.Command(args[0], {
-    args: args.slice(1),
+  const output = await platform.command.output({
+    cmd: args,
     stdout: stdoutMode,
     stderr: stderrMode,
   });
-  const output = await command.output();
   const stdout = stdoutMode === "piped"
     ? textDecoder.decode(output.stdout)
     : "";
@@ -58,7 +61,7 @@ export async function snapshotFiles(
   files: readonly string[],
 ): Promise<Map<string, string>> {
   const entries = await Promise.all(
-    files.map(async (file) => [file, await Deno.readTextFile(file)] as const),
+    files.map(async (file) => [file, await platform.fs.readTextFile(file)] as const),
   );
   return new Map(entries);
 }

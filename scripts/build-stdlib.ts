@@ -21,6 +21,9 @@
 
 import { transpile } from "../src/hql/transpiler/index.ts";
 import { resolve, dirname, fromFileUrl } from "https://deno.land/std@0.220.0/path/mod.ts";
+import { getPlatform } from "../src/platform/platform.ts";
+
+const platform = getPlatform();
 
 const SCRIPT_DIR = dirname(fromFileUrl(import.meta.url));
 const PROJECT_ROOT = resolve(SCRIPT_DIR, "..");
@@ -74,13 +77,13 @@ const HEADER = `\
 
 async function main() {
   console.log("Reading stdlib.hql...");
-  const source = await Deno.readTextFile(STDLIB_HQL);
+  const source = await platform.fs.readTextFile(STDLIB_HQL);
 
   // Save current self-hosted.js — the transpiler imports stdlib at startup,
   // so we must not corrupt the working copy during transpilation.
   const backupPath = OUTPUT_JS + ".bak";
   try {
-    await Deno.copyFile(OUTPUT_JS, backupPath);
+    await platform.fs.copyFile(OUTPUT_JS, backupPath);
   } catch {
     // No existing file to back up — first build
   }
@@ -96,7 +99,7 @@ async function main() {
     });
   } catch (err) {
     // Restore backup on transpilation failure
-    try { await Deno.copyFile(backupPath, OUTPUT_JS); } catch { /* no backup */ }
+    try { await platform.fs.copyFile(backupPath, OUTPUT_JS); } catch { /* no backup */ }
     throw err;
   }
 
@@ -209,15 +212,15 @@ async function main() {
     ...QMARK_ALIASES.map(([src, alias]) => `export { ${src} as ${alias} };`),
     "",
   ];
-  await Deno.writeTextFile(OUTPUT_DTS, dtsLines.join("\n"));
+  await platform.fs.writeTextFile(OUTPUT_DTS, dtsLines.join("\n"));
 
   // Write to temp file first, then rename (atomic — avoids corrupting self-hosted.js on error)
   const tmpFile = OUTPUT_JS + ".tmp";
-  await Deno.writeTextFile(tmpFile, code);
-  await Deno.rename(tmpFile, OUTPUT_JS);
+  await platform.fs.writeTextFile(tmpFile, code);
+  await platform.fs.rename(tmpFile, OUTPUT_JS);
 
   // Clean up backup
-  try { await Deno.remove(backupPath); } catch { /* no backup */ }
+  try { await platform.fs.remove(backupPath); } catch { /* no backup */ }
 
   // Count exported functions for reporting
   const fnCount = (code.match(/^\([\w]+ = function /gm) || []).length;
@@ -229,5 +232,5 @@ async function main() {
 
 main().catch((err) => {
   console.error("stdlib build failed:", err);
-  Deno.exit(1);
+  platform.process.exit(1);
 });

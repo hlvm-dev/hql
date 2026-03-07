@@ -21,6 +21,7 @@ import { loadWebConfig } from "../web-config.ts";
 import { getWebCacheValue, setWebCacheValue } from "../web-cache.ts";
 
 import {
+  filterSearchResultsByDomain,
   normalizeDomain,
   SEARCH_DEPTH_DEFAULTS,
   SEARCH_DEPTH_PROFILES,
@@ -71,6 +72,7 @@ import {
 } from "./web/evidence-selection.ts";
 import { planSearchQueries } from "./web/query-decomposition.ts";
 import { decideFetchEscalation, type FetchEscalationDecision } from "./web/fetch-escalation.ts";
+import { fetchGoogleNewsResults } from "./web/google-news.ts";
 
 // ============================================================
 // Types
@@ -682,6 +684,17 @@ async function searchWeb(
   const provider = resolveSearchProvider(webConfig.search.provider, false);
   const queryPlan = planSearchQueries({ userQuery: query, maxSubqueries: QUERY_PLAN_MAX_TOTAL });
   const queryIntent = queryPlan.intent;
+
+  // Start Google News RSS fetch in parallel when query signals recency interest
+  const wantsNews = queryIntent.wantsRecency || queryIntent.wantsReleaseNotes;
+  const newsPromise = wantsNews
+    ? fetchGoogleNewsResults(queryPlan.primaryQuery, {
+        limit: Math.min(8, limit),
+        timeoutMs: Math.min(3000, timeout ?? 3000),
+        locale,
+      }).catch(() => [] as SearchResult[])
+    : Promise.resolve([] as SearchResult[]);
+
   const result = await provider.search(queryPlan.primaryQuery, {
     limit,
     timeoutMs: timeout,
@@ -695,6 +708,17 @@ async function searchWeb(
   });
   const initialProviderDiagnostics = result.diagnostics as Record<string, unknown> | undefined;
   const executedQueryTrail = [queryPlan.primaryQuery];
+
+  // Merge Google News results (awaits the parallel fetch started above)
+  const newsResults = filterSearchResultsByDomain(
+    await newsPromise,
+    typed.allowedDomains,
+    typed.blockedDomains,
+  );
+  if (newsResults.length > 0) {
+    result.results = mergeAndRankSearchResults(query, result.results, newsResults, timeRange, limit);
+    result.count = result.results.length;
+  }
 
   // --- Planned extra searches: decomposition first, then bounded follow-up retries ---
   const deepDiagnostics: {
@@ -997,6 +1021,8 @@ async function searchWeb(
       decompositionApplied: queryPlan.mode === "decomposed",
       subqueries: queryPlan.subqueries,
       fetchEscalationReason: fetchDecision.reason,
+      newsSupplemented: newsResults.length > 0,
+      newsResultCount: newsResults.length,
     },
     recoveryTriggered,
     qualityPenaltiesApplied,

@@ -50,6 +50,11 @@ interface OllamaModelInternal extends OllamaModel {
 // Constants
 // ============================================================
 
+import { getPlatform } from "../src/platform/platform.ts";
+import { http } from "../src/common/http-client.ts";
+
+const platform = getPlatform();
+
 const BASE_URL = "https://ollama.com";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const CONCURRENCY_LIMIT = 5; // Don't hammer the server
@@ -112,7 +117,7 @@ function hasBadge(html: string, label: string): boolean {
 // ============================================================
 
 async function fetchHTML(url: string): Promise<string> {
-  const response = await fetch(url, {
+  const response = await http.fetchRaw(url, {
     headers: {
       "User-Agent": USER_AGENT,
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -429,10 +434,10 @@ async function scrapeOllamaModels(): Promise<OllamaModelsJSON> {
 // ============================================================
 
 async function main() {
-  const args = Deno.args;
+  const args = platform.process.args();
 
   // Default: write to temp file (gist is runtime SSOT, not repo-local JSON)
-  const defaultPath = `${Deno.env.get("TMPDIR") ?? "/tmp"}/ollama_models.json`;
+  const defaultPath = `${platform.env.get("TMPDIR") ?? "/tmp"}/ollama_models.json`;
 
   // Parse --output flag (overrides default)
   let outputPaths = [defaultPath];
@@ -443,7 +448,7 @@ async function main() {
 
   // --sync flag: also update external resource copy
   if (args.includes("--sync")) {
-    const resourcePath = `${Deno.env.get("HOME")}/dev/HLVM/HLVM/Resources/ollama_models.json`;
+    const resourcePath = `${platform.env.get("HOME")}/dev/HLVM/HLVM/Resources/ollama_models.json`;
     outputPaths = [defaultPath, resourcePath];
   }
 
@@ -453,7 +458,7 @@ async function main() {
 
     // Write to all output paths
     for (const outputPath of outputPaths) {
-      await Deno.writeTextFile(outputPath, json);
+      await platform.fs.writeTextFile(outputPath, json);
       console.log(`\n📁 Output written to: ${outputPath}`);
     }
     console.log(`   File size: ${(json.length / 1024).toFixed(1)} KB`);
@@ -470,7 +475,7 @@ async function main() {
 
   } catch (error) {
     console.error("\n❌ Error:", error instanceof Error ? error.message : error);
-    Deno.exit(1);
+    platform.process.exit(1);
   }
 }
 

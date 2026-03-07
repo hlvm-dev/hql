@@ -180,3 +180,19 @@ export function isAllowedByDomainFilters(
   if (allowed.length === 0) return true;
   return allowed.some((d) => hostMatchesDomain(normalizedHost, d));
 }
+
+export function filterSearchResultsByDomain<T extends { url?: string }>(
+  results: T[],
+  allowedDomains?: string[],
+  blockedDomains?: string[],
+): T[] {
+  return results.filter((result) => {
+    if (!result.url) return true;
+    try {
+      const hostname = new URL(result.url).hostname;
+      return isAllowedByDomainFilters(hostname, allowedDomains, blockedDomains);
+    } catch {
+      return true;
+    }
+  });
+}

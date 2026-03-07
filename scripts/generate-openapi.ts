@@ -8,6 +8,9 @@
 
 // @ts-types="npm:@types/swagger-jsdoc@6.0.4"
 import swaggerJsdoc from "npm:swagger-jsdoc@6.2.8";
+import { getPlatform } from "../src/platform/platform.ts";
+
+const platform = getPlatform();
 
 const ROOT = new URL("..", import.meta.url).pathname;
 
@@ -62,9 +65,9 @@ const outDir = `${ROOT}docs/api`;
 const outPath = `${outDir}/openapi.json`;
 const tmpPath = `${outPath}.tmp`;
 
-await Deno.mkdir(outDir, { recursive: true });
-await Deno.writeTextFile(tmpPath, JSON.stringify(spec, null, 2) + "\n");
-await Deno.rename(tmpPath, outPath);
+await platform.fs.mkdir(outDir, { recursive: true });
+await platform.fs.writeTextFile(tmpPath, JSON.stringify(spec, null, 2) + "\n");
+await platform.fs.rename(tmpPath, outPath);
 
 console.log(`OpenAPI spec written to ${outPath}`);
 console.log(`  ${pathCount} paths, ${operationCount} operations`);

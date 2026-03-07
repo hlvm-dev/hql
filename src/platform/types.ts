@@ -251,6 +251,7 @@ export interface PlatformHttp {
     handler: (req: Request) => Response | Promise<Response>,
     options: PlatformHttpServeOptions,
   ): PlatformHttpServerHandle;
+  findFreePort(): Promise<number>;
 }
 
 // =============================================================================

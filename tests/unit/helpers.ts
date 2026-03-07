@@ -257,9 +257,10 @@ export async function captureConsole<T>(
   if (channels.includes("log")) {
     console.log = (...args: unknown[]) => {
       logs.push(
-        args.map((a) => (typeof a === "string" ? a : Deno.inspect(a))).join(
-          " ",
-        ),
+        args.map((a) => {
+          if (typeof a === "string") return a;
+          try { return JSON.stringify(a, null, 2); } catch { return String(a); }
+        }).join(" "),
       );
     };
   }
@@ -293,10 +294,7 @@ export async function captureConsole<T>(
 // Network Helpers
 // ============================================================================
 
-/** Find a free port on localhost. Wraps Deno.listen for SSOT. */
+/** Find a free port on localhost. Delegates to platform SSOT. */
 export async function findFreePort(): Promise<number> {
-  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-  const port = (listener.addr as Deno.NetAddr).port;
-  listener.close();
-  return port;
+  return await getPlatform().http.findFreePort();
 }

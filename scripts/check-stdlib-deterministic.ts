@@ -6,6 +6,7 @@
  * artifacts from two consecutive builds.
  */
 
+import { getPlatform } from "../src/platform/platform.ts";
 import {
   compareSnapshots,
   runStdlibBuild,
@@ -13,18 +14,20 @@ import {
   STDLIB_GENERATED_FILES,
 } from "./stdlib-check-helpers.ts";
 
+const platform = getPlatform();
+
 async function main() {
   console.log("Running stdlib build (pass 1)...");
   const pass1Build = await runStdlibBuild();
   if (!pass1Build.success) {
-    Deno.exit(pass1Build.code);
+    platform.process.exit(pass1Build.code);
   }
   const pass1 = await snapshotFiles(STDLIB_GENERATED_FILES);
 
   console.log("Running stdlib build (pass 2)...");
   const pass2Build = await runStdlibBuild();
   if (!pass2Build.success) {
-    Deno.exit(pass2Build.code);
+    platform.process.exit(pass2Build.code);
   }
   const pass2 = await snapshotFiles(STDLIB_GENERATED_FILES);
 
@@ -37,7 +40,7 @@ async function main() {
         ...mismatches.map((file) => `  - ${file}`),
       ].join("\n"),
     );
-    Deno.exit(1);
+    platform.process.exit(1);
   }
 
   console.log("OK: stdlib build is deterministic.");

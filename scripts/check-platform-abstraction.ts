@@ -20,6 +20,9 @@
 
 import { walk } from "jsr:@std/fs/walk";
 import { join, relative } from "jsr:@std/path";
+import { getPlatform } from "../src/platform/platform.ts";
+
+const platform = getPlatform();
 
 const DENO_PATTERN = /\bDeno\./g;
 
@@ -49,7 +52,7 @@ interface Violation {
 
 async function checkFile(filePath: string): Promise<Violation[]> {
   const violations: Violation[] = [];
-  const content = await Deno.readTextFile(filePath);
+  const content = await platform.fs.readTextFile(filePath);
   const lines = content.split("\n");
 
   for (let i = 0; i < lines.length; i++) {
@@ -78,7 +81,7 @@ async function checkFile(filePath: string): Promise<Violation[]> {
 }
 
 async function main() {
-  const projectRoot = Deno.cwd();
+  const projectRoot = platform.process.cwd();
   const srcDir = join(projectRoot, "src");
   const packagesDir = join(projectRoot, "packages");
   const vendorReplDir = join(projectRoot, "vendor/repl/src");
@@ -127,7 +130,7 @@ async function main() {
 
       // HQL files shouldn't use Deno directly - they use hlvm global
       if (entry.path.endsWith(".hql")) {
-        const content = await Deno.readTextFile(entry.path);
+        const content = await platform.fs.readTextFile(entry.path);
         if (content.includes("js/Deno.") || content.includes("Deno.")) {
           allViolations.push({
             file: relativePath,
@@ -184,7 +187,7 @@ async function main() {
     console.log(
       "  All Deno.* calls are properly isolated to src/platform/",
     );
-    Deno.exit(0);
+    platform.process.exit(0);
   } else {
     console.log("✗ Platform abstraction violations found:\n");
     for (const v of allViolations) {
@@ -194,7 +197,7 @@ async function main() {
     console.log(`\nFound ${allViolations.length} violation(s).`);
     console.log("\nTo fix: Use getPlatform() from src/platform/platform.ts");
     console.log("        or hlvm global for HQL stdlib code.");
-    Deno.exit(1);
+    platform.process.exit(1);
   }
 }
 

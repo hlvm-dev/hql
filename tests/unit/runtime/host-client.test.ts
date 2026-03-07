@@ -19,6 +19,7 @@ import {
 } from "../../../src/hlvm/runtime/host-client.ts";
 import type { RuntimeSessionMessage } from "../../../src/hlvm/runtime/session-protocol.ts";
 import { deriveDefaultSessionKey } from "../../../src/hlvm/runtime/session-key.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 import {
   findFreePort,
   withEnv,
@@ -32,14 +33,8 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
   const authToken = "test-auth-token";
   let capturedChatBody: Record<string, unknown> | null = null;
   let capturedInteractionBody: Record<string, unknown> | null = null;
-  const abortController = new AbortController();
 
-  const server = Deno.serve({
-    hostname: "127.0.0.1",
-    port,
-    signal: abortController.signal,
-    onListen: () => {},
-  }, async (req) => {
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
       return Response.json({
@@ -133,6 +128,10 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
     }
 
     return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
   });
 
   try {
@@ -186,8 +185,8 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       assertEquals(capturedInteractionBody?.approved, true);
     });
   } finally {
-    abortController.abort();
-    await server.finished;
+    await handle.shutdown();
+    await handle.finished;
   }
 });
 
@@ -225,14 +224,7 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
   let appendedMessageBody: Record<string, unknown> | null = null;
   let deletedSessionId = "";
 
-  const abortController = new AbortController();
-
-  const server = Deno.serve({
-    hostname: "127.0.0.1",
-    port,
-    signal: abortController.signal,
-    onListen: () => {},
-  }, async (req) => {
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
       return Response.json({
@@ -316,6 +308,10 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
     }
 
     return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
   });
 
   try {
@@ -365,8 +361,8 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
       );
     });
   } finally {
-    abortController.abort();
-    await server.finished;
+    await handle.shutdown();
+    await handle.finished;
   }
 });
 
@@ -374,14 +370,8 @@ Deno.test("runAgentQueryViaHost uses ephemeral session ids for fresh sessions", 
   const port = await findFreePort();
   const authToken = "test-auth-token";
   let capturedSessionId = "";
-  const abortController = new AbortController();
 
-  const server = Deno.serve({
-    hostname: "127.0.0.1",
-    port,
-    signal: abortController.signal,
-    onListen: () => {},
-  }, async (req) => {
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
       return Response.json({
@@ -425,6 +415,10 @@ Deno.test("runAgentQueryViaHost uses ephemeral session ids for fresh sessions", 
     }
 
     return Response.json({ ok: true });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
   });
 
   try {
@@ -439,8 +433,8 @@ Deno.test("runAgentQueryViaHost uses ephemeral session ids for fresh sessions", 
       assertStringIncludes(capturedSessionId, "fresh:");
     });
   } finally {
-    abortController.abort();
-    await server.finished;
+    await handle.shutdown();
+    await handle.finished;
   }
 });
 
@@ -449,14 +443,8 @@ Deno.test("runAgentQueryViaHost waits for runtime readiness before sending chat"
   const authToken = "test-auth-token";
   let healthChecks = 0;
   let chatRequests = 0;
-  const abortController = new AbortController();
 
-  const server = Deno.serve({
-    hostname: "127.0.0.1",
-    port,
-    signal: abortController.signal,
-    onListen: () => {},
-  }, async (req) => {
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
       healthChecks += 1;
@@ -500,6 +488,10 @@ Deno.test("runAgentQueryViaHost waits for runtime readiness before sending chat"
     }
 
     return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
   });
 
   try {
@@ -515,8 +507,8 @@ Deno.test("runAgentQueryViaHost waits for runtime readiness before sending chat"
       assertEquals(healthChecks >= 3, true);
     });
   } finally {
-    abortController.abort();
-    await server.finished;
+    await handle.shutdown();
+    await handle.finished;
   }
 });
 

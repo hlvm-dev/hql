@@ -47,56 +47,13 @@
     }
   ],
   "paths": {
-    "/api/sessions/{id}/cancel": {
-      "post": {
-        "tags": [
-          "Chat"
-        ],
-        "summary": "Cancel all in-flight requests for a session",
-        "operationId": "cancelSession",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Session ID."
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Cancellation result.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "cancelled": {
-                      "type": "boolean"
-                    },
-                    "session_id": {
-                      "type": "string"
-                    },
-                    "cancelled_count": {
-                      "type": "integer"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/chat": {
       "post": {
         "tags": [
           "Chat"
         ],
         "summary": "Streaming chat or agent request",
-        "description": "Sends a message and streams the response as NDJSON.\nSupports chat, agent, and claude-code-agent modes.\nEach line is a JSON object with an `event` field.\n",
+        "description": "Sends a message and streams the response as NDJSON.\nSupports chat, agent, and claude-code-agent modes.\nRequest `messages` are used as authoritative prompt history when the\nclient provides explicit multi-message or non-user context. Single-turn\nuser requests fall back to the persisted session transcript.\nEach line is a JSON object with an `event` field.\n",
         "operationId": "chat",
         "parameters": [
           {
@@ -1060,6 +1017,24 @@
         }
       }
     },
+    "/api/models/installed": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "List installed models for a provider",
+        "operationId": "listInstalledModels"
+      }
+    },
+    "/api/models/discovery": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Read model discovery snapshot with installed models",
+        "operationId": "modelDiscovery"
+      }
+    },
     "/api/models/{provider}/{name}": {
       "get": {
         "tags": [
@@ -1322,6 +1297,15 @@
         }
       }
     },
+    "/api/models/verify-access": {
+      "post": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Probe runtime-side model access",
+        "operationId": "verifyModelAccess"
+      }
+    },
     "/api/config": {
       "get": {
         "tags": [
@@ -1390,6 +1374,24 @@
             }
           }
         }
+      }
+    },
+    "/api/config/reset": {
+      "post": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Reset configuration to defaults",
+        "operationId": "resetConfig"
+      }
+    },
+    "/api/config/reload": {
+      "post": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Reload configuration from disk",
+        "operationId": "reloadConfig"
       }
     },
     "/api/config/stream": {
@@ -1692,9 +1694,12 @@
                     "definitions": {
                       "type": "integer"
                     },
-                    "instanceId": {
+                    "aiReady": {
+                      "type": "boolean"
+                    },
+                    "authToken": {
                       "type": "string",
-                      "nullable": true
+                      "description": "Bearer token the server uses for authenticated endpoints"
                     }
                   }
                 }
@@ -2011,6 +2016,7 @@
           },
           "messages": {
             "type": "array",
+            "description": "Authoritative prompt history when multiple messages or any non-user\nmessage is provided. Single-message user requests fall back to the\nstored session transcript for backward compatibility.\n",
             "items": {
               "type": "object",
               "properties": {

@@ -17,6 +17,7 @@ import nodeProcess from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
+import type { Socket } from "node:net";
 import { Readable } from "node:stream";
 import * as tty from "node:tty";
 import type {
@@ -562,6 +563,11 @@ function startNodeHttpServer(
       nodeRes.end(String(err));
     }
   });
+  const sockets = new Set<Socket>();
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+  });
 
   const finished = new Promise<void>((resolve, reject) => {
     server.on("error", reject);
@@ -578,9 +584,11 @@ function startNodeHttpServer(
   return {
     finished,
     shutdown: async () => {
-      await new Promise<void>((resolve, reject) => {
-        server.close((err) => (err ? reject(err) : resolve()));
-      });
+      server.close();
+      for (const socket of sockets) {
+        socket.destroy();
+      }
+      await finished;
     },
   };
 }
@@ -594,6 +602,17 @@ const NodeHttp: PlatformHttp = {
     handler: (req: Request) => Response | Promise<Response>,
     options: PlatformHttpServeOptions,
   ): PlatformHttpServerHandle => startNodeHttpServer(handler, options),
+  findFreePort: (): Promise<number> => {
+    return new Promise((resolve, reject) => {
+      const srv = createServer();
+      srv.listen(0, () => {
+        const addr = srv.address();
+        const port = typeof addr === "object" && addr ? addr.port : 0;
+        srv.close(() => resolve(port));
+      });
+      srv.on("error", reject);
+    });
+  },
 };
 
 // =============================================================================

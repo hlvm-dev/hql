@@ -8,6 +8,7 @@ import {
   chatCommand,
   parseChatArgs,
 } from "../../../src/hlvm/cli/commands/chat.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 import { findFreePort, withEnv } from "../../shared/light-helpers.ts";
 
 const encoder = new TextEncoder();
@@ -32,7 +33,6 @@ async function withChatHost(
   const port = await findFreePort();
   const authToken = "test-auth-token";
   const sessions = options.sessions ?? [];
-  const abortController = new AbortController();
   const raw = log.raw as {
     log: (text: string) => void;
     write: (text: string) => void;
@@ -48,12 +48,7 @@ async function withChatHost(
     output += text;
   };
 
-  const server = Deno.serve({
-    hostname: "127.0.0.1",
-    port,
-    signal: abortController.signal,
-    onListen: () => {},
-  }, async (req) => {
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
       return Response.json({
@@ -114,6 +109,10 @@ async function withChatHost(
     }
 
     return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
   });
 
   try {
@@ -123,8 +122,8 @@ async function withChatHost(
   } finally {
     raw.log = originalLog;
     raw.write = originalWrite;
-    abortController.abort();
-    await server.finished;
+    await handle.shutdown();
+    await handle.finished;
   }
 }
 

@@ -338,18 +338,21 @@ function startDenoHttpServer(
   handler: (req: Request) => Response | Promise<Response>,
   options: PlatformHttpServeOptions,
 ): PlatformHttpServerHandle {
+  const abortController = new AbortController();
   const server = Deno.serve(
     {
       port: options.port,
       hostname: options.hostname,
       onListen: options.onListen,
+      signal: abortController.signal,
     },
     handler,
   );
   return {
     finished: server.finished,
     shutdown: async () => {
-      await server.shutdown();
+      abortController.abort();
+      await server.finished;
     },
   };
 }
@@ -363,6 +366,12 @@ const DenoHttp: PlatformHttp = {
     handler: (req: Request) => Response | Promise<Response>,
     options: PlatformHttpServeOptions,
   ): PlatformHttpServerHandle => startDenoHttpServer(handler, options),
+  findFreePort: async (): Promise<number> => {
+    const listener = Deno.listen({ port: 0 });
+    const port = (listener.addr as Deno.NetAddr).port;
+    listener.close();
+    return port;
+  },
 };
 
 // =============================================================================

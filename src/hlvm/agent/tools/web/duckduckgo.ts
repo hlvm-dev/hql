@@ -16,7 +16,7 @@ import {
   rankSearchResults,
 } from "./search-ranking.ts";
 import {
-  isAllowedByDomainFilters,
+  filterSearchResultsByDomain,
   type SearchTimeRange,
   registerSearchProvider,
   type SearchCallOptions,
@@ -157,26 +157,6 @@ export function parseDuckDuckGoSearchResults(
   }
 
   return results;
-}
-
-// ============================================================
-// Domain Filtering
-// ============================================================
-
-function filterResultsByDomain(
-  results: ProviderSearchResult[],
-  allowed?: string[],
-  blocked?: string[],
-): ProviderSearchResult[] {
-  return results.filter((r) => {
-    if (!r.url) return true;
-    try {
-      const hostname = new URL(r.url).hostname;
-      return isAllowedByDomainFilters(hostname, allowed, blocked);
-    } catch {
-      return true;
-    }
-  });
 }
 
 // ============================================================
@@ -321,7 +301,7 @@ export async function duckDuckGoSearch(
   // Rank page 1 to check if we need more results
   const scored1 = rankSearchResults(query, allResults, timeRange);
   const filtered1 = (allowedDomains?.length || blockedDomains?.length)
-    ? filterResultsByDomain(scored1, allowedDomains, blockedDomains)
+    ? filterSearchResultsByDomain(scored1, allowedDomains, blockedDomains)
     : scored1;
   const initialConfidence = assessSearchConfidence(query, filtered1, {
     sampleSize: limit,
@@ -392,7 +372,7 @@ export async function duckDuckGoSearch(
   const filtered = allResults.length === page1.length && filtered1.length >= limit
     ? filtered1
     : (allowedDomains?.length || blockedDomains?.length)
-      ? filterResultsByDomain(scored, allowedDomains, blockedDomains)
+      ? filterSearchResultsByDomain(scored, allowedDomains, blockedDomains)
       : scored;
   const topResults = filtered.slice(0, limit);
   const finalConfidence = assessSearchConfidence(query, topResults, {

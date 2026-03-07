@@ -1,4 +1,5 @@
 import { getPlatform } from "../../src/platform/platform.ts";
+import { withRuntimePortOverrideForTests } from "../../src/hlvm/runtime/host-config.ts";
 
 const envLocks = new Map<string, Promise<void>>();
 
@@ -29,6 +30,13 @@ export function withEnv<T>(
   value: string,
   fn: () => Promise<T>,
 ): Promise<T> {
+  if (key === "HLVM_REPL_PORT") {
+    const port = Number.parseInt(value, 10);
+    if (Number.isInteger(port) && port > 0) {
+      return withRuntimePortOverrideForTests(port, fn);
+    }
+  }
+
   return withSerializedEnvKey(key, async () => {
     const env = getPlatform().env;
     const prev = env.get(key);
@@ -51,13 +59,7 @@ export async function withRuntimeHostServer(
 ): Promise<void> {
   const port = await findFreePort();
   const authToken = "test-auth-token";
-  const abortController = new AbortController();
-  const server = Deno.serve({
-    hostname: "127.0.0.1",
-    port,
-    signal: abortController.signal,
-    onListen: () => {},
-  }, async (req) => {
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
     if (new URL(req.url).pathname === "/health") {
       return Response.json({
         status: "ok",
@@ -68,6 +70,10 @@ export async function withRuntimeHostServer(
       });
     }
     return await handler(req, authToken);
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
   });
 
   try {
@@ -75,17 +81,11 @@ export async function withRuntimeHostServer(
       await fn({ authToken, port });
     });
   } finally {
-    abortController.abort();
-    await server.finished;
+    await handle.shutdown();
+    await handle.finished;
   }
 }
 
 export async function findFreePort(): Promise<number> {
-  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-  try {
-    const addr = listener.addr as Deno.NetAddr;
-    return addr.port;
-  } finally {
-    listener.close();
-  }
+  return await getPlatform().http.findFreePort();
 }

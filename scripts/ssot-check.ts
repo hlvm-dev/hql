@@ -13,6 +13,9 @@
 
 import { walk } from "jsr:@std/fs/walk";
 import { join, relative } from "jsr:@std/path";
+import { getPlatform } from "../src/platform/platform.ts";
+
+const platform = getPlatform();
 
 // ============================================================================
 // Console Allowlist (Permanent Special Cases)
@@ -136,8 +139,6 @@ const RULES: Rule[] = [
 
 // Directories to exclude from checking
 const EXCLUDED_DIRS = [
-  "tests",
-  "scripts",
   "node_modules",
   ".git",
   "embedded-packages",
@@ -179,6 +180,18 @@ function isInStdlibJsPath(filePath: string): boolean {
   return STDLIB_JS_PATHS.some((p) => filePath.includes(p));
 }
 
+function isInScriptsDir(filePath: string): boolean {
+  return filePath.startsWith("scripts/");
+}
+
+function isInTestsDir(filePath: string): boolean {
+  return filePath.startsWith("tests/");
+}
+
+function isInTestsIntegrationDir(filePath: string): boolean {
+  return filePath.startsWith("tests/integration/");
+}
+
 function isAllowedPath(filePath: string, rule: Rule): boolean {
   // Check if file is in allowed paths
   // Supports both exact file matches and directory prefixes (ending with /)
@@ -198,10 +211,39 @@ function isAllowedPath(filePath: string, rule: Rule): boolean {
     if (isInProviderPath(filePath) || isInStdlibJsPath(filePath)) {
       return true;
     }
+    // Integration tests make real HTTP requests to test servers
+    if (isInTestsIntegrationDir(filePath)) {
+      return true;
+    }
   }
 
   // Special case: console is allowed in stdlib JS (runtime utility code)
   if (rule.name === "console-leak" && isInStdlibJsPath(filePath)) {
+    return true;
+  }
+
+  // Scripts are standalone CLI tools — console.* is the standard output pattern
+  if (rule.name === "console-leak" && isInScriptsDir(filePath)) {
+    return true;
+  }
+
+  // Tests may use console.* for debugging and test output
+  if (rule.name === "console-leak" && isInTestsDir(filePath)) {
+    return true;
+  }
+
+  // raw-error warnings are not enforced in scripts or tests
+  if (rule.name === "raw-error" && (isInScriptsDir(filePath) || isInTestsDir(filePath))) {
+    return true;
+  }
+
+  // Tests use Deno.test(), Deno.env, and other Deno APIs as part of the test framework
+  if (rule.name === "deno-leak" && isInTestsDir(filePath)) {
+    return true;
+  }
+
+  // Scripts are standalone CLI tools that may use Deno APIs directly
+  if (rule.name === "deno-leak" && isInScriptsDir(filePath)) {
     return true;
   }
 
@@ -234,7 +276,7 @@ async function checkFile(
   relativePath: string,
 ): Promise<Violation[]> {
   const violations: Violation[] = [];
-  const content = await Deno.readTextFile(filePath);
+  const content = await platform.fs.readTextFile(filePath);
   const lines = content.split("\n");
 
   for (const rule of RULES) {
@@ -267,38 +309,46 @@ async function checkFile(
 // ============================================================================
 
 async function main() {
-  const projectRoot = Deno.cwd();
-  const srcDir = join(projectRoot, "src");
+  const projectRoot = platform.process.cwd();
 
   const errors: Violation[] = [];
   const warnings: Violation[] = [];
 
-  // Walk through src/ directory
-  for await (
-    const entry of walk(srcDir, {
-      exts: [".ts", ".tsx", ".js"],
-      skip: EXCLUDED_DIRS.map((d) => new RegExp(`/${d}/`)),
-    })
-  ) {
-    if (!entry.isFile) continue;
+  // Directories to scan for SSOT compliance
+  const scanDirs = ["src", "scripts", "tests"];
 
-    const relativePath = relative(projectRoot, entry.path);
+  for (const dir of scanDirs) {
+    const dirPath = join(projectRoot, dir);
 
-    // Skip test files
-    if (
-      relativePath.includes(".test.") || relativePath.includes("_test.") ||
-      relativePath.includes("/test/")
+    // Walk through directory
+    for await (
+      const entry of walk(dirPath, {
+        exts: [".ts", ".tsx", ".js"],
+        skip: EXCLUDED_DIRS.map((d) => new RegExp(`/${d}/`)),
+      })
     ) {
-      continue;
-    }
+      if (!entry.isFile) continue;
 
-    const violations = await checkFile(entry.path, relativePath);
+      const relativePath = relative(projectRoot, entry.path);
 
-    for (const v of violations) {
-      if (v.severity === "error") {
-        errors.push(v);
-      } else {
-        warnings.push(v);
+      // Skip test files within src/ (they have their own patterns)
+      if (
+        dir === "src" && (
+          relativePath.includes(".test.") || relativePath.includes("_test.") ||
+          relativePath.includes("/test/")
+        )
+      ) {
+        continue;
+      }
+
+      const violations = await checkFile(entry.path, relativePath);
+
+      for (const v of violations) {
+        if (v.severity === "error") {
+          errors.push(v);
+        } else {
+          warnings.push(v);
+        }
       }
     }
   }
@@ -363,17 +413,17 @@ async function main() {
   if (errors.length === 0 && warnings.length === 0) {
     console.log("\x1b[32m✓ All SSOT checks passed!\x1b[0m");
     console.log("  See docs/SSOT-CONTRACT.md for details.\n");
-    Deno.exit(0);
+    platform.process.exit(0);
   } else if (errors.length === 0) {
     console.log("\x1b[32m✓ No errors found.\x1b[0m");
     console.log(`\x1b[33m⚠ ${warnings.length} warnings to review.\x1b[0m\n`);
     console.log("See docs/SSOT-CONTRACT.md for guidance.\n");
-    Deno.exit(0); // Warnings don't fail the check
+    platform.process.exit(0); // Warnings don't fail the check
   } else {
     console.log(`\x1b[31m✗ ${errors.length} error(s) must be fixed.\x1b[0m`);
     console.log(`\x1b[33m⚠ ${warnings.length} warnings to review.\x1b[0m\n`);
     console.log("See docs/SSOT-CONTRACT.md for guidance.\n");
-    Deno.exit(1);
+    platform.process.exit(1);
   }
 }
 

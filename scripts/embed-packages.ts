@@ -7,6 +7,9 @@
 
 import { relative, fromFileUrl } from "https://deno.land/std@0.220.0/path/mod.ts";
 import { walk } from "https://deno.land/std@0.220.0/fs/walk.ts";
+import { getPlatform } from "../src/platform/platform.ts";
+
+const platform = getPlatform();
 
 console.log("🔨 Embedding HQL packages...\n");
 
@@ -26,7 +29,7 @@ for await (const entry of walk(coreLibPath, {
     const macroKey = `src/hql/lib/${relativePath}`;
 
     try {
-      const content = await Deno.readTextFile(entry.path);
+      const content = await platform.fs.readTextFile(entry.path);
       embeddedPackages[key] = content;
       // Only add macro files to embedded-macros.ts
       if (relativePath.startsWith("macro/")) {
@@ -44,7 +47,7 @@ const packagesPath = fromFileUrl(new URL("../packages", import.meta.url));
 
 // Only try to walk packages directory if it exists
 try {
-  const packagesInfo = await Deno.stat(packagesPath);
+  const packagesInfo = await platform.fs.stat(packagesPath);
   if (packagesInfo.isDirectory) {
     for await (const entry of walk(packagesPath, {
       exts: [".hql"],
@@ -61,7 +64,7 @@ try {
           const key = `@hlvm/${packageName}`;
 
           try {
-            const content = await Deno.readTextFile(entry.path);
+            const content = await platform.fs.readTextFile(entry.path);
             embeddedPackages[key] = content;
             console.log(`✅ Embedded ${key} (${content.length} bytes)`);
           } catch (error) {
@@ -89,7 +92,7 @@ ${Object.entries(embeddedPackages).map(([name, content]) =>
 
 // Write output
 const outputPath = fromFileUrl(new URL("../src/hql/embedded-packages.ts", import.meta.url));
-await Deno.writeTextFile(outputPath, output);
+await platform.fs.writeTextFile(outputPath, output);
 
 console.log(`\n✅ Generated src/hql/embedded-packages.ts`);
 
@@ -129,7 +132,7 @@ export function getEmbeddedContent(p: string): string | undefined {
 `;
 
 const macrosOutputPath = fromFileUrl(new URL("../src/hql/lib/embedded-macros.ts", import.meta.url));
-await Deno.writeTextFile(macrosOutputPath, macrosOutput);
+await platform.fs.writeTextFile(macrosOutputPath, macrosOutput);
 console.log(`✅ Generated src/hql/lib/embedded-macros.ts`);
 
 console.log(`📦 Total packages embedded: ${Object.keys(embeddedPackages).length}`);

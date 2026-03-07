@@ -14,6 +14,7 @@ import {
 } from "../../../src/hlvm/cli/commands/first-run-setup.ts";
 import type { AIEngineLifecycle } from "../../../src/hlvm/runtime/ai-runtime.ts";
 import type { ModelInfo } from "../../../src/hlvm/providers/types.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 import { findFreePort, withEnv } from "../../shared/light-helpers.ts";
 
 Deno.test("parseParamSize: parses integer sizes", () => {
@@ -194,14 +195,8 @@ Deno.test("verifyOllamaCloudModelAccess: probes through the runtime host", async
   const port = await findFreePort();
   const authToken = "test-auth-token";
   let capturedModel = "";
-  const abortController = new AbortController();
 
-  const server = Deno.serve({
-    hostname: "127.0.0.1",
-    port,
-    signal: abortController.signal,
-    onListen: () => {},
-  }, async (req) => {
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
       return Response.json({
@@ -220,6 +215,10 @@ Deno.test("verifyOllamaCloudModelAccess: probes through the runtime host", async
     }
 
     return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
   });
 
   try {
@@ -231,7 +230,7 @@ Deno.test("verifyOllamaCloudModelAccess: probes through the runtime host", async
       assertEquals(capturedModel, "ollama/deepseek-v3.1:671b-cloud");
     });
   } finally {
-    abortController.abort();
-    await server.finished;
+    await handle.shutdown();
+    await handle.finished;
   }
 });

@@ -692,3 +692,112 @@ Deno.test({
     });
   },
 });
+
+Deno.test("searchWeb merges Google News for recency queries", async () => {
+  resetWebToolBudget();
+
+  await withIsolatedSearchRegistry(async () => {
+    const ddgHtml = fakeDdgHtml([
+      { url: "https://ddg.example.com/a", title: "DDG Result A", snippet: "Primary search result" },
+      { url: "https://ddg.example.com/b", title: "DDG Result B", snippet: "Another result" },
+    ]);
+
+    const newsRss = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>News</title>
+<item><title>Latest Release Notes</title><link>https://news.example.com/release</link>
+<description>Breaking news about the release</description>
+<pubDate>Thu, 06 Mar 2025 10:00:00 GMT</pubDate></item>
+</channel></rss>`;
+
+    await withStubbedFetch(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("news.google.com")) {
+        return new Response(newsRss, { status: 200, headers: { "content-type": "application/rss+xml" } });
+      }
+      // DDG search and any prefetch
+      return new Response(ddgHtml, { status: 200, headers: { "content-type": "text/html" } });
+    }, async () => {
+      const raw = await WEB_TOOLS.search_web.fn(
+        { query: "latest Deno release notes 2025", maxResults: 5, prefetch: false, reformulate: false },
+        "/tmp",
+      ) as Record<string, unknown>;
+
+      const results = raw.results as Array<Record<string, unknown>>;
+      const diagnostics = raw.diagnostics as Record<string, unknown>;
+      const retrieval = diagnostics.retrieval as Record<string, unknown>;
+
+      assert(results.length > 0);
+      assertEquals(retrieval.newsSupplemented, true);
+      assert((retrieval.newsResultCount as number) > 0);
+
+      // Verify news result was merged in
+      const hasNewsResult = results.some((r) =>
+        (r.url as string)?.includes("news.example.com")
+      );
+      assert(hasNewsResult, "Expected Google News result to be merged into results");
+    });
+  });
+});
+
+Deno.test("searchWeb applies domain filters to Google News supplemental results", async () => {
+  resetWebToolBudget();
+
+  await withIsolatedSearchRegistry(async () => {
+    registerSearchProvider({
+      name: "duckduckgo",
+      displayName: "deterministic-google-news-filters",
+      requiresApiKey: false,
+      search(query: string) {
+        return Promise.resolve({
+          query,
+          provider: "duckduckgo",
+          count: 1,
+          results: [
+            {
+              title: "Allowed result",
+              url: "https://allowed.example.com/a",
+              snippet: "Allowed domain result",
+              score: 8,
+            },
+          ],
+        });
+      },
+    });
+
+    const newsRss = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>News</title>
+<item><title>Blocked by allowlist</title><link>https://news.example.com/release</link>
+<description>Breaking news about the release</description>
+<pubDate>Thu, 06 Mar 2025 10:00:00 GMT</pubDate></item>
+</channel></rss>`;
+
+    await withStubbedFetch(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("news.google.com")) {
+        return new Response(newsRss, { status: 200, headers: { "content-type": "application/rss+xml" } });
+      }
+      return new Response("<html></html>", { status: 200, headers: { "content-type": "text/html" } });
+    }, async () => {
+      const raw = await WEB_TOOLS.search_web.fn(
+        {
+          query: "latest Deno release notes 2025",
+          maxResults: 5,
+          prefetch: false,
+          reformulate: false,
+          allowedDomains: ["allowed.example.com"],
+        },
+        "/tmp",
+      ) as Record<string, unknown>;
+
+      const results = raw.results as Array<Record<string, unknown>>;
+      const diagnostics = raw.diagnostics as Record<string, unknown>;
+      const retrieval = diagnostics.retrieval as Record<string, unknown>;
+
+      assertEquals(results.length, 1);
+      assertEquals(results[0].url, "https://allowed.example.com/a");
+      assertEquals(retrieval.newsSupplemented, false);
+      assertEquals(retrieval.newsResultCount, 0);
+      assertEquals(results.some((r) => (r.url as string)?.includes("news.example.com")), false);
+    });
+  });
+});

@@ -6,6 +6,7 @@
  * Fails if `deno task stdlib:build` produces uncommitted changes.
  */
 
+import { getPlatform } from "../src/platform/platform.ts";
 import {
   parseChangedFiles,
   runCommand,
@@ -13,11 +14,13 @@ import {
   STDLIB_GENERATED_FILES,
 } from "./stdlib-check-helpers.ts";
 
+const platform = getPlatform();
+
 async function main() {
   console.log("Rebuilding stdlib artifacts...");
   const build = await runStdlibBuild();
   if (!build.success) {
-    Deno.exit(build.code);
+    platform.process.exit(build.code);
   }
 
   const diff = await runCommand([
@@ -38,7 +41,7 @@ async function main() {
         ...changed.map((file) => `  - ${file}`),
       ].join("\n"),
     );
-    Deno.exit(1);
+    platform.process.exit(1);
   }
 
   console.log("OK: stdlib generated artifacts are up to date.");
