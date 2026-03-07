@@ -1,5 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.218.0/assert/mod.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { findFreePort } from "../../shared/light-helpers.ts";
 import { runCLI, withTempDir } from "../_shared/binary-helpers.ts";
 
 const platform = getPlatform();
@@ -10,9 +11,10 @@ Deno.test({
   sanitizeOps: false,
   async fn() {
     await withTempDir(async (dir) => {
+      const port = await findFreePort();
       const piped = await runCLI("ask", ["hello"], {
         cwd: dir,
-        env: { HLVM_DIR: dir },
+        env: { HLVM_DIR: dir, HLVM_REPL_PORT: String(port) },
       });
       const pipedOutput = piped.stdout + piped.stderr;
       assertEquals(pipedOutput.includes("Welcome to HLVM!"), false);
@@ -20,10 +22,11 @@ Deno.test({
     });
 
     await withTempDir(async (dir) => {
+      const port = await findFreePort();
       const explicitModel = await runCLI(
         "ask",
         ["--model", "ollama/llama3.1:8b", "what is 2+2"],
-        { cwd: dir, env: { HLVM_DIR: dir } },
+        { cwd: dir, env: { HLVM_DIR: dir, HLVM_REPL_PORT: String(port) } },
       );
       const output = explicitModel.stdout + explicitModel.stderr;
       assertEquals(output.includes("Welcome to HLVM!"), false);
@@ -43,9 +46,10 @@ Deno.test({
         }),
       );
 
+      const port = await findFreePort();
       const configured = await runCLI("ask", ["hello"], {
         cwd: dir,
-        env: { HLVM_DIR: dir },
+        env: { HLVM_DIR: dir, HLVM_REPL_PORT: String(port) },
       });
       const output = configured.stdout + configured.stderr;
       assertEquals(output.includes("Welcome to HLVM!"), false);

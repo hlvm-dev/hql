@@ -369,10 +369,20 @@ export async function askCommand(args: string[]): Promise<void> {
     );
   }
 
+  const fixturePath = getPlatform().env.get("HLVM_ASK_FIXTURE_PATH")?.trim() ||
+    undefined;
+  if (fixturePath) {
+    freshSession = true;
+  }
+
   const runtimeModelConfig = await createRuntimeModelConfigManager();
 
   // First-use bootstrap: if user has Claude Code auth available, default to it automatically.
-  if (!modelOverride && !runtimeModelConfig.getConfig().modelConfigured) {
+  if (
+    !fixturePath &&
+    !modelOverride &&
+    !runtimeModelConfig.getConfig().modelConfigured
+  ) {
     const autoModel = await runtimeModelConfig.autoConfigureInitialClaudeCodeModel();
     if (autoModel) {
       modelOverride = autoModel;
@@ -383,6 +393,7 @@ export async function askCommand(args: string[]): Promise<void> {
   // HLVM_FORCE_SETUP=1 bypasses the terminal check (for E2E testing)
   const forceSetup = getPlatform().env.get("HLVM_FORCE_SETUP") === "1";
   if (
+    !fixturePath &&
     !modelOverride &&
     !runtimeModelConfig.getConfig().modelConfigured &&
     (getPlatform().terminal.stdin.isTerminal() || forceSetup)
@@ -395,7 +406,7 @@ export async function askCommand(args: string[]): Promise<void> {
     }
   }
 
-  if (!modelOverride) {
+  if (!fixturePath && !modelOverride) {
     const repaired = await runtimeModelConfig.reconcileConfiguredClaudeCodeModel();
     if (repaired) {
       modelOverride = repaired;
@@ -403,13 +414,15 @@ export async function askCommand(args: string[]): Promise<void> {
   }
 
   let resolvedModel = modelOverride ?? runtimeModelConfig.getConfiguredModel();
-  const normalized = await runtimeModelConfig.resolveCompatibleClaudeCodeModel(
-    resolvedModel,
-  );
-  if (normalized !== resolvedModel) {
-    resolvedModel = normalized;
-    if (modelOverride) {
-      modelOverride = normalized;
+  if (!fixturePath) {
+    const normalized = await runtimeModelConfig.resolveCompatibleClaudeCodeModel(
+      resolvedModel,
+    );
+    if (normalized !== resolvedModel) {
+      resolvedModel = normalized;
+      if (modelOverride) {
+        modelOverride = normalized;
+      }
     }
   }
 
@@ -418,6 +431,7 @@ export async function askCommand(args: string[]): Promise<void> {
 
   // Paid provider consent gate
   if (
+    !fixturePath &&
     isPaidProvider(resolvedModel) &&
     !runtimeModelConfig.isProviderApproved(resolvedModel)
   ) {
@@ -446,13 +460,26 @@ export async function askCommand(args: string[]): Promise<void> {
       // Verbose mode: keep existing detailed output style
       switch (event.type) {
         case "tool_end":
-          if (event.name === "ask_user") return;
+          if (event.name === "ask_user" || event.name === "delegate_agent") return;
           if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
           {
             const label = event.success ? "Tool Result" : "Tool Error";
             log.raw.log(`\n[${label}] ${event.name}\n${event.content}\n`);
           }
           break;
+        case "delegate_start":
+          if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+          log.raw.log(`\n[Delegate] ${event.agent}\n${event.task}\n`);
+          break;
+        case "delegate_end": {
+          if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+          const label = event.success ? "Delegate Result" : "Delegate Error";
+          const body = event.success
+            ? event.summary ?? "Delegation complete."
+            : event.error ?? "Delegation failed.";
+          log.raw.log(`\n[${label}] ${event.agent}\n${body}\n`);
+          break;
+        }
       }
       return;
     }
@@ -465,13 +492,14 @@ export async function askCommand(args: string[]): Promise<void> {
         }
         break;
       case "tool_start":
+        if (event.name === "delegate_agent") return;
         if (thinkingShown) { log.raw.write(`\r\x1b[K`); thinkingShown = false; }
         if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
         log.raw.write(`  \x1b[2m\u2847 ${event.name} ${truncate(event.argsSummary, 60)}\x1b[0m`);
         toolInProgress = true;
         break;
       case "tool_end": {
-        if (event.name === "ask_user") return;
+        if (event.name === "ask_user" || event.name === "delegate_agent") return;
         if (toolInProgress) {
           const icon = event.success ? "\x1b[32m\u2713\x1b[0m" : "\x1b[31m\u2717\x1b[0m";
           const dur = event.durationMs ? ` \x1b[2m(${(event.durationMs / 1000).toFixed(1)}s)\x1b[0m` : "";
@@ -504,6 +532,32 @@ export async function askCommand(args: string[]): Promise<void> {
         }
         break;
       }
+      case "delegate_start":
+        if (thinkingShown) { log.raw.write(`\r\x1b[K`); thinkingShown = false; }
+        if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+        log.raw.write(
+          `  \x1b[2m\u2847 delegate ${event.agent} ${truncate(event.task, 60)}\x1b[0m`,
+        );
+        toolInProgress = true;
+        break;
+      case "delegate_end": {
+        if (toolInProgress) {
+          const icon = event.success ? "\x1b[32m\u2713\x1b[0m" : "\x1b[31m\u2717\x1b[0m";
+          const dur = event.durationMs ? ` \x1b[2m(${(event.durationMs / 1000).toFixed(1)}s)\x1b[0m` : "";
+          const summary = event.success
+            ? event.summary ?? "Delegation complete."
+            : `Error: ${event.error ?? "Delegation failed."}`;
+          log.raw.write(`\r\x1b[K  ${icon} delegate ${event.agent} \x1b[2m\u2192\x1b[0m ${summary}${dur}\n`);
+          toolInProgress = false;
+        } else {
+          if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+          const summary = event.success
+            ? event.summary ?? "Delegation complete."
+            : `Error: ${event.error ?? "Delegation failed."}`;
+          log.raw.log(`delegate ${event.agent} \x1b[2m\u2192\x1b[0m ${summary}\n`);
+        }
+        break;
+      }
       case "turn_stats": {
         const dur = event.durationMs ? `${(event.durationMs / 1000).toFixed(1)}s` : "";
         log.raw.log(`\n\x1b[2m\u2500\u2500\u2500 ${event.toolCount} tool${event.toolCount !== 1 ? "s" : ""} \u00b7 ${dur} \u2500\u2500\u2500\x1b[0m\n`);
@@ -526,6 +580,7 @@ export async function askCommand(args: string[]): Promise<void> {
       query,
       model: resolvedModel,
       workspace: getPlatform().process.cwd(),
+      fixturePath,
       contextWindow,
       skipSessionHistory: freshSession,
       permissionMode: effectivePermissionMode,

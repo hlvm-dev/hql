@@ -13,6 +13,7 @@ import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
 import { DEFAULT_MAX_TOOL_CALLS, isGroundingMode } from "./constants.ts";
 import { ValidationError } from "../../common/error.ts";
 import { hasTool } from "./registry.ts";
+import { createTodoState } from "./todo-state.ts";
 
 function buildAgentSystemNote(profileName: string, tools: string[]): string {
   return [
@@ -111,6 +112,7 @@ export function createDelegateHandler(
         toolOwnerId: config.toolOwnerId,
         onInteraction: config.onInteraction,
         planning: { mode: "off" },
+        todoState: createTodoState(),
       },
       llm,
     );

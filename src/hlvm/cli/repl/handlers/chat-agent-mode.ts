@@ -9,11 +9,12 @@ import {
   runAgentQuery,
 } from "../../../agent/agent-runner.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../../agent/constants.ts";
+import { resolveQueryToolAllowlist } from "../../../agent/query-tool-routing.ts";
 import {
+  getSession,
   insertMessage,
   updateMessage,
   updateSession,
-  getSession,
 } from "../../../store/conversation-store.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
@@ -59,24 +60,42 @@ export async function handleAgentMode(
   const effectiveToolDenylist = body.tool_denylist?.length
     ? [...body.tool_denylist]
     : [...DEFAULT_TOOL_DENYLIST];
-  let agentReadyPromise = getAgentReadyPromise(resolvedModel);
-  if (!agentReadyPromise) {
-    agentReadyPromise = ensureAgentReady(resolvedModel, (msg) => log.info(msg))
-      .catch((err) => {
-        setAgentReadyPromise(resolvedModel, null);
-        throw err;
-      });
-    setAgentReadyPromise(resolvedModel, agentReadyPromise);
+  const fixturePath = typeof body.fixture_path === "string" &&
+      body.fixture_path.trim()
+    ? body.fixture_path.trim()
+    : undefined;
+  if (!fixturePath) {
+    let agentReadyPromise = getAgentReadyPromise(resolvedModel);
+    if (!agentReadyPromise) {
+      agentReadyPromise = ensureAgentReady(
+        resolvedModel,
+        (msg) => log.info(msg),
+      )
+        .catch((err) => {
+          setAgentReadyPromise(resolvedModel, null);
+          throw err;
+        });
+      setAgentReadyPromise(resolvedModel, agentReadyPromise);
+    }
+    await agentReadyPromise;
   }
-  await agentReadyPromise;
 
   const workspace = getPlatform().process.cwd();
   const resolvedWorkspace = body.workspace?.trim() || workspace;
-  const cachedSession = await getOrCreateCachedSession(
-    resolvedWorkspace,
-    resolvedModel,
-    { toolDenylist: effectiveToolDenylist, modelInfo },
-  );
+  const lastUserMessage = getLastUserMessage(body.messages);
+  const query = lastUserMessage?.content ?? "";
+  const toolAllowlist = resolveQueryToolAllowlist(query);
+  const cachedSession = fixturePath
+    ? undefined
+    : await getOrCreateCachedSession(
+      resolvedWorkspace,
+      resolvedModel,
+      {
+        toolAllowlist,
+        toolDenylist: effectiveToolDenylist,
+        modelInfo,
+      },
+    );
 
   const history = await buildAgentHistoryMessages({
     requestMessages: body.messages,
@@ -88,8 +107,6 @@ export async function handleAgentMode(
     modelKey: resolvedModel,
   });
 
-  const lastUserMessage = getLastUserMessage(body.messages);
-  const query = lastUserMessage?.content ?? "";
   let streamedFinalText = false;
   let successfulToolCalls = 0;
   let failedToolCalls = 0;
@@ -98,12 +115,15 @@ export async function handleAgentMode(
     query,
     model: resolvedModel,
     permissionMode: body.permission_mode ??
-      (config.snapshot.permissionMode as PermissionMode | undefined) ?? "default",
+      (config.snapshot.permissionMode as PermissionMode | undefined) ??
+      "default",
     noInput: false,
     signal,
+    toolAllowlist,
     toolDenylist: effectiveToolDenylist,
     workspace: resolvedWorkspace,
     contextWindow: body.context_window,
+    fixturePath,
     skipSessionHistory: body.skip_session_history === true,
     messageHistory: history,
     modelInfo,
@@ -168,6 +188,24 @@ export async function handleAgentMode(
               summary: event.summary,
             });
             break;
+          case "delegate_start":
+            emit({
+              event: "delegate_start",
+              agent: event.agent,
+              task: event.task,
+            });
+            break;
+          case "delegate_end":
+            emit({
+              event: "delegate_end",
+              agent: event.agent,
+              task: event.task,
+              success: event.success,
+              summary: event.summary,
+              duration_ms: event.durationMs,
+              error: event.error,
+            });
+            break;
           case "turn_stats":
             emit({
               event: "turn_stats",
@@ -183,7 +221,8 @@ export async function handleAgentMode(
       onTrace: body.trace
         ? (trace) => emit({ event: "trace", trace })
         : undefined,
-      onFinalResponseMeta: (meta) => emit({ event: "final_response_meta", meta }),
+      onFinalResponseMeta: (meta) =>
+        emit({ event: "final_response_meta", meta }),
     },
   });
 
@@ -353,7 +392,9 @@ function processClaudeCodeJsonLine(
     if (trimmed.length > 0) {
       if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
         log.warn(
-          `Failed to parse JSON-like Claude Code output: ${trimmed.slice(0, 120)}`,
+          `Failed to parse JSON-like Claude Code output: ${
+            trimmed.slice(0, 120)
+          }`,
           e,
         );
         emit({

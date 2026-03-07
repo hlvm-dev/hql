@@ -1,5 +1,9 @@
 import { assertEquals } from "jsr:@std/assert";
-import { __testOnlyUpsertAssistantTextItem } from "../../../src/hlvm/cli/repl-ink/hooks/useConversation.ts";
+import {
+  __testOnlyAppendDelegateItem,
+  __testOnlyCompleteDelegateItem,
+  __testOnlyUpsertAssistantTextItem,
+} from "../../../src/hlvm/cli/repl-ink/hooks/useConversation.ts";
 import type { ConversationItem } from "../../../src/hlvm/cli/repl-ink/types.ts";
 
 Deno.test("useConversation inserts a final assistant response before trailing turn stats", () => {
@@ -45,6 +49,31 @@ Deno.test("useConversation inserts a final assistant response before trailing tu
   assertEquals(next[2]?.type, "assistant");
   if (next[2]?.type === "assistant") {
     assertEquals(next[2].text, "Here is the answer.");
+  }
+});
+
+Deno.test("useConversation records and completes delegate items", () => {
+  const items: ConversationItem[] = __testOnlyAppendDelegateItem(
+    [],
+    "web",
+    "Inspect docs",
+    () => "d1",
+  );
+  const next = __testOnlyCompleteDelegateItem(items, {
+    type: "delegate_end",
+    agent: "web",
+    task: "Inspect docs",
+    success: true,
+    summary: "Found relevant docs",
+    durationMs: 120,
+  });
+
+  assertEquals(next.length, 1);
+  assertEquals(next[0]?.type, "delegate");
+  if (next[0]?.type === "delegate") {
+    assertEquals(next[0].status, "success");
+    assertEquals(next[0].summary, "Found relevant docs");
+    assertEquals(next[0].agent, "web");
   }
 });
 

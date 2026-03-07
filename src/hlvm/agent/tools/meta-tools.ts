@@ -15,8 +15,10 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
 import { TEXT_ENCODER } from "../../../common/utils.ts";
+import { safeStringify } from "../../../common/safe-stringify.ts";
 import { isToolArgsObject } from "../validation.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
+import type { TodoItem, TodoState, TodoStatus } from "../todo-state.ts";
 
 // ============================================================
 // Tool 1: ask_user
@@ -200,6 +202,105 @@ async function toolSearch(
   };
 }
 
+const TODO_STATUSES = new Set<TodoStatus>([
+  "pending",
+  "in_progress",
+  "completed",
+]);
+
+function cloneTodoItems(items: TodoItem[]): TodoItem[] {
+  return items.map((item) => ({ ...item }));
+}
+
+function summarizeTodoState(items: TodoItem[]): string {
+  if (items.length === 0) return "0 todos";
+  const counts = {
+    pending: 0,
+    in_progress: 0,
+    completed: 0,
+  };
+  for (const item of items) {
+    counts[item.status] += 1;
+  }
+  const segments = [`${items.length} todo${items.length === 1 ? "" : "s"}`];
+  if (counts.in_progress > 0) segments.push(`${counts.in_progress} in progress`);
+  if (counts.pending > 0) segments.push(`${counts.pending} pending`);
+  if (counts.completed > 0) segments.push(`${counts.completed} completed`);
+  return segments.join(" · ");
+}
+
+function formatTodoResult(result: unknown): {
+  summaryDisplay: string;
+  returnDisplay: string;
+} | null {
+  if (!result || typeof result !== "object" || !Array.isArray((result as TodoState).items)) {
+    return null;
+  }
+  const items = (result as TodoState).items as TodoItem[];
+  return {
+    summaryDisplay: summarizeTodoState(items),
+    returnDisplay: safeStringify({ items: cloneTodoItems(items) }, 2),
+  };
+}
+
+function validateTodoItems(items: unknown): TodoItem[] {
+  if (!Array.isArray(items)) {
+    throw new ValidationError("items must be an array", "todo_write");
+  }
+  return items.map((entry, index) => {
+    if (!entry || typeof entry !== "object") {
+      throw new ValidationError(`items[${index}] must be an object`, "todo_write");
+    }
+    const record = entry as Record<string, unknown>;
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    const content = typeof record.content === "string" ? record.content.trim() : "";
+    const status = record.status;
+    if (!id) {
+      throw new ValidationError(`items[${index}].id must be a non-empty string`, "todo_write");
+    }
+    if (!content) {
+      throw new ValidationError(
+        `items[${index}].content must be a non-empty string`,
+        "todo_write",
+      );
+    }
+    if (typeof status !== "string" || !TODO_STATUSES.has(status as TodoStatus)) {
+      throw new ValidationError(
+        `items[${index}].status must be one of: pending, in_progress, completed`,
+        "todo_write",
+      );
+    }
+    return { id, content, status: status as TodoStatus };
+  });
+}
+
+async function todoRead(
+  _args: unknown,
+  _workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<TodoState> {
+  throwIfAborted(options?.signal);
+  const items = cloneTodoItems(options?.todoState?.items ?? []);
+  return { items };
+}
+
+async function todoWrite(
+  args: unknown,
+  _workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<TodoState> {
+  throwIfAborted(options?.signal);
+  if (!isToolArgsObject(args)) {
+    throw new ValidationError("args must be an object", "todo_write");
+  }
+  if (!options?.todoState) {
+    throw new ValidationError("todo state is not configured", "todo_write");
+  }
+  const items = validateTodoItems((args as { items?: unknown }).items);
+  options.todoState.items = cloneTodoItems(items);
+  return { items: cloneTodoItems(options.todoState.items) };
+}
+
 // ============================================================
 // Tool Registry Export
 // ============================================================
@@ -217,6 +318,32 @@ export const META_TOOLS: Record<string, ToolMetadata> = {
       value: "string - User input response",
     },
     safetyLevel: "L0" as const,
+  },
+  todo_read: {
+    fn: todoRead,
+    description: "Read the current task list for this agent session",
+    category: "meta",
+    args: {},
+    returns: {
+      items: "object[] - Current todo items for this session",
+    },
+    safetyLevel: "L0" as const,
+    formatResult: formatTodoResult,
+  },
+  todo_write: {
+    fn: todoWrite,
+    description:
+      "Replace the current task list for this agent session with a full set of todo items",
+    category: "meta",
+    args: {
+      items:
+        "object[] - Full todo list to store; each item requires {id, content, status}",
+    },
+    returns: {
+      items: "object[] - Updated todo items for this session",
+    },
+    safetyLevel: "L0" as const,
+    formatResult: formatTodoResult,
   },
   complete_task: {
     fn: (args: unknown): Promise<string> => {

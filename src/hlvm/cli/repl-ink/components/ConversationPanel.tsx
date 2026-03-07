@@ -14,6 +14,7 @@ import { getPlatform } from "../../../../platform/platform.ts";
 import {
   AssistantMessage,
   ConfirmationDialog,
+  DelegateItem,
   ErrorMessage,
   InfoMessage,
   QuestionDialog,
@@ -110,6 +111,8 @@ function renderItem(
           isToolExpanded={isToolExpanded}
         />
       );
+    case "delegate":
+      return <DelegateItem item={item} width={width} />;
     case "turn_stats":
       return <TurnStats toolCount={item.toolCount} durationMs={item.durationMs} inputTokens={item.inputTokens} outputTokens={item.outputTokens} />;
     case "error":

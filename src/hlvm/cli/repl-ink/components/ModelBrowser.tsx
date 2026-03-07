@@ -35,7 +35,6 @@ import { isOllamaAuthErrorMessage } from "../../../../common/ollama-auth.ts";
 import { truncate } from "../../../../common/utils.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { isSelectedModelActive } from "../../../../common/config/model-selection.ts";
-import { aiEngine } from "../../../runtime/ai-runtime.ts";
 import { capabilitiesToDisplayTags } from "../../../providers/types.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
 import { isOllamaCloudModel } from "../../../providers/ollama/cloud.ts";
@@ -49,6 +48,7 @@ import {
   deleteRuntimeModel,
   getRuntimeModelDiscovery,
   listRuntimeInstalledModels,
+  runRuntimeOllamaSignin,
 } from "../../../runtime/host-client.ts";
 import { calculateScrollWindow } from "../completion/navigation.ts";
 import { HighlightedText } from "./HighlightedText.tsx";
@@ -757,7 +757,9 @@ export function ModelBrowser({
   }, []);
 
   const fetchDiscovery = useCallback(
-    async (options: { refresh: boolean; preserveExistingOnFailure?: boolean }) => {
+    async (
+      options: { refresh: boolean; preserveExistingOnFailure?: boolean },
+    ) => {
       try {
         const discovery = await getRuntimeModelDiscovery({
           refresh: options.refresh,
@@ -772,9 +774,9 @@ export function ModelBrowser({
           discovery.failed &&
             (!options.preserveExistingOnFailure ||
               (
-            discovery.remoteModels.length === 0 &&
-            discovery.cloudModels.length === 0
-          )),
+                discovery.remoteModels.length === 0 &&
+                discovery.cloudModels.length === 0
+              )),
         );
       } catch {
         if (!isMountedRef.current) return;
@@ -835,15 +837,7 @@ export function ModelBrowser({
   const triggerOllamaSignin = useCallback(async (thenPullModel?: string) => {
     setStatusMessage("Signing in to Ollama Cloud...");
     try {
-      const enginePath = await aiEngine.getEnginePath();
-      // Use run() with inherit so the user sees the interactive signin flow in their terminal
-      const process = platform.command.run({
-        cmd: [enginePath, "signin"],
-        stdin: "inherit",
-        stdout: "inherit",
-        stderr: "inherit",
-      });
-      const result = await process.status;
+      const result = await runRuntimeOllamaSignin();
       if (result.success) {
         setStatusMessage("Signed in! Pulling model...");
         if (thenPullModel) {
@@ -1223,7 +1217,9 @@ export function ModelBrowser({
           fetchModels(); // Refresh list
         } catch (error) {
           if (isMountedRef.current) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = error instanceof Error
+              ? error.message
+              : String(error);
             setStatusMessage(`Delete failed: ${message}`);
           }
         } finally {

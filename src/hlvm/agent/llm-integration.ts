@@ -42,7 +42,9 @@ function createToolDefCache(): {
   ) => ToolDefinition[];
   clear: () => void;
 } {
-  let cached: { key: string; defs: ToolDefinition[]; generation: number } | null = null;
+  let cached:
+    | { key: string; defs: ToolDefinition[]; generation: number }
+    | null = null;
 
   return {
     build(
@@ -54,7 +56,9 @@ function createToolDefCache(): {
         options?.denylist ?? null,
         options?.ownerId ?? null,
       ]);
-      if (cached && cached.key === cacheKey && cached.generation === generation) {
+      if (
+        cached && cached.key === cacheKey && cached.generation === generation
+      ) {
         return cached.defs;
       }
 
@@ -195,7 +199,11 @@ function renderInstructions(tier: ModelTier): PromptSection {
       "- When search_web includes fetched passages, prefer those passages over bare snippets. If evidence is weak or conflicting, say so plainly instead of overclaiming",
     );
   }
-  return { id: "instructions", content: `# Instructions\n${base.join("\n")}`, minTier: "weak" };
+  return {
+    id: "instructions",
+    content: `# Instructions\n${base.join("\n")}`,
+    minTier: "weak",
+  };
 }
 
 /**
@@ -220,13 +228,19 @@ function renderToolRouting(
   const rules: string[] = [];
   for (const [label, group] of groups) {
     rules.push(
-      `- ${label} → ${group.tools.join(", ")} (NOT shell_exec "${group.replaces.join("/")}")`,
+      `- ${label} → ${group.tools.join(", ")} (NOT shell_exec "${
+        group.replaces.join("/")
+      }")`,
     );
   }
   rules.push(
     "- shell_exec → ONLY when no dedicated tool exists for the task",
   );
-  return { id: "routing", content: `# Tool Selection\n${rules.join("\n")}`, minTier: "weak" };
+  return {
+    id: "routing",
+    content: `# Tool Selection\n${rules.join("\n")}`,
+    minTier: "weak",
+  };
 }
 
 /**
@@ -252,7 +266,49 @@ function renderPermissionTiers(
     lines.push(`Approve each time: ${tiers.L2.join(", ")}`);
   }
   lines.push("Prefer Free tools whenever a Free alternative exists.");
-  return { id: "permissions", content: `# Permission Cost\n${lines.join("\n")}`, minTier: "weak" };
+  return {
+    id: "permissions",
+    content: `# Permission Cost\n${lines.join("\n")}`,
+    minTier: "weak",
+  };
+}
+
+function renderWebToolGuidance(
+  tools: Record<string, ToolMetadata>,
+): PromptSection {
+  const hasSearch = "search_web" in tools;
+  const hasWebFetch = "web_fetch" in tools;
+  const hasFetchUrl = "fetch_url" in tools;
+  if (!hasSearch && !hasWebFetch && !hasFetchUrl) {
+    return { id: "web_guidance", content: "", minTier: "weak" };
+  }
+
+  const lines = ["# Web Tool Guidance"];
+  if (hasSearch) {
+    lines.push(
+      "- search_web is for discovery. Use canonical args like query, maxResults, timeRange, locale, searchDepth, prefetch, and reformulate.",
+      "- Use timeRange, not recency. Use prefetch, not preFetch.",
+      "- For docs, APIs, release notes, and changelogs, prefer official/vendor domains already returned by search_web.",
+      "- If the current search results already answer the question, stop and answer instead of chaining more searches.",
+    );
+  }
+  if (hasWebFetch) {
+    lines.push(
+      "- web_fetch is the default reader for a known page URL after search results identify the source.",
+    );
+  }
+  if (hasFetchUrl) {
+    lines.push(
+      "- fetch_url is for raw HTML/markdown or low-level inspection, not the default page reader.",
+    );
+  }
+  if (hasSearch && hasWebFetch) {
+    lines.push(
+      "- When search results already contain a promising official URL, call web_fetch on that URL instead of inventing a derived URL.",
+    );
+  }
+
+  return { id: "web_guidance", content: lines.join("\n"), minTier: "weak" };
 }
 
 function renderEnvironment(
@@ -261,7 +317,8 @@ function renderEnvironment(
   const platform = getPlatform();
   const homePath = platform.env.get("HOME") ?? "unknown";
   const cwd = platform.process.cwd();
-  let env = `# Environment\nPlatform: ${platform.build.os} | Working directory: ${cwd} | HOME: ${homePath}`;
+  let env =
+    `# Environment\nPlatform: ${platform.build.os} | Working directory: ${cwd} | HOME: ${homePath}`;
   if (gitContext) {
     const status = gitContext.dirty ? "dirty" : "clean";
     env += `\nGit: branch=${gitContext.branch} (${status})`;
@@ -311,6 +368,7 @@ function renderTips(): PromptSection {
     content: `# Tips
 - For user folders use list_files with paths like ~/Downloads, ~/Desktop, ~/Documents
 - Use tool_search to narrow the active tool set before specialized tasks
+- For multi-step tasks, keep progress current with todo_write and check it with todo_read
 - For counts/totals/max/min, use aggregate_entries on prior tool results
 - For media files, use mimePrefix (e.g., "video/", "image/")`,
     minTier: "mid",
@@ -341,6 +399,7 @@ export function generateSystemPrompt(
     renderCriticalRules(),
     renderInstructions(tier),
     renderToolRouting(tools),
+    renderWebToolGuidance(tools),
     renderPermissionTiers(tools),
     renderEnvironment(options.gitContext),
   ];

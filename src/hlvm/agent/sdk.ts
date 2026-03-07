@@ -140,6 +140,7 @@ export class Agent {
         skipModelCompensation: session.isFrontierModel,
         autoMemoryRecall: true,
         l1Confirmations: session.l1Confirmations,
+        todoState: session.todoState,
         toolAllowlist: session.toolFilterState?.allowlist ??
           session.llmConfig?.toolAllowlist,
         toolDenylist: session.toolFilterState?.denylist ??

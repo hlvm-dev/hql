@@ -193,6 +193,12 @@ export function generateArgsSummary(
       return typeof a.content === "string" ? truncate(a.content, 80) : "";
     case "memory_edit":
       return typeof a.action === "string" ? truncate(a.action, 80) : "";
+    case "todo_read":
+      return "current session";
+    case "todo_write": {
+      const items = Array.isArray(a.items) ? a.items.length : 0;
+      return `${items} todo${items === 1 ? "" : "s"}`;
+    }
     default: {
       try {
         return truncate(JSON.stringify(a), 80);

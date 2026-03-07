@@ -56,6 +56,7 @@ export async function executeToolWithTimeout(
   onInteraction?: OrchestratorConfig["onInteraction"],
   toolOwnerId?: string,
   ensureMcpLoaded?: () => Promise<void>,
+  todoState?: OrchestratorConfig["todoState"],
   parentSignal?: AbortSignal,
 ): Promise<unknown> {
   return await withTimeout(
@@ -66,6 +67,7 @@ export async function executeToolWithTimeout(
         onInteraction,
         toolOwnerId,
         ensureMcpLoaded,
+        todoState,
         searchTools: (query, options) =>
           searchTools(query, {
             ...options,
@@ -224,30 +226,62 @@ export async function executeToolCall(
     }
 
     if (toolCall.toolName === "delegate_agent" && config.delegate) {
-      const result = await config.delegate(coercedArgs, config);
-      const { llmContent, summaryDisplay, returnDisplay } = buildToolResultOutputs(
-        toolCall.toolName,
-        result,
-        config,
-      );
-      emitToolSuccess(
-        config,
-        toolCall.toolName,
-        toolCall.id,
-        llmContent,
-        summaryDisplay,
-        returnDisplay,
-        startedAt,
-        coercedArgs,
-        result,
-      );
-      return {
-        success: true,
-        result,
-        llmContent,
-        summaryDisplay,
-        returnDisplay,
-      };
+      const delegateArgs = coercedArgs as { agent?: unknown; task?: unknown };
+      const delegateAgent = typeof delegateArgs.agent === "string"
+        ? delegateArgs.agent
+        : "unknown";
+      const delegateTask = typeof delegateArgs.task === "string"
+        ? delegateArgs.task
+        : "";
+      config.onAgentEvent?.({
+        type: "delegate_start",
+        agent: delegateAgent,
+        task: delegateTask,
+      });
+      try {
+        const result = await config.delegate(coercedArgs, config);
+        const { llmContent, summaryDisplay, returnDisplay } = buildToolResultOutputs(
+          toolCall.toolName,
+          result,
+          config,
+        );
+        config.onAgentEvent?.({
+          type: "delegate_end",
+          agent: delegateAgent,
+          task: delegateTask,
+          success: true,
+          summary: summaryDisplay,
+          durationMs: Date.now() - startedAt,
+        });
+        emitToolSuccess(
+          config,
+          toolCall.toolName,
+          toolCall.id,
+          llmContent,
+          summaryDisplay,
+          returnDisplay,
+          startedAt,
+          coercedArgs,
+          result,
+        );
+        return {
+          success: true,
+          result,
+          llmContent,
+          summaryDisplay,
+          returnDisplay,
+        };
+      } catch (error) {
+        config.onAgentEvent?.({
+          type: "delegate_end",
+          agent: delegateAgent,
+          task: delegateTask,
+          success: false,
+          error: getErrorMessage(error),
+          durationMs: Date.now() - startedAt,
+        });
+        throw error;
+      }
     }
 
     // Execute tool (with timeout)
@@ -264,6 +298,7 @@ export async function executeToolCall(
         config.onInteraction,
         config.toolOwnerId,
         config.ensureMcpLoaded,
+        config.todoState,
         config.signal,
       );
     } catch (error) {
@@ -282,6 +317,7 @@ export async function executeToolCall(
             config.onInteraction,
             config.toolOwnerId,
             config.ensureMcpLoaded,
+            config.todoState,
             config.signal,
           );
         } else {

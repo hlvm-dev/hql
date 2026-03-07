@@ -443,7 +443,6 @@ export function classifyModelTier(
 
 /** Default tool denylist for interactive ask mode */
 export const DEFAULT_TOOL_DENYLIST = [
-  "delegate_agent",
   "complete_task",
 ] as const;
 

@@ -1,5 +1,13 @@
-import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
+  assert,
+  assertEquals,
+  assertRejects,
+  assertStringIncludes,
+} from "jsr:@std/assert";
+import { HQLErrorCode } from "../../../src/common/error-codes.ts";
+import { RuntimeError } from "../../../src/common/error.ts";
+import {
+  addRuntimeMcpServer,
   addRuntimeSessionMessage,
   createRuntimeSession,
   deleteRuntimeModel,
@@ -11,12 +19,18 @@ import {
   getRuntimeProviderStatus,
   getRuntimeSession,
   listRuntimeInstalledModels,
+  listRuntimeMcpServers,
   listRuntimeSessionMessages,
   listRuntimeSessions,
+  loginRuntimeMcpServer,
+  logoutRuntimeMcpServer,
   pullRuntimeModelViaHost,
+  removeRuntimeMcpServer,
   runAgentQueryViaHost,
   runDirectChatViaHost,
+  runRuntimeOllamaSignin,
 } from "../../../src/hlvm/runtime/host-client.ts";
+import { getRuntimeHostIdentity } from "../../../src/hlvm/runtime/host-identity.ts";
 import type { RuntimeSessionMessage } from "../../../src/hlvm/runtime/session-protocol.ts";
 import { deriveDefaultSessionKey } from "../../../src/hlvm/runtime/session-key.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
@@ -28,6 +42,22 @@ import {
 
 const encoder = new TextEncoder();
 
+async function createHealthResponse(authToken: string, overrides: {
+  aiReady?: boolean;
+  authToken?: string | null;
+} = {}): Promise<Record<string, unknown>> {
+  const identity = await getRuntimeHostIdentity();
+  return {
+    status: "ok",
+    initialized: true,
+    definitions: 0,
+    aiReady: overrides.aiReady ?? true,
+    version: identity.version,
+    buildId: identity.buildId,
+    authToken: overrides.authToken ?? authToken,
+  };
+}
+
 Deno.test("runAgentQueryViaHost streams events, traces, and interaction responses", async () => {
   const port = await findFreePort();
   const authToken = "test-auth-token";
@@ -37,13 +67,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
   const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
-      return Response.json({
-        status: "ok",
-        initialized: true,
-        definitions: 0,
-        aiReady: true,
-        authToken,
-      });
+      return Response.json(await createHealthResponse(authToken));
     }
 
     const authHeader = req.headers.get("Authorization");
@@ -69,6 +93,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
             tool_index: 1,
             tool_total: 1,
           });
+          emit({ event: "delegate_start", agent: "web", task: "Inspect docs" });
           emit({
             event: "interaction_request",
             request_id: "interaction-1",
@@ -98,6 +123,14 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
             summary: "Read file",
             duration_ms: 25,
             args_summary: "src/main.ts",
+          });
+          emit({
+            event: "delegate_end",
+            agent: "web",
+            task: "Inspect docs",
+            success: true,
+            summary: "Found relevant docs",
+            duration_ms: 18,
           });
           emit({
             event: "result_stats",
@@ -165,6 +198,8 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       assert(uiEvents.includes("thinking"));
       assert(uiEvents.includes("tool_start"));
       assert(uiEvents.includes("tool_end"));
+      assert(uiEvents.includes("delegate_start"));
+      assert(uiEvents.includes("delegate_end"));
       assertEquals(traces, ["iteration"]);
       assertEquals(metaEvents, [1]);
       assertEquals(result.text, "done");
@@ -227,13 +262,7 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
   const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
-      return Response.json({
-        status: "ok",
-        initialized: true,
-        definitions: 0,
-        aiReady: true,
-        authToken,
-      });
+      return Response.json(await createHealthResponse(authToken));
     }
 
     if (url.pathname === "/api/sessions") {
@@ -366,6 +395,53 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
   }
 });
 
+Deno.test("runAgentQueryViaHost labels host rejections as runtime-host failures", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json(await createHealthResponse(authToken));
+    }
+
+    if (url.pathname === "/api/chat") {
+      return Response.json({
+        error: "Selected model does not support tool calling",
+      }, { status: 400 });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      const error = await assertRejects(
+        () =>
+          runAgentQueryViaHost({
+            query: "go apple.com and find any new macbook stuff",
+            model: "ollama/llama3.2:3b",
+            workspace: "/tmp/project",
+            callbacks: {},
+          }),
+        RuntimeError,
+      );
+      assertEquals(error.code, HQLErrorCode.RUNTIME_HOST_REQUEST_FAILED);
+      assertStringIncludes(
+        error.message,
+        "Selected model does not support tool calling",
+      );
+    });
+  } finally {
+    await handle.shutdown();
+    await handle.finished;
+  }
+});
+
 Deno.test("runAgentQueryViaHost uses ephemeral session ids for fresh sessions", async () => {
   const port = await findFreePort();
   const authToken = "test-auth-token";
@@ -374,13 +450,7 @@ Deno.test("runAgentQueryViaHost uses ephemeral session ids for fresh sessions", 
   const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
-      return Response.json({
-        status: "ok",
-        initialized: true,
-        definitions: 0,
-        aiReady: true,
-        authToken,
-      });
+      return Response.json(await createHealthResponse(authToken));
     }
 
     if (url.pathname === "/api/chat") {
@@ -448,13 +518,11 @@ Deno.test("runAgentQueryViaHost waits for runtime readiness before sending chat"
     const url = new URL(req.url);
     if (url.pathname === "/health") {
       healthChecks += 1;
-      return Response.json({
-        status: "ok",
-        initialized: true,
-        definitions: 0,
-        aiReady: healthChecks >= 3,
-        authToken,
-      });
+      return Response.json(
+        await createHealthResponse(authToken, {
+          aiReady: healthChecks >= 3,
+        }),
+      );
     }
 
     if (url.pathname === "/api/chat") {
@@ -676,5 +744,115 @@ Deno.test("runtime host client exposes config get/patch/reset through the runtim
     assertEquals(seenPatches[1]?.theme, "hlvm");
     assertEquals(reset.model, "ollama/llama3.2:latest");
     assertEquals(reloaded.model, "ollama/llama3.2:latest");
+  });
+});
+
+Deno.test("runtime host client exposes Ollama signin and MCP admin flows through the runtime boundary", async () => {
+  let addBody: Record<string, unknown> | null = null;
+  let removeBody: Record<string, unknown> | null = null;
+  let loginBody: Record<string, unknown> | null = null;
+  let logoutBody: Record<string, unknown> | null = null;
+  let signinCalls = 0;
+
+  await withRuntimeHostServer(async (req, authToken) => {
+    const url = new URL(req.url);
+    assertEquals(req.headers.get("Authorization"), `Bearer ${authToken}`);
+
+    if (url.pathname === "/api/providers/ollama/signin") {
+      signinCalls += 1;
+      return Response.json({
+        success: true,
+        output: ["Open this URL to sign in"],
+        signinUrl: "https://ollama.com/connect?token=test",
+        browserOpened: true,
+      });
+    }
+
+    if (url.pathname === "/api/mcp/servers" && req.method === "GET") {
+      assertEquals(url.searchParams.get("workspace"), "/tmp/project");
+      return Response.json({
+        servers: [{
+          name: "github",
+          command: ["npx", "-y", "@modelcontextprotocol/server-github"],
+          scope: "project",
+          transport: "stdio",
+          target: "npx -y @modelcontextprotocol/server-github",
+          scopeLabel: "project",
+        }],
+      });
+    }
+
+    if (url.pathname === "/api/mcp/servers" && req.method === "POST") {
+      addBody = await req.json() as Record<string, unknown>;
+      return Response.json({ ok: true });
+    }
+
+    if (url.pathname === "/api/mcp/servers" && req.method === "DELETE") {
+      removeBody = await req.json() as Record<string, unknown>;
+      return Response.json({ removed: true, scope: "project" });
+    }
+
+    if (url.pathname === "/api/mcp/oauth/login") {
+      loginBody = await req.json() as Record<string, unknown>;
+      return Response.json({
+        serverName: "github",
+        messages: [
+          "Open this URL to authorize MCP server 'github':",
+          "OAuth login complete for MCP server 'github'.",
+        ],
+      });
+    }
+
+    if (url.pathname === "/api/mcp/oauth/logout") {
+      logoutBody = await req.json() as Record<string, unknown>;
+      return Response.json({
+        serverName: "github",
+        messages: [],
+        removed: true,
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, async () => {
+    const signin = await runRuntimeOllamaSignin();
+    const listed = await listRuntimeMcpServers("/tmp/project");
+    await addRuntimeMcpServer({
+      workspace: "/tmp/project",
+      scope: "project",
+      server: {
+        name: "github",
+        command: ["npx", "-y", "@modelcontextprotocol/server-github"],
+      },
+    });
+    const removed = await removeRuntimeMcpServer({
+      workspace: "/tmp/project",
+      name: "github",
+    });
+    const login = await loginRuntimeMcpServer({
+      workspace: "/tmp/project",
+      name: "github",
+    });
+    const logout = await logoutRuntimeMcpServer({
+      workspace: "/tmp/project",
+      name: "github",
+    });
+
+    assertEquals(signin.success, true);
+    assertEquals(signin.browserOpened, true);
+    assertEquals(signin.signinUrl, "https://ollama.com/connect?token=test");
+    assertEquals(signinCalls, 1);
+    assertEquals(listed.length, 1);
+    assertEquals(listed[0]?.name, "github");
+    assertEquals(addBody?.workspace, "/tmp/project");
+    assertEquals(addBody?.scope, "project");
+    assertEquals(removeBody?.name, "github");
+    assertEquals(removed.scope, "project");
+    assertEquals(loginBody?.name, "github");
+    assertEquals(
+      login.messages.at(-1),
+      "OAuth login complete for MCP server 'github'.",
+    );
+    assertEquals(logoutBody?.workspace, "/tmp/project");
+    assertEquals(logout.removed, true);
   });
 });

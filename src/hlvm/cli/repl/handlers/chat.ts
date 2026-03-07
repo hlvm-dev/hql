@@ -263,6 +263,10 @@ export async function handleChat(req: Request): Promise<Response> {
     cfgSnapshot = config.snapshot;
   }
   const resolvedModel = body.model ?? cfgSnapshot.model;
+  const fixturePath = typeof body.fixture_path === "string" &&
+      body.fixture_path.trim()
+    ? body.fixture_path.trim()
+    : undefined;
 
   if (
     (body.mode === "agent" || body.mode === CLAUDE_CODE_AGENT_MODE) &&
@@ -273,7 +277,7 @@ export async function handleChat(req: Request): Promise<Response> {
 
   let resolvedModelInfo: import("../../../providers/types.ts").ModelInfo | null = null;
   let modelDiscoveryFailed = false;
-  if (resolvedModel) {
+  if (resolvedModel && !fixturePath) {
     const [parsedProvider, parsedModelName] = parseModelString(resolvedModel);
     try {
       resolvedModelInfo = await ai.models.get(

@@ -7,12 +7,15 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import { META_TOOLS } from "../../../src/hlvm/agent/tools/meta-tools.ts";
 import { searchTools } from "../../../src/hlvm/agent/registry.ts";
+import type { TodoState } from "../../../src/hlvm/agent/todo-state.ts";
 
 Deno.test({
   name: "META_TOOLS: ask_user - should have correct safety level",
   fn() {
     assertEquals(META_TOOLS.ask_user.safetyLevel, "L0");
     assertEquals(META_TOOLS.tool_search.safetyLevel, "L0");
+    assertEquals(META_TOOLS.todo_read.safetyLevel, "L0");
+    assertEquals(META_TOOLS.todo_write.safetyLevel, "L0");
   },
 });
 
@@ -144,6 +147,69 @@ Deno.test({
       async () => await META_TOOLS.tool_search.fn({}, "/workspace"),
       Error,
       "query must be a non-empty string",
+    );
+  },
+});
+
+Deno.test({
+  name: "META_TOOLS: todo_read/todo_write share session-scoped todo state",
+  async fn() {
+    const todoState: TodoState = { items: [] };
+    const written = await META_TOOLS.todo_write.fn(
+      {
+        items: [
+          { id: "step-1", content: "Inspect repo", status: "in_progress" },
+          { id: "step-2", content: "Write tests", status: "pending" },
+        ],
+      },
+      "/workspace",
+      { todoState },
+    ) as { items: Array<{ id: string; content: string; status: string }> };
+    const read = await META_TOOLS.todo_read.fn({}, "/workspace", {
+      todoState,
+    }) as { items: Array<{ id: string; content: string; status: string }> };
+
+    assertEquals(written.items.length, 2);
+    assertEquals(read.items, written.items);
+    assertEquals(todoState.items.length, 2);
+    assertEquals(todoState.items[0]?.status, "in_progress");
+  },
+});
+
+Deno.test({
+  name: "META_TOOLS: todo_write rejects invalid item shapes",
+  async fn() {
+    await assertRejects(
+      async () =>
+        await META_TOOLS.todo_write.fn(
+          { items: [{ id: "", content: "Bad", status: "pending" }] },
+          "/workspace",
+          { todoState: { items: [] } },
+        ),
+      Error,
+      "items[0].id must be a non-empty string",
+    );
+
+    await assertRejects(
+      async () =>
+        await META_TOOLS.todo_write.fn(
+          { items: [{ id: "ok", content: "", status: "pending" }] },
+          "/workspace",
+          { todoState: { items: [] } },
+        ),
+      Error,
+      "items[0].content must be a non-empty string",
+    );
+
+    await assertRejects(
+      async () =>
+        await META_TOOLS.todo_write.fn(
+          { items: [{ id: "ok", content: "Bad", status: "unknown" }] },
+          "/workspace",
+          { todoState: { items: [] } },
+        ),
+      Error,
+      "items[0].status must be one of",
     );
   },
 });

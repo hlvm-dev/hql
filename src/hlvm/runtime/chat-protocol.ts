@@ -17,6 +17,7 @@ export interface ChatRequest {
   session_id: string;
   messages: ChatRequestMessage[];
   model?: string;
+  fixture_path?: string;
   temperature?: number;
   max_tokens?: number;
   client_turn_id?: string;
@@ -60,6 +61,8 @@ export interface HostHealthResponse {
   initialized: boolean;
   definitions: number;
   aiReady: boolean;
+  version: string;
+  buildId: string;
   authToken: string | null;
 }
 
@@ -88,6 +91,20 @@ export type ChatStreamEvent =
     request_id?: string;
   }
   | {
+    event: "delegate_start";
+    agent: string;
+    task: string;
+  }
+  | {
+    event: "delegate_end";
+    agent: string;
+    task: string;
+    success: boolean;
+    summary?: string;
+    duration_ms?: number;
+    error?: string;
+  }
+  | {
     event: "interaction_request";
     request_id: string;
     mode: "permission" | "question";
@@ -95,10 +112,20 @@ export type ChatStreamEvent =
     tool_args?: string;
     question?: string;
   }
-  | { event: "turn_stats"; iteration: number; tool_count: number; duration_ms?: number }
+  | {
+    event: "turn_stats";
+    iteration: number;
+    tool_count: number;
+    duration_ms?: number;
+  }
   | { event: "trace"; trace: TraceEvent }
   | { event: "final_response_meta"; meta: FinalResponseMeta }
   | { event: "result_stats"; stats: ChatResultStats }
   | { event: "complete"; request_id: string; session_version: number }
-  | { event: "error"; message: string; errorClass?: string; retryable?: boolean }
+  | {
+    event: "error";
+    message: string;
+    errorClass?: string;
+    retryable?: boolean;
+  }
   | { event: "cancelled"; request_id: string; partial_text: string };

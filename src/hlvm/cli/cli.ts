@@ -23,16 +23,12 @@ import { chatCommand, showChatHelp } from "./commands/chat.ts";
 import { ollamaCommand, showOllamaHelp } from "./commands/ollama.ts";
 import { serveCommand, showServeHelp } from "./commands/serve.ts";
 import { mcpCommand, showMcpHelp } from "./commands/mcp.ts";
-import { initializeRuntime } from "../../common/runtime-initializer.ts";
-import { registerApis } from "../api/index.ts";
 
 // Import run command from run.ts
 import { run as runCommand } from "./run.ts";
 // Import repl command from Ink REPL
 import { type InkReplOptions, startInkRepl } from "./repl-ink/index.tsx";
-import {
-  parseSessionFlags,
-} from "./repl/session/types.ts";
+import { parseSessionFlags } from "./repl/session/types.ts";
 import { VERSION } from "../../version.ts";
 
 /**
@@ -174,11 +170,6 @@ async function main(): Promise<void> {
     showVersion();
     return;
   }
-
-  // Initialize runtime with config only (no AI autostart for CLI dispatcher)
-  // Individual commands (repl, ai, run) handle their own AI initialization
-  await initializeRuntime({ ai: false, stdlib: false, cache: false });
-  registerApis();
 
   // Default: start REPL when no arguments (for GUI compatibility)
   if (args.length === 0) {

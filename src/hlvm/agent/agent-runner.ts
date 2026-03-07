@@ -12,9 +12,9 @@ import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { getCustomInstructionsPath } from "../../common/paths.ts";
 import {
   closeFactDb,
-  persistConversationFacts,
   extractSessionFacts,
   loadMemoryContext,
+  persistConversationFacts,
   setMemoryModelTier,
 } from "../memory/mod.ts";
 import { setAgentLogger } from "./logger.ts";
@@ -44,20 +44,21 @@ import {
   isFrontierProvider,
   MAX_SESSION_HISTORY,
 } from "./constants.ts";
+import { resolveQueryToolAllowlist } from "./query-tool-routing.ts";
 import type { PermissionMode } from "../../common/config/types.ts";
 import { UsageTracker } from "./usage.ts";
 import { ContextManager, takeLastMessageGroups } from "./context.ts";
 import type { ModelInfo } from "../providers/types.ts";
 import {
-  classifyAgentFinalResponse,
   type AgentOrchestratorFailureCode,
+  classifyAgentFinalResponse,
 } from "./model-compat.ts";
 import {
   appendPersistedAgentToolResult,
   completePersistedAgentTurn,
   loadPersistedAgentHistory,
-  startPersistedAgentTurn,
   type PersistedAgentTurn,
+  startPersistedAgentTurn,
 } from "./persisted-transcript.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
@@ -77,12 +78,16 @@ function toCacheKey(
   model: string,
   opts?: {
     contextWindow?: number;
+    toolAllowlist?: string[];
     toolDenylist?: string[];
   },
 ): string {
   const contextWindowKey = typeof opts?.contextWindow === "number"
     ? String(opts.contextWindow)
     : "default";
+  const allowlistKey = opts?.toolAllowlist?.length
+    ? [...new Set(opts.toolAllowlist)].sort().join(",")
+    : "";
   const denylistKey = opts?.toolDenylist?.length
     ? [...new Set(opts.toolDenylist)].sort().join(",")
     : "";
@@ -90,6 +95,7 @@ function toCacheKey(
     `workspace:${workspace}`,
     `model:${model}`,
     `contextWindow:${contextWindowKey}`,
+    `allow:${allowlistKey}`,
     `deny:${denylistKey}`,
   ].join("|");
 }
@@ -100,6 +106,7 @@ export async function getOrCreateCachedSession(
   model: string,
   opts?: {
     contextWindow?: number;
+    toolAllowlist?: string[];
     toolDenylist?: string[];
     onToken?: (text: string) => void;
     modelInfo?: ModelInfo | null;
@@ -116,6 +123,7 @@ export async function getOrCreateCachedSession(
     contextWindow: opts?.contextWindow,
     engineProfile: "normal",
     failOnContextOverflow: false,
+    toolAllowlist: opts?.toolAllowlist,
     toolDenylist: opts?.toolDenylist,
     onToken: opts?.onToken,
     modelInfo: opts?.modelInfo,
@@ -204,6 +212,17 @@ function mergePolicyPathRoots(
   };
 }
 
+function normalizeToolList(list?: string[]): string[] {
+  return list?.length ? [...new Set(list)].sort() : [];
+}
+
+function toolListsMatch(a?: string[], b?: string[]): boolean {
+  const left = normalizeToolList(a);
+  const right = normalizeToolList(b);
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
 export interface AgentRunnerCallbacks {
   onToken?: (text: string) => void;
   onAgentEvent?: (event: AgentUIEvent) => void;
@@ -217,12 +236,14 @@ export interface AgentRunnerCallbacks {
 export interface AgentRunnerOptions {
   query: string;
   model?: string;
+  fixturePath?: string;
   /** Optional context window override (in tokens). */
   contextWindow?: number;
   workspace?: string;
   callbacks: AgentRunnerCallbacks;
   permissionMode?: PermissionMode;
   noInput?: boolean;
+  toolAllowlist?: string[];
   toolDenylist?: string[];
   skipSessionHistory?: boolean;
   signal?: AbortSignal;
@@ -304,6 +325,7 @@ export async function runAgentQuery(
   model = await resolveCompatibleClaudeCodeModel(model);
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const profile = ENGINE_PROFILES.normal;
+  const toolAllowlist = resolveQueryToolAllowlist(query, options.toolAllowlist);
 
   // Pre-read custom instructions (~/.hlvm/HLVM.md) — non-blocking
   let customInstructions = "";
@@ -313,16 +335,25 @@ export async function runAgentQuery(
     );
   } catch { /* file not found — skip */ }
 
-  const isCached = !!options.cachedSession;
+  const matchingCachedSession = options.cachedSession &&
+      toolListsMatch(
+        options.cachedSession.llmConfig?.toolAllowlist,
+        toolAllowlist,
+      )
+    ? options.cachedSession
+    : undefined;
+  const isCached = !!matchingCachedSession;
   const engine = isCached ? undefined : getAgentEngine();
-  const session: AgentSession = options.cachedSession
-    ? await reuseSession(options.cachedSession, callbacks.onToken)
+  const session: AgentSession = matchingCachedSession
+    ? await reuseSession(matchingCachedSession, callbacks.onToken)
     : await createAgentSession({
       workspace,
       model,
+      fixturePath: options.fixturePath,
       contextWindow: options.contextWindow,
       engineProfile: "normal",
       failOnContextOverflow: false,
+      toolAllowlist,
       toolDenylist,
       onToken: callbacks.onToken,
       modelInfo: options.modelInfo,
@@ -380,7 +411,11 @@ export async function runAgentQuery(
         roots: [
           `file://${workspace}`,
           ...DEFAULT_AGENT_PATH_ROOTS.map((r) =>
-            `file://${r.startsWith("~") ? (getPlatform().env.get("HOME") ?? "") + r.slice(1) : r}`
+            `file://${
+              r.startsWith("~")
+                ? (getPlatform().env.get("HOME") ?? "") + r.slice(1)
+                : r
+            }`
           ),
         ],
       });
@@ -435,6 +470,7 @@ export async function runAgentQuery(
         autoMemoryRecall: true,
         usage: usageTracker,
         l1Confirmations: session.l1Confirmations,
+        todoState: session.todoState,
         toolAllowlist: session.toolFilterState?.allowlist ??
           session.llmConfig?.toolAllowlist,
         toolDenylist: session.toolFilterState?.denylist ??

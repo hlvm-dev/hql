@@ -11,6 +11,7 @@ export { ThinkingIndicator } from "./ThinkingIndicator.tsx";
 export { ErrorMessage } from "./ErrorMessage.tsx";
 export { InfoMessage } from "./InfoMessage.tsx";
 export { TurnStats } from "./TurnStats.tsx";
+export { DelegateItem } from "./DelegateItem.tsx";
 
 // Tool display components
 export { ToolStatusIcon } from "./ToolStatusIcon.tsx";

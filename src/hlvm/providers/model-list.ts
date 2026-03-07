@@ -50,6 +50,52 @@ export function tagModelsForProvider(
   return tagProviderModels(providerName, provider, models);
 }
 
+function mergeCapabilities(
+  primary?: ModelInfo["capabilities"],
+  secondary?: ModelInfo["capabilities"],
+): ModelInfo["capabilities"] {
+  if (!primary?.length) return secondary;
+  if (!secondary?.length) return primary;
+
+  const merged = [...primary];
+  for (const capability of secondary) {
+    if (!merged.includes(capability)) {
+      merged.push(capability);
+    }
+  }
+  return merged;
+}
+
+function mergeMetadata(
+  primary?: ModelInfo["metadata"],
+  secondary?: ModelInfo["metadata"],
+): ModelInfo["metadata"] {
+  if (!primary) return secondary;
+  if (!secondary) return primary;
+  return {
+    ...secondary,
+    ...primary,
+  };
+}
+
+function mergeModelInfo(primary: ModelInfo, secondary: ModelInfo): ModelInfo {
+  return {
+    name: primary.name,
+    displayName: primary.displayName ?? secondary.displayName,
+    size: primary.size ?? secondary.size,
+    family: primary.family ?? secondary.family,
+    parameterSize: primary.parameterSize ?? secondary.parameterSize,
+    quantization: primary.quantization ?? secondary.quantization,
+    modifiedAt: primary.modifiedAt ?? secondary.modifiedAt,
+    capabilities: mergeCapabilities(
+      primary.capabilities,
+      secondary.capabilities,
+    ),
+    metadata: mergeMetadata(primary.metadata, secondary.metadata),
+    contextWindow: primary.contextWindow ?? secondary.contextWindow,
+  };
+}
+
 export function dedupeModelList(models: ModelInfo[]): ModelInfo[] {
   const byName = new Map<string, ModelInfo[]>();
   for (const model of models) {
@@ -61,20 +107,14 @@ export function dedupeModelList(models: ModelInfo[]): ModelInfo[] {
 
   const deduped: ModelInfo[] = [];
   for (const groupedModels of byName.values()) {
-    if (groupedModels.length <= 1) {
-      deduped.push(...groupedModels);
-      continue;
-    }
-    const hasConfigured = groupedModels.some((model) =>
-      model.metadata?.apiKeyConfigured === true
-    );
-    if (hasConfigured) {
-      for (const model of groupedModels) {
-        if (model.metadata?.apiKeyConfigured !== false) deduped.push(model);
-      }
-    } else {
-      deduped.push(groupedModels[0]);
-    }
+    const preferredModels = groupedModels.some((model) =>
+        model.metadata?.apiKeyConfigured === true
+      )
+      ? groupedModels.filter((model) =>
+        model.metadata?.apiKeyConfigured !== false
+      )
+      : groupedModels;
+    deduped.push(preferredModels.reduce(mergeModelInfo));
   }
 
   return deduped;

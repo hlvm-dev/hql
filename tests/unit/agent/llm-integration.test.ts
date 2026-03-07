@@ -35,7 +35,21 @@ Deno.test("LLM integration: prompt renders routing and permission sections witho
   const prompt = generateSystemPrompt();
 
   assertStringIncludes(prompt, "# Tool Selection");
-  assertStringIncludes(prompt, "shell_exec → ONLY when no dedicated tool exists");
+  assertStringIncludes(prompt, "# Web Tool Guidance");
+  assertStringIncludes(prompt, "Use timeRange, not recency");
+  assertStringIncludes(prompt, "Use prefetch, not preFetch");
+  assertStringIncludes(
+    prompt,
+    "web_fetch is the default reader for a known page URL",
+  );
+  assertStringIncludes(
+    prompt,
+    "call web_fetch on that URL instead of inventing a derived URL",
+  );
+  assertStringIncludes(
+    prompt,
+    "shell_exec → ONLY when no dedicated tool exists",
+  );
   assertStringIncludes(prompt, "# Permission Cost");
   assertStringIncludes(prompt, "Prefer Free tools");
   assertEquals(prompt.includes("**Arguments:**"), false);
@@ -95,7 +109,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "LLM integration: detectGitContext returns null for non-repos and missing paths",
+  name:
+    "LLM integration: detectGitContext returns null for non-repos and missing paths",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {

@@ -695,7 +695,9 @@ function AppContent(
       if (model) {
         conversation.addInfo("Initializing agent...");
       } else {
-        throw new ConfigError("No configured model available for conversation mode.");
+        throw new ConfigError(
+          "No configured model available for conversation mode.",
+        );
       }
 
       const sessionMeta = sessionApi.current() ?? currentSession ??
@@ -1590,7 +1592,7 @@ function AppContent(
             // Add success message to history
             addHistoryEntry("", {
               success: true,
-              value: `✓ AI model ready: ${init.modelToSetup}`,
+              value: `✓ AI model installed: ${init.modelToSetup}`,
               isCommandOutput: true,
             });
           }}

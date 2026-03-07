@@ -1,5 +1,6 @@
 import { http } from "../../common/http-client.ts";
 import { RuntimeError } from "../../common/error.ts";
+import { HQLErrorCode } from "../../common/error-codes.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import type {
   ConfigKey,
@@ -35,10 +36,23 @@ import type {
   RuntimeModelPullStreamEvent,
 } from "./model-protocol.ts";
 import type { ModelInfo, ProviderStatus } from "../providers/types.ts";
+import type {
+  RuntimeMcpListResponse,
+  RuntimeMcpOauthResponse,
+  RuntimeMcpRemoveResponse,
+  RuntimeMcpServerDescriptor,
+  RuntimeMcpServerInput,
+} from "./mcp-protocol.ts";
+import type { RuntimeOllamaSigninResponse } from "./provider-protocol.ts";
+import {
+  buildRuntimeServeCommand,
+  getRuntimeHostIdentity,
+} from "./host-identity.ts";
 
 const STREAM_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const HEALTH_POLL_ATTEMPTS = 60;
 const HEALTH_POLL_DELAY_MS = 100;
+const RUNTIME_SHUTDOWN_POLL_ATTEMPTS = 30;
 
 export interface RuntimeInteractionRequest {
   requestId: string;
@@ -86,6 +100,7 @@ export interface HostBackedChatOptions {
   sessionId: string;
   messages: ChatRequestMessage[];
   model?: string;
+  fixturePath?: string;
   workspace?: string;
   contextWindow?: number;
   skipSessionHistory?: boolean;
@@ -103,6 +118,7 @@ export interface HostBackedAgentQueryOptions {
   query: string;
   model: string;
   workspace: string;
+  fixturePath?: string;
   imagePaths?: string[];
   contextWindow?: number;
   skipSessionHistory?: boolean;
@@ -125,23 +141,6 @@ export interface HostBackedDirectChatOptions {
   callbacks: Pick<HostBackedChatCallbacks, "onToken">;
 }
 
-function isDenoExecutable(execPath: string): boolean {
-  return /(?:^|\/|\\)deno(?:\.exe)?$/i.test(execPath);
-}
-
-function buildServeCommand(): string[] {
-  const platform = getPlatform();
-  const execPath = platform.process.execPath();
-  if (!isDenoExecutable(execPath)) {
-    return [execPath, "serve"];
-  }
-
-  const cliEntry = platform.path.fromFileUrl(
-    new URL("../cli/cli.ts", import.meta.url),
-  );
-  return [execPath, "run", "-A", cliEntry, "serve"];
-}
-
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -156,6 +155,25 @@ function defaultChatStats(): ChatResultStats {
 
 function authHeaders(authToken: string): Record<string, string> {
   return { "Authorization": `Bearer ${authToken}` };
+}
+
+function createRuntimeHostError(
+  message: string,
+  originalError?: Error,
+): RuntimeError {
+  return new RuntimeError(message, {
+    code: /\[HQL\d{4}\]/.test(message)
+      ? undefined
+      : HQLErrorCode.RUNTIME_HOST_REQUEST_FAILED,
+    originalError,
+  });
+}
+
+function matchesRuntimeHostIdentity(
+  health: HostHealthResponse,
+  buildId: string,
+): boolean {
+  return health.buildId === buildId;
 }
 
 async function readHealth(baseUrl: string): Promise<HostHealthResponse | null> {
@@ -173,15 +191,53 @@ async function readHealth(baseUrl: string): Promise<HostHealthResponse | null> {
 
 async function waitForHealthyRuntime(
   baseUrl: string,
+  predicate?: (health: HostHealthResponse) => boolean,
 ): Promise<HostHealthResponse | null> {
   for (let i = 0; i < HEALTH_POLL_ATTEMPTS; i++) {
     const health = await readHealth(baseUrl);
-    if (health?.status === "ok" && health.authToken) {
+    if (
+      health?.status === "ok" && health.authToken &&
+      (!predicate || predicate(health))
+    ) {
       if (health.aiReady) return health;
     }
     await sleep(HEALTH_POLL_DELAY_MS);
   }
-  return await readHealth(baseUrl);
+  const health = await readHealth(baseUrl);
+  if (
+    health?.status === "ok" && health.authToken &&
+    (!predicate || predicate(health))
+  ) {
+    return health;
+  }
+  return null;
+}
+
+async function waitForRuntimeShutdown(baseUrl: string): Promise<boolean> {
+  for (let i = 0; i < RUNTIME_SHUTDOWN_POLL_ATTEMPTS; i++) {
+    if ((await readHealth(baseUrl)) === null) {
+      return true;
+    }
+    await sleep(HEALTH_POLL_DELAY_MS);
+  }
+  return (await readHealth(baseUrl)) === null;
+}
+
+async function requestRuntimeShutdown(
+  baseUrl: string,
+  authToken: string,
+): Promise<boolean> {
+  try {
+    const response = await http.fetchRaw(`${baseUrl}/api/runtime/shutdown`, {
+      method: "POST",
+      timeout: 5_000,
+      headers: authHeaders(authToken),
+    });
+    await response.text();
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 function spawnRuntimeHost(authToken: string): void {
@@ -191,7 +247,7 @@ function spawnRuntimeHost(authToken: string): void {
     HLVM_AUTH_TOKEN: authToken,
   };
   const process = platform.command.run({
-    cmd: buildServeCommand(),
+    cmd: buildRuntimeServeCommand(),
     env,
     stdin: "null",
     stdout: "null",
@@ -205,21 +261,76 @@ async function ensureRuntimeHost(): Promise<{
   authToken: string;
 }> {
   const baseUrl = getHlvmRuntimeBaseUrl();
+  const identity = await getRuntimeHostIdentity();
   const attached = await waitForHealthyRuntime(baseUrl);
-  if (attached?.status === "ok" && attached.authToken) {
+  if (
+    attached?.status === "ok" && attached.authToken &&
+    matchesRuntimeHostIdentity(attached, identity.buildId)
+  ) {
     return { baseUrl, authToken: attached.authToken };
+  }
+  if (
+    attached?.status === "ok" && attached.authToken &&
+    !matchesRuntimeHostIdentity(attached, identity.buildId)
+  ) {
+    const shutdownRequested = await requestRuntimeShutdown(
+      baseUrl,
+      attached.authToken,
+    );
+    if (shutdownRequested) {
+      const stopped = await waitForRuntimeShutdown(baseUrl);
+      if (!stopped) {
+        throw createRuntimeHostError(
+          "Failed to replace the stale local HLVM runtime host.",
+        );
+      }
+    }
   }
 
   const authToken = crypto.randomUUID();
   spawnRuntimeHost(authToken);
 
-  const started = await waitForHealthyRuntime(baseUrl);
-  if (!started?.authToken) {
-    throw new RuntimeError(
-      "Failed to start or attach to the local HLVM runtime host.",
+  const started = await waitForHealthyRuntime(
+    baseUrl,
+    (health) =>
+      health.authToken === authToken &&
+      matchesRuntimeHostIdentity(health, identity.buildId),
+  );
+  if (
+    !started?.authToken ||
+    !matchesRuntimeHostIdentity(started, identity.buildId)
+  ) {
+    throw createRuntimeHostError(
+      "Failed to start a matching local HLVM runtime host. Restart HLVM and try again.",
     );
   }
   return { baseUrl, authToken: started.authToken };
+}
+
+async function ensureRuntimeAiReady(): Promise<{
+  baseUrl: string;
+  authToken: string;
+}> {
+  const runtime = await ensureRuntimeHost();
+  const health = await waitForHealthyRuntime(runtime.baseUrl);
+  if (!health?.authToken) {
+    throw createRuntimeHostError(
+      "Failed to start or attach to the local HLVM runtime host.",
+    );
+  }
+  if (!health.aiReady) {
+    throw createRuntimeHostError(
+      "Local HLVM runtime host is not ready for AI requests.",
+    );
+  }
+  return {
+    baseUrl: runtime.baseUrl,
+    authToken: health.authToken,
+  };
+}
+
+export async function ensureRuntimeHostReady(): Promise<void> {
+  await ensureRuntimeAiReady();
 }
 
 function createSessionId(
@@ -262,6 +373,22 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         argsSummary: event.args_summary,
         meta: event.meta,
       };
+    case "delegate_start":
+      return {
+        type: "delegate_start",
+        agent: event.agent,
+        task: event.task,
+      };
+    case "delegate_end":
+      return {
+        type: "delegate_end",
+        agent: event.agent,
+        task: event.task,
+        success: event.success,
+        summary: event.summary,
+        durationMs: event.duration_ms ?? 0,
+        error: event.error,
+      };
     case "turn_stats":
       return {
         type: "turn_stats",
@@ -290,7 +417,7 @@ async function respondToInteraction(
   });
   try {
     if (!result.ok) {
-      throw new RuntimeError(
+      throw createRuntimeHostError(
         "Failed to submit interaction response to runtime host.",
       );
     }
@@ -308,13 +435,16 @@ async function parseErrorResponse(response: Response): Promise<never> {
   } catch {
     // Ignore invalid JSON bodies; use the default message.
   }
-  throw new RuntimeError(message);
+  throw createRuntimeHostError(message);
 }
 
 async function fetchRuntimeJson<T>(
   path: string,
+  options: { requireAiReady?: boolean } = {},
 ): Promise<T> {
-  const { baseUrl, authToken } = await ensureRuntimeHost();
+  const { baseUrl, authToken } = options.requireAiReady
+    ? await ensureRuntimeAiReady()
+    : await ensureRuntimeHost();
   return await http.get<T>(`${baseUrl}${path}`, {
     timeout: 5_000,
     headers: authHeaders(authToken),
@@ -323,16 +453,23 @@ async function fetchRuntimeJson<T>(
 
 async function fetchRuntimeRaw(
   path: string,
-  options?: RequestInit & { timeout?: number; signal?: AbortSignal },
+  options?: RequestInit & {
+    timeout?: number;
+    signal?: AbortSignal;
+    requireAiReady?: boolean;
+  },
 ): Promise<Response> {
-  const { baseUrl, authToken } = await ensureRuntimeHost();
+  const { requireAiReady = false, ...requestOptions } = options ?? {};
+  const { baseUrl, authToken } = requireAiReady
+    ? await ensureRuntimeAiReady()
+    : await ensureRuntimeHost();
   return await http.fetchRaw(`${baseUrl}${path}`, {
-    ...options,
-    timeout: options?.timeout ?? 5_000,
+    ...requestOptions,
+    timeout: requestOptions.timeout ?? 5_000,
     headers: {
-      ...(options?.headers instanceof Headers
-        ? Object.fromEntries(options.headers.entries())
-        : (options?.headers as Record<string, string> | undefined)),
+      ...(requestOptions.headers instanceof Headers
+        ? Object.fromEntries(requestOptions.headers.entries())
+        : (requestOptions.headers as Record<string, string> | undefined)),
       ...authHeaders(authToken),
     },
   });
@@ -501,6 +638,7 @@ export async function verifyRuntimeModelAccess(
 ): Promise<boolean> {
   const response = await fetchRuntimeRaw("/api/models/verify-access", {
     method: "POST",
+    requireAiReady: true,
     timeout: 10_000,
     headers: {
       "Content-Type": "application/json",
@@ -523,6 +661,7 @@ export async function getRuntimeProviderStatus(
     { providers?: Record<string, ProviderStatus> }
   >(
     "/api/models/status",
+    { requireAiReady: true },
   );
 
   if (!providerName) {
@@ -540,6 +679,7 @@ export async function listRuntimeInstalledModels(
 ): Promise<ModelInfo[]> {
   const response = await fetchRuntimeJson<{ models: ModelInfo[] }>(
     `/api/models/installed?provider=${encodeURIComponent(provider)}`,
+    { requireAiReady: true },
   );
   return response.models;
 }
@@ -550,6 +690,7 @@ export async function getRuntimeModelDiscovery(
   const query = options.refresh ? "?refresh=true" : "";
   return await fetchRuntimeJson<RuntimeModelDiscoveryResponse>(
     `/api/models/discovery${query}`,
+    { requireAiReady: true },
   );
 }
 
@@ -559,6 +700,7 @@ export async function getRuntimeModel(
 ): Promise<ModelInfo | null> {
   const response = await fetchRuntimeRaw(
     `/api/models/${encodeURIComponent(provider)}/${encodeURIComponent(name)}`,
+    { requireAiReady: true },
   );
 
   if (response.status === 404) {
@@ -581,6 +723,7 @@ export async function deleteRuntimeModel(
     `/api/models/${encodeURIComponent(provider)}/${encodeURIComponent(name)}`,
     {
       method: "DELETE",
+      requireAiReady: true,
     },
   );
 
@@ -604,6 +747,7 @@ export async function* pullRuntimeModelViaHost(
 ): AsyncGenerator<PullProgress, void, unknown> {
   const response = await fetchRuntimeRaw("/api/models/pull", {
     method: "POST",
+    requireAiReady: true,
     timeout: STREAM_TIMEOUT_MS,
     signal,
     headers: {
@@ -618,7 +762,7 @@ export async function* pullRuntimeModelViaHost(
 
   const reader = response.body?.getReader();
   if (!reader) {
-    throw new RuntimeError("Runtime host returned no model pull stream.");
+    throw createRuntimeHostError("Runtime host returned no model pull stream.");
   }
 
   const decoder = new TextDecoder();
@@ -639,7 +783,7 @@ export async function* pullRuntimeModelViaHost(
             const { event: _kind, ...progress } = event;
             yield progress;
           } else if (event.event === "error") {
-            throw new RuntimeError(event.message);
+            throw createRuntimeHostError(event.message);
           }
         }
         newlineIndex = pending.indexOf("\n");
@@ -653,7 +797,7 @@ export async function* pullRuntimeModelViaHost(
         const { event: _kind, ...progress } = event;
         yield progress;
       } else if (event.event === "error") {
-        throw new RuntimeError(event.message);
+        throw createRuntimeHostError(event.message);
       }
     }
   } finally {
@@ -726,10 +870,119 @@ export function getRuntimeConfigApi(): RuntimeConfigApi {
   };
 }
 
+export async function runRuntimeOllamaSignin(): Promise<
+  RuntimeOllamaSigninResponse
+> {
+  const response = await fetchRuntimeRaw("/api/providers/ollama/signin", {
+    method: "POST",
+    timeout: 120_000,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ openBrowser: true }),
+  });
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  return await response.json() as RuntimeOllamaSigninResponse;
+}
+
+export async function listRuntimeMcpServers(
+  workspace: string,
+): Promise<RuntimeMcpServerDescriptor[]> {
+  const response = await fetchRuntimeJson<RuntimeMcpListResponse>(
+    `/api/mcp/servers?workspace=${encodeURIComponent(workspace)}`,
+  );
+  return response.servers;
+}
+
+export async function addRuntimeMcpServer(input: {
+  workspace: string;
+  scope: "project" | "user";
+  server: RuntimeMcpServerInput;
+}): Promise<void> {
+  const response = await fetchRuntimeRaw("/api/mcp/servers", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  await response.text();
+}
+
+export async function removeRuntimeMcpServer(input: {
+  workspace: string;
+  name: string;
+  scope?: "project" | "user";
+}): Promise<RuntimeMcpRemoveResponse> {
+  const response = await fetchRuntimeRaw("/api/mcp/servers", {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  return await response.json() as RuntimeMcpRemoveResponse;
+}
+
+export async function loginRuntimeMcpServer(input: {
+  workspace: string;
+  name: string;
+}): Promise<RuntimeMcpOauthResponse> {
+  const response = await fetchRuntimeRaw("/api/mcp/oauth/login", {
+    method: "POST",
+    timeout: 135_000,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  return await response.json() as RuntimeMcpOauthResponse;
+}
+
+export async function logoutRuntimeMcpServer(input: {
+  workspace: string;
+  name: string;
+}): Promise<RuntimeMcpOauthResponse> {
+  const response = await fetchRuntimeRaw("/api/mcp/oauth/logout", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  return await response.json() as RuntimeMcpOauthResponse;
+}
+
 export async function runChatViaHost(
   options: HostBackedChatOptions,
 ): Promise<HostBackedChatResult> {
-  const { baseUrl, authToken } = await ensureRuntimeHost();
+  const { baseUrl, authToken } = options.fixturePath
+    ? await ensureRuntimeHost()
+    : await ensureRuntimeAiReady();
   const { messages, clientTurnId } = cloneMessagesWithCurrentTurn(
     options.messages,
   );
@@ -741,6 +994,7 @@ export async function runChatViaHost(
     assistant_client_turn_id: crypto.randomUUID(),
     expected_version: options.expectedVersion,
     model: options.model,
+    fixture_path: options.fixturePath,
     workspace: options.workspace,
     context_window: options.contextWindow,
     permission_mode: options.permissionMode,
@@ -788,7 +1042,7 @@ export async function runChatViaHost(
 
   const reader = response.body?.getReader();
   if (!reader) {
-    throw new RuntimeError("Runtime host returned no response stream.");
+    throw createRuntimeHostError("Runtime host returned no response stream.");
   }
 
   const decoder = new TextDecoder();
@@ -838,9 +1092,9 @@ export async function runChatViaHost(
         sessionVersion = event.session_version;
         return;
       case "error":
-        throw new RuntimeError(event.message);
+        throw createRuntimeHostError(event.message);
       case "cancelled":
-        throw new RuntimeError("Runtime host request cancelled.");
+        throw createRuntimeHostError("Runtime host request cancelled.");
       case "start":
         return;
       default: {
@@ -898,6 +1152,7 @@ export async function runAgentQueryViaHost(
       client_turn_id: crypto.randomUUID(),
     }],
     model: options.model,
+    fixturePath: options.fixturePath,
     workspace: options.workspace,
     contextWindow: options.contextWindow,
     permissionMode: options.permissionMode,

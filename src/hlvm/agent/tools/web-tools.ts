@@ -21,42 +21,43 @@ import { loadWebConfig } from "../web-config.ts";
 import { getWebCacheValue, setWebCacheValue } from "../web-cache.ts";
 
 import {
+  type Citation,
   normalizeDomain,
+  resolveSearchProvider,
   SEARCH_DEPTH_DEFAULTS,
   SEARCH_DEPTH_PROFILES,
-  resolveSearchProvider,
-  type SearchDepthProfile,
   SEARCH_TIME_RANGES,
-  type SearchTimeRange,
-  type Citation,
+  type SearchDepthProfile,
   type SearchResult,
+  type SearchTimeRange,
 } from "./web/search-provider.ts";
 import { initSearchProviders } from "./web/search-provider-bootstrap.ts";
 import {
+  extractReadableContent,
+  isHtmlLikeResponse,
   MAIN_CONTENT_MIN_CHARS,
   parseHtml,
-  isHtmlLikeResponse,
-  extractReadableContent,
 } from "./web/html-parser.ts";
 import {
-  DEFAULT_WEB_MAX_BYTES,
   assertUrlAllowed,
-  toMillis,
-  makeCacheKey,
-  truncateText,
-  readResponseBody,
-  fetchWithRedirects,
+  DEFAULT_WEB_MAX_BYTES,
   fetchUrlInternal,
+  fetchWithRedirects,
+  makeCacheKey,
+  readResponseBody,
+  toMillis,
+  truncateText,
 } from "./web/fetch-core.ts";
 import { renderWithChrome } from "./web/headless-chrome.ts";
-import {
-  detectSearchQueryIntent,
-} from "./web/query-strategy.ts";
+import { detectSearchQueryIntent } from "./web/query-strategy.ts";
 import {
   bestEvidenceSummary,
   selectEvidencePages,
 } from "./web/evidence-selection.ts";
-import { DdgSearchBackend, selectDiversePrefetchTargets } from "./web/ddg-search-backend.ts";
+import {
+  DdgSearchBackend,
+  selectDiversePrefetchTargets,
+} from "./web/ddg-search-backend.ts";
 import { assessToolSearchConfidence } from "./web/search-backend.ts";
 
 // ============================================================
@@ -79,8 +80,8 @@ interface SearchWebArgs {
   timeRange?: SearchTimeRange;
   locale?: string;
   searchDepth?: SearchDepthProfile;
-  prefetch?: boolean;       // Auto-fetch top results and extract relevant passages (default: true)
-  reformulate?: boolean;    // Enable query reformulation for wider recall (default: true)
+  prefetch?: boolean; // Auto-fetch top results and extract relevant passages (default: true)
+  reformulate?: boolean; // Enable query reformulation for wider recall (default: true)
 }
 
 interface WebFetchArgs {
@@ -104,9 +105,16 @@ const LOW_CONFIDENCE_RELATED_LINKS_LIMIT = 4;
 // Structured Error Codes
 // ============================================================
 
-export type WebToolErrorCode = "max_uses_exceeded" | "invalid_input" | "disabled";
+export type WebToolErrorCode =
+  | "max_uses_exceeded"
+  | "invalid_input"
+  | "disabled";
 
-function webToolError(msg: string, context: string, errorCode: WebToolErrorCode): ValidationError {
+function webToolError(
+  msg: string,
+  context: string,
+  errorCode: WebToolErrorCode,
+): ValidationError {
   const err = new ValidationError(msg, context);
   err.metadata.errorCode = errorCode;
   return err;
@@ -116,10 +124,16 @@ function webToolError(msg: string, context: string, errorCode: WebToolErrorCode)
 // Per-Run Tool Budget
 // ============================================================
 
-const WEB_TOOL_MAX_USES: Record<string, number> = { search_web: 15, web_fetch: 25, fetch_url: 25 };
+const WEB_TOOL_MAX_USES: Record<string, number> = {
+  search_web: 15,
+  web_fetch: 25,
+  fetch_url: 25,
+};
 const webToolUseCounts = new Map<string, number>();
 
-export function resetWebToolBudget(): void { webToolUseCounts.clear(); }
+export function resetWebToolBudget(): void {
+  webToolUseCounts.clear();
+}
 
 function checkWebToolBudget(toolName: string): void {
   const count = (webToolUseCounts.get(toolName) ?? 0) + 1;
@@ -145,15 +159,20 @@ async function checkCacheHit(
   if (ttlMinutes <= 0) return null;
   const cached = await getWebCacheValue<Record<string, unknown>>(key);
   if (!cached) return null;
-  const { retrievedAt: _cachedRetrievedAt, ...rest } =
-    cached as Record<string, unknown> & { retrievedAt?: unknown };
+  const { retrievedAt: _cachedRetrievedAt, ...rest } = cached as
+    & Record<string, unknown>
+    & { retrievedAt?: unknown };
   return { ...rest, cached: true, retrievedAt: new Date().toISOString() };
 }
 
 function resolveLocale(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string" || !/^[a-z]{2}-[a-z]{2}$/i.test(value.trim())) {
-    throw webToolError("locale must be format 'xx-xx' (e.g., 'us-en')", "search_web", "invalid_input");
+    throw webToolError(
+      "locale must be format 'xx-xx' (e.g., 'us-en')",
+      "search_web",
+      "invalid_input",
+    );
   }
   return value.trim().toLowerCase();
 }
@@ -193,7 +212,9 @@ function buildSearchWebCacheKey(
 }
 
 function averageResultScore(results: SearchResult[]): number | undefined {
-  const scored = results.filter((r) => typeof r.score === "number" && Number.isFinite(r.score));
+  const scored = results.filter((r) =>
+    typeof r.score === "number" && Number.isFinite(r.score)
+  );
   if (scored.length === 0) return undefined;
   return scored.reduce((sum, r) => sum + (r.score ?? 0), 0) / scored.length;
 }
@@ -233,19 +254,24 @@ function resolveSearchDepth(value: unknown): SearchDepthProfile {
 
 export const __testOnlyBuildSearchWebCacheKey = buildSearchWebCacheKey;
 export const __testOnlyFormatSearchWebResult = formatSearchWebResult;
-export const __testOnlySelectDiversePrefetchTargets = selectDiversePrefetchTargets;
+export const __testOnlySelectDiversePrefetchTargets =
+  selectDiversePrefetchTargets;
 export const __testOnlyAverageResultScore = averageResultScore;
 
 function formatFetchUrlResult(
   raw: unknown,
-): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
   if (!raw || typeof raw !== "object") return null;
   const data = raw as Record<string, unknown>;
   const url = typeof data.url === "string" ? data.url : "";
   const text = typeof data.text === "string" ? data.text : "";
   if (!url || !text) return null;
   const status = typeof data.status === "number" ? data.status : undefined;
-  const contentType = typeof data.contentType === "string" ? data.contentType : "";
+  const contentType = typeof data.contentType === "string"
+    ? data.contentType
+    : "";
   const detailLines = [`URL: ${url}`];
   if (status !== undefined) detailLines.push(`Status: ${status}`);
   if (contentType) detailLines.push(`Type: ${contentType}`);
@@ -261,12 +287,16 @@ function formatFetchUrlResult(
 
 function formatWebFetchResult(
   raw: unknown,
-): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
   if (!raw || typeof raw !== "object") return null;
   const data = raw as Record<string, unknown>;
 
   if (data.batch === true && Array.isArray(data.results)) {
-    const count = typeof data.count === "number" ? data.count : data.results.length;
+    const count = typeof data.count === "number"
+      ? data.count
+      : data.results.length;
     const errors = typeof data.errors === "number" ? data.errors : 0;
     const detailLines = [`Fetched ${count} URL${count === 1 ? "" : "s"}`];
     for (let i = 0; i < data.results.length; i++) {
@@ -277,7 +307,9 @@ function formatWebFetchResult(
       const title = typeof record.title === "string" ? record.title : "";
       const error = typeof record.error === "string" ? record.error : "";
       detailLines.push(
-        `[${i + 1}] ${url}${title ? ` — ${title}` : ""}${error ? ` (error: ${error})` : ""}`,
+        `[${i + 1}] ${url}${title ? ` — ${title}` : ""}${
+          error ? ` (error: ${error})` : ""
+        }`,
       );
     }
     return {
@@ -293,7 +325,9 @@ function formatWebFetchResult(
   const text = typeof data.text === "string" ? data.text : "";
   if (!url || !text) return null;
   const title = typeof data.title === "string" ? data.title : "";
-  const description = typeof data.description === "string" ? data.description : "";
+  const description = typeof data.description === "string"
+    ? data.description
+    : "";
   const detailLines = [`URL: ${url}`];
   if (title) detailLines.push(`Title: ${title}`);
   if (description) detailLines.push(`Description: ${description}`);
@@ -301,7 +335,9 @@ function formatWebFetchResult(
   detailLines.push(text);
   const detailText = detailLines.join("\n").trimEnd();
   return {
-    summaryDisplay: title ? `Fetched ${url}\nTitle: ${title}` : `Fetched ${url}`,
+    summaryDisplay: title
+      ? `Fetched ${url}\nTitle: ${title}`
+      : `Fetched ${url}`,
     returnDisplay: detailText,
     llmContent: detailText,
   };
@@ -357,7 +393,9 @@ async function webFetch(
   }
 
   const { url, urls, maxChars, timeoutSeconds } = args as WebFetchArgs;
-  if (urls?.length) return await batchWebFetch(urls, maxChars, timeoutSeconds, options);
+  if (urls?.length) {
+    return await batchWebFetch(urls, maxChars, timeoutSeconds, options);
+  }
   if (!url || typeof url !== "string") {
     throw webToolError("url or urls required", "web_fetch", "invalid_input");
   }
@@ -380,13 +418,18 @@ async function webFetchSingle(
   assertUrlAllowed(url, options);
 
   const resolvedMaxChars = Math.min(
-    typeof maxChars === "number" && maxChars > 0 ? maxChars : webConfig.fetch.maxChars,
+    typeof maxChars === "number" && maxChars > 0
+      ? maxChars
+      : webConfig.fetch.maxChars,
     MAX_WEB_CHARS,
   );
   const timeoutMs = toMillis(timeoutSeconds ?? webConfig.fetch.timeoutSeconds);
 
   const cacheKey = makeCacheKey("web_fetch", [url, resolvedMaxChars]);
-  const cachedFetch = await checkCacheHit(cacheKey, webConfig.fetch.cacheTtlMinutes);
+  const cachedFetch = await checkCacheHit(
+    cacheKey,
+    webConfig.fetch.cacheTtlMinutes,
+  );
   if (cachedFetch) return cachedFetch;
 
   const headers: Record<string, string> = {
@@ -451,7 +494,11 @@ async function webFetchSingle(
     const chromeHtml = await renderWithChrome(finalUrl, 15_000);
     if (chromeHtml) {
       chromeAttempted = true;
-      const reparsed = parseHtml(chromeHtml, resolvedMaxChars, DEFAULT_HTML_LINKS);
+      const reparsed = parseHtml(
+        chromeHtml,
+        resolvedMaxChars,
+        DEFAULT_HTML_LINKS,
+      );
       chromeRenderChars = reparsed.text.trim().length;
       if (chromeRenderChars >= MAIN_CONTENT_MIN_CHARS) {
         chromeAccepted = true;
@@ -497,7 +544,12 @@ async function webFetchSingle(
     chromeAttempted,
     chromeRenderChars: chromeAttempted ? chromeRenderChars : undefined,
     redirects,
-    citations: [{ url: finalUrl, title: parsed.title || "", excerpt: (text || "").slice(0, 150), provider: "fetch" }] as Citation[],
+    citations: [{
+      url: finalUrl,
+      title: parsed.title || "",
+      excerpt: (text || "").slice(0, 150),
+      provider: "fetch",
+    }] as Citation[],
   };
 
   if (webConfig.fetch.cacheTtlMinutes > 0) {
@@ -517,7 +569,11 @@ async function batchWebFetch(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   if (urls.length > MAX_BATCH_URLS) {
-    throw webToolError(`Too many URLs (max ${MAX_BATCH_URLS})`, "web_fetch", "invalid_input");
+    throw webToolError(
+      `Too many URLs (max ${MAX_BATCH_URLS})`,
+      "web_fetch",
+      "invalid_input",
+    );
   }
 
   const results: Record<string, unknown>[] = [];
@@ -525,7 +581,10 @@ async function batchWebFetch(
     try {
       return await webFetchSingle(u, maxChars, timeoutSeconds, options);
     } catch (err) {
-      return { url: u, error: String(err), ok: false } as Record<string, unknown>;
+      return { url: u, error: String(err), ok: false } as Record<
+        string,
+        unknown
+      >;
     }
   });
   for await (const result of fetcher) {
@@ -569,8 +628,8 @@ async function searchWeb(
   const limit = typeof maxResults === "number" && maxResults > 0
     ? maxResults
     : typed.searchDepth !== undefined
-      ? depthDefaults.maxResults
-      : webConfig.search.maxResults ?? DEFAULT_WEB_RESULTS;
+    ? depthDefaults.maxResults
+    : webConfig.search.maxResults ?? DEFAULT_WEB_RESULTS;
   const timeout = typeof timeoutMs === "number" && timeoutMs > 0
     ? timeoutMs
     : toMillis(timeoutSeconds ?? webConfig.search.timeoutSeconds);
@@ -593,7 +652,10 @@ async function searchWeb(
     resolvedPrefetch,
     resolvedReformulate,
   );
-  const cachedSearch = await checkCacheHit(cacheKey, webConfig.search.cacheTtlMinutes);
+  const cachedSearch = await checkCacheHit(
+    cacheKey,
+    webConfig.search.cacheTtlMinutes,
+  );
   if (cachedSearch) return cachedSearch;
 
   initSearchProviders();
@@ -618,7 +680,11 @@ async function searchWeb(
   });
 
   if (webConfig.search.cacheTtlMinutes > 0) {
-    await setWebCacheValue(cacheKey, response, webConfig.search.cacheTtlMinutes);
+    await setWebCacheValue(
+      cacheKey,
+      response,
+      webConfig.search.cacheTtlMinutes,
+    );
   }
 
   return { ...response, retrievedAt: new Date().toISOString() };
@@ -630,7 +696,9 @@ async function searchWeb(
 
 function formatSearchWebResult(
   raw: unknown,
-): { summaryDisplay: string; returnDisplay: string; llmContent: string } | null {
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent: string }
+  | null {
   if (!raw || typeof raw !== "object") return null;
   const data = raw as Record<string, unknown>;
   const results = data.results as SearchResult[] | undefined;
@@ -642,13 +710,26 @@ function formatSearchWebResult(
   const confidence = assessToolSearchConfidence(queryStr, results);
   const lowConfidence = confidence.lowConfidence;
   const evidencePages = selectEvidencePages(results, {
-    maxPages: queryIntent.wantsComparison ? Math.min(3, Math.max(2, results.length)) : 3,
+    maxPages: queryIntent.wantsComparison
+      ? Math.min(3, Math.max(2, results.length))
+      : 3,
     intent: queryIntent,
   });
-  const topResults = (evidencePages.length > 0 ? evidencePages : results).slice(0, 4);
-  const evidenceUrlSet = new Set(evidencePages.map((result) => result.url).filter((url): url is string => Boolean(url)));
-  const otherResults = results.filter((result) => !evidenceUrlSet.has(result.url ?? "")).slice(0, 4);
-  const detailLines: string[] = [`Search: "${queryStr}" (${results.length} results, ${provider})\n`];
+  const topResults = (evidencePages.length > 0 ? evidencePages : results).slice(
+    0,
+    4,
+  );
+  const evidenceUrlSet = new Set(
+    evidencePages.map((result) => result.url).filter((url): url is string =>
+      Boolean(url)
+    ),
+  );
+  const otherResults = results.filter((result) =>
+    !evidenceUrlSet.has(result.url ?? "")
+  ).slice(0, 4);
+  const detailLines: string[] = [
+    `Search: "${queryStr}" (${results.length} results, ${provider})\n`,
+  ];
 
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
@@ -675,7 +756,9 @@ function formatSearchWebResult(
     for (let i = 0; i < topResults.length; i++) {
       const r = topResults[i];
       displayLines.push(`[${i + 1}] ${r.title}${r.url ? ` — ${r.url}` : ""}`);
-      if (r.publishedDate) displayLines.push(`    Published: ${r.publishedDate}`);
+      if (r.publishedDate) {
+        displayLines.push(`    Published: ${r.publishedDate}`);
+      }
       const summary = bestEvidenceSummary(r);
       if (summary) displayLines.push(`    ${summary}`);
     }
@@ -695,26 +778,46 @@ function formatSearchWebResult(
   const llmSections: string[] = [
     `Search summary\nQuery: "${queryStr}"\nProvider: ${provider}\nResults: ${results.length}`,
   ];
-  const retrieval = typeof data.diagnostics === "object" && data.diagnostics !== null
-    ? (data.diagnostics as Record<string, unknown>).retrieval as Record<string, unknown> | undefined
-    : undefined;
+  const retrieval =
+    typeof data.diagnostics === "object" && data.diagnostics !== null
+      ? (data.diagnostics as Record<string, unknown>).retrieval as
+        | Record<string, unknown>
+        | undefined
+      : undefined;
   const queryTrail = Array.isArray(retrieval?.queryTrail)
-    ? retrieval?.queryTrail.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    ? retrieval?.queryTrail.filter((value): value is string =>
+      typeof value === "string" && value.trim().length > 0
+    )
     : [];
   if (queryTrail.length > 1) {
-    llmSections.push(`Query trail:\n${queryTrail.map((item, index) => `${index + 1}. ${item}`).join("\n")}`);
+    llmSections.push(
+      `Query trail:\n${
+        queryTrail.map((item, index) => `${index + 1}. ${item}`).join("\n")
+      }`,
+    );
   }
   if (evidencePages.length > 0) {
     const evidenceLines = ["Evidence pages:"];
     for (let i = 0; i < evidencePages.length; i++) {
       const result = evidencePages[i];
-      evidenceLines.push(`[${i + 1}] ${result.title}${result.url ? ` — ${result.url}` : ""}`);
-      if (result.publishedDate) evidenceLines.push(`    Published: ${result.publishedDate}`);
+      evidenceLines.push(
+        `[${i + 1}] ${result.title}${result.url ? ` — ${result.url}` : ""}`,
+      );
+      if (result.publishedDate) {
+        evidenceLines.push(`    Published: ${result.publishedDate}`);
+      }
       if (result.evidenceStrength) {
-        evidenceLines.push(`    Why selected: ${result.evidenceReason ?? result.evidenceStrength}`);
+        evidenceLines.push(
+          `    Why selected: ${
+            result.evidenceReason ?? result.evidenceStrength
+          }`,
+        );
       }
       const pageEvidence = [
-        ...(result.passages ?? []).slice(0, queryIntent.wantsComparison ? 2 : 1),
+        ...(result.passages ?? []).slice(
+          0,
+          queryIntent.wantsComparison ? 2 : 1,
+        ),
       ];
       if (pageEvidence.length === 0) {
         const fallback = bestEvidenceSummary(result);
@@ -727,13 +830,17 @@ function formatSearchWebResult(
     llmSections.push(evidenceLines.join("\n"));
   }
   if (!fetchedEvidenceAvailable) {
-    llmSections.push("No fetched-page evidence was available; rely on snippets and metadata cautiously.");
+    llmSections.push(
+      "No fetched-page evidence was available; rely on snippets and metadata cautiously.",
+    );
   }
   if (otherResults.length > 0) {
     const otherLines = ["Supporting results:"];
     for (let i = 0; i < otherResults.length; i++) {
       const result = otherResults[i];
-      otherLines.push(`[${i + 1}] ${result.title}${result.url ? ` — ${result.url}` : ""}`);
+      otherLines.push(
+        `[${i + 1}] ${result.title}${result.url ? ` — ${result.url}` : ""}`,
+      );
       const fallback = bestEvidenceSummary(result);
       if (fallback) otherLines.push(`    > ${fallback}`);
     }
@@ -748,7 +855,9 @@ function formatSearchWebResult(
     const relatedLinks = collectLowConfidenceRelatedLinks(results);
     if (relatedLinks.length > 0) {
       llmSupplements.push(
-        `Related links to check:\n${relatedLinks.map((u) => `- ${u}`).join("\n")}`,
+        `Related links to check:\n${
+          relatedLinks.map((u) => `- ${u}`).join("\n")
+        }`,
       );
     }
     llmSupplements.push(
@@ -761,7 +870,11 @@ function formatSearchWebResult(
     llmSections.push(llmSupplements.join("\n\n"));
   }
   const llmText = llmSections.join("\n\n").trimEnd();
-  return { summaryDisplay: summaryText, returnDisplay: detailText, llmContent: llmText };
+  return {
+    summaryDisplay: summaryText,
+    returnDisplay: detailText,
+    llmContent: llmText,
+  };
 }
 
 // ============================================================
@@ -772,25 +885,45 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
   search_web: {
     fn: searchWeb,
     description:
-      "Search the web using DuckDuckGo. Returns snippets, URLs, and auto-prefetched relevant passages from top results.",
+      "Discover relevant web pages using DuckDuckGo. Use search_web to find sources, then web_fetch to read a chosen URL. Canonical args include timeRange and prefetch.",
     category: "web",
+    argAliases: {
+      recency: "timeRange",
+      time_range: "timeRange",
+      preFetch: "prefetch",
+      max_results: "maxResults",
+      allowed_domains: "allowedDomains",
+      blocked_domains: "blockedDomains",
+      search_depth: "searchDepth",
+      timeout_ms: "timeoutMs",
+      timeout_seconds: "timeoutSeconds",
+    },
     formatResult: formatSearchWebResult,
     args: {
       query: "string - Search query",
       maxResults: "number (optional) - Max results (default: 5)",
       timeoutMs: "number (optional) - Request timeout in ms",
       timeoutSeconds: "number (optional) - Request timeout in seconds",
-      allowedDomains: "string[] (optional) - Only include results from these domains",
-      blockedDomains: "string[] (optional) - Exclude results from these domains",
-      timeRange: "string (optional) - Recency window: day|week|month|year|all (default: all)",
-      locale: "string (optional) - DDG locale hint in 'xx-xx' format (e.g., 'us-en', 'kr-ko')",
-      searchDepth: "string (optional) - Search profile: low|medium|high (default: medium)",
-      prefetch: "boolean (optional) - Auto-fetch top results and extract relevant passages (default: true)",
-      reformulate: "boolean (optional) - Generate query variants for wider recall (default: true)",
+      allowedDomains:
+        "string[] (optional) - Only include results from these domains",
+      blockedDomains:
+        "string[] (optional) - Exclude results from these domains",
+      timeRange:
+        "string (optional) - Recency window: day|week|month|year|all (default: all)",
+      locale:
+        "string (optional) - DDG locale hint in 'xx-xx' format (e.g., 'us-en', 'kr-ko')",
+      searchDepth:
+        "string (optional) - Search profile: low|medium|high (default: medium)",
+      prefetch:
+        "boolean (optional) - Auto-fetch top results and extract relevant passages (default: true)",
+      reformulate:
+        "boolean (optional) - Generate query variants for wider recall (default: true)",
     },
     returns: {
-      results: "Array<{title, url?, snippet?, passages?, pageDescription?, relatedLinks?}>",
-      "results[].passages": "string[] (optional) - Relevant passages extracted from prefetched page content (max 3, max 280 chars each)",
+      results:
+        "Array<{title, url?, snippet?, passages?, pageDescription?, relatedLinks?}>",
+      "results[].passages":
+        "string[] (optional) - Relevant passages extracted from prefetched page content (max 3, max 280 chars each)",
       count: "number",
       provider: "string",
       citations: "Citation[] - Structured provenance for each result",
@@ -802,8 +935,13 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
   },
   fetch_url: {
     fn: fetchUrl,
-    description: "Fetch a URL and return text content with size limits.",
+    description:
+      "Fetch a URL and return raw text/HTML/markdown with size limits. Use this for low-level inspection, not as the default page reader.",
     category: "web",
+    argAliases: {
+      max_bytes: "maxBytes",
+      timeout_ms: "timeoutMs",
+    },
     args: {
       url: "string - URL to fetch",
       maxBytes:
@@ -825,8 +963,12 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
   web_fetch: {
     fn: webFetch,
     description:
-      "Fetch URL(s) with readability + headless Chrome fallback. Returns main content.",
+      "Read one or more known URLs with readability + headless Chrome fallback. Prefer this after search_web identifies the page you want to read.",
     category: "web",
+    argAliases: {
+      max_chars: "maxChars",
+      timeout_seconds: "timeoutSeconds",
+    },
     args: {
       url: "string (optional if urls given) - Single URL to fetch",
       urls: "string[] (optional) - Multiple URLs to fetch (max 5, concurrent)",
@@ -850,8 +992,10 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
       content: "string (optional)",
       readability: "boolean",
       headlessChrome: "boolean - Chrome rendered content was accepted and used",
-      chromeAttempted: "boolean - Chrome rendering was attempted (thin static content detected)",
-      chromeRenderChars: "number (optional) - chars extracted from Chrome render (only if attempted)",
+      chromeAttempted:
+        "boolean - Chrome rendering was attempted (thin static content detected)",
+      chromeRenderChars:
+        "number (optional) - chars extracted from Chrome render (only if attempted)",
       redirects: "string[]",
       citations: "Citation[] - Source provenance",
       retrievedAt: "string (optional) - ISO 8601 timestamp",

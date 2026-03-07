@@ -17,9 +17,11 @@ import { isOllamaAuthErrorMessage } from "../../../common/ollama-auth.ts";
 import type { AIEngineLifecycle } from "../../runtime/ai-runtime.ts";
 import type { ModelInfo } from "../../providers/types.ts";
 import {
+  ensureRuntimeHostReady,
   getRuntimeConfigApi,
   getRuntimeModelDiscovery,
   pullRuntimeModelViaHost,
+  runRuntimeOllamaSignin,
   verifyRuntimeModelAccess,
 } from "../../runtime/host-client.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
@@ -28,7 +30,6 @@ import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 // Constants
 // ============================================================================
 
-const OLLAMA_SIGNIN_URL_PATTERN = /https:\/\/ollama\.com\/connect\?[^\s"'`]+/i;
 const CLOUD_SIGNIN_WAIT_TIMEOUT_MS = 120_000;
 const CLOUD_SIGNIN_WAIT_INTERVAL_MS = 2_000;
 const TOTAL_SETUP_STEPS = 4;
@@ -40,6 +41,15 @@ const ANSI = {
   cyan: "\x1b[36m",
   green: "\x1b[32m",
   yellow: "\x1b[33m",
+};
+
+const HOST_RUNTIME_ENGINE: AIEngineLifecycle = {
+  isRunning: async () => true,
+  ensureRunning: async () => {
+    await ensureRuntimeHostReady();
+    return true;
+  },
+  getEnginePath: async () => "",
 };
 
 // ============================================================================
@@ -114,56 +124,16 @@ export async function pickBestCloudModel(): Promise<ModelInfo | null> {
   return cloudTools[0] ?? null;
 }
 
-/** Extract Ollama sign-in URL from command output, if present. */
-function extractOllamaSigninUrl(output: string): string | null {
-  const match = output.match(OLLAMA_SIGNIN_URL_PATTERN);
-  return match ? match[0] : null;
-}
-
-function decodeOutput(bytes: Uint8Array): string {
-  return new TextDecoder().decode(bytes).trim();
-}
-
-async function getDefaultEngine(): Promise<AIEngineLifecycle> {
-  const { aiEngine } = await import("../../runtime/ai-runtime.ts");
-  return aiEngine;
-}
-
-/** Run `engine signin` with inherited stdio for interactive auth. */
+/** Run Ollama sign-in through the runtime host. */
 export async function runOllamaSignin(
-  engine?: AIEngineLifecycle,
+  _engine?: AIEngineLifecycle,
 ): Promise<boolean> {
-  const resolvedEngine = engine ?? await getDefaultEngine();
-  const enginePath = await resolvedEngine.getEnginePath();
   log.raw.log(style("  -> Signing in to Ollama...", ANSI.yellow));
-  const platform = getPlatform();
   try {
-    const result = await platform.command.output({
-      cmd: [enginePath, "signin"],
-      stdin: "inherit",
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const stdout = decodeOutput(result.stdout);
-    const stderr = decodeOutput(result.stderr);
-    const combined = [stdout, stderr].filter(Boolean).join("\n");
-
-    if (combined) {
-      log.raw.log(combined);
+    const result = await runRuntimeOllamaSignin();
+    for (const line of result.output) {
+      log.raw.log(line);
     }
-
-    const signinUrl = extractOllamaSigninUrl(combined);
-    if (signinUrl) {
-      try {
-        await platform.openUrl(signinUrl);
-        log.raw.log(style("  -> Opened browser for Ollama sign-in.", ANSI.dim));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        log.warn(`Could not open browser automatically: ${message}`);
-      }
-    }
-
     return result.success;
   } catch {
     return false;
@@ -200,11 +170,10 @@ async function waitForCloudAccess(modelId: string): Promise<boolean> {
  */
 export async function ensureCloudAccessWithSignin(
   modelId: string,
-  engine?: AIEngineLifecycle,
+  _engine?: AIEngineLifecycle,
 ): Promise<boolean> {
-  const resolvedEngine = engine ?? await getDefaultEngine();
   if (await verifyOllamaCloudModelAccess(modelId)) return true;
-  if (!(await runOllamaSignin(resolvedEngine))) return false;
+  if (!(await runOllamaSignin())) return false;
   log.raw.log(style("  -> Waiting for cloud sign-in completion...", ANSI.dim));
   if (!(await waitForCloudAccess(modelId))) {
     log.error(
@@ -221,7 +190,7 @@ export async function ensureCloudAccessWithSignin(
 /** Pull a model, reactively signing in on auth error. */
 async function pullWithSignin(
   modelName: string,
-  engine: AIEngineLifecycle,
+  _engine: AIEngineLifecycle,
 ): Promise<boolean> {
   log.raw.log(`Pulling ${modelName}...`);
   try {
@@ -237,7 +206,7 @@ async function pullWithSignin(
       log.error(`Pull failed: ${message}`);
       return false;
     }
-    if (!(await ensureCloudAccessWithSignin(`ollama/${modelName}`, engine))) {
+    if (!(await ensureCloudAccessWithSignin(`ollama/${modelName}`))) {
       return false;
     }
     try {
@@ -308,7 +277,7 @@ export async function runFirstTimeSetup(
   engine?: AIEngineLifecycle,
   depsOverride: Partial<FirstRunSetupDeps> = {},
 ): Promise<string | null> {
-  const resolvedEngine = engine ?? await getDefaultEngine();
+  const resolvedEngine = engine ?? HOST_RUNTIME_ENGINE;
   const deps = { ...getDefaultFirstRunSetupDeps(), ...depsOverride };
 
   printSetupBanner(deps.logRaw);

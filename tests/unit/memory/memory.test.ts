@@ -31,6 +31,7 @@ import { reuseSession } from "../../../src/hlvm/agent/agent-runner.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import type { AgentSession } from "../../../src/hlvm/agent/session.ts";
 import { ENGINE_PROFILES } from "../../../src/hlvm/agent/constants.ts";
+import { createTodoState } from "../../../src/hlvm/agent/todo-state.ts";
 
 const platform = () => getPlatform();
 const memoryWrite = (args: unknown) =>
@@ -84,6 +85,7 @@ function createAgentSession(context: ContextManager): AgentSession {
     profile: ENGINE_PROFILES.normal,
     isFrontierModel: false,
     modelTier: "mid",
+    todoState: createTodoState(),
     resolvedContextBudget: {
       budget: 32000,
       rawLimit: 32000,

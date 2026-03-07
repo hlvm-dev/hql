@@ -10,12 +10,18 @@ import { assertEquals } from "jsr:@std/assert";
 import {
   parseParamSize,
   runFirstTimeSetup,
+  runOllamaSignin,
   verifyOllamaCloudModelAccess,
 } from "../../../src/hlvm/cli/commands/first-run-setup.ts";
+import { getRuntimeHostIdentity } from "../../../src/hlvm/runtime/host-identity.ts";
 import type { AIEngineLifecycle } from "../../../src/hlvm/runtime/ai-runtime.ts";
 import type { ModelInfo } from "../../../src/hlvm/providers/types.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
-import { findFreePort, withEnv } from "../../shared/light-helpers.ts";
+import {
+  findFreePort,
+  withEnv,
+  withRuntimeHostServer,
+} from "../../shared/light-helpers.ts";
 
 Deno.test("parseParamSize: parses integer sizes", () => {
   assertEquals(parseParamSize("3B"), 3);
@@ -42,158 +48,189 @@ function createStubEngine(
   };
 }
 
-Deno.test({ name: "runFirstTimeSetup: user decline falls back to model browser", sanitizeOps: false, sanitizeResources: false, async fn() {
-  const calls: string[] = [];
-  const engine = createStubEngine({
-    ensureRunning: () => {
-      calls.push("ensureRunning");
-      return Promise.resolve(true);
-    },
-  });
+Deno.test({
+  name: "runFirstTimeSetup: user decline falls back to model browser",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const calls: string[] = [];
+    const engine = createStubEngine({
+      ensureRunning: () => {
+        calls.push("ensureRunning");
+        return Promise.resolve(true);
+      },
+    });
 
-  const result = await runFirstTimeSetup(engine, {
-    confirmSetup: () => Promise.resolve(false),
-    fallbackToModelBrowser: () => {
-      calls.push("fallback");
-      return Promise.resolve("ollama/fallback-model:cloud");
-    },
-    logRaw: () => {},
-    logError: () => {},
-  });
+    const result = await runFirstTimeSetup(engine, {
+      confirmSetup: () => Promise.resolve(false),
+      fallbackToModelBrowser: () => {
+        calls.push("fallback");
+        return Promise.resolve("ollama/fallback-model:cloud");
+      },
+      logRaw: () => {},
+      logError: () => {},
+    });
 
-  assertEquals(result, "ollama/fallback-model:cloud");
-  assertEquals(calls.includes("ensureRunning"), false);
-  assertEquals(calls.includes("fallback"), true);
-}});
+    assertEquals(result, "ollama/fallback-model:cloud");
+    assertEquals(calls.includes("ensureRunning"), false);
+    assertEquals(calls.includes("fallback"), true);
+  },
+});
 
-Deno.test({ name: "runFirstTimeSetup: engine startup failure falls back", sanitizeOps: false, sanitizeResources: false, async fn() {
-  const calls: string[] = [];
-  const engine = createStubEngine({
-    ensureRunning: () => Promise.resolve(false),
-  });
+Deno.test({
+  name: "runFirstTimeSetup: engine startup failure falls back",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const calls: string[] = [];
+    const engine = createStubEngine({
+      ensureRunning: () => Promise.resolve(false),
+    });
 
-  const result = await runFirstTimeSetup(engine, {
-    confirmSetup: () => Promise.resolve(true),
-    fallbackToModelBrowser: () => {
-      calls.push("fallback");
-      return Promise.resolve("ollama/fallback-model:cloud");
-    },
-    logRaw: () => {},
-    logError: () => {},
-  });
+    const result = await runFirstTimeSetup(engine, {
+      confirmSetup: () => Promise.resolve(true),
+      fallbackToModelBrowser: () => {
+        calls.push("fallback");
+        return Promise.resolve("ollama/fallback-model:cloud");
+      },
+      logRaw: () => {},
+      logError: () => {},
+    });
 
-  assertEquals(result, "ollama/fallback-model:cloud");
-  assertEquals(calls.includes("fallback"), true);
-}});
+    assertEquals(result, "ollama/fallback-model:cloud");
+    assertEquals(calls.includes("fallback"), true);
+  },
+});
 
-Deno.test({ name: "runFirstTimeSetup: no cloud model falls back", sanitizeOps: false, sanitizeResources: false, async fn() {
-  const calls: string[] = [];
-  const engine = createStubEngine();
+Deno.test({
+  name: "runFirstTimeSetup: no cloud model falls back",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const calls: string[] = [];
+    const engine = createStubEngine();
 
-  const result = await runFirstTimeSetup(engine, {
-    confirmSetup: () => Promise.resolve(true),
-    pickBestCloudModel: () => Promise.resolve(null),
-    fallbackToModelBrowser: () => {
-      calls.push("fallback");
-      return Promise.resolve("ollama/fallback-model:cloud");
-    },
-    logRaw: () => {},
-    logError: () => {},
-  });
+    const result = await runFirstTimeSetup(engine, {
+      confirmSetup: () => Promise.resolve(true),
+      pickBestCloudModel: () => Promise.resolve(null),
+      fallbackToModelBrowser: () => {
+        calls.push("fallback");
+        return Promise.resolve("ollama/fallback-model:cloud");
+      },
+      logRaw: () => {},
+      logError: () => {},
+    });
 
-  assertEquals(result, "ollama/fallback-model:cloud");
-  assertEquals(calls.includes("fallback"), true);
-}});
+    assertEquals(result, "ollama/fallback-model:cloud");
+    assertEquals(calls.includes("fallback"), true);
+  },
+});
 
-Deno.test({ name: "runFirstTimeSetup: pull failure falls back", sanitizeOps: false, sanitizeResources: false, async fn() {
-  const calls: string[] = [];
-  const engine = createStubEngine();
-  const cloudModel: ModelInfo = {
-    name: "deepseek-v3.1:671b-cloud",
-    displayName: "DeepSeek V3.1 671B",
-    capabilities: ["tools"],
-  };
+Deno.test({
+  name: "runFirstTimeSetup: pull failure falls back",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const calls: string[] = [];
+    const engine = createStubEngine();
+    const cloudModel: ModelInfo = {
+      name: "deepseek-v3.1:671b-cloud",
+      displayName: "DeepSeek V3.1 671B",
+      capabilities: ["tools"],
+    };
 
-  const result = await runFirstTimeSetup(engine, {
-    confirmSetup: () => Promise.resolve(true),
-    pickBestCloudModel: () => Promise.resolve(cloudModel),
-    pullWithSignin: () => Promise.resolve(false),
-    ensureCloudModelAccess: () => Promise.resolve(true),
-    fallbackToModelBrowser: () => {
-      calls.push("fallback");
-      return Promise.resolve("ollama/fallback-model:cloud");
-    },
-    logRaw: () => {},
-    logError: () => {},
-  });
+    const result = await runFirstTimeSetup(engine, {
+      confirmSetup: () => Promise.resolve(true),
+      pickBestCloudModel: () => Promise.resolve(cloudModel),
+      pullWithSignin: () => Promise.resolve(false),
+      ensureCloudModelAccess: () => Promise.resolve(true),
+      fallbackToModelBrowser: () => {
+        calls.push("fallback");
+        return Promise.resolve("ollama/fallback-model:cloud");
+      },
+      logRaw: () => {},
+      logError: () => {},
+    });
 
-  assertEquals(result, "ollama/fallback-model:cloud");
-  assertEquals(calls.includes("fallback"), true);
-}});
+    assertEquals(result, "ollama/fallback-model:cloud");
+    assertEquals(calls.includes("fallback"), true);
+  },
+});
 
-Deno.test({ name: "runFirstTimeSetup: success saves selected cloud model", sanitizeOps: false, sanitizeResources: false, async fn() {
-  const saved: string[] = [];
-  const engine = createStubEngine();
-  const cloudModel: ModelInfo = {
-    name: "deepseek-v3.1:671b-cloud",
-    displayName: "DeepSeek V3.1 671B",
-    capabilities: ["tools"],
-  };
+Deno.test({
+  name: "runFirstTimeSetup: success saves selected cloud model",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const saved: string[] = [];
+    const engine = createStubEngine();
+    const cloudModel: ModelInfo = {
+      name: "deepseek-v3.1:671b-cloud",
+      displayName: "DeepSeek V3.1 671B",
+      capabilities: ["tools"],
+    };
 
-  const result = await runFirstTimeSetup(engine, {
-    confirmSetup: () => Promise.resolve(true),
-    pickBestCloudModel: () => Promise.resolve(cloudModel),
-    pullWithSignin: () => Promise.resolve(true),
-    ensureCloudModelAccess: () => Promise.resolve(true),
-    saveConfiguredModel: (modelId: string) => {
-      saved.push(modelId);
-      return Promise.resolve();
-    },
-    fallbackToModelBrowser: () =>
-      Promise.reject(new Error("fallback should not be called on success")),
-    logRaw: () => {},
-    logError: () => {},
-  });
+    const result = await runFirstTimeSetup(engine, {
+      confirmSetup: () => Promise.resolve(true),
+      pickBestCloudModel: () => Promise.resolve(cloudModel),
+      pullWithSignin: () => Promise.resolve(true),
+      ensureCloudModelAccess: () => Promise.resolve(true),
+      saveConfiguredModel: (modelId: string) => {
+        saved.push(modelId);
+        return Promise.resolve();
+      },
+      fallbackToModelBrowser: () =>
+        Promise.reject(new Error("fallback should not be called on success")),
+      logRaw: () => {},
+      logError: () => {},
+    });
 
-  assertEquals(result, "ollama/deepseek-v3.1:671b-cloud");
-  assertEquals(saved, ["ollama/deepseek-v3.1:671b-cloud"]);
-}});
+    assertEquals(result, "ollama/deepseek-v3.1:671b-cloud");
+    assertEquals(saved, ["ollama/deepseek-v3.1:671b-cloud"]);
+  },
+});
 
-Deno.test({ name: "runFirstTimeSetup: unverified cloud auth falls back and does not save", sanitizeOps: false, sanitizeResources: false, async fn() {
-  const saved: string[] = [];
-  const calls: string[] = [];
-  const engine = createStubEngine();
-  const cloudModel: ModelInfo = {
-    name: "deepseek-v3.1:671b-cloud",
-    displayName: "DeepSeek V3.1 671B",
-    capabilities: ["tools"],
-  };
+Deno.test({
+  name: "runFirstTimeSetup: unverified cloud auth falls back and does not save",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const saved: string[] = [];
+    const calls: string[] = [];
+    const engine = createStubEngine();
+    const cloudModel: ModelInfo = {
+      name: "deepseek-v3.1:671b-cloud",
+      displayName: "DeepSeek V3.1 671B",
+      capabilities: ["tools"],
+    };
 
-  const result = await runFirstTimeSetup(engine, {
-    confirmSetup: () => Promise.resolve(true),
-    pickBestCloudModel: () => Promise.resolve(cloudModel),
-    pullWithSignin: () => Promise.resolve(true),
-    ensureCloudModelAccess: () => Promise.resolve(false),
-    saveConfiguredModel: (modelId: string) => {
-      saved.push(modelId);
-      return Promise.resolve();
-    },
-    fallbackToModelBrowser: () => {
-      calls.push("fallback");
-      return Promise.resolve("ollama/fallback-model:cloud");
-    },
-    logRaw: () => {},
-    logError: () => {},
-  });
+    const result = await runFirstTimeSetup(engine, {
+      confirmSetup: () => Promise.resolve(true),
+      pickBestCloudModel: () => Promise.resolve(cloudModel),
+      pullWithSignin: () => Promise.resolve(true),
+      ensureCloudModelAccess: () => Promise.resolve(false),
+      saveConfiguredModel: (modelId: string) => {
+        saved.push(modelId);
+        return Promise.resolve();
+      },
+      fallbackToModelBrowser: () => {
+        calls.push("fallback");
+        return Promise.resolve("ollama/fallback-model:cloud");
+      },
+      logRaw: () => {},
+      logError: () => {},
+    });
 
-  assertEquals(result, "ollama/fallback-model:cloud");
-  assertEquals(saved.length, 0);
-  assertEquals(calls.includes("fallback"), true);
-}});
+    assertEquals(result, "ollama/fallback-model:cloud");
+    assertEquals(saved.length, 0);
+    assertEquals(calls.includes("fallback"), true);
+  },
+});
 
 Deno.test("verifyOllamaCloudModelAccess: probes through the runtime host", async () => {
   const port = await findFreePort();
   const authToken = "test-auth-token";
+  const identity = await getRuntimeHostIdentity();
   let capturedModel = "";
 
   const handle = getPlatform().http.serveWithHandle!(async (req) => {
@@ -204,6 +241,8 @@ Deno.test("verifyOllamaCloudModelAccess: probes through the runtime host", async
         initialized: true,
         definitions: 0,
         aiReady: true,
+        version: identity.version,
+        buildId: identity.buildId,
         authToken,
       });
     }
@@ -233,4 +272,26 @@ Deno.test("verifyOllamaCloudModelAccess: probes through the runtime host", async
     await handle.shutdown();
     await handle.finished;
   }
+});
+
+Deno.test("runOllamaSignin: routes through the runtime host", async () => {
+  let signinCalls = 0;
+
+  await withRuntimeHostServer(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/api/providers/ollama/signin") {
+      signinCalls += 1;
+      return Response.json({
+        success: true,
+        output: ["Open this URL to sign in"],
+        signinUrl: "https://ollama.com/connect?token=test",
+        browserOpened: true,
+      });
+    }
+    return new Response("Not found", { status: 404 });
+  }, async () => {
+    const result = await runOllamaSignin();
+    assertEquals(result, true);
+    assertEquals(signinCalls, 1);
+  });
 });

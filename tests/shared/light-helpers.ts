@@ -1,4 +1,5 @@
 import { getPlatform } from "../../src/platform/platform.ts";
+import { getRuntimeHostIdentity } from "../../src/hlvm/runtime/host-identity.ts";
 import { withRuntimePortOverrideForTests } from "../../src/hlvm/runtime/host-config.ts";
 
 const envLocks = new Map<string, Promise<void>>();
@@ -59,6 +60,7 @@ export async function withRuntimeHostServer(
 ): Promise<void> {
   const port = await findFreePort();
   const authToken = "test-auth-token";
+  const identity = await getRuntimeHostIdentity();
   const handle = getPlatform().http.serveWithHandle!(async (req) => {
     if (new URL(req.url).pathname === "/health") {
       return Response.json({
@@ -66,6 +68,8 @@ export async function withRuntimeHostServer(
         initialized: true,
         definitions: 0,
         aiReady: true,
+        version: identity.version,
+        buildId: identity.buildId,
         authToken,
       });
     }

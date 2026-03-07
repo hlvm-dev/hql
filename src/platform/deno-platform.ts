@@ -79,6 +79,7 @@ function toPlatformFileInfo(info: Deno.FileInfo): PlatformFileInfo {
     isDirectory: info.isDirectory,
     isSymlink: info.isSymlink,
     size: info.size ?? 0,
+    mtimeMs: info.mtime?.getTime(),
   };
 }
 

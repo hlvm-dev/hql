@@ -13,11 +13,11 @@ import { config } from "../../src/hlvm/api/config.ts";
 import { startHttpServer } from "../../src/hlvm/cli/repl/http-server.ts";
 import { initializeRuntime } from "../../src/common/runtime-initializer.ts";
 import {
-  registerProvider,
-  setDefaultProvider,
   type AIProvider,
   type Message as ProviderMessage,
   type ModelInfo,
+  registerProvider,
+  setDefaultProvider,
 } from "../../src/hlvm/providers/index.ts";
 import { insertMessage } from "../../src/hlvm/store/conversation-store.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
@@ -45,7 +45,8 @@ class IntegrationAgentEngine implements AgentEngine {
   }
 
   createSummarizer(_model?: string) {
-    return (_messages: AgentMessage[]) => Promise.resolve("integration-summary");
+    return (_messages: AgentMessage[]) =>
+      Promise.resolve("integration-summary");
   }
 }
 
@@ -76,7 +77,9 @@ const integrationProvider: AIProvider = {
       return Promise.resolve([INTEGRATION_MODEL, INTEGRATION_TOOLLESS_MODEL]);
     },
     get(name: string) {
-      if (name === INTEGRATION_MODEL.name) return Promise.resolve(INTEGRATION_MODEL);
+      if (name === INTEGRATION_MODEL.name) {
+        return Promise.resolve(INTEGRATION_MODEL);
+      }
       if (name === INTEGRATION_TOOLLESS_MODEL.name) {
         return Promise.resolve(INTEGRATION_TOOLLESS_MODEL);
       }
@@ -136,13 +139,16 @@ function getIntegrationChatReply(messages: ProviderMessage[]): string {
     return "arrr";
   }
 
-  const memorySystemMessage = messages.find((message) =>
-    message.role === "system" && message.content.startsWith("# Your Memory")
-  )?.content ?? "";
+  const memorySystemMessage =
+    messages.find((message) =>
+      message.role === "system" && message.content.startsWith("# Your Memory")
+    )?.content ?? "";
 
-  const historicalToolSummary = messages.find((message) =>
-    message.role === "assistant" && message.content.includes("Prior tool result")
-  )?.content ?? "";
+  const historicalToolSummary =
+    messages.find((message) =>
+      message.role === "assistant" &&
+      message.content.includes("Prior tool result")
+    )?.content ?? "";
   if (historicalToolSummary.includes("observed-from-tool")) {
     return "saw-tool";
   }
@@ -150,9 +156,9 @@ function getIntegrationChatReply(messages: ProviderMessage[]): string {
   const priorAssistant = [...messages].reverse().find((message) =>
     message.role === "assistant" && message.content.startsWith("reply:")
   )?.content;
-  const lastUser = [...messages].reverse().find((message) =>
-    message.role === "user"
-  )?.content ?? "";
+  const lastUser =
+    [...messages].reverse().find((message) => message.role === "user")
+      ?.content ?? "";
   const markerMatch = lastUser.match(/memory-marker:([A-Za-z0-9-]+)/);
   if (markerMatch && memorySystemMessage.includes(markerMatch[0])) {
     return `memory:${markerMatch[0]}`;
@@ -224,6 +230,8 @@ Deno.test({
     assertEquals(health.status, 200);
     assertEquals(healthData.status, "ok");
     assertExists(healthData.initialized);
+    assertExists(healthData.version);
+    assertExists(healthData.buildId);
 
     const unauthorized = await fetch(`${baseUrl}/eval`, {
       method: "POST",
@@ -270,7 +278,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "http server: eval state persists across variable and function definitions",
+  name:
+    "http server: eval state persists across variable and function definitions",
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
@@ -289,7 +298,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "http server: agent chat rejects unsupported default models with a clear 400",
+  name:
+    "http server: agent chat rejects unsupported default models with a clear 400",
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
@@ -322,7 +332,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "http server: chat honors explicit request messages including system context",
+  name:
+    "http server: chat honors explicit request messages including system context",
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
@@ -337,14 +348,17 @@ Deno.test({
     });
 
     assertEquals(result.status, 200);
-    const tokenEvents = result.events.filter((event) => event.event === "token");
+    const tokenEvents = result.events.filter((event) =>
+      event.event === "token"
+    );
     assertEquals(tokenEvents.length > 0, true);
     assertStringIncludes(String(tokenEvents[0].text), "arrr");
   },
 });
 
 Deno.test({
-  name: "http server: explicit request history remains durable for later single-turn fallback",
+  name:
+    "http server: explicit request history remains durable for later single-turn fallback",
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
@@ -378,7 +392,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "http server: chat falls back to stored session history for single-turn requests",
+  name:
+    "http server: chat falls back to stored session history for single-turn requests",
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
@@ -409,7 +424,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "http server: chat rejects requests whose last message is not a user turn",
+  name:
+    "http server: chat rejects requests whose last message is not a user turn",
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
@@ -430,7 +446,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "http server: agent follow-up can reference prior tool results from the same session",
+  name:
+    "http server: agent follow-up can reference prior tool results from the same session",
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
@@ -455,7 +472,10 @@ Deno.test({
       mode: "agent",
       session_id: sessionId,
       model: "test-chat/plain",
-      messages: [{ role: "user", content: "Do you still remember the tool output?" }],
+      messages: [{
+        role: "user",
+        content: "Do you still remember the tool output?",
+      }],
     });
 
     const tokenText = second.events
@@ -469,7 +489,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "http server: chat baseline memory writes are visible in later chat sessions",
+  name:
+    "http server: chat baseline memory writes are visible in later chat sessions",
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
@@ -501,7 +522,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "http server: agent baseline memory writes are visible to later chat sessions",
+  name:
+    "http server: agent baseline memory writes are visible to later chat sessions",
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {

@@ -12,13 +12,19 @@ import { listMemoryFunctions, type MemoryFunctionItem } from "./memory.ts";
 import { escapeString } from "./string-utils.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import type { PlatformHttpServerHandle } from "../../../platform/types.ts";
 import { RuntimeError } from "../../../common/error.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { buildContext } from "../repl-ink/completion/providers.ts";
 import { getActiveProvider } from "../repl-ink/completion/concrete-providers.ts";
-import { parseJsonBody, jsonError, addCorsHeaders } from "./http-utils.ts";
+import { addCorsHeaders, jsonError, parseJsonBody } from "./http-utils.ts";
 import { createRouter } from "./http-router.ts";
-import { handleChat, handleChatCancel, handleChatInteraction, handleSessionCancel } from "./handlers/chat.ts";
+import {
+  handleChat,
+  handleChatCancel,
+  handleChatInteraction,
+  handleSessionCancel,
+} from "./handlers/chat.ts";
 import {
   getRuntimeReady,
   isRuntimeReadinessManaged,
@@ -26,31 +32,31 @@ import {
   runtimeReadyState,
 } from "../commands/serve.ts";
 import {
-  handleListSessions,
   handleCreateSession,
-  handleGetSession,
-  handleUpdateSession,
-  handleDeleteSession,
   handleDeleteAllSessions,
+  handleDeleteSession,
+  handleGetSession,
+  handleListSessions,
   handleSessionsStream,
+  handleUpdateSession,
 } from "./handlers/sessions.ts";
 import {
-  handleGetMessages,
-  handleGetMessage,
   handleAddMessage,
-  handleUpdateMessage,
   handleDeleteMessage,
+  handleGetMessage,
+  handleGetMessages,
+  handleUpdateMessage,
 } from "./handlers/messages.ts";
 import {
-  handleListModels,
-  handleListInstalledModels,
-  handleGetModel,
-  handlePullModel,
   handleDeleteModel,
-  handleModelStatus,
+  handleGetModel,
+  handleListInstalledModels,
+  handleListModels,
   handleModelCatalog,
   handleModelDiscovery,
   handleModelsStream,
+  handleModelStatus,
+  handlePullModel,
   handleVerifyModelAccess,
 } from "./handlers/models.ts";
 import { handleSSEStream } from "./handlers/sse.ts";
@@ -62,16 +68,25 @@ import {
   handleResetConfig,
 } from "./handlers/config.ts";
 import {
+  handleAddMcpServer,
+  handleListMcpServers,
+  handleLoginMcpServer,
+  handleLogoutMcpServer,
+  handleRemoveMcpServer,
+} from "./handlers/mcp.ts";
+import { handleOllamaSignin } from "./handlers/providers.ts";
+import {
+  handleCompanionConfig,
   handleCompanionObserve,
-  handleCompanionStream,
   handleCompanionRespond,
   handleCompanionStatus,
-  handleCompanionConfig,
+  handleCompanionStream,
 } from "./handlers/companion.ts";
 import {
   HLVM_RUNTIME_DEFAULT_PORT,
   resolveHlvmRuntimePort,
 } from "../../runtime/host-config.ts";
+import { getRuntimeHostIdentity } from "../../runtime/host-identity.ts";
 
 /**
  * REPL HTTP Server Port
@@ -90,12 +105,18 @@ const platform = getPlatform();
 
 /** Auth token generated on server start — clients must send `Authorization: Bearer <token>` */
 let serverAuthToken: string | null = null;
+let serverHandle: PlatformHttpServerHandle | null = null;
 
 function resolvePort(): number {
   const port = resolveHlvmRuntimePort();
   const override = platform.env.get("HLVM_REPL_PORT");
-  if (override && port === HLVM_RUNTIME_DEFAULT_PORT && override !== String(HLVM_RUNTIME_DEFAULT_PORT)) {
-    log.warn(`Invalid HLVM_REPL_PORT "${override}", using default ${HLVM_RUNTIME_DEFAULT_PORT}`);
+  if (
+    override && port === HLVM_RUNTIME_DEFAULT_PORT &&
+    override !== String(HLVM_RUNTIME_DEFAULT_PORT)
+  ) {
+    log.warn(
+      `Invalid HLVM_REPL_PORT "${override}", using default ${HLVM_RUNTIME_DEFAULT_PORT}`,
+    );
   }
   return port;
 }
@@ -143,7 +164,7 @@ async function initState(): Promise<ReplState> {
   if (moduleResult) {
     log.info(
       `Loaded ${moduleResult.stdlibExports.length} stdlib + ` +
-      `${moduleResult.aiExports.length} AI functions`
+        `${moduleResult.aiExports.length} AI functions`,
     );
 
     if (moduleResult.errors.length > 0) {
@@ -336,7 +357,9 @@ async function handleComplete(req: Request): Promise<Response> {
     const memoryApi = (globalThis as Record<string, unknown>).memory as {
       list: () => Promise<string[]>;
     } | undefined;
-    const memoryNames: ReadonlySet<string> = memoryApi?.list ? new Set(await memoryApi.list()) : new Set<string>();
+    const memoryNames: ReadonlySet<string> = memoryApi?.list
+      ? new Set(await memoryApi.list())
+      : new Set<string>();
 
     const context = buildContext(
       text,
@@ -344,7 +367,7 @@ async function handleComplete(req: Request): Promise<Response> {
       replState.getBindingsSet(),
       replState.getSignatures(),
       replState.getDocstrings(),
-      memoryNames
+      memoryNames,
     );
 
     const provider = getActiveProvider(context);
@@ -353,7 +376,7 @@ async function handleComplete(req: Request): Promise<Response> {
         items: [],
         anchor: context.wordStart,
         providerId: null,
-        helpText: null
+        helpText: null,
       });
     }
 
@@ -367,7 +390,7 @@ async function handleComplete(req: Request): Promise<Response> {
         detail: render.typeLabel ?? null,
         documentation: render.extendedDoc ?? null,
         score: item.score,
-        matchIndices: item.matchIndices ?? []
+        matchIndices: item.matchIndices ?? [],
       };
     });
 
@@ -375,7 +398,7 @@ async function handleComplete(req: Request): Promise<Response> {
       items,
       anchor: result.anchor,
       providerId: provider.id,
-      helpText: provider.helpText ?? null
+      helpText: provider.helpText ?? null,
     });
   } catch (error) {
     log.error("Completion failed", error);
@@ -408,18 +431,40 @@ async function handleComplete(req: Request): Promise<Response> {
  *                   type: integer
  *                 aiReady:
  *                   type: boolean
+ *                 version:
+ *                   type: string
+ *                 buildId:
+ *                   type: string
  *                 authToken:
  *                   type: string
  *                   description: Bearer token the server uses for authenticated endpoints
  */
-function handleHealth(): Response {
+async function handleHealth(): Promise<Response> {
+  const identity = await getRuntimeHostIdentity();
   return Response.json({
     status: "ok",
     initialized: replState !== null,
     definitions: replState?.getDocstrings().size ?? 0,
     aiReady: isRuntimeReadyForAiRequests(),
+    version: identity.version,
+    buildId: identity.buildId,
     authToken: serverAuthToken,
   });
+}
+
+function scheduleServerShutdown(): void {
+  const activeHandle = serverHandle;
+  if (!activeHandle) return;
+  setTimeout(() => {
+    void activeHandle.shutdown().catch((error) => {
+      log.warn("Failed to shut down REPL HTTP server", error);
+    });
+  }, 0);
+}
+
+async function handleRuntimeShutdown(): Promise<Response> {
+  scheduleServerShutdown();
+  return Response.json({ ok: true, shutting_down: true });
 }
 
 function requiresAiRuntime(method: string, pathname: string): boolean {
@@ -470,7 +515,10 @@ async function maybeGateAiRoute(
       "AI runtime is still initializing. Please retry shortly.",
       503,
     );
-  response.headers.set("Retry-After", runtimeReadyState === "failed" ? "5" : "1");
+  response.headers.set(
+    "Retry-After",
+    runtimeReadyState === "failed" ? "5" : "1",
+  );
   return response;
 }
 
@@ -478,7 +526,10 @@ function encodeHqlString(value: string): string {
   return `"${escapeString(value)}"`;
 }
 
-function buildExecuteCode(definition: MemoryFunctionItem, args: string[]): string {
+function buildExecuteCode(
+  definition: MemoryFunctionItem,
+  args: string[],
+): string {
   if (definition.kind === "def") {
     return `(do ${definition.name})`;
   }
@@ -525,7 +576,13 @@ async function handleMemoryFunctions(): Promise<Response> {
 }
 
 function execError(message: string, code: string): Response {
-  return Response.json({ output: "", status: "error", error: { message, code } } satisfies MemoryExecuteResponse);
+  return Response.json(
+    {
+      output: "",
+      status: "error",
+      error: { message, code },
+    } satisfies MemoryExecuteResponse,
+  );
 }
 
 /**
@@ -600,11 +657,17 @@ async function handleMemoryExecute(req: Request): Promise<Response> {
     const definitions = await listMemoryFunctions();
     const definition = definitions.find((def) => def.name === functionName);
     if (!definition) {
-      return execError(`Function '${functionName}' not found`, "FUNCTION_NOT_FOUND");
+      return execError(
+        `Function '${functionName}' not found`,
+        "FUNCTION_NOT_FOUND",
+      );
     }
 
     if (definition.kind === "defn" && args.length !== definition.arity) {
-      return execError(`Arity mismatch: expected ${definition.arity} args, got ${args.length}`, "ARITY_MISMATCH");
+      return execError(
+        `Arity mismatch: expected ${definition.arity} args, got ${args.length}`,
+        "ARITY_MISMATCH",
+      );
     }
     if (definition.kind === "def" && args.length !== 0) {
       return execError("def values do not accept arguments", "ARITY_MISMATCH");
@@ -617,12 +680,17 @@ async function handleMemoryExecute(req: Request): Promise<Response> {
     const code = buildExecuteCode(definition, args);
     const result = await evaluate(code, replState, false);
     if (!result.success) {
-      return execError(result.error?.message ?? "Execution failed", "EXECUTION_ERROR");
+      return execError(
+        result.error?.message ?? "Execution failed",
+        "EXECUTION_ERROR",
+      );
     }
 
     const hasValue = Object.prototype.hasOwnProperty.call(result, "value");
     const output = hasValue ? formatPlainValue(result.value) : "";
-    return Response.json({ output, status: "success" } satisfies MemoryExecuteResponse);
+    return Response.json(
+      { output, status: "success" } satisfies MemoryExecuteResponse,
+    );
   } catch (error) {
     log.error("Memory execute failed", error);
     return jsonError(getErrorMessage(error), 500);
@@ -635,33 +703,89 @@ const router = createRouter();
 
 router.add("POST", "/api/chat", (req) => handleChat(req));
 router.add("POST", "/api/chat/cancel", (req) => handleChatCancel(req));
-router.add("POST", "/api/chat/interaction", (req) => handleChatInteraction(req));
+router.add(
+  "POST",
+  "/api/chat/interaction",
+  (req) => handleChatInteraction(req),
+);
 
 router.add("GET", "/api/sessions", () => handleListSessions());
 router.add("POST", "/api/sessions", (req) => handleCreateSession(req));
 router.add("DELETE", "/api/sessions", () => handleDeleteAllSessions());
 router.add("GET", "/api/sessions/stream", (req) => handleSessionsStream(req));
 router.add("GET", "/api/sessions/:id", (req, p) => handleGetSession(req, p));
-router.add("PATCH", "/api/sessions/:id", (req, p) => handleUpdateSession(req, p));
-router.add("DELETE", "/api/sessions/:id", (req, p) => handleDeleteSession(req, p));
-router.add("POST", "/api/sessions/:id/cancel", (_req, p) => handleSessionCancel(p.id));
+router.add(
+  "PATCH",
+  "/api/sessions/:id",
+  (req, p) => handleUpdateSession(req, p),
+);
+router.add(
+  "DELETE",
+  "/api/sessions/:id",
+  (req, p) => handleDeleteSession(req, p),
+);
+router.add(
+  "POST",
+  "/api/sessions/:id/cancel",
+  (_req, p) => handleSessionCancel(p.id),
+);
 
-router.add("GET", "/api/sessions/:id/messages", (req, p) => handleGetMessages(req, p));
-router.add("POST", "/api/sessions/:id/messages", (req, p) => handleAddMessage(req, p));
-router.add("GET", "/api/sessions/:id/messages/:messageId", (req, p) => handleGetMessage(req, p));
-router.add("PATCH", "/api/sessions/:id/messages/:messageId", (req, p) => handleUpdateMessage(req, p));
-router.add("DELETE", "/api/sessions/:id/messages/:messageId", (req, p) => handleDeleteMessage(req, p));
-router.add("GET", "/api/sessions/:id/stream", (req, p) => handleSSEStream(req, p));
+router.add(
+  "GET",
+  "/api/sessions/:id/messages",
+  (req, p) => handleGetMessages(req, p),
+);
+router.add(
+  "POST",
+  "/api/sessions/:id/messages",
+  (req, p) => handleAddMessage(req, p),
+);
+router.add(
+  "GET",
+  "/api/sessions/:id/messages/:messageId",
+  (req, p) => handleGetMessage(req, p),
+);
+router.add(
+  "PATCH",
+  "/api/sessions/:id/messages/:messageId",
+  (req, p) => handleUpdateMessage(req, p),
+);
+router.add(
+  "DELETE",
+  "/api/sessions/:id/messages/:messageId",
+  (req, p) => handleDeleteMessage(req, p),
+);
+router.add(
+  "GET",
+  "/api/sessions/:id/stream",
+  (req, p) => handleSSEStream(req, p),
+);
 
 router.add("GET", "/api/models", () => handleListModels());
-router.add("GET", "/api/models/installed", (req) => handleListInstalledModels(req));
+router.add(
+  "GET",
+  "/api/models/installed",
+  (req) => handleListInstalledModels(req),
+);
 router.add("GET", "/api/models/discovery", (req) => handleModelDiscovery(req));
 router.add("GET", "/api/models/catalog", () => handleModelCatalog());
 router.add("GET", "/api/models/status", () => handleModelStatus());
-router.add("GET", "/api/models/:provider/:name", (req, p) => handleGetModel(req, p));
+router.add(
+  "GET",
+  "/api/models/:provider/:name",
+  (req, p) => handleGetModel(req, p),
+);
 router.add("POST", "/api/models/pull", (req) => handlePullModel(req));
-router.add("POST", "/api/models/verify-access", (req) => handleVerifyModelAccess(req));
-router.add("DELETE", "/api/models/:provider/:name", (req, p) => handleDeleteModel(req, p));
+router.add(
+  "POST",
+  "/api/models/verify-access",
+  (req) => handleVerifyModelAccess(req),
+);
+router.add(
+  "DELETE",
+  "/api/models/:provider/:name",
+  (req, p) => handleDeleteModel(req, p),
+);
 router.add("GET", "/api/models/stream", (req) => handleModelsStream(req));
 
 router.add("POST", "/api/completions", (req) => handleComplete(req));
@@ -672,11 +796,39 @@ router.add("POST", "/api/config/reload", () => handleReloadConfig());
 router.add("POST", "/api/config/reset", () => handleResetConfig());
 router.add("GET", "/api/config/stream", (req) => handleConfigStream(req));
 
-router.add("POST", "/api/companion/observe", (req) => handleCompanionObserve(req));
+router.add("GET", "/api/mcp/servers", (req) => handleListMcpServers(req));
+router.add("POST", "/api/mcp/servers", (req) => handleAddMcpServer(req));
+router.add("DELETE", "/api/mcp/servers", (req) => handleRemoveMcpServer(req));
+router.add("POST", "/api/mcp/oauth/login", (req) => handleLoginMcpServer(req));
+router.add(
+  "POST",
+  "/api/mcp/oauth/logout",
+  (req) => handleLogoutMcpServer(req),
+);
+
+router.add(
+  "POST",
+  "/api/providers/ollama/signin",
+  (req) => handleOllamaSignin(req),
+);
+
+router.add(
+  "POST",
+  "/api/companion/observe",
+  (req) => handleCompanionObserve(req),
+);
 router.add("GET", "/api/companion/stream", (req) => handleCompanionStream(req));
-router.add("POST", "/api/companion/respond", (req) => handleCompanionRespond(req));
+router.add(
+  "POST",
+  "/api/companion/respond",
+  (req) => handleCompanionRespond(req),
+);
 router.add("GET", "/api/companion/status", () => handleCompanionStatus());
-router.add("POST", "/api/companion/config", (req) => handleCompanionConfig(req));
+router.add(
+  "POST",
+  "/api/companion/config",
+  (req) => handleCompanionConfig(req),
+);
 
 // MARK: - Request Handler
 
@@ -692,7 +844,7 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   if (req.method === "GET" && url.pathname === "/health") {
-    return addCorsHeaders(handleHealth(), origin);
+    return addCorsHeaders(await handleHealth(), origin);
   }
 
   // Auth check: require Bearer token for all other routes
@@ -716,11 +868,17 @@ async function handleRequest(req: Request): Promise<Response> {
     return addCorsHeaders(await handleComplete(req), origin);
   }
 
+  if (req.method === "POST" && url.pathname === "/api/runtime/shutdown") {
+    return addCorsHeaders(await handleRuntimeShutdown(), origin);
+  }
+
   if (req.method === "GET" && url.pathname === "/api/memory/functions") {
     return addCorsHeaders(await handleMemoryFunctions(), origin);
   }
 
-  if (req.method === "POST" && url.pathname === "/api/memory/functions/execute") {
+  if (
+    req.method === "POST" && url.pathname === "/api/memory/functions/execute"
+  ) {
     return addCorsHeaders(await handleMemoryExecute(req), origin);
   }
 
@@ -744,22 +902,36 @@ export interface StartHttpServerOptions {
   port?: number;
 }
 
-export async function startHttpServer(options: StartHttpServerOptions = {}): Promise<void> {
+export async function startHttpServer(
+  options: StartHttpServerOptions = {},
+): Promise<void> {
   const port = options.port ?? resolvePort();
 
   // Use pre-shared token from env (GUI passes this) or generate a random one
-  serverAuthToken = getPlatform().env.get("HLVM_AUTH_TOKEN") || crypto.randomUUID();
+  serverAuthToken = getPlatform().env.get("HLVM_AUTH_TOKEN") ||
+    crypto.randomUUID();
   log.info(`REPL auth token: ${serverAuthToken}`);
 
   try {
     log.info(`Starting REPL HTTP server on port ${port}...`);
-    await platform.http.serve(handleRequest, {
-      port,
-      hostname: "127.0.0.1",
-      onListen: ({ hostname, port }) => {
-        log.info(`REPL HTTP server listening on http://${hostname}:${port}`);
-      },
-    });
+    if (platform.http.serveWithHandle) {
+      serverHandle = platform.http.serveWithHandle(handleRequest, {
+        port,
+        hostname: "127.0.0.1",
+        onListen: ({ hostname, port }) => {
+          log.info(`REPL HTTP server listening on http://${hostname}:${port}`);
+        },
+      });
+      await serverHandle.finished;
+    } else {
+      await platform.http.serve(handleRequest, {
+        port,
+        hostname: "127.0.0.1",
+        onListen: ({ hostname, port }) => {
+          log.info(`REPL HTTP server listening on http://${hostname}:${port}`);
+        },
+      });
+    }
   } catch (error) {
     if (error instanceof Error && error.name === "AddrInUse") {
       log.error(
@@ -773,5 +945,7 @@ export async function startHttpServer(options: StartHttpServerOptions = {}): Pro
     throw new RuntimeError(
       `REPL server failed to start: ${getErrorMessage(error)}`,
     );
+  } finally {
+    serverHandle = null;
   }
 }

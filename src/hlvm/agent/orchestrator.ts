@@ -55,6 +55,7 @@ import { getAgentLogger } from "./logger.ts";
 import { retrieveMemory, type RetrievalResult } from "../memory/retrieve.ts";
 import { resetWebToolBudget } from "./tools/web-tools.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
+import type { TodoState } from "./todo-state.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -239,6 +240,20 @@ export type AgentUIEvent =
     inputTokens?: number;
     outputTokens?: number;
   }
+  | {
+    type: "delegate_start";
+    agent: string;
+    task: string;
+  }
+  | {
+    type: "delegate_end";
+    agent: string;
+    task: string;
+    success: boolean;
+    summary?: string;
+    durationMs: number;
+    error?: string;
+  }
   | InteractionRequestEvent;
 
 // Re-export from registry (SSOT)
@@ -293,6 +308,8 @@ export interface OrchestratorConfig {
   signal?: AbortSignal;
   /** Enable one-time automatic memory recall for this user turn. */
   autoMemoryRecall?: boolean;
+  /** Session-scoped todo state used by todo_read/todo_write. */
+  todoState?: TodoState;
 }
 
 // ============================================================

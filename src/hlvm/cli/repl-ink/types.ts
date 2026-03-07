@@ -78,6 +78,19 @@ export interface TurnStatsItem {
   outputTokens?: number;
 }
 
+/** Delegated sub-agent activity */
+export interface DelegateItem {
+  type: "delegate";
+  id: string;
+  agent: string;
+  task: string;
+  status: "running" | "success" | "error";
+  summary?: string;
+  error?: string;
+  durationMs?: number;
+  ts: number;
+}
+
 /** Error message */
 export interface ErrorItem {
   type: "error";
@@ -98,6 +111,7 @@ export type ConversationItem =
   | AssistantItem
   | ThinkingItem
   | ToolGroupItem
+  | DelegateItem
   | TurnStatsItem
   | ErrorItem
   | InfoItem;

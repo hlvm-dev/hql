@@ -22,11 +22,14 @@ import { MEMORY_TOOLS } from "../memory/mod.ts";
 import { DATA_TOOLS } from "./tools/data-tools.ts";
 import { GIT_TOOLS } from "./tools/git-tools.ts";
 import { ValidationError } from "../../common/error.ts";
+import { safeStringify } from "../../common/safe-stringify.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { isToolArgsObject } from "./validation.ts";
+import type { TodoState } from "./todo-state.ts";
 import {
   buildToolJsonSchema,
   coerceArgsToSchema,
+  normalizeArgsForTool,
   validateArgsAgainstSchema,
   validateToolSchema,
 } from "./tool-schema.ts";
@@ -59,11 +62,15 @@ export interface InteractionRequestEvent {
 export interface ToolExecutionOptions {
   signal?: AbortSignal;
   policy?: AgentPolicy | null;
-  onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>;
+  onInteraction?: (
+    event: InteractionRequestEvent,
+  ) => Promise<InteractionResponse>;
   /** Session-scoped tool owner (used by dynamic tool families like MCP). */
   toolOwnerId?: string;
   /** Optional lazy MCP loader hook used by tool_search. */
   ensureMcpLoaded?: () => Promise<void>;
+  /** Session-scoped todo state used by todo_read/todo_write. */
+  todoState?: TodoState;
   /** Optional registry-backed tool search callback used by tool_search. */
   searchTools?: (
     query: string,
@@ -94,11 +101,22 @@ export interface ToolMetadata {
   fn: ToolFunction;
   description: string;
   args: Record<string, string>;
+  /** Optional arg alias map applied before coercion/validation. */
+  argAliases?: Record<string, string>;
   returns?: Record<string, string>;
   safetyLevel?: "L0" | "L1" | "L2";
   safety?: string; // Additional safety info
   /** Tool category for auto-generated routing table */
-  category?: "read" | "write" | "search" | "shell" | "git" | "web" | "data" | "meta" | "memory";
+  category?:
+    | "read"
+    | "write"
+    | "search"
+    | "shell"
+    | "git"
+    | "web"
+    | "data"
+    | "meta"
+    | "memory";
   /** Shell command(s) this tool replaces (e.g., "cat/head/tail") — drives routing rules */
   replaces?: string;
   /** Skip argument validation (used for dynamic tools with unknown schemas) */
@@ -114,6 +132,28 @@ export interface ToolSearchResult {
   category?: ToolMetadata["category"];
   safetyLevel: "L0" | "L1" | "L2";
   source: "built-in" | "dynamic";
+}
+
+function formatDelegateAgentResult(
+  result: unknown,
+): FormattedToolResult | null {
+  if (!result || typeof result !== "object") return null;
+  const record = result as Record<string, unknown>;
+  const delegatedResult = record.result;
+  const summaryDisplay = typeof delegatedResult === "string" &&
+      delegatedResult.trim()
+    ? delegatedResult.trim().split("\n").map((line) => line.trim()).find(
+      Boolean,
+    ) ??
+      "Delegation complete."
+    : "Delegation complete.";
+  return {
+    summaryDisplay,
+    returnDisplay: safeStringify(result, 2),
+    llmContent: typeof delegatedResult === "string" && delegatedResult.trim()
+      ? delegatedResult.trim()
+      : undefined,
+  };
 }
 
 /** Result of argument validation */
@@ -150,12 +190,13 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...MEMORY_TOOLS,
   delegate_agent: {
     fn: () =>
-      Promise.reject(new ValidationError(
-        "delegate_agent is not configured. Ensure the session provides a delegate handler.",
-        "delegate_agent",
-      )),
-    description:
-      "Delegate a task to a specialist agent and return its result.",
+      Promise.reject(
+        new ValidationError(
+          "delegate_agent is not configured. Ensure the session provides a delegate handler.",
+          "delegate_agent",
+        ),
+      ),
+    description: "Delegate a task to a specialist agent and return its result.",
     category: "meta",
     args: {
       agent: "string - Agent name (general, code, file, shell, web, memory)",
@@ -170,6 +211,7 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
     },
     safetyLevel: "L0",
     safety: "Internal delegation (auto-approved).",
+    formatResult: formatDelegateAgentResult,
   },
   ...DATA_TOOLS,
   ...GIT_TOOLS,
@@ -441,7 +483,9 @@ export function searchTools(
         }
       }
 
-      if (tokens.length > 0 && tokens.every((token) => haystack.includes(token))) {
+      if (
+        tokens.length > 0 && tokens.every((token) => haystack.includes(token))
+      ) {
         score += 3;
       }
     }
@@ -624,7 +668,8 @@ export function validateToolArgs(
   }
 
   const schema = buildToolJsonSchema(tool);
-  const errors = validateArgsAgainstSchema(args, schema);
+  const normalizedArgs = normalizeArgsForTool(args, tool);
+  const errors = validateArgsAgainstSchema(normalizedArgs, schema);
 
   return {
     valid: errors.length === 0,
@@ -662,7 +707,8 @@ export function prepareToolArgsForExecution(
   }
 
   const schema = buildToolJsonSchema(tool);
-  const coercedArgs = coerceArgsToSchema(args, schema);
+  const normalizedArgs = normalizeArgsForTool(args, tool);
+  const coercedArgs = coerceArgsToSchema(normalizedArgs, schema);
   const errors = validateArgsAgainstSchema(coercedArgs, schema);
   return {
     coercedArgs,

@@ -220,6 +220,7 @@ Deno.test("getModelDiscoveryModels dedupes local and cached models by canonical 
     remoteModels: [{
       name: "qwen3:latest",
       displayName: "Qwen 3 Remote",
+      capabilities: ["generate", "chat", "tools"],
       metadata: { provider: "ollama" },
     }],
     cloudModels: [{
@@ -241,4 +242,5 @@ Deno.test("getModelDiscoveryModels dedupes local and cached models by canonical 
     "claude-sonnet-4.5",
   ]);
   assertEquals(models[0]?.size, 4096);
+  assertEquals(models[0]?.capabilities?.includes("tools"), true);
 });

@@ -16,7 +16,14 @@ export interface JsonSchemaObject {
 }
 
 export interface JsonSchemaProperty {
-  type?: "string" | "number" | "boolean" | "array" | "object" | "integer" | "null";
+  type?:
+    | "string"
+    | "number"
+    | "boolean"
+    | "array"
+    | "object"
+    | "integer"
+    | "null";
   description?: string;
   items?: JsonSchemaProperty;
 }
@@ -30,7 +37,14 @@ interface ParsedArgSpec {
 const OPTIONAL_MARKER = "(optional)";
 
 const KNOWN_BASE_TYPES = new Set([
-  "string", "number", "boolean", "integer", "int", "object", "null", "any",
+  "string",
+  "number",
+  "boolean",
+  "integer",
+  "int",
+  "object",
+  "null",
+  "any",
 ]);
 
 function parseBaseType(typeToken: string): JsonSchemaProperty["type"] | "any" {
@@ -103,9 +117,13 @@ export function validateToolSchema(name: string, tool: ToolMetadata): string[] {
     const left = desc.split(" - ")[0]?.trim() ?? "";
     const cleaned = left.replace(OPTIONAL_MARKER, "").trim();
     const typeToken = cleaned.split(/\s+/)[0] ?? "string";
-    const baseToken = typeToken.endsWith("[]") ? typeToken.slice(0, -2) : typeToken;
+    const baseToken = typeToken.endsWith("[]")
+      ? typeToken.slice(0, -2)
+      : typeToken;
     if (baseToken && !KNOWN_BASE_TYPES.has(baseToken.toLowerCase())) {
-      warnings.push(`Tool '${name}' arg '${argName}': unknown type '${baseToken}', treating as string`);
+      warnings.push(
+        `Tool '${name}' arg '${argName}': unknown type '${baseToken}', treating as string`,
+      );
     }
   }
   return warnings;
@@ -122,6 +140,31 @@ export function sanitizeToolName(name: string): string {
     sanitized = "t_" + sanitized;
   }
   return sanitized.slice(0, 64);
+}
+
+export function normalizeArgsForTool(
+  args: unknown,
+  tool: Pick<ToolMetadata, "argAliases">,
+): unknown {
+  if (typeof args !== "object" || args === null || Array.isArray(args)) {
+    return args;
+  }
+
+  const aliases = tool.argAliases;
+  if (!aliases || Object.keys(aliases).length === 0) {
+    return args;
+  }
+
+  const normalized = { ...(args as Record<string, unknown>) };
+  for (const [alias, canonical] of Object.entries(aliases)) {
+    if (!(alias in normalized)) continue;
+    if (!(canonical in normalized)) {
+      normalized[canonical] = normalized[alias];
+    }
+    delete normalized[alias];
+  }
+
+  return normalized;
 }
 
 function isTypeMatch(value: unknown, schema: JsonSchemaProperty): boolean {
@@ -158,7 +201,9 @@ function coerceValue(value: unknown, schema: JsonSchemaProperty): unknown {
         const parsed = JSON.parse(value);
         if (Array.isArray(parsed)) {
           if (!schema.items) return parsed;
-          return parsed.map((item: unknown) => coerceValue(item, schema.items!));
+          return parsed.map((item: unknown) =>
+            coerceValue(item, schema.items!)
+          );
         }
       } catch { /* not valid JSON array, return as-is */ }
     }
@@ -167,7 +212,10 @@ function coerceValue(value: unknown, schema: JsonSchemaProperty): unknown {
     return value.map((item) => coerceValue(item, schema.items!));
   }
 
-  if ((schema.type === "number" || schema.type === "integer") && typeof value === "string") {
+  if (
+    (schema.type === "number" || schema.type === "integer") &&
+    typeof value === "string"
+  ) {
     const trimmed = value.trim();
     if (trimmed.length === 0) return value;
     const numeric = Number(trimmed);
@@ -186,7 +234,9 @@ function coerceValue(value: unknown, schema: JsonSchemaProperty): unknown {
   if (schema.type === "object" && typeof value === "string") {
     try {
       const parsed = JSON.parse(value);
-      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      if (
+        typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ) {
         return parsed;
       }
     } catch { /* not valid JSON, return as-is */ }
@@ -218,7 +268,7 @@ export function validateArgsAgainstSchema(
 ): string[] {
   const errors: string[] = [];
   if (typeof args !== "object" || args === null || Array.isArray(args)) {
-    return ["Arguments must be a plain object"]; 
+    return ["Arguments must be a plain object"];
   }
 
   const record = args as Record<string, unknown>;
@@ -234,14 +284,18 @@ export function validateArgsAgainstSchema(
     if (!prop) {
       if (!schema.additionalProperties) {
         errors.push(
-          `Unexpected argument: ${key}. Valid arguments: ${Object.keys(schema.properties).join(", ")}`,
+          `Unexpected argument: ${key}. Valid arguments: ${
+            Object.keys(schema.properties).join(", ")
+          }`,
         );
       }
       continue;
     }
     if (!isTypeMatch(value, prop)) {
       errors.push(
-        `Invalid type for argument '${key}'. Expected ${prop.type}${prop.type === "array" && prop.items ? ` of ${prop.items.type}` : ""}.`,
+        `Invalid type for argument '${key}'. Expected ${prop.type}${
+          prop.type === "array" && prop.items ? ` of ${prop.items.type}` : ""
+        }.`,
       );
     }
   }

@@ -14,6 +14,7 @@ export interface PlatformFileInfo {
   isDirectory: boolean;
   isSymlink: boolean;
   size: number;
+  mtimeMs?: number;
 }
 
 export interface PlatformDirEntry {

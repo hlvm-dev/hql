@@ -5,9 +5,9 @@ import {
 } from "../../../src/hlvm/agent/agent-runner.ts";
 import { SdkAgentEngine } from "../../../src/hlvm/agent/engine-sdk.ts";
 import {
+  type AgentEngine,
   resetAgentEngine,
   setAgentEngine,
-  type AgentEngine,
 } from "../../../src/hlvm/agent/engine.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { generateUUID } from "../../../src/common/utils.ts";
@@ -128,7 +128,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "agent-runner: session cache key includes context window and denylist",
+  name:
+    "agent-runner: session cache key includes context window, allowlist, and denylist",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -149,14 +150,21 @@ Deno.test({
         contextWindow: 32768,
         modelInfo: null,
       });
+      const withAllowlist = await getOrCreateCachedSession(workspace, model, {
+        toolAllowlist: ["search_web", "web_fetch"],
+        modelInfo: null,
+      });
       const withDenylist = await getOrCreateCachedSession(workspace, model, {
         toolDenylist: ["read_file", "shell_exec"],
         modelInfo: null,
       });
 
       assertEquals(base === withContext, false);
+      assertEquals(base === withAllowlist, false);
       assertEquals(base === withDenylist, false);
+      assertEquals(withContext === withAllowlist, false);
       assertEquals(withContext === withDenylist, false);
+      assertEquals(withAllowlist === withDenylist, false);
     } finally {
       await disposeAllSessions();
       await platform.fs.remove(workspace, { recursive: true });

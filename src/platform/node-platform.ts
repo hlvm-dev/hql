@@ -90,6 +90,7 @@ function statToFileInfo(stat: fs.Stats): PlatformFileInfo {
     isDirectory: stat.isDirectory(),
     isSymlink: stat.isSymbolicLink(),
     size: stat.size,
+    mtimeMs: stat.mtimeMs,
   };
 }
 
@@ -637,7 +638,9 @@ export const NodePlatform: Platform = {
     for (const { cmd, args } of commands) {
       const result = await NodeCommand.output({ cmd: [cmd, ...args] });
       if (!result.success) {
-        throw new Error(`Failed to open URL: ${url} (exit code: ${result.code})`);
+        throw new Error(
+          `Failed to open URL: ${url} (exit code: ${result.code})`,
+        );
       }
     }
   },

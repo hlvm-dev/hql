@@ -12,6 +12,7 @@ import { createFixtureLLM } from "../../../src/hlvm/agent/llm-fixtures.ts";
 import type { LlmFixture } from "../../../src/hlvm/agent/llm-fixtures.ts";
 import type { AgentSession } from "../../../src/hlvm/agent/session.ts";
 import { ENGINE_PROFILES } from "../../../src/hlvm/agent/constants.ts";
+import { createTodoState } from "../../../src/hlvm/agent/todo-state.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 
 /** Create a minimal AgentSession with a fixture LLM. */
@@ -32,6 +33,7 @@ function createTestSession(fixture: LlmFixture): AgentSession {
     profile: ENGINE_PROFILES.normal,
     isFrontierModel: false,
     modelTier: "mid",
+    todoState: createTodoState(),
     resolvedContextBudget: {
       budget: ENGINE_PROFILES.normal.context.maxTokens,
       rawLimit: ENGINE_PROFILES.normal.context.maxTokens + 4096,

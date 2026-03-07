@@ -193,6 +193,74 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Orchestrator: executeToolCall threads todo state into todo tools",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const todoState = { items: [] };
+
+    const writeResult = await executeToolCall(
+      {
+        toolName: "todo_write",
+        args: {
+          items: [{ id: "step-1", content: "Track work", status: "pending" }],
+        },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        todoState,
+      },
+    );
+    const readResult = await executeToolCall(
+      { toolName: "todo_read", args: {} },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        todoState,
+      },
+    );
+
+    assertEquals(writeResult.success, true);
+    assertEquals(readResult.success, true);
+    assertEquals(todoState.items.length, 1);
+    assertEquals(
+      (readResult.result as { items: Array<{ id: string }> }).items[0]?.id,
+      "step-1",
+    );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: delegate_agent emits delegate lifecycle events",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const events: string[] = [];
+
+    const result = await executeToolCall(
+      {
+        toolName: "delegate_agent",
+        args: { agent: "web", task: "Inspect docs" },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        delegate: async () => ({ agent: "web", result: "done" }),
+        onAgentEvent: (event) => events.push(event.type),
+      },
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(events.includes("delegate_start"), true);
+    assertEquals(events.includes("delegate_end"), true);
+  },
+});
+
+Deno.test({
   name: "Orchestrator: executeToolCall rejects unknown and blocked tools",
   async fn() {
     resetApprovals();

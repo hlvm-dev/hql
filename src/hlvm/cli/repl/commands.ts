@@ -13,6 +13,7 @@ import { listSessions } from "../../store/conversation-store.ts";
 import { handleDeleteAllSessions } from "./handlers/sessions.ts";
 import { normalizeModelId } from "../../../common/config/types.ts";
 import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
+import { listRuntimeMcpServers } from "../../runtime/host-client.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -244,7 +245,9 @@ export const commands: Record<string, Command> = {
         | {
           snapshot?: { model?: unknown };
           set?: (key: string, value: unknown) => Promise<unknown>;
-          patch?: (updates: Partial<Record<string, unknown>>) => Promise<unknown>;
+          patch?: (
+            updates: Partial<Record<string, unknown>>,
+          ) => Promise<unknown>;
         }
         | undefined;
 
@@ -258,17 +261,23 @@ export const commands: Record<string, Command> = {
           ? configApi.snapshot.model
           : "not configured";
         context.output(`${BOLD}Current model:${RESET} ${current}`);
-        context.output(`${DIM_GRAY}Tip: /model <provider/model> to set (or /models to browse).${RESET}`);
+        context.output(
+          `${DIM_GRAY}Tip: /model <provider/model> to set (or /models to browse).${RESET}`,
+        );
         return;
       }
 
       if (!normalizeModelId(modelArg)) {
-        context.output(`${YELLOW}Invalid model ID.${RESET} Use format ${CYAN}provider/model${RESET}.`);
+        context.output(
+          `${YELLOW}Invalid model ID.${RESET} Use format ${CYAN}provider/model${RESET}.`,
+        );
         return;
       }
 
       if (!configApi.set && !configApi.patch) {
-        context.output(`${YELLOW}Config setter unavailable in this context.${RESET}`);
+        context.output(
+          `${YELLOW}Config setter unavailable in this context.${RESET}`,
+        );
         return;
       }
 
@@ -280,7 +289,9 @@ export const commands: Record<string, Command> = {
   "/models": {
     description: "Open model picker",
     handler: (_state, _args, context) => {
-      context.output(`${DIM_GRAY}Use /models in the interactive REPL to open the model picker.${RESET}`);
+      context.output(
+        `${DIM_GRAY}Use /models in the interactive REPL to open the model picker.${RESET}`,
+      );
     },
   },
 
@@ -299,9 +310,12 @@ export const commands: Record<string, Command> = {
         | { chat?: unknown }
         | undefined;
       const aiStatus = aiApi?.chat ? "ready" : "off";
-      const warnings = (globalThis as Record<string, unknown>).__hlvmStartupWarnings;
+      const warnings =
+        (globalThis as Record<string, unknown>).__hlvmStartupWarnings;
       const warningCount = Array.isArray(warnings)
-        ? warnings.filter((line: unknown) => typeof line === "string" && line.length > 0).length
+        ? warnings.filter((line: unknown) =>
+          typeof line === "string" && line.length > 0
+        ).length
         : 0;
 
       context.output(`${BOLD}Status:${RESET}`);
@@ -321,18 +335,17 @@ export const commands: Record<string, Command> = {
       }
       const response = handleDeleteAllSessions();
       const payload = await response.json() as { count?: number };
-      const count = typeof payload.count === "number" ? payload.count : sessions.length;
+      const count = typeof payload.count === "number"
+        ? payload.count
+        : sessions.length;
       context.output(`${GREEN}Deleted ${count} conversation(s).${RESET}`);
     },
   },
   "/mcp": {
     description: "List configured MCP servers",
     handler: async (_state, _args, context) => {
-      const { formatServerEntry, loadMcpConfigMultiScope } = await import(
-        "../../agent/mcp/config.ts"
-      );
       const workspace = getPlatform().process.cwd();
-      const servers = await loadMcpConfigMultiScope(workspace);
+      const servers = await listRuntimeMcpServers(workspace);
       if (servers.length === 0) {
         context.output(
           `${YELLOW}No MCP servers configured.${RESET} Use ${CYAN}hlvm mcp add${RESET} to add one.`,
@@ -340,10 +353,11 @@ export const commands: Record<string, Command> = {
         return;
       }
       context.output(`${BOLD}MCP Servers:${RESET}`);
-      for (const s of servers) {
-        const { transport, target, scopeLabel } = formatServerEntry(s);
+      for (const server of servers) {
         context.output(
-          `  ${CYAN}${s.name.padEnd(20)}${RESET} ${transport.padEnd(6)} ${target}  ${DIM_GRAY}(${scopeLabel})${RESET}`,
+          `  ${CYAN}${server.name.padEnd(20)}${RESET} ${
+            server.transport.padEnd(6)
+          } ${server.target}  ${DIM_GRAY}(${server.scopeLabel})${RESET}`,
         );
       }
     },
@@ -376,9 +390,12 @@ ${DIM_GRAY}Tip: Type /help for all commands and keybindings.${RESET}`);
   "/warnings": {
     description: "Show startup warnings",
     handler: (_state, _args, context) => {
-      const warnings = (globalThis as Record<string, unknown>).__hlvmStartupWarnings;
+      const warnings =
+        (globalThis as Record<string, unknown>).__hlvmStartupWarnings;
       const lines = Array.isArray(warnings)
-        ? warnings.filter((line: unknown): line is string => typeof line === "string" && line.length > 0)
+        ? warnings.filter((line: unknown): line is string =>
+          typeof line === "string" && line.length > 0
+        )
         : [];
 
       if (lines.length === 0) {
@@ -392,7 +409,6 @@ ${DIM_GRAY}Tip: Type /help for all commands and keybindings.${RESET}`);
       }
     },
   },
-
   // NOTE: /tasks is handled by App.tsx to open BackgroundTasksOverlay
   // Do not add /tasks handler here - it would conflict
 };

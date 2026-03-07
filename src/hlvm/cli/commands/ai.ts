@@ -1,5 +1,4 @@
 import { log } from "../../api/log.ts";
-import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import {
   getProgressPercent,
   isModelInstalled,
@@ -198,7 +197,6 @@ export async function aiCommand(args: string[]): Promise<void> {
   }
 
   const subcommand = args[0] ?? "setup";
-  await initializeRuntime({ stdlib: false, cache: false, ai: false });
 
   switch (subcommand) {
     case "setup": {

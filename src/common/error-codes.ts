@@ -134,6 +134,9 @@ export enum HQLErrorCode {
   /** Function not found */
   FUNCTION_NOT_FOUND = 5005,
 
+  /** Runtime host request or lifecycle failure */
+  RUNTIME_HOST_REQUEST_FAILED = 5006,
+
   // ============================================================================
   // Code Generation Errors (6000-6999)
   // ============================================================================
@@ -208,7 +211,7 @@ const ERROR_INFO: Record<HQLErrorCode, ErrorInfo> = {
     ],
     fixes: [
       "Add the closing quote to complete the string",
-      "Escape internal quotes with backslash: \\\"",
+      'Escape internal quotes with backslash: \\"',
       "For multi-line strings, ensure proper escaping",
     ],
   },
@@ -289,7 +292,7 @@ const ERROR_INFO: Record<HQLErrorCode, ErrorInfo> = {
       "Invalid destructuring syntax",
     ],
     fixes: [
-      "Use correct syntax: (import [name] from \"path\")",
+      'Use correct syntax: (import [name] from "path")',
       "Check spelling of 'import' and 'from' keywords",
       "Verify destructuring brackets are correct",
     ],
@@ -590,6 +593,19 @@ const ERROR_INFO: Record<HQLErrorCode, ErrorInfo> = {
       "Verify the value is actually a function",
       "Check spelling of function name",
       "Use correct method call syntax",
+    ],
+  },
+  [HQLErrorCode.RUNTIME_HOST_REQUEST_FAILED]: {
+    description: "A request to the local HLVM runtime host failed.",
+    causes: [
+      "Runtime host returned an error response",
+      "Runtime host build did not match the current client",
+      "Runtime host could not start, stop, or stream a response",
+    ],
+    fixes: [
+      "Restart HLVM so the client and runtime host use the same build",
+      "Check provider or model availability if the host rejected the request",
+      "Retry after the local runtime host finishes initializing",
     ],
   },
 

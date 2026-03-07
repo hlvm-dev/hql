@@ -7,17 +7,12 @@ import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { ValidationError } from "../../../common/error.ts";
 import {
-  addServerToConfig,
-  formatServerEntry,
-  loadMcpConfigMultiScope,
-  normalizeServerName,
-  removeServerFromConfig,
-} from "../../agent/mcp/config.ts";
-import {
-  loginMcpHttpServer,
-  logoutMcpHttpServer,
-} from "../../agent/mcp/oauth.ts";
-import type { McpServerConfig } from "../../agent/mcp/types.ts";
+  addRuntimeMcpServer,
+  listRuntimeMcpServers,
+  loginRuntimeMcpServer,
+  logoutRuntimeMcpServer,
+  removeRuntimeMcpServer,
+} from "../../runtime/host-client.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 
 export function showMcpHelp(): void {
@@ -74,6 +69,7 @@ export async function mcpCommand(args: string[]): Promise<void> {
     default:
       throw new ValidationError(
         `Unknown mcp command: ${subcommand}. Run 'hlvm mcp --help' for usage.`,
+        "mcp",
       );
   }
 }
@@ -91,6 +87,7 @@ function parseScope(
   if (idx + 1 >= args.length) {
     throw new ValidationError(
       "Missing value after --scope. Must be 'project' or 'user'.",
+      "mcp",
     );
   }
   const val = args[idx + 1];
@@ -98,6 +95,7 @@ function parseScope(
   if (val === "project") return "project";
   throw new ValidationError(
     `Invalid scope: ${val}. Must be 'project' or 'user'.`,
+    "mcp",
   );
 }
 
@@ -110,6 +108,7 @@ function parseEnvVars(args: string[]): Record<string, string> | undefined {
       if (eqIdx <= 0) {
         throw new ValidationError(
           `Invalid --env format: ${pair}. Expected KEY=VALUE.`,
+          "mcp",
         );
       }
       env[pair.slice(0, eqIdx)] = pair.slice(eqIdx + 1);
@@ -123,6 +122,7 @@ async function mcpAdd(args: string[], workspace: string): Promise<void> {
   if (args.length === 0) {
     throw new ValidationError(
       "Missing server name. Usage: hlvm mcp add <name> -- <command...>",
+      "mcp",
     );
   }
 
@@ -138,11 +138,14 @@ async function mcpAdd(args: string[], workspace: string): Promise<void> {
   const urlIdx = optionArgs.indexOf("--url");
   if (urlIdx !== -1) {
     if (urlIdx + 1 >= optionArgs.length) {
-      throw new ValidationError("Missing URL after --url.");
+      throw new ValidationError("Missing URL after --url.", "mcp");
     }
     const url = optionArgs[urlIdx + 1];
-    const server: McpServerConfig = { name, url, env };
-    await addServerToConfig(scope, workspace, server);
+    await addRuntimeMcpServer({
+      workspace,
+      scope,
+      server: { name, url, env },
+    });
     log.raw.log(`Added MCP server "${name}" (${scope} scope, http)`);
     return;
   }
@@ -151,16 +154,20 @@ async function mcpAdd(args: string[], workspace: string): Promise<void> {
   if (dashDashIdx === -1) {
     throw new ValidationError(
       "Missing command. Use: hlvm mcp add <name> -- <command...> or hlvm mcp add <name> --url <url>",
+      "mcp",
     );
   }
 
   const command = args.slice(dashDashIdx + 1);
   if (command.length === 0) {
-    throw new ValidationError("Empty command after '--'.");
+    throw new ValidationError("Empty command after '--'.", "mcp");
   }
 
-  const server: McpServerConfig = { name, command, env };
-  await addServerToConfig(scope, workspace, server);
+  await addRuntimeMcpServer({
+    workspace,
+    scope,
+    server: { name, command, env },
+  });
   log.raw.log(`Added MCP server "${name}" (${scope} scope, stdio)`);
 }
 
@@ -169,7 +176,7 @@ async function mcpAdd(args: string[], workspace: string): Promise<void> {
 // ============================================================
 
 async function mcpList(workspace: string): Promise<void> {
-  const servers = await loadMcpConfigMultiScope(workspace);
+  const servers = await listRuntimeMcpServers(workspace);
 
   if (servers.length === 0) {
     log.raw.log("No MCP servers configured. Use 'hlvm mcp add' to add one.");
@@ -177,12 +184,11 @@ async function mcpList(workspace: string): Promise<void> {
   }
 
   log.raw.log("MCP Servers:");
-  for (const s of servers) {
-    const { transport, target, scopeLabel } = formatServerEntry(s);
+  for (const server of servers) {
     log.raw.log(
-      `  ${s.name.padEnd(20)} ${transport.padEnd(6)} ${
-        target.padEnd(40)
-      } (${scopeLabel})`,
+      `  ${server.name.padEnd(20)} ${server.transport.padEnd(6)} ${
+        server.target.padEnd(40)
+      } (${server.scopeLabel})`,
     );
   }
 }
@@ -195,6 +201,7 @@ async function mcpRemove(args: string[], workspace: string): Promise<void> {
   if (args.length === 0) {
     throw new ValidationError(
       "Missing server name. Usage: hlvm mcp remove <name>",
+      "mcp",
     );
   }
 
@@ -204,8 +211,8 @@ async function mcpRemove(args: string[], workspace: string): Promise<void> {
   if (scopeFlag !== -1) {
     // Explicit scope
     const scope = parseScope(args);
-    const removed = await removeServerFromConfig(scope, workspace, name);
-    if (removed) {
+    const result = await removeRuntimeMcpServer({ workspace, name, scope });
+    if (result.removed) {
       log.raw.log(`Removed MCP server "${name}" from ${scope} scope`);
     } else {
       log.raw.log(`MCP server "${name}" not found in ${scope} scope`);
@@ -213,35 +220,19 @@ async function mcpRemove(args: string[], workspace: string): Promise<void> {
     return;
   }
 
-  // Default: try project first, then user
-  if (await removeServerFromConfig("project", workspace, name)) {
-    log.raw.log(`Removed MCP server "${name}" from project scope`);
-    return;
-  }
-  if (await removeServerFromConfig("user", workspace, name)) {
-    log.raw.log(`Removed MCP server "${name}" from user scope`);
+  const result = await removeRuntimeMcpServer({ workspace, name });
+  if (result.removed && result.scope) {
+    log.raw.log(`Removed MCP server "${name}" from ${result.scope} scope`);
     return;
   }
   log.raw.log(`MCP server "${name}" not found in any scope`);
-}
-
-// ============================================================
-// OAuth Login / Logout
-// ============================================================
-
-async function resolveServerByName(
-  workspace: string,
-  name: string,
-): Promise<McpServerConfig | null> {
-  const servers = await loadMcpConfigMultiScope(workspace);
-  const key = normalizeServerName(name);
-  return servers.find((s) => normalizeServerName(s.name) === key) ?? null;
 }
 
 async function mcpLogin(args: string[], workspace: string): Promise<void> {
   if (args.length === 0) {
     throw new ValidationError(
       "Missing server name. Usage: hlvm mcp login <name>",
+      "mcp",
     );
   }
   if (!getPlatform().terminal.stdin.isTerminal()) {
@@ -251,51 +242,23 @@ async function mcpLogin(args: string[], workspace: string): Promise<void> {
     );
   }
 
-  const name = args[0];
-  const server = await resolveServerByName(workspace, name);
-  if (!server) {
-    throw new ValidationError(
-      `MCP server '${name}' not found. Run 'hlvm mcp list'.`,
-      "mcp",
-    );
+  const result = await loginRuntimeMcpServer({ workspace, name: args[0] });
+  for (const line of result.messages) {
+    log.raw.log(line);
   }
-  if (!server.url) {
-    throw new ValidationError(
-      `MCP server '${name}' is stdio-only. OAuth login is for HTTP servers.`,
-      "mcp",
-    );
-  }
-
-  await loginMcpHttpServer(server, {
-    output: (line) => log.raw.log(line),
-    openBrowser: (url) => getPlatform().openUrl(url),
-  });
 }
 
 async function mcpLogout(args: string[], workspace: string): Promise<void> {
   if (args.length === 0) {
     throw new ValidationError(
       "Missing server name. Usage: hlvm mcp logout <name>",
-    );
-  }
-  const name = args[0];
-  const server = await resolveServerByName(workspace, name);
-  if (!server) {
-    throw new ValidationError(
-      `MCP server '${name}' not found. Run 'hlvm mcp list'.`,
       "mcp",
     );
   }
-  if (!server.url) {
-    throw new ValidationError(
-      `MCP server '${name}' is stdio-only. No OAuth token to remove.`,
-      "mcp",
-    );
-  }
-  const removed = await logoutMcpHttpServer(server);
-  if (removed) {
-    log.raw.log(`Removed OAuth token for MCP server "${server.name}"`);
+  const result = await logoutRuntimeMcpServer({ workspace, name: args[0] });
+  if (result.removed) {
+    log.raw.log(`Removed OAuth token for MCP server "${result.serverName}"`);
   } else {
-    log.raw.log(`No OAuth token stored for MCP server "${server.name}"`);
+    log.raw.log(`No OAuth token stored for MCP server "${result.serverName}"`);
   }
 }

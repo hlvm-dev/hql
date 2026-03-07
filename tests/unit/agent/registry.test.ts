@@ -13,6 +13,7 @@ import {
   getToolsByCategory,
   hasTool,
   normalizeToolName,
+  prepareToolArgsForExecution,
   registerTool,
   resolveTools,
   searchTools,
@@ -68,7 +69,10 @@ Deno.test("Registry: unknown lookup errors list available tools", () => {
 });
 
 Deno.test("Registry: validateToolArgs accepts canonical inputs and rejects invalid shapes", () => {
-  assertEquals(validateToolArgs("read_file", { path: "src/main.ts" }).valid, true);
+  assertEquals(
+    validateToolArgs("read_file", { path: "src/main.ts" }).valid,
+    true,
+  );
   assertEquals(
     validateToolArgs("search_code", { pattern: "test", path: "src" }).valid,
     true,
@@ -94,6 +98,36 @@ Deno.test("Registry: validateToolArgs accepts canonical inputs and rejects inval
   assertStringIncludes(nonObject.errors?.[0] ?? "", "plain object");
 });
 
+Deno.test("Registry: web arg aliases normalize before coercion/validation and canonical args win", () => {
+  const aliased = prepareToolArgsForExecution("search_web", {
+    query: "hlvm",
+    recency: "week",
+    preFetch: "false",
+    search_depth: "high",
+  });
+  assertEquals(aliased.validation.valid, true);
+  assertEquals(aliased.coercedArgs, {
+    query: "hlvm",
+    timeRange: "week",
+    prefetch: false,
+    searchDepth: "high",
+  });
+
+  const canonicalWins = prepareToolArgsForExecution("search_web", {
+    query: "hlvm",
+    timeRange: "month",
+    recency: "week",
+    prefetch: true,
+    preFetch: false,
+  });
+  assertEquals(canonicalWins.validation.valid, true);
+  assertEquals(canonicalWins.coercedArgs, {
+    query: "hlvm",
+    timeRange: "month",
+    prefetch: true,
+  });
+});
+
 Deno.test("Registry: name normalization and suggestions map user variants to canonical tools", () => {
   assertEquals(normalizeToolName("Read_File"), "read_file");
   assertEquals(normalizeToolName("listFiles"), "list_files");
@@ -110,7 +144,11 @@ Deno.test("Registry: registerTool rejects provider-unsafe names", () => {
   };
 
   for (const badName of ["test.invalid", "test/invalid", "1bad_name"]) {
-    assertThrows(() => registerTool(badName, dummyTool), Error, "Invalid tool name");
+    assertThrows(
+      () => registerTool(badName, dummyTool),
+      Error,
+      "Invalid tool name",
+    );
   }
 });
 
@@ -141,7 +179,10 @@ Deno.test("Registry: dynamic tools participate in selection and search", () => {
       denylist: ["read_file"],
       limit: 10,
     });
-    assertEquals(builtInMatches.some((match) => match.name === "read_file"), false);
+    assertEquals(
+      builtInMatches.some((match) => match.name === "read_file"),
+      false,
+    );
   });
 
   assertEquals(hasTool("test_dynamic_registry"), false);

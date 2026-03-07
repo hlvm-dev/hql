@@ -61,6 +61,7 @@ export async function hqlCommand(args: string[]): Promise<void> {
   if (!entry) {
     throw new ValidationError(
       `Unknown hql command: ${subcommand}. Run 'hlvm hql --help' for usage.`,
+      "hql",
     );
   }
 

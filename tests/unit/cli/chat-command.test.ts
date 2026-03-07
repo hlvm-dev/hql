@@ -8,6 +8,7 @@ import {
   chatCommand,
   parseChatArgs,
 } from "../../../src/hlvm/cli/commands/chat.ts";
+import { getRuntimeHostIdentity } from "../../../src/hlvm/runtime/host-identity.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { findFreePort, withEnv } from "../../shared/light-helpers.ts";
 
@@ -32,6 +33,7 @@ async function withChatHost(
 ): Promise<void> {
   const port = await findFreePort();
   const authToken = "test-auth-token";
+  const identity = await getRuntimeHostIdentity();
   const sessions = options.sessions ?? [];
   const raw = log.raw as {
     log: (text: string) => void;
@@ -56,6 +58,8 @@ async function withChatHost(
         initialized: true,
         definitions: 0,
         aiReady: true,
+        version: identity.version,
+        buildId: identity.buildId,
         authToken,
       });
     }
@@ -91,10 +95,18 @@ async function withChatHost(
       const stream = new ReadableStream({
         start(controller) {
           controller.enqueue(
-            encoder.encode(JSON.stringify({ event: "token", text: reply }) + "\n"),
+            encoder.encode(
+              JSON.stringify({ event: "token", text: reply }) + "\n",
+            ),
           );
           controller.enqueue(
-            encoder.encode(JSON.stringify({ event: "complete", request_id: "req-chat", session_version: 1 }) + "\n"),
+            encoder.encode(
+              JSON.stringify({
+                event: "complete",
+                request_id: "req-chat",
+                session_version: 1,
+              }) + "\n",
+            ),
           );
           controller.close();
         },
@@ -151,7 +163,8 @@ Deno.test("chat command: one-shot plain chat streams through the runtime host", 
     assertEquals(capturedChatBody?.mode, "chat");
     assertEquals(capturedChatBody?.model, "ollama/llama3.1:8b");
     assertEquals(
-      (capturedChatBody?.messages as Array<Record<string, unknown>>)[0]?.content,
+      (capturedChatBody?.messages as Array<Record<string, unknown>>)[0]
+        ?.content,
       "hello",
     );
     assertEquals(typeof capturedChatBody?.session_id, "string");
@@ -176,7 +189,12 @@ Deno.test("chat command: --continue reuses the latest host session", async () =>
       capturedSessionId = String(body.session_id);
     },
   }, async () => {
-    await chatCommand(["--model", "ollama/llama3.1:8b", "--continue", "second"]);
+    await chatCommand([
+      "--model",
+      "ollama/llama3.1:8b",
+      "--continue",
+      "second",
+    ]);
     assertEquals(capturedSessionId, "sess-latest");
   });
 });

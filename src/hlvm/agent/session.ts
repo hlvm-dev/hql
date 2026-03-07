@@ -37,6 +37,7 @@ import { generateUUID } from "../../common/utils.ts";
 import { resolveContextBudget, type ResolvedBudget } from "./context-resolver.ts";
 import type { ModelInfo } from "../providers/types.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import { createTodoState, type TodoState } from "./todo-state.ts";
 import {
   type AgentEngine,
   type ToolFilterState,
@@ -102,6 +103,8 @@ export interface AgentSession {
   mcpSetHandlers?: (handlers: McpHandlers) => void;
   /** Wire an AbortSignal to cancel all pending MCP requests */
   mcpSetSignal?: (signal: AbortSignal) => void;
+  /** Session-scoped todo state used by todo tools. */
+  todoState: TodoState;
 }
 
 
@@ -388,5 +391,6 @@ export async function createAgentSession(
     ensureMcpLoaded,
     mcpSetHandlers,
     mcpSetSignal,
+    todoState: createTodoState(),
   };
 }

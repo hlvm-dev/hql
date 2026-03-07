@@ -16,6 +16,7 @@ import type {
   AssistantCitation,
   AssistantItem,
   ConversationItem,
+  DelegateItem,
   StreamingState,
   ThinkingItem,
   ToolCallDisplay,
@@ -79,6 +80,68 @@ function findMatchingRunningToolIndex(
   return tools.findIndex(
     (tool: ToolCallDisplay) => tool.name === name && tool.status === "running",
   );
+}
+
+function findMatchingRunningDelegateIndex(
+  items: ConversationItem[],
+  agent: string,
+  task: string,
+): number {
+  const exactIdx = items.findLastIndex((item: ConversationItem) =>
+    item.type === "delegate" &&
+    item.status === "running" &&
+    item.agent === agent &&
+    item.task === task
+  );
+  if (exactIdx >= 0) return exactIdx;
+  return items.findLastIndex((item: ConversationItem) =>
+    item.type === "delegate" &&
+    item.status === "running" &&
+    item.agent === agent
+  );
+}
+
+function appendDelegateItem(
+  items: ConversationItem[],
+  agent: string,
+  task: string,
+  nextId: () => string,
+): ConversationItem[] {
+  return [
+    ...items,
+    {
+      type: "delegate" as const,
+      id: nextId(),
+      agent,
+      task,
+      status: "running",
+      ts: Date.now(),
+    },
+  ];
+}
+
+function completeDelegateItem(
+  items: ConversationItem[],
+  event: Extract<AgentUIEvent, { type: "delegate_end" }>,
+): ConversationItem[] {
+  const idx = findMatchingRunningDelegateIndex(
+    items,
+    event.agent,
+    event.task,
+  );
+  if (idx < 0) return items;
+  const current = items[idx];
+  if (current?.type !== "delegate") return items;
+  const next = [...items];
+  const updated: DelegateItem = {
+    ...current,
+    status: event.success ? "success" : "error",
+    summary: event.summary,
+    error: event.error,
+    durationMs: event.durationMs,
+  };
+  next[idx] = updated;
+  return next;
 }
 
 function upsertAssistantTextItem(
@@ -193,6 +256,9 @@ export function useConversation(): UseConversationResult {
         break;
 
       case "tool_start": {
+        if (event.name === "delegate_agent") {
+          break;
+        }
         setStreamingState(ConversationStreamingState.Responding);
         setActiveTool({
           name: event.name,
@@ -238,6 +304,9 @@ export function useConversation(): UseConversationResult {
       }
 
       case "tool_end":
+        if (event.name === "delegate_agent") {
+          break;
+        }
         setItems((prev: ConversationItem[]) => {
           const groupIdx = prev.findLastIndex((item: ConversationItem) =>
             item.type === "tool_group" &&
@@ -281,6 +350,20 @@ export function useConversation(): UseConversationResult {
           }
           return next;
         });
+        break;
+
+      case "delegate_start":
+        setStreamingState(ConversationStreamingState.Responding);
+        setActiveTool(undefined);
+        setItems((prev: ConversationItem[]) =>
+          appendDelegateItem(prev, event.agent, event.task, nextId)
+        );
+        break;
+
+      case "delegate_end":
+        setStreamingState(ConversationStreamingState.Responding);
+        setActiveTool(undefined);
+        setItems((prev: ConversationItem[]) => completeDelegateItem(prev, event));
         break;
 
       case "turn_stats":
@@ -387,3 +470,5 @@ export function useConversation(): UseConversationResult {
 }
 
 export const __testOnlyUpsertAssistantTextItem = upsertAssistantTextItem;
+export const __testOnlyAppendDelegateItem = appendDelegateItem;
+export const __testOnlyCompleteDelegateItem = completeDelegateItem;
