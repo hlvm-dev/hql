@@ -22,16 +22,23 @@ const subscribers = new Map<string, Set<SSECallback>>();
 
 // MARK: - Public Methods
 
+function nextSequence(sessionId: string): number {
+  const seq = (sequences.get(sessionId) ?? 0) + 1;
+  sequences.set(sessionId, seq);
+  return seq;
+}
+
+export function nextSSEEventId(sessionId: string): string {
+  return String(nextSequence(sessionId));
+}
+
 export function pushSSEEvent(
   sessionId: string,
   eventType: string,
   data: unknown,
 ): SSEEvent {
-  const seq = (sequences.get(sessionId) ?? 0) + 1;
-  sequences.set(sessionId, seq);
-
   const event: SSEEvent = {
-    id: String(seq),
+    id: nextSSEEventId(sessionId),
     session_id: sessionId,
     event_type: eventType,
     data,
@@ -93,17 +100,19 @@ export function replayAfter(
   lastEventId: string | null,
 ): ReplayResult {
   const buffer = buffers.get(sessionId);
-  if (!buffer || buffer.length === 0) {
-    return { events: [], gapDetected: false };
-  }
+  const currentSeq = sequences.get(sessionId) ?? 0;
 
   if (!lastEventId) {
-    return { events: [...buffer], gapDetected: false };
+    return { events: buffer ? [...buffer] : [], gapDetected: false };
   }
 
   const lastSeq = parseInt(lastEventId, 10);
   if (isNaN(lastSeq)) {
-    return { events: [...buffer], gapDetected: false };
+    return { events: buffer ? [...buffer] : [], gapDetected: currentSeq > 0 };
+  }
+
+  if (!buffer || buffer.length === 0) {
+    return { events: [], gapDetected: lastSeq !== currentSeq };
   }
 
   const firstInBuffer = parseInt(buffer[0].id, 10);
@@ -111,11 +120,19 @@ export function replayAfter(
     return { events: [], gapDetected: true };
   }
 
+  if (lastSeq > currentSeq) {
+    return { events: [], gapDetected: true };
+  }
+
   const events = buffer.filter((e) => parseInt(e.id, 10) > lastSeq);
+  if (events.length === 0 && lastSeq < currentSeq) {
+    return { events: [], gapDetected: true };
+  }
   return { events, gapDetected: false };
 }
 
 export function clearSessionBuffer(sessionId: string): void {
   buffers.delete(sessionId);
   sequences.delete(sessionId);
+  subscribers.delete(sessionId);
 }

@@ -50,6 +50,13 @@ interface BuildAgentHistoryOptions extends BuildReplayMessagesOptions {
   modelKey?: string;
 }
 
+interface BuildStoredAgentHistoryOptions {
+  storedMessages: MessageRow[];
+  assistantMessageId?: number;
+  maxGroups: number;
+  modelKey?: string;
+}
+
 export interface BuildChatProviderMessagesResult {
   messages: ProviderMessage[];
   resolvedContextBudget: ResolvedBudget;
@@ -150,9 +157,35 @@ export async function buildAgentHistoryMessages(
   options: BuildAgentHistoryOptions,
 ): Promise<AgentMessage[]> {
   const replayMessages = await buildReplayMessages(options);
+  return buildAgentHistoryFromReplayMessages(
+    replayMessages,
+    options.maxGroups,
+    options.modelKey,
+  );
+}
+
+export async function buildStoredAgentHistoryMessages(
+  options: BuildStoredAgentHistoryOptions,
+): Promise<AgentMessage[]> {
+  const replayMessages = await normalizeStoredMessages(
+    options.storedMessages,
+    options.assistantMessageId,
+  );
+  return buildAgentHistoryFromReplayMessages(
+    replayMessages,
+    options.maxGroups,
+    options.modelKey,
+  );
+}
+
+function buildAgentHistoryFromReplayMessages(
+  replayMessages: ReplayMessage[],
+  maxGroups: number,
+  modelKey?: string,
+): AgentMessage[] {
   const normalized = normalizeReplayMessagesForAgent(replayMessages);
   const filtered = normalized.filter(isReplayableAgentMessage);
-  return takeLastMessageGroups(filtered, options.maxGroups, options.modelKey);
+  return takeLastMessageGroups(filtered, maxGroups, modelKey);
 }
 
 export function resolveChatContextBudget(

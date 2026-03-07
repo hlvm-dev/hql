@@ -118,3 +118,18 @@ export async function setWebCacheValue(
   };
   await writeCache(cache);
 }
+
+export async function __testOnlyResetWebCache(): Promise<void> {
+  memoryCache = null;
+  inFlightLoad = null;
+
+  const platform = getPlatform();
+  const path = getWebCachePath();
+  try {
+    await platform.fs.remove(path);
+  } catch (error) {
+    if (!isFileNotFoundError(error)) {
+      throw error;
+    }
+  }
+}

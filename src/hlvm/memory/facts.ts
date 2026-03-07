@@ -77,7 +77,9 @@ export function insertFact(opts: InsertFactOptions): number {
   }
 
   if (stripped.length > 0) {
-    void warnMemory(`Memory: stripped sensitive content from fact (${stripped.join(", ")})`);
+    void warnMemory(
+      `Memory: stripped sensitive content from fact (${stripped.join(", ")})`,
+    );
   }
 
   const db = getFactDb();
@@ -85,13 +87,25 @@ export function insertFact(opts: InsertFactOptions): number {
   try {
     db.prepare(
       "INSERT INTO facts (content, category, source, embedding, embedding_model, valid_from) VALUES (?, ?, ?, ?, ?, ?)",
-    ).run(content, category, source, opts.embedding ?? null, opts.embeddingModel ?? null, validFrom);
+    ).run(
+      content,
+      category,
+      source,
+      opts.embedding ?? null,
+      opts.embeddingModel ?? null,
+      validFrom,
+    );
 
     const row = db.prepare("SELECT last_insert_rowid()").value<[number]>();
     const factId = row?.[0] ?? 0;
-    if (!factId) throw new ValidationError("Failed to insert fact", "memory_write");
+    if (!factId) {
+      throw new ValidationError("Failed to insert fact", "memory_write");
+    }
 
-    db.prepare("INSERT INTO facts_fts (rowid, content) VALUES (?, ?)").run(factId, content);
+    db.prepare("INSERT INTO facts_fts (rowid, content) VALUES (?, ?)").run(
+      factId,
+      content,
+    );
     db.exec("COMMIT");
     return factId;
   } catch (error) {
@@ -115,7 +129,9 @@ export function invalidateFactsByCategory(category: string): number {
   return Number(result);
 }
 
-export function getValidFacts(options?: { category?: string; limit?: number }): FactRecord[] {
+export function getValidFacts(
+  options?: { category?: string; limit?: number },
+): FactRecord[] {
   const db = getFactDb();
   const limit = options?.limit && options.limit > 0 ? options.limit : 200;
   const category = options?.category?.trim();
@@ -125,14 +141,14 @@ export function getValidFacts(options?: { category?: string; limit?: number }): 
       `SELECT id, content, category, source, valid_from, valid_until, created_at, accessed_at, access_count, embedding, embedding_model
        FROM facts
        WHERE valid_until IS NULL AND category = ?
-       ORDER BY access_count DESC, created_at DESC
+       ORDER BY access_count DESC, created_at DESC, id DESC
        LIMIT ?`,
     ).all(category, limit)
     : db.prepare(
       `SELECT id, content, category, source, valid_from, valid_until, created_at, accessed_at, access_count, embedding, embedding_model
        FROM facts
        WHERE valid_until IS NULL
-       ORDER BY access_count DESC, created_at DESC
+       ORDER BY access_count DESC, created_at DESC, id DESC
        LIMIT ?`,
     ).all(limit);
 
@@ -201,11 +217,17 @@ export function replaceInFacts(findText: string, replaceWith: string): number {
 
     for (const row of rows) {
       const newContent = row.content.replaceAll(findText, sanitized);
-      db.prepare("UPDATE facts SET content = ? WHERE id = ?").run(newContent, row.id);
+      db.prepare("UPDATE facts SET content = ? WHERE id = ?").run(
+        newContent,
+        row.id,
+      );
       db.prepare(
         "INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', ?, ?)",
       ).run(row.id, row.content);
-      db.prepare("INSERT INTO facts_fts(rowid, content) VALUES(?, ?)").run(row.id, newContent);
+      db.prepare("INSERT INTO facts_fts(rowid, content) VALUES(?, ?)").run(
+        row.id,
+        newContent,
+      );
     }
     db.exec("COMMIT");
     return rows.length;

@@ -34,17 +34,20 @@ import {
   renderWithChrome,
   shutdownChromeBrowser,
 } from "../../../src/hlvm/agent/tools/web/headless-chrome.ts";
+import { __testOnlyResetWebCache } from "../../../src/hlvm/agent/web-cache.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 
 async function withIsolatedSearchRegistry(
   fn: () => Promise<void>,
 ): Promise<void> {
+  await __testOnlyResetWebCache();
   resetSearchProviderBootstrap();
   resetSearchProviders();
   initSearchProviders();
   try {
     await fn();
   } finally {
+    await __testOnlyResetWebCache();
     resetSearchProviderBootstrap();
     resetSearchProviders();
     initSearchProviders();
@@ -560,6 +563,131 @@ Deno.test({
         assertEquals((retrieval.fetchEvidenceCount as number) >= 1, true);
         assert(results.some((result) => Array.isArray(result.passages) && (result.passages as unknown[]).length > 0));
         assert(results.some((result) => result.evidenceStrength === "high"));
+      });
+    });
+  },
+});
+
+Deno.test({
+  name: "web tools: search_web decomposes compare queries and synthesizes from fetched evidence first",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withIsolatedSearchRegistry(async () => {
+      const queriesSeen: string[] = [];
+      registerSearchProvider({
+        name: "duckduckgo",
+        displayName: "deterministic-decomposition",
+        requiresApiKey: false,
+        search(query: string) {
+          queriesSeen.push(query);
+          if (/fastapi vs flask/i.test(query)) {
+            return Promise.resolve({
+              query,
+              provider: "duckduckgo",
+              count: 3,
+              results: [
+                {
+                  title: "FastAPI vs Flask overview",
+                  url: "https://example.com/compare",
+                  snippet: "Compare FastAPI and Flask for production workloads.",
+                  score: 4,
+                },
+                {
+                  title: "FastAPI docs",
+                  url: "https://fastapi.tiangolo.com/deployment/",
+                  snippet: "FastAPI deployment docs",
+                  score: 3,
+                },
+                {
+                  title: "Flask docs",
+                  url: "https://flask.palletsprojects.com/en/stable/deploying/",
+                  snippet: "Flask deployment docs",
+                  score: 3,
+                },
+              ],
+            });
+          }
+          if (/fastapi/i.test(query)) {
+            return Promise.resolve({
+              query,
+              provider: "duckduckgo",
+              count: 2,
+              results: [
+                {
+                  title: "FastAPI deployment",
+                  url: "https://fastapi.tiangolo.com/deployment/",
+                  snippet: "FastAPI production deployment",
+                  score: 10,
+                },
+                {
+                  title: "FastAPI tutorial",
+                  url: "https://fastapi.tiangolo.com/tutorial/",
+                  snippet: "FastAPI docs",
+                  score: 8,
+                },
+              ],
+            });
+          }
+          return Promise.resolve({
+            query,
+            provider: "duckduckgo",
+            count: 2,
+            results: [
+              {
+                title: "Flask deploying to production",
+                url: "https://flask.palletsprojects.com/en/stable/deploying/",
+                snippet: "Flask production deployment",
+                score: 10,
+              },
+              {
+                title: "Flask docs",
+                url: "https://flask.palletsprojects.com/en/stable/",
+                snippet: "Flask docs",
+                score: 7,
+              },
+            ],
+          });
+        },
+      });
+
+      await withStubbedFetch(async (input) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("fastapi")) {
+          return new Response(
+            `<html><body><article><p>FastAPI deployment favors ASGI servers and async-first request handling.</p></article></body></html>`,
+            { status: 200, headers: { "Content-Type": "text/html" } },
+          );
+        }
+        return new Response(
+          `<html><body><article><p>Flask deployment typically uses WSGI servers and a simpler synchronous core.</p></article></body></html>`,
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        );
+      }, async () => {
+        resetWebToolBudget();
+        const raw = await WEB_TOOLS.search_web.fn(
+          {
+            query: "Compare FastAPI vs Flask production tradeoffs",
+            maxResults: 4,
+            prefetch: true,
+            reformulate: false,
+          },
+          "/tmp",
+        ) as Record<string, unknown>;
+
+        const diagnostics = raw.diagnostics as Record<string, unknown>;
+        const retrieval = diagnostics.retrieval as Record<string, unknown>;
+        const results = raw.results as Array<Record<string, unknown>>;
+        const formatted = __testOnlyFormatSearchWebResult(raw);
+
+        assertEquals((retrieval.decompositionApplied as boolean), true);
+        assertEquals(Array.isArray(retrieval.subqueries), true);
+        assertEquals((retrieval.fetchEscalationReason as string), "comparison");
+        assertEquals(queriesSeen.length >= 2, true);
+        assert(results.some((result) => result.selectedForFetch === true));
+        assert(results.some((result) => result.selectedForSynthesis === true));
+        assert(formatted?.llmContent.includes("Evidence pages:"));
+        assert(formatted?.llmContent.includes("Supporting results:"));
       });
     });
   },

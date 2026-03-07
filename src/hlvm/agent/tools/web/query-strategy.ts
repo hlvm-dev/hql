@@ -9,6 +9,10 @@ export interface SearchQueryIntent {
   wantsVersionSpecific: boolean;
   wantsReleaseNotes: boolean;
   wantsReference: boolean;
+  wantsQueryDecomposition: boolean;
+  wantsFetchFirst: boolean;
+  wantsMultiSourceSynthesis: boolean;
+  wantsAuthoritativeBias: boolean;
 }
 
 interface FollowupQueryInput {
@@ -24,14 +28,19 @@ const RECENCY_RE = /\b(latest|recent|today|current|new|updated?|changes?)\b/i;
 const RELEASE_NOTES_RE = /\b(changelog|release notes?|what(?:'s| is) new)\b/i;
 const YEAR_RE = /\b(?:19|20)\d{2}\b/;
 const VERSION_RE = /\bv?\d+(?:\.\d+){1,3}\b/;
+const QUOTED_PHRASE_RE = /"[^"]+"/g;
 
-function addUniqueQuery(
+export function normalizeSearchQueryCandidate(query: string): string {
+  return query.trim().replace(/\s+/g, " ");
+}
+
+export function addUniqueSearchQuery(
   queries: string[],
   seen: Set<string>,
   query: string,
   maxQueries: number,
 ): void {
-  const normalized = query.trim().replace(/\s+/g, " ");
+  const normalized = normalizeSearchQueryCandidate(query);
   if (!normalized) return;
   const key = normalized.toLowerCase();
   if (seen.has(key)) return;
@@ -44,7 +53,7 @@ function wantsStructuredReference(query: string): boolean {
   return /\b(reference|api|spec|syntax|manual|guide)\b/i.test(query);
 }
 
-function appendQualifier(query: string, qualifier: string): string {
+export function appendQueryQualifier(query: string, qualifier: string): string {
   const trimmed = query.trim();
   if (!trimmed) return trimmed;
   if (new RegExp(`\\b${qualifier.replace(/\s+/g, "\\s+")}\\b`, "i").test(trimmed)) {
@@ -53,15 +62,36 @@ function appendQualifier(query: string, qualifier: string): string {
   return `${trimmed} ${qualifier}`.trim();
 }
 
+export function extractQuotedPhrases(query: string): string[] {
+  return query.match(QUOTED_PHRASE_RE) ?? [];
+}
+
 export function detectSearchQueryIntent(query: string): SearchQueryIntent {
   const trimmed = query.trim();
+  const wantsOfficialDocs = OFFICIAL_DOCS_RE.test(trimmed);
+  const wantsComparison = COMPARISON_RE.test(trimmed);
+  const wantsVersionSpecific = VERSION_RE.test(trimmed);
+  const wantsReleaseNotes = RELEASE_NOTES_RE.test(trimmed);
+  const wantsReference = wantsStructuredReference(trimmed);
+  const wantsRecency = RECENCY_RE.test(trimmed) || (YEAR_RE.test(trimmed) && !wantsVersionSpecific);
+  const wantsAuthoritativeBias = wantsOfficialDocs || wantsReference || wantsReleaseNotes;
+  const wantsMultiSourceSynthesis = wantsComparison || wantsReleaseNotes;
+  const wantsQueryDecomposition = wantsComparison ||
+    wantsReleaseNotes ||
+    ((wantsOfficialDocs || wantsReference) && trimmed.split(/\s+/).length >= 5) ||
+    (wantsRecency && wantsAuthoritativeBias && trimmed.split(/\s+/).length >= 6);
+  const wantsFetchFirst = wantsAuthoritativeBias || wantsMultiSourceSynthesis || wantsRecency;
   return {
-    wantsOfficialDocs: OFFICIAL_DOCS_RE.test(trimmed),
-    wantsComparison: COMPARISON_RE.test(trimmed),
-    wantsRecency: RECENCY_RE.test(trimmed) || YEAR_RE.test(trimmed),
-    wantsVersionSpecific: VERSION_RE.test(trimmed),
-    wantsReleaseNotes: RELEASE_NOTES_RE.test(trimmed),
-    wantsReference: wantsStructuredReference(trimmed),
+    wantsOfficialDocs,
+    wantsComparison,
+    wantsRecency,
+    wantsVersionSpecific,
+    wantsReleaseNotes,
+    wantsReference,
+    wantsQueryDecomposition,
+    wantsFetchFirst,
+    wantsMultiSourceSynthesis,
+    wantsAuthoritativeBias,
   };
 }
 
@@ -81,23 +111,23 @@ export function buildFollowupQueries(
     variant.toLowerCase() !== trimmed.toLowerCase() &&
     (confidenceReason === "low_score" || confidenceReason === "mixed")
   ) {
-    addUniqueQuery(queries, seen, variant, maxQueries);
+    addUniqueSearchQuery(queries, seen, variant, maxQueries);
   }
 
   if (queries.length < maxQueries && (intent.wantsOfficialDocs || intent.wantsReference)) {
-    addUniqueQuery(
+    addUniqueSearchQuery(
       queries,
       seen,
-      appendQualifier(trimmed, intent.wantsReference ? "official documentation reference" : "official docs"),
+      appendQueryQualifier(trimmed, intent.wantsReference ? "official documentation reference" : "official docs"),
       maxQueries,
     );
   }
 
   if (queries.length < maxQueries && (intent.wantsComparison || confidenceReason === "low_diversity")) {
-    addUniqueQuery(
+    addUniqueSearchQuery(
       queries,
       seen,
-      appendQualifier(trimmed, intent.wantsComparison ? "comparison tradeoffs" : "independent sources"),
+      appendQueryQualifier(trimmed, intent.wantsComparison ? "comparison tradeoffs" : "independent sources"),
       maxQueries,
     );
   }
@@ -106,10 +136,10 @@ export function buildFollowupQueries(
     queries.length < maxQueries &&
     (intent.wantsReleaseNotes || confidenceReason === "low_coverage")
   ) {
-    addUniqueQuery(
+    addUniqueSearchQuery(
       queries,
       seen,
-      appendQualifier(
+      appendQueryQualifier(
         trimmed,
         intent.wantsReleaseNotes || intent.wantsRecency
           ? "release notes changelog"
@@ -122,14 +152,19 @@ export function buildFollowupQueries(
   }
 
   if (queries.length < maxQueries && intent.wantsRecency && !YEAR_RE.test(trimmed)) {
-    addUniqueQuery(queries, seen, appendQualifier(trimmed, String(new Date().getUTCFullYear())), maxQueries);
+    addUniqueSearchQuery(
+      queries,
+      seen,
+      appendQueryQualifier(trimmed, String(new Date().getUTCFullYear())),
+      maxQueries,
+    );
   }
 
   if (queries.length < maxQueries) {
-    addUniqueQuery(
+    addUniqueSearchQuery(
       queries,
       seen,
-      appendQualifier(
+      appendQueryQualifier(
         trimmed,
         intent.wantsComparison
           ? "comparison tradeoffs"

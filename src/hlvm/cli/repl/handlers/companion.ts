@@ -9,7 +9,7 @@
  */
 
 import { parseJsonBody, jsonError, createSSEResponse, formatSSE } from "../http-utils.ts";
-import { subscribe, replayAfter } from "../../../store/sse-store.ts";
+import { subscribe, replayAfter, nextSSEEventId } from "../../../store/sse-store.ts";
 import {
   getCompanionBus,
   isCompanionRunning,
@@ -57,41 +57,19 @@ export async function handleCompanionObserve(req: Request): Promise<Response> {
 /** GET /api/companion/stream */
 export function handleCompanionStream(req: Request): Response {
   const lastEventId = req.headers.get("Last-Event-ID");
-  const parsedLastEventId = lastEventId ? Number.parseInt(lastEventId, 10) : NaN;
-  const initialSSEId = Number.isNaN(parsedLastEventId) ? "0" : String(parsedLastEventId);
 
   return createSSEResponse(req, (emit) => {
     traceCompanion("http.stream.connected", {
       lastEventId,
     });
-    // Initial state sync — lets clients know the backend is reachable
-    // and what the current companion state is. This is the event that
-    // breaks the startup chicken-and-egg: Swift defers setEnabled() until
-    // it receives proof the backend is up, and this event provides it.
-    const initialEvent: CompanionEvent = {
-      type: "status_change",
-      content: getCompanionState(),
-      id: `comp-init-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-    };
-    emit(formatSSE({
-      id: initialSSEId,
-      event_type: "companion_event",
-      data: initialEvent,
-    }));
-
-    // Replay missed events
     const replay = replayAfter(COMPANION_CHANNEL, lastEventId);
     traceCompanion("http.stream.replay", {
       replayCount: replay.events.length,
       gapDetected: replay.gapDetected,
     });
     if (replay.gapDetected) {
-      const gapSSEId = Number.isNaN(parsedLastEventId)
-        ? String(Date.now())
-        : String(parsedLastEventId + 1);
       emit(formatSSE({
-        id: gapSSEId,
+        id: nextSSEEventId(COMPANION_CHANNEL),
         event_type: "companion_event",
         data: {
           type: "status_change",
@@ -105,7 +83,18 @@ export function handleCompanionStream(req: Request): Response {
       emit(formatSSE(event));
     }
 
-    // Subscribe to live events
+    const initialEvent: CompanionEvent = {
+      type: "status_change",
+      content: getCompanionState(),
+      id: `comp-init-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+    };
+    emit(formatSSE({
+      id: nextSSEEventId(COMPANION_CHANNEL),
+      event_type: "companion_event",
+      data: initialEvent,
+    }));
+
     const unsubscribe = subscribe(COMPANION_CHANNEL, (event) => {
       emit(formatSSE(event));
     });

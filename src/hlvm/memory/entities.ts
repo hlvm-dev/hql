@@ -3,22 +3,45 @@
  */
 
 import { getFactDb } from "./db.ts";
+import { todayDate } from "./store.ts";
 
 export interface ExtractedEntity {
   name: string;
   type: string;
 }
 
-const RUNTIMES = new Set(["deno", "node", "bun", "python", "ruby", "go", "rust"]);
-const TOOLS = new Set(["redis", "postgres", "postgresql", "mysql", "sqlite", "vitest", "jest", "docker"]);
+const RUNTIMES = new Set([
+  "deno",
+  "node",
+  "bun",
+  "python",
+  "ruby",
+  "go",
+  "rust",
+]);
+const TOOLS = new Set([
+  "redis",
+  "postgres",
+  "postgresql",
+  "mysql",
+  "sqlite",
+  "vitest",
+  "jest",
+  "docker",
+]);
 
 export function upsertEntity(name: string, type: string): number {
   const cleaned = name.trim();
   if (!cleaned) return 0;
 
   const db = getFactDb();
-  db.prepare("INSERT OR IGNORE INTO entities(name, type) VALUES(?, ?)").run(cleaned, type);
-  const row = db.prepare("SELECT id FROM entities WHERE name = ?").value<[number]>(cleaned);
+  db.prepare("INSERT OR IGNORE INTO entities(name, type) VALUES(?, ?)").run(
+    cleaned,
+    type,
+  );
+  const row = db.prepare("SELECT id FROM entities WHERE name = ?").value<
+    [number]
+  >(cleaned);
   return row?.[0] ?? 0;
 }
 
@@ -31,7 +54,7 @@ export function addRelationship(
 ): number {
   if (!fromEntity || !toEntity || !relation.trim()) return 0;
   const db = getFactDb();
-  const vf = validFrom?.trim() || new Date().toISOString().slice(0, 10);
+  const vf = validFrom?.trim() || todayDate();
   db.prepare(
     "INSERT INTO relationships(from_entity, to_entity, relation, fact_id, valid_from) VALUES(?, ?, ?, ?, ?)",
   ).run(fromEntity, toEntity, relation, factId ?? null, vf);
@@ -49,7 +72,9 @@ export function extractEntitiesFromText(text: string): ExtractedEntity[] {
     if (!out.has(key)) out.set(key, { name: cleaned, type });
   };
 
-  const fileMatches = text.match(/\b[\w./-]+\.(?:ts|tsx|js|jsx|json|md|yaml|yml|sql|sh)\b/g) ?? [];
+  const fileMatches =
+    text.match(/\b[\w./-]+\.(?:ts|tsx|js|jsx|json|md|yaml|yml|sql|sh)\b/g) ??
+      [];
   for (const match of fileMatches) add(match, "file");
 
   const wordMatches = text.match(/\b[A-Za-z][\w-]{2,}\b/g) ?? [];
@@ -63,7 +88,10 @@ export function extractEntitiesFromText(text: string): ExtractedEntity[] {
       add(word, "tool");
       continue;
     }
-    if (/^[A-Z][A-Za-z0-9_]+$/.test(word) || /^[a-z]+[A-Z][A-Za-z0-9_]*$/.test(word)) {
+    if (
+      /^[A-Z][A-Za-z0-9_]+$/.test(word) ||
+      /^[a-z]+[A-Z][A-Za-z0-9_]*$/.test(word)
+    ) {
       add(word, "concept");
     }
   }
@@ -84,21 +112,52 @@ export function linkFactEntities(factId: number, text: string): number {
       if (entityId) entityIds.push(entityId);
     }
 
-    // Prepare statement once, reuse for all relationship inserts
+    // Re-linking the same fact should be a no-op so chat and tool flows can
+    // safely share the same writer without duplicating graph edges.
     const insertRel = db.prepare(
-      "INSERT INTO relationships(from_entity, to_entity, relation, fact_id, valid_from) VALUES(?, ?, ?, ?, ?)",
+      `INSERT INTO relationships(from_entity, to_entity, relation, fact_id, valid_from)
+       SELECT ?, ?, ?, ?, ?
+       WHERE NOT EXISTS (
+         SELECT 1
+         FROM relationships
+         WHERE from_entity = ?
+           AND to_entity = ?
+           AND relation = ?
+           AND fact_id = ?
+           AND valid_until IS NULL
+       )`,
     );
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayDate();
 
     // Link each entity to the fact (self-loop records "entity appears in fact")
     for (const entityId of entityIds) {
-      insertRel.run(entityId, entityId, "appears_in", factId, today);
+      insertRel.run(
+        entityId,
+        entityId,
+        "appears_in",
+        factId,
+        today,
+        entityId,
+        entityId,
+        "appears_in",
+        factId,
+      );
     }
 
     // Link co-occurring entities to each other
     for (let i = 0; i < entityIds.length; i++) {
       for (let j = i + 1; j < entityIds.length; j++) {
-        insertRel.run(entityIds[i], entityIds[j], "co_occurs", factId, today);
+        insertRel.run(
+          entityIds[i],
+          entityIds[j],
+          "co_occurs",
+          factId,
+          today,
+          entityIds[i],
+          entityIds[j],
+          "co_occurs",
+          factId,
+        );
       }
     }
 

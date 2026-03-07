@@ -65,6 +65,15 @@ function evidenceScore(result: SearchResult, intent?: SearchQueryIntent): number
     comparisonBias;
 }
 
+function synthesisScore(result: SearchResult, intent?: SearchQueryIntent): number {
+  const evidence = evidenceScore(result, intent);
+  const passageBias = (result.passages?.length ?? 0) > 0 ? 2 : 0;
+  const descriptionBias = result.pageDescription ? 0.75 : 0;
+  const datedBias = (intent?.wantsRecency || intent?.wantsReleaseNotes) && result.publishedDate ? 0.75 : 0;
+  const comparisonFallbackBias = intent?.wantsComparison && !(result.passages?.length ?? 0) && result.snippet ? 0.35 : 0;
+  return evidence + passageBias + descriptionBias + datedBias + comparisonFallbackBias;
+}
+
 function toEvidenceStrength(score: number): EvidenceStrength {
   if (score >= 7) return "high";
   if (score >= 4) return "medium";
@@ -101,15 +110,38 @@ export function bestEvidenceSummary(result: SearchResult): string | undefined {
   return result.passages?.[0] ?? result.pageDescription ?? result.snippet;
 }
 
+export function rerankForSynthesis(
+  results: SearchResult[],
+  options: EvidenceSelectionOptions = {},
+): SearchResult[] {
+  const intent = options.intent;
+  const annotated = annotateEvidenceStrength(results, intent);
+  const sorted = uniqueByUrl(annotated)
+    .sort((a, b) => synthesisScore(b, intent) - synthesisScore(a, intent));
+
+  const seenHosts = new Map<string, number>();
+  const diversified = sorted.map((result, index) => {
+    const host = resultHost(result.url);
+    const seenCount = host ? (seenHosts.get(host) ?? 0) : 0;
+    if (host) seenHosts.set(host, seenCount + 1);
+    const diversityPenalty = (intent?.wantsMultiSourceSynthesis || intent?.wantsComparison) ? seenCount * 0.8 : seenCount * 0.4;
+    return {
+      ...result,
+      fetchPriority: index + 1,
+      score: (result.score ?? 0) + synthesisScore(result, intent) - diversityPenalty,
+    };
+  });
+
+  return diversified.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+}
+
 export function selectEvidencePages(
   results: SearchResult[],
   options: EvidenceSelectionOptions = {},
 ): SearchResult[] {
   const maxPages = Math.max(1, options.maxPages ?? 3);
   const intent = options.intent;
-  const annotated = annotateEvidenceStrength(results, intent);
-  const ranked = uniqueByUrl(annotated)
-    .sort((a, b) => evidenceScore(b, intent) - evidenceScore(a, intent));
+  const ranked = rerankForSynthesis(results, options);
 
   const selected: SearchResult[] = [];
   const selectedHosts = new Set<string>();

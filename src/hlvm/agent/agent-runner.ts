@@ -12,6 +12,7 @@ import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { getCustomInstructionsPath } from "../../common/paths.ts";
 import {
   closeFactDb,
+  persistConversationFacts,
   extractSessionFacts,
   loadMemoryContext,
   setMemoryModelTier,
@@ -35,12 +36,6 @@ import {
   runReActLoop,
   type TraceEvent,
 } from "./orchestrator.ts";
-import {
-  type AgentSessionEntry,
-  appendSessionMessages,
-  getOrCreateSession,
-  loadSessionMessages,
-} from "./session-store.ts";
 import type { AgentPolicy } from "./policy.ts";
 import {
   DEFAULT_TOOL_DENYLIST,
@@ -57,6 +52,13 @@ import {
   classifyAgentFinalResponse,
   type AgentOrchestratorFailureCode,
 } from "./model-compat.ts";
+import {
+  appendPersistedAgentToolResult,
+  completePersistedAgentTurn,
+  loadPersistedAgentHistory,
+  startPersistedAgentTurn,
+  type PersistedAgentTurn,
+} from "./persisted-transcript.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
@@ -332,7 +334,7 @@ export async function runAgentQuery(
   const sessionKey = (skipSessionHistory || useExternalHistory)
     ? null
     : deriveDefaultSessionKey(workspace, model);
-  let sessionEntry: AgentSessionEntry | null = null;
+  let persistedTurn: PersistedAgentTurn | null = null;
 
   try {
     // Reset any prior dynamic tool narrowing (tool_search) for this new turn.
@@ -351,15 +353,19 @@ export async function runAgentQuery(
         session.context.addMessage({ ...message, fromSession: true });
       }
     } else if (sessionKey) {
-      sessionEntry = await getOrCreateSession(sessionKey);
-      const historyMessages = await loadSessionMessages(sessionEntry);
-      const recentHistory = takeLastMessageGroups(
-        historyMessages,
-        MAX_SESSION_HISTORY,
-      );
+      const { history } = await loadPersistedAgentHistory({
+        workspace,
+        model,
+        maxGroups: MAX_SESSION_HISTORY,
+      });
+      const recentHistory = takeLastMessageGroups(history, MAX_SESSION_HISTORY);
       for (const message of recentHistory) {
         session.context.addMessage({ ...message, fromSession: true });
       }
+    }
+
+    if (sessionKey) {
+      persistedTurn = startPersistedAgentTurn(sessionKey, query);
     }
 
     let policy = session.policy;
@@ -389,6 +395,20 @@ export async function runAgentQuery(
     setMemoryModelTier(session.modelTier);
 
     let finalResponseMeta: FinalResponseMeta | undefined;
+    const onAgentEvent = (() => {
+      if (!persistedTurn) return callbacks.onAgentEvent;
+      const activePersistedTurn = persistedTurn;
+      return (event: AgentUIEvent) => {
+        if (event.type === "tool_end") {
+          appendPersistedAgentToolResult(
+            activePersistedTurn,
+            event.name,
+            event.content ?? "",
+          );
+        }
+        callbacks.onAgentEvent?.(event);
+      };
+    })();
     const text = await runReActLoop(
       query,
       {
@@ -399,7 +419,7 @@ export async function runAgentQuery(
         groundingMode: profile.groundingMode,
         policy,
         onTrace: callbacks.onTrace,
-        onAgentEvent: callbacks.onAgentEvent,
+        onAgentEvent,
         onFinalResponseMeta: (meta) => {
           finalResponseMeta = meta;
           callbacks.onFinalResponseMeta?.(meta);
@@ -427,8 +447,16 @@ export async function runAgentQuery(
       options.images,
     );
 
-    if (sessionEntry) {
-      await appendSessionMessages(sessionEntry, session.context.getMessages());
+    if (persistedTurn) {
+      completePersistedAgentTurn(persistedTurn, model, text);
+    }
+
+    try {
+      persistConversationFacts([{ role: "user", content: query }], {
+        source: "extracted",
+      });
+    } catch {
+      // Best-effort only; extraction should never block agent response.
     }
 
     if (session.modelTier === "frontier") {

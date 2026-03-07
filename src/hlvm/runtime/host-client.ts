@@ -23,6 +23,9 @@ import {
 } from "./chat-protocol.ts";
 import {
   type RuntimeSession,
+  type RuntimeSessionMessage,
+  type RuntimeSessionMessageInput,
+  type RuntimeSessionMessagesResponse,
   type RuntimeSessionsResponse,
 } from "./session-protocol.ts";
 import { deriveDefaultSessionKey } from "./session-key.ts";
@@ -287,7 +290,9 @@ async function respondToInteraction(
   });
   try {
     if (!result.ok) {
-      throw new RuntimeError("Failed to submit interaction response to runtime host.");
+      throw new RuntimeError(
+        "Failed to submit interaction response to runtime host.",
+      );
     }
     await result.text();
   } finally {
@@ -366,8 +371,28 @@ function cloneMessagesWithCurrentTurn(
 }
 
 export async function listRuntimeSessions(): Promise<RuntimeSession[]> {
-  const response = await fetchRuntimeJson<RuntimeSessionsResponse>("/api/sessions");
+  const response = await fetchRuntimeJson<RuntimeSessionsResponse>(
+    "/api/sessions",
+  );
   return response.sessions;
+}
+
+export async function createRuntimeSession(
+  input: { id?: string; title?: string } = {},
+): Promise<RuntimeSession> {
+  const response = await fetchRuntimeRaw("/api/sessions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  return await response.json() as RuntimeSession;
 }
 
 export async function getRuntimeSession(
@@ -394,6 +419,83 @@ export async function getRuntimeSession(
   return await response.json() as RuntimeSession;
 }
 
+export async function deleteRuntimeSession(
+  sessionId: string,
+): Promise<boolean> {
+  const response = await fetchRuntimeRaw(
+    `/api/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (response.status === 404) {
+    await response.body?.cancel();
+    return false;
+  }
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  const result = await response.json() as { deleted?: boolean };
+  return result.deleted === true;
+}
+
+export async function addRuntimeSessionMessage(
+  sessionId: string,
+  input: RuntimeSessionMessageInput,
+): Promise<RuntimeSessionMessage> {
+  const response = await fetchRuntimeRaw(
+    `/api/sessions/${encodeURIComponent(sessionId)}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    },
+  );
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  return await response.json() as RuntimeSessionMessage;
+}
+
+export async function listRuntimeSessionMessages(
+  sessionId: string,
+): Promise<RuntimeSessionMessage[]> {
+  const messages: RuntimeSessionMessage[] = [];
+  let offset = 0;
+  const limit = 200;
+
+  while (true) {
+    const response = await fetchRuntimeRaw(
+      `/api/sessions/${
+        encodeURIComponent(sessionId)
+      }/messages?limit=${limit}&offset=${offset}&sort=asc`,
+    );
+
+    if (response.status === 404) {
+      await response.body?.cancel();
+      return [];
+    }
+
+    if (!response.ok) {
+      await parseErrorResponse(response);
+    }
+
+    const page = await response.json() as RuntimeSessionMessagesResponse;
+    messages.push(...page.messages);
+    if (!page.has_more || page.messages.length === 0) break;
+    offset += page.messages.length;
+  }
+
+  return messages;
+}
+
 export async function verifyRuntimeModelAccess(
   modelId: string,
 ): Promise<boolean> {
@@ -417,7 +519,9 @@ export async function verifyRuntimeModelAccess(
 export async function getRuntimeProviderStatus(
   providerName?: string,
 ): Promise<ProviderStatus> {
-  const response = await fetchRuntimeJson<{ providers?: Record<string, ProviderStatus> }>(
+  const response = await fetchRuntimeJson<
+    { providers?: Record<string, ProviderStatus> }
+  >(
     "/api/models/status",
   );
 
@@ -626,7 +730,9 @@ export async function runChatViaHost(
   options: HostBackedChatOptions,
 ): Promise<HostBackedChatResult> {
   const { baseUrl, authToken } = await ensureRuntimeHost();
-  const { messages, clientTurnId } = cloneMessagesWithCurrentTurn(options.messages);
+  const { messages, clientTurnId } = cloneMessagesWithCurrentTurn(
+    options.messages,
+  );
   const request: ChatRequest = {
     mode: options.mode,
     session_id: options.sessionId,

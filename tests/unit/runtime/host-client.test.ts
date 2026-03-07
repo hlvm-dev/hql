@@ -1,18 +1,23 @@
 import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
+  addRuntimeSessionMessage,
+  createRuntimeSession,
   deleteRuntimeModel,
+  deleteRuntimeSession,
   getRuntimeConfig,
   getRuntimeConfigApi,
   getRuntimeModel,
   getRuntimeModelDiscovery,
   getRuntimeProviderStatus,
   getRuntimeSession,
-  listRuntimeSessions,
   listRuntimeInstalledModels,
+  listRuntimeSessionMessages,
+  listRuntimeSessions,
   pullRuntimeModelViaHost,
   runAgentQueryViaHost,
   runDirectChatViaHost,
 } from "../../../src/hlvm/runtime/host-client.ts";
+import type { RuntimeSessionMessage } from "../../../src/hlvm/runtime/session-protocol.ts";
 import { deriveDefaultSessionKey } from "../../../src/hlvm/runtime/session-key.ts";
 import {
   findFreePort,
@@ -74,7 +79,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
             request_id: "interaction-1",
             mode: "permission",
             tool_name: "write_file",
-            tool_args: "{\"path\":\"src/main.ts\"}",
+            tool_args: '{"path":"src/main.ts"}',
           });
           emit({
             event: "trace",
@@ -147,7 +152,8 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
           onToken: (text) => tokens.push(text),
           onAgentEvent: (event) => uiEvents.push(event.type),
           onTrace: (event) => traces.push(event.type),
-          onFinalResponseMeta: (meta) => metaEvents.push(meta.citationSpans.length),
+          onFinalResponseMeta: (meta) =>
+            metaEvents.push(meta.citationSpans.length),
         },
         onInteraction: async (event) => {
           assertEquals(event.mode, "permission");
@@ -197,7 +203,27 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
     session_version: 3,
     metadata: null,
   }];
+  const messages: RuntimeSessionMessage[] = [{
+    id: 1,
+    session_id: "sess-1",
+    order: 1,
+    role: "user",
+    content: "hello",
+    client_turn_id: "turn-1",
+    request_id: null,
+    sender_type: "user",
+    sender_detail: null,
+    image_paths: null,
+    tool_calls: null,
+    tool_name: null,
+    tool_call_id: null,
+    cancelled: 0,
+    created_at: "2026-03-07T00:00:00.000Z",
+  }];
   let capturedChatBody: Record<string, unknown> | null = null;
+  let createdSessionBody: Record<string, unknown> | null = null;
+  let appendedMessageBody: Record<string, unknown> | null = null;
+  let deletedSessionId = "";
 
   const abortController = new AbortController();
 
@@ -219,11 +245,40 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
     }
 
     if (url.pathname === "/api/sessions") {
+      if (req.method === "POST") {
+        createdSessionBody = await req.json();
+        return Response.json({
+          id: "created-1",
+          title: "Created",
+          created_at: "2026-03-07T00:01:00.000Z",
+          updated_at: "2026-03-07T00:01:00.000Z",
+          message_count: 0,
+          session_version: 1,
+          metadata: null,
+        }, { status: 201 });
+      }
       return Response.json({ sessions });
     }
 
     if (url.pathname === "/api/sessions/sess-1") {
+      if (req.method === "DELETE") {
+        deletedSessionId = "sess-1";
+        return Response.json({ deleted: true });
+      }
       return Response.json(sessions[0]);
+    }
+
+    if (url.pathname === "/api/sessions/sess-1/messages") {
+      if (req.method === "POST") {
+        appendedMessageBody = await req.json();
+        return Response.json(messages[0], { status: 201 });
+      }
+      return Response.json({
+        messages,
+        total: messages.length,
+        has_more: false,
+        session_version: 3,
+      });
     }
 
     if (url.pathname === "/api/sessions/missing") {
@@ -235,10 +290,18 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
       const stream = new ReadableStream({
         start(controller) {
           controller.enqueue(
-            encoder.encode(JSON.stringify({ event: "token", text: "reply:hello" }) + "\n"),
+            encoder.encode(
+              JSON.stringify({ event: "token", text: "reply:hello" }) + "\n",
+            ),
           );
           controller.enqueue(
-            encoder.encode(JSON.stringify({ event: "complete", request_id: "req-4", session_version: 4 }) + "\n"),
+            encoder.encode(
+              JSON.stringify({
+                event: "complete",
+                request_id: "req-4",
+                session_version: 4,
+              }) + "\n",
+            ),
           );
           controller.close();
         },
@@ -258,8 +321,16 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
   try {
     await withEnv("HLVM_REPL_PORT", String(port), async () => {
       const listed = await listRuntimeSessions();
+      const created = await createRuntimeSession({ title: "Created" });
       const found = await getRuntimeSession("sess-1");
       const missing = await getRuntimeSession("missing");
+      const listedMessages = await listRuntimeSessionMessages("sess-1");
+      const added = await addRuntimeSessionMessage("sess-1", {
+        role: "assistant",
+        content: "reply",
+        sender_type: "assistant",
+      });
+      const deleted = await deleteRuntimeSession("sess-1");
       const tokens: string[] = [];
 
       const result = await runDirectChatViaHost({
@@ -272,8 +343,15 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
       });
 
       assertEquals(listed, sessions);
+      assertEquals(created.id, "created-1");
+      assertEquals(createdSessionBody?.title, "Created");
       assertEquals(found, sessions[0]);
       assertEquals(missing, null);
+      assertEquals(listedMessages, messages);
+      assertEquals(added.id, 1);
+      assertEquals(appendedMessageBody?.content, "reply");
+      assertEquals(deleted, true);
+      assertEquals(deletedSessionId, "sess-1");
       assertEquals(tokens, ["reply:hello"]);
       assertEquals(result.text, "reply:hello");
       assertEquals(result.sessionVersion, 4);
@@ -281,7 +359,8 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
       assertEquals(capturedChatBody?.session_id, "sess-1");
       assertEquals(capturedChatBody?.model, "ollama/llama3.1:8b");
       assertEquals(
-        (capturedChatBody?.messages as Array<Record<string, unknown>>)[0]?.content,
+        (capturedChatBody?.messages as Array<Record<string, unknown>>)[0]
+          ?.content,
         "hello",
       );
     });
@@ -320,10 +399,18 @@ Deno.test("runAgentQueryViaHost uses ephemeral session ids for fresh sessions", 
       const stream = new ReadableStream({
         start(controller) {
           controller.enqueue(
-            encoder.encode(JSON.stringify({ event: "token", text: "fresh" }) + "\n"),
+            encoder.encode(
+              JSON.stringify({ event: "token", text: "fresh" }) + "\n",
+            ),
           );
           controller.enqueue(
-            encoder.encode(JSON.stringify({ event: "complete", request_id: "req-2", session_version: 1 }) + "\n"),
+            encoder.encode(
+              JSON.stringify({
+                event: "complete",
+                request_id: "req-2",
+                session_version: 1,
+              }) + "\n",
+            ),
           );
           controller.close();
         },
@@ -387,10 +474,18 @@ Deno.test("runAgentQueryViaHost waits for runtime readiness before sending chat"
       const stream = new ReadableStream({
         start(controller) {
           controller.enqueue(
-            encoder.encode(JSON.stringify({ event: "token", text: "ready" }) + "\n"),
+            encoder.encode(
+              JSON.stringify({ event: "token", text: "ready" }) + "\n",
+            ),
           );
           controller.enqueue(
-            encoder.encode(JSON.stringify({ event: "complete", request_id: "req-3", session_version: 1 }) + "\n"),
+            encoder.encode(
+              JSON.stringify({
+                event: "complete",
+                request_id: "req-3",
+                session_version: 1,
+              }) + "\n",
+            ),
           );
           controller.close();
         },
@@ -443,7 +538,9 @@ Deno.test("runtime host client exposes model discovery, installed models, get/de
     if (url.pathname === "/api/models/discovery") {
       return Response.json({
         installedModels: [{ name: "llama3.2:latest" }],
-        remoteModels: [{ name: "llama3.2:latest" }, { name: "qwen2.5-coder:7b" }],
+        remoteModels: [{ name: "llama3.2:latest" }, {
+          name: "qwen2.5-coder:7b",
+        }],
         cloudModels: [{ name: "gpt-4.1", metadata: { provider: "openai" } }],
         failed: url.searchParams.get("refresh") === "true",
       });
@@ -487,7 +584,10 @@ Deno.test("runtime host client exposes model discovery, installed models, get/de
             ),
           );
           controller.enqueue(
-            encoder.encode(JSON.stringify({ event: "complete", name: "llama3.2:latest" }) + "\n"),
+            encoder.encode(
+              JSON.stringify({ event: "complete", name: "llama3.2:latest" }) +
+                "\n",
+            ),
           );
           controller.close();
         },

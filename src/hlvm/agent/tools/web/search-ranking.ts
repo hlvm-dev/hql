@@ -155,6 +155,9 @@ const LOW_SIGNAL_PATH_SEGMENTS = new Set([
   "tag",
   "tags",
 ]);
+const DOCS_QUERY_RE = /\b(official|docs?|documentation|reference|api|manual|guide|spec)\b/i;
+const RELEASE_QUERY_RE = /\b(changelog|release notes?|what(?:'s| is) new|latest|recent|updated?|changes?)\b/i;
+const RELEASE_PATH_SEGMENTS = new Set(["blog", "changelog", "news", "release-notes", "releases", "tags", "updates", "whatsnew"]);
 
 function keywordRepetitionRatio(text: string): number {
   const tokens = tokenizeQuery(text);
@@ -196,6 +199,34 @@ export function sourceQualityPenalty(result: SearchResult): number {
   }
 
   return Math.min(2.5, penalty);
+}
+
+function querySignalBoost(query: string, result: SearchResult): number {
+  if (!result.url) return 0;
+  try {
+    const parsed = new URL(result.url);
+    const pathSegments = parsed.pathname.toLowerCase().split("/").filter(Boolean);
+    let boost = 0;
+    if (DOCS_QUERY_RE.test(query)) {
+      if (parsed.hostname.toLowerCase().startsWith("docs.") || parsed.hostname.toLowerCase().startsWith("developer.") || parsed.hostname.toLowerCase().startsWith("api.")) {
+        boost += 0.6;
+      }
+      if (pathSegments.some((segment) => AUTHORITY_PATH_SEGMENTS.has(segment))) {
+        boost += 0.45;
+      }
+    }
+    if (RELEASE_QUERY_RE.test(query)) {
+      if (pathSegments.some((segment) => RELEASE_PATH_SEGMENTS.has(segment))) {
+        boost += 0.55;
+      }
+      if (parsed.hostname.toLowerCase() === "github.com" && pathSegments.includes("releases")) {
+        boost += 0.65;
+      }
+    }
+    return boost;
+  } catch {
+    return 0;
+  }
 }
 
 export type SearchConfidenceReason = "ok" | "low_score" | "low_diversity" | "low_coverage" | "mixed";
@@ -477,7 +508,7 @@ export function rankSearchResults(
   // Score once: base relevance + authority - quality penalty, with conditional recency boost
   const scored = deduped.map((result) => {
     const ageDays = extractResultAgeDays(result);
-    const base = relevanceScore(tokens, result) + recencyBoost(ageDays, timeRange);
+    const base = relevanceScore(tokens, result) + recencyBoost(ageDays, timeRange) + querySignalBoost(query, result);
     const score = base * (1 + domainAuthorityBoost(result.url ?? "")) - sourceQualityPenalty(result);
     return { result, ageDays, baseScore: score, host: resultHost(result.url) };
   });

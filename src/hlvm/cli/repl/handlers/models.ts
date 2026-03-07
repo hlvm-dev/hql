@@ -9,6 +9,7 @@ import {
   pushSSEEvent,
   replayAfter,
   subscribe,
+  nextSSEEventId,
 } from "../../../store/sse-store.ts";
 import type { RouteParams } from "../http-router.ts";
 import {
@@ -72,11 +73,11 @@ export function handleModelsStream(req: Request): Response {
     // Replay buffered events for reconnecting clients.
     const replay = replayAfter(MODELS_CHANNEL, lastEventId);
     if (replay.gapDetected) {
-      emit(
-        `event: models_updated\ndata: ${
-          JSON.stringify({ reason: "replay_gap" })
-        }\n\n`,
-      );
+      emit(formatSSE({
+        id: nextSSEEventId(MODELS_CHANNEL),
+        event_type: "models_updated",
+        data: { reason: "replay_gap" },
+      }));
     } else {
       for (const event of replay.events) {
         emit(formatSSE(event));
@@ -92,11 +93,11 @@ export function handleModelsStream(req: Request): Response {
         (e.data as Record<string, unknown>)?.reason === "runtime_ready",
     );
     if (isRuntimeReadyForAiRequests() && !hasRuntimeReadyReplay) {
-      emit(
-        `event: models_updated\ndata: ${
-          JSON.stringify({ reason: "runtime_ready" })
-        }\n\n`,
-      );
+      emit(formatSSE({
+        id: nextSSEEventId(MODELS_CHANNEL),
+        event_type: "models_updated",
+        data: { reason: "runtime_ready" },
+      }));
     }
 
     const unsubscribe = subscribe(MODELS_CHANNEL, (event) => {

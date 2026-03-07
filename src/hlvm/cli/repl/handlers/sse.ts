@@ -6,7 +6,7 @@
  */
 
 import { getSession } from "../../../store/conversation-store.ts";
-import { subscribe, replayAfter } from "../../../store/sse-store.ts";
+import { subscribe, replayAfter, nextSSEEventId } from "../../../store/sse-store.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { RouteParams } from "../http-router.ts";
 import { jsonError, formatSSE, createSSEResponse } from "../http-utils.ts";
@@ -66,12 +66,14 @@ export function handleSSEStream(
       const messages = loadAllMessages(sessionId);
       const freshSession = getSession(sessionId);
       const snapshotVersion = freshSession?.session_version ?? session.session_version;
-      const snapshotData = JSON.stringify({
-        messages,
-        session_version: snapshotVersion,
-      });
-      const snapshotId = String(snapshotVersion);
-      emit(`id: ${snapshotId}\nevent: snapshot\ndata: ${snapshotData}\n\n`);
+      emit(formatSSE({
+        id: nextSSEEventId(sessionId),
+        event_type: "snapshot",
+        data: {
+          messages,
+          session_version: snapshotVersion,
+        },
+      }));
     } else {
       for (const event of replay.events) {
         emit(formatSSE(event));

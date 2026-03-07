@@ -19,20 +19,45 @@
 
 import { config } from "./config.ts";
 import { memory } from "./memory.ts";
-import { session, setSessionManager, type SessionManagerRef } from "./session.ts";
+import {
+  session,
+  type SessionManagerRef,
+  setSessionManager,
+} from "./session.ts";
 import { history, setReplState } from "./history.ts";
 import { ai } from "./ai.ts";
-import { runtime, setRuntimeState, setAbortSignal, getAbortSignal, type RuntimeState } from "./runtime.ts";
+import {
+  getAbortSignal,
+  runtime,
+  type RuntimeState,
+  setAbortSignal,
+  setRuntimeState,
+} from "./runtime.ts";
 import { log } from "./log.ts";
 import { errors } from "./errors.ts";
 
-export { config, memory, session, setSessionManager, type SessionManagerRef, history, setReplState, ai, runtime, setRuntimeState, setAbortSignal, getAbortSignal, log, errors };
+export {
+  ai,
+  config,
+  errors,
+  getAbortSignal,
+  history,
+  log,
+  memory,
+  runtime,
+  session,
+  type SessionManagerRef,
+  setAbortSignal,
+  setReplState,
+  setRuntimeState,
+  setSessionManager,
+};
 
 /**
  * Options for registering APIs on globalThis
  */
 interface RegisterApisOptions {
-  /** Session manager for session API */
+  /** Deprecated compatibility hook for legacy eval-session bootstrapping */
   sessionManager?: SessionManagerRef;
   /** REPL state for history API */
   replState?: {

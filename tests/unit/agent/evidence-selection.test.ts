@@ -2,6 +2,7 @@ import { assert, assertEquals } from "jsr:@std/assert";
 import {
   annotateEvidenceStrength,
   bestEvidenceSummary,
+  rerankForSynthesis,
   selectEvidencePages,
 } from "../../../src/hlvm/agent/tools/web/evidence-selection.ts";
 import { detectSearchQueryIntent } from "../../../src/hlvm/agent/tools/web/query-strategy.ts";
@@ -93,4 +94,24 @@ Deno.test("evidence selection allows a strong snippet-only second source for com
   assertEquals(selected.length, 2);
   assert(selected.some((result) => result.url?.includes("fastapi")));
   assert(selected.some((result) => result.url?.includes("flask")));
+});
+
+Deno.test("evidence reranking promotes fetched passages ahead of snippet-only results", () => {
+  const reranked = rerankForSynthesis([
+    {
+      title: "Snippet page",
+      url: "https://example.com/blog/react",
+      snippet: "React rendering tips",
+    },
+    {
+      title: "Docs page",
+      url: "https://react.dev/reference/react/memo",
+      snippet: "React memo docs",
+      passages: ["memo skips re-rendering when props are unchanged."],
+    },
+  ], {
+    intent: detectSearchQueryIntent("best React rendering tips"),
+  });
+
+  assertEquals(reranked[0]?.url, "https://react.dev/reference/react/memo");
 });

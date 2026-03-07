@@ -12,6 +12,8 @@ Deno.test("web query strategy detects docs, comparison, and recency intent", () 
   assertEquals(intent.wantsComparison, true);
   assertEquals(intent.wantsRecency, true);
   assertEquals(intent.wantsVersionSpecific, false);
+  assertEquals(intent.wantsQueryDecomposition, true);
+  assertEquals(intent.wantsFetchFirst, true);
 });
 
 Deno.test("web query strategy distinguishes version-specific queries from recency queries", () => {

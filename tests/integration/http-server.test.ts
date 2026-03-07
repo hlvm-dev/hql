@@ -136,6 +136,10 @@ function getIntegrationChatReply(messages: ProviderMessage[]): string {
     return "arrr";
   }
 
+  const memorySystemMessage = messages.find((message) =>
+    message.role === "system" && message.content.startsWith("# Your Memory")
+  )?.content ?? "";
+
   const historicalToolSummary = messages.find((message) =>
     message.role === "assistant" && message.content.includes("Prior tool result")
   )?.content ?? "";
@@ -149,6 +153,10 @@ function getIntegrationChatReply(messages: ProviderMessage[]): string {
   const lastUser = [...messages].reverse().find((message) =>
     message.role === "user"
   )?.content ?? "";
+  const markerMatch = lastUser.match(/memory-marker:([A-Za-z0-9-]+)/);
+  if (markerMatch && memorySystemMessage.includes(markerMatch[0])) {
+    return `memory:${markerMatch[0]}`;
+  }
 
   if (lastUser === "second" && priorAssistant) {
     return `history:${priorAssistant}`;
@@ -457,5 +465,69 @@ Deno.test({
 
     assertEquals(second.status, 200);
     assertStringIncludes(tokenText, "integration-agent-saw-tool");
+  },
+});
+
+Deno.test({
+  name: "http server: chat baseline memory writes are visible in later chat sessions",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    const marker = `memory-marker:${crypto.randomUUID()}`;
+
+    const first = await postChatNdjson({
+      mode: "chat",
+      session_id: `integration-chat-memory-write-${crypto.randomUUID()}`,
+      model: "test-chat/plain",
+      messages: [{ role: "user", content: `Remember that ${marker}` }],
+    });
+    assertEquals(first.status, 200);
+
+    const second = await postChatNdjson({
+      mode: "chat",
+      session_id: `integration-chat-memory-read-${crypto.randomUUID()}`,
+      model: "test-chat/plain",
+      messages: [{ role: "user", content: `Do you still know ${marker}?` }],
+    });
+
+    const tokenText = second.events
+      .filter((event) => event.event === "token")
+      .map((event) => String(event.text ?? ""))
+      .join("");
+
+    assertEquals(second.status, 200);
+    assertStringIncludes(tokenText, `memory:${marker}`);
+  },
+});
+
+Deno.test({
+  name: "http server: agent baseline memory writes are visible to later chat sessions",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    const marker = `memory-marker:${crypto.randomUUID()}`;
+
+    const first = await postChatNdjson({
+      mode: "agent",
+      session_id: `integration-agent-memory-write-${crypto.randomUUID()}`,
+      model: "test-chat/plain",
+      messages: [{ role: "user", content: `Remember that ${marker}` }],
+    });
+    assertEquals(first.status, 200);
+
+    const second = await postChatNdjson({
+      mode: "chat",
+      session_id: `integration-agent-memory-read-${crypto.randomUUID()}`,
+      model: "test-chat/plain",
+      messages: [{ role: "user", content: `Do you still know ${marker}?` }],
+    });
+
+    const tokenText = second.events
+      .filter((event) => event.event === "token")
+      .map((event) => String(event.text ?? ""))
+      .join("");
+
+    assertEquals(second.status, 200);
+    assertStringIncludes(tokenText, `memory:${marker}`);
   },
 });

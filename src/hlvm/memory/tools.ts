@@ -6,10 +6,10 @@ import { ValidationError } from "../../common/error.ts";
 import { isToolArgsObject } from "../agent/validation.ts";
 import type { ToolMetadata } from "../agent/registry.ts";
 import { isObjectValue } from "../../common/utils.ts";
-import { insertFact, invalidateFactsByCategory, replaceInFacts } from "./facts.ts";
+import { invalidateFactsByCategory, replaceInFacts } from "./facts.ts";
 import { retrieveMemory } from "./retrieve.ts";
-import { autoInvalidateConflicts, detectConflicts, type MemoryModelTier } from "./invalidate.ts";
-import { linkFactEntities } from "./entities.ts";
+import { type MemoryModelTier } from "./invalidate.ts";
+import { writeMemoryFact } from "./pipeline.ts";
 
 let _memoryModelTier: MemoryModelTier = "mid";
 
@@ -30,26 +30,23 @@ function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
 
   const target = typeof record.target === "string" ? record.target : "memory";
   if (target !== "memory" && target !== "journal") {
-    throw new ValidationError('target must be "memory" or "journal"', "memory_write");
+    throw new ValidationError(
+      'target must be "memory" or "journal"',
+      "memory_write",
+    );
   }
 
-  const section = typeof record.section === "string" ? record.section.trim() : "";
+  const section = typeof record.section === "string"
+    ? record.section.trim()
+    : "";
   const category = section || (target === "journal" ? "Journal" : "General");
-
-  const factId = insertFact({
+  const { factId, linkedEntities, invalidated } = writeMemoryFact({
     content: content.trim(),
     category,
     source: target,
+    invalidateConflicts: target === "memory",
+    modelTier: _memoryModelTier,
   });
-
-  const linkedEntities = linkFactEntities(factId, content.trim());
-
-  let invalidatedCount = 0;
-  if (target === "memory") {
-    const conflicts = detectConflicts(content.trim(), category);
-    const invalidated = autoInvalidateConflicts(conflicts, _memoryModelTier);
-    invalidatedCount = invalidated.length;
-  }
 
   return Promise.resolve({
     written: true,
@@ -57,7 +54,7 @@ function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
     section: section || undefined,
     factId,
     linkedEntities,
-    invalidated: invalidatedCount,
+    invalidated,
   });
 }
 
@@ -100,7 +97,10 @@ function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
   if (action === "delete_section") {
     const section = record.section;
     if (typeof section !== "string" || !section.trim()) {
-      throw new ValidationError("section is required for delete_section", "memory_edit");
+      throw new ValidationError(
+        "section is required for delete_section",
+        "memory_edit",
+      );
     }
 
     const invalidated = invalidateFactsByCategory(section.trim());
@@ -116,24 +116,41 @@ function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
     const find = record.find;
     const replaceWith = record.replace_with;
     if (typeof find !== "string" || !find) {
-      throw new ValidationError("find is required for replace action", "memory_edit");
+      throw new ValidationError(
+        "find is required for replace action",
+        "memory_edit",
+      );
     }
     if (typeof replaceWith !== "string") {
-      throw new ValidationError("replace_with is required for replace action", "memory_edit");
+      throw new ValidationError(
+        "replace_with is required for replace action",
+        "memory_edit",
+      );
     }
 
     const count = replaceInFacts(find, replaceWith);
-    return Promise.resolve({ edited: count > 0, action: "replace", replacements: count });
+    return Promise.resolve({
+      edited: count > 0,
+      action: "replace",
+      replacements: count,
+    });
   }
 
-  throw new ValidationError('action must be "delete_section" or "replace"', "memory_edit");
+  throw new ValidationError(
+    'action must be "delete_section" or "replace"',
+    "memory_edit",
+  );
 }
 
 function formatMemorySearchResult(
   result: unknown,
-): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
   if (!isObjectValue(result) || !Array.isArray(result.results)) return null;
-  const count = typeof result.count === "number" ? result.count : result.results.length;
+  const count = typeof result.count === "number"
+    ? result.count
+    : result.results.length;
   if (count === 0) {
     return {
       summaryDisplay: "No memory results found",
@@ -159,11 +176,15 @@ function formatMemorySearchResult(
 
 function formatMemoryWriteResult(
   result: unknown,
-): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
   if (!isObjectValue(result) || result.written !== true) return null;
   const target = typeof result.target === "string" ? result.target : "memory";
   const factId = typeof result.factId === "number" ? result.factId : undefined;
-  const detail = factId !== undefined ? `Saved to ${target} (#${factId})` : `Saved to ${target}`;
+  const detail = factId !== undefined
+    ? `Saved to ${target} (#${factId})`
+    : `Saved to ${target}`;
   return {
     summaryDisplay: detail,
     returnDisplay: detail,
@@ -173,12 +194,20 @@ function formatMemoryWriteResult(
 
 function formatMemoryEditResult(
   result: unknown,
-): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
   if (!isObjectValue(result) || result.edited !== true) return null;
   const action = typeof result.action === "string" ? result.action : "edit";
   const detail = action === "replace"
-    ? `Updated memory${typeof result.replacements === "number" ? ` (${result.replacements} replacements)` : ""}`
-    : `Updated memory section${typeof result.section === "string" ? `: ${result.section}` : ""}`;
+    ? `Updated memory${
+      typeof result.replacements === "number"
+        ? ` (${result.replacements} replacements)`
+        : ""
+    }`
+    : `Updated memory section${
+      typeof result.section === "string" ? `: ${result.section}` : ""
+    }`;
   return {
     summaryDisplay: detail,
     returnDisplay: detail,
@@ -201,8 +230,7 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
       "or raw code snippets (reference file paths instead).",
     category: "memory",
     args: {
-      content:
-        'string - A concise factual statement to remember. ' +
+      content: "string - A concise factual statement to remember. " +
         'Good: "User prefers Deno over Node for all new projects". ' +
         'Good: "Auth uses JWT with 1h expiry — decided 2026-02-20 over session cookies for statelessness". ' +
         'Bad: "The user said they like Deno I think maybe". ' +
@@ -231,8 +259,7 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
       "Use when user references prior work or when historical context may exist.",
     category: "memory",
     args: {
-      query:
-        'string - Specific keywords describing what to recall. ' +
+      query: "string - Specific keywords describing what to recall. " +
         'Good: "CORS bug auth.ts". Bad: "that thing".',
       limit: "number (optional) - Max results to return (default: 5)",
     },
@@ -252,10 +279,8 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     args: {
       action:
         'string - "delete_section" to invalidate a category, "replace" to find/replace text across active facts.',
-      section:
-        'string (for delete_section) - Category name to invalidate.',
-      find:
-        'string (for replace) - Exact text to find in active facts.',
+      section: "string (for delete_section) - Category name to invalidate.",
+      find: "string (for replace) - Exact text to find in active facts.",
       replace_with:
         'string (for replace) - Replacement text. Use "" to remove matched text.',
     },

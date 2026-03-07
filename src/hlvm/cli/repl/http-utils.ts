@@ -93,6 +93,23 @@ export function createSSEResponse(
   const stream = new ReadableStream({
     start(controller) {
       let closed = false;
+      let teardown: (() => void) | void;
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
+
+      function cleanup(): void {
+        if (closed) return;
+        closed = true;
+        req.signal.removeEventListener("abort", cleanup);
+        teardown?.();
+        if (heartbeat !== undefined) {
+          clearInterval(heartbeat);
+        }
+        try {
+          controller.close();
+        } catch {
+          // Already closed
+        }
+      }
 
       const emit = (chunk: string): void => {
         if (closed) return;
@@ -103,12 +120,23 @@ export function createSSEResponse(
         }
       };
 
-      // Send retry directive before any events
-      controller.enqueue(textEncoder.encode("retry: 3000\n\n"));
+      req.signal.addEventListener("abort", cleanup, { once: true });
+      if (req.signal.aborted) {
+        cleanup();
+        return;
+      }
 
-      const teardown = setup(emit);
+      emit("retry: 3000\n\n");
+      if (closed) {
+        return;
+      }
 
-      const heartbeat = setInterval(() => {
+      teardown = setup(emit);
+      if (closed) {
+        return;
+      }
+
+      heartbeat = setInterval(() => {
         if (closed) return;
         try {
           controller.enqueue(textEncoder.encode(": heartbeat\n\n"));
@@ -116,20 +144,6 @@ export function createSSEResponse(
           cleanup();
         }
       }, 30_000);
-
-      function cleanup(): void {
-        if (closed) return;
-        closed = true;
-        teardown?.();
-        clearInterval(heartbeat);
-        try {
-          controller.close();
-        } catch {
-          // Already closed
-        }
-      }
-
-      req.signal.addEventListener("abort", cleanup);
     },
   });
 

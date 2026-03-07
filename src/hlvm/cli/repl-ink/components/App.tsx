@@ -3,7 +3,13 @@
  * Full-featured REPL with rich banner, keyboard shortcuts, completions
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
@@ -33,25 +39,31 @@ import { useAlternateBuffer } from "../hooks/useAlternateBuffer.ts";
 import type { AssistantCitation, EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { clearTerminal } from "../../ansi.ts";
-import { getUnclosedDepth, tokenize, type TokenType } from "../../repl/syntax.ts";
+import {
+  getUnclosedDepth,
+  tokenize,
+  type TokenType,
+} from "../../repl/syntax.ts";
 import { useTheme } from "../../theme/index.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { resetContext } from "../../repl/context.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 import { isCommand, runCommand } from "../../repl/commands.ts";
 import type {
-  Session,
   SessionInitOptions,
-  SessionMessage,
   SessionMeta,
 } from "../../repl/session/types.ts";
-import type { InteractionRequestEvent, InteractionResponse } from "../../../agent/registry.ts";
+import type {
+  InteractionRequestEvent,
+  InteractionResponse,
+} from "../../../agent/registry.ts";
 import { SessionManager } from "../../repl/session/manager.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { ensureError } from "../../../../common/utils.ts";
 import {
-  normalizeModelId,
+  ConfigError,
   type HlvmConfig,
+  normalizeModelId,
 } from "../../../../common/config/types.ts";
 import {
   buildSelectedModelConfigUpdates,
@@ -65,12 +77,20 @@ import {
   getRuntimeConfig,
   getRuntimeConfigApi,
   patchRuntimeConfig,
+  runChatViaHost,
 } from "../../../runtime/host-client.ts";
 import { createRuntimeModelConfigManager } from "../../../runtime/model-config.ts";
 import {
   getCustomKeybindingsSnapshot,
   setCustomKeybindingsSnapshot,
 } from "../keybindings/custom-bindings.ts";
+import {
+  clearCurrentSession,
+  ensureCurrentSession,
+  session as sessionApi,
+  syncCurrentSession,
+} from "../../../api/session.ts";
+import { buildConversationItemsFromSessionMessages } from "../conversation-history.ts";
 
 interface HistoryEntry {
   id: number;
@@ -106,37 +126,6 @@ interface AppProps {
   initialConfig?: HlvmConfig;
 }
 
-/** Convert session messages to history entries for display */
-function convertMessagesToHistory(
-  messages: readonly SessionMessage[],
-  startId: number,
-): { entries: HistoryEntry[]; nextId: number } {
-  const entries: HistoryEntry[] = [];
-  let id = startId;
-
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (msg.role === "user") {
-      // Look for following assistant message
-      const nextMsg = messages[i + 1];
-      const hasAssistant = nextMsg && nextMsg.role === "assistant";
-
-      entries.push({
-        id: id++,
-        input: sanitizeHistoryInput(msg.content),
-        result: hasAssistant
-          ? { success: true, value: nextMsg.content }
-          : { success: true, value: undefined },
-      });
-
-      // Skip the assistant message we consumed
-      if (hasAssistant) i++;
-    }
-  }
-
-  return { entries, nextId: id };
-}
-
 function isAsyncIterable(
   value: unknown,
 ): value is AsyncIterableIterator<string> {
@@ -167,7 +156,9 @@ function sanitizeHistoryInput(input: string): string {
   return withoutAnsi.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "");
 }
 
-function readConfigContextWindow(config: Record<string, unknown> | undefined): number | undefined {
+function readConfigContextWindow(
+  config: Record<string, unknown> | undefined,
+): number | undefined {
   return typeof config?.contextWindow === "number" &&
       Number.isInteger(config.contextWindow) && config.contextWindow > 0
     ? config.contextWindow
@@ -202,7 +193,8 @@ interface AppContentProps extends AppProps {
  * AppContent - main REPL UI (uses ReplContext for reactive state)
  */
 function AppContent(
-  { showBanner = true, sessionOptions, initialConfig, replState }: AppContentProps,
+  { showBanner = true, sessionOptions, initialConfig, replState }:
+    AppContentProps,
 ): React.ReactElement {
   const { exit } = useApp();
 
@@ -217,42 +209,78 @@ function AppContent(
     null,
   );
 
-  // Initialize session manager
+  // Initialize private eval-session manager only. Conversation sessions are
+  // managed separately via the shared runtime session API.
   useEffect(() => {
     const initSession = async () => {
       const manager = new SessionManager(getPlatform().process.cwd());
       sessionManagerRef.current = manager;
 
-      // SSOT: Register with session API
       try {
-        const { setSessionManager } = await import("../../../api/session.ts");
-        setSessionManager(manager);
-      } catch {
-        // API module may not be loaded yet - session works via ref fallback
-      }
-
-      try {
-        const session = await manager.initialize(sessionOptions);
-        setCurrentSession(session);
-
-        // Auto-open picker if --resume was passed without ID
-        if (sessionOptions?.openPicker) {
-          const sessions = await manager.list(20);
-          if (sessions.length > 0) {
-            setPickerSessions(sessions);
-            setActivePanel("picker");
-          }
-        }
+        await manager.initialize();
       } catch (error) {
         // Session initialization failed - continue without sessions
         log.error(`Session init failed: ${error}`);
       }
     };
 
-    initSession();
+    void initSession();
 
     return () => {
-      sessionManagerRef.current?.close();
+      const manager = sessionManagerRef.current;
+      sessionManagerRef.current = null;
+      void manager?.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const initConversationSession = async () => {
+      try {
+        if (sessionOptions?.openPicker) {
+          clearCurrentSession();
+          if (!cancelled) {
+            setCurrentSession(null);
+          }
+          const sessions = await sessionApi.list({ limit: 20 });
+          if (!cancelled && sessions.length > 0) {
+            setPickerSessions(sessions);
+            setActivePanel("picker");
+          }
+          return;
+        }
+
+        if (sessionOptions?.resumeId) {
+          const resumed = await sessionApi.resume(sessionOptions.resumeId);
+          if (!cancelled) {
+            setCurrentSession(resumed?.meta ?? null);
+          }
+          return;
+        }
+
+        if (sessionOptions?.continue && !sessionOptions.forceNew) {
+          const latest = (await sessionApi.list({ limit: 1 }))[0] ?? null;
+          const active = latest ? await syncCurrentSession(latest.id) : null;
+          if (!cancelled) {
+            setCurrentSession(active);
+          }
+          return;
+        }
+
+        clearCurrentSession();
+        if (!cancelled) {
+          setCurrentSession(null);
+        }
+      } catch (error) {
+        log.error(`Conversation session init failed: ${error}`);
+      }
+    };
+
+    void initConversationSession();
+
+    return () => {
+      cancelled = true;
     };
   }, [sessionOptions]);
 
@@ -347,35 +375,41 @@ function AppContent(
 
   // Conversation state for agent mode
   const conversation = useConversation();
-  const [interactionQueue, setInteractionQueue] = useState<InteractionRequestEvent[]>([]);
+  const [interactionQueue, setInteractionQueue] = useState<
+    InteractionRequestEvent[]
+  >([]);
   const pendingInteraction = interactionQueue[0];
 
-  const prepareConversationMediaPayload = useCallback((attachments?: AnyAttachment[]) => {
-    const mediaAttachments = attachments
-      ?.filter((a): a is import("../../repl/attachment.ts").Attachment =>
-        "base64Data" in a && a.type !== "text")
-      ?? [];
+  const prepareConversationMediaPayload = useCallback(
+    (attachments?: AnyAttachment[]) => {
+      const mediaAttachments = attachments
+        ?.filter((a): a is import("../../repl/attachment.ts").Attachment =>
+          "base64Data" in a && a.type !== "text"
+        ) ??
+        [];
 
-    const unsupported = mediaAttachments.filter((a) => {
-      if (a.mimeType.startsWith("image/")) return false;
-      if (a.mimeType.startsWith("audio/")) return false;
-      if (a.mimeType.startsWith("video/")) return false;
-      if (a.mimeType === "application/pdf") return false;
-      return true;
-    });
+      const unsupported = mediaAttachments.filter((a) => {
+        if (a.mimeType.startsWith("image/")) return false;
+        if (a.mimeType.startsWith("audio/")) return false;
+        if (a.mimeType.startsWith("video/")) return false;
+        if (a.mimeType === "application/pdf") return false;
+        return true;
+      });
 
-    if (unsupported.length > 0) {
+      if (unsupported.length > 0) {
+        return {
+          images: undefined,
+          unsupportedMimeType: unsupported[0].mimeType,
+        };
+      }
+
       return {
-        images: undefined,
-        unsupportedMimeType: unsupported[0].mimeType,
+        images: mediaAttachments.map((a) => a.path),
+        unsupportedMimeType: undefined,
       };
-    }
-
-    return {
-      images: mediaAttachments.map((a) => a.path),
-      unsupportedMimeType: undefined,
-    };
-  }, []);
+    },
+    [],
+  );
 
   const agentControllerRef = useRef<AbortController | null>(null);
   const interactionResolversRef = useRef<
@@ -394,29 +428,42 @@ function AppContent(
   );
   const [configuredContextWindow, setConfiguredContextWindow] = useState<
     number | undefined
-  >(readConfigContextWindow(initialConfig as Record<string, unknown> | undefined));
-  const [footerContextUsageLabel, setFooterContextUsageLabel] = useState<string>("");
-  const [pendingConversationQueue, setPendingConversationQueue] = useState<QueuedConversationTurn[]>([]);
+  >(readConfigContextWindow(
+    initialConfig as Record<string, unknown> | undefined,
+  ));
+  const [footerContextUsageLabel, setFooterContextUsageLabel] = useState<
+    string
+  >("");
+  const [pendingConversationQueue, setPendingConversationQueue] = useState<
+    QueuedConversationTurn[]
+  >([]);
   const shouldUseAlternateBuffer = activePanel === "conversation" &&
     conversation.items.length >= 80;
   useAlternateBuffer(shouldUseAlternateBuffer);
 
-  const applyRuntimeConfigState = useCallback((cfg: Record<string, unknown>) => {
-    const modelId = typeof cfg.model === "string" ? cfg.model : "";
-    setConfiguredModelId(modelId);
-    setIsConfiguredModelExplicit(cfg.modelConfigured === true);
-    setFooterModelName(modelId.replace("ollama/", ""));
-    setConfiguredContextWindow(readConfigContextWindow(cfg));
-  }, []);
+  const applyRuntimeConfigState = useCallback(
+    (cfg: Record<string, unknown>) => {
+      const modelId = typeof cfg.model === "string" ? cfg.model : "";
+      setConfiguredModelId(modelId);
+      setIsConfiguredModelExplicit(cfg.modelConfigured === true);
+      setFooterModelName(modelId.replace("ollama/", ""));
+      setConfiguredContextWindow(readConfigContextWindow(cfg));
+    },
+    [],
+  );
 
   useEffect(() => {
     if (initialConfig) {
-      applyRuntimeConfigState(initialConfig as unknown as Record<string, unknown>);
+      applyRuntimeConfigState(
+        initialConfig as unknown as Record<string, unknown>,
+      );
       return;
     }
 
     getRuntimeConfig()
-      .then((cfg) => applyRuntimeConfigState(cfg as unknown as Record<string, unknown>))
+      .then((cfg) =>
+        applyRuntimeConfigState(cfg as unknown as Record<string, unknown>)
+      )
       .catch(() => {});
   }, [applyRuntimeConfigState, initialConfig]);
 
@@ -447,48 +494,29 @@ function AppContent(
 
   // Session picker handlers
   const handlePickerSelect = useCallback(async (session: SessionMeta) => {
-    // SSOT: Try session.resume() API only
-    const sessionApi = (globalThis as Record<string, unknown>).session as {
-      resume: (id: string) => Promise<Session | null>;
-    } | undefined;
-
-    let loaded: Session | null = null;
-    if (sessionApi?.resume) {
-      loaded = await sessionApi.resume(session.id);
-    }
+    const loaded = await sessionApi.resume(session.id);
 
     if (loaded) {
-      // Convert messages to history entries and restore conversation
-      const { entries, nextId: newNextId } = convertMessagesToHistory(
-        loaded.messages,
-        1,
+      conversation.replaceItems(
+        buildConversationItemsFromSessionMessages(loaded.messages),
       );
-
-      // Restore the conversation history
-      setHistory(entries);
+      conversation.addInfo(
+        `Resumed: ${loaded.meta.title} (${loaded.meta.messageCount} messages)`,
+      );
+      conversation.resetStatus();
       setCurrentSession(loaded.meta);
-
-      // Add "Resumed" notification at the end
-      setHistory((prev: HistoryEntry[]) => [...prev, {
-        id: newNextId,
-        input: pendingResumeInput || "/resume",
-        result: {
-          success: true,
-          value:
-            `Resumed: ${loaded.meta.title} (${loaded.meta.messageCount} messages)`,
-        },
-      }]);
-      setNextId(newNextId + 1);
+      setFooterContextUsageLabel("");
+      setActivePanel("conversation");
     } else {
       // Session file not found or corrupted
       addHistoryEntry(pendingResumeInput || "/resume", {
         success: false,
         error: new Error(`Session not found: ${session.title}`),
       });
+      setActivePanel("none");
     }
     setPendingResumeInput(null);
-    setActivePanel("none");
-  }, [nextId, pendingResumeInput, addHistoryEntry]);
+  }, [pendingResumeInput, addHistoryEntry, conversation]);
 
   const handlePickerCancel = useCallback(() => {
     // Add history entry showing command was cancelled (only if user typed /resume)
@@ -504,33 +532,23 @@ function AppContent(
 
   const recordSessionTurn = useCallback(
     async (inputCode: string, attachmentPaths: string[], outputStr: string) => {
-      const sessionApi = (globalThis as Record<string, unknown>).session as {
-        record: (
-          role: "user" | "assistant",
-          content: string,
-          attachments?: string[],
-        ) => Promise<void>;
-        current: () => { id: string } | null;
-      } | undefined;
-
-      if (!sessionApi?.record) return;
+      const manager = sessionManagerRef.current;
+      if (!manager) return;
 
       try {
-        await sessionApi.record(
+        await manager.recordMessage(
           "user",
           inputCode,
           attachmentPaths.length > 0 ? attachmentPaths : undefined,
         );
         if (outputStr) {
-          await sessionApi.record("assistant", outputStr);
+          await manager.recordMessage("assistant", outputStr);
         }
-        const session = sessionApi.current();
-        if (session) setCurrentSession(session);
       } catch {
         // Session recording failed - continue without sessions
       }
     },
-    [setCurrentSession],
+    [],
   );
 
   const suppressHistoryOutput = useCallback((historyId: number) => {
@@ -659,11 +677,11 @@ function AppContent(
     conversation.addUserMessage(query);
 
     try {
-      const { runAgentQueryViaHost } = await import("../../../runtime/host-client.ts");
       let model = configuredModelId || undefined;
       if (!mediaPaths?.length && model?.startsWith("claude-code/")) {
         const runtimeModelConfig = await createRuntimeModelConfigManager();
-        const repaired = await runtimeModelConfig.reconcileConfiguredClaudeCodeModel();
+        const repaired = await runtimeModelConfig
+          .reconcileConfiguredClaudeCodeModel();
         if (typeof repaired === "string" && repaired.length > 0) {
           model = repaired;
           applyRuntimeConfigState(
@@ -677,16 +695,28 @@ function AppContent(
       if (model) {
         conversation.addInfo("Initializing agent...");
       } else {
-        throw new Error("No configured model available for conversation mode.");
+        throw new ConfigError("No configured model available for conversation mode.");
+      }
+
+      const sessionMeta = sessionApi.current() ?? currentSession ??
+        await ensureCurrentSession();
+      if (!currentSession || currentSession.id !== sessionMeta.id) {
+        setCurrentSession(sessionMeta);
       }
 
       let textBuffer = "";
       let finalCitations: AssistantCitation[] | undefined;
-      const result = await runAgentQueryViaHost({
-        query,
+      const result = await runChatViaHost({
+        mode: "agent",
+        sessionId: sessionMeta.id,
+        messages: [{
+          role: "user",
+          content: query,
+          image_paths: mediaPaths,
+          client_turn_id: crypto.randomUUID(),
+        }],
         model,
         workspace: getPlatform().process.cwd(),
-        imagePaths: mediaPaths,
         // REPL UX: avoid model-initiated ask_user detours for simple chat turns.
         // Keep direct conversational flow unless explicit permission prompts are needed.
         toolDenylist: ["ask_user", "delegate_agent", "complete_task"],
@@ -700,7 +730,9 @@ function AppContent(
             conversation.addEvent(event);
           },
           onFinalResponseMeta: (meta) => {
-            finalCitations = meta.citationSpans as AssistantCitation[] | undefined;
+            finalCitations = meta.citationSpans as
+              | AssistantCitation[]
+              | undefined;
           },
         },
         onInteraction: (event) => {
@@ -713,17 +745,25 @@ function AppContent(
             question: event.question,
           };
           setInteractionQueue((prev: InteractionRequestEvent[]) => {
-            if (prev.some((item) => item.requestId === interactionEvent.requestId)) return prev;
+            if (
+              prev.some((item) => item.requestId === interactionEvent.requestId)
+            ) return prev;
             return [...prev, interactionEvent];
           });
           // Wait for user response — reject if agent is aborted
           return new Promise<InteractionResponse>((resolve, reject) => {
             let settled = false;
             const finalizeRequest = () => {
-              if (!interactionResolversRef.current.has(interactionEvent.requestId)) return;
-              interactionResolversRef.current.delete(interactionEvent.requestId);
+              if (
+                !interactionResolversRef.current.has(interactionEvent.requestId)
+              ) return;
+              interactionResolversRef.current.delete(
+                interactionEvent.requestId,
+              );
               setInteractionQueue((prev: InteractionRequestEvent[]) =>
-                prev.filter((item) => item.requestId !== interactionEvent.requestId)
+                prev.filter((item) =>
+                  item.requestId !== interactionEvent.requestId
+                )
               );
               controller.signal.removeEventListener("abort", onAbort);
             };
@@ -739,8 +779,13 @@ function AppContent(
               finalizeRequest();
               resolve(response);
             };
-            interactionResolversRef.current.set(interactionEvent.requestId, handler);
-            controller.signal.addEventListener("abort", onAbort, { once: true });
+            interactionResolversRef.current.set(
+              interactionEvent.requestId,
+              handler,
+            );
+            controller.signal.addEventListener("abort", onAbort, {
+              once: true,
+            });
           });
         },
       });
@@ -771,6 +816,11 @@ function AppContent(
       } else {
         setFooterContextUsageLabel("");
       }
+
+      const refreshed = await syncCurrentSession(sessionMeta.id);
+      if (refreshed) {
+        setCurrentSession(refreshed);
+      }
     } catch (error) {
       if (controller.signal.aborted) {
         conversation.addInfo("Cancelled");
@@ -784,38 +834,52 @@ function AppContent(
       setIsEvaluating(false);
       conversation.finalize();
     }
-  }, [conversation]);
+  }, [
+    applyRuntimeConfigState,
+    configuredContextWindow,
+    configuredModelId,
+    conversation,
+    currentSession,
+  ]);
 
-  const handleInteractionResponse = useCallback((requestId: string, response: InteractionResponse) => {
-    const resolver = interactionResolversRef.current.get(requestId);
-    if (!resolver) return;
-    resolver(response);
-  }, []);
+  const handleInteractionResponse = useCallback(
+    (requestId: string, response: InteractionResponse) => {
+      const resolver = interactionResolversRef.current.get(requestId);
+      if (!resolver) return;
+      resolver(response);
+    },
+    [],
+  );
 
-  const closeConversationMode = useCallback((options?: { clearConversation?: boolean }) => {
-    // Resolve all queued interactions as denied so orchestrator is never left hanging.
-    for (const interaction of interactionQueue) {
-      const resolver = interactionResolversRef.current.get(interaction.requestId);
-      if (resolver) {
-        resolver({ approved: false });
+  const closeConversationMode = useCallback(
+    (options?: { clearConversation?: boolean }) => {
+      // Resolve all queued interactions as denied so orchestrator is never left hanging.
+      for (const interaction of interactionQueue) {
+        const resolver = interactionResolversRef.current.get(
+          interaction.requestId,
+        );
+        if (resolver) {
+          resolver({ approved: false });
+        }
       }
-    }
-    interactionResolversRef.current.clear();
-    setInteractionQueue([]);
-    if (agentControllerRef.current) {
-      agentControllerRef.current.abort();
-      agentControllerRef.current = null;
-    }
-    setIsEvaluating(false);
-    if (options?.clearConversation) {
-      conversation.clear();
-    } else {
-      conversation.finalize();
-    }
-    setPendingConversationQueue([]);
-    setFooterContextUsageLabel("");
-    setActivePanel("none");
-  }, [conversation, interactionQueue]);
+      interactionResolversRef.current.clear();
+      setInteractionQueue([]);
+      if (agentControllerRef.current) {
+        agentControllerRef.current.abort();
+        agentControllerRef.current = null;
+      }
+      setIsEvaluating(false);
+      if (options?.clearConversation) {
+        conversation.clear();
+      } else {
+        conversation.finalize();
+      }
+      setPendingConversationQueue([]);
+      setFooterContextUsageLabel("");
+      setActivePanel("none");
+    },
+    [conversation, interactionQueue],
+  );
 
   useEffect(() => {
     if (activePanel !== "conversation") return;
@@ -924,21 +988,7 @@ function AppContent(
 
       // Handle /resume command
       if (commandName === "/resume") {
-        // SSOT: Try session.list() API (sessions are global now)
-        const sessionApi = (globalThis as Record<string, unknown>).session as {
-          list: (options?: { limit?: number }) => Promise<SessionMeta[]>;
-        } | undefined;
-
-        let sessions: SessionMeta[] = [];
-        if (sessionApi?.list) {
-          sessions = await sessionApi.list({ limit: 20 });
-        } else {
-          addHistoryEntry(code, {
-            success: true,
-            value: "Session management not available",
-          });
-          return;
-        }
+        const sessions = await sessionApi.list({ limit: 20 });
 
         if (sessions.length === 0) {
           addHistoryEntry(code, { success: true, value: "No sessions found" });
@@ -998,9 +1048,13 @@ function AppContent(
 
       // Conversation mode: keep input active and queue turns while the agent is running.
       if (activePanel === "conversation") {
-        const { images, unsupportedMimeType } = prepareConversationMediaPayload(attachments);
+        const { images, unsupportedMimeType } = prepareConversationMediaPayload(
+          attachments,
+        );
         if (unsupportedMimeType) {
-          conversation.addError(`Attachment unsupported: ${unsupportedMimeType}`);
+          conversation.addError(
+            `Attachment unsupported: ${unsupportedMimeType}`,
+          );
           return;
         }
         const imagePayload = images && images.length > 0 ? images : undefined;
@@ -1013,7 +1067,9 @@ function AppContent(
           ]);
           // Keep queue signal concise; avoid spamming repeated info lines that cause reflow.
           if (wasQueueEmpty) {
-            conversation.addInfo("Queued message. It will run after current response.");
+            conversation.addInfo(
+              "Queued message. It will run after current response.",
+            );
           }
           return;
         }
@@ -1031,11 +1087,16 @@ function AppContent(
       }
 
       // Natural language → agent conversation mode
-      const candidateConversationQuery = forceConversationPrompt ?? expandedCode;
-      if (forceConversationPrompt || isNaturalLanguage(candidateConversationQuery)) {
+      const candidateConversationQuery = forceConversationPrompt ??
+        expandedCode;
+      if (
+        forceConversationPrompt || isNaturalLanguage(candidateConversationQuery)
+      ) {
         // Convert media attachments to structured payload for multimodal models.
         // Fail fast on generic/untyped binary payloads with explicit guidance.
-        const { images, unsupportedMimeType } = prepareConversationMediaPayload(attachments);
+        const { images, unsupportedMimeType } = prepareConversationMediaPayload(
+          attachments,
+        );
         if (unsupportedMimeType) {
           const modelLabel = footerModelName || "current model";
           addHistoryEntry(code, {
@@ -1048,7 +1109,10 @@ function AppContent(
         }
 
         setIsEvaluating(true);
-        runConversation(candidateConversationQuery, images?.length ? images : undefined);
+        runConversation(
+          candidateConversationQuery,
+          images?.length ? images : undefined,
+        );
         return;
       }
 
@@ -1223,7 +1287,8 @@ function AppContent(
     }
     if (
       char === "?" && !key.ctrl && !key.meta && !key.escape &&
-      (activePanel === "none" || activePanel === "conversation" || activePanel === "shortcuts-overlay") &&
+      (activePanel === "none" || activePanel === "conversation" ||
+        activePanel === "shortcuts-overlay") &&
       input.length === 0 &&
       pendingInteraction?.mode !== "question"
     ) {
@@ -1282,11 +1347,15 @@ function AppContent(
     if (activePanel === "conversation" && pendingInteraction) {
       if (pendingInteraction.mode === "permission") {
         if (char === "y" || key.return) {
-          handleInteractionResponse(pendingInteraction.requestId, { approved: true });
+          handleInteractionResponse(pendingInteraction.requestId, {
+            approved: true,
+          });
           return;
         }
         if (char === "n" || key.escape) {
-          handleInteractionResponse(pendingInteraction.requestId, { approved: false });
+          handleInteractionResponse(pendingInteraction.requestId, {
+            approved: false,
+          });
           return;
         }
       }
@@ -1337,14 +1406,15 @@ function AppContent(
   });
 
   // Prepare banner items for Static component (renders once, never re-renders)
-  const bannerItems: BannerItem[] = showBanner && !hasBeenCleared && bannerRendered
-    ? [{
-      id: "banner",
-      aiExports: init.aiExports,
-      errors: init.errors,
-      modelName: footerModelName,
-    }]
-    : [];
+  const bannerItems: BannerItem[] =
+    showBanner && !hasBeenCleared && bannerRendered
+      ? [{
+        id: "banner",
+        aiExports: init.aiExports,
+        errors: init.errors,
+        modelName: footerModelName,
+      }]
+      : [];
 
   // Input visible: always for normal/overlay modes and always visible in conversation mode.
   const isConversationInputVisible = activePanel === "conversation";
@@ -1355,13 +1425,15 @@ function AppContent(
   const isInputDisabled = init.loading || activePanel === "palette" ||
     activePanel === "config-overlay" || activePanel === "tasks-overlay" ||
     activePanel === "shortcuts-overlay" ||
-    (activePanel === "conversation" && pendingInteraction?.mode === "permission");
+    (activePanel === "conversation" &&
+      pendingInteraction?.mode === "permission");
   // Keep Ctrl+O section toggles from conflicting with Input paredit Ctrl+O.
   // Safe contexts:
   // - conversation mode without input visible (Input hidden, no conflict)
   // - input disabled (agent actively running / permission mode / overlays)
   // - empty prompt (paredit no-op)
-  const allowConversationToggleHotkeys = !isInputVisible || isInputDisabled || input.length === 0;
+  const allowConversationToggleHotkeys = !isInputVisible || isInputDisabled ||
+    input.length === 0;
   const renderBannerItem = (item: BannerItem): React.ReactElement => (
     <Box key={item.id}>
       <Banner
@@ -1404,17 +1476,23 @@ function AppContent(
       {/* History of inputs and outputs (hidden during conversation to prevent ghost rendering) */}
       {activePanel !== "conversation" && history.map((entry: HistoryEntry) => {
         const lines = entry.input.split("\n");
-        const unclosedDepth = lines.length > 1 ? getUnclosedDepth(entry.input) : 0;
+        const unclosedDepth = lines.length > 1
+          ? getUnclosedDepth(entry.input)
+          : 0;
         return (
           <Box key={entry.id} flexDirection="column" marginBottom={1}>
             {lines.map((line: string, lineIndex: number) => (
               <Box key={`${entry.id}-${lineIndex}`}>
                 <Text color={color("primary")} bold>
-                  {lineIndex === 0 ? "hlvm>" : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
+                  {lineIndex === 0
+                    ? "hlvm>"
+                    : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
                 </Text>
                 <Box>
                   {tokenize(line).map((token, tokenIdx) => (
-                    <React.Fragment key={`${entry.id}-${lineIndex}-${tokenIdx}`}>
+                    <React.Fragment
+                      key={`${entry.id}-${lineIndex}-${tokenIdx}`}
+                    >
                       <Text color={tokenColor(token.type)}>
                         {token.value}
                       </Text>
@@ -1432,7 +1510,7 @@ function AppContent(
       {activePanel === "picker" && (
         <SessionPicker
           sessions={pickerSessions}
-          currentSessionId={currentSession?.id}
+          currentSessionId={sessionApi.current()?.id ?? currentSession?.id}
           onSelect={handlePickerSelect}
           onCancel={handlePickerCancel}
         />
@@ -1495,7 +1573,9 @@ function AppContent(
             const updates = buildSelectedModelConfigUpdates(modelName);
             const configApi = getRuntimeConfigApi();
             await persistSelectedModelConfig(configApi, modelName);
-            applyRuntimeConfigState(updates as unknown as Record<string, unknown>);
+            applyRuntimeConfigState(
+              updates as unknown as Record<string, unknown>,
+            );
           }}
         />
       )}
@@ -1530,15 +1610,15 @@ function AppContent(
 
       {/* Conversation Panel (agent mode) */}
       {activePanel === "conversation" && (
-          <ConversationPanel
-            items={conversation.items}
-            width={Math.max(20, terminalWidth - 2)}
-            streamingState={conversation.streamingState}
-            allowToggleHotkeys={allowConversationToggleHotkeys}
-            interactionRequest={pendingInteraction}
-            interactionQueueLength={interactionQueue.length}
-            onInteractionResponse={handleInteractionResponse}
-          />
+        <ConversationPanel
+          items={conversation.items}
+          width={Math.max(20, terminalWidth - 2)}
+          streamingState={conversation.streamingState}
+          allowToggleHotkeys={allowConversationToggleHotkeys}
+          interactionRequest={pendingInteraction}
+          interactionQueueLength={interactionQueue.length}
+          onInteractionResponse={handleInteractionResponse}
+        />
       )}
 
       {/* Push input/footer to the visual bottom when there is spare terminal space */}
@@ -1555,7 +1635,10 @@ function AppContent(
             onSubmit={handleSubmit}
             disabled={isInputDisabled}
             highlightMode={activePanel === "conversation" ? "chat" : "code"}
-            promptLabel={activePanel === "conversation" && pendingInteraction?.mode === "question" ? "answer>" : "hlvm>"}
+            promptLabel={activePanel === "conversation" &&
+                pendingInteraction?.mode === "question"
+              ? "answer>"
+              : "hlvm>"}
           />
         )}
 
@@ -1567,17 +1650,29 @@ function AppContent(
             streamingState={activePanel === "conversation"
               ? conversation.streamingState
               : undefined}
-            activeTool={activePanel === "conversation" ? conversation.activeTool : undefined}
-            contextUsageLabel={activePanel === "conversation" ? footerContextUsageLabel : ""}
-            interactionQueueLength={activePanel === "conversation" ? interactionQueue.length : 0}
-            queuedUserTurnCount={activePanel === "conversation" ? pendingConversationQueue.length : 0}
+            activeTool={activePanel === "conversation"
+              ? conversation.activeTool
+              : undefined}
+            contextUsageLabel={activePanel === "conversation"
+              ? footerContextUsageLabel
+              : ""}
+            interactionQueueLength={activePanel === "conversation"
+              ? interactionQueue.length
+              : 0}
+            queuedUserTurnCount={activePanel === "conversation"
+              ? pendingConversationQueue.length
+              : 0}
             inConversation={activePanel === "conversation"}
-            hasPendingPermission={activePanel === "conversation" && pendingInteraction?.mode === "permission"}
-            hasPendingQuestion={activePanel === "conversation" && pendingInteraction?.mode === "question"}
+            hasPendingPermission={activePanel === "conversation" &&
+              pendingInteraction?.mode === "permission"}
+            hasPendingQuestion={activePanel === "conversation" &&
+              pendingInteraction?.mode === "question"}
           />
         )}
 
-      {isEvaluating && activePanel !== "conversation" && <Text dimColor>...</Text>}
+      {isEvaluating && activePanel !== "conversation" && (
+        <Text dimColor>...</Text>
+      )}
     </Box>
   );
 }

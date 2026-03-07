@@ -27,6 +27,18 @@ export function normalizeModelId(value: unknown): string | undefined {
 }
 
 // ============================================================
+// Config Errors
+// ============================================================
+
+/** Typed error for configuration-domain failures. */
+export class ConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigError";
+  }
+}
+
+// ============================================================
 // Config Interface
 // ============================================================
 

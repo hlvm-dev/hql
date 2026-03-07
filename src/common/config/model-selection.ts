@@ -1,5 +1,6 @@
 import {
   type AgentMode,
+  ConfigError,
   type ConfigKey,
   type HlvmConfig,
   normalizeModelId,
@@ -35,7 +36,7 @@ export function buildSelectedModelConfigUpdates(
 ): ModelSelectionUpdates {
   const normalizedModel = normalizeModelId(modelName);
   if (!normalizedModel) {
-    throw new Error("Invalid model ID");
+    throw new ConfigError("Invalid model ID");
   }
 
   return {
@@ -52,7 +53,7 @@ export async function persistSelectedModelConfig(
   const updates = buildSelectedModelConfigUpdates(modelName);
   const normalizedModel = updates.model;
   if (!configApi) {
-    throw new Error("Configuration API not initialized");
+    throw new ConfigError("Configuration API not initialized");
   }
 
   if (typeof configApi.patch === "function") {
@@ -61,7 +62,7 @@ export async function persistSelectedModelConfig(
   }
 
   if (typeof configApi.set !== "function") {
-    throw new Error("Config setter unavailable in this context");
+    throw new ConfigError("Config setter unavailable in this context");
   }
 
   await configApi.set("model", updates.model);

@@ -10,7 +10,7 @@
  * - addUserMessage cleans up orphaned thinking/pending from incomplete turns
  */
 
-import { useState, useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { AgentUIEvent } from "../../../agent/orchestrator.ts";
 import type {
   AssistantCitation,
@@ -45,7 +45,8 @@ function upsertThinkingItem(
   nextId: () => string,
 ): ConversationItem[] {
   const idx = items.findIndex(
-    (item: ConversationItem) => item.type === "thinking" && item.iteration === iteration,
+    (item: ConversationItem) =>
+      item.type === "thinking" && item.iteration === iteration,
   );
   if (idx < 0) {
     const thinking: ThinkingItem = {
@@ -114,7 +115,8 @@ function upsertAssistantTextItem(
     isPending,
     ts: Date.now(),
   };
-  const trailingTurnStatsIdx = !isPending && items.length > 0 && items[items.length - 1]?.type === "turn_stats"
+  const trailingTurnStatsIdx = !isPending && items.length > 0 &&
+      items[items.length - 1]?.type === "turn_stats"
     ? items.length - 1
     : -1;
   if (trailingTurnStatsIdx >= 0) {
@@ -141,11 +143,17 @@ export interface UseConversationResult {
   /** Add a user message (also cleans up orphaned transient items) */
   addUserMessage: (text: string) => void;
   /** Add/update assistant text (streaming or final) */
-  addAssistantText: (text: string, isPending: boolean, citations?: AssistantCitation[]) => void;
+  addAssistantText: (
+    text: string,
+    isPending: boolean,
+    citations?: AssistantCitation[],
+  ) => void;
   /** Add an error message */
   addError: (text: string) => void;
   /** Add an info message */
   addInfo: (text: string) => void;
+  /** Replace the entire conversation with persisted items */
+  replaceItems: (items: ConversationItem[]) => void;
   /** Reset stream state to idle */
   resetStatus: () => void;
   /** Finalize conversation: clean up transient items (thinking) and reset status */
@@ -210,7 +218,10 @@ export function useConversation(): UseConversationResult {
 
           if (lastNonThinking?.type === "tool_group") {
             const next = [...prev];
-            const group = { ...lastNonThinking, tools: [...lastNonThinking.tools, tool] };
+            const group = {
+              ...lastNonThinking,
+              tools: [...lastNonThinking.tools, tool],
+            };
             next[lastNonThinkingIdx] = group;
             return next;
           }
@@ -230,7 +241,11 @@ export function useConversation(): UseConversationResult {
         setItems((prev: ConversationItem[]) => {
           const groupIdx = prev.findLastIndex((item: ConversationItem) =>
             item.type === "tool_group" &&
-            findMatchingRunningToolIndex(item.tools, event.name, event.argsSummary) >= 0
+            findMatchingRunningToolIndex(
+                item.tools,
+                event.name,
+                event.argsSummary,
+              ) >= 0
           );
           if (groupIdx < 0) return prev;
 
@@ -257,7 +272,8 @@ export function useConversation(): UseConversationResult {
 
           // If all tools are done, the model typically continues summarizing.
           const allDone = updatedTools.every(
-            (tool: ToolCallDisplay) => tool.status === "success" || tool.status === "error",
+            (tool: ToolCallDisplay) =>
+              tool.status === "success" || tool.status === "error",
           );
           if (allDone) {
             setStreamingState(ConversationStreamingState.Responding);
@@ -298,7 +314,12 @@ export function useConversation(): UseConversationResult {
     setItems((prev: ConversationItem[]) => {
       // Clean up orphaned transient items from any incomplete previous turn
       const cleaned = cleanupTransientItems(prev);
-      return [...cleaned, { type: "user" as const, id: nextId(), text, ts: Date.now() }];
+      return [...cleaned, {
+        type: "user" as const,
+        id: nextId(),
+        text,
+        ts: Date.now(),
+      }];
     });
   }, []);
 
@@ -313,11 +334,22 @@ export function useConversation(): UseConversationResult {
   }, []);
 
   const addError = useCallback((text: string) => {
-    setItems((prev: ConversationItem[]) => [...prev, { type: "error" as const, id: nextId(), text }]);
+    setItems((
+      prev: ConversationItem[],
+    ) => [...prev, { type: "error" as const, id: nextId(), text }]);
   }, []);
 
   const addInfo = useCallback((text: string) => {
-    setItems((prev: ConversationItem[]) => [...prev, { type: "info" as const, id: nextId(), text }]);
+    setItems((
+      prev: ConversationItem[],
+    ) => [...prev, { type: "info" as const, id: nextId(), text }]);
+  }, []);
+
+  const replaceItems = useCallback((nextItems: ConversationItem[]) => {
+    setItems(nextItems);
+    setStreamingState(ConversationStreamingState.Idle);
+    setActiveTool(undefined);
+    idCounter.current = nextItems.length;
   }, []);
 
   const resetStatus = useCallback(() => {
@@ -347,6 +379,7 @@ export function useConversation(): UseConversationResult {
     addAssistantText,
     addError,
     addInfo,
+    replaceItems,
     resetStatus,
     finalize,
     clear,

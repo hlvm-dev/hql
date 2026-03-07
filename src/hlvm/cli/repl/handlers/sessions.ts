@@ -16,6 +16,7 @@ import {
   pushSSEEvent,
   subscribe,
   replayAfter,
+  nextSSEEventId,
   clearSessionBuffer,
   SESSIONS_CHANNEL,
 } from "../../../store/sse-store.ts";
@@ -79,8 +80,11 @@ export function handleSessionsStream(req: Request): Response {
   return createSSEResponse(req, (emit) => {
     const replay = replayAfter(SESSIONS_CHANNEL, lastEventId);
     if (replay.gapDetected) {
-      const snapshot = JSON.stringify({ sessions: listSessions() });
-      emit(`event: sessions_snapshot\ndata: ${snapshot}\n\n`);
+      emit(formatSSE({
+        id: nextSSEEventId(SESSIONS_CHANNEL),
+        event_type: "sessions_snapshot",
+        data: { sessions: listSessions() },
+      }));
     } else {
       for (const event of replay.events) {
         emit(formatSSE(event));

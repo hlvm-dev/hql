@@ -21,6 +21,9 @@ export interface SearchResult {
   relatedLinks?: string[];    // Cross-domain links extracted from prefetched page
   evidenceStrength?: "high" | "medium" | "low";
   evidenceReason?: string;
+  fetchPriority?: number;
+  selectedForFetch?: boolean;
+  selectedForSynthesis?: boolean;
 }
 
 export interface SearchProviderResponse {

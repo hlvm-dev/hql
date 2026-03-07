@@ -1,164 +1,349 @@
 /**
  * Session API Object
  *
- * Programmable access to HLVM chat sessions (global).
+ * Programmable access to HLVM conversation sessions (global).
  * Usage in REPL:
- *   (session.list)                  // List all sessions
- *   (session.get "id")              // Load a specific session
- *   (session.current)               // Get current session info
- *   (session.remove "id")           // Delete a session
+ *   (session.list)                  // List all conversation sessions
+ *   (session.get "id")              // Load a specific conversation session
+ *   (session.current)               // Get current conversation session info
+ *   (session.remove "id")           // Delete a conversation session
  */
 
 import {
-  listSessions,
-  countSessions,
-  loadSession,
-  deleteSession,
-  exportSession,
-} from "../cli/repl/session/storage.ts";
-
-import type { SessionMeta, Session } from "../cli/repl/session/types.ts";
-import { getSessionsDir } from "../../common/paths.ts";
-import { ValidationError } from "../../common/error.ts";
+  addRuntimeSessionMessage,
+  createRuntimeSession,
+  deleteRuntimeSession,
+  getRuntimeSession,
+  listRuntimeSessionMessages,
+  listRuntimeSessions,
+} from "../runtime/host-client.ts";
+import type {
+  RuntimeSession,
+  RuntimeSessionMessage,
+} from "../runtime/session-protocol.ts";
+import type {
+  Session,
+  SessionMessage,
+  SessionMeta,
+} from "../cli/repl/session/types.ts";
+import { getConversationsDbPath } from "../../common/paths.ts";
 import { assertString } from "./validation.ts";
 
 // ============================================================================
-// Session Manager Reference
+// Session Manager Compatibility
 // ============================================================================
 
 /**
- * Reference to the current session manager.
- * Set by REPL initialization to enable current session access.
+ * Compatibility type kept for existing API registration call sites.
+ * Public session APIs no longer route through the REPL eval-session manager.
  */
-let _sessionManager: SessionManagerRef | null = null;
-
 export interface SessionManagerRef {
   getCurrentSession(): SessionMeta | null;
   recordMessage(
     role: "user" | "assistant",
     content: string,
-    attachments?: string[]
+    attachments?: string[],
   ): Promise<void>;
-  /** Resume a session by ID (flushes pending, loads, sets current) */
   resumeSession?(sessionId: string): Promise<Session | null>;
 }
 
 /**
- * Set the session manager reference (called during REPL init)
+ * Compatibility no-op kept so older REPL bootstrap code can continue to call
+ * this without re-introducing the JSONL eval-session path into `session.*`.
  */
-export function setSessionManager(manager: SessionManagerRef): void {
-  _sessionManager = manager;
+export function setSessionManager(_manager: SessionManagerRef): void {
+  // Intentionally unused: conversation sessions are backed by conversations.db.
+}
+
+// ============================================================================
+// Runtime Session Adapters
+// ============================================================================
+
+let _currentSession: SessionMeta | null = null;
+
+function parseTimestamp(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function normalizeTitle(title: string, sessionId: string): string {
+  const trimmed = title.trim();
+  return trimmed.length > 0 ? trimmed : `Session ${sessionId.slice(0, 8)}`;
+}
+
+function adaptSessionMeta(session: RuntimeSession): SessionMeta {
+  return {
+    id: session.id,
+    projectHash: "",
+    projectPath: "",
+    title: normalizeTitle(session.title, session.id),
+    createdAt: parseTimestamp(session.created_at),
+    updatedAt: parseTimestamp(session.updated_at),
+    messageCount: session.message_count,
+  };
+}
+
+function formatToolMessage(message: RuntimeSessionMessage): string {
+  const label = message.tool_name?.trim();
+  if (!label) return message.content;
+  if (!message.content.trim()) return `[tool:${label}]`;
+  return `[tool:${label}] ${message.content}`;
+}
+
+function parseImagePaths(value: string | null): string[] | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function adaptSessionMessage(
+  message: RuntimeSessionMessage,
+): SessionMessage | null {
+  if (message.role === "system") return null;
+
+  const role = message.role === "user" ? "user" : "assistant";
+  const content = message.role === "tool"
+    ? formatToolMessage(message)
+    : message.content;
+
+  return {
+    type: "message",
+    role,
+    content,
+    ts: parseTimestamp(message.created_at),
+    attachments: parseImagePaths(message.image_paths),
+  };
+}
+
+function sortSessionMetas(
+  sessions: SessionMeta[],
+  sortOrder: "recent" | "oldest" | "alpha",
+): SessionMeta[] {
+  const sorted = [...sessions];
+  switch (sortOrder) {
+    case "oldest":
+      sorted.sort((a, b) => a.updatedAt - b.updatedAt);
+      break;
+    case "alpha":
+      sorted.sort((a, b) => a.title.localeCompare(b.title));
+      break;
+    case "recent":
+    default:
+      sorted.sort((a, b) => b.updatedAt - a.updatedAt);
+      break;
+  }
+  return sorted;
+}
+
+async function loadSessionById(sessionId: string): Promise<Session | null> {
+  const runtimeSession = await getRuntimeSession(sessionId);
+  if (!runtimeSession) return null;
+
+  const messages = await listRuntimeSessionMessages(sessionId);
+  return {
+    meta: adaptSessionMeta(runtimeSession),
+    messages: messages
+      .map((message) => adaptSessionMessage(message))
+      .filter((message): message is SessionMessage => message !== null),
+  };
+}
+
+function formatSessionExport(session: Session): string {
+  const lines: string[] = [
+    `# ${session.meta.title}`,
+    "",
+    `**Created:** ${new Date(session.meta.createdAt).toLocaleString()}`,
+    `**Messages:** ${session.meta.messageCount}`,
+    "",
+    "---",
+    "",
+  ];
+
+  for (const message of session.messages) {
+    const role = message.role === "user" ? "**You**" : "**Assistant**";
+    const time = new Date(message.ts).toLocaleTimeString();
+    lines.push(`### ${role} (${time})`);
+    lines.push("");
+    lines.push(message.content);
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+async function refreshCurrentSession(
+  sessionId: string,
+): Promise<SessionMeta | null> {
+  const session = await getRuntimeSession(sessionId);
+  if (!session) {
+    _currentSession = null;
+    return null;
+  }
+
+  _currentSession = adaptSessionMeta(session);
+  return _currentSession;
+}
+
+// ============================================================================
+// Internal Session State Helpers
+// ============================================================================
+
+export async function syncCurrentSession(
+  sessionId: string | null,
+): Promise<SessionMeta | null> {
+  if (!sessionId) {
+    _currentSession = null;
+    return null;
+  }
+  return await refreshCurrentSession(sessionId);
+}
+
+export async function ensureCurrentSession(): Promise<SessionMeta> {
+  if (_currentSession) return _currentSession;
+  const created = await createRuntimeSession();
+  _currentSession = adaptSessionMeta(created);
+  return _currentSession;
+}
+
+export function clearCurrentSession(): void {
+  _currentSession = null;
 }
 
 // ============================================================================
 // Session API Object
 // ============================================================================
 
-/**
- * Create the session API object
- * Designed to be registered on globalThis for REPL access
- */
 function createSessionApi() {
   return {
     /**
-     * List all sessions (global)
+     * List all conversation sessions (global)
      * @example (session.list)
      * @example (session.list {limit: 10})
      */
-    list: (options?: {
+    list: async (options?: {
       limit?: number;
       sortOrder?: "recent" | "oldest" | "alpha";
     }): Promise<SessionMeta[]> => {
-      return listSessions({
-        limit: options?.limit ?? 50,
-        sortOrder: options?.sortOrder ?? "recent",
-      });
+      const sessions = (await listRuntimeSessions()).map(adaptSessionMeta);
+      const sorted = sortSessionMetas(
+        sessions,
+        options?.sortOrder ?? "recent",
+      );
+      return sorted.slice(0, options?.limit ?? 50);
     },
 
     /**
-     * Load a specific session by ID
+     * Load a specific conversation session by ID
      * @example (session.get "abc123")
      */
     get: (sessionId: string): Promise<Session | null> => {
-      assertString(sessionId, "session.get", "session.get requires a session ID string");
-
-      return loadSession(sessionId);
+      assertString(
+        sessionId,
+        "session.get",
+        "session.get requires a session ID string",
+      );
+      return loadSessionById(sessionId);
     },
 
     /**
-     * Resume a session by ID (flushes pending, loads, sets current)
-     * This is the SSOT method for resuming sessions - uses manager's resumeSession.
+     * Resume a session by ID and mark it as the current conversation session.
      * @example (session.resume "abc123")
      */
-    resume: (sessionId: string): Promise<Session | null> => {
-      assertString(sessionId, "session.resume", "session.resume requires a session ID string");
+    resume: async (sessionId: string): Promise<Session | null> => {
+      assertString(
+        sessionId,
+        "session.resume",
+        "session.resume requires a session ID string",
+      );
 
-      // 100% SSOT: Use manager's resumeSession only - no fallback bypass
-      if (!_sessionManager?.resumeSession) {
-        throw new ValidationError("Session manager not initialized - session.resume requires active REPL session", "session.resume");
-      }
-
-      return _sessionManager.resumeSession(sessionId);
+      const loaded = await loadSessionById(sessionId);
+      _currentSession = loaded?.meta ?? null;
+      return loaded;
     },
 
     /**
-     * Get current session metadata
+     * Get current conversation session metadata
      * @example (session.current)
      */
     current: (): SessionMeta | null => {
-      return _sessionManager?.getCurrentSession() ?? null;
+      return _currentSession;
     },
 
     /**
-     * Record a message in the current session
+     * Record a message in the current conversation session
      * @example (session.record "user" "Hello")
      * @example (session.record "assistant" "Hi there!")
      */
     record: async (
       role: "user" | "assistant",
       content: string,
-      attachments?: string[]
+      attachments?: string[],
     ): Promise<void> => {
-      if (!_sessionManager) {
-        throw new ValidationError("Session manager not initialized - session.record requires active REPL session", "session.record");
-      }
-      await _sessionManager.recordMessage(role, content, attachments);
+      const current = await ensureCurrentSession();
+
+      await addRuntimeSessionMessage(current.id, {
+        role,
+        content,
+        sender_type: role === "user" ? "user" : "assistant",
+        image_paths: attachments,
+      });
+
+      await refreshCurrentSession(current.id);
     },
 
     /**
      * Delete a session
      * @example (session.remove "abc123")
      */
-    remove: (sessionId: string): Promise<boolean> => {
-      assertString(sessionId, "session.remove", "session.remove requires a session ID string");
+    remove: async (sessionId: string): Promise<boolean> => {
+      assertString(
+        sessionId,
+        "session.remove",
+        "session.remove requires a session ID string",
+      );
 
-      return deleteSession(sessionId);
+      const removed = await deleteRuntimeSession(sessionId);
+      if (removed && _currentSession?.id === sessionId) {
+        _currentSession = null;
+      }
+      return removed;
     },
 
     /**
      * Export a session as plain text or markdown
      * @example (session.export "abc123")
      */
-    export: (sessionId: string): Promise<string | null> => {
-      assertString(sessionId, "session.export", "session.export requires a session ID string");
+    export: async (sessionId: string): Promise<string | null> => {
+      assertString(
+        sessionId,
+        "session.export",
+        "session.export requires a session ID string",
+      );
 
-      return exportSession(sessionId);
+      const loaded = await loadSessionById(sessionId);
+      return loaded ? formatSessionExport(loaded) : null;
     },
 
     /**
-     * Get sessions directory path
+     * Get conversations database path
      * @example (session.path)
      */
     get path(): string {
-      return getSessionsDir();
+      return getConversationsDbPath();
     },
 
     /**
      * Get session count
      * @example (session.count)
      */
-    count: (): Promise<number> => {
-      return countSessions();
+    count: async (): Promise<number> => {
+      return (await listRuntimeSessions()).length;
     },
 
     /**
@@ -166,10 +351,12 @@ function createSessionApi() {
      * @example (session.has "abc123")
      */
     has: async (sessionId: string): Promise<boolean> => {
-      assertString(sessionId, "session.has", "session.has requires a session ID string");
-
-      const session = await loadSession(sessionId);
-      return session !== null;
+      assertString(
+        sessionId,
+        "session.has",
+        "session.has requires a session ID string",
+      );
+      return await getRuntimeSession(sessionId) !== null;
     },
   };
 }
