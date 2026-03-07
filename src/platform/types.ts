@@ -102,6 +102,8 @@ export interface PlatformStdout {
   writeSync(data: Uint8Array): number;
   /** Write bytes to stdout asynchronously, returns bytes written */
   write(data: Uint8Array): Promise<number>;
+  /** Check if stdout is connected to a terminal (TTY) */
+  isTerminal(): boolean;
 }
 
 export interface PlatformTerminal {

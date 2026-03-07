@@ -140,6 +140,7 @@ const DenoStdout: PlatformStdout = {
     return Deno.stdout.writeSync(data);
   },
   write: (data: Uint8Array): Promise<number> => Deno.stdout.write(data),
+  isTerminal: (): boolean => Deno.stdout.isTerminal(),
 };
 
 const DenoTerminal: PlatformTerminal = {

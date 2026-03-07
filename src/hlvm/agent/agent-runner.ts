@@ -23,6 +23,7 @@ import {
   resolveCompatibleClaudeCodeModel,
 } from "../../common/ai-default-model.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import { deriveDefaultSessionKey } from "../runtime/session-key.ts";
 import { type AgentSession, createAgentSession } from "./session.ts";
 import { getAgentEngine } from "./engine.ts";
 import { createDelegateHandler } from "./delegation.ts";
@@ -182,10 +183,6 @@ export async function reuseSession(
     context,
     l1Confirmations: cached.l1Confirmations,
   };
-}
-
-function deriveDefaultSessionKey(workspace: string, model: string): string {
-  return `default:${workspace}:${model}`;
 }
 
 function mergePolicyPathRoots(

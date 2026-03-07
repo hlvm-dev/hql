@@ -17,6 +17,11 @@ Three access patterns, one unified runtime:
 - **Act** (Hotbar modules) — one keypress, immediate execution
 - **Delegate** (Agent chat) — describe the task, AI handles it
 
+Runtime-first architecture:
+- **Core engine** — agent, memory, HQL, MCP, providers, companion logic
+- **Runtime host** — localhost HTTP/NDJSON/SSE boundary, auth, sessions, lifecycle
+- **Shells** — macOS app today, CLI now migrating to the same host contract, future Windows/Linux shells
+
 ---
 
 ## System Overview
@@ -46,12 +51,12 @@ Three access patterns, one unified runtime:
                                       │
 ┌─────────────────────────────────────▼───────────────────────────────────┐
 │                                                                         │
-│   ~/dev/hql — HLVM CLI (Deno, TypeScript)                              │
+│   ~/dev/hql — HLVM Runtime + CLI Shells (Deno, TypeScript)            │
 │                                                                         │
 │   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
-│   │  HTTP     │  │  Agent   │  │  HQL     │  │  REPL    │              │
-│   │  Server   │  │  Engine  │  │Transpiler│  │  State   │              │
-│   │ (serve.ts)│  │ (ReAct)  │  │(7-stage) │  │(persist) │              │
+│   │ Runtime  │  │  Agent   │  │  HQL     │  │  REPL    │              │
+│   │  Host    │  │  Engine  │  │Transpiler│  │  State   │              │
+│   │ (serve)  │  │ (ReAct)  │  │(7-stage) │  │(persist) │              │
 │   └──────────┘  └──────────┘  └──────────┘  └──────────┘              │
 │                                                                         │
 │   Shared: Providers, Platform, Store (SQLite), Memory (FTS5), MCP      │
@@ -66,6 +71,37 @@ Three access patterns, one unified runtime:
                     │ :11434   │ │ (APIs)  │ │(stdio/http)│
                     └──────────┘ └─────────┘ └──────────┘
 ```
+
+---
+
+### Runtime Boundary
+
+```
+┌──────────────────── shells ────────────────────┐
+│ macOS app │ CLI │ future Windows/Linux shells │
+│ input     │ rendering │ hotkeys │ approvals   │
+└──────────────────────┬─────────────────────────┘
+                       │
+                       ▼
+┌────────────────── runtime host ─────────────────┐
+│ localhost HTTP/NDJSON/SSE                       │
+│ auth token │ daemon lifecycle │ sessions        │
+│ readiness  │ stream fanout    │ shell contract  │
+└──────────────────────┬──────────────────────────┘
+                       │
+                       ▼
+┌────────────────── core engine ──────────────────┐
+│ agent │ memory │ HQL │ MCP │ providers │ store │
+│ companion decisions │ no GUI/TTY assumptions    │
+└─────────────────────────────────────────────────┘
+```
+
+The rule is:
+- shells own UX and OS integration
+- the runtime host owns the local protocol and lifecycle
+- the core engine owns intelligence and state
+
+That keeps GUI, CLI, and future shells aligned around one runtime instead of duplicating agent logic per surface.
 
 ---
 
@@ -1060,9 +1096,9 @@ User presses Ctrl+3
   │   ┌────────────────────────── ENTRY POINTS ──────────────────────────────────────────────────┐  │
   │   │                                                                                          │  │
   │   │  cli.ts → main()                                                                         │  │
-  │   │  ├── hlvm ask "..."        → askCommand()     → runAgentQuery() → ReAct loop            │  │
-  │   │  ├── hlvm chat / repl      → replCommand()    → React Ink REPL (repl-ink/index.tsx)     │  │
-  │   │  ├── hlvm serve            → serve.ts         → HTTP server on :11435                    │  │
+  │   │  ├── hlvm ask "..."        → askCommand()     → runtime host → agent loop               │  │
+  │   │  ├── hlvm chat / repl      → replCommand()    → React Ink REPL (shell today)            │  │
+  │   │  ├── hlvm serve            → serve.ts         → runtime host on :11435                  │  │
   │   │  ├── hlvm run <file.hql>   → hql.ts           → transpile() → eval()                    │  │
   │   │  ├── hlvm compile <file>   → compile.ts       → transpile() → write JS/native           │  │
   │   │  ├── hlvm mcp              → mcp.ts           → MCP server management                    │  │
@@ -2492,9 +2528,8 @@ User presses Ctrl+3
     │                                                                            │
     └────────────────────────────────────────────────────────────────────────────┘
 
-  That's every angle I can draw. The two systems communicate through a single HTTP channel on localhost:11435, using three patterns (JSON, NDJSON
-  streaming, SSE push) and sharing persistent state through ~/.hlvm/ on the filesystem. The server is the single source of truth for all data; the GUI
-  is a presentation layer that reads, writes, and subscribes.
+  That's every angle I can draw. The systems communicate through a single runtime-host channel on localhost:11435, using three patterns (JSON, NDJSON
+  streaming, SSE push) and sharing persistent state through ~/.hlvm/ on the filesystem. The runtime host is the single source of truth for data and
+  execution state; GUI and CLI shells are clients over that boundary.
 
 ✻ Brewed for 4m 25s
-

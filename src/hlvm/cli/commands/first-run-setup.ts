@@ -8,21 +8,19 @@
  */
 
 import { config } from "../../api/config.ts";
-import { ai } from "../../api/ai.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { readSingleKey } from "../utils/input.ts";
 import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
 import { pullModelWithProgress } from "../../../common/ai-default-model.ts";
-import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../../common/ai-messages.ts";
 import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
 import { isOllamaAuthErrorMessage } from "../../../common/ollama-auth.ts";
-import { aiEngine } from "../../runtime/ai-runtime.ts";
 import type { AIEngineLifecycle } from "../../runtime/ai-runtime.ts";
 import type { ModelInfo } from "../../providers/types.ts";
 import {
   readStaleWhileRevalidateModelDiscoverySnapshot,
 } from "../../providers/model-discovery-store.ts";
+import { verifyRuntimeModelAccess } from "../../runtime/host-client.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 
 // ============================================================================
@@ -125,11 +123,17 @@ function decodeOutput(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes).trim();
 }
 
+async function getDefaultEngine(): Promise<AIEngineLifecycle> {
+  const { aiEngine } = await import("../../runtime/ai-runtime.ts");
+  return aiEngine;
+}
+
 /** Run `engine signin` with inherited stdio for interactive auth. */
 export async function runOllamaSignin(
-  engine: AIEngineLifecycle = aiEngine,
+  engine?: AIEngineLifecycle,
 ): Promise<boolean> {
-  const enginePath = await engine.getEnginePath();
+  const resolvedEngine = engine ?? await getDefaultEngine();
+  const enginePath = await resolvedEngine.getEnginePath();
   log.raw.log(style("  -> Signing in to Ollama...", ANSI.yellow));
   const platform = getPlatform();
   try {
@@ -169,39 +173,12 @@ export async function runOllamaSignin(
 export async function verifyOllamaCloudModelAccess(
   modelId: string,
 ): Promise<boolean> {
-  let stream: AsyncIterator<string> | null = null;
   try {
-    stream = ai.chat(
-      [{ role: "user", content: "ok" }],
-      {
-        model: modelId,
-        stream: false,
-        maxTokens: 1,
-        temperature: 0,
-      },
-    )[Symbol.asyncIterator]();
-    const first = await stream.next();
-    if (first.done) return false;
-
-    const chunk = String(first.value ?? "").trim();
-    if (chunk.length === 0) return false;
-    if (chunk.startsWith("Error:")) return false;
-    if (chunk === AI_NO_OUTPUT_FALLBACK_TEXT) {
-      return false;
-    }
-
-    return true;
+    return await verifyRuntimeModelAccess(modelId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (isOllamaAuthErrorMessage(message)) return false;
     log.error(`Cloud access check failed: ${message}`);
     return false;
-  } finally {
-    try {
-      await stream?.return?.();
-    } catch {
-      // Iterator already closed
-    }
   }
 }
 
@@ -222,10 +199,11 @@ async function waitForCloudAccess(modelId: string): Promise<boolean> {
  */
 export async function ensureCloudAccessWithSignin(
   modelId: string,
-  engine: AIEngineLifecycle = aiEngine,
+  engine?: AIEngineLifecycle,
 ): Promise<boolean> {
+  const resolvedEngine = engine ?? await getDefaultEngine();
   if (await verifyOllamaCloudModelAccess(modelId)) return true;
-  if (!(await runOllamaSignin(engine))) return false;
+  if (!(await runOllamaSignin(resolvedEngine))) return false;
   log.raw.log(style("  -> Waiting for cloud sign-in completion...", ANSI.dim));
   if (!(await waitForCloudAccess(modelId))) {
     log.error(
@@ -324,9 +302,10 @@ function getDefaultFirstRunSetupDeps(): FirstRunSetupDeps {
  * Returns model ID on success, null on abort/failure.
  */
 export async function runFirstTimeSetup(
-  engine: AIEngineLifecycle = aiEngine,
+  engine?: AIEngineLifecycle,
   depsOverride: Partial<FirstRunSetupDeps> = {},
 ): Promise<string | null> {
+  const resolvedEngine = engine ?? await getDefaultEngine();
   const deps = { ...getDefaultFirstRunSetupDeps(), ...depsOverride };
 
   printSetupBanner(deps.logRaw);
@@ -338,7 +317,7 @@ export async function runFirstTimeSetup(
 
   // 2. Ensure AI engine running (embedded extraction + start, or system fallback)
   printSetupStep(deps.logRaw, 1, "Starting AI engine...");
-  if (!(await deps.ensureEngineRunning(engine))) {
+  if (!(await deps.ensureEngineRunning(resolvedEngine))) {
     deps.logError("Could not start AI engine. Falling back to model browser.");
     return await deps.fallbackToModelBrowser();
   }
@@ -358,13 +337,13 @@ export async function runFirstTimeSetup(
 
   // 4. Pull model (with reactive signin)
   printSetupStep(deps.logRaw, 3, "Pulling selected model...");
-  if (!(await deps.pullWithSignin(model.name, engine))) {
+  if (!(await deps.pullWithSignin(model.name, resolvedEngine))) {
     deps.logError("Model pull failed. Falling back to model browser.");
     return await deps.fallbackToModelBrowser();
   }
 
   const modelId = `ollama/${model.name}`;
-  if (!(await deps.ensureCloudModelAccess(modelId, engine))) {
+  if (!(await deps.ensureCloudModelAccess(modelId, resolvedEngine))) {
     deps.logError("Cloud sign-in required. Falling back to model browser.");
     return await deps.fallbackToModelBrowser();
   }

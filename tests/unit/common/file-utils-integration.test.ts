@@ -12,6 +12,7 @@ import {
   isIgnored,
 } from "../../../src/common/file-utils.ts";
 import { createTempTree } from "../helpers.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 
 /** Collect all paths from walkDirectory */
 async function collectPaths(
@@ -53,7 +54,7 @@ Deno.test("walkDirectory - respects gitignore file patterns", async () => {
     assertEquals(paths.includes("src/debug.log"), false, "debug.log should be gitignored");
     assertEquals(paths.includes("data.tmp"), false, "data.tmp should be gitignored");
   } finally {
-    await Deno.remove(tmpDir, { recursive: true });
+    await getPlatform().fs.remove(tmpDir, { recursive: true });
   }
 });
 
@@ -86,7 +87,7 @@ Deno.test("walkDirectory - directory-only gitignore patterns with trailing slash
     assertEquals(paths.includes("tmp"), false, "tmp dir should be gitignored");
     assertEquals(paths.includes("tmp/cache.json"), false, "tmp/cache.json should be gitignored");
   } finally {
-    await Deno.remove(tmpDir, { recursive: true });
+    await getPlatform().fs.remove(tmpDir, { recursive: true });
   }
 });
 
@@ -110,7 +111,7 @@ Deno.test("walkDirectory - negation patterns work", async () => {
     assertEquals(paths.includes("important.log"), true, "important.log should be kept (negation)");
     assertEquals(paths.includes("readme.md"), true, "readme.md should be included");
   } finally {
-    await Deno.remove(tmpDir, { recursive: true });
+    await getPlatform().fs.remove(tmpDir, { recursive: true });
   }
 });
 
@@ -134,7 +135,7 @@ Deno.test("walkDirectory - no gitignore returns all files", async () => {
     assertEquals(paths.includes("readme.md"), true);
     assertEquals(paths.includes("data.json"), true);
   } finally {
-    await Deno.remove(tmpDir, { recursive: true });
+    await getPlatform().fs.remove(tmpDir, { recursive: true });
   }
 });
 
@@ -163,7 +164,7 @@ Deno.test("walkDirectory - SKIP_DIRS still works alongside gitignore", async () 
     // *.tmp should be skipped by gitignore
     assertEquals(paths.includes("temp.tmp"), false, "temp.tmp should be gitignored");
   } finally {
-    await Deno.remove(tmpDir, { recursive: true });
+    await getPlatform().fs.remove(tmpDir, { recursive: true });
   }
 });
 
@@ -172,14 +173,14 @@ Deno.test("walkDirectory - SKIP_DIRS still works alongside gitignore", async () 
 // ============================================================
 
 Deno.test("loadGitignore - missing gitignore returns empty Ignore", async () => {
-  const tmpDir = await Deno.makeTempDir({ prefix: "file-utils-test-" });
+  const tmpDir = await getPlatform().fs.makeTempDir({ prefix: "file-utils-test-" });
   try {
     const ig = await loadGitignore(tmpDir);
     // Empty Ignore instance ignores nothing
     assertEquals(isIgnored("anything.txt", ig), false);
     assertEquals(isIgnored("dir/file.js", ig), false);
   } finally {
-    await Deno.remove(tmpDir, { recursive: true });
+    await getPlatform().fs.remove(tmpDir, { recursive: true });
   }
 });
 
@@ -194,6 +195,6 @@ Deno.test("loadGitignore - handles comments and blank lines", async () => {
     assertEquals(isIgnored("app.log", ig), true);
     assertEquals(isIgnored("src/main.ts", ig), false);
   } finally {
-    await Deno.remove(tmpDir, { recursive: true });
+    await getPlatform().fs.remove(tmpDir, { recursive: true });
   }
 });

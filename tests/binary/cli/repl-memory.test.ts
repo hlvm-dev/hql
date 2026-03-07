@@ -14,8 +14,10 @@ import {
   getBinaryTestEnv,
   USE_BINARY,
 } from "../_shared/binary-helpers.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 
-const INTERACTIVE_REPL_AVAILABLE = Deno.stdin.isTerminal() && Deno.stdout.isTerminal();
+const platform = getPlatform();
+const INTERACTIVE_REPL_AVAILABLE = platform.terminal.stdin.isTerminal() && platform.terminal.stdout.isTerminal();
 
 function replMemoryTest(name: string, fn: () => void | Promise<void>): void {
   Deno.test({
@@ -34,33 +36,32 @@ async function runReplWithInput(input: string): Promise<{ stdout: string; stderr
     await ensureBinaryCompiled();
   }
 
-  const proc = USE_BINARY
-    ? new Deno.Command(BINARY_PATH, {
-        args,
-        stdin: "piped",
-        stdout: "piped",
-        stderr: "piped",
-        cwd: Deno.cwd(),
-        env: getBinaryTestEnv(),
-      })
-    : new Deno.Command(Deno.execPath(), {
-        args: ["run", "-A", CLI_PATH, ...args],
-        stdin: "piped",
-        stdout: "piped",
-        stderr: "piped",
-        cwd: Deno.cwd(),
-        env: getBinaryTestEnv(),
-      });
+  const cmd = USE_BINARY
+    ? [BINARY_PATH, ...args]
+    : [platform.process.execPath(), "run", "-A", CLI_PATH, ...args];
 
-  const child = proc.spawn();
-  const writer = child.stdin.getWriter();
+  const child = platform.command.run({
+    cmd,
+    stdin: "piped",
+    stdout: "piped",
+    stderr: "piped",
+    cwd: platform.process.cwd(),
+    env: getBinaryTestEnv(),
+  });
+
+  const writer = (child.stdin as WritableStream<Uint8Array>).getWriter();
   await writer.write(new TextEncoder().encode(input + "\n"));
   await writer.close();
 
-  const { stdout, stderr } = await child.output();
+  const [stdoutBuf, stderrBuf] = await Promise.all([
+    new Response(child.stdout as ReadableStream<Uint8Array>).arrayBuffer(),
+    new Response(child.stderr as ReadableStream<Uint8Array>).arrayBuffer(),
+    child.status,
+  ]);
+
   return {
-    stdout: new TextDecoder().decode(stdout),
-    stderr: new TextDecoder().decode(stderr),
+    stdout: new TextDecoder().decode(stdoutBuf),
+    stderr: new TextDecoder().decode(stderrBuf),
   };
 }
 
@@ -150,7 +151,7 @@ replMemoryTest("REPL empty memory shows teaching message", async () => {
   try {
     // Move memory file temporarily
     try {
-      await Deno.rename(memoryPath, backupPath);
+      await platform.fs.rename(memoryPath, backupPath);
     } catch {
       // File might not exist, that's ok
     }
@@ -162,7 +163,7 @@ replMemoryTest("REPL empty memory shows teaching message", async () => {
   } finally {
     // Restore memory file
     try {
-      await Deno.rename(backupPath, memoryPath);
+      await platform.fs.rename(backupPath, memoryPath);
     } catch {
       // Backup might not exist
     }

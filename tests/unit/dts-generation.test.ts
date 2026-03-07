@@ -1,5 +1,6 @@
 import { assertEquals } from "jsr:@std/assert";
 import { transpile } from "../../src/hql/transpiler/index.ts";
+import { getPlatform } from "../../src/platform/platform.ts";
 
 Deno.test("dts generation: named function and variable exports emit declarations", async () => {
   const result = await transpile(`
@@ -7,7 +8,7 @@ Deno.test("dts generation: named function and variable exports emit declarations
     (const PI 3.14159)
     (export [add PI])
   `, {
-    baseDir: Deno.cwd(),
+    baseDir: getPlatform().process.cwd(),
     generateDts: true,
   });
 
@@ -25,7 +26,7 @@ Deno.test("dts generation: default exports and mixed export forms emit the expec
     (export [helper])
     (export default main)
   `, {
-    baseDir: Deno.cwd(),
+    baseDir: getPlatform().process.cwd(),
     generateDts: true,
   });
 
@@ -47,7 +48,7 @@ Deno.test("dts generation: async functions and classes retain their declaration 
         (* x y)))
     (export [fetchData Calculator])
   `, {
-    baseDir: Deno.cwd(),
+    baseDir: getPlatform().process.cwd(),
     generateDts: true,
   });
 
@@ -70,7 +71,7 @@ Deno.test("dts generation: docstrings and tags are preserved, including aliases 
     (fn add [a b] (+ a b))
     (export [add as addition])
   `, {
-    baseDir: Deno.cwd(),
+    baseDir: getPlatform().process.cwd(),
     generateDts: true,
   });
   const defaultExport = await transpile(`
@@ -78,7 +79,7 @@ Deno.test("dts generation: docstrings and tags are preserved, including aliases 
     (fn main [] "main")
     (export default main)
   `, {
-    baseDir: Deno.cwd(),
+    baseDir: getPlatform().process.cwd(),
     generateDts: true,
   });
 
@@ -98,12 +99,12 @@ Deno.test("dts generation: generateDts is opt-in and empty modules emit export {
     (fn add [a b] (+ a b))
     (export [add])
   `, {
-    baseDir: Deno.cwd(),
+    baseDir: getPlatform().process.cwd(),
   });
   const emptyModule = await transpile(`
     (const x 1)
   `, {
-    baseDir: Deno.cwd(),
+    baseDir: getPlatform().process.cwd(),
     generateDts: true,
   });
 

@@ -10,9 +10,11 @@ import { assertEquals } from "jsr:@std/assert";
 import {
   parseParamSize,
   runFirstTimeSetup,
+  verifyOllamaCloudModelAccess,
 } from "../../../src/hlvm/cli/commands/first-run-setup.ts";
 import type { AIEngineLifecycle } from "../../../src/hlvm/runtime/ai-runtime.ts";
 import type { ModelInfo } from "../../../src/hlvm/providers/types.ts";
+import { findFreePort, withEnv } from "../../shared/light-helpers.ts";
 
 Deno.test("parseParamSize: parses integer sizes", () => {
   assertEquals(parseParamSize("3B"), 3);
@@ -187,3 +189,49 @@ Deno.test({ name: "runFirstTimeSetup: unverified cloud auth falls back and does 
   assertEquals(saved.length, 0);
   assertEquals(calls.includes("fallback"), true);
 }});
+
+Deno.test("verifyOllamaCloudModelAccess: probes through the runtime host", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+  let capturedModel = "";
+  const abortController = new AbortController();
+
+  const server = Deno.serve({
+    hostname: "127.0.0.1",
+    port,
+    signal: abortController.signal,
+    onListen: () => {},
+  }, async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json({
+        status: "ok",
+        initialized: true,
+        definitions: 0,
+        aiReady: true,
+        authToken,
+      });
+    }
+
+    if (url.pathname === "/api/models/verify-access") {
+      const body = await req.json() as { model?: string };
+      capturedModel = body.model ?? "";
+      return Response.json({ available: true });
+    }
+
+    return new Response("Not found", { status: 404 });
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      const result = await verifyOllamaCloudModelAccess(
+        "ollama/deepseek-v3.1:671b-cloud",
+      );
+      assertEquals(result, true);
+      assertEquals(capturedModel, "ollama/deepseek-v3.1:671b-cloud");
+    });
+  } finally {
+    abortController.abort();
+    await server.finished;
+  }
+});

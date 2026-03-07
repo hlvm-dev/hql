@@ -12,6 +12,7 @@ import {
   trimReplayMessages,
   validateChatRequestMessages,
 } from "../../../src/hlvm/cli/repl/handlers/chat-context.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 
 function createStoredMessage(
   id: number,
@@ -145,8 +146,10 @@ Deno.test("chat context: explicit request history persists only the new visible 
 });
 
 Deno.test("chat context: image attachments survive replay for chat and agent builders", async () => {
-  const imagePath = await Deno.makeTempFile({ suffix: ".png" });
-  await Deno.writeFile(
+  const platform = getPlatform();
+  const tmpDir = await platform.fs.makeTempDir({ prefix: "chat-ctx-" });
+  const imagePath = platform.path.join(tmpDir, "test.png");
+  await platform.fs.writeFile(
     imagePath,
     new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
   );
@@ -181,7 +184,7 @@ Deno.test("chat context: image attachments survive replay for chat and agent bui
     assertEquals(agentUser.images?.[0]?.mimeType, "image/png");
     assertEquals((agentUser.images?.[0]?.data.length ?? 0) > 0, true);
   } finally {
-    await Deno.remove(imagePath);
+    await platform.fs.remove(tmpDir, { recursive: true });
   }
 });
 

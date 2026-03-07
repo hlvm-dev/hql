@@ -44,6 +44,7 @@ import {
   buildAgentHistoryMessages,
   shouldHonorRequestMessages,
 } from "./chat-context.ts";
+import type { ChatResultStats } from "../../../runtime/chat-protocol.ts";
 
 export async function handleAgentMode(
   body: ChatRequest,
@@ -54,7 +55,10 @@ export async function handleAgentMode(
   onPartial: (text: string) => void,
   requestId: string,
   modelInfo?: ModelInfo | null,
-): Promise<void> {
+): Promise<ChatResultStats> {
+  const effectiveToolDenylist = body.tool_denylist?.length
+    ? [...body.tool_denylist]
+    : [...DEFAULT_TOOL_DENYLIST];
   let agentReadyPromise = getAgentReadyPromise(resolvedModel);
   if (!agentReadyPromise) {
     agentReadyPromise = ensureAgentReady(resolvedModel, (msg) => log.info(msg))
@@ -67,10 +71,11 @@ export async function handleAgentMode(
   await agentReadyPromise;
 
   const workspace = getPlatform().process.cwd();
+  const resolvedWorkspace = body.workspace?.trim() || workspace;
   const cachedSession = await getOrCreateCachedSession(
-    workspace,
+    resolvedWorkspace,
     resolvedModel,
-    { toolDenylist: [...DEFAULT_TOOL_DENYLIST], modelInfo },
+    { toolDenylist: effectiveToolDenylist, modelInfo },
   );
 
   const history = await buildAgentHistoryMessages({
@@ -92,10 +97,14 @@ export async function handleAgentMode(
   const result = await runAgentQuery({
     query,
     model: resolvedModel,
-    permissionMode: (config.snapshot.permissionMode as PermissionMode | undefined) ?? "default",
+    permissionMode: body.permission_mode ??
+      (config.snapshot.permissionMode as PermissionMode | undefined) ?? "default",
     noInput: false,
     signal,
-    toolDenylist: [...DEFAULT_TOOL_DENYLIST],
+    toolDenylist: effectiveToolDenylist,
+    workspace: resolvedWorkspace,
+    contextWindow: body.context_window,
+    skipSessionHistory: body.skip_session_history === true,
     messageHistory: history,
     modelInfo,
     cachedSession,
@@ -171,6 +180,10 @@ export async function handleAgentMode(
             break;
         }
       },
+      onTrace: body.trace
+        ? (trace) => emit({ event: "trace", trace })
+        : undefined,
+      onFinalResponseMeta: (meta) => emit({ event: "final_response_meta", meta }),
     },
   });
 
@@ -215,6 +228,9 @@ export async function handleAgentMode(
     });
     pushSessionUpdatedEvent(body.session_id);
   }
+
+  emit({ event: "result_stats", stats: result.stats });
+  return result.stats;
 }
 
 /** Claude Code Agent Mode — delegates the entire agentic loop to Claude Code CLI. */

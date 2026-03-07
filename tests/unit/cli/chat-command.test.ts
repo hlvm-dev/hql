@@ -3,135 +3,201 @@ import {
   assertRejects,
   assertStringIncludes,
 } from "jsr:@std/assert";
-import type { AIProvider, ModelInfo } from "../../../src/hlvm/providers/index.ts";
-import {
-  registerProvider,
-  setDefaultProvider,
-} from "../../../src/hlvm/providers/index.ts";
 import { log } from "../../../src/hlvm/api/log.ts";
 import {
   chatCommand,
   parseChatArgs,
 } from "../../../src/hlvm/cli/commands/chat.ts";
-import {
-  getMessages,
-  listSessions,
-} from "../../../src/hlvm/store/conversation-store.ts";
-import { setupStoreTestDb } from "../_shared/store-test-db.ts";
+import { findFreePort, withEnv } from "../../shared/light-helpers.ts";
 
-const CHAT_MODEL: ModelInfo = {
-  name: "plain",
-  capabilities: ["chat"],
-};
+const encoder = new TextEncoder();
 
-const chatProvider: AIProvider = {
-  name: "test-chat-cli",
-  displayName: "Test Chat CLI",
-  capabilities: ["chat", "generate"],
-  async *generate(prompt: string) {
-    yield `generated:${prompt}`;
-  },
-  async *chat(messages) {
-    const lastUser = [...messages].reverse().find((message) =>
-      message.role === "user"
-    )?.content ?? "";
-    yield `reply:${lastUser}`;
-  },
-  models: {
-    list() {
-      return Promise.resolve([CHAT_MODEL]);
-    },
-    get(name: string) {
-      return Promise.resolve(name === CHAT_MODEL.name ? CHAT_MODEL : null);
-    },
-  },
-  status() {
-    return Promise.resolve({ available: true });
-  },
-};
+interface FakeSession {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  session_version: number;
+  metadata: string | null;
+}
 
-async function withChatCommandHarness(
-  fn: (helpers: { output: () => string }) => Promise<void> | void,
+async function withChatHost(
+  options: {
+    sessions?: FakeSession[];
+    onChat?: (body: Record<string, unknown>) => void;
+  },
+  fn: (helpers: { output: () => string }) => Promise<void>,
 ): Promise<void> {
-  const db = setupStoreTestDb();
-  const raw = log.raw as { write: (text: string) => void };
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+  const sessions = options.sessions ?? [];
+  const abortController = new AbortController();
+  const raw = log.raw as {
+    log: (text: string) => void;
+    write: (text: string) => void;
+  };
+  const originalLog = raw.log;
   const originalWrite = raw.write;
   let output = "";
 
+  raw.log = (text: string) => {
+    output += text + (text.endsWith("\n") ? "" : "\n");
+  };
   raw.write = (text: string) => {
     output += text;
   };
-  registerProvider("test-chat-cli", () => chatProvider, { isDefault: true });
-  setDefaultProvider("test-chat-cli");
+
+  const server = Deno.serve({
+    hostname: "127.0.0.1",
+    port,
+    signal: abortController.signal,
+    onListen: () => {},
+  }, async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json({
+        status: "ok",
+        initialized: true,
+        definitions: 0,
+        aiReady: true,
+        authToken,
+      });
+    }
+
+    if (url.pathname === "/api/sessions") {
+      return Response.json({ sessions });
+    }
+
+    const sessionMatch = url.pathname.match(/^\/api\/sessions\/(.+)$/);
+    if (sessionMatch) {
+      const sessionId = decodeURIComponent(sessionMatch[1]);
+      const session = sessions.find((item) => item.id === sessionId);
+      if (!session) {
+        return Response.json({ error: "Session not found" }, { status: 404 });
+      }
+      return Response.json(session);
+    }
+
+    if (url.pathname === "/api/chat") {
+      const body = await req.json() as Record<string, unknown>;
+      options.onChat?.(body);
+      const firstMessage = (body.messages as Array<Record<string, unknown>>)[0];
+      const reply = `reply:${String(firstMessage?.content ?? "")}`;
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(JSON.stringify({ event: "token", text: reply }) + "\n"),
+          );
+          controller.enqueue(
+            encoder.encode(JSON.stringify({ event: "complete", request_id: "req-chat", session_version: 1 }) + "\n"),
+          );
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/x-ndjson",
+          "X-Request-ID": "req-chat",
+        },
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
+  });
 
   try {
-    await fn({ output: () => output });
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      await fn({ output: () => output });
+    });
   } finally {
+    raw.log = originalLog;
     raw.write = originalWrite;
-    setDefaultProvider("ollama");
-    db.close();
+    abortController.abort();
+    await server.finished;
   }
 }
 
 Deno.test("chat command: rejects bare --resume because plain chat has no picker", async () => {
   await assertRejects(
     async () => {
-      parseChatArgs(["--resume", "--model", "test-chat-cli/plain", "hello"]);
+      parseChatArgs(["--resume", "--model", "ollama/llama3.1:8b", "hello"]);
     },
     Error,
     "--resume requires a session id",
   );
 });
 
-Deno.test("chat command: one-shot plain chat persists user and assistant messages", async () => {
-  await withChatCommandHarness(async ({ output }) => {
-    await chatCommand(["--model", "test-chat-cli/plain", "hello"]);
+Deno.test("chat command: one-shot plain chat streams through the runtime host", async () => {
+  let capturedChatBody: Record<string, unknown> | null = null;
+
+  await withChatHost({
+    onChat: (body) => {
+      capturedChatBody = body;
+    },
+  }, async ({ output }) => {
+    await chatCommand(["--model", "ollama/llama3.1:8b", "hello"]);
 
     assertStringIncludes(output(), "reply:hello");
-
-    const sessions = listSessions();
-    assertEquals(sessions.length, 1);
-    const stored = getMessages(sessions[0].id, { sort: "asc" }).messages;
-    assertEquals(stored.map((message) => message.role), ["user", "assistant"]);
-    assertEquals(stored[1]?.content, "reply:hello");
+    assertEquals(capturedChatBody?.mode, "chat");
+    assertEquals(capturedChatBody?.model, "ollama/llama3.1:8b");
+    assertEquals(
+      (capturedChatBody?.messages as Array<Record<string, unknown>>)[0]?.content,
+      "hello",
+    );
+    assertEquals(typeof capturedChatBody?.session_id, "string");
   });
 });
 
-Deno.test("chat command: --continue reuses the latest persisted chat session", async () => {
-  await withChatCommandHarness(async () => {
-    await chatCommand(["--model", "test-chat-cli/plain", "first"]);
-    const firstSessionId = listSessions()[0]?.id;
+Deno.test("chat command: --continue reuses the latest host session", async () => {
+  const sessions: FakeSession[] = [{
+    id: "sess-latest",
+    title: "Latest",
+    created_at: "2026-03-07T00:00:00.000Z",
+    updated_at: "2026-03-07T00:00:00.000Z",
+    message_count: 4,
+    session_version: 4,
+    metadata: null,
+  }];
+  let capturedSessionId = "";
 
-    await chatCommand(["--model", "test-chat-cli/plain", "--continue", "second"]);
-
-    const sessions = listSessions();
-    assertEquals(sessions.length, 1);
-    assertEquals(sessions[0]?.id, firstSessionId);
-    assertEquals(sessions[0]?.message_count, 4);
+  await withChatHost({
+    sessions,
+    onChat: (body) => {
+      capturedSessionId = String(body.session_id);
+    },
+  }, async () => {
+    await chatCommand(["--model", "ollama/llama3.1:8b", "--continue", "second"]);
+    assertEquals(capturedSessionId, "sess-latest");
   });
 });
 
-Deno.test("chat command: --resume <id> and --new keep session boundaries explicit", async () => {
-  await withChatCommandHarness(async () => {
-    await chatCommand(["--model", "test-chat-cli/plain", "first"]);
-    const firstSessionId = listSessions()[0]?.id;
+Deno.test("chat command: --resume <id> validates and uses the requested host session", async () => {
+  const sessions: FakeSession[] = [{
+    id: "sess-explicit",
+    title: "Explicit",
+    created_at: "2026-03-07T00:00:00.000Z",
+    updated_at: "2026-03-07T00:00:00.000Z",
+    message_count: 2,
+    session_version: 2,
+    metadata: null,
+  }];
+  let capturedSessionId = "";
 
+  await withChatHost({
+    sessions,
+    onChat: (body) => {
+      capturedSessionId = String(body.session_id);
+    },
+  }, async () => {
     await chatCommand([
       "--model",
-      "test-chat-cli/plain",
+      "ollama/llama3.1:8b",
       "--resume",
-      firstSessionId,
-      "second",
+      "sess-explicit",
+      "third",
     ]);
-
-    let sessions = listSessions();
-    assertEquals(sessions.length, 1);
-    assertEquals(sessions[0]?.message_count, 4);
-
-    await chatCommand(["--model", "test-chat-cli/plain", "--new", "third"]);
-
-    sessions = listSessions();
-    assertEquals(sessions.length, 2);
-    assertEquals(sessions.some((session) => session.id === firstSessionId), true);
+    assertEquals(capturedSessionId, "sess-explicit");
   });
 });

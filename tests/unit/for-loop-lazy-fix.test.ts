@@ -1,6 +1,7 @@
 
 import { assertEquals } from "jsr:@std/assert@1";
 import { run } from "../../mod.ts";
+import { getPlatform } from "../../src/platform/platform.ts";
 
 // 1. Manual Expansion Check (Runtime Fix Verification)
 Deno.test("For Loop: __hql_for_each handles large range without OOM (Manual Expansion Check)", async () => {
@@ -11,7 +12,7 @@ Deno.test("For Loop: __hql_for_each handles large range without OOM (Manual Expa
         (= count (+ count 1))))
     count
   `;
-  const result = await run(code, { baseDir: Deno.cwd() });
+  const result = await run(code, { baseDir: getPlatform().process.cwd() });
   assertEquals(result, 1000000);
 });
 
@@ -25,7 +26,7 @@ Deno.test("For Loop: Standard macro syntax works (Vector Binding Fix)", async ()
   `;
   // This test verifies that the 'for' macro correctly extracts 'i' from '[i (range 5)]'
   // instead of incorrectly using the 'vector' symbol.
-  const result = await run(code, { baseDir: Deno.cwd() });
+  const result = await run(code, { baseDir: getPlatform().process.cwd() });
   assertEquals(result, [0, 1, 2, 3, 4]);
 });
 

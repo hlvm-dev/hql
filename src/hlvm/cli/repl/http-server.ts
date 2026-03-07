@@ -1,7 +1,7 @@
 /**
- * HTTP REPL Server - Stateless HTTP API for REPL evaluation and agent queries
- * Replaces stdin/stdout transport with HTTP endpoints
- * SSOT: Thin wrapper around existing evaluation infrastructure
+ * HLVM Runtime Host - local HTTP/SSE/NDJSON boundary for shells.
+ * Exposes REPL evaluation, agent execution, sessions, models, config, and companion APIs.
+ * SSOT: Thin wrapper around shared runtime services and evaluation infrastructure.
  */
 
 import { evaluate } from "./evaluator.ts";
@@ -49,6 +49,7 @@ import {
   handleModelStatus,
   handleModelCatalog,
   handleModelsStream,
+  handleVerifyModelAccess,
 } from "./handlers/models.ts";
 import { handleSSEStream } from "./handlers/sse.ts";
 import { handleGetConfig, handlePatchConfig, handleConfigStream } from "./handlers/config.ts";
@@ -59,6 +60,10 @@ import {
   handleCompanionStatus,
   handleCompanionConfig,
 } from "./handlers/companion.ts";
+import {
+  HLVM_RUNTIME_DEFAULT_PORT,
+  resolveHlvmRuntimePort,
+} from "../../runtime/host-config.ts";
 
 /**
  * REPL HTTP Server Port
@@ -72,7 +77,6 @@ import {
  * - Port chosen to avoid conflict with Ollama (11434)
  * - Can be overridden via HLVM_REPL_PORT environment variable (for testing)
  */
-const DEFAULT_PORT = 11435;
 const AI_READY_WAIT_MS = 150;
 const platform = getPlatform();
 
@@ -80,14 +84,12 @@ const platform = getPlatform();
 let serverAuthToken: string | null = null;
 
 function resolvePort(): number {
-  const portOverride = platform.env.get("HLVM_REPL_PORT");
-  if (!portOverride) return DEFAULT_PORT;
-  const parsed = parseInt(portOverride, 10);
-  if (Number.isNaN(parsed) || parsed < 1 || parsed > 65535) {
-    log.warn(`Invalid HLVM_REPL_PORT "${portOverride}", using default ${DEFAULT_PORT}`);
-    return DEFAULT_PORT;
+  const port = resolveHlvmRuntimePort();
+  const override = platform.env.get("HLVM_REPL_PORT");
+  if (override && port === HLVM_RUNTIME_DEFAULT_PORT && override !== String(HLVM_RUNTIME_DEFAULT_PORT)) {
+    log.warn(`Invalid HLVM_REPL_PORT "${override}", using default ${HLVM_RUNTIME_DEFAULT_PORT}`);
   }
-  return parsed;
+  return port;
 }
 
 let replState: ReplState | null = null;
@@ -648,6 +650,7 @@ router.add("GET", "/api/models/catalog", () => handleModelCatalog());
 router.add("GET", "/api/models/status", () => handleModelStatus());
 router.add("GET", "/api/models/:provider/:name", (req, p) => handleGetModel(req, p));
 router.add("POST", "/api/models/pull", (req) => handlePullModel(req));
+router.add("POST", "/api/models/verify-access", (req) => handleVerifyModelAccess(req));
 router.add("DELETE", "/api/models/:provider/:name", (req, p) => handleDeleteModel(req, p));
 router.add("GET", "/api/models/stream", (req) => handleModelsStream(req));
 

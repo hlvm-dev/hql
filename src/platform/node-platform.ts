@@ -199,6 +199,7 @@ const NodeStdout: PlatformStdout = {
       });
     });
   },
+  isTerminal: (): boolean => nodeProcess.stdout.isTTY ?? false,
 };
 
 const NodeTerminal: PlatformTerminal = {

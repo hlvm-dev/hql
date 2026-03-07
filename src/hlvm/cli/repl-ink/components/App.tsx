@@ -81,7 +81,7 @@ interface BannerItem {
 
 interface QueuedConversationTurn {
   query: string;
-  images?: Array<{ data: string; mimeType: string }>;
+  mediaPaths?: string[];
 }
 
 interface ConfigSnapshotApi {
@@ -356,7 +356,7 @@ function AppContent(
     }
 
     return {
-      images: mediaAttachments.map((a) => ({ data: a.base64Data, mimeType: a.mimeType })),
+      images: mediaAttachments.map((a) => a.path),
       unsupportedMimeType: undefined,
     };
   }, []);
@@ -623,7 +623,7 @@ function AppContent(
 
   const runConversation = useCallback(async (
     query: string,
-    images?: Array<{ data: string; mimeType: string }>,
+    mediaPaths?: string[],
   ) => {
     // Guard: prevent double agent start — set ref atomically before any async work
     if (agentControllerRef.current) return;
@@ -635,8 +635,7 @@ function AppContent(
     conversation.addUserMessage(query);
 
     try {
-      // Lazy import to avoid loading agent code at REPL startup
-      const { runAgentQuery, ensureAgentReady } = await import("../../../agent/agent-runner.ts");
+      const { runAgentQueryViaHost } = await import("../../../runtime/host-client.ts");
       const { reconcileConfiguredClaudeCodeModel } = await import(
         "../../../../common/ai-default-model.ts"
       );
@@ -644,7 +643,7 @@ function AppContent(
       let model = typeof cfgApi?.snapshot?.model === "string"
         ? cfgApi.snapshot.model
         : undefined;
-      if (!images && model?.startsWith("claude-code/")) {
+      if (!mediaPaths?.length && model?.startsWith("claude-code/")) {
         const repaired = await reconcileConfiguredClaudeCodeModel();
         if (typeof repaired === "string" && repaired.length > 0) {
           model = repaired;
@@ -653,16 +652,17 @@ function AppContent(
       }
       if (model) {
         conversation.addInfo("Initializing agent...");
-        await ensureAgentReady(model);
-        if (controller.signal.aborted) return;
+      } else {
+        throw new Error("No configured model available for conversation mode.");
       }
 
       let textBuffer = "";
       let finalCitations: AssistantCitation[] | undefined;
-      const result = await runAgentQuery({
+      const result = await runAgentQueryViaHost({
         query,
         model,
-        images,
+        workspace: getPlatform().process.cwd(),
+        imagePaths: mediaPaths,
         // REPL UX: avoid model-initiated ask_user detours for simple chat turns.
         // Keep direct conversational flow unless explicit permission prompts are needed.
         toolDenylist: ["ask_user", "delegate_agent", "complete_task"],
@@ -678,38 +678,46 @@ function AppContent(
           onFinalResponseMeta: (meta) => {
             finalCitations = meta.citationSpans as AssistantCitation[] | undefined;
           },
-          onInteraction: (event: InteractionRequestEvent) => {
-            setInteractionQueue((prev: InteractionRequestEvent[]) => {
-              if (prev.some((item) => item.requestId === event.requestId)) return prev;
-              return [...prev, event];
-            });
-            // Wait for user response — reject if agent is aborted
-            return new Promise<InteractionResponse>((resolve, reject) => {
-              let settled = false;
-              const finalizeRequest = () => {
-                if (!interactionResolversRef.current.has(event.requestId)) return;
-                interactionResolversRef.current.delete(event.requestId);
-                setInteractionQueue((prev: InteractionRequestEvent[]) =>
-                  prev.filter((item) => item.requestId !== event.requestId)
-                );
-                controller.signal.removeEventListener("abort", onAbort);
-              };
-              const onAbort = () => {
-                if (settled) return;
-                settled = true;
-                finalizeRequest();
-                reject(new Error("Agent interaction aborted"));
-              };
-              const handler = (response: InteractionResponse) => {
-                if (settled) return;
-                settled = true;
-                finalizeRequest();
-                resolve(response);
-              };
-              interactionResolversRef.current.set(event.requestId, handler);
-              controller.signal.addEventListener("abort", onAbort, { once: true });
-            });
-          },
+        },
+        onInteraction: (event) => {
+          const interactionEvent: InteractionRequestEvent = {
+            type: "interaction_request",
+            requestId: event.requestId,
+            mode: event.mode,
+            toolName: event.toolName,
+            toolArgs: event.toolArgs,
+            question: event.question,
+          };
+          setInteractionQueue((prev: InteractionRequestEvent[]) => {
+            if (prev.some((item) => item.requestId === interactionEvent.requestId)) return prev;
+            return [...prev, interactionEvent];
+          });
+          // Wait for user response — reject if agent is aborted
+          return new Promise<InteractionResponse>((resolve, reject) => {
+            let settled = false;
+            const finalizeRequest = () => {
+              if (!interactionResolversRef.current.has(interactionEvent.requestId)) return;
+              interactionResolversRef.current.delete(interactionEvent.requestId);
+              setInteractionQueue((prev: InteractionRequestEvent[]) =>
+                prev.filter((item) => item.requestId !== interactionEvent.requestId)
+              );
+              controller.signal.removeEventListener("abort", onAbort);
+            };
+            const onAbort = () => {
+              if (settled) return;
+              settled = true;
+              finalizeRequest();
+              reject(new Error("Agent interaction aborted"));
+            };
+            const handler = (response: InteractionResponse) => {
+              if (settled) return;
+              settled = true;
+              finalizeRequest();
+              resolve(response);
+            };
+            interactionResolversRef.current.set(interactionEvent.requestId, handler);
+            controller.signal.addEventListener("abort", onAbort, { once: true });
+          });
         },
       });
 
@@ -788,7 +796,7 @@ function AppContent(
     const [nextTurn, ...rest] = pendingConversationQueue;
     setPendingConversationQueue(rest);
     setIsEvaluating(true);
-    void runConversation(nextTurn.query, nextTurn.images);
+    void runConversation(nextTurn.query, nextTurn.mediaPaths);
   }, [activePanel, pendingConversationQueue, runConversation]);
 
   const handleSubmit = useCallback(
@@ -972,7 +980,7 @@ function AppContent(
           const wasQueueEmpty = pendingConversationQueue.length === 0;
           setPendingConversationQueue((prev: QueuedConversationTurn[]) => [
             ...prev,
-            { query: conversationQuery, images: imagePayload },
+            { query: conversationQuery, mediaPaths: imagePayload },
           ]);
           // Keep queue signal concise; avoid spamming repeated info lines that cause reflow.
           if (wasQueueEmpty) {

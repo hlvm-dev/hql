@@ -1,90 +1,40 @@
 /**
  * Ask Command - Interactive AI Agent (CLI entry point)
  *
- * Thin CLI wrapper over the shared agent runner.
- * All agent logic lives in agent-runner.ts (SSOT).
+ * CLI shell over the shared HLVM runtime host.
+ * Agent execution is routed through the local host boundary.
  */
 
 import { log } from "../../api/log.ts";
 import { config } from "../../api/config.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
-import { readSingleKey } from "../utils/input.ts";
+import { readLineInput, readSingleKey } from "../utils/input.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { isOllamaAuthErrorMessage } from "../../../common/ollama-auth.ts";
 import { isObjectValue, truncate } from "../../../common/utils.ts";
 import { shouldSuppressFinalResponse } from "../../agent/model-compat.ts";
 import { classifyError, getRecoveryHint } from "../../agent/error-taxonomy.ts";
-import { ensureAgentReady, runAgentQuery } from "../../agent/agent-runner.ts";
-import { DEFAULT_TOOL_DENYLIST } from "../../agent/constants.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
-import { parseModelString } from "../../providers/index.ts";
+import {
+  extractProvider,
+  isPaidProvider,
+  isProviderApproved,
+} from "../../providers/approval.ts";
 import type { AgentUIEvent, TraceEvent } from "../../agent/orchestrator.ts";
 import type { PermissionMode } from "../../../common/config/types.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
+import { runAgentQueryViaHost } from "../../runtime/host-client.ts";
+import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 
 // MARK: - Paid Provider Consent
 
-/** Providers that charge per API call — require explicit user consent */
-const PAID_PROVIDERS = new Set(["openai", "anthropic", "google"]);
-
-const PROVIDER_LABELS: Record<string, string> = {
-  openai: "OpenAI",
-  anthropic: "Anthropic",
-  google: "Google",
-};
-
-/** Extract provider prefix from a model ID like "openai/gpt-4o" */
-export function extractProvider(modelId: string): string | null {
-  const [provider] = parseModelString(modelId);
-  return provider;
-}
-
-/** Check if a model ID uses a paid provider */
-export function isPaidProvider(modelId: string): boolean {
-  const provider = extractProvider(modelId);
-  return provider !== null && PAID_PROVIDERS.has(provider);
-}
-
-/** Check if the user has already approved a provider */
-export function isProviderApproved(modelId: string): boolean {
-  const provider = extractProvider(modelId);
-  if (!provider) return true;
-  const approved = config.snapshot.approvedProviders ?? [];
-  return approved.includes(provider);
-}
-
-/** Prompt user for one-time consent to use a paid provider, save to config */
-export async function confirmPaidProviderConsent(modelId: string): Promise<boolean> {
-  const provider = extractProvider(modelId);
-  if (!provider) return true;
-
-  const label = PROVIDER_LABELS[provider] ?? provider;
-
-  if (!getPlatform().terminal.stdin.isTerminal()) {
-    return false; // Non-interactive: deny by default
-  }
-
-  log.raw.log(
-    `\nThis model uses your ${label} API key.` +
-    `\nAPI calls will be charged to your ${label} account.`
-  );
-  log.raw.log("Continue? [y/N] ");
-
-  const key = await readSingleKey();
-  log.raw.log("");
-
-  if (key !== "y") {
-    return false;
-  }
-
-  // Save consent — never ask again for this provider
-  const approved = config.snapshot.approvedProviders ?? [];
-  if (!approved.includes(provider)) {
-    await config.set("approvedProviders", [...approved, provider]);
-  }
-  return true;
-}
+export {
+  extractProvider,
+  isPaidProvider,
+  isProviderApproved,
+} from "../../providers/approval.ts";
+export { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 
 export function showAskHelp(): void {
   log.raw.log(`
@@ -112,6 +62,35 @@ OPTIONS:
   --auto-edit                  Auto-approve file reads and writes; only confirm destructive ops
   --dangerously-skip-permissions  Skip ALL permission prompts (like Claude Code --dangerously-skip-permissions)
 `);
+}
+
+async function promptRuntimeInteraction(event: {
+  mode: "permission" | "question";
+  toolName?: string;
+  toolArgs?: string;
+  question?: string;
+}): Promise<{ approved?: boolean; userInput?: string }> {
+  if (!getPlatform().terminal.stdin.isTerminal()) {
+    return event.mode === "question"
+      ? { approved: false, userInput: "" }
+      : { approved: false };
+  }
+
+  if (event.mode === "question") {
+    log.raw.log(`\n${event.question ?? "Input requested"}`);
+    log.raw.write("> ");
+    const userInput = await readLineInput();
+    return { approved: true, userInput };
+  }
+
+  log.raw.log(`\n[Tool: ${event.toolName ?? "unknown"}]`);
+  if (event.toolArgs?.trim()) {
+    log.raw.log(event.toolArgs);
+  }
+  log.raw.log("\nAllow? [y/N] ");
+  const key = await readSingleKey();
+  log.raw.log("");
+  return { approved: key === "y" };
 }
 
 function createTraceCallback(
@@ -463,19 +442,6 @@ export async function askCommand(args: string[]): Promise<void> {
     }
   }
 
-  try {
-    await ensureAgentReady(
-      resolvedModel,
-      (message) => log.raw.log(message),
-    );
-  } catch (error) {
-    if (error instanceof Error) {
-      log.error(`Failed to setup default model: ${error.message}`);
-      log.raw.log("\nTip: Make sure Ollama is running.");
-    }
-    throw error;
-  }
-
   let streamedTokens = false;
   let thinkingShown = false;
   let toolInProgress = false;
@@ -570,9 +536,10 @@ export async function askCommand(args: string[]): Promise<void> {
     ?? "default";
 
   const executeQuery = async () => {
-    const result = await runAgentQuery({
+    const result = await runAgentQueryViaHost({
       query,
-      model,
+      model: resolvedModel,
+      workspace: getPlatform().process.cwd(),
       contextWindow,
       skipSessionHistory: freshSession,
       permissionMode: effectivePermissionMode,
@@ -581,7 +548,7 @@ export async function askCommand(args: string[]): Promise<void> {
         onAgentEvent,
         onTrace: createTraceCallback(verbose),
       },
-      toolDenylist: [...DEFAULT_TOOL_DENYLIST],
+      onInteraction: promptRuntimeInteraction,
     });
 
     if (streamedTokens) {

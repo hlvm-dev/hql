@@ -6,6 +6,7 @@ import {
   parseBearerChallengeHeader,
   recoverMcpOAuthFromUnauthorized,
 } from "../../../src/hlvm/agent/mcp/oauth.ts";
+import type { PlatformHttpServerHandle } from "../../../src/platform/types.ts";
 import {
   serveWithRetry,
   withServePermissionGuard,
@@ -14,7 +15,7 @@ import {
 
 interface OAuthServerState {
   port: number;
-  server: Deno.HttpServer;
+  server: PlatformHttpServerHandle;
   tokenRequestBodies: string[];
 }
 
@@ -24,7 +25,7 @@ async function startOAuthServer(
   const state: OAuthServerState = {
     port: 0,
     tokenRequestBodies: [],
-    server: null as unknown as Deno.HttpServer,
+    server: null as unknown as PlatformHttpServerHandle,
   };
 
   const { promise: listening, resolve: onListening } = Promise.withResolvers<

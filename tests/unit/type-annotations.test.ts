@@ -1,15 +1,16 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { transpile } from "../../src/hql/transpiler/index.ts";
+import { getPlatform } from "../../src/platform/platform.ts";
 
 async function runCli(code: string): Promise<string> {
-  const proc = new Deno.Command("deno", {
-    args: ["run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", code],
+  const platform = getPlatform();
+  const { stdout, stderr } = await platform.command.output({
+    cmd: ["deno", "run", "--allow-all", "src/hlvm/cli/cli.ts", "run", "-e", code],
     stdout: "piped",
     stderr: "piped",
-    cwd: Deno.cwd(),
+    cwd: platform.process.cwd(),
   });
 
-  const { stdout, stderr } = await proc.output();
   const output = new TextDecoder().decode(stdout).trim();
   const errors = new TextDecoder().decode(stderr);
   if (errors.trim().length > 0) {

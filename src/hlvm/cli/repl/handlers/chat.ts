@@ -38,8 +38,11 @@ import { parseModelString } from "../../../providers/index.ts";
 import { loadAllMessages, loadRecentMessages } from "../../../store/message-utils.ts";
 import { config } from "../../../api/config.ts";
 import { ai } from "../../../api/ai.ts";
-import { isPaidProvider, isProviderApproved } from "../../commands/ask.ts";
 import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
+import {
+  isPaidProvider,
+  isProviderApproved,
+} from "../../../providers/approval.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -375,6 +378,9 @@ export async function handleChat(req: Request): Promise<Response> {
 
   let partialText = "";
   let cancellationEmitted = false;
+  let resultStats:
+    | import("../../../runtime/chat-protocol.ts").ChatResultStats
+    | null = null;
 
   const stream = new ReadableStream({
     async start(streamController) {
@@ -439,7 +445,7 @@ export async function handleChat(req: Request): Promise<Response> {
             onPartial,
           );
         } else if (effectiveMode === "agent") {
-          await handleAgentMode(
+          resultStats = await handleAgentMode(
             body,
             resolvedModel!,
             assistantMessageId,
@@ -489,11 +495,15 @@ export async function handleChat(req: Request): Promise<Response> {
           }
 
           const updatedSession = getSession(sessionId);
-          emit({
+          const completeEvent: Record<string, unknown> = {
             event: "complete",
             request_id: requestId,
             session_version: updatedSession?.session_version ?? 0,
-          });
+          };
+          if (resultStats) {
+            completeEvent.stats = resultStats;
+          }
+          emit(completeEvent);
         }
       } catch (error) {
         if (controller.signal.aborted) {

@@ -27,6 +27,7 @@ import {
 } from "../../../providers/model-discovery-store.ts";
 import { isRuntimeReadyForAiRequests } from "../../commands/serve.ts";
 import { listSnapshotBackedModels } from "../../model-discovery.ts";
+import { probeModelAccess } from "../../../runtime/model-access.ts";
 
 const MODELS_CHANNEL = "__models__";
 
@@ -404,4 +405,24 @@ export async function handleModelStatus(): Promise<Response> {
   });
 
   return Response.json({ providers: statuses });
+}
+
+/**
+ * @openapi
+ * /api/models/verify-access:
+ *   post:
+ *     tags: [Models]
+ *     summary: Probe runtime-side model access
+ *     operationId: verifyModelAccess
+ */
+export async function handleVerifyModelAccess(req: Request): Promise<Response> {
+  const parsed = await parseJsonBody<{ model?: string }>(req);
+  if (!parsed.ok) return parsed.response;
+
+  const modelId = parsed.value.model?.trim();
+  if (!modelId) {
+    return jsonError("Missing model", 400);
+  }
+
+  return Response.json(await probeModelAccess(modelId));
 }

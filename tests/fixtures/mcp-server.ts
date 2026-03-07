@@ -21,25 +21,29 @@
  *                      elicitation,paginated,old_protocol,progress
  */
 
+import { getPlatform } from "../../src/platform/platform.ts";
+
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
+const env = getPlatform().env;
+
 let replyPrefix = "";
 try {
-  replyPrefix = Deno.env.get("MCP_REPLY_PREFIX") ?? "";
+  replyPrefix = env.get("MCP_REPLY_PREFIX") ?? "";
 } catch {
   replyPrefix = "";
 }
 
 let testMode = "";
 try {
-  testMode = Deno.env.get("MCP_TEST_MODE") ?? "";
+  testMode = env.get("MCP_TEST_MODE") ?? "";
 } catch {
   testMode = "";
 }
 
 let toolDelayMs = 0;
 try {
-  const rawDelay = Deno.env.get("MCP_TOOL_DELAY_MS");
+  const rawDelay = env.get("MCP_TOOL_DELAY_MS");
   const parsed = rawDelay ? Number(rawDelay) : 0;
   toolDelayMs = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
 } catch {
@@ -50,7 +54,7 @@ let buffer = "";
 
 function write(message: unknown) {
   const data = encoder.encode(JSON.stringify(message) + "\n");
-  Deno.stdout.writeSync(data);
+  getPlatform().terminal.stdout.writeSync(data);
 }
 
 let nextServerRequestId = 1000;
@@ -480,7 +484,17 @@ function handleRequest(request: {
   });
 }
 
-for await (const chunk of Deno.stdin.readable) {
+async function* stdinStream(): AsyncGenerator<Uint8Array> {
+  const buf = new Uint8Array(65536);
+  const stdin = getPlatform().terminal.stdin;
+  while (true) {
+    const n = await stdin.read(buf);
+    if (n === null) break;
+    yield buf.slice(0, n);
+  }
+}
+
+for await (const chunk of stdinStream()) {
   buffer += decoder.decode(chunk);
   let idx: number;
   while ((idx = buffer.indexOf("\n")) !== -1) {

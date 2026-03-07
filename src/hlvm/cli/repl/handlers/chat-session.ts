@@ -12,38 +12,22 @@ import {
 } from "../../../store/conversation-store.ts";
 import type { InteractionResponse } from "../../../agent/orchestrator.ts";
 import { jsonError, parseJsonBody } from "../http-utils.ts";
+export {
+  type CancelRequest,
+  type ChatMode,
+  type ChatRequest,
+  CLAUDE_CODE_AGENT_MODE,
+} from "../../../runtime/chat-protocol.ts";
+import {
+  type CancelRequest,
+  type ChatRequest,
+} from "../../../runtime/chat-protocol.ts";
 
 export const CHAT_CONTEXT_HISTORY_LIMIT = 80;
 export const TITLE_SEARCH_HISTORY_LIMIT = 40;
 export const AGENT_CONTEXT_HISTORY_LIMIT = 20;
 const INTERACTION_TIMEOUT_MS = 300_000;
 const MAX_PENDING_INTERACTIONS = 50;
-
-/** Mode string for Claude Code full agent passthrough */
-export const CLAUDE_CODE_AGENT_MODE = "claude-code-agent" as const;
-
-export type ChatMode = "chat" | "agent" | typeof CLAUDE_CODE_AGENT_MODE;
-
-export interface ChatRequest {
-  mode: ChatMode;
-  session_id: string;
-  messages: Array<{
-    role: "system" | "user" | "assistant" | "tool";
-    content: string;
-    image_paths?: string[];
-    client_turn_id?: string;
-  }>;
-  model?: string;
-  temperature?: number;
-  max_tokens?: number;
-  client_turn_id?: string;
-  assistant_client_turn_id?: string;
-  expected_version?: number;
-}
-
-export interface CancelRequest {
-  request_id: string;
-}
 
 // MARK: - Stored Properties
 

@@ -1,6 +1,6 @@
 /**
- * Serve Command - Start HTTP REPL Server
- * Provides HTTP API for REPL evaluation (replaces stdin/stdout)
+ * Serve Command - Start HLVM local runtime host
+ * Provides the local HTTP/SSE/NDJSON shell boundary for GUI and CLI clients.
  */
 
 import { log } from "../../api/log.ts";
@@ -110,8 +110,8 @@ ENDPOINTS:
   GET  /health    Health check
 
 DESCRIPTION:
-  Starts an HTTP server on port 11435 that provides a stateless
-  REPL evaluation API. Used by HLVM GUI for code evaluation.
+  Starts the local HLVM runtime host on port 11435.
+  Used by GUI clients and host-backed CLI surfaces.
   Polyglot mode is always enabled: input starting with '(' is HQL,
   all other input is JavaScript.
 

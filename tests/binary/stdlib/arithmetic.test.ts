@@ -104,8 +104,7 @@ binaryTest("stdlib binary: isNil - number is not nil", async () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 binaryTest("stdlib binary: some - finds matching element", async () => {
-  // some returns the first matching element, not true/false
-  assertSuccessWithOutput(await runExpression("(some (fn [x] (> x 3)) [1 2 3 4 5])"), "4");
+  assertSuccessWithOutput(await runExpression("(some (fn [x] (> x 3)) [1 2 3 4 5])"), "true");
 });
 
 binaryTest("stdlib binary: every - all match", async () => {

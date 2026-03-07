@@ -4,6 +4,7 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { run, withTempDir } from "./helpers.ts";
 import { join } from "jsr:@std/path@1";
+import { getPlatform } from "../../src/platform/platform.ts";
 
 Deno.test("@hlvm/fs - write and read file", async () => {
   await withTempDir(async (testDir) => {
@@ -21,7 +22,7 @@ Deno.test("@hlvm/fs - write and read file", async () => {
 Deno.test("@hlvm/fs - exists? returns true", async () => {
   await withTempDir(async (testDir) => {
     const testFile = join(testDir, "test2.txt");
-    await Deno.writeTextFile(testFile, "content");
+    await getPlatform().fs.writeTextFile(testFile, "content");
 
     const code = `
       (import [exists?] from "@hlvm/fs")
@@ -48,7 +49,7 @@ Deno.test("@hlvm/fs - exists? returns false", async () => {
 Deno.test("@hlvm/fs - remove file", async () => {
   await withTempDir(async (testDir) => {
     const testFile = join(testDir, "test3.txt");
-    await Deno.writeTextFile(testFile, "to be deleted");
+    await getPlatform().fs.writeTextFile(testFile, "to be deleted");
 
     // First remove the file
     const removeCode = `
@@ -70,7 +71,7 @@ Deno.test("@hlvm/fs - remove file", async () => {
 Deno.test("@hlvm/fs - write overwrites existing", async () => {
   await withTempDir(async (testDir) => {
     const testFile = join(testDir, "test4.txt");
-    await Deno.writeTextFile(testFile, "old content");
+    await getPlatform().fs.writeTextFile(testFile, "old content");
 
     const code = `
       (import [write, read] from "@hlvm/fs")

@@ -1,24 +1,30 @@
 /**
  * Shared helpers for binary tests
  * These tests run the HLVM CLI as a subprocess (compiled binary or deno run)
+ *
+ * Uses getPlatform() SSOT abstraction for all env/fs/command APIs.
+ * Only Deno.test() is used directly (test runner, not a platform concern).
  */
 
-import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
+import { getPlatform } from "../../../src/platform/platform.ts";
+
+const platform = getPlatform();
 
 // Path to CLI entry point
 export const CLI_PATH = new URL("../../../src/hlvm/cli/cli.ts", import.meta.url).pathname;
 
 // Binary test mode: set HLVM_TEST_BINARY=1 for genuine binary testing
 // Default: quick mode using deno run (same code path, faster)
-export const USE_BINARY = Deno.env.get("HLVM_TEST_BINARY") === "1";
+export const USE_BINARY = platform.env.get("HLVM_TEST_BINARY") === "1";
 
 // Cross-platform binary path
-const IS_WINDOWS = Deno.build.os === "windows";
-const TEMP_DIR = (Deno.env.get(IS_WINDOWS ? "TEMP" : "TMPDIR") || (IS_WINDOWS ? "C:\\Temp" : "/tmp")).replace(/[\/\\]$/, "");
+const IS_WINDOWS = platform.build.os === "windows";
+const TEMP_DIR = (platform.env.get(IS_WINDOWS ? "TEMP" : "TMPDIR") || (IS_WINDOWS ? "C:\\Temp" : "/tmp")).replace(/[\/\\]$/, "");
 const BINARY_NAME = IS_WINDOWS ? "hlvm-test-binary.exe" : "hlvm-test-binary";
 export const BINARY_PATH = IS_WINDOWS ? `${TEMP_DIR}\\${BINARY_NAME}` : `${TEMP_DIR}/${BINARY_NAME}`;
 const COMPILE_LOCK_PATH = `${BINARY_PATH}.lock`;
-export const BINARY_TEST_HLVM_DIR = Deno.makeTempDirSync({ prefix: "hlvm-binary-tests-" });
+export const BINARY_TEST_HLVM_DIR = await platform.fs.makeTempDir({ prefix: "hlvm-binary-tests-" });
 
 // Track compilation state with mutex to prevent race conditions
 let binaryCompiled = false;
@@ -41,7 +47,7 @@ export interface CommandOptions {
 
 export function getBinaryTestEnv(overrides: Record<string, string> = {}): Record<string, string> {
   return {
-    ...Deno.env.toObject(),
+    ...platform.env.toObject(),
     HLVM_DIR: BINARY_TEST_HLVM_DIR,
     HLVM_DISABLE_AI_AUTOSTART: "1",
     ...overrides,
@@ -64,30 +70,29 @@ export async function ensureBinaryCompiled(): Promise<void> {
   }
 
   compilationPromise = (async () => {
-    if (await fileExists(BINARY_PATH)) {
+    if (await platform.fs.exists(BINARY_PATH)) {
       binaryCompiled = true;
       return;
     }
 
-    const lockFile = await tryAcquireCompileLock();
-    if (lockFile) {
+    const lockAcquired = await tryAcquireCompileLock();
+    if (lockAcquired) {
       try {
-        if (!(await fileExists(BINARY_PATH))) {
+        if (!(await platform.fs.exists(BINARY_PATH))) {
+          // Progress logging for rare USE_BINARY=1 compilation
           console.log("Compiling HLVM binary for genuine binary testing...");
-          const cmd = new Deno.Command("deno", {
-            args: ["compile", "-A", "--no-check", "--output", BINARY_PATH, CLI_PATH],
+          const { success, stderr } = await platform.command.output({
+            cmd: ["deno", "compile", "-A", "--no-check", "--output", BINARY_PATH, CLI_PATH],
             stdout: "piped",
             stderr: "piped",
           });
 
-          const { success, stderr } = await cmd.output();
           if (!success) {
             throw new Error(`Failed to compile binary: ${new TextDecoder().decode(stderr)}`);
           }
           console.log("Binary compiled: " + BINARY_PATH);
         }
       } finally {
-        lockFile.close();
         await removeIfExists(COMPILE_LOCK_PATH);
       }
       binaryCompiled = true;
@@ -134,6 +139,7 @@ export function assertSuccessWithOutputs(result: CommandResult, ...expected: str
 /**
  * Create a binary test with standard options
  * Reduces boilerplate: sanitizeResources/sanitizeOps are always false for subprocess tests
+ * Note: Deno.test is the test runner API — not a platform concern.
  */
 export function binaryTest(name: string, fn: () => void | Promise<void>): void {
   Deno.test({ name, sanitizeResources: false, sanitizeOps: false, fn });
@@ -148,22 +154,17 @@ async function executeCLI(args: string[], options?: CommandOptions): Promise<Com
   await ensureBinaryCompiled();
 
   const cmd = USE_BINARY
-    ? new Deno.Command(BINARY_PATH, {
-        args,
-        cwd: options?.cwd,
-        env: getBinaryTestEnv(options?.env),
-        stdout: "piped",
-        stderr: "piped",
-      })
-    : new Deno.Command("deno", {
-        args: ["run", "-A", CLI_PATH, ...args],
-        cwd: options?.cwd,
-        env: getBinaryTestEnv(options?.env),
-        stdout: "piped",
-        stderr: "piped",
-      });
+    ? [BINARY_PATH, ...args]
+    : ["deno", "run", "-A", CLI_PATH, ...args];
 
-  const output = await cmd.output();
+  const output = await platform.command.output({
+    cmd,
+    cwd: options?.cwd,
+    env: getBinaryTestEnv(options?.env),
+    stdout: "piped",
+    stderr: "piped",
+  });
+
   return {
     success: output.success,
     code: output.code,
@@ -211,13 +212,13 @@ export function transpileCode(hqlCode: string): Promise<{ js: string; result: Co
     const inputPath = `${dir}/test.hql`;
     const outputPath = `${dir}/test.js`;
 
-    await Deno.writeTextFile(inputPath, hqlCode);
+    await platform.fs.writeTextFile(inputPath, hqlCode);
     const result = await runCLI("hql", ["compile", inputPath, "-o", outputPath]);
 
     let js = "";
     if (result.success) {
       try {
-        js = await Deno.readTextFile(outputPath);
+        js = await platform.fs.readTextFile(outputPath);
       } catch {
         // File might not exist if compilation failed
       }
@@ -233,8 +234,11 @@ export function transpileCode(hqlCode: string): Promise<{ js: string; result: Co
 
 /** Run a command and return result */
 async function executeCommand(program: string, args: string[]): Promise<CommandResult> {
-  const cmd = new Deno.Command(program, { args, stdout: "piped", stderr: "piped" });
-  const output = await cmd.output();
+  const output = await platform.command.output({
+    cmd: [program, ...args],
+    stdout: "piped",
+    stderr: "piped",
+  });
   return {
     success: output.success,
     code: output.code,
@@ -252,7 +256,7 @@ function compileAndRunWith(
     const inputPath = `${dir}/test.hql`;
     const outputPath = `${dir}/test.js`;
 
-    await Deno.writeTextFile(inputPath, hqlCode);
+    await platform.fs.writeTextFile(inputPath, hqlCode);
     const compileResult = await runCLI("hql", ["compile", inputPath, "-o", outputPath]);
 
     if (!compileResult.success) return compileResult;
@@ -281,11 +285,11 @@ export function transpileAndRunWithDeno(hqlCode: string): Promise<CommandResult>
  * Create a temporary directory, run callback, and clean up.
  */
 export async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
-  const dir = await Deno.makeTempDir({ prefix: "hlvm-binary-test-" });
+  const dir = await platform.fs.makeTempDir({ prefix: "hlvm-binary-test-" });
   try {
     return await fn(dir);
   } finally {
-    await Deno.remove(dir, { recursive: true }).catch(() => {});
+    await platform.fs.remove(dir, { recursive: true }).catch(() => {});
   }
 }
 
@@ -293,34 +297,27 @@ export async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T
 // LOCK FILE HELPERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function tryAcquireCompileLock(): Promise<Deno.FsFile | null> {
+async function tryAcquireCompileLock(): Promise<boolean> {
   try {
-    return await Deno.open(COMPILE_LOCK_PATH, { write: true, createNew: true });
-  } catch {
-    return null;
-  }
-}
-
-async function waitForCompiledBinary(): Promise<void> {
-  for (let i = 0; i < 120; i++) {
-    if (await fileExists(BINARY_PATH)) return;
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-  throw new Error(`Timed out waiting for compiled binary at ${BINARY_PATH}`);
-}
-
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await Deno.stat(path);
+    if (await platform.fs.exists(COMPILE_LOCK_PATH)) return false;
+    await platform.fs.writeTextFile(COMPILE_LOCK_PATH, String(Date.now()));
     return true;
   } catch {
     return false;
   }
 }
 
+async function waitForCompiledBinary(): Promise<void> {
+  for (let i = 0; i < 120; i++) {
+    if (await platform.fs.exists(BINARY_PATH)) return;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error(`Timed out waiting for compiled binary at ${BINARY_PATH}`);
+}
+
 async function removeIfExists(path: string): Promise<void> {
   try {
-    await Deno.remove(path);
+    await platform.fs.remove(path);
   } catch {
     // ignore
   }

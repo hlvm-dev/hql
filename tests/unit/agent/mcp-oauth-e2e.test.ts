@@ -4,7 +4,7 @@
  * Proves the full flow: metadata discovery → client registration → PKCE login
  * → authenticated MCP tool call → token refresh → 401 recovery → logout.
  *
- * Uses a single Deno.serve() HTTP server that handles both OAuth endpoints
+ * Uses a single HTTP server (via platform API) that handles both OAuth endpoints
  * and MCP JSON-RPC protocol with Bearer auth middleware.
  */
 
@@ -17,6 +17,7 @@ import {
 } from "../../../src/hlvm/agent/mcp/oauth.ts";
 import { SdkMcpClient } from "../../../src/hlvm/agent/mcp/sdk-client.ts";
 import type { McpServerConfig } from "../../../src/hlvm/agent/mcp/types.ts";
+import type { PlatformHttpServerHandle } from "../../../src/platform/types.ts";
 import {
   serveWithRetry,
   withServePermissionGuard,
@@ -29,7 +30,7 @@ import {
 
 interface McpOAuthServerState {
   port: number;
-  server: Deno.HttpServer;
+  server: PlatformHttpServerHandle;
   validTokens: Set<string>;
   tokenCounter: number;
 }
@@ -39,7 +40,7 @@ async function startMcpOAuthServer(
 ): Promise<McpOAuthServerState> {
   const state: McpOAuthServerState = {
     port: 0,
-    server: null as unknown as Deno.HttpServer,
+    server: null as unknown as PlatformHttpServerHandle,
     validTokens: new Set(),
     tokenCounter: 0,
   };

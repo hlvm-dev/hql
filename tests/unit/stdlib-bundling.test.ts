@@ -17,20 +17,17 @@ async function runTranspileCLI(
   outputPath: string,
 ): Promise<{ success: boolean; stderr: string }> {
   await ensureBinaryCompiled();
+  const platform = getPlatform();
 
-  const command = USE_BINARY
-    ? new Deno.Command(BINARY_PATH, {
-      args: ["hql", "compile", inputPath, "--target", "js", "-o", outputPath],
-      stdout: "piped",
-      stderr: "piped",
-    })
-    : new Deno.Command("deno", {
-      args: ["run", "-A", CLI_PATH, "hql", "compile", inputPath, "--target", "js", "-o", outputPath],
-      stdout: "piped",
-      stderr: "piped",
-    });
+  const cmd = USE_BINARY
+    ? [BINARY_PATH, "hql", "compile", inputPath, "--target", "js", "-o", outputPath]
+    : ["deno", "run", "-A", CLI_PATH, "hql", "compile", inputPath, "--target", "js", "-o", outputPath];
 
-  const { success, stderr } = await command.output();
+  const { success, stderr } = await platform.command.output({
+    cmd,
+    stdout: "piped",
+    stderr: "piped",
+  });
   return { success, stderr: new TextDecoder().decode(stderr) };
 }
 
@@ -64,11 +61,12 @@ async function transpileAndRun(
   hqlCode: string,
 ): Promise<{ stdout: string; stderr: string; success: boolean }> {
   return await withCompiledHql(hqlCode, async (outputPath) => {
-    const { success, stdout, stderr } = await new Deno.Command("deno", {
-      args: ["run", outputPath],
+    const platform = getPlatform();
+    const { success, stdout, stderr } = await platform.command.output({
+      cmd: ["deno", "run", outputPath],
       stdout: "piped",
       stderr: "piped",
-    }).output();
+    });
 
     return {
       success,

@@ -1,11 +1,30 @@
 import { getPlatform } from "../../../src/platform/platform.ts";
+import type {
+  PlatformHttpServeOptions,
+  PlatformHttpServerHandle,
+} from "../../../src/platform/types.ts";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isPermissionOrAddrInUseError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const name = (error as { name?: string }).name ?? "";
+  const code = (error as { code?: string }).code ?? "";
+  return (
+    name === "PermissionDenied" ||
+    name === "AddrInUse" ||
+    code === "EACCES" ||
+    code === "EADDRINUSE"
+  );
+}
+
 export function isPermissionDeniedError(error: unknown): boolean {
-  return error instanceof Deno.errors.PermissionDenied;
+  if (!(error instanceof Error)) return false;
+  const name = (error as { name?: string }).name ?? "";
+  const code = (error as { code?: string }).code ?? "";
+  return name === "PermissionDenied" || code === "EACCES";
 }
 
 export async function withServePermissionGuard(
@@ -26,7 +45,7 @@ export async function withOAuthStorePath<T>(
   fn: (storePath: string) => Promise<T>,
 ): Promise<T> {
   const platform = getPlatform();
-  const dir = await Deno.makeTempDir({ prefix });
+  const dir = await platform.fs.makeTempDir({ prefix });
   const path = platform.path.join(dir, "mcp-oauth.json");
   await platform.fs.writeTextFile(
     path,
@@ -40,19 +59,19 @@ export async function withOAuthStorePath<T>(
 }
 
 export async function serveWithRetry(
-  options: Deno.ServeTcpOptions,
+  options: PlatformHttpServeOptions,
   handler: (req: Request) => Response | Promise<Response>,
   maxAttempts = 5,
-): Promise<Deno.HttpServer> {
+): Promise<PlatformHttpServerHandle> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return Deno.serve(options, handler);
+      return getPlatform().http.serveWithHandle!(handler, options);
     } catch (error) {
-      if (!(error instanceof Deno.errors.PermissionDenied) || attempt === maxAttempts) {
+      if (!isPermissionOrAddrInUseError(error) || attempt === maxAttempts) {
         throw error;
       }
       await sleep(40 * attempt);
     }
   }
-  throw new Error("Failed to start Deno.serve after retries");
+  throw new Error("Failed to start server after retries");
 }

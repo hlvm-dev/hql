@@ -7,11 +7,15 @@ import {
   transpileAndRunWithNode,
   transpileCode,
 } from "../_shared/binary-helpers.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 
 let NODE_AVAILABLE = false;
 try {
-  const cmd = new Deno.Command("node", { args: ["--version"] });
-  const { code } = await cmd.output();
+  const { code } = await getPlatform().command.output({
+    cmd: ["node", "--version"],
+    stdout: "piped",
+    stderr: "piped",
+  });
   NODE_AVAILABLE = code === 0;
 } catch {
   NODE_AVAILABLE = false;

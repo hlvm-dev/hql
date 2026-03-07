@@ -20,6 +20,8 @@ import {
   type ModelInfo,
 } from "../../src/hlvm/providers/index.ts";
 import { insertMessage } from "../../src/hlvm/store/conversation-store.ts";
+import { getPlatform } from "../../src/platform/platform.ts";
+import { findFreePort } from "../shared/light-helpers.ts";
 
 class IntegrationAgentEngine implements AgentEngine {
   createLLM(config: AgentLLMConfig) {
@@ -93,25 +95,16 @@ interface ServerContext {
 
 let serverContext: ServerContext | null = null;
 
-function reservePort(): number {
-  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-  try {
-    const addr = listener.addr as Deno.NetAddr;
-    return addr.port;
-  } finally {
-    listener.close();
-  }
-}
-
 async function ensureServerRunning(): Promise<ServerContext> {
   if (serverContext) return serverContext;
 
-  const port = reservePort();
+  const port = await findFreePort();
   const baseUrl = `http://localhost:${port}`;
   const authToken = "hlvm-integration-test-token";
 
-  Deno.env.set("HLVM_DISABLE_AI_AUTOSTART", "1");
-  Deno.env.set("HLVM_AUTH_TOKEN", authToken);
+  const env = getPlatform().env;
+  env.set("HLVM_DISABLE_AI_AUTOSTART", "1");
+  env.set("HLVM_AUTH_TOKEN", authToken);
 
   registerProvider("test-chat", () => integrationProvider, { isDefault: true });
   setDefaultProvider("test-chat");

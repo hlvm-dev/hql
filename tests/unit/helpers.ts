@@ -26,7 +26,7 @@ const remove = (targetPath: string, opts?: { recursive?: boolean }) =>
 
 // GLOBAL FIX: Disable AI auto-start for ALL unit tests that use this helper.
 // This prevents "Leaks detected" errors caused by the runtime spawning background processes.
-Deno.env.set("HLVM_DISABLE_AI_AUTOSTART", "1");
+getPlatform().env.set("HLVM_DISABLE_AI_AUTOSTART", "1");
 
 // Get the directory containing the test files
 const testDir = dirname(fromFileUrl(import.meta.url));
@@ -158,12 +158,13 @@ export function hqlToTypeScript(hql: string): string {
 export async function withTempDir<T>(
   fn: (dir: string) => Promise<T>,
 ): Promise<T> {
-  const tempDir = await Deno.makeTempDir({ prefix: "hlvm-test-" });
+  const platform = getPlatform();
+  const tempDir = await platform.fs.makeTempDir({ prefix: "hlvm-test-" });
   try {
     return await fn(tempDir);
   } finally {
     try {
-      await Deno.remove(tempDir, { recursive: true });
+      await platform.fs.remove(tempDir, { recursive: true });
     } catch {
       // Ignore cleanup errors
     }
@@ -215,14 +216,14 @@ export async function createTempTree(
   structure: Record<string, string | null>,
 ): Promise<string> {
   const platform = getPlatform();
-  const tmpDir = await Deno.makeTempDir({ prefix: "hlvm-test-tree-" });
+  const tmpDir = await platform.fs.makeTempDir({ prefix: "hlvm-test-tree-" });
 
   for (const [filePath, content] of Object.entries(structure)) {
     const fullPath = platform.path.join(tmpDir, filePath);
     const dir = platform.path.dirname(fullPath);
-    await Deno.mkdir(dir, { recursive: true });
+    await platform.fs.mkdir(dir, { recursive: true });
     if (content !== null) {
-      await Deno.writeTextFile(fullPath, content);
+      await platform.fs.writeTextFile(fullPath, content);
     }
   }
 
@@ -286,4 +287,16 @@ export async function captureConsole<T>(
     console.error = originalError;
     console.warn = originalWarn;
   }
+}
+
+// ============================================================================
+// Network Helpers
+// ============================================================================
+
+/** Find a free port on localhost. Wraps Deno.listen for SSOT. */
+export async function findFreePort(): Promise<number> {
+  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+  const port = (listener.addr as Deno.NetAddr).port;
+  listener.close();
+  return port;
 }
