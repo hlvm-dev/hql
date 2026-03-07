@@ -1,7 +1,11 @@
-import { http, HttpError } from "../../common/http-client.ts";
+import { http } from "../../common/http-client.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { getPlatform } from "../../platform/platform.ts";
-import type { PermissionMode } from "../../common/config/types.ts";
+import type {
+  ConfigKey,
+  HlvmConfig,
+  PermissionMode,
+} from "../../common/config/types.ts";
 import type {
   AgentUIEvent,
   FinalResponseMeta,
@@ -22,6 +26,12 @@ import {
   type RuntimeSessionsResponse,
 } from "./session-protocol.ts";
 import { deriveDefaultSessionKey } from "./session-key.ts";
+import type {
+  PullProgress,
+  RuntimeModelDiscoveryResponse,
+  RuntimeModelPullStreamEvent,
+} from "./model-protocol.ts";
+import type { ModelInfo, ProviderStatus } from "../providers/types.ts";
 
 const STREAM_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const HEALTH_POLL_ATTEMPTS = 60;
@@ -51,6 +61,14 @@ export interface HostBackedChatResult {
 export interface HostBackedAgentQueryResult {
   text: string;
   stats: ChatResultStats;
+}
+
+export interface RuntimeConfigApi {
+  set: (key: string, value: unknown) => Promise<void>;
+  patch: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<HlvmConfig>;
+  reset: () => Promise<HlvmConfig>;
+  reload: () => Promise<HlvmConfig>;
+  readonly all: Promise<HlvmConfig>;
 }
 
 export interface HostBackedChatCallbacks {
@@ -298,6 +316,23 @@ async function fetchRuntimeJson<T>(
   });
 }
 
+async function fetchRuntimeRaw(
+  path: string,
+  options?: RequestInit & { timeout?: number; signal?: AbortSignal },
+): Promise<Response> {
+  const { baseUrl, authToken } = await ensureRuntimeHost();
+  return await http.fetchRaw(`${baseUrl}${path}`, {
+    ...options,
+    timeout: options?.timeout ?? 5_000,
+    headers: {
+      ...(options?.headers instanceof Headers
+        ? Object.fromEntries(options.headers.entries())
+        : (options?.headers as Record<string, string> | undefined)),
+      ...authHeaders(authToken),
+    },
+  });
+}
+
 function cloneMessagesWithCurrentTurn(
   messages: ChatRequestMessage[],
 ): {
@@ -362,13 +397,11 @@ export async function getRuntimeSession(
 export async function verifyRuntimeModelAccess(
   modelId: string,
 ): Promise<boolean> {
-  const { baseUrl, authToken } = await ensureRuntimeHost();
-  const response = await http.fetchRaw(`${baseUrl}/api/models/verify-access`, {
+  const response = await fetchRuntimeRaw("/api/models/verify-access", {
     method: "POST",
     timeout: 10_000,
     headers: {
       "Content-Type": "application/json",
-      ...authHeaders(authToken),
     },
     body: JSON.stringify({ model: modelId }),
   });
@@ -379,6 +412,214 @@ export async function verifyRuntimeModelAccess(
 
   const result = await response.json() as { available?: boolean };
   return result.available === true;
+}
+
+export async function getRuntimeProviderStatus(
+  providerName?: string,
+): Promise<ProviderStatus> {
+  const response = await fetchRuntimeJson<{ providers?: Record<string, ProviderStatus> }>(
+    "/api/models/status",
+  );
+
+  if (!providerName) {
+    return response.providers?.ollama ?? { available: false };
+  }
+
+  return response.providers?.[providerName] ?? {
+    available: false,
+    error: `Provider not registered: ${providerName}`,
+  };
+}
+
+export async function listRuntimeInstalledModels(
+  provider = "ollama",
+): Promise<ModelInfo[]> {
+  const response = await fetchRuntimeJson<{ models: ModelInfo[] }>(
+    `/api/models/installed?provider=${encodeURIComponent(provider)}`,
+  );
+  return response.models;
+}
+
+export async function getRuntimeModelDiscovery(
+  options: { refresh?: boolean } = {},
+): Promise<RuntimeModelDiscoveryResponse> {
+  const query = options.refresh ? "?refresh=true" : "";
+  return await fetchRuntimeJson<RuntimeModelDiscoveryResponse>(
+    `/api/models/discovery${query}`,
+  );
+}
+
+export async function getRuntimeModel(
+  name: string,
+  provider = "ollama",
+): Promise<ModelInfo | null> {
+  const response = await fetchRuntimeRaw(
+    `/api/models/${encodeURIComponent(provider)}/${encodeURIComponent(name)}`,
+  );
+
+  if (response.status === 404) {
+    await response.body?.cancel();
+    return null;
+  }
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  return await response.json() as ModelInfo;
+}
+
+export async function deleteRuntimeModel(
+  name: string,
+  provider = "ollama",
+): Promise<boolean> {
+  const response = await fetchRuntimeRaw(
+    `/api/models/${encodeURIComponent(provider)}/${encodeURIComponent(name)}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (response.status === 404) {
+    await response.body?.cancel();
+    return false;
+  }
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  const result = await response.json() as { deleted?: boolean };
+  return result.deleted === true;
+}
+
+export async function* pullRuntimeModelViaHost(
+  name: string,
+  provider?: string,
+  signal?: AbortSignal,
+): AsyncGenerator<PullProgress, void, unknown> {
+  const response = await fetchRuntimeRaw("/api/models/pull", {
+    method: "POST",
+    timeout: STREAM_TIMEOUT_MS,
+    signal,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name, provider }),
+  });
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new RuntimeError("Runtime host returned no model pull stream.");
+  }
+
+  const decoder = new TextDecoder();
+  let pending = "";
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      let newlineIndex = pending.indexOf("\n");
+      while (newlineIndex >= 0) {
+        const line = pending.slice(0, newlineIndex).trim();
+        pending = pending.slice(newlineIndex + 1);
+        if (line.length > 0) {
+          const event = JSON.parse(line) as RuntimeModelPullStreamEvent;
+          if (event.event === "progress") {
+            const { event: _kind, ...progress } = event;
+            yield progress;
+          } else if (event.event === "error") {
+            throw new RuntimeError(event.message);
+          }
+        }
+        newlineIndex = pending.indexOf("\n");
+      }
+    }
+
+    const trailing = pending.trim();
+    if (trailing.length > 0) {
+      const event = JSON.parse(trailing) as RuntimeModelPullStreamEvent;
+      if (event.event === "progress") {
+        const { event: _kind, ...progress } = event;
+        yield progress;
+      } else if (event.event === "error") {
+        throw new RuntimeError(event.message);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+export async function getRuntimeConfig(): Promise<HlvmConfig> {
+  return await fetchRuntimeJson<HlvmConfig>("/api/config");
+}
+
+export async function patchRuntimeConfig(
+  updates: Partial<Record<ConfigKey, unknown>>,
+): Promise<HlvmConfig> {
+  const response = await fetchRuntimeRaw("/api/config", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(updates),
+  });
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  return await response.json() as HlvmConfig;
+}
+
+export async function setRuntimeConfigKey(
+  key: ConfigKey,
+  value: unknown,
+): Promise<void> {
+  await patchRuntimeConfig({ [key]: value });
+}
+
+export async function resetRuntimeConfig(): Promise<HlvmConfig> {
+  const response = await fetchRuntimeRaw("/api/config/reset", {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  return await response.json() as HlvmConfig;
+}
+
+export async function reloadRuntimeConfig(): Promise<HlvmConfig> {
+  const response = await fetchRuntimeRaw("/api/config/reload", {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  return await response.json() as HlvmConfig;
+}
+
+export function getRuntimeConfigApi(): RuntimeConfigApi {
+  return {
+    set: (key, value) => setRuntimeConfigKey(key as ConfigKey, value),
+    patch: (updates) => patchRuntimeConfig(updates),
+    reset: () => resetRuntimeConfig(),
+    reload: () => reloadRuntimeConfig(),
+    get all() {
+      return getRuntimeConfig();
+    },
+  };
 }
 
 export async function runChatViaHost(

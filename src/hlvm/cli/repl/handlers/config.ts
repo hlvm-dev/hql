@@ -90,6 +90,46 @@ export async function handlePatchConfig(req: Request): Promise<Response> {
 
 /**
  * @openapi
+ * /api/config/reset:
+ *   post:
+ *     tags: [Config]
+ *     summary: Reset configuration to defaults
+ *     operationId: resetConfig
+ */
+export async function handleResetConfig(): Promise<Response> {
+  try {
+    const updated = await config.reset();
+    return Response.json(updated);
+  } catch (error) {
+    return jsonError(
+      error instanceof Error ? error.message : "Failed to reset config",
+      500,
+    );
+  }
+}
+
+/**
+ * @openapi
+ * /api/config/reload:
+ *   post:
+ *     tags: [Config]
+ *     summary: Reload configuration from disk
+ *     operationId: reloadConfig
+ */
+export async function handleReloadConfig(): Promise<Response> {
+  try {
+    const updated = await config.reload();
+    return Response.json(updated);
+  } catch (error) {
+    return jsonError(
+      error instanceof Error ? error.message : "Failed to reload config",
+      500,
+    );
+  }
+}
+
+/**
+ * @openapi
  * /api/config/stream:
  *   get:
  *     tags: [Config]

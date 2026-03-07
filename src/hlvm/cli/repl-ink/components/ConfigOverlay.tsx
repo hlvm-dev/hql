@@ -36,13 +36,17 @@ import {
   buildSelectedModelConfigUpdates,
   persistSelectedModelConfig,
 } from "../../../../common/config/model-selection.ts";
-import { ai } from "../../../api/ai.ts";
 import { THEME_NAMES, type ThemeName, useTheme } from "../../theme/index.ts";
 import {
   fetchModelInfo,
   formatCapabilityTags,
   type ModelInfo,
 } from "../utils/model-info.ts";
+import {
+  getRuntimeConfigApi,
+  listRuntimeInstalledModels,
+  type RuntimeConfigApi,
+} from "../../../runtime/host-client.ts";
 import {
   ansi,
   bg,
@@ -70,6 +74,8 @@ interface ConfigOverlayProps {
   onClose: () => void;
   /** Callback to open Model Browser panel */
   onOpenModelBrowser?: () => void;
+  /** Called when effective config changes */
+  onConfigChange?: (config: HlvmConfig) => void;
   /** Initial state from previous session */
   initialState?: ConfigOverlayState;
   /** Called when state changes (for persistence) */
@@ -197,17 +203,9 @@ function parseOptionValue(key: EditableConfigKey, value: string): unknown {
 // Helpers
 // ============================================================
 
-/** SSOT accessor for config API */
-interface ConfigApi {
-  set: (key: string, value: unknown) => Promise<unknown>;
-  patch?: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<unknown>;
-  reset?: () => Promise<HlvmConfig>;
-  all?: Promise<HlvmConfig>;
-}
-function getConfigApi(): ConfigApi | undefined {
-  return (globalThis as Record<string, unknown>).config as
-    | ConfigApi
-    | undefined;
+/** Runtime-host-backed config accessor for shell overlays. */
+function getConfigApi(): RuntimeConfigApi {
+  return getRuntimeConfigApi();
 }
 
 // ============================================================
@@ -217,6 +215,7 @@ function getConfigApi(): ConfigApi | undefined {
 export function ConfigOverlay({
   onClose,
   onOpenModelBrowser,
+  onConfigChange,
   initialState,
   onStateChange,
 }: ConfigOverlayProps): React.ReactElement | null {
@@ -272,10 +271,10 @@ export function ConfigOverlay({
     }
   }, []);
 
-  // Fetch available models - 100% SSOT via ai.models API (no fallback)
+  // Fetch available models through the runtime host boundary.
   const fetchOllamaModels = useCallback(async (currentModel: string) => {
     try {
-      const modelList = await ai.models.list("ollama");
+      const modelList = await listRuntimeInstalledModels("ollama");
       const models = modelList
         .map((m) => normalizeModelId(m.name))
         .filter((model): model is string => typeof model === "string");
@@ -318,6 +317,10 @@ export function ConfigOverlay({
   useEffect(() => {
     onStateChange?.({ selectedIndex });
   }, [selectedIndex, onStateChange]);
+
+  useEffect(() => {
+    onConfigChange?.(config);
+  }, [config, onConfigChange]);
 
   // Format value for display
   const formatValue = useCallback(

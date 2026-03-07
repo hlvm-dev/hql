@@ -10,8 +10,12 @@ import { ThemeProvider } from "../theme/index.ts";
 import { ModelBrowser } from "./components/ModelBrowser.tsx";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
-import { config } from "../../api/config.ts";
 import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
+import {
+  getRuntimeConfig,
+  getRuntimeConfigApi,
+} from "../../runtime/host-client.ts";
+import { setCurrentThemeName } from "../theme/state.ts";
 
 export interface ModelBrowserOptions {
   endpoint?: string;
@@ -51,7 +55,10 @@ function ModelBrowserApp(
   }, [exit, onCancel, onSelect]);
 
   const handleSelect = useCallback(async (modelName: string) => {
-    const normalized = await persistSelectedModelConfig(config, modelName);
+    const normalized = await persistSelectedModelConfig(
+      getRuntimeConfigApi(),
+      modelName,
+    );
     selectedModelRef.current = normalized;
   }, []);
 
@@ -76,14 +83,16 @@ export async function startModelBrowser(options: ModelBrowserOptions = {}): Prom
     return { code: 1 };
   }
 
-  const currentModel = options.currentModel ?? config.snapshot.model;
+  const runtimeConfig = await getRuntimeConfig();
+  const currentModel = options.currentModel ?? runtimeConfig.model;
   const currentModelConfigured = options.currentModelConfigured ??
-    (config.snapshot.modelConfigured === true);
-  const endpoint = options.endpoint ?? config.snapshot.endpoint;
+    (runtimeConfig.modelConfigured === true);
+  const endpoint = options.endpoint ?? runtimeConfig.endpoint;
+  const initialTheme = setCurrentThemeName(runtimeConfig.theme);
   let selectedModel: string | undefined;
 
   const { waitUntilExit } = render(
-    <ThemeProvider>
+    <ThemeProvider initialTheme={initialTheme}>
       <ModelBrowserApp
         endpoint={endpoint}
         currentModel={currentModel}

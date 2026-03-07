@@ -22,12 +22,15 @@ import {
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { listRegisteredProviders } from "../../../providers/index.ts";
 import {
+  hasModelDiscoveryData,
   readModelDiscoverySnapshot,
   refreshModelDiscoverySnapshot,
 } from "../../../providers/model-discovery-store.ts";
 import { isRuntimeReadyForAiRequests } from "../../commands/serve.ts";
 import { listSnapshotBackedModels } from "../../model-discovery.ts";
 import { probeModelAccess } from "../../../runtime/model-access.ts";
+import { tagModelsForProvider } from "../../../providers/model-list.ts";
+import type { RuntimeModelDiscoveryResponse } from "../../../runtime/model-protocol.ts";
 
 const MODELS_CHANNEL = "__models__";
 
@@ -128,6 +131,64 @@ export async function handleListModels(): Promise<Response> {
     includeRemoteCatalog: false,
   });
   return Response.json({ models });
+}
+
+async function listInstalledModels(
+  provider = "ollama",
+): Promise<ReturnType<typeof tagModelsForProvider>> {
+  try {
+    return tagModelsForProvider(provider, await ai.models.list(provider));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * @openapi
+ * /api/models/installed:
+ *   get:
+ *     tags: [Models]
+ *     summary: List installed models for a provider
+ *     operationId: listInstalledModels
+ */
+export async function handleListInstalledModels(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const provider = url.searchParams.get("provider")?.trim() || "ollama";
+  const models = await listInstalledModels(provider);
+  return Response.json({ models });
+}
+
+/**
+ * @openapi
+ * /api/models/discovery:
+ *   get:
+ *     tags: [Models]
+ *     summary: Read model discovery snapshot with installed models
+ *     operationId: modelDiscovery
+ */
+export async function handleModelDiscovery(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const refresh = url.searchParams.get("refresh") === "true";
+  const installedModels = await listInstalledModels("ollama");
+
+  let snapshot = await readModelDiscoverySnapshot();
+  let failed = false;
+
+  if (refresh || !hasModelDiscoveryData(snapshot)) {
+    const refreshed = await refreshModelDiscoverySnapshot();
+    snapshot = refreshed.snapshot;
+    failed = refreshed.failed;
+  } else {
+    void refreshModelDiscoverySnapshot();
+  }
+
+  const payload: RuntimeModelDiscoveryResponse = {
+    installedModels,
+    remoteModels: snapshot.remoteModels,
+    cloudModels: snapshot.cloudModels,
+    failed,
+  };
+  return Response.json(payload);
 }
 
 /**

@@ -27,6 +27,7 @@ import { log } from "../../../api/log.ts";
 import { ValidationError, RuntimeError } from "../../../../common/error.ts";
 import { ensureError } from "../../../../common/utils.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
+import { pullRuntimeModelViaHost } from "../../../runtime/host-client.ts";
 
 // ============================================================
 // Resource Registry
@@ -377,7 +378,7 @@ export class TaskManager {
 
   /**
    * Execute the model pull (internal).
-   * 100% SSOT: Uses ai.models.pull() API only - no fallback.
+   * 100% SSOT: Uses the runtime host model pull API only - no fallback.
    * Uses state machine for transitions and immutable updates.
    */
   private async executePull(
@@ -393,27 +394,29 @@ export class TaskManager {
     this.updateProgress(taskId, { status: "starting" });
     this.emit({ type: "task:started", taskId });
 
+    let timedOut = false;
+
     try {
-      // Add timeout to prevent hanging forever
-      const timeoutSignal = AbortSignal.timeout(30 * 60 * 1000); // 30 min max
-      const combinedSignal = AbortSignal.any([signal, timeoutSignal]);
+      const timeoutController = new AbortController();
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        timeoutController.abort();
+      }, 30 * 60 * 1000);
+      const combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
 
-      // 100% SSOT: Use ai.models.pull API only - no fallback
-      const aiApi = (globalThis as Record<string, unknown>).ai as {
-        models: {
-          pull: (name: string, provider?: string, signal?: AbortSignal) =>
-            AsyncGenerator<PullProgress, void, unknown>;
-        };
-      } | undefined;
-
-      if (!aiApi?.models?.pull) {
-        throw new RuntimeError("AI Provider API not initialized. Cannot pull model.");
-      }
-
-      // Use API (single source of truth)
-      for await (const progress of aiApi.models.pull(modelName, undefined, combinedSignal)) {
-        if (signal.aborted) break;
-        this.updateProgress(taskId, progress);
+      try {
+        for await (
+          const progress of pullRuntimeModelViaHost(
+            modelName,
+            undefined,
+            combinedSignal,
+          )
+        ) {
+          if (signal.aborted) break;
+          this.updateProgress(taskId, progress);
+        }
+      } finally {
+        clearTimeout(timeoutId);
       }
 
       // Check if cancelled before marking complete
@@ -433,19 +436,17 @@ export class TaskManager {
     } catch (error) {
       // Check if abort error
       if (signal.aborted || (error as Error).name === "AbortError") {
+        if (timedOut) {
+          const timeoutError = new Error("Download timed out after 30 minutes");
+          this.setError(taskId, timeoutError);
+          if (this.transition(taskId, "failed")) {
+            this.emit({ type: "task:failed", taskId, error: timeoutError });
+          }
+          return;
+        }
         // Only emit if transition succeeds (cancel() may have already done this)
         if (this.transition(taskId, "cancelled", { silent: true })) {
           this.emit({ type: "task:cancelled", taskId });
-        }
-        return;
-      }
-
-      // Handle timeout
-      if ((error as Error).name === "TimeoutError") {
-        const timeoutError = new Error("Download timed out after 30 minutes");
-        this.setError(taskId, timeoutError);
-        if (this.transition(taskId, "failed")) {
-          this.emit({ type: "task:failed", taskId, error: timeoutError });
         }
         return;
       }

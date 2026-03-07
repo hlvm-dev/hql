@@ -12,9 +12,9 @@
 
 import { useMemo } from "react";
 import { THEMES, type ThemeName, type ThemePalette } from "./palettes.ts";
-import { config } from "../../api/config.ts";
 import { buildSemanticColors, type SemanticColors } from "./semantic.ts";
 import { useTheme } from "./ThemeContext.tsx";
+import { getCurrentThemeName } from "./state.ts";
 export { THEMES, THEME_NAMES, type ThemeName, type ThemePalette } from "./palettes.ts";
 export { type SemanticColors } from "./semantic.ts";
 
@@ -77,7 +77,7 @@ const ANSI_RESET = "\x1b[0m";
  * @internal Used by getThemedAnsi
  */
 function getCurrentTheme(): ThemePalette {
-  const themeName = (config.snapshot?.theme || "sicp") as ThemeName;
+  const themeName = getCurrentThemeName();
   return THEMES[themeName] || THEMES.sicp;
 }
 

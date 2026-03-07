@@ -7,20 +7,21 @@
  * Falls back to model browser on any failure or user decline.
  */
 
-import { config } from "../../api/config.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { readSingleKey } from "../utils/input.ts";
 import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
-import { pullModelWithProgress } from "../../../common/ai-default-model.ts";
+import { logModelPullProgress } from "../../../common/ai-default-model.ts";
 import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
 import { isOllamaAuthErrorMessage } from "../../../common/ollama-auth.ts";
 import type { AIEngineLifecycle } from "../../runtime/ai-runtime.ts";
 import type { ModelInfo } from "../../providers/types.ts";
 import {
-  readStaleWhileRevalidateModelDiscoverySnapshot,
-} from "../../providers/model-discovery-store.ts";
-import { verifyRuntimeModelAccess } from "../../runtime/host-client.ts";
+  getRuntimeConfigApi,
+  getRuntimeModelDiscovery,
+  pullRuntimeModelViaHost,
+  verifyRuntimeModelAccess,
+} from "../../runtime/host-client.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 
 // ============================================================================
@@ -101,8 +102,8 @@ export function parseParamSize(size: string | undefined): number {
 
 /** Pick the best cloud model with tool-calling from the catalog (dynamic, no hardcoded list). */
 export async function pickBestCloudModel(): Promise<ModelInfo | null> {
-  const snapshot = await readStaleWhileRevalidateModelDiscoverySnapshot();
-  const cloudTools = snapshot.remoteModels.filter(
+  const snapshot = await getRuntimeModelDiscovery();
+  const cloudTools = snapshot.cloudModels.filter(
     (m) => isOllamaCloudModel(m.name) && m.capabilities?.includes("tools"),
   );
 
@@ -224,7 +225,10 @@ async function pullWithSignin(
 ): Promise<boolean> {
   log.raw.log(`Pulling ${modelName}...`);
   try {
-    await pullModelWithProgress(modelName, "ollama", (msg) => log.raw.log(msg));
+    await logModelPullProgress(
+      pullRuntimeModelViaHost(modelName, "ollama"),
+      (msg) => log.raw.log(msg),
+    );
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -237,9 +241,8 @@ async function pullWithSignin(
       return false;
     }
     try {
-      await pullModelWithProgress(
-        modelName,
-        "ollama",
+      await logModelPullProgress(
+        pullRuntimeModelViaHost(modelName, "ollama"),
         (msg) => log.raw.log(msg),
       );
       return true;
@@ -285,7 +288,7 @@ function getDefaultFirstRunSetupDeps(): FirstRunSetupDeps {
     pullWithSignin,
     fallbackToModelBrowser,
     saveConfiguredModel: async (modelId: string) => {
-      await persistSelectedModelConfig(config, modelId);
+      await persistSelectedModelConfig(getRuntimeConfigApi(), modelId);
     },
     logRaw: (message: string) => log.raw.log(message),
     logError: (message: string) => log.error(message),

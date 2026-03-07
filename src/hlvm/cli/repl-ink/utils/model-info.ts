@@ -8,9 +8,9 @@
  * @see https://ollama.com/library
  */
 
-import { ai } from "../../../api/ai.ts";
 import { parseModelString } from "../../../providers/index.ts";
 import type { ModelInfo, ProviderCapability } from "../../../providers/types.ts";
+import { getRuntimeModel } from "../../../runtime/host-client.ts";
 
 // Re-export for backwards compatibility
 export type { ModelInfo, ProviderCapability };
@@ -63,9 +63,9 @@ export async function fetchModelInfo(modelName: string): Promise<ModelInfo> {
   };
 
   try {
-    const result = await ai.models.get(
+    const result = await getRuntimeModel(
       parsedModelName,
-      providerName ?? undefined,
+      providerName ?? "ollama",
     );
     if (result) {
       const info: ModelInfo = {

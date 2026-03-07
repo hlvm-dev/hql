@@ -69,6 +69,15 @@ async function withChatHost(
       return Response.json({ sessions });
     }
 
+    if (url.pathname === "/api/config") {
+      return Response.json({
+        model: "ollama/llama3.1:8b",
+        modelConfigured: true,
+        endpoint: "http://localhost:11434",
+        theme: "sicp",
+      });
+    }
+
     const sessionMatch = url.pathname.match(/^\/api\/sessions\/(.+)$/);
     if (sessionMatch) {
       const sessionId = decodeURIComponent(sessionMatch[1]);

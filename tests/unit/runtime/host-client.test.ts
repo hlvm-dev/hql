@@ -1,12 +1,24 @@
 import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
+  deleteRuntimeModel,
+  getRuntimeConfig,
+  getRuntimeConfigApi,
+  getRuntimeModel,
+  getRuntimeModelDiscovery,
+  getRuntimeProviderStatus,
   getRuntimeSession,
   listRuntimeSessions,
+  listRuntimeInstalledModels,
+  pullRuntimeModelViaHost,
   runAgentQueryViaHost,
   runDirectChatViaHost,
 } from "../../../src/hlvm/runtime/host-client.ts";
 import { deriveDefaultSessionKey } from "../../../src/hlvm/runtime/session-key.ts";
-import { findFreePort, withEnv } from "../../shared/light-helpers.ts";
+import {
+  findFreePort,
+  withEnv,
+  withRuntimeHostServer,
+} from "../../shared/light-helpers.ts";
 
 const encoder = new TextEncoder();
 
@@ -411,4 +423,166 @@ Deno.test("runAgentQueryViaHost waits for runtime readiness before sending chat"
     abortController.abort();
     await server.finished;
   }
+});
+
+Deno.test("runtime host client exposes model discovery, installed models, get/delete, and pull streams", async () => {
+  let deleteCalls = 0;
+  let pullBodies: Array<Record<string, unknown>> = [];
+
+  await withRuntimeHostServer(async (req, authToken) => {
+    const url = new URL(req.url);
+    assertEquals(req.headers.get("Authorization"), `Bearer ${authToken}`);
+
+    if (url.pathname === "/api/models/installed") {
+      assertEquals(url.searchParams.get("provider"), "ollama");
+      return Response.json({
+        models: [{ name: "llama3.2:latest", metadata: { provider: "ollama" } }],
+      });
+    }
+
+    if (url.pathname === "/api/models/discovery") {
+      return Response.json({
+        installedModels: [{ name: "llama3.2:latest" }],
+        remoteModels: [{ name: "llama3.2:latest" }, { name: "qwen2.5-coder:7b" }],
+        cloudModels: [{ name: "gpt-4.1", metadata: { provider: "openai" } }],
+        failed: url.searchParams.get("refresh") === "true",
+      });
+    }
+
+    if (url.pathname === "/api/models/status") {
+      return Response.json({
+        providers: {
+          ollama: { available: true },
+          "claude-code": { available: true },
+          openai: { available: false, error: "Missing API key" },
+        },
+      });
+    }
+
+    if (url.pathname === "/api/models/ollama/llama3.2%3Alatest") {
+      if (req.method === "GET") {
+        return Response.json({
+          name: "llama3.2:latest",
+          capabilities: ["chat", "tools"],
+        });
+      }
+      if (req.method === "DELETE") {
+        deleteCalls += 1;
+        return Response.json({ deleted: true });
+      }
+    }
+
+    if (url.pathname === "/api/models/pull") {
+      pullBodies.push(await req.json() as Record<string, unknown>);
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({
+                event: "progress",
+                status: "downloading",
+                completed: 1,
+                total: 2,
+              }) + "\n",
+            ),
+          );
+          controller.enqueue(
+            encoder.encode(JSON.stringify({ event: "complete", name: "llama3.2:latest" }) + "\n"),
+          );
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "application/x-ndjson" },
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, async () => {
+    const installed = await listRuntimeInstalledModels("ollama");
+    const discovery = await getRuntimeModelDiscovery({ refresh: true });
+    const claudeStatus = await getRuntimeProviderStatus("claude-code");
+    const model = await getRuntimeModel("llama3.2:latest");
+    const progressEvents: Array<{ status: string; completed?: number }> = [];
+    for await (const progress of pullRuntimeModelViaHost("llama3.2:latest")) {
+      progressEvents.push({
+        status: progress.status,
+        completed: progress.completed,
+      });
+    }
+    const deleted = await deleteRuntimeModel("llama3.2:latest");
+
+    assertEquals(installed.map((item) => item.name), ["llama3.2:latest"]);
+    assertEquals(discovery.remoteModels.length, 2);
+    assertEquals(discovery.cloudModels.length, 1);
+    assertEquals(discovery.failed, true);
+    assertEquals(claudeStatus.available, true);
+    assertEquals(model?.capabilities, ["chat", "tools"]);
+    assertEquals(progressEvents, [{ status: "downloading", completed: 1 }]);
+    assertEquals(pullBodies.length, 1);
+    assertEquals(pullBodies[0]?.name, "llama3.2:latest");
+    assertEquals(deleteCalls, 1);
+    assertEquals(deleted, true);
+  });
+});
+
+Deno.test("runtime host client exposes config get/patch/reset through the runtime boundary", async () => {
+  const seenPatches: Array<Record<string, unknown>> = [];
+
+  await withRuntimeHostServer(async (req, authToken) => {
+    const url = new URL(req.url);
+    assertEquals(req.headers.get("Authorization"), `Bearer ${authToken}`);
+
+    if (url.pathname === "/api/config" && req.method === "GET") {
+      return Response.json({
+        model: "ollama/llama3.2:latest",
+        endpoint: "http://localhost:11434",
+        theme: "hlvm",
+      });
+    }
+
+    if (url.pathname === "/api/config" && req.method === "PATCH") {
+      const body = await req.json() as Record<string, unknown>;
+      seenPatches.push(body);
+      return Response.json({
+        model: "openai/gpt-4.1",
+        endpoint: "http://localhost:11434",
+        theme: "hlvm",
+      });
+    }
+
+    if (url.pathname === "/api/config/reset") {
+      return Response.json({
+        model: "ollama/llama3.2:latest",
+        endpoint: "http://localhost:11434",
+        theme: "hlvm",
+      });
+    }
+
+    if (url.pathname === "/api/config/reload") {
+      return Response.json({
+        model: "ollama/llama3.2:latest",
+        endpoint: "http://localhost:11434",
+        theme: "hlvm",
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, async () => {
+    const config = await getRuntimeConfig();
+    const runtimeConfig = getRuntimeConfigApi();
+    const patched = await runtimeConfig.patch({ model: "openai/gpt-4.1" });
+    await runtimeConfig.set("theme", "hlvm");
+    const reset = await runtimeConfig.reset();
+    const reloaded = await runtimeConfig.reload();
+
+    assertEquals(config.model, "ollama/llama3.2:latest");
+    assertEquals(patched.model, "openai/gpt-4.1");
+    assertEquals(seenPatches.length, 2);
+    assertEquals(seenPatches[0]?.model, "openai/gpt-4.1");
+    assertEquals(seenPatches[1]?.theme, "hlvm");
+    assertEquals(reset.model, "ollama/llama3.2:latest");
+    assertEquals(reloaded.model, "ollama/llama3.2:latest");
+  });
 });

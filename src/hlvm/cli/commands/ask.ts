@@ -6,12 +6,11 @@
  */
 
 import { log } from "../../api/log.ts";
-import { config } from "../../api/config.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 import { readLineInput, readSingleKey } from "../utils/input.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { isOllamaAuthErrorMessage } from "../../../common/ollama-auth.ts";
-import { isObjectValue, truncate } from "../../../common/utils.ts";
+import { truncate } from "../../../common/utils.ts";
 import { shouldSuppressFinalResponse } from "../../agent/model-compat.ts";
 import { classifyError, getRecoveryHint } from "../../agent/error-taxonomy.ts";
 import { getPlatform } from "../../../platform/platform.ts";
@@ -19,12 +18,12 @@ import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
 import {
   extractProvider,
   isPaidProvider,
-  isProviderApproved,
 } from "../../providers/approval.ts";
 import type { AgentUIEvent, TraceEvent } from "../../agent/orchestrator.ts";
 import type { PermissionMode } from "../../../common/config/types.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 import { runAgentQueryViaHost } from "../../runtime/host-client.ts";
+import { createRuntimeModelConfigManager } from "../../runtime/model-config.ts";
 import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 
 // MARK: - Paid Provider Consent
@@ -32,7 +31,6 @@ import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 export {
   extractProvider,
   isPaidProvider,
-  isProviderApproved,
 } from "../../providers/approval.ts";
 export { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 
@@ -371,12 +369,11 @@ export async function askCommand(args: string[]): Promise<void> {
     );
   }
 
+  const runtimeModelConfig = await createRuntimeModelConfigManager();
+
   // First-use bootstrap: if user has Claude Code auth available, default to it automatically.
-  if (!modelOverride && !config.snapshot.modelConfigured) {
-    const { autoConfigureInitialClaudeCodeModel } = await import(
-      "../../../common/ai-default-model.ts"
-    );
-    const autoModel = await autoConfigureInitialClaudeCodeModel();
+  if (!modelOverride && !runtimeModelConfig.getConfig().modelConfigured) {
+    const autoModel = await runtimeModelConfig.autoConfigureInitialClaudeCodeModel();
     if (autoModel) {
       modelOverride = autoModel;
     }
@@ -387,54 +384,43 @@ export async function askCommand(args: string[]): Promise<void> {
   const forceSetup = getPlatform().env.get("HLVM_FORCE_SETUP") === "1";
   if (
     !modelOverride &&
-    !config.snapshot.modelConfigured &&
+    !runtimeModelConfig.getConfig().modelConfigured &&
     (getPlatform().terminal.stdin.isTerminal() || forceSetup)
   ) {
     const { runFirstTimeSetup } = await import("./first-run-setup.ts");
     const result = await runFirstTimeSetup();
     if (result) {
       modelOverride = result;
+      await runtimeModelConfig.sync();
     }
   }
 
-  const { getConfiguredModel } = await import(
-    "../../../common/ai-default-model.ts"
-  );
   if (!modelOverride) {
-    const { reconcileConfiguredClaudeCodeModel } = await import(
-      "../../../common/ai-default-model.ts"
-    );
-    const repaired = await reconcileConfiguredClaudeCodeModel();
+    const repaired = await runtimeModelConfig.reconcileConfiguredClaudeCodeModel();
     if (repaired) {
       modelOverride = repaired;
     }
   }
 
-  let resolvedModel = modelOverride ?? getConfiguredModel();
-  {
-    const { resolveCompatibleClaudeCodeModel } = await import(
-      "../../../common/ai-default-model.ts"
-    );
-    const normalized = await resolveCompatibleClaudeCodeModel(resolvedModel);
-    if (normalized !== resolvedModel) {
-      resolvedModel = normalized;
-      if (modelOverride) {
-        modelOverride = normalized;
-      }
+  let resolvedModel = modelOverride ?? runtimeModelConfig.getConfiguredModel();
+  const normalized = await runtimeModelConfig.resolveCompatibleClaudeCodeModel(
+    resolvedModel,
+  );
+  if (normalized !== resolvedModel) {
+    resolvedModel = normalized;
+    if (modelOverride) {
+      modelOverride = normalized;
     }
   }
 
   const model = modelOverride ?? undefined;
-  const rawContextWindow = isObjectValue(config.snapshot)
-    ? config.snapshot.contextWindow
-    : undefined;
-  const contextWindow = typeof rawContextWindow === "number" &&
-      Number.isInteger(rawContextWindow) && rawContextWindow > 0
-    ? rawContextWindow
-    : undefined;
+  const contextWindow = runtimeModelConfig.getContextWindow();
 
   // Paid provider consent gate
-  if (isPaidProvider(resolvedModel) && !isProviderApproved(resolvedModel)) {
+  if (
+    isPaidProvider(resolvedModel) &&
+    !runtimeModelConfig.isProviderApproved(resolvedModel)
+  ) {
     const consented = await confirmPaidProviderConsent(resolvedModel);
     if (!consented) {
       log.raw.log("Aborted. Use a free model (e.g., Ollama) or re-run to approve.");
@@ -532,7 +518,7 @@ export async function askCommand(args: string[]): Promise<void> {
 
   // Resolve permission mode: CLI flag > config > default
   const effectivePermissionMode: PermissionMode = permissionModeOverride
-    ?? (config.snapshot.permissionMode as PermissionMode | undefined)
+    ?? runtimeModelConfig.getPermissionMode()
     ?? "default";
 
   const executeQuery = async () => {

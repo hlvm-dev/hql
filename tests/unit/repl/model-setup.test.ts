@@ -13,53 +13,30 @@ import {
   DEFAULT_CONFIG,
   type HlvmConfig,
 } from "../../../src/common/config/types.ts";
-import { config } from "../../../src/hlvm/api/config.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import type { ModelInfo } from "../../../src/hlvm/providers/types.ts";
+import { withRuntimeHostServer } from "../../shared/light-helpers.ts";
 
-const globalAny = globalThis as Record<string, unknown>;
-
-async function withConfigSnapshot<T>(
+async function withRuntimeConfig<T>(
   model: string,
-  fn: () => Promise<T> | T
-): Promise<T> {
-  const descriptor = Object.getOwnPropertyDescriptor(config, "snapshot");
-  const snapshot: HlvmConfig = { ...DEFAULT_CONFIG, model };
-
-  Object.defineProperty(config, "snapshot", {
-    configurable: true,
-    get: () => snapshot,
-  });
-
-  try {
-    return await fn();
-  } finally {
-    if (descriptor) {
-      Object.defineProperty(config, "snapshot", descriptor);
-    }
-  }
-}
-
-async function withAiModels<T>(
   models: ModelInfo[],
-  fn: () => Promise<T> | T
+  fn: () => Promise<T> | T,
 ): Promise<T> {
-  const previousAi = globalAny.ai;
-  globalAny.ai = {
-    models: {
-      list: (_provider?: string) => Promise.resolve(models),
-    },
-  };
-
-  try {
-    return await fn();
-  } finally {
-    if (previousAi === undefined) {
-      delete globalAny.ai;
-    } else {
-      globalAny.ai = previousAi;
+  const snapshot: HlvmConfig = { ...DEFAULT_CONFIG, model };
+  let result!: T;
+  await withRuntimeHostServer(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/api/config") {
+      return Response.json(snapshot);
     }
-  }
+    if (url.pathname === "/api/models/installed") {
+      return Response.json({ models });
+    }
+    return new Response("Not found", { status: 404 });
+  }, async () => {
+    result = await fn();
+  });
+  return result;
 }
 
 async function withAutostartEnabled<T>(
@@ -82,9 +59,7 @@ async function withAutostartEnabled<T>(
 
 async function runCheck(model: string, models: ModelInfo[]): Promise<boolean> {
   return await withAutostartEnabled(() =>
-    withConfigSnapshot(model, () =>
-      withAiModels(models, () => checkDefaultModelInstalled())
-    )
+    withRuntimeConfig(model, models, () => checkDefaultModelInstalled())
   );
 }
 
@@ -114,12 +89,16 @@ Deno.test("Model setup detection uses configured model", async (t) => {
   });
 
   await t.step("getDefaultModelName returns the configured model name", async () => {
-    const name = await withConfigSnapshot("openai/gpt-4", () => getDefaultModelName());
+    const name = await withRuntimeConfig("openai/gpt-4", [], () =>
+      getDefaultModelName()
+    );
     assertEquals(name, "gpt-4");
   });
 
   await t.step("getDefaultModelName preserves tags for ollama models", async () => {
-    const name = await withConfigSnapshot("ollama/llama3.2:latest", () => getDefaultModelName());
+    const name = await withRuntimeConfig("ollama/llama3.2:latest", [], () =>
+      getDefaultModelName()
+    );
     assertEquals(name, "llama3.2:latest");
   });
 });

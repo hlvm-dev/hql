@@ -14,8 +14,8 @@
 
 import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
 import { THEMES, type ThemeName, type ThemePalette } from "./palettes.ts";
-import { config } from "../../api/config.ts";
 import { ValidationError } from "../../../common/error.ts";
+import { getCurrentThemeName, normalizeThemeName, setCurrentThemeName } from "./state.ts";
 
 // ============================================================
 // Types
@@ -59,20 +59,17 @@ interface ThemeProviderProps {
  * ```
  */
 export function ThemeProvider({ children, initialTheme }: ThemeProviderProps): React.ReactElement {
-  // Get initial theme from runtime config (part of config API SSOT pipeline)
-  // Note: This reads from config.snapshot which is the cached runtime value.
-  // Changes via config.set() update this value, then call setTheme() to refresh UI.
   const getInitialTheme = (): ThemeName => {
-    if (initialTheme) return initialTheme;
-    const name = config.snapshot?.theme as ThemeName;
-    return name && name in THEMES ? name : "sicp";
+    return setCurrentThemeName(initialTheme ?? getCurrentThemeName());
   };
 
   const [themeName, setThemeName] = useState<ThemeName>(getInitialTheme);
 
   const setTheme = useCallback((name: ThemeName) => {
     if (name in THEMES) {
-      setThemeName(name);
+      const normalized = normalizeThemeName(name);
+      setCurrentThemeName(normalized);
+      setThemeName(normalized);
     }
   }, []);
 

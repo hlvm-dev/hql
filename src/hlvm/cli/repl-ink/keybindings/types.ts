@@ -5,8 +5,8 @@
  * Used by: CommandPaletteOverlay, /help generation, registry.
  */
 
-import { config } from "../../../api/config.ts";
 import { getPlatform as getHostPlatform } from "../../../../platform/platform.ts";
+import { getCustomKeybindingsSnapshot } from "./custom-bindings.ts";
 
 // ============================================================
 // Category Types
@@ -111,7 +111,7 @@ export function getPlatform(): Platform {
 /** Get display string for keybinding on current platform */
 export function getDisplay(kb: Keybinding): string {
   // Check for custom override first
-  const customBindings = config.keybindings.snapshot ?? {};
+  const customBindings = getCustomKeybindingsSnapshot();
   const customCombo = customBindings[kb.id];
   if (customCombo) {
     return customCombo;

@@ -33,8 +33,6 @@ export interface AIEngineLifecycle {
 // Private implementation
 // ============================================================================
 
-const RUNTIME_DIR = getRuntimeDir();
-const AI_ENGINE_PATH = `${RUNTIME_DIR}/engine`;
 const SYSTEM_AI_ENGINE = "ollama";
 const AI_STARTUP_MAX_POLLS = 30;
 const AI_STARTUP_POLL_INTERVAL_MS = 300;
@@ -49,6 +47,10 @@ function isMissingEmbeddedEngineError(error: unknown): boolean {
   return error instanceof Error && error.message.includes("No such file");
 }
 
+function getEmbeddedEnginePath(): string {
+  return `${getRuntimeDir()}/engine`;
+}
+
 async function isAIRunning(): Promise<boolean> {
   try {
     // AI runtime lifecycle here means the local Ollama daemon, not whichever
@@ -61,7 +63,8 @@ async function isAIRunning(): Promise<boolean> {
 }
 
 async function extractAIEngine(platform = getPlatform()): Promise<void> {
-  if (await platform.fs.exists(AI_ENGINE_PATH)) {
+  const embeddedEnginePath = getEmbeddedEnginePath();
+  if (await platform.fs.exists(embeddedEnginePath)) {
     return;
   }
 
@@ -69,8 +72,8 @@ async function extractAIEngine(platform = getPlatform()): Promise<void> {
     const legacyEnginePath = await findLegacyRuntimeEngine();
     if (legacyEnginePath) {
       await ensureRuntimeDir();
-      await platform.fs.copyFile(legacyEnginePath, AI_ENGINE_PATH);
-      await platform.fs.chmod(AI_ENGINE_PATH, 0o755);
+      await platform.fs.copyFile(legacyEnginePath, embeddedEnginePath);
+      await platform.fs.chmod(embeddedEnginePath, 0o755);
       return;
     }
 
@@ -78,8 +81,8 @@ async function extractAIEngine(platform = getPlatform()): Promise<void> {
       platform.path.fromFileUrl(new URL("../../resources/ai-engine", import.meta.url))
     );
     await ensureRuntimeDir();
-    await platform.fs.writeFile(AI_ENGINE_PATH, engineBytes);
-    await platform.fs.chmod(AI_ENGINE_PATH, 0o755);
+    await platform.fs.writeFile(embeddedEnginePath, engineBytes);
+    await platform.fs.chmod(embeddedEnginePath, 0o755);
   } catch (error) {
     // In development mode, AI engine might not be embedded — fall back to system
     if (isMissingEmbeddedEngineError(error)) {
@@ -100,8 +103,9 @@ async function waitForAIEngineReady(): Promise<boolean> {
 }
 
 async function startAIEngine(platform = getPlatform()): Promise<void> {
-  const enginePath = await platform.fs.exists(AI_ENGINE_PATH)
-    ? AI_ENGINE_PATH
+  const embeddedEnginePath = getEmbeddedEnginePath();
+  const enginePath = await platform.fs.exists(embeddedEnginePath)
+    ? embeddedEnginePath
     : SYSTEM_AI_ENGINE;
 
   try {
@@ -124,8 +128,9 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
 
 async function resolveEnginePath(): Promise<string> {
   const platform = getPlatform();
-  if (await platform.fs.exists(AI_ENGINE_PATH)) {
-    return AI_ENGINE_PATH;
+  const embeddedEnginePath = getEmbeddedEnginePath();
+  if (await platform.fs.exists(embeddedEnginePath)) {
+    return embeddedEnginePath;
   }
   return SYSTEM_AI_ENGINE;
 }

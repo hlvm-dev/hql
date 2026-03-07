@@ -341,15 +341,14 @@ export function getProgressPercent(progress: PullProgress): number | undefined {
   return undefined;
 }
 
-export async function pullModelWithProgress(
-  modelName: string,
-  providerName?: string,
-  log?: (message: string) => void
+export async function logModelPullProgress(
+  progressStream: AsyncIterable<PullProgress>,
+  log?: (message: string) => void,
 ): Promise<void> {
   let lastPercent = -1;
   let lastStatus = "";
 
-  for await (const progress of ai.models.pull(modelName, providerName)) {
+  for await (const progress of progressStream) {
     if (!log) continue;
     const percent = getProgressPercent(progress);
     const status = (progress.status || "").trim();
@@ -366,6 +365,14 @@ export async function pullModelWithProgress(
       }
     }
   }
+}
+
+export async function pullModelWithProgress(
+  modelName: string,
+  providerName?: string,
+  log?: (message: string) => void
+): Promise<void> {
+  await logModelPullProgress(ai.models.pull(modelName, providerName), log);
 }
 
 export async function ensureDefaultModelInstalled(

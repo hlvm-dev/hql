@@ -1,18 +1,20 @@
-import { ai } from "../../api/ai.ts";
 import { log } from "../../api/log.ts";
-import { config } from "../../api/config.ts";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
 import {
-  ensureDefaultModelInstalled,
   getProgressPercent,
-  pullModelWithProgress,
+  isModelInstalled,
+  logModelPullProgress,
 } from "../../../common/ai-default-model.ts";
+import {
+  DEFAULT_MODEL_ID,
+  DEFAULT_MODEL_PROVIDER,
+} from "../../../common/config/types.ts";
 import {
   capabilitiesToDisplayTags,
   parseModelString,
 } from "../../providers/index.ts";
 import type { ModelInfo } from "../../providers/types.ts";
-import { ValidationError } from "../../../common/error.ts";
+import { ValidationError, RuntimeError } from "../../../common/error.ts";
 import { startModelBrowser } from "../repl-ink/model-browser.tsx";
 import { formatBytes } from "../../../common/limits.ts";
 import { getPlatform } from "../../../platform/platform.ts";
@@ -24,10 +26,15 @@ import {
   type ModelPullTask,
 } from "../repl/task-manager/index.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
-import { listSnapshotBackedModels } from "../model-discovery.ts";
 import {
-  readStaleWhileRevalidateModelDiscoverySnapshot,
+  getModelDiscoveryModels,
 } from "../../providers/model-discovery-store.ts";
+import {
+  getRuntimeModelDiscovery,
+  listRuntimeInstalledModels,
+  pullRuntimeModelViaHost,
+} from "../../runtime/host-client.ts";
+import { createRuntimeModelConfigManager } from "../../runtime/model-config.ts";
 
 function resolveDefaultLocalName(
   localModels: { name: string }[],
@@ -105,6 +112,68 @@ function formatDownloadProgress(task: ModelPullTask): string {
   return parts.join(" ");
 }
 
+function resolveConfiguredModelParts(configuredModel: string): {
+  providerName: string | undefined;
+  modelName: string;
+} {
+  let [providerName, modelName] = parseModelString(configuredModel);
+  if (!modelName) {
+    providerName = DEFAULT_MODEL_PROVIDER;
+    modelName = DEFAULT_MODEL_ID.split("/")[1] ?? DEFAULT_MODEL_ID;
+  }
+  return { providerName: providerName ?? undefined, modelName };
+}
+
+async function ensureConfiguredModelInstalledViaHost(
+  logMessage: (message: string) => void,
+): Promise<boolean> {
+  if (getPlatform().env.get("HLVM_DISABLE_AI_AUTOSTART")) return false;
+
+  const modelConfig = await createRuntimeModelConfigManager();
+  const configuredModel = modelConfig.getConfiguredModel();
+  const { providerName, modelName } = resolveConfiguredModelParts(configuredModel);
+
+  let models: ModelInfo[] = [];
+  try {
+    models = await listRuntimeInstalledModels(providerName);
+  } catch (error) {
+    throw new RuntimeError(
+      `AI provider unavailable while checking models. Ensure the runtime host is available: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (isModelInstalled(models, modelName)) {
+    return true;
+  }
+
+  logMessage(`Downloading default model (${modelName})...`);
+  try {
+    await logModelPullProgress(
+      pullRuntimeModelViaHost(modelName, providerName),
+      logMessage,
+    );
+  } catch (error) {
+    throw new RuntimeError(
+      `Default model download failed (${modelName}): ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  try {
+    models = await listRuntimeInstalledModels(providerName);
+  } catch (error) {
+    throw new RuntimeError(
+      `Unable to verify default model installation: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (!isModelInstalled(models, modelName)) {
+    throw new RuntimeError(`Default model download did not complete: ${modelName}`);
+  }
+
+  logMessage(`Default model ready: ${modelName}`);
+  return true;
+}
+
 export function showAiHelp(): void {
   log.raw.log(`
 HLVM AI - Model Setup
@@ -129,19 +198,11 @@ export async function aiCommand(args: string[]): Promise<void> {
   }
 
   const subcommand = args[0] ?? "setup";
-  const needsAiRuntime = subcommand === "setup" ||
-    subcommand === "pull" ||
-    subcommand === "browse" ||
-    subcommand === "models";
-
-  // Initialize runtime via SSOT; only start local AI engine for commands that require it.
-  await initializeRuntime({ stdlib: false, cache: false, ai: needsAiRuntime });
+  await initializeRuntime({ stdlib: false, cache: false, ai: false });
 
   switch (subcommand) {
     case "setup": {
-      await ensureDefaultModelInstalled({
-        log: (message) => log.raw.log(message),
-      });
+      await ensureConfiguredModelInstalledViaHost((message) => log.raw.log(message));
       return;
     }
     case "pull": {
@@ -154,20 +215,25 @@ export async function aiCommand(args: string[]): Promise<void> {
       }
       const [providerName, modelName] = parseModelString(modelArg);
       log.raw.log(`Downloading model (${modelName})...`);
-      await pullModelWithProgress(
-        modelName,
-        providerName ?? undefined,
+      await logModelPullProgress(
+        pullRuntimeModelViaHost(modelName, providerName ?? undefined),
         (message) => log.raw.log(message),
       );
       log.raw.log(`Model ready: ${modelName}`);
       return;
     }
     case "list": {
-      const configuredModel = config.snapshot.model;
-      const [allModels, discoverySnapshot] = await Promise.all([
-        listSnapshotBackedModels({ includeRemoteCatalog: false }),
-        readStaleWhileRevalidateModelDiscoverySnapshot(),
-      ]);
+      const modelConfig = await createRuntimeModelConfigManager();
+      const configuredModel = modelConfig.getConfig().model;
+      const discoverySnapshot = await getRuntimeModelDiscovery();
+      const allModels = getModelDiscoveryModels({
+        timestamp: 0,
+        remoteModels: discoverySnapshot.remoteModels,
+        cloudModels: discoverySnapshot.cloudModels,
+      }, {
+        localModels: discoverySnapshot.installedModels,
+        includeRemoteModels: false,
+      });
       if (allModels.length === 0) {
         log.raw.log("No models available.");
         return;
@@ -283,13 +349,14 @@ export async function aiCommand(args: string[]): Promise<void> {
     case "model":
     case "current-model":
     case "current": {
-      const configuredModel = config.snapshot.model;
+      const modelConfig = await createRuntimeModelConfigManager();
+      const configuredModel = modelConfig.getConfig().model;
       if (!configuredModel) {
         log.raw.log("No default model configured.");
         return;
       }
       const [providerName] = parseModelString(configuredModel);
-      const models = await ai.models.list(providerName ?? undefined);
+      const models = await listRuntimeInstalledModels(providerName ?? undefined);
       const defaultLocalName = resolveDefaultLocalName(models, configuredModel);
       const status = defaultLocalName ? "installed" : "not installed";
       log.raw.log(`Default: ${configuredModel} (${status})`);
@@ -297,7 +364,7 @@ export async function aiCommand(args: string[]): Promise<void> {
     }
     case "browse":
     case "models": {
-      const beforeModel = config.snapshot.model;
+      const beforeModel = (await createRuntimeModelConfigManager()).getConfig().model;
       const result = await startModelBrowser();
       if (result.code !== 0) return;
       if (result.selectedModel) {

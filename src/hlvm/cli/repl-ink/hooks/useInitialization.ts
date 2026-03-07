@@ -10,9 +10,11 @@ import { ReplState } from "../../repl/state.ts";
 import { initReplState, startReplHistoryInit } from "../../repl/init-repl-state.ts";
 import { getMedia } from "../../repl/context.ts";
 import { refreshKeybindingLookup } from "../keybindings/index.ts";
+import { setCustomKeybindingsSnapshot } from "../keybindings/custom-bindings.ts";
 import { checkDefaultModelInstalled, getDefaultModelName } from "../components/ModelSetupOverlay.tsx";
 import { log } from "../../../api/log.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
+import { getRuntimeConfig } from "../../../runtime/host-client.ts";
 
 export interface InitializationState {
   loading: boolean;
@@ -77,6 +79,8 @@ export function useInitialization(state: ReplState): InitializationState {
 
         setErrors(loadErrors);
         (globalThis as Record<string, unknown>).__hlvmStartupWarnings = loadErrors;
+        const runtimeConfig = await getRuntimeConfig();
+        setCustomKeybindingsSnapshot(runtimeConfig.keybindings);
         refreshKeybindingLookup();
 
         // Register API names for tab completion
@@ -90,7 +94,7 @@ export function useInitialization(state: ReplState): InitializationState {
         const modelInstalled = await checkDefaultModelInstalled();
         if (!modelInstalled) {
           setNeedsModelSetup(true);
-          setModelToSetup(getDefaultModelName());
+          setModelToSetup(await getDefaultModelName());
         }
 
         setReadyTime(Date.now() - startTime);

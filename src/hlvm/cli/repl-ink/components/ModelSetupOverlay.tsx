@@ -12,10 +12,15 @@ import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { ProgressBar, formatBytes } from "./ProgressBar.tsx";
 import { isModelPullTask } from "../../repl/task-manager/types.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
-import { getConfiguredModel, isModelInstalled } from "../../../../common/ai-default-model.ts";
+import { isModelInstalled } from "../../../../common/ai-default-model.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
-import { parseModelString, type ModelInfo } from "../../../providers/index.ts";
+import { parseModelString } from "../../../providers/index.ts";
+import {
+  getRuntimeConfig,
+  listRuntimeInstalledModels,
+} from "../../../runtime/host-client.ts";
+import { createRuntimeModelConfigManager } from "../../../runtime/model-config.ts";
 
 // ============================================================
 // Types
@@ -195,16 +200,7 @@ export async function checkDefaultModelInstalled(): Promise<boolean> {
   }
 
   try {
-    // Use ai.models.list() to check installed models
-    const aiApi = (globalThis as Record<string, unknown>).ai as {
-      models?: { list?: (providerName?: string) => Promise<ModelInfo[]> };
-    } | undefined;
-
-    if (!aiApi?.models?.list) {
-      return true; // API not ready, skip setup
-    }
-
-    const configuredModel = getConfiguredModel();
+    const configuredModel = (await getRuntimeConfig()).model;
     const [providerName, modelName] = parseModelString(configuredModel);
     if (!modelName) return true;
 
@@ -213,7 +209,7 @@ export async function checkDefaultModelInstalled(): Promise<boolean> {
       return true;
     }
 
-    const models = await aiApi.models.list(providerName ?? undefined);
+    const models = await listRuntimeInstalledModels(providerName ?? "ollama");
 
     // Empty list means nothing installed yet
     if (!models || models.length === 0) {
@@ -230,7 +226,8 @@ export async function checkDefaultModelInstalled(): Promise<boolean> {
 /**
  * Get the default model name for setup.
  */
-export function getDefaultModelName(): string {
-  const [, modelName] = parseModelString(getConfiguredModel());
+export async function getDefaultModelName(): Promise<string> {
+  const runtimeModelConfig = await createRuntimeModelConfigManager();
+  const [, modelName] = parseModelString(runtimeModelConfig.getConfiguredModel());
   return modelName;
 }

@@ -25,7 +25,6 @@ import {
   isTaskActive,
 } from "../../repl/task-manager/types.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
-import { ai } from "../../../api/ai.ts";
 import { handleTextEditingKey, isCtrlShortcut } from "../utils/text-editing.ts";
 import {
   normalizeModelBrowserSearchQuery,
@@ -45,12 +44,12 @@ import {
   getProviderSearchTerms,
   parseModelString,
 } from "../../../providers/index.ts";
+import type { RuntimeModelDiscoveryResponse } from "../../../runtime/model-protocol.ts";
 import {
-  hasModelDiscoveryData,
-  type ModelDiscoverySnapshot,
-  readModelDiscoverySnapshotSync,
-  refreshModelDiscoverySnapshot,
-} from "../../../providers/model-discovery-store.ts";
+  deleteRuntimeModel,
+  getRuntimeModelDiscovery,
+  listRuntimeInstalledModels,
+} from "../../../runtime/host-client.ts";
 import { calculateScrollWindow } from "../completion/navigation.ts";
 import { HighlightedText } from "./HighlightedText.tsx";
 import { ListSearchField } from "./ListSearchField.tsx";
@@ -61,8 +60,8 @@ import {
   PANEL_PADDING,
 } from "../ui-constants.ts";
 
-// Local alias for platform openUrl
-const openUrl = (url: string) => getPlatform().openUrl(url);
+const platform = getPlatform();
+const openUrl = (url: string) => platform.openUrl(url);
 
 // ============================================================
 // Types
@@ -191,7 +190,7 @@ const FILTER_EMPTY: Record<FilterMode, string> = {
 };
 
 // ============================================================
-// Model Catalog - via ai.models.catalog (SSOT)
+// Model Catalog
 // ============================================================
 
 /** Extract brand name from model ID (e.g., "llama3.2:3b" → "Llama") */
@@ -311,8 +310,8 @@ function toCloudModels(models: ModelInfo[]): CloudModel[] {
     .filter((model): model is CloudModel => model !== null);
 }
 
-function applyDiscoverySnapshot(
-  snapshot: ModelDiscoverySnapshot,
+function applyDiscoveryPayload(
+  snapshot: Pick<RuntimeModelDiscoveryResponse, "remoteModels" | "cloudModels">,
   setRemoteModels: React.Dispatch<React.SetStateAction<RemoteModel[]>>,
   setCloudModels: React.Dispatch<React.SetStateAction<CloudModel[]>>,
 ): void {
@@ -659,23 +658,11 @@ export function ModelBrowser({
     22,
     Math.min(48, Math.floor(contentWidth * 0.34)),
   );
-  const initialDiscoverySnapshot = useMemo(
-    () => readModelDiscoverySnapshotSync(),
-    [],
-  );
-  const hasInitialDiscoveryData = useMemo(
-    () => hasModelDiscoveryData(initialDiscoverySnapshot),
-    [initialDiscoverySnapshot],
-  );
 
   // State
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
-  const [remoteModels, setRemoteModels] = useState<RemoteModel[]>(() =>
-    toRemoteModels(initialDiscoverySnapshot.remoteModels)
-  );
-  const [cloudModels, setCloudModels] = useState<CloudModel[]>(() =>
-    toCloudModels(initialDiscoverySnapshot.cloudModels)
-  );
+  const [remoteModels, setRemoteModels] = useState<RemoteModel[]>([]);
+  const [cloudModels, setCloudModels] = useState<CloudModel[]>([]);
   const [selection, setSelection] = useState<SelectionState>({
     index: 0,
     name: null,
@@ -683,9 +670,7 @@ export function ModelBrowser({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCursor, setSearchCursor] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [discoveryLoading, setDiscoveryLoading] = useState(
-    !hasInitialDiscoveryData,
-  );
+  const [discoveryLoading, setDiscoveryLoading] = useState(true);
   const [discoveryRefreshing, setDiscoveryRefreshing] = useState(false);
   const [discoveryRefreshFailed, setDiscoveryRefreshFailed] = useState(false);
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
@@ -760,10 +745,9 @@ export function ModelBrowser({
     return { byModel, activeByModel };
   }, [tasks]);
 
-  // Fetch installed Ollama models only. Discovery catalogs are snapshot-backed.
   const fetchModels = useCallback(async () => {
     try {
-      const models = await ai.models.list("ollama");
+      const models = await listRuntimeInstalledModels("ollama");
       setLocalModels(models.map(toLocalModel));
     } catch {
       setLocalModels([]);
@@ -772,46 +756,79 @@ export function ModelBrowser({
     }
   }, []);
 
+  const fetchDiscovery = useCallback(
+    async (options: { refresh: boolean; preserveExistingOnFailure?: boolean }) => {
+      try {
+        const discovery = await getRuntimeModelDiscovery({
+          refresh: options.refresh,
+        });
+        if (!isMountedRef.current) return;
+        applyDiscoveryPayload(
+          discovery,
+          setRemoteModels,
+          setCloudModels,
+        );
+        setDiscoveryRefreshFailed(
+          discovery.failed &&
+            (!options.preserveExistingOnFailure ||
+              (
+            discovery.remoteModels.length === 0 &&
+            discovery.cloudModels.length === 0
+          )),
+        );
+      } catch {
+        if (!isMountedRef.current) return;
+        if (!options.preserveExistingOnFailure) {
+          setRemoteModels([]);
+          setCloudModels([]);
+        }
+        setDiscoveryRefreshFailed(true);
+      } finally {
+        if (isMountedRef.current) {
+          setDiscoveryLoading(false);
+          setDiscoveryRefreshing(false);
+        }
+      }
+    },
+    [],
+  );
+
   // Fetch local models on mount
   useEffect(() => {
     fetchModels();
   }, [fetchModels]);
 
-  // Load cached discovery immediately, then refresh once in the background.
   useEffect(() => {
     let cancelled = false;
 
+    setDiscoveryLoading(true);
     setDiscoveryRefreshing(true);
     setDiscoveryRefreshFailed(false);
-    void refreshModelDiscoverySnapshot()
+
+    void getRuntimeModelDiscovery()
       .then((result) => {
         if (cancelled) return;
-        applyDiscoverySnapshot(
-          result.snapshot,
-          setRemoteModels,
-          setCloudModels,
-        );
-        setDiscoveryRefreshFailed(
-          result.failed && !hasModelDiscoveryData(result.snapshot),
-        );
+        applyDiscoveryPayload(result, setRemoteModels, setCloudModels);
+        setDiscoveryLoading(false);
       })
       .catch(() => {
         if (!cancelled) {
-          setDiscoveryRefreshFailed(true);
+          setDiscoveryLoading(false);
         }
       })
       .finally(() => {
         if (!cancelled) {
-          setDiscoveryLoading(false);
-          setDiscoveryRefreshing(false);
+          void fetchDiscovery({
+            refresh: true,
+            preserveExistingOnFailure: true,
+          });
         }
       });
 
     return () => {
       cancelled = true;
     };
-    // Intentionally empty: browser open is the refresh boundary.
-  }, []);
+  }, [fetchDiscovery]);
 
   // Reactive Ollama Cloud signin: on auth error during cloud model pull,
   // spawn `ollama signin` then retry pull
@@ -820,7 +837,7 @@ export function ModelBrowser({
     try {
       const enginePath = await aiEngine.getEnginePath();
       // Use run() with inherit so the user sees the interactive signin flow in their terminal
-      const process = getPlatform().command.run({
+      const process = platform.command.run({
         cmd: [enginePath, "signin"],
         stdin: "inherit",
         stdout: "inherit",
@@ -1202,10 +1219,13 @@ export function ModelBrowser({
       // Second press (confirmation): execute delete
       (async () => {
         try {
-          await ai.models.remove(model.name);
+          await deleteRuntimeModel(model.name);
           fetchModels(); // Refresh list
-        } catch {
-          // Delete failed - could add error state later
+        } catch (error) {
+          if (isMountedRef.current) {
+            const message = error instanceof Error ? error.message : String(error);
+            setStatusMessage(`Delete failed: ${message}`);
+          }
         } finally {
           setPendingDelete(null);
         }

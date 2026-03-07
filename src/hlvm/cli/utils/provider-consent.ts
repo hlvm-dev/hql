@@ -1,10 +1,13 @@
 import { getPlatform } from "../../../platform/platform.ts";
-import { config } from "../../api/config.ts";
 import { log } from "../../api/log.ts";
 import {
   extractProvider,
   getProviderApprovalLabel,
 } from "../../providers/approval.ts";
+import {
+  getRuntimeConfig,
+  getRuntimeConfigApi,
+} from "../../runtime/host-client.ts";
 import { readSingleKey } from "./input.ts";
 
 /** Prompt user for one-time consent to use a paid provider, save to config. */
@@ -33,9 +36,10 @@ export async function confirmPaidProviderConsent(
     return false;
   }
 
-  const approved = config.snapshot.approvedProviders ?? [];
+  const configApi = getRuntimeConfigApi();
+  const approved = (await getRuntimeConfig()).approvedProviders ?? [];
   if (!approved.includes(provider)) {
-    await config.set("approvedProviders", [...approved, provider]);
+    await configApi.set("approvedProviders", [...approved, provider]);
   }
   return true;
 }

@@ -7,7 +7,7 @@
 
 import { registry } from "./registry.ts";
 import type { Key } from "ink";
-import { config } from "../../../api/config.ts";
+import { getCustomKeybindingsSnapshot } from "./custom-bindings.ts";
 
 // ============================================================
 // State
@@ -121,7 +121,7 @@ export function refreshKeybindingLookup(): void {
   defaultMap.clear();
 
   // Build custom map and disabled defaults from config (via global cache)
-  const customBindings = config.keybindings.snapshot ?? {};
+  const customBindings = getCustomKeybindingsSnapshot();
 
   // Single pass over all keybindings (builds both defaultMap and customMap)
   for (const kb of registry.getAll()) {
@@ -175,7 +175,7 @@ export function isDefaultDisabled(input: string, key: Key): boolean {
  * Used by getDisplay() to show custom bindings in palette.
  */
 export function getEffectiveDisplay(keybindingId: string): string | null {
-  const customBindings = config.keybindings.snapshot ?? {};
+  const customBindings = getCustomKeybindingsSnapshot();
   return customBindings[keybindingId] ?? null;
 }
 

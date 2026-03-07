@@ -14,28 +14,65 @@ import {
   resetTaskManager,
 } from "../../src/hlvm/cli/repl/task-manager/index.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../src/common/config/types.ts";
+import { withRuntimeHostServer } from "../shared/light-helpers.ts";
 
-const globalAny = globalThis as Record<string, unknown>;
-const previousAi = globalAny.ai;
-globalAny.ai = {
-  models: {
-    pull: async function* (_name: string, _provider?: string, signal?: AbortSignal) {
-      if (signal?.aborted) return;
-      yield { status: "downloading", completed: 1, total: 2 };
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      if (signal?.aborted) return;
-      yield { status: "done", completed: 2, total: 2 };
-    },
-  },
-};
-
-if (typeof globalThis.addEventListener === "function") {
-  globalThis.addEventListener("unload", () => {
-    if (previousAi === undefined) {
-      delete globalAny.ai;
-    } else {
-      globalAny.ai = previousAi;
+async function withPullHost(
+  fn: () => Promise<void>,
+): Promise<void> {
+  await withRuntimeHostServer(async (req, authToken) => {
+    const url = new URL(req.url);
+    assertEquals(req.headers.get("Authorization"), `Bearer ${authToken}`);
+    if (url.pathname === "/api/models/pull") {
+      let timer: number | undefined;
+      const stream = new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({
+                event: "progress",
+                status: "downloading",
+                completed: 1,
+                total: 2,
+              }) + "\n",
+            ),
+          );
+          timer = setTimeout(() => {
+            try {
+              controller.enqueue(
+                encoder.encode(
+                  JSON.stringify({
+                    event: "progress",
+                    status: "done",
+                    completed: 2,
+                    total: 2,
+                  }) + "\n",
+                ),
+              );
+              controller.enqueue(
+                encoder.encode(
+                  JSON.stringify({ event: "complete", name: "ok" }) + "\n",
+                ),
+              );
+              controller.close();
+            } catch {
+              // Client cancelled the pull stream.
+            }
+          }, 5);
+        },
+        cancel() {
+          if (timer !== undefined) {
+            clearTimeout(timer);
+          }
+        },
+      });
+      return new Response(stream, {
+        headers: { "Content-Type": "application/x-ndjson" },
+      });
     }
+    return new Response("Not found", { status: 404 });
+  }, async () => {
+    await fn();
   });
 }
 
@@ -80,29 +117,32 @@ Deno.test("TaskManager: endpoint and empty query state are initialized predictab
   manager.shutdown();
 });
 
-Deno.test("TaskManager: pullModel validates names, trims input, and rejects duplicates", () => {
-  const manager = new TaskManager();
-  try {
-    assertThrows(() => manager.pullModel(""), Error, "Model name is required");
-    assertThrows(() => manager.pullModel("   "), Error, "Model name is required");
+Deno.test("TaskManager: pullModel validates names, trims input, and rejects duplicates", async () => {
+  await withPullHost(async () => {
+    const manager = new TaskManager();
+    try {
+      assertThrows(() => manager.pullModel(""), Error, "Model name is required");
+      assertThrows(() => manager.pullModel("   "), Error, "Model name is required");
 
-    const taskId = manager.pullModel("  llama3.2  ");
-    const task = manager.getTask(taskId);
-    assertExists(task);
-    assertEquals(task.status === "pending" || task.status === "running", true);
-    assertEquals(manager.isModelPulling("llama3.2"), true);
-    if (task && isModelPullTask(task)) {
-      assertEquals(task.modelName, "llama3.2");
+      const taskId = manager.pullModel("  llama3.2  ");
+      const task = manager.getTask(taskId);
+      assertExists(task);
+      assertEquals(task.status === "pending" || task.status === "running", true);
+      assertEquals(manager.isModelPulling("llama3.2"), true);
+      if (task && isModelPullTask(task)) {
+        assertEquals(task.modelName, "llama3.2");
+      }
+
+      assertThrows(
+        () => manager.pullModel("llama3.2"),
+        Error,
+        "already being pulled",
+      );
+      await waitFor(() => manager.getTask(taskId)?.status === "completed");
+    } finally {
+      manager.shutdown();
     }
-
-    assertThrows(
-      () => manager.pullModel("llama3.2"),
-      Error,
-      "already being pulled",
-    );
-  } finally {
-    manager.shutdown();
-  }
+  });
 });
 
 Deno.test({
@@ -110,34 +150,36 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const manager = new TaskManager("http://localhost:11434");
-    try {
-      let notified = false;
-      let createdEvent = false;
-      const unsubscribe = manager.subscribe(() => {
-        notified = true;
-      });
-      const unsubscribeEvent = manager.onEvent((event) => {
-        if (event.type === "task:created") {
-          createdEvent = true;
-        }
-      });
+    await withPullHost(async () => {
+      const manager = new TaskManager("http://localhost:11434");
+      try {
+        let notified = false;
+        let createdEvent = false;
+        const unsubscribe = manager.subscribe(() => {
+          notified = true;
+        });
+        const unsubscribeEvent = manager.onEvent((event) => {
+          if (event.type === "task:created") {
+            createdEvent = true;
+          }
+        });
 
-      const taskId = manager.pullModel("test-model");
+        const taskId = manager.pullModel("test-model");
 
-      await waitFor(() => notified && createdEvent);
-      await waitFor(() => manager.getTask(taskId)?.status === "completed");
+        await waitFor(() => notified && createdEvent);
+        await waitFor(() => manager.getTask(taskId)?.status === "completed");
 
-      const task = manager.getTask(taskId);
-      assertExists(task);
-      assertEquals(task.status, "completed");
-      assertEquals(Object.isFrozen(task), true);
+        const task = manager.getTask(taskId);
+        assertExists(task);
+        assertEquals(task.status, "completed");
+        assertEquals(Object.isFrozen(task), true);
 
-      unsubscribe();
-      unsubscribeEvent();
-    } finally {
-      manager.shutdown();
-    }
+        unsubscribe();
+        unsubscribeEvent();
+      } finally {
+        manager.shutdown();
+      }
+    });
   },
 });
 
@@ -146,35 +188,37 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const manager = new TaskManager();
-    try {
-      assertEquals(manager.cancel("unknown-id"), false);
+    await withPullHost(async () => {
+      const manager = new TaskManager();
+      try {
+        assertEquals(manager.cancel("unknown-id"), false);
 
-      const first = manager.pullModel("model-1");
-      const second = manager.pullModel("model-2");
-      assertEquals(manager.getActiveCount(), 2);
+        const first = manager.pullModel("model-1");
+        const second = manager.pullModel("model-2");
+        assertEquals(manager.getActiveCount(), 2);
 
-      assertEquals(manager.cancel(first), true);
-      manager.cancelAll();
-      await waitFor(() => manager.getActiveCount() === 0);
+        assertEquals(manager.cancel(first), true);
+        manager.cancelAll();
+        await waitFor(() => manager.getActiveCount() === 0);
 
-      const firstTask = manager.getTask(first);
-      const secondTask = manager.getTask(second);
-      assertExists(firstTask);
-      assertExists(secondTask);
-      assertEquals(firstTask.status, "cancelled");
-      assertEquals(secondTask.status, "cancelled");
+        const firstTask = manager.getTask(first);
+        const secondTask = manager.getTask(second);
+        assertExists(firstTask);
+        assertExists(secondTask);
+        assertEquals(firstTask.status, "cancelled");
+        assertEquals(secondTask.status, "cancelled");
 
-      assertEquals(manager.removeTask("unknown-id"), false);
-      manager.clearCompleted();
-      assertEquals(manager.getTasks().size, 0);
+        assertEquals(manager.removeTask("unknown-id"), false);
+        manager.clearCompleted();
+        assertEquals(manager.getTasks().size, 0);
 
-      const evalId = manager.createEvalTask('(ask "hello")');
-      manager.completeEvalTask(evalId, "done");
-      assertEquals(manager.removeTask(evalId), true);
-    } finally {
-      manager.shutdown();
-    }
+        const evalId = manager.createEvalTask('(ask "hello")');
+        manager.completeEvalTask(evalId, "done");
+        assertEquals(manager.removeTask(evalId), true);
+      } finally {
+        manager.shutdown();
+      }
+    });
   },
 });
 

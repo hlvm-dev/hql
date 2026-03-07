@@ -21,12 +21,21 @@ export function isPaidProvider(modelId: string): boolean {
   return provider !== null && PAID_PROVIDERS.has(provider);
 }
 
-/** Check if the user has already approved a provider. */
-export function isProviderApproved(modelId: string): boolean {
+export function isProviderApprovedForProviders(
+  modelId: string,
+  approvedProviders: readonly string[] | undefined,
+): boolean {
   const provider = extractProvider(modelId);
   if (!provider) return true;
-  const approved = config.snapshot.approvedProviders ?? [];
-  return approved.includes(provider);
+  return (approvedProviders ?? []).includes(provider);
+}
+
+/** Check if the user has already approved a provider. */
+export function isProviderApproved(modelId: string): boolean {
+  return isProviderApprovedForProviders(
+    modelId,
+    config.snapshot.approvedProviders,
+  );
 }
 
 /** Return the user-facing provider label for approval messaging. */

@@ -19,22 +19,19 @@ import {
   getConfigValue,
   isConfigKey,
 } from "../../../../common/config/index.ts";
+import {
+  getRuntimeConfigApi,
+  type RuntimeConfigApi,
+} from "../../../runtime/host-client.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
 // ============================================================
-// Config API Accessor (DRY: single access point for globalThis.config)
+// Config API Accessor (runtime-host backed)
 // ============================================================
 
-type ConfigApi = {
-  all: Promise<HlvmConfig>;
-  set: (key: string, value: unknown) => Promise<unknown>;
-  reset: () => Promise<unknown>;
-  reload: () => Promise<unknown>;
-};
-
-function getConfigApi(): ConfigApi | null {
-  return ((globalThis as Record<string, unknown>).config as ConfigApi) ?? null;
+function getConfigApi(): RuntimeConfigApi {
+  return getRuntimeConfigApi();
 }
 
 // ============================================================
@@ -71,10 +68,6 @@ export async function handleConfigCommand(args: string): Promise<void> {
   // /config reset - reset to defaults (hot reload)
   if (subcommand === "reset") {
     const api = getConfigApi();
-    if (!api?.reset) {
-      log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
-      return;
-    }
     await api.reset();
     log.raw.log(`${GREEN}Config reset to defaults.${RESET}`);
     return;
@@ -83,10 +76,6 @@ export async function handleConfigCommand(args: string): Promise<void> {
   // /config reload - reload from file (for external edits)
   if (subcommand === "reload") {
     const api = getConfigApi();
-    if (!api?.reload) {
-      log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
-      return;
-    }
     await api.reload();
     log.raw.log(`${GREEN}Config reloaded from file.${RESET}`);
     return;
@@ -133,11 +122,6 @@ export async function handleConfigCommand(args: string): Promise<void> {
 
 async function showAllConfig(): Promise<void> {
   const api = getConfigApi();
-  if (!api?.all) {
-    log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
-    return;
-  }
-
   const config = await api.all;
 
   log.raw.log(`${BOLD}Configuration:${RESET}`);
@@ -153,11 +137,6 @@ async function showAllConfig(): Promise<void> {
 
 async function showSingleConfig(key: ConfigKey): Promise<void> {
   const api = getConfigApi();
-  if (!api?.all) {
-    log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
-    return;
-  }
-
   const config = await api.all;
   const value = getConfigValue(config, key);
   log.raw.log(`${CYAN}${key}${RESET}: ${formatValue(value)}`);
@@ -181,11 +160,6 @@ async function setConfigByKey(keyStr: string, valueStr: string): Promise<void> {
   }
 
   const api = getConfigApi();
-  if (!api?.set) {
-    log.raw.log(`${YELLOW}Config API not initialized${RESET}`);
-    return;
-  }
-
   await api.set(key, parsedValue);
   log.raw.log(`${GREEN}Set ${key} = ${formatValue(parsedValue)}${RESET}`);
 }

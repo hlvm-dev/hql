@@ -150,6 +150,7 @@ export const CONFIG_KEYS = [
   "temperature",
   "maxTokens",
   "theme",
+  "keybindings",
   "tools",
   "modelConfigured",
   "approvedProviders",
@@ -239,6 +240,18 @@ export function validateValue(
         return {
           valid: false,
           error: `theme must be one of: ${THEME_NAMES.join(", ")}`,
+        };
+      }
+      return { valid: true };
+    case "keybindings":
+      if (value === undefined) return { valid: true };
+      if (
+        typeof value !== "object" || value === null || Array.isArray(value) ||
+        !Object.values(value).every((entry) => typeof entry === "string")
+      ) {
+        return {
+          valid: false,
+          error: "keybindings must be an object of string values",
         };
       }
       return { valid: true };

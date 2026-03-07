@@ -23,6 +23,7 @@ Deno.test("ConfigTypes: CONFIG_KEYS and isConfigKey stay aligned", () => {
     "temperature",
     "maxTokens",
     "theme",
+    "keybindings",
     "tools",
     "modelConfigured",
     "approvedProviders",
@@ -46,6 +47,7 @@ Deno.test("ConfigTypes: validateValue accepts representative valid values for ea
   assertEquals(validateValue("temperature", 0.7).valid, true);
   assertEquals(validateValue("maxTokens", 4096).valid, true);
   assertEquals(validateValue("theme", "sicp").valid, true);
+  assertEquals(validateValue("keybindings", { "show-palette": "Ctrl+P" }).valid, true);
   assertEquals(validateValue("tools", {}).valid, true);
   assertEquals(validateValue("modelConfigured", true).valid, true);
   assertEquals(validateValue("approvedProviders", ["openai", "anthropic"]).valid, true);
@@ -60,6 +62,7 @@ Deno.test("ConfigTypes: validateValue rejects representative invalid values for 
   assertEquals(validateValue("temperature", 2.1).valid, false);
   assertEquals(validateValue("maxTokens", 1.5).valid, false);
   assertEquals(validateValue("theme", "unknown").valid, false);
+  assertEquals(validateValue("keybindings", { "show-palette": 123 }).valid, false);
   assertEquals(validateValue("tools", []).valid, false);
   assertEquals(validateValue("modelConfigured", "true").valid, false);
   assertEquals(validateValue("approvedProviders", ["openai", 123]).valid, false);

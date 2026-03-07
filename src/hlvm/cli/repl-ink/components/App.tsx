@@ -49,12 +49,28 @@ import type { InteractionRequestEvent, InteractionResponse } from "../../../agen
 import { SessionManager } from "../../repl/session/manager.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { ensureError } from "../../../../common/utils.ts";
-import { normalizeModelId } from "../../../../common/config/types.ts";
-import { persistSelectedModelConfig } from "../../../../common/config/model-selection.ts";
+import {
+  normalizeModelId,
+  type HlvmConfig,
+} from "../../../../common/config/types.ts";
+import {
+  buildSelectedModelConfigUpdates,
+  persistSelectedModelConfig,
+} from "../../../../common/config/model-selection.ts";
 import { ReplProvider } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { log } from "../../../api/log.ts";
 import { looksLikeNaturalLanguage } from "../../repl/input-routing.ts";
+import {
+  getRuntimeConfig,
+  getRuntimeConfigApi,
+  patchRuntimeConfig,
+} from "../../../runtime/host-client.ts";
+import { createRuntimeModelConfigManager } from "../../../runtime/model-config.ts";
+import {
+  getCustomKeybindingsSnapshot,
+  setCustomKeybindingsSnapshot,
+} from "../keybindings/custom-bindings.ts";
 
 interface HistoryEntry {
   id: number;
@@ -84,18 +100,10 @@ interface QueuedConversationTurn {
   mediaPaths?: string[];
 }
 
-interface ConfigSnapshotApi {
-  snapshot?: {
-    model?: unknown;
-    modelConfigured?: unknown;
-    contextWindow?: unknown;
-  };
-  subscribe?: (listener: (config: Record<string, unknown>) => void) => () => void;
-}
-
 interface AppProps {
   showBanner?: boolean;
   sessionOptions?: SessionInitOptions;
+  initialConfig?: HlvmConfig;
 }
 
 /** Convert session messages to history entries for display */
@@ -159,11 +167,18 @@ function sanitizeHistoryInput(input: string): string {
   return withoutAnsi.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "");
 }
 
+function readConfigContextWindow(config: Record<string, unknown> | undefined): number | undefined {
+  return typeof config?.contextWindow === "number" &&
+      Number.isInteger(config.contextWindow) && config.contextWindow > 0
+    ? config.contextWindow
+    : undefined;
+}
+
 /**
  * App wrapper - provides ReplContext for FRP state management
  */
 export function App(
-  { showBanner = true, sessionOptions }: AppProps,
+  { showBanner = true, sessionOptions, initialConfig }: AppProps,
 ): React.ReactElement {
   const stateRef = useRef<ReplState>(new ReplState());
 
@@ -172,6 +187,7 @@ export function App(
       <AppContent
         showBanner={showBanner}
         sessionOptions={sessionOptions}
+        initialConfig={initialConfig}
         replState={stateRef.current}
       />
     </ReplProvider>
@@ -186,7 +202,7 @@ interface AppContentProps extends AppProps {
  * AppContent - main REPL UI (uses ReplContext for reactive state)
  */
 function AppContent(
-  { showBanner = true, sessionOptions, replState }: AppContentProps,
+  { showBanner = true, sessionOptions, initialConfig, replState }: AppContentProps,
 ): React.ReactElement {
   const { exit } = useApp();
 
@@ -365,36 +381,44 @@ function AppContent(
   const interactionResolversRef = useRef<
     Map<string, (response: InteractionResponse) => void>
   >(new Map());
-  const [configuredModelId, setConfiguredModelId] = useState<string>("");
-  const [isConfiguredModelExplicit, setIsConfiguredModelExplicit] = useState(false);
-  const [footerModelName, setFooterModelName] = useState<string>("");
+  const [configuredModelId, setConfiguredModelId] = useState<string>(
+    typeof initialConfig?.model === "string" ? initialConfig.model : "",
+  );
+  const [isConfiguredModelExplicit, setIsConfiguredModelExplicit] = useState(
+    initialConfig?.modelConfigured === true,
+  );
+  const [footerModelName, setFooterModelName] = useState<string>(
+    typeof initialConfig?.model === "string"
+      ? initialConfig.model.replace("ollama/", "")
+      : "",
+  );
+  const [configuredContextWindow, setConfiguredContextWindow] = useState<
+    number | undefined
+  >(readConfigContextWindow(initialConfig as Record<string, unknown> | undefined));
   const [footerContextUsageLabel, setFooterContextUsageLabel] = useState<string>("");
   const [pendingConversationQueue, setPendingConversationQueue] = useState<QueuedConversationTurn[]>([]);
   const shouldUseAlternateBuffer = activePanel === "conversation" &&
     conversation.items.length >= 80;
   useAlternateBuffer(shouldUseAlternateBuffer);
 
-  useEffect(() => {
-    const cfgApi = (globalThis as Record<string, unknown>).config as ConfigSnapshotApi | undefined;
-    if (!cfgApi) return;
-
-    const normalizeModel = (value: unknown): string =>
-      typeof value === "string" ? value.replace("ollama/", "") : "";
-
-    setConfiguredModelId(
-      typeof cfgApi.snapshot?.model === "string" ? cfgApi.snapshot.model : "",
-    );
-    setIsConfiguredModelExplicit(cfgApi.snapshot?.modelConfigured === true);
-    setFooterModelName(normalizeModel(cfgApi.snapshot?.model));
-
-    if (cfgApi.subscribe) {
-      return cfgApi.subscribe((cfg) => {
-        setConfiguredModelId(typeof cfg.model === "string" ? cfg.model : "");
-        setIsConfiguredModelExplicit(cfg.modelConfigured === true);
-        setFooterModelName(normalizeModel(cfg.model));
-      });
-    }
+  const applyRuntimeConfigState = useCallback((cfg: Record<string, unknown>) => {
+    const modelId = typeof cfg.model === "string" ? cfg.model : "";
+    setConfiguredModelId(modelId);
+    setIsConfiguredModelExplicit(cfg.modelConfigured === true);
+    setFooterModelName(modelId.replace("ollama/", ""));
+    setConfiguredContextWindow(readConfigContextWindow(cfg));
   }, []);
+
+  useEffect(() => {
+    if (initialConfig) {
+      applyRuntimeConfigState(initialConfig as unknown as Record<string, unknown>);
+      return;
+    }
+
+    getRuntimeConfig()
+      .then((cfg) => applyRuntimeConfigState(cfg as unknown as Record<string, unknown>))
+      .catch(() => {});
+  }, [applyRuntimeConfigState, initialConfig]);
 
   // Show model setup overlay if default model needs to be downloaded (only once)
   useEffect(() => {
@@ -636,18 +660,18 @@ function AppContent(
 
     try {
       const { runAgentQueryViaHost } = await import("../../../runtime/host-client.ts");
-      const { reconcileConfiguredClaudeCodeModel } = await import(
-        "../../../../common/ai-default-model.ts"
-      );
-      const cfgApi = (globalThis as Record<string, unknown>).config as ConfigSnapshotApi | undefined;
-      let model = typeof cfgApi?.snapshot?.model === "string"
-        ? cfgApi.snapshot.model
-        : undefined;
+      let model = configuredModelId || undefined;
       if (!mediaPaths?.length && model?.startsWith("claude-code/")) {
-        const repaired = await reconcileConfiguredClaudeCodeModel();
+        const runtimeModelConfig = await createRuntimeModelConfigManager();
+        const repaired = await runtimeModelConfig.reconcileConfiguredClaudeCodeModel();
         if (typeof repaired === "string" && repaired.length > 0) {
           model = repaired;
-          setFooterModelName(repaired.replace("ollama/", ""));
+          applyRuntimeConfigState(
+            (await runtimeModelConfig.sync()) as unknown as Record<
+              string,
+              unknown
+            >,
+          );
         }
       }
       if (model) {
@@ -730,11 +754,16 @@ function AppContent(
 
       // Footer context usage (Gemini-style compact indicator)
       const usage = result.stats.usage;
-      const rawContextWindow = cfgApi?.snapshot?.contextWindow;
-      if (usage && typeof rawContextWindow === "number" && rawContextWindow > 0) {
+      if (
+        usage && typeof configuredContextWindow === "number" &&
+        configuredContextWindow > 0
+      ) {
         const pct = Math.max(
           0,
-          Math.min(100, Math.round((usage.totalTokens / rawContextWindow) * 100)),
+          Math.min(
+            100,
+            Math.round((usage.totalTokens / configuredContextWindow) * 100),
+          ),
         );
         setFooterContextUsageLabel(`${pct}% ctx`);
       } else if (usage) {
@@ -1144,6 +1173,9 @@ function AppContent(
       pendingInteraction,
       handleInteractionResponse,
       footerModelName,
+      configuredModelId,
+      configuredContextWindow,
+      applyRuntimeConfigState,
       prepareConversationMediaPayload,
     ],
   );
@@ -1172,17 +1204,15 @@ function AppContent(
     parts.push(combo.key.length === 1 ? combo.key.toUpperCase() : combo.key);
     const keyComboStr = parts.join("+");
 
-    // Save to config via API (SSOT)
-    const configApi = (globalThis as Record<string, unknown>).config as {
-      keybindings: { set: (id: string, combo: string) => Promise<void> };
-    } | undefined;
+    const nextBindings = {
+      ...getCustomKeybindingsSnapshot(),
+      [keybindingId]: keyComboStr,
+    };
 
-    if (configApi?.keybindings?.set) {
-      configApi.keybindings.set(keybindingId, keyComboStr).then(() => {
-        // Refresh keybinding lookup to use new binding immediately
-        refreshKeybindingLookup();
-      });
-    }
+    patchRuntimeConfig({ keybindings: nextBindings }).then((updatedConfig) => {
+      setCustomKeybindingsSnapshot(updatedConfig.keybindings);
+      refreshKeybindingLookup();
+    }).catch(() => {});
   }, []);
 
   // Global shortcuts (Ctrl+C exit, Ctrl+L/Cmd+K clear, Ctrl+P palette, Ctrl+B tasks, ESC cancel-in-place)
@@ -1427,6 +1457,8 @@ function AppContent(
             setModelBrowserParent("config-overlay");
             setActivePanel("models");
           }}
+          onConfigChange={(cfg) =>
+            applyRuntimeConfigState(cfg as unknown as Record<string, unknown>)}
           initialState={configOverlayState}
           onStateChange={setConfigOverlayState}
         />
@@ -1460,13 +1492,10 @@ function AppContent(
             });
           }}
           onSelectModel={async (modelName: string) => {
-            const configApi = (globalThis as Record<string, unknown>).config as
-              | {
-                set: (key: string, value: unknown) => Promise<unknown>;
-                patch?: (updates: Partial<Record<string, unknown>>) => Promise<unknown>;
-              }
-              | undefined;
+            const updates = buildSelectedModelConfigUpdates(modelName);
+            const configApi = getRuntimeConfigApi();
             await persistSelectedModelConfig(configApi, modelName);
+            applyRuntimeConfigState(updates as unknown as Record<string, unknown>);
           }}
         />
       )}
@@ -1492,7 +1521,7 @@ function AppContent(
             addHistoryEntry("", {
               success: true,
               value:
-                `AI model setup cancelled. Run (ai.models.pull "${init.modelToSetup}") to download later.`,
+                `AI model setup cancelled. Run "hlvm ai pull ${init.modelToSetup}" to download later.`,
               isCommandOutput: true,
             });
           }}

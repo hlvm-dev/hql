@@ -43,16 +43,24 @@ import {
 } from "./handlers/messages.ts";
 import {
   handleListModels,
+  handleListInstalledModels,
   handleGetModel,
   handlePullModel,
   handleDeleteModel,
   handleModelStatus,
   handleModelCatalog,
+  handleModelDiscovery,
   handleModelsStream,
   handleVerifyModelAccess,
 } from "./handlers/models.ts";
 import { handleSSEStream } from "./handlers/sse.ts";
-import { handleGetConfig, handlePatchConfig, handleConfigStream } from "./handlers/config.ts";
+import {
+  handleConfigStream,
+  handleGetConfig,
+  handlePatchConfig,
+  handleReloadConfig,
+  handleResetConfig,
+} from "./handlers/config.ts";
 import {
   handleCompanionObserve,
   handleCompanionStream,
@@ -646,6 +654,8 @@ router.add("DELETE", "/api/sessions/:id/messages/:messageId", (req, p) => handle
 router.add("GET", "/api/sessions/:id/stream", (req, p) => handleSSEStream(req, p));
 
 router.add("GET", "/api/models", () => handleListModels());
+router.add("GET", "/api/models/installed", (req) => handleListInstalledModels(req));
+router.add("GET", "/api/models/discovery", (req) => handleModelDiscovery(req));
 router.add("GET", "/api/models/catalog", () => handleModelCatalog());
 router.add("GET", "/api/models/status", () => handleModelStatus());
 router.add("GET", "/api/models/:provider/:name", (req, p) => handleGetModel(req, p));
@@ -658,6 +668,8 @@ router.add("POST", "/api/completions", (req) => handleComplete(req));
 
 router.add("GET", "/api/config", () => handleGetConfig());
 router.add("PATCH", "/api/config", (req) => handlePatchConfig(req));
+router.add("POST", "/api/config/reload", () => handleReloadConfig());
+router.add("POST", "/api/config/reset", () => handleResetConfig());
 router.add("GET", "/api/config/stream", (req) => handleConfigStream(req));
 
 router.add("POST", "/api/companion/observe", (req) => handleCompanionObserve(req));

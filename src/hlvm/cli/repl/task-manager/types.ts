@@ -5,6 +5,10 @@
  * Supports model downloads with progress tracking and cancellation.
  */
 
+export type { PullProgress } from "../../../runtime/model-protocol.ts";
+
+import type { PullProgress } from "../../../runtime/model-protocol.ts";
+
 // ============================================================
 // Task Status
 // ============================================================
@@ -48,20 +52,6 @@ export type TaskType = "model-pull" | "eval";
 // ============================================================
 // Progress Types
 // ============================================================
-
-/** Progress information for model downloads (from Ollama /api/pull) */
-export interface PullProgress {
-  /** Current operation status string from Ollama */
-  status: string;
-  /** Current layer digest being downloaded */
-  digest?: string;
-  /** Total bytes to download */
-  total?: number;
-  /** Completed bytes */
-  completed?: number;
-  /** Calculated percentage (0-100) */
-  percent?: number;
-}
 
 // ============================================================
 // Task Types

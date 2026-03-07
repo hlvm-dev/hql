@@ -9,10 +9,8 @@ import {
 } from "../../../common/error.ts";
 import { generateUUID } from "../../../common/utils.ts";
 import { log } from "../../api/log.ts";
-import { config } from "../../api/config.ts";
 import {
   isPaidProvider,
-  isProviderApproved,
 } from "../../providers/approval.ts";
 import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
@@ -25,6 +23,7 @@ import {
   listRuntimeSessions,
   runDirectChatViaHost,
 } from "../../runtime/host-client.ts";
+import { createRuntimeModelConfigManager } from "../../runtime/model-config.ts";
 
 interface ParsedChatArgs {
   modelOverride?: string;
@@ -140,25 +139,25 @@ export async function chatCommand(args: string[]): Promise<void> {
   }
 
   const parsedArgs = parseChatArgs(args);
-  const aiModelApi = () => import("../../../common/ai-default-model.ts");
+  const runtimeModelConfig = await createRuntimeModelConfigManager();
 
-  if (!parsedArgs.modelOverride && !config.snapshot.modelConfigured) {
-    const { autoConfigureInitialClaudeCodeModel } = await aiModelApi();
-    await autoConfigureInitialClaudeCodeModel();
+  if (!parsedArgs.modelOverride && !runtimeModelConfig.getConfig().modelConfigured) {
+    await runtimeModelConfig.autoConfigureInitialClaudeCodeModel();
   }
   if (!parsedArgs.modelOverride) {
-    const { reconcileConfiguredClaudeCodeModel } = await aiModelApi();
-    await reconcileConfiguredClaudeCodeModel();
+    await runtimeModelConfig.reconcileConfiguredClaudeCodeModel();
   }
 
-  const {
-    getConfiguredModel,
-    resolveCompatibleClaudeCodeModel,
-  } = await aiModelApi();
-  let resolvedModel = parsedArgs.modelOverride ?? getConfiguredModel();
-  resolvedModel = await resolveCompatibleClaudeCodeModel(resolvedModel);
+  let resolvedModel = parsedArgs.modelOverride ??
+    runtimeModelConfig.getConfiguredModel();
+  resolvedModel = await runtimeModelConfig.resolveCompatibleClaudeCodeModel(
+    resolvedModel,
+  );
 
-  if (isPaidProvider(resolvedModel) && !isProviderApproved(resolvedModel)) {
+  if (
+    isPaidProvider(resolvedModel) &&
+    !runtimeModelConfig.isProviderApproved(resolvedModel)
+  ) {
     const consented = await confirmPaidProviderConsent(resolvedModel);
     if (!consented) {
       log.raw.log("Aborted.");
