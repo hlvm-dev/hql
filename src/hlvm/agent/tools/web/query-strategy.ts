@@ -1,6 +1,16 @@
 import type { SearchResult } from "./search-provider.ts";
 import type { SearchConfidenceReason } from "./search-ranking.ts";
 import { generateQueryVariants } from "./duckduckgo.ts";
+import {
+  COMPARISON_RE,
+  OFFICIAL_DOCS_RE,
+  QUOTED_PHRASE_RE,
+  RECENCY_RE,
+  REFERENCE_RE,
+  RELEASE_NOTES_RE,
+  VERSION_RE,
+  YEAR_RE,
+} from "./intent-patterns.ts";
 
 export interface SearchQueryIntent {
   wantsOfficialDocs: boolean;
@@ -22,14 +32,6 @@ interface FollowupQueryInput {
   maxQueries: number;
 }
 
-const OFFICIAL_DOCS_RE = /\b(official|docs?|documentation|reference|api)\b/i;
-const COMPARISON_RE = /\b(compare|comparison|versus|vs\.?|tradeoffs?|differences?)\b/i;
-const RECENCY_RE = /\b(latest|recent|today|current|new|updated?|changes?)\b/i;
-const RELEASE_NOTES_RE = /\b(changelog|release notes?|what(?:'s| is) new)\b/i;
-const YEAR_RE = /\b(?:19|20)\d{2}\b/;
-const VERSION_RE = /\bv?\d+(?:\.\d+){1,3}\b/;
-const QUOTED_PHRASE_RE = /"[^"]+"/g;
-
 export function normalizeSearchQueryCandidate(query: string): string {
   return query.trim().replace(/\s+/g, " ");
 }
@@ -49,10 +51,6 @@ export function addUniqueSearchQuery(
   queries.push(normalized);
 }
 
-function wantsStructuredReference(query: string): boolean {
-  return /\b(reference|api|spec|syntax|manual|guide)\b/i.test(query);
-}
-
 export function appendQueryQualifier(query: string, qualifier: string): string {
   const trimmed = query.trim();
   if (!trimmed) return trimmed;
@@ -66,13 +64,20 @@ export function extractQuotedPhrases(query: string): string[] {
   return query.match(QUOTED_PHRASE_RE) ?? [];
 }
 
+/**
+ * Detects search intent signals from a query string.
+ *
+ * All patterns are English-only (see intent-patterns.ts). Non-English queries produce
+ * all-false intent booleans, resulting in generic unbiased search. The `locale` parameter
+ * on search tools affects DDG/Google News result filtering, not intent detection.
+ */
 export function detectSearchQueryIntent(query: string): SearchQueryIntent {
   const trimmed = query.trim();
   const wantsOfficialDocs = OFFICIAL_DOCS_RE.test(trimmed);
   const wantsComparison = COMPARISON_RE.test(trimmed);
   const wantsVersionSpecific = VERSION_RE.test(trimmed);
   const wantsReleaseNotes = RELEASE_NOTES_RE.test(trimmed);
-  const wantsReference = wantsStructuredReference(trimmed);
+  const wantsReference = REFERENCE_RE.test(trimmed);
   const wantsRecency = RECENCY_RE.test(trimmed) || (YEAR_RE.test(trimmed) && !wantsVersionSpecific);
   const wantsAuthoritativeBias = wantsOfficialDocs || wantsReference || wantsReleaseNotes;
   const wantsMultiSourceSynthesis = wantsComparison || wantsReleaseNotes;

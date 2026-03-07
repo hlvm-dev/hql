@@ -1,6 +1,7 @@
 import type { SearchResult } from "./search-provider.ts";
 import type { SearchConfidenceReason } from "./search-ranking.ts";
 import type { SearchQueryIntent } from "./query-strategy.ts";
+import { hasStructuredEvidence } from "./web-utils.ts";
 
 export interface FetchEscalationDecision {
   shouldEscalate: boolean;
@@ -12,14 +13,6 @@ interface FetchEscalationInput {
   intent: SearchQueryIntent;
   confidenceReason?: SearchConfidenceReason;
   results: SearchResult[];
-}
-
-function hasStructuredEvidence(result: SearchResult): boolean {
-  return Boolean(
-    (result.passages?.length ?? 0) > 0 ||
-      result.pageDescription ||
-      result.publishedDate,
-  );
 }
 
 function thinSnippetCount(results: SearchResult[]): number {

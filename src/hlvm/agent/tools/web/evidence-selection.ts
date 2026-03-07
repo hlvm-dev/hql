@@ -5,6 +5,7 @@ import {
   sourceQualityPenalty,
 } from "./search-ranking.ts";
 import type { SearchQueryIntent } from "./query-strategy.ts";
+import { hasStructuredEvidence, resultHost } from "./web-utils.ts";
 
 export type EvidenceStrength = "high" | "medium" | "low";
 
@@ -13,14 +14,6 @@ export interface EvidenceSelectionOptions {
   intent?: SearchQueryIntent;
 }
 
-function resultHost(url?: string): string | undefined {
-  if (!url) return undefined;
-  try {
-    return new URL(url).hostname.toLowerCase();
-  } catch {
-    return undefined;
-  }
-}
 
 function evidenceReason(result: SearchResult, intent?: SearchQueryIntent): string {
   if ((result.passages?.length ?? 0) > 0) return "page passages";
@@ -30,16 +23,13 @@ function evidenceReason(result: SearchResult, intent?: SearchQueryIntent): strin
   return "snippet only";
 }
 
-function hasStrongEvidence(result: SearchResult): boolean {
-  return Boolean((result.passages?.length ?? 0) > 0 || result.pageDescription || result.publishedDate);
-}
 
 function hasUsableEvidence(
   result: SearchResult,
   intent: SearchQueryIntent | undefined,
   selectedCount: number,
 ): boolean {
-  if (hasStrongEvidence(result)) return true;
+  if (hasStructuredEvidence(result)) return true;
   if (intent?.wantsComparison && selectedCount > 0 && Boolean(result.snippet)) return true;
   return false;
 }

@@ -4,6 +4,8 @@
  */
 
 import type { SearchResult, SearchTimeRange } from "./search-provider.ts";
+import { resultHost } from "./web-utils.ts";
+import { OFFICIAL_DOCS_RE, RECENCY_RE, REFERENCE_RE, RELEASE_NOTES_RE } from "./intent-patterns.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -111,14 +113,6 @@ function parseRelativeAgeDays(text: string): number | undefined {
   }
 }
 
-function resultHost(url?: string): string | undefined {
-  if (!url) return undefined;
-  try {
-    return new URL(url).hostname.toLowerCase();
-  } catch {
-    return undefined;
-  }
-}
 
 function recencyBoost(ageDays: number | undefined, timeRange: SearchTimeRange): number {
   if (ageDays === undefined) return 0;
@@ -155,8 +149,10 @@ const LOW_SIGNAL_PATH_SEGMENTS = new Set([
   "tag",
   "tags",
 ]);
-const DOCS_QUERY_RE = /\b(official|docs?|documentation|reference|api|manual|guide|spec)\b/i;
-const RELEASE_QUERY_RE = /\b(changelog|release notes?|what(?:'s| is) new|latest|recent|updated?|changes?)\b/i;
+// Ranking-specific: deliberately broader than intent detection.
+// Composes shared primitives to match both official docs AND reference queries.
+const isDocsLikeQuery = (query: string) => OFFICIAL_DOCS_RE.test(query) || REFERENCE_RE.test(query);
+const isReleaseLikeQuery = (query: string) => RELEASE_NOTES_RE.test(query) || RECENCY_RE.test(query);
 const RELEASE_PATH_SEGMENTS = new Set(["blog", "changelog", "news", "release-notes", "releases", "tags", "updates", "whatsnew"]);
 
 function keywordRepetitionRatio(text: string): number {
@@ -207,7 +203,7 @@ function querySignalBoost(query: string, result: SearchResult): number {
     const parsed = new URL(result.url);
     const pathSegments = parsed.pathname.toLowerCase().split("/").filter(Boolean);
     let boost = 0;
-    if (DOCS_QUERY_RE.test(query)) {
+    if (isDocsLikeQuery(query)) {
       if (parsed.hostname.toLowerCase().startsWith("docs.") || parsed.hostname.toLowerCase().startsWith("developer.") || parsed.hostname.toLowerCase().startsWith("api.")) {
         boost += 0.6;
       }
@@ -215,7 +211,7 @@ function querySignalBoost(query: string, result: SearchResult): number {
         boost += 0.45;
       }
     }
-    if (RELEASE_QUERY_RE.test(query)) {
+    if (isReleaseLikeQuery(query)) {
       if (pathSegments.some((segment) => RELEASE_PATH_SEGMENTS.has(segment))) {
         boost += 0.55;
       }
