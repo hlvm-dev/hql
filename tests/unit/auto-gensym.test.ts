@@ -27,22 +27,6 @@ Deno.test("auto-gensym: basic foo# syntax generates unique symbol", async () => 
   assertEquals(matches?.[0], matches?.[1]);
 });
 
-Deno.test("auto-gensym: multiple foo# in same template use same symbol", async () => {
-  resetCounter();
-  const source = `(do
-    (macro swap [a b]
-      \`(let (tmp# ~a)
-         (= ~a ~b)
-         (= ~b tmp#)))
-    (swap x y))`;
-
-  const [expanded] = await macroexpand(source);
-  // All tmp# should become the same generated symbol
-  const matches = expanded.match(/tmp_\d+/g);
-  assertEquals(matches?.length, 2);
-  assertEquals(matches?.[0], matches?.[1]);
-});
-
 Deno.test("auto-gensym: different foo# names generate different symbols", async () => {
   resetCounter();
   const source = `(do

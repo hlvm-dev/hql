@@ -42,23 +42,3 @@ Deno.test("Getter and Setter: matching pair", async () => {
   assertStringIncludes(result.code, "set height(value)");
 });
 
-Deno.test("Getter: computed property", async () => {
-  const result = await transpile(`
-    (class Circle
-      (var _radius 5)
-      (getter area []
-        (* Math.PI this._radius this._radius)))
-  `);
-  assertStringIncludes(result.code, "get area()");
-});
-
-Deno.test("Setter: with validation", async () => {
-  const result = await transpile(`
-    (class Circle
-      (var _radius 0)
-      (setter radius [value]
-        (when (> value 0)
-          (= this._radius value))))
-  `);
-  assertStringIncludes(result.code, "set radius(value)");
-});

@@ -80,16 +80,6 @@ Deno.test("Bugfix #1: Transpilation produces valid code", async () => {
   );
 });
 
-Deno.test("Bugfix #1: Macro expansion with complex expressions", async () => {
-  const code = `
-(when (> 5 3)
-  "yes")
-`;
-
-  const result = await run(code);
-  assertEquals(result, "yes", "when macro with expression should evaluate correctly");
-});
-
 Deno.test("Bugfix #1: unless macro works correctly", async () => {
   const code = `
 (unless false

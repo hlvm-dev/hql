@@ -14,78 +14,49 @@ function nextNow(): number {
   return fakeNow;
 }
 
-Deno.test("selectPreferredClaudeCodeModel prefers latest Sonnet before Opus/Haiku", () => {
-  const models: ModelInfo[] = [
+Deno.test("ai default model: selection prefers newest supported Sonnet and skips unusable aliases", () => {
+  const ranked: ModelInfo[] = [
     { name: "claude-haiku-3-5-20241022" },
     { name: "claude-opus-4-1-20251101" },
     { name: "claude-sonnet-4-5-20250929" },
     { name: "claude-sonnet-4-5-20251015" },
   ];
-
-  const selected = selectPreferredClaudeCodeModel(models);
-  assertEquals(selected, "claude-sonnet-4-5-20251015");
-});
-
-Deno.test("selectPreferredClaudeCodeModel ignores :agent variants and provider-prefixed names", () => {
-  const models: ModelInfo[] = [
+  const filtered: ModelInfo[] = [
     { name: "claude-code/claude-sonnet-4-5-20250929:agent" },
     { name: "claude-code/claude-opus-4-1-20251101" },
   ];
-
-  const selected = selectPreferredClaudeCodeModel(models);
-  assertEquals(selected, "claude-opus-4-1-20251101");
-});
-
-Deno.test("selectPreferredClaudeCodeModel ignores dotted aliases from public catalogs", () => {
-  const models: ModelInfo[] = [
+  const dottedOnly: ModelInfo[] = [
     { name: "claude-sonnet-4.5" },
     { name: "claude-opus-4.6" },
   ];
 
-  const selected = selectPreferredClaudeCodeModel(models);
-  assertEquals(selected, null);
+  assertEquals(selectPreferredClaudeCodeModel(ranked), "claude-sonnet-4-5-20251015");
+  assertEquals(selectPreferredClaudeCodeModel(filtered), "claude-opus-4-1-20251101");
+  assertEquals(selectPreferredClaudeCodeModel(dottedOnly), null);
 });
 
-Deno.test("autoConfigureInitialClaudeCodeModel sets claude default for first-use users", async () => {
-  const updates: Array<Record<string, unknown>> = [];
-  let statusCalls = 0;
-  let listCalls = 0;
+Deno.test("ai default model: first-use auto-configuration sets a Claude default and preserves explicit agent mode", async () => {
+  const firstUseUpdates: Array<Record<string, unknown>> = [];
+  const preservedModeUpdates: Array<Record<string, unknown>> = [];
 
-  const result = await autoConfigureInitialClaudeCodeModel({
+  const firstUse = await autoConfigureInitialClaudeCodeModel({
     getSnapshot: () => ({
       model: DEFAULT_MODEL_ID,
       modelConfigured: false,
       agentMode: undefined,
     }),
-    getStatus: () => {
-      statusCalls++;
-      return Promise.resolve({ available: true });
-    },
-    listModels: () => {
-      listCalls++;
-      return Promise.resolve([
+    getStatus: () => Promise.resolve({ available: true }),
+    listModels: () =>
+      Promise.resolve([
         { name: "claude-sonnet-4-5-20251015" },
         { name: "claude-opus-4-1-20251101" },
-      ]);
-    },
+      ]),
     patchConfig: (patch) => {
-      updates.push(patch as Record<string, unknown>);
+      firstUseUpdates.push(patch as Record<string, unknown>);
       return Promise.resolve();
     },
     now: () => nextNow(),
   });
-
-  assertEquals(result, "claude-code/claude-sonnet-4-5-20251015");
-  assertEquals(statusCalls, 1);
-  assertEquals(listCalls, 1);
-  assertEquals(updates.length, 1);
-  assertEquals(updates[0].model, "claude-code/claude-sonnet-4-5-20251015");
-  assertEquals(updates[0].modelConfigured, true);
-  assertEquals(updates[0].agentMode, "hlvm");
-});
-
-Deno.test("autoConfigureInitialClaudeCodeModel preserves existing agentMode", async () => {
-  const updates: Array<Record<string, unknown>> = [];
 
   await autoConfigureInitialClaudeCodeModel({
     getSnapshot: () => ({
@@ -96,84 +67,75 @@ Deno.test("autoConfigureInitialClaudeCodeModel preserves existing agentMode", as
     getStatus: () => Promise.resolve({ available: true }),
     listModels: () => Promise.resolve([{ name: "claude-sonnet-4-5-20251015" }]),
     patchConfig: (patch) => {
-      updates.push(patch as Record<string, unknown>);
+      preservedModeUpdates.push(patch as Record<string, unknown>);
       return Promise.resolve();
     },
     now: () => nextNow(),
   });
 
-  assertEquals(updates.length, 1);
-  assertEquals("agentMode" in updates[0], false);
+  assertEquals(firstUse, "claude-code/claude-sonnet-4-5-20251015");
+  assertEquals(firstUseUpdates.length, 1);
+  assertEquals(firstUseUpdates[0].model, "claude-code/claude-sonnet-4-5-20251015");
+  assertEquals(firstUseUpdates[0].modelConfigured, true);
+  assertEquals(firstUseUpdates[0].agentMode, "hlvm");
+  assertEquals(preservedModeUpdates.length, 1);
+  assertEquals("agentMode" in preservedModeUpdates[0], false);
 });
 
-Deno.test("autoConfigureInitialClaudeCodeModel does nothing when model is already configured", async () => {
-  let statusCalls = 0;
-  let listCalls = 0;
-  let patchCalls = 0;
+Deno.test("ai default model: auto-configuration no-ops when model is already configured or Claude Code is unavailable", async () => {
+  let configuredStatusCalls = 0;
+  let configuredPatchCalls = 0;
+  let unavailableListCalls = 0;
+  let unavailablePatchCalls = 0;
 
-  const result = await autoConfigureInitialClaudeCodeModel({
+  const configured = await autoConfigureInitialClaudeCodeModel({
     getSnapshot: () => ({
       model: "ollama/llama3.1:8b",
       modelConfigured: true,
       agentMode: undefined,
     }),
     getStatus: () => {
-      statusCalls++;
+      configuredStatusCalls++;
       return Promise.resolve({ available: true });
     },
-    listModels: () => {
-      listCalls++;
-      return Promise.resolve([]);
-    },
+    listModels: () => Promise.resolve([]),
     patchConfig: () => {
-      patchCalls++;
+      configuredPatchCalls++;
       return Promise.resolve();
     },
     now: () => nextNow(),
   });
 
-  assertEquals(result, null);
-  assertEquals(statusCalls, 0);
-  assertEquals(listCalls, 0);
-  assertEquals(patchCalls, 0);
-});
-
-Deno.test("autoConfigureInitialClaudeCodeModel does nothing when claude-code is unavailable", async () => {
-  let statusCalls = 0;
-  let listCalls = 0;
-  let patchCalls = 0;
-
-  const result = await autoConfigureInitialClaudeCodeModel({
+  const unavailable = await autoConfigureInitialClaudeCodeModel({
     getSnapshot: () => ({
       model: DEFAULT_MODEL_ID,
       modelConfigured: false,
       agentMode: undefined,
     }),
-    getStatus: () => {
-      statusCalls++;
-      return Promise.resolve({ available: false });
-    },
+    getStatus: () => Promise.resolve({ available: false }),
     listModels: () => {
-      listCalls++;
+      unavailableListCalls++;
       return Promise.resolve([{ name: "claude-sonnet-4-5-20251015" }]);
     },
     patchConfig: () => {
-      patchCalls++;
+      unavailablePatchCalls++;
       return Promise.resolve();
     },
     now: () => nextNow(),
   });
 
-  assertEquals(result, null);
-  assertEquals(statusCalls, 1);
-  assertEquals(listCalls, 0);
-  assertEquals(patchCalls, 0);
+  assertEquals(configured, null);
+  assertEquals(configuredStatusCalls, 0);
+  assertEquals(configuredPatchCalls, 0);
+  assertEquals(unavailable, null);
+  assertEquals(unavailableListCalls, 0);
+  assertEquals(unavailablePatchCalls, 0);
 });
 
-Deno.test("reconcileConfiguredClaudeCodeModel repairs dotted Claude model aliases", async () => {
+Deno.test("ai default model: reconcile and resolve normalize dotted Claude aliases but leave valid non-Claude models unchanged", async () => {
   const updates: Array<Record<string, unknown>> = [];
 
-  const result = await reconcileConfiguredClaudeCodeModel({
+  const reconciled = await reconcileConfiguredClaudeCodeModel({
     getSnapshot: () => ({ model: "claude-code/claude-sonnet-4.5" }),
     listModels: () =>
       Promise.resolve([
@@ -187,33 +149,17 @@ Deno.test("reconcileConfiguredClaudeCodeModel repairs dotted Claude model aliase
     },
   });
 
-  assertEquals(result, "claude-code/claude-sonnet-4-5-20250929");
-  assertEquals(updates.length, 1);
-  assertEquals(updates[0].model, "claude-code/claude-sonnet-4-5-20250929");
-});
-
-Deno.test("reconcileConfiguredClaudeCodeModel no-ops when configured model is already valid", async () => {
-  let patchCalls = 0;
-
-  const result = await reconcileConfiguredClaudeCodeModel({
+  const noOp = await reconcileConfiguredClaudeCodeModel({
     getSnapshot: () => ({ model: "claude-code/claude-sonnet-4-6" }),
     listModels: () =>
       Promise.resolve([
         { name: "claude-sonnet-4-6" },
         { name: "claude-sonnet-4-5-20250929" },
       ]),
-    patchConfig: () => {
-      patchCalls++;
-      return Promise.resolve();
-    },
+    patchConfig: () => Promise.resolve(),
   });
 
-  assertEquals(result, null);
-  assertEquals(patchCalls, 0);
-});
-
-Deno.test("resolveCompatibleClaudeCodeModel normalizes explicit dotted claude model", async () => {
-  const resolved = await resolveCompatibleClaudeCodeModel(
+  const resolvedClaude = await resolveCompatibleClaudeCodeModel(
     "claude-code/claude-sonnet-4.5",
     {
       listModels: () =>
@@ -224,12 +170,14 @@ Deno.test("resolveCompatibleClaudeCodeModel normalizes explicit dotted claude mo
         ]),
     },
   );
-  assertEquals(resolved, "claude-code/claude-sonnet-4-5-20250929");
-});
-
-Deno.test("resolveCompatibleClaudeCodeModel keeps non-claude models unchanged", async () => {
-  const resolved = await resolveCompatibleClaudeCodeModel("openai/gpt-5", {
+  const resolvedOther = await resolveCompatibleClaudeCodeModel("openai/gpt-5", {
     listModels: () => Promise.resolve([]),
   });
-  assertEquals(resolved, "openai/gpt-5");
+
+  assertEquals(reconciled, "claude-code/claude-sonnet-4-5-20250929");
+  assertEquals(updates.length, 1);
+  assertEquals(updates[0].model, "claude-code/claude-sonnet-4-5-20250929");
+  assertEquals(noOp, null);
+  assertEquals(resolvedClaude, "claude-code/claude-sonnet-4-5-20250929");
+  assertEquals(resolvedOther, "openai/gpt-5");
 });

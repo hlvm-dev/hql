@@ -80,6 +80,16 @@ export interface ChatStructuredResponse {
   content: string;
   toolCalls?: ProviderToolCall[];
   usage?: ProviderUsage;
+  sources?: Array<{
+    id: string;
+    sourceType: "url" | "document";
+    url?: string;
+    title?: string;
+    mediaType?: string;
+    filename?: string;
+    providerMetadata?: Record<string, unknown>;
+  }>;
+  providerMetadata?: Record<string, unknown>;
 }
 
 // ============================================================================

@@ -1,129 +1,103 @@
-/**
- * Session Memory Tests
- *
- * Tests production session-memory helpers used by chat handler:
- * - enablement default behavior
- * - metadata parsing
- * - command construction
- * - init event session_id capture
- */
-
-import { assertEquals, assert } from "jsr:@std/assert";
+import { assert, assertEquals } from "jsr:@std/assert";
 import {
+  _resetClaudeBinaryCache,
   buildClaudeCodeCommand,
   captureSessionIdFromInitEvent,
   isSessionMemoryEnabled,
   parseSessionMemoryMetadata,
-  _resetClaudeBinaryCache,
 } from "../../../src/hlvm/cli/repl/handlers/session-memory.ts";
 
-// ============================================================
-// Enablement
-// ============================================================
-
-Deno.test("isSessionMemoryEnabled - defaults to ON unless explicitly false", () => {
+Deno.test("session memory: enablement defaults on and only disables when explicitly false", () => {
   assertEquals(isSessionMemoryEnabled(undefined), true);
   assertEquals(isSessionMemoryEnabled(true), true);
   assertEquals(isSessionMemoryEnabled(false), false);
 });
 
-// ============================================================
-// Metadata parsing
-// ============================================================
-
-Deno.test("parseSessionMemoryMetadata - empty metadata", () => {
-  const parsed = parseSessionMemoryMetadata(null);
-  assertEquals(parsed.existingMeta, {});
-  assertEquals(parsed.claudeCodeSessionId, null);
-});
-
-Deno.test("parseSessionMemoryMetadata - malformed JSON", () => {
-  const parsed = parseSessionMemoryMetadata("not valid json {{{");
-  assertEquals(parsed.existingMeta, {});
-  assertEquals(parsed.claudeCodeSessionId, null);
-});
-
-Deno.test("parseSessionMemoryMetadata - extracts stored session id", () => {
-  const parsed = parseSessionMemoryMetadata(
-    JSON.stringify({ claudeCodeSessionId: "test-uuid-123", otherField: 42 }),
+Deno.test("session memory: metadata parsing tolerates empty or malformed values and extracts valid stored ids", () => {
+  assertEquals(parseSessionMemoryMetadata(null), {
+    existingMeta: {},
+    claudeCodeSessionId: null,
+  });
+  assertEquals(parseSessionMemoryMetadata("not valid json {{{"), {
+    existingMeta: {},
+    claudeCodeSessionId: null,
+  });
+  assertEquals(
+    parseSessionMemoryMetadata(
+      JSON.stringify({ claudeCodeSessionId: "test-uuid-123", otherField: 42 }),
+    ),
+    {
+      existingMeta: { claudeCodeSessionId: "test-uuid-123", otherField: 42 },
+      claudeCodeSessionId: "test-uuid-123",
+    },
   );
-  assertEquals(parsed.existingMeta, { claudeCodeSessionId: "test-uuid-123", otherField: 42 });
-  assertEquals(parsed.claudeCodeSessionId, "test-uuid-123");
+  assertEquals(
+    parseSessionMemoryMetadata(JSON.stringify({ claudeCodeSessionId: 12345 })),
+    {
+      existingMeta: { claudeCodeSessionId: 12345 },
+      claudeCodeSessionId: null,
+    },
+  );
 });
 
-Deno.test("parseSessionMemoryMetadata - ignores non-string stored session id", () => {
-  const parsed = parseSessionMemoryMetadata(JSON.stringify({ claudeCodeSessionId: 12345 }));
-  assertEquals(parsed.existingMeta, { claudeCodeSessionId: 12345 });
-  assertEquals(parsed.claudeCodeSessionId, null);
-});
-
-// ============================================================
-// Command building logic
-// ============================================================
-
-Deno.test("buildClaudeCodeCommand - fresh session (no --resume)", () => {
+Deno.test("session memory: Claude command building distinguishes fresh and resumed sessions", () => {
   _resetClaudeBinaryCache();
-  const cmd = buildClaudeCodeCommand("list files", null);
-  // Binary may be an absolute path (e.g. ~/.local/bin/claude) or bare "claude"
-  assert(cmd[0].endsWith("claude"), `expected binary ending with 'claude', got '${cmd[0]}'`);
-  assertEquals(cmd.slice(1), ["-p", "list files", "--output-format", "stream-json", "--verbose"]);
+  const fresh = buildClaudeCodeCommand("list files", null);
+  const resumed = buildClaudeCodeCommand("delete the first one", "abc-123-uuid");
+
+  assert(fresh[0].endsWith("claude"));
+  assertEquals(fresh.slice(1), ["-p", "list files", "--output-format", "stream-json", "--verbose"]);
+  assert(resumed[0].endsWith("claude"));
+  assertEquals(resumed.slice(1), [
+    "--resume",
+    "abc-123-uuid",
+    "-p",
+    "delete the first one",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+  ]);
 });
 
-Deno.test("buildClaudeCodeCommand - resume with stored ID", () => {
-  _resetClaudeBinaryCache();
-  const cmd = buildClaudeCodeCommand("delete the first one", "abc-123-uuid");
-  assert(cmd[0].endsWith("claude"), `expected binary ending with 'claude', got '${cmd[0]}'`);
-  assertEquals(cmd.slice(1), ["--resume", "abc-123-uuid", "-p", "delete the first one", "--output-format", "stream-json", "--verbose"]);
-});
-
-// ============================================================
-// Init event parsing
-// ============================================================
-
-Deno.test("captureSessionIdFromInitEvent - stores new session_id", () => {
-  const existingMeta: Record<string, unknown> = {};
-  const changed = captureSessionIdFromInitEvent(
+Deno.test("session memory: init events store new session ids but ignore unchanged, unrelated, or disabled cases", () => {
+  const storedMeta: Record<string, unknown> = {};
+  const stored = captureSessionIdFromInitEvent(
     { type: "system", subtype: "init", session_id: "new-session-uuid" },
     true,
     null,
-    existingMeta,
+    storedMeta,
   );
-  assertEquals(changed, true);
-  assertEquals(existingMeta.claudeCodeSessionId, "new-session-uuid");
-});
 
-Deno.test("captureSessionIdFromInitEvent - skips unchanged session_id", () => {
-  const existingMeta: Record<string, unknown> = {};
-  const changed = captureSessionIdFromInitEvent(
+  const unchangedMeta: Record<string, unknown> = {};
+  const unchanged = captureSessionIdFromInitEvent(
     { type: "system", subtype: "init", session_id: "already-stored" },
     true,
     "already-stored",
-    existingMeta,
+    unchangedMeta,
   );
-  assertEquals(changed, false);
-  assertEquals(existingMeta.claudeCodeSessionId, undefined);
-});
 
-Deno.test("captureSessionIdFromInitEvent - ignores unrelated events", () => {
-  const existingMeta: Record<string, unknown> = {};
-  const changed = captureSessionIdFromInitEvent(
+  const unrelatedMeta: Record<string, unknown> = {};
+  const unrelated = captureSessionIdFromInitEvent(
     { type: "assistant", message: { content: [] } },
     true,
     null,
-    existingMeta,
+    unrelatedMeta,
   );
-  assertEquals(changed, false);
-  assertEquals(existingMeta.claudeCodeSessionId, undefined);
-});
 
-Deno.test("captureSessionIdFromInitEvent - disabled session memory", () => {
-  const existingMeta: Record<string, unknown> = {};
-  const changed = captureSessionIdFromInitEvent(
+  const disabledMeta: Record<string, unknown> = {};
+  const disabled = captureSessionIdFromInitEvent(
     { type: "system", subtype: "init", session_id: "new-session-uuid" },
     false,
     null,
-    existingMeta,
+    disabledMeta,
   );
-  assertEquals(changed, false);
-  assertEquals(existingMeta.claudeCodeSessionId, undefined);
+
+  assertEquals(stored, true);
+  assertEquals(storedMeta.claudeCodeSessionId, "new-session-uuid");
+  assertEquals(unchanged, false);
+  assertEquals(unchangedMeta.claudeCodeSessionId, undefined);
+  assertEquals(unrelated, false);
+  assertEquals(unrelatedMeta.claudeCodeSessionId, undefined);
+  assertEquals(disabled, false);
+  assertEquals(disabledMeta.claudeCodeSessionId, undefined);
 });

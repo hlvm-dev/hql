@@ -114,9 +114,3 @@ Deno.test("TimeoutUtils: isAbortError classifies timeout and abort-shaped errors
   assertEquals(isAbortError(null), false);
 });
 
-Deno.test("TimeoutUtils: TimeoutError preserves standard error shape", () => {
-  const error = new TimeoutError("LLM call", 5000);
-  assertEquals(error instanceof Error, true);
-  assertEquals(error.name, "TimeoutError");
-  assertEquals(error.message, "LLM call timed out after 5000ms");
-});

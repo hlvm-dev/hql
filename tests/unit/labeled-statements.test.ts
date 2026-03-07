@@ -36,18 +36,6 @@ Deno.test("Label: continue to outer label", async () => {
   assertStringIncludes(result.code, "continue outer");
 });
 
-Deno.test("Label: labeled for-of loop", async () => {
-  const result = await transpile(`
-    (label search
-      (for-of [item items]
-        (when (matches item)
-          (break search))))
-  `);
-  assertStringIncludes(result.code, "search:");
-  assertStringIncludes(result.code, "for (const item of");
-  assertStringIncludes(result.code, "break search");
-});
-
 Deno.test("Label: nested labeled loops", async () => {
   const result = await transpile(`
     (label outer

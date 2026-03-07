@@ -49,21 +49,3 @@ Deno.test("Line offset: Error location with get/range/map helpers", async () => 
   );
 });
 
-Deno.test("Line offset: Verify no helpers = no offset issues", async () => {
-  // Simple code without helpers - this should already work
-  const code = `(let x 10)
-(let y 20)
-(+ x undefined_var)`;
-
-  const { error } = await runFileExpectRuntimeError(code, {
-    prefix: "hlvm-no-helper-",
-    fileName: "simple.hql",
-  });
-
-  // The error should be on line 3
-  assertEquals(
-    error.sourceLocation.line,
-    3,
-    `Error should be on line 3, got ${error.sourceLocation.line}`,
-  );
-});

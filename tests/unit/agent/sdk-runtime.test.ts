@@ -3,7 +3,9 @@ import {
   assertSupportedSdkProvider,
   convertToSdkMessages,
   convertToolDefinitionsToSdk,
+  mapSdkSources,
   mapSdkUsage,
+  normalizeProviderMetadata,
   type SdkConvertibleMessage,
 } from "../../../src/hlvm/providers/sdk-runtime.ts";
 import type { ToolDefinition } from "../../../src/hlvm/agent/llm-integration.ts";
@@ -185,4 +187,33 @@ Deno.test("sdk runtime: usage mapping preserves values and defaults missing toke
     mapSdkUsage({ inputTokens: undefined, outputTokens: undefined }),
     { inputTokens: 0, outputTokens: 0 },
   );
+});
+
+Deno.test("sdk runtime: native sources and provider metadata normalize to plain records", () => {
+  const sources = mapSdkSources([
+    {
+      type: "source",
+      sourceType: "url",
+      id: "src_1",
+      url: "https://example.com",
+      title: "Example",
+      providerMetadata: { openai: { source: "web-search" } },
+    },
+    {
+      type: "source",
+      sourceType: "document",
+      id: "doc_1",
+      title: "Report",
+      mediaType: "application/pdf",
+      filename: "report.pdf",
+    },
+  ]);
+
+  assertEquals(sources?.length, 2);
+  assertEquals(sources?.[0]?.sourceType, "url");
+  assertEquals(sources?.[0]?.providerMetadata?.openai !== undefined, true);
+  assertEquals(normalizeProviderMetadata({ google: { groundingMetadata: true } }), {
+    google: { groundingMetadata: true },
+  });
+  assertEquals(normalizeProviderMetadata("bad"), undefined);
 });

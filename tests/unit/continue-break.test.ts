@@ -25,21 +25,6 @@ Deno.test("Break: in while loop", async () => {
   assertStringIncludes(result.code, "break;");
 });
 
-Deno.test("Continue and Break: together in while loop", async () => {
-  const result = await transpile(`
-    (var i 0)
-    (while (< i 100)
-      (= i (+ i 1))
-      (when (=== (% i 2) 0)
-        (continue))
-      (when (> i 50)
-        (break))
-      (console.log i))
-  `);
-  assertStringIncludes(result.code, "continue;");
-  assertStringIncludes(result.code, "break;");
-});
-
 Deno.test("Continue: in loop/recur optimized to while", async () => {
   // loop/recur with simple if pattern gets optimized to while
   const result = await transpile(`

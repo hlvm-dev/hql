@@ -1,59 +1,53 @@
-// Test ?. and ?? in general contexts — not just simple hardcoded forms
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { run } from "./helpers.ts";
 
-Deno.test("general: ?. in let binding", async () => {
-  const r = await run(`(var data {user: {profile: {age: 25}}}) (let age data?.user?.profile?.age) age`);
-  assertEquals(r, 25);
-});
+async function runRuntime(code: string) {
+  return await run(code, { typeCheck: false });
+}
 
-Deno.test("general: ?? in function body", async () => {
-  const r = await run(`(fn greet [name] (?? name "stranger")) (greet nil)`);
-  assertEquals(r, "stranger");
-});
-
-Deno.test("general: ?. chained method", async () => {
-  const r = await run(`(var obj {items: [1 2 3]}) (obj?.items?.includes 2)`);
-  assertEquals(r, true);
-});
-
-Deno.test("general: nested ??", async () => {
-  const r = await run(`(var a nil) (var b nil) (var c "found") (?? a (?? b c))`);
-  assertEquals(r, "found");
-});
-
-Deno.test("general: ?? in arrow lambda", async () => {
-  const r = await run(`(var users [{name: "Alice"} {name: nil} {name: "Bob"}]) (users.map (=> (?? $0.name "unknown")))`);
-  assertEquals(r, ["Alice", "unknown", "Bob"]);
-});
-
-Deno.test("general: ?. feeds into method call", async () => {
-  const r = await run(`
-    (var data {users: [{name: "Alice"} {name: "Bob"}]})
-    (data?.users.map (fn [u] u.name))
+Deno.test("optional general: optional chaining works in let bindings, regular functions, and method chains", async () => {
+  const result = await runRuntime(`
+    (var data {user: {profile: {age: 25}}})
+    (var obj {items: [1 2 3]})
+    (fn safe-get [x] x?.name)
+    [
+      (let age data?.user?.profile?.age)
+      (obj?.items?.includes 2)
+      (safe-get nil)
+      (do
+        (var source {users: [{name: "Alice"} {name: "Bob"}]})
+        (source?.users.map (fn [u] u.name)))
+    ]
   `);
-  assertEquals(r, ["Alice", "Bob"]);
+  assertEquals(result, [25, true, undefined, ["Alice", "Bob"]]);
 });
 
-Deno.test("general: ?. in fn (not arrow lambda)", async () => {
-  const r = await run(`(var obj nil) (fn safe-get [x] x?.name) (safe-get obj)`);
-  assertEquals(r, undefined);
+Deno.test("optional general: nullish coalescing works in nested expressions, functions, and lambdas", async () => {
+  const result = await runRuntime(`
+    (fn greet [name] (?? name "stranger"))
+    (fn add [a b] (+ (?? a 0) (?? b 0)))
+    (var users [{name: "Alice"} {name: nil} {name: "Bob"}])
+    (var a nil)
+    (var b nil)
+    (var c "found")
+    [
+      (greet nil)
+      (?? a (?? b c))
+      (users.map (=> (?? $0.name "unknown")))
+      (add nil 5)
+    ]
+  `);
+  assertEquals(result, ["stranger", "found", ["Alice", "unknown", "Bob"], 5]);
 });
 
-Deno.test("general: ?. combined with ?? in expression", async () => {
-  const r = await run(`(var user {profile: nil}) (?? user?.profile?.name "no name")`);
-  assertEquals(r, "no name");
-});
-
-Deno.test("general: ?? as default argument pattern", async () => {
-  const r = await run(`(fn add [a b] (+ (?? a 0) (?? b 0))) (add nil 5)`);
-  assertEquals(r, 5);
-});
-
-Deno.test("general: $0?.prop in arrow lambda (bugfix)", async () => {
-  const r = await run(`
+Deno.test("optional general: optional chaining and nullish coalescing compose cleanly", async () => {
+  const result = await runRuntime(`
+    (var user {profile: nil})
     (var items [{name: "Alice"} nil {name: "Bob"}])
-    (items.map (=> $0?.name))
+    [
+      (?? user?.profile?.name "no name")
+      (items.map (=> $0?.name))
+    ]
   `);
-  assertEquals(r, ["Alice", undefined, "Bob"]);
+  assertEquals(result, ["no name", ["Alice", undefined, "Bob"]]);
 });

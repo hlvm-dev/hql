@@ -26,6 +26,7 @@ import {
   refreshModelDiscoverySnapshot,
 } from "../../../providers/model-discovery-store.ts";
 import { isRuntimeReadyForAiRequests } from "../../commands/serve.ts";
+import { listSnapshotBackedModels } from "../../model-discovery.ts";
 
 const MODELS_CHANNEL = "__models__";
 
@@ -122,7 +123,9 @@ export function handleModelsStream(req: Request): Response {
  *                     $ref: '#/components/schemas/ModelInfo'
  */
 export async function handleListModels(): Promise<Response> {
-  const models = await ai.models.listAll();
+  const models = await listSnapshotBackedModels({
+    includeRemoteCatalog: false,
+  });
   return Response.json({ models });
 }
 

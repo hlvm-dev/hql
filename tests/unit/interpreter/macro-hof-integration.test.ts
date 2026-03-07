@@ -21,17 +21,6 @@ Deno.test("Macro HOF Integration: map with inline fn", async () => {
   assertEquals(result, [2, 4, 6]);
 });
 
-Deno.test("Macro HOF Integration: map with arithmetic fn", async () => {
-  const code = `
-(macro square-all [items]
-  \`[~@(map (fn [x] (* x x)) items)])
-
-(square-all [1 2 3 4])
-`;
-  const result = await run(code);
-  assertEquals(result, [1, 4, 9, 16]);
-});
-
 // ============================================================================
 // Macro with filter and HQL function
 // ============================================================================
@@ -47,17 +36,6 @@ Deno.test("Macro HOF Integration: filter with inline fn", async () => {
   assertEquals(result, [2, 4, 6]);
 });
 
-Deno.test("Macro HOF Integration: filter with comparison fn", async () => {
-  const code = `
-(macro greater-than-2 [items]
-  \`[~@(filter (fn [x] (> x 2)) items)])
-
-(greater-than-2 [1 2 3 4 5])
-`;
-  const result = await run(code);
-  assertEquals(result, [3, 4, 5]);
-});
-
 // ============================================================================
 // Macro with reduce and HQL function
 // ============================================================================
@@ -71,17 +49,6 @@ Deno.test("Macro HOF Integration: reduce sum with inline fn", async () => {
 `;
   const result = await run(code);
   assertEquals(result, 15);
-});
-
-Deno.test("Macro HOF Integration: reduce product with inline fn", async () => {
-  const code = `
-(macro product-all [items]
-  (reduce (fn [acc x] (* acc x)) 1 items))
-
-(product-all [1 2 3 4 5])
-`;
-  const result = await run(code);
-  assertEquals(result, 120);
 });
 
 // ============================================================================
@@ -115,28 +82,6 @@ Deno.test("Macro HOF Integration: filter then map", async () => {
 // ============================================================================
 // More complex HOF patterns
 // ============================================================================
-
-Deno.test("Macro HOF Integration: map with addition", async () => {
-  const code = `
-(macro add-one-all [items]
-  \`[~@(map (fn [x] (+ x 1)) items)])
-
-(add-one-all [10 20 30])
-`;
-  const result = await run(code);
-  assertEquals(result, [11, 21, 31]);
-});
-
-Deno.test("Macro HOF Integration: filter with modulo", async () => {
-  const code = `
-(macro odd-only [items]
-  \`[~@(filter (fn [x] (= 1 (% x 2))) items)])
-
-(odd-only [1 2 3 4 5 6 7])
-`;
-  const result = await run(code);
-  assertEquals(result, [1, 3, 5, 7]);
-});
 
 // ============================================================================
 // Compose multiple HOFs

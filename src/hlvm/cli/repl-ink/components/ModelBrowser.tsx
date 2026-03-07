@@ -48,12 +48,14 @@ import {
 import {
   hasModelDiscoveryData,
   type ModelDiscoverySnapshot,
-  readModelDiscoverySnapshot,
+  readModelDiscoverySnapshotSync,
   refreshModelDiscoverySnapshot,
 } from "../../../providers/model-discovery-store.ts";
 import { calculateScrollWindow } from "../completion/navigation.ts";
+import { HighlightedText } from "./HighlightedText.tsx";
 import { ListSearchField } from "./ListSearchField.tsx";
 import {
+  DEFAULT_TERMINAL_HEIGHT,
   DEFAULT_TERMINAL_WIDTH,
   MIN_PANEL_WIDTH,
   PANEL_PADDING,
@@ -440,6 +442,33 @@ function getStatusIndicator(kind: ModelStatusKind): string {
   }
 }
 
+function getModelMetadataText(model: DisplayModel): string {
+  return [
+    model.provider ? `[${model.provider}]` : "",
+    ...(model.capabilities?.map((capability) => `[${capability}]`) ?? []),
+  ].filter(Boolean).join(" ");
+}
+
+function getModelProviderTagText(model: DisplayModel): string {
+  return model.provider ? `[${model.provider}]` : "";
+}
+
+function getSubstringMatchIndices(
+  text: string,
+  query: string,
+): number[] | undefined {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return undefined;
+
+  const start = text.toLowerCase().indexOf(normalizedQuery);
+  if (start < 0) return undefined;
+
+  return Array.from(
+    { length: Math.min(normalizedQuery.length, text.length - start) },
+    (_, index) => start + index,
+  );
+}
+
 // ============================================================
 // Model Item Component
 // ============================================================
@@ -450,12 +479,14 @@ function ModelItem({
   isActive,
   isPendingDelete = false,
   contentWidth,
+  highlightQuery,
 }: {
   model: DisplayModel;
   isSelected: boolean;
   isActive: boolean;
   isPendingDelete?: boolean;
   contentWidth: number;
+  highlightQuery: string;
 }): React.ReactElement {
   const { color } = useTheme();
 
@@ -530,37 +561,68 @@ function ModelItem({
     ? color("error")
     : undefined;
 
-  const metadata = [
-    model.provider ? `[${model.provider}]` : "",
-    ...(model.capabilities?.map((capability) => `[${capability}]`) ?? []),
-  ].filter(Boolean).join("");
-  const nameWidth = Math.max(18, Math.min(42, Math.floor(contentWidth * 0.34)));
-  const sizeWidth = 12;
-  const detailsWidth = Math.max(
-    0,
-    contentWidth - nameWidth - sizeWidth - statusTag.length - 8,
+  const providerTag = getModelProviderTagText(model);
+  const sizeWidth = 13;
+  const statusWidth = 16;
+  const providerWidth = Math.max(
+    12,
+    Math.min(24, Math.floor(contentWidth * 0.2)),
   );
-  const displayName = truncate(model.name, nameWidth, "…").padEnd(nameWidth);
-  const detailsText = truncate(metadata, detailsWidth, "…");
+  const nameWidth = Math.max(
+    18,
+    Math.min(60, contentWidth - providerWidth - sizeWidth - statusWidth - 8),
+  );
+  const displayName = truncate(model.name, nameWidth, "…");
+  const displayNamePadded = displayName.padEnd(nameWidth);
   const inlineSizeLabel = truncate(sizeLabel, sizeWidth, "…").padStart(
     sizeWidth,
+  );
+  const statusDisplay = truncate(statusTag, statusWidth, "…").padEnd(
+    statusWidth,
+  );
+  const providerDisplay = truncate(providerTag, providerWidth, "…").padEnd(
+    providerWidth,
+  );
+  const selectionMarker = isSelected ? "› " : "  ";
+  const selectionColor = isSelected ? color("accent") : color("muted");
+  const nameMatchIndices = getSubstringMatchIndices(
+    displayName,
+    highlightQuery,
+  );
+  const providerMatchIndices = getSubstringMatchIndices(
+    providerDisplay,
+    highlightQuery,
   );
 
   return (
     <Box width={contentWidth}>
-      <Text inverse={isSelected} wrap="truncate-end">
+      <Text wrap="truncate-end">
+        <Text color={selectionColor}>{selectionMarker}</Text>
         <Text color={indicatorColor}>
           {indicator}
         </Text>
-        <Text color={nameColor}>{displayName}</Text> {isDownloading
+        <HighlightedText
+          text={displayNamePadded}
+          matchIndices={nameMatchIndices}
+          highlightColor={color("warning")}
+          baseColor={nameColor}
+          bold={isSelected || isActive}
+        />{" "}
+        {isDownloading
           ? progressDisplay
           : <Text dimColor>{inlineSizeLabel}</Text>}{" "}
-        <Text dimColor>{statusTag}</Text>
-        {detailsText
+        <Text dimColor>{statusDisplay}</Text>
+        {providerTag
           ? (
             <>
               {" "}
-              <Text color={color("accent")}>{detailsText}</Text>
+              <HighlightedText
+                text={providerDisplay}
+                matchIndices={providerMatchIndices}
+                highlightColor={color("warning")}
+                baseColor={color("accent")}
+                bold={false}
+              />
             </>
           )
           : null}
@@ -589,13 +651,31 @@ export function ModelBrowser({
     MIN_PANEL_WIDTH,
     (stdout?.columns ?? DEFAULT_TERMINAL_WIDTH) - PANEL_PADDING,
   );
+  const availableHeight = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
+  const visibleRowCount = Math.max(8, Math.min(16, availableHeight - 22));
   const panelWidth = availableWidth;
   const contentWidth = panelWidth - 4;
+  const defaultModelWidth = Math.max(
+    22,
+    Math.min(48, Math.floor(contentWidth * 0.34)),
+  );
+  const initialDiscoverySnapshot = useMemo(
+    () => readModelDiscoverySnapshotSync(),
+    [],
+  );
+  const hasInitialDiscoveryData = useMemo(
+    () => hasModelDiscoveryData(initialDiscoverySnapshot),
+    [initialDiscoverySnapshot],
+  );
 
   // State
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
-  const [remoteModels, setRemoteModels] = useState<RemoteModel[]>([]);
-  const [cloudModels, setCloudModels] = useState<CloudModel[]>([]);
+  const [remoteModels, setRemoteModels] = useState<RemoteModel[]>(() =>
+    toRemoteModels(initialDiscoverySnapshot.remoteModels)
+  );
+  const [cloudModels, setCloudModels] = useState<CloudModel[]>(() =>
+    toCloudModels(initialDiscoverySnapshot.cloudModels)
+  );
   const [selection, setSelection] = useState<SelectionState>({
     index: 0,
     name: null,
@@ -603,7 +683,9 @@ export function ModelBrowser({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCursor, setSearchCursor] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [discoveryLoading, setDiscoveryLoading] = useState(true);
+  const [discoveryLoading, setDiscoveryLoading] = useState(
+    !hasInitialDiscoveryData,
+  );
   const [discoveryRefreshing, setDiscoveryRefreshing] = useState(false);
   const [discoveryRefreshFailed, setDiscoveryRefreshFailed] = useState(false);
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
@@ -698,16 +780,6 @@ export function ModelBrowser({
   // Load cached discovery immediately, then refresh once in the background.
   useEffect(() => {
     let cancelled = false;
-    void readModelDiscoverySnapshot()
-      .then((snapshot) => {
-        if (cancelled) return;
-        applyDiscoverySnapshot(snapshot, setRemoteModels, setCloudModels);
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setDiscoveryLoading(false);
-        }
-      });
 
     setDiscoveryRefreshing(true);
     setDiscoveryRefreshFailed(false);
@@ -730,6 +802,7 @@ export function ModelBrowser({
       })
       .finally(() => {
         if (!cancelled) {
+          setDiscoveryLoading(false);
           setDiscoveryRefreshing(false);
         }
       });
@@ -810,7 +883,10 @@ export function ModelBrowser({
 
   // Build display list - POSITION STABLE (models never move regardless of status)
   // Order is determined by remoteModels (sorted by size), local status is just a flag
-  const displayModels = useMemo((): DisplayModel[] => {
+  const { viewModels, displayModels } = useMemo((): {
+    viewModels: DisplayModel[];
+    displayModels: DisplayModel[];
+  } => {
     const result: DisplayModel[] = [];
 
     // Build lookup maps
@@ -917,17 +993,17 @@ export function ModelBrowser({
     }
 
     // Apply filter mode
-    let filtered = filterByMode(result, filterMode);
+    const viewModels = filterByMode(result, filterMode);
 
     // Filter by search within current view (name, provider, capabilities, description)
     const q = normalizedSearchQuery.toLowerCase();
-    if (q) {
-      filtered = filtered.filter(
+    const displayModels = q
+      ? viewModels.filter(
         (m) => getDisplayModelSearchText(m).includes(q),
-      );
-    }
+      )
+      : viewModels;
 
-    return filtered;
+    return { viewModels, displayModels };
   }, [
     localModels,
     remoteModels,
@@ -1215,7 +1291,7 @@ export function ModelBrowser({
   const visibleWindow = calculateScrollWindow(
     selection.index,
     displayModels.length,
-    8,
+    visibleRowCount,
   );
   const visibleModels = displayModels.slice(
     visibleWindow.start,
@@ -1228,117 +1304,156 @@ export function ModelBrowser({
   const nextFilter = FILTER_LABELS[FILTER_CYCLE[nextFilterIdx]];
   const selectedModel = displayModels[selection.index] ?? displayModels[0] ??
     null;
+  const selectedMetadata = selectedModel
+    ? getModelMetadataText(selectedModel)
+    : "";
+  const selectedMetadataDisplay = truncate(
+    selectedMetadata,
+    Math.max(0, contentWidth - 2),
+    "…",
+  );
   const hasDiscoveryResults = remoteModels.length > 0 || cloudModels.length > 0;
   const emptyStateMessage = discoveryRefreshFailed && !hasDiscoveryResults
     ? "Model catalog unavailable. Retry in a moment."
     : FILTER_EMPTY[activeFilterMode];
+  const modelCountLabel = normalizedSearchQuery
+    ? `${displayModels.length}/${viewModels.length}`
+    : `${displayModels.length}`;
 
   return (
     <Box
       flexDirection="column"
       borderStyle="single"
       paddingX={1}
+      paddingY={1}
       width={panelWidth}
     >
       <Box justifyContent="space-between">
         <Text bold color={color("primary")} wrap="truncate-end">
-          Models: {FILTER_LABELS[activeFilterMode]} ({displayModels.length})
+          Models: {FILTER_LABELS[activeFilterMode]} ({modelCountLabel})
         </Text>
         <Text dimColor wrap="truncate-end">
           {currentModel
-            ? `Default: ${truncate(currentModel, 20, "…")}`
+            ? `Default: ${truncate(currentModel, defaultModelWidth, "…")}`
             : "Default: none"}
         </Text>
       </Box>
       <Box justifyContent="space-between">
         <Box flexGrow={1}>
           <Text wrap="truncate-end">
-            <Text dimColor>View:</Text>
+            <Text dimColor>View:</Text>{" "}
             <Text color={color("accent")} bold>
               {FILTER_LABELS[activeFilterMode]}
             </Text>
-            <Text dimColor>· Tab cycles views</Text>
+            <Text dimColor>{" · Tab cycles views"}</Text>
           </Text>
         </Box>
         <Text dimColor>Ctrl+B: Tasks</Text>
       </Box>
 
-      <ListSearchField
-        query={searchQuery}
-        cursor={searchCursor}
-        width={contentWidth}
-        placeholder="Filter by model, provider, capability, or description"
-      />
-      <Box>
-        <Text dimColor>Selected:</Text>
-        {selectedModel
-          ? (
-            (() => {
-              const isActive = isSelectedModelActive(
-                selectedModel.name,
-                currentModel,
-              );
-              const isPending = pendingDelete === selectedModel.name;
-              const status = getModelStatusLabel(
-                getModelStatusKind(selectedModel, isActive, isPending),
-              );
-              return (
-                <>
-                  <Text wrap="truncate-end">
-                    {truncate(
-                      selectedModel.name,
-                      Math.max(0, contentWidth - status.length - 14),
-                      "…",
-                    )}
-                  </Text>
-                  <Text dimColor>[{status}]</Text>
-                </>
-              );
-            })()
-          )
-          : <Text dimColor>None</Text>}
+      <Box marginTop={1}>
+        <ListSearchField
+          query={searchQuery}
+          cursor={searchCursor}
+          width={contentWidth}
+          placeholder="Filter by model, provider, capability, or description"
+        />
       </Box>
+      <Box marginTop={1}>
+        <Text wrap="truncate-end">
+          <Text dimColor>Selected:</Text> {selectedModel
+            ? (
+              (() => {
+                const isActive = isSelectedModelActive(
+                  selectedModel.name,
+                  currentModel,
+                );
+                const isPending = pendingDelete === selectedModel.name;
+                const status = getModelStatusLabel(
+                  getModelStatusKind(selectedModel, isActive, isPending),
+                );
+                return (
+                  <>
+                    <Text bold>
+                      {truncate(
+                        selectedModel.name,
+                        Math.max(0, contentWidth - status.length - 13),
+                        "…",
+                      )}
+                    </Text>{" "}
+                    <Text dimColor>[{status}]</Text>
+                  </>
+                );
+              })()
+            )
+            : <Text dimColor>None</Text>}
+        </Text>
+      </Box>
+      {selectedMetadata && (
+        <Box paddingLeft={2}>
+          <HighlightedText
+            text={selectedMetadataDisplay}
+            matchIndices={getSubstringMatchIndices(
+              selectedMetadataDisplay,
+              normalizedSearchQuery,
+            )}
+            highlightColor={color("warning")}
+            baseColor={color("muted")}
+            bold={false}
+          />
+        </Box>
+      )}
 
       {/* Loading */}
-      {loading && <Text dimColor>Loading installed models...</Text>}
+      {loading && (
+        <Box marginTop={1}>
+          <Text dimColor>Loading installed models...</Text>
+        </Box>
+      )}
       {!loading && discoveryLoading && (
-        <Text dimColor>Loading model catalog...</Text>
+        <Box marginTop={1}>
+          <Text dimColor>Loading model catalog...</Text>
+        </Box>
       )}
       {!loading && !discoveryLoading && discoveryRefreshing &&
         !hasDiscoveryResults && (
-        <Text dimColor>Refreshing model catalog...</Text>
+        <Box marginTop={1}>
+          <Text dimColor>Refreshing model catalog...</Text>
+        </Box>
       )}
 
       {/* Model list */}
       {!loading && !discoveryLoading && !discoveryRefreshing &&
         displayModels.length === 0 && (
-        <Text dimColor wrap="truncate-end">
-          {emptyStateMessage}
-        </Text>
+        <Box marginTop={1}>
+          <Text dimColor wrap="truncate-end">
+            {emptyStateMessage}
+          </Text>
+        </Box>
       )}
 
-      {!loading &&
-        visibleModels.map((model: DisplayModel, i: number) => {
-          const actualIndex = visibleWindow.start + i;
-          return (
-            <Box key={model.name}>
-              <ModelItem
-                model={model}
-                isSelected={actualIndex === selection.index}
-                isActive={isSelectedModelActive(model.name, currentModel)}
-                isPendingDelete={pendingDelete === model.name}
-                contentWidth={contentWidth}
-              />
-            </Box>
-          );
-        })}
+      {visibleModels.map((model: DisplayModel, i: number) => {
+        const actualIndex = visibleWindow.start + i;
+        return (
+          <Box key={model.name}>
+            <ModelItem
+              model={model}
+              isSelected={actualIndex === selection.index}
+              isActive={isSelectedModelActive(model.name, currentModel)}
+              isPendingDelete={pendingDelete === model.name}
+              contentWidth={contentWidth}
+              highlightQuery={normalizedSearchQuery}
+            />
+          </Box>
+        );
+      })}
 
-      {!loading && visibleWindow.start > 0 && (
+      {visibleWindow.start > 0 && (
         <Text dimColor wrap="truncate-end">
           ... {visibleWindow.start} earlier
         </Text>
       )}
-      {!loading && visibleWindow.end < displayModels.length && (
+      {visibleWindow.end < displayModels.length && (
         <Text dimColor wrap="truncate-end">
           {"  ... "}
           {displayModels.length - visibleWindow.end}
@@ -1346,28 +1461,39 @@ export function ModelBrowser({
         </Text>
       )}
 
-      <Text></Text>
-      {pendingDelete
-        ? (
-          <Text color={color("error")} wrap="truncate-end">
-            {'  Press Ctrl+D again to delete "'}
-            {truncate(pendingDelete, Math.max(0, contentWidth - 34), "…")}
-            {'", Esc to cancel'}
-          </Text>
-        )
-        : statusMessage
-        ? (
-          <Text color={color("warning")} wrap="truncate-end">
-            {statusMessage}
-          </Text>
-        )
-        : (
-          <Text dimColor wrap="truncate-end">
-            ↑↓ nav Tab → {nextFilter}{" "}
-            type filter ↵ select Ctrl+D del Ctrl+O info Ctrl+X cancel Esc
-            clear/back
-          </Text>
-        )}
+      <Box marginTop={1} flexDirection="column">
+        <Text dimColor>{`${"─".repeat(Math.max(0, contentWidth))}`}</Text>
+        {pendingDelete
+          ? (
+            <Box
+              borderStyle="round"
+              borderColor={color("error")}
+              paddingX={1}
+            >
+              <Text color={color("error")} wrap="truncate-end">
+                {'Press Ctrl+D again to delete "'}
+                {truncate(pendingDelete, Math.max(0, contentWidth - 36), "…")}
+                {'", Esc to cancel'}
+              </Text>
+            </Box>
+          )
+          : statusMessage
+          ? (
+            <Text color={color("warning")} wrap="truncate-end">
+              {statusMessage}
+            </Text>
+          )
+          : (
+            <>
+              <Text dimColor wrap="truncate-end">
+                ↑↓ move · Tab → {nextFilter} · ↵ select · Esc back
+              </Text>
+              <Text dimColor wrap="truncate-end">
+                Type to filter · Ctrl+O info · Ctrl+D delete · Ctrl+X cancel
+              </Text>
+            </>
+          )}
+      </Box>
     </Box>
   );
 }

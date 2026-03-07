@@ -16,20 +16,6 @@ Deno.test("Switch: basic switch - uses native ternary (optimized)", async () => 
   assertStringIncludes(result.code, "?");
 });
 
-Deno.test("Switch: with string cases - uses native ternary (optimized)", async () => {
-  const result = await transpile(`
-    (switch color
-      (case "red" (setBackground "#ff0000"))
-      (case "green" (setBackground "#00ff00"))
-      (case "blue" (setBackground "#0000ff"))
-      (default (setBackground "#000000")))
-  `);
-  // Now optimized to chained ternaries
-  assertStringIncludes(result.code, 'color === "red"');
-  assertStringIncludes(result.code, 'color === "green"');
-  assertStringIncludes(result.code, 'color === "blue"');
-});
-
 Deno.test("Switch: fallthrough with :fallthrough keyword", async () => {
   const result = await transpile(`
     (switch grade

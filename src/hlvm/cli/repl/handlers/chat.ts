@@ -35,7 +35,7 @@ import {
   textEncoder,
 } from "../http-utils.ts";
 import { parseModelString } from "../../../providers/index.ts";
-import { loadRecentMessages } from "../../../store/message-utils.ts";
+import { loadAllMessages, loadRecentMessages } from "../../../store/message-utils.ts";
 import { config } from "../../../api/config.ts";
 import { ai } from "../../../api/ai.ts";
 import { isPaidProvider, isProviderApproved } from "../../commands/ask.ts";
@@ -68,10 +68,16 @@ import {
   TITLE_SEARCH_HISTORY_LIMIT,
   activeRequests,
   emitCancellation,
+  getLastUserMessage,
   pushSessionUpdatedEvent,
 } from "./chat-session.ts";
 import { handleAgentMode, handleClaudeCodeAgentMode } from "./chat-agent-mode.ts";
 import { handleChatMode, modelSupportsTools } from "./chat-direct.ts";
+import {
+  buildRequestMessagesToPersist,
+  shouldHonorRequestMessages,
+  validateChatRequestMessages,
+} from "./chat-context.ts";
 
 // ============================================================
 // Types (re-exported from chat-session.ts above)
@@ -94,6 +100,9 @@ interface CancelRequest {
  *     description: |
  *       Sends a message and streams the response as NDJSON.
  *       Supports chat, agent, and claude-code-agent modes.
+ *       Request `messages` are used as authoritative prompt history when the
+ *       client provides explicit multi-message or non-user context. Single-turn
+ *       user requests fall back to the persisted session transcript.
  *       Each line is a JSON object with an `event` field.
  *     operationId: chat
  *     parameters:
@@ -201,6 +210,14 @@ export async function handleChat(req: Request): Promise<Response> {
     return jsonError("Missing session_id or messages", 400);
   }
 
+  const requestValidationError = validateChatRequestMessages(body.messages);
+  if (requestValidationError) {
+    return jsonError(requestValidationError, 400);
+  }
+
+  const currentUserMessage = getLastUserMessage(body.messages)!;
+  const currentTurnId = currentUserMessage.client_turn_id ?? body.client_turn_id;
+
   if (
     body.mode !== "chat" && body.mode !== "agent" &&
     body.mode !== CLAUDE_CODE_AGENT_MODE
@@ -217,10 +234,10 @@ export async function handleChat(req: Request): Promise<Response> {
     }
   }
 
-  if (body.client_turn_id) {
+  if (currentTurnId) {
     const existing = getMessageByClientTurnId(
       body.session_id,
-      body.client_turn_id,
+      currentTurnId,
     );
     if (existing) {
       return Response.json(
@@ -317,17 +334,22 @@ export async function handleChat(req: Request): Promise<Response> {
     });
   }
 
-  const currentMsg = body.messages[body.messages.length - 1];
-  if (currentMsg && currentMsg.role !== "system") {
-    const turnId = currentMsg.client_turn_id ?? body.client_turn_id;
+  const persistedRequestMessages = buildRequestMessagesToPersist({
+    requestMessages: body.messages,
+    storedMessages: shouldHonorRequestMessages(body.messages)
+      ? loadAllMessages(sessionId)
+      : [],
+    fallbackClientTurnId: body.client_turn_id,
+  });
+  for (const message of persistedRequestMessages) {
     const inserted = insertMessage({
       session_id: session.id,
-      role: currentMsg.role,
-      content: currentMsg.content,
-      client_turn_id: turnId,
+      role: message.role,
+      content: message.content,
+      client_turn_id: message.clientTurnId,
       request_id: requestId,
-      sender_type: currentMsg.role === "user" ? "user" : "system",
-      image_paths: currentMsg.image_paths,
+      sender_type: message.senderType,
+      image_paths: message.imagePaths,
     });
     pushSSEEvent(session.id, "message_added", { message: inserted });
     pushSessionUpdatedEvent(session.id);
@@ -436,6 +458,7 @@ export async function handleChat(req: Request): Promise<Response> {
             controller.signal,
             emit,
             onPartial,
+            resolvedModelInfo,
           );
         }
 

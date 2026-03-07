@@ -86,6 +86,24 @@ Deno.test("conversation display: buildCitationRenderView injects markers and gro
   assertEquals(view.sources[0]?.confidence, 0.7);
 });
 
+Deno.test("conversation display: buildCitationRenderView keeps source-only native citations without inline markers", () => {
+  const text = "Grounded answer without inline span metadata.";
+  const view = buildCitationRenderView(text, [
+    {
+      url: "https://ai.google.dev/gemini-api/docs/google-search",
+      title: "Google Search grounding",
+      provenance: "provider",
+      sourceType: "url",
+      sourceId: "src_1",
+    },
+  ]);
+
+  assertEquals(view.text, text);
+  assertEquals(view.sources.length, 1);
+  assertEquals(view.sources[0]?.title, "Google Search grounding");
+  assertEquals(view.sources[0]?.spans.length, 0);
+});
+
 Deno.test("conversation display: resolveToolResultText switches between summary and full output", () => {
   const payload = {
     resultSummaryText: "Found 12 matches in 4 files",

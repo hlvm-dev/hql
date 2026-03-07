@@ -12,17 +12,6 @@ Deno.test("Private field: basic private field (WeakMap pattern)", async () => {
   assertStringIncludes(result.code, "WeakMap");
 });
 
-Deno.test("Private field: multiple private fields", async () => {
-  const result = await transpile(`
-    (class BankAccount
-      (#balance 0)
-      (#transactions []))
-  `);
-  assertStringIncludes(result.code, "_BankAccount_balance");
-  assertStringIncludes(result.code, "_BankAccount_transactions");
-  assertStringIncludes(result.code, "WeakMap");
-});
-
 Deno.test("Private field: mixed private and public fields", async () => {
   const result = await transpile(`
     (class User

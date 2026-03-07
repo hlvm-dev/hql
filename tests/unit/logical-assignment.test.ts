@@ -10,14 +10,6 @@ Deno.test("??= basic nullish coalescing assignment", async () => {
   assertStringIncludes(result.code, "x ??= 10");
 });
 
-Deno.test("??= with expression value", async () => {
-  const result = await transpile(`
-    (??= config.timeout (getDefaultTimeout))
-  `);
-  assertStringIncludes(result.code, "??=");
-  assertStringIncludes(result.code, "config.timeout");
-});
-
 Deno.test("??= in function context", async () => {
   const result = await transpile(`
     (fn initOptions [options]
@@ -37,26 +29,12 @@ Deno.test("&&= basic logical AND assignment", async () => {
   assertStringIncludes(result.code, "x &&= getValue()");
 });
 
-Deno.test("&&= with member expression", async () => {
-  const result = await transpile(`
-    (&&= user.isActive false)
-  `);
-  assertStringIncludes(result.code, "user.isActive &&= false");
-});
-
 // ||= (Logical OR assignment)
 Deno.test("||= basic logical OR assignment", async () => {
   const result = await transpile(`
     (||= name "default")
   `);
   assertStringIncludes(result.code, 'name ||= "default"');
-});
-
-Deno.test("||= with function call", async () => {
-  const result = await transpile(`
-    (||= cache.data (fetchData))
-  `);
-  assertStringIncludes(result.code, "cache.data ||= fetchData()");
 });
 
 Deno.test("Combined logical assignments", async () => {

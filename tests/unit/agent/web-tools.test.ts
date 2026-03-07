@@ -215,6 +215,11 @@ Deno.test("web tools: formatting keeps compact displays, preserves raw results, 
     query: "deno 2.2 release",
     provider: "duckduckgo",
     count: 2,
+    diagnostics: {
+      retrieval: {
+        queryTrail: ["deno 2.2 release", "deno 2.2 release official docs"],
+      },
+    },
     results: [
       {
         title: "Deno 2.2 Release Notes",
@@ -223,6 +228,8 @@ Deno.test("web tools: formatting keeps compact displays, preserves raw results, 
         pageDescription: "A much longer and richer description extracted from the page metadata",
         publishedDate: "2026-02-15",
         passages: ["The new release includes faster startup"],
+        evidenceStrength: "high",
+        evidenceReason: "page passages",
         score: 8,
       },
       { title: "What's New in Deno", url: "https://blog.example.com/deno-22", snippet: "Deno adds monorepo support", score: 6 },
@@ -233,7 +240,8 @@ Deno.test("web tools: formatting keeps compact displays, preserves raw results, 
   assert(highConfidence!.returnDisplay.includes('Search: "deno 2.2 release"'));
   assert(highConfidence!.returnDisplay.includes("A much longer and richer description"));
   assert(highConfidence!.llmContent.includes("A much longer and richer description"));
-  assert(highConfidence!.llmContent.includes("> Deno 2.2 introduces workspaces"));
+  assert(highConfidence!.llmContent.includes("Evidence pages:"));
+  assert(highConfidence!.llmContent.includes("Query trail:"));
   assert(highConfidence!.returnDisplay.includes("Published: 2026-02-15"));
   assert(!highConfidence!.summaryDisplay.includes("{"));
 
@@ -477,6 +485,82 @@ Deno.test({
       assertEquals(highQueriesSeen.length, 1);
       assertEquals(highDeep.autoTriggered, false);
       assertEquals(highDeep.rounds, 1);
+    });
+  },
+});
+
+Deno.test({
+  name: "web tools: search_web records retrieval diagnostics and evidence from fetched pages",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withIsolatedSearchRegistry(async () => {
+      registerSearchProvider({
+        name: "duckduckgo",
+        displayName: "deterministic-prefetch",
+        requiresApiKey: false,
+        search(query: string, opts: SearchCallOptions) {
+          return Promise.resolve({
+            query,
+            provider: "duckduckgo",
+            count: 2,
+            results: [
+              {
+                title: "Python TaskGroup Docs",
+                url: "https://docs.python.org/3/library/asyncio-task.html",
+                snippet: "TaskGroup official documentation",
+                score: 10,
+              },
+              {
+                title: "Python 3.11 What's New",
+                url: "https://docs.python.org/3/whatsnew/3.11.html",
+                snippet: "What's new in Python 3.11",
+                score: 8,
+              },
+            ],
+            diagnostics: { limit: opts.limit },
+          });
+        },
+      });
+
+      await withStubbedFetch(async (input) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("asyncio-task")) {
+          return new Response(
+            `<html><head><meta name="description" content="Official asyncio TaskGroup documentation" /></head><body><article><p>TaskGroup provides structured concurrency and cancels sibling tasks when one task fails.</p></article></body></html>`,
+            { status: 200, headers: { "Content-Type": "text/html" } },
+          );
+        }
+        return new Response(
+          `<html><head><time datetime="2025-07-01">July 1 2025</time></head><body><article><p>Python 3.11 added TaskGroup and ExceptionGroup support.</p></article></body></html>`,
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        );
+      }, async () => {
+        resetWebToolBudget();
+        const raw = await WEB_TOOLS.search_web.fn(
+          {
+            query: "Explain Python asyncio TaskGroup using official docs first",
+            maxResults: 2,
+            prefetch: true,
+            reformulate: false,
+          },
+          "/tmp",
+        ) as Record<string, unknown>;
+
+        const diagnostics = raw.diagnostics as Record<string, unknown>;
+        const retrieval = diagnostics.retrieval as Record<string, unknown>;
+        const results = raw.results as Array<Record<string, unknown>>;
+
+        assertEquals((retrieval.rounds as number) >= 1, true);
+        assert(Array.isArray(retrieval.queryTrail));
+        assertEquals((retrieval.queryTrail as string[])[0], "Explain Python asyncio TaskGroup using official docs first");
+        assert(Array.isArray(retrieval.fetchedUrls));
+        assertEquals((retrieval.fetchedUrls as unknown[]).length > 0, true);
+        assertEquals(retrieval.synthesizedFromFetch, true);
+        assertEquals((retrieval.fetchEvidenceCount as number) >= 1, true);
+        assert(results.some((result) => Array.isArray(result.passages) && (result.passages as unknown[]).length > 0));
+        assert(results.some((result) => result.evidenceStrength === "high"));
+      });
     });
   },
 });

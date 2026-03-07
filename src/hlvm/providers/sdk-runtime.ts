@@ -403,6 +403,58 @@ function toProviderToolCalls(
   }));
 }
 
+export function normalizeProviderMetadata(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+interface SdkSourceShape {
+  type: "source";
+  sourceType: "url" | "document";
+  id: string;
+  url?: string;
+  title?: string;
+  mediaType?: string;
+  filename?: string;
+  providerMetadata?: unknown;
+}
+
+export function mapSdkSources(
+  sources: SdkSourceShape[] | undefined,
+): ChatStructuredResponse["sources"] | undefined {
+  if (!Array.isArray(sources) || sources.length === 0) return undefined;
+
+  const mapped: NonNullable<ChatStructuredResponse["sources"]> = [];
+  for (const source of sources) {
+    if (!source || source.type !== "source") continue;
+    if (source.sourceType === "url") {
+      mapped.push({
+        id: source.id,
+        sourceType: "url" as const,
+        url: source.url,
+        title: source.title,
+        providerMetadata: normalizeProviderMetadata(source.providerMetadata),
+      });
+      continue;
+    }
+    if (source.sourceType === "document") {
+      mapped.push({
+        id: source.id,
+        sourceType: "document" as const,
+        title: source.title,
+        mediaType: source.mediaType,
+        filename: source.filename,
+        providerMetadata: normalizeProviderMetadata(source.providerMetadata),
+      });
+    }
+  }
+
+  return mapped.length > 0 ? mapped : undefined;
+}
+
 function resolveNumCtx(options?: GenerateOptions): number | undefined {
   const rawValue = options?.raw?.num_ctx;
   if (
@@ -518,16 +570,20 @@ export async function chatStructuredWithSdk(
         onToken(chunk);
       }
 
-      const [text, toolCalls, usage] = await Promise.all([
+      const [text, toolCalls, usage, sources, providerMetadata] = await Promise.all([
         result.text,
         result.toolCalls,
         result.usage,
+        result.sources,
+        result.providerMetadata,
       ]);
 
       return {
         content: contentChunks.join("") || text || "",
         toolCalls: toProviderToolCalls(toolCalls),
         usage: mapSdkUsage(usage),
+        sources: mapSdkSources(sources),
+        providerMetadata: normalizeProviderMetadata(providerMetadata),
       };
     }
 
@@ -536,6 +592,8 @@ export async function chatStructuredWithSdk(
       content: result.text || "",
       toolCalls: toProviderToolCalls(result.toolCalls),
       usage: mapSdkUsage(result.usage),
+      sources: mapSdkSources(result.sources),
+      providerMetadata: normalizeProviderMetadata(result.providerMetadata),
     };
   } catch (error) {
     await maybeHandleSdkAuthError(spec.providerName, error);

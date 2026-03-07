@@ -10,11 +10,14 @@ import { isObjectValue, TEXT_ENCODER } from "../../common/utils.ts";
 import { checkGrounding } from "./grounding.ts";
 import {
   attributeCitationSpans,
+  buildRetrievalCitations,
   buildCitationSourceIndex,
+  mapLlmSourcesToCitations,
 } from "./tools/web/citation-spans.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
 import {
   ensureToolCallIds,
+  type LLMSource,
   type LLMResponse,
   type ToolCall,
 } from "./tool-call.ts";
@@ -126,6 +129,8 @@ export async function processAgentResponse(
   toolBytes: number;
   shouldContinue: boolean;
   finalResponse?: string;
+  nativeSources?: LLMSource[];
+  providerMetadata?: Record<string, unknown>;
 }> {
   const content = (agentResponse.content ?? "").trim();
   const maxCalls = config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
@@ -150,6 +155,8 @@ export async function processAgentResponse(
       toolBytes: 0,
       shouldContinue: false,
       finalResponse: content,
+      nativeSources: agentResponse.sources,
+      providerMetadata: agentResponse.providerMetadata,
     };
   }
 
@@ -227,6 +234,8 @@ export async function processAgentResponse(
     toolBytes,
     shouldContinue: completeIndex < 0,
     finalResponse,
+    nativeSources: agentResponse.sources,
+    providerMetadata: agentResponse.providerMetadata,
   };
 }
 
@@ -287,13 +296,21 @@ export function handleTextOnlyResponse(
  */
 export function handleFinalResponse(
   responseText: string,
-  result: { toolCallsMade: number; finalResponse?: string },
+  result: {
+    toolCallsMade: number;
+    finalResponse?: string;
+    nativeSources?: LLMSource[];
+    providerMetadata?: Record<string, unknown>;
+  },
   state: LoopState,
   lc: LoopConfig,
   config: OrchestratorConfig,
 ): LoopDirective {
   const emitFinalResponseMeta = (citations: Citation[] = []): void => {
-    config.onFinalResponseMeta?.({ citationSpans: citations });
+    config.onFinalResponseMeta?.({
+      citationSpans: citations,
+      providerMetadata: result.providerMetadata,
+    });
   };
 
   if (
@@ -400,12 +417,20 @@ export function handleFinalResponse(
     : [];
   const groundingCitations = citationSpans.map((span) => ({
     ...span.citation,
+    provenance: "inferred" as const,
     startIndex: span.startIndex,
     endIndex: span.endIndex,
     confidence: span.confidence,
     spanText: span.spanText,
     sourceKind: span.sourceKind,
   }));
+  const providerCitations = mapLlmSourcesToCitations(result.nativeSources);
+  const retrievalCitations = buildRetrievalCitations(state.passageIndex);
+  const emittedCitations = providerCitations.length > 0
+    ? providerCitations
+    : retrievalCitations.length > 0
+    ? retrievalCitations
+    : groundingCitations;
 
   // Grounding checks
   if (lc.groundingMode !== "off" && state.toolUses.length > 0) {
@@ -439,11 +464,11 @@ export function handleFinalResponse(
       const warningText = `\n\n[Grounding warnings]\n- ${
         grounding.warnings.join("\n- ")
       }`;
-      emitFinalResponseMeta(groundingCitations);
+      emitFinalResponseMeta(emittedCitations);
       return { action: "return", value: `${finalResponse}${warningText}` };
     }
   }
-  emitFinalResponseMeta(groundingCitations);
+  emitFinalResponseMeta(emittedCitations);
   return { action: "return", value: finalResponse };
 }
 

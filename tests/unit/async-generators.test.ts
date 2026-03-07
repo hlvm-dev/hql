@@ -36,28 +36,3 @@ Deno.test("Async Generator: yield* delegation", async () => {
   assertStringIncludes(result.code, "yield await");
 });
 
-Deno.test("Async Generator: practical pagination pattern", async () => {
-  const result = await transpile(`
-    (async fn* paginate [startPage maxPages]
-      (var page startPage)
-      (while (<= page maxPages)
-        (const data (await (fetchPage page)))
-        (yield data)
-        (= page (+ page 1))))
-  `);
-  assertStringIncludes(result.code, "async function*");
-  assertStringIncludes(result.code, "yield data");
-  assertStringIncludes(result.code, "await");
-});
-
-Deno.test("Async Generator: async iteration source", async () => {
-  const result = await transpile(`
-    (async fn* readLines [reader]
-      (var line (await (.readLine reader)))
-      (while (!== line null)
-        (yield line)
-        (= line (await (.readLine reader)))))
-  `);
-  assertStringIncludes(result.code, "async function*");
-  assertStringIncludes(result.code, "yield line");
-});

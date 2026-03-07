@@ -39,6 +39,47 @@ function tagProviderModels(
   }));
 }
 
+export function tagModelsForProvider(
+  providerName: string,
+  models: ModelInfo[],
+): ModelInfo[] {
+  const provider = getProvider(providerName);
+  if (!provider) {
+    return models;
+  }
+  return tagProviderModels(providerName, provider, models);
+}
+
+export function dedupeModelList(models: ModelInfo[]): ModelInfo[] {
+  const byName = new Map<string, ModelInfo[]>();
+  for (const model of models) {
+    const key = getCanonicalModelListKey(model);
+    const existing = byName.get(key);
+    if (existing) existing.push(model);
+    else byName.set(key, [model]);
+  }
+
+  const deduped: ModelInfo[] = [];
+  for (const groupedModels of byName.values()) {
+    if (groupedModels.length <= 1) {
+      deduped.push(...groupedModels);
+      continue;
+    }
+    const hasConfigured = groupedModels.some((model) =>
+      model.metadata?.apiKeyConfigured === true
+    );
+    if (hasConfigured) {
+      for (const model of groupedModels) {
+        if (model.metadata?.apiKeyConfigured !== false) deduped.push(model);
+      }
+    } else {
+      deduped.push(groupedModels[0]);
+    }
+  }
+
+  return deduped;
+}
+
 export async function listAllProviderModels(
   options?: ModelListAllOptions,
 ): Promise<ModelInfo[]> {
@@ -79,32 +120,5 @@ export async function listAllProviderModels(
       }
     }),
   );
-  const allModels = results.flat();
-
-  const byName = new Map<string, ModelInfo[]>();
-  for (const model of allModels) {
-    const key = getCanonicalModelListKey(model);
-    const existing = byName.get(key);
-    if (existing) existing.push(model);
-    else byName.set(key, [model]);
-  }
-
-  const deduped: ModelInfo[] = [];
-  for (const models of byName.values()) {
-    if (models.length <= 1) {
-      deduped.push(...models);
-      continue;
-    }
-    const hasConfigured = models.some((model) =>
-      model.metadata?.apiKeyConfigured === true
-    );
-    if (hasConfigured) {
-      for (const model of models) {
-        if (model.metadata?.apiKeyConfigured !== false) deduped.push(model);
-      }
-    } else {
-      deduped.push(...models);
-    }
-  }
-  return deduped;
+  return dedupeModelList(results.flat());
 }

@@ -20,12 +20,27 @@ export interface LLMUsage {
   outputTokens: number;
 }
 
+/** Provider-native source metadata surfaced by the model runtime. */
+export interface LLMSource {
+  id: string;
+  sourceType: "url" | "document";
+  url?: string;
+  title?: string;
+  mediaType?: string;
+  filename?: string;
+  providerMetadata?: Record<string, unknown>;
+}
+
 /** Structured LLM response for native tool calling */
 export interface LLMResponse {
   content: string;
   toolCalls: ToolCall[];
   /** Provider-reported token usage (if available) */
   usage?: LLMUsage;
+  /** Provider-native sources returned by the model runtime. */
+  sources?: LLMSource[];
+  /** Provider-native metadata returned by the model runtime. */
+  providerMetadata?: Record<string, unknown>;
 }
 
 /** Shared SSOT for native tool-call ids across agent + provider layers. */

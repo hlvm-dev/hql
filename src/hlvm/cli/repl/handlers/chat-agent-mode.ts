@@ -16,8 +16,7 @@ import {
   getSession,
 } from "../../../store/conversation-store.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
-import { loadRecentMessages } from "../../../store/message-utils.ts";
-import type { Message as AgentMessage } from "../../../agent/context.ts";
+import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
 import { config } from "../../../api/config.ts";
 import type { PermissionMode } from "../../../../common/config/types.ts";
@@ -41,6 +40,10 @@ import {
   setAgentReadyPromise,
 } from "./chat-session.ts";
 import { streamDirectChatFallback } from "./chat-direct.ts";
+import {
+  buildAgentHistoryMessages,
+  shouldHonorRequestMessages,
+} from "./chat-context.ts";
 
 export async function handleAgentMode(
   body: ChatRequest,
@@ -70,20 +73,15 @@ export async function handleAgentMode(
     { toolDenylist: [...DEFAULT_TOOL_DENYLIST], modelInfo },
   );
 
-  const stored = loadRecentMessages(
-    body.session_id,
-    AGENT_CONTEXT_HISTORY_LIMIT,
-  );
-  const history: AgentMessage[] = stored
-    .filter((m) =>
-      !m.cancelled && m.content.length > 0 && m.id !== assistantMessageId &&
-      m.role !== "tool" && !m.tool_calls
-    )
-    .map((m) => ({
-      role: m.role as AgentMessage["role"],
-      content: m.content,
-      timestamp: new Date(m.created_at).getTime(),
-    }));
+  const history = await buildAgentHistoryMessages({
+    requestMessages: body.messages,
+    storedMessages: shouldHonorRequestMessages(body.messages)
+      ? []
+      : loadAllMessages(body.session_id),
+    assistantMessageId,
+    maxGroups: AGENT_CONTEXT_HISTORY_LIMIT,
+    modelKey: resolvedModel,
+  });
 
   const lastUserMessage = getLastUserMessage(body.messages);
   const query = lastUserMessage?.content ?? "";
@@ -184,6 +182,7 @@ export async function handleAgentMode(
       (failedToolCalls > 0 && successfulToolCalls === 0 && !finalText.trim());
     if (shouldFallbackToDirectChat) {
       const fallbackText = await streamDirectChatFallback(
+        body.messages,
         body.session_id,
         assistantMessageId,
         resolvedModel,
@@ -191,6 +190,7 @@ export async function handleAgentMode(
         signal,
         emit,
         onPartial,
+        modelInfo,
       );
       if (fallbackText.trim().length > 0) {
         finalText = fallbackText;

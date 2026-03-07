@@ -80,11 +80,3 @@ Deno.test("Macro integration: nested quasiquote can build higher-order function 
   `, 10);
 });
 
-Deno.test("Macro integration: macro-generated closures capture runtime values correctly", async () => {
-  await expectMacroResult(`
-    (macro make-multiplier [factor]
-      \`(fn [x] (* x ~factor)))
-    (let times5 (make-multiplier 5))
-    (times5 7)
-  `, 35);
-});

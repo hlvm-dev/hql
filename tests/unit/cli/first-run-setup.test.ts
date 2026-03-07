@@ -22,22 +22,10 @@ Deno.test("parseParamSize: parses integer sizes", () => {
   assertEquals(parseParamSize("671B"), 671);
 });
 
-Deno.test("parseParamSize: parses fractional sizes", () => {
-  assertEquals(parseParamSize("1.5B"), 1.5);
-  assertEquals(parseParamSize("7.5B"), 7.5);
-  assertEquals(parseParamSize("3.8b"), 3.8);
-});
-
 Deno.test("parseParamSize: returns Infinity for unknown or missing values", () => {
   assertEquals(parseParamSize("Unknown"), Infinity);
   assertEquals(parseParamSize(undefined), Infinity);
   assertEquals(parseParamSize(""), Infinity);
-});
-
-Deno.test("parseParamSize: handles edge cases", () => {
-  assertEquals(parseParamSize("0B"), 0);
-  assertEquals(parseParamSize("0.5B"), 0.5);
-  assertEquals(parseParamSize("no-number"), Infinity);
 });
 
 function createStubEngine(

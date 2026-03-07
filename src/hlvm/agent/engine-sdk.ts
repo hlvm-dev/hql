@@ -36,8 +36,10 @@ import {
   convertToSdkMessages,
   convertToolDefinitionsToSdk,
   createSdkLanguageModel,
+  mapSdkSources,
   mapSdkUsage,
   maybeHandleSdkAuthError,
+  normalizeProviderMetadata,
   type SdkModelSpec as SdkRuntimeModelSpec,
 } from "../providers/sdk-runtime.ts";
 
@@ -202,16 +204,20 @@ export class SdkAgentEngine implements AgentEngine {
           }
 
           // streamText properties are PromiseLike — await them
-          const [toolCalls, usage, text] = await Promise.all([
+          const [toolCalls, usage, text, sources, providerMetadata] = await Promise.all([
             result.toolCalls,
             result.usage,
             result.text,
+            result.sources,
+            result.providerMetadata,
           ]);
 
           return {
             content: chunks.join("") || text || "",
             toolCalls: mapSdkToolCalls(toolCalls),
             usage: mapSdkUsage(usage),
+            sources: mapSdkSources(sources),
+            providerMetadata: normalizeProviderMetadata(providerMetadata),
           };
         }
 
@@ -221,6 +227,8 @@ export class SdkAgentEngine implements AgentEngine {
           content: result.text || "",
           toolCalls: mapSdkToolCalls(result.toolCalls),
           usage: mapSdkUsage(result.usage),
+          sources: mapSdkSources(result.sources),
+          providerMetadata: normalizeProviderMetadata(result.providerMetadata),
         };
       } catch (error) {
         await maybeHandleSdkAuthError(spec.providerName, error);
@@ -229,12 +237,18 @@ export class SdkAgentEngine implements AgentEngine {
           let fallbackText = "";
           let fallbackCalls: ToolCall[] = [];
           let fallbackUsage: { inputTokens: number; outputTokens: number } | undefined;
+          let fallbackSources;
+          let fallbackProviderMetadata;
 
           try {
             const fallback = await generateText(commonOpts);
             fallbackText = (fallback.text || "").trim();
             fallbackCalls = mapSdkToolCalls(fallback.toolCalls);
             fallbackUsage = mapSdkUsage(fallback.usage);
+            fallbackSources = mapSdkSources(fallback.sources);
+            fallbackProviderMetadata = normalizeProviderMetadata(
+              fallback.providerMetadata,
+            );
           } catch (fallbackError) {
             await maybeHandleSdkAuthError(spec.providerName, fallbackError);
           }
@@ -250,6 +264,8 @@ export class SdkAgentEngine implements AgentEngine {
             content: fallbackText,
             toolCalls: fallbackCalls,
             usage: fallbackUsage,
+            sources: fallbackSources,
+            providerMetadata: fallbackProviderMetadata,
           };
         }
         throw error;

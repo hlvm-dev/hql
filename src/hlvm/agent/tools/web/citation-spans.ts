@@ -7,6 +7,7 @@
  */
 
 import type { Citation } from "./search-provider.ts";
+import type { LLMSource } from "../../tool-call.ts";
 
 export type CitationSourceKind = "snippet" | "passage";
 
@@ -15,6 +16,9 @@ export interface CitationSourceEntry {
   sourceKind: CitationSourceKind;
   sourceText: string;
   tokens: string[];
+  evidenceStrength?: "high" | "medium" | "low";
+  evidenceReason?: string;
+  evidenceRank: number;
 }
 
 export interface CitationSpan {
@@ -111,6 +115,12 @@ function makeCitation(
   title: unknown,
   excerpt: unknown,
   provider: unknown,
+  options: {
+    provenance?: Citation["provenance"];
+    sourceId?: string;
+    sourceType?: Citation["sourceType"];
+    providerMetadata?: Record<string, unknown>;
+  } = {},
 ): Citation | null {
   if (typeof url !== "string" || !url.trim()) return null;
   return {
@@ -118,7 +128,24 @@ function makeCitation(
     title: typeof title === "string" ? title : "",
     excerpt: typeof excerpt === "string" ? excerpt : undefined,
     provider: typeof provider === "string" ? provider : undefined,
+    provenance: options.provenance,
+    sourceId: options.sourceId,
+    sourceType: options.sourceType,
+    providerMetadata: options.providerMetadata,
   };
+}
+
+function evidenceStrengthRank(value: unknown): number {
+  switch (value) {
+    case "high":
+      return 3;
+    case "medium":
+      return 2;
+    case "low":
+      return 1;
+    default:
+      return 0;
+  }
 }
 
 function addSourceEntry(
@@ -127,6 +154,11 @@ function addSourceEntry(
   citation: Citation | null,
   sourceKind: CitationSourceKind,
   text: unknown,
+  options: {
+    evidenceStrength?: "high" | "medium" | "low";
+    evidenceReason?: string;
+    evidenceRank?: number;
+  } = {},
 ): void {
   if (!citation || typeof text !== "string") return;
   const sourceText = normalizeText(text);
@@ -137,7 +169,15 @@ function addSourceEntry(
   const key = `${citation.url}|${sourceKind}|${sourceText.toLowerCase()}`;
   if (seen.has(key)) return;
   seen.add(key);
-  entries.push({ citation, sourceKind, sourceText, tokens });
+  entries.push({
+    citation,
+    sourceKind,
+    sourceText,
+    tokens,
+    evidenceStrength: options.evidenceStrength,
+    evidenceReason: options.evidenceReason,
+    evidenceRank: options.evidenceRank ?? evidenceStrengthRank(options.evidenceStrength),
+  });
 }
 
 function collectFromSearchLikePayload(
@@ -149,17 +189,37 @@ function collectFromSearchLikePayload(
   const results = Array.isArray(payload.results) ? payload.results : [];
   for (const item of results) {
     if (!isObjectValue(item)) continue;
+    const evidenceStrength = item.evidenceStrength === "high" || item.evidenceStrength === "medium" || item.evidenceStrength === "low"
+      ? item.evidenceStrength
+      : undefined;
+    const evidenceReason = typeof item.evidenceReason === "string" ? item.evidenceReason : undefined;
+    const baseEvidenceRank = evidenceStrengthRank(evidenceStrength) +
+      (Array.isArray(item.passages) && item.passages.length > 0 ? 2 : 0) +
+      (typeof item.pageDescription === "string" && item.pageDescription.trim().length > 0 ? 1 : 0);
     const citation = makeCitation(
       item.url,
       item.title,
       item.snippet,
       provider,
+      { provenance: "retrieval", sourceType: "url" },
     );
-    addSourceEntry(entries, seen, citation, "snippet", item.snippet);
-    addSourceEntry(entries, seen, citation, "passage", item.pageDescription);
+    addSourceEntry(entries, seen, citation, "snippet", item.snippet, {
+      evidenceStrength,
+      evidenceReason,
+      evidenceRank: baseEvidenceRank,
+    });
+    addSourceEntry(entries, seen, citation, "passage", item.pageDescription, {
+      evidenceStrength,
+      evidenceReason,
+      evidenceRank: baseEvidenceRank + 1,
+    });
     const passages = Array.isArray(item.passages) ? item.passages : [];
     for (const passage of passages) {
-      addSourceEntry(entries, seen, citation, "passage", passage);
+      addSourceEntry(entries, seen, citation, "passage", passage, {
+        evidenceStrength,
+        evidenceReason,
+        evidenceRank: baseEvidenceRank + 2,
+      });
     }
   }
 
@@ -171,6 +231,7 @@ function collectFromSearchLikePayload(
       rawCitation.title,
       rawCitation.excerpt,
       rawCitation.provider,
+      { provenance: "retrieval", sourceType: "url" },
     );
     addSourceEntry(
       entries,
@@ -178,6 +239,7 @@ function collectFromSearchLikePayload(
       citation,
       "snippet",
       rawCitation.excerpt,
+      { evidenceRank: 1 },
     );
   }
 }
@@ -192,8 +254,13 @@ function collectFromFetchLikePayload(
     payload.title,
     payload.description,
     "fetch",
+    { provenance: "retrieval", sourceType: "url" },
   );
-  addSourceEntry(entries, seen, citation, "passage", payload.text);
+  addSourceEntry(entries, seen, citation, "passage", payload.text, {
+    evidenceStrength: "high",
+    evidenceReason: "fetched page",
+    evidenceRank: 5,
+  });
 
   const citations = Array.isArray(payload.citations) ? payload.citations : [];
   for (const rawCitation of citations) {
@@ -203,8 +270,11 @@ function collectFromFetchLikePayload(
       rawCitation.title,
       rawCitation.excerpt,
       rawCitation.provider,
+      { provenance: "retrieval", sourceType: "url" },
     );
-    addSourceEntry(entries, seen, c, "snippet", rawCitation.excerpt);
+    addSourceEntry(entries, seen, c, "snippet", rawCitation.excerpt, {
+      evidenceRank: 2,
+    });
   }
 }
 
@@ -240,6 +310,63 @@ export function buildCitationSourceIndex(
   }
 
   return entries;
+}
+
+export function mapLlmSourcesToCitations(
+  sources: LLMSource[] | undefined,
+): Citation[] {
+  if (!Array.isArray(sources) || sources.length === 0) return [];
+
+  const deduped = new Map<string, Citation>();
+  for (const source of sources) {
+    if (!source || source.sourceType !== "url" || typeof source.url !== "string" || source.url.length === 0) {
+      continue;
+    }
+    const key = source.url.trim();
+    if (deduped.has(key)) continue;
+    deduped.set(key, {
+      url: key,
+      title: source.title ?? key,
+      provenance: "provider",
+      sourceId: source.id,
+      sourceType: source.sourceType,
+      providerMetadata: source.providerMetadata,
+    });
+  }
+
+  return [...deduped.values()];
+}
+
+export function buildRetrievalCitations(
+  sourceIndex: CitationSourceEntry[] | undefined,
+): Citation[] {
+  if (!Array.isArray(sourceIndex) || sourceIndex.length === 0) return [];
+
+  const bestByUrl = new Map<string, CitationSourceEntry>();
+  for (const entry of sourceIndex) {
+    const current = bestByUrl.get(entry.citation.url);
+    if (
+      !current ||
+      entry.evidenceRank > current.evidenceRank ||
+      (entry.evidenceRank === current.evidenceRank &&
+        entry.sourceKind === "passage" &&
+        current.sourceKind !== "passage")
+    ) {
+      bestByUrl.set(entry.citation.url, entry);
+    }
+  }
+
+  return [...bestByUrl.values()]
+    .sort((a, b) => b.evidenceRank - a.evidenceRank)
+    .map((entry) => ({
+      ...entry.citation,
+      provenance: "retrieval",
+      sourceKind: entry.sourceKind,
+      confidence: undefined,
+      startIndex: undefined,
+      endIndex: undefined,
+      spanText: undefined,
+    }));
 }
 
 function splitSentenceSpans(
@@ -329,8 +456,10 @@ export function attributeCitationSpans(
       | {
         entry: CitationSourceEntry;
         score: number;
+        adjustedScore: number;
       }
       | null = null;
+    let runnerUpAdjustedScore = Number.NEGATIVE_INFINITY;
 
     for (const candidate of sourceWithSets) {
       const sharedTokenThreshold =
@@ -345,12 +474,21 @@ export function attributeCitationSpans(
       const jaccard = shared / unionSize;
       const coverage = shared / sentenceTokens.length;
       const score = (jaccard * 0.7) + (coverage * 0.3);
-      if (!best || score > best.score) {
-        best = { entry: candidate, score };
+      const adjustedScore = score +
+        (candidate.sourceKind === "passage" ? 0.02 : 0) +
+        Math.min(0.06, candidate.evidenceRank * 0.01);
+      if (!best || adjustedScore > best.adjustedScore) {
+        if (best) runnerUpAdjustedScore = Math.max(runnerUpAdjustedScore, best.adjustedScore);
+        best = { entry: candidate, score, adjustedScore };
+      } else {
+        runnerUpAdjustedScore = Math.max(runnerUpAdjustedScore, adjustedScore);
       }
     }
 
     if (!best || best.score < minScore) continue;
+    if (runnerUpAdjustedScore > Number.NEGATIVE_INFINITY && (best.adjustedScore - runnerUpAdjustedScore) < 0.03) {
+      continue;
+    }
     attributed.push({
       citation: best.entry.citation,
       startIndex: sentence.start,

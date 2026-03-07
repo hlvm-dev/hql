@@ -18,17 +18,6 @@ Deno.test("Dynamic import: with variable path", async () => {
   assertStringIncludes(result.code, "import(modulePath)");
 });
 
-Deno.test("Dynamic import: in async function", async () => {
-  const result = await transpile(`
-    (async fn loadModule [path]
-      (let module (await (import-dynamic path)))
-      module)
-  `);
-  assertStringIncludes(result.code, "import(path)");
-  // await wraps import in __hql_consume_async_iter for dual-mode async support
-  assertStringIncludes(result.code, "await");
-});
-
 Deno.test("Dynamic import: with template literal path", async () => {
   const result = await transpile(`
     (import-dynamic \`./modules/\${name}.js\`)

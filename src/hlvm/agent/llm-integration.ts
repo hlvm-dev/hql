@@ -192,6 +192,7 @@ function renderInstructions(tier: ModelTier): PromptSection {
   if (tierMeetsMinimum(tier, "frontier")) {
     base.push(
       "- For complex questions, search iteratively: start broad, then refine based on initial results. If results seem irrelevant, try different search terms rather than stopping",
+      "- When search_web includes fetched passages, prefer those passages over bare snippets. If evidence is weak or conflicting, say so plainly instead of overclaiming",
     );
   }
   return { id: "instructions", content: `# Instructions\n${base.join("\n")}`, minTier: "weak" };

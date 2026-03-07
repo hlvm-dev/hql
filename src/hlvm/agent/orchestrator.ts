@@ -204,6 +204,7 @@ export interface ToolEventMeta {
 
 export interface FinalResponseMeta {
   citationSpans: Citation[];
+  providerMetadata?: Record<string, unknown>;
 }
 
 export type AgentUIEvent =

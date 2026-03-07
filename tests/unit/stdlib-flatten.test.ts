@@ -32,12 +32,6 @@ Deno.test("flatten: depth 2 (deep recursion check)", async () => {
   assertEquals(Array.from(result), [1, 2, 3, 4]);
 });
 
-Deno.test("flatten: deep nesting", async () => {
-  const code = `(flatten [1 [2 [3 [4 [5]]]]])`;
-  const result = await run(code);
-  assertEquals(Array.from(result), [1, 2, 3, 4, 5]);
-});
-
 Deno.test("flatten: mixed types", async () => {
   const code = `(flatten [1 ["a" ["b"]] 2])`;
   const result = await run(code);

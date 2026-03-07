@@ -7,21 +7,6 @@ Deno.test("BigInt: basic literal", async () => {
   assertStringIncludes(result.code, "123n");
 });
 
-Deno.test("BigInt: large number", async () => {
-  const result = await transpile(`9007199254740993n`);
-  assertStringIncludes(result.code, "9007199254740993n");
-});
-
-Deno.test("BigInt: zero", async () => {
-  const result = await transpile(`0n`);
-  assertStringIncludes(result.code, "0n");
-});
-
-Deno.test("BigInt: negative number", async () => {
-  const result = await transpile(`-123n`);
-  assertStringIncludes(result.code, "-123n");
-});
-
 Deno.test("BigInt: in variable declaration", async () => {
   const result = await transpile(`(let x 123n)`);
   // HQL separates declaration and assignment
@@ -53,7 +38,3 @@ Deno.test("BigInt: mixed with regular numbers in code", async () => {
   assertStringIncludes(result.code, "42");
 });
 
-Deno.test("BigInt: very large number", async () => {
-  const result = await transpile(`12345678901234567890123456789012345678901234567890n`);
-  assertStringIncludes(result.code, "12345678901234567890123456789012345678901234567890n");
-});

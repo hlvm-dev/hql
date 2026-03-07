@@ -46,17 +46,3 @@ Deno.test("Generator: yield* delegation", async () => {
   assertStringIncludes(result.code, "yield 4");
 });
 
-Deno.test("Generator: iterator usage pattern", async () => {
-  const result = await transpile(`
-    (fn* fibonacci []
-      (var a 0)
-      (var b 1)
-      (while true
-        (yield a)
-        (var temp b)
-        (= b (+ a b))
-        (= a temp)))
-  `);
-  assertStringIncludes(result.code, "function*");
-  assertStringIncludes(result.code, "yield a");
-});

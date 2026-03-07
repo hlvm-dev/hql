@@ -40,15 +40,16 @@ export function ListSearchField({
   placeholder = "Filter models",
 }: ListSearchFieldProps): React.ReactElement {
   const { color } = useTheme();
-  const contentWidth = Math.max(8, width - 2);
+  const contentWidth = Math.max(8, width - 4);
   const visibleChars = Math.max(1, contentWidth);
   const placeholderWidth = Math.max(1, visibleChars - 1);
   const display = buildSearchFieldDisplay(query, cursor, visibleChars);
+  const borderColor = query.length === 0 ? color("muted") : color("accent");
 
   return (
     <Box
       borderStyle="single"
-      borderColor={color("accent")}
+      borderColor={borderColor}
       paddingX={1}
       width={width}
     >

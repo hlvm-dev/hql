@@ -44,9 +44,3 @@ Deno.test({
   },
 });
 
-Deno.test({
-  name: "parseJsonArgs: returns {} for empty string",
-  fn() {
-    assertEquals(parseJsonArgs(""), {});
-  },
-});

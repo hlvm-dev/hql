@@ -32,6 +32,12 @@ interface CitationRenderView {
   sources: CitationSourceView[];
 }
 
+function resolveSourcesLabel(citations: AssistantCitation[]): string {
+  return citations.some((citation) => citation?.provenance && citation.provenance !== "inferred")
+    ? "Sources"
+    : "Inferred Sources";
+}
+
 function truncate(text: string, maxLen: number): string {
   if (maxLen <= 0) return "";
   if (text.length <= maxLen) return text;
@@ -53,7 +59,7 @@ export function buildCitationRenderView(
   text: string,
   citations: AssistantCitation[] = [],
 ): CitationRenderView {
-  if (!citations.length || text.length === 0) return { text, sources: [] };
+  if (!citations.length) return { text, sources: [] };
 
   const urlToIndex = new Map<string, number>();
   const sourceMap = new Map<string, CitationSourceView>();
@@ -62,9 +68,6 @@ export function buildCitationRenderView(
 
   for (const citation of citations) {
     if (!citation?.url || typeof citation.url !== "string") continue;
-    const range = toValidRange(citation.startIndex, citation.endIndex, text.length);
-    if (!range) continue;
-
     const sourceIndex = urlToIndex.get(citation.url) ?? (urlToIndex.size + 1);
     if (!urlToIndex.has(citation.url)) urlToIndex.set(citation.url, sourceIndex);
 
@@ -82,10 +85,9 @@ export function buildCitationRenderView(
         url: citation.url,
         title,
         confidence,
-        spans: [range],
+        spans: [],
       });
     } else {
-      existing.spans.push(range);
       if (confidence !== undefined) {
         existing.confidence = existing.confidence === undefined
           ? confidence
@@ -93,17 +95,23 @@ export function buildCitationRenderView(
       }
     }
 
+    const range = text.length > 0
+      ? toValidRange(citation.startIndex, citation.endIndex, text.length)
+      : undefined;
+    if (!range) continue;
+    sourceMap.get(key)?.spans.push(range);
+
     const insertionKey = `${range.endIndex}|${sourceIndex}`;
     if (seenInsertionKeys.has(insertionKey)) continue;
     seenInsertionKeys.add(insertionKey);
     insertions.push({ pos: range.endIndex, marker: `[${sourceIndex}]` });
   }
 
-  if (insertions.length === 0) return { text, sources: [] };
-
   let annotated = text;
-  for (const insertion of insertions.sort((a, b) => b.pos - a.pos)) {
-    annotated = `${annotated.slice(0, insertion.pos)}${insertion.marker}${annotated.slice(insertion.pos)}`;
+  if (insertions.length > 0) {
+    for (const insertion of insertions.sort((a, b) => b.pos - a.pos)) {
+      annotated = `${annotated.slice(0, insertion.pos)}${insertion.marker}${annotated.slice(insertion.pos)}`;
+    }
   }
 
   const sources = [...sourceMap.values()]
@@ -121,8 +129,9 @@ export function AssistantMessage(
   const sc = useSemanticColors();
   const contentWidth = Math.max(10, width - 5);
   const citationView = buildCitationRenderView(text, citations ?? []);
-  const sources = citationView.sources.slice(0, 8);
+  const sources = citationView.sources.slice(0, 6);
   const sourceOverflow = Math.max(0, citationView.sources.length - sources.length);
+  const sourcesLabel = resolveSourcesLabel(citations ?? []);
 
   return (
     <Box flexDirection="row" width={width} marginBottom={1} marginTop={0}>
@@ -133,7 +142,7 @@ export function AssistantMessage(
         <MarkdownDisplay text={citationView.text} width={contentWidth} isPending={isPending} />
         {!isPending && sources.length > 0 && (
           <Box flexDirection="column" marginTop={1}>
-            <Text color={sc.text.muted}>Inferred Sources</Text>
+            <Text color={sc.text.muted}>{sourcesLabel}</Text>
             {sources.map((source) => {
               const lead = `[${source.index}] ${source.title}`;
               return (

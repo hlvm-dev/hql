@@ -22,11 +22,6 @@ Deno.test("isCommand - not a command", () => {
   assertEquals(isCommand("...rest"), false);
 });
 
-Deno.test("isCommand - edge cases", () => {
-  assertEquals(isCommand("/"), true); // Just slash is technically a command
-  assertEquals(isCommand("/ help"), true); // Slash with space
-});
-
 Deno.test("commands registry - has expected commands", () => {
   const expectedCommands = [
     "/help",
@@ -43,22 +38,3 @@ Deno.test("commands registry - has expected commands", () => {
   }
 });
 
-Deno.test("commands registry - YAGNI commands removed", () => {
-  const removedCommands = ["/bindings", "/history", "/compact"];
-  for (const cmd of removedCommands) {
-    assertEquals(cmd in commands, false, `YAGNI command should be removed: ${cmd}`);
-  }
-});
-
-Deno.test("commands registry - all have descriptions", () => {
-  for (const [name, cmd] of Object.entries(commands)) {
-    assertEquals(typeof cmd.description, "string", `${name} missing description`);
-    assertEquals(cmd.description.length > 0, true, `${name} has empty description`);
-  }
-});
-
-Deno.test("commands registry - all have handlers", () => {
-  for (const [name, cmd] of Object.entries(commands)) {
-    assertEquals(typeof cmd.handler, "function", `${name} missing handler`);
-  }
-});

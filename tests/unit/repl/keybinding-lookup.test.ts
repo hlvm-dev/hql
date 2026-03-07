@@ -20,47 +20,26 @@ function makeKey(overrides: Partial<Key> = {}): Key {
   } as Key;
 }
 
-Deno.test("normalizeKeyInput: plain tab maps to tab", () => {
+Deno.test("normalizeKeyInput: plain enter, tab, and escape keep their canonical names", () => {
   assertEquals(normalizeKeyInput("\t", makeKey()), "tab");
-});
-
-Deno.test("normalizeKeyInput: plain enter maps to enter", () => {
   assertEquals(normalizeKeyInput("\n", makeKey({ return: true })), "enter");
-});
-
-Deno.test("normalizeKeyInput: ctrl+j maps to ctrl+j", () => {
-  assertEquals(normalizeKeyInput("\n", makeKey({ ctrl: true })), "ctrl+j");
-});
-
-Deno.test("normalizeKeyInput: ctrl+i maps to ctrl+i", () => {
-  assertEquals(normalizeKeyInput("\t", makeKey({ ctrl: true })), "ctrl+i");
-});
-
-Deno.test("normalizeKeyInput: pure escape maps to esc", () => {
   assertEquals(normalizeKeyInput("\x1b", makeKey({ escape: true })), "esc");
 });
 
-Deno.test("normalizeKeyInput: option/meta key sequence maps to alt+char", () => {
+Deno.test("normalizeKeyInput: ctrl-modified enter and tab keep control-specific identities", () => {
+  assertEquals(normalizeKeyInput("\n", makeKey({ ctrl: true })), "ctrl+j");
+  assertEquals(normalizeKeyInput("\t", makeKey({ ctrl: true })), "ctrl+i");
+});
+
+Deno.test("normalizeKeyInput: alt/meta text sequences normalize consistently", () => {
   assertEquals(normalizeKeyInput("z", makeKey({ escape: true })), "alt+z");
-});
-
-Deno.test("normalizeKeyInput: alt+enter maps correctly", () => {
   assertEquals(normalizeKeyInput("\r", makeKey({ escape: true, return: true })), "alt+enter");
-});
-
-Deno.test("normalizeKeyInput: ESC-prefixed enter payload maps to alt+enter", () => {
   assertEquals(normalizeKeyInput("\x1b\r", makeKey()), "alt+enter");
-});
-
-Deno.test("normalizeKeyInput: CSI-u modified enter maps to alt+enter", () => {
   assertEquals(normalizeKeyInput("\x1b[13;3u", makeKey()), "alt+enter");
   assertEquals(normalizeKeyInput("\x1b[13;2u", makeKey()), "alt+enter");
-});
-
-Deno.test("normalizeKeyInput: legacy modifyOtherKeys enter maps to alt+enter", () => {
   assertEquals(normalizeKeyInput("\x1b[27;3;13~", makeKey()), "alt+enter");
 });
 
-Deno.test("normalizeKeyInput: cmd+enter maps correctly", () => {
+Deno.test("normalizeKeyInput: meta return sequences preserve cmd+enter on mac-style bindings", () => {
   assertEquals(normalizeKeyInput("\r", makeKey({ meta: true, return: true })), "cmd+enter");
 });

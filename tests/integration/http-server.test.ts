@@ -1,20 +1,38 @@
-/**
- * HTTP Server Integration Tests
- * Tests feature parity between HTTP REPL and terminal REPL
- */
-
-import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import {
+  assertEquals,
+  assertExists,
+  assertStringIncludes,
+} from "https://deno.land/std@0.208.0/assert/mod.ts";
+import type { Message as AgentMessage } from "../../src/hlvm/agent/context.ts";
+import { setAgentEngine } from "../../src/hlvm/agent/engine.ts";
+import type {
+  AgentEngine,
+  AgentLLMConfig,
+} from "../../src/hlvm/agent/engine.ts";
+import { config } from "../../src/hlvm/api/config.ts";
 import { startHttpServer } from "../../src/hlvm/cli/repl/http-server.ts";
 import { initializeRuntime } from "../../src/common/runtime-initializer.ts";
-import { config } from "../../src/hlvm/api/config.ts";
-import type { AgentEngine, AgentLLMConfig } from "../../src/hlvm/agent/engine.ts";
-import { setAgentEngine } from "../../src/hlvm/agent/engine.ts";
-import type { Message as AgentMessage } from "../../src/hlvm/agent/context.ts";
+import {
+  registerProvider,
+  setDefaultProvider,
+  type AIProvider,
+  type Message as ProviderMessage,
+  type ModelInfo,
+} from "../../src/hlvm/providers/index.ts";
+import { insertMessage } from "../../src/hlvm/store/conversation-store.ts";
 
 class IntegrationAgentEngine implements AgentEngine {
   createLLM(config: AgentLLMConfig) {
-    return () => {
-      const text = "integration-agent-ok";
+    return (messages: AgentMessage[]) => {
+      const sawToolResult = messages.some((message) =>
+        message.content.includes("observed-from-tool")
+      );
+      const lastUserMessage = [...messages].reverse().find((message) =>
+        message.role === "user"
+      );
+      const text = sawToolResult
+        ? "integration-agent-saw-tool"
+        : `integration-agent:${lastUserMessage?.content ?? "ok"}`;
       config.onToken?.(text);
       return Promise.resolve({
         content: text,
@@ -28,6 +46,45 @@ class IntegrationAgentEngine implements AgentEngine {
     return (_messages: AgentMessage[]) => Promise.resolve("integration-summary");
   }
 }
+
+const INTEGRATION_MODEL: ModelInfo = {
+  name: "plain",
+  contextWindow: 65_536,
+  capabilities: ["chat", "tools"],
+};
+
+const INTEGRATION_TOOLLESS_MODEL: ModelInfo = {
+  name: "basic",
+  contextWindow: 65_536,
+  capabilities: ["chat"],
+};
+
+const integrationProvider: AIProvider = {
+  name: "test-chat",
+  displayName: "Test Chat",
+  capabilities: ["chat", "generate", "tools"],
+  async *generate(prompt: string) {
+    yield `generated:${prompt}`;
+  },
+  async *chat(messages: ProviderMessage[]) {
+    yield getIntegrationChatReply(messages);
+  },
+  models: {
+    list() {
+      return Promise.resolve([INTEGRATION_MODEL, INTEGRATION_TOOLLESS_MODEL]);
+    },
+    get(name: string) {
+      if (name === INTEGRATION_MODEL.name) return Promise.resolve(INTEGRATION_MODEL);
+      if (name === INTEGRATION_TOOLLESS_MODEL.name) {
+        return Promise.resolve(INTEGRATION_TOOLLESS_MODEL);
+      }
+      return Promise.resolve(null);
+    },
+  },
+  status() {
+    return Promise.resolve({ available: true });
+  },
+};
 
 interface ServerContext {
   baseUrl: string;
@@ -46,10 +103,6 @@ function reservePort(): number {
   }
 }
 
-/**
- * Start server once globally before any tests run
- * Server runs in background for the entire test suite
- */
 async function ensureServerRunning(): Promise<ServerContext> {
   if (serverContext) return serverContext;
 
@@ -57,26 +110,22 @@ async function ensureServerRunning(): Promise<ServerContext> {
   const baseUrl = `http://localhost:${port}`;
   const authToken = "hlvm-integration-test-token";
 
-  Deno.env.set("HLVM_DISABLE_AI_AUTOSTART", "1"); // Prevent resource leaks
+  Deno.env.set("HLVM_DISABLE_AI_AUTOSTART", "1");
   Deno.env.set("HLVM_AUTH_TOKEN", authToken);
 
-  // Stabilize agent-mode integration tests without external LLM dependency.
+  registerProvider("test-chat", () => integrationProvider, { isDefault: true });
+  setDefaultProvider("test-chat");
   setAgentEngine(new IntegrationAgentEngine());
   await config.patch({
-    model: "ollama/llama3.2:1b",
+    model: "test-chat/plain",
     modelConfigured: true,
     agentMode: "hlvm",
   });
 
   await initializeRuntime({ ai: true, stdlib: true, cache: true });
-
-  // Start server in background (don't await - it runs forever)
   startHttpServer({ port });
-
-  // Wait for server to be ready
   await new Promise((resolve) => setTimeout(resolve, 500));
 
-  // Verify server is responsive
   const health = await fetch(`${baseUrl}/health`);
   if (!health.ok) {
     throw new Error("Server failed to start");
@@ -84,6 +133,35 @@ async function ensureServerRunning(): Promise<ServerContext> {
 
   serverContext = { baseUrl, authToken };
   return serverContext;
+}
+
+function getIntegrationChatReply(messages: ProviderMessage[]): string {
+  const hasPirateSystemMessage = messages.some((message) =>
+    message.role === "system" && message.content.includes("Speak like a pirate")
+  );
+  if (hasPirateSystemMessage) {
+    return "arrr";
+  }
+
+  const historicalToolSummary = messages.find((message) =>
+    message.role === "assistant" && message.content.includes("Prior tool result")
+  )?.content ?? "";
+  if (historicalToolSummary.includes("observed-from-tool")) {
+    return "saw-tool";
+  }
+
+  const priorAssistant = [...messages].reverse().find((message) =>
+    message.role === "assistant" && message.content.startsWith("reply:")
+  )?.content;
+  const lastUser = [...messages].reverse().find((message) =>
+    message.role === "user"
+  )?.content ?? "";
+
+  if (lastUser === "second" && priorAssistant) {
+    return `history:${priorAssistant}`;
+  }
+
+  return `reply:${lastUser}`;
 }
 
 async function postChatNdjson(body: unknown): Promise<{
@@ -96,7 +174,7 @@ async function postChatNdjson(body: unknown): Promise<{
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${authToken}`,
+      Authorization: `Bearer ${authToken}`,
     },
     body: JSON.stringify(body),
   });
@@ -125,7 +203,7 @@ async function evalCode(code: string): Promise<{
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${authToken}`,
+      Authorization: `Bearer ${authToken}`,
     },
     body: JSON.stringify({ code }),
   });
@@ -134,177 +212,257 @@ async function evalCode(code: string): Promise<{
 }
 
 Deno.test({
-  name: "GET /health returns status",
-  async fn() {
-    const { baseUrl } = await ensureServerRunning();
-
-    const response = await fetch(`${baseUrl}/health`);
-    const data = await response.json();
-
-    assertEquals(response.status, 200);
-    assertEquals(data.status, "ok");
-    assertExists(data.initialized);
-  },
+  name: "http server: health succeeds and unauthorized eval is rejected",
   sanitizeResources: false,
   sanitizeOps: false,
-});
-
-Deno.test({
-  name: "POST /eval rejects missing auth",
   async fn() {
     const { baseUrl } = await ensureServerRunning();
 
-    const response = await fetch(`${baseUrl}/eval`, {
+    const health = await fetch(`${baseUrl}/health`);
+    const healthData = await health.json();
+    assertEquals(health.status, 200);
+    assertEquals(healthData.status, "ok");
+    assertExists(healthData.initialized);
+
+    const unauthorized = await fetch(`${baseUrl}/eval`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code: "(+ 1 2)" }),
     });
-    const data = await response.json();
-
-    assertEquals(response.status, 401);
-    assertEquals(data.error, "Unauthorized");
+    const unauthorizedData = await unauthorized.json();
+    assertEquals(unauthorized.status, 401);
+    assertEquals(unauthorizedData.error, "Unauthorized");
   },
-  sanitizeResources: false,
-  sanitizeOps: false,
 });
 
 Deno.test({
-  name: "POST /eval - arithmetic works",
-  async fn() {
-    await ensureServerRunning();
-
-    const result = await evalCode("(+ 1 2)");
-
-    assertEquals(result.success, true);
-    assertEquals(result.value, "3");
-    assertEquals(result.error, null); // API returns null, not undefined
-  },
+  name: "http server: eval executes HQL, JS, and exposes AI helper globals",
   sanitizeResources: false,
   sanitizeOps: false,
+  async fn() {
+    const arithmetic = await evalCode("(+ 1 2)");
+    const ask = await evalCode("(typeof ask)");
+    const generate = await evalCode("(typeof generate)");
+    const javascript = await evalCode("let x = 10; x * 2");
+
+    assertEquals(arithmetic.success, true);
+    assertEquals(arithmetic.value, "3");
+    assertEquals(arithmetic.error, null);
+    assertEquals(ask.value, '"function"');
+    assertEquals(generate.value, '"function"');
+    assertEquals(javascript.success, true);
+    assertEquals(javascript.value, "20");
+  },
 });
 
 Deno.test({
-  name: "POST /eval - AI function exists (ask)",
-  async fn() {
-    await ensureServerRunning();
-
-    const result = await evalCode("(typeof ask)");
-
-    assertEquals(result.success, true);
-    assertEquals(result.value, '"function"');
-  },
+  name: "http server: eval returns structured syntax errors",
   sanitizeResources: false,
   sanitizeOps: false,
-});
-
-Deno.test({
-  name: "POST /eval - AI function exists (generate)",
   async fn() {
-    await ensureServerRunning();
-
-    const result = await evalCode("(typeof generate)");
-
-    assertEquals(result.success, true);
-    assertEquals(result.value, '"function"');
-  },
-  sanitizeResources: false,
-  sanitizeOps: false,
-});
-
-Deno.test({
-  name: "POST /eval - JS works by default",
-  async fn() {
-    await ensureServerRunning();
-
-    const result = await evalCode("let x = 10; x * 2");
-
-    assertEquals(result.success, true);
-    assertEquals(result.value, "20");
-  },
-  sanitizeResources: false,
-  sanitizeOps: false,
-});
-
-Deno.test({
-  name: "POST /eval - error handling (syntax error)",
-  async fn() {
-    await ensureServerRunning();
-
     const result = await evalCode("(+ 1");
-
     assertEquals(result.success, false);
     assertExists(result.error);
-    assertExists(result.error?.name); // Error name exists
-    assertExists(result.error?.message); // Error message exists
+    assertExists(result.error?.name);
+    assertExists(result.error?.message);
   },
-  sanitizeResources: false,
-  sanitizeOps: false,
 });
 
 Deno.test({
-  name: "POST /eval - state persistence (def + use)",
+  name: "http server: eval state persists across variable and function definitions",
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    await ensureServerRunning();
+    const defVar = await evalCode("(def testVar 42)");
+    const readVar = await evalCode("testVar");
+    const defFn = await evalCode("(defn double [x] (* x 2))");
+    const callFn = await evalCode("(double 21)");
 
-    // Define a variable
-    const defResult = await evalCode("(def testVar 42)");
-    assertEquals(defResult.success, true);
-
-    // Use the variable
-    const useResult = await evalCode("testVar");
-    assertEquals(useResult.success, true);
-    assertEquals(useResult.value, "42");
+    assertEquals(defVar.success, true);
+    assertEquals(readVar.success, true);
+    assertEquals(readVar.value, "42");
+    assertEquals(defFn.success, true);
+    assertEquals(callFn.success, true);
+    assertEquals(callFn.value, "42");
   },
-  sanitizeResources: false,
-  sanitizeOps: false,
 });
 
 Deno.test({
-  name: "POST /eval - state persistence (defn + call)",
+  name: "http server: agent chat rejects unsupported default models with a clear 400",
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
-    await ensureServerRunning();
+    await config.patch({ model: "test-chat/basic", modelConfigured: true });
+    try {
+      const { baseUrl, authToken } = await ensureServerRunning();
+      const response = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          mode: "agent",
+          session_id: `integration-agent-${crypto.randomUUID()}`,
+          messages: [{ role: "user", content: "Say OK" }],
+        }),
+      });
+      const result = await response.json();
 
-    // Define a function
-    const defnResult = await evalCode("(defn double [x] (* x 2))");
-    assertEquals(defnResult.success, true);
-
-    // Call the function
-    const callResult = await evalCode("(double 21)");
-    assertEquals(callResult.success, true);
-    assertEquals(callResult.value, "42");
+      assertEquals(response.status, 400);
+      assertEquals(
+        result.error,
+        "Default model does not support tool calling",
+      );
+    } finally {
+      await config.patch({ model: "test-chat/plain", modelConfigured: true });
+    }
   },
-  sanitizeResources: false,
-  sanitizeOps: false,
 });
 
 Deno.test({
-  name: "POST /api/chat - agent mode streams NDJSON with start/token/complete",
+  name: "http server: chat honors explicit request messages including system context",
+  sanitizeResources: false,
+  sanitizeOps: false,
   async fn() {
     const result = await postChatNdjson({
-      mode: "agent",
-      session_id: `integration-agent-${crypto.randomUUID()}`,
-      messages: [{ role: "user", content: "Say OK" }],
+      mode: "chat",
+      session_id: `integration-chat-system-${crypto.randomUUID()}`,
+      model: "test-chat/plain",
+      messages: [
+        { role: "system", content: "Speak like a pirate." },
+        { role: "user", content: "hello" },
+      ],
     });
 
     assertEquals(result.status, 200);
-    assertEquals(
-      result.contentType.includes("application/x-ndjson"),
-      true,
-    );
-    assertEquals(result.events.length > 0, true);
-    assertEquals(result.events[0]?.event, "start");
-    assertEquals(
-      result.events.some((e) =>
-        e.event === "token" && typeof e.text === "string" &&
-        String(e.text).includes("integration-agent-ok")
-      ),
-      true,
-    );
-    assertEquals(
-      result.events.some((e) => e.event === "complete"),
-      true,
-    );
+    const tokenEvents = result.events.filter((event) => event.event === "token");
+    assertEquals(tokenEvents.length > 0, true);
+    assertStringIncludes(String(tokenEvents[0].text), "arrr");
   },
+});
+
+Deno.test({
+  name: "http server: explicit request history remains durable for later single-turn fallback",
   sanitizeResources: false,
   sanitizeOps: false,
+  async fn() {
+    const sessionId = `integration-chat-durable-system-${crypto.randomUUID()}`;
+
+    const first = await postChatNdjson({
+      mode: "chat",
+      session_id: sessionId,
+      model: "test-chat/plain",
+      messages: [
+        { role: "system", content: "Speak like a pirate." },
+        { role: "user", content: "hello" },
+      ],
+    });
+    assertEquals(first.status, 200);
+
+    const second = await postChatNdjson({
+      mode: "chat",
+      session_id: sessionId,
+      model: "test-chat/plain",
+      messages: [{ role: "user", content: "still there?" }],
+    });
+
+    assertEquals(second.status, 200);
+    const tokenText = second.events
+      .filter((event) => event.event === "token")
+      .map((event) => String(event.text ?? ""))
+      .join("");
+    assertStringIncludes(tokenText, "arrr");
+  },
+});
+
+Deno.test({
+  name: "http server: chat falls back to stored session history for single-turn requests",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    const sessionId = `integration-chat-history-${crypto.randomUUID()}`;
+
+    const first = await postChatNdjson({
+      mode: "chat",
+      session_id: sessionId,
+      model: "test-chat/plain",
+      messages: [{ role: "user", content: "first" }],
+    });
+    assertEquals(first.status, 200);
+
+    const second = await postChatNdjson({
+      mode: "chat",
+      session_id: sessionId,
+      model: "test-chat/plain",
+      messages: [{ role: "user", content: "second" }],
+    });
+
+    assertEquals(second.status, 200);
+    const tokenText = second.events
+      .filter((event) => event.event === "token")
+      .map((event) => String(event.text ?? ""))
+      .join("");
+    assertStringIncludes(tokenText, "history:reply:first");
+  },
+});
+
+Deno.test({
+  name: "http server: chat rejects requests whose last message is not a user turn",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    const result = await postChatNdjson({
+      mode: "chat",
+      session_id: `integration-chat-invalid-${crypto.randomUUID()}`,
+      model: "test-chat/plain",
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "not-allowed" },
+      ],
+    });
+
+    assertEquals(result.status, 400);
+    assertEquals(result.events.length, 1);
+    assertEquals(result.events[0]?.error, "Last message must be a user turn");
+  },
+});
+
+Deno.test({
+  name: "http server: agent follow-up can reference prior tool results from the same session",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    const sessionId = `integration-agent-history-${crypto.randomUUID()}`;
+
+    await postChatNdjson({
+      mode: "agent",
+      session_id: sessionId,
+      model: "test-chat/plain",
+      messages: [{ role: "user", content: "initial" }],
+    });
+    insertMessage({
+      session_id: sessionId,
+      role: "tool",
+      content: "observed-from-tool",
+      sender_type: "agent",
+      tool_name: "shell_exec",
+      request_id: "seeded-tool-turn",
+    });
+
+    const second = await postChatNdjson({
+      mode: "agent",
+      session_id: sessionId,
+      model: "test-chat/plain",
+      messages: [{ role: "user", content: "Do you still remember the tool output?" }],
+    });
+
+    const tokenText = second.events
+      .filter((event) => event.event === "token")
+      .map((event) => String(event.text ?? ""))
+      .join("");
+
+    assertEquals(second.status, 200);
+    assertStringIncludes(tokenText, "integration-agent-saw-tool");
+  },
 });

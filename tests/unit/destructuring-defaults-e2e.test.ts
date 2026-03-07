@@ -1,118 +1,61 @@
-// Tests for Phase 1.6: Default Values in Destructuring
-// Tests default values in array and object destructuring patterns
-
 import { assertEquals } from "jsr:@std/assert@1";
 import { run } from "./helpers.ts";
 
-// ============================================================================
-// ARRAY DESTRUCTURING WITH DEFAULTS
-// ============================================================================
+async function runRuntime(code: string) {
+  return await run(code, { typeCheck: false });
+}
 
-Deno.test("Array Destructuring: Single default [x (= 10)]", async () => {
-  const code = `
-(let [x (= 10)] [])
-x
-`;
-  const result = await run(code);
-  assertEquals(result, 10);
+Deno.test("destructuring defaults: array defaults apply only when values are missing or undefined", async () => {
+  const result = await runRuntime(`
+    [
+      (do
+        (let [x (= 10)] [])
+        x)
+      (do
+        (let [x (= 10)] [5])
+        x)
+      (do
+        (let [x (= 1) y (= 2)] [])
+        (+ x y))
+      (do
+        (let [x (= 1) y (= 2)] [10])
+        (+ x y))
+      (do
+        (let [a b (= 20) c] [1 undefined 3])
+        (+ a (+ b c)))
+    ]
+  `);
+  assertEquals(result, [10, 5, 3, 12, 24]);
 });
 
-Deno.test("Array Destructuring: Default with value [x (= 10)]", async () => {
-  const code = `
-(let [x (= 10)] [5])
-x
-`;
-  const result = await run(code);
-  assertEquals(result, 5);
+Deno.test("destructuring defaults: defaults can be expressions and nested array patterns", async () => {
+  const result = await runRuntime(`
+    [
+      (do
+        (let [x (= (+ 5 5))] [])
+        x)
+      (do
+        (let [[a b] (= [1 2])] [])
+        (+ a b))
+      (do
+        (let [[a b] (= [1 2])] [[10 20]])
+        (+ a b))
+      (do
+        (let [[a (= 1)] (= [undefined])] [])
+        a)
+      (do
+        (let [x [[y (= 5)]]] [10 [[undefined]]])
+        (+ x y))
+    ]
+  `);
+  assertEquals(result, [10, 3, 30, 1, 15]);
 });
 
-Deno.test("Array Destructuring: Multiple defaults", async () => {
-  const code = `
-(let [x (= 1) y (= 2)] [])
-(+ x y)
-`;
-  const result = await run(code);
-  assertEquals(result, 3);
-});
-
-Deno.test("Array Destructuring: Partial defaults", async () => {
-  const code = `
-(let [x (= 1) y (= 2)] [10])
-(+ x y)
-`;
-  const result = await run(code);
-  assertEquals(result, 12); // x=10, y=2 (default)
-});
-
-Deno.test("Array Destructuring: Mix with and without defaults", async () => {
-  const code = `
-(let [a b (= 20) c] [1 undefined 3])
-(+ a (+ b c))
-`;
-  const result = await run(code);
-  assertEquals(result, 24); // a=1, b=20 (default because undefined), c=3
-});
-
-Deno.test("Array Destructuring: Default with expression", async () => {
-  const code = `
-(let [x (= (+ 5 5))] [])
-x
-`;
-  const result = await run(code);
-  assertEquals(result, 10);
-});
-
-Deno.test("Array Destructuring: Nested pattern with default", async () => {
-  const code = `
-(let [[a b] (= [1 2])] [])
-(+ a b)
-`;
-  const result = await run(code);
-  assertEquals(result, 3);
-});
-
-Deno.test("Array Destructuring: Nested pattern with default provided", async () => {
-  const code = `
-(let [[a b] (= [1 2])] [[10 20]])
-(+ a b)
-`;
-  const result = await run(code);
+Deno.test("destructuring defaults: var destructuring keeps defaults and later mutation working together", async () => {
+  const result = await runRuntime(`
+    (var [x (= 5) y (= 10)] [])
+    (= x 20)
+    (+ x y)
+  `);
   assertEquals(result, 30);
 });
-
-// ============================================================================
-// NESTED COMBINATIONS
-// ============================================================================
-
-Deno.test("Array Destructuring: Deep nested with defaults", async () => {
-  const code = `
-(let [[a (= 1)] (= [undefined])] [])
-a
-`;
-  const result = await run(code);
-  assertEquals(result, 1);
-});
-
-Deno.test("Array Destructuring: Multiple nested levels", async () => {
-  const code = `
-(let [x [[y (= 5)]]] [10 [[undefined]]])
-(+ x y)
-`;
-  const result = await run(code);
-  assertEquals(result, 15);
-});
-
-// ============================================================================
-// VAR (MUTABLE) DESTRUCTURING WITH DEFAULTS
-// ============================================================================
-
-Deno.test("Array Destructuring: var with defaults", async () => {
-  const code = `
-(var [x (= 5) y (= 10)] [])
-(= x 20)
-(+ x y)
-`;
-  const result = await run(code);
-  assertEquals(result, 30);
-});
-

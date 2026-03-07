@@ -29,6 +29,9 @@ import {
   listAllProviderModels,
   type ModelListAllOptions,
 } from "../providers/model-list.ts";
+import {
+  readStaleWhileRevalidateModelDiscoverySnapshot,
+} from "../providers/model-discovery-store.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 
 // ============================================================================
@@ -211,12 +214,17 @@ function createAiApi() {
        * List catalog models (remote/curated)
        * @example (ai.models.catalog)
        */
-      catalog: (providerName?: string): Promise<ModelInfo[]> => {
-        const provider = getProviderByNameOrDefault(providerName);
+      catalog: async (providerName?: string): Promise<ModelInfo[]> => {
+        const resolvedProvider = providerName ?? getDefaultProvider()?.name;
+        const snapshot = await readStaleWhileRevalidateModelDiscoverySnapshot();
 
-        return provider?.models?.catalog
-          ? provider.models.catalog()
-          : Promise.resolve([]);
+        if (!resolvedProvider || resolvedProvider === "ollama") {
+          return snapshot.remoteModels;
+        }
+
+        return snapshot.cloudModels.filter((model) =>
+          model.metadata?.provider === resolvedProvider
+        );
       },
 
       /**

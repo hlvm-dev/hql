@@ -1,11 +1,17 @@
 import {
   ensureHlvmDir,
+  ensureHlvmDirSync,
   getModelDiscoveryCachePath,
 } from "../../common/paths.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { getProvider } from "./registry.ts";
 import type { ModelInfo } from "./types.ts";
-import { listAllProviderModels } from "./model-list.ts";
+import { getBundledModelDiscoverySnapshot } from "./model-discovery-seed.ts";
+import {
+  dedupeModelList,
+  listAllProviderModels,
+  tagModelsForProvider,
+} from "./model-list.ts";
 
 export interface ModelDiscoverySnapshot {
   timestamp: number;
@@ -20,11 +26,18 @@ export interface ModelDiscoveryRefreshResult {
 
 interface PersistedModelDiscoverySnapshot extends ModelDiscoverySnapshot {}
 
+interface ModelDiscoverySourceResult {
+  models: ModelInfo[];
+  authoritativeEmpty?: boolean;
+}
+
 interface ModelDiscoveryStoreDeps {
   readTextFile(path: string): Promise<string>;
+  readTextFileSync(path: string): string;
   writeTextFile(path: string, content: string): Promise<void>;
-  listOllamaCatalog(): Promise<ModelInfo[]>;
-  listCloudModels(): Promise<ModelInfo[]>;
+  writeTextFileSync(path: string, content: string): void;
+  listOllamaCatalog(): Promise<ModelInfo[] | ModelDiscoverySourceResult>;
+  listCloudModels(): Promise<ModelInfo[] | ModelDiscoverySourceResult>;
   now(): number;
 }
 
@@ -38,16 +51,23 @@ function getDefaultDeps(): ModelDiscoveryStoreDeps {
   const fs = getPlatform().fs;
   return {
     readTextFile: (path) => fs.readTextFile(path),
+    readTextFileSync: (path) => fs.readTextFileSync(path),
     writeTextFile: (path, content) => fs.writeTextFile(path, content),
+    writeTextFileSync: (path, content) => fs.writeTextFileSync(path, content),
     listOllamaCatalog: async () => {
       const provider = getProvider("ollama");
       if (!provider?.models?.catalog) {
-        return [];
+        return { models: [], authoritativeEmpty: false };
       }
-      return await provider.models.catalog();
+      return {
+        models: tagModelsForProvider("ollama", await provider.models.catalog()),
+        authoritativeEmpty: false,
+      };
     },
-    listCloudModels: async () =>
-      await listAllProviderModels({ excludeProviders: ["ollama"] }),
+    listCloudModels: async () => ({
+      models: await listAllProviderModels({ excludeProviders: ["ollama"] }),
+      authoritativeEmpty: false,
+    }),
     now: () => Date.now(),
   };
 }
@@ -66,32 +86,82 @@ function hasDiscoveryData(snapshot: ModelDiscoverySnapshot): boolean {
   return snapshot.remoteModels.length > 0 || snapshot.cloudModels.length > 0;
 }
 
+function parsePersistedSnapshot(
+  raw: string,
+): ModelDiscoverySnapshot | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<PersistedModelDiscoverySnapshot>;
+    if (
+      typeof parsed.timestamp !== "number" ||
+      !Array.isArray(parsed.remoteModels) ||
+      !Array.isArray(parsed.cloudModels)
+    ) {
+      return null;
+    }
+    return {
+      timestamp: parsed.timestamp,
+      remoteModels: parsed.remoteModels as ModelInfo[],
+      cloudModels: parsed.cloudModels as ModelInfo[],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSourceResult(
+  value: ModelInfo[] | ModelDiscoverySourceResult,
+): ModelDiscoverySourceResult {
+  return Array.isArray(value) ? { models: value } : value;
+}
+
+export interface ModelDiscoveryModelOptions {
+  includeRemoteModels?: boolean;
+  localModels?: ModelInfo[];
+}
+
+export function getModelDiscoveryModels(
+  snapshot: ModelDiscoverySnapshot,
+  options: ModelDiscoveryModelOptions = {},
+): ModelInfo[] {
+  return dedupeModelList([
+    ...(options.localModels ?? []),
+    ...(options.includeRemoteModels === false ? [] : snapshot.remoteModels),
+    ...snapshot.cloudModels,
+  ]);
+}
+
 export function createModelDiscoveryStore(
   deps: Partial<ModelDiscoveryStoreDeps> = {},
 ) {
   const resolvedDeps = { ...getDefaultDeps(), ...deps };
   let cachedSnapshot: ModelDiscoverySnapshot | null = null;
   let inFlightRefresh: Promise<ModelDiscoveryRefreshResult> | null = null;
+  let hasPersistedSnapshot = false;
+
+  function getSeedSnapshot(): ModelDiscoverySnapshot {
+    return getBundledModelDiscoverySnapshot();
+  }
 
   async function readDiskSnapshot(): Promise<ModelDiscoverySnapshot | null> {
     try {
       const raw = await resolvedDeps.readTextFile(getModelDiscoveryCachePath());
-      const parsed = JSON.parse(raw) as Partial<
-        PersistedModelDiscoverySnapshot
-      >;
-      if (
-        typeof parsed.timestamp !== "number" ||
-        !Array.isArray(parsed.remoteModels) ||
-        !Array.isArray(parsed.cloudModels)
-      ) {
-        return null;
-      }
-      return {
-        timestamp: parsed.timestamp,
-        remoteModels: parsed.remoteModels as ModelInfo[],
-        cloudModels: parsed.cloudModels as ModelInfo[],
-      };
+      const parsed = parsePersistedSnapshot(raw);
+      hasPersistedSnapshot = parsed !== null;
+      return parsed;
     } catch {
+      hasPersistedSnapshot = false;
+      return null;
+    }
+  }
+
+  function readDiskSnapshotSync(): ModelDiscoverySnapshot | null {
+    try {
+      const raw = resolvedDeps.readTextFileSync(getModelDiscoveryCachePath());
+      const parsed = parsePersistedSnapshot(raw);
+      hasPersistedSnapshot = parsed !== null;
+      return parsed;
+    } catch {
+      hasPersistedSnapshot = false;
       return null;
     }
   }
@@ -105,6 +175,20 @@ export function createModelDiscoveryStore(
         getModelDiscoveryCachePath(),
         JSON.stringify(snapshot),
       );
+      hasPersistedSnapshot = true;
+    } catch {
+      // Best-effort persistence only.
+    }
+  }
+
+  function writeDiskSnapshotSync(snapshot: ModelDiscoverySnapshot): void {
+    try {
+      ensureHlvmDirSync();
+      resolvedDeps.writeTextFileSync(
+        getModelDiscoveryCachePath(),
+        JSON.stringify(snapshot),
+      );
+      hasPersistedSnapshot = true;
     } catch {
       // Best-effort persistence only.
     }
@@ -116,7 +200,25 @@ export function createModelDiscoveryStore(
     }
 
     const diskSnapshot = await readDiskSnapshot();
-    cachedSnapshot = diskSnapshot ?? EMPTY_MODEL_DISCOVERY_SNAPSHOT;
+    cachedSnapshot = diskSnapshot ?? getSeedSnapshot() ??
+      EMPTY_MODEL_DISCOVERY_SNAPSHOT;
+    if (!diskSnapshot && hasDiscoveryData(cachedSnapshot)) {
+      await writeDiskSnapshot(cachedSnapshot);
+    }
+    return cloneSnapshot(cachedSnapshot);
+  }
+
+  function readSnapshotSync(): ModelDiscoverySnapshot {
+    if (cachedSnapshot) {
+      return cloneSnapshot(cachedSnapshot);
+    }
+
+    const diskSnapshot = readDiskSnapshotSync();
+    cachedSnapshot = diskSnapshot ?? getSeedSnapshot() ??
+      EMPTY_MODEL_DISCOVERY_SNAPSHOT;
+    if (!diskSnapshot && hasDiscoveryData(cachedSnapshot)) {
+      writeDiskSnapshotSync(cachedSnapshot);
+    }
     return cloneSnapshot(cachedSnapshot);
   }
 
@@ -130,34 +232,49 @@ export function createModelDiscoveryStore(
 
       const [remoteResult, cloudResult] = await Promise.all([
         resolvedDeps.listOllamaCatalog()
-          .then((models) => ({ models, failed: models.length === 0 }))
-          .catch(() => ({ models: [] as ModelInfo[], failed: true })),
+          .then((result) => ({
+            ...normalizeSourceResult(result),
+            failed: false,
+          }))
+          .catch(() => ({
+            models: [] as ModelInfo[],
+            authoritativeEmpty: false,
+            failed: true,
+          })),
         resolvedDeps.listCloudModels()
-          .then((models) => ({ models, failed: models.length === 0 }))
-          .catch(() => ({ models: [] as ModelInfo[], failed: true })),
+          .then((result) => ({
+            ...normalizeSourceResult(result),
+            failed: false,
+          }))
+          .catch(() => ({
+            models: [] as ModelInfo[],
+            authoritativeEmpty: false,
+            failed: true,
+          })),
       ]);
 
-      const remoteModels = remoteResult.failed
+      const remoteFailed = remoteResult.failed ||
+        (
+          remoteResult.models.length === 0 &&
+          current.remoteModels.length > 0 &&
+          remoteResult.authoritativeEmpty !== true
+        );
+      const cloudFailed = cloudResult.failed ||
+        (
+          cloudResult.models.length === 0 &&
+          current.cloudModels.length > 0 &&
+          cloudResult.authoritativeEmpty !== true
+        );
+      const remoteModels = remoteFailed
         ? current.remoteModels
         : remoteResult.models;
-      const cloudModels = cloudResult.failed
+      const cloudModels = cloudFailed
         ? current.cloudModels
         : cloudResult.models;
-      const failed = remoteResult.failed || cloudResult.failed;
-
-      if (
-        !hasDiscoveryData({
-          timestamp: current.timestamp,
-          remoteModels,
-          cloudModels,
-        })
-      ) {
-        cachedSnapshot = current;
-        return { snapshot: cloneSnapshot(current), failed };
-      }
+      const failed = remoteFailed || cloudFailed;
 
       const nextSnapshot: ModelDiscoverySnapshot = {
-        timestamp: (!remoteResult.failed || !cloudResult.failed)
+        timestamp: (!remoteFailed || !cloudFailed)
           ? resolvedDeps.now()
           : current.timestamp,
         remoteModels,
@@ -176,14 +293,30 @@ export function createModelDiscoveryStore(
     return await inFlightRefresh;
   }
 
+  async function readStaleWhileRevalidateSnapshot(): Promise<
+    ModelDiscoverySnapshot
+  > {
+    const snapshot = await readSnapshot();
+    if (hasDiscoveryData(snapshot)) {
+      void refreshSnapshot();
+      return snapshot;
+    }
+
+    const refreshed = await refreshSnapshot();
+    return refreshed.snapshot;
+  }
+
   function resetCacheForTests(): void {
     cachedSnapshot = null;
     inFlightRefresh = null;
+    hasPersistedSnapshot = false;
   }
 
   return {
     readSnapshot,
+    readSnapshotSync,
     refreshSnapshot,
+    readStaleWhileRevalidateSnapshot,
     resetCacheForTests,
   };
 }
@@ -192,8 +325,12 @@ const defaultModelDiscoveryStore = createModelDiscoveryStore();
 
 export const readModelDiscoverySnapshot =
   defaultModelDiscoveryStore.readSnapshot;
+export const readModelDiscoverySnapshotSync =
+  defaultModelDiscoveryStore.readSnapshotSync;
 export const refreshModelDiscoverySnapshot =
   defaultModelDiscoveryStore.refreshSnapshot;
+export const readStaleWhileRevalidateModelDiscoverySnapshot =
+  defaultModelDiscoveryStore.readStaleWhileRevalidateSnapshot;
 export const resetModelDiscoverySnapshotCacheForTests =
   defaultModelDiscoveryStore.resetCacheForTests;
 export { hasDiscoveryData as hasModelDiscoveryData };

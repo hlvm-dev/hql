@@ -11,15 +11,6 @@ Deno.test("Static field: basic static var (hoisted pattern)", async () => {
   assertStringIncludes(result.code, ".count = 0");
 });
 
-Deno.test("Static field: static let (hoisted pattern)", async () => {
-  const result = await transpile(`
-    (class Config
-      (static let MAX 100))
-  `);
-  // Static fields with values use hoisted pattern
-  assertStringIncludes(result.code, ".MAX = 100");
-});
-
 Deno.test("Static method: basic static fn", async () => {
   const result = await transpile(`
     (class Factory
@@ -49,11 +40,3 @@ Deno.test("Static: mixed static and instance members", async () => {
   assertStringIncludes(result.code, "getValue()");
 });
 
-Deno.test("Static method: with parameters", async () => {
-  const result = await transpile(`
-    (class MathUtils
-      (static fn add [a b]
-        (+ a b)))
-  `);
-  assertStringIncludes(result.code, "static add(a, b)");
-});

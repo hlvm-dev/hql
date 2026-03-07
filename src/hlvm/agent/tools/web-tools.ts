@@ -19,7 +19,6 @@ import { ValidationError } from "../../../common/error.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 import { loadWebConfig } from "../web-config.ts";
 import { getWebCacheValue, setWebCacheValue } from "../web-cache.ts";
-import { generateQueryVariants } from "./web/duckduckgo.ts";
 
 import {
   normalizeDomain,
@@ -56,9 +55,19 @@ import {
   dedupeSearchResults,
   deduplicateSnippetPassages,
   extractRelevantPassages,
+  type SearchConfidenceReason,
   rankSearchResults,
   sourceQualityPenalty,
 } from "./web/search-ranking.ts";
+import {
+  buildFollowupQueries,
+  detectSearchQueryIntent,
+} from "./web/query-strategy.ts";
+import {
+  annotateEvidenceStrength,
+  bestEvidenceSummary,
+  selectEvidencePages,
+} from "./web/evidence-selection.ts";
 
 // ============================================================
 // Types
@@ -106,7 +115,7 @@ const DEFAULT_PREFETCH_TARGETS = 2;
 const LOW_CONFIDENCE_PREFETCH_TARGETS = 3;
 const MAX_PREFETCH_TARGETS = 4;
 const LOW_CONFIDENCE_RELATED_LINKS_LIMIT = 4;
-const AUTO_DEEP_MAX_ROUNDS = 1;
+const AUTO_DEEP_MAX_ROUNDS = 2;
 const AUTO_DEEP_EXTRA_RESULTS = 3;
 const AUTO_DEEP_MAX_RESULTS = 12;
 
@@ -287,29 +296,6 @@ function resolvePrefetchTargetCount(baseTargetCount: number, lowConfidence: bool
   const boundedBase = Math.max(0, baseTargetCount);
   if (!lowConfidence) return boundedBase;
   return Math.min(MAX_PREFETCH_TARGETS, Math.max(boundedBase, LOW_CONFIDENCE_PREFETCH_TARGETS));
-}
-
-function buildAutoDeepFollowupQuery(
-  query: string,
-  confidenceReason: string,
-): string {
-  const trimmed = query.trim();
-  if (!trimmed) return trimmed;
-
-  const [variant] = generateQueryVariants(trimmed, 1);
-  if (variant && variant !== trimmed) return variant;
-
-  const lower = trimmed.toLowerCase();
-  if (confidenceReason === "low_coverage" && !/\b(docs|documentation|reference)\b/.test(lower)) {
-    return `${trimmed} official documentation reference`;
-  }
-  if (confidenceReason === "low_diversity" && !/\b(alternative|independent|comparison)\b/.test(lower)) {
-    return `${trimmed} independent sources`;
-  }
-  if (!/\b(official|reference|guide)\b/.test(lower)) {
-    return `${trimmed} official reference guide`;
-  }
-  return trimmed;
 }
 
 export const __testOnlyBuildSearchWebCacheKey = buildSearchWebCacheKey;
@@ -679,6 +665,7 @@ async function searchWeb(
 
   initSearchProviders();
   const provider = resolveSearchProvider(webConfig.search.provider, false);
+  const queryIntent = detectSearchQueryIntent(query);
   const result = await provider.search(query, {
     limit,
     timeoutMs: timeout,
@@ -690,8 +677,9 @@ async function searchWeb(
     reformulate: resolvedReformulate,
     searchDepth,
   });
+  const initialProviderDiagnostics = result.diagnostics as Record<string, unknown> | undefined;
 
-  // --- Auto deep round: one bounded extra search when confidence is low ---
+  // --- Auto deep rounds: bounded extra searches when confidence remains low ---
   const deepDiagnostics: {
     autoTriggered: boolean;
     rounds: number;
@@ -705,14 +693,24 @@ async function searchWeb(
     queryTrail: [query],
     recovered: false,
   };
+  const followupRoundDiagnostics: Array<Record<string, unknown>> = [];
 
   let confidenceBeforeDeep = assessToolSearchConfidence(query, result.results);
   if (confidenceBeforeDeep.lowConfidence && AUTO_DEEP_MAX_ROUNDS > 0) {
-    const followupQuery = buildAutoDeepFollowupQuery(query, confidenceBeforeDeep.reason);
-    if (followupQuery && followupQuery !== query) {
+    const followupQueries = buildFollowupQueries({
+      userQuery: query,
+      confidenceReason: confidenceBeforeDeep.reason,
+      currentResults: result.results,
+      maxQueries: AUTO_DEEP_MAX_ROUNDS,
+    });
+
+    for (const followupQuery of followupQueries) {
+      if (!confidenceBeforeDeep.lowConfidence) break;
+      if (!followupQuery || followupQuery === query) continue;
       deepDiagnostics.autoTriggered = true;
-      deepDiagnostics.rounds = 2;
-      deepDiagnostics.triggerReason = confidenceBeforeDeep.reason;
+      if (deepDiagnostics.triggerReason === "none") {
+        deepDiagnostics.triggerReason = confidenceBeforeDeep.reason;
+      }
       deepDiagnostics.queryTrail.push(followupQuery);
 
       const deepLimit = Math.min(
@@ -735,19 +733,17 @@ async function searchWeb(
       const merged = dedupeSearchResults([...result.results, ...deepResult.results]);
       result.results = rankSearchResults(query, merged, timeRange).slice(0, limit);
       result.count = result.results.length;
-      result.diagnostics = {
-        ...(result.diagnostics as Record<string, unknown> ?? {}),
-        deepRound: {
-          query: followupQuery,
-          mergedCount: merged.length,
-          providerDiagnostics: deepResult.diagnostics ?? undefined,
-        },
-      };
+      followupRoundDiagnostics.push({
+        query: followupQuery,
+        mergedCount: merged.length,
+        providerDiagnostics: deepResult.diagnostics ?? undefined,
+      });
 
       confidenceBeforeDeep = assessToolSearchConfidence(query, result.results);
-      deepDiagnostics.recovered = !confidenceBeforeDeep.lowConfidence;
     }
   }
+  deepDiagnostics.rounds = deepDiagnostics.queryTrail.length;
+  deepDiagnostics.recovered = deepDiagnostics.autoTriggered && !confidenceBeforeDeep.lowConfidence;
 
   // --- Lightweight prefetch: fetch top results pages, extract passages + metadata ---
   const shouldPrefetch = resolvedPrefetch;
@@ -756,6 +752,7 @@ async function searchWeb(
   let prefetchCandidateCount = 0;
   let prefetchTargets: SearchResult[] = [];
   let anyDateEnriched = false;
+  const fetchedUrls: string[] = [];
   if (shouldPrefetch) {
     prefetchCandidateCount = result.results.filter((r) => r.url).length;
     const defaultPrefetchTargetCount = profilePrefetchTargets > 0
@@ -821,6 +818,7 @@ async function searchWeb(
     for (const outcome of settled) {
       if (outcome.status !== "fulfilled") continue;
       const v = outcome.value;
+      fetchedUrls.push(v.url);
       const target = result.results.find((r) => r.url === v.url);
       if (!target) continue;
       if (v.passages.length > 0) target.passages = v.passages;
@@ -842,6 +840,11 @@ async function searchWeb(
   if (anyDateEnriched) {
     result.results = rankSearchResults(query, result.results, timeRange).slice(0, limit);
   }
+  result.results = annotateEvidenceStrength(result.results, queryIntent);
+  const evidencePages = selectEvidencePages(result.results, {
+    maxPages: 3,
+    intent: queryIntent,
+  });
 
   const now = new Date().toISOString();
   const citations: Citation[] = result.results
@@ -856,8 +859,11 @@ async function searchWeb(
   const qualityPenaltiesApplied = result.results
     .filter((r) => sourceQualityPenalty(r) > 0)
     .length;
-  const providerDiagnostics = result.diagnostics as Record<string, unknown> | undefined;
-  const recoveryTriggered = providerDiagnostics?.lowConfidenceRetryTriggered === true;
+  const recoveryTriggered = initialProviderDiagnostics?.lowConfidenceRetryTriggered === true ||
+    deepDiagnostics.recovered;
+  const fetchEvidenceCount = evidencePages.filter((r) =>
+    (r.passages?.length ?? 0) > 0 || Boolean(r.pageDescription) || Boolean(r.publishedDate)
+  ).length;
   const diagnostics = {
     profile: {
       selectedDepth: searchDepth,
@@ -884,9 +890,19 @@ async function searchWeb(
       adaptiveDepth: lowConfidenceBeforePrefetch,
     },
     deep: deepDiagnostics,
+    retrieval: {
+      queryTrail: deepDiagnostics.queryTrail,
+      rounds: deepDiagnostics.rounds,
+      fetchedUrls,
+      evidenceUrls: evidencePages.map((r) => r.url).filter((url): url is string => Boolean(url)),
+      synthesizedFromFetch: evidencePages.some((r) => (r.passages?.length ?? 0) > 0 || Boolean(r.pageDescription)),
+      fetchEvidenceCount,
+      weakEvidence: confidenceFinal.lowConfidence,
+    },
     recoveryTriggered,
     qualityPenaltiesApplied,
-    provider: providerDiagnostics ?? undefined,
+    provider: initialProviderDiagnostics ?? undefined,
+    followupRounds: followupRoundDiagnostics,
   };
   const enriched = { ...result, citations, diagnostics };
 
@@ -911,9 +927,16 @@ function formatSearchWebResult(
 
   const queryStr = typeof data.query === "string" ? data.query : "";
   const provider = typeof data.provider === "string" ? data.provider : "search";
+  const queryIntent = detectSearchQueryIntent(queryStr);
   const confidence = assessToolSearchConfidence(queryStr, results);
   const lowConfidence = confidence.lowConfidence;
-  const topResults = results.slice(0, 4);
+  const evidencePages = selectEvidencePages(results, {
+    maxPages: queryIntent.wantsComparison ? Math.min(3, Math.max(2, results.length)) : 3,
+    intent: queryIntent,
+  });
+  const topResults = (evidencePages.length > 0 ? evidencePages : results).slice(0, 4);
+  const evidenceUrlSet = new Set(evidencePages.map((result) => result.url).filter((url): url is string => Boolean(url)));
+  const otherResults = results.filter((result) => !evidenceUrlSet.has(result.url ?? "")).slice(0, 4);
   const detailLines: string[] = [`Search: "${queryStr}" (${results.length} results, ${provider})\n`];
 
   for (let i = 0; i < results.length; i++) {
@@ -942,7 +965,7 @@ function formatSearchWebResult(
       const r = topResults[i];
       displayLines.push(`[${i + 1}] ${r.title}${r.url ? ` — ${r.url}` : ""}`);
       if (r.publishedDate) displayLines.push(`    Published: ${r.publishedDate}`);
-      const summary = r.passages?.[0] ?? r.pageDescription ?? r.snippet;
+      const summary = bestEvidenceSummary(r);
       if (summary) displayLines.push(`    ${summary}`);
     }
     if (results.length > topResults.length) {
@@ -955,6 +978,50 @@ function formatSearchWebResult(
   }
 
   const summaryText = displayLines.join("\n").trimEnd();
+  const llmSections: string[] = [
+    `Search summary\nQuery: "${queryStr}"\nProvider: ${provider}\nResults: ${results.length}`,
+  ];
+  const retrieval = typeof data.diagnostics === "object" && data.diagnostics !== null
+    ? (data.diagnostics as Record<string, unknown>).retrieval as Record<string, unknown> | undefined
+    : undefined;
+  const queryTrail = Array.isArray(retrieval?.queryTrail)
+    ? retrieval?.queryTrail.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    : [];
+  if (queryTrail.length > 1) {
+    llmSections.push(`Query trail:\n${queryTrail.map((item, index) => `${index + 1}. ${item}`).join("\n")}`);
+  }
+  if (evidencePages.length > 0) {
+    const evidenceLines = ["Evidence pages:"];
+    for (let i = 0; i < evidencePages.length; i++) {
+      const result = evidencePages[i];
+      evidenceLines.push(`[${i + 1}] ${result.title}${result.url ? ` — ${result.url}` : ""}`);
+      if (result.publishedDate) evidenceLines.push(`    Published: ${result.publishedDate}`);
+      if (result.evidenceStrength) {
+        evidenceLines.push(`    Evidence: ${result.evidenceStrength}${result.evidenceReason ? ` (${result.evidenceReason})` : ""}`);
+      }
+      const pageEvidence = [
+        ...(result.passages ?? []).slice(0, queryIntent.wantsComparison ? 2 : 1),
+      ];
+      if (pageEvidence.length === 0) {
+        const fallback = bestEvidenceSummary(result);
+        if (fallback) pageEvidence.push(fallback);
+      }
+      for (const excerpt of pageEvidence) {
+        evidenceLines.push(`    > ${excerpt}`);
+      }
+    }
+    llmSections.push(evidenceLines.join("\n"));
+  }
+  if (otherResults.length > 0) {
+    const otherLines = ["Other search results:"];
+    for (let i = 0; i < otherResults.length; i++) {
+      const result = otherResults[i];
+      otherLines.push(`[${i + 1}] ${result.title}${result.url ? ` — ${result.url}` : ""}`);
+      const fallback = bestEvidenceSummary(result);
+      if (fallback) otherLines.push(`    > ${fallback}`);
+    }
+    llmSections.push(otherLines.join("\n"));
+  }
   const llmSupplements: string[] = [];
   if (lowConfidence) {
     llmSupplements.push(
@@ -972,9 +1039,11 @@ function formatSearchWebResult(
     );
   }
   const detailText = detailLines.join("\n").trimEnd();
-  const llmText = llmSupplements.length > 0
-    ? `${detailText}\n\n${llmSupplements.join("\n\n")}`
-    : detailText;
+  llmSections.push(`Detailed ranked results:\n${detailText}`);
+  if (llmSupplements.length > 0) {
+    llmSections.push(llmSupplements.join("\n\n"));
+  }
+  const llmText = llmSections.join("\n\n").trimEnd();
   return { summaryDisplay: summaryText, returnDisplay: detailText, llmContent: llmText };
 }
 

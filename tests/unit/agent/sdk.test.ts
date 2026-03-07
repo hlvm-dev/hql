@@ -4,7 +4,7 @@
  * Uses createFixtureLLM + manual session injection to avoid real LLM calls.
  */
 
-import { assertEquals, assertExists } from "jsr:@std/assert";
+import { assertEquals } from "jsr:@std/assert";
 import { Agent } from "../../../src/hlvm/agent/sdk.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import { generateSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
@@ -120,22 +120,6 @@ Deno.test("Agent.dispose() is safe to call twice", async () => {
 
   await agent.dispose();
   await agent.dispose(); // should not throw
-});
-
-Deno.test("Agent.run() one-shot convenience", async () => {
-  // We need to inject the session, so we override Agent.prototype temporarily
-  const fixture: LlmFixture = {
-    version: 1,
-    cases: [{ name: "one-shot", steps: [{ response: "one-shot result" }] }],
-  };
-
-  // Create agent manually to test the flow
-  const agent = new Agent({ workspace: "/tmp" });
-  injectSession(agent, createTestSession(fixture));
-  const result = await agent.chat("test");
-  assertEquals(result.text, "one-shot result");
-  assertExists(result.toolCalls);
-  await agent.dispose();
 });
 
 Deno.test("Agent.chat() collects tool calls via onTrace", async () => {

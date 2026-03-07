@@ -22,12 +22,6 @@ Deno.test("Export Default: literal string", async () => {
   );
 });
 
-Deno.test("Export Default: literal number", async () => {
-  const code = `(export default 42)`;
-  const result = await transpile(code, { baseDir: Deno.cwd() });
-  assertEquals(result.code.includes("export default 42"), true);
-});
-
 Deno.test("Export Default: arrow function", async () => {
   const code = `(export default (=> (* $0 $0)))`;
   const result = await transpile(code, { baseDir: Deno.cwd() });

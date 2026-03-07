@@ -4,24 +4,27 @@
  */
 
 import { ai } from "../../../api/ai.ts";
-import {
-  updateMessage,
-} from "../../../store/conversation-store.ts";
+import { updateMessage } from "../../../store/conversation-store.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
 import { config } from "../../../api/config.ts";
 import { log } from "../../../api/log.ts";
-import { loadRecentMessages } from "../../../store/message-utils.ts";
-import { type Message } from "../../../providers/index.ts";
+import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
 import { CLI_CACHE_TTL_MS } from "../../repl-ink/ui-constants.ts";
-import { getPlatform } from "../../../../platform/platform.ts";
-import { loadMemoryContext } from "../../../memory/mod.ts";
 import { insertFact, linkFactEntities } from "../../../memory/mod.ts";
+import {
+  findSnapshotBackedModel,
+  listSnapshotBackedModels,
+} from "../../model-discovery.ts";
 import type { ChatRequest } from "./chat-session.ts";
 import {
   CHAT_CONTEXT_HISTORY_LIMIT,
   pushSessionUpdatedEvent,
 } from "./chat-session.ts";
+import {
+  buildChatProviderMessages,
+  shouldHonorRequestMessages,
+} from "./chat-context.ts";
 
 // ============================================================
 // Auto-save heuristic patterns (module-level to avoid per-call allocation)
@@ -40,15 +43,39 @@ const PREF_PATTERNS: RegExp[] = [
 
 /** Words that follow "I'm" but are NOT names (prevents false positives) */
 const NOT_NAMES = new Set([
-  "thinking", "wondering", "looking", "trying", "going", "working",
-  "happy", "sorry", "sure", "glad", "fine", "good", "great", "okay",
-  "confused", "interested", "curious", "new", "here", "back", "done",
-  "not", "a", "the", "just", "also", "really", "very",
+  "thinking",
+  "wondering",
+  "looking",
+  "trying",
+  "going",
+  "working",
+  "happy",
+  "sorry",
+  "sure",
+  "glad",
+  "fine",
+  "good",
+  "great",
+  "okay",
+  "confused",
+  "interested",
+  "curious",
+  "new",
+  "here",
+  "back",
+  "done",
+  "not",
+  "a",
+  "the",
+  "just",
+  "also",
+  "really",
+  "very",
 ]);
 
 /** Cached catalog result with TTL */
 let _catalogCache: {
-  data: Awaited<ReturnType<typeof ai.models.catalog>>;
+  data: ModelInfo[];
   expiry: number;
 } | null = null;
 
@@ -63,18 +90,13 @@ export async function modelSupportsTools(
     const now = Date.now();
     if (!_catalogCache || now > _catalogCache.expiry) {
       _catalogCache = {
-        data: await ai.models.catalog(),
+        data: await listSnapshotBackedModels({
+          includeRemoteCatalog: true,
+        }),
         expiry: now + CLI_CACHE_TTL_MS,
       };
     }
-    const catalog = _catalogCache.data;
-    const bare = modelName.includes("/")
-      ? modelName.slice(modelName.indexOf("/") + 1)
-      : modelName;
-    const baseName = bare.split(":")[0];
-    const match = catalog.find((m) =>
-      m.name === bare || m.name.split(":")[0] === baseName
-    );
+    const match = findSnapshotBackedModel(_catalogCache.data, modelName);
     if (match) {
       return { supported: match.capabilities?.includes("tools") ?? false };
     }
@@ -93,15 +115,18 @@ export async function handleChatMode(
   signal: AbortSignal,
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
+  modelInfo?: ModelInfo | null,
 ): Promise<void> {
-  const providerMessages = await buildProviderMessages(
-    sessionId,
+  const storedMessages = shouldHonorRequestMessages(body.messages)
+    ? []
+    : loadAllMessages(sessionId);
+  const { messages: providerMessages } = await buildChatProviderMessages({
+    requestMessages: body.messages,
+    storedMessages,
     assistantMessageId,
-    CHAT_CONTEXT_HISTORY_LIMIT,
-  );
-
-  // Inject persistent memory as system message so chat mode recalls past facts
-  await injectMemorySystemMessage(providerMessages);
+    modelInfo,
+    modelKey: resolvedModel,
+  });
 
   let fullText = "";
 
@@ -158,12 +183,14 @@ export async function handleChatMode(
     pushSessionUpdatedEvent(sessionId);
 
     // Auto-persist important user facts to memory (best-effort, non-blocking)
-    const userContent = body.messages?.[body.messages.length - 1]?.content ?? "";
+    const userContent = body.messages?.[body.messages.length - 1]?.content ??
+      "";
     autoSaveUserFacts(userContent, fullText);
   }
 }
 
 export async function streamDirectChatFallback(
+  requestMessages: ChatRequest["messages"],
   sessionId: string,
   assistantMessageId: number,
   resolvedModel: string,
@@ -171,16 +198,19 @@ export async function streamDirectChatFallback(
   signal: AbortSignal,
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
+  modelInfo?: ModelInfo | null,
 ): Promise<string> {
   const cfgSnapshot = config.snapshot;
-  const providerMessages = await buildProviderMessages(
-    sessionId,
+  const storedMessages = shouldHonorRequestMessages(requestMessages)
+    ? []
+    : loadAllMessages(sessionId);
+  const { messages: providerMessages } = await buildChatProviderMessages({
+    requestMessages,
+    storedMessages,
     assistantMessageId,
-    CHAT_CONTEXT_HISTORY_LIMIT,
-  );
-
-  // Inject persistent memory as system message so fallback chat recalls past facts
-  await injectMemorySystemMessage(providerMessages);
+    modelInfo,
+    modelKey: resolvedModel,
+  });
 
   const tokenIterator = ai.chat(providerMessages, {
     model: resolvedModel,
@@ -229,98 +259,10 @@ export async function streamDirectChatFallback(
   return fullText;
 }
 
-async function readImageAsBase64(filePath: string): Promise<string | null> {
-  try {
-    const data = await getPlatform().fs.readFile(filePath);
-    const chunks: string[] = [];
-    for (let i = 0; i < data.length; i += 8192) {
-      chunks.push(
-        String.fromCharCode(
-          ...data.subarray(i, Math.min(i + 8192, data.length)),
-        ),
-      );
-    }
-    return btoa(chunks.join(""));
-  } catch (e) {
-    log.warn(`Failed to read image: ${filePath}`, e);
-    return null;
-  }
-}
-
-async function resolveImages(
-  imagePathsJson: string | null,
-): Promise<string[]> {
-  if (!imagePathsJson) return [];
-  try {
-    const paths: string[] = JSON.parse(imagePathsJson);
-    const images: string[] = [];
-    for (const p of paths) {
-      const base64 = await readImageAsBase64(p);
-      if (base64) images.push(base64);
-    }
-    return images;
-  } catch (e) {
-    log.warn("Failed to resolve image paths", e);
-    return [];
-  }
-}
-
-async function buildProviderMessages(
-  sessionId: string,
-  assistantMessageId: number,
-  limit: number,
-): Promise<Message[]> {
-  const storedMessages = loadRecentMessages(sessionId, limit);
-  const providerMessages: Message[] = [];
-  for (const m of storedMessages) {
-    if (
-      m.role === "tool" || m.cancelled || m.content.length === 0 ||
-      m.id === assistantMessageId
-    ) {
-      continue;
-    }
-    const msg: Message = {
-      role: m.role as Message["role"],
-      content: m.content,
-    };
-    if (m.image_paths) {
-      const images = await resolveImages(m.image_paths);
-      if (images.length > 0) msg.images = images;
-    }
-    providerMessages.push(msg);
-  }
-  return providerMessages;
-}
-
-/**
- * Inject persistent memory (MEMORY.md + recent journals) as a system message
- * at position 0 of the provider messages array. This gives chat mode passive
- * recall of facts stored across sessions, without requiring agent tools.
- *
- * Best-effort: silently skips on error so chat never breaks due to memory issues.
- */
-async function injectMemorySystemMessage(
-  messages: Message[],
-): Promise<void> {
-  try {
-    // Use a reasonable default context budget for chat mode (~32K)
-    const memoryContext = await loadMemoryContext(32_000);
-    if (!memoryContext) return;
-
-    messages.unshift({
-      role: "system",
-      content: `# Your Memory\n${memoryContext}`,
-    });
-  } catch {
-    // Memory loading failed — don't break chat
-    log.debug("Failed to load memory context for chat mode");
-  }
-}
-
 /**
  * Auto-save important user facts from chat conversations to persistent memory.
- * Since chat mode has no tool calling, we use a lightweight heuristic to detect
- * when the user shares identity/preference info and the model acknowledges it.
+ * Since plain chat has no memory tool, this remains a lightweight user-message
+ * heuristic rather than a full semantic extractor.
  *
  * Patterns detected:
  * - "my name is X" / "I'm X" / "call me X"

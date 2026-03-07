@@ -54,6 +54,7 @@ import { persistSelectedModelConfig } from "../../../../common/config/model-sele
 import { ReplProvider } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { log } from "../../../api/log.ts";
+import { looksLikeNaturalLanguage } from "../../repl/input-routing.ts";
 
 interface HistoryEntry {
   id: number;
@@ -615,57 +616,9 @@ function AppContent(
 
   /** Detect if input looks like natural language rather than code */
   const isNaturalLanguage = useCallback((input: string): boolean => {
-    const trimmed = input.trim();
-    const hasWhitespace = /\s/.test(trimmed);
-    if (!trimmed) return false;
-    // Commands start with / or .
-    if (trimmed.startsWith("/") || trimmed.startsWith(".")) return false;
-    // HQL/Lisp: starts with ( or [
-    if (trimmed.startsWith("(") || trimmed.startsWith("[")) return false;
-    // HQL/Lisp: ends with ) or ] (multi-line expression)
-    if (trimmed.endsWith(")") || trimmed.endsWith("]")) return false;
-    // JavaScript-like: starts with const/let/var/function/class/import/export or assignment
-    if (/^(const|let|var|function|class|import|export|async|return|if|else|for|while|switch|try|throw|new|typeof|delete)\s/.test(trimmed)) return false;
-    // Single-token identifiers: treat as chat only when not a known binding.
-    // This allows "hello" to open agent chat, while keeping bound symbols code-first.
-    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) {
-      const lowered = trimmed.toLowerCase();
-      if (
-        lowered === "true" || lowered === "false" || lowered === "null" ||
-        lowered === "undefined" || lowered === "nan" || lowered === "infinity"
-      ) {
-        return false;
-      }
-      return !replState.hasBinding(trimmed);
-    }
-    // Assignment patterns (including destructuring)
-    if (/^\w+\s*=/.test(trimmed) || /^(const|let|var)\s/.test(trimmed)) return false;
-    // Property access / method calls
-    if (/^\w+\.\w+/.test(trimmed)) return false;
-    // Numeric or boolean literals
-    if (/^[-+]?\d/.test(trimmed) || trimmed === "true" || trimmed === "false" || trimmed === "null" || trimmed === "undefined") return false;
-    // Backtick template literals
-    if (trimmed.startsWith("`") || trimmed.startsWith("'") || trimmed.startsWith('"')) return false;
-    // Arrow functions or object literals
-    if (trimmed.startsWith("{") || trimmed.includes("=>")) return false;
-    // Operator expressions (e.g., "1 + 2", "x && y")
-    // Operator expressions (e.g., "1 + 2", "x&&y", "a+b").
-    // IMPORTANT: Avoid classifying hyphenated natural-language words like "Web-RAG" as code.
-    if (/[A-Za-z0-9_]\s*(?:[+*/%]|&&|\|\||===?|!==?|<=?|>=?)\s*[A-Za-z0-9_]/.test(trimmed)) {
-      return false;
-    }
-    if (
-      /[A-Za-z0-9_]\s+-\s+[A-Za-z0-9_]/.test(trimmed) ||
-      /[-+]?\d+\s*-\s*[-+]?\d+/.test(trimmed)
-    ) {
-      return false;
-    }
-    // Single-token punctuation chat prompts like "hello?" should still route to agent.
-    if (!hasWhitespace && /[!?.,]$/.test(trimmed)) return true;
-    // Remaining single-token non-code input defaults to code path.
-    if (!hasWhitespace) return false;
-    // Multi-word input that doesn't match any code pattern → likely natural language
-    return true;
+    return looksLikeNaturalLanguage(input, {
+      hasBinding: (name: string) => replState.hasBinding(name),
+    });
   }, [replState]);
 
   const runConversation = useCallback(async (

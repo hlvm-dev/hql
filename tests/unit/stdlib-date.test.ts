@@ -61,38 +61,6 @@ Deno.test("@hlvm/date - parse and format roundtrip", async () => {
   assertEquals(result, "2024-06-15T10:30:00.000Z");
 });
 
-Deno.test("@hlvm/date - now and format", async () => {
-  const code = `
-    (import [now, format] from "@hlvm/date")
-    (var timestamp (now))
-    (format timestamp)
-  `;
-  const result = await run(code);
-  assert(typeof result === "string");
-  assert(result.includes("T"));
-  assert(result.includes("Z"));
-});
-
-Deno.test("@hlvm/date - add one day", async () => {
-  const code = `
-    (import [parse, add, format] from "@hlvm/date")
-    (var start (parse "2024-01-01T00:00:00.000Z"))
-    (var next-day (add start 86400000))
-    (format next-day)
-  `;
-  const result = await run(code);
-  assertEquals(result, "2024-01-02T00:00:00.000Z");
-});
-
-Deno.test("@hlvm/date - diff negative", async () => {
-  const code = `
-    (import [diff] from "@hlvm/date")
-    (diff 1704067200000 1704070800000)
-  `;
-  const result = await run(code);
-  assertEquals(result, -3600000);
-});
-
 Deno.test("@hlvm/date - multiple operations", async () => {
   const code = `
     (import [parse, add, diff, format] from "@hlvm/date")

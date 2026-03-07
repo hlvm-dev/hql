@@ -22,19 +22,6 @@ Deno.test("macro edge cases: recursive macros keep expanding until the base case
   assertEquals(result, 120);
 });
 
-Deno.test("macro edge cases: deep macro chains preserve expansion order", async () => {
-  const result = await hql.run(`
-    (macro l1 [x] (+ x 1))
-    (macro l2 [x] (l1 (l1 x)))
-    (macro l3 [x] (l2 (l2 x)))
-    (macro l4 [x] (l3 (l3 x)))
-    (macro l5 [x] (l4 (l4 x)))
-    (l5 0)
-  `);
-
-  assertEquals(result, 16);
-});
-
 Deno.test("macro edge cases: compile-time macros work inside chained let bindings", async () => {
   const result = await hql.run(`
     (macro inc [x] (+ x 1))

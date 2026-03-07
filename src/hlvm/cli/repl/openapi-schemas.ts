@@ -114,6 +114,10 @@
  *           type: string
  *         messages:
  *           type: array
+ *           description: |
+ *             Authoritative prompt history when multiple messages or any non-user
+ *             message is provided. Single-message user requests fall back to the
+ *             stored session transcript for backward compatibility.
  *           items:
  *             type: object
  *             properties:

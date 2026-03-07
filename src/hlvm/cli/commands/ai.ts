@@ -7,16 +7,27 @@ import {
   getProgressPercent,
   pullModelWithProgress,
 } from "../../../common/ai-default-model.ts";
-import { capabilitiesToDisplayTags, parseModelString } from "../../providers/index.ts";
+import {
+  capabilitiesToDisplayTags,
+  parseModelString,
+} from "../../providers/index.ts";
+import type { ModelInfo } from "../../providers/types.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { startModelBrowser } from "../repl-ink/model-browser.tsx";
-import { getOllamaCatalogAsync } from "../../providers/ollama/catalog.ts";
 import { formatBytes } from "../../../common/limits.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../repl-ink/ui-constants.ts";
 import { truncate } from "../../../common/utils.ts";
-import { getTaskManager, isModelPullTask, type ModelPullTask } from "../repl/task-manager/index.ts";
+import {
+  getTaskManager,
+  isModelPullTask,
+  type ModelPullTask,
+} from "../repl/task-manager/index.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
+import { listSnapshotBackedModels } from "../model-discovery.ts";
+import {
+  readStaleWhileRevalidateModelDiscoverySnapshot,
+} from "../../providers/model-discovery-store.ts";
 
 function resolveDefaultLocalName(
   localModels: { name: string }[],
@@ -34,16 +45,19 @@ function resolveDefaultLocalName(
 
   const exact = localModels.find((m) => m.name.toLowerCase() === normalized);
   if (exact) return exact.name;
-  const latest = localModels.find((m) => m.name.toLowerCase() === `${normalized}:latest`);
+  const latest = localModels.find((m) =>
+    m.name.toLowerCase() === `${normalized}:latest`
+  );
   if (latest) return latest.name;
-  const prefix = localModels.find((m) => m.name.toLowerCase().startsWith(`${normalized}:`));
+  const prefix = localModels.find((m) =>
+    m.name.toLowerCase().startsWith(`${normalized}:`)
+  );
   return prefix?.name ?? null;
 }
 
-async function buildCatalogIndex(): Promise<Map<string, ModelInfo>> {
+function buildCatalogIndex(models: ModelInfo[]): Map<string, ModelInfo> {
   const index = new Map<string, ModelInfo>();
-  const catalog = await getOllamaCatalogAsync({ maxVariants: Number.POSITIVE_INFINITY });
-  for (const entry of catalog) {
+  for (const entry of models) {
     index.set(entry.name.toLowerCase(), entry);
   }
   return index;
@@ -77,7 +91,9 @@ function formatDownloadProgress(task: ModelPullTask): string {
   const hasBytes = typeof progress.completed === "number" &&
     typeof progress.total === "number" &&
     progress.total > 0;
-  const bytesText = hasBytes ? `${formatBytes(progress.completed!)} / ${formatBytes(progress.total!)}` : "";
+  const bytesText = hasBytes
+    ? `${formatBytes(progress.completed!)} / ${formatBytes(progress.total!)}`
+    : "";
   const status = (progress.status || "").trim();
   const parts: string[] = [];
   if (typeof percent === "number") parts.push(`${percent}%`);
@@ -123,24 +139,35 @@ export async function aiCommand(args: string[]): Promise<void> {
 
   switch (subcommand) {
     case "setup": {
-      await ensureDefaultModelInstalled({ log: (message) => log.raw.log(message) });
+      await ensureDefaultModelInstalled({
+        log: (message) => log.raw.log(message),
+      });
       return;
     }
     case "pull": {
       const modelArg = args[1];
       if (!modelArg) {
-        throw new ValidationError("Missing model name. Usage: hlvm ai pull <model>");
+        throw new ValidationError(
+          "Missing model name. Usage: hlvm ai pull <model>",
+          "hlvm ai pull",
+        );
       }
       const [providerName, modelName] = parseModelString(modelArg);
       log.raw.log(`Downloading model (${modelName})...`);
-      await pullModelWithProgress(modelName, providerName ?? undefined, (message) => log.raw.log(message));
+      await pullModelWithProgress(
+        modelName,
+        providerName ?? undefined,
+        (message) => log.raw.log(message),
+      );
       log.raw.log(`Model ready: ${modelName}`);
       return;
     }
     case "list": {
       const configuredModel = config.snapshot.model;
-      // Use listAll() to aggregate models from ALL registered providers
-      const allModels = await ai.models.listAll();
+      const [allModels, discoverySnapshot] = await Promise.all([
+        listSnapshotBackedModels({ includeRemoteCatalog: false }),
+        readStaleWhileRevalidateModelDiscoverySnapshot(),
+      ]);
       if (allModels.length === 0) {
         log.raw.log("No models available.");
         return;
@@ -152,22 +179,27 @@ export async function aiCommand(args: string[]): Promise<void> {
       // Group models by provider
       const byProvider = new Map<string, typeof allModels>();
       for (const m of allModels) {
-        const provider = (m.metadata as Record<string, unknown>)?.provider as string ?? "unknown";
+        const provider =
+          (m.metadata as Record<string, unknown>)?.provider as string ??
+            "unknown";
         const group = byProvider.get(provider) ?? [];
         group.push(m);
         byProvider.set(provider, group);
       }
 
-      const catalogIndex = await buildCatalogIndex();
+      const catalogIndex = buildCatalogIndex(discoverySnapshot.remoteModels);
       const nameWidth = 30;
       const tagsWidth = 20;
 
       for (const [provider, models] of byProvider) {
-        const displayName = (models[0]?.metadata as Record<string, unknown>)?.providerDisplayName as string ?? provider;
+        const displayName = (models[0]?.metadata as Record<string, unknown>)
+          ?.providerDisplayName as string ?? provider;
         log.raw.log(`\n${displayName}:`);
         log.raw.log(`${pad("MODEL", nameWidth)}  ${pad("TAGS", tagsWidth)}`);
 
-        const sorted = models.slice().sort((a, b) => a.name.localeCompare(b.name));
+        const sorted = models.slice().sort((a, b) =>
+          a.name.localeCompare(b.name)
+        );
         for (const model of sorted) {
           const meta = (model.metadata ?? {}) as Record<string, unknown>;
           const tags = model.capabilities
@@ -176,34 +208,47 @@ export async function aiCommand(args: string[]): Promise<void> {
           if (meta.cloud === true) tags.push("cloud");
           const isLocal = typeof model.size === "number" && model.size > 0;
           if (isLocal) {
-            const catalogEntry = catalogIndex ? findCatalogEntry(catalogIndex, model.name) : null;
-            if (catalogEntry?.parameterSize) tags.push(catalogEntry.parameterSize);
+            const catalogEntry = catalogIndex
+              ? findCatalogEntry(catalogIndex, model.name)
+              : null;
+            if (catalogEntry?.parameterSize) {
+              tags.push(catalogEntry.parameterSize);
+            }
           }
 
           const isDefault = configuredModel?.endsWith(`/${model.name}`) ||
             configuredModel === model.name;
           const prefix = isDefault ? "* " : "  ";
 
-          log.raw.log(`${pad(`${prefix}${model.name}`, nameWidth)}  ${tags.join(" ")}`);
+          log.raw.log(
+            `${pad(`${prefix}${model.name}`, nameWidth)}  ${tags.join(" ")}`,
+          );
         }
       }
       return;
     }
     case "downloads": {
       const manager = getTaskManager();
-      const pullTasks = Array.from(manager.getTasks().values()).filter(isModelPullTask);
-      const active = pullTasks.filter((task) => task.status === "pending" || task.status === "running");
+      const pullTasks = Array.from(manager.getTasks().values()).filter(
+        isModelPullTask,
+      );
+      const active = pullTasks.filter((task) =>
+        task.status === "pending" || task.status === "running"
+      );
       if (active.length === 0) {
         log.raw.log("No active downloads.");
         return;
       }
 
       const sorted = active.slice().sort((a, b) => {
-        const rank = (task: ModelPullTask) => (task.status === "running" ? 0 : 1);
+        const rank = (
+          task: ModelPullTask,
+        ) => (task.status === "running" ? 0 : 1);
         return rank(a) - rank(b) || a.createdAt - b.createdAt;
       });
 
-      const columns = getPlatform().terminal.consoleSize().columns || DEFAULT_TERMINAL_WIDTH;
+      const columns = getPlatform().terminal.consoleSize().columns ||
+        DEFAULT_TERMINAL_WIDTH;
       const nameWidth = Math.min(
         Math.max(...sorted.map((t) => t.modelName.length), 10) + 2,
         32,
@@ -220,7 +265,9 @@ export async function aiCommand(args: string[]): Promise<void> {
       log.raw.log(headerParts.join("  "));
 
       for (const task of sorted) {
-        const status = task.status === "pending" || task.status === "running" ? "downloading" : task.status;
+        const status = task.status === "pending" || task.status === "running"
+          ? "downloading"
+          : task.status;
         const progress = formatDownloadProgress(task);
         const lineParts = [
           pad(task.modelName, nameWidth),
@@ -265,6 +312,9 @@ export async function aiCommand(args: string[]): Promise<void> {
       return;
     }
     default:
-      throw new ValidationError(`Unknown ai command: ${subcommand}`);
+      throw new ValidationError(
+        `Unknown ai command: ${subcommand}`,
+        "hlvm ai",
+      );
   }
 }

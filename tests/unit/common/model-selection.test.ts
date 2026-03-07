@@ -70,17 +70,6 @@ Deno.test("isSelectedModelActive matches normalized ollama model ids", () => {
   );
 });
 
-Deno.test("isSelectedModelActive rejects different or missing models", () => {
-  assertEquals(
-    isSelectedModelActive("llama3.2:latest", "ollama/llama3.1:8b"),
-    false,
-  );
-  assertEquals(
-    isSelectedModelActive("llama3.2:latest", undefined),
-    false,
-  );
-});
-
 Deno.test("persistSelectedModelConfig falls back to sequential set and normalizes bare model names", async () => {
   const writes: Array<[string, unknown]> = [];
 

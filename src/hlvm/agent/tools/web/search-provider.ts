@@ -19,6 +19,8 @@ export interface SearchResult {
   passages?: string[];        // Prefetched relevant passages (max 3, max 280 chars each)
   pageDescription?: string;   // Enriched description from prefetched page metadata
   relatedLinks?: string[];    // Cross-domain links extracted from prefetched page
+  evidenceStrength?: "high" | "medium" | "low";
+  evidenceReason?: string;
 }
 
 export interface SearchProviderResponse {
@@ -77,6 +79,10 @@ export interface Citation {
   title: string;
   excerpt?: string;
   provider?: string;
+  provenance?: "provider" | "retrieval" | "inferred";
+  sourceId?: string;
+  sourceType?: "url" | "document";
+  providerMetadata?: Record<string, unknown>;
   startIndex?: number;
   endIndex?: number;
   confidence?: number;

@@ -12,7 +12,6 @@ import { ai } from "../../api/ai.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { readSingleKey } from "../utils/input.ts";
-import { getOllamaCatalogAsync } from "../../providers/ollama/catalog.ts";
 import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
 import { pullModelWithProgress } from "../../../common/ai-default-model.ts";
 import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../../common/ai-messages.ts";
@@ -21,6 +20,9 @@ import { isOllamaAuthErrorMessage } from "../../../common/ollama-auth.ts";
 import { aiEngine } from "../../runtime/ai-runtime.ts";
 import type { AIEngineLifecycle } from "../../runtime/ai-runtime.ts";
 import type { ModelInfo } from "../../providers/types.ts";
+import {
+  readStaleWhileRevalidateModelDiscoverySnapshot,
+} from "../../providers/model-discovery-store.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 
 // ============================================================================
@@ -55,10 +57,20 @@ function style(message: string, ...codes: string[]): string {
 }
 
 function printSetupBanner(logRaw: (message: string) => void): void {
-  logRaw(style("============================================================", ANSI.cyan));
+  logRaw(
+    style(
+      "============================================================",
+      ANSI.cyan,
+    ),
+  );
   logRaw(style("Welcome to HLVM!", ANSI.bold, ANSI.cyan));
   logRaw("Setup will configure the best cloud model (free, no GPU needed).");
-  logRaw(style("============================================================", ANSI.cyan));
+  logRaw(
+    style(
+      "============================================================",
+      ANSI.cyan,
+    ),
+  );
   logRaw("");
 }
 
@@ -67,7 +79,9 @@ function printSetupStep(
   step: number,
   message: string,
 ): void {
-  logRaw(style(`[${step}/${TOTAL_SETUP_STEPS}] ${message}`, ANSI.bold, ANSI.cyan));
+  logRaw(
+    style(`[${step}/${TOTAL_SETUP_STEPS}] ${message}`, ANSI.bold, ANSI.cyan),
+  );
 }
 
 /** Prompt "Continue? [Y/n]" and return true for Y/Enter, false for N. */
@@ -89,8 +103,8 @@ export function parseParamSize(size: string | undefined): number {
 
 /** Pick the best cloud model with tool-calling from the catalog (dynamic, no hardcoded list). */
 export async function pickBestCloudModel(): Promise<ModelInfo | null> {
-  const catalog = await getOllamaCatalogAsync({ maxVariants: Infinity });
-  const cloudTools = catalog.filter(
+  const snapshot = await readStaleWhileRevalidateModelDiscoverySnapshot();
+  const cloudTools = snapshot.remoteModels.filter(
     (m) => isOllamaCloudModel(m.name) && m.capabilities?.includes("tools"),
   );
 
@@ -195,7 +209,9 @@ async function waitForCloudAccess(modelId: string): Promise<boolean> {
   const deadline = Date.now() + CLOUD_SIGNIN_WAIT_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (await verifyOllamaCloudModelAccess(modelId)) return true;
-    await new Promise((resolve) => setTimeout(resolve, CLOUD_SIGNIN_WAIT_INTERVAL_MS));
+    await new Promise((resolve) =>
+      setTimeout(resolve, CLOUD_SIGNIN_WAIT_INTERVAL_MS)
+    );
   }
   return false;
 }
@@ -336,7 +352,9 @@ export async function runFirstTimeSetup(
     );
     return await deps.fallbackToModelBrowser();
   }
-  deps.logRaw(style(`  -> Selected: ${model.displayName ?? model.name}`, ANSI.dim));
+  deps.logRaw(
+    style(`  -> Selected: ${model.displayName ?? model.name}`, ANSI.dim),
+  );
 
   // 4. Pull model (with reactive signin)
   printSetupStep(deps.logRaw, 3, "Pulling selected model...");
@@ -356,11 +374,16 @@ export async function runFirstTimeSetup(
   await deps.saveConfiguredModel(modelId);
 
   deps.logRaw(
-    `\n${style("Ready! Using", ANSI.bold, ANSI.green)} ${model.displayName ?? model.name}\n`,
+    `\n${style("Ready! Using", ANSI.bold, ANSI.green)} ${
+      model.displayName ?? model.name
+    }\n`,
   );
   deps.logRaw(style(`Cloud usage & limits: ${OLLAMA_SETTINGS_URL}`, ANSI.dim));
   deps.logRaw(
-    style("Tip: if cloud quota is exhausted, switch to a local model in model browser.", ANSI.dim),
+    style(
+      "Tip: if cloud quota is exhausted, switch to a local model in model browser.",
+      ANSI.dim,
+    ),
   );
   return modelId;
 }

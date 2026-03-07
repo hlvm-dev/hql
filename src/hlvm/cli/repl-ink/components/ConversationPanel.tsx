@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Box, Static, Text, useInput } from "ink";
+import { Box, Text, useInput } from "ink";
 import type { AssistantCitation, ConversationItem, StreamingState } from "../types.ts";
 import { StreamingState as ConversationStreamingState } from "../types.ts";
 import type { InteractionRequestEvent, InteractionResponse } from "../../../agent/registry.ts";
@@ -41,22 +41,6 @@ interface ConversationPanelProps {
 type ToggleTarget =
   | { kind: "tool"; id: string }
   | { kind: "thinking"; id: string };
-
-function isPendingItem(item: ConversationItem): boolean {
-  if (item.type === "thinking") return true;
-  if (item.type === "assistant" && item.isPending) return true;
-  if (item.type === "tool_group") {
-    return item.tools.some((t) => t.status === "running" || t.status === "pending");
-  }
-  return false;
-}
-
-function getPendingStartIndex(items: ConversationItem[]): number {
-  for (let i = 0; i < items.length; i++) {
-    if (isPendingItem(items[i])) return i;
-  }
-  return items.length;
-}
 
 function getToggleTargets(items: ConversationItem[]): ToggleTarget[] {
   const targets: ToggleTarget[] = [];
@@ -154,13 +138,6 @@ export function ConversationPanel({
     () => new Set(),
   );
 
-  const pendingStart = useMemo(
-    () => getPendingStartIndex(items),
-    [items],
-  );
-  const staticItems = useMemo(() => items.slice(0, pendingStart), [items, pendingStart]);
-  const pendingItems = useMemo(() => items.slice(pendingStart), [items, pendingStart]);
-
   useEffect(() => {
     if (items.length === 0) {
       setExpandedToolIds(new Set());
@@ -168,10 +145,11 @@ export function ConversationPanel({
     }
   }, [items.length]);
 
-  // Toggle targets only apply to current pending section to avoid re-rendering committed history.
+  // Toggle targets operate over the visible conversation so the latest
+  // tool/thinking block can always be expanded without duplicating turns.
   const toggleTargets = useMemo(
-    () => getToggleTargets(pendingItems),
-    [pendingItems],
+    () => getToggleTargets(items),
+    [items],
   );
 
   const isToolExpanded = (toolId: string): boolean => expandedToolIds.has(toolId);
@@ -221,31 +199,13 @@ export function ConversationPanel({
     }
   });
 
-  const renderStaticItem = (item: ConversationItem): React.ReactElement => (
-    <Box key={item.id}>
-      {renderItem(
-        item,
-        width,
-        streamingState,
-        isToolExpanded,
-        isThinkingExpanded,
-      )}
-    </Box>
-  );
-  const staticProps = { items: staticItems, children: renderStaticItem };
-
   return (
     <Box flexDirection="column" width={width}>
       {items.length === 0 && streamingState && (
         <Text color={sc.text.muted}>Conversation starting...</Text>
       )}
 
-      {/* Committed history is rendered once and never reflowed, eliminating jumpy updates. */}
-      {staticItems.length > 0 && (
-        <Static<ConversationItem> {...staticProps} />
-      )}
-
-      {pendingItems.map((item: ConversationItem) => (
+      {items.map((item: ConversationItem) => (
         <Box key={item.id}>
           {renderItem(
             item,

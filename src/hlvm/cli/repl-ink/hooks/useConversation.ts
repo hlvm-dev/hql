@@ -80,6 +80,51 @@ function findMatchingRunningToolIndex(
   );
 }
 
+function upsertAssistantTextItem(
+  items: ConversationItem[],
+  text: string,
+  isPending: boolean,
+  citations: AssistantCitation[] | undefined,
+  nextId: () => string,
+): ConversationItem[] {
+  let pendingIdx = -1;
+  let lastAssistantIdx = -1;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type === "assistant") {
+      if (item.isPending && pendingIdx < 0) pendingIdx = i;
+      if (lastAssistantIdx < 0) lastAssistantIdx = i;
+      if (pendingIdx >= 0 && lastAssistantIdx >= 0) break;
+    }
+  }
+
+  const targetIdx = pendingIdx >= 0 ? pendingIdx : lastAssistantIdx;
+  if (targetIdx >= 0) {
+    const target = items[targetIdx] as AssistantItem;
+    const next = [...items];
+    next[targetIdx] = { ...target, text, isPending, citations };
+    return next;
+  }
+
+  const assistant: AssistantItem = {
+    type: "assistant",
+    id: nextId(),
+    text,
+    citations,
+    isPending,
+    ts: Date.now(),
+  };
+  const trailingTurnStatsIdx = !isPending && items.length > 0 && items[items.length - 1]?.type === "turn_stats"
+    ? items.length - 1
+    : -1;
+  if (trailingTurnStatsIdx >= 0) {
+    const next = [...items];
+    next.splice(trailingTurnStatsIdx, 0, assistant);
+    return next;
+  }
+  return [...items, assistant];
+}
+
 // ============================================================
 // Hook
 // ============================================================
@@ -262,35 +307,9 @@ export function useConversation(): UseConversationResult {
     isPending: boolean,
     citations?: AssistantCitation[],
   ) => {
-    setItems((prev: ConversationItem[]) => {
-      // Single backward pass: find pending assistant (priority) and last assistant
-      let pendingIdx = -1;
-      let lastAssistantIdx = -1;
-      for (let i = prev.length - 1; i >= 0; i--) {
-        const item = prev[i];
-        if (item.type === "assistant") {
-          if (item.isPending && pendingIdx < 0) pendingIdx = i;
-          if (lastAssistantIdx < 0) lastAssistantIdx = i;
-          if (pendingIdx >= 0 && lastAssistantIdx >= 0) break;
-        }
-      }
-      const targetIdx = pendingIdx >= 0 ? pendingIdx : lastAssistantIdx;
-      if (targetIdx >= 0) {
-        const target = prev[targetIdx] as AssistantItem;
-        const next = [...prev];
-        next[targetIdx] = { ...target, text, isPending, citations };
-        return next;
-      }
-      // Create new assistant item
-      return [...prev, {
-        type: "assistant" as const,
-        id: nextId(),
-        text,
-        citations,
-        isPending,
-        ts: Date.now(),
-      }];
-    });
+    setItems((prev: ConversationItem[]) =>
+      upsertAssistantTextItem(prev, text, isPending, citations, nextId)
+    );
   }, []);
 
   const addError = useCallback((text: string) => {
@@ -333,3 +352,5 @@ export function useConversation(): UseConversationResult {
     clear,
   };
 }
+
+export const __testOnlyUpsertAssistantTextItem = upsertAssistantTextItem;

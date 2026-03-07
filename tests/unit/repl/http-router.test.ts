@@ -1,139 +1,68 @@
-/**
- * HTTP Router Tests
- *
- * Verifies route matching, param extraction, method filtering, and edge cases.
- */
-
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import { createRouter } from "../../../src/hlvm/cli/repl/http-router.ts";
 
-Deno.test({
-  name: "Router: exact path match",
-  fn() {
-    const router = createRouter();
-    router.add("GET", "/api/sessions", () => new Response("ok"));
+Deno.test("http router: exact routes and parameterized routes both match with decoded params", () => {
+  const router = createRouter();
+  router.add("GET", "/api/sessions", () => new Response("ok"));
+  router.add("GET", "/api/sessions/:id", () => new Response("session"));
+  router.add("GET", "/api/sessions/:id/messages/:messageId", () => new Response("message"));
 
-    const match = router.match("GET", "/api/sessions");
-    assertExists(match);
-    assertEquals(Object.keys(match!.params).length, 0);
-  },
+  const exact = router.match("GET", "/api/sessions");
+  const single = router.match("GET", "/api/sessions/hello%20world");
+  const multiple = router.match("GET", "/api/sessions/sess-1/messages/42");
+
+  assertExists(exact);
+  assertEquals(exact.params, {});
+  assertExists(single);
+  assertEquals(single.params.id, "hello world");
+  assertExists(multiple);
+  assertEquals(multiple.params.id, "sess-1");
+  assertEquals(multiple.params.messageId, "42");
 });
 
-Deno.test({
-  name: "Router: single param extraction",
-  fn() {
-    const router = createRouter();
-    router.add("GET", "/api/sessions/:id", () => new Response("ok"));
+Deno.test("http router: mismatched methods and paths do not match", () => {
+  const router = createRouter();
+  router.add("POST", "/api/sessions", () => new Response("ok"));
+  router.add("GET", "/api/sessions/:id", () => new Response("ok"));
 
-    const match = router.match("GET", "/api/sessions/abc-123");
-    assertExists(match);
-    assertEquals(match!.params.id, "abc-123");
-  },
+  assertEquals(router.match("GET", "/api/sessions"), null);
+  assertEquals(router.match("GET", "/api/users"), null);
+  assertEquals(router.match("GET", "/api/sessions"), null);
+  assertEquals(router.match("GET", "/api/sessions/abc/extra"), null);
+  assertEquals(createRouter().match("GET", "/anything"), null);
 });
 
-Deno.test({
-  name: "Router: multiple param extraction",
-  fn() {
-    const router = createRouter();
-    router.add("GET", "/api/sessions/:id/messages/:messageId", () => new Response("ok"));
+Deno.test("http router: method matching is case-insensitive and keeps methods distinct on the same path", () => {
+  const router = createRouter();
+  router.add("get", "/api/test", () => new Response("ok"));
+  router.add("GET", "/api/sessions/:id", () => new Response("get"));
+  router.add("DELETE", "/api/sessions/:id", () => new Response("delete"));
+  router.add("PATCH", "/api/sessions/:id", () => new Response("patch"));
 
-    const match = router.match("GET", "/api/sessions/sess-1/messages/42");
-    assertExists(match);
-    assertEquals(match!.params.id, "sess-1");
-    assertEquals(match!.params.messageId, "42");
-  },
+  assertExists(router.match("GET", "/api/test"));
+  assertExists(router.match("get", "/api/test"));
+  assertExists(router.match("GET", "/api/sessions/1"));
+  assertExists(router.match("DELETE", "/api/sessions/1"));
+  assertExists(router.match("PATCH", "/api/sessions/1"));
+  assertEquals(router.match("POST", "/api/sessions/1"), null);
 });
 
-Deno.test({
-  name: "Router: method mismatch returns null",
-  fn() {
-    const router = createRouter();
-    router.add("POST", "/api/sessions", () => new Response("ok"));
+Deno.test("http router: the first matching route wins when patterns overlap", () => {
+  const router = createRouter();
+  let hitFirst = false;
+  let hitSecond = false;
+  router.add("GET", "/api/sessions/:id", () => {
+    hitFirst = true;
+    return new Response("first");
+  });
+  router.add("GET", "/api/sessions/:name", () => {
+    hitSecond = true;
+    return new Response("second");
+  });
 
-    assertEquals(router.match("GET", "/api/sessions"), null);
-  },
-});
-
-Deno.test({
-  name: "Router: path mismatch returns null",
-  fn() {
-    const router = createRouter();
-    router.add("GET", "/api/sessions", () => new Response("ok"));
-
-    assertEquals(router.match("GET", "/api/users"), null);
-  },
-});
-
-Deno.test({
-  name: "Router: segment count mismatch returns null",
-  fn() {
-    const router = createRouter();
-    router.add("GET", "/api/sessions/:id", () => new Response("ok"));
-
-    assertEquals(router.match("GET", "/api/sessions"), null);
-    assertEquals(router.match("GET", "/api/sessions/abc/extra"), null);
-  },
-});
-
-Deno.test({
-  name: "Router: no routes returns null",
-  fn() {
-    const router = createRouter();
-    assertEquals(router.match("GET", "/anything"), null);
-  },
-});
-
-Deno.test({
-  name: "Router: method matching is case-insensitive",
-  fn() {
-    const router = createRouter();
-    router.add("get", "/api/test", () => new Response("ok"));
-
-    assertExists(router.match("GET", "/api/test"));
-    assertExists(router.match("get", "/api/test"));
-  },
-});
-
-Deno.test({
-  name: "Router: URL-encoded params are decoded",
-  fn() {
-    const router = createRouter();
-    router.add("GET", "/api/sessions/:id", () => new Response("ok"));
-
-    const match = router.match("GET", "/api/sessions/hello%20world");
-    assertExists(match);
-    assertEquals(match!.params.id, "hello world");
-  },
-});
-
-Deno.test({
-  name: "Router: first matching route wins",
-  fn() {
-    const router = createRouter();
-    let hitFirst = false;
-    let hitSecond = false;
-    router.add("GET", "/api/sessions/:id", () => { hitFirst = true; return new Response("first"); });
-    router.add("GET", "/api/sessions/:name", () => { hitSecond = true; return new Response("second"); });
-
-    const match = router.match("GET", "/api/sessions/abc");
-    assertExists(match);
-    match!.handler(new Request("http://localhost/"), match!.params);
-    assertEquals(hitFirst, true);
-    assertEquals(hitSecond, false);
-  },
-});
-
-Deno.test({
-  name: "Router: same path different methods",
-  fn() {
-    const router = createRouter();
-    router.add("GET", "/api/sessions/:id", () => new Response("get"));
-    router.add("DELETE", "/api/sessions/:id", () => new Response("delete"));
-    router.add("PATCH", "/api/sessions/:id", () => new Response("patch"));
-
-    assertExists(router.match("GET", "/api/sessions/1"));
-    assertExists(router.match("DELETE", "/api/sessions/1"));
-    assertExists(router.match("PATCH", "/api/sessions/1"));
-    assertEquals(router.match("POST", "/api/sessions/1"), null);
-  },
+  const match = router.match("GET", "/api/sessions/abc");
+  assertExists(match);
+  match.handler(new Request("http://localhost/"), match.params);
+  assertEquals(hitFirst, true);
+  assertEquals(hitSecond, false);
 });
