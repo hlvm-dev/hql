@@ -36,7 +36,7 @@ export interface PersistedAgentSessionMetadata {
   parentSessionId?: string;
   childSessionIds?: string[];
   todos?: TodoItem[];
-  todoSource?: "plan" | "tool";
+  todoSource?: "plan" | "tool" | "team";
   plan?: Plan;
   completedPlanStepIds?: string[];
   agent?: string;
@@ -197,7 +197,9 @@ export function parsePersistedAgentSessionMetadata(
       : undefined,
     childSessionIds,
     todos,
-    todoSource: agentRecord.todoSource === "plan" || agentRecord.todoSource === "tool"
+    todoSource: agentRecord.todoSource === "plan" ||
+        agentRecord.todoSource === "tool" ||
+        agentRecord.todoSource === "team"
       ? agentRecord.todoSource
       : undefined,
     plan: isPlanRecord(agentRecord.plan) ? agentRecord.plan : undefined,
@@ -265,7 +267,7 @@ function updatePersistedAgentSessionMetadata(
 export function persistAgentTodos(
   sessionId: string,
   items: TodoItem[],
-  source: "plan" | "tool",
+  source: "plan" | "tool" | "team",
 ): void {
   updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
     metadata.todos = items.map((item) => ({ ...item }));

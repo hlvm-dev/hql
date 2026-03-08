@@ -113,7 +113,50 @@ export type ChatStreamEvent =
   | {
     event: "todo_updated";
     todo_state: TodoState;
-    source: "tool" | "plan";
+    source: "tool" | "plan" | "team";
+  }
+  | {
+    event: "team_task_updated";
+    task_id: string;
+    goal: string;
+    status: string;
+    assignee_member_id?: string;
+  }
+  | {
+    event: "team_message";
+    kind: string;
+    from_member_id: string;
+    to_member_id?: string;
+    related_task_id?: string;
+    content_preview: string;
+  }
+  | {
+    event: "team_plan_review_required";
+    approval_id: string;
+    task_id: string;
+    submitted_by_member_id: string;
+  }
+  | {
+    event: "team_plan_review_resolved";
+    approval_id: string;
+    task_id: string;
+    submitted_by_member_id: string;
+    approved: boolean;
+    reviewed_by_member_id?: string;
+  }
+  | {
+    event: "team_shutdown_requested";
+    request_id: string;
+    member_id: string;
+    requested_by_member_id: string;
+    reason?: string;
+  }
+  | {
+    event: "team_shutdown_resolved";
+    request_id: string;
+    member_id: string;
+    requested_by_member_id: string;
+    status: "acknowledged" | "forced";
   }
   | { event: "plan_created"; plan: Plan }
   | { event: "plan_step"; step_id: string; index: number; completed: boolean }

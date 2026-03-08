@@ -32,6 +32,7 @@ import { cancelAllThreads } from "./delegate-threads.ts";
 import { setDelegateLimiterMax } from "./concurrency.ts";
 import { createDelegateInbox } from "./delegate-inbox.ts";
 import { createDelegateCoordinationBoard } from "./delegate-coordination.ts";
+import { createTeamRuntime } from "./team-runtime.ts";
 import {
   type AgentUIEvent,
   type FinalResponseMeta,
@@ -592,9 +593,26 @@ export async function runAgentQuery(
     } satisfies NonNullable<
       NonNullable<Parameters<typeof runReActLoop>[1]>["planReview"]
     >;
+    let teamRuntime: ReturnType<typeof createTeamRuntime> | undefined;
     const onAgentEvent = (() => {
       if (!persistedTurn && !sessionKey) return callbacks.onAgentEvent;
       const activePersistedTurn = persistedTurn;
+      const syncTeamTodoState = (): void => {
+        if (!teamRuntime) return;
+        session.todoState.items = teamRuntime.deriveTodoState().items.map((item) => ({
+          ...item,
+        }));
+        if (sessionKey) {
+          persistAgentTodos(sessionKey, session.todoState.items, "team");
+        }
+        callbacks.onAgentEvent?.({
+          type: "todo_updated",
+          todoState: {
+            items: session.todoState.items.map((item) => ({ ...item })),
+          },
+          source: "team",
+        });
+      };
       return (event: AgentUIEvent) => {
         if (event.type === "tool_end") {
           if (activePersistedTurn) {
@@ -634,6 +652,9 @@ export async function runAgentQuery(
             persistAgentTodos(sessionKey, event.todoState.items, event.source);
           }
         }
+        if (event.type === "team_task_updated") {
+          syncTeamTodoState();
+        }
         if (event.type === "plan_review_resolved" && sessionKey) {
           approvedPlanSignature = event.approved
             ? getPlanSignature(event.plan)
@@ -646,6 +667,7 @@ export async function runAgentQuery(
     try {
       const delegateInbox = createDelegateInbox();
       const coordinationBoard = createDelegateCoordinationBoard();
+      teamRuntime = createTeamRuntime("lead", "lead");
       text = await runReActLoop(
         query,
         {
@@ -666,6 +688,9 @@ export async function runAgentQuery(
           delegate,
           delegateInbox,
           coordinationBoard,
+          teamRuntime,
+          teamMemberId: teamRuntime.leadMemberId,
+          teamLeadMemberId: teamRuntime.leadMemberId,
           planning: { mode: "auto", requireStepMarkers: false },
           skipModelCompensation: session.isFrontierModel,
           modelTier: session.modelTier,

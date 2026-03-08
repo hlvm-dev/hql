@@ -203,6 +203,61 @@ export async function handleAgentMode(
               source: event.source,
             });
             break;
+          case "team_task_updated":
+            emit({
+              event: "team_task_updated",
+              task_id: event.taskId,
+              goal: event.goal,
+              status: event.status,
+              assignee_member_id: event.assigneeMemberId,
+            });
+            break;
+          case "team_message":
+            emit({
+              event: "team_message",
+              kind: event.kind,
+              from_member_id: event.fromMemberId,
+              to_member_id: event.toMemberId,
+              related_task_id: event.relatedTaskId,
+              content_preview: event.contentPreview,
+            });
+            break;
+          case "team_plan_review_required":
+            emit({
+              event: "team_plan_review_required",
+              approval_id: event.approvalId,
+              task_id: event.taskId,
+              submitted_by_member_id: event.submittedByMemberId,
+            });
+            break;
+          case "team_plan_review_resolved":
+            emit({
+              event: "team_plan_review_resolved",
+              approval_id: event.approvalId,
+              task_id: event.taskId,
+              submitted_by_member_id: event.submittedByMemberId,
+              approved: event.approved,
+              reviewed_by_member_id: event.reviewedByMemberId,
+            });
+            break;
+          case "team_shutdown_requested":
+            emit({
+              event: "team_shutdown_requested",
+              request_id: event.requestId,
+              member_id: event.memberId,
+              requested_by_member_id: event.requestedByMemberId,
+              reason: event.reason,
+            });
+            break;
+          case "team_shutdown_resolved":
+            emit({
+              event: "team_shutdown_resolved",
+              request_id: event.requestId,
+              member_id: event.memberId,
+              requested_by_member_id: event.requestedByMemberId,
+              status: event.status,
+            });
+            break;
           case "plan_created":
             emit({
               event: "plan_created",

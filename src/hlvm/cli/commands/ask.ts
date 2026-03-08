@@ -553,6 +553,64 @@ export async function askCommand(args: string[]): Promise<void> {
             `\n[Todo] ${getVisibleTodoSummary(transcriptState) ?? "updated"}\n`,
           );
           break;
+        case "team_task_updated":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          log.raw.log(
+            `\n[Team Task] ${event.status} ${event.goal}${
+              event.assigneeMemberId ? ` (${event.assigneeMemberId})` : ""
+            }\n`,
+          );
+          break;
+        case "team_message":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          log.raw.log(
+            `\n[Team Message] ${event.fromMemberId}${
+              event.toMemberId ? ` -> ${event.toMemberId}` : ""
+            } ${event.contentPreview}\n`,
+          );
+          break;
+        case "team_plan_review_required":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          log.raw.log(
+            `\n[Team Plan Review] requested for task ${event.taskId}\n`,
+          );
+          break;
+        case "team_plan_review_resolved":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          log.raw.log(
+            `\n[Team Plan Review] ${event.approved ? "approved" : "rejected"} for task ${event.taskId}\n`,
+          );
+          break;
+        case "team_shutdown_requested":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          log.raw.log(
+            `\n[Team Shutdown] requested for ${event.memberId}\n`,
+          );
+          break;
+        case "team_shutdown_resolved":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          log.raw.log(
+            `\n[Team Shutdown] ${event.status} for ${event.memberId}\n`,
+          );
+          break;
         case "plan_review_required":
           if (streamedTokens) {
             log.raw.write("\n");
@@ -717,6 +775,12 @@ export async function askCommand(args: string[]): Promise<void> {
       case "todo_updated": {
         break;
       }
+      case "team_task_updated":
+      case "team_message":
+      case "team_plan_review_required":
+      case "team_plan_review_resolved":
+      case "team_shutdown_requested":
+      case "team_shutdown_resolved":
       case "plan_created": {
         break;
       }

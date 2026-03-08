@@ -332,3 +332,64 @@ Deno.test("agent transcript state tracks plan review and checkpoint safety state
   assertEquals(restored.latestCheckpoint?.restoredAt, 2);
   assertEquals(resolved.pendingPlanReview, undefined);
 });
+
+Deno.test("agent transcript state records team lifecycle events as info items", () => {
+  const withTask = reduceTranscriptState(createTranscriptState(), {
+    type: "agent_event",
+    event: {
+      type: "team_task_updated",
+      taskId: "task-1",
+      goal: "Review patch",
+      status: "in_progress",
+      assigneeMemberId: "worker-1",
+    },
+  });
+
+  const withMessage = reduceTranscriptState(withTask, {
+    type: "agent_event",
+    event: {
+      type: "team_message",
+      kind: "direct",
+      fromMemberId: "worker-1",
+      toMemberId: "lead",
+      relatedTaskId: "task-1",
+      contentPreview: "Need clarification on scope",
+    },
+  });
+
+  assertEquals(withMessage.items.map((item) => item.type), ["info", "info"]);
+  assertEquals(withMessage.items[0]?.type, "info");
+  if (withMessage.items[0]?.type === "info") {
+    assertEquals(
+      withMessage.items[0].text,
+      "Team task in_progress: Review patch (worker-1)",
+    );
+  }
+  assertEquals(withMessage.items[1]?.type, "info");
+  if (withMessage.items[1]?.type === "info") {
+    assertEquals(
+      withMessage.items[1].text,
+      "Team direct: worker-1 -> lead: Need clarification on scope",
+    );
+  }
+});
+
+Deno.test("agent transcript state accepts team-sourced todo updates", () => {
+  const next = reduceTranscriptState(createTranscriptState(), {
+    type: "agent_event",
+    event: {
+      type: "todo_updated",
+      todoState: {
+        items: [{
+          id: "task-1",
+          content: "Review patch",
+          status: "in_progress",
+        }],
+      },
+      source: "team",
+    },
+  });
+
+  assertEquals(next.todoState?.items.length, 1);
+  assertEquals(next.todoState?.items[0]?.id, "task-1");
+});

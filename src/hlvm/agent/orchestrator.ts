@@ -63,6 +63,7 @@ import {
   type DelegateInbox,
 } from "./delegate-inbox.ts";
 import type { DelegateCoordinationBoard } from "./delegate-coordination.ts";
+import type { TeamRuntime } from "./team-runtime.ts";
 import type {
   AgentCheckpointSummary,
   CheckpointRecorder,
@@ -282,7 +283,50 @@ export type AgentUIEvent =
   | {
     type: "todo_updated";
     todoState: TodoState;
-    source: "tool" | "plan";
+    source: "tool" | "plan" | "team";
+  }
+  | {
+    type: "team_task_updated";
+    taskId: string;
+    goal: string;
+    status: string;
+    assigneeMemberId?: string;
+  }
+  | {
+    type: "team_message";
+    kind: string;
+    fromMemberId: string;
+    toMemberId?: string;
+    relatedTaskId?: string;
+    contentPreview: string;
+  }
+  | {
+    type: "team_plan_review_required";
+    approvalId: string;
+    taskId: string;
+    submittedByMemberId: string;
+  }
+  | {
+    type: "team_plan_review_resolved";
+    approvalId: string;
+    taskId: string;
+    submittedByMemberId: string;
+    approved: boolean;
+    reviewedByMemberId?: string;
+  }
+  | {
+    type: "team_shutdown_requested";
+    requestId: string;
+    memberId: string;
+    requestedByMemberId: string;
+    reason?: string;
+  }
+  | {
+    type: "team_shutdown_resolved";
+    requestId: string;
+    memberId: string;
+    requestedByMemberId: string;
+    status: "acknowledged" | "forced";
   }
   | {
     type: "checkpoint_created";
@@ -366,6 +410,12 @@ export interface OrchestratorConfig {
   coordinationBoard?: DelegateCoordinationBoard;
   /** Internal coordination item ID for child report_result updates. */
   delegateCoordinationId?: string;
+  /** Shared team runtime for system-managed collaboration. */
+  teamRuntime?: TeamRuntime;
+  /** Current member ID for this team-aware run. */
+  teamMemberId?: string;
+  /** Lead member ID for the current team runtime. */
+  teamLeadMemberId?: string;
 }
 
 // ============================================================
@@ -425,6 +475,31 @@ function maybeInjectMemoryRecall(
   } catch {
     // Best-effort only; memory recall should never block the main loop.
   }
+}
+
+function formatTeamMessageForContext(
+  event: {
+    kind: string;
+    fromMemberId: string;
+    content: string;
+    toMemberId?: string;
+    relatedTaskId?: string;
+  },
+): string {
+  const target = event.toMemberId ? ` -> ${event.toMemberId}` : "";
+  const taskRef = event.relatedTaskId ? ` [task ${event.relatedTaskId}]` : "";
+  return `[Team ${event.kind}] ${event.fromMemberId}${target}${taskRef}: ${event.content}`;
+}
+
+function formatShutdownRequestForContext(
+  request: {
+    requestedByMemberId: string;
+    reason?: string;
+  },
+): string {
+  return request.reason
+    ? `[Team shutdown] ${request.requestedByMemberId} requested graceful shutdown: ${request.reason}`
+    : `[Team shutdown] ${request.requestedByMemberId} requested graceful shutdown.`;
 }
 
 /**
@@ -598,6 +673,41 @@ export async function runReActLoop(
       addContextMessage(config, {
         role: "user",
         content: `[Parent Message] ${msg}`,
+      });
+    }
+
+    const teamMessages = config.teamRuntime && config.teamMemberId
+      ? config.teamRuntime.readMessages(config.teamMemberId)
+      : [];
+    for (const message of teamMessages) {
+      addContextMessage(config, {
+        role: "user",
+        content: formatTeamMessageForContext(message),
+      });
+      config.onAgentEvent?.({
+        type: "team_message",
+        kind: message.kind,
+        fromMemberId: message.fromMemberId,
+        toMemberId: message.toMemberId,
+        relatedTaskId: message.relatedTaskId,
+        contentPreview: truncate(message.content, 120),
+      });
+    }
+
+    const shutdownRequest = config.teamRuntime && config.teamMemberId
+      ? config.teamRuntime.getPendingShutdown(config.teamMemberId)
+      : undefined;
+    if (shutdownRequest) {
+      addContextMessage(config, {
+        role: "user",
+        content: formatShutdownRequestForContext(shutdownRequest),
+      });
+      config.onAgentEvent?.({
+        type: "team_shutdown_requested",
+        requestId: shutdownRequest.id,
+        memberId: shutdownRequest.memberId,
+        requestedByMemberId: shutdownRequest.requestedByMemberId,
+        reason: shutdownRequest.reason,
       });
     }
 

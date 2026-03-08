@@ -197,6 +197,9 @@ function renderInstructions(tier: ModelTier): PromptSection {
       "- When search_web includes fetched passages, prefer those passages over bare snippets. If evidence is weak or conflicting, say so plainly instead of overclaiming",
     );
   }
+  base.push(
+    "- When search_web includes a deterministic answer draft, treat it as the grounded baseline answer. Rewrite only for clarity or citation style; do not replace it with unsupported claims.",
+  );
   return {
     id: "instructions",
     content: `# Instructions\n${base.join("\n")}`,

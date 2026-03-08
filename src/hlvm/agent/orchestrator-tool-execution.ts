@@ -16,7 +16,7 @@ import { checkToolSafety, isMutatingTool } from "./security/safety.ts";
 import { DEFAULT_TIMEOUTS, RATE_LIMITS } from "./constants.ts";
 import { withTimeout } from "../../common/timeout-utils.ts";
 import { SlidingWindowRateLimiter } from "../../common/rate-limiter.ts";
-import { getErrorMessage } from "../../common/utils.ts";
+import { getErrorMessage, truncate } from "../../common/utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import {
   getUnsafeReason,
@@ -64,6 +64,48 @@ function supportsAutomaticCheckpoint(toolName: string): boolean {
   return CHECKPOINT_SUPPORTED_MUTATION_TOOLS.has(toolName);
 }
 
+function emitTeamTaskUpdated(
+  config: OrchestratorConfig,
+  task: {
+    id: string;
+    goal: string;
+    status: string;
+    assigneeMemberId?: string;
+  } | undefined,
+): void {
+  if (!task) return;
+  config.onAgentEvent?.({
+    type: "team_task_updated",
+    taskId: task.id,
+    goal: task.goal,
+    status: task.status,
+    assigneeMemberId: task.assigneeMemberId,
+  });
+}
+
+function emitTeamMessages(
+  config: OrchestratorConfig,
+  messages: Array<{
+    kind: string;
+    fromMemberId: string;
+    toMemberId?: string;
+    relatedTaskId?: string;
+    content: string;
+  }> | undefined,
+): void {
+  if (!messages?.length) return;
+  for (const message of messages) {
+    config.onAgentEvent?.({
+      type: "team_message",
+      kind: message.kind,
+      fromMemberId: message.fromMemberId,
+      toMemberId: message.toMemberId,
+      relatedTaskId: message.relatedTaskId,
+      contentPreview: truncate(message.content, 120),
+    });
+  }
+}
+
 /**
  * Execute tool with timeout
  */
@@ -81,6 +123,9 @@ export async function executeToolWithTimeout(
   modelId?: string,
   modelTier?: ModelTier,
   parentSignal?: AbortSignal,
+  teamRuntime?: OrchestratorConfig["teamRuntime"],
+  teamMemberId?: string,
+  teamLeadMemberId?: string,
 ): Promise<unknown> {
   return await withTimeout(
     async (signal) => {
@@ -99,6 +144,9 @@ export async function executeToolWithTimeout(
             ...options,
             ownerId: options?.ownerId ?? toolOwnerId,
           }),
+        teamRuntime,
+        teamMemberId,
+        teamLeadMemberId,
       });
       if (signal.aborted) {
         throw new RuntimeError("Tool execution aborted");
@@ -281,18 +329,18 @@ export async function executeToolCall(
     }
 
     if (toolCall.toolName === "delegate_agent" && config.delegate) {
-      const delegateArgs = coercedArgs as {
+      const delegateArgsRecord = coercedArgs as {
         agent?: unknown;
         task?: unknown;
         background?: unknown;
       };
-      const delegateAgent = typeof delegateArgs.agent === "string"
-        ? delegateArgs.agent
+      const delegateAgent = typeof delegateArgsRecord.agent === "string"
+        ? delegateArgsRecord.agent
         : "unknown";
-      const delegateTask = typeof delegateArgs.task === "string"
-        ? delegateArgs.task
+      const delegateTask = typeof delegateArgsRecord.task === "string"
+        ? delegateArgsRecord.task
         : "";
-      const isBackground = delegateArgs.background === true;
+      const isBackground = delegateArgsRecord.background === true;
 
       // Emit delegate_start only for foreground delegates.
       // Background delegates emit delegate_start after handler returns with threadId.
@@ -307,12 +355,20 @@ export async function executeToolCall(
         const coordinationId = config.coordinationBoard
           ? crypto.randomUUID()
           : undefined;
-        const delegateArgs = coordinationId
-          ? {
-            ...(coercedArgs as Record<string, unknown>),
-            _coordinationId: coordinationId,
-          }
-          : coercedArgs;
+        const teamTaskId = config.teamRuntime
+          ? (
+            typeof (coercedArgs as Record<string, unknown>).task_id === "string"
+              ? (coercedArgs as Record<string, unknown>).task_id as string
+              : crypto.randomUUID()
+          )
+          : undefined;
+        const teamMemberId = config.teamRuntime ? crypto.randomUUID() : undefined;
+        const delegateArgs = {
+          ...(coercedArgs as Record<string, unknown>),
+          ...(coordinationId ? { _coordinationId: coordinationId } : {}),
+          ...(teamTaskId ? { _teamTaskId: teamTaskId } : {}),
+          ...(teamMemberId ? { _teamMemberId: teamMemberId } : {}),
+        };
         const result = await config.delegate(delegateArgs, config);
         const { llmContent, summaryDisplay, returnDisplay } =
           buildToolResultOutputs(toolCall.toolName, result, config);
@@ -415,6 +471,10 @@ export async function executeToolCall(
         );
       }
       try {
+        const resumeMemberId = config.teamRuntime?.getMemberByThread(resumeThreadId)?.id;
+        const resumeTaskId = resumeMemberId
+          ? config.teamRuntime?.getMember(resumeMemberId)?.currentTaskId
+          : undefined;
         // Route through delegate handler with _resume marker.
         // The handler detects _resumeSessionId and calls resumeDelegateChild.
         const result = await config.delegate(
@@ -422,6 +482,8 @@ export async function executeToolCall(
             agent: thread.agent,
             task: resumePrompt,
             _resumeSessionId: thread.childSessionId,
+            ...(resumeTaskId ? { _teamTaskId: resumeTaskId } : {}),
+            ...(resumeMemberId ? { _teamMemberId: resumeMemberId } : {}),
           },
           config,
         );
@@ -504,6 +566,8 @@ export async function executeToolCall(
           const coordinationId = config.coordinationBoard
             ? crypto.randomUUID()
             : undefined;
+          const teamTaskId = config.teamRuntime ? crypto.randomUUID() : undefined;
+          const teamMemberId = config.teamRuntime ? crypto.randomUUID() : undefined;
           const result = await config.delegate!(
             {
               agent,
@@ -511,6 +575,8 @@ export async function executeToolCall(
               background: true,
               _batchId: batchId,
               ...(coordinationId ? { _coordinationId: coordinationId } : {}),
+              ...(teamTaskId ? { _teamTaskId: teamTaskId } : {}),
+              ...(teamMemberId ? { _teamMemberId: teamMemberId } : {}),
             },
             config,
           );
@@ -585,6 +651,9 @@ export async function executeToolCall(
         config.modelId,
         config.modelTier,
         config.signal,
+        config.teamRuntime,
+        config.teamMemberId,
+        config.teamLeadMemberId,
       );
     } catch (error) {
       const message = getErrorMessage(error);
@@ -607,6 +676,9 @@ export async function executeToolCall(
             config.modelId,
             config.modelTier,
             config.signal,
+            config.teamRuntime,
+            config.teamMemberId,
+            config.teamLeadMemberId,
           );
         } else {
           return buildToolErrorResult(
@@ -650,6 +722,26 @@ export async function executeToolCall(
       });
     }
 
+    if (
+      toolCall.toolName === "report_result" &&
+      config.teamRuntime &&
+      config.teamMemberId &&
+      result &&
+      typeof result === "object"
+    ) {
+      const currentTaskId = config.teamRuntime.getMember(config.teamMemberId)?.currentTaskId;
+      if (currentTaskId) {
+        const report = result as Record<string, unknown>;
+        const task = config.teamRuntime.updateTask(currentTaskId, {
+          resultSummary: typeof report.summary === "string"
+            ? report.summary
+            : undefined,
+          artifacts: report,
+        });
+        emitTeamTaskUpdated(config, task);
+      }
+    }
+
     emitToolSuccess(
       config,
       toolCall.toolName,
@@ -668,6 +760,186 @@ export async function executeToolCall(
         todoState: { items: config.todoState.items.map((item) => ({ ...item })) },
         source: "tool",
       });
+    }
+
+    if (
+      (toolCall.toolName === "team_task_write" || toolCall.toolName === "team_task_claim") &&
+      result &&
+      typeof result === "object" &&
+      "task" in result
+    ) {
+      const task = (result as { task?: {
+        id: string;
+        goal: string;
+        status: string;
+        assigneeMemberId?: string;
+      } }).task;
+      if (
+        task && config.teamRuntime && config.teamMemberId &&
+        task.assigneeMemberId === config.teamMemberId
+      ) {
+        config.teamRuntime.updateMember(config.teamMemberId, {
+          currentTaskId: task.id,
+        });
+      }
+      emitTeamTaskUpdated(config, task);
+    }
+
+    if (toolCall.toolName === "team_message_send" && result && typeof result === "object") {
+      emitTeamMessages(
+        config,
+        (result as { messages?: Array<{
+          kind: string;
+          fromMemberId: string;
+          toMemberId?: string;
+          relatedTaskId?: string;
+          content: string;
+        }> }).messages,
+      );
+    }
+
+    if (
+      toolCall.toolName === "submit_team_plan" &&
+      config.teamRuntime &&
+      result &&
+      typeof result === "object" &&
+      "approval" in result
+    ) {
+      const approval = (result as { approval?: {
+        id: string;
+        taskId: string;
+        submittedByMemberId: string;
+        note?: string;
+      } }).approval;
+      if (approval) {
+        const task = config.teamRuntime.updateTask(approval.taskId, {
+          approvalId: approval.id,
+          status: "blocked",
+        });
+        emitTeamTaskUpdated(config, task);
+        emitTeamMessages(
+          config,
+          config.teamRuntime.sendMessage({
+            fromMemberId: approval.submittedByMemberId,
+            toMemberId: config.teamRuntime.leadMemberId,
+            kind: "approval_request",
+            content: approval.note?.trim().length
+              ? approval.note
+              : `Plan review requested for task ${approval.taskId}`,
+            relatedTaskId: approval.taskId,
+          }),
+        );
+        config.onAgentEvent?.({
+          type: "team_plan_review_required",
+          approvalId: approval.id,
+          taskId: approval.taskId,
+          submittedByMemberId: approval.submittedByMemberId,
+        });
+      }
+    }
+
+    if (
+      toolCall.toolName === "review_team_plan" &&
+      config.teamRuntime &&
+      result &&
+      typeof result === "object" &&
+      "approval" in result
+    ) {
+      const approval = (result as { approval?: {
+        id: string;
+        taskId: string;
+        submittedByMemberId: string;
+        reviewedByMemberId?: string;
+        approved: boolean;
+        status: "approved" | "rejected";
+        feedback?: string;
+      } }).approval;
+      if (approval) {
+        const approved = approval.status === "approved";
+        const task = config.teamRuntime.updateTask(approval.taskId, {
+          approvalId: approval.id,
+          status: approved ? "in_progress" : "blocked",
+          resultSummary: approval.feedback,
+        });
+        emitTeamTaskUpdated(config, task);
+        emitTeamMessages(
+          config,
+          config.teamRuntime.sendMessage({
+            fromMemberId: approval.reviewedByMemberId ?? config.teamRuntime.leadMemberId,
+            toMemberId: approval.submittedByMemberId,
+            kind: "approval_response",
+            content: approval.feedback?.trim().length
+              ? approval.feedback
+              : approved
+              ? `Plan approved for task ${approval.taskId}`
+              : `Plan rejected for task ${approval.taskId}`,
+            relatedTaskId: approval.taskId,
+          }),
+        );
+        config.onAgentEvent?.({
+          type: "team_plan_review_resolved",
+          approvalId: approval.id,
+          taskId: approval.taskId,
+          submittedByMemberId: approval.submittedByMemberId,
+          approved,
+          reviewedByMemberId: approval.reviewedByMemberId,
+        });
+      }
+    }
+
+    if (
+      toolCall.toolName === "request_team_shutdown" &&
+      result &&
+      typeof result === "object" &&
+      "shutdown" in result
+    ) {
+      const shutdown = (result as { shutdown?: {
+        id: string;
+        memberId: string;
+        requestedByMemberId: string;
+        reason?: string;
+      } }).shutdown;
+      if (shutdown) {
+        config.onAgentEvent?.({
+          type: "team_shutdown_requested",
+          requestId: shutdown.id,
+          memberId: shutdown.memberId,
+          requestedByMemberId: shutdown.requestedByMemberId,
+          reason: shutdown.reason,
+        });
+      }
+    }
+
+    if (
+      toolCall.toolName === "ack_team_shutdown" &&
+      config.teamRuntime &&
+      result &&
+      typeof result === "object" &&
+      "shutdown" in result
+    ) {
+      const shutdown = (result as { shutdown?: {
+        id: string;
+        memberId: string;
+        requestedByMemberId: string;
+      } }).shutdown;
+      if (shutdown) {
+        emitTeamMessages(
+          config,
+          config.teamRuntime.sendMessage({
+            fromMemberId: shutdown.memberId,
+            toMemberId: shutdown.requestedByMemberId,
+            kind: "shutdown_ack",
+            content: `Shutdown acknowledged by ${shutdown.memberId}`,
+          }),
+        );
+        config.onAgentEvent?.({
+          type: "team_shutdown_resolved",
+          requestId: shutdown.id,
+          memberId: shutdown.memberId,
+          requestedByMemberId: shutdown.requestedByMemberId,
+          status: "acknowledged",
+        });
+      }
     }
 
     return {

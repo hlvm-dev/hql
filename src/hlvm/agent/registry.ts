@@ -22,6 +22,7 @@ import { MEMORY_TOOLS } from "../memory/mod.ts";
 import { DATA_TOOLS } from "./tools/data-tools.ts";
 import { GIT_TOOLS } from "./tools/git-tools.ts";
 import { DELEGATE_TOOLS } from "./tools/delegate-tools.ts";
+import { TEAM_TOOLS } from "./tools/team-tools.ts";
 import { ValidationError } from "../../common/error.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
 import type { AgentPolicy } from "./policy.ts";
@@ -29,6 +30,7 @@ import { isToolArgsObject } from "./validation.ts";
 import type { TodoState } from "./todo-state.ts";
 import type { CheckpointRecorder } from "./checkpoints.ts";
 import type { ModelTier } from "./constants.ts";
+import type { TeamRuntime } from "./team-runtime.ts";
 import {
   buildToolJsonSchema,
   coerceArgsToSchema,
@@ -90,6 +92,12 @@ export interface ToolExecutionOptions {
       limit?: number;
     },
   ) => ToolSearchResult[];
+  /** Shared team runtime for system-managed collaboration. */
+  teamRuntime?: TeamRuntime;
+  /** Current team member ID for the active agent turn. */
+  teamMemberId?: string;
+  /** Lead member ID for the current team runtime. */
+  teamLeadMemberId?: string;
 }
 
 /** Generic tool function signature */
@@ -255,6 +263,7 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...DATA_TOOLS,
   ...GIT_TOOLS,
   ...DELEGATE_TOOLS,
+  ...TEAM_TOOLS,
 } as Record<string, ToolMetadata>;
 
 /**
@@ -573,7 +582,12 @@ export function getToolsByCategory(): {
     meta: Object.keys(META_TOOLS),
     web: Object.keys(WEB_TOOLS),
     memory: Object.keys(MEMORY_TOOLS),
-    agent: ["delegate_agent", "batch_delegate", ...Object.keys(DELEGATE_TOOLS)],
+    agent: [
+      "delegate_agent",
+      "batch_delegate",
+      ...Object.keys(DELEGATE_TOOLS),
+      ...Object.keys(TEAM_TOOLS),
+    ],
     data: Object.keys(DATA_TOOLS),
     git: Object.keys(GIT_TOOLS),
     dynamic: getDynamicToolNames(),

@@ -15,6 +15,7 @@ import type {
   SearchTimeRange,
 } from "./search-provider.ts";
 import { assessSearchConfidence } from "./search-ranking.ts";
+import type { DeterministicAnswerDraft } from "./answer-from-evidence.ts";
 
 // ============================================================
 // Request / Response Types
@@ -50,6 +51,7 @@ export interface WebSearchResponse {
   citations: Citation[];
   diagnostics: Record<string, unknown>;
   guidance?: RetrievalGuidance;
+  answerDraft?: DeterministicAnswerDraft;
 }
 
 // ============================================================

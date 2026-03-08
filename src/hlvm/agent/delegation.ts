@@ -478,14 +478,17 @@ async function runDelegateChild(
         onAgentEvent: pushChildEvent,
         delegateInbox: createDelegateInbox(),
         planning: { mode: "off" },
-        todoState: childTodoState,
-        signal,
-        inputQueue,
-        coordinationBoard: config.coordinationBoard,
-        delegateCoordinationId: config.delegateCoordinationId,
-        // If not at max depth, wire child delegate handler for nested delegation
-        ...(!atMaxDepth
-          ? {
+      todoState: childTodoState,
+      signal,
+      inputQueue,
+      coordinationBoard: config.coordinationBoard,
+      delegateCoordinationId: config.delegateCoordinationId,
+      teamRuntime: config.teamRuntime,
+      teamMemberId: config.teamMemberId,
+      teamLeadMemberId: config.teamLeadMemberId,
+      // If not at max depth, wire child delegate handler for nested delegation
+      ...(!atMaxDepth
+        ? {
             delegate: createDelegateHandler(childLlm, {
               ...baseConfig,
               currentDepth: currentDepth + 1,
@@ -596,6 +599,9 @@ export async function resumeDelegateChild(
       planning: { mode: "off" },
       todoState: createTodoState(),
       signal: config.signal,
+      teamRuntime: config.teamRuntime,
+      teamMemberId: config.teamMemberId,
+      teamLeadMemberId: config.teamLeadMemberId,
     },
     llm,
   );
@@ -628,6 +634,25 @@ export function createDelegateHandler(
     const batchId = typeof record._batchId === "string"
       ? record._batchId
       : undefined;
+    const teamTaskId = typeof record._teamTaskId === "string"
+      ? record._teamTaskId
+      : (config.teamRuntime ? crypto.randomUUID() : undefined);
+    const teamMemberId = typeof record._teamMemberId === "string"
+      ? record._teamMemberId
+      : (config.teamRuntime ? crypto.randomUUID() : undefined);
+
+    const emitTeamTaskUpdated = (status: string): void => {
+      if (!config.teamRuntime || !teamTaskId) return;
+      const teamTask = config.teamRuntime.getTask(teamTaskId);
+      if (!teamTask) return;
+      config.onAgentEvent?.({
+        type: "team_task_updated",
+        taskId: teamTask.id,
+        goal: teamTask.goal,
+        status,
+        assigneeMemberId: teamTask.assigneeMemberId,
+      });
+    };
 
     // Handle resume from persisted session (routed from resume_agent orchestrator special-case)
     const resumeSessionId = typeof record._resumeSessionId === "string"
@@ -645,6 +670,24 @@ export function createDelegateHandler(
     }
 
     const background = record.background === true;
+
+    if (config.teamRuntime && teamMemberId) {
+      config.teamRuntime.registerMember({
+        id: teamMemberId,
+        agent,
+        role: "worker",
+        currentTaskId: teamTaskId,
+      });
+    }
+    if (config.teamRuntime && teamTaskId) {
+      config.teamRuntime.ensureTask({
+        id: teamTaskId,
+        goal: task,
+        status: background ? "pending" : "in_progress",
+        assigneeMemberId: teamMemberId,
+      });
+      emitTeamTaskUpdated(background ? "pending" : "in_progress");
+    }
 
     // Synchronous (foreground) path — existing behavior, zero regression risk
     if (!background) {
@@ -665,11 +708,28 @@ export function createDelegateHandler(
           {
             ...config,
             delegateCoordinationId: coordinationId,
+            teamMemberId,
           },
           agent,
           task,
           record,
         );
+        if (config.teamRuntime && teamTaskId) {
+          config.teamRuntime.updateTask(teamTaskId, {
+            status: "completed",
+            resultSummary: snapshot.finalResponse,
+            artifacts: snapshot.finalResponse
+              ? { summary: snapshot.finalResponse }
+              : undefined,
+          });
+          emitTeamTaskUpdated("completed");
+        }
+        if (config.teamRuntime && teamMemberId) {
+          config.teamRuntime.updateMember(teamMemberId, {
+            childSessionId,
+            currentTaskId: undefined,
+          });
+        }
         if (coordinationId && config.coordinationBoard) {
           config.coordinationBoard.updateItem(coordinationId, {
             status: "completed",
@@ -679,6 +739,13 @@ export function createDelegateHandler(
         }
         return result;
       } catch (error) {
+        if (config.teamRuntime && teamTaskId) {
+          config.teamRuntime.updateTask(teamTaskId, {
+            status: "errored",
+            resultSummary: error instanceof Error ? error.message : String(error),
+          });
+          emitTeamTaskUpdated("errored");
+        }
         if (coordinationId && config.coordinationBoard) {
           const message = error instanceof Error ? error.message : String(error);
           config.coordinationBoard.updateItem(coordinationId, {
@@ -707,6 +774,13 @@ export function createDelegateHandler(
       config.onAgentEvent?.({ type: "delegate_running", threadId });
       if (coordinationId && config.coordinationBoard) {
         config.coordinationBoard.updateItem(coordinationId, { status: "running" });
+      }
+      if (config.teamRuntime && teamTaskId) {
+        config.teamRuntime.updateTask(teamTaskId, {
+          status: "in_progress",
+          delegateThreadId: threadId,
+        });
+        emitTeamTaskUpdated("in_progress");
       }
 
       // Create isolated workspace for this child agent
@@ -737,6 +811,7 @@ export function createDelegateHandler(
           {
             ...config,
             delegateCoordinationId: coordinationId,
+            teamMemberId,
           },
           agent,
           task,
@@ -766,6 +841,23 @@ export function createDelegateHandler(
           } catch {
             // Diff generation is best-effort
           }
+        }
+        if (config.teamRuntime && teamTaskId) {
+          config.teamRuntime.updateTask(teamTaskId, {
+            status: "completed",
+            delegateThreadId: threadId,
+            resultSummary: snapshot.finalResponse,
+            artifacts: snapshot.finalResponse
+              ? { summary: snapshot.finalResponse }
+              : undefined,
+          });
+          emitTeamTaskUpdated("completed");
+        }
+        if (config.teamRuntime && teamMemberId) {
+          config.teamRuntime.updateMember(teamMemberId, {
+            childSessionId,
+            currentTaskId: undefined,
+          });
         }
 
         if (coordinationId && config.coordinationBoard) {
@@ -806,6 +898,14 @@ export function createDelegateHandler(
         const status = isAbort ? "cancelled" : "errored";
         updateThreadStatus(threadId, status);
         const message = error instanceof Error ? error.message : String(error);
+        if (config.teamRuntime && teamTaskId) {
+          config.teamRuntime.updateTask(teamTaskId, {
+            status: isAbort ? "cancelled" : "errored",
+            delegateThreadId: threadId,
+            resultSummary: message,
+          });
+          emitTeamTaskUpdated(isAbort ? "cancelled" : "errored");
+        }
         if (coordinationId && config.coordinationBoard) {
           config.coordinationBoard.updateItem(coordinationId, {
             status,
@@ -859,6 +959,20 @@ export function createDelegateHandler(
       batchId,
       mergeState: "none",
     });
+    if (config.teamRuntime && teamMemberId) {
+      config.teamRuntime.updateMember(teamMemberId, {
+        threadId,
+        currentTaskId: teamTaskId,
+      });
+    }
+    if (config.teamRuntime && teamTaskId) {
+      config.teamRuntime.updateTask(teamTaskId, {
+        status: "pending",
+        assigneeMemberId: teamMemberId,
+        delegateThreadId: threadId,
+      });
+      emitTeamTaskUpdated("pending");
+    }
     if (batchId) {
       updateThreadBatchId(threadId, batchId);
     }
@@ -947,6 +1061,13 @@ function toDelegateTranscriptEvent(
     case "checkpoint_created":
     case "checkpoint_restored":
     case "interaction_request":
+    case "team_task_updated":
+    case "team_message":
+    case "team_plan_review_required":
+    case "team_plan_review_resolved":
+    case "team_shutdown_requested":
+    case "team_shutdown_resolved":
       return null;
   }
+  return null;
 }

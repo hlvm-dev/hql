@@ -20,6 +20,7 @@ import {
 import { callLLMWithRetry } from "../../../src/hlvm/agent/orchestrator-llm.ts";
 import { createDelegateInbox } from "../../../src/hlvm/agent/delegate-inbox.ts";
 import { createDelegateCoordinationBoard } from "../../../src/hlvm/agent/delegate-coordination.ts";
+import { createTeamRuntime } from "../../../src/hlvm/agent/team-runtime.ts";
 import {
   getThread,
   registerThread,
@@ -384,6 +385,193 @@ Deno.test({
       getThread("batch-thread-2")?.batchId,
       batchResult.batchId,
     );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: team task tools emit task updates and bind current member task",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const teamRuntime = createTeamRuntime("lead", "lead");
+    teamRuntime.registerMember({ id: "worker-1", agent: "code" });
+    const events: string[] = [];
+
+    const result = await executeToolCall(
+      {
+        toolName: "team_task_write",
+        args: { goal: "Review patch", status: "pending" },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        teamRuntime,
+        teamMemberId: "worker-1",
+        teamLeadMemberId: teamRuntime.leadMemberId,
+        onAgentEvent: (event) => events.push(event.type),
+      },
+    );
+
+    assertEquals(result.success, true);
+    const task = (result.result as { task: { id: string } }).task;
+    assertEquals(teamRuntime.getMember("worker-1")?.currentTaskId, task.id);
+    assertEquals(events.includes("team_task_updated"), true);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: team plan review emits approval events and task transitions",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const teamRuntime = createTeamRuntime("lead", "lead");
+    teamRuntime.registerMember({ id: "worker-1", agent: "code" });
+    teamRuntime.ensureTask({
+      id: "task-1",
+      goal: "Refactor parser",
+      status: "pending",
+      assigneeMemberId: "worker-1",
+    });
+    const events: string[] = [];
+
+    const submit = await executeToolCall(
+      {
+        toolName: "submit_team_plan",
+        args: {
+          task_id: "task-1",
+          plan: {
+            goal: "Refactor parser",
+            steps: [{ id: "step-1", title: "Inspect parser" }],
+          },
+          note: "Please review the approach",
+        },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        teamRuntime,
+        teamMemberId: "worker-1",
+        teamLeadMemberId: teamRuntime.leadMemberId,
+        onAgentEvent: (event) => events.push(event.type),
+      },
+    );
+
+    assertEquals(submit.success, true);
+    const approvalId =
+      (submit.result as { approval: { id: string } }).approval.id;
+    assertEquals(teamRuntime.getTask("task-1")?.status, "blocked");
+    assertEquals(events.includes("team_plan_review_required"), true);
+
+    const review = await executeToolCall(
+      {
+        toolName: "review_team_plan",
+        args: {
+          approval_id: approvalId,
+          approved: true,
+          feedback: "Looks good",
+        },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        teamRuntime,
+        teamMemberId: teamRuntime.leadMemberId,
+        teamLeadMemberId: teamRuntime.leadMemberId,
+        onAgentEvent: (event) => events.push(event.type),
+      },
+    );
+
+    assertEquals(review.success, true);
+    assertEquals(teamRuntime.getTask("task-1")?.status, "in_progress");
+    assertEquals(events.includes("team_plan_review_resolved"), true);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: team shutdown flow emits request and acknowledge events",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const teamRuntime = createTeamRuntime("lead", "lead");
+    teamRuntime.registerMember({ id: "worker-1", agent: "code" });
+    const events: string[] = [];
+
+    const request = await executeToolCall(
+      {
+        toolName: "request_team_shutdown",
+        args: { member_id: "worker-1", reason: "Task complete" },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        teamRuntime,
+        teamMemberId: teamRuntime.leadMemberId,
+        teamLeadMemberId: teamRuntime.leadMemberId,
+        onAgentEvent: (event) => events.push(event.type),
+      },
+    );
+
+    assertEquals(request.success, true);
+    const requestId =
+      (request.result as { shutdown: { id: string } }).shutdown.id;
+
+    const ack = await executeToolCall(
+      {
+        toolName: "ack_team_shutdown",
+        args: { request_id: requestId },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        teamRuntime,
+        teamMemberId: "worker-1",
+        teamLeadMemberId: teamRuntime.leadMemberId,
+        onAgentEvent: (event) => events.push(event.type),
+      },
+    );
+
+    assertEquals(ack.success, true);
+    assertEquals(events.includes("team_shutdown_requested"), true);
+    assertEquals(events.includes("team_shutdown_resolved"), true);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: delegate_agent attaches stable team IDs when team runtime is present",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const teamRuntime = createTeamRuntime("lead", "lead");
+    let captured: Record<string, unknown> | null = null;
+
+    const result = await executeToolCall(
+      {
+        toolName: "delegate_agent",
+        args: { agent: "web", task: "inspect docs", background: true },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        teamRuntime,
+        teamMemberId: teamRuntime.leadMemberId,
+        teamLeadMemberId: teamRuntime.leadMemberId,
+        delegate: async (args) => {
+          captured = args as Record<string, unknown>;
+          return { threadId: "thread-1", nickname: "Alpha" };
+        },
+      },
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(captured !== null, true);
+    assertEquals(typeof captured?.["_teamTaskId"], "string");
+    assertEquals(typeof captured?.["_teamMemberId"], "string");
   },
 });
 

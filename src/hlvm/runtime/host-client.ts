@@ -392,6 +392,55 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         todoState: event.todo_state,
         source: event.source,
       };
+    case "team_task_updated":
+      return {
+        type: "team_task_updated",
+        taskId: event.task_id,
+        goal: event.goal,
+        status: event.status,
+        assigneeMemberId: event.assignee_member_id,
+      };
+    case "team_message":
+      return {
+        type: "team_message",
+        kind: event.kind,
+        fromMemberId: event.from_member_id,
+        toMemberId: event.to_member_id,
+        relatedTaskId: event.related_task_id,
+        contentPreview: event.content_preview,
+      };
+    case "team_plan_review_required":
+      return {
+        type: "team_plan_review_required",
+        approvalId: event.approval_id,
+        taskId: event.task_id,
+        submittedByMemberId: event.submitted_by_member_id,
+      };
+    case "team_plan_review_resolved":
+      return {
+        type: "team_plan_review_resolved",
+        approvalId: event.approval_id,
+        taskId: event.task_id,
+        submittedByMemberId: event.submitted_by_member_id,
+        approved: event.approved,
+        reviewedByMemberId: event.reviewed_by_member_id,
+      };
+    case "team_shutdown_requested":
+      return {
+        type: "team_shutdown_requested",
+        requestId: event.request_id,
+        memberId: event.member_id,
+        requestedByMemberId: event.requested_by_member_id,
+        reason: event.reason,
+      };
+    case "team_shutdown_resolved":
+      return {
+        type: "team_shutdown_resolved",
+        requestId: event.request_id,
+        memberId: event.member_id,
+        requestedByMemberId: event.requested_by_member_id,
+        status: event.status,
+      };
     case "plan_created":
       return {
         type: "plan_created",

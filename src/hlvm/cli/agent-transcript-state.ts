@@ -107,6 +107,22 @@ function cleanupTransientItems(items: ConversationItem[]): ConversationItem[] {
   });
 }
 
+function appendInfoItem(
+  state: TranscriptState,
+  text: string,
+): TranscriptState {
+  const [nextState, id] = nextItemId(state);
+  const item: InfoItem = {
+    type: "info",
+    id,
+    text,
+  };
+  return {
+    ...nextState,
+    items: insertBeforePendingAssistant(nextState.items, item),
+  };
+}
+
 function upsertThinkingItem(
   state: TranscriptState,
   iteration: number,
@@ -471,6 +487,60 @@ export function reduceTranscriptState(
             ...state,
             todoState: cloneTodoState(event.todoState),
           };
+        case "team_task_updated":
+          return appendInfoItem(
+            {
+              ...state,
+              items: removeTransientInfoItems(state.items),
+            },
+            event.assigneeMemberId
+              ? `Team task ${event.status}: ${event.goal} (${event.assigneeMemberId})`
+              : `Team task ${event.status}: ${event.goal}`,
+          );
+        case "team_message":
+          return appendInfoItem(
+            {
+              ...state,
+              items: removeTransientInfoItems(state.items),
+            },
+            event.toMemberId
+              ? `Team ${event.kind}: ${event.fromMemberId} -> ${event.toMemberId}: ${event.contentPreview}`
+              : `Team ${event.kind}: ${event.fromMemberId}: ${event.contentPreview}`,
+          );
+        case "team_plan_review_required":
+          return appendInfoItem(
+            {
+              ...state,
+              items: removeTransientInfoItems(state.items),
+            },
+            `Team plan review requested for task ${event.taskId}`,
+          );
+        case "team_plan_review_resolved":
+          return appendInfoItem(
+            {
+              ...state,
+              items: removeTransientInfoItems(state.items),
+            },
+            `Team plan review ${event.approved ? "approved" : "rejected"} for task ${event.taskId}`,
+          );
+        case "team_shutdown_requested":
+          return appendInfoItem(
+            {
+              ...state,
+              items: removeTransientInfoItems(state.items),
+            },
+            event.reason
+              ? `Shutdown requested for ${event.memberId}: ${event.reason}`
+              : `Shutdown requested for ${event.memberId}`,
+          );
+        case "team_shutdown_resolved":
+          return appendInfoItem(
+            {
+              ...state,
+              items: removeTransientInfoItems(state.items),
+            },
+            `Shutdown ${event.status} for ${event.memberId}`,
+          );
         case "plan_created":
           return {
             ...state,

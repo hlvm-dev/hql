@@ -14,6 +14,7 @@ import { combineSignals } from "../../../../common/timeout-utils.ts";
 import type { SearchResult } from "./search-provider.ts";
 import {
   filterSearchResultsByDomain,
+  isAllowedByDomainFilters,
   normalizeDomain,
 } from "./search-provider.ts";
 import {
@@ -44,6 +45,7 @@ import {
   type WebSearchRequest,
   type WebSearchResponse,
 } from "./search-backend.ts";
+import { buildDeterministicAnswer } from "./answer-from-evidence.ts";
 import { VERSION_RE, YEAR_RE } from "./intent-patterns.ts";
 import {
   rankFetchedEvidenceDeterministically,
@@ -131,15 +133,11 @@ function hasAllowedDomainHit(
   allowedDomains?: string[],
 ): boolean {
   if (!allowedDomains?.length) return true;
-  const normalized = allowedDomains.map(normalizeDomain).filter((domain) => domain.length > 0);
-  if (normalized.length === 0) return true;
   return results.some((result) => {
     if (!result.url) return false;
     try {
       const hostname = new URL(result.url).hostname.toLowerCase();
-      return normalized.some((domain) =>
-        hostname === domain || hostname.endsWith(`.${domain}`)
-      );
+      return isAllowedByDomainFilters(hostname, allowedDomains, undefined);
     } catch {
       return false;
     }
@@ -569,7 +567,7 @@ export class DdgSearchBackend implements WebSearchBackend {
       const prefetchTimeout = Math.min(timeout ?? LLM_SELECTOR_TIMEOUT_MS, LLM_SELECTOR_TIMEOUT_MS);
       const settled = await Promise.allSettled(
         prefetchTargets.map(async (target) => {
-          const { response } = await fetchWithRedirects(
+          const { finalUrl, response } = await fetchWithRedirects(
             target.url!,
             prefetchTimeout,
             { "User-Agent": fetchUserAgent },
@@ -585,7 +583,7 @@ export class DdgSearchBackend implements WebSearchBackend {
 
           // Use Readability (battle-tested) for text extraction, regex parseHtml as fallback
           const parsed = parseHtml(rawHtml, PREFETCH_MAX_TEXT, 3);
-          const readable = await extractReadableContent(rawHtml, target.url!);
+          const readable = await extractReadableContent(rawHtml, finalUrl);
           const extractionText = readable?.text || parsed.text;
           let passages = extractRelevantPassages(query, extractionText);
           if (target.snippet) {
@@ -595,10 +593,12 @@ export class DdgSearchBackend implements WebSearchBackend {
           let relatedLinks: string[] | undefined;
           if (parsed.links.length > 0) {
             try {
-              const sourceHost = new URL(target.url!).hostname.toLowerCase();
+              const sourceHost = new URL(finalUrl).hostname.toLowerCase();
               relatedLinks = parsed.links.filter((link) => {
                 try {
-                  return new URL(link).hostname.toLowerCase() !== sourceHost;
+                  const parsedLink = new URL(link);
+                  if (!["http:", "https:"].includes(parsedLink.protocol)) return false;
+                  return parsedLink.hostname.toLowerCase() !== sourceHost;
                 } catch {
                   return false;
                 }
@@ -611,8 +611,9 @@ export class DdgSearchBackend implements WebSearchBackend {
 
           return {
             url: target.url!,
+            finalUrl,
             passages,
-            description: readable?.title ? (parsed.description || readable.title) : parsed.description,
+            description: parsed.description || undefined,
             title: readable?.title || parsed.title,
             publishedDate: parsed.publishedDate,
             relatedLinks,
@@ -623,7 +624,7 @@ export class DdgSearchBackend implements WebSearchBackend {
       for (const outcome of settled) {
         if (outcome.status !== "fulfilled") continue;
         const enriched = outcome.value;
-        fetchedUrls.push(enriched.url);
+        fetchedUrls.push(enriched.finalUrl ?? enriched.url);
         const target = result.results.find((entry) => entry.url === enriched.url);
         if (!target) continue;
 
@@ -708,6 +709,13 @@ export class DdgSearchBackend implements WebSearchBackend {
         ? `${fetchEvidenceCount} fetched source(s) include extracted evidence. Prefer these before unfetched search results.`
         : undefined,
     };
+    const answerDraft = buildDeterministicAnswer({
+      query,
+      results: result.results,
+      intent: queryIntent,
+      lowConfidence: confidenceFinal.lowConfidence,
+      modelTier: options?.modelTier,
+    });
 
     const diagnostics = {
       profile: {
@@ -752,6 +760,10 @@ export class DdgSearchBackend implements WebSearchBackend {
         evidenceStrategy,
         evidenceConfidence,
         evidenceReason,
+        answerDraftAvailable: Boolean(answerDraft?.text),
+        answerDraftConfidence: answerDraft?.confidence,
+        answerDraftMode: answerDraft?.mode,
+        answerStrategy: answerDraft?.strategy,
         weakEvidence: confidenceFinal.lowConfidence,
         decompositionApplied: deepDiagnostics.decompositionApplied,
         subqueries: executedSubqueries,
@@ -783,6 +795,7 @@ export class DdgSearchBackend implements WebSearchBackend {
       citations,
       diagnostics,
       guidance,
+      answerDraft,
     };
   }
 }

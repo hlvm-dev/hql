@@ -178,11 +178,42 @@ Deno.test("web tools: cache keys stay order-invariant but change across behavior
     true,
     "ollama/llama3.1:8b",
   );
+  const withWeakTier = __testOnlyBuildSearchWebCacheKey(
+    "duckduckgo",
+    "bitcoin",
+    5,
+    undefined,
+    undefined,
+    "all",
+    undefined,
+    "medium",
+    true,
+    true,
+    "ollama/llama3.1:8b",
+    "weak",
+  );
+  const withExpandedYear = __testOnlyBuildSearchWebCacheKey(
+    "duckduckgo",
+    "bitcoin",
+    5,
+    undefined,
+    undefined,
+    "all",
+    undefined,
+    "medium",
+    true,
+    true,
+    "ollama/llama3.1:8b",
+    "weak",
+    "2026",
+  );
 
   assertEquals(allowA, allowB);
   assertNotEquals(base, allowA);
   assertNotEquals(base, dayRange);
   assertNotEquals(base, withModel);
+  assertNotEquals(withModel, withWeakTier);
+  assertNotEquals(withWeakTier, withExpandedYear);
 });
 
 Deno.test("web tools: domain filters keep relevant domains only", () => {
@@ -248,6 +279,18 @@ Deno.test("web tools: formatting keeps compact displays, preserves raw results, 
     query: "deno 2.2 release",
     provider: "duckduckgo",
     count: 2,
+    answerDraft: {
+      text: "Deno 2.2 added faster startup based on the fetched release notes.",
+      confidence: "high",
+      mode: "recency",
+      strategy: "llm_polish",
+      sources: [{
+        title: "Deno 2.2 Release Notes",
+        url: "https://deno.com/blog/v2.2",
+        evidenceStrength: "high",
+        publishedDate: "2026-02-15",
+      }],
+    },
     diagnostics: {
       retrieval: {
         queryTrail: ["deno 2.2 release", "deno 2.2 release official docs"],
@@ -270,12 +313,15 @@ Deno.test("web tools: formatting keeps compact displays, preserves raw results, 
   });
   assert(highConfidence !== null);
   assert(highConfidence!.returnDisplay.includes('Search: "deno 2.2 release"'));
+  assert(highConfidence!.returnDisplay.includes("Deterministic answer draft:"));
   assert(highConfidence!.llmContent.includes("The new release includes faster startup"));
   assert(highConfidence!.llmContent.includes("Fetched sources:"));
   assert(highConfidence!.llmContent.includes("Use fetched sources as primary evidence."));
+  assert(highConfidence!.llmContent.includes("Use it as the grounded baseline answer."));
   assert(!highConfidence!.llmContent.includes("Detailed search results:"));
   assert(!highConfidence!.llmContent.includes("Supporting results:"));
   assert(!highConfidence!.summaryDisplay.includes("{"));
+  assert(highConfidence!.summaryDisplay.includes("Deno 2.2 added faster startup"));
 
   const lowConfidence = __testOnlyFormatSearchWebResult({
     query: "obscure topic",
@@ -884,9 +930,15 @@ Deno.test({
           assertEquals(prefetch.chooserStrategy, "deterministic");
           assertEquals(prefetch.fallbackUsed, false);
           assertEquals(retrieval.evidenceStrategy, "deterministic");
+          assertEquals(retrieval.answerDraftAvailable, true);
+          assertEquals(retrieval.answerStrategy, "deterministic");
           assertEquals(results[0].url, "https://react.dev/reference/react/useEffect");
           assertEquals(results[0].evidenceStrength, "high");
           assertEquals(results[1].evidenceStrength, "high");
+          assertEquals(
+            ((raw.answerDraft as Record<string, unknown>).strategy),
+            "deterministic",
+          );
         });
       });
     } finally {
@@ -920,27 +972,23 @@ Deno.test({
       await withStubbedFetch(async (input) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 
-        if (url === "https://react.dev/reference") {
+        if (url === "https://react.dev/robots.txt") {
           return new Response(
-            `<html><head><title>React Reference Overview</title><meta name="description" content="Reference docs." /></head><body>
-              <nav>
-                <a href="/reference/react/useEffect">useEffect</a>
-                <a href="/reference/react/useState">useState</a>
-              </nav>
-            </body></html>`,
-            { status: 200, headers: { "Content-Type": "text/html" } },
+            "User-agent: *\nSitemap: https://react.dev/sitemap.xml\n",
+            { status: 200, headers: { "Content-Type": "text/plain" } },
           );
         }
 
-        if (url === "https://react.dev/learn") {
+        if (url === "https://react.dev/sitemap.xml") {
           return new Response(
-            `<html><head><title>Quick Start</title><meta name="description" content="Learn React." /></head><body>
-              <aside>
-                <a href="/learn/synchronizing-with-effects">Synchronizing with Effects</a>
-                <a href="/learn/removing-effect-dependencies">Removing Effect Dependencies</a>
-              </aside>
-            </body></html>`,
-            { status: 200, headers: { "Content-Type": "text/html" } },
+            `<?xml version="1.0" encoding="UTF-8"?>
+             <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+               <url><loc>https://react.dev/reference/react/useEffect</loc></url>
+               <url><loc>https://react.dev/reference/react/useState</loc></url>
+               <url><loc>https://react.dev/learn/synchronizing-with-effects</loc></url>
+               <url><loc>https://react.dev/learn/removing-effect-dependencies</loc></url>
+             </urlset>`,
+            { status: 200, headers: { "Content-Type": "application/xml" } },
           );
         }
 
@@ -1000,6 +1048,95 @@ Deno.test({
         ]);
         assertEquals(results[0].url, "https://react.dev/reference/react/useEffect");
         assertEquals(results[0].evidenceStrength, "high");
+      });
+    });
+  },
+});
+
+Deno.test({
+  name: "web tools: allowed-domain discovery falls back to homepage links when robots and sitemap are unavailable",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withIsolatedSearchRegistry(async () => {
+      registerSearchProvider({
+        name: "duckduckgo",
+        displayName: "allowed-domain-homepage-fallback",
+        requiresApiKey: false,
+        search(query: string) {
+          return Promise.resolve({
+            query,
+            provider: "duckduckgo",
+            count: 0,
+            results: [],
+          });
+        },
+      });
+
+      await withStubbedFetch(async (input) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+
+        if (url === "https://react.dev/robots.txt" || url === "https://react.dev/sitemap.xml" ||
+          url === "https://react.dev/sitemap_index.xml") {
+          return new Response("not found", {
+            status: 404,
+            headers: { "Content-Type": "text/plain" },
+          });
+        }
+
+        if (url === "https://react.dev") {
+          return new Response(
+            `<html><head><title>React</title><meta name="description" content="React docs homepage." /></head><body>
+              <nav>
+                <a href="/reference/react/useEffect">useEffect</a>
+                <a href="/learn/synchronizing-with-effects">Synchronizing with Effects</a>
+              </nav>
+            </body></html>`,
+            { status: 200, headers: { "Content-Type": "text/html" } },
+          );
+        }
+
+        if (url === "https://react.dev/reference/react/useEffect") {
+          return new Response(
+            `<html><head><title>useEffect - React</title><meta name="description" content="Official useEffect reference." /></head><body><article><p>The cleanup function runs before the effect re-runs and after unmount.</p></article></body></html>`,
+            { status: 200, headers: { "Content-Type": "text/html" } },
+          );
+        }
+
+        if (url === "https://react.dev/learn/synchronizing-with-effects") {
+          return new Response(
+            `<html><head><title>Synchronizing with Effects - React</title><meta name="description" content="Guide to Effects." /></head><body><article><p>Effects synchronize a component with external systems.</p></article></body></html>`,
+            { status: 200, headers: { "Content-Type": "text/html" } },
+          );
+        }
+
+        return new Response("not found", {
+          status: 404,
+          headers: { "Content-Type": "text/plain" },
+        });
+      }, async () => {
+        resetWebToolBudget();
+        const raw = await WEB_TOOLS.search_web.fn(
+          {
+            query: "react useEffect cleanup",
+            maxResults: 3,
+            prefetch: true,
+            reformulate: false,
+            allowedDomains: ["react.dev"],
+          },
+          "/tmp",
+          { modelId: "ollama/llama3.2:1b", modelTier: "weak" },
+        ) as Record<string, unknown>;
+
+        const diagnostics = raw.diagnostics as Record<string, unknown>;
+        const domainDiscovery = diagnostics.domainDiscovery as Record<string, unknown>;
+        const prefetch = diagnostics.prefetch as Record<string, unknown>;
+        const results = raw.results as Array<Record<string, unknown>>;
+
+        assertEquals(domainDiscovery.triggered, true);
+        assertEquals(domainDiscovery.discoveredResultCount, 2);
+        assertEquals(prefetch.chooserStrategy, "deterministic");
+        assertEquals(results[0].url, "https://react.dev/reference/react/useEffect");
       });
     });
   },
@@ -1104,6 +1241,88 @@ Deno.test({
 });
 
 Deno.test({
+  name: "web tools: prefetch preserves finalUrl after redirects and filters related links by final host",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withIsolatedSearchRegistry(async () => {
+      registerSearchProvider({
+        name: "duckduckgo",
+        displayName: "redirect-prefetch",
+        requiresApiKey: false,
+        search(query: string, opts: SearchCallOptions) {
+          return Promise.resolve({
+            query,
+            provider: "duckduckgo",
+            count: 1,
+            results: [{
+              title: "Redirecting doc",
+              url: "https://short.example.com/react-cleanup",
+              snippet: "Short redirect URL for React cleanup docs.",
+              score: 9,
+            }],
+            diagnostics: { limit: opts.limit },
+          });
+        },
+      });
+
+      await withStubbedFetch(async (input) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+
+        if (url === "https://short.example.com/react-cleanup") {
+          return new Response(null, {
+            status: 302,
+            headers: {
+              "Location": "https://react.dev/reference/react/useEffect",
+            },
+          });
+        }
+
+        if (url === "https://react.dev/reference/react/useEffect") {
+          return new Response(
+            `<html><head><title>useEffect - React</title><meta name="description" content="Official useEffect reference." /></head><body>
+              <article>
+                <p>The cleanup function runs before the effect re-runs and after unmount.</p>
+                <p>See also <a href="https://react.dev/reference/react/useState">useState</a> and
+                <a href="https://developer.mozilla.org/docs/Web/API/AbortController">AbortController</a>.</p>
+              </article>
+            </body></html>`,
+            { status: 200, headers: { "Content-Type": "text/html" } },
+          );
+        }
+
+        return new Response("not found", {
+          status: 404,
+          headers: { "Content-Type": "text/plain" },
+        });
+      }, async () => {
+        resetWebToolBudget();
+        const raw = await WEB_TOOLS.search_web.fn(
+          {
+            query: "react useeffect cleanup",
+            maxResults: 1,
+            prefetch: true,
+            reformulate: false,
+          },
+          "/tmp",
+          { modelId: "ollama/llama3.2:1b", modelTier: "weak" },
+        ) as Record<string, unknown>;
+
+        const diagnostics = raw.diagnostics as Record<string, unknown>;
+        const retrieval = diagnostics.retrieval as Record<string, unknown>;
+        const fetchedUrls = retrieval.fetchedUrls as string[];
+        const results = raw.results as Array<Record<string, unknown>>;
+
+        assertEquals(fetchedUrls, ["https://react.dev/reference/react/useEffect"]);
+        assertEquals(results[0].relatedLinks, [
+          "https://developer.mozilla.org/docs/Web/API/AbortController",
+        ]);
+      });
+    });
+  },
+});
+
+Deno.test({
   name: "web tools: fetched page descriptions are preserved even when search snippets are longer",
   sanitizeOps: false,
   sanitizeResources: false,
@@ -1149,6 +1368,57 @@ Deno.test({
 
           const results = raw.results as Array<Record<string, unknown>>;
           assertEquals(results[0].pageDescription, "Short fetched metadata description.");
+        });
+    });
+  },
+});
+
+Deno.test({
+  name: "web tools: title-only fetch enrichment does not become fetched page evidence",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withIsolatedSearchRegistry(async () => {
+      registerSearchProvider({
+        name: "duckduckgo",
+        displayName: "title-only-fetch",
+        requiresApiKey: false,
+        search(query: string, opts: SearchCallOptions) {
+          return Promise.resolve({
+            query,
+            provider: "duckduckgo",
+            count: 1,
+            results: [{
+              title: "Original Search Result",
+              url: "https://example.com/title-only",
+              snippet: "Provider snippet only.",
+              score: 8,
+            }],
+            diagnostics: { limit: opts.limit },
+          });
+        },
+      });
+
+      await withStubbedFetch(async () =>
+        new Response(
+          `<html><head><title>Canonical Page Title</title></head><body></body></html>`,
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        ), async () => {
+          resetWebToolBudget();
+          const raw = await WEB_TOOLS.search_web.fn(
+            {
+              query: "title only result",
+              maxResults: 1,
+              prefetch: true,
+              reformulate: false,
+            },
+            "/tmp",
+            { modelId: "ollama/llama3.2:1b", modelTier: "weak" },
+          ) as Record<string, unknown>;
+
+          const results = raw.results as Array<Record<string, unknown>>;
+          assertEquals(results[0].title, "Original Search Result");
+          assertEquals(results[0].pageDescription, undefined);
         });
     });
   },
