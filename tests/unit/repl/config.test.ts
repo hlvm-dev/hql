@@ -30,6 +30,8 @@ Deno.test("ConfigTypes: CONFIG_KEYS and isConfigKey stay aligned", () => {
     "agentMode",
     "sessionMemory",
     "permissionMode",
+    "agentMaxThreads",
+    "agentMaxDepth",
   ]);
 
   for (const key of CONFIG_KEYS) {

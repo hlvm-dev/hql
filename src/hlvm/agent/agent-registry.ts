@@ -6,6 +6,12 @@ export interface AgentProfile {
   name: string;
   description: string;
   tools: string[];
+  /** Override model for this profile (e.g., "ollama/llama3.1:8b"). */
+  model?: string;
+  /** Override temperature (e.g., 0.2 for code, 0.7 for creative). */
+  temperature?: number;
+  /** Override max context tokens for child agent. */
+  maxTokens?: number;
 }
 
 /** Frozen profiles: immutable at runtime, safe to return by reference */
@@ -43,6 +49,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
       "find_symbol",
       "get_structure",
     ],
+    temperature: 0.2,
   },
   {
     name: "file",

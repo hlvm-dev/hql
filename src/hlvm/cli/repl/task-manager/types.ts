@@ -47,7 +47,7 @@ export function canTransition(from: TaskStatus, to: TaskStatus): boolean {
 }
 
 /** Task type discriminator */
-export type TaskType = "model-pull" | "eval";
+export type TaskType = "model-pull" | "eval" | "delegate";
 
 // ============================================================
 // Progress Types
@@ -126,6 +126,29 @@ export interface EvalTask extends Task<unknown> {
 }
 
 // ============================================================
+// Delegate Task Types (Background Agent Delegation)
+// ============================================================
+
+/** Delegated sub-agent background task */
+export interface DelegateTask extends Task<string> {
+  type: "delegate";
+  /** Agent profile name (e.g., "code", "web", "general") */
+  agent: string;
+  /** Delegation task description */
+  task: string;
+  /** Human-readable nickname from pool (e.g., "Alpha", "Bravo") */
+  nickname: string;
+  /** Unique thread identifier */
+  threadId: string;
+  /** Child session ID for transcript/debug linkage */
+  childSessionId?: string;
+  /** Final response summary */
+  summary?: string;
+  /** Transcript snapshot from child run */
+  snapshot?: import("../../../agent/delegate-transcript.ts").DelegateTranscriptSnapshot;
+}
+
+// ============================================================
 // Event Types
 // ============================================================
 
@@ -153,6 +176,11 @@ export function isModelPullTask(task: Task): task is ModelPullTask {
 /** Check if task is an eval task */
 export function isEvalTask(task: Task): task is EvalTask {
   return task.type === "eval";
+}
+
+/** Check if task is a delegate task */
+export function isDelegateTask(task: Task): task is DelegateTask {
+  return task.type === "delegate";
 }
 
 /** Check if task is active (pending or running) */

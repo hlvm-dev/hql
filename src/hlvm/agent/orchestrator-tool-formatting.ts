@@ -12,11 +12,8 @@ import type { OrchestratorConfig, ToolEventMeta, WebSearchToolEventMeta } from "
 import type { ToolExecutionResult } from "./orchestrator-state.ts";
 import type { FormattedToolResult } from "./registry.ts";
 import type { SearchResult } from "./tools/web/search-provider.ts";
+import { hasStructuredEvidence } from "./tools/web/web-utils.ts";
 import { summarizeToolResult } from "./tool-result-summary.ts";
-import {
-  domainAuthorityBoost,
-  sourceQualityPenalty,
-} from "./tools/web/search-ranking.ts";
 
 export function stringifyToolResult(result: unknown): string {
   return safeStringify(result, 2);
@@ -256,15 +253,14 @@ function toSearchResults(value: unknown): SearchResult[] {
 
 function toTrustLevel(
   lowConfidence: boolean | undefined,
-  authorityHits: number,
-  qualityPenaltiesApplied: number,
+  fetchedEvidenceCount: number,
+  selectedFetchCount: number,
   resultCount: number,
 ): "high" | "medium" | "low" {
   if (lowConfidence) return "low";
   if (resultCount === 0) return "medium";
-  const authorityRatio = authorityHits / resultCount;
-  if (qualityPenaltiesApplied === 0 && authorityRatio >= 0.35) return "high";
-  if (qualityPenaltiesApplied > 0 && authorityRatio < 0.2) return "low";
+  if (fetchedEvidenceCount > 0) return "high";
+  if (selectedFetchCount > 0) return "medium";
   return "medium";
 }
 
@@ -274,19 +270,17 @@ function extractWebSearchEventMeta(result: unknown): WebSearchToolEventMeta | un
   const diagnostics = isObjectValue(result.diagnostics) ? result.diagnostics : null;
   const deep = diagnostics && isObjectValue(diagnostics.deep) ? diagnostics.deep : null;
   const score = diagnostics && isObjectValue(diagnostics.score) ? diagnostics.score : null;
+  const retrieval = diagnostics && isObjectValue(diagnostics.retrieval)
+    ? diagnostics.retrieval
+    : null;
   const results = toSearchResults(result.results);
   const resultCount = toFiniteNumber(result.count) ?? results.length;
   const citationsCount = Array.isArray(result.citations) ? result.citations.length : undefined;
-
-  const authorityHits = results.reduce(
-    (count, entry) => count + (domainAuthorityBoost(entry.url ?? "") >= 0.2 ? 1 : 0),
-    0,
-  );
-  const qualityPenaltiesApplied = toFiniteNumber(diagnostics?.qualityPenaltiesApplied) ??
-    results.reduce(
-      (count, entry) => count + (sourceQualityPenalty(entry) > 0 ? 1 : 0),
-      0,
-    );
+  const selectedFetchCount = results.filter((entry) => entry.selectedForFetch === true).length;
+  const fetchedEvidenceCount = toFiniteNumber(retrieval?.fetchEvidenceCount) ??
+    results.filter((entry) =>
+      entry.selectedForFetch === true && hasStructuredEvidence(entry)
+    ).length;
 
   const deepMeta = deep
     ? {
@@ -317,15 +311,15 @@ function extractWebSearchEventMeta(result: unknown): WebSearchToolEventMeta | un
   const lowConfidence = scoreMeta?.lowConfidence;
   const trustLevel = toTrustLevel(
     lowConfidence,
-    authorityHits,
-    qualityPenaltiesApplied,
+    fetchedEvidenceCount,
+    selectedFetchCount,
     Math.max(1, resultCount),
   );
   const sourceGuard = {
-    warning: Boolean(lowConfidence) || qualityPenaltiesApplied > 0,
+    warning: Boolean(lowConfidence) || fetchedEvidenceCount === 0,
     trustLevel,
-    authorityHits,
-    qualityPenaltiesApplied,
+    fetchedEvidenceCount,
+    selectedFetchCount,
     resultCount,
   };
 

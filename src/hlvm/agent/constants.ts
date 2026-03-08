@@ -459,6 +459,7 @@ export const WEAK_TIER_CORE_TOOLS: readonly string[] = [
   "read_file", "write_file", "edit_file", "list_files",
   "search_code", "ask_user", "complete_task",
   "git_status", "git_diff", "git_log",
+  "search_web", "web_fetch", "fetch_url",
   "memory_write", "memory_search", "memory_edit",
 ] as const;
 

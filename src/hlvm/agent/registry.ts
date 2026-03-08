@@ -21,12 +21,14 @@ import { WEB_TOOLS } from "./tools/web-tools.ts";
 import { MEMORY_TOOLS } from "../memory/mod.ts";
 import { DATA_TOOLS } from "./tools/data-tools.ts";
 import { GIT_TOOLS } from "./tools/git-tools.ts";
+import { DELEGATE_TOOLS } from "./tools/delegate-tools.ts";
 import { ValidationError } from "../../common/error.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { isToolArgsObject } from "./validation.ts";
 import type { TodoState } from "./todo-state.ts";
 import type { CheckpointRecorder } from "./checkpoints.ts";
+import type { ModelTier } from "./constants.ts";
 import {
   buildToolJsonSchema,
   coerceArgsToSchema,
@@ -62,6 +64,10 @@ export interface InteractionRequestEvent {
 /** Optional execution options passed to tools (e.g., cancellation signal) */
 export interface ToolExecutionOptions {
   signal?: AbortSignal;
+  /** Active session model id for tool-internal AI calls. */
+  modelId?: string;
+  /** Active session model tier for tool-internal routing. */
+  modelTier?: ModelTier;
   policy?: AgentPolicy | null;
   onInteraction?: (
     event: InteractionRequestEvent,
@@ -206,6 +212,7 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
       task: "string - Task to delegate",
       maxToolCalls: "number (optional) - Max tool calls for the delegate",
       groundingMode: "string (optional) - off|warn|strict",
+      background: "boolean (optional) - Run in background (default: false). Returns immediately with threadId.",
     },
     returns: {
       agent: "string",
@@ -216,8 +223,37 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
     safety: "Internal delegation (auto-approved).",
     formatResult: formatDelegateAgentResult,
   },
+  batch_delegate: {
+    fn: () =>
+      Promise.reject(
+        new ValidationError(
+          "batch_delegate is not configured. Ensure the session provides a delegate handler.",
+          "batch_delegate",
+        ),
+      ),
+    description:
+      "Fan-out delegation: spawn multiple background agents from a data array with template substitution.",
+    category: "meta",
+    args: {
+      agent: "string - Agent profile name",
+      task_template:
+        "string - Task template with {{column}} placeholders",
+      data: "array - Array of row objects for template substitution",
+      max_concurrency: "number (optional) - Max concurrent agents",
+    },
+    returns: {
+      batchId: "string",
+      totalRows: "number",
+      spawned: "number",
+      threadIds: "array",
+      status: "string",
+    },
+    safetyLevel: "L0",
+    safety: "Internal delegation (auto-approved).",
+  },
   ...DATA_TOOLS,
   ...GIT_TOOLS,
+  ...DELEGATE_TOOLS,
 } as Record<string, ToolMetadata>;
 
 /**
@@ -536,7 +572,7 @@ export function getToolsByCategory(): {
     meta: Object.keys(META_TOOLS),
     web: Object.keys(WEB_TOOLS),
     memory: Object.keys(MEMORY_TOOLS),
-    agent: ["delegate_agent"],
+    agent: ["delegate_agent", "batch_delegate", ...Object.keys(DELEGATE_TOOLS)],
     data: Object.keys(DATA_TOOLS),
     git: Object.keys(GIT_TOOLS),
     dynamic: getDynamicToolNames(),

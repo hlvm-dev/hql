@@ -18,6 +18,7 @@ import {
   type ToolCall,
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { callLLMWithRetry } from "../../../src/hlvm/agent/orchestrator-llm.ts";
+import { createDelegateInbox } from "../../../src/hlvm/agent/delegate-inbox.ts";
 import { withDelegateTranscriptSnapshot } from "../../../src/hlvm/agent/delegate-transcript.ts";
 import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
 import { clearAllL1Confirmations } from "../../../src/hlvm/agent/security/safety.ts";
@@ -670,6 +671,46 @@ Deno.test({
 
     assertEquals(result, "42");
     assertEquals(sawSignal, true);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: runReActLoop drains delegate inbox into supervisor context",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const delegateInbox = createDelegateInbox();
+    delegateInbox.push({
+      threadId: "thread-1",
+      nickname: "Alpha",
+      agent: "code",
+      task: "inspect codebase",
+      success: true,
+      summary: "Found the root cause",
+    });
+
+    let sawUpdate = false;
+    const result = await runReActLoop(
+      "Summarize the work",
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        delegateInbox,
+      },
+      async (messages) => {
+        sawUpdate = messages.some((message) =>
+          message.role === "user" &&
+          message.content.includes("[System Delegate Update]") &&
+          message.content.includes("Found the root cause")
+        );
+        return makeResponse("done");
+      },
+    );
+
+    assertEquals(result, "done");
+    assertEquals(sawUpdate, true);
+    assertEquals(delegateInbox.size(), 0);
   },
 });
 

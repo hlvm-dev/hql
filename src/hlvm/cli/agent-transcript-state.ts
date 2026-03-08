@@ -155,17 +155,27 @@ function findMatchingRunningDelegateIndex(
   items: ConversationItem[],
   agent: string,
   task: string,
+  threadId?: string,
 ): number {
+  // Match by threadId first (most precise for concurrent delegates)
+  if (threadId) {
+    const byThread = items.findLastIndex((item) =>
+      item.type === "delegate" &&
+      (item.status === "running" || item.status === "queued") &&
+      item.threadId === threadId
+    );
+    if (byThread >= 0) return byThread;
+  }
   const exactIdx = items.findLastIndex((item) =>
     item.type === "delegate" &&
-    item.status === "running" &&
+    (item.status === "running" || item.status === "queued") &&
     item.agent === agent &&
     item.task === task
   );
   if (exactIdx >= 0) return exactIdx;
   return items.findLastIndex((item) =>
     item.type === "delegate" &&
-    item.status === "running" &&
+    (item.status === "running" || item.status === "queued") &&
     item.agent === agent
   );
 }
@@ -175,6 +185,8 @@ function appendDelegateItem(
   agent: string,
   task: string,
   childSessionId?: string,
+  threadId?: string,
+  nickname?: string,
 ): TranscriptState {
   const [nextState, id] = nextItemId(state);
   const item: DelegateItem = {
@@ -184,6 +196,8 @@ function appendDelegateItem(
     task,
     childSessionId,
     status: "running",
+    threadId,
+    nickname,
     ts: Date.now(),
   };
   return {
@@ -196,14 +210,22 @@ function completeDelegateItem(
   state: TranscriptState,
   event: Extract<AgentUIEvent, { type: "delegate_end" }>,
 ): TranscriptState {
-  const idx = findMatchingRunningDelegateIndex(state.items, event.agent, event.task);
+  const idx = findMatchingRunningDelegateIndex(
+    state.items,
+    event.agent,
+    event.task,
+    event.threadId,
+  );
   if (idx < 0) return state;
   const current = state.items[idx];
   if (current?.type !== "delegate") return state;
   const nextItems = [...state.items];
+  // Determine final status: cancelled if error contains "abort" signal
+  const isCancelled = !event.success &&
+    event.error?.toLowerCase().includes("abort");
   nextItems[idx] = {
     ...current,
-    status: event.success ? "success" : "error",
+    status: isCancelled ? "cancelled" : event.success ? "success" : "error",
     summary: event.summary,
     error: event.error,
     durationMs: event.durationMs,
@@ -417,6 +439,8 @@ export function reduceTranscriptState(
             activeTool: allDone ? undefined : state.activeTool,
           };
         }
+        case "delegate_running":
+          return state; // TaskManager handles state transition; transcript unchanged
         case "delegate_start":
           return appendDelegateItem(
             {
@@ -428,6 +452,8 @@ export function reduceTranscriptState(
             event.agent,
             event.task,
             event.childSessionId,
+            event.threadId,
+            event.nickname,
           );
         case "delegate_end":
           return {

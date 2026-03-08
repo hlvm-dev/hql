@@ -1,18 +1,10 @@
 /**
  * Search ranking SSOT for DDG web search.
- * Provides canonical URL deduplication plus relevance/recency/diversity scoring.
+ * Provides canonical URL handling, confidence assessment, and passage extraction.
  */
 
 import type { SearchResult, SearchTimeRange } from "./search-provider.ts";
-import { analyzeResultUrl, resultHost } from "./web-utils.ts";
-import {
-  OFFICIAL_DOCS_RE,
-  RECENCY_RE,
-  REFERENCE_RE,
-  RELEASE_NOTES_RE,
-} from "./intent-patterns.ts";
-
-const DAY_MS = 24 * 60 * 60 * 1000;
+import { resultHost } from "./web-utils.ts";
 
 const TRACKING_QUERY_PARAMS = new Set([
   "fbclid",
@@ -31,25 +23,63 @@ const TRACKING_QUERY_PARAMS = new Set([
   "utm_term",
   "ved",
 ]);
-
-const TIME_RANGE_MAX_DAYS: Record<SearchTimeRange, number> = {
+const TIME_RANGE_MAX_DAYS: Record<Exclude<SearchTimeRange, "all">, number> = {
   day: 1,
   week: 7,
   month: 31,
   year: 366,
-  all: Number.POSITIVE_INFINITY,
 };
 
+function normalizeSearchToken(token: string): string {
+  const normalized = token
+    .trim()
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
+  if (normalized.length < 2) return "";
+  if (normalized.endsWith("ies") && normalized.length > 4) {
+    return `${normalized.slice(0, -3)}y`;
+  }
+  if (normalized.endsWith("s") && !normalized.endsWith("ss") && normalized.length > 4) {
+    return normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+function pushNormalizedToken(
+  seen: Set<string>,
+  tokens: string[],
+  raw: string,
+): void {
+  const normalized = normalizeSearchToken(raw);
+  if (!normalized || seen.has(normalized)) return;
+  seen.add(normalized);
+  tokens.push(normalized);
+}
+
+export function tokenizeSearchText(text: string): string[] {
+  const tokens: string[] = [];
+  const seen = new Set<string>();
+  const fragments = text
+    .split(/[\s\-_.:/?#=&]+/)
+    .map((fragment) => fragment.trim())
+    .filter(Boolean);
+
+  for (const fragment of fragments) {
+    pushNormalizedToken(seen, tokens, fragment);
+    const expanded = fragment.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .split(/\s+/)
+      .filter(Boolean);
+    for (const piece of expanded) {
+      if (piece.length < 4) continue;
+      pushNormalizedToken(seen, tokens, piece);
+    }
+  }
+
+  return tokens;
+}
+
 export function tokenizeQuery(query: string): string[] {
-  return [
-    ...new Set(
-      query
-        .toLowerCase()
-        .split(/[\s\-_.]+/)
-        .map((token) => token.trim())
-        .filter((token) => token.length >= 2),
-    ),
-  ];
+  return tokenizeSearchText(query);
 }
 
 function normalizePathname(pathname: string): string {
@@ -59,198 +89,72 @@ function normalizePathname(pathname: string): string {
   return pathname;
 }
 
-function toAgeDays(timestampMs: number): number | undefined {
-  if (!Number.isFinite(timestampMs)) return undefined;
-  const diffMs = Date.now() - timestampMs;
-  if (diffMs < 0) return 0;
-  return diffMs / DAY_MS;
+function dedupeKey(result: SearchResult): string {
+  return canonicalizeResultUrl(result.url) ??
+    `no-url:${(result.title ?? "").toLowerCase()}:${
+      (result.snippet ?? "").toLowerCase()
+    }`;
 }
 
-function parseAbsoluteDate(input: string): number | undefined {
-  if (!input.trim()) return undefined;
-  const parsedMs = Date.parse(input);
-  if (!Number.isNaN(parsedMs)) return parsedMs;
-
-  const ymd = input.match(/\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b/);
-  if (ymd) {
-    const [_, y, m, d] = ymd;
-    const ms = Date.UTC(Number(y), Number(m) - 1, Number(d));
-    return Number.isNaN(ms) ? undefined : ms;
-  }
-
-  const monthNamed = input.match(
-    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2}),?\s+(\d{4})\b/i,
-  );
-  if (monthNamed) {
-    const ms = Date.parse(`${monthNamed[1]} ${monthNamed[2]} ${monthNamed[3]}`);
-    return Number.isNaN(ms) ? undefined : ms;
-  }
-
-  return undefined;
+function mergedText(valueA?: string, valueB?: string): string | undefined {
+  const left = valueA?.trim() ?? "";
+  const right = valueB?.trim() ?? "";
+  if (!left) return right || undefined;
+  if (!right) return left;
+  return right.length > left.length ? right : left;
 }
 
-function parseRelativeAgeDays(text: string): number | undefined {
-  const lower = text.toLowerCase();
-  if (lower.includes("yesterday")) return 1;
-  if (lower.includes("today")) return 0;
-
-  const relative = lower.match(
-    /\b(\d+)\s*(minute|hour|day|week|month|year)s?\s+ago\b/,
-  );
-  if (!relative) return undefined;
-
-  const amount = Number(relative[1]);
-  const unit = relative[2];
-  if (!Number.isFinite(amount)) return undefined;
-  switch (unit) {
-    case "minute":
-      return amount / (24 * 60);
-    case "hour":
-      return amount / 24;
-    case "day":
-      return amount;
-    case "week":
-      return amount * 7;
-    case "month":
-      return amount * 30;
-    case "year":
-      return amount * 365;
-    default:
-      return undefined;
-  }
+function mergedTitle(valueA?: string, valueB?: string): string {
+  const left = valueA?.trim() ?? "";
+  const right = valueB?.trim() ?? "";
+  if (!left) return right;
+  if (!right) return left;
+  const genericTitle = /^(home|index|page|untitled)$/i;
+  if (genericTitle.test(left) && !genericTitle.test(right)) return right;
+  if (genericTitle.test(right) && !genericTitle.test(left)) return left;
+  return right.length > left.length ? right : left;
 }
 
-function recencyBoost(
-  ageDays: number | undefined,
-  timeRange: SearchTimeRange,
-): number {
-  if (ageDays === undefined) return 0;
-  if (timeRange === "all") {
-    return Math.max(0, (30 - ageDays) / 30) * 1.5;
-  }
-  const maxDays = TIME_RANGE_MAX_DAYS[timeRange];
-  return Math.max(0, (maxDays - ageDays) / maxDays) * 3;
+function mergedStringArray(
+  existing?: string[],
+  incoming?: string[],
+): string[] | undefined {
+  const values = [...(existing ?? []), ...(incoming ?? [])]
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  if (values.length === 0) return undefined;
+  return [...new Set(values)];
 }
 
-function relevanceScore(tokens: string[], result: SearchResult): number {
-  if (tokens.length === 0) return 0;
-
-  const title = (result.title ?? "").toLowerCase();
-  const snippet = (result.snippet ?? "").toLowerCase();
-  const url = (result.url ?? "").toLowerCase();
-
-  return tokens.reduce((score, token) => {
-    let next = score;
-    if (title.includes(token)) next += 3;
-    if (snippet.includes(token)) next += 1;
-    if (url.includes(token)) next += 1;
-    return next;
-  }, url.startsWith("https://") ? 1 : 0);
+function mergedScore(existing?: number, incoming?: number): number | undefined {
+  const left = typeof existing === "number" && Number.isFinite(existing)
+    ? existing
+    : undefined;
+  const right = typeof incoming === "number" && Number.isFinite(incoming)
+    ? incoming
+    : undefined;
+  if (left === undefined) return right;
+  if (right === undefined) return left;
+  return Math.max(left, right);
 }
 
-const LOW_SIGNAL_PATH_SEGMENTS = new Set([
-  "amp",
-  "archive",
-  "author",
-  "category",
-  "page",
-  "search",
-  "tag",
-  "tags",
-]);
-// Ranking-specific: deliberately broader than intent detection.
-// Composes shared primitives to match both official docs AND reference queries.
-const isDocsLikeQuery = (query: string) =>
-  OFFICIAL_DOCS_RE.test(query) || REFERENCE_RE.test(query);
-const isReleaseLikeQuery = (query: string) =>
-  RELEASE_NOTES_RE.test(query) || RECENCY_RE.test(query);
-const RELEASE_PATH_SEGMENTS = new Set([
-  "blog",
-  "changelog",
-  "news",
-  "release-notes",
-  "releases",
-  "tags",
-  "updates",
-  "whatsnew",
-]);
+function confidenceSurfaceScore(result: SearchResult): number {
+  let score = 0;
+  const titleLength = result.title?.trim().length ?? 0;
+  const snippetLength = result.snippet?.trim().length ?? 0;
 
-function keywordRepetitionRatio(text: string): number {
-  const tokens = tokenizeQuery(text);
-  if (tokens.length === 0) return 0;
-  const total = text
-    .toLowerCase()
-    .split(/[\s\-_.]+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 2).length;
-  if (total === 0) return 0;
-  return 1 - (tokens.length / total);
-}
+  if (titleLength >= 30) score += 2;
+  else if (titleLength >= 12) score += 1;
 
-/** Bounded quality penalty to down-rank thin/low-signal pages. */
-export function sourceQualityPenalty(result: SearchResult): number {
-  const title = (result.title ?? "").trim();
-  const snippet = (result.snippet ?? "").trim();
-  const titleLower = title.toLowerCase();
-  const snippetLower = snippet.toLowerCase();
-  let penalty = 0;
+  if (snippetLength >= 120) score += 4;
+  else if (snippetLength >= 60) score += 3;
+  else if (snippetLength >= 35) score += 2;
+  else if (snippetLength >= 15) score += 1;
 
-  if (!title || title.length < 8) penalty += 0.8;
-  if (!snippet || snippet.length < 35) penalty += 1.0;
-  if (titleLower && snippetLower && snippetLower === titleLower) penalty += 0.4;
-  if (/^(home|index|page|untitled)$/i.test(title)) penalty += 0.6;
-  if (keywordRepetitionRatio(`${title} ${snippet}`) > 0.28) penalty += 0.8;
+  if (result.url) score += 1;
+  if ((result.url ?? "").startsWith("https://")) score += 1;
 
-  const urlInfo = analyzeResultUrl(result.url);
-  if (result.url) {
-    if (urlInfo) {
-      if (
-        urlInfo.pathSegments.some((seg) => LOW_SIGNAL_PATH_SEGMENTS.has(seg))
-      ) {
-        penalty += 0.8;
-      }
-      if (urlInfo.pathSegments.length === 0) penalty += 0.2;
-    } else {
-      penalty += 0.2;
-    }
-  }
-
-  return Math.min(2.5, penalty);
-}
-
-function querySignalBoost(query: string, result: SearchResult): number {
-  const urlInfo = analyzeResultUrl(result.url);
-  if (!urlInfo) return 0;
-
-  let boost = 0;
-  if (isDocsLikeQuery(query)) {
-    if (
-      urlInfo.subdomainLabels.some((label) => AUTHORITY_SUBDOMAINS.has(label))
-    ) {
-      boost += 0.6;
-    }
-    if (
-      urlInfo.pathSegments.some((segment) =>
-        AUTHORITY_PATH_SEGMENTS.has(segment)
-      )
-    ) {
-      boost += 0.45;
-    }
-  }
-  if (isReleaseLikeQuery(query)) {
-    if (
-      urlInfo.pathSegments.some((segment) => RELEASE_PATH_SEGMENTS.has(segment))
-    ) {
-      boost += 0.55;
-    }
-    if (
-      urlInfo.hostWithoutWww === "github.com" &&
-      urlInfo.pathSegments.includes("releases")
-    ) {
-      boost += 0.65;
-    }
-  }
-  return boost;
+  return score;
 }
 
 export type SearchConfidenceReason =
@@ -294,9 +198,12 @@ export function assessSearchConfidence(
   const scored = sample.filter((r) =>
     typeof r.score === "number" && Number.isFinite(r.score)
   );
-  const avgScore = scored.length > 0
+  const scoredAvg = scored.length > 0
     ? scored.reduce((sum, r) => sum + (r.score ?? 0), 0) / scored.length
     : undefined;
+  const avgScore = scoredAvg ?? (considered > 0
+    ? sample.reduce((sum, result) => sum + confidenceSurfaceScore(result), 0) / considered
+    : undefined);
 
   const uniqueHosts = new Set(
     sample.map((r) => resultHost(r.url)).filter((h): h is string => Boolean(h)),
@@ -316,7 +223,7 @@ export function assessSearchConfidence(
     : 1;
 
   const reasons: Array<"low_score" | "low_diversity" | "low_coverage"> = [];
-  if (avgScore === undefined || avgScore < scoreThreshold) {
+  if (avgScore !== undefined && avgScore < scoreThreshold) {
     reasons.push("low_score");
   }
   if (considered >= 3 && hostDiversity < diversityThreshold) {
@@ -350,15 +257,6 @@ function qualityScore(result: SearchResult): number {
     ((result.score ?? 0) * 8);
 }
 
-function isInsideTimeRange(
-  ageDays: number | undefined,
-  timeRange: SearchTimeRange,
-): boolean {
-  if (timeRange === "all") return true;
-  if (ageDays === undefined) return true;
-  return ageDays <= TIME_RANGE_MAX_DAYS[timeRange];
-}
-
 export function canonicalizeResultUrl(url?: string): string | undefined {
   if (!url) return undefined;
   try {
@@ -390,25 +288,11 @@ export function canonicalizeResultUrl(url?: string): string | undefined {
   }
 }
 
-export function extractResultAgeDays(result: SearchResult): number | undefined {
-  const publishedAtMs = parseAbsoluteDate(result.publishedDate ?? "");
-  if (publishedAtMs !== undefined) return toAgeDays(publishedAtMs);
-
-  const combined = `${result.title ?? ""} ${result.snippet ?? ""}`.trim();
-  const absoluteMs = parseAbsoluteDate(combined);
-  if (absoluteMs !== undefined) return toAgeDays(absoluteMs);
-
-  return parseRelativeAgeDays(combined);
-}
-
 export function dedupeSearchResults(results: SearchResult[]): SearchResult[] {
   const bestByCanonical = new Map<string, SearchResult>();
 
   for (const result of results) {
-    const key = canonicalizeResultUrl(result.url) ??
-      `no-url:${(result.title ?? "").toLowerCase()}:${
-        (result.snippet ?? "").toLowerCase()
-      }`;
+    const key = dedupeKey(result);
     const existing = bestByCanonical.get(key);
     if (!existing) {
       bestByCanonical.set(key, result);
@@ -420,6 +304,85 @@ export function dedupeSearchResults(results: SearchResult[]): SearchResult[] {
   }
 
   return [...bestByCanonical.values()];
+}
+
+export function dedupeSearchResultsStable(results: SearchResult[]): SearchResult[] {
+  const unique: SearchResult[] = [];
+  const indexByKey = new Map<string, number>();
+
+  for (const result of results) {
+    const key = dedupeKey(result);
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex === undefined) {
+      indexByKey.set(key, unique.length);
+      unique.push(result);
+      continue;
+    }
+
+    const existing = unique[existingIndex];
+    unique[existingIndex] = {
+      ...existing,
+      title: mergedTitle(existing.title, result.title),
+      url: existing.url ?? result.url,
+      snippet: mergedText(existing.snippet, result.snippet),
+      score: mergedScore(existing.score, result.score),
+      publishedDate: existing.publishedDate ?? result.publishedDate,
+      passages: mergedStringArray(existing.passages, result.passages),
+      pageDescription: mergedText(existing.pageDescription, result.pageDescription),
+      relatedLinks: mergedStringArray(existing.relatedLinks, result.relatedLinks),
+      evidenceStrength: existing.evidenceStrength ?? result.evidenceStrength,
+      evidenceReason: existing.evidenceReason ?? result.evidenceReason,
+      fetchPriority: existing.fetchPriority ?? result.fetchPriority,
+      selectedForFetch: existing.selectedForFetch === true || result.selectedForFetch === true,
+    };
+  }
+
+  return unique;
+}
+
+function parseAgeSnippetDays(snippet?: string): number | undefined {
+  const text = snippet?.toLowerCase() ?? "";
+  if (!text) return undefined;
+
+  const relative = text.match(/\b(\d+)\s+(day|week|month|year)s?\s+ago\b/);
+  if (relative) {
+    const count = Number(relative[1]);
+    const unit = relative[2];
+    if (unit === "day") return count;
+    if (unit === "week") return count * 7;
+    if (unit === "month") return count * 31;
+    if (unit === "year") return count * 366;
+  }
+
+  const absolute = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+  if (!absolute) return undefined;
+  const parsed = new Date(absolute[1]);
+  if (!Number.isFinite(parsed.getTime())) return undefined;
+  const diffMs = Date.now() - parsed.getTime();
+  return Math.max(0, diffMs / (24 * 60 * 60 * 1000));
+}
+
+export function estimateResultAgeDays(result: SearchResult): number | undefined {
+  if (result.publishedDate) {
+    const published = new Date(result.publishedDate);
+    if (Number.isFinite(published.getTime())) {
+      const diffMs = Date.now() - published.getTime();
+      return Math.max(0, diffMs / (24 * 60 * 60 * 1000));
+    }
+  }
+  return parseAgeSnippetDays(result.snippet);
+}
+
+export function filterSearchResultsForTimeRange(
+  results: SearchResult[],
+  timeRange: SearchTimeRange,
+): SearchResult[] {
+  if (timeRange === "all") return results;
+  const maxDays = TIME_RANGE_MAX_DAYS[timeRange];
+  return results.filter((result) => {
+    const ageDays = estimateResultAgeDays(result);
+    return ageDays === undefined || ageDays <= maxDays;
+  });
 }
 
 // ============================================================
@@ -502,160 +465,6 @@ export function extractRelevantPassages(
     );
 }
 
-// ============================================================
-// Domain Authority
-// ============================================================
-
-const AUTHORITY_TLDS = new Set(["edu", "gov"]);
-const AUTHORITY_SUBDOMAINS = new Set([
-  "docs",
-  "developer",
-  "api",
-  "wiki",
-  "learn",
-  "reference",
-]);
-const AUTHORITY_PATH_SEGMENTS = new Set([
-  "docs",
-  "documentation",
-  "guide",
-  "tutorial",
-  "api",
-  "reference",
-]);
-const GENERIC_HOSTING_DOMAINS = new Set([
-  "readthedocs.io",
-  "vercel.app",
-  "netlify.app",
-  "pages.dev",
-  "web.app",
-  "firebaseapp.com",
-]);
-const GENERIC_HOSTING_SUFFIXES = new Set(["github.io"]);
-
-/** URL-pattern domain authority boost (no hardcoded domain map). */
-export function domainAuthorityBoost(url: string): number {
-  const urlInfo = analyzeResultUrl(url);
-  if (!urlInfo) return 0;
-
-  let boost = 0;
-  if (urlInfo.hostLabels.some((label) => AUTHORITY_TLDS.has(label))) {
-    boost += 0.3;
-  }
-  if (
-    urlInfo.subdomainLabels.some((label) => AUTHORITY_SUBDOMAINS.has(label))
-  ) boost += 0.2;
-  if (urlInfo.pathSegments.some((seg) => AUTHORITY_PATH_SEGMENTS.has(seg))) {
-    boost += 0.1;
-  }
-  return boost;
-}
-
-const REPO_HOSTS = new Set([
-  "github.com",
-  "gitlab.com",
-  "bitbucket.org",
-  "sr.ht",
-]);
-const COMMUNITY_DOMAINS = new Set([
-  "reddit.com",
-  "stackoverflow.com",
-  "stackexchange.com",
-  "dev.to",
-  "medium.com",
-  "quora.com",
-  "discord.com",
-  "twitter.com",
-  "x.com",
-]);
-const COMMUNITY_HOSTS = new Set(["news.ycombinator.com"]);
-const GITHUB_COMMUNITY_PATH_SEGMENTS = new Set([
-  "discussions",
-  "issues",
-  "pull",
-  "pulls",
-]);
-const GITLAB_COMMUNITY_PATH_SEGMENTS = new Set(["issues", "merge_requests"]);
-const BITBUCKET_COMMUNITY_PATH_SEGMENTS = new Set(["issues", "pull-requests"]);
-
-function isKnownHostingDomain(
-  urlInfo: ReturnType<typeof analyzeResultUrl>,
-): boolean {
-  if (!urlInfo) return false;
-  return (urlInfo.registrableDomain !== undefined &&
-    GENERIC_HOSTING_DOMAINS.has(urlInfo.registrableDomain)) ||
-    (urlInfo.publicSuffix !== undefined &&
-      GENERIC_HOSTING_SUFFIXES.has(urlInfo.publicSuffix));
-}
-
-function classifyRepositoryHost(
-  urlInfo: NonNullable<ReturnType<typeof analyzeResultUrl>>,
-): "repository" | "community" | undefined {
-  if (!REPO_HOSTS.has(urlInfo.hostWithoutWww)) return undefined;
-
-  switch (urlInfo.hostWithoutWww) {
-    case "github.com":
-      if (urlInfo.pathSegments.length < 2) return undefined;
-      return urlInfo.pathSegments.some((segment) =>
-          GITHUB_COMMUNITY_PATH_SEGMENTS.has(segment)
-        )
-        ? "community"
-        : "repository";
-    case "gitlab.com":
-      if (urlInfo.pathSegments.length < 2) return undefined;
-      return urlInfo.pathSegments.some((segment) =>
-          GITLAB_COMMUNITY_PATH_SEGMENTS.has(segment)
-        )
-        ? "community"
-        : "repository";
-    case "bitbucket.org":
-      if (urlInfo.pathSegments.length < 2) return undefined;
-      return urlInfo.pathSegments.some((segment) =>
-          BITBUCKET_COMMUNITY_PATH_SEGMENTS.has(segment)
-        )
-        ? "community"
-        : "repository";
-    case "sr.ht":
-      return urlInfo.pathSegments.length > 0 ? "repository" : undefined;
-    default:
-      return undefined;
-  }
-}
-
-export function classifySourceAuthority(
-  url: string,
-  query: string,
-): "official" | "authoritative" | "repository" | "community" | "unknown" {
-  const urlInfo = analyzeResultUrl(url);
-  if (!urlInfo) return "unknown";
-
-  if (COMMUNITY_HOSTS.has(urlInfo.hostWithoutWww)) return "community";
-  if (
-    urlInfo.registrableDomain &&
-    COMMUNITY_DOMAINS.has(urlInfo.registrableDomain)
-  ) return "community";
-
-  const repoClassification = classifyRepositoryHost(urlInfo);
-  if (repoClassification) return repoClassification;
-
-  const queryTerms = tokenizeQuery(query).filter((term) => term.length >= 3);
-  const domainTerms = tokenizeQuery(urlInfo.domainWithoutSuffix ?? "");
-  if (
-    !isKnownHostingDomain(urlInfo) &&
-    domainTerms.length > 0 &&
-    queryTerms.some((term) => domainTerms.includes(term))
-  ) {
-    return "official";
-  }
-
-  if (domainAuthorityBoost(url) >= 0.3) return "authoritative";
-  return "unknown";
-}
-
-// ============================================================
-// Ranking
-// ============================================================
-
 /** Drop passages that substantially overlap with the DDG snippet (Jaccard > 0.6). */
 export function deduplicateSnippetPassages(
   snippet: string,
@@ -675,46 +484,4 @@ export function deduplicateSnippetPassages(
     const union = snippetTokens.size + passageTokens.size - intersection;
     return union === 0 || (intersection / union) <= 0.6;
   });
-}
-
-export function rankSearchResults(
-  query: string,
-  results: SearchResult[],
-  timeRange: SearchTimeRange = "all",
-): SearchResult[] {
-  const deduped = dedupeSearchResults(results);
-  const tokens = tokenizeQuery(query);
-
-  // Score once: base relevance + authority - quality penalty, with conditional recency boost
-  const scored = deduped.map((result) => {
-    const ageDays = extractResultAgeDays(result);
-    const base = relevanceScore(tokens, result) +
-      recencyBoost(ageDays, timeRange) + querySignalBoost(query, result);
-    const score = base * (1 + domainAuthorityBoost(result.url ?? "")) -
-      sourceQualityPenalty(result);
-    return { result, ageDays, baseScore: score, host: resultHost(result.url) };
-  });
-
-  const candidates = scored
-    .filter((entry) => isInsideTimeRange(entry.ageDays, timeRange));
-
-  // When a non-"all" timeRange filters out everything, return empty (no silent fallback to stale)
-  if (candidates.length === 0 && timeRange !== "all") return [];
-
-  // Fall back to all scored results if time-range filter removed everything (timeRange === "all" case)
-  const sorted = (candidates.length > 0 ? candidates : scored)
-    .sort((a, b) => b.baseScore - a.baseScore);
-
-  const seenByHost = new Map<string, number>();
-  const diversified = sorted.map((entry) => {
-    const seenCount = entry.host ? (seenByHost.get(entry.host) ?? 0) : 0;
-    if (entry.host) seenByHost.set(entry.host, seenCount + 1);
-    const diversityPenalty = seenCount * 1.25;
-    return {
-      ...entry.result,
-      score: entry.baseScore - diversityPenalty,
-    };
-  });
-
-  return diversified.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 }

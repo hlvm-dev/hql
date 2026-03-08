@@ -28,6 +28,9 @@ import { deriveDefaultSessionKey } from "../runtime/session-key.ts";
 import { type AgentSession, createAgentSession } from "./session.ts";
 import { getAgentEngine } from "./engine.ts";
 import { createDelegateHandler } from "./delegation.ts";
+import { cancelAllThreads } from "./delegate-threads.ts";
+import { setDelegateLimiterMax } from "./concurrency.ts";
+import { createDelegateInbox } from "./delegate-inbox.ts";
 import {
   type AgentUIEvent,
   type FinalResponseMeta,
@@ -127,6 +130,7 @@ export async function createReusableSession(
 
 /** Dispose all reusable sessions created via createReusableSession(). */
 export async function disposeAllSessions(): Promise<void> {
+  cancelAllThreads();
   const sessions = [...reusableSessions.values()];
   reusableSessions.clear();
   await Promise.allSettled(sessions.map((s) => s.dispose()));
@@ -406,10 +410,25 @@ export async function runAgentQuery(
 
     let policy = session.policy;
     policy = mergePolicyPathRoots(policy, DEFAULT_AGENT_PATH_ROOTS);
+    // Apply config-driven concurrency and depth limits for background delegates
+    const configApi = (globalThis as Record<string, unknown>).config as
+      | { snapshot?: Record<string, unknown> }
+      | undefined;
+    let agentMaxDepth = 1;
+    if (configApi?.snapshot) {
+      const { getAgentMaxThreads, getAgentMaxDepth } = await import(
+        "../../common/config/selectors.ts"
+      );
+      setDelegateLimiterMax(getAgentMaxThreads(configApi.snapshot));
+      agentMaxDepth = getAgentMaxDepth(configApi.snapshot);
+    }
+
     const delegate = createDelegateHandler(session.llm, {
       policy,
       sessionId: sessionKey,
       modelId: model,
+      currentDepth: 0,
+      maxDepth: agentMaxDepth,
     });
 
     // Wire MCP server-initiated request handlers (sampling, elicitation, roots)
@@ -624,6 +643,7 @@ export async function runAgentQuery(
     })();
     let text: string;
     try {
+      const delegateInbox = createDelegateInbox();
       text = await runReActLoop(
         query,
         {
@@ -642,6 +662,7 @@ export async function runAgentQuery(
           onInteraction: callbacks.onInteraction,
           noInput,
           delegate,
+          delegateInbox,
           planning: { mode: "auto", requireStepMarkers: false },
           skipModelCompensation: session.isFrontierModel,
           modelTier: session.modelTier,

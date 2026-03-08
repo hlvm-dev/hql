@@ -14,6 +14,7 @@ export type {
   Task,
   ModelPullTask,
   EvalTask,
+  DelegateTask,
   TaskEvent,
   TaskEventListener,
 } from "./types.ts";
@@ -21,6 +22,7 @@ export type {
 export {
   isModelPullTask,
   isEvalTask,
+  isDelegateTask,
   isTaskActive,
   canTransition,
   VALID_TRANSITIONS,

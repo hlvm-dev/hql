@@ -11,6 +11,7 @@ import {
   suggestToolNames,
   type ToolFunction,
 } from "./registry.ts";
+import type { ModelTier } from "./constants.ts";
 import { checkToolSafety, isMutatingTool } from "./security/safety.ts";
 import { DEFAULT_TIMEOUTS, RATE_LIMITS } from "./constants.ts";
 import { withTimeout } from "../../common/timeout-utils.ts";
@@ -44,6 +45,8 @@ import {
   sanitizeArgs,
 } from "./orchestrator-tool-formatting.ts";
 import { getDelegateTranscriptSnapshot } from "./delegate-transcript.ts";
+import { getThread } from "./delegate-threads.ts";
+import { ConcurrencyLimiter } from "./concurrency.ts";
 
 const CHECKPOINT_SUPPORTED_MUTATION_TOOLS = new Set([
   "write_file",
@@ -69,12 +72,16 @@ export async function executeToolWithTimeout(
   ensureMcpLoaded?: () => Promise<void>,
   todoState?: OrchestratorConfig["todoState"],
   checkpointRecorder?: OrchestratorConfig["checkpointRecorder"],
+  modelId?: string,
+  modelTier?: ModelTier,
   parentSignal?: AbortSignal,
 ): Promise<unknown> {
   return await withTimeout(
     async (signal) => {
       const result = await toolFn(args, workspace, {
         signal,
+        modelId,
+        modelTier,
         policy,
         onInteraction,
         toolOwnerId,
@@ -268,35 +275,68 @@ export async function executeToolCall(
     }
 
     if (toolCall.toolName === "delegate_agent" && config.delegate) {
-      const delegateArgs = coercedArgs as { agent?: unknown; task?: unknown };
+      const delegateArgs = coercedArgs as {
+        agent?: unknown;
+        task?: unknown;
+        background?: unknown;
+      };
       const delegateAgent = typeof delegateArgs.agent === "string"
         ? delegateArgs.agent
         : "unknown";
       const delegateTask = typeof delegateArgs.task === "string"
         ? delegateArgs.task
         : "";
-      config.onAgentEvent?.({
-        type: "delegate_start",
-        agent: delegateAgent,
-        task: delegateTask,
-      });
-      try {
-        const result = await config.delegate(coercedArgs, config);
-        const { llmContent, summaryDisplay, returnDisplay } = buildToolResultOutputs(
-          toolCall.toolName,
-          result,
-          config,
-        );
+      const isBackground = delegateArgs.background === true;
+
+      // Emit delegate_start only for foreground delegates.
+      // Background delegates emit delegate_start after handler returns with threadId.
+      if (!isBackground) {
         config.onAgentEvent?.({
-          type: "delegate_end",
+          type: "delegate_start",
           agent: delegateAgent,
           task: delegateTask,
-          success: true,
-          summary: summaryDisplay,
-          durationMs: Date.now() - startedAt,
-          snapshot: getDelegateTranscriptSnapshot(result),
-          childSessionId: getDelegateTranscriptSnapshot(result)?.childSessionId,
         });
+      }
+      try {
+        const result = await config.delegate(coercedArgs, config);
+        const { llmContent, summaryDisplay, returnDisplay } =
+          buildToolResultOutputs(toolCall.toolName, result, config);
+
+        if (isBackground && result && typeof result === "object") {
+          // Background delegate: handler returned immediately with threadId.
+          // Emit single delegate_start with thread info for UI.
+          // delegate_end will be emitted async when the background promise completes.
+          const bgResult = result as Record<string, unknown>;
+          const threadId = typeof bgResult.threadId === "string"
+            ? bgResult.threadId
+            : undefined;
+          const nickname = typeof bgResult.nickname === "string"
+            ? bgResult.nickname
+            : undefined;
+          if (threadId) {
+            config.onAgentEvent?.({
+              type: "delegate_start",
+              agent: delegateAgent,
+              task: delegateTask,
+              threadId,
+              nickname,
+            });
+          }
+        } else {
+          // Foreground delegate: emit delegate_end immediately
+          const snapshot = getDelegateTranscriptSnapshot(result);
+          config.onAgentEvent?.({
+            type: "delegate_end",
+            agent: delegateAgent,
+            task: delegateTask,
+            success: true,
+            summary: summaryDisplay,
+            durationMs: Date.now() - startedAt,
+            snapshot,
+            childSessionId: snapshot?.childSessionId,
+          });
+        }
+
         emitToolSuccess(
           config,
           toolCall.toolName,
@@ -316,6 +356,7 @@ export async function executeToolCall(
           returnDisplay,
         };
       } catch (error) {
+        const errorSnapshot = getDelegateTranscriptSnapshot(error);
         config.onAgentEvent?.({
           type: "delegate_end",
           agent: delegateAgent,
@@ -323,11 +364,184 @@ export async function executeToolCall(
           success: false,
           error: getErrorMessage(error),
           durationMs: Date.now() - startedAt,
-          snapshot: getDelegateTranscriptSnapshot(error),
-          childSessionId: getDelegateTranscriptSnapshot(error)?.childSessionId,
+          snapshot: errorSnapshot,
+          childSessionId: errorSnapshot?.childSessionId,
         });
         throw error;
       }
+    }
+
+    // resume_agent: validate thread, then route through config.delegate with _resume flag
+    if (toolCall.toolName === "resume_agent" && config.delegate) {
+      const resumeArgs = coercedArgs as Record<string, unknown>;
+      const resumeThreadId = typeof resumeArgs.thread_id === "string"
+        ? resumeArgs.thread_id
+        : "";
+      const resumePrompt = typeof resumeArgs.prompt === "string"
+        ? resumeArgs.prompt
+        : "";
+      if (!resumeThreadId || !resumePrompt) {
+        return buildToolErrorResult(
+          toolCall.toolName,
+          "resume_agent requires { thread_id, prompt }",
+          startedAt,
+          config,
+          toolCall.id,
+        );
+      }
+      const thread = getThread(resumeThreadId);
+      if (!thread?.childSessionId) {
+        return buildToolErrorResult(
+          toolCall.toolName,
+          thread
+            ? `Thread "${thread.nickname}" has no persisted session to resume`
+            : `No thread found with ID "${resumeThreadId}"`,
+          startedAt,
+          config,
+          toolCall.id,
+        );
+      }
+      if (thread.status !== "completed" && thread.status !== "errored") {
+        return buildToolErrorResult(
+          toolCall.toolName,
+          `Thread "${thread.nickname}" is ${thread.status} — can only resume completed/errored threads`,
+          startedAt,
+          config,
+          toolCall.id,
+        );
+      }
+      try {
+        // Route through delegate handler with _resume marker.
+        // The handler detects _resumeSessionId and calls resumeDelegateChild.
+        const result = await config.delegate(
+          {
+            agent: thread.agent,
+            task: resumePrompt,
+            _resumeSessionId: thread.childSessionId,
+          },
+          config,
+        );
+        const { llmContent, summaryDisplay, returnDisplay } =
+          buildToolResultOutputs(toolCall.toolName, result, config);
+        emitToolSuccess(
+          config,
+          toolCall.toolName,
+          toolCall.id,
+          llmContent,
+          summaryDisplay,
+          returnDisplay,
+          startedAt,
+          coercedArgs,
+        );
+        return {
+          success: true,
+          llmContent,
+          summaryDisplay,
+          returnDisplay,
+        };
+      } catch (error) {
+        return buildToolErrorResult(
+          toolCall.toolName,
+          getErrorMessage(error),
+          startedAt,
+          config,
+          toolCall.id,
+        );
+      }
+    }
+
+    // batch_delegate: fan-out delegation to multiple agents
+    if (toolCall.toolName === "batch_delegate" && config.delegate) {
+      const batchArgs = coercedArgs as Record<string, unknown>;
+      const agent = typeof batchArgs.agent === "string"
+        ? batchArgs.agent
+        : "";
+      const taskTemplate = typeof batchArgs.task_template === "string"
+        ? batchArgs.task_template
+        : "";
+      const data = Array.isArray(batchArgs.data) ? batchArgs.data : [];
+      const maxConcurrency = typeof batchArgs.max_concurrency === "number"
+        ? batchArgs.max_concurrency
+        : undefined;
+
+      if (!agent || !taskTemplate || data.length === 0) {
+        const errorMsg =
+          "batch_delegate requires { agent, task_template, data[] }";
+        return buildToolErrorResult(
+          toolCall.toolName,
+          errorMsg,
+          startedAt,
+          config,
+          toolCall.id,
+        );
+      }
+
+      const batchId = crypto.randomUUID();
+      const threadIds: string[] = [];
+
+      // Per-batch concurrency limiter (defaults to 4 if not specified)
+      const batchLimiter = maxConcurrency
+        ? new ConcurrencyLimiter(maxConcurrency)
+        : undefined;
+
+      const spawnOne = async (row: unknown): Promise<void> => {
+        const release = batchLimiter
+          ? await batchLimiter.acquire(batchId)
+          : undefined;
+        try {
+          let task = taskTemplate;
+          if (row && typeof row === "object") {
+            for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
+              task = task.replaceAll(`{{${key}}}`, String(value));
+            }
+          }
+          const result = await config.delegate!(
+            { agent, task, background: true },
+            config,
+          );
+          if (result && typeof result === "object") {
+            const bgResult = result as Record<string, unknown>;
+            if (typeof bgResult.threadId === "string") {
+              threadIds.push(bgResult.threadId);
+            }
+          }
+        } catch {
+          // Individual spawn failure — continue with rest
+        } finally {
+          release?.();
+        }
+      };
+
+      // Spawn all concurrently, gated by the per-batch limiter
+      await Promise.all(data.map((row) => spawnOne(row)));
+
+      const batchResult = {
+        batchId,
+        totalRows: data.length,
+        spawned: threadIds.length,
+        threadIds,
+        status: "running",
+      };
+      const { llmContent, summaryDisplay, returnDisplay } =
+        buildToolResultOutputs(toolCall.toolName, batchResult, config);
+      emitToolSuccess(
+        config,
+        toolCall.toolName,
+        toolCall.id,
+        llmContent,
+        summaryDisplay,
+        returnDisplay,
+        startedAt,
+        coercedArgs,
+        batchResult,
+      );
+      return {
+        success: true,
+        result: batchResult,
+        llmContent,
+        summaryDisplay,
+        returnDisplay,
+      };
     }
 
     // Execute tool (with timeout)
@@ -346,6 +560,8 @@ export async function executeToolCall(
         config.ensureMcpLoaded,
         config.todoState,
         config.checkpointRecorder,
+        config.modelId,
+        config.modelTier,
         config.signal,
       );
     } catch (error) {
@@ -366,6 +582,8 @@ export async function executeToolCall(
             config.ensureMcpLoaded,
             config.todoState,
             config.checkpointRecorder,
+            config.modelId,
+            config.modelTier,
             config.signal,
           );
         } else {

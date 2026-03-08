@@ -22,13 +22,10 @@ import React, {
 import { useInput } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
-import type { EvalTask } from "../../repl/task-manager/types.ts";
-import { isEvalTask, isTaskActive } from "../../repl/task-manager/types.ts";
+import type { EvalTask, DelegateTask, Task } from "../../repl/task-manager/types.ts";
+import { isEvalTask, isDelegateTask, isTaskActive } from "../../repl/task-manager/types.ts";
 import { calculateScrollWindow } from "../completion/navigation.ts";
-import {
-  formatEvalTaskResultLines,
-  sortEvalTasks,
-} from "../utils/eval-task-results.ts";
+import { formatEvalTaskResultLines } from "../utils/eval-task-results.ts";
 import {
   ansi,
   bg,
@@ -102,29 +99,62 @@ export function BackgroundTasksOverlay({
     bgStyle: bg(OVERLAY_BG_COLOR),
   }), [theme]);
 
-  // Filter and sort tasks
-  const evalTasks = useMemo(
-    () => sortEvalTasks(tasks.filter(isEvalTask)),
-    [tasks],
-  );
+  // Filter and sort tasks — include both eval and delegate tasks
+  const bgTasks = useMemo(() => {
+    const filtered = tasks.filter((t: Task) => isEvalTask(t) || isDelegateTask(t));
+    // Sort: active first, then by creation time descending
+    return filtered.sort((a: Task, b: Task) => {
+      const aActive = isTaskActive(a) ? 0 : 1;
+      const bActive = isTaskActive(b) ? 0 : 1;
+      if (aActive !== bActive) return aActive - bActive;
+      return b.createdAt - a.createdAt;
+    });
+  }, [tasks]);
 
   // Get viewing task
   const viewingTask = viewingTaskId
-    ? evalTasks.find((t: EvalTask) => t.id === viewingTaskId)
+    ? bgTasks.find((t: Task) => t.id === viewingTaskId)
     : null;
 
   // Format result for display
-  const resultLines = useMemo(
-    () => (viewingTask ? formatEvalTaskResultLines(viewingTask) : []),
-    [viewingTask],
-  );
+  const resultLines = useMemo(() => {
+    if (!viewingTask) return [];
+    if (isEvalTask(viewingTask)) {
+      return formatEvalTaskResultLines(viewingTask);
+    }
+    if (isDelegateTask(viewingTask)) {
+      const dt = viewingTask as DelegateTask;
+      const lines: string[] = [];
+      lines.push(`Agent: ${dt.nickname} [${dt.agent}]`);
+      lines.push(`Task: ${dt.task}`);
+      lines.push(`Status: ${dt.status}`);
+      if (dt.threadId) lines.push(`Thread: ${dt.threadId}`);
+      if (dt.childSessionId) lines.push(`Session: ${dt.childSessionId}`);
+      if (dt.summary) {
+        lines.push("", "--- Result ---", ...dt.summary.split("\n"));
+      }
+      if (dt.error) {
+        lines.push("", "--- Error ---", ...String(dt.error).split("\n"));
+      }
+      if (dt.snapshot?.events.length) {
+        lines.push("", "--- Events ---");
+        for (const ev of dt.snapshot.events) {
+          if (ev.type === "tool_end") {
+            lines.push(`  ${ev.success ? "✓" : "✗"} ${ev.name}: ${ev.summary ?? ev.content ?? ""}`);
+          }
+        }
+      }
+      return lines;
+    }
+    return [];
+  }, [viewingTask]);
 
   // Reset selection if out of bounds
   useEffect(() => {
-    if (selectedIndex >= evalTasks.length && evalTasks.length > 0) {
-      setSelectedIndex(Math.max(0, evalTasks.length - 1));
+    if (selectedIndex >= bgTasks.length && bgTasks.length > 0) {
+      setSelectedIndex(Math.max(0, bgTasks.length - 1));
     }
-  }, [evalTasks.length, selectedIndex]);
+  }, [bgTasks.length, selectedIndex]);
 
   // Draw the overlay
   const drawOverlay = useCallback(() => {
@@ -174,9 +204,12 @@ export function BackgroundTasksOverlay({
 
     // === Hint row ===
     const hintY = headerY + 1;
+    const hintPreview = viewingTask
+      ? (isEvalTask(viewingTask) ? (viewingTask as EvalTask).preview : viewingTask.label)
+      : "";
     const hint = viewMode === "list"
-      ? "Type /bg during eval to push here"
-      : truncate(viewingTask?.preview || "", contentWidth);
+      ? "Background agents & eval tasks"
+      : truncate(hintPreview, contentWidth);
 
     drawRow(hintY, () => {
       output += " ".repeat(PADDING.left);
@@ -192,10 +225,10 @@ export function BackgroundTasksOverlay({
       // Task list view
       const window = calculateScrollWindow(
         selectedIndex,
-        evalTasks.length,
+        bgTasks.length,
         VISIBLE_ROWS,
       );
-      const visibleTasks = evalTasks.slice(window.start, window.end);
+      const visibleTasks = bgTasks.slice(window.start, window.end);
 
       for (let row = 0; row < VISIBLE_ROWS; row++) {
         const rowY = pos.y + CONTENT_START + row;
@@ -203,7 +236,7 @@ export function BackgroundTasksOverlay({
 
         drawRow(rowY, () => {
           if (!task) {
-            if (row === 0 && evalTasks.length === 0) {
+            if (row === 0 && bgTasks.length === 0) {
               // Show "No tasks" message
               output += " ".repeat(PADDING.left);
               output += fg(colors.muted) + "No tasks" + ansi.reset + bgStyle;
@@ -277,10 +310,13 @@ export function BackgroundTasksOverlay({
           output += " ";
           len += 2; // icon + space
 
-          // Preview (truncated)
+          // Preview (truncated) — use preview for eval, label for delegate
           const previewMaxLen = contentWidth - 15;
+          const previewText = isEvalTask(task)
+            ? (task as EvalTask).preview
+            : task.label;
           const preview = padTo(
-            truncate(task.preview, previewMaxLen),
+            truncate(previewText, previewMaxLen),
             previewMaxLen,
           );
           output += preview;
@@ -342,8 +378,8 @@ export function BackgroundTasksOverlay({
     const footerText = viewMode === "list"
       ? "↑↓ nav  Enter view  x dismiss  c clear"
       : "↑↓ scroll  q/Esc back";
-    const countText = viewMode === "list" && evalTasks.length > 0
-      ? `${selectedIndex + 1}/${evalTasks.length}`
+    const countText = viewMode === "list" && bgTasks.length > 0
+      ? `${selectedIndex + 1}/${bgTasks.length}`
       : "";
 
     drawRow(footerY, () => {
@@ -366,7 +402,7 @@ export function BackgroundTasksOverlay({
     writeToTerminal(output);
   }, [
     colors,
-    evalTasks,
+    bgTasks,
     selectedIndex,
     viewMode,
     viewingTask,
@@ -437,7 +473,7 @@ export function BackgroundTasksOverlay({
     }
 
     // Guard: no navigation when list is empty
-    if (evalTasks.length === 0) {
+    if (bgTasks.length === 0) {
       return;
     }
 
@@ -446,13 +482,13 @@ export function BackgroundTasksOverlay({
       return;
     }
     if (key.downArrow || input === "j") {
-      setSelectedIndex((i: number) => Math.min(evalTasks.length - 1, i + 1));
+      setSelectedIndex((i: number) => Math.min(bgTasks.length - 1, i + 1));
       return;
     }
 
     // View result
-    if (key.return && evalTasks[selectedIndex]) {
-      const task = evalTasks[selectedIndex];
+    if (key.return && bgTasks[selectedIndex]) {
+      const task = bgTasks[selectedIndex];
       setViewingTaskId(task.id);
       setViewMode("result");
       setResultScrollOffset(0);
@@ -460,8 +496,8 @@ export function BackgroundTasksOverlay({
     }
 
     // Cancel/dismiss
-    if (input === "x" && evalTasks[selectedIndex]) {
-      const task = evalTasks[selectedIndex];
+    if (input === "x" && bgTasks[selectedIndex]) {
+      const task = bgTasks[selectedIndex];
       if (isTaskActive(task)) {
         cancel(task.id);
       } else {

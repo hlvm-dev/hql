@@ -23,8 +23,6 @@ export interface SearchResult {
   evidenceReason?: string;
   fetchPriority?: number;
   selectedForFetch?: boolean;
-  selectedForSynthesis?: boolean;
-  sourceAuthority?: "official" | "authoritative" | "repository" | "community" | "unknown";
 }
 
 export interface SearchProviderResponse {
@@ -53,8 +51,8 @@ export interface SearchDepthDefaults {
 /** SSOT defaults used by searchDepth profile resolution. */
 export const SEARCH_DEPTH_DEFAULTS: Record<SearchDepthProfile, SearchDepthDefaults> = {
   low: { maxResults: 3, prefetch: false, reformulate: false, prefetchTargets: 0 },
-  medium: { maxResults: 5, prefetch: true, reformulate: true, prefetchTargets: 2 },
-  high: { maxResults: 8, prefetch: true, reformulate: true, prefetchTargets: 3 },
+  medium: { maxResults: 5, prefetch: true, reformulate: true, prefetchTargets: 3 },
+  high: { maxResults: 8, prefetch: true, reformulate: true, prefetchTargets: 4 },
 };
 
 export interface SearchCallOptions {

@@ -51,14 +51,10 @@ import {
 import { renderWithChrome } from "./web/headless-chrome.ts";
 import { detectSearchQueryIntent } from "./web/query-strategy.ts";
 import {
-  bestEvidenceSummary,
-  selectEvidencePages,
-} from "./web/evidence-selection.ts";
-import {
   DdgSearchBackend,
-  selectDiversePrefetchTargets,
 } from "./web/ddg-search-backend.ts";
 import { assessToolSearchConfidence } from "./web/search-backend.ts";
+import { hasStructuredEvidence } from "./web/web-utils.ts";
 
 // ============================================================
 // Types
@@ -100,6 +96,8 @@ const DEFAULT_HTML_LINKS = 20;
 const MAX_WEB_CHARS = 200_000;
 const DEFAULT_SEARCH_DEPTH: SearchDepthProfile = "medium";
 const LOW_CONFIDENCE_RELATED_LINKS_LIMIT = 4;
+const MAX_LLM_EVIDENCE_CHARS = 320;
+const MAX_LLM_SUPPORTING_RESULTS = 2;
 
 // ============================================================
 // Structured Error Codes
@@ -177,6 +175,60 @@ function resolveLocale(value: unknown): string | undefined {
   return value.trim().toLowerCase();
 }
 
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeEmbeddedSearchWebArgs(value: SearchWebArgs): SearchWebArgs {
+  if (typeof value.query !== "string") return value;
+  const trimmed = value.query.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return value;
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== "object") return value;
+    const candidate = parsed as Record<string, unknown>;
+    const recoveredQuery = typeof candidate.query === "string" && candidate.query.trim().length > 0
+      ? candidate.query.trim()
+      : undefined;
+    if (!recoveredQuery) return value;
+
+    return {
+      ...value,
+      query: recoveredQuery,
+      maxResults: typeof candidate.maxResults === "number" && candidate.maxResults > 0
+        ? candidate.maxResults
+        : value.maxResults,
+      timeoutMs: typeof candidate.timeoutMs === "number" && candidate.timeoutMs > 0
+        ? candidate.timeoutMs
+        : value.timeoutMs,
+      timeoutSeconds: typeof candidate.timeoutSeconds === "number" && candidate.timeoutSeconds > 0
+        ? candidate.timeoutSeconds
+        : value.timeoutSeconds,
+      allowedDomains: normalizeStringArray(candidate.allowedDomains) ?? value.allowedDomains,
+      blockedDomains: normalizeStringArray(candidate.blockedDomains) ?? value.blockedDomains,
+      timeRange: typeof candidate.timeRange === "string"
+        ? candidate.timeRange as SearchTimeRange
+        : value.timeRange,
+      locale: typeof candidate.locale === "string" ? candidate.locale : value.locale,
+      searchDepth: typeof candidate.searchDepth === "string"
+        ? candidate.searchDepth as SearchDepthProfile
+        : value.searchDepth,
+      prefetch: typeof candidate.prefetch === "boolean" ? candidate.prefetch : value.prefetch,
+      reformulate: typeof candidate.reformulate === "boolean"
+        ? candidate.reformulate
+        : value.reformulate,
+    };
+  } catch {
+    return value;
+  }
+}
+
 function normalizeDomainList(domains?: string[]): string {
   if (!domains?.length) return "";
   return [...domains]
@@ -197,6 +249,7 @@ function buildSearchWebCacheKey(
   searchDepth: SearchDepthProfile = DEFAULT_SEARCH_DEPTH,
   prefetch?: boolean,
   reformulate?: boolean,
+  modelId?: string,
 ): string {
   return makeCacheKey(`search_web:${provider}`, [
     query,
@@ -208,15 +261,8 @@ function buildSearchWebCacheKey(
     searchDepth,
     prefetch === false ? "nopf" : "pf",
     reformulate === false ? "norf" : "rf",
+    modelId ?? "",
   ]);
-}
-
-function averageResultScore(results: SearchResult[]): number | undefined {
-  const scored = results.filter((r) =>
-    typeof r.score === "number" && Number.isFinite(r.score)
-  );
-  if (scored.length === 0) return undefined;
-  return scored.reduce((sum, r) => sum + (r.score ?? 0), 0) / scored.length;
 }
 
 function collectLowConfidenceRelatedLinks(
@@ -234,97 +280,75 @@ function collectLowConfidenceRelatedLinks(
   return [...unique];
 }
 
-function recommendationAuthorityWeight(
+function resultEvidenceSummary(
   result: SearchResult,
-  queryIntent: ReturnType<typeof detectSearchQueryIntent>,
-): number {
-  switch (result.sourceAuthority) {
-    case "official":
-      return queryIntent.wantsReleaseNotes || queryIntent.wantsOfficialDocs ||
-          queryIntent.wantsReference || queryIntent.wantsRecency
-        ? 8
-        : 6;
-    case "authoritative":
-      return queryIntent.wantsOfficialDocs || queryIntent.wantsReference
-        ? 6
-        : 4;
-    case "repository":
-      return queryIntent.wantsReleaseNotes || queryIntent.wantsRecency ? 5 : 2;
-    case "community":
-      return -4;
-    default:
-      return 0;
-  }
+  maxPassages = 1,
+  includeSnippetFallback = true,
+): string[] {
+  const passages = (result.passages ?? [])
+    .map((passage) => passage.trim())
+    .filter((passage) => passage.length > 0)
+    .slice(0, maxPassages);
+  if (passages.length > 0) return passages;
+  if (result.pageDescription?.trim()) return [result.pageDescription.trim()];
+  if (includeSnippetFallback && result.snippet?.trim()) return [result.snippet.trim()];
+  return [];
 }
 
-function recommendationReason(
-  result: SearchResult,
-  queryIntent: ReturnType<typeof detectSearchQueryIntent>,
-): string {
-  if (result.sourceAuthority === "official") {
-    if (queryIntent.wantsReleaseNotes || queryIntent.wantsRecency) {
-      return "Official source for a current/release-oriented query.";
-    }
-    if ((result.passages?.length ?? 0) > 0) {
-      return "Official domain matching the query subject with extracted evidence.";
-    }
-    return "Official domain matching the query subject.";
-  }
-  if (result.sourceAuthority === "authoritative") {
-    return "Authoritative docs/reference source.";
-  }
-  if (result.sourceAuthority === "repository") {
-    return queryIntent.wantsReleaseNotes || queryIntent.wantsRecency
-      ? "Repository release/source page relevant to a current release query."
-      : "Repository source for the current codebase.";
-  }
-  return "Highest-ranked result after retrieval scoring.";
+function compactEvidenceText(text: string): string {
+  return truncateText(
+    text.replace(/\s+/g, " ").trim(),
+    MAX_LLM_EVIDENCE_CHARS,
+  ).text;
 }
 
-function pickRecommendedResult(
+function buildEvidencePackLines(
   results: SearchResult[],
-  queryIntent: ReturnType<typeof detectSearchQueryIntent>,
-): SearchResult | undefined {
-  const candidates = results.filter((result) => result.url);
-  if (candidates.length === 0) return undefined;
+  evidenceExcerptCount: number,
+): string[] {
+  const lines = ["Fetched sources:"];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    lines.push(
+      `[${i + 1}] ${result.title}${result.url ? ` — ${result.url}` : ""}`,
+    );
+    if (result.publishedDate) {
+      lines.push(`    Published: ${result.publishedDate}`);
+    }
+    if (result.evidenceStrength) {
+      const evidenceLabel = result.evidenceStrength.toUpperCase();
+      const evidenceReason = result.evidenceReason?.trim()
+        ? ` — ${result.evidenceReason.trim()}`
+        : "";
+      lines.push(`    Evidence: ${evidenceLabel}${evidenceReason}`);
+    }
 
-  const preferred = candidates
-    .map((result) => {
-      const evidenceBonus = (result.passages?.length ?? 0) > 0
-        ? 3
-        : result.pageDescription
-        ? 1.5
-        : 0;
-      const evidenceStrengthBonus = result.evidenceStrength === "high"
-        ? 2
-        : result.evidenceStrength === "medium"
-        ? 1
-        : 0;
-      const recencyBonus =
-        (queryIntent.wantsReleaseNotes || queryIntent.wantsRecency) &&
-          result.publishedDate
-          ? 1.5
-          : 0;
-      return {
-        result,
-        score: (result.score ?? 0) +
-          recommendationAuthorityWeight(result, queryIntent) +
-          evidenceBonus +
-          evidenceStrengthBonus +
-          recencyBonus,
-      };
-    })
-    .sort((a, b) => b.score - a.score);
-
-  const best = preferred[0]?.result;
-  if (!best?.url) return undefined;
-  if (
-    best.sourceAuthority === "community" ||
-    (!best.sourceAuthority || best.sourceAuthority === "unknown")
-  ) {
-    return undefined;
+    const evidence = resultEvidenceSummary(result, evidenceExcerptCount, false)
+      .map(compactEvidenceText)
+      .filter((excerpt) => excerpt.length > 0);
+    if (evidence.length === 0) {
+      lines.push("    No extracted evidence was available from this fetch.");
+      continue;
+    }
+    for (const excerpt of evidence) {
+      lines.push(`    > ${excerpt}`);
+    }
   }
-  return best;
+  return lines;
+}
+
+function buildSupportingLines(results: SearchResult[]): string[] {
+  const lines = ["Supporting results:"];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    lines.push(
+      `[${i + 1}] ${result.title}${result.url ? ` — ${result.url}` : ""}`,
+    );
+    for (const excerpt of resultEvidenceSummary(result, 1).map(compactEvidenceText)) {
+      lines.push(`    > ${excerpt}`);
+    }
+  }
+  return lines;
 }
 
 function resolveSearchDepth(value: unknown): SearchDepthProfile {
@@ -347,9 +371,6 @@ function resolveSearchDepth(value: unknown): SearchDepthProfile {
 
 export const __testOnlyBuildSearchWebCacheKey = buildSearchWebCacheKey;
 export const __testOnlyFormatSearchWebResult = formatSearchWebResult;
-export const __testOnlySelectDiversePrefetchTargets =
-  selectDiversePrefetchTargets;
-export const __testOnlyAverageResultScore = averageResultScore;
 
 function formatFetchUrlResult(
   raw: unknown,
@@ -703,7 +724,7 @@ async function searchWeb(
     throw webToolError("args must be an object", "search_web", "invalid_input");
   }
 
-  const typed = args as SearchWebArgs;
+  const typed = normalizeEmbeddedSearchWebArgs(args as SearchWebArgs);
   const { query, maxResults, timeoutMs, timeoutSeconds } = typed;
   if (!query || typeof query !== "string") {
     throw webToolError("query is required", "search_web", "invalid_input");
@@ -744,6 +765,7 @@ async function searchWeb(
     searchDepth,
     resolvedPrefetch,
     resolvedReformulate,
+    options?.modelId,
   );
   const cachedSearch = await checkCacheHit(
     cacheKey,
@@ -802,24 +824,12 @@ function formatSearchWebResult(
   const queryIntent = detectSearchQueryIntent(queryStr);
   const confidence = assessToolSearchConfidence(queryStr, results);
   const lowConfidence = confidence.lowConfidence;
-  const evidencePages = selectEvidencePages(results, {
-    maxPages: queryIntent.wantsComparison
-      ? Math.min(3, Math.max(2, results.length))
-      : 3,
-    intent: queryIntent,
-  });
-  const topResults = (evidencePages.length > 0 ? evidencePages : results).slice(
-    0,
-    4,
-  );
-  const evidenceUrlSet = new Set(
-    evidencePages.map((result) => result.url).filter((url): url is string =>
-      Boolean(url)
-    ),
-  );
-  const otherResults = results.filter((result) =>
-    !evidenceUrlSet.has(result.url ?? "")
+  const fetchedResults = results.filter((result) => result.selectedForFetch === true);
+  const supportingResults = results.filter((result) =>
+    result.selectedForFetch !== true
   ).slice(0, 4);
+  const topResults = (fetchedResults.length > 0 ? fetchedResults : results).slice(0, 4);
+  const evidenceExcerptCount = queryIntent.wantsComparison ? 2 : 1;
   const detailLines: string[] = [
     `Search: "${queryStr}" (${results.length} results, ${provider})\n`,
   ];
@@ -852,7 +862,7 @@ function formatSearchWebResult(
       if (r.publishedDate) {
         displayLines.push(`    Published: ${r.publishedDate}`);
       }
-      const summary = bestEvidenceSummary(r);
+      const summary = resultEvidenceSummary(r, 1)[0];
       if (summary) displayLines.push(`    ${summary}`);
     }
     if (results.length > topResults.length) {
@@ -865,11 +875,14 @@ function formatSearchWebResult(
   }
 
   const summaryText = displayLines.join("\n").trimEnd();
-  const fetchedEvidenceAvailable = evidencePages.some((result) =>
-    (result.passages?.length ?? 0) > 0 || Boolean(result.pageDescription)
+  const fetchedEvidenceAvailable = fetchedResults.some((result) =>
+    hasStructuredEvidence(result)
   );
   const llmSections: string[] = [
-    `Search summary\nQuery: "${queryStr}"\nProvider: ${provider}\nResults: ${results.length}`,
+    `Web search evidence\nQuery: "${queryStr}"\nProvider: ${provider}\nResults: ${results.length}`,
+    fetchedEvidenceAvailable
+      ? "Use fetched sources as primary evidence. Use supporting search results only to fill small gaps or corroborate."
+      : "Fetched evidence is limited. Prefer the strongest fetched source if present, and treat snippet-only results cautiously.",
   ];
   const retrieval =
     typeof data.diagnostics === "object" && data.diagnostics !== null
@@ -889,55 +902,10 @@ function formatSearchWebResult(
       }`,
     );
   }
-  const recommended = pickRecommendedResult(results, queryIntent);
-  if (recommended) {
+  if (fetchedResults.length > 0) {
     llmSections.push(
-      `Recommended source: ${recommended.title}${
-        recommended.url ? ` — ${recommended.url}` : ""
-      }\n` +
-        `Reason: ${recommendationReason(recommended, queryIntent)}\n` +
-        "Action: Check this source first before lower-authority alternatives.",
+      buildEvidencePackLines(fetchedResults, evidenceExcerptCount).join("\n"),
     );
-  }
-
-  if (evidencePages.length > 0) {
-    const evidenceLines = ["Evidence pages:"];
-    for (let i = 0; i < evidencePages.length; i++) {
-      const result = evidencePages[i];
-      const authorityTag =
-        result.sourceAuthority && result.sourceAuthority !== "unknown"
-          ? ` [${result.sourceAuthority}]`
-          : "";
-      evidenceLines.push(
-        `[${i + 1}] ${result.title}${
-          result.url ? ` — ${result.url}` : ""
-        }${authorityTag}`,
-      );
-      if (result.publishedDate) {
-        evidenceLines.push(`    Published: ${result.publishedDate}`);
-      }
-      if (result.evidenceStrength) {
-        evidenceLines.push(
-          `    Why selected: ${
-            result.evidenceReason ?? result.evidenceStrength
-          }`,
-        );
-      }
-      const pageEvidence = [
-        ...(result.passages ?? []).slice(
-          0,
-          queryIntent.wantsComparison ? 2 : 1,
-        ),
-      ];
-      if (pageEvidence.length === 0) {
-        const fallback = bestEvidenceSummary(result);
-        if (fallback) pageEvidence.push(fallback);
-      }
-      for (const excerpt of pageEvidence) {
-        evidenceLines.push(`    > ${excerpt}`);
-      }
-    }
-    llmSections.push(evidenceLines.join("\n"));
   }
   // Sufficiency guidance — tell the LLM when passages already answer the question
   const guidance = typeof data.guidance === "object" && data.guidance !== null
@@ -951,22 +919,19 @@ function formatSearchWebResult(
       "No fetched-page evidence was available; rely on snippets and metadata cautiously.",
     );
   }
-  if (otherResults.length > 0) {
-    const otherLines = ["Supporting results:"];
-    for (let i = 0; i < otherResults.length; i++) {
-      const result = otherResults[i];
-      otherLines.push(
-        `[${i + 1}] ${result.title}${result.url ? ` — ${result.url}` : ""}`,
-      );
-      const fallback = bestEvidenceSummary(result);
-      if (fallback) otherLines.push(`    > ${fallback}`);
-    }
-    llmSections.push(otherLines.join("\n"));
+  const shouldIncludeSupporting = supportingResults.length > 0 &&
+    (!fetchedEvidenceAvailable || queryIntent.wantsComparison || lowConfidence);
+  if (shouldIncludeSupporting) {
+    llmSections.push(
+      buildSupportingLines(
+        supportingResults.slice(0, MAX_LLM_SUPPORTING_RESULTS),
+      ).join("\n"),
+    );
   }
   const llmSupplements: string[] = [];
   if (lowConfidence) {
     llmSupplements.push(
-      "Tip: Results have low relevance scores. Consider refining your search with more specific terms.",
+      "Tip: Search confidence is low. Results may be noisy or incomplete.",
     );
     llmSupplements.push(`Confidence reason: ${confidence.reason}`);
     const relatedLinks = collectLowConfidenceRelatedLinks(results);
@@ -982,7 +947,6 @@ function formatSearchWebResult(
     );
   }
   const detailText = detailLines.join("\n").trimEnd();
-  llmSections.push(`Detailed ranked results:\n${detailText}`);
   if (llmSupplements.length > 0) {
     llmSections.push(llmSupplements.join("\n\n"));
   }

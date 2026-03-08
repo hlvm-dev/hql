@@ -74,6 +74,7 @@ import {
 } from "../../../../common/config/model-selection.ts";
 import { ReplProvider } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
+import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { log } from "../../../api/log.ts";
 import { looksLikeNaturalLanguage } from "../../repl/input-routing.ts";
 import {
@@ -703,6 +704,24 @@ function AppContent(
           },
           onAgentEvent: (event) => {
             conversation.addEvent(event);
+            // Wire background delegate lifecycle to TaskManager
+            if (event.type === "delegate_start" && event.threadId) {
+              getTaskManager().createDelegateTask(
+                event.threadId,
+                event.agent,
+                event.nickname ?? event.agent,
+                event.task,
+              );
+            } else if (event.type === "delegate_running" && event.threadId) {
+              getTaskManager().markDelegateThreadRunning(event.threadId);
+            } else if (event.type === "delegate_end" && event.threadId) {
+              getTaskManager().resolveDelegateThread(event.threadId, {
+                success: event.success,
+                summary: event.summary,
+                error: event.error,
+                snapshot: event.snapshot,
+              });
+            }
           },
           onFinalResponseMeta: (meta) => {
             finalCitations = meta.citationSpans as

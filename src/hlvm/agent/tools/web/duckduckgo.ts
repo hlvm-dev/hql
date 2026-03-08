@@ -1,5 +1,5 @@
 /**
- * DuckDuckGo search: HTML parsing, result scoring, URL normalization.
+ * DuckDuckGo search: HTML parsing, raw provider ordering, and URL normalization.
  * Extracted from web-tools.ts for modularity.
  */
 
@@ -11,9 +11,7 @@ import type { ToolExecutionOptions } from "../../registry.ts";
 import { assertUrlAllowed, isTransientHttpError } from "./fetch-core.ts";
 import { decodeHtmlEntities, parseAttributes } from "./html-parser.ts";
 import {
-  assessSearchConfidence,
-  dedupeSearchResults,
-  rankSearchResults,
+  dedupeSearchResultsStable,
 } from "./search-ranking.ts";
 import {
   filterSearchResultsByDomain,
@@ -36,13 +34,6 @@ interface SearchResult {
 
 /** DuckDuckGo server-side date filter values */
 const DDG_DF_PARAM: Partial<Record<SearchTimeRange, string>> = { day: "d", week: "w", month: "m", year: "y" };
-
-export function scoreSearchResults(
-  query: string,
-  results: SearchResult[],
-): SearchResult[] {
-  return rankSearchResults(query, results, "all");
-}
 
 // ============================================================
 // HTML Tag Helpers
@@ -75,6 +66,44 @@ function normalizeDuckDuckGoResultUrl(rawHref: string): string {
   } catch {
     return href;
   }
+}
+
+function normalizeBingResultUrl(rawHref: string): string {
+  let href = decodeHtmlEntities(rawHref).trim();
+  if (!href) return "";
+  if (href.startsWith("//")) href = `https:${href}`;
+  if (href.startsWith("/")) href = `https://www.bing.com${href}`;
+  try {
+    const parsed = new URL(href);
+    if (
+      (parsed.hostname === "www.bing.com" || parsed.hostname.endsWith(".bing.com")) &&
+      parsed.pathname.startsWith("/ck/")
+    ) {
+      const encodedTarget = parsed.searchParams.get("u");
+      if (encodedTarget?.startsWith("a1")) {
+        try {
+          const normalized = encodedTarget.slice(2)
+            .replace(/-/g, "+")
+            .replace(/_/g, "/");
+          const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+          return atob(padded);
+        } catch {
+          // Fall through to raw Bing URL if decode fails.
+        }
+      } else if (encodedTarget?.startsWith("http")) {
+        return encodedTarget;
+      }
+    }
+    return parsed.toString();
+  } catch {
+    return href;
+  }
+}
+
+function isDuckDuckGoAnomalyPage(html: string): boolean {
+  return /anomaly-modal|challenge-form|Unfortunately,\s+bots\s+use\s+DuckDuckGo\s+too/i.test(
+    html,
+  );
 }
 
 // ============================================================
@@ -153,6 +182,40 @@ export function parseDuckDuckGoSearchResults(
       url: current.url,
       snippet,
     });
+    if (results.length >= limit) break;
+  }
+
+  return results;
+}
+
+export function parseBingSearchResults(
+  html: string,
+  limit: number,
+): SearchResult[] {
+  const blockRegex =
+    /<li\b[^>]*class\s*=\s*["'][^"']*\bb_algo\b[^"']*["'][^>]*>([\s\S]*?)<\/li>/gi;
+  const results: SearchResult[] = [];
+  const seenUrls = new Set<string>();
+  let match: RegExpExecArray | null;
+
+  while ((match = blockRegex.exec(html)) !== null) {
+    const block = match[1] ?? "";
+    const anchorMatch = block.match(
+      /<h2\b[^>]*>\s*<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i,
+    );
+    if (!anchorMatch) continue;
+
+    const url = normalizeBingResultUrl(anchorMatch[1] ?? "");
+    if (!url || seenUrls.has(url)) continue;
+    seenUrls.add(url);
+
+    const title = stripHtmlTags(anchorMatch[2] ?? "");
+    if (!title) continue;
+
+    const snippetMatch = block.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i);
+    const snippet = snippetMatch?.[1] ? stripHtmlTags(snippetMatch[1]) : "";
+
+    results.push({ title, url, snippet });
     if (results.length >= limit) break;
   }
 
@@ -244,9 +307,6 @@ export function generateQueryVariants(query: string, maxVariants = 2): string[] 
 // Search Implementation
 // ============================================================
 
-const MAX_DDG_PAGES = 2;
-const LOW_CONFIDENCE_SECOND_PASS_SCORE = 3;
-
 async function fetchDdgPage(
   query: string,
   timeRange: SearchTimeRange,
@@ -281,7 +341,43 @@ async function fetchDdgPage(
   }
 
   const html = await response.text();
+  if (isDuckDuckGoAnomalyPage(html)) {
+    throw new ValidationError(
+      "DuckDuckGo search was blocked by an anti-bot challenge.",
+      "search_web",
+    );
+  }
   return parseDuckDuckGoSearchResults(html, Math.max(30, 20));
+}
+
+async function fetchBingPage(
+  query: string,
+  timeoutMs: number | undefined,
+  options: ToolExecutionOptions | undefined,
+): Promise<SearchResult[]> {
+  const params = new URLSearchParams({ q: query });
+  const endpoint = `https://www.bing.com/search?${params}`;
+  assertUrlAllowed(endpoint, options);
+
+  const response = await withRetry(
+    () => http.fetchRaw(endpoint, {
+      timeout: timeoutMs,
+      headers: {
+        "Accept": "text/html",
+        "User-Agent": DEFAULT_USER_AGENT,
+      },
+    }),
+    { maxAttempts: 2, initialDelayMs: 500, shouldRetry: isTransientHttpError },
+  );
+  if (!response.ok) {
+    throw new ValidationError(
+      `Bing search failed with HTTP ${response.status}`,
+      "search_web",
+    );
+  }
+
+  const html = await response.text();
+  return parseBingSearchResults(html, Math.max(30, 20));
 }
 
 export async function duckDuckGoSearch(
@@ -293,102 +389,45 @@ export async function duckDuckGoSearch(
   locale?: string,
   allowedDomains?: string[],
   blockedDomains?: string[],
-  reformulate = true,
+  _reformulate = true,
 ): Promise<Record<string, unknown>> {
-  const page1 = await fetchDdgPage(query, timeRange, locale, timeoutMs, options);
-  let allResults: SearchResult[] = [...page1];
-
-  // Rank page 1 to check if we need more results
-  const scored1 = rankSearchResults(query, allResults, timeRange);
-  const filtered1 = (allowedDomains?.length || blockedDomains?.length)
-    ? filterSearchResultsByDomain(scored1, allowedDomains, blockedDomains)
-    : scored1;
-  const initialConfidence = assessSearchConfidence(query, filtered1, {
-    sampleSize: limit,
-    scoreThreshold: LOW_CONFIDENCE_SECOND_PASS_SCORE,
-    diversityThreshold: 0.35,
-    coverageThreshold: 0.5,
-  });
-  const lowConfidence = initialConfidence.lowConfidence;
-  const needsCoverageExpansion = filtered1.length < limit && page1.length > 0;
-  const diagnostics: Record<string, unknown> = {
-    avgScoreInitial: initialConfidence.avgScore,
-    lowConfidenceInitial: lowConfidence,
-    lowConfidenceThreshold: LOW_CONFIDENCE_SECOND_PASS_SCORE,
-    confidenceReasonInitial: initialConfidence.reason,
-    confidenceReasonsInitial: initialConfidence.reasons,
-    needsCoverageExpansion,
-    lowConfidenceRetryTriggered: false,
-    variantQueries: [] as string[],
-    secondPassFetches: 0,
-  };
-
-  // Run a second pass when either coverage is low or first-pass confidence is low.
-  if ((needsCoverageExpansion || lowConfidence) && page1.length > 0) {
-    const variantTimeout = Math.max(2000, Math.floor((timeoutMs ?? 30000) / 3));
-    const fetches: Promise<SearchResult[]>[] = [];
-
-    // Page 2 of original query
-    if (needsCoverageExpansion && MAX_DDG_PAGES > 1) {
-      fetches.push(
-        fetchDdgPage(query, timeRange, locale, variantTimeout, options, page1.length)
-          .catch(() => [] as SearchResult[]),
-      );
+  let page1: SearchResult[];
+  let provider = "duckduckgo";
+  let fallbackProvider: string | undefined;
+  let anomalyBlocked = false;
+  try {
+    page1 = await fetchDdgPage(query, timeRange, locale, timeoutMs, options);
+  } catch (error) {
+    if (
+      error instanceof ValidationError &&
+      error.message.includes("anti-bot challenge")
+    ) {
+      anomalyBlocked = true;
+      page1 = await fetchBingPage(query, timeoutMs, options);
+      provider = "bing-html";
+      fallbackProvider = "bing-html";
+    } else {
+      throw error;
     }
-
-    // Query variants (best-effort). Use one variant for confidence retry.
-    if (reformulate) {
-      const variants = generateQueryVariants(query, needsCoverageExpansion ? 2 : 1);
-      diagnostics.variantQueries = variants;
-      const variantSubset = needsCoverageExpansion ? variants : variants.slice(0, 1);
-      for (const variant of variantSubset) {
-        fetches.push(
-          fetchDdgPage(variant, timeRange, locale, variantTimeout, options)
-            .catch(() => [] as SearchResult[]),
-        );
-      }
-      if (!needsCoverageExpansion && variantSubset.length > 0) {
-        diagnostics.lowConfidenceRetryTriggered = true;
-        diagnostics.lowConfidenceRetryQuery = variantSubset[0];
-      }
-    }
-
-    diagnostics.secondPassFetches = fetches.length;
-    const settled = await Promise.allSettled(fetches);
-    for (const outcome of settled) {
-      if (outcome.status === "fulfilled" && outcome.value.length > 0) {
-        allResults.push(...outcome.value);
-      }
-    }
-
-    // Dedup via canonical URL (SSOT)
-    allResults = dedupeSearchResults(allResults) as SearchResult[];
   }
 
-  // Re-rank the full merged set
-  const scored = allResults.length === page1.length && filtered1.length >= limit
-    ? scored1
-    : rankSearchResults(query, allResults, timeRange);
-  const filtered = allResults.length === page1.length && filtered1.length >= limit
-    ? filtered1
-    : (allowedDomains?.length || blockedDomains?.length)
-      ? filterSearchResultsByDomain(scored, allowedDomains, blockedDomains)
-      : scored;
+  const deduped = dedupeSearchResultsStable(page1);
+  const filtered = (allowedDomains?.length || blockedDomains?.length)
+    ? filterSearchResultsByDomain(deduped, allowedDomains, blockedDomains)
+    : deduped;
   const topResults = filtered.slice(0, limit);
-  const finalConfidence = assessSearchConfidence(query, topResults, {
-    sampleSize: limit,
-    scoreThreshold: LOW_CONFIDENCE_SECOND_PASS_SCORE,
-    diversityThreshold: 0.35,
-    coverageThreshold: 0.5,
-  });
-  diagnostics.avgScoreFinal = finalConfidence.avgScore;
-  diagnostics.lowConfidenceFinal = finalConfidence.lowConfidence;
-  diagnostics.confidenceReasonFinal = finalConfidence.reason;
-  diagnostics.confidenceReasonsFinal = finalConfidence.reasons;
+  const diagnostics: Record<string, unknown> = {
+    rawProviderOrder: true,
+    anomalyBlocked,
+    parsedCount: page1.length,
+    dedupedCount: deduped.length,
+    filteredCount: filtered.length,
+    fallbackProvider,
+  };
 
   return {
     query,
-    provider: "duckduckgo",
+    provider,
     results: topResults,
     count: topResults.length,
     diagnostics,

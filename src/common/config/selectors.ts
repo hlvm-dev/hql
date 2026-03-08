@@ -45,3 +45,17 @@ export function getTheme(config: unknown): string {
     ? rawTheme
     : DEFAULT_CONFIG.theme;
 }
+
+export function getAgentMaxThreads(config: unknown): number {
+  const raw = isObjectValue(config) ? config.agentMaxThreads : undefined;
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= 1 && raw <= 16
+    ? raw
+    : 4;
+}
+
+export function getAgentMaxDepth(config: unknown): number {
+  const raw = isObjectValue(config) ? config.agentMaxDepth : undefined;
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= 1 && raw <= 3
+    ? raw
+    : 1;
+}

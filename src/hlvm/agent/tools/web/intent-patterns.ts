@@ -7,11 +7,64 @@
  * filtering, NOT intent detection. This is an accepted limitation.
  */
 
-export const OFFICIAL_DOCS_RE = /\b(official|docs?|documentation|reference|api)\b/i;
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildWordRegex(terms: readonly string[]): RegExp {
+  return new RegExp(`\\b(?:${terms.map(escapeRegex).join("|")})\\b`, "i");
+}
+
+export const OFFICIAL_DOCS_TERMS = [
+  "official",
+  "doc",
+  "docs",
+  "documentation",
+  "reference",
+  "api",
+] as const;
+export const COMPARISON_TERMS = [
+  "compare",
+  "comparison",
+  "versus",
+  "vs",
+  "tradeoff",
+  "tradeoffs",
+  "difference",
+  "differences",
+] as const;
+export const RECENCY_TERMS = [
+  "latest",
+  "recent",
+  "today",
+  "current",
+  "new",
+  "updated",
+  "update",
+  "change",
+  "changes",
+] as const;
+export const RELEASE_NOTES_TERMS = [
+  "changelog",
+  "release note",
+  "release notes",
+  "what's new",
+  "what is new",
+] as const;
+export const REFERENCE_TERMS = [
+  "reference",
+  "api",
+  "spec",
+  "syntax",
+  "manual",
+  "guide",
+] as const;
+
+export const OFFICIAL_DOCS_RE = buildWordRegex(OFFICIAL_DOCS_TERMS);
 export const COMPARISON_RE = /\b(compare|comparison|versus|vs\.?|tradeoffs?|differences?)\b/i;
-export const RECENCY_RE = /\b(latest|recent|today|current|new|updated?|changes?)\b/i;
+export const RECENCY_RE = buildWordRegex(RECENCY_TERMS);
 export const RELEASE_NOTES_RE = /\b(changelog|release notes?|what(?:'s| is) new)\b/i;
-export const REFERENCE_RE = /\b(reference|api|spec|syntax|manual|guide)\b/i;
+export const REFERENCE_RE = buildWordRegex(REFERENCE_TERMS);
 export const VERSION_RE = /\bv?\d+(?:\.\d+){1,3}\b/;
 export const YEAR_RE = /\b(?:19|20)\d{2}\b/;
 export const QUOTED_PHRASE_RE = /"[^"]+"/g;

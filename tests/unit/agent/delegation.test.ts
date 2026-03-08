@@ -1,0 +1,1344 @@
+/**
+ * Tests for multi-agent supervision infrastructure:
+ * - ConcurrencyLimiter
+ * - Nickname allocation
+ * - ThreadRegistry
+ * - TaskManager DelegateTask CRUD
+ * - Transcript reducer delegate status handling
+ */
+
+import { assertEquals, assertExists, assertStringIncludes } from "jsr:@std/assert";
+import {
+  allocateNickname,
+  ConcurrencyLimiter,
+  resetDelegateLimiter,
+} from "../../../src/hlvm/agent/concurrency.ts";
+import {
+  createDelegateInbox,
+  formatDelegateInboxUpdateMessage,
+} from "../../../src/hlvm/agent/delegate-inbox.ts";
+import {
+  cancelAllThreads,
+  cancelThread,
+  getAllThreads,
+  getThread,
+  registerThread,
+  removeThread,
+  resetThreadRegistry,
+  updateThreadStatus,
+  type DelegateThread,
+} from "../../../src/hlvm/agent/delegate-threads.ts";
+import { createDelegateHandler } from "../../../src/hlvm/agent/delegation.ts";
+import { ContextManager } from "../../../src/hlvm/agent/context.ts";
+import {
+  isDelegateTask,
+  isEvalTask,
+  isModelPullTask,
+} from "../../../src/hlvm/cli/repl/task-manager/types.ts";
+import {
+  createTranscriptState,
+  reduceTranscriptState,
+} from "../../../src/hlvm/cli/agent-transcript-state.ts";
+
+// ============================================================
+// ConcurrencyLimiter
+// ============================================================
+
+Deno.test("ConcurrencyLimiter: acquire and release within limit", async () => {
+  const limiter = new ConcurrencyLimiter(2);
+  assertEquals(limiter.getActive(), 0);
+
+  const release1 = await limiter.acquire("t1");
+  assertEquals(limiter.getActive(), 1);
+
+  const release2 = await limiter.acquire("t2");
+  assertEquals(limiter.getActive(), 2);
+
+  release1();
+  assertEquals(limiter.getActive(), 1);
+
+  release2();
+  assertEquals(limiter.getActive(), 0);
+});
+
+Deno.test("ConcurrencyLimiter: queue when at capacity", async () => {
+  const limiter = new ConcurrencyLimiter(1);
+
+  const release1 = await limiter.acquire("t1");
+  assertEquals(limiter.getActive(), 1);
+  assertEquals(limiter.getQueued(), 0);
+
+  // This should queue
+  let t2Resolved = false;
+  const p2 = limiter.acquire("t2").then((release) => {
+    t2Resolved = true;
+    return release;
+  });
+  // Allow microtask to run
+  await new Promise((r) => setTimeout(r, 10));
+  assertEquals(limiter.getQueued(), 1);
+  assertEquals(t2Resolved, false);
+
+  // Release t1 should dequeue t2 (t2 now occupies the slot)
+  release1();
+  const release2 = await p2;
+  assertEquals(t2Resolved, true);
+  assertEquals(limiter.getQueued(), 0);
+  assertEquals(limiter.getActive(), 1); // t2 is now active
+
+  release2();
+  assertEquals(limiter.getActive(), 0); // properly released
+});
+
+Deno.test("ConcurrencyLimiter: tryAcquire returns null at capacity", () => {
+  const limiter = new ConcurrencyLimiter(1);
+
+  const release1 = limiter.tryAcquire("t1");
+  assertExists(release1);
+  assertEquals(limiter.getActive(), 1);
+
+  const release2 = limiter.tryAcquire("t2");
+  assertEquals(release2, null);
+
+  release1();
+  assertEquals(limiter.getActive(), 0);
+});
+
+Deno.test("ConcurrencyLimiter: double release is no-op", async () => {
+  const limiter = new ConcurrencyLimiter(2);
+  const release = await limiter.acquire("t1");
+  assertEquals(limiter.getActive(), 1);
+
+  release();
+  assertEquals(limiter.getActive(), 0);
+
+  // Second release should be no-op
+  release();
+  assertEquals(limiter.getActive(), 0);
+});
+
+// ============================================================
+// Nickname Allocation
+// ============================================================
+
+Deno.test("allocateNickname: returns first unused", () => {
+  const active = new Set<string>();
+  assertEquals(allocateNickname(active), "Alpha");
+
+  active.add("Alpha");
+  assertEquals(allocateNickname(active), "Bravo");
+
+  active.add("Bravo");
+  assertEquals(allocateNickname(active), "Charlie");
+});
+
+Deno.test("allocateNickname: reuse after removal", () => {
+  const active = new Set(["Alpha", "Bravo", "Charlie"]);
+  assertEquals(allocateNickname(active), "Delta");
+
+  active.delete("Bravo");
+  assertEquals(allocateNickname(active), "Bravo");
+});
+
+Deno.test("allocateNickname: fallback when pool exhausted", () => {
+  const active = new Set([
+    "Alpha", "Bravo", "Charlie", "Delta", "Echo",
+    "Foxtrot", "Golf", "Hotel", "India", "Juliet",
+    "Kilo", "Lima", "Mike", "November", "Oscar",
+    "Papa", "Quebec", "Romeo", "Sierra", "Tango",
+  ]);
+  const name = allocateNickname(active);
+  assertEquals(name, "Agent-21");
+});
+
+// ============================================================
+// Thread Registry
+// ============================================================
+
+function createMockThread(
+  overrides: Partial<DelegateThread> = {},
+): DelegateThread {
+  const controller = new AbortController();
+  return {
+    threadId: overrides.threadId ?? crypto.randomUUID(),
+    agent: overrides.agent ?? "code",
+    nickname: overrides.nickname ?? "Alpha",
+    task: overrides.task ?? "test task",
+    status: overrides.status ?? "running",
+    controller,
+    promise: overrides.promise ?? Promise.resolve({ success: true }),
+    ...overrides,
+  };
+}
+
+Deno.test("ThreadRegistry: register and get", () => {
+  resetThreadRegistry();
+  const thread = createMockThread({ threadId: "t1" });
+  registerThread(thread);
+
+  const found = getThread("t1");
+  assertExists(found);
+  assertEquals(found.threadId, "t1");
+  assertEquals(found.agent, "code");
+});
+
+Deno.test("ThreadRegistry: getAllThreads", () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({ threadId: "t1" }));
+  registerThread(createMockThread({ threadId: "t2" }));
+
+  const all = getAllThreads();
+  assertEquals(all.length, 2);
+});
+
+Deno.test("ThreadRegistry: cancelThread", () => {
+  resetThreadRegistry();
+  const thread = createMockThread({ threadId: "t1", status: "running" });
+  registerThread(thread);
+
+  const cancelled = cancelThread("t1");
+  assertEquals(cancelled, true);
+  assertEquals(getThread("t1")?.status, "cancelled");
+  assertEquals(thread.controller.signal.aborted, true);
+  assertExists(getThread("t1")?.completedAt);
+});
+
+Deno.test("ThreadRegistry: cancelThread returns false for completed", () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({ threadId: "t1", status: "completed" }));
+
+  const cancelled = cancelThread("t1");
+  assertEquals(cancelled, false);
+});
+
+Deno.test("ThreadRegistry: cancelAllThreads", () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({ threadId: "t1", status: "running" }));
+  registerThread(createMockThread({ threadId: "t2", status: "running" }));
+  registerThread(createMockThread({ threadId: "t3", status: "completed" }));
+
+  cancelAllThreads();
+
+  assertEquals(getThread("t1")?.status, "cancelled");
+  assertEquals(getThread("t2")?.status, "cancelled");
+  assertEquals(getThread("t3")?.status, "completed"); // Already completed, not changed
+  assertExists(getThread("t1")?.completedAt);
+  assertExists(getThread("t2")?.completedAt);
+});
+
+Deno.test("ThreadRegistry: updateThreadStatus", () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({ threadId: "t1", status: "running" }));
+
+  updateThreadStatus("t1", "completed");
+  assertEquals(getThread("t1")?.status, "completed");
+});
+
+Deno.test("ThreadRegistry: removeThread", () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({ threadId: "t1" }));
+
+  removeThread("t1");
+  assertEquals(getThread("t1"), undefined);
+  assertEquals(getAllThreads().length, 0);
+});
+
+// ============================================================
+// Type Guards
+// ============================================================
+
+Deno.test("isDelegateTask: recognizes delegate tasks", () => {
+  const task = {
+    id: "1",
+    type: "delegate" as const,
+    label: "test",
+    status: "running" as const,
+    createdAt: Date.now(),
+    agent: "code",
+    task: "test",
+    nickname: "Alpha",
+    threadId: "t1",
+  };
+  assertEquals(isDelegateTask(task), true);
+  assertEquals(isEvalTask(task), false);
+  assertEquals(isModelPullTask(task), false);
+});
+
+// ============================================================
+// Transcript Reducer: Delegate Status
+// ============================================================
+
+Deno.test("transcript reducer: delegate_start with threadId and nickname", () => {
+  let state = createTranscriptState();
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "code",
+      task: "analyze code",
+      threadId: "t1",
+      nickname: "Alpha",
+    },
+  });
+
+  const delegateItem = state.items.find((item) => item.type === "delegate");
+  assertExists(delegateItem);
+  if (delegateItem.type === "delegate") {
+    assertEquals(delegateItem.status, "running");
+    assertEquals(delegateItem.threadId, "t1");
+    assertEquals(delegateItem.nickname, "Alpha");
+    assertEquals(delegateItem.agent, "code");
+    assertEquals(delegateItem.task, "analyze code");
+  }
+});
+
+Deno.test("transcript reducer: delegate_end with threadId matching", () => {
+  let state = createTranscriptState();
+  // Start delegate with threadId
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "code",
+      task: "analyze code",
+      threadId: "t1",
+      nickname: "Alpha",
+    },
+  });
+  // Complete it
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_end",
+      agent: "code",
+      task: "analyze code",
+      success: true,
+      summary: "Done!",
+      durationMs: 1000,
+      threadId: "t1",
+    },
+  });
+
+  const delegateItem = state.items.find((item) => item.type === "delegate");
+  assertExists(delegateItem);
+  if (delegateItem.type === "delegate") {
+    assertEquals(delegateItem.status, "success");
+    assertEquals(delegateItem.summary, "Done!");
+    assertEquals(delegateItem.durationMs, 1000);
+  }
+});
+
+Deno.test("transcript reducer: delegate_end cancelled status", () => {
+  let state = createTranscriptState();
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "code",
+      task: "analyze code",
+      threadId: "t1",
+    },
+  });
+  // End with abort error → cancelled status
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_end",
+      agent: "code",
+      task: "analyze code",
+      success: false,
+      error: "Tool execution aborted",
+      durationMs: 500,
+      threadId: "t1",
+    },
+  });
+
+  const delegateItem = state.items.find((item) => item.type === "delegate");
+  assertExists(delegateItem);
+  if (delegateItem.type === "delegate") {
+    assertEquals(delegateItem.status, "cancelled");
+  }
+});
+
+Deno.test("transcript reducer: concurrent delegates distinguished by threadId", () => {
+  let state = createTranscriptState();
+  // Start two delegates
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "code",
+      task: "task A",
+      threadId: "t1",
+      nickname: "Alpha",
+    },
+  });
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "code",
+      task: "task B",
+      threadId: "t2",
+      nickname: "Bravo",
+    },
+  });
+
+  assertEquals(
+    state.items.filter((i) => i.type === "delegate").length,
+    2,
+  );
+
+  // Complete only thread t1
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_end",
+      agent: "code",
+      task: "task A",
+      success: true,
+      summary: "A done",
+      durationMs: 100,
+      threadId: "t1",
+    },
+  });
+
+  const delegates = state.items.filter((i) => i.type === "delegate");
+  const d1 = delegates.find((d) => d.type === "delegate" && d.threadId === "t1");
+  const d2 = delegates.find((d) => d.type === "delegate" && d.threadId === "t2");
+
+  assertExists(d1);
+  assertExists(d2);
+  if (d1?.type === "delegate" && d2?.type === "delegate") {
+    assertEquals(d1.status, "success");
+    assertEquals(d2.status, "running");
+  }
+});
+
+// ============================================================
+// Delegate Tools: E2E-style tests
+// ============================================================
+
+import { DELEGATE_TOOLS } from "../../../src/hlvm/agent/tools/delegate-tools.ts";
+import { updateThreadSnapshot } from "../../../src/hlvm/agent/delegate-threads.ts";
+import type { DelegateTranscriptSnapshot } from "../../../src/hlvm/agent/delegate-transcript.ts";
+
+// Cast to (args: unknown) => Promise<unknown> for test convenience.
+// The ToolFunction type may require a workspace param (WIP from other domain),
+// but these tools don't use it — cast keeps tests isolated from that change.
+type TestToolFn = (args: unknown) => Promise<unknown>;
+const waitAgentFn = DELEGATE_TOOLS.wait_agent.fn as TestToolFn;
+const listAgentsFn = DELEGATE_TOOLS.list_agents.fn as TestToolFn;
+const closeAgentFn = DELEGATE_TOOLS.close_agent.fn as TestToolFn;
+
+Deno.test("list_agents: returns empty list when no threads", async () => {
+  resetThreadRegistry();
+  const result = await listAgentsFn({}) as Record<string, unknown>;
+  assertEquals((result.agents as unknown[]).length, 0);
+  assertEquals(result.message, "No delegate threads");
+});
+
+Deno.test("list_agents: returns all registered threads", async () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({
+    threadId: "t1",
+    nickname: "Alpha",
+    agent: "code",
+    task: "analyze code",
+    status: "running",
+  }));
+  registerThread(createMockThread({
+    threadId: "t2",
+    nickname: "Bravo",
+    agent: "research",
+    task: "find docs",
+    status: "completed",
+  }));
+
+  const result = await listAgentsFn({}) as Record<string, unknown>;
+  const agents = result.agents as Record<string, unknown>[];
+  assertEquals(agents.length, 2);
+  assertEquals(agents[0].threadId, "t1");
+  assertEquals(agents[0].nickname, "Alpha");
+  assertEquals(agents[0].agent, "code");
+  assertEquals(agents[0].task, "analyze code");
+  assertEquals(agents[0].status, "running");
+  assertEquals(agents[1].threadId, "t2");
+  assertEquals(agents[1].status, "completed");
+});
+
+Deno.test("close_agent: cancels running thread", async () => {
+  resetThreadRegistry();
+  const thread = createMockThread({
+    threadId: "t1",
+    nickname: "Alpha",
+    status: "running",
+  });
+  registerThread(thread);
+
+  const result = await closeAgentFn({ thread_id: "t1" }) as Record<string, unknown>;
+  assertEquals(result.success, true);
+  assertEquals(thread.controller.signal.aborted, true);
+  assertEquals(getThread("t1")?.status, "cancelled");
+});
+
+Deno.test("close_agent: fails for completed thread", async () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({
+    threadId: "t1",
+    nickname: "Alpha",
+    status: "completed",
+  }));
+
+  const result = await closeAgentFn({ thread_id: "t1" }) as Record<string, unknown>;
+  assertEquals(result.success, false);
+  assertExists((result.message as string).includes("already completed"));
+});
+
+Deno.test("close_agent: fails for nonexistent thread", async () => {
+  resetThreadRegistry();
+  const result = await closeAgentFn({ thread_id: "nonexistent" }) as Record<string, unknown>;
+  assertEquals(result.success, false);
+  assertExists((result.message as string).includes("No thread found"));
+});
+
+Deno.test("close_agent: fails when no thread_id provided", async () => {
+  resetThreadRegistry();
+  const result = await closeAgentFn({}) as Record<string, unknown>;
+  assertEquals(result.success, false);
+  assertEquals(result.message, "thread_id is required");
+});
+
+Deno.test("wait_agent: returns immediately for already-completed thread", async () => {
+  resetThreadRegistry();
+  const snapshot: DelegateTranscriptSnapshot = {
+    agent: "code",
+    task: "test",
+    success: true,
+    durationMs: 100,
+    toolCount: 2,
+    finalResponse: "Analysis complete",
+    events: [],
+  };
+  registerThread(createMockThread({
+    threadId: "t1",
+    nickname: "Alpha",
+    agent: "code",
+    status: "completed",
+  }));
+  updateThreadSnapshot("t1", snapshot);
+
+  const result = await waitAgentFn({ thread_id: "t1" }) as Record<string, unknown>;
+  assertEquals(result.threadId, "t1");
+  assertEquals(result.nickname, "Alpha");
+  assertEquals(result.agent, "code");
+  assertEquals(result.status, "completed");
+  assertEquals(result.result, "Analysis complete");
+});
+
+Deno.test("wait_agent: returns error for nonexistent thread", async () => {
+  resetThreadRegistry();
+  const result = await waitAgentFn({ thread_id: "nonexistent" }) as Record<string, unknown>;
+  assertExists(result.error);
+  assertEquals(typeof result.error, "string");
+});
+
+Deno.test("wait_agent: awaits running thread and returns result", async () => {
+  resetThreadRegistry();
+  const snapshot: DelegateTranscriptSnapshot = {
+    agent: "code",
+    task: "test",
+    success: true,
+    durationMs: 50,
+    toolCount: 1,
+    finalResponse: "Done",
+    events: [],
+  };
+  // Create a thread that resolves after 50ms
+  const promise = new Promise<{ success: boolean; result: string }>((resolve) => {
+    setTimeout(() => resolve({ success: true, result: "Done" }), 50);
+  });
+  const thread = createMockThread({
+    threadId: "t1",
+    nickname: "Alpha",
+    agent: "code",
+    status: "running",
+    promise: promise as Promise<{ success: boolean }>,
+  });
+  registerThread(thread);
+  // Pre-set snapshot so it's available after resolve
+  updateThreadSnapshot("t1", snapshot);
+
+  const result = await waitAgentFn({ thread_id: "t1" }) as Record<string, unknown>;
+  assertEquals(result.threadId, "t1");
+  // Promise resolved, so result is spread into the return
+  assertEquals(result.success, true);
+});
+
+Deno.test("wait_agent: timeout fires for stuck thread", async () => {
+  resetThreadRegistry();
+  // Create a thread that never resolves
+  const promise = new Promise<never>(() => {});
+  registerThread(createMockThread({
+    threadId: "t1",
+    nickname: "Alpha",
+    status: "running",
+    promise,
+  }));
+
+  const result = await waitAgentFn({
+    thread_id: "t1",
+    timeout_ms: 50,
+  }) as Record<string, unknown>;
+  assertEquals(result.error, "Timeout waiting for agent");
+});
+
+Deno.test("wait_agent: no threads returns error", async () => {
+  resetThreadRegistry();
+  const result = await waitAgentFn({}) as Record<string, unknown>;
+  assertEquals(result.error, "No active or completed delegate threads");
+});
+
+Deno.test({
+  name: "wait_agent: races active threads when no thread_id",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    resetThreadRegistry();
+    // Thread 1: resolves after 200ms (slower)
+    let slowTimer: ReturnType<typeof setTimeout>;
+    const p1 = new Promise<{ success: boolean }>((resolve) => {
+      slowTimer = setTimeout(() => resolve({ success: true }), 200);
+    });
+    // Thread 2: resolves after 30ms (faster — should win the race)
+    const p2 = new Promise<{ success: boolean }>((resolve) =>
+      setTimeout(() => resolve({ success: true }), 30)
+    );
+    const snapshot2: DelegateTranscriptSnapshot = {
+      agent: "research",
+      task: "fast task",
+      success: true,
+      durationMs: 30,
+      toolCount: 0,
+      finalResponse: "Fast done",
+      events: [],
+    };
+
+    registerThread(createMockThread({
+      threadId: "slow",
+      nickname: "Alpha",
+      agent: "code",
+      status: "running",
+      promise: p1,
+    }));
+    registerThread(createMockThread({
+      threadId: "fast",
+      nickname: "Bravo",
+      agent: "research",
+      status: "running",
+      promise: p2,
+    }));
+    updateThreadSnapshot("fast", snapshot2);
+
+    const result = await waitAgentFn({}) as Record<string, unknown>;
+    // The faster thread (Bravo) should win
+    assertEquals(result.threadId, "fast");
+    assertEquals(result.nickname, "Bravo");
+    assertEquals(result.result, "Fast done");
+
+    // Cleanup: cancel the slow timer to prevent leaks
+    clearTimeout(slowTimer!);
+  },
+});
+
+// ============================================================
+// Delegate Inbox (automatic supervisor intake)
+// ============================================================
+
+Deno.test("background delegate queues automatic supervisor update", async () => {
+  resetThreadRegistry();
+  resetDelegateLimiter();
+  const inbox = createDelegateInbox();
+  const handler = createDelegateHandler(async () => ({
+    content: "Delegated result",
+    toolCalls: [],
+  }), {});
+
+  const response = await handler(
+    { agent: "code", task: "inspect codebase", background: true },
+    {
+      workspace: "/tmp/hlvm-test-delegation",
+      context: new ContextManager(),
+      permissionMode: "yolo",
+      delegateInbox: inbox,
+    },
+  ) as Record<string, unknown>;
+
+  const threadId = response.threadId;
+  assertEquals(typeof threadId, "string");
+  const waited = await waitAgentFn({ thread_id: threadId }) as Record<
+    string,
+    unknown
+  >;
+  assertEquals(waited.status, "completed");
+
+  const updates = inbox.drain();
+  assertEquals(updates.length, 1);
+  assertEquals(updates[0].threadId, threadId);
+  assertEquals(updates[0].success, true);
+  assertStringIncludes(
+    formatDelegateInboxUpdateMessage(updates[0]),
+    "Delegated result",
+  );
+});
+
+// ============================================================
+// TaskManager DelegateTask CRUD
+// ============================================================
+
+import {
+  getTaskManager,
+  resetTaskManager,
+} from "../../../src/hlvm/cli/repl/task-manager/index.ts";
+
+Deno.test({
+  name: "TaskManager: createDelegateTask and findDelegateTaskByThreadId",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn() {
+    resetTaskManager();
+    const tm = getTaskManager();
+    const taskId = tm.createDelegateTask("thread-1", "code", "Alpha", "analyze code");
+
+    const found = tm.findDelegateTaskByThreadId("thread-1");
+    assertExists(found);
+    assertEquals(found!.id, taskId);
+    assertEquals(found!.agent, "code");
+    assertEquals(found!.nickname, "Alpha");
+    assertEquals(found!.task, "analyze code");
+    assertEquals(found!.threadId, "thread-1");
+    assertEquals(found!.status, "pending");
+    assertEquals(found!.type, "delegate");
+  },
+});
+
+Deno.test("TaskManager: completeDelegateTask updates status and summary", () => {
+  resetTaskManager();
+  const tm = getTaskManager();
+  const taskId = tm.createDelegateTask("thread-2", "research", "Bravo", "find docs");
+
+  tm.completeDelegateTask(taskId, "Found 3 docs");
+  const task = tm.findDelegateTaskByThreadId("thread-2");
+  assertExists(task);
+  assertEquals(task!.status, "completed");
+  assertEquals(task!.summary, "Found 3 docs");
+});
+
+Deno.test("TaskManager: failDelegateTask updates status and error", () => {
+  resetTaskManager();
+  const tm = getTaskManager();
+  const taskId = tm.createDelegateTask("thread-3", "code", "Charlie", "build feature");
+
+  tm.failDelegateTask(taskId, new Error("Network timeout"));
+  const task = tm.findDelegateTaskByThreadId("thread-3");
+  assertExists(task);
+  assertEquals(task!.status, "failed");
+  assertEquals(task!.error?.message, "Network timeout");
+});
+
+Deno.test("TaskManager: cancel delegate task also cancels thread", () => {
+  resetTaskManager();
+  resetThreadRegistry();
+  const tm = getTaskManager();
+
+  // Register thread in both registries
+  const thread = createMockThread({
+    threadId: "thread-4",
+    nickname: "Delta",
+    agent: "code",
+    status: "running",
+  });
+  registerThread(thread);
+  const taskId = tm.createDelegateTask("thread-4", "code", "Delta", "task");
+
+  // Cancel via TaskManager (as BackgroundTasksOverlay would)
+  const cancelled = tm.cancel(taskId);
+  assertEquals(cancelled, true);
+
+  // Verify thread was also aborted
+  assertEquals(thread.controller.signal.aborted, true);
+  assertEquals(getThread("thread-4")?.status, "cancelled");
+});
+
+Deno.test("TaskManager: findDelegateTaskByThreadId returns undefined for unknown", () => {
+  resetTaskManager();
+  const tm = getTaskManager();
+  assertEquals(tm.findDelegateTaskByThreadId("nonexistent"), undefined);
+});
+
+Deno.test("TaskManager: markDelegateThreadRunning buffers start before task creation", () => {
+  resetTaskManager();
+  const tm = getTaskManager();
+
+  tm.markDelegateThreadRunning("thread-buffered-running");
+  tm.createDelegateTask("thread-buffered-running", "code", "Foxtrot", "buffered task");
+
+  const task = tm.findDelegateTaskByThreadId("thread-buffered-running");
+  assertExists(task);
+  assertEquals(task!.status, "running");
+});
+
+Deno.test("TaskManager: resolveDelegateThread buffers completion before task creation", () => {
+  resetTaskManager();
+  const tm = getTaskManager();
+
+  tm.resolveDelegateThread("thread-buffered-complete", {
+    success: true,
+    summary: "Buffered done",
+  });
+  tm.createDelegateTask(
+    "thread-buffered-complete",
+    "research",
+    "Golf",
+    "buffered completion task",
+  );
+
+  const task = tm.findDelegateTaskByThreadId("thread-buffered-complete");
+  assertExists(task);
+  assertEquals(task!.status, "completed");
+  assertEquals(task!.summary, "Buffered done");
+});
+
+Deno.test("TaskManager: resolveDelegateThread treats abort errors as cancelled", () => {
+  resetTaskManager();
+  const tm = getTaskManager();
+
+  tm.resolveDelegateThread("thread-buffered-cancel", {
+    success: false,
+    error: "Tool execution aborted",
+  });
+  tm.createDelegateTask(
+    "thread-buffered-cancel",
+    "code",
+    "Hotel",
+    "buffered cancel task",
+  );
+
+  const task = tm.findDelegateTaskByThreadId("thread-buffered-cancel");
+  assertExists(task);
+  assertEquals(task!.status, "cancelled");
+});
+
+// ============================================================
+// Stage 2: Configurable Concurrency
+// ============================================================
+
+import { setDelegateLimiterMax, getDelegateLimiter } from "../../../src/hlvm/agent/concurrency.ts";
+
+Deno.test("setDelegateLimiterMax: changes max for new limiter", () => {
+  resetDelegateLimiter();
+  setDelegateLimiterMax(3);
+  const limiter = getDelegateLimiter();
+  // Should allow 3 concurrent acquires
+  const r1 = limiter.tryAcquire("a");
+  const r2 = limiter.tryAcquire("b");
+  const r3 = limiter.tryAcquire("c");
+  const r4 = limiter.tryAcquire("d");
+  assertExists(r1);
+  assertExists(r2);
+  assertExists(r3);
+  assertEquals(r4, null); // 4th should fail
+  r1!(); r2!(); r3!();
+});
+
+Deno.test("setDelegateLimiterMax: no-op when same max", () => {
+  resetDelegateLimiter();
+  setDelegateLimiterMax(4);
+  const limiter1 = getDelegateLimiter();
+  setDelegateLimiterMax(4); // same value
+  const limiter2 = getDelegateLimiter();
+  assertEquals(limiter1, limiter2); // same instance
+});
+
+// ============================================================
+// Stage 3: Thread GC
+// ============================================================
+
+import { cleanupCompletedThreads } from "../../../src/hlvm/agent/delegate-threads.ts";
+
+Deno.test("cleanupCompletedThreads: removes old threads", () => {
+  resetThreadRegistry();
+  // Register 3 completed threads with old timestamps
+  for (let i = 0; i < 3; i++) {
+    const thread = createMockThread({
+      threadId: `old-${i}`,
+      status: "completed",
+    });
+    registerThread(thread);
+    updateThreadStatus(`old-${i}`, "completed");
+    // Backdate completedAt to 1 hour ago
+    const t = getThread(`old-${i}`)!;
+    t.completedAt = Date.now() - 60 * 60_000;
+  }
+  // Register 1 recent completed thread
+  const recent = createMockThread({ threadId: "recent", status: "completed" });
+  registerThread(recent);
+  updateThreadStatus("recent", "completed");
+  // Register 1 active thread (should NOT be cleaned)
+  registerThread(createMockThread({ threadId: "active", status: "running" }));
+
+  const removed = cleanupCompletedThreads(30 * 60_000, 20);
+  assertEquals(removed, 3); // 3 old ones removed
+  assertEquals(getThread("recent")?.threadId, "recent"); // recent kept
+  assertEquals(getThread("active")?.threadId, "active"); // active kept
+  assertEquals(getAllThreads().length, 2);
+});
+
+Deno.test("cleanupCompletedThreads: respects maxRetained", () => {
+  resetThreadRegistry();
+  // Register 5 recent completed threads
+  for (let i = 0; i < 5; i++) {
+    const thread = createMockThread({
+      threadId: `t-${i}`,
+      status: "completed",
+    });
+    registerThread(thread);
+    updateThreadStatus(`t-${i}`, "completed");
+    // Stagger completedAt so ordering is deterministic
+    const t = getThread(`t-${i}`)!;
+    t.completedAt = Date.now() - i * 1000; // t-0 newest, t-4 oldest
+  }
+
+  const removed = cleanupCompletedThreads(999_999_999, 2); // keep only 2
+  assertEquals(removed, 3); // 5 - 2 = 3 removed
+  // Newest 2 (t-0, t-1) kept
+  assertExists(getThread("t-0"));
+  assertExists(getThread("t-1"));
+  assertEquals(getThread("t-2"), undefined);
+  assertEquals(getThread("t-3"), undefined);
+  assertEquals(getThread("t-4"), undefined);
+});
+
+Deno.test("updateThreadStatus: sets completedAt for terminal states", () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({ threadId: "t1", status: "running" }));
+
+  updateThreadStatus("t1", "completed");
+  const t = getThread("t1")!;
+  assertExists(t.completedAt);
+  assertEquals(typeof t.completedAt, "number");
+  assertEquals(t.completedAt! > 0, true);
+});
+
+Deno.test("updateThreadStatus: does not set completedAt for non-terminal", () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({ threadId: "t1", status: "queued" }));
+
+  updateThreadStatus("t1", "running");
+  assertEquals(getThread("t1")!.completedAt, undefined);
+});
+
+// ============================================================
+// Stage 5: Configurable Depth (config validation)
+// ============================================================
+
+import { validateValue, parseValue } from "../../../src/common/config/types.ts";
+
+Deno.test("config validation: agentMaxThreads", () => {
+  assertEquals(validateValue("agentMaxThreads", undefined).valid, true);
+  assertEquals(validateValue("agentMaxThreads", 4).valid, true);
+  assertEquals(validateValue("agentMaxThreads", 1).valid, true);
+  assertEquals(validateValue("agentMaxThreads", 16).valid, true);
+  assertEquals(validateValue("agentMaxThreads", 0).valid, false);
+  assertEquals(validateValue("agentMaxThreads", 17).valid, false);
+  assertEquals(validateValue("agentMaxThreads", "4").valid, false);
+  assertEquals(validateValue("agentMaxThreads", 2.5).valid, false);
+});
+
+Deno.test("config validation: agentMaxDepth", () => {
+  assertEquals(validateValue("agentMaxDepth", undefined).valid, true);
+  assertEquals(validateValue("agentMaxDepth", 1).valid, true);
+  assertEquals(validateValue("agentMaxDepth", 3).valid, true);
+  assertEquals(validateValue("agentMaxDepth", 0).valid, false);
+  assertEquals(validateValue("agentMaxDepth", 4).valid, false);
+  assertEquals(validateValue("agentMaxDepth", "1").valid, false);
+});
+
+Deno.test("config parseValue: agentMaxThreads and agentMaxDepth parse as integers", () => {
+  assertEquals(parseValue("agentMaxThreads", "8"), 8);
+  assertEquals(parseValue("agentMaxDepth", "2"), 2);
+});
+
+// Config selectors
+import { getAgentMaxThreads, getAgentMaxDepth } from "../../../src/common/config/selectors.ts";
+
+Deno.test("getAgentMaxThreads: returns config value or default", () => {
+  assertEquals(getAgentMaxThreads({ agentMaxThreads: 8 }), 8);
+  assertEquals(getAgentMaxThreads({ agentMaxThreads: 1 }), 1);
+  assertEquals(getAgentMaxThreads({}), 4); // default
+  assertEquals(getAgentMaxThreads(null), 4); // fallback
+  assertEquals(getAgentMaxThreads({ agentMaxThreads: 0 }), 4); // out of range → default
+  assertEquals(getAgentMaxThreads({ agentMaxThreads: 20 }), 4); // out of range → default
+});
+
+Deno.test("getAgentMaxDepth: returns config value or default", () => {
+  assertEquals(getAgentMaxDepth({ agentMaxDepth: 2 }), 2);
+  assertEquals(getAgentMaxDepth({ agentMaxDepth: 3 }), 3);
+  assertEquals(getAgentMaxDepth({}), 1); // default
+  assertEquals(getAgentMaxDepth(null), 1); // fallback
+  assertEquals(getAgentMaxDepth({ agentMaxDepth: 0 }), 1); // out of range → default
+  assertEquals(getAgentMaxDepth({ agentMaxDepth: 4 }), 1); // out of range → default
+});
+
+// ============================================================
+// TaskManager: pending→running transition (Stage 1 verification)
+// ============================================================
+
+Deno.test("TaskManager: createDelegateTask creates as pending, startDelegateTask transitions to running", () => {
+  resetTaskManager();
+  const tm = getTaskManager();
+  const taskId = tm.createDelegateTask("thread-5", "code", "Echo", "task");
+  const task = tm.findDelegateTaskByThreadId("thread-5");
+  assertExists(task);
+  assertEquals(task!.status, "pending");
+
+  tm.startDelegateTask(taskId);
+  const updated = tm.findDelegateTaskByThreadId("thread-5");
+  assertExists(updated);
+  assertEquals(updated!.status, "running");
+});
+
+// ============================================================
+// Stage 2: Per-Role Config Overlay
+// ============================================================
+
+import { getAgentProfile } from "../../../src/hlvm/agent/agent-registry.ts";
+
+Deno.test("AgentProfile: code profile has temperature override", () => {
+  const profile = getAgentProfile("code");
+  assertExists(profile);
+  assertEquals(profile!.temperature, 0.2);
+});
+
+Deno.test("AgentProfile: general profile has no temperature override", () => {
+  const profile = getAgentProfile("general");
+  assertExists(profile);
+  assertEquals(profile!.temperature, undefined);
+});
+
+Deno.test("AgentProfile: profile supports maxTokens override", () => {
+  const profile = getAgentProfile("code");
+  assertExists(profile);
+  // maxTokens is optional and defaults to undefined
+  assertEquals(profile!.maxTokens, undefined);
+});
+
+// ============================================================
+// Stage 3: Workspace Isolation
+// ============================================================
+
+import {
+  createChildWorkspace,
+  generateChildDiff,
+  applyChildChanges,
+  snapshotParentFiles,
+} from "../../../src/hlvm/agent/delegation.ts";
+
+Deno.test("createChildWorkspace: creates isolated temp dir inside parent", async () => {
+  const parentDir = await Deno.makeTempDir();
+  try {
+    const lease = await createChildWorkspace(parentDir, "test-thread-id-1234");
+    assertExists(lease);
+    assertEquals(typeof lease.path, "string");
+    assertStringIncludes(lease.path, ".hlvm-child-test-thr");
+    // Verify directory exists
+    const stat = await Deno.stat(lease.path);
+    assertEquals(stat.isDirectory, true);
+    // Cleanup
+    await lease.cleanup();
+    // Verify cleanup worked
+    try {
+      await Deno.stat(lease.path);
+      throw new Error("Should have been deleted");
+    } catch (e) {
+      assertEquals(e instanceof Deno.errors.NotFound, true);
+    }
+  } finally {
+    await Deno.remove(parentDir, { recursive: true });
+  }
+});
+
+Deno.test("generateChildDiff: detects new file in child workspace", async () => {
+  const parentDir = await Deno.makeTempDir();
+  const childDir = await Deno.makeTempDir();
+  try {
+    // Write a file only in child
+    await Deno.writeTextFile(`${childDir}/new-file.txt`, "hello world");
+    const result = await generateChildDiff(parentDir, childDir);
+    assertExists(result);
+    assertEquals(result!.filesModified.length, 1);
+    assertEquals(result!.filesModified[0], "new-file.txt");
+    assertStringIncludes(result!.diff, "+hello world");
+    assertStringIncludes(result!.diff, "new file");
+  } finally {
+    await Deno.remove(parentDir, { recursive: true });
+    await Deno.remove(childDir, { recursive: true });
+  }
+});
+
+Deno.test("generateChildDiff: detects modified file", async () => {
+  const parentDir = await Deno.makeTempDir();
+  const childDir = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(`${parentDir}/file.txt`, "original");
+    await Deno.writeTextFile(`${childDir}/file.txt`, "modified");
+    const result = await generateChildDiff(parentDir, childDir);
+    assertExists(result);
+    assertEquals(result!.filesModified.length, 1);
+    assertEquals(result!.filesModified[0], "file.txt");
+    assertStringIncludes(result!.diff, "-original");
+    assertStringIncludes(result!.diff, "+modified");
+  } finally {
+    await Deno.remove(parentDir, { recursive: true });
+    await Deno.remove(childDir, { recursive: true });
+  }
+});
+
+Deno.test("generateChildDiff: returns null when no changes", async () => {
+  const parentDir = await Deno.makeTempDir();
+  const childDir = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(`${parentDir}/file.txt`, "same");
+    await Deno.writeTextFile(`${childDir}/file.txt`, "same");
+    const result = await generateChildDiff(parentDir, childDir);
+    assertEquals(result, null);
+  } finally {
+    await Deno.remove(parentDir, { recursive: true });
+    await Deno.remove(childDir, { recursive: true });
+  }
+});
+
+Deno.test("applyChildChanges: copies modified files to parent", async () => {
+  const parentDir = await Deno.makeTempDir();
+  const childDir = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(`${childDir}/new-file.txt`, "child content");
+    const result = await applyChildChanges(parentDir, childDir, ["new-file.txt"]);
+    assertEquals(result.applied, ["new-file.txt"]);
+    assertEquals(result.conflicts.length, 0);
+    // Verify file exists in parent
+    const content = await Deno.readTextFile(`${parentDir}/new-file.txt`);
+    assertEquals(content, "child content");
+  } finally {
+    await Deno.remove(parentDir, { recursive: true });
+    await Deno.remove(childDir, { recursive: true });
+  }
+});
+
+Deno.test("applyChildChanges: detects real conflict when parent changed since spawn", async () => {
+  const parentDir = await Deno.makeTempDir();
+  const childDir = await Deno.makeTempDir();
+  try {
+    // Initial state: both have same file
+    await Deno.writeTextFile(`${parentDir}/shared.txt`, "original");
+    await Deno.writeTextFile(`${childDir}/shared.txt`, "child version");
+
+    // Snapshot parent at "spawn" time
+    const snapshots = await snapshotParentFiles(parentDir, childDir, ["shared.txt"]);
+    assertEquals(snapshots.get("shared.txt"), "original");
+
+    // Simulate parent changing the file AFTER child was spawned
+    await Deno.writeTextFile(`${parentDir}/shared.txt`, "parent changed it");
+
+    // Now apply with snapshots — should detect conflict
+    const result = await applyChildChanges(parentDir, childDir, ["shared.txt"], snapshots);
+    assertEquals(result.conflicts, ["shared.txt"]);
+    assertEquals(result.applied.length, 0);
+
+    // Verify parent file was NOT overwritten
+    const content = await Deno.readTextFile(`${parentDir}/shared.txt`);
+    assertEquals(content, "parent changed it");
+  } finally {
+    await Deno.remove(parentDir, { recursive: true });
+    await Deno.remove(childDir, { recursive: true });
+  }
+});
+
+Deno.test("applyChildChanges: no conflict when parent unchanged since spawn", async () => {
+  const parentDir = await Deno.makeTempDir();
+  const childDir = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(`${parentDir}/file.txt`, "original");
+    await Deno.writeTextFile(`${childDir}/file.txt`, "child version");
+
+    // Snapshot parent at spawn time
+    const snapshots = await snapshotParentFiles(parentDir, childDir, ["file.txt"]);
+
+    // Parent NOT changed — apply should succeed
+    const result = await applyChildChanges(parentDir, childDir, ["file.txt"], snapshots);
+    assertEquals(result.applied, ["file.txt"]);
+    assertEquals(result.conflicts.length, 0);
+
+    // Verify child content was applied
+    const content = await Deno.readTextFile(`${parentDir}/file.txt`);
+    assertEquals(content, "child version");
+  } finally {
+    await Deno.remove(parentDir, { recursive: true });
+    await Deno.remove(childDir, { recursive: true });
+  }
+});
+
+// ============================================================
+// Stage 5: send_input
+// ============================================================
+
+import {
+  sendThreadInput,
+  drainThreadInput,
+} from "../../../src/hlvm/agent/delegate-threads.ts";
+
+Deno.test("sendThreadInput: queues message for active thread", () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({ threadId: "t1", status: "running" }));
+  const sent = sendThreadInput("t1", "change approach to X");
+  assertEquals(sent, true);
+  const messages = drainThreadInput("t1");
+  assertEquals(messages.length, 1);
+  assertEquals(messages[0], "change approach to X");
+  // Second drain should be empty
+  assertEquals(drainThreadInput("t1").length, 0);
+});
+
+Deno.test("sendThreadInput: fails for completed thread", () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({ threadId: "t1", status: "completed" }));
+  const sent = sendThreadInput("t1", "too late");
+  assertEquals(sent, false);
+});
+
+Deno.test("sendThreadInput: fails for nonexistent thread", () => {
+  resetThreadRegistry();
+  const sent = sendThreadInput("nonexistent", "hello");
+  assertEquals(sent, false);
+});
+
+// ============================================================
+// Stage 6: resume_agent
+// ============================================================
+
+Deno.test("resume_agent: fails for thread without childSessionId", async () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({
+    threadId: "t1",
+    status: "completed",
+  }));
+  const resumeFn = DELEGATE_TOOLS.resume_agent.fn as TestToolFn;
+  const result = await resumeFn({
+    thread_id: "t1",
+    prompt: "continue",
+  }) as Record<string, unknown>;
+  assertEquals(result.success, false);
+  assertStringIncludes(result.message as string, "no persisted session");
+});
+
+Deno.test("resume_agent: fails for active thread", async () => {
+  resetThreadRegistry();
+  const thread = createMockThread({
+    threadId: "t2",
+    status: "running",
+  });
+  thread.childSessionId = "session-123";
+  registerThread(thread);
+  const resumeFn = DELEGATE_TOOLS.resume_agent.fn as TestToolFn;
+  const result = await resumeFn({
+    thread_id: "t2",
+    prompt: "continue",
+  }) as Record<string, unknown>;
+  assertEquals(result.success, false);
+  assertStringIncludes(result.message as string, "running");
+});
+
+Deno.test("resume_agent: succeeds for completed thread with session", async () => {
+  resetThreadRegistry();
+  const thread = createMockThread({
+    threadId: "t3",
+    status: "completed",
+  });
+  thread.childSessionId = "session-456";
+  registerThread(thread);
+  const resumeFn = DELEGATE_TOOLS.resume_agent.fn as TestToolFn;
+  const result = await resumeFn({
+    thread_id: "t3",
+    prompt: "continue analysis",
+  }) as Record<string, unknown>;
+  assertEquals(result.success, true);
+  assertEquals(result.childSessionId, "session-456");
+});
+
+// ============================================================
+// Stage 8: report_result
+// ============================================================
+
+Deno.test("report_result: returns structured result", async () => {
+  const reportFn = DELEGATE_TOOLS.report_result.fn as TestToolFn;
+  const result = await reportFn({
+    summary: "Analysis complete",
+    data: { count: 42 },
+    files_modified: ["src/main.ts"],
+  }) as Record<string, unknown>;
+  assertEquals(result.success, true);
+  assertEquals(result.summary, "Analysis complete");
+  assertEquals((result.data as Record<string, unknown>).count, 42);
+  assertEquals((result.files_modified as string[])[0], "src/main.ts");
+});
+
+Deno.test("report_result: requires summary", async () => {
+  const reportFn = DELEGATE_TOOLS.report_result.fn as TestToolFn;
+  const result = await reportFn({}) as Record<string, unknown>;
+  assertEquals(result.success, false);
+  assertEquals(result.message, "summary is required");
+});
+
+// ============================================================
+// Stage 1: Enhanced Delegation Prompt
+// ============================================================
+
+import { generateSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
+
+Deno.test("renderDelegation: frontier tier generates multi-paragraph prompt", () => {
+  // Generate prompt with delegate_agent available (frontier)
+  const prompt = generateSystemPrompt({
+    modelTier: "frontier",
+    toolAllowlist: ["delegate_agent"],
+  });
+  assertStringIncludes(prompt, "When to Delegate");
+  assertStringIncludes(prompt, "When NOT to Delegate");
+  assertStringIncludes(prompt, "Coordination Patterns");
+  assertStringIncludes(prompt, "Fan-out");
+  assertStringIncludes(prompt, "Available Agents");
+});
+
+Deno.test("renderDelegation: weak tier generates abbreviated prompt", () => {
+  const prompt = generateSystemPrompt({
+    modelTier: "weak",
+    toolAllowlist: ["delegate_agent"],
+  });
+  // Should have agent list but NOT the full guidance
+  assertStringIncludes(prompt, "Delegation");
+  // Weak tier should NOT include the detailed sections
+  assertEquals(prompt.includes("When to Delegate"), false);
+  assertEquals(prompt.includes("Coordination Patterns"), false);
+});
+
+// ============================================================
+// Cleanup
+// ============================================================
+
+Deno.test({
+  name: "cleanup: reset singletons",
+  fn() {
+    resetThreadRegistry();
+    resetDelegateLimiter();
+    resetTaskManager();
+  },
+});

@@ -58,6 +58,10 @@ import { resetWebToolBudget } from "./tools/web-tools.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
 import type { TodoState } from "./todo-state.ts";
 import type { DelegateTranscriptSnapshot } from "./delegate-transcript.ts";
+import {
+  formatDelegateInboxUpdateMessage,
+  type DelegateInbox,
+} from "./delegate-inbox.ts";
 import type {
   AgentCheckpointSummary,
   CheckpointRecorder,
@@ -198,8 +202,8 @@ export interface WebSearchToolEventMeta {
   sourceGuard?: {
     warning: boolean;
     trustLevel: "high" | "medium" | "low";
-    authorityHits: number;
-    qualityPenaltiesApplied: number;
+    fetchedEvidenceCount: number;
+    selectedFetchCount: number;
     resultCount: number;
   };
   citationsCount?: number;
@@ -255,6 +259,12 @@ export type AgentUIEvent =
     agent: string;
     task: string;
     childSessionId?: string;
+    threadId?: string;
+    nickname?: string;
+  }
+  | {
+    type: "delegate_running";
+    threadId: string;
   }
   | {
     type: "delegate_end";
@@ -266,6 +276,7 @@ export type AgentUIEvent =
     error?: string;
     snapshot?: DelegateTranscriptSnapshot;
     childSessionId?: string;
+    threadId?: string;
   }
   | {
     type: "todo_updated";
@@ -331,6 +342,7 @@ export interface OrchestratorConfig {
   ) => Promise<InteractionResponse>;
   skipModelCompensation?: boolean;
   modelTier?: ModelTier;
+  delegateInbox?: DelegateInbox;
   modelId?: string;
   signal?: AbortSignal;
   /** Enable one-time automatic memory recall for this user turn. */
@@ -347,6 +359,8 @@ export interface OrchestratorConfig {
   };
   /** Session-scoped automatic checkpoint recorder for supported file mutations. */
   checkpointRecorder?: CheckpointRecorder;
+  /** Input queue for parent→child mid-task steering messages. */
+  inputQueue?: string[];
 }
 
 // ============================================================
@@ -564,6 +578,23 @@ export async function runReActLoop(
     }
     state.iterations++;
     const iterationStart = Date.now();
+
+    const delegateUpdates = config.delegateInbox?.drain() ?? [];
+    for (const update of delegateUpdates) {
+      addContextMessage(config, {
+        role: "user",
+        content: formatDelegateInboxUpdateMessage(update),
+      });
+    }
+
+    // Drain parent→child steering messages (delivered at iteration boundary)
+    const parentInputs = config.inputQueue?.splice(0) ?? [];
+    for (const msg of parentInputs) {
+      addContextMessage(config, {
+        role: "user",
+        content: `[Parent Message] ${msg}`,
+      });
+    }
 
     onTrace?.({
       type: "iteration",

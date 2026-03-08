@@ -1,11 +1,9 @@
 /**
  * WebSearchBackend - Interface for full-pipeline web search orchestration.
  *
- * Separates "how to search" (backend implementation) from the tool entrypoint
- * (validation, caching, formatting). Heuristic modules stay unchanged.
- *
- * Future backends (provider-native, MCP, BYOK) implement this interface
- * without touching heuristics.
+ * Separates backend retrieval orchestration from the tool entrypoint
+ * (validation, caching, formatting). The shared confidence helper is used for
+ * retry/depth decisions, not result ranking.
  */
 
 import type { ToolExecutionOptions } from "../../registry.ts";

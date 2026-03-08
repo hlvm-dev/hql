@@ -55,7 +55,6 @@ export function resultHost(url?: string): string | undefined {
 export function hasStructuredEvidence(result: SearchResult): boolean {
   return Boolean(
     (result.passages?.length ?? 0) > 0 ||
-      result.pageDescription ||
-      result.publishedDate,
+      result.pageDescription,
   );
 }

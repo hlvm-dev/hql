@@ -86,11 +86,13 @@ export interface DelegateItem {
   agent: string;
   task: string;
   childSessionId?: string;
-  status: "running" | "success" | "error";
+  status: "queued" | "running" | "success" | "error" | "cancelled";
   summary?: string;
   error?: string;
   durationMs?: number;
   snapshot?: DelegateTranscriptSnapshot;
+  threadId?: string;
+  nickname?: string;
   ts: number;
 }
 

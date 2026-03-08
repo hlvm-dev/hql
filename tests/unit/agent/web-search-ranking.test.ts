@@ -2,12 +2,12 @@ import { assert, assertEquals } from "jsr:@std/assert";
 import {
   assessSearchConfidence,
   canonicalizeResultUrl,
-  classifySourceAuthority,
   dedupeSearchResults,
+  dedupeSearchResultsStable,
   deduplicateSnippetPassages,
-  domainAuthorityBoost,
+  estimateResultAgeDays,
   extractRelevantPassages,
-  rankSearchResults,
+  filterSearchResultsForTimeRange,
   scorePassage,
 } from "../../../src/hlvm/agent/tools/web/search-ranking.ts";
 import { generateQueryVariants } from "../../../src/hlvm/agent/tools/web/duckduckgo.ts";
@@ -40,59 +40,34 @@ Deno.test("web ranking: canonicalizeResultUrl and dedupeSearchResults collapse t
   assertEquals(deduped[0].title, "Result A (full)");
 });
 
-Deno.test("web ranking: rankSearchResults enforces recency filtering when requested", () => {
-  const ranked = rankSearchResults(
-    "hlvm release",
-    [
-      {
-        title: "Old Release",
-        url: "https://news.example.com/old",
-        snippet: "Published 2020-01-01",
-      },
-      {
-        title: "Recent Release",
-        url: "https://news.example.com/new",
-        snippet: "published 1 day ago",
-      },
-    ],
-    "week",
-  );
+Deno.test("web ranking: stable dedupe preserves order while upgrading richer duplicate metadata", () => {
+  const merged = dedupeSearchResultsStable([
+    {
+      title: "Home",
+      url: "https://example.com/post?id=1&utm_source=feed",
+      snippet: "short",
+    },
+    {
+      title: "Much Better Title",
+      url: "https://example.com/post?id=1",
+      snippet: "A much longer snippet that should replace the earlier thin duplicate.",
+      publishedDate: "2026-03-01",
+    },
+    {
+      title: "Other",
+      url: "https://example.com/other",
+      snippet: "other",
+    },
+  ]);
 
-  assertEquals(ranked.length, 1);
-  assertEquals(ranked[0].title, "Recent Release");
-});
-
-Deno.test("web ranking: rankSearchResults favors authoritative rich pages and penalizes duplicate thin hosts", () => {
-  const ranked = rankSearchResults(
-    "python asyncio taskgroup",
-    [
-      {
-        title: "Thin SEO Page",
-        url: "https://blog.example.com/tag/python-asyncio-taskgroup",
-        snippet:
-          "python asyncio taskgroup python asyncio taskgroup python asyncio taskgroup",
-      },
-      {
-        title: "Another Thin SEO Page",
-        url: "https://blog.example.com/page/python-asyncio-taskgroup",
-        snippet:
-          "python asyncio taskgroup python asyncio taskgroup python asyncio taskgroup",
-      },
-      {
-        title: "TaskGroup guide",
-        url: "https://docs.python.org/tutorial/asyncio/taskgroup",
-        snippet:
-          "Detailed guide to TaskGroup cancellation behavior, exceptions, and structured concurrency.",
-      },
-    ],
-    "all",
-  );
-
+  assertEquals(merged.length, 2);
+  assertEquals(merged[0].url, "https://example.com/post?id=1&utm_source=feed");
+  assertEquals(merged[0].title, "Much Better Title");
   assertEquals(
-    ranked[0].url,
-    "https://docs.python.org/tutorial/asyncio/taskgroup",
+    merged[0].snippet,
+    "A much longer snippet that should replace the earlier thin duplicate.",
   );
-  assert(ranked[0].score! > ranked[1].score!);
+  assertEquals(merged[0].publishedDate, "2026-03-01");
 });
 
 Deno.test("web ranking: scorePassage and extractRelevantPassages reward coverage, proximity, and truncation", () => {
@@ -175,6 +150,33 @@ Deno.test("web ranking: extractPublicationDate supports meta, time, json-ld, and
   }
 });
 
+Deno.test("web ranking: estimateResultAgeDays and filterSearchResultsForTimeRange drop explicitly stale results", () => {
+  const old = {
+    title: "Old release",
+    url: "https://example.com/old",
+    snippet: "Published 2020-01-01",
+  };
+  const recent = {
+    title: "Recent release",
+    url: "https://example.com/new",
+    snippet: "published 1 day ago",
+  };
+  const undated = {
+    title: "Undated docs",
+    url: "https://example.com/docs",
+    snippet: "Reference docs",
+  };
+
+  assert(estimateResultAgeDays(old)! > 365);
+  assert(estimateResultAgeDays(recent)! <= 2);
+  assertEquals(
+    filterSearchResultsForTimeRange([old, recent, undated], "week").map((result) =>
+      result.title
+    ),
+    ["Recent release", "Undated docs"],
+  );
+});
+
 Deno.test("web ranking: assessSearchConfidence flags low diversity and low coverage separately", () => {
   const lowDiversity = assessSearchConfidence("hlvm search", [
     {
@@ -227,91 +229,36 @@ Deno.test("web ranking: assessSearchConfidence flags low diversity and low cover
   assert(lowCoverage.reasons.includes("low_coverage"));
 });
 
-Deno.test("web ranking: classifySourceAuthority detects official, repo, community, authoritative, and unknown", () => {
-  // Official: registrable domain matches the query subject
-  assertEquals(
-    classifySourceAuthority("https://bun.sh/blog/release", "bun release"),
-    "official",
-  );
-  assertEquals(
-    classifySourceAuthority("https://deno.com/blog", "deno docs"),
-    "official",
-  );
-  assertEquals(
-    classifySourceAuthority("https://react.dev/learn", "react hooks"),
-    "official",
-  );
-  assertEquals(
-    classifySourceAuthority("https://docs.python.org/3/", "python docs"),
-    "official",
-  );
-  assertEquals(
-    classifySourceAuthority("https://www.bbc.co.uk/news", "bbc news"),
-    "official",
-  );
+Deno.test("web ranking: assessSearchConfidence falls back to surface quality when provider scores are absent", () => {
+  const weak = assessSearchConfidence("react useeffect cleanup", [
+    {
+      title: "Home",
+      url: "https://example.com",
+      snippet: "welcome",
+    },
+    {
+      title: "React page",
+      url: "https://example.com/react",
+      snippet: "cleanup",
+    },
+  ]);
+  const rich = assessSearchConfidence("react useeffect cleanup", [
+    {
+      title: "React useEffect cleanup reference",
+      url: "https://docs.example.com/useeffect-cleanup",
+      snippet:
+        "Detailed documentation covering cleanup functions, subscriptions, and preventing memory leaks in React effects.",
+    },
+    {
+      title: "React effect cleanup guide",
+      url: "https://blog.example.com/react-cleanup",
+      snippet:
+        "Deep explanation of effect teardown, stale closures, and cleanup patterns with code examples.",
+    },
+  ]);
 
-  // Repository: repo roots/releases stay repository hosts
-  assertEquals(
-    classifySourceAuthority("https://github.com/oven-sh/bun", "bun"),
-    "repository",
-  );
-  assertEquals(
-    classifySourceAuthority("https://gitlab.com/foo/bar", "bar lib"),
-    "repository",
-  );
-  assertEquals(
-    classifySourceAuthority(
-      "https://github.com/oven-sh/bun/releases",
-      "bun release",
-    ),
-    "repository",
-  );
-
-  // Community: forums plus repo-host discussions
-  assertEquals(
-    classifySourceAuthority("https://reddit.com/r/node", "bun"),
-    "community",
-  );
-  assertEquals(
-    classifySourceAuthority("https://stackoverflow.com/q/12345", "deno deploy"),
-    "community",
-  );
-  assertEquals(
-    classifySourceAuthority("https://dev.to/post/abc", "react tutorial"),
-    "community",
-  );
-  assertEquals(
-    classifySourceAuthority(
-      "https://github.com/oven-sh/bun/issues/123",
-      "bun issue",
-    ),
-    "community",
-  );
-
-  // Authoritative: authority signals without an official-domain match
-  assertEquals(
-    classifySourceAuthority(
-      "https://developer.mozilla.org/en-US/docs/Web/CSS/Grid",
-      "css grid",
-    ),
-    "authoritative",
-  );
-  assert(domainAuthorityBoost("https://www.gov.uk/service-manual") >= 0.3);
-
-  // Unknown: no match and no substring false positives
-  assertEquals(
-    classifySourceAuthority("https://example.com/page", "widgets"),
-    "unknown",
-  );
-  assertEquals(
-    classifySourceAuthority("https://randomsite.io/stuff", "something else"),
-    "unknown",
-  );
-  assertEquals(
-    classifySourceAuthority("https://hyperreactive.dev/post", "react hooks"),
-    "unknown",
-  );
-
-  // Invalid URL → unknown
-  assertEquals(classifySourceAuthority("not-a-url", "query"), "unknown");
+  assertEquals(weak.lowConfidence, true);
+  assert(weak.reasons.includes("low_score"));
+  assertEquals(rich.lowConfidence, false);
+  assertEquals(rich.reason, "ok");
 });

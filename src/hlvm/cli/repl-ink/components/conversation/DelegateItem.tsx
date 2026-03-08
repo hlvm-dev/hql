@@ -21,18 +21,33 @@ export function DelegateItem(
   { item, width, expanded = false }: DelegateItemProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
-  const accent = item.status === "error"
-    ? sc.status.error
-    : item.status === "success"
-    ? sc.status.success
-    : sc.status.warning;
-  const icon = item.status === "error" ? "✗" : item.status === "success" ? "✓" : "↗";
+  const accentMap: Record<string, string> = {
+    error: sc.status.error,
+    success: sc.status.success,
+    cancelled: sc.text.muted,
+    queued: sc.text.muted,
+  };
+  const iconMap: Record<string, string> = {
+    error: "✗",
+    success: "✓",
+    cancelled: "○",
+    queued: "⏳",
+  };
+  const accent = accentMap[item.status] ?? sc.status.warning;
+  const icon = iconMap[item.status] ?? "↗";
   const duration = item.durationMs != null
     ? ` · ${formatDurationMs(item.durationMs)}`
     : "";
   const body = item.status === "error"
     ? item.error
+    : item.status === "cancelled"
+    ? "Cancelled"
     : item.summary;
+
+  // Show nickname in header when available
+  const header = item.nickname
+    ? `${item.nickname} [${item.agent}]`
+    : `Delegate ${item.agent}`;
 
   return (
     <Box flexDirection="row" width={width} marginBottom={1}>
@@ -51,7 +66,7 @@ export function DelegateItem(
         paddingLeft={1}
       >
         <Text bold color={accent}>
-          {truncate(`Delegate ${item.agent}`, Math.max(10, width - 8))}
+          {truncate(header, Math.max(10, width - 8))}
         </Text>
         <Text color={sc.text.secondary}>
           {truncate(item.task, Math.max(10, width - 8))}
@@ -65,7 +80,7 @@ export function DelegateItem(
         {item.childSessionId && (
           <Text color={sc.text.muted}>
             {truncate(
-              `child session: ${item.childSessionId} · /resume ${item.childSessionId}`,
+              `child session: ${item.childSessionId}`,
               Math.max(10, width - 8),
             )}
           </Text>

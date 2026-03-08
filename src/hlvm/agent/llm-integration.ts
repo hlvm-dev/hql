@@ -329,17 +329,61 @@ function renderCustomInstructions(text: string): PromptSection {
   };
 }
 
-function renderDelegation(tools: Record<string, ToolMetadata>): PromptSection {
+function renderDelegation(
+  tools: Record<string, ToolMetadata>,
+  tier: ModelTier,
+): PromptSection {
   if (!("delegate_agent" in tools)) {
-    return { id: "delegation", content: "", minTier: "mid" };
+    return { id: "delegation", content: "", minTier: "weak" };
   }
   const agents = listAgentProfiles();
-  const agentList = agents.map((a) => `${a.name}: ${a.description}`).join("\n");
+  const agentList = agents.map((a) => `- **${a.name}**: ${a.description}`)
+    .join("\n");
+
+  // Weak tier: abbreviated (just agent list)
+  if (!tierMeetsMinimum(tier, "mid")) {
+    return {
+      id: "delegation",
+      content:
+        `# Delegation\nUse delegate_agent for subtasks. Available agents:\n${agentList}`,
+      minTier: "weak",
+    };
+  }
+
+  // Mid/frontier: full guidance
+  const lines = [
+    "# Delegation",
+    "",
+    "## When to Delegate",
+    "- Large tasks with multiple well-defined, independent scopes",
+    "- Tasks requiring specialized tool access (web research, file ops, shell)",
+    "- Parallel independent subtasks that don't share files",
+    "- Peer review: have another agent evaluate your work",
+    "",
+    "## When NOT to Delegate",
+    "- Simple or straightforward tasks (overhead > benefit)",
+    "- Sequential tasks with tight data dependencies",
+    "- Tasks that need your current conversation context",
+    "",
+    "## Coordination Patterns",
+    "- **Fan-out**: Spawn background agents for independent subtasks, wait for all, synthesize",
+    "- **Specialist**: Route to right profile (code for analysis, web for research, shell for execution)",
+    "- **Review**: After completing work, delegate review to a fresh agent with different perspective",
+    "- **Isolation**: Each background agent works in its own workspace. Use wait_agent to collect results, then integrate changes into your workspace.",
+    "",
+    "## Rules",
+    "- Each child agent works in an isolated workspace — avoid conflicting file modifications",
+    "- Always close_agent when done to free resources",
+    "- Don't delegate when you can do it faster yourself",
+    "- Use send_input to steer a running agent mid-task",
+    "",
+    `## Available Agents\n${agentList}`,
+  ];
+
   return {
     id: "delegation",
-    content:
-      `# Delegation\nUse delegate_agent for subtasks requiring specialized expertise.\nAvailable agents: ${agentList}`,
-    minTier: "mid",
+    content: lines.join("\n"),
+    minTier: "weak",
   };
 }
 
@@ -402,7 +446,7 @@ export function generateSystemPrompt(
     sections.push(renderCustomInstructions(options.customInstructions));
   }
 
-  sections.push(renderDelegation(tools));
+  sections.push(renderDelegation(tools, tier));
   sections.push(renderExamples());
   sections.push(renderTips());
   sections.push(renderFooter());
