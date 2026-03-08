@@ -57,7 +57,6 @@ import type {
   InteractionRequestEvent,
   InteractionResponse,
 } from "../../../agent/registry.ts";
-import { SessionManager } from "../../repl/session/manager.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { ensureError } from "../../../../common/utils.ts";
 import {
@@ -203,35 +202,10 @@ function AppContent(
   // Initialize: runtime, memory, AI
   const init = useInitialization(replState);
 
-  // Session management
-  const sessionManagerRef = useRef<SessionManager | null>(null);
+  // Conversation session management
   const [currentSession, setCurrentSession] = useState<SessionMeta | null>(
     null,
   );
-
-  // Initialize private eval-session manager only. Conversation sessions are
-  // managed separately via the shared runtime session API.
-  useEffect(() => {
-    const initSession = async () => {
-      const manager = new SessionManager(getPlatform().process.cwd());
-      sessionManagerRef.current = manager;
-
-      try {
-        await manager.initialize();
-      } catch (error) {
-        // Session initialization failed - continue without sessions
-        log.error(`Session init failed: ${error}`);
-      }
-    };
-
-    void initSession();
-
-    return () => {
-      const manager = sessionManagerRef.current;
-      sessionManagerRef.current = null;
-      void manager?.close();
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -259,18 +233,18 @@ function AppContent(
           return;
         }
 
-        if (sessionOptions?.continue && !sessionOptions.forceNew) {
-          const latest = (await sessionApi.list({ limit: 1 }))[0] ?? null;
-          const active = latest ? await syncCurrentSession(latest.id) : null;
+        if (sessionOptions?.forceNew) {
+          clearCurrentSession();
           if (!cancelled) {
-            setCurrentSession(active);
+            setCurrentSession(null);
           }
           return;
         }
 
-        clearCurrentSession();
+        const latest = (await sessionApi.list({ limit: 1 }))[0] ?? null;
+        const active = latest ? await syncCurrentSession(latest.id) : null;
         if (!cancelled) {
-          setCurrentSession(null);
+          setCurrentSession(active);
         }
       } catch (error) {
         log.error(`Conversation session init failed: ${error}`);
@@ -467,6 +441,15 @@ function AppContent(
       .catch(() => {});
   }, [applyRuntimeConfigState, initialConfig]);
 
+  useEffect(() => {
+    if (!init.ready) return;
+    getRuntimeConfig()
+      .then((cfg) =>
+        applyRuntimeConfigState(cfg as unknown as Record<string, unknown>)
+      )
+      .catch(() => {});
+  }, [applyRuntimeConfigState, init.ready]);
+
   // Show model setup overlay if default model needs to be downloaded (only once)
   useEffect(() => {
     if (
@@ -530,27 +513,6 @@ function AppContent(
     setActivePanel("none");
   }, [pendingResumeInput, addHistoryEntry]);
 
-  const recordSessionTurn = useCallback(
-    async (inputCode: string, attachmentPaths: string[], outputStr: string) => {
-      const manager = sessionManagerRef.current;
-      if (!manager) return;
-
-      try {
-        await manager.recordMessage(
-          "user",
-          inputCode,
-          attachmentPaths.length > 0 ? attachmentPaths : undefined,
-        );
-        if (outputStr) {
-          await manager.recordMessage("assistant", outputStr);
-        }
-      } catch {
-        // Session recording failed - continue without sessions
-      }
-    },
-    [],
-  );
-
   const suppressHistoryOutput = useCallback((historyId: number) => {
     setHistory((prev: HistoryEntry[]) =>
       prev.map((entry: HistoryEntry) => {
@@ -568,8 +530,6 @@ function AppContent(
     iterator: AsyncIterableIterator<string>,
     controller: AbortController,
     evalState: CurrentEval,
-    inputCode: string,
-    attachmentPaths: string[],
   ) => {
     const renderInterval = 100;
     let buffer = "";
@@ -630,7 +590,6 @@ function AppContent(
         }
 
         completeEvalTask(taskId, buffer);
-        void recordSessionTurn(inputCode, attachmentPaths, buffer);
       } catch (err) {
         const isAbort = controller.signal.aborted ||
           (err instanceof Error && err.name === "AbortError");
@@ -649,7 +608,6 @@ function AppContent(
     completeEvalTask,
     failEvalTask,
     cancel,
-    recordSessionTurn,
   ]);
 
   // ============================================================
@@ -677,23 +635,21 @@ function AppContent(
     conversation.addUserMessage(query);
 
     try {
-      let model = configuredModelId || undefined;
-      if (!mediaPaths?.length && model?.startsWith("claude-code/")) {
-        const runtimeModelConfig = await createRuntimeModelConfigManager();
-        const repaired = await runtimeModelConfig
-          .reconcileConfiguredClaudeCodeModel();
-        if (typeof repaired === "string" && repaired.length > 0) {
-          model = repaired;
-          applyRuntimeConfigState(
-            (await runtimeModelConfig.sync()) as unknown as Record<
-              string,
-              unknown
-            >,
-          );
-        }
+      const runtimeModelConfig = await createRuntimeModelConfigManager();
+      const ensuredModel = await runtimeModelConfig
+        .ensureInitialModelConfigured();
+      const runtimeConfig = runtimeModelConfig.getConfig();
+      const model = ensuredModel.model || configuredModelId || undefined;
+      if (
+        runtimeConfig.model !== configuredModelId ||
+        (runtimeConfig.modelConfigured === true) !== isConfiguredModelExplicit
+      ) {
+        applyRuntimeConfigState(
+          runtimeConfig as unknown as Record<string, unknown>,
+        );
       }
       if (model) {
-        conversation.addInfo("Initializing agent...");
+        conversation.addInfo("Initializing agent...", { isTransient: true });
       } else {
         throw new ConfigError(
           "No configured model available for conversation mode.",
@@ -721,7 +677,7 @@ function AppContent(
         workspace: getPlatform().process.cwd(),
         // REPL UX: avoid model-initiated ask_user detours for simple chat turns.
         // Keep direct conversational flow unless explicit permission prompts are needed.
-        toolDenylist: ["ask_user", "delegate_agent", "complete_task"],
+        toolDenylist: ["ask_user", "complete_task"],
         signal: controller.signal,
         callbacks: {
           onToken: (text: string) => {
@@ -839,6 +795,7 @@ function AppContent(
   }, [
     applyRuntimeConfigState,
     configuredContextWindow,
+    isConfiguredModelExplicit,
     configuredModelId,
     conversation,
     currentSession,
@@ -934,7 +891,9 @@ function AppContent(
       // If there's a pending question interaction, route non-command input as the answer.
       // Commands must still work while a question prompt is active.
       if (pendingInteraction?.mode === "question" && !isAnyCommand) {
-        conversation.addUserMessage(forceConversationPrompt ?? code.trim());
+        conversation.addUserMessage(forceConversationPrompt ?? code.trim(), {
+          startTurn: false,
+        });
         handleInteractionResponse(pendingInteraction.requestId, {
           approved: true,
           userInput: forceConversationPrompt ?? code.trim(),
@@ -1062,17 +1021,10 @@ function AppContent(
         const imagePayload = images && images.length > 0 ? images : undefined;
         const conversationQuery = forceConversationPrompt ?? expandedCode;
         if (agentControllerRef.current) {
-          const wasQueueEmpty = pendingConversationQueue.length === 0;
           setPendingConversationQueue((prev: QueuedConversationTurn[]) => [
             ...prev,
             { query: conversationQuery, mediaPaths: imagePayload },
           ]);
-          // Keep queue signal concise; avoid spamming repeated info lines that cause reflow.
-          if (wasQueueEmpty) {
-            conversation.addInfo(
-              "Queued message. It will run after current response.",
-            );
-          }
           return;
         }
         setIsEvaluating(true);
@@ -1119,13 +1071,6 @@ function AppContent(
       }
 
       setIsEvaluating(true);
-
-      // Extract attachment paths for session recording (only file attachments have paths)
-      const attachmentPaths = attachments
-        ?.filter((a): a is Exclude<AnyAttachment, { type: "text" }> =>
-          a.type !== "text"
-        )
-        .map((a) => a.path) ?? [];
 
       // Evaluate (with optional attachments)
       // Use expandedCode which has text attachment placeholders replaced with actual content
@@ -1193,8 +1138,6 @@ function AppContent(
           result.value as AsyncIterableIterator<string>,
           controller,
           evalState,
-          code,
-          attachmentPaths,
         );
 
         if (!evalState.backgrounded) {
@@ -1212,10 +1155,8 @@ function AppContent(
         const taskId = evalState.taskId ?? createEvalTask(code, controller);
         evalState.taskId = taskId;
         completeEvalTask(taskId, result.value);
-        void recordSessionTurn(code, attachmentPaths, outputStr);
       } else {
         addHistoryEntry(code, result);
-        void recordSessionTurn(code, attachmentPaths, outputStr);
       }
 
       finalizeForeground();
@@ -1229,7 +1170,6 @@ function AppContent(
       failEvalTask,
       suppressHistoryOutput,
       streamEvalToTask,
-      recordSessionTurn,
       isNaturalLanguage,
       runConversation,
       conversation,
@@ -1612,19 +1552,21 @@ function AppContent(
 
       {/* Conversation Panel (agent mode) */}
       {activePanel === "conversation" && (
-        <ConversationPanel
-          items={conversation.items}
-          width={Math.max(20, terminalWidth - 2)}
-          streamingState={conversation.streamingState}
-          allowToggleHotkeys={allowConversationToggleHotkeys}
-          interactionRequest={pendingInteraction}
-          interactionQueueLength={interactionQueue.length}
-          onInteractionResponse={handleInteractionResponse}
-        />
+        <Box flexGrow={1} flexDirection="column" justifyContent="flex-end">
+          <ConversationPanel
+            items={conversation.items}
+            width={Math.max(20, terminalWidth - 2)}
+            streamingState={conversation.streamingState}
+            allowToggleHotkeys={allowConversationToggleHotkeys}
+            interactionRequest={pendingInteraction}
+            interactionQueueLength={interactionQueue.length}
+            onInteractionResponse={handleInteractionResponse}
+          />
+        </Box>
       )}
 
       {/* Push input/footer to the visual bottom when there is spare terminal space */}
-      <Box flexGrow={1} />
+      {activePanel !== "conversation" && <Box flexGrow={1} />}
 
       {/* Input line (hidden when modal panels are open, but visible under overlay) */}
       {/* FRP: Input now gets history, bindings, signatures, docstrings from ReplContext */}

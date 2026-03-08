@@ -1,5 +1,7 @@
 import type { PermissionMode } from "../../common/config/types.ts";
 import type { FinalResponseMeta, TraceEvent } from "../agent/orchestrator.ts";
+import type { Plan } from "../agent/planning.ts";
+import type { DelegateTranscriptSnapshot } from "../agent/delegate-transcript.ts";
 
 export const CLAUDE_CODE_AGENT_MODE = "claude-code-agent" as const;
 
@@ -103,7 +105,10 @@ export type ChatStreamEvent =
     summary?: string;
     duration_ms?: number;
     error?: string;
+    snapshot?: DelegateTranscriptSnapshot;
   }
+  | { event: "plan_created"; plan: Plan }
+  | { event: "plan_step"; step_id: string; index: number; completed: boolean }
   | {
     event: "interaction_request";
     request_id: string;

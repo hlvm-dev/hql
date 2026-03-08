@@ -801,3 +801,83 @@ Deno.test("searchWeb applies domain filters to Google News supplemental results"
     });
   });
 });
+
+Deno.test("web tools: formatSearchWebResult surfaces source authority tags, recommended source, and retrieval guidance", () => {
+  // With high-evidence official source + guidance
+  const withGuidance = __testOnlyFormatSearchWebResult({
+    query: "deno deploy docs",
+    provider: "duckduckgo",
+    count: 2,
+    results: [
+      {
+        title: "Deploy on Deno",
+        url: "https://deno.com/deploy",
+        snippet: "Deno Deploy is a serverless platform",
+        passages: ["Deploy your code in seconds with Deno Deploy"],
+        evidenceStrength: "high",
+        evidenceReason: "page passages",
+        sourceAuthority: "official",
+        score: 9,
+      },
+      {
+        title: "Deno Deploy Discussion",
+        url: "https://reddit.com/r/deno/deploy",
+        snippet: "Has anyone tried Deno Deploy?",
+        sourceAuthority: "community",
+        score: 5,
+      },
+    ],
+    guidance: {
+      answerAvailable: true,
+      stopReason: "1 high-quality evidence page(s) with extracted passages. Respond from these unless deeper detail is needed.",
+    },
+  });
+  assert(withGuidance !== null);
+  // Authority tag on evidence page
+  assert(withGuidance!.llmContent.includes("[official]"));
+  // Recommended source header
+  assert(withGuidance!.llmContent.includes("Recommended source:"));
+  assert(withGuidance!.llmContent.includes("Official domain matching query subject"));
+  // Guidance stop signal
+  assert(withGuidance!.llmContent.includes("1 high-quality evidence page(s) with extracted passages"));
+
+  // Without guidance (low confidence)
+  const noGuidance = __testOnlyFormatSearchWebResult({
+    query: "obscure library xyz",
+    provider: "duckduckgo",
+    count: 1,
+    results: [
+      {
+        title: "Some Page",
+        url: "https://example.com/xyz",
+        snippet: "vaguely related",
+        score: 2,
+      },
+    ],
+  });
+  assert(noGuidance !== null);
+  assert(!noGuidance!.llmContent.includes("Recommended source:"));
+  assert(!noGuidance!.llmContent.includes("Respond from these"));
+
+  // Community authority tag visible
+  const communityResult = __testOnlyFormatSearchWebResult({
+    query: "react hooks best practices",
+    provider: "duckduckgo",
+    count: 1,
+    results: [
+      {
+        title: "React Hooks Guide",
+        url: "https://stackoverflow.com/q/99999",
+        snippet: "Best practices for React hooks",
+        passages: ["Use useCallback for memoization"],
+        evidenceStrength: "high",
+        evidenceReason: "page passages",
+        sourceAuthority: "community",
+        score: 7,
+      },
+    ],
+  });
+  assert(communityResult !== null);
+  assert(communityResult!.llmContent.includes("[community]"));
+  assert(!communityResult!.llmContent.includes("Recommended source:"));
+});

@@ -16,19 +16,15 @@ export interface PersistedAgentTurn {
   requestId: string;
 }
 
-export function getPersistedAgentSessionId(
-  workspace: string,
-  model: string,
-): string {
-  return deriveDefaultSessionKey(workspace, model);
+export function getPersistedAgentSessionId(): string {
+  return deriveDefaultSessionKey();
 }
 
 export async function loadPersistedAgentHistory(options: {
-  workspace: string;
   model: string;
   maxGroups: number;
 }): Promise<{ sessionId: string; history: AgentMessage[] }> {
-  const sessionId = getPersistedAgentSessionId(options.workspace, options.model);
+  const sessionId = getPersistedAgentSessionId();
   getOrCreateSession(sessionId);
 
   const history = await buildStoredAgentHistoryMessages({

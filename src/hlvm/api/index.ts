@@ -19,11 +19,7 @@
 
 import { config } from "./config.ts";
 import { memory } from "./memory.ts";
-import {
-  session,
-  type SessionManagerRef,
-  setSessionManager,
-} from "./session.ts";
+import { session } from "./session.ts";
 import { history, setReplState } from "./history.ts";
 import { ai } from "./ai.ts";
 import {
@@ -46,19 +42,15 @@ export {
   memory,
   runtime,
   session,
-  type SessionManagerRef,
   setAbortSignal,
   setReplState,
   setRuntimeState,
-  setSessionManager,
 };
 
 /**
  * Options for registering APIs on globalThis
  */
 interface RegisterApisOptions {
-  /** Deprecated compatibility hook for legacy eval-session bootstrapping */
-  sessionManager?: SessionManagerRef;
   /** REPL state for history API */
   replState?: {
     history: string[];
@@ -76,9 +68,6 @@ interface RegisterApisOptions {
  */
 export function registerApis(options?: RegisterApisOptions): void {
   // Set up references
-  if (options?.sessionManager) {
-    setSessionManager(options.sessionManager);
-  }
   if (options?.replState) {
     setReplState(options.replState);
   }

@@ -204,6 +204,21 @@ export async function handleAgentMode(
               summary: event.summary,
               duration_ms: event.durationMs,
               error: event.error,
+              snapshot: event.snapshot,
+            });
+            break;
+          case "plan_created":
+            emit({
+              event: "plan_created",
+              plan: event.plan,
+            });
+            break;
+          case "plan_step":
+            emit({
+              event: "plan_step",
+              step_id: event.stepId,
+              index: event.index,
+              completed: event.completed,
             });
             break;
           case "turn_stats":

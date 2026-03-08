@@ -17,6 +17,7 @@ import type {
   AssistantItem,
   ConversationItem,
   DelegateItem,
+  InfoItem,
   StreamingState,
   ThinkingItem,
   ToolCallDisplay,
@@ -28,12 +29,39 @@ import { StreamingState as ConversationStreamingState } from "../types.ts";
 // Helpers
 // ============================================================
 
-/** Remove all thinking items and finalize any pending assistant items */
+/** Remove transient status rows and finalize any pending assistant items. */
+function findPendingAssistantIndex(items: ConversationItem[]): number {
+  return items.findLastIndex((item: ConversationItem) =>
+    item.type === "assistant" && item.isPending
+  );
+}
+
+function insertBeforePendingAssistant(
+  items: ConversationItem[],
+  nextItem: ConversationItem,
+): ConversationItem[] {
+  const pendingAssistantIdx = findPendingAssistantIndex(items);
+  if (pendingAssistantIdx < 0) {
+    return [...items, nextItem];
+  }
+  const next = [...items];
+  next.splice(pendingAssistantIdx, 0, nextItem);
+  return next;
+}
+
+function removeTransientInfoItems(
+  items: ConversationItem[],
+): ConversationItem[] {
+  return items.filter((item: ConversationItem) =>
+    item.type !== "info" || item.isTransient !== true
+  );
+}
+
 function cleanupTransientItems(items: ConversationItem[]): ConversationItem[] {
-  return items.flatMap((item: ConversationItem) => {
+  return removeTransientInfoItems(items).flatMap((item: ConversationItem) => {
     if (item.type === "thinking") return [];
     if (item.type === "assistant" && item.isPending) {
-      return [{ ...item, isPending: false }];
+      return item.text.trim().length > 0 ? [{ ...item, isPending: false }] : [];
     }
     return [item];
   });
@@ -56,7 +84,7 @@ function upsertThinkingItem(
       summary,
       iteration,
     };
-    return [...items, thinking];
+    return insertBeforePendingAssistant(items, thinking);
   }
   const next = [...items];
   const current = next[idx];
@@ -107,17 +135,30 @@ function appendDelegateItem(
   task: string,
   nextId: () => string,
 ): ConversationItem[] {
-  return [
-    ...items,
-    {
-      type: "delegate" as const,
-      id: nextId(),
-      agent,
-      task,
-      status: "running",
-      ts: Date.now(),
-    },
-  ];
+  return insertBeforePendingAssistant(items, {
+    type: "delegate" as const,
+    id: nextId(),
+    agent,
+    task,
+    status: "running",
+    ts: Date.now(),
+  });
+}
+
+function findTrailingToolGroupIndex(items: ConversationItem[]): number {
+  const pendingAssistantIdx = findPendingAssistantIndex(items);
+  for (
+    let i = pendingAssistantIdx >= 0
+      ? pendingAssistantIdx - 1
+      : items.length - 1;
+    i >= 0;
+    i--
+  ) {
+    const item = items[i];
+    if (item?.type === "thinking") continue;
+    return item?.type === "tool_group" ? i : -1;
+  }
+  return -1;
 }
 
 function completeDelegateItem(
@@ -139,6 +180,7 @@ function completeDelegateItem(
     summary: event.summary,
     error: event.error,
     durationMs: event.durationMs,
+    snapshot: event.snapshot,
   };
   next[idx] = updated;
   return next;
@@ -151,22 +193,20 @@ function upsertAssistantTextItem(
   citations: AssistantCitation[] | undefined,
   nextId: () => string,
 ): ConversationItem[] {
+  const cleanedItems = removeTransientInfoItems(items);
   let pendingIdx = -1;
-  let lastAssistantIdx = -1;
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i];
+  for (let i = cleanedItems.length - 1; i >= 0; i--) {
+    const item = cleanedItems[i];
     if (item.type === "assistant") {
       if (item.isPending && pendingIdx < 0) pendingIdx = i;
-      if (lastAssistantIdx < 0) lastAssistantIdx = i;
-      if (pendingIdx >= 0 && lastAssistantIdx >= 0) break;
+      if (pendingIdx >= 0) break;
     }
   }
 
-  const targetIdx = pendingIdx >= 0 ? pendingIdx : lastAssistantIdx;
-  if (targetIdx >= 0) {
-    const target = items[targetIdx] as AssistantItem;
-    const next = [...items];
-    next[targetIdx] = { ...target, text, isPending, citations };
+  if (pendingIdx >= 0) {
+    const target = cleanedItems[pendingIdx] as AssistantItem;
+    const next = [...cleanedItems];
+    next[pendingIdx] = { ...target, text, isPending, citations };
     return next;
   }
 
@@ -178,16 +218,16 @@ function upsertAssistantTextItem(
     isPending,
     ts: Date.now(),
   };
-  const trailingTurnStatsIdx = !isPending && items.length > 0 &&
-      items[items.length - 1]?.type === "turn_stats"
-    ? items.length - 1
+  const trailingTurnStatsIdx = !isPending && cleanedItems.length > 0 &&
+      cleanedItems[cleanedItems.length - 1]?.type === "turn_stats"
+    ? cleanedItems.length - 1
     : -1;
   if (trailingTurnStatsIdx >= 0) {
-    const next = [...items];
+    const next = [...cleanedItems];
     next.splice(trailingTurnStatsIdx, 0, assistant);
     return next;
   }
-  return [...items, assistant];
+  return [...cleanedItems, assistant];
 }
 
 // ============================================================
@@ -204,7 +244,10 @@ export interface UseConversationResult {
   /** Process an incoming agent event */
   addEvent: (event: AgentUIEvent) => void;
   /** Add a user message (also cleans up orphaned transient items) */
-  addUserMessage: (text: string) => void;
+  addUserMessage: (
+    text: string,
+    options?: { startTurn?: boolean },
+  ) => void;
   /** Add/update assistant text (streaming or final) */
   addAssistantText: (
     text: string,
@@ -214,7 +257,7 @@ export interface UseConversationResult {
   /** Add an error message */
   addError: (text: string) => void;
   /** Add an info message */
-  addInfo: (text: string) => void;
+  addInfo: (text: string, options?: { isTransient?: boolean }) => void;
   /** Replace the entire conversation with persisted items */
   replaceItems: (items: ConversationItem[]) => void;
   /** Reset stream state to idle */
@@ -243,7 +286,12 @@ export function useConversation(): UseConversationResult {
         setStreamingState(ConversationStreamingState.Responding);
         setActiveTool(undefined);
         setItems((prev: ConversationItem[]) =>
-          upsertThinkingItem(prev, event.iteration, "", nextId)
+          upsertThinkingItem(
+            removeTransientInfoItems(prev),
+            event.iteration,
+            "",
+            nextId,
+          )
         );
         break;
 
@@ -251,7 +299,12 @@ export function useConversation(): UseConversationResult {
         setStreamingState(ConversationStreamingState.Responding);
         setActiveTool(undefined);
         setItems((prev: ConversationItem[]) =>
-          upsertThinkingItem(prev, event.iteration, event.summary, nextId)
+          upsertThinkingItem(
+            removeTransientInfoItems(prev),
+            event.iteration,
+            event.summary,
+            nextId,
+          )
         );
         break;
 
@@ -275,20 +328,19 @@ export function useConversation(): UseConversationResult {
           toolTotal: event.toolTotal,
         };
         setItems((prev: ConversationItem[]) => {
-          const lastNonThinkingIdx = prev.findLastIndex(
-            (item: ConversationItem) => item.type !== "thinking",
-          );
-          const lastNonThinking = lastNonThinkingIdx >= 0
-            ? prev[lastNonThinkingIdx]
+          const cleaned = removeTransientInfoItems(prev);
+          const trailingToolGroupIdx = findTrailingToolGroupIndex(cleaned);
+          const trailingToolGroup = trailingToolGroupIdx >= 0
+            ? cleaned[trailingToolGroupIdx]
             : undefined;
 
-          if (lastNonThinking?.type === "tool_group") {
-            const next = [...prev];
+          if (trailingToolGroup?.type === "tool_group") {
+            const next = [...cleaned];
             const group = {
-              ...lastNonThinking,
-              tools: [...lastNonThinking.tools, tool],
+              ...trailingToolGroup,
+              tools: [...trailingToolGroup.tools, tool],
             };
-            next[lastNonThinkingIdx] = group;
+            next[trailingToolGroupIdx] = group;
             return next;
           }
           // New tool group
@@ -298,7 +350,7 @@ export function useConversation(): UseConversationResult {
             tools: [tool],
             ts: Date.now(),
           };
-          return [...prev, group];
+          return insertBeforePendingAssistant(cleaned, group);
         });
         break;
       }
@@ -356,14 +408,21 @@ export function useConversation(): UseConversationResult {
         setStreamingState(ConversationStreamingState.Responding);
         setActiveTool(undefined);
         setItems((prev: ConversationItem[]) =>
-          appendDelegateItem(prev, event.agent, event.task, nextId)
+          appendDelegateItem(
+            removeTransientInfoItems(prev),
+            event.agent,
+            event.task,
+            nextId,
+          )
         );
         break;
 
       case "delegate_end":
         setStreamingState(ConversationStreamingState.Responding);
         setActiveTool(undefined);
-        setItems((prev: ConversationItem[]) => completeDelegateItem(prev, event));
+        setItems((prev: ConversationItem[]) =>
+          completeDelegateItem(prev, event)
+        );
         break;
 
       case "turn_stats":
@@ -393,16 +452,34 @@ export function useConversation(): UseConversationResult {
     }
   }, []);
 
-  const addUserMessage = useCallback((text: string) => {
+  const addUserMessage = useCallback((
+    text: string,
+    options?: { startTurn?: boolean },
+  ) => {
+    const startTurn = options?.startTurn !== false;
     setItems((prev: ConversationItem[]) => {
-      // Clean up orphaned transient items from any incomplete previous turn
-      const cleaned = cleanupTransientItems(prev);
-      return [...cleaned, {
+      const baseItems = startTurn ? cleanupTransientItems(prev) : prev;
+      const userItem: ConversationItem = {
         type: "user" as const,
         id: nextId(),
         text,
         ts: Date.now(),
-      }];
+      };
+
+      if (!startTurn) {
+        return insertBeforePendingAssistant(baseItems, userItem);
+      }
+
+      const pendingAssistant: AssistantItem = {
+        type: "assistant",
+        id: nextId(),
+        text: "",
+        citations: undefined,
+        isPending: true,
+        ts: Date.now(),
+      };
+
+      return [...baseItems, userItem, pendingAssistant];
     });
   }, []);
 
@@ -422,10 +499,25 @@ export function useConversation(): UseConversationResult {
     ) => [...prev, { type: "error" as const, id: nextId(), text }]);
   }, []);
 
-  const addInfo = useCallback((text: string) => {
-    setItems((
-      prev: ConversationItem[],
-    ) => [...prev, { type: "info" as const, id: nextId(), text }]);
+  const addInfo = useCallback((
+    text: string,
+    options?: { isTransient?: boolean },
+  ) => {
+    setItems((prev: ConversationItem[]) => {
+      if (options?.isTransient) {
+        const infoItem: InfoItem = {
+          type: "info",
+          id: nextId(),
+          text,
+          isTransient: true,
+        };
+        return insertBeforePendingAssistant(
+          removeTransientInfoItems(prev),
+          infoItem,
+        );
+      }
+      return [...prev, { type: "info" as const, id: nextId(), text }];
+    });
   }, []);
 
   const replaceItems = useCallback((nextItems: ConversationItem[]) => {
@@ -472,3 +564,4 @@ export function useConversation(): UseConversationResult {
 export const __testOnlyUpsertAssistantTextItem = upsertAssistantTextItem;
 export const __testOnlyAppendDelegateItem = appendDelegateItem;
 export const __testOnlyCompleteDelegateItem = completeDelegateItem;
+export const __testOnlyCleanupTransientItems = cleanupTransientItems;

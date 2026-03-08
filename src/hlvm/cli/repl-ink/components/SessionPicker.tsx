@@ -52,7 +52,6 @@ function matchesSessionSearch(session: SessionMeta, query: string): boolean {
   if (!q) return true;
   return (
     session.title.toLowerCase().includes(q) ||
-    session.projectPath.toLowerCase().includes(q) ||
     session.id.toLowerCase().includes(q)
   );
 }
@@ -227,7 +226,7 @@ export function SessionPicker({
         query={searchQuery}
         cursor={searchCursor}
         width={contentWidth}
-        placeholder="Filter by title, path, or session ID"
+        placeholder="Filter by title or session ID"
       />
 
       <Box>

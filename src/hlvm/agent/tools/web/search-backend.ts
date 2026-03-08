@@ -39,6 +39,11 @@ export interface WebSearchRequest {
   toolOptions?: ToolExecutionOptions;
 }
 
+export interface RetrievalGuidance {
+  answerAvailable: boolean;
+  stopReason?: string;
+}
+
 export interface WebSearchResponse {
   query: string;
   provider: string;
@@ -46,6 +51,7 @@ export interface WebSearchResponse {
   count: number;
   citations: Citation[];
   diagnostics: Record<string, unknown>;
+  guidance?: RetrievalGuidance;
 }
 
 // ============================================================

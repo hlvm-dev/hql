@@ -22,6 +22,7 @@ import {
 import { insertMessage } from "../../src/hlvm/store/conversation-store.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import { findFreePort } from "../shared/light-helpers.ts";
+import { withTempHlvmDir } from "../unit/helpers.ts";
 
 class IntegrationAgentEngine implements AgentEngine {
   createLLM(config: AgentLLMConfig) {
@@ -98,6 +99,41 @@ interface ServerContext {
 
 let serverContext: ServerContext | null = null;
 
+async function shutdownServer(): Promise<void> {
+  if (!serverContext) return;
+  const { baseUrl, authToken } = serverContext;
+  serverContext = null;
+  try {
+    await fetch(`${baseUrl}/api/runtime/shutdown`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } catch {
+    // Best-effort cleanup only.
+  }
+}
+
+async function withIsolatedServerTest(fn: () => Promise<void>): Promise<void> {
+  await withTempHlvmDir(async () => {
+    serverContext = null;
+    await config.reload();
+    await config.patch({
+      model: "test-chat/plain",
+      modelConfigured: true,
+      agentMode: "hlvm",
+    });
+    try {
+      await fn();
+    } finally {
+      await shutdownServer();
+      serverContext = null;
+    }
+  });
+}
+
 async function ensureServerRunning(): Promise<ServerContext> {
   if (serverContext) return serverContext;
 
@@ -112,11 +148,6 @@ async function ensureServerRunning(): Promise<ServerContext> {
   registerProvider("test-chat", () => integrationProvider, { isDefault: true });
   setDefaultProvider("test-chat");
   setAgentEngine(new IntegrationAgentEngine());
-  await config.patch({
-    model: "test-chat/plain",
-    modelConfigured: true,
-    agentMode: "hlvm",
-  });
 
   await initializeRuntime({ ai: true, stdlib: true, cache: true });
   startHttpServer({ port });
@@ -223,24 +254,26 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const { baseUrl } = await ensureServerRunning();
+    await withIsolatedServerTest(async () => {
+      const { baseUrl } = await ensureServerRunning();
 
-    const health = await fetch(`${baseUrl}/health`);
-    const healthData = await health.json();
-    assertEquals(health.status, 200);
-    assertEquals(healthData.status, "ok");
-    assertExists(healthData.initialized);
-    assertExists(healthData.version);
-    assertExists(healthData.buildId);
+      const health = await fetch(`${baseUrl}/health`);
+      const healthData = await health.json();
+      assertEquals(health.status, 200);
+      assertEquals(healthData.status, "ok");
+      assertExists(healthData.initialized);
+      assertExists(healthData.version);
+      assertExists(healthData.buildId);
 
-    const unauthorized = await fetch(`${baseUrl}/eval`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: "(+ 1 2)" }),
+      const unauthorized = await fetch(`${baseUrl}/eval`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: "(+ 1 2)" }),
+      });
+      const unauthorizedData = await unauthorized.json();
+      assertEquals(unauthorized.status, 401);
+      assertEquals(unauthorizedData.error, "Unauthorized");
     });
-    const unauthorizedData = await unauthorized.json();
-    assertEquals(unauthorized.status, 401);
-    assertEquals(unauthorizedData.error, "Unauthorized");
   },
 });
 
@@ -249,18 +282,20 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const arithmetic = await evalCode("(+ 1 2)");
-    const ask = await evalCode("(typeof ask)");
-    const generate = await evalCode("(typeof generate)");
-    const javascript = await evalCode("let x = 10; x * 2");
+    await withIsolatedServerTest(async () => {
+      const arithmetic = await evalCode("(+ 1 2)");
+      const ask = await evalCode("(typeof ask)");
+      const generate = await evalCode("(typeof generate)");
+      const javascript = await evalCode("let x = 10; x * 2");
 
-    assertEquals(arithmetic.success, true);
-    assertEquals(arithmetic.value, "3");
-    assertEquals(arithmetic.error, null);
-    assertEquals(ask.value, '"function"');
-    assertEquals(generate.value, '"function"');
-    assertEquals(javascript.success, true);
-    assertEquals(javascript.value, "20");
+      assertEquals(arithmetic.success, true);
+      assertEquals(arithmetic.value, "3");
+      assertEquals(arithmetic.error, null);
+      assertEquals(ask.value, '"function"');
+      assertEquals(generate.value, '"function"');
+      assertEquals(javascript.success, true);
+      assertEquals(javascript.value, "20");
+    });
   },
 });
 
@@ -269,11 +304,13 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const result = await evalCode("(+ 1");
-    assertEquals(result.success, false);
-    assertExists(result.error);
-    assertExists(result.error?.name);
-    assertExists(result.error?.message);
+    await withIsolatedServerTest(async () => {
+      const result = await evalCode("(+ 1");
+      assertEquals(result.success, false);
+      assertExists(result.error);
+      assertExists(result.error?.name);
+      assertExists(result.error?.message);
+    });
   },
 });
 
@@ -283,17 +320,19 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const defVar = await evalCode("(def testVar 42)");
-    const readVar = await evalCode("testVar");
-    const defFn = await evalCode("(defn double [x] (* x 2))");
-    const callFn = await evalCode("(double 21)");
+    await withIsolatedServerTest(async () => {
+      const defVar = await evalCode("(def testVar 42)");
+      const readVar = await evalCode("testVar");
+      const defFn = await evalCode("(defn double [x] (* x 2))");
+      const callFn = await evalCode("(double 21)");
 
-    assertEquals(defVar.success, true);
-    assertEquals(readVar.success, true);
-    assertEquals(readVar.value, "42");
-    assertEquals(defFn.success, true);
-    assertEquals(callFn.success, true);
-    assertEquals(callFn.value, "42");
+      assertEquals(defVar.success, true);
+      assertEquals(readVar.success, true);
+      assertEquals(readVar.value, "42");
+      assertEquals(defFn.success, true);
+      assertEquals(callFn.success, true);
+      assertEquals(callFn.value, "42");
+    });
   },
 });
 
@@ -303,31 +342,33 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    await config.patch({ model: "test-chat/basic", modelConfigured: true });
-    try {
-      const { baseUrl, authToken } = await ensureServerRunning();
-      const response = await fetch(`${baseUrl}/api/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          mode: "agent",
-          session_id: `integration-agent-${crypto.randomUUID()}`,
-          messages: [{ role: "user", content: "Say OK" }],
-        }),
-      });
-      const result = await response.json();
+    await withIsolatedServerTest(async () => {
+      await config.patch({ model: "test-chat/basic", modelConfigured: true });
+      try {
+        const { baseUrl, authToken } = await ensureServerRunning();
+        const response = await fetch(`${baseUrl}/api/chat`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            mode: "agent",
+            session_id: `integration-agent-${crypto.randomUUID()}`,
+            messages: [{ role: "user", content: "Say OK" }],
+          }),
+        });
+        const result = await response.json();
 
-      assertEquals(response.status, 400);
-      assertEquals(
-        result.error,
-        "Default model does not support tool calling",
-      );
-    } finally {
-      await config.patch({ model: "test-chat/plain", modelConfigured: true });
-    }
+        assertEquals(response.status, 400);
+        assertEquals(
+          result.error,
+          "Default model does not support tool calling",
+        );
+      } finally {
+        await config.patch({ model: "test-chat/plain", modelConfigured: true });
+      }
+    });
   },
 });
 
@@ -337,22 +378,24 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const result = await postChatNdjson({
-      mode: "chat",
-      session_id: `integration-chat-system-${crypto.randomUUID()}`,
-      model: "test-chat/plain",
-      messages: [
-        { role: "system", content: "Speak like a pirate." },
-        { role: "user", content: "hello" },
-      ],
-    });
+    await withIsolatedServerTest(async () => {
+      const result = await postChatNdjson({
+        mode: "chat",
+        session_id: `integration-chat-system-${crypto.randomUUID()}`,
+        model: "test-chat/plain",
+        messages: [
+          { role: "system", content: "Speak like a pirate." },
+          { role: "user", content: "hello" },
+        ],
+      });
 
-    assertEquals(result.status, 200);
-    const tokenEvents = result.events.filter((event) =>
-      event.event === "token"
-    );
-    assertEquals(tokenEvents.length > 0, true);
-    assertStringIncludes(String(tokenEvents[0].text), "arrr");
+      assertEquals(result.status, 200);
+      const tokenEvents = result.events.filter((event) =>
+        event.event === "token"
+      );
+      assertEquals(tokenEvents.length > 0, true);
+      assertStringIncludes(String(tokenEvents[0].text), "arrr");
+    });
   },
 });
 
@@ -362,32 +405,34 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const sessionId = `integration-chat-durable-system-${crypto.randomUUID()}`;
+    await withIsolatedServerTest(async () => {
+      const sessionId = `integration-chat-durable-system-${crypto.randomUUID()}`;
 
-    const first = await postChatNdjson({
-      mode: "chat",
-      session_id: sessionId,
-      model: "test-chat/plain",
-      messages: [
-        { role: "system", content: "Speak like a pirate." },
-        { role: "user", content: "hello" },
-      ],
+      const first = await postChatNdjson({
+        mode: "chat",
+        session_id: sessionId,
+        model: "test-chat/plain",
+        messages: [
+          { role: "system", content: "Speak like a pirate." },
+          { role: "user", content: "hello" },
+        ],
+      });
+      assertEquals(first.status, 200);
+
+      const second = await postChatNdjson({
+        mode: "chat",
+        session_id: sessionId,
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: "still there?" }],
+      });
+
+      assertEquals(second.status, 200);
+      const tokenText = second.events
+        .filter((event) => event.event === "token")
+        .map((event) => String(event.text ?? ""))
+        .join("");
+      assertStringIncludes(tokenText, "arrr");
     });
-    assertEquals(first.status, 200);
-
-    const second = await postChatNdjson({
-      mode: "chat",
-      session_id: sessionId,
-      model: "test-chat/plain",
-      messages: [{ role: "user", content: "still there?" }],
-    });
-
-    assertEquals(second.status, 200);
-    const tokenText = second.events
-      .filter((event) => event.event === "token")
-      .map((event) => String(event.text ?? ""))
-      .join("");
-    assertStringIncludes(tokenText, "arrr");
   },
 });
 
@@ -397,29 +442,31 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const sessionId = `integration-chat-history-${crypto.randomUUID()}`;
+    await withIsolatedServerTest(async () => {
+      const sessionId = `integration-chat-history-${crypto.randomUUID()}`;
 
-    const first = await postChatNdjson({
-      mode: "chat",
-      session_id: sessionId,
-      model: "test-chat/plain",
-      messages: [{ role: "user", content: "first" }],
+      const first = await postChatNdjson({
+        mode: "chat",
+        session_id: sessionId,
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: "first" }],
+      });
+      assertEquals(first.status, 200);
+
+      const second = await postChatNdjson({
+        mode: "chat",
+        session_id: sessionId,
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: "second" }],
+      });
+
+      assertEquals(second.status, 200);
+      const tokenText = second.events
+        .filter((event) => event.event === "token")
+        .map((event) => String(event.text ?? ""))
+        .join("");
+      assertStringIncludes(tokenText, "history:reply:first");
     });
-    assertEquals(first.status, 200);
-
-    const second = await postChatNdjson({
-      mode: "chat",
-      session_id: sessionId,
-      model: "test-chat/plain",
-      messages: [{ role: "user", content: "second" }],
-    });
-
-    assertEquals(second.status, 200);
-    const tokenText = second.events
-      .filter((event) => event.event === "token")
-      .map((event) => String(event.text ?? ""))
-      .join("");
-    assertStringIncludes(tokenText, "history:reply:first");
   },
 });
 
@@ -429,19 +476,21 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const result = await postChatNdjson({
-      mode: "chat",
-      session_id: `integration-chat-invalid-${crypto.randomUUID()}`,
-      model: "test-chat/plain",
-      messages: [
-        { role: "user", content: "hello" },
-        { role: "assistant", content: "not-allowed" },
-      ],
-    });
+    await withIsolatedServerTest(async () => {
+      const result = await postChatNdjson({
+        mode: "chat",
+        session_id: `integration-chat-invalid-${crypto.randomUUID()}`,
+        model: "test-chat/plain",
+        messages: [
+          { role: "user", content: "hello" },
+          { role: "assistant", content: "not-allowed" },
+        ],
+      });
 
-    assertEquals(result.status, 400);
-    assertEquals(result.events.length, 1);
-    assertEquals(result.events[0]?.error, "Last message must be a user turn");
+      assertEquals(result.status, 400);
+      assertEquals(result.events.length, 1);
+      assertEquals(result.events[0]?.error, "Last message must be a user turn");
+    });
   },
 });
 
@@ -451,40 +500,42 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const sessionId = `integration-agent-history-${crypto.randomUUID()}`;
+    await withIsolatedServerTest(async () => {
+      const sessionId = `integration-agent-history-${crypto.randomUUID()}`;
 
-    await postChatNdjson({
-      mode: "agent",
-      session_id: sessionId,
-      model: "test-chat/plain",
-      messages: [{ role: "user", content: "initial" }],
+      await postChatNdjson({
+        mode: "agent",
+        session_id: sessionId,
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: "initial" }],
+      });
+      insertMessage({
+        session_id: sessionId,
+        role: "tool",
+        content: "observed-from-tool",
+        sender_type: "agent",
+        tool_name: "shell_exec",
+        request_id: "seeded-tool-turn",
+      });
+
+      const second = await postChatNdjson({
+        mode: "agent",
+        session_id: sessionId,
+        model: "test-chat/plain",
+        messages: [{
+          role: "user",
+          content: "Do you still remember the tool output?",
+        }],
+      });
+
+      const tokenText = second.events
+        .filter((event) => event.event === "token")
+        .map((event) => String(event.text ?? ""))
+        .join("");
+
+      assertEquals(second.status, 200);
+      assertStringIncludes(tokenText, "integration-agent-saw-tool");
     });
-    insertMessage({
-      session_id: sessionId,
-      role: "tool",
-      content: "observed-from-tool",
-      sender_type: "agent",
-      tool_name: "shell_exec",
-      request_id: "seeded-tool-turn",
-    });
-
-    const second = await postChatNdjson({
-      mode: "agent",
-      session_id: sessionId,
-      model: "test-chat/plain",
-      messages: [{
-        role: "user",
-        content: "Do you still remember the tool output?",
-      }],
-    });
-
-    const tokenText = second.events
-      .filter((event) => event.event === "token")
-      .map((event) => String(event.text ?? ""))
-      .join("");
-
-    assertEquals(second.status, 200);
-    assertStringIncludes(tokenText, "integration-agent-saw-tool");
   },
 });
 
@@ -494,30 +545,32 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const marker = `memory-marker:${crypto.randomUUID()}`;
+    await withIsolatedServerTest(async () => {
+      const marker = `memory-marker:${crypto.randomUUID()}`;
 
-    const first = await postChatNdjson({
-      mode: "chat",
-      session_id: `integration-chat-memory-write-${crypto.randomUUID()}`,
-      model: "test-chat/plain",
-      messages: [{ role: "user", content: `Remember that ${marker}` }],
+      const first = await postChatNdjson({
+        mode: "chat",
+        session_id: `integration-chat-memory-write-${crypto.randomUUID()}`,
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: `Remember that ${marker}` }],
+      });
+      assertEquals(first.status, 200);
+
+      const second = await postChatNdjson({
+        mode: "chat",
+        session_id: `integration-chat-memory-read-${crypto.randomUUID()}`,
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: `Do you still know ${marker}?` }],
+      });
+
+      const tokenText = second.events
+        .filter((event) => event.event === "token")
+        .map((event) => String(event.text ?? ""))
+        .join("");
+
+      assertEquals(second.status, 200);
+      assertStringIncludes(tokenText, `memory:${marker}`);
     });
-    assertEquals(first.status, 200);
-
-    const second = await postChatNdjson({
-      mode: "chat",
-      session_id: `integration-chat-memory-read-${crypto.randomUUID()}`,
-      model: "test-chat/plain",
-      messages: [{ role: "user", content: `Do you still know ${marker}?` }],
-    });
-
-    const tokenText = second.events
-      .filter((event) => event.event === "token")
-      .map((event) => String(event.text ?? ""))
-      .join("");
-
-    assertEquals(second.status, 200);
-    assertStringIncludes(tokenText, `memory:${marker}`);
   },
 });
 
@@ -527,29 +580,31 @@ Deno.test({
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
-    const marker = `memory-marker:${crypto.randomUUID()}`;
+    await withIsolatedServerTest(async () => {
+      const marker = `memory-marker:${crypto.randomUUID()}`;
 
-    const first = await postChatNdjson({
-      mode: "agent",
-      session_id: `integration-agent-memory-write-${crypto.randomUUID()}`,
-      model: "test-chat/plain",
-      messages: [{ role: "user", content: `Remember that ${marker}` }],
+      const first = await postChatNdjson({
+        mode: "agent",
+        session_id: `integration-agent-memory-write-${crypto.randomUUID()}`,
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: `Remember that ${marker}` }],
+      });
+      assertEquals(first.status, 200);
+
+      const second = await postChatNdjson({
+        mode: "chat",
+        session_id: `integration-agent-memory-read-${crypto.randomUUID()}`,
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: `Do you still know ${marker}?` }],
+      });
+
+      const tokenText = second.events
+        .filter((event) => event.event === "token")
+        .map((event) => String(event.text ?? ""))
+        .join("");
+
+      assertEquals(second.status, 200);
+      assertStringIncludes(tokenText, `memory:${marker}`);
     });
-    assertEquals(first.status, 200);
-
-    const second = await postChatNdjson({
-      mode: "chat",
-      session_id: `integration-agent-memory-read-${crypto.randomUUID()}`,
-      model: "test-chat/plain",
-      messages: [{ role: "user", content: `Do you still know ${marker}?` }],
-    });
-
-    const tokenText = second.events
-      .filter((event) => event.event === "token")
-      .map((event) => String(event.text ?? ""))
-      .join("");
-
-    assertEquals(second.status, 200);
-    assertStringIncludes(tokenText, `memory:${marker}`);
   },
 });

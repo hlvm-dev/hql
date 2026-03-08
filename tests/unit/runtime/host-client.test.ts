@@ -131,6 +131,35 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
             success: true,
             summary: "Found relevant docs",
             duration_ms: 18,
+            snapshot: {
+              agent: "web",
+              task: "Inspect docs",
+              success: true,
+              durationMs: 18,
+              toolCount: 1,
+              finalResponse: "Done",
+              events: [{
+                type: "tool_end",
+                name: "search_web",
+                success: true,
+                summary: "Found docs",
+                durationMs: 10,
+                argsSummary: "docs",
+              }],
+            },
+          });
+          emit({
+            event: "plan_created",
+            plan: {
+              goal: "Inspect docs",
+              steps: [{ id: "step-1", title: "Read docs" }],
+            },
+          });
+          emit({
+            event: "plan_step",
+            step_id: "step-1",
+            index: 0,
+            completed: true,
           });
           emit({
             event: "result_stats",
@@ -200,6 +229,8 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       assert(uiEvents.includes("tool_end"));
       assert(uiEvents.includes("delegate_start"));
       assert(uiEvents.includes("delegate_end"));
+      assert(uiEvents.includes("plan_created"));
+      assert(uiEvents.includes("plan_step"));
       assertEquals(traces, ["iteration"]);
       assertEquals(metaEvents, [1]);
       assertEquals(result.text, "done");
@@ -209,7 +240,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       assert(capturedChatBody !== null);
       assertEquals(
         capturedChatBody?.session_id,
-        deriveDefaultSessionKey("/tmp/project", "ollama/llama3.1:8b"),
+        deriveDefaultSessionKey(),
       );
       assertEquals(capturedChatBody?.workspace, "/tmp/project");
       assertEquals(capturedChatBody?.permission_mode, "auto-edit");

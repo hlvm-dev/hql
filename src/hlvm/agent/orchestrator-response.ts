@@ -359,6 +359,12 @@ export function handleFinalResponse(
     const completedIndex = state.planState.currentIndex - 1;
     const completedStep = state.planState.plan.steps[completedIndex];
     if (completedStep) {
+      config.onAgentEvent?.({
+        type: "plan_step",
+        stepId: completedStep.id,
+        index: completedIndex,
+        completed: true,
+      });
       config.onTrace?.({
         type: "plan_step",
         stepId: completedStep.id,

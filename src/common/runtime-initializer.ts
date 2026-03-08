@@ -16,7 +16,6 @@ import { initializeRuntimeHelpers } from "./runtime-helpers.ts";
 import { initAIRuntime } from "../hlvm/runtime/ai-runtime.ts";
 import { config } from "../hlvm/api/config.ts";
 import { initContext } from "../hlvm/cli/repl/context.ts";
-import { initSessionsDir } from "../hlvm/cli/repl/session/storage.ts";
 // Note: Model installation is now handled by the REPL's ModelSetupOverlay
 // for better UX with progress display. See useInitialization.ts
 
@@ -37,8 +36,6 @@ export interface InitOptions {
   ai?: boolean;
   /** Initialize REPL context on globalThis */
   context?: boolean;
-  /** Initialize sessions directory */
-  sessions?: boolean;
 }
 
 // Runtime component initialization states
@@ -78,11 +75,13 @@ class HlvmRuntimeInitializer {
       cache: true,
       ai: true,
       context: true,
-      sessions: true,
       ...options,
     };
 
-    logger.debug && logger.debug(`Initializing HLVM runtime with options: ${JSON.stringify(opts)}`);
+    logger.debug &&
+      logger.debug(
+        `Initializing HLVM runtime with options: ${JSON.stringify(opts)}`,
+      );
 
     // Initialize runtime helpers (usually required)
     if (opts.helpers) {
@@ -94,22 +93,15 @@ class HlvmRuntimeInitializer {
       try {
         await config.reload();
       } catch (error) {
-        logger.debug(`Config load failed (using defaults): ${getErrorMessage(error)}`);
+        logger.debug(
+          `Config load failed (using defaults): ${getErrorMessage(error)}`,
+        );
       }
     }
 
     // Initialize REPL context on globalThis
     if (opts.context) {
       initContext();
-    }
-
-    // Initialize sessions directory
-    if (opts.sessions) {
-      try {
-        await initSessionsDir();
-      } catch (error) {
-        logger.debug(`Sessions dir init failed (optional): ${getErrorMessage(error)}`);
-      }
     }
 
     // Initialize stdlib and cache in parallel (if enabled)
@@ -131,7 +123,9 @@ class HlvmRuntimeInitializer {
       } catch (error) {
         // AI initialization is optional - don't fail if it doesn't work
         // Log the actual error for debugging purposes
-        logger.debug(`AI runtime not available (optional): ${getErrorMessage(error)}`);
+        logger.debug(
+          `AI runtime not available (optional): ${getErrorMessage(error)}`,
+        );
       }
     }
 
@@ -203,7 +197,8 @@ class HlvmRuntimeInitializer {
     let embeddedStdlib: string | undefined;
     try {
       const embeddedModule = await import("../hql/embedded-packages.ts");
-      embeddedStdlib = embeddedModule.EMBEDDED_PACKAGES?.["@hlvm/lib/stdlib/stdlib.hql"];
+      embeddedStdlib = embeddedModule.EMBEDDED_PACKAGES
+        ?.["@hlvm/lib/stdlib/stdlib.hql"];
     } catch (error) {
       // No embedded packages available - this is expected in development mode
       logger.debug(`No embedded packages available: ${getErrorMessage(error)}`);
@@ -219,7 +214,9 @@ class HlvmRuntimeInitializer {
 
     // Try to find stdlib in various locations (development mode)
     const p = getPlatform();
-    const macroRegistryDir = p.path.dirname(p.path.fromFileUrl(import.meta.url));
+    const macroRegistryDir = p.path.dirname(
+      p.path.fromFileUrl(import.meta.url),
+    );
     const possibleLocations = [
       p.path.join(macroRegistryDir, "../../lib/stdlib/stdlib.hql"),
       p.path.join(macroRegistryDir, "../../../lib/stdlib/stdlib.hql"),
@@ -246,7 +243,10 @@ class HlvmRuntimeInitializer {
       logger.debug(`Processed stdlib to: ${cachedPath}`);
 
       // Copy any JS implementations associated with the stdlib
-      await copyNeighborFiles(stdlibSource, getPlatform().path.join(cachedPath, ".."));
+      await copyNeighborFiles(
+        stdlibSource,
+        getPlatform().path.join(cachedPath, ".."),
+      );
 
       logger.debug("Standard library initialization complete");
     } catch (error) {

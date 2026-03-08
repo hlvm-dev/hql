@@ -24,6 +24,7 @@ export interface SearchResult {
   fetchPriority?: number;
   selectedForFetch?: boolean;
   selectedForSynthesis?: boolean;
+  sourceAuthority?: "official" | "authoritative" | "repository" | "community" | "unknown";
 }
 
 export interface SearchProviderResponse {

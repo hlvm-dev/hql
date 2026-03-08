@@ -21,6 +21,7 @@ import {
   extractPublicationDate,
 } from "./html-parser.ts";
 import {
+  classifySourceAuthority,
   dedupeSearchResults,
   deduplicateSnippetPassages,
   extractRelevantPassages,
@@ -41,10 +42,12 @@ import { fetchGoogleNewsResults } from "./google-news.ts";
 import {
   assessToolSearchConfidence,
   LOW_CONFIDENCE_SCORE_THRESHOLD,
+  type RetrievalGuidance,
   type WebSearchBackend,
   type WebSearchRequest,
   type WebSearchResponse,
 } from "./search-backend.ts";
+import { VERSION_RE, YEAR_RE } from "./intent-patterns.ts";
 
 // ============================================================
 // Constants
@@ -129,9 +132,14 @@ export class DdgSearchBackend implements WebSearchBackend {
     const queryPlan = planSearchQueries({ userQuery: query, maxSubqueries: QUERY_PLAN_MAX_TOTAL });
     const queryIntent = queryPlan.intent;
 
+    // Conservative year injection: only for recency/release queries without explicit year/version
+    const wantsRecent = queryIntent.wantsRecency || queryIntent.wantsReleaseNotes;
+    const effectiveQuery = wantsRecent && !VERSION_RE.test(query) && !YEAR_RE.test(query)
+      ? `${queryPlan.primaryQuery} ${new Date().getFullYear()}`
+      : queryPlan.primaryQuery;
+
     // Start Google News RSS fetch in parallel when query signals recency interest
-    const wantsNews = queryIntent.wantsRecency || queryIntent.wantsReleaseNotes;
-    const newsPromise = wantsNews
+    const newsPromise = wantsRecent
       ? fetchGoogleNewsResults(queryPlan.primaryQuery, {
           limit: Math.min(8, limit),
           timeoutMs: Math.min(3000, timeout ?? 3000),
@@ -139,7 +147,7 @@ export class DdgSearchBackend implements WebSearchBackend {
         }).catch(() => [] as SearchResult[])
       : Promise.resolve([] as SearchResult[]);
 
-    const result = await provider.search(queryPlan.primaryQuery, {
+    const result = await provider.search(effectiveQuery, {
       limit,
       timeoutMs: timeout,
       allowedDomains,
@@ -409,6 +417,13 @@ export class DdgSearchBackend implements WebSearchBackend {
       queryIntent,
     );
 
+    // Annotate source authority on all results
+    for (const r of result.results) {
+      if (r.url) {
+        r.sourceAuthority = classifySourceAuthority(r.url, query);
+      }
+    }
+
     const citations = result.results
       .filter((r) => r.url)
       .map((r) => ({
@@ -426,6 +441,19 @@ export class DdgSearchBackend implements WebSearchBackend {
     const fetchEvidenceCount = evidencePages.filter((r) =>
       (r.passages?.length ?? 0) > 0 || Boolean(r.pageDescription) || Boolean(r.publishedDate)
     ).length;
+
+    // Compute retrieval guidance — sufficiency signal for the LLM
+    const highEvidencePages = evidencePages.filter(r =>
+      (r.passages?.length ?? 0) > 0 && r.evidenceStrength === "high"
+    );
+    const answerAvailable = highEvidencePages.length >= 1 && !confidenceFinal.lowConfidence;
+    const guidance: RetrievalGuidance = {
+      answerAvailable,
+      stopReason: answerAvailable
+        ? `${highEvidencePages.length} high-quality evidence page(s) with extracted passages. Respond from these unless deeper detail is needed.`
+        : undefined,
+    };
+
     const diagnostics = {
       profile: {
         selectedDepth: searchDepth,
@@ -479,6 +507,7 @@ export class DdgSearchBackend implements WebSearchBackend {
       count: result.count,
       citations,
       diagnostics,
+      guidance,
     };
   }
 }

@@ -30,32 +30,6 @@ import { getConversationsDbPath } from "../../common/paths.ts";
 import { assertString } from "./validation.ts";
 
 // ============================================================================
-// Session Manager Compatibility
-// ============================================================================
-
-/**
- * Compatibility type kept for existing API registration call sites.
- * Public session APIs no longer route through the REPL eval-session manager.
- */
-export interface SessionManagerRef {
-  getCurrentSession(): SessionMeta | null;
-  recordMessage(
-    role: "user" | "assistant",
-    content: string,
-    attachments?: string[],
-  ): Promise<void>;
-  resumeSession?(sessionId: string): Promise<Session | null>;
-}
-
-/**
- * Compatibility no-op kept so older REPL bootstrap code can continue to call
- * this without re-introducing the JSONL eval-session path into `session.*`.
- */
-export function setSessionManager(_manager: SessionManagerRef): void {
-  // Intentionally unused: conversation sessions are backed by conversations.db.
-}
-
-// ============================================================================
 // Runtime Session Adapters
 // ============================================================================
 
@@ -74,8 +48,6 @@ function normalizeTitle(title: string, sessionId: string): string {
 function adaptSessionMeta(session: RuntimeSession): SessionMeta {
   return {
     id: session.id,
-    projectHash: "",
-    projectPath: "",
     title: normalizeTitle(session.title, session.id),
     createdAt: parseTimestamp(session.created_at),
     updatedAt: parseTimestamp(session.updated_at),
@@ -111,13 +83,13 @@ function adaptSessionMessage(
   const content = message.role === "tool"
     ? formatToolMessage(message)
     : message.content;
+  const attachments = parseImagePaths(message.image_paths);
 
   return {
-    type: "message",
     role,
     content,
     ts: parseTimestamp(message.created_at),
-    attachments: parseImagePaths(message.image_paths),
+    ...(attachments ? { attachments } : {}),
   };
 }
 

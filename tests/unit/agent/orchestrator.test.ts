@@ -18,6 +18,7 @@ import {
   type ToolCall,
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { callLLMWithRetry } from "../../../src/hlvm/agent/orchestrator-llm.ts";
+import { withDelegateTranscriptSnapshot } from "../../../src/hlvm/agent/delegate-transcript.ts";
 import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
 import { clearAllL1Confirmations } from "../../../src/hlvm/agent/security/safety.ts";
 import { UsageTracker } from "../../../src/hlvm/agent/usage.ts";
@@ -239,6 +240,7 @@ Deno.test({
     resetApprovals();
     const context = new ContextManager();
     const events: string[] = [];
+    const snapshots: number[] = [];
 
     const result = await executeToolCall(
       {
@@ -249,14 +251,36 @@ Deno.test({
         workspace: TEST_WORKSPACE,
         context,
         permissionMode: "yolo",
-        delegate: async () => ({ agent: "web", result: "done" }),
-        onAgentEvent: (event) => events.push(event.type),
+        delegate: async () =>
+          withDelegateTranscriptSnapshot({ agent: "web", result: "done" }, {
+            agent: "web",
+            task: "Inspect docs",
+            success: true,
+            durationMs: 25,
+            toolCount: 1,
+            finalResponse: "done",
+            events: [{
+              type: "tool_end",
+              name: "search_web",
+              success: true,
+              summary: "Found docs",
+              durationMs: 12,
+              argsSummary: "docs",
+            }],
+          }),
+        onAgentEvent: (event) => {
+          events.push(event.type);
+          if (event.type === "delegate_end" && event.snapshot) {
+            snapshots.push(event.snapshot.toolCount);
+          }
+        },
       },
     );
 
     assertEquals(result.success, true);
     assertEquals(events.includes("delegate_start"), true);
     assertEquals(events.includes("delegate_end"), true);
+    assertEquals(snapshots, [1]);
   },
 });
 

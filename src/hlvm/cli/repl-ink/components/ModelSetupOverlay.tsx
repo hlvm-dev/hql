@@ -17,7 +17,6 @@ import { getPlatform } from "../../../../platform/platform.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { parseModelString } from "../../../providers/index.ts";
 import {
-  getRuntimeConfig,
   listRuntimeInstalledModels,
 } from "../../../runtime/host-client.ts";
 import { createRuntimeModelConfigManager } from "../../../runtime/model-config.ts";
@@ -200,7 +199,9 @@ export async function checkDefaultModelInstalled(): Promise<boolean> {
   }
 
   try {
-    const configuredModel = (await getRuntimeConfig()).model;
+    const runtimeModelConfig = await createRuntimeModelConfigManager();
+    const { model: configuredModel } = await runtimeModelConfig
+      .ensureInitialModelConfigured();
     const [providerName, modelName] = parseModelString(configuredModel);
     if (!modelName) return true;
 
@@ -228,6 +229,7 @@ export async function checkDefaultModelInstalled(): Promise<boolean> {
  */
 export async function getDefaultModelName(): Promise<string> {
   const runtimeModelConfig = await createRuntimeModelConfigManager();
-  const [, modelName] = parseModelString(runtimeModelConfig.getConfiguredModel());
+  const { model } = await runtimeModelConfig.ensureInitialModelConfigured();
+  const [, modelName] = parseModelString(model);
   return modelName;
 }

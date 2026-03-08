@@ -171,6 +171,33 @@ Deno.test("chat command: one-shot plain chat streams through the runtime host", 
   });
 });
 
+Deno.test("chat command: default behavior reuses the latest host session", async () => {
+  const sessions: FakeSession[] = [{
+    id: "sess-default",
+    title: "Latest",
+    created_at: "2026-03-07T00:00:00.000Z",
+    updated_at: "2026-03-07T00:00:00.000Z",
+    message_count: 4,
+    session_version: 4,
+    metadata: null,
+  }];
+  let capturedSessionId = "";
+
+  await withChatHost({
+    sessions,
+    onChat: (body) => {
+      capturedSessionId = String(body.session_id);
+    },
+  }, async () => {
+    await chatCommand([
+      "--model",
+      "ollama/llama3.1:8b",
+      "follow up",
+    ]);
+    assertEquals(capturedSessionId, "sess-default");
+  });
+});
+
 Deno.test("chat command: --continue reuses the latest host session", async () => {
   const sessions: FakeSession[] = [{
     id: "sess-latest",

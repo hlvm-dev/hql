@@ -4,14 +4,11 @@
  * CLI shell over the shared /api/chat runtime host path.
  */
 
-import {
-  ValidationError,
-} from "../../../common/error.ts";
+import { ValidationError } from "../../../common/error.ts";
 import { generateUUID } from "../../../common/utils.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
-import {
-  isPaidProvider,
-} from "../../providers/approval.ts";
+import { isPaidProvider } from "../../providers/approval.ts";
 import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 import {
@@ -36,20 +33,20 @@ export function showChatHelp(): void {
 HLVM Chat - Plain non-agent chat
 
 USAGE:
-  hlvm chat "<query>"          Send a plain chat message
+  hlvm chat "<query>"          Continue the latest global chat
   hlvm chat --help             Show this help message
 
 OPTIONS:
   --help, -h                   Show this help message
   --model <provider/model>     Use a specific AI model
-  --continue, -c               Resume the latest chat session
+  --continue, -c               Explicitly reuse the latest chat session
   --resume, -r <id>            Resume a specific session by id
   --new                        Force a fresh chat session
 
 EXAMPLES:
   hlvm chat "hello"
   hlvm chat --model openai/gpt-4o "summarize this repo"
-  hlvm chat --continue "what did we just discuss?"
+  hlvm chat --new "start over"
   hlvm chat --resume 123e4567-e89b-12d3-a456-426614174000 "continue"
 `);
 }
@@ -126,10 +123,7 @@ export async function resolveChatSessionId(
     }
     return session.resumeId;
   }
-  if (session.continue) {
-    return (await listRuntimeSessions())[0]?.id ?? generateUUID();
-  }
-  return generateUUID();
+  return (await listRuntimeSessions())[0]?.id ?? generateUUID();
 }
 
 export async function chatCommand(args: string[]): Promise<void> {
@@ -141,11 +135,14 @@ export async function chatCommand(args: string[]): Promise<void> {
   const parsedArgs = parseChatArgs(args);
   const runtimeModelConfig = await createRuntimeModelConfigManager();
 
-  if (!parsedArgs.modelOverride && !runtimeModelConfig.getConfig().modelConfigured) {
-    await runtimeModelConfig.autoConfigureInitialClaudeCodeModel();
-  }
   if (!parsedArgs.modelOverride) {
-    await runtimeModelConfig.reconcileConfiguredClaudeCodeModel();
+    await runtimeModelConfig.ensureInitialModelConfigured({
+      allowFirstRunSetup: getPlatform().terminal.stdin.isTerminal(),
+      runFirstTimeSetup: async () => {
+        const { runFirstTimeSetup } = await import("./first-run-setup.ts");
+        return await runFirstTimeSetup();
+      },
+    });
   }
 
   let resolvedModel = parsedArgs.modelOverride ??

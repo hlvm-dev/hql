@@ -3,10 +3,12 @@ import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { formatDurationMs } from "../../utils/formatting.ts";
 import type { DelegateItem as DelegateItemData } from "../../types.ts";
+import type { DelegateTranscriptEvent } from "../../../../agent/delegate-transcript.ts";
 
 interface DelegateItemProps {
   item: DelegateItemData;
   width: number;
+  expanded?: boolean;
 }
 
 function truncate(text: string, maxLen: number): string {
@@ -16,7 +18,7 @@ function truncate(text: string, maxLen: number): string {
 }
 
 export function DelegateItem(
-  { item, width }: DelegateItemProps,
+  { item, width, expanded = false }: DelegateItemProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
   const accent = item.status === "error"
@@ -60,7 +62,52 @@ export function DelegateItem(
             {truncate(body, Math.max(10, width - 8))}
           </Text>
         )}
+        {expanded && item.snapshot && (
+          <Box flexDirection="column" marginTop={1}>
+            {item.snapshot.events.map((event, index) => (
+              <React.Fragment key={`${item.id}-event-${index}`}>
+                <Text color={sc.text.muted}>
+                  {truncate(formatSnapshotEvent(event), Math.max(10, width - 8))}
+                </Text>
+              </React.Fragment>
+            ))}
+            {item.snapshot.finalResponse && (
+              <Text color={sc.text.primary}>
+                {truncate(
+                  `Final: ${item.snapshot.finalResponse}`,
+                  Math.max(10, width - 8),
+                )}
+              </Text>
+            )}
+          </Box>
+        )}
       </Box>
     </Box>
   );
+}
+
+function formatSnapshotEvent(event: DelegateTranscriptEvent): string {
+  switch (event.type) {
+    case "thinking":
+      return event.summary?.trim()
+        ? `Thinking: ${event.summary.trim()}`
+        : "Thinking";
+    case "plan_created":
+      return `Plan created (${event.stepCount} steps)`;
+    case "plan_step":
+      return `Plan step ${event.index + 1} complete: ${event.stepId}`;
+    case "tool_start":
+      return `Tool ${event.name}: ${event.argsSummary}`;
+    case "tool_end":
+      return event.success
+        ? `Tool ${event.name}: ${event.summary ?? "completed"}`
+        : `Tool ${event.name} failed: ${
+          event.summary ?? event.content ?? "error"
+        }`;
+    case "turn_stats":
+      return `${event.toolCount} tool${
+        event.toolCount === 1 ? "" : "s"
+      } · ${formatDurationMs(event.durationMs)}`;
+  }
+  return "";
 }

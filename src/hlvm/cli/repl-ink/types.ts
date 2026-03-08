@@ -9,6 +9,7 @@
 export type { EvalResult } from "../repl/evaluator.ts";
 import type { Citation } from "../../agent/tools/web/search-provider.ts";
 import type { ToolEventMeta } from "../../agent/orchestrator.ts";
+import type { DelegateTranscriptSnapshot } from "../../agent/delegate-transcript.ts";
 
 // ============================================================
 // Tool Call Display
@@ -88,6 +89,7 @@ export interface DelegateItem {
   summary?: string;
   error?: string;
   durationMs?: number;
+  snapshot?: DelegateTranscriptSnapshot;
   ts: number;
 }
 
@@ -103,6 +105,7 @@ export interface InfoItem {
   type: "info";
   id: string;
   text: string;
+  isTransient?: boolean;
 }
 
 /** Discriminated union of all renderable conversation items */

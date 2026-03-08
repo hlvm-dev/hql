@@ -75,7 +75,7 @@ export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
     { name: "/status", description: "Show runtime status" },
     { name: "/tasks", description: "View background tasks" },
     { name: "/bg", description: "Push current eval to background" },
-    { name: "/resume", description: "Resume a previous session" },
+    { name: "/resume", description: "Switch to another session" },
     { name: "/clear-history", description: "Delete all chat history" },
     { name: "/mcp", description: "List configured MCP servers" },
     { name: "/quickstart", description: "Show getting-started examples" },

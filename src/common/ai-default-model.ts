@@ -236,6 +236,104 @@ export async function autoConfigureInitialClaudeCodeModel(
   return selectedModelId;
 }
 
+export interface EnsureInitialModelConfiguredOptions {
+  allowFirstRunSetup?: boolean;
+  runFirstTimeSetup?: () => Promise<string | null>;
+}
+
+export interface EnsureInitialModelConfiguredResult {
+  model: string;
+  modelConfigured: boolean;
+  autoConfiguredClaude: boolean;
+  firstRunConfigured: boolean;
+  reconciledClaudeModel: boolean;
+}
+
+interface InitialModelConfigDeps {
+  getSnapshot: () => Pick<HlvmConfig, "model" | "modelConfigured" | "agentMode">;
+  getStatus: (providerName?: string) => Promise<{ available: boolean }>;
+  listModels: (providerName?: string) => Promise<ModelInfo[]>;
+  patchConfig: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<void>;
+  now: () => number;
+  syncSnapshot: () => Promise<Pick<HlvmConfig, "model" | "modelConfigured" | "agentMode">>;
+}
+
+function getInitialModelConfigDeps(): InitialModelConfigDeps {
+  const bootstrapDeps = getClaudeBootstrapDeps();
+  const resolveDeps = getClaudeModelResolveDeps();
+  return {
+    getSnapshot: bootstrapDeps.getSnapshot,
+    getStatus: bootstrapDeps.getStatus,
+    listModels: resolveDeps.listModels,
+    patchConfig: bootstrapDeps.patchConfig,
+    now: bootstrapDeps.now,
+    syncSnapshot: async () => config.snapshot,
+  };
+}
+
+export async function ensureInitialModelConfigured(
+  options: EnsureInitialModelConfiguredOptions = {},
+  depsOverride: Partial<InitialModelConfigDeps> = {},
+): Promise<EnsureInitialModelConfiguredResult> {
+  const deps = { ...getInitialModelConfigDeps(), ...depsOverride };
+  let snapshot = deps.getSnapshot();
+  let autoConfiguredClaude = false;
+  let firstRunConfigured = false;
+  let reconciledClaudeModel = false;
+
+  if (shouldAutoBootstrapClaude(snapshot)) {
+    const autoModel = await autoConfigureInitialClaudeCodeModel({
+      getSnapshot: deps.getSnapshot,
+      getStatus: deps.getStatus,
+      listModels: deps.listModels,
+      patchConfig: deps.patchConfig,
+      now: deps.now,
+    });
+    if (autoModel) {
+      autoConfiguredClaude = true;
+      snapshot = await deps.syncSnapshot();
+    }
+  }
+
+  if (
+    !snapshot.modelConfigured &&
+    options.allowFirstRunSetup &&
+    typeof options.runFirstTimeSetup === "function"
+  ) {
+    const setupModel = await options.runFirstTimeSetup();
+    if (setupModel) {
+      firstRunConfigured = true;
+      snapshot = await deps.syncSnapshot();
+    }
+  }
+
+  if (snapshot.model) {
+    const repaired = await reconcileConfiguredClaudeCodeModel({
+      getSnapshot: () => ({ model: snapshot.model }),
+      listModels: deps.listModels,
+      patchConfig: deps.patchConfig,
+    });
+    if (repaired) {
+      reconciledClaudeModel = true;
+      snapshot = await deps.syncSnapshot();
+    }
+  }
+
+  const configuredModel = snapshot.model && typeof snapshot.model === "string"
+    ? snapshot.model
+    : DEFAULT_MODEL_ID;
+
+  return {
+    model: await resolveCompatibleClaudeCodeModel(configuredModel, {
+      listModels: deps.listModels,
+    }),
+    modelConfigured: snapshot.modelConfigured === true,
+    autoConfiguredClaude,
+    firstRunConfigured,
+    reconciledClaudeModel,
+  };
+}
+
 interface ClaudeModelRepairDeps {
   getSnapshot: () => Pick<HlvmConfig, "model">;
   listModels: (providerName?: string) => Promise<ModelInfo[]>;

@@ -5,6 +5,7 @@
 import { ContextManager } from "./context.ts";
 import { generateSystemPrompt } from "./llm-integration.ts";
 import {
+  type AgentUIEvent,
   type LLMFunction,
   type OrchestratorConfig,
   runReActLoop,
@@ -14,6 +15,11 @@ import { DEFAULT_MAX_TOOL_CALLS, isGroundingMode } from "./constants.ts";
 import { ValidationError } from "../../common/error.ts";
 import { hasTool } from "./registry.ts";
 import { createTodoState } from "./todo-state.ts";
+import {
+  type DelegateTranscriptEvent,
+  type DelegateTranscriptSnapshot,
+  withDelegateTranscriptSnapshot,
+} from "./delegate-transcript.ts";
 
 function buildAgentSystemNote(profileName: string, tools: string[]): string {
   return [
@@ -88,39 +94,122 @@ export function createDelegateHandler(
       content: buildAgentSystemNote(profile.name, allowedTools),
     });
 
-    const result = await runReActLoop(
-      task,
-      {
-        workspace: config.workspace,
-        context,
-        permissionMode: config.permissionMode,
-        // Fix 16: Clamp maxToolCalls to prevent resource exhaustion
-        maxToolCalls: typeof record.maxToolCalls === "number"
-          ? Math.min(
-            record.maxToolCalls,
-            config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS,
-          )
-          : config.maxToolCalls,
-        // Fix 17: Validate groundingMode at runtime
-        groundingMode: isGroundingMode(record.groundingMode)
-          ? record.groundingMode
-          : config.groundingMode,
-        policy: baseConfig.policy ?? null,
-        toolAllowlist: allowedTools,
-        toolDenylist: ["delegate_agent"],
-        l1Confirmations: new Map<string, boolean>(),
-        toolOwnerId: config.toolOwnerId,
-        onInteraction: config.onInteraction,
-        planning: { mode: "off" },
-        todoState: createTodoState(),
-      },
-      llm,
-    );
-
-    return {
-      agent: profile.name,
-      result,
-      stats: context.getStats(),
+    const childEvents: DelegateTranscriptEvent[] = [];
+    const startedAt = Date.now();
+    const pushChildEvent = (event: AgentUIEvent): void => {
+      const snapshotEvent = toDelegateTranscriptEvent(event);
+      if (snapshotEvent) childEvents.push(snapshotEvent);
     };
+    const buildSnapshot = (
+      options: { success: boolean; finalResponse?: string; error?: string },
+    ): DelegateTranscriptSnapshot => ({
+      agent: profile.name,
+      task,
+      success: options.success,
+      durationMs: Date.now() - startedAt,
+      toolCount: childEvents.filter((event) => event.type === "tool_end").length,
+      finalResponse: options.finalResponse,
+      error: options.error,
+      events: [...childEvents],
+    });
+
+    try {
+      const result = await runReActLoop(
+        task,
+        {
+          workspace: config.workspace,
+          context,
+          permissionMode: config.permissionMode,
+          // Fix 16: Clamp maxToolCalls to prevent resource exhaustion
+          maxToolCalls: typeof record.maxToolCalls === "number"
+            ? Math.min(
+              record.maxToolCalls,
+              config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS,
+            )
+            : config.maxToolCalls,
+          // Fix 17: Validate groundingMode at runtime
+          groundingMode: isGroundingMode(record.groundingMode)
+            ? record.groundingMode
+            : config.groundingMode,
+          policy: baseConfig.policy ?? null,
+          toolAllowlist: allowedTools,
+          toolDenylist: ["delegate_agent"],
+          l1Confirmations: new Map<string, boolean>(),
+          toolOwnerId: config.toolOwnerId,
+          onInteraction: config.onInteraction,
+          onAgentEvent: pushChildEvent,
+          planning: { mode: "off" },
+          todoState: createTodoState(),
+        },
+        llm,
+      );
+
+      return withDelegateTranscriptSnapshot({
+        agent: profile.name,
+        result,
+        stats: context.getStats(),
+      }, buildSnapshot({ success: true, finalResponse: result }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw withDelegateTranscriptSnapshot(error, buildSnapshot({
+        success: false,
+        error: message,
+      }));
+    }
   };
+}
+
+function toDelegateTranscriptEvent(
+  event: AgentUIEvent,
+): DelegateTranscriptEvent | null {
+  switch (event.type) {
+    case "thinking":
+      return { type: "thinking", iteration: event.iteration };
+    case "thinking_update":
+      return {
+        type: "thinking",
+        iteration: event.iteration,
+        summary: event.summary,
+      };
+    case "plan_created":
+      return { type: "plan_created", stepCount: event.plan.steps.length };
+    case "plan_step":
+      return {
+        type: "plan_step",
+        stepId: event.stepId,
+        index: event.index,
+        completed: event.completed,
+      };
+    case "tool_start":
+      return {
+        type: "tool_start",
+        name: event.name,
+        argsSummary: event.argsSummary,
+        toolIndex: event.toolIndex,
+        toolTotal: event.toolTotal,
+      };
+    case "tool_end":
+      return {
+        type: "tool_end",
+        name: event.name,
+        success: event.success,
+        content: event.content,
+        summary: event.summary,
+        durationMs: event.durationMs,
+        argsSummary: event.argsSummary,
+      };
+    case "turn_stats":
+      return {
+        type: "turn_stats",
+        iteration: event.iteration,
+        toolCount: event.toolCount,
+        durationMs: event.durationMs,
+        inputTokens: event.inputTokens,
+        outputTokens: event.outputTokens,
+      };
+    case "delegate_start":
+    case "delegate_end":
+    case "interaction_request":
+      return null;
+  }
 }

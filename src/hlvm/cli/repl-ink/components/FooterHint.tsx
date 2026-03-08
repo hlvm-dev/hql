@@ -7,7 +7,7 @@
  */
 
 import React from "react";
-import { Text, Box } from "ink";
+import { Box, Text } from "ink";
 import { useSemanticColors } from "../../theme/index.ts";
 import type { StreamingState } from "../types.ts";
 import { StreamingState as ConversationStreamingState } from "../types.ts";
@@ -66,12 +66,15 @@ export function buildFooterCenterState({
   } else if (hasPendingQuestion) {
     text = "? Awaiting answer: use answer> prompt + Enter · Esc reject";
     tone = "warning";
-  } else if (streamingState === ConversationStreamingState.WaitingForConfirmation) {
+  } else if (
+    streamingState === ConversationStreamingState.WaitingForConfirmation
+  ) {
     text = "⚠ Waiting for confirmation";
     tone = "warning";
   } else if (streamingState === ConversationStreamingState.Responding) {
     if (activeTool) {
-      text = `${spinner} Running ${activeTool.name} (${activeTool.toolIndex}/${activeTool.toolTotal}) · Esc cancel`;
+      text =
+        `${spinner} Running ${activeTool.name} (${activeTool.toolIndex}/${activeTool.toolTotal}) · Esc cancel`;
       tone = "warning";
     } else {
       // The conversation body already renders a Thinking block; keep the footer action-focused.
@@ -85,7 +88,9 @@ export function buildFooterCenterState({
     text += ` · +${interactionQueueLength - 1} queued`;
   }
   if (queuedUserTurnCount > 0) {
-    text += ` · +${queuedUserTurnCount} queued message${queuedUserTurnCount === 1 ? "" : "s"}`;
+    text += ` · +${queuedUserTurnCount} queued message${
+      queuedUserTurnCount === 1 ? "" : "s"
+    }`;
   }
 
   return { text, tone };
@@ -104,7 +109,8 @@ export function FooterHint({
 }: FooterProps): React.ReactElement {
   const sc = useSemanticColors();
   const model = modelName ?? "";
-  const isResponding = inConversation && streamingState === ConversationStreamingState.Responding;
+  const isResponding = inConversation &&
+    streamingState === ConversationStreamingState.Responding;
   const spinnerFrame = useSpinnerFrame(isResponding);
   const spinner = BRAILLE_SPINNER_FRAMES[spinnerFrame];
   const center = buildFooterCenterState({
@@ -117,7 +123,9 @@ export function FooterHint({
     hasPendingQuestion,
     spinner,
   });
-  const centerColor = center.tone === "warning" ? sc.status.warning : sc.text.muted;
+  const centerColor = center.tone === "warning"
+    ? sc.status.warning
+    : sc.text.muted;
 
   const rightParts: string[] = [];
   if (contextUsageLabel) rightParts.push(contextUsageLabel);

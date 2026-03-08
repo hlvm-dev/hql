@@ -67,13 +67,12 @@ Deno.test("persisted transcript: SQLite-backed agent history replays stored tool
   try {
     const workspace = "/tmp/agent-history";
     const model = "test-chat/plain";
-    const sessionId = getPersistedAgentSessionId(workspace, model);
+    const sessionId = getPersistedAgentSessionId();
     const turn = startPersistedAgentTurn(sessionId, "inspect config");
     appendPersistedAgentToolResult(turn, "read_file", "observed-from-tool");
     completePersistedAgentTurn(turn, model, "done");
 
     const { history } = await loadPersistedAgentHistory({
-      workspace,
       model,
       maxGroups: 8,
     });
@@ -125,7 +124,7 @@ Deno.test({
         assertEquals(first.text, "persisted:first");
         assertEquals(second.text, "saw-history:second");
 
-        const messages = loadAllMessages(getPersistedAgentSessionId(workspace, model));
+        const messages = loadAllMessages(getPersistedAgentSessionId());
         assertEquals(
           messages.map((message) => [message.role, message.content]),
           [

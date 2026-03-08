@@ -43,6 +43,7 @@ import {
   isRenderToolName,
   sanitizeArgs,
 } from "./orchestrator-tool-formatting.ts";
+import { getDelegateTranscriptSnapshot } from "./delegate-transcript.ts";
 
 /**
  * Execute tool with timeout
@@ -252,6 +253,7 @@ export async function executeToolCall(
           success: true,
           summary: summaryDisplay,
           durationMs: Date.now() - startedAt,
+          snapshot: getDelegateTranscriptSnapshot(result),
         });
         emitToolSuccess(
           config,
@@ -279,6 +281,7 @@ export async function executeToolCall(
           success: false,
           error: getErrorMessage(error),
           durationMs: Date.now() - startedAt,
+          snapshot: getDelegateTranscriptSnapshot(error),
         });
         throw error;
       }

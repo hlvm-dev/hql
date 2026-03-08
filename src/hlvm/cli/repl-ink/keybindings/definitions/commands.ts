@@ -73,8 +73,8 @@ export const commandKeybindings: Keybinding[] = [
   {
     id: "/resume",
     display: "/resume",
-    label: "Resume session",
-    description: "Resume a previous session",
+    label: "Switch session",
+    description: "Switch to another session",
     category: "Commands",
     action: { type: "SLASH_COMMAND", cmd: "/resume" },
   },

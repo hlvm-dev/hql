@@ -1,19 +1,13 @@
 /**
- * HLVM REPL Session Types
- * Type definitions for session persistence and management
+ * HLVM Session Types
+ * Shared conversation session shapes plus CLI flag parsing.
  */
 
-// ============================================================================
-// Session Storage Types (JSONL format)
-// ============================================================================
-
 /**
- * Session metadata stored in index.jsonl for fast listing
+ * Conversation session metadata
  */
 export interface SessionMeta {
   readonly id: string;
-  readonly projectHash: string;
-  readonly projectPath: string;
   readonly title: string;
   readonly createdAt: number;
   readonly updatedAt: number;
@@ -21,41 +15,14 @@ export interface SessionMeta {
 }
 
 /**
- * Session header record - first line of session JSONL file
- */
-export interface SessionHeader {
-  readonly type: "meta";
-  readonly version: number;
-  readonly id: string;
-  readonly projectHash: string;
-  readonly projectPath: string;
-  readonly createdAt: number;
-}
-
-/**
- * Message record in session JSONL file
+ * Conversation message
  */
 export interface SessionMessage {
-  readonly type: "message";
   readonly role: "user" | "assistant";
   readonly content: string;
   readonly ts: number;
   readonly attachments?: readonly string[];
 }
-
-/**
- * Title update record - allows renaming sessions
- */
-export interface SessionTitleRecord {
-  readonly type: "title";
-  readonly title: string;
-  readonly ts: number;
-}
-
-/**
- * Union type for all session JSONL records
- */
-export type SessionRecord = SessionHeader | SessionMessage | SessionTitleRecord;
 
 /**
  * Fully loaded session with metadata and messages
@@ -65,15 +32,11 @@ export interface Session {
   readonly messages: readonly SessionMessage[];
 }
 
-// ============================================================================
-// Session Manager Types
-// ============================================================================
-
 /**
- * Options for initializing SessionManager
+ * Session startup flags
  */
 export interface SessionInitOptions {
-  /** Resume the last session for this project */
+  /** Explicitly continue the latest global session (same as default) */
   readonly continue?: boolean;
   /** Resume a specific session by ID */
   readonly resumeId?: string;
@@ -114,13 +77,10 @@ export function parseSessionFlags(args: string[]): SessionInitOptions {
   return { continue: continueSession, resumeId, forceNew, openPicker };
 }
 
-/**
- * Options for listing sessions (global - no project filtering)
- */
+/** Options for listing global conversation sessions */
 export interface ListSessionsOptions {
   /** Maximum number of sessions to return */
   readonly limit?: number;
   /** Sort order */
   readonly sortOrder?: "recent" | "oldest" | "alpha";
 }
-

@@ -10,7 +10,6 @@ import { getEnvVar } from "./paths.ts";
 
 // SSOT: Use platform layer for all file/path operations
 const path = () => getPlatform().path;
-const basename = (p: string) => path().basename(p);
 const join = (...paths: string[]) => path().join(...paths);
 const resolve = (...paths: string[]) => path().resolve(...paths);
 
@@ -35,10 +34,6 @@ export function getLegacyHistoryPath(): string {
   return join(getLegacyHqlDir(), "history.jsonl");
 }
 
-export function getLegacySessionsDir(): string {
-  return join(getLegacyHqlDir(), "sessions");
-}
-
 // Internal helpers (not exported)
 function pathExists(path: string): Promise<boolean> {
   return getPlatform().fs.exists(path);
@@ -54,33 +49,6 @@ function getLegacyRuntimeEnginePath(): string {
 
 function getLegacyRuntimeOllamaPath(): string {
   return join(getLegacyRuntimeDir(), "ollama");
-}
-
-export async function listLegacySessionFiles(legacySessionsDir: string): Promise<string[]> {
-  const platform = getPlatform();
-  const results: string[] = [];
-
-  async function walk(dir: string): Promise<void> {
-    for await (const entry of platform.fs.readDir(dir)) {
-      const entryPath = join(dir, entry.name);
-      if (entry.isDirectory) {
-        await walk(entryPath);
-        continue;
-      }
-      if (entry.isFile && entry.name.endsWith(".jsonl") && entry.name !== "index.jsonl") {
-        results.push(entryPath);
-      }
-    }
-  }
-
-  try {
-    await walk(legacySessionsDir);
-  } catch {
-    return [];
-  }
-
-  results.sort((a, b) => basename(a).localeCompare(basename(b)));
-  return results;
 }
 
 export async function findLegacyRuntimeEngine(): Promise<string | null> {

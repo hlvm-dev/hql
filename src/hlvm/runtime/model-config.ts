@@ -1,7 +1,10 @@
 import {
   autoConfigureInitialClaudeCodeModel,
+  ensureInitialModelConfigured as ensureInitialModelConfiguredCommon,
   reconcileConfiguredClaudeCodeModel,
   resolveCompatibleClaudeCodeModel,
+  type EnsureInitialModelConfiguredOptions,
+  type EnsureInitialModelConfiguredResult,
 } from "../../common/ai-default-model.ts";
 import {
   DEFAULT_MODEL_ID,
@@ -55,6 +58,9 @@ export interface RuntimeModelConfigManager {
   getContextWindow: () => number | undefined;
   getPermissionMode: () => PermissionMode | undefined;
   isProviderApproved: (modelId: string) => boolean;
+  ensureInitialModelConfigured: (
+    options?: EnsureInitialModelConfiguredOptions,
+  ) => Promise<EnsureInitialModelConfiguredResult>;
   autoConfigureInitialClaudeCodeModel: () => Promise<string | null>;
   reconcileConfiguredClaudeCodeModel: () => Promise<string | null>;
   resolveCompatibleClaudeCodeModel: (modelId: string) => Promise<string>;
@@ -69,17 +75,29 @@ export async function createRuntimeModelConfigManager(): Promise<RuntimeModelCon
     runtimeConfig = await patchRuntimeConfig(updates);
   };
 
+  const syncRuntimeConfig = async (): Promise<HlvmConfig> => {
+    runtimeConfig = await getRuntimeConfig();
+    return runtimeConfig;
+  };
+
   return {
     getConfig: () => runtimeConfig,
-    sync: async () => {
-      runtimeConfig = await getRuntimeConfig();
-      return runtimeConfig;
-    },
+    sync: syncRuntimeConfig,
     getConfiguredModel: () => getConfiguredModelFromConfig(runtimeConfig),
     getContextWindow: () => getContextWindowFromConfig(runtimeConfig),
     getPermissionMode: () => getPermissionModeFromConfig(runtimeConfig),
     isProviderApproved: (modelId: string) =>
       isProviderApprovedForProviders(modelId, runtimeConfig.approvedProviders),
+    ensureInitialModelConfigured: async (options = {}) => {
+      return await ensureInitialModelConfiguredCommon(options, {
+        getSnapshot: () => runtimeConfig,
+        getStatus: (providerName?: string) =>
+          getRuntimeProviderStatus(providerName),
+        listModels: listRuntimeModels,
+        patchConfig,
+        syncSnapshot: syncRuntimeConfig,
+      });
+    },
     autoConfigureInitialClaudeCodeModel: async () => {
       return await autoConfigureInitialClaudeCodeModel({
         getSnapshot: () => runtimeConfig,

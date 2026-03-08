@@ -1,11 +1,13 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
   autoConfigureInitialClaudeCodeModel,
+  ensureInitialModelConfigured,
   reconcileConfiguredClaudeCodeModel,
   resolveCompatibleClaudeCodeModel,
   selectPreferredClaudeCodeModel,
 } from "../../../src/common/ai-default-model.ts";
 import { DEFAULT_MODEL_ID } from "../../../src/common/config/types.ts";
+import type { ConfigKey } from "../../../src/common/config/types.ts";
 import type { ModelInfo } from "../../../src/hlvm/providers/types.ts";
 
 let fakeNow = 0;
@@ -180,4 +182,79 @@ Deno.test("ai default model: reconcile and resolve normalize dotted Claude alias
   assertEquals(noOp, null);
   assertEquals(resolvedClaude, "claude-code/claude-sonnet-4-5-20250929");
   assertEquals(resolvedOther, "openai/gpt-5");
+});
+
+Deno.test("ai default model: unified initial-model resolver runs first-time setup when Claude bootstrap is unavailable", async () => {
+  let snapshot = {
+    model: DEFAULT_MODEL_ID,
+    modelConfigured: false,
+    agentMode: undefined as "hlvm" | undefined,
+  };
+  let firstRunCalls = 0;
+
+  const resolved = await ensureInitialModelConfigured(
+    {
+      allowFirstRunSetup: true,
+      runFirstTimeSetup: async () => {
+        firstRunCalls++;
+        snapshot = {
+          model: "ollama/deepseek-r1:70b-cloud",
+          modelConfigured: true,
+          agentMode: "hlvm",
+        };
+        return snapshot.model;
+      },
+    },
+    {
+      getSnapshot: () => snapshot,
+      getStatus: () => Promise.resolve({ available: false }),
+      listModels: () => Promise.resolve([]),
+      patchConfig: () => Promise.resolve(),
+      syncSnapshot: () => Promise.resolve(snapshot),
+      now: () => nextNow(),
+    },
+  );
+
+  assertEquals(firstRunCalls, 1);
+  assertEquals(resolved.model, "ollama/deepseek-r1:70b-cloud");
+  assertEquals(resolved.modelConfigured, true);
+  assertEquals(resolved.autoConfiguredClaude, false);
+  assertEquals(resolved.firstRunConfigured, true);
+  assertEquals(resolved.reconciledClaudeModel, false);
+});
+
+Deno.test("ai default model: unified initial-model resolver repairs configured Claude aliases", async () => {
+  let snapshot = {
+    model: "claude-code/claude-sonnet-4.5",
+    modelConfigured: true,
+    agentMode: "hlvm" as const,
+  };
+
+  const resolved = await ensureInitialModelConfigured(
+    {},
+    {
+      getSnapshot: () => snapshot,
+      getStatus: () => Promise.resolve({ available: true }),
+      listModels: () =>
+        Promise.resolve([
+          { name: "claude-sonnet-4-6" },
+          { name: "claude-sonnet-4-5-20250929" },
+        ]),
+      patchConfig: (patch) => {
+        snapshot = {
+          ...snapshot,
+          ...(patch as Partial<Record<ConfigKey, unknown>>),
+        } as typeof snapshot;
+        return Promise.resolve();
+      },
+      syncSnapshot: () => Promise.resolve(snapshot),
+      now: () => nextNow(),
+    },
+  );
+
+  assertEquals(resolved.model, "claude-code/claude-sonnet-4-5-20250929");
+  assertEquals(resolved.modelConfigured, true);
+  assertEquals(resolved.autoConfiguredClaude, false);
+  assertEquals(resolved.firstRunConfigured, false);
+  assertEquals(resolved.reconciledClaudeModel, true);
 });

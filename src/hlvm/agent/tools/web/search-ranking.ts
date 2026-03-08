@@ -471,6 +471,42 @@ export function domainAuthorityBoost(url: string): number {
   }
 }
 
+const REPO_HOSTS = new Set(["github.com", "gitlab.com", "bitbucket.org", "sr.ht"]);
+const COMMUNITY_HOSTS = new Set([
+  "reddit.com", "stackoverflow.com", "stackexchange.com",
+  "dev.to", "medium.com", "quora.com", "news.ycombinator.com",
+  "discord.com", "twitter.com", "x.com",
+]);
+
+export function classifySourceAuthority(
+  url: string,
+  query: string,
+): "official" | "authoritative" | "repository" | "community" | "unknown" {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+
+    // Community sites — check first (GitHub issue discussions are community, not repo)
+    if (COMMUNITY_HOSTS.has(host)) return "community";
+
+    // Repository hosts
+    if (REPO_HOSTS.has(host)) return "repository";
+
+    // Official: domain name contains a significant query term
+    // e.g. "bun" query + "bun.sh" domain, "deno" query + "deno.com" domain
+    const queryTerms = tokenizeQuery(query).filter(t => t.length >= 3);
+    const domainBase = host.split(".").slice(0, -1).join(".");
+    if (queryTerms.some(term => domainBase.includes(term))) return "official";
+
+    // Authoritative: high domain authority boost
+    if (domainAuthorityBoost(url) >= 0.3) return "authoritative";
+
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 // ============================================================
 // Ranking
 // ============================================================

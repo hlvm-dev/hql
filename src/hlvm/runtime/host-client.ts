@@ -333,15 +333,11 @@ export async function ensureRuntimeHostReady(): Promise<void> {
   await ensureRuntimeAiReady();
 }
 
-function createSessionId(
-  workspace: string,
-  model: string,
-  skipSessionHistory: boolean,
-): string {
+function createSessionId(skipSessionHistory: boolean): string {
   if (skipSessionHistory) {
     return `fresh:${crypto.randomUUID()}`;
   }
-  return deriveDefaultSessionKey(workspace, model);
+  return deriveDefaultSessionKey();
 }
 
 function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
@@ -388,6 +384,19 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         summary: event.summary,
         durationMs: event.duration_ms ?? 0,
         error: event.error,
+        snapshot: event.snapshot,
+      };
+    case "plan_created":
+      return {
+        type: "plan_created",
+        plan: event.plan,
+      };
+    case "plan_step":
+      return {
+        type: "plan_step",
+        stepId: event.step_id,
+        index: event.index,
+        completed: event.completed,
       };
     case "turn_stats":
       return {
@@ -1140,11 +1149,7 @@ export async function runAgentQueryViaHost(
 ): Promise<HostBackedAgentQueryResult> {
   const result = await runChatViaHost({
     mode: "agent",
-    sessionId: createSessionId(
-      options.workspace,
-      options.model,
-      options.skipSessionHistory === true,
-    ),
+    sessionId: createSessionId(options.skipSessionHistory === true),
     messages: [{
       role: "user",
       content: options.query,

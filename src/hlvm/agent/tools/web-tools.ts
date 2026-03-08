@@ -796,12 +796,26 @@ function formatSearchWebResult(
       }`,
     );
   }
+  // Recommended source header — surface the top official/authoritative result
+  const recommended = evidencePages.find(r =>
+    r.sourceAuthority === "official" || r.sourceAuthority === "authoritative"
+  );
+  if (recommended) {
+    llmSections.push(
+      `Recommended source: ${recommended.title}${recommended.url ? ` — ${recommended.url}` : ""}\n` +
+      `Reason: ${recommended.sourceAuthority === "official" ? "Official domain matching query subject" : "Authoritative source (docs/reference domain)"}`,
+    );
+  }
+
   if (evidencePages.length > 0) {
     const evidenceLines = ["Evidence pages:"];
     for (let i = 0; i < evidencePages.length; i++) {
       const result = evidencePages[i];
+      const authorityTag = result.sourceAuthority && result.sourceAuthority !== "unknown"
+        ? ` [${result.sourceAuthority}]`
+        : "";
       evidenceLines.push(
-        `[${i + 1}] ${result.title}${result.url ? ` — ${result.url}` : ""}`,
+        `[${i + 1}] ${result.title}${result.url ? ` — ${result.url}` : ""}${authorityTag}`,
       );
       if (result.publishedDate) {
         evidenceLines.push(`    Published: ${result.publishedDate}`);
@@ -828,6 +842,13 @@ function formatSearchWebResult(
       }
     }
     llmSections.push(evidenceLines.join("\n"));
+  }
+  // Sufficiency guidance — tell the LLM when passages already answer the question
+  const guidance = typeof data.guidance === "object" && data.guidance !== null
+    ? data.guidance as { answerAvailable?: boolean; stopReason?: string }
+    : undefined;
+  if (guidance?.answerAvailable && guidance.stopReason) {
+    llmSections.push(guidance.stopReason);
   }
   if (!fetchedEvidenceAvailable) {
     llmSections.push(

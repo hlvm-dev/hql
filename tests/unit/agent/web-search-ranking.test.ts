@@ -2,6 +2,7 @@ import { assert, assertEquals } from "jsr:@std/assert";
 import {
   assessSearchConfidence,
   canonicalizeResultUrl,
+  classifySourceAuthority,
   dedupeSearchResults,
   deduplicateSnippetPassages,
   extractRelevantPassages,
@@ -171,4 +172,31 @@ Deno.test("web ranking: assessSearchConfidence flags low diversity and low cover
   assert(lowDiversity.reasons.includes("low_diversity"));
   assertEquals(lowCoverage.lowConfidence, true);
   assert(lowCoverage.reasons.includes("low_coverage"));
+});
+
+Deno.test("web ranking: classifySourceAuthority detects official, repo, community, authoritative, and unknown", () => {
+  // Official: domain contains query term
+  assertEquals(classifySourceAuthority("https://bun.sh/blog/release", "bun release"), "official");
+  assertEquals(classifySourceAuthority("https://deno.com/blog", "deno docs"), "official");
+  assertEquals(classifySourceAuthority("https://react.dev/learn", "react hooks"), "official");
+  assertEquals(classifySourceAuthority("https://docs.python.org/3/", "python docs"), "official");
+
+  // Repository: GitHub/GitLab
+  assertEquals(classifySourceAuthority("https://github.com/oven-sh/bun", "bun"), "repository");
+  assertEquals(classifySourceAuthority("https://gitlab.com/foo/bar", "bar lib"), "repository");
+
+  // Community: Reddit, StackOverflow, etc.
+  assertEquals(classifySourceAuthority("https://reddit.com/r/node", "bun"), "community");
+  assertEquals(classifySourceAuthority("https://stackoverflow.com/q/12345", "deno deploy"), "community");
+  assertEquals(classifySourceAuthority("https://dev.to/post/abc", "react tutorial"), "community");
+
+  // Authoritative: .edu/.gov with authority boost >= 0.3
+  assertEquals(classifySourceAuthority("https://developer.mozilla.org/en-US/docs/Web/CSS/Grid", "css grid"), "authoritative");
+
+  // Unknown: no match
+  assertEquals(classifySourceAuthority("https://example.com/page", "widgets"), "unknown");
+  assertEquals(classifySourceAuthority("https://randomsite.io/stuff", "something else"), "unknown");
+
+  // Invalid URL → unknown
+  assertEquals(classifySourceAuthority("not-a-url", "query"), "unknown");
 });

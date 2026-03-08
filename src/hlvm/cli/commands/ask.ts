@@ -19,12 +19,21 @@ import {
   extractProvider,
   isPaidProvider,
 } from "../../providers/approval.ts";
-import type { AgentUIEvent, TraceEvent } from "../../agent/orchestrator.ts";
+import type {
+  AgentUIEvent,
+  FinalResponseMeta,
+  TraceEvent,
+} from "../../agent/orchestrator.ts";
+import type { ChatResultStats } from "../../runtime/chat-protocol.ts";
 import type { PermissionMode } from "../../../common/config/types.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 import { runAgentQueryViaHost } from "../../runtime/host-client.ts";
 import { createRuntimeModelConfigManager } from "../../runtime/model-config.ts";
 import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
+import type {
+  DelegateTranscriptEvent,
+  DelegateTranscriptSnapshot,
+} from "../../agent/delegate-transcript.ts";
 
 // MARK: - Paid Provider Consent
 
@@ -47,6 +56,7 @@ EXAMPLES:
   hlvm ask "count test files in tests/unit"
   hlvm ask "what are recent downloaded files?"
   hlvm ask --verbose "count test files"  # Debug mode with detailed output
+  hlvm ask --json "count test files"     # Stream NDJSON events for automation
   hlvm ask --model openai/gpt-4o "summarize this project"
   hlvm ask --model anthropic/claude-sonnet-4-5-20250929 "list files"
   hlvm ask --fresh "hello"               # Start fresh (no prior session context)
@@ -54,6 +64,7 @@ EXAMPLES:
 OPTIONS:
   --help, -h                   Show this help message
   --verbose                    Show agent header, tool labels, stats, and trace output
+  --json                       Emit newline-delimited JSON events
   --usage                      Show token usage summary after execution
   --model <provider/model>     Use a specific AI model (e.g., openai/gpt-4o, anthropic/claude-sonnet-4-5-20250929)
   --fresh                      Start a fresh session (no prior context)
@@ -267,6 +278,22 @@ export interface CloudAuthRecoveryResult {
   streamedTokens: boolean;
 }
 
+export type AskJsonEvent =
+  | { type: "token"; text: string }
+  | { type: "agent_event"; event: AgentUIEvent }
+  | {
+    type: "final";
+    text: string;
+    stats: ChatResultStats;
+    meta?: FinalResponseMeta;
+  }
+  | {
+    type: "error";
+    message: string;
+    errorClass: string;
+    retryable: boolean;
+  };
+
 export async function attemptCloudAuthRecovery(
   state: CloudAuthRecoveryState,
   deps: CloudAuthRecoveryDeps,
@@ -329,6 +356,7 @@ export async function askCommand(args: string[]): Promise<void> {
 
   let query = "";
   let verbose = false;
+  let jsonOutput = false;
   let showUsage = false;
   let freshSession = false;
   let modelOverride: string | undefined;
@@ -338,6 +366,8 @@ export async function askCommand(args: string[]): Promise<void> {
     const arg = args[i];
     if (arg === "--verbose") {
       verbose = true;
+    } else if (arg === "--json") {
+      jsonOutput = true;
     } else if (arg === "--usage") {
       showUsage = true;
     } else if (arg === "--fresh") {
@@ -369,6 +399,13 @@ export async function askCommand(args: string[]): Promise<void> {
     );
   }
 
+  if (jsonOutput && verbose) {
+    throw new ValidationError(
+      "--json cannot be combined with --verbose",
+      "ask",
+    );
+  }
+
   const fixturePath = getPlatform().env.get("HLVM_ASK_FIXTURE_PATH")?.trim() ||
     undefined;
   if (fixturePath) {
@@ -377,39 +414,17 @@ export async function askCommand(args: string[]): Promise<void> {
 
   const runtimeModelConfig = await createRuntimeModelConfigManager();
 
-  // First-use bootstrap: if user has Claude Code auth available, default to it automatically.
-  if (
-    !fixturePath &&
-    !modelOverride &&
-    !runtimeModelConfig.getConfig().modelConfigured
-  ) {
-    const autoModel = await runtimeModelConfig.autoConfigureInitialClaudeCodeModel();
-    if (autoModel) {
-      modelOverride = autoModel;
-    }
-  }
-
-  // First-run gate: no model explicitly chosen + not yet configured + interactive terminal
-  // HLVM_FORCE_SETUP=1 bypasses the terminal check (for E2E testing)
   const forceSetup = getPlatform().env.get("HLVM_FORCE_SETUP") === "1";
-  if (
-    !fixturePath &&
-    !modelOverride &&
-    !runtimeModelConfig.getConfig().modelConfigured &&
-    (getPlatform().terminal.stdin.isTerminal() || forceSetup)
-  ) {
-    const { runFirstTimeSetup } = await import("./first-run-setup.ts");
-    const result = await runFirstTimeSetup();
-    if (result) {
-      modelOverride = result;
-      await runtimeModelConfig.sync();
-    }
-  }
-
   if (!fixturePath && !modelOverride) {
-    const repaired = await runtimeModelConfig.reconcileConfiguredClaudeCodeModel();
-    if (repaired) {
-      modelOverride = repaired;
+    const initialModel = await runtimeModelConfig.ensureInitialModelConfigured({
+      allowFirstRunSetup: getPlatform().terminal.stdin.isTerminal() || forceSetup,
+      runFirstTimeSetup: async () => {
+        const { runFirstTimeSetup } = await import("./first-run-setup.ts");
+        return await runFirstTimeSetup();
+      },
+    });
+    if (initialModel.modelConfigured) {
+      modelOverride = initialModel.model;
     }
   }
 
@@ -445,8 +460,18 @@ export async function askCommand(args: string[]): Promise<void> {
   let streamedTokens = false;
   let thinkingShown = false;
   let toolInProgress = false;
+  let activePlan: Extract<AgentUIEvent, { type: "plan_created" }>["plan"] | undefined;
+  let finalMeta: FinalResponseMeta | undefined;
+
+  const emitJson = (event: AskJsonEvent): void => {
+    log.raw.log(JSON.stringify(event));
+  };
 
   const onToken = (text: string) => {
+    if (jsonOutput) {
+      emitJson({ type: "token", text });
+      return;
+    }
     if (thinkingShown) {
       log.raw.write(`\r\x1b[K`);
       thinkingShown = false;
@@ -456,6 +481,10 @@ export async function askCommand(args: string[]): Promise<void> {
   };
 
   const onAgentEvent = (event: AgentUIEvent) => {
+    if (jsonOutput) {
+      emitJson({ type: "agent_event", event });
+      return;
+    }
     if (verbose) {
       // Verbose mode: keep existing detailed output style
       switch (event.type) {
@@ -478,6 +507,12 @@ export async function askCommand(args: string[]): Promise<void> {
             ? event.summary ?? "Delegation complete."
             : event.error ?? "Delegation failed.";
           log.raw.log(`\n[${label}] ${event.agent}\n${body}\n`);
+          const snapshotText = formatDelegateSnapshotForVerboseMode(
+            event.snapshot,
+          );
+          if (snapshotText) {
+            log.raw.log(`${snapshotText}\n`);
+          }
           break;
         }
       }
@@ -558,6 +593,30 @@ export async function askCommand(args: string[]): Promise<void> {
         }
         break;
       }
+      case "plan_created": {
+        activePlan = event.plan;
+        if (thinkingShown) { log.raw.write(`\r\x1b[K`); thinkingShown = false; }
+        if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+        const goal = truncate(event.plan.goal, 64);
+        log.raw.log(
+          `  \x1b[2mPlan \u2192 ${event.plan.steps.length} step${
+            event.plan.steps.length === 1 ? "" : "s"
+          }: ${goal}\x1b[0m`,
+        );
+        break;
+      }
+      case "plan_step": {
+        if (thinkingShown) { log.raw.write(`\r\x1b[K`); thinkingShown = false; }
+        if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+        const step = activePlan?.steps[event.index];
+        const label = step?.title ?? event.stepId;
+        const total = activePlan?.steps.length;
+        const progress = total ? `${event.index + 1}/${total}` : `${event.index + 1}`;
+        log.raw.log(
+          `  \x1b[2mPlan ${progress} \u2192 ${truncate(label, 72)}\x1b[0m`,
+        );
+        break;
+      }
       case "turn_stats": {
         const dur = event.durationMs ? `${(event.durationMs / 1000).toFixed(1)}s` : "";
         log.raw.log(`\n\x1b[2m\u2500\u2500\u2500 ${event.toolCount} tool${event.toolCount !== 1 ? "s" : ""} \u00b7 ${dur} \u2500\u2500\u2500\x1b[0m\n`);
@@ -588,9 +647,22 @@ export async function askCommand(args: string[]): Promise<void> {
         onToken,
         onAgentEvent,
         onTrace: createTraceCallback(verbose),
+        onFinalResponseMeta: (meta) => {
+          finalMeta = meta;
+        },
       },
       onInteraction: promptRuntimeInteraction,
     });
+
+    if (jsonOutput) {
+      emitJson({
+        type: "final",
+        text: result.text,
+        stats: result.stats,
+        meta: finalMeta,
+      });
+      return;
+    }
 
     if (streamedTokens) {
       log.raw.write("\n");
@@ -628,6 +700,20 @@ export async function askCommand(args: string[]): Promise<void> {
     executionError = error;
   }
 
+  if (jsonOutput) {
+    const classified = classifyError(executionError);
+    emitJson({
+      type: "error",
+      message: executionError instanceof Error
+        ? executionError.message
+        : String(executionError),
+      errorClass: classified.class,
+      retryable: classified.retryable,
+    });
+    getPlatform().process.exit(1);
+    return;
+  }
+
   const {
     runOllamaSignin,
     verifyOllamaCloudModelAccess,
@@ -659,4 +745,47 @@ export async function askCommand(args: string[]): Promise<void> {
     throw executionError;
   }
   throw executionError;
+}
+
+function formatDelegateSnapshotForVerboseMode(
+  snapshot?: DelegateTranscriptSnapshot,
+): string {
+  if (!snapshot) return "";
+  const lines: string[] = ["  Child transcript:"];
+  for (const event of snapshot.events) {
+    const line = formatDelegateSnapshotEvent(event);
+    if (line) lines.push(`    ${line}`);
+  }
+  if (snapshot.finalResponse?.trim()) {
+    lines.push(`    Final: ${truncate(snapshot.finalResponse.trim(), 120)}`);
+  }
+  return lines.join("\n");
+}
+
+function formatDelegateSnapshotEvent(
+  event: DelegateTranscriptEvent,
+): string {
+  switch (event.type) {
+    case "thinking":
+      return event.summary?.trim()
+        ? `Thinking: ${truncate(event.summary.trim(), 100)}`
+        : "Thinking";
+    case "plan_created":
+      return `Plan created (${event.stepCount} steps)`;
+    case "plan_step":
+      return `Plan step ${event.index + 1} complete: ${event.stepId}`;
+    case "tool_start":
+      return `Tool ${event.name} ${truncate(event.argsSummary, 72)}`;
+    case "tool_end": {
+      const summary = summarizeToolEventForDefaultMode(
+        event.name,
+        event.summary,
+        event.content,
+      );
+      const prefix = event.success ? "Tool" : "Tool error";
+      return `${prefix} ${event.name} -> ${truncate(summary, 72)}`;
+    }
+    case "turn_stats":
+      return `${event.toolCount} tool${event.toolCount === 1 ? "" : "s"} in ${(event.durationMs / 1000).toFixed(1)}s`;
+  }
 }

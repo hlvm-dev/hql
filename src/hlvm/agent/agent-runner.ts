@@ -364,7 +364,7 @@ export async function runAgentQuery(
   const useExternalHistory = !!options.messageHistory;
   const sessionKey = (skipSessionHistory || useExternalHistory)
     ? null
-    : deriveDefaultSessionKey(workspace, model);
+    : deriveDefaultSessionKey();
   let persistedTurn: PersistedAgentTurn | null = null;
 
   try {
@@ -385,7 +385,6 @@ export async function runAgentQuery(
       }
     } else if (sessionKey) {
       const { history } = await loadPersistedAgentHistory({
-        workspace,
         model,
         maxGroups: MAX_SESSION_HISTORY,
       });
@@ -462,7 +461,7 @@ export async function runAgentQuery(
         onInteraction: callbacks.onInteraction,
         noInput,
         delegate,
-        planning: { mode: "off", requireStepMarkers: false },
+        planning: { mode: "auto", requireStepMarkers: false },
         skipModelCompensation: session.isFrontierModel,
         modelTier: session.modelTier,
         modelId: model,

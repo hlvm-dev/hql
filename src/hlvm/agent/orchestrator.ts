@@ -56,6 +56,7 @@ import { retrieveMemory, type RetrievalResult } from "../memory/retrieve.ts";
 import { resetWebToolBudget } from "./tools/web-tools.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
 import type { TodoState } from "./todo-state.ts";
+import type { DelegateTranscriptSnapshot } from "./delegate-transcript.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -232,6 +233,8 @@ export type AgentUIEvent =
     argsSummary: string;
     meta?: ToolEventMeta;
   }
+  | { type: "plan_created"; plan: Plan }
+  | { type: "plan_step"; stepId: string; index: number; completed: boolean }
   | {
     type: "turn_stats";
     iteration: number;
@@ -253,6 +256,7 @@ export type AgentUIEvent =
     summary?: string;
     durationMs: number;
     error?: string;
+    snapshot?: DelegateTranscriptSnapshot;
   }
   | InteractionRequestEvent;
 
@@ -508,6 +512,7 @@ export async function runReActLoop(
         if (lc.planningConfig.mode === "always") {
           state.planState = createPlanState(plan);
         }
+        config.onAgentEvent?.({ type: "plan_created", plan });
         onTrace?.({ type: "plan_created", plan });
       }
     } catch (error) {
