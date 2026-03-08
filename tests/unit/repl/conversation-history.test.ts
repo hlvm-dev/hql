@@ -4,13 +4,11 @@ import { buildConversationItemsFromSessionMessages } from "../../../src/hlvm/cli
 Deno.test("buildConversationItemsFromSessionMessages maps persisted transcript rows into conversation items", () => {
   const items = buildConversationItemsFromSessionMessages([
     {
-      type: "message",
       role: "user",
       content: "hello",
       ts: 1,
     },
     {
-      type: "message",
       role: "assistant",
       content: "hi",
       ts: 2,

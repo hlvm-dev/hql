@@ -100,7 +100,6 @@ interface HistoryEntry {
 interface CurrentEval {
   code: string;
   controller: AbortController;
-  attachmentPaths: string[];
   backgrounded: boolean;
   cancelled?: boolean;
   taskId?: string;
@@ -1083,7 +1082,6 @@ function AppContent(
       const evalState: CurrentEval = {
         code,
         controller,
-        attachmentPaths,
         backgrounded: false,
       };
       currentEvalRef.current = evalState;
