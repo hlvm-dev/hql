@@ -89,7 +89,7 @@ import {
   session as sessionApi,
   syncCurrentSession,
 } from "../../../api/session.ts";
-import { buildConversationItemsFromSessionMessages } from "../conversation-history.ts";
+import { buildTranscriptStateFromSession } from "../conversation-history.ts";
 
 interface HistoryEntry {
   id: number;
@@ -474,31 +474,43 @@ function AppContent(
     setNextId((n: number) => n + 1);
   }, []);
 
-  // Session picker handlers
-  const handlePickerSelect = useCallback(async (session: SessionMeta) => {
-    const loaded = await sessionApi.resume(session.id);
+  const resumeConversationSession = useCallback(async (
+    sessionId: string,
+    commandInput: string,
+    sessionTitle?: string,
+  ): Promise<boolean> => {
+    const loaded = await sessionApi.resume(sessionId);
 
-    if (loaded) {
-      conversation.replaceItems(
-        buildConversationItemsFromSessionMessages(loaded.messages),
-      );
-      conversation.addInfo(
-        `Resumed: ${loaded.meta.title} (${loaded.meta.messageCount} messages)`,
-      );
-      conversation.resetStatus();
-      setCurrentSession(loaded.meta);
-      setFooterContextUsageLabel("");
-      setActivePanel("conversation");
-    } else {
-      // Session file not found or corrupted
-      addHistoryEntry(pendingResumeInput || "/resume", {
+    if (!loaded) {
+      addHistoryEntry(commandInput, {
         success: false,
-        error: new Error(`Session not found: ${session.title}`),
+        error: new Error(`Session not found: ${sessionTitle ?? sessionId}`),
       });
       setActivePanel("none");
+      return false;
     }
+
+    const transcriptState = buildTranscriptStateFromSession(loaded);
+    conversation.hydrateState(transcriptState);
+    conversation.addInfo(
+      `Resumed: ${loaded.meta.title} (${loaded.meta.messageCount} messages)`,
+    );
+    conversation.resetStatus();
+    setCurrentSession(loaded.meta);
+    setFooterContextUsageLabel("");
+    setActivePanel("conversation");
+    return true;
+  }, [addHistoryEntry, conversation]);
+
+  // Session picker handlers
+  const handlePickerSelect = useCallback(async (session: SessionMeta) => {
+    await resumeConversationSession(
+      session.id,
+      pendingResumeInput || "/resume",
+      session.title,
+    );
     setPendingResumeInput(null);
-  }, [pendingResumeInput, addHistoryEntry, conversation]);
+  }, [pendingResumeInput, resumeConversationSession]);
 
   const handlePickerCancel = useCallback(() => {
     // Add history entry showing command was cancelled (only if user typed /resume)
@@ -673,7 +685,6 @@ function AppContent(
           client_turn_id: crypto.randomUUID(),
         }],
         model,
-        workspace: getPlatform().process.cwd(),
         // REPL UX: avoid model-initiated ask_user detours for simple chat turns.
         // Keep direct conversational flow unless explicit permission prompts are needed.
         toolDenylist: ["ask_user", "complete_task"],
@@ -948,6 +959,10 @@ function AppContent(
 
       // Handle /resume command
       if (commandName === "/resume") {
+        if (commandArgs.length > 0) {
+          await resumeConversationSession(commandArgs, code, commandArgs);
+          return;
+        }
         const sessions = await sessionApi.list({ limit: 20 });
 
         if (sessions.length === 0) {
@@ -1555,6 +1570,8 @@ function AppContent(
             items={conversation.items}
             width={Math.max(20, terminalWidth - 2)}
             streamingState={conversation.streamingState}
+            activePlan={conversation.activePlan}
+            todoState={conversation.todoState ?? conversation.planTodoState}
             allowToggleHotkeys={allowConversationToggleHotkeys}
             interactionRequest={pendingInteraction}
             interactionQueueLength={interactionQueue.length}

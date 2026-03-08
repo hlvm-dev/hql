@@ -59,7 +59,10 @@ Deno.test("session API lists, loads, resumes, exports, and counts runtime conver
       sender_type: "agent",
       sender_detail: null,
       image_paths: null,
-      tool_calls: null,
+      tool_calls: JSON.stringify([{
+        argsSummary: "README.md",
+        success: true,
+      }]),
       tool_name: "read_file",
       tool_call_id: null,
       cancelled: 0,
@@ -99,10 +102,25 @@ Deno.test("session API lists, loads, resumes, exports, and counts runtime conver
     assertEquals(listed.length, 1);
     assertEquals(listed[0]?.id, "sess-1");
     assertEquals(listed[0]?.title, "Session sess-1");
-    assertEquals(loaded?.messages.map((message) => message.content), [
-      "hello",
-      "hi",
-      "[tool:read_file] file contents",
+    assertEquals(loaded?.messages, [
+      {
+        role: "user",
+        content: "hello",
+        ts: Date.parse("2026-03-07T00:00:00.000Z"),
+      },
+      {
+        role: "assistant",
+        content: "hi",
+        ts: Date.parse("2026-03-07T00:00:02.000Z"),
+      },
+      {
+        role: "tool",
+        content: "file contents",
+        ts: Date.parse("2026-03-07T00:00:03.000Z"),
+        toolName: "read_file",
+        toolArgsSummary: "README.md",
+        toolSuccess: true,
+      },
     ]);
     assertEquals(resumed?.meta.id, "sess-1");
     assertEquals(session.current()?.id, "sess-1");
@@ -110,7 +128,6 @@ Deno.test("session API lists, loads, resumes, exports, and counts runtime conver
     assertEquals(await session.has("sess-1"), true);
     assertStringIncludes(exported ?? "", "# Session sess-1");
     assertStringIncludes(exported ?? "", "[tool:read_file] file contents");
-    assertStringIncludes(session.path, "conversations.db");
   });
 
   clearCurrentSession();
@@ -118,7 +135,6 @@ Deno.test("session API lists, loads, resumes, exports, and counts runtime conver
 
 Deno.test("session API records into runtime conversation sessions and clears current state on delete", async () => {
   let createdMessageCount = 0;
-  let createdRequestBody: Record<string, unknown> | null = null;
   const recordedMessages: Array<Record<string, unknown>> = [];
 
   clearCurrentSession();
@@ -127,7 +143,7 @@ Deno.test("session API records into runtime conversation sessions and clears cur
     const url = new URL(req.url);
 
     if (url.pathname === "/api/sessions" && req.method === "POST") {
-      createdRequestBody = await req.json();
+      await req.json();
       return Response.json({
         id: "created-1",
         title: "",
@@ -185,7 +201,6 @@ Deno.test("session API records into runtime conversation sessions and clears cur
     await session.record("user", "hello", ["image.png"]);
     await session.record("assistant", "hi");
 
-    assertEquals(createdRequestBody, {});
     assertEquals(recordedMessages.length, 2);
     assertEquals(recordedMessages[0]?.role, "user");
     assertEquals(recordedMessages[0]?.image_paths, ["image.png"]);

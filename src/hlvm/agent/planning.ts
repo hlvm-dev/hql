@@ -190,6 +190,27 @@ export function createPlanState(plan: Plan): PlanState {
   return { plan, currentIndex: 0, completedIds: new Set(), delegatedIds: new Set() };
 }
 
+export function restorePlanState(
+  plan: Plan,
+  completedIds: Iterable<string> = [],
+  delegatedIds: Iterable<string> = [],
+): PlanState {
+  const completed = new Set(completedIds);
+  let currentIndex = 0;
+  while (
+    currentIndex < plan.steps.length &&
+    completed.has(plan.steps[currentIndex]?.id ?? "")
+  ) {
+    currentIndex += 1;
+  }
+  return {
+    plan,
+    currentIndex,
+    completedIds: completed,
+    delegatedIds: new Set(delegatedIds),
+  };
+}
+
 /** Fix 23: Only advance if completedId matches the current step */
 export function advancePlanState(
   state: PlanState,

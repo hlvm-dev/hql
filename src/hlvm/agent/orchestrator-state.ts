@@ -120,7 +120,7 @@ export function initializeLoopState(config: OrchestratorConfig): LoopState {
     repeatToolCount: 0,
     consecutiveToolFailures: 0,
     emptyResponseRetried: false,
-    planState: null,
+    planState: config.initialPlanState ?? null,
     lastResponse: "",
     lastToolsIncludedWeb: false,
     iterationsSinceReminder: 3, // Start at cooldown to avoid immediate reminder

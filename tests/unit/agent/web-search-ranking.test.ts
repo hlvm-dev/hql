@@ -5,6 +5,7 @@ import {
   classifySourceAuthority,
   dedupeSearchResults,
   deduplicateSnippetPassages,
+  domainAuthorityBoost,
   extractRelevantPassages,
   rankSearchResults,
   scorePassage,
@@ -68,29 +69,37 @@ Deno.test("web ranking: rankSearchResults favors authoritative rich pages and pe
       {
         title: "Thin SEO Page",
         url: "https://blog.example.com/tag/python-asyncio-taskgroup",
-        snippet: "python asyncio taskgroup python asyncio taskgroup python asyncio taskgroup",
+        snippet:
+          "python asyncio taskgroup python asyncio taskgroup python asyncio taskgroup",
       },
       {
         title: "Another Thin SEO Page",
         url: "https://blog.example.com/page/python-asyncio-taskgroup",
-        snippet: "python asyncio taskgroup python asyncio taskgroup python asyncio taskgroup",
+        snippet:
+          "python asyncio taskgroup python asyncio taskgroup python asyncio taskgroup",
       },
       {
         title: "TaskGroup guide",
         url: "https://docs.python.org/tutorial/asyncio/taskgroup",
-        snippet: "Detailed guide to TaskGroup cancellation behavior, exceptions, and structured concurrency.",
+        snippet:
+          "Detailed guide to TaskGroup cancellation behavior, exceptions, and structured concurrency.",
       },
     ],
     "all",
   );
 
-  assertEquals(ranked[0].url, "https://docs.python.org/tutorial/asyncio/taskgroup");
+  assertEquals(
+    ranked[0].url,
+    "https://docs.python.org/tutorial/asyncio/taskgroup",
+  );
   assert(ranked[0].score! > ranked[1].score!);
 });
 
 Deno.test("web ranking: scorePassage and extractRelevantPassages reward coverage, proximity, and truncation", () => {
-  const close = "the deno release includes typescript support and deno improvements for developers";
-  const far = "deno is a runtime. many paragraphs later we finally mention the release details";
+  const close =
+    "the deno release includes typescript support and deno improvements for developers";
+  const far =
+    "deno is a runtime. many paragraphs later we finally mention the release details";
   const text = [
     "This paragraph is about cooking recipes and has nothing relevant.",
     "Deno 2.2 introduces workspaces and improved npm compatibility for developers using Deno and TypeScript together.",
@@ -98,18 +107,28 @@ Deno.test("web ranking: scorePassage and extractRelevantPassages reward coverage
     "Deno ".repeat(200),
   ].join("\n\n");
 
-  assert(scorePassage(close, ["deno", "release", "typescript"]) >
-    scorePassage(far, ["deno", "release", "typescript"]));
+  assert(
+    scorePassage(close, ["deno", "release", "typescript"]) >
+      scorePassage(far, ["deno", "release", "typescript"]),
+  );
 
   const passages = extractRelevantPassages("deno 2.2 release", text);
   assertEquals(passages.length, 3);
   assert(passages[0].includes("Deno"));
-  assert(passages.some((passage) => passage.length <= 280 && passage.endsWith("…")));
-  assertEquals(extractRelevantPassages("quantum physics", "Cooking pasta only").length, 0);
+  assert(
+    passages.some((passage) => passage.length <= 280 && passage.endsWith("…")),
+  );
+  assertEquals(
+    extractRelevantPassages("quantum physics", "Cooking pasta only").length,
+    0,
+  );
 });
 
 Deno.test("web ranking: generateQueryVariants preserves caps and important numeric tokens", () => {
-  const variants = generateQueryVariants("tensorflow 2025 2.2 tutorial updates", 3);
+  const variants = generateQueryVariants(
+    "tensorflow 2025 2.2 tutorial updates",
+    3,
+  );
 
   assert(variants.length <= 3);
   assert(variants.some((variant) => variant.includes("2025")));
@@ -158,15 +177,49 @@ Deno.test("web ranking: extractPublicationDate supports meta, time, json-ld, and
 
 Deno.test("web ranking: assessSearchConfidence flags low diversity and low coverage separately", () => {
   const lowDiversity = assessSearchConfidence("hlvm search", [
-    { title: "A", url: "https://same.com/a", snippet: "hlvm search guide", score: 8 },
-    { title: "B", url: "https://same.com/b", snippet: "hlvm search reference", score: 8 },
-    { title: "C", url: "https://same.com/c", snippet: "hlvm search docs", score: 8 },
+    {
+      title: "A",
+      url: "https://same.com/a",
+      snippet: "hlvm search guide",
+      score: 8,
+    },
+    {
+      title: "B",
+      url: "https://same.com/b",
+      snippet: "hlvm search reference",
+      score: 8,
+    },
+    {
+      title: "C",
+      url: "https://same.com/c",
+      snippet: "hlvm search docs",
+      score: 8,
+    },
   ], { diversityThreshold: 0.5 });
-  const lowCoverage = assessSearchConfidence("python asyncio taskgroup cancellation", [
-    { title: "General Python guide", url: "https://a.com", snippet: "python guide", score: 7 },
-    { title: "Python basics", url: "https://b.com", snippet: "python basics", score: 7 },
-    { title: "Python intro", url: "https://c.com", snippet: "python intro", score: 7 },
-  ], { coverageThreshold: 0.8 });
+  const lowCoverage = assessSearchConfidence(
+    "python asyncio taskgroup cancellation",
+    [
+      {
+        title: "General Python guide",
+        url: "https://a.com",
+        snippet: "python guide",
+        score: 7,
+      },
+      {
+        title: "Python basics",
+        url: "https://b.com",
+        snippet: "python basics",
+        score: 7,
+      },
+      {
+        title: "Python intro",
+        url: "https://c.com",
+        snippet: "python intro",
+        score: 7,
+      },
+    ],
+    { coverageThreshold: 0.8 },
+  );
 
   assertEquals(lowDiversity.lowConfidence, true);
   assert(lowDiversity.reasons.includes("low_diversity"));
@@ -175,27 +228,89 @@ Deno.test("web ranking: assessSearchConfidence flags low diversity and low cover
 });
 
 Deno.test("web ranking: classifySourceAuthority detects official, repo, community, authoritative, and unknown", () => {
-  // Official: domain contains query term
-  assertEquals(classifySourceAuthority("https://bun.sh/blog/release", "bun release"), "official");
-  assertEquals(classifySourceAuthority("https://deno.com/blog", "deno docs"), "official");
-  assertEquals(classifySourceAuthority("https://react.dev/learn", "react hooks"), "official");
-  assertEquals(classifySourceAuthority("https://docs.python.org/3/", "python docs"), "official");
+  // Official: registrable domain matches the query subject
+  assertEquals(
+    classifySourceAuthority("https://bun.sh/blog/release", "bun release"),
+    "official",
+  );
+  assertEquals(
+    classifySourceAuthority("https://deno.com/blog", "deno docs"),
+    "official",
+  );
+  assertEquals(
+    classifySourceAuthority("https://react.dev/learn", "react hooks"),
+    "official",
+  );
+  assertEquals(
+    classifySourceAuthority("https://docs.python.org/3/", "python docs"),
+    "official",
+  );
+  assertEquals(
+    classifySourceAuthority("https://www.bbc.co.uk/news", "bbc news"),
+    "official",
+  );
 
-  // Repository: GitHub/GitLab
-  assertEquals(classifySourceAuthority("https://github.com/oven-sh/bun", "bun"), "repository");
-  assertEquals(classifySourceAuthority("https://gitlab.com/foo/bar", "bar lib"), "repository");
+  // Repository: repo roots/releases stay repository hosts
+  assertEquals(
+    classifySourceAuthority("https://github.com/oven-sh/bun", "bun"),
+    "repository",
+  );
+  assertEquals(
+    classifySourceAuthority("https://gitlab.com/foo/bar", "bar lib"),
+    "repository",
+  );
+  assertEquals(
+    classifySourceAuthority(
+      "https://github.com/oven-sh/bun/releases",
+      "bun release",
+    ),
+    "repository",
+  );
 
-  // Community: Reddit, StackOverflow, etc.
-  assertEquals(classifySourceAuthority("https://reddit.com/r/node", "bun"), "community");
-  assertEquals(classifySourceAuthority("https://stackoverflow.com/q/12345", "deno deploy"), "community");
-  assertEquals(classifySourceAuthority("https://dev.to/post/abc", "react tutorial"), "community");
+  // Community: forums plus repo-host discussions
+  assertEquals(
+    classifySourceAuthority("https://reddit.com/r/node", "bun"),
+    "community",
+  );
+  assertEquals(
+    classifySourceAuthority("https://stackoverflow.com/q/12345", "deno deploy"),
+    "community",
+  );
+  assertEquals(
+    classifySourceAuthority("https://dev.to/post/abc", "react tutorial"),
+    "community",
+  );
+  assertEquals(
+    classifySourceAuthority(
+      "https://github.com/oven-sh/bun/issues/123",
+      "bun issue",
+    ),
+    "community",
+  );
 
-  // Authoritative: .edu/.gov with authority boost >= 0.3
-  assertEquals(classifySourceAuthority("https://developer.mozilla.org/en-US/docs/Web/CSS/Grid", "css grid"), "authoritative");
+  // Authoritative: authority signals without an official-domain match
+  assertEquals(
+    classifySourceAuthority(
+      "https://developer.mozilla.org/en-US/docs/Web/CSS/Grid",
+      "css grid",
+    ),
+    "authoritative",
+  );
+  assert(domainAuthorityBoost("https://www.gov.uk/service-manual") >= 0.3);
 
-  // Unknown: no match
-  assertEquals(classifySourceAuthority("https://example.com/page", "widgets"), "unknown");
-  assertEquals(classifySourceAuthority("https://randomsite.io/stuff", "something else"), "unknown");
+  // Unknown: no match and no substring false positives
+  assertEquals(
+    classifySourceAuthority("https://example.com/page", "widgets"),
+    "unknown",
+  );
+  assertEquals(
+    classifySourceAuthority("https://randomsite.io/stuff", "something else"),
+    "unknown",
+  );
+  assertEquals(
+    classifySourceAuthority("https://hyperreactive.dev/post", "react hooks"),
+    "unknown",
+  );
 
   // Invalid URL → unknown
   assertEquals(classifySourceAuthority("not-a-url", "query"), "unknown");

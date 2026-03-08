@@ -7,8 +7,8 @@
  * - Optional path allow/deny lists (glob patterns)
  * - Optional network allow/deny lists (URL patterns)
  *
- * Policy is stored per-workspace at:
- *   <workspace>/.hlvm/agent-policy.json
+ * Policy is stored globally at:
+ *   ~/.hlvm/agent-policy.json
  *
  * If the policy file does not exist, policy is disabled (null).
  * This preserves existing behavior unless user explicitly configures policy.
@@ -16,10 +16,14 @@
 
 import { getPlatform } from "../../platform/platform.ts";
 import { getAgentLogger } from "./logger.ts";
-import { globToRegex, GlobPatternError } from "../../common/pattern-utils.ts";
-import { getErrorMessage, isFileNotFoundError, isObjectValue } from "../../common/utils.ts";
+import { GlobPatternError, globToRegex } from "../../common/pattern-utils.ts";
+import {
+  getErrorMessage,
+  isFileNotFoundError,
+  isObjectValue,
+} from "../../common/utils.ts";
 import type { SafetyLevel } from "./security/safety.ts";
-import { SecurityError, isPathWithinRoot } from "./security/path-sandbox.ts";
+import { isPathWithinRoot, SecurityError } from "./security/path-sandbox.ts";
 import { getAgentPolicyPath } from "../../common/paths.ts";
 
 // ============================================================
@@ -29,7 +33,7 @@ import { getAgentPolicyPath } from "../../common/paths.ts";
 /** Explicit decision from policy */
 type PolicyDecision = "allow" | "deny" | "ask";
 
-/** Path rules (glob patterns relative to workspace) */
+/** Path rules (glob patterns relative to the active working directory) */
 interface PathRules {
   allow?: string[];
   deny?: string[];
@@ -71,12 +75,9 @@ const POLICY_V1_EXAMPLE = `{
 /**
  * Load policy from global config (returns null if no policy file)
  */
-export async function loadAgentPolicy(
-  _workspace: string,
-  policyPath?: string
-): Promise<AgentPolicy | null> {
+export async function loadAgentPolicy(): Promise<AgentPolicy | null> {
   const platform = getPlatform();
-  const path = policyPath ?? getAgentPolicyPath();
+  const path = getAgentPolicyPath();
 
   let content: string;
   try {
@@ -85,7 +86,9 @@ export async function loadAgentPolicy(
     if (isFileNotFoundError(error)) {
       return null;
     }
-    getAgentLogger().warn(`Agent policy load failed (${path}): ${getErrorMessage(error)}`);
+    getAgentLogger().warn(
+      `Agent policy load failed (${path}): ${getErrorMessage(error)}`,
+    );
     return null;
   }
 
@@ -103,7 +106,9 @@ export async function loadAgentPolicy(
   if (!normalized) {
     const reason = describePolicyInvalid(parsed);
     getAgentLogger().warn(`Agent policy invalid (${path}): ${reason}`);
-    getAgentLogger().warn("Policy was ignored. Update to version 1 schema. Example:");
+    getAgentLogger().warn(
+      "Policy was ignored. Update to version 1 schema. Example:",
+    );
     getAgentLogger().warn(POLICY_V1_EXAMPLE);
     return null;
   }
@@ -137,7 +142,7 @@ function isDecision(value: unknown): value is PolicyDecision {
 }
 
 function normalizeDecisionMap(
-  input: unknown
+  input: unknown,
 ): Record<string, PolicyDecision> | undefined {
   if (!isObjectValue(input)) return undefined;
   const result: Record<string, PolicyDecision> = {};
@@ -149,8 +154,12 @@ function normalizeDecisionMap(
 
 function normalizeRuleSet(input: unknown): NetworkRules | undefined {
   if (!isObjectValue(input)) return undefined;
-  const allow = Array.isArray(input.allow) ? input.allow.filter((s) => typeof s === "string") : [];
-  const deny = Array.isArray(input.deny) ? input.deny.filter((s) => typeof s === "string") : [];
+  const allow = Array.isArray(input.allow)
+    ? input.allow.filter((s) => typeof s === "string")
+    : [];
+  const deny = Array.isArray(input.deny)
+    ? input.deny.filter((s) => typeof s === "string")
+    : [];
 
   if (allow.length === 0 && deny.length === 0) return undefined;
   return { allow, deny };
@@ -196,7 +205,7 @@ function describePolicyInvalid(input: unknown): string {
 export function resolvePolicyDecision(
   policy: AgentPolicy | null | undefined,
   toolName: string,
-  level: SafetyLevel
+  level: SafetyLevel,
 ): PolicyDecision | null {
   if (!policy) return null;
 
@@ -219,7 +228,7 @@ export function resolvePolicyDecision(
  */
 export function isPathAllowed(
   policy: AgentPolicy | null | undefined,
-  relativePath: string
+  relativePath: string,
 ): boolean {
   if (!policy?.pathRules) return true;
   const { allow = [], deny = [] } = policy.pathRules;
@@ -245,7 +254,10 @@ function checkAbsolutePathAgainstPolicy(
   absolutePath: string,
 ): { allowed: boolean; relativePath: string } {
   const roots = resolvePolicyPathRoots(policy, workspace);
-  if (roots.length > 0 && roots.some((root) => isPathWithinRoot(absolutePath, root))) {
+  if (
+    roots.length > 0 &&
+    roots.some((root) => isPathWithinRoot(absolutePath, root))
+  ) {
     return { allowed: true, relativePath: "" };
   }
   const platform = getPlatform();
@@ -266,7 +278,8 @@ export function isPathAllowedAbsolute(
   absolutePath: string,
 ): boolean {
   if (!policy?.pathRules) return true;
-  return checkAbsolutePathAgainstPolicy(policy, workspace, absolutePath).allowed;
+  return checkAbsolutePathAgainstPolicy(policy, workspace, absolutePath)
+    .allowed;
 }
 
 /**
@@ -279,7 +292,11 @@ export function enforcePathPolicy(
   displayPath?: string,
 ): void {
   if (!policy) return;
-  const { allowed, relativePath } = checkAbsolutePathAgainstPolicy(policy, workspace, absolutePath);
+  const { allowed, relativePath } = checkAbsolutePathAgainstPolicy(
+    policy,
+    workspace,
+    absolutePath,
+  );
   if (!allowed) {
     throw new SecurityError(
       `Path denied by policy: ${displayPath ?? relativePath}`,
@@ -289,14 +306,19 @@ export function enforcePathPolicy(
 }
 
 /** Cache resolved roots — policy and workspace are stable within a session */
-let _rootsCache: { policy: AgentPolicy; workspace: string; roots: string[] } | null = null;
+let _rootsCache:
+  | { policy: AgentPolicy; workspace: string; roots: string[] }
+  | null = null;
 
 export function resolvePolicyPathRoots(
   policy: AgentPolicy | null | undefined,
   workspace: string,
 ): string[] {
   if (!policy?.pathRules?.roots) return [];
-  if (_rootsCache && _rootsCache.policy === policy && _rootsCache.workspace === workspace) {
+  if (
+    _rootsCache && _rootsCache.policy === policy &&
+    _rootsCache.workspace === workspace
+  ) {
     return _rootsCache.roots;
   }
   const platform = getPlatform();
@@ -321,7 +343,7 @@ export function resolvePolicyPathRoots(
  */
 export function isNetworkAllowed(
   policy: AgentPolicy | null | undefined,
-  url: string
+  url: string,
 ): boolean {
   if (!policy?.networkRules) return true;
   const { allow = [], deny = [] } = policy.networkRules;
@@ -356,7 +378,10 @@ const _globRegexCache = new Map<string, RegExp | null>();
 /** Fix 24: Prevent unbounded cache growth in long-running server */
 const MAX_GLOB_CACHE_SIZE = 200;
 
-function getCompiledGlob(pattern: string, options: { matchPath: boolean }): RegExp | null {
+function getCompiledGlob(
+  pattern: string,
+  options: { matchPath: boolean },
+): RegExp | null {
   const key = `${pattern}\0${options.matchPath ? "p" : "s"}`;
   if (_globRegexCache.has(key)) return _globRegexCache.get(key)!;
   // Fix 24: Clear cache if it gets too large
@@ -379,7 +404,7 @@ function getCompiledGlob(pattern: string, options: { matchPath: boolean }): RegE
 function matchesAny(
   patterns: string[],
   input: string,
-  options: { matchPath: boolean }
+  options: { matchPath: boolean },
 ): boolean {
   for (const pattern of patterns) {
     const regex = getCompiledGlob(pattern, options);

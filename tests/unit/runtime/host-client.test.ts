@@ -206,7 +206,6 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       const result = await runAgentQueryViaHost({
         query: "fix it",
         model: "ollama/llama3.1:8b",
-        workspace: "/tmp/project",
         permissionMode: "auto-edit",
         contextWindow: 4096,
         callbacks: {
@@ -242,7 +241,6 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
         capturedChatBody?.session_id,
         deriveDefaultSessionKey(),
       );
-      assertEquals(capturedChatBody?.workspace, "/tmp/project");
       assertEquals(capturedChatBody?.permission_mode, "auto-edit");
       assertEquals(capturedChatBody?.context_window, 4096);
       assertEquals(capturedChatBody?.skip_session_history, undefined);
@@ -456,7 +454,6 @@ Deno.test("runAgentQueryViaHost labels host rejections as runtime-host failures"
           runAgentQueryViaHost({
             query: "go apple.com and find any new macbook stuff",
             model: "ollama/llama3.2:3b",
-            workspace: "/tmp/project",
             callbacks: {},
           }),
         RuntimeError,
@@ -527,7 +524,6 @@ Deno.test("runAgentQueryViaHost uses ephemeral session ids for fresh sessions", 
       await runAgentQueryViaHost({
         query: "fresh run",
         model: "ollama/llama3.1:8b",
-        workspace: "/tmp/project",
         skipSessionHistory: true,
         callbacks: {},
       });
@@ -598,7 +594,6 @@ Deno.test("runAgentQueryViaHost waits for runtime readiness before sending chat"
       const result = await runAgentQueryViaHost({
         query: "wait for runtime",
         model: "ollama/llama3.1:8b",
-        workspace: "/tmp/project",
         callbacks: {},
       });
       assertEquals(result.text, "ready");
@@ -800,15 +795,14 @@ Deno.test("runtime host client exposes Ollama signin and MCP admin flows through
     }
 
     if (url.pathname === "/api/mcp/servers" && req.method === "GET") {
-      assertEquals(url.searchParams.get("workspace"), "/tmp/project");
       return Response.json({
         servers: [{
           name: "github",
           command: ["npx", "-y", "@modelcontextprotocol/server-github"],
-          scope: "project",
+          scope: "user",
           transport: "stdio",
           target: "npx -y @modelcontextprotocol/server-github",
-          scopeLabel: "project",
+          scopeLabel: "user",
         }],
       });
     }
@@ -820,7 +814,7 @@ Deno.test("runtime host client exposes Ollama signin and MCP admin flows through
 
     if (url.pathname === "/api/mcp/servers" && req.method === "DELETE") {
       removeBody = await req.json() as Record<string, unknown>;
-      return Response.json({ removed: true, scope: "project" });
+      return Response.json({ removed: true });
     }
 
     if (url.pathname === "/api/mcp/oauth/login") {
@@ -846,25 +840,20 @@ Deno.test("runtime host client exposes Ollama signin and MCP admin flows through
     return new Response("Not found", { status: 404 });
   }, async () => {
     const signin = await runRuntimeOllamaSignin();
-    const listed = await listRuntimeMcpServers("/tmp/project");
+    const listed = await listRuntimeMcpServers();
     await addRuntimeMcpServer({
-      workspace: "/tmp/project",
-      scope: "project",
       server: {
         name: "github",
         command: ["npx", "-y", "@modelcontextprotocol/server-github"],
       },
     });
     const removed = await removeRuntimeMcpServer({
-      workspace: "/tmp/project",
       name: "github",
     });
     const login = await loginRuntimeMcpServer({
-      workspace: "/tmp/project",
       name: "github",
     });
     const logout = await logoutRuntimeMcpServer({
-      workspace: "/tmp/project",
       name: "github",
     });
 
@@ -874,16 +863,13 @@ Deno.test("runtime host client exposes Ollama signin and MCP admin flows through
     assertEquals(signinCalls, 1);
     assertEquals(listed.length, 1);
     assertEquals(listed[0]?.name, "github");
-    assertEquals(addBody?.workspace, "/tmp/project");
-    assertEquals(addBody?.scope, "project");
+    assertEquals(addBody?.server !== undefined, true);
     assertEquals(removeBody?.name, "github");
-    assertEquals(removed.scope, "project");
     assertEquals(loginBody?.name, "github");
     assertEquals(
       login.messages.at(-1),
       "OAuth login complete for MCP server 'github'.",
     );
-    assertEquals(logoutBody?.workspace, "/tmp/project");
     assertEquals(logout.removed, true);
   });
 });

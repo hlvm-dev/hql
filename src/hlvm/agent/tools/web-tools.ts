@@ -234,6 +234,99 @@ function collectLowConfidenceRelatedLinks(
   return [...unique];
 }
 
+function recommendationAuthorityWeight(
+  result: SearchResult,
+  queryIntent: ReturnType<typeof detectSearchQueryIntent>,
+): number {
+  switch (result.sourceAuthority) {
+    case "official":
+      return queryIntent.wantsReleaseNotes || queryIntent.wantsOfficialDocs ||
+          queryIntent.wantsReference || queryIntent.wantsRecency
+        ? 8
+        : 6;
+    case "authoritative":
+      return queryIntent.wantsOfficialDocs || queryIntent.wantsReference
+        ? 6
+        : 4;
+    case "repository":
+      return queryIntent.wantsReleaseNotes || queryIntent.wantsRecency ? 5 : 2;
+    case "community":
+      return -4;
+    default:
+      return 0;
+  }
+}
+
+function recommendationReason(
+  result: SearchResult,
+  queryIntent: ReturnType<typeof detectSearchQueryIntent>,
+): string {
+  if (result.sourceAuthority === "official") {
+    if (queryIntent.wantsReleaseNotes || queryIntent.wantsRecency) {
+      return "Official source for a current/release-oriented query.";
+    }
+    if ((result.passages?.length ?? 0) > 0) {
+      return "Official domain matching the query subject with extracted evidence.";
+    }
+    return "Official domain matching the query subject.";
+  }
+  if (result.sourceAuthority === "authoritative") {
+    return "Authoritative docs/reference source.";
+  }
+  if (result.sourceAuthority === "repository") {
+    return queryIntent.wantsReleaseNotes || queryIntent.wantsRecency
+      ? "Repository release/source page relevant to a current release query."
+      : "Repository source for the current codebase.";
+  }
+  return "Highest-ranked result after retrieval scoring.";
+}
+
+function pickRecommendedResult(
+  results: SearchResult[],
+  queryIntent: ReturnType<typeof detectSearchQueryIntent>,
+): SearchResult | undefined {
+  const candidates = results.filter((result) => result.url);
+  if (candidates.length === 0) return undefined;
+
+  const preferred = candidates
+    .map((result) => {
+      const evidenceBonus = (result.passages?.length ?? 0) > 0
+        ? 3
+        : result.pageDescription
+        ? 1.5
+        : 0;
+      const evidenceStrengthBonus = result.evidenceStrength === "high"
+        ? 2
+        : result.evidenceStrength === "medium"
+        ? 1
+        : 0;
+      const recencyBonus =
+        (queryIntent.wantsReleaseNotes || queryIntent.wantsRecency) &&
+          result.publishedDate
+          ? 1.5
+          : 0;
+      return {
+        result,
+        score: (result.score ?? 0) +
+          recommendationAuthorityWeight(result, queryIntent) +
+          evidenceBonus +
+          evidenceStrengthBonus +
+          recencyBonus,
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const best = preferred[0]?.result;
+  if (!best?.url) return undefined;
+  if (
+    best.sourceAuthority === "community" ||
+    (!best.sourceAuthority || best.sourceAuthority === "unknown")
+  ) {
+    return undefined;
+  }
+  return best;
+}
+
 function resolveSearchDepth(value: unknown): SearchDepthProfile {
   if (value === undefined) return DEFAULT_SEARCH_DEPTH;
   if (typeof value !== "string") {
@@ -796,14 +889,14 @@ function formatSearchWebResult(
       }`,
     );
   }
-  // Recommended source header — surface the top official/authoritative result
-  const recommended = evidencePages.find(r =>
-    r.sourceAuthority === "official" || r.sourceAuthority === "authoritative"
-  );
+  const recommended = pickRecommendedResult(results, queryIntent);
   if (recommended) {
     llmSections.push(
-      `Recommended source: ${recommended.title}${recommended.url ? ` — ${recommended.url}` : ""}\n` +
-      `Reason: ${recommended.sourceAuthority === "official" ? "Official domain matching query subject" : "Authoritative source (docs/reference domain)"}`,
+      `Recommended source: ${recommended.title}${
+        recommended.url ? ` — ${recommended.url}` : ""
+      }\n` +
+        `Reason: ${recommendationReason(recommended, queryIntent)}\n` +
+        "Action: Check this source first before lower-authority alternatives.",
     );
   }
 
@@ -811,11 +904,14 @@ function formatSearchWebResult(
     const evidenceLines = ["Evidence pages:"];
     for (let i = 0; i < evidencePages.length; i++) {
       const result = evidencePages[i];
-      const authorityTag = result.sourceAuthority && result.sourceAuthority !== "unknown"
-        ? ` [${result.sourceAuthority}]`
-        : "";
+      const authorityTag =
+        result.sourceAuthority && result.sourceAuthority !== "unknown"
+          ? ` [${result.sourceAuthority}]`
+          : "";
       evidenceLines.push(
-        `[${i + 1}] ${result.title}${result.url ? ` — ${result.url}` : ""}${authorityTag}`,
+        `[${i + 1}] ${result.title}${
+          result.url ? ` — ${result.url}` : ""
+        }${authorityTag}`,
       );
       if (result.publishedDate) {
         evidenceLines.push(`    Published: ${result.publishedDate}`);

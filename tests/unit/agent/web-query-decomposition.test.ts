@@ -31,3 +31,12 @@ Deno.test("web query decomposition stays single for narrow direct queries", () =
   assertEquals(plan.mode, "single");
   assertEquals(plan.subqueries.length, 0);
 });
+
+Deno.test("web query decomposition biases release-note queries toward official blog sources", () => {
+  const plan = planSearchQueries({
+    userQuery: "latest Bun release notes",
+  });
+
+  assertEquals(plan.mode, "decomposed");
+  assert(plan.subqueries.some((query) => /official blog changelog/i.test(query)));
+});

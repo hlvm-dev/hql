@@ -18,7 +18,6 @@ import {
 import {
   isHtmlLikeResponse,
   parseHtml,
-  extractPublicationDate,
 } from "./html-parser.ts";
 import {
   classifySourceAuthority,
@@ -347,8 +346,6 @@ export class DdgSearchBackend implements WebSearchBackend {
           if (r.snippet) {
             passages = deduplicateSnippetPassages(r.snippet, passages);
           }
-          // Extract publication date from HTML metadata
-          const pubDate = extractPublicationDate(rawHtml);
           // Cross-domain links only
           let relatedLinks: string[] | undefined;
           if (parsed.links.length > 0) {
@@ -366,7 +363,7 @@ export class DdgSearchBackend implements WebSearchBackend {
             passages,
             description: parsed.description,
             title: parsed.title,
-            publishedDate: pubDate,
+            publishedDate: parsed.publishedDate,
             relatedLinks,
           };
         }),

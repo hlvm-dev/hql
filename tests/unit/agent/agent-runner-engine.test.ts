@@ -1,7 +1,7 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import {
+  createReusableSession,
   disposeAllSessions,
-  getOrCreateCachedSession,
 } from "../../../src/hlvm/agent/agent-runner.ts";
 import { SdkAgentEngine } from "../../../src/hlvm/agent/engine-sdk.ts";
 import {
@@ -39,7 +39,7 @@ Deno.test({
     );
     await platform.fs.mkdir(workspace, { recursive: true });
     try {
-      const session = await getOrCreateCachedSession(
+      const session = await createReusableSession(
         workspace,
         "ollama/llama3.2:1b",
         // Prevent provider model discovery/network calls in unit test.
@@ -72,7 +72,7 @@ Deno.test({
         createSummarizer: () => () => Promise.resolve(""),
       };
       await withEngineOverride(custom, async () => {
-        const session = await getOrCreateCachedSession(
+        const session = await createReusableSession(
           workspace,
           "ollama/llama3.2:1b",
           { modelInfo: null },
@@ -87,7 +87,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "agent-runner: session cache is workspace-scoped for same model",
+  name:
+    "agent-runner: reusable sessions are fresh even for same workspace and model",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -107,17 +108,17 @@ Deno.test({
 
     try {
       const model = "ollama/llama3.2:1b";
-      const sessionA1 = await getOrCreateCachedSession(workspaceA, model, {
+      const sessionA1 = await createReusableSession(workspaceA, model, {
         modelInfo: null,
       });
-      const sessionA2 = await getOrCreateCachedSession(workspaceA, model, {
+      const sessionA2 = await createReusableSession(workspaceA, model, {
         modelInfo: null,
       });
-      const sessionB = await getOrCreateCachedSession(workspaceB, model, {
+      const sessionB = await createReusableSession(workspaceB, model, {
         modelInfo: null,
       });
 
-      assertEquals(sessionA1, sessionA2);
+      assertEquals(sessionA1 === sessionA2, false);
       assertEquals(sessionA1 === sessionB, false);
     } finally {
       await disposeAllSessions();
@@ -129,7 +130,7 @@ Deno.test({
 
 Deno.test({
   name:
-    "agent-runner: session cache key includes context window, allowlist, and denylist",
+    "agent-runner: reusable sessions stay distinct across different option sets",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -143,18 +144,18 @@ Deno.test({
 
     try {
       const model = "ollama/llama3.2:1b";
-      const base = await getOrCreateCachedSession(workspace, model, {
+      const base = await createReusableSession(workspace, model, {
         modelInfo: null,
       });
-      const withContext = await getOrCreateCachedSession(workspace, model, {
+      const withContext = await createReusableSession(workspace, model, {
         contextWindow: 32768,
         modelInfo: null,
       });
-      const withAllowlist = await getOrCreateCachedSession(workspace, model, {
+      const withAllowlist = await createReusableSession(workspace, model, {
         toolAllowlist: ["search_web", "web_fetch"],
         modelInfo: null,
       });
-      const withDenylist = await getOrCreateCachedSession(workspace, model, {
+      const withDenylist = await createReusableSession(workspace, model, {
         toolDenylist: ["read_file", "shell_exec"],
         modelInfo: null,
       });

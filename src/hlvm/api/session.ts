@@ -52,6 +52,7 @@ function adaptSessionMeta(session: RuntimeSession): SessionMeta {
     createdAt: parseTimestamp(session.created_at),
     updatedAt: parseTimestamp(session.updated_at),
     messageCount: session.message_count,
+    metadata: session.metadata ?? null,
   };
 }
 
@@ -74,21 +75,49 @@ function parseImagePaths(value: string | null): string[] | undefined {
   }
 }
 
+function parseToolMessageMetadata(
+  value: string | null,
+): { argsSummary?: string; success?: boolean } {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    const record = Array.isArray(parsed) ? parsed[0] : parsed;
+    if (!record || typeof record !== "object") return {};
+    return {
+      argsSummary: typeof (record as { argsSummary?: unknown }).argsSummary === "string"
+        ? (record as { argsSummary: string }).argsSummary
+        : undefined,
+      success: typeof (record as { success?: unknown }).success === "boolean"
+        ? (record as { success: boolean }).success
+        : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
 function adaptSessionMessage(
   message: RuntimeSessionMessage,
 ): SessionMessage | null {
   if (message.role === "system") return null;
 
-  const role = message.role === "user" ? "user" : "assistant";
-  const content = message.role === "tool"
-    ? formatToolMessage(message)
-    : message.content;
+  const role = message.role === "tool"
+    ? "tool"
+    : message.role === "user"
+    ? "user"
+    : "assistant";
   const attachments = parseImagePaths(message.image_paths);
+  const toolMeta = message.role === "tool"
+    ? parseToolMessageMetadata(message.tool_calls)
+    : {};
 
   return {
     role,
-    content,
+    content: message.content,
     ts: parseTimestamp(message.created_at),
+    ...(message.tool_name ? { toolName: message.tool_name } : {}),
+    ...(toolMeta.argsSummary ? { toolArgsSummary: toolMeta.argsSummary } : {}),
+    ...(typeof toolMeta.success === "boolean" ? { toolSuccess: toolMeta.success } : {}),
     ...(attachments ? { attachments } : {}),
   };
 }
@@ -138,11 +167,33 @@ function formatSessionExport(session: Session): string {
   ];
 
   for (const message of session.messages) {
-    const role = message.role === "user" ? "**You**" : "**Assistant**";
+    const role = message.role === "user"
+      ? "**You**"
+      : message.role === "tool"
+      ? `**Tool${message.toolName ? `:${message.toolName}` : ""}**`
+      : "**Assistant**";
     const time = new Date(message.ts).toLocaleTimeString();
     lines.push(`### ${role} (${time})`);
     lines.push("");
-    lines.push(message.content);
+    lines.push(message.role === "tool"
+      ? formatToolMessage({
+        id: 0,
+        session_id: session.meta.id,
+        order: 0,
+        role: "tool",
+        content: message.content,
+        client_turn_id: null,
+        request_id: null,
+        sender_type: "agent",
+        sender_detail: null,
+        image_paths: null,
+        tool_calls: null,
+        tool_name: message.toolName ?? null,
+        tool_call_id: null,
+        cancelled: 0,
+        created_at: new Date(message.ts).toISOString(),
+      })
+      : message.content);
     lines.push("");
   }
 

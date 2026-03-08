@@ -1,5 +1,4 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { getPlatform } from "../../../src/platform/platform.ts";
 import {
   addServerToConfig,
   dedupeServers,
@@ -9,31 +8,25 @@ import {
   parseClaudeCodeMcpJson,
   removeServerFromConfig,
 } from "../../../src/hlvm/agent/mcp/config.ts";
-
-async function withWorkspace(fn: (workspace: string) => Promise<void>): Promise<void> {
-  const platform = getPlatform();
-  const workspace = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-config-test-" });
-  try {
-    await fn(workspace);
-  } finally {
-    await platform.fs.remove(workspace, { recursive: true });
-  }
-}
+import { withTempHlvmDir } from "../helpers.ts";
 
 Deno.test("McpConfig: parseClaudeCodeMcpJson parses direct transport entries and normalizes optional fields", () => {
-  const servers = parseClaudeCodeMcpJson(JSON.stringify({
-    playwright: {
-      command: "npx",
-      args: ["@playwright/mcp@latest"],
-      env: { GOOD: "value", BAD: 123 },
-      disabled_tools: ["browser_install", 42],
-      connection_timeout_ms: 1234.8,
-    },
-    github: {
-      type: "http",
-      url: "https://api.githubcopilot.com/mcp/",
-    },
-  }), "fallback");
+  const servers = parseClaudeCodeMcpJson(
+    JSON.stringify({
+      playwright: {
+        command: "npx",
+        args: ["@playwright/mcp@latest"],
+        env: { GOOD: "value", BAD: 123 },
+        disabled_tools: ["browser_install", 42],
+        connection_timeout_ms: 1234.8,
+      },
+      github: {
+        type: "http",
+        url: "https://api.githubcopilot.com/mcp/",
+      },
+    }),
+    "fallback",
+  );
 
   assertEquals(servers.length, 2);
   assertEquals(servers[0].name, "playwright");
@@ -45,15 +38,18 @@ Deno.test("McpConfig: parseClaudeCodeMcpJson parses direct transport entries and
 });
 
 Deno.test("McpConfig: parseClaudeCodeMcpJson parses wrapped mcpServers entries and ignores unsupported data", () => {
-  const wrapped = parseClaudeCodeMcpJson(JSON.stringify({
-    mcpServers: {
-      stripe: {
-        type: "http",
-        url: "https://mcp.stripe.com",
+  const wrapped = parseClaudeCodeMcpJson(
+    JSON.stringify({
+      mcpServers: {
+        stripe: {
+          type: "http",
+          url: "https://mcp.stripe.com",
+        },
+        broken: { type: "unknown" },
       },
-      broken: { type: "unknown" },
-    },
-  }), "stripe-dir");
+    }),
+    "stripe-dir",
+  );
 
   assertEquals(wrapped.length, 1);
   assertEquals(wrapped[0].name, "stripe");
@@ -76,46 +72,41 @@ Deno.test("McpConfig: normalizeServerName and dedupeServers are case-insensitive
   assertEquals(deduped[1].name, "GitHub");
 });
 
-Deno.test("McpConfig: addServerToConfig persists project config and replaces duplicate names", async () => {
-  await withWorkspace(async (workspace) => {
-    await addServerToConfig("project", workspace, {
+Deno.test("McpConfig: addServerToConfig persists global config and replaces duplicate names", async () => {
+  await withTempHlvmDir(async () => {
+    await addServerToConfig({
       name: "Playwright",
       command: ["node", "scripts/one.mjs"],
     });
-    await addServerToConfig("project", workspace, {
+    await addServerToConfig({
       name: "playwright",
       command: ["node", "scripts/two.mjs"],
     });
 
-    const config = await loadMcpConfig(workspace);
+    const config = await loadMcpConfig();
     assertEquals(config?.servers.length, 1);
     assertEquals(config?.servers[0].command, ["node", "scripts/two.mjs"]);
   });
 });
 
-Deno.test("McpConfig: removeServerFromConfig deletes persisted project entries by normalized name", async () => {
-  await withWorkspace(async (workspace) => {
-    await addServerToConfig("project", workspace, {
+Deno.test("McpConfig: removeServerFromConfig deletes persisted global entries by normalized name", async () => {
+  await withTempHlvmDir(async () => {
+    await addServerToConfig({
       name: "Playwright",
       command: ["node", "scripts/playwright.mjs"],
     });
 
-    assertEquals(await removeServerFromConfig("project", workspace, "playwright"), true);
-    assertEquals(await removeServerFromConfig("project", workspace, "playwright"), false);
-    assertEquals(await loadMcpConfig(workspace), null);
+    assertEquals(await removeServerFromConfig("playwright"), true);
+    assertEquals(await removeServerFromConfig("playwright"), false);
+    assertEquals(await loadMcpConfig(), null);
   });
 });
 
 Deno.test("McpConfig: formatServerEntry renders transport targets and scope labels", () => {
-  const dotmcp = formatServerEntry({
+  const user = formatServerEntry({
     name: "test",
     command: ["node", "server.js"],
-    scope: "dotmcp",
-  });
-  const project = formatServerEntry({
-    name: "test",
-    url: "https://example.com",
-    scope: "project",
+    scope: "user",
   });
   const claudeCode = formatServerEntry({
     name: "serena",
@@ -123,9 +114,7 @@ Deno.test("McpConfig: formatServerEntry renders transport targets and scope labe
     scope: "claude-code",
   });
 
-  assertEquals(dotmcp.scopeLabel, ".mcp.json");
-  assertEquals(dotmcp.transport, "stdio");
-  assertEquals(project.scopeLabel, "project");
-  assertEquals(project.transport, "http");
+  assertEquals(user.scopeLabel, "user");
+  assertEquals(user.transport, "stdio");
   assertEquals(claudeCode.scopeLabel, "Claude Code");
 });

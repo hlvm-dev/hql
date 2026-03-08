@@ -18,7 +18,6 @@ export {
   normalizeServerName,
   parseClaudeCodeMcpJson,
   removeServerFromConfig,
-  resolveBuiltinMcpServers,
 } from "./config.ts";
 
 export type { McpScope, McpServerWithScope } from "./config.ts";

@@ -1,5 +1,4 @@
 import { ValidationError } from "../../../../common/error.ts";
-import { getPlatform } from "../../../../platform/platform.ts";
 import {
   addServerToConfig,
   formatServerEntry,
@@ -16,22 +15,12 @@ import type { McpServerConfig } from "../../../agent/mcp/types.ts";
 import {
   type RuntimeMcpAddRequest,
   type RuntimeMcpListResponse,
-  type RuntimeMcpMutableScope,
   type RuntimeMcpOauthRequest,
   type RuntimeMcpOauthResponse,
   type RuntimeMcpRemoveRequest,
   type RuntimeMcpRemoveResponse,
 } from "../../../runtime/mcp-protocol.ts";
 import { jsonError, parseJsonBody } from "../http-utils.ts";
-
-function isMutableScope(value: unknown): value is RuntimeMcpMutableScope {
-  return value === "project" || value === "user";
-}
-
-function getWorkspaceFromUrl(req: Request): string {
-  const workspace = new URL(req.url).searchParams.get("workspace")?.trim();
-  return workspace || getPlatform().process.cwd();
-}
 
 function getErrorStatus(error: unknown): number {
   return error instanceof ValidationError ? 400 : 500;
@@ -56,18 +45,16 @@ function resolveServerInput(
 }
 
 async function resolveServerByName(
-  workspace: string,
   name: string,
 ): Promise<McpServerConfig | null> {
-  const servers = await loadMcpConfigMultiScope(workspace);
+  const servers = await loadMcpConfigMultiScope();
   const key = normalizeServerName(name);
   return servers.find((server) => normalizeServerName(server.name) === key) ??
     null;
 }
 
 export async function handleListMcpServers(req: Request): Promise<Response> {
-  const workspace = getWorkspaceFromUrl(req);
-  const servers = await loadMcpConfigMultiScope(workspace);
+  const servers = await loadMcpConfigMultiScope();
   const payload: RuntimeMcpListResponse = {
     servers: servers.map((server) => {
       const entry = formatServerEntry(server);
@@ -90,13 +77,7 @@ export async function handleAddMcpServer(req: Request): Promise<Response> {
   const parsed = await parseJsonBody<RuntimeMcpAddRequest>(req);
   if (!parsed.ok) return parsed.response;
 
-  const { workspace, scope, server } = parsed.value;
-  if (typeof workspace !== "string" || workspace.trim().length === 0) {
-    return jsonError("workspace is required", 400);
-  }
-  if (!isMutableScope(scope)) {
-    return jsonError("scope must be 'project' or 'user'", 400);
-  }
+  const { server } = parsed.value;
 
   const resolvedServer = resolveServerInput(server);
   if (!resolvedServer) {
@@ -104,7 +85,7 @@ export async function handleAddMcpServer(req: Request): Promise<Response> {
   }
 
   try {
-    await addServerToConfig(scope, workspace, resolvedServer);
+    await addServerToConfig(resolvedServer);
     return Response.json({ ok: true });
   } catch (error) {
     return jsonError(getErrorMessage(error), getErrorStatus(error));
@@ -115,35 +96,15 @@ export async function handleRemoveMcpServer(req: Request): Promise<Response> {
   const parsed = await parseJsonBody<RuntimeMcpRemoveRequest>(req);
   if (!parsed.ok) return parsed.response;
 
-  const { workspace, name, scope } = parsed.value;
-  if (typeof workspace !== "string" || workspace.trim().length === 0) {
-    return jsonError("workspace is required", 400);
-  }
+  const { name } = parsed.value;
   if (typeof name !== "string" || name.trim().length === 0) {
     return jsonError("name is required", 400);
   }
-  if (scope !== undefined && !isMutableScope(scope)) {
-    return jsonError("scope must be 'project' or 'user'", 400);
-  }
 
   try {
-    let removed = false;
-    let removedScope: RuntimeMcpMutableScope | null = null;
-
-    if (scope) {
-      removed = await removeServerFromConfig(scope, workspace, name);
-      removedScope = removed ? scope : null;
-    } else if (await removeServerFromConfig("project", workspace, name)) {
-      removed = true;
-      removedScope = "project";
-    } else if (await removeServerFromConfig("user", workspace, name)) {
-      removed = true;
-      removedScope = "user";
-    }
-
+    const removed = await removeServerFromConfig(name);
     const payload: RuntimeMcpRemoveResponse = {
       removed,
-      scope: removedScope,
     };
     return Response.json(payload);
   } catch (error) {
@@ -155,16 +116,13 @@ export async function handleLoginMcpServer(req: Request): Promise<Response> {
   const parsed = await parseJsonBody<RuntimeMcpOauthRequest>(req);
   if (!parsed.ok) return parsed.response;
 
-  const { workspace, name } = parsed.value;
-  if (typeof workspace !== "string" || workspace.trim().length === 0) {
-    return jsonError("workspace is required", 400);
-  }
+  const { name } = parsed.value;
   if (typeof name !== "string" || name.trim().length === 0) {
     return jsonError("name is required", 400);
   }
 
   try {
-    const server = await resolveServerByName(workspace, name);
+    const server = await resolveServerByName(name);
     if (!server) {
       return jsonError(
         `MCP server '${name}' not found. Run 'hlvm mcp list'.`,
@@ -197,16 +155,13 @@ export async function handleLogoutMcpServer(req: Request): Promise<Response> {
   const parsed = await parseJsonBody<RuntimeMcpOauthRequest>(req);
   if (!parsed.ok) return parsed.response;
 
-  const { workspace, name } = parsed.value;
-  if (typeof workspace !== "string" || workspace.trim().length === 0) {
-    return jsonError("workspace is required", 400);
-  }
+  const { name } = parsed.value;
   if (typeof name !== "string" || name.trim().length === 0) {
     return jsonError("name is required", 400);
   }
 
   try {
-    const server = await resolveServerByName(workspace, name);
+    const server = await resolveServerByName(name);
     if (!server) {
       return jsonError(
         `MCP server '${name}' not found. Run 'hlvm mcp list'.`,

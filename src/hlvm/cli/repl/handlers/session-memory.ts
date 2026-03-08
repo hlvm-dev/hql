@@ -9,6 +9,7 @@
  */
 
 import { getPlatform } from "../../../../platform/platform.ts";
+import { parseSessionMetadata } from "../../../store/session-metadata.ts";
 
 export interface ParsedSessionMemoryMetadata {
   existingMeta: Record<string, unknown>;
@@ -29,24 +30,11 @@ export function isSessionMemoryEnabled(sessionMemory: boolean | undefined): bool
 export function parseSessionMemoryMetadata(
   metadata: string | null | undefined,
 ): ParsedSessionMemoryMetadata {
-  if (!metadata) {
-    return { existingMeta: {}, claudeCodeSessionId: null };
-  }
-
-  try {
-    const parsed = JSON.parse(metadata);
-    if (!parsed || typeof parsed !== "object") {
-      return { existingMeta: {}, claudeCodeSessionId: null };
-    }
-
-    const existingMeta = parsed as Record<string, unknown>;
-    const claudeCodeSessionId = typeof existingMeta.claudeCodeSessionId === "string"
-      ? existingMeta.claudeCodeSessionId
-      : null;
-    return { existingMeta, claudeCodeSessionId };
-  } catch {
-    return { existingMeta: {}, claudeCodeSessionId: null };
-  }
+  const existingMeta = parseSessionMetadata(metadata);
+  const claudeCodeSessionId = typeof existingMeta.claudeCodeSessionId === "string"
+    ? existingMeta.claudeCodeSessionId
+    : null;
+  return { existingMeta, claudeCodeSessionId };
 }
 
 /**

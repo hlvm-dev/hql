@@ -12,16 +12,20 @@ export interface SessionMeta {
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly messageCount: number;
+  readonly metadata?: string | null;
 }
 
 /**
  * Conversation message
  */
 export interface SessionMessage {
-  readonly role: "user" | "assistant";
+  readonly role: "user" | "assistant" | "tool";
   readonly content: string;
   readonly ts: number;
   readonly attachments?: readonly string[];
+  readonly toolName?: string;
+  readonly toolArgsSummary?: string;
+  readonly toolSuccess?: boolean;
 }
 
 /**

@@ -18,7 +18,7 @@ import {
   unregisterTool,
 } from "../registry.ts";
 import { sanitizeToolName } from "../tool-schema.ts";
-import { SdkMcpClient, createSdkMcpClient } from "./sdk-client.ts";
+import { createSdkMcpClient, SdkMcpClient } from "./sdk-client.ts";
 import {
   dedupeServers,
   loadMcpConfig,
@@ -142,7 +142,11 @@ function buildToolEntry(
   const safetyLevel = inferMcpSafetyLevel(tool.name, tool.description);
 
   return {
-    fn: async (args: unknown, _workspace: string, options?: ToolExecutionOptions) => {
+    fn: async (
+      args: unknown,
+      _workspace: string,
+      options?: ToolExecutionOptions,
+    ) => {
       if (!isObjectValue(args)) {
         throw new ValidationError("args must be an object", "mcp");
       }
@@ -349,7 +353,9 @@ async function connectAndRegisterServer(
       : allTools;
     if (disabledSet && allTools.length !== tools.length) {
       getAgentLogger().debug(
-        `MCP '${server.name}': filtered ${allTools.length - tools.length} disabled tool(s)`,
+        `MCP '${server.name}': filtered ${
+          allTools.length - tools.length
+        } disabled tool(s)`,
       );
     }
 
@@ -372,7 +378,11 @@ async function connectAndRegisterServer(
     // Conditionally register resource tools
     if (client.hasCapability("resources")) {
       entries[sanitizeToolName(`mcp_${server.name}_list_resources`)] = {
-        fn: async (_args: unknown, _workspace: string, options?: ToolExecutionOptions) => {
+        fn: async (
+          _args: unknown,
+          _workspace: string,
+          options?: ToolExecutionOptions,
+        ) => {
           const resources = await client.listResources(options?.signal);
           return { resources };
         },
@@ -399,8 +409,7 @@ async function connectAndRegisterServer(
           const contents = await client.readResource(a.uri, options?.signal);
           return { contents };
         },
-        description:
-          `Read a resource by URI from MCP server '${server.name}'`,
+        description: `Read a resource by URI from MCP server '${server.name}'`,
         args: { uri: "string - Resource URI to read" },
         safetyLevel: "L0",
         safety: MCP_L0_SAFETY,
@@ -410,12 +419,15 @@ async function connectAndRegisterServer(
     // Conditionally register prompt tools
     if (client.hasCapability("prompts")) {
       entries[sanitizeToolName(`mcp_${server.name}_list_prompts`)] = {
-        fn: async (_args: unknown, _workspace: string, options?: ToolExecutionOptions) => {
+        fn: async (
+          _args: unknown,
+          _workspace: string,
+          options?: ToolExecutionOptions,
+        ) => {
           const prompts = await client.listPrompts(options?.signal);
           return { prompts };
         },
-        description:
-          `List available prompts from MCP server '${server.name}'`,
+        description: `List available prompts from MCP server '${server.name}'`,
         args: {},
         skipValidation: true,
         safetyLevel: "L0",
@@ -483,20 +495,11 @@ async function connectAndRegisterServer(
 
 export async function loadMcpTools(
   workspace: string,
-  configPath?: string,
   extraServers?: McpServerConfig[],
   ownerId?: string,
 ): Promise<McpLoadResult> {
   const registrationOwnerId = ownerId ?? `mcp:${generateUUID()}`;
-
-  // Use multi-scope loading (user + project + .mcp.json + claude-code) unless an explicit config path is given
-  let configServers: McpServerConfig[];
-  if (configPath) {
-    const config = await loadMcpConfig(workspace, configPath);
-    configServers = config?.servers ?? [];
-  } else {
-    configServers = await loadMcpConfigMultiScope(workspace);
-  }
+  const configServers = await loadMcpConfigMultiScope();
   const servers = dedupeServers([
     ...configServers,
     ...(extraServers ?? []),
@@ -517,8 +520,11 @@ export async function loadMcpTools(
   const connectedServers: McpConnectedServer[] = [];
 
   // Connect servers with bounded concurrency and per-server timeout
-  const results = pooledMap(MCP_CONNECT_CONCURRENCY, servers,
-    (server) => connectAndRegisterServer(server, registrationOwnerId));
+  const results = pooledMap(
+    MCP_CONNECT_CONCURRENCY,
+    servers,
+    (server) => connectAndRegisterServer(server, registrationOwnerId),
+  );
   for await (const result of results) {
     if (result) {
       clients.push(result.client);

@@ -3,7 +3,6 @@ import {
   assertNotStrictEquals,
   assertStringIncludes,
 } from "jsr:@std/assert";
-import { getPlatform } from "../../../src/platform/platform.ts";
 import {
   buildToolDefinitions,
   clearToolDefCache,
@@ -13,12 +12,10 @@ import {
   classifyModelTier,
   tierMeetsMinimum,
 } from "../../../src/hlvm/agent/constants.ts";
-import { detectGitContext } from "../../../src/hlvm/agent/session.ts";
 import {
   registerTool,
   unregisterTool,
 } from "../../../src/hlvm/agent/registry.ts";
-import { withTempDir } from "../helpers.ts";
 
 Deno.test("LLM integration: default prompt includes core role, tools, and concision guidance", () => {
   const prompt = generateSystemPrompt();
@@ -77,49 +74,17 @@ Deno.test("LLM integration: model tiers classify and compare correctly", () => {
   assertEquals(tierMeetsMinimum("frontier", "frontier"), true);
 });
 
-Deno.test("LLM integration: prompt content scales by tier and renders git context", () => {
+Deno.test("LLM integration: prompt content scales by tier", () => {
   const weak = generateSystemPrompt({ modelTier: "weak" });
   const mid = generateSystemPrompt({ modelTier: "mid" });
-  const frontier = generateSystemPrompt({
-    modelTier: "frontier",
-    gitContext: { branch: "feature/test", dirty: true },
-  });
+  const frontier = generateSystemPrompt({ modelTier: "frontier" });
 
   assertStringIncludes(weak, "# Examples");
   assertEquals(weak.includes("# Tips"), false);
   assertStringIncludes(mid, "# Tips");
   assertStringIncludes(frontier, "# Tips");
-  assertStringIncludes(frontier, "Git: branch=feature/test (dirty)");
   assertEquals(weak.length < mid.length, true);
   assertEquals(frontier.length >= mid.length, true);
-});
-
-Deno.test({
-  name: "LLM integration: detectGitContext returns branch metadata for a repo",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const result = await detectGitContext(getPlatform().process.cwd());
-
-    assertEquals(result !== null, true);
-    assertEquals(typeof result?.branch, "string");
-    assertEquals((result?.branch?.length ?? 0) > 0, true);
-    assertEquals(typeof result?.dirty, "boolean");
-  },
-});
-
-Deno.test({
-  name:
-    "LLM integration: detectGitContext returns null for non-repos and missing paths",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    await withTempDir(async (tempDir) => {
-      const missing = getPlatform().path.join(tempDir, "missing");
-      assertEquals(await detectGitContext(tempDir), null);
-      assertEquals(await detectGitContext(missing), null);
-    });
-  },
 });
 
 Deno.test("LLM integration: buildToolDefinitions caches until the registry changes", () => {

@@ -57,9 +57,18 @@ import {
   appendPersistedAgentToolResult,
   completePersistedAgentTurn,
   loadPersistedAgentHistory,
+  loadPersistedAgentSessionMetadata,
+  loadPersistedAgentTodos,
+  persistAgentPlanState,
+  persistAgentTodos,
   type PersistedAgentTurn,
   startPersistedAgentTurn,
 } from "./persisted-transcript.ts";
+import {
+  createTodoStateFromPlan,
+  isTodoStateDerivedFromPlan,
+} from "./todo-state.ts";
+import { formatPlanForContext, restorePlanState } from "./planning.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
@@ -68,40 +77,17 @@ const DEFAULT_AGENT_PATH_ROOTS = [
   "~/Documents",
 ];
 
-// ============================================================
-// Session Cache — avoids re-creating policy/MCP/LLM per query
-// ============================================================
-const sessionCache = new Map<string, AgentSession>();
+const reusableSessions = new Set<AgentSession>();
 
-function toCacheKey(
-  workspace: string,
-  model: string,
-  opts?: {
-    contextWindow?: number;
-    toolAllowlist?: string[];
-    toolDenylist?: string[];
-  },
-): string {
-  const contextWindowKey = typeof opts?.contextWindow === "number"
-    ? String(opts.contextWindow)
-    : "default";
-  const allowlistKey = opts?.toolAllowlist?.length
-    ? [...new Set(opts.toolAllowlist)].sort().join(",")
-    : "";
-  const denylistKey = opts?.toolDenylist?.length
-    ? [...new Set(opts.toolDenylist)].sort().join(",")
-    : "";
-  return [
-    `workspace:${workspace}`,
-    `model:${model}`,
-    `contextWindow:${contextWindowKey}`,
-    `allow:${allowlistKey}`,
-    `deny:${denylistKey}`,
-  ].join("|");
+function resolveDefaultAgentRoots(): string[] {
+  const home = getPlatform().env.get("HOME") ?? "";
+  return DEFAULT_AGENT_PATH_ROOTS.map((root) =>
+    `file://${root.startsWith("~") ? home + root.slice(1) : root}`
+  );
 }
 
-/** Get or create a cached session for a global:model pair. */
-export async function getOrCreateCachedSession(
+/** Create a reusable agent session without any global/workspace cache key. */
+export async function createReusableSession(
   workspace: string,
   model: string,
   opts?: {
@@ -112,10 +98,6 @@ export async function getOrCreateCachedSession(
     modelInfo?: ModelInfo | null;
   },
 ): Promise<AgentSession> {
-  const key = toCacheKey(workspace, model, opts);
-  const existing = sessionCache.get(key);
-  if (existing) return existing;
-
   const engine = getAgentEngine();
   const session = await createAgentSession({
     workspace,
@@ -129,32 +111,32 @@ export async function getOrCreateCachedSession(
     modelInfo: opts?.modelInfo,
     engine,
   });
-  sessionCache.set(key, session);
+  reusableSessions.add(session);
   return session;
 }
 
-/** Dispose all cached sessions (call on server shutdown). */
+/** Dispose all reusable sessions created via createReusableSession(). */
 export async function disposeAllSessions(): Promise<void> {
-  const sessions = [...sessionCache.values()];
-  sessionCache.clear();
+  const sessions = [...reusableSessions.values()];
+  reusableSessions.clear();
   await Promise.allSettled(sessions.map((s) => s.dispose()));
   closeFactDb();
 }
 
 /**
- * Create a fresh context + l1Confirmations from a cached session.
+ * Create a fresh context + l1Confirmations from a reusable session.
  * Reuses policy, toolOwnerId, profile, isFrontierModel, resolvedContextBudget.
  * When onToken is provided, rebuilds the LLM to enable streaming.
  */
-/** @internal Exported for testing. Refreshes memory in a cached session. */
+/** @internal Exported for testing. Refreshes memory in a reusable session. */
 export async function reuseSession(
-  cached: AgentSession,
+  session: AgentSession,
   onToken?: (text: string) => void,
 ): Promise<AgentSession> {
-  const context = new ContextManager(cached.context.getConfig());
-  // Copy system messages from cached session, EXCLUDING stale memory
+  const context = new ContextManager(session.context.getConfig());
+  // Copy system messages from the reusable session, excluding stale memory.
   // Memory messages are identified by the "# Your Memory" marker
-  const systemMessages = cached.context.getMessages().filter((m) =>
+  const systemMessages = session.context.getMessages().filter((m) =>
     m.role === "system" && !m.content.startsWith("# Your Memory")
   );
   for (const message of systemMessages) {
@@ -164,7 +146,7 @@ export async function reuseSession(
   // Inject FRESH memory context (replaces stale memory from cache)
   try {
     const memoryContext = await loadMemoryContext(
-      cached.resolvedContextBudget.budget,
+      session.resolvedContextBudget.budget,
     );
     if (memoryContext) {
       context.addMessage({
@@ -177,21 +159,21 @@ export async function reuseSession(
   }
 
   // Rebuild LLM with caller's onToken to enable streaming in GUI mode
-  let llm = cached.llm;
-  if (onToken && cached.llmConfig) {
-    const engine = cached.engine ?? getAgentEngine();
+  let llm = session.llm;
+  if (onToken && session.llmConfig) {
+    const engine = session.engine ?? getAgentEngine();
     llm = engine.createLLM({
-      ...cached.llmConfig,
-      options: { temperature: cached.llmConfig.temperature ?? 0.0 },
+      ...session.llmConfig,
+      options: { temperature: session.llmConfig.temperature ?? 0.0 },
       onToken,
     });
   }
 
   return {
-    ...cached,
+    ...session,
     llm,
     context,
-    l1Confirmations: cached.l1Confirmations,
+    l1Confirmations: session.l1Confirmations,
   };
 }
 
@@ -236,6 +218,7 @@ export interface AgentRunnerCallbacks {
 export interface AgentRunnerOptions {
   query: string;
   model?: string;
+  sessionId?: string | null;
   fixturePath?: string;
   /** Optional context window override (in tokens). */
   contextWindow?: number;
@@ -253,7 +236,7 @@ export interface AgentRunnerOptions {
   /** Pre-fetched model info to avoid duplicate provider API calls */
   modelInfo?: ModelInfo | null;
   /** Reuse an existing session (skips policy/MCP/LLM setup) */
-  cachedSession?: AgentSession;
+  reusableSession?: AgentSession;
 }
 
 export interface AgentRunnerResult {
@@ -335,17 +318,17 @@ export async function runAgentQuery(
     );
   } catch { /* file not found — skip */ }
 
-  const matchingCachedSession = options.cachedSession &&
+  const matchingReusableSession = options.reusableSession &&
       toolListsMatch(
-        options.cachedSession.llmConfig?.toolAllowlist,
+        options.reusableSession.llmConfig?.toolAllowlist,
         toolAllowlist,
       )
-    ? options.cachedSession
+    ? options.reusableSession
     : undefined;
-  const isCached = !!matchingCachedSession;
-  const engine = isCached ? undefined : getAgentEngine();
-  const session: AgentSession = matchingCachedSession
-    ? await reuseSession(matchingCachedSession, callbacks.onToken)
+  const isReusableSession = !!matchingReusableSession;
+  const engine = isReusableSession ? undefined : getAgentEngine();
+  const session: AgentSession = matchingReusableSession
+    ? await reuseSession(matchingReusableSession, callbacks.onToken)
     : await createAgentSession({
       workspace,
       model,
@@ -362,9 +345,12 @@ export async function runAgentQuery(
     });
 
   const useExternalHistory = !!options.messageHistory;
-  const sessionKey = (skipSessionHistory || useExternalHistory)
-    ? null
-    : deriveDefaultSessionKey();
+  const shouldUsePersistedSession = !skipSessionHistory && !useExternalHistory;
+  const sessionKey = shouldUsePersistedSession
+    ? (options.sessionId ?? deriveDefaultSessionKey())
+    : null;
+  const shouldRestorePersistedTodos = !!sessionKey;
+  const persistedTurnSessionId = shouldUsePersistedSession ? sessionKey : null;
   let persistedTurn: PersistedAgentTurn | null = null;
 
   try {
@@ -385,6 +371,7 @@ export async function runAgentQuery(
       }
     } else if (sessionKey) {
       const { history } = await loadPersistedAgentHistory({
+        sessionId: sessionKey,
         model,
         maxGroups: MAX_SESSION_HISTORY,
       });
@@ -394,29 +381,31 @@ export async function runAgentQuery(
       }
     }
 
-    if (sessionKey) {
-      persistedTurn = startPersistedAgentTurn(sessionKey, query);
+    const sessionMetadata = sessionKey
+      ? loadPersistedAgentSessionMetadata(sessionKey)
+      : {};
+    if (shouldRestorePersistedTodos && sessionKey) {
+      session.todoState.items = loadPersistedAgentTodos(sessionKey);
+    } else {
+      session.todoState.items = [];
+    }
+
+    if (persistedTurnSessionId) {
+      persistedTurn = startPersistedAgentTurn(persistedTurnSessionId, query);
     }
 
     let policy = session.policy;
     policy = mergePolicyPathRoots(policy, DEFAULT_AGENT_PATH_ROOTS);
     const delegate = createDelegateHandler(session.llm, {
       policy,
+      sessionId: sessionKey,
+      modelId: model,
     });
 
     // Wire MCP server-initiated request handlers (sampling, elicitation, roots)
     if (session.mcpSetHandlers) {
       session.mcpSetHandlers({
-        roots: [
-          `file://${workspace}`,
-          ...DEFAULT_AGENT_PATH_ROOTS.map((r) =>
-            `file://${
-              r.startsWith("~")
-                ? (getPlatform().env.get("HOME") ?? "") + r.slice(1)
-                : r
-            }`
-          ),
-        ],
+        roots: resolveDefaultAgentRoots(),
       });
     }
 
@@ -429,58 +418,155 @@ export async function runAgentQuery(
     setMemoryModelTier(session.modelTier);
 
     let finalResponseMeta: FinalResponseMeta | undefined;
+    let activePlan:
+      | Extract<AgentUIEvent, { type: "plan_created" }>["plan"]
+      | undefined;
+    const completedPlanStepIds = new Set<string>();
+    activePlan = sessionMetadata.plan;
+    for (const stepId of sessionMetadata.completedPlanStepIds ?? []) {
+      completedPlanStepIds.add(stepId);
+    }
+    const hasIncompleteRestoredPlan = !!activePlan &&
+      completedPlanStepIds.size < activePlan.steps.length;
+    const restoredPlanOwnsTodoState = activePlan
+      ? isTodoStateDerivedFromPlan(
+        session.todoState.items,
+        activePlan.steps,
+        completedPlanStepIds,
+      )
+      : false;
+    let planOwnsTodoState = sessionMetadata.todoSource === "plan" ||
+      (
+        hasIncompleteRestoredPlan &&
+        restoredPlanOwnsTodoState
+      ) ||
+      session.todoState.items.length === 0;
+    if (hasIncompleteRestoredPlan && activePlan) {
+      session.context.addMessage({
+        role: "user",
+        content: `[System Reminder] ${
+          formatPlanForContext(activePlan, {
+            mode: "always",
+            requireStepMarkers: false,
+          })
+        }`,
+      });
+    }
+    const emitSyncedTodoState = (): void => {
+      if (!activePlan || !planOwnsTodoState) return;
+      const currentIndex = completedPlanStepIds.size < activePlan.steps.length
+        ? completedPlanStepIds.size
+        : undefined;
+      const nextState = createTodoStateFromPlan(
+        activePlan.steps,
+        completedPlanStepIds,
+        currentIndex,
+      );
+      session.todoState.items = nextState.items.map((item) => ({ ...item }));
+      if (sessionKey) {
+        persistAgentTodos(sessionKey, session.todoState.items, "plan");
+      }
+      callbacks.onAgentEvent?.({
+        type: "todo_updated",
+        todoState: {
+          items: session.todoState.items.map((item) => ({ ...item })),
+        },
+        source: "plan",
+      });
+    };
     const onAgentEvent = (() => {
-      if (!persistedTurn) return callbacks.onAgentEvent;
+      if (!persistedTurn && !sessionKey) return callbacks.onAgentEvent;
       const activePersistedTurn = persistedTurn;
       return (event: AgentUIEvent) => {
         if (event.type === "tool_end") {
-          appendPersistedAgentToolResult(
-            activePersistedTurn,
-            event.name,
-            event.content ?? "",
-          );
+          if (activePersistedTurn) {
+            appendPersistedAgentToolResult(
+              activePersistedTurn,
+              event.name,
+              event.content ?? "",
+              {
+                argsSummary: event.argsSummary,
+                success: event.success,
+              },
+            );
+          }
+        }
+        if (event.type === "plan_created") {
+          activePlan = event.plan;
+          completedPlanStepIds.clear();
+          if (sessionKey) {
+            persistAgentPlanState(sessionKey, activePlan, completedPlanStepIds);
+          }
+          emitSyncedTodoState();
+        }
+        if (event.type === "plan_step") {
+          completedPlanStepIds.add(event.stepId);
+          if (sessionKey) {
+            persistAgentPlanState(sessionKey, activePlan, completedPlanStepIds);
+          }
+          emitSyncedTodoState();
+        }
+        if (event.type === "todo_updated") {
+          planOwnsTodoState = event.source === "plan"
+            ? planOwnsTodoState
+            : false;
+          if (sessionKey) {
+            persistAgentTodos(sessionKey, event.todoState.items, event.source);
+          }
         }
         callbacks.onAgentEvent?.(event);
       };
     })();
-    const text = await runReActLoop(
-      query,
-      {
-        workspace,
-        context: session.context,
-        permissionMode,
-        maxToolCalls: profile.maxToolCalls,
-        groundingMode: profile.groundingMode,
-        policy,
-        onTrace: callbacks.onTrace,
-        onAgentEvent,
-        onFinalResponseMeta: (meta) => {
-          finalResponseMeta = meta;
-          callbacks.onFinalResponseMeta?.(meta);
+    let text: string;
+    try {
+      text = await runReActLoop(
+        query,
+        {
+          workspace,
+          context: session.context,
+          permissionMode,
+          maxToolCalls: profile.maxToolCalls,
+          groundingMode: profile.groundingMode,
+          policy,
+          onTrace: callbacks.onTrace,
+          onAgentEvent,
+          onFinalResponseMeta: (meta) => {
+            finalResponseMeta = meta;
+            callbacks.onFinalResponseMeta?.(meta);
+          },
+          onInteraction: callbacks.onInteraction,
+          noInput,
+          delegate,
+          planning: { mode: "auto", requireStepMarkers: false },
+          skipModelCompensation: session.isFrontierModel,
+          modelTier: session.modelTier,
+          modelId: model,
+          signal: options.signal,
+          autoMemoryRecall: true,
+          usage: usageTracker,
+          l1Confirmations: session.l1Confirmations,
+          todoState: session.todoState,
+          initialPlanState: hasIncompleteRestoredPlan && activePlan
+            ? restorePlanState(activePlan, completedPlanStepIds)
+            : null,
+          toolAllowlist: session.toolFilterState?.allowlist ??
+            session.llmConfig?.toolAllowlist,
+          toolDenylist: session.toolFilterState?.denylist ??
+            session.llmConfig?.toolDenylist,
+          toolFilterState: session.toolFilterState,
+          toolOwnerId: session.toolOwnerId,
+          ensureMcpLoaded: session.ensureMcpLoaded,
         },
-        onInteraction: callbacks.onInteraction,
-        noInput,
-        delegate,
-        planning: { mode: "auto", requireStepMarkers: false },
-        skipModelCompensation: session.isFrontierModel,
-        modelTier: session.modelTier,
-        modelId: model,
-        signal: options.signal,
-        autoMemoryRecall: true,
-        usage: usageTracker,
-        l1Confirmations: session.l1Confirmations,
-        todoState: session.todoState,
-        toolAllowlist: session.toolFilterState?.allowlist ??
-          session.llmConfig?.toolAllowlist,
-        toolDenylist: session.toolFilterState?.denylist ??
-          session.llmConfig?.toolDenylist,
-        toolFilterState: session.toolFilterState,
-        toolOwnerId: session.toolOwnerId,
-        ensureMcpLoaded: session.ensureMcpLoaded,
-      },
-      session.llm,
-      options.images,
-    );
+        session.llm,
+        options.images,
+      );
+    } catch (error) {
+      if (persistedTurn) {
+        const message = error instanceof Error ? error.message : String(error);
+        completePersistedAgentTurn(persistedTurn, model, `Error: ${message}`);
+      }
+      throw error;
+    }
 
     if (persistedTurn) {
       completePersistedAgentTurn(persistedTurn, model, text);
@@ -530,8 +616,8 @@ export async function runAgentQuery(
       },
     };
   } finally {
-    // Only dispose non-cached sessions; cached sessions are managed by the cache
-    if (!isCached) {
+    // Only dispose ad-hoc sessions here; reusable sessions are cleaned up by disposeAllSessions().
+    if (!isReusableSession) {
       await session.dispose();
     }
   }

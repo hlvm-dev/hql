@@ -85,6 +85,7 @@ export interface DelegateItem {
   id: string;
   agent: string;
   task: string;
+  childSessionId?: string;
   status: "running" | "success" | "error";
   summary?: string;
   error?: string;

@@ -254,6 +254,7 @@ export async function executeToolCall(
           summary: summaryDisplay,
           durationMs: Date.now() - startedAt,
           snapshot: getDelegateTranscriptSnapshot(result),
+          childSessionId: getDelegateTranscriptSnapshot(result)?.childSessionId,
         });
         emitToolSuccess(
           config,
@@ -282,6 +283,7 @@ export async function executeToolCall(
           error: getErrorMessage(error),
           durationMs: Date.now() - startedAt,
           snapshot: getDelegateTranscriptSnapshot(error),
+          childSessionId: getDelegateTranscriptSnapshot(error)?.childSessionId,
         });
         throw error;
       }
@@ -360,6 +362,14 @@ export async function executeToolCall(
       coercedArgs,
       result,
     );
+
+    if (toolCall.toolName === "todo_write" && config.todoState) {
+      config.onAgentEvent?.({
+        type: "todo_updated",
+        todoState: { items: config.todoState.items.map((item) => ({ ...item })) },
+        source: "tool",
+      });
+    }
 
     return {
       success: true,

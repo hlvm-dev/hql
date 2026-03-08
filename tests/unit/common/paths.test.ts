@@ -75,39 +75,36 @@ function withMockedPlatform(
   }
 }
 
-Deno.test("getHlvmDir - falls back to cwd/.hlvm when override is not writable", () => {
-  const hlvmDir = "/blocked/.hlvm";
-  const cwd = "/tmp/hlvm-paths-test";
-  const fallback = `${cwd}/.hlvm`;
+Deno.test("getHlvmDir - uses the configured global directory when writable", () => {
+  const hlvmDir = "/allowed/.hlvm";
 
   withMockedPlatform(
     {
       hlvmDir,
-      cwd,
-      writableDirs: new Set([fallback]),
+      cwd: "/tmp/hlvm-paths-test",
+      writableDirs: new Set([hlvmDir]),
     },
     () => {
       const actual = getHlvmDir();
-      assertEquals(actual, fallback);
+      assertEquals(actual, hlvmDir);
     },
   );
 });
 
-Deno.test("getHlvmDir - throws when both override and fallback are not writable", () => {
+Deno.test("getHlvmDir - throws when the global directory is not writable", () => {
   const hlvmDir = "/blocked/.hlvm";
-  const cwd = "/tmp/hlvm-paths-test";
 
   withMockedPlatform(
     {
       hlvmDir,
-      cwd,
+      cwd: "/tmp/hlvm-paths-test",
       writableDirs: new Set<string>(),
     },
     () => {
       assertThrows(
         () => getHlvmDir(),
         Error,
-        "Unable to find writable HLVM directory",
+        "Unable to use writable global HLVM directory",
       );
     },
   );

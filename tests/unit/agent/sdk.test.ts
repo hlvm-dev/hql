@@ -63,7 +63,7 @@ Deno.test("Agent.chat() returns text response from fixture LLM", async () => {
     }],
   };
 
-  const agent = new Agent({ workspace: "/tmp" });
+  const agent = new Agent({ workingDirectory: "/tmp" });
   injectSession(agent, createTestSession(fixture));
 
   const result = await agent.chat("Hi");
@@ -86,7 +86,7 @@ Deno.test("Agent.chat() accumulates context across calls", async () => {
   };
 
   const session = createTestSession(fixture);
-  const agent = new Agent({ workspace: "/tmp" });
+  const agent = new Agent({ workingDirectory: "/tmp" });
   injectSession(agent, session);
 
   const r1 = await agent.chat("First message");
@@ -104,11 +104,14 @@ Deno.test("Agent.chat() accumulates context across calls", async () => {
 });
 
 Deno.test("Agent constructor stores config", () => {
-  const agent = new Agent({ model: "test/model", workspace: "/tmp/test" });
+  const agent = new Agent({
+    model: "test/model",
+    workingDirectory: "/tmp/test",
+  });
   // deno-lint-ignore no-explicit-any
   const cfg = (agent as any).config;
   assertEquals(cfg.model, "test/model");
-  assertEquals(cfg.workspace, "/tmp/test");
+  assertEquals(cfg.workingDirectory, "/tmp/test");
 });
 
 Deno.test("Agent.dispose() is safe to call twice", async () => {
@@ -117,7 +120,7 @@ Deno.test("Agent.dispose() is safe to call twice", async () => {
     cases: [{ name: "x", steps: [{ response: "ok" }] }],
   };
 
-  const agent = new Agent({ workspace: "/tmp" });
+  const agent = new Agent({ workingDirectory: "/tmp" });
   injectSession(agent, createTestSession(fixture));
 
   await agent.dispose();
@@ -144,7 +147,7 @@ Deno.test("Agent.chat() collects tool calls via onTrace", async () => {
 
   const traceEvents: string[] = [];
   const agent = new Agent({
-    workspace: "/tmp",
+    workingDirectory: "/tmp",
     onTrace: (event) => traceEvents.push(event.type),
   });
   injectSession(agent, createTestSession(fixture));
@@ -182,7 +185,7 @@ Deno.test("Agent.chat() correlates repeated tool names by toolCallId", async () 
       }],
     };
 
-    const agent = new Agent({ workspace: tempDir });
+    const agent = new Agent({ workingDirectory: tempDir });
     injectSession(agent, createTestSession(fixture));
 
     const result = await agent.chat("Read both files");

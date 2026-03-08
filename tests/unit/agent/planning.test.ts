@@ -7,6 +7,7 @@ import {
   extractStepDoneId,
   formatPlanForContext,
   parsePlanResponse,
+  restorePlanState,
   shouldPlanRequest,
   stripStepMarkers,
   type Plan,
@@ -57,5 +58,26 @@ Deno.test({
     assertEquals(shouldPlanRequest("First do A, then B", "auto"), true);
     assertEquals(shouldPlanRequest("short task", "auto"), false);
     assertEquals(shouldPlanRequest("short task", "always"), true);
+  },
+});
+
+Deno.test({
+  name: "Planning: restorePlanState resumes at the first incomplete step",
+  fn() {
+    const plan: Plan = {
+      goal: "Ship fix",
+      steps: [
+        { id: "step-1", title: "Inspect" },
+        { id: "step-2", title: "Edit" },
+        { id: "step-3", title: "Verify" },
+      ],
+    };
+
+    const restored = restorePlanState(plan, ["step-1", "step-2"]);
+
+    assertEquals(restored.currentIndex, 2);
+    assertEquals(restored.completedIds.has("step-1"), true);
+    assertEquals(restored.completedIds.has("step-2"), true);
+    assertEquals(restored.plan.steps[restored.currentIndex]?.id, "step-3");
   },
 });

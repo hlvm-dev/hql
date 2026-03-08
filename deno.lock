@@ -55,6 +55,7 @@
     "npm:react@18": "18.3.1",
     "npm:source-map@0.6.1": "0.6.1",
     "npm:swagger-jsdoc@6.2.8": "6.2.8",
+    "npm:tldts@7.0.23": "7.0.23",
     "npm:typescript@5.3.3": "5.3.3",
     "npm:vlq@2.0.4": "2.0.4"
   },
@@ -1417,6 +1418,15 @@
     "symbol-tree@3.2.4": {
       "integrity": "sha512-9QNk5KwDF+Bvz+PyObkmSYjI5ksVUYtjW7AU22r2NKcfLJcXp96hkDWU3+XndOsUb+AQ9QhfzfCT2O+CNWT5Tw=="
     },
+    "tldts-core@7.0.25": {
+      "integrity": "sha512-ZjCZK0rppSBu7rjHYDYsEaMOIbbT+nWF57hKkv4IUmZWBNrBWBOjIElc0mKRgLM8bm7x/BBlof6t2gi/Oq/Asw=="
+    },
+    "tldts@7.0.23": {
+      "integrity": "sha512-ASdhgQIBSay0R/eXggAkQ53G4nTJqTXqC2kbaBbdDwM7SkjyZyO0OaaN1/FH7U/yCeqOHDwFO5j8+Os/IS1dXw==",
+      "dependencies": [
+        "tldts-core"
+      ]
+    },
     "toidentifier@1.0.1": {
       "integrity": "sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA=="
     },
@@ -1760,6 +1770,7 @@
       "npm:ollama-ai-provider-v2@3",
       "npm:react@18",
       "npm:source-map@0.6.1",
+      "npm:tldts@7.0.23",
       "npm:typescript@5.3.3",
       "npm:vlq@2.0.4"
     ]

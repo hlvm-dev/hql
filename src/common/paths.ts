@@ -75,16 +75,11 @@ function ensureWritableDir(dirPath: string): boolean {
  */
 export function getHlvmDir(): string {
   if (!_hlvmDir) {
-    let candidate = resolveHlvmDir();
+    const candidate = resolveHlvmDir();
     if (!ensureWritableDir(candidate)) {
-      const fallback = join(getPlatform().process.cwd(), ".hlvm");
-      if (ensureWritableDir(fallback)) {
-        candidate = fallback;
-      } else {
-        throw new RuntimeError(
-          `Unable to find writable HLVM directory (tried: ${candidate}, ${fallback})`,
-        );
-      }
+      throw new RuntimeError(
+        `Unable to use writable global HLVM directory: ${candidate}`,
+      );
     }
     _hlvmDir = candidate;
   }
@@ -178,13 +173,6 @@ export function getModelDiscoveryCachePath(): string {
  */
 export function getOllamaCatalogCachePath(): string {
   return join(getHlvmDir(), "ollama-catalog.json");
-}
-
-/**
- * Get the sessions directory (~/.hlvm/sessions)
- */
-export function getSessionsDir(): string {
-  return join(getHlvmDir(), "sessions");
 }
 
 /**

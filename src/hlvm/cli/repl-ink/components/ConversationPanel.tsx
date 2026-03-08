@@ -13,6 +13,8 @@ import type {
   StreamingState,
 } from "../types.ts";
 import { StreamingState as ConversationStreamingState } from "../types.ts";
+import type { Plan } from "../../../agent/planning.ts";
+import type { TodoState } from "../../../agent/todo-state.ts";
 import type {
   InteractionRequestEvent,
   InteractionResponse,
@@ -41,6 +43,8 @@ interface ConversationPanelProps {
   items: ConversationItem[];
   width: number;
   streamingState?: StreamingState;
+  activePlan?: Plan;
+  todoState?: TodoState;
   /** Whether section toggle hotkeys should be active (avoid conflicts with input editing) */
   allowToggleHotkeys?: boolean;
   /** Pending interaction request (permission or question) */
@@ -58,6 +62,11 @@ type ToggleTarget =
   | { kind: "tool"; id: string }
   | { kind: "thinking"; id: string }
   | { kind: "delegate"; id: string };
+
+function estimateWrappedRows(text: string, width: number): number {
+  const usableWidth = Math.max(1, width);
+  return Math.max(1, Math.ceil(text.length / usableWidth));
+}
 
 function getToggleTargets(items: ConversationItem[]): ToggleTarget[] {
   const targets: ToggleTarget[] = [];
@@ -163,6 +172,8 @@ export function ConversationPanel({
   items,
   width,
   streamingState,
+  activePlan,
+  todoState,
   allowToggleHotkeys = true,
   interactionRequest,
   interactionQueueLength = 0,
@@ -191,12 +202,37 @@ export function ConversationPanel({
   }, [items.length]);
 
   const terminalRows = stdout?.rows ?? 24;
+  const contentWidth = Math.max(10, width - 6);
+  const headerRows = ((): number => {
+    let total = 0;
+    if (activePlan) {
+      total += estimateWrappedRows(
+        `Plan ${activePlan.steps.length} step${
+          activePlan.steps.length === 1 ? "" : "s"
+        } · ${activePlan.goal}`,
+        contentWidth,
+      ) + 1;
+    }
+    if (todoState && todoState.items.length > 0) {
+      total += estimateWrappedRows(
+        `Progress ${
+          todoState.items.filter((item) => item.status === "completed").length
+        } done · ${
+          todoState.items.filter((item) => item.status === "in_progress").length
+        } in progress · ${
+          todoState.items.filter((item) => item.status === "pending").length
+        } pending`,
+        contentWidth,
+      ) + 1;
+    }
+    return total;
+  })();
   const visibleCount = useMemo(
     () =>
       getConversationVisibleCount(terminalRows, {
-        reservedRows: interactionRequest ? 12 : 8,
+        reservedRows: (interactionRequest ? 12 : 8) + headerRows,
       }),
-    [interactionRequest, terminalRows],
+    [headerRows, interactionRequest, terminalRows],
   );
   const viewport = useMemo(
     () =>
@@ -315,6 +351,47 @@ export function ConversationPanel({
     <Box flexDirection="column" width={width}>
       {items.length === 0 && streamingState && (
         <Text color={sc.text.muted}>Conversation starting...</Text>
+      )}
+
+      {activePlan && (
+        <Box
+          marginBottom={1}
+          paddingLeft={1}
+          borderLeft
+          borderColor={sc.border.active}
+        >
+          <Text color={sc.text.primary} bold>
+            Plan
+          </Text>
+          <Text color={sc.text.secondary}>
+            {" "}
+            {activePlan.steps.length}{" "}
+            step{activePlan.steps.length === 1 ? "" : "s"} · {activePlan.goal}
+          </Text>
+        </Box>
+      )}
+
+      {todoState && todoState.items.length > 0 && (
+        <Box
+          marginBottom={1}
+          paddingLeft={1}
+          borderLeft
+          borderColor={sc.status.warning}
+        >
+          <Text color={sc.status.warning} bold>
+            Progress
+          </Text>
+          <Text color={sc.text.secondary}>
+            {" "}
+            {todoState.items.filter((item) => item.status === "completed")
+              .length} done ·{" "}
+            {todoState.items.filter((item) => item.status === "in_progress")
+              .length} in progress ·{" "}
+            {todoState.items.filter((item) => item.status === "pending").length}
+            {" "}
+            pending
+          </Text>
+        </Box>
       )}
 
       {viewport.hiddenAbove > 0 && (

@@ -48,6 +48,7 @@ import {
   formatPlanForContext,
   type Plan,
   type PlanningConfig,
+  type PlanState,
   requestPlan,
   shouldPlanRequest,
 } from "./planning.ts";
@@ -247,6 +248,7 @@ export type AgentUIEvent =
     type: "delegate_start";
     agent: string;
     task: string;
+    childSessionId?: string;
   }
   | {
     type: "delegate_end";
@@ -257,6 +259,12 @@ export type AgentUIEvent =
     durationMs: number;
     error?: string;
     snapshot?: DelegateTranscriptSnapshot;
+    childSessionId?: string;
+  }
+  | {
+    type: "todo_updated";
+    todoState: TodoState;
+    source: "tool" | "plan";
   }
   | InteractionRequestEvent;
 
@@ -314,6 +322,8 @@ export interface OrchestratorConfig {
   autoMemoryRecall?: boolean;
   /** Session-scoped todo state used by todo_read/todo_write. */
   todoState?: TodoState;
+  /** Optional restored plan state for continued multi-step runs. */
+  initialPlanState?: PlanState | null;
 }
 
 // ============================================================
@@ -492,6 +502,7 @@ export async function runReActLoop(
 
   // Planning (optional)
   if (
+    !state.planState &&
     lc.planningConfig.mode !== "off" &&
     shouldPlanRequest(userRequest, lc.planningConfig.mode!)
   ) {

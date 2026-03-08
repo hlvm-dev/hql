@@ -1,34 +1,25 @@
 /**
- * MCP Config — Loading, saving, and multi-scope management of MCP server configurations.
+ * MCP Config — Loading, saving, and global management of MCP server configurations.
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getAgentLogger } from "../logger.ts";
-import { getClaudeCodeMcpDir, getMcpConfigPath } from "../../../common/paths.ts";
+import {
+  getClaudeCodeMcpDir,
+  getMcpConfigPath,
+} from "../../../common/paths.ts";
 import type { McpConfig, McpServerConfig } from "./types.ts";
 
 const MCP_FILE_NAME = "mcp.json";
-const MCP_DIR_NAME = ".hlvm";
 const DOT_MCP_FILE = ".mcp.json";
-const PLAYWRIGHT_SERVER_NAME = "playwright";
-const PLAYWRIGHT_SERVER_SCRIPT = ["scripts", "mcp", "playwright-server.mjs"];
-
-function getProjectMcpPath(workspace: string): string {
-  const platform = getPlatform();
-  return platform.path.join(workspace, MCP_DIR_NAME, MCP_FILE_NAME);
-}
 
 // ============================================================
 // Loading
 // ============================================================
 
-export async function loadMcpConfig(
-  workspace: string,
-  configPath?: string,
-): Promise<McpConfig | null> {
-  const path = configPath ?? getProjectMcpPath(workspace);
-  return await loadMcpConfigFromPath(path);
+export async function loadMcpConfig(): Promise<McpConfig | null> {
+  return await loadMcpConfigFromPath(getMcpConfigPath());
 }
 
 async function loadMcpConfigFromPath(path: string): Promise<McpConfig | null> {
@@ -63,123 +54,29 @@ async function loadMcpConfigFromPath(path: string): Promise<McpConfig | null> {
   return { version: 1, servers };
 }
 
-// ============================================================
-// .mcp.json (Claude Code convention)
-// ============================================================
-
-/**
- * Load servers from project-root `.mcp.json` (Claude Code convention).
- * Format: { "mcpServers": { "<name>": { command, args, env, url } } }
- */
-async function loadDotMcpJson(
-  workspace: string,
-): Promise<McpServerConfig[]> {
-  const platform = getPlatform();
-  const filePath = platform.path.join(workspace, DOT_MCP_FILE);
-
-  let content: string;
-  try {
-    content = await platform.fs.readTextFile(filePath);
-  } catch {
-    return [];
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch (error) {
-    getAgentLogger().warn(
-      `.mcp.json invalid (${filePath}): ${getErrorMessage(error)}`,
-    );
-    return [];
-  }
-
-  if (!isObjectValue(parsed)) return [];
-  const mcpServers = (parsed as Record<string, unknown>).mcpServers;
-  if (!isObjectValue(mcpServers)) return [];
-
-  const servers: McpServerConfig[] = [];
-  for (const [name, value] of Object.entries(mcpServers as Record<string, unknown>)) {
-    if (!isObjectValue(value)) continue;
-    const entry = value as Record<string, unknown>;
-
-    const env = isObjectValue(entry.env)
-      ? Object.fromEntries(
-        Object.entries(entry.env as Record<string, unknown>)
-          .filter(([, v]) => typeof v === "string")
-          .map(([k, v]) => [k, v as string]),
-      )
-      : undefined;
-
-    const disabled_tools = Array.isArray(entry.disabled_tools)
-      ? entry.disabled_tools.filter((t: unknown) => typeof t === "string") as string[]
-      : undefined;
-    const connection_timeout_ms = typeof entry.connection_timeout_ms === "number" &&
-        Number.isFinite(entry.connection_timeout_ms) &&
-        entry.connection_timeout_ms > 0
-      ? Math.floor(entry.connection_timeout_ms)
-      : undefined;
-
-    // HTTP transport
-    if (typeof entry.url === "string") {
-      servers.push({
-        name,
-        url: entry.url,
-        env,
-        disabled_tools,
-        connection_timeout_ms,
-      });
-      continue;
-    }
-
-    // Stdio transport: command + args
-    if (typeof entry.command === "string") {
-      const args = Array.isArray(entry.args)
-        ? entry.args.filter((a: unknown) => typeof a === "string") as string[]
-        : [];
-      servers.push({
-        name,
-        command: [entry.command, ...args],
-        env,
-        disabled_tools,
-        connection_timeout_ms,
-      });
-    }
-  }
-
-  return servers;
-}
-
-// ============================================================
-// Multi-Scope Loading
-// ============================================================
-
 /** Scope tag for display and identification */
-export type McpScope = "dotmcp" | "project" | "user" | "claude-code";
+export type McpScope = "user" | "claude-code";
 
 export interface McpServerWithScope extends McpServerConfig {
   scope: McpScope;
 }
 
 /**
- * Load MCP servers from all scopes, merged with deduplication.
- * Priority: .mcp.json > .hlvm/mcp.json (project) > ~/.hlvm/mcp.json (user) > Claude Code plugins
+ * Load MCP servers from all global scopes, merged with deduplication.
+ * Priority: ~/.hlvm/mcp.json (user) > Claude Code plugins
  */
-export async function loadMcpConfigMultiScope(
-  workspace: string,
-): Promise<McpServerWithScope[]> {
-  const [dotMcp, projectConfig, userConfig, claudeServers] = await Promise.all([
-    loadDotMcpJson(workspace),
-    loadMcpConfigFromPath(getProjectMcpPath(workspace)),
+export async function loadMcpConfigMultiScope(): Promise<McpServerWithScope[]> {
+  const [userConfig, claudeServers] = await Promise.all([
     loadMcpConfigFromPath(getMcpConfigPath()),
     loadClaudeCodeMcpServers(),
   ]);
 
   // Dedupe: first occurrence wins (highest priority)
   return dedupeServers([
-    ...dotMcp.map((s) => ({ ...s, scope: "dotmcp" as const })),
-    ...(projectConfig?.servers ?? []).map((s) => ({ ...s, scope: "project" as const })),
-    ...(userConfig?.servers ?? []).map((s) => ({ ...s, scope: "user" as const })),
+    ...(userConfig?.servers ?? []).map((s) => ({
+      ...s,
+      scope: "user" as const,
+    })),
     ...claudeServers.map((s) => ({ ...s, scope: "claude-code" as const })),
   ]);
 }
@@ -205,13 +102,16 @@ function parseClaudeCodeServerEntry(
     : undefined;
 
   const disabled_tools = Array.isArray(entry.disabled_tools)
-    ? entry.disabled_tools.filter((t: unknown) => typeof t === "string") as string[]
+    ? entry.disabled_tools.filter((t: unknown) =>
+      typeof t === "string"
+    ) as string[]
     : undefined;
-  const connection_timeout_ms = typeof entry.connection_timeout_ms === "number" &&
+  const connection_timeout_ms =
+    typeof entry.connection_timeout_ms === "number" &&
       Number.isFinite(entry.connection_timeout_ms) &&
       entry.connection_timeout_ms > 0
-    ? Math.floor(entry.connection_timeout_ms)
-    : undefined;
+      ? Math.floor(entry.connection_timeout_ms)
+      : undefined;
 
   // HTTP / SSE transport
   if (typeof entry.url === "string") {
@@ -341,26 +241,17 @@ export async function loadClaudeCodeMcpServers(): Promise<McpServerConfig[]> {
 // Saving
 // ============================================================
 
-async function saveMcpConfig(
-  path: string,
-  config: McpConfig,
-): Promise<void> {
+async function saveMcpConfig(path: string, config: McpConfig): Promise<void> {
   const platform = getPlatform();
   const dir = platform.path.dirname(path);
   await platform.fs.mkdir(dir, { recursive: true });
   await platform.fs.writeTextFile(path, JSON.stringify(config, null, 2) + "\n");
 }
 
-function getScopePath(scope: "project" | "user", workspace: string): string {
-  return scope === "user" ? getMcpConfigPath() : getProjectMcpPath(workspace);
-}
-
 export async function addServerToConfig(
-  scope: "project" | "user",
-  workspace: string,
   server: McpServerConfig,
 ): Promise<void> {
-  const path = getScopePath(scope, workspace);
+  const path = getMcpConfigPath();
   const existing = await loadMcpConfigFromPath(path);
   const servers = existing?.servers ?? [];
 
@@ -375,11 +266,9 @@ export async function addServerToConfig(
 }
 
 export async function removeServerFromConfig(
-  scope: "project" | "user",
-  workspace: string,
   serverName: string,
 ): Promise<boolean> {
-  const path = getScopePath(scope, workspace);
+  const path = getMcpConfigPath();
   const existing = await loadMcpConfigFromPath(path);
   if (!existing) return false;
 
@@ -391,29 +280,6 @@ export async function removeServerFromConfig(
   if (filtered.length === existing.servers.length) return false;
   await saveMcpConfig(path, { version: 1, servers: filtered });
   return true;
-}
-
-// ============================================================
-// Built-in Server Discovery
-// ============================================================
-
-export async function resolveBuiltinMcpServers(
-  workspace: string,
-): Promise<McpServerConfig[]> {
-  const platform = getPlatform();
-  const scriptPath = platform.path.join(workspace, ...PLAYWRIGHT_SERVER_SCRIPT);
-  try {
-    const stat = await platform.fs.stat(scriptPath);
-    if (stat.isFile) {
-      return [{
-        name: PLAYWRIGHT_SERVER_NAME,
-        command: ["node", scriptPath],
-      }];
-    }
-  } catch {
-    // Optional built-in server is unavailable in this workspace.
-  }
-  return [];
 }
 
 // ============================================================
@@ -445,11 +311,7 @@ export function formatServerEntry(s: McpServerWithScope): {
   return {
     transport: s.url ? "http" : "stdio",
     target: s.url ?? (s.command?.join(" ") ?? ""),
-    scopeLabel: s.scope === "dotmcp"
-      ? ".mcp.json"
-      : s.scope === "claude-code"
-        ? "Claude Code"
-        : s.scope,
+    scopeLabel: s.scope === "claude-code" ? "Claude Code" : "user",
   };
 }
 

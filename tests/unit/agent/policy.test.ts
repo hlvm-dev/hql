@@ -5,30 +5,16 @@
  */
 
 import { assertEquals } from "jsr:@std/assert";
+import { getAgentPolicyPath } from "../../../src/common/paths.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import {
+  type AgentPolicy,
+  isNetworkAllowed,
+  isPathAllowed,
   loadAgentPolicy,
   resolvePolicyDecision,
-  isPathAllowed,
-  isNetworkAllowed,
-  type AgentPolicy,
 } from "../../../src/hlvm/agent/policy.ts";
-import {
-  cleanupWorkspaceDir,
-  ensureWorkspaceDir,
-} from "./workspace-test-helpers.ts";
-
-const TEST_WORKSPACE = "/tmp/hlvm-agent-policy-test";
-
-async function setupWorkspace() {
-  const platform = getPlatform();
-  await ensureWorkspaceDir(TEST_WORKSPACE);
-  await platform.fs.mkdir(`${TEST_WORKSPACE}/.hlvm`, { recursive: true });
-}
-
-async function cleanupWorkspace() {
-  await cleanupWorkspaceDir(TEST_WORKSPACE);
-}
+import { withTempHlvmDir } from "../helpers.ts";
 
 Deno.test({
   name: "Policy: resolvePolicyDecision uses tool > level > default",
@@ -90,30 +76,31 @@ Deno.test({
 Deno.test({
   name: "Policy: loadAgentPolicy returns null if missing",
   async fn() {
-    await setupWorkspace();
-    const policy = await loadAgentPolicy(TEST_WORKSPACE);
-    assertEquals(policy, null);
-    await cleanupWorkspace();
+    await withTempHlvmDir(async () => {
+      const policy = await loadAgentPolicy();
+      assertEquals(policy, null);
+    });
   },
 });
 
 Deno.test({
   name: "Policy: loadAgentPolicy loads valid file",
   async fn() {
-    await setupWorkspace();
-    const platform = getPlatform();
-    const path = `${TEST_WORKSPACE}/.hlvm/agent-policy.json`;
+    await withTempHlvmDir(async () => {
+      const platform = getPlatform();
+      const policy: AgentPolicy = {
+        version: 1,
+        default: "ask",
+        toolRules: { read_file: "allow" },
+      };
+      await platform.fs.writeTextFile(
+        getAgentPolicyPath(),
+        JSON.stringify(policy),
+      );
 
-    const policy: AgentPolicy = {
-      version: 1,
-      default: "ask",
-      toolRules: { read_file: "allow" },
-    };
-    await platform.fs.writeTextFile(path, JSON.stringify(policy));
-
-    const loaded = await loadAgentPolicy(TEST_WORKSPACE, path);
-    assertEquals(loaded?.version, 1);
-    assertEquals(loaded?.toolRules?.read_file, "allow");
-    await cleanupWorkspace();
+      const loaded = await loadAgentPolicy();
+      assertEquals(loaded?.version, 1);
+      assertEquals(loaded?.toolRules?.read_file, "allow");
+    });
   },
 });

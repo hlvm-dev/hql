@@ -62,6 +62,14 @@ export function DelegateItem(
             {truncate(body, Math.max(10, width - 8))}
           </Text>
         )}
+        {item.childSessionId && (
+          <Text color={sc.text.muted}>
+            {truncate(
+              `child session: ${item.childSessionId} · /resume ${item.childSessionId}`,
+              Math.max(10, width - 8),
+            )}
+          </Text>
+        )}
         {expanded && item.snapshot && (
           <Box flexDirection="column" marginTop={1}>
             {item.snapshot.events.map((event, index) => (

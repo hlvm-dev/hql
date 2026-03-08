@@ -344,8 +344,7 @@ export const commands: Record<string, Command> = {
   "/mcp": {
     description: "List configured MCP servers",
     handler: async (_state, _args, context) => {
-      const workspace = getPlatform().process.cwd();
-      const servers = await listRuntimeMcpServers(workspace);
+      const servers = await listRuntimeMcpServers();
       if (servers.length === 0) {
         context.output(
           `${YELLOW}No MCP servers configured.${RESET} Use ${CYAN}hlvm mcp add${RESET} to add one.`,

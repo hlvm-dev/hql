@@ -36,6 +36,7 @@ export type DelegateTranscriptEvent =
 export interface DelegateTranscriptSnapshot {
   agent: string;
   task: string;
+  childSessionId?: string;
   success: boolean;
   durationMs: number;
   toolCount: number;

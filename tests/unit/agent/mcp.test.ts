@@ -1,10 +1,10 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert";
+import { getMcpConfigPath } from "../../../src/common/paths.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import {
   inferMcpSafetyLevel,
   loadMcpConfig,
   loadMcpTools,
-  resolveBuiltinMcpServers,
 } from "../../../src/hlvm/agent/mcp/mod.ts";
 import {
   getTool,
@@ -15,6 +15,7 @@ import {
   sanitizeToolName,
   validateToolSchema,
 } from "../../../src/hlvm/agent/tool-schema.ts";
+import { withTempHlvmDir } from "../helpers.ts";
 
 type FixtureServerOptions = {
   allowEnv?: string[];
@@ -36,14 +37,18 @@ function fixtureServer(name: string, options: FixtureServerOptions = {}) {
     name,
     command: ["deno", "run", ...allowEnv, fixturePath()],
     ...(options.env ? { env: options.env } : {}),
-    ...(options.disabled_tools ? { disabled_tools: options.disabled_tools } : {}),
+    ...(options.disabled_tools
+      ? { disabled_tools: options.disabled_tools }
+      : {}),
     ...(options.connection_timeout_ms
       ? { connection_timeout_ms: options.connection_timeout_ms }
       : {}),
   };
 }
 
-async function withWorkspace(fn: (workspace: string) => Promise<void>): Promise<void> {
+async function withWorkspace(
+  fn: (workspace: string) => Promise<void>,
+): Promise<void> {
   const platform = getPlatform();
   const workspace = await platform.fs.makeTempDir({ prefix: "hlvm-mcp-test-" });
   try {
@@ -53,12 +58,10 @@ async function withWorkspace(fn: (workspace: string) => Promise<void>): Promise<
   }
 }
 
-async function writeMcpConfig(workspace: string, servers: unknown): Promise<void> {
+async function writeMcpConfig(servers: unknown): Promise<void> {
   const platform = getPlatform();
-  const configDir = platform.path.join(workspace, ".hlvm");
-  await platform.fs.mkdir(configDir, { recursive: true });
   await platform.fs.writeTextFile(
-    platform.path.join(configDir, "mcp.json"),
+    getMcpConfigPath(),
     JSON.stringify({ version: 1, servers }),
   );
 }
@@ -83,49 +86,57 @@ async function waitFor(
 }
 
 Deno.test("MCP: loadMcpConfig returns null when no config exists", async () => {
-  await withWorkspace(async (workspace) => {
-    assertEquals(await loadMcpConfig(workspace), null);
+  await withTempHlvmDir(async () => {
+    assertEquals(await loadMcpConfig(), null);
   });
 });
 
 Deno.test({
-  name: "MCP: loadMcpTools registers fixture tools, validates args, executes, and disposes cleanly",
+  name:
+    "MCP: loadMcpTools registers fixture tools, validates args, executes, and disposes cleanly",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await withWorkspace(async (workspace) => {
-      await writeMcpConfig(workspace, [fixtureServer("test")]);
+    await withTempHlvmDir(async () => {
+      await withWorkspace(async (workspace) => {
+        await writeMcpConfig([fixtureServer("test")]);
 
-      const { tools, dispose } = await loadMcpTools(workspace);
-      try {
-        assertEquals(tools.includes("mcp_test_echo"), true);
-        assertEquals(hasTool("mcp_test_echo"), true);
-        assertEquals(
-          prepareToolArgsForExecution("mcp_test_echo", {}).validation.valid,
-          true,
-        );
+        const { tools, dispose } = await loadMcpTools(workspace);
+        try {
+          assertEquals(tools.includes("mcp_test_echo"), true);
+          assertEquals(hasTool("mcp_test_echo"), true);
+          assertEquals(
+            prepareToolArgsForExecution("mcp_test_echo", {}).validation.valid,
+            true,
+          );
 
-        const tool = getTool("mcp_test_echo");
-        assertEquals(mcpText(await tool.fn({ message: "hello" }, workspace)), "hello");
-        await assertRejects(() => tool.fn("bad" as unknown as Record<string, unknown>, workspace));
-      } finally {
-        await dispose();
-      }
+          const tool = getTool("mcp_test_echo");
+          assertEquals(
+            mcpText(await tool.fn({ message: "hello" }, workspace)),
+            "hello",
+          );
+          await assertRejects(() =>
+            tool.fn("bad" as unknown as Record<string, unknown>, workspace)
+          );
+        } finally {
+          await dispose();
+        }
 
-      assertEquals(hasTool("mcp_test_echo"), false);
+        assertEquals(hasTool("mcp_test_echo"), false);
+      });
     });
   },
 });
 
 Deno.test({
-  name: "MCP: owner-scoped registrations route tool calls and survive independent disposal",
+  name:
+    "MCP: owner-scoped registrations route tool calls and survive independent disposal",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     await withWorkspace(async (workspace) => {
       const first = await loadMcpTools(
         workspace,
-        undefined,
         [fixtureServer("test", {
           allowEnv: ["MCP_REPLY_PREFIX"],
           env: { MCP_REPLY_PREFIX: "A:" },
@@ -134,7 +145,6 @@ Deno.test({
       );
       const second = await loadMcpTools(
         workspace,
-        undefined,
         [fixtureServer("test", {
           allowEnv: ["MCP_REPLY_PREFIX"],
           env: { MCP_REPLY_PREFIX: "B:" },
@@ -144,11 +154,21 @@ Deno.test({
 
       try {
         assertEquals(
-          mcpText(await getTool("mcp_test_echo", "owner-a").fn({ message: "hello" }, workspace)),
+          mcpText(
+            await getTool("mcp_test_echo", "owner-a").fn(
+              { message: "hello" },
+              workspace,
+            ),
+          ),
           "A:hello",
         );
         assertEquals(
-          mcpText(await getTool("mcp_test_echo", "owner-b").fn({ message: "hello" }, workspace)),
+          mcpText(
+            await getTool("mcp_test_echo", "owner-b").fn(
+              { message: "hello" },
+              workspace,
+            ),
+          ),
           "B:hello",
         );
 
@@ -156,7 +176,12 @@ Deno.test({
         assertEquals(hasTool("mcp_test_echo", "owner-a"), false);
         assertEquals(hasTool("mcp_test_echo", "owner-b"), true);
         assertEquals(
-          mcpText(await getTool("mcp_test_echo", "owner-b").fn({ message: "ok" }, workspace)),
+          mcpText(
+            await getTool("mcp_test_echo", "owner-b").fn(
+              { message: "ok" },
+              workspace,
+            ),
+          ),
           "B:ok",
         );
       } finally {
@@ -168,42 +193,32 @@ Deno.test({
 });
 
 Deno.test({
-  name: "MCP: config servers win dedupe and broken servers do not block healthy ones",
+  name:
+    "MCP: config servers win dedupe and broken servers do not block healthy ones",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await withWorkspace(async (workspace) => {
-      await writeMcpConfig(workspace, [fixtureServer("test")]);
+    await withTempHlvmDir(async () => {
+      await withWorkspace(async (workspace) => {
+        await writeMcpConfig([fixtureServer("test")]);
 
-      const { tools, dispose } = await loadMcpTools(
-        workspace,
-        undefined,
-        [
-          { name: "broken", command: ["definitely-not-a-real-command"] },
-          { name: "test", command: ["definitely-not-a-real-command"] },
-        ],
-      );
+        const { tools, dispose } = await loadMcpTools(
+          workspace,
+          [
+            { name: "broken", command: ["definitely-not-a-real-command"] },
+            { name: "test", command: ["definitely-not-a-real-command"] },
+          ],
+        );
 
-      try {
-        assertEquals(tools.includes("mcp_test_echo"), true);
-        assertEquals(hasTool("mcp_test_echo"), true);
-      } finally {
-        await dispose();
-      }
+        try {
+          assertEquals(tools.includes("mcp_test_echo"), true);
+          assertEquals(hasTool("mcp_test_echo"), true);
+        } finally {
+          await dispose();
+        }
+      });
     });
   },
-});
-
-Deno.test("MCP: resolveBuiltinMcpServers only returns repo-local built-ins when present", async () => {
-  const platform = getPlatform();
-  const repoServers = await resolveBuiltinMcpServers(platform.process.cwd());
-
-  await withWorkspace(async (workspace) => {
-    const tempServers = await resolveBuiltinMcpServers(workspace);
-    assertEquals(repoServers[0]?.name, "playwright");
-    assertEquals(Array.isArray(repoServers[0]?.command), true);
-    assertEquals(tempServers.length, 0);
-  });
 });
 
 Deno.test("MCP: safety inference and schema normalization keep tool metadata provider-safe", () => {
@@ -211,11 +226,18 @@ Deno.test("MCP: safety inference and schema normalization keep tool metadata pro
   assertEquals(inferMcpSafetyLevel("click_button"), "L2");
   assertEquals(inferMcpSafetyLevel("custom_tool_without_hint"), "L1");
 
-  assertEquals(sanitizeToolName("mcp_server.name/tool"), "mcp_server_name_tool");
+  assertEquals(
+    sanitizeToolName("mcp_server.name/tool"),
+    "mcp_server_name_tool",
+  );
   assertEquals(sanitizeToolName("a" + "_x".repeat(80)).length, 64);
   assertEquals(/^[a-zA-Z]/.test(sanitizeToolName("123_tool")), true);
 
-  const badTool = { fn: async () => {}, description: "test", args: { x: "banana - weird" } };
+  const badTool = {
+    fn: async () => {},
+    description: "test",
+    args: { x: "banana - weird" },
+  };
   const goodTool = {
     fn: async () => {},
     description: "test",
@@ -226,12 +248,13 @@ Deno.test("MCP: safety inference and schema normalization keep tool metadata pro
 });
 
 Deno.test({
-  name: "MCP: capability-gated resource and prompt tools register only when the server exposes them",
+  name:
+    "MCP: capability-gated resource and prompt tools register only when the server exposes them",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     await withWorkspace(async (workspace) => {
-      const { tools, dispose } = await loadMcpTools(workspace, undefined, [
+      const { tools, dispose } = await loadMcpTools(workspace, [
         fixtureServer("restest", {
           allowEnv: ["MCP_TEST_MODE"],
           env: { MCP_TEST_MODE: "resources" },
@@ -251,7 +274,10 @@ Deno.test({
         assertEquals(tools.includes("mcp_plain_list_resources"), false);
         assertEquals(tools.includes("mcp_plain_get_prompt"), false);
 
-        const resources = await getTool("mcp_restest_list_resources").fn({}, workspace) as {
+        const resources = await getTool("mcp_restest_list_resources").fn(
+          {},
+          workspace,
+        ) as {
           resources: Array<{ uri: string }>;
         };
         assertEquals(resources.resources.length, 2);
@@ -269,12 +295,13 @@ Deno.test({
 });
 
 Deno.test({
-  name: "MCP: deferred setHandlers replays queued sampling and elicitation requests",
+  name:
+    "MCP: deferred setHandlers replays queued sampling and elicitation requests",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     await withWorkspace(async (workspace) => {
-      const result = await loadMcpTools(workspace, undefined, [
+      const result = await loadMcpTools(workspace, [
         fixtureServer("interactive", {
           allowEnv: ["MCP_TEST_MODE"],
           env: { MCP_TEST_MODE: "sampling,elicitation" },
@@ -318,7 +345,7 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     await withWorkspace(async (workspace) => {
-      const { dispose, ownerId, setSignal } = await loadMcpTools(workspace, undefined, [
+      const { dispose, ownerId, setSignal } = await loadMcpTools(workspace, [
         fixtureServer("abortable", {
           allowEnv: ["MCP_TOOL_DELAY_MS"],
           env: { MCP_TOOL_DELAY_MS: "5000" },
@@ -332,9 +359,13 @@ Deno.test({
       const startedAt = Date.now();
       const abortTimer = setTimeout(() => controller.abort(), 50);
       try {
-        const error = await assertRejects(() => tool.fn({ message: "hello" }, workspace), Error);
+        const error = await assertRejects(
+          () => tool.fn({ message: "hello" }, workspace),
+          Error,
+        );
         const elapsed = Date.now() - startedAt;
-        const aborted = error.name === "AbortError" || error.message.toLowerCase().includes("abort");
+        const aborted = error.name === "AbortError" ||
+          error.message.toLowerCase().includes("abort");
         assertEquals(aborted, true);
         assertEquals(elapsed < 1500, true);
       } finally {
@@ -346,12 +377,13 @@ Deno.test({
 });
 
 Deno.test({
-  name: "MCP: disabled_tools excludes configured server tools from registration",
+  name:
+    "MCP: disabled_tools excludes configured server tools from registration",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     await withWorkspace(async (workspace) => {
-      const { tools, dispose } = await loadMcpTools(workspace, undefined, [
+      const { tools, dispose } = await loadMcpTools(workspace, [
         fixtureServer("filtered", { disabled_tools: ["echo"] }),
       ]);
 

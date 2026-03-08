@@ -20,6 +20,13 @@ import {
   type DelegateTranscriptSnapshot,
   withDelegateTranscriptSnapshot,
 } from "./delegate-transcript.ts";
+import {
+  appendPersistedAgentToolResult,
+  completePersistedAgentTurn,
+  createPersistedAgentChildSession,
+  persistAgentTodos,
+  type PersistedAgentTurn,
+} from "./persisted-transcript.ts";
 
 function buildAgentSystemNote(profileName: string, tools: string[]): string {
   return [
@@ -41,7 +48,10 @@ function resolveAllowedTools(
 
 export function createDelegateHandler(
   llm: LLMFunction,
-  baseConfig: Pick<OrchestratorConfig, "policy">,
+  baseConfig: Pick<OrchestratorConfig, "policy"> & {
+    sessionId?: string | null;
+    modelId?: string;
+  },
 ): (args: unknown, config: OrchestratorConfig) => Promise<unknown> {
   return async (
     args: unknown,
@@ -93,21 +103,49 @@ export function createDelegateHandler(
       role: "system",
       content: buildAgentSystemNote(profile.name, allowedTools),
     });
+    const childTodoState = createTodoState();
 
     const childEvents: DelegateTranscriptEvent[] = [];
+    const childTurn: PersistedAgentTurn | null = baseConfig.sessionId
+      ? createPersistedAgentChildSession({
+        parentSessionId: baseConfig.sessionId,
+        agent: profile.name,
+        task,
+      })
+      : null;
     const startedAt = Date.now();
     const pushChildEvent = (event: AgentUIEvent): void => {
       const snapshotEvent = toDelegateTranscriptEvent(event);
       if (snapshotEvent) childEvents.push(snapshotEvent);
+      if (childTurn && event.type === "tool_end") {
+        appendPersistedAgentToolResult(
+          childTurn,
+          event.name,
+          event.content ?? event.summary ?? "",
+          {
+            argsSummary: event.argsSummary,
+            success: event.success,
+          },
+        );
+      }
+      if (childTurn && event.type === "todo_updated") {
+        persistAgentTodos(
+          childTurn.sessionId,
+          event.todoState.items,
+          event.source,
+        );
+      }
     };
     const buildSnapshot = (
       options: { success: boolean; finalResponse?: string; error?: string },
     ): DelegateTranscriptSnapshot => ({
       agent: profile.name,
       task,
+      childSessionId: childTurn?.sessionId,
       success: options.success,
       durationMs: Date.now() - startedAt,
-      toolCount: childEvents.filter((event) => event.type === "tool_end").length,
+      toolCount:
+        childEvents.filter((event) => event.type === "tool_end").length,
       finalResponse: options.finalResponse,
       error: options.error,
       events: [...childEvents],
@@ -139,22 +177,51 @@ export function createDelegateHandler(
           onInteraction: config.onInteraction,
           onAgentEvent: pushChildEvent,
           planning: { mode: "off" },
-          todoState: createTodoState(),
+          todoState: childTodoState,
         },
         llm,
       );
+
+      if (childTurn) {
+        persistAgentTodos(
+          childTurn.sessionId,
+          childTodoState.items.map((item) => ({ ...item })),
+          "tool",
+        );
+        completePersistedAgentTurn(
+          childTurn,
+          baseConfig.modelId ?? "delegate_agent",
+          result,
+        );
+      }
 
       return withDelegateTranscriptSnapshot({
         agent: profile.name,
         result,
         stats: context.getStats(),
+        childSessionId: childTurn?.sessionId,
       }, buildSnapshot({ success: true, finalResponse: result }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw withDelegateTranscriptSnapshot(error, buildSnapshot({
-        success: false,
-        error: message,
-      }));
+      if (childTurn) {
+        persistAgentTodos(
+          childTurn.sessionId,
+          childTodoState.items.map((item) => ({ ...item })),
+          "tool",
+        );
+        completePersistedAgentTurn(
+          childTurn,
+          baseConfig.modelId ?? "delegate_agent",
+          `Delegation failed: ${message}`,
+        );
+      }
+      throw withDelegateTranscriptSnapshot(
+        error,
+        buildSnapshot({
+          success: false,
+          error: message,
+        }),
+      );
     }
   };
 }
@@ -209,6 +276,7 @@ function toDelegateTranscriptEvent(
       };
     case "delegate_start":
     case "delegate_end":
+    case "todo_updated":
     case "interaction_request":
       return null;
   }

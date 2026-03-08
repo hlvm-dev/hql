@@ -11,14 +11,15 @@ import { readLineInput, readSingleKey } from "../utils/input.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { isOllamaAuthErrorMessage } from "../../../common/ollama-auth.ts";
 import { truncate } from "../../../common/utils.ts";
-import { shouldSuppressFinalResponse } from "../../agent/model-compat.ts";
+import {
+  createStreamingResponseSanitizer,
+  shouldSuppressFinalResponse,
+  stripPlanEnvelopeBlocks,
+} from "../../agent/model-compat.ts";
 import { classifyError, getRecoveryHint } from "../../agent/error-taxonomy.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
-import {
-  extractProvider,
-  isPaidProvider,
-} from "../../providers/approval.ts";
+import { extractProvider, isPaidProvider } from "../../providers/approval.ts";
 import type {
   AgentUIEvent,
   FinalResponseMeta,
@@ -34,13 +35,15 @@ import type {
   DelegateTranscriptEvent,
   DelegateTranscriptSnapshot,
 } from "../../agent/delegate-transcript.ts";
+import {
+  createTranscriptState,
+  getVisibleTodoSummary,
+  reduceTranscriptState,
+} from "../agent-transcript-state.ts";
 
 // MARK: - Paid Provider Consent
 
-export {
-  extractProvider,
-  isPaidProvider,
-} from "../../providers/approval.ts";
+export { extractProvider, isPaidProvider } from "../../providers/approval.ts";
 export { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 
 export function showAskHelp(): void {
@@ -57,7 +60,7 @@ EXAMPLES:
   hlvm ask "what are recent downloaded files?"
   hlvm ask --verbose "count test files"  # Debug mode with detailed output
   hlvm ask --json "count test files"     # Stream NDJSON events for automation
-  hlvm ask --model openai/gpt-4o "summarize this project"
+  hlvm ask --model openai/gpt-4o "summarize this codebase"
   hlvm ask --model anthropic/claude-sonnet-4-5-20250929 "list files"
   hlvm ask --fresh "hello"               # Start fresh (no prior session context)
 
@@ -220,7 +223,8 @@ export function formatToolOutputForDefaultMode(
     };
   }
 
-  const looksLikeJson = normalized.startsWith("{") || normalized.startsWith("[");
+  const looksLikeJson = normalized.startsWith("{") ||
+    normalized.startsWith("[");
   if (looksLikeJson && normalized.length > 320) {
     return { text: `[${toolName}] Completed.`, truncated: true };
   }
@@ -247,7 +251,9 @@ export function summarizeToolEventForDefaultMode(
 ): string {
   const candidate = summary?.trim();
   if (candidate) {
-    const firstLine = candidate.split("\n").map((line) => line.trim()).find(Boolean) ?? candidate;
+    const firstLine = candidate.split("\n").map((line) =>
+      line.trim()
+    ).find(Boolean) ?? candidate;
     return truncate(firstLine.replace(/\s+/g, " "), 80);
   }
   const formatted = formatToolOutputForDefaultMode(toolName, content ?? "");
@@ -417,7 +423,8 @@ export async function askCommand(args: string[]): Promise<void> {
   const forceSetup = getPlatform().env.get("HLVM_FORCE_SETUP") === "1";
   if (!fixturePath && !modelOverride) {
     const initialModel = await runtimeModelConfig.ensureInitialModelConfigured({
-      allowFirstRunSetup: getPlatform().terminal.stdin.isTerminal() || forceSetup,
+      allowFirstRunSetup: getPlatform().terminal.stdin.isTerminal() ||
+        forceSetup,
       runFirstTimeSetup: async () => {
         const { runFirstTimeSetup } = await import("./first-run-setup.ts");
         return await runFirstTimeSetup();
@@ -430,9 +437,10 @@ export async function askCommand(args: string[]): Promise<void> {
 
   let resolvedModel = modelOverride ?? runtimeModelConfig.getConfiguredModel();
   if (!fixturePath) {
-    const normalized = await runtimeModelConfig.resolveCompatibleClaudeCodeModel(
-      resolvedModel,
-    );
+    const normalized = await runtimeModelConfig
+      .resolveCompatibleClaudeCodeModel(
+        resolvedModel,
+      );
     if (normalized !== resolvedModel) {
       resolvedModel = normalized;
       if (modelOverride) {
@@ -452,7 +460,9 @@ export async function askCommand(args: string[]): Promise<void> {
   ) {
     const consented = await confirmPaidProviderConsent(resolvedModel);
     if (!consented) {
-      log.raw.log("Aborted. Use a free model (e.g., Ollama) or re-run to approve.");
+      log.raw.log(
+        "Aborted. Use a free model (e.g., Ollama) or re-run to approve.",
+      );
       return;
     }
   }
@@ -460,8 +470,9 @@ export async function askCommand(args: string[]): Promise<void> {
   let streamedTokens = false;
   let thinkingShown = false;
   let toolInProgress = false;
-  let activePlan: Extract<AgentUIEvent, { type: "plan_created" }>["plan"] | undefined;
+  let transcriptState = createTranscriptState();
   let finalMeta: FinalResponseMeta | undefined;
+  const responseSanitizer = createStreamingResponseSanitizer();
 
   const emitJson = (event: AskJsonEvent): void => {
     log.raw.log(JSON.stringify(event));
@@ -472,15 +483,21 @@ export async function askCommand(args: string[]): Promise<void> {
       emitJson({ type: "token", text });
       return;
     }
+    const visibleText = responseSanitizer.push(text);
+    if (!visibleText) return;
     if (thinkingShown) {
       log.raw.write(`\r\x1b[K`);
       thinkingShown = false;
     }
     streamedTokens = true;
-    log.raw.write(text);
+    log.raw.write(visibleText);
   };
 
   const onAgentEvent = (event: AgentUIEvent) => {
+    transcriptState = reduceTranscriptState(transcriptState, {
+      type: "agent_event",
+      event,
+    });
     if (jsonOutput) {
       emitJson({ type: "agent_event", event });
       return;
@@ -489,19 +506,30 @@ export async function askCommand(args: string[]): Promise<void> {
       // Verbose mode: keep existing detailed output style
       switch (event.type) {
         case "tool_end":
-          if (event.name === "ask_user" || event.name === "delegate_agent") return;
-          if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+          if (event.name === "ask_user" || event.name === "delegate_agent") {
+            return;
+          }
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
           {
             const label = event.success ? "Tool Result" : "Tool Error";
             log.raw.log(`\n[${label}] ${event.name}\n${event.content}\n`);
           }
           break;
         case "delegate_start":
-          if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
           log.raw.log(`\n[Delegate] ${event.agent}\n${event.task}\n`);
           break;
         case "delegate_end": {
-          if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
           const label = event.success ? "Delegate Result" : "Delegate Error";
           const body = event.success
             ? event.summary ?? "Delegation complete."
@@ -515,6 +543,15 @@ export async function askCommand(args: string[]): Promise<void> {
           }
           break;
         }
+        case "todo_updated":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          log.raw.log(
+            `\n[Todo] ${getVisibleTodoSummary(transcriptState) ?? "updated"}\n`,
+          );
+          break;
       }
       return;
     }
@@ -528,27 +565,48 @@ export async function askCommand(args: string[]): Promise<void> {
         break;
       case "tool_start":
         if (event.name === "delegate_agent") return;
-        if (thinkingShown) { log.raw.write(`\r\x1b[K`); thinkingShown = false; }
-        if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
-        log.raw.write(`  \x1b[2m\u2847 ${event.name} ${truncate(event.argsSummary, 60)}\x1b[0m`);
+        if (thinkingShown) {
+          log.raw.write(`\r\x1b[K`);
+          thinkingShown = false;
+        }
+        if (streamedTokens) {
+          log.raw.write("\n");
+          streamedTokens = false;
+        }
+        log.raw.write(
+          `  \x1b[2m\u2847 ${event.name} ${
+            truncate(event.argsSummary, 60)
+          }\x1b[0m`,
+        );
         toolInProgress = true;
         break;
       case "tool_end": {
-        if (event.name === "ask_user" || event.name === "delegate_agent") return;
+        if (event.name === "ask_user" || event.name === "delegate_agent") {
+          return;
+        }
         if (toolInProgress) {
-          const icon = event.success ? "\x1b[32m\u2713\x1b[0m" : "\x1b[31m\u2717\x1b[0m";
-          const dur = event.durationMs ? ` \x1b[2m(${(event.durationMs / 1000).toFixed(1)}s)\x1b[0m` : "";
+          const icon = event.success
+            ? "\x1b[32m\u2713\x1b[0m"
+            : "\x1b[31m\u2717\x1b[0m";
+          const dur = event.durationMs
+            ? ` \x1b[2m(${(event.durationMs / 1000).toFixed(1)}s)\x1b[0m`
+            : "";
           const summary = summarizeToolEventForDefaultMode(
             event.name,
             event.summary,
             event.content,
           );
           const renderedSummary = event.success ? summary : `Error: ${summary}`;
-          log.raw.write(`\r\x1b[K  ${icon} ${event.name} ${event.argsSummary} \x1b[2m\u2192\x1b[0m ${renderedSummary}${dur}\n`);
+          log.raw.write(
+            `\r\x1b[K  ${icon} ${event.name} ${event.argsSummary} \x1b[2m\u2192\x1b[0m ${renderedSummary}${dur}\n`,
+          );
           toolInProgress = false;
         } else {
           // tool_end without tool_start (shouldn't happen, but handle gracefully)
-          if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
           if (!event.success) {
             const summary = summarizeToolEventForDefaultMode(
               event.name,
@@ -568,58 +626,68 @@ export async function askCommand(args: string[]): Promise<void> {
         break;
       }
       case "delegate_start":
-        if (thinkingShown) { log.raw.write(`\r\x1b[K`); thinkingShown = false; }
-        if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+        if (thinkingShown) {
+          log.raw.write(`\r\x1b[K`);
+          thinkingShown = false;
+        }
+        if (streamedTokens) {
+          log.raw.write("\n");
+          streamedTokens = false;
+        }
         log.raw.write(
-          `  \x1b[2m\u2847 delegate ${event.agent} ${truncate(event.task, 60)}\x1b[0m`,
+          `  \x1b[2m\u2847 delegate ${event.agent} ${
+            truncate(event.task, 60)
+          }\x1b[0m`,
         );
         toolInProgress = true;
         break;
       case "delegate_end": {
         if (toolInProgress) {
-          const icon = event.success ? "\x1b[32m\u2713\x1b[0m" : "\x1b[31m\u2717\x1b[0m";
-          const dur = event.durationMs ? ` \x1b[2m(${(event.durationMs / 1000).toFixed(1)}s)\x1b[0m` : "";
+          const icon = event.success
+            ? "\x1b[32m\u2713\x1b[0m"
+            : "\x1b[31m\u2717\x1b[0m";
+          const dur = event.durationMs
+            ? ` \x1b[2m(${(event.durationMs / 1000).toFixed(1)}s)\x1b[0m`
+            : "";
           const summary = event.success
             ? event.summary ?? "Delegation complete."
             : `Error: ${event.error ?? "Delegation failed."}`;
-          log.raw.write(`\r\x1b[K  ${icon} delegate ${event.agent} \x1b[2m\u2192\x1b[0m ${summary}${dur}\n`);
+          log.raw.write(
+            `\r\x1b[K  ${icon} delegate ${event.agent} \x1b[2m\u2192\x1b[0m ${summary}${dur}\n`,
+          );
           toolInProgress = false;
         } else {
-          if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
           const summary = event.success
             ? event.summary ?? "Delegation complete."
             : `Error: ${event.error ?? "Delegation failed."}`;
-          log.raw.log(`delegate ${event.agent} \x1b[2m\u2192\x1b[0m ${summary}\n`);
+          log.raw.log(
+            `delegate ${event.agent} \x1b[2m\u2192\x1b[0m ${summary}\n`,
+          );
         }
         break;
       }
+      case "todo_updated": {
+        break;
+      }
       case "plan_created": {
-        activePlan = event.plan;
-        if (thinkingShown) { log.raw.write(`\r\x1b[K`); thinkingShown = false; }
-        if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
-        const goal = truncate(event.plan.goal, 64);
-        log.raw.log(
-          `  \x1b[2mPlan \u2192 ${event.plan.steps.length} step${
-            event.plan.steps.length === 1 ? "" : "s"
-          }: ${goal}\x1b[0m`,
-        );
         break;
       }
       case "plan_step": {
-        if (thinkingShown) { log.raw.write(`\r\x1b[K`); thinkingShown = false; }
-        if (streamedTokens) { log.raw.write("\n"); streamedTokens = false; }
-        const step = activePlan?.steps[event.index];
-        const label = step?.title ?? event.stepId;
-        const total = activePlan?.steps.length;
-        const progress = total ? `${event.index + 1}/${total}` : `${event.index + 1}`;
-        log.raw.log(
-          `  \x1b[2mPlan ${progress} \u2192 ${truncate(label, 72)}\x1b[0m`,
-        );
         break;
       }
       case "turn_stats": {
-        const dur = event.durationMs ? `${(event.durationMs / 1000).toFixed(1)}s` : "";
-        log.raw.log(`\n\x1b[2m\u2500\u2500\u2500 ${event.toolCount} tool${event.toolCount !== 1 ? "s" : ""} \u00b7 ${dur} \u2500\u2500\u2500\x1b[0m\n`);
+        const dur = event.durationMs
+          ? `${(event.durationMs / 1000).toFixed(1)}s`
+          : "";
+        log.raw.log(
+          `\n\x1b[2m\u2500\u2500\u2500 ${event.toolCount} tool${
+            event.toolCount !== 1 ? "s" : ""
+          } \u00b7 ${dur} \u2500\u2500\u2500\x1b[0m\n`,
+        );
         break;
       }
     }
@@ -630,15 +698,14 @@ export async function askCommand(args: string[]): Promise<void> {
   }
 
   // Resolve permission mode: CLI flag > config > default
-  const effectivePermissionMode: PermissionMode = permissionModeOverride
-    ?? runtimeModelConfig.getPermissionMode()
-    ?? "default";
+  const effectivePermissionMode: PermissionMode = permissionModeOverride ??
+    runtimeModelConfig.getPermissionMode() ??
+    "default";
 
   const executeQuery = async () => {
     const result = await runAgentQueryViaHost({
       query,
       model: resolvedModel,
-      workspace: getPlatform().process.cwd(),
       fixturePath,
       contextWindow,
       skipSessionHistory: freshSession,
@@ -653,6 +720,7 @@ export async function askCommand(args: string[]): Promise<void> {
       },
       onInteraction: promptRuntimeInteraction,
     });
+    const visibleResultText = stripPlanEnvelopeBlocks(result.text);
 
     if (jsonOutput) {
       emitJson({
@@ -664,18 +732,30 @@ export async function askCommand(args: string[]): Promise<void> {
       return;
     }
 
+    const remainingVisibleText = responseSanitizer.flush();
+    if (remainingVisibleText) {
+      if (thinkingShown) {
+        log.raw.write(`\r\x1b[K`);
+        thinkingShown = false;
+      }
+      streamedTokens = true;
+      log.raw.write(remainingVisibleText);
+    }
+
     if (streamedTokens) {
       log.raw.write("\n");
     }
 
     if (verbose) {
-      if (!shouldSuppressFinalResponse(result.text)) {
-        log.raw.log(`\nResult:\n${result.text}\n`);
+      if (
+        visibleResultText && !shouldSuppressFinalResponse(visibleResultText)
+      ) {
+        log.raw.log(`\nResult:\n${visibleResultText}\n`);
       }
     } else if (
-      !streamedTokens && result.stats.toolMessages === 0 && result.text.trim()
+      !streamedTokens && result.stats.toolMessages === 0 && visibleResultText
     ) {
-      log.raw.log(`${result.text}\n`);
+      log.raw.log(`${visibleResultText}\n`);
     }
 
     if (verbose) {
@@ -786,6 +866,8 @@ function formatDelegateSnapshotEvent(
       return `${prefix} ${event.name} -> ${truncate(summary, 72)}`;
     }
     case "turn_stats":
-      return `${event.toolCount} tool${event.toolCount === 1 ? "" : "s"} in ${(event.durationMs / 1000).toFixed(1)}s`;
+      return `${event.toolCount} tool${event.toolCount === 1 ? "" : "s"} in ${
+        (event.durationMs / 1000).toFixed(1)
+      }s`;
   }
 }

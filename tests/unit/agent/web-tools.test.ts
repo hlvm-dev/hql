@@ -837,7 +837,8 @@ Deno.test("web tools: formatSearchWebResult surfaces source authority tags, reco
   assert(withGuidance!.llmContent.includes("[official]"));
   // Recommended source header
   assert(withGuidance!.llmContent.includes("Recommended source:"));
-  assert(withGuidance!.llmContent.includes("Official domain matching query subject"));
+  assert(withGuidance!.llmContent.includes("Official domain matching the query subject"));
+  assert(withGuidance!.llmContent.includes("Action: Check this source first"));
   // Guidance stop signal
   assert(withGuidance!.llmContent.includes("1 high-quality evidence page(s) with extracted passages"));
 
@@ -880,4 +881,44 @@ Deno.test("web tools: formatSearchWebResult surfaces source authority tags, reco
   assert(communityResult !== null);
   assert(communityResult!.llmContent.includes("[community]"));
   assert(!communityResult!.llmContent.includes("Recommended source:"));
+});
+
+Deno.test("web tools: recommended source comes from ranked results even when not selected as an evidence page", () => {
+  const formatted = __testOnlyFormatSearchWebResult({
+    query: "latest Bun release notes",
+    provider: "duckduckgo",
+    count: 3,
+    results: [
+      {
+        title: "Bun v1.3.10",
+        url: "https://bun.com/blog/bun-v1.3.10",
+        snippet: "Official Bun release notes",
+        sourceAuthority: "official",
+        publishedDate: "2026-03-01",
+        score: 9,
+      },
+      {
+        title: "Bun Releases",
+        url: "https://github.com/oven-sh/bun/releases",
+        snippet: "Repository releases",
+        passages: ["Bun release assets and changelog links."],
+        evidenceStrength: "high",
+        evidenceReason: "page passages",
+        sourceAuthority: "repository",
+        score: 8,
+      },
+      {
+        title: "Discussion",
+        url: "https://reddit.com/r/bun/comments/abc",
+        snippet: "User discussion",
+        sourceAuthority: "community",
+        score: 3,
+      },
+    ],
+  });
+
+  assert(formatted !== null);
+  assert(formatted!.llmContent.includes("Recommended source: Bun v1.3.10"));
+  assert(formatted!.llmContent.includes("Official source for a current/release-oriented query."));
+  assert(formatted!.llmContent.includes("Action: Check this source first before lower-authority alternatives."));
 });

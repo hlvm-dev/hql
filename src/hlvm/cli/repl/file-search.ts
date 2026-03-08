@@ -7,14 +7,14 @@
  * - Respects .gitignore patterns
  */
 
-import { fuzzyMatchPath, binarySearchInsertIdx } from "./fuzzy.ts";
+import { binarySearchInsertIdx, fuzzyMatchPath } from "./fuzzy.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { CLI_CACHE_TTL_MS } from "../repl-ink/ui-constants.ts";
 import {
   isIgnored,
   loadGitignore,
-  SKIP_DIRS,
   shouldSkipFile,
+  SKIP_DIRS,
 } from "../../../common/file-utils.ts";
 
 // ============================================================
@@ -22,7 +22,7 @@ import {
 // ============================================================
 
 export interface FileMatch {
-  /** Relative path from project root */
+  /** Relative path from the active workspace root */
   path: string;
   /** Whether it's a directory */
   isDirectory: boolean;
@@ -62,7 +62,11 @@ async function indexDirectory(baseDir: string): Promise<FileIndex> {
   const dirs: string[] = [];
   const gitignorePatterns = await loadGitignore(baseDir);
 
-  async function walk(dir: string, prefix: string, depth: number): Promise<void> {
+  async function walk(
+    dir: string,
+    prefix: string,
+    depth: number,
+  ): Promise<void> {
     // Limit depth to avoid infinite recursion
     if (depth > 10) return;
 
@@ -113,7 +117,10 @@ async function indexDirectory(baseDir: string): Promise<FileIndex> {
 export async function getFileIndex(forceRefresh = false): Promise<FileIndex> {
   const now = Date.now();
 
-  if (!forceRefresh && indexCache && (now - indexCache.timestamp) < CLI_CACHE_TTL_MS) {
+  if (
+    !forceRefresh && indexCache &&
+    (now - indexCache.timestamp) < CLI_CACHE_TTL_MS
+  ) {
     return indexCache;
   }
 
@@ -122,7 +129,6 @@ export async function getFileIndex(forceRefresh = false): Promise<FileIndex> {
 
   return indexCache;
 }
-
 
 // ============================================================
 // Search API
@@ -139,10 +145,10 @@ const ESCAPE_BACKSLASH_REGEX = /\\\\/g;
  */
 export function unescapeShellPath(path: string): string {
   return path
-    .replace(ESCAPE_SPACE_REGEX, " ")           // backslash-space -> space
-    .replace(ESCAPE_SINGLE_QUOTE_REGEX, "'")    // backslash-quote -> quote
-    .replace(ESCAPE_DOUBLE_QUOTE_REGEX, '"')    // backslash-doublequote -> doublequote
-    .replace(ESCAPE_BACKSLASH_REGEX, "\\");     // double-backslash -> single backslash
+    .replace(ESCAPE_SPACE_REGEX, " ") // backslash-space -> space
+    .replace(ESCAPE_SINGLE_QUOTE_REGEX, "'") // backslash-quote -> quote
+    .replace(ESCAPE_DOUBLE_QUOTE_REGEX, '"') // backslash-doublequote -> doublequote
+    .replace(ESCAPE_BACKSLASH_REGEX, "\\"); // double-backslash -> single backslash
 }
 
 /**
@@ -155,7 +161,7 @@ async function checkAbsolutePath(path: string): Promise<FileMatch | null> {
   try {
     const stat = await getPlatform().fs.stat(cleanPath);
     return {
-      path: cleanPath,  // Return the clean path, not the escaped one
+      path: cleanPath, // Return the clean path, not the escaped one
       isDirectory: stat.isDirectory,
       score: 1000, // High score for exact path match
       matchIndices: [],
@@ -168,7 +174,10 @@ async function checkAbsolutePath(path: string): Promise<FileMatch | null> {
 /**
  * Search for files and directories matching the query
  */
-export async function searchFiles(query: string, maxResults = 12): Promise<FileMatch[]> {
+export async function searchFiles(
+  query: string,
+  maxResults = 12,
+): Promise<FileMatch[]> {
   // Handle absolute paths (e.g., /Users/..., /var/..., ~/...)
   if (query.startsWith("/") || query.startsWith("~")) {
     // First unescape any shell-escaped characters
@@ -183,7 +192,8 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
     }
 
     // If exact path not found, try to complete partial path
-    const parentDir = expandedPath.substring(0, expandedPath.lastIndexOf("/")) || "/";
+    const parentDir =
+      expandedPath.substring(0, expandedPath.lastIndexOf("/")) || "/";
     const partial = expandedPath.substring(expandedPath.lastIndexOf("/") + 1);
 
     try {
@@ -205,7 +215,9 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
         if (partial && !nameLower.includes(partialLower)) {
           continue;
         }
-        const fullPath = parentDir === "/" ? `/${entry.name}` : `${parentDir}/${entry.name}`;
+        const fullPath = parentDir === "/"
+          ? `/${entry.name}`
+          : `${parentDir}/${entry.name}`;
         results.push({
           path: fullPath,
           isDirectory: entry.isDirectory,
@@ -231,10 +243,20 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
   if (!query.trim()) {
     // Return some directories and files
     for (const dir of index.dirs.slice(0, 6)) {
-      results.push({ path: dir, isDirectory: true, score: 100, matchIndices: [] });
+      results.push({
+        path: dir,
+        isDirectory: true,
+        score: 100,
+        matchIndices: [],
+      });
     }
     for (const file of index.files.slice(0, 6)) {
-      results.push({ path: file, isDirectory: false, score: 50, matchIndices: [] });
+      results.push({
+        path: file,
+        isDirectory: false,
+        score: 50,
+        matchIndices: [],
+      });
     }
     return results.slice(0, maxResults);
   }
@@ -256,10 +278,20 @@ export async function searchFiles(query: string, maxResults = 12): Promise<FileM
     // Insert into results maintaining sorted order (top-k)
     if (results.length < maxResults) {
       const insertIdx = binarySearchInsertIdx(results, score, getScore);
-      results.splice(insertIdx, 0, { path, isDirectory: isDir, score, matchIndices: match.indices as number[] });
+      results.splice(insertIdx, 0, {
+        path,
+        isDirectory: isDir,
+        score,
+        matchIndices: match.indices as number[],
+      });
     } else if (score > results[results.length - 1].score) {
       const insertIdx = binarySearchInsertIdx(results, score, getScore);
-      results.splice(insertIdx, 0, { path, isDirectory: isDir, score, matchIndices: match.indices as number[] });
+      results.splice(insertIdx, 0, {
+        path,
+        isDirectory: isDir,
+        score,
+        matchIndices: match.indices as number[],
+      });
       results.pop();
     }
   };

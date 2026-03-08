@@ -5,7 +5,6 @@
 
 import {
   ensureAgentReady,
-  getOrCreateCachedSession,
   runAgentQuery,
 } from "../../../agent/agent-runner.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../../agent/constants.ts";
@@ -80,22 +79,10 @@ export async function handleAgentMode(
     await agentReadyPromise;
   }
 
-  const workspace = getPlatform().process.cwd();
-  const resolvedWorkspace = body.workspace?.trim() || workspace;
+  const workingDirectory = getPlatform().process.cwd();
   const lastUserMessage = getLastUserMessage(body.messages);
   const query = lastUserMessage?.content ?? "";
   const toolAllowlist = resolveQueryToolAllowlist(query);
-  const cachedSession = fixturePath
-    ? undefined
-    : await getOrCreateCachedSession(
-      resolvedWorkspace,
-      resolvedModel,
-      {
-        toolAllowlist,
-        toolDenylist: effectiveToolDenylist,
-        modelInfo,
-      },
-    );
 
   const history = await buildAgentHistoryMessages({
     requestMessages: body.messages,
@@ -114,6 +101,7 @@ export async function handleAgentMode(
   const result = await runAgentQuery({
     query,
     model: resolvedModel,
+    sessionId: body.session_id,
     permissionMode: body.permission_mode ??
       (config.snapshot.permissionMode as PermissionMode | undefined) ??
       "default",
@@ -121,13 +109,12 @@ export async function handleAgentMode(
     signal,
     toolAllowlist,
     toolDenylist: effectiveToolDenylist,
-    workspace: resolvedWorkspace,
+    workspace: workingDirectory,
     contextWindow: body.context_window,
     fixturePath,
     skipSessionHistory: body.skip_session_history === true,
     messageHistory: history,
     modelInfo,
-    cachedSession,
     callbacks: {
       onToken: (text: string) => {
         streamedFinalText = true;
@@ -193,6 +180,7 @@ export async function handleAgentMode(
               event: "delegate_start",
               agent: event.agent,
               task: event.task,
+              child_session_id: event.childSessionId,
             });
             break;
           case "delegate_end":
@@ -205,6 +193,14 @@ export async function handleAgentMode(
               duration_ms: event.durationMs,
               error: event.error,
               snapshot: event.snapshot,
+              child_session_id: event.childSessionId,
+            });
+            break;
+          case "todo_updated":
+            emit({
+              event: "todo_updated",
+              todo_state: event.todoState,
+              source: event.source,
             });
             break;
           case "plan_created":

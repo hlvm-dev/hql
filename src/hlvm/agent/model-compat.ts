@@ -16,6 +16,10 @@ const RE_JSON_OBJECT_TOOL = /\bjson object\b/;
 const RE_TOOL_WORD = /\btool\b/;
 const RE_FUNCTION_TOOL_CALL = /\b(function|tool)\s+call(ing)?\s*[:\(]/i;
 const RE_INVOKE_TOOL = /\b(invoke|execute)\s+the\s+\w+\s+tool\b/;
+const RE_PLAN_ENVELOPE = /^PLAN\s*(?:\r?\n)[\s\S]*?(?:\r?\n)END_PLAN\s*$/;
+const RE_PLAN_BLOCK = /PLAN\s*(?:\r?\n)[\s\S]*?(?:\r?\n)END_PLAN\s*/g;
+const PLAN_START_MARKER = "PLAN";
+const PLAN_END_MARKER = "END_PLAN";
 
 /**
  * Detect JSON-like tool call structures anywhere in text.
@@ -24,6 +28,17 @@ const RE_INVOKE_TOOL = /\b(invoke|execute)\s+the\s+\w+\s+tool\b/;
  */
 export function looksLikeToolCallJsonAnywhere(text: string): boolean {
   return RE_TOOL_CALL_JSON.test(text);
+}
+
+/**
+ * Detect planning envelopes emitted by the planner request.
+ */
+export function looksLikePlanEnvelope(text: string): boolean {
+  return RE_PLAN_ENVELOPE.test(text.trim());
+}
+
+export function stripPlanEnvelopeBlocks(text: string): string {
+  return text.replace(RE_PLAN_BLOCK, "").trim();
 }
 
 /**
@@ -56,8 +71,96 @@ export function responseAsksQuestion(response: string): boolean {
 export function shouldSuppressFinalResponse(response: string): boolean {
   if (!response.trim()) return true;
   if (looksLikeToolCallJsonAnywhere(response)) return true;
+  if (looksLikePlanEnvelope(response)) return true;
   if (looksLikeToolInstruction(response)) return true;
   return false;
+}
+
+export interface StreamingResponseSanitizer {
+  push(chunk: string): string;
+  flush(): string;
+}
+
+/**
+ * Suppress leading PLAN...END_PLAN envelopes from streamed CLI output.
+ * This keeps the ask CLI from leaking planner JSON while preserving normal answers.
+ */
+export function createStreamingResponseSanitizer(): StreamingResponseSanitizer {
+  let buffer = "";
+  let insidePlanEnvelope = false;
+  let emittedVisibleText = false;
+
+  const planPrefixState = (text: string): "prefix" | "plan" | "other" => {
+    const trimmed = text.trimStart();
+    if (!trimmed) return "prefix";
+    if (
+      trimmed === PLAN_START_MARKER ||
+      trimmed.startsWith(`${PLAN_START_MARKER}\n`) ||
+      trimmed.startsWith(`${PLAN_START_MARKER}\r\n`)
+    ) {
+      return "plan";
+    }
+    if (PLAN_START_MARKER.startsWith(trimmed)) return "prefix";
+    return "other";
+  };
+
+  return {
+    push(chunk: string): string {
+      if (!chunk) return "";
+      if (emittedVisibleText && !insidePlanEnvelope) return chunk;
+
+      buffer += chunk;
+      let visible = "";
+
+      while (buffer.length > 0) {
+        if (insidePlanEnvelope) {
+          const endIndex = buffer.indexOf(PLAN_END_MARKER);
+          if (endIndex < 0) {
+            buffer = buffer.slice(Math.max(0, buffer.length - (PLAN_END_MARKER.length - 1)));
+            return visible;
+          }
+          buffer = buffer.slice(endIndex + PLAN_END_MARKER.length)
+            .replace(/^\s*\r?\n?/, "");
+          insidePlanEnvelope = false;
+          continue;
+        }
+
+        const state = planPrefixState(buffer);
+        if (state === "prefix") return visible;
+        if (state === "plan") {
+          const trimmed = buffer.trimStart();
+          const leadingWhitespaceLength = buffer.length - trimmed.length;
+          buffer = buffer.slice(leadingWhitespaceLength + PLAN_START_MARKER.length);
+          if (buffer.startsWith("\r\n")) buffer = buffer.slice(2);
+          else if (buffer.startsWith("\n")) buffer = buffer.slice(1);
+          insidePlanEnvelope = true;
+          continue;
+        }
+
+        emittedVisibleText = true;
+        visible += buffer;
+        buffer = "";
+      }
+
+      return visible;
+    },
+
+    flush(): string {
+      if (insidePlanEnvelope) {
+        buffer = "";
+        return "";
+      }
+      const state = planPrefixState(buffer);
+      if (!emittedVisibleText && state !== "other") {
+        buffer = "";
+        return "";
+      }
+      const remaining = buffer;
+      if (remaining) emittedVisibleText = true;
+      buffer = "";
+      return remaining;
+    },
+  };
 }
 
 export const AGENT_ORCHESTRATOR_FAILURE_MESSAGES = {
@@ -97,4 +200,3 @@ export function classifyAgentFinalResponse(
     orchestratorFailureCode: failureMatch?.[0] ?? null,
   };
 }
-

@@ -29,7 +29,7 @@ export interface AgentConfig {
   /** Optional context window override (in tokens). */
   contextWindow?: number;
   /** Working directory for tool execution. Defaults to cwd. */
-  workspace?: string;
+  workingDirectory?: string;
   /** Tool denylist override. Defaults to DEFAULT_TOOL_DENYLIST. */
   toolDenylist?: string[];
   /** Tool allowlist override. */
@@ -45,7 +45,9 @@ export interface ChatResult {
   /** Final text response from the agent. */
   text: string;
   /** Tool calls made during this turn. */
-  toolCalls: Array<{ id?: string; name: string; args: unknown; result?: unknown }>;
+  toolCalls: Array<
+    { id?: string; name: string; args: unknown; result?: unknown }
+  >;
 }
 
 function resolveToolResultTarget(
@@ -89,7 +91,8 @@ export class Agent {
     await initializeRuntime({ ai: true });
 
     const model = this.config.model ?? getConfiguredModel();
-    const workspace = this.config.workspace ?? getPlatform().process.cwd();
+    const workspace = this.config.workingDirectory ??
+      getPlatform().process.cwd();
 
     this.session = await createAgentSession({
       workspace,
@@ -129,7 +132,7 @@ export class Agent {
     const text = await runReActLoop(
       prompt,
       {
-        workspace: this.config.workspace ?? getPlatform().process.cwd(),
+        workspace: this.config.workingDirectory ?? getPlatform().process.cwd(),
         context: session.context,
         permissionMode: "yolo",
         groundingMode: "off",

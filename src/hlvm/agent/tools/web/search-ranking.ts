@@ -4,8 +4,13 @@
  */
 
 import type { SearchResult, SearchTimeRange } from "./search-provider.ts";
-import { resultHost } from "./web-utils.ts";
-import { OFFICIAL_DOCS_RE, RECENCY_RE, REFERENCE_RE, RELEASE_NOTES_RE } from "./intent-patterns.ts";
+import { analyzeResultUrl, resultHost } from "./web-utils.ts";
+import {
+  OFFICIAL_DOCS_RE,
+  RECENCY_RE,
+  REFERENCE_RE,
+  RELEASE_NOTES_RE,
+} from "./intent-patterns.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -36,13 +41,15 @@ const TIME_RANGE_MAX_DAYS: Record<SearchTimeRange, number> = {
 };
 
 export function tokenizeQuery(query: string): string[] {
-  return [...new Set(
-    query
-      .toLowerCase()
-      .split(/[\s\-_.]+/)
-      .map((token) => token.trim())
-      .filter((token) => token.length >= 2),
-  )];
+  return [
+    ...new Set(
+      query
+        .toLowerCase()
+        .split(/[\s\-_.]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 2),
+    ),
+  ];
 }
 
 function normalizePathname(pathname: string): string {
@@ -113,8 +120,10 @@ function parseRelativeAgeDays(text: string): number | undefined {
   }
 }
 
-
-function recencyBoost(ageDays: number | undefined, timeRange: SearchTimeRange): number {
+function recencyBoost(
+  ageDays: number | undefined,
+  timeRange: SearchTimeRange,
+): number {
   if (ageDays === undefined) return 0;
   if (timeRange === "all") {
     return Math.max(0, (30 - ageDays) / 30) * 1.5;
@@ -151,9 +160,20 @@ const LOW_SIGNAL_PATH_SEGMENTS = new Set([
 ]);
 // Ranking-specific: deliberately broader than intent detection.
 // Composes shared primitives to match both official docs AND reference queries.
-const isDocsLikeQuery = (query: string) => OFFICIAL_DOCS_RE.test(query) || REFERENCE_RE.test(query);
-const isReleaseLikeQuery = (query: string) => RELEASE_NOTES_RE.test(query) || RECENCY_RE.test(query);
-const RELEASE_PATH_SEGMENTS = new Set(["blog", "changelog", "news", "release-notes", "releases", "tags", "updates", "whatsnew"]);
+const isDocsLikeQuery = (query: string) =>
+  OFFICIAL_DOCS_RE.test(query) || REFERENCE_RE.test(query);
+const isReleaseLikeQuery = (query: string) =>
+  RELEASE_NOTES_RE.test(query) || RECENCY_RE.test(query);
+const RELEASE_PATH_SEGMENTS = new Set([
+  "blog",
+  "changelog",
+  "news",
+  "release-notes",
+  "releases",
+  "tags",
+  "updates",
+  "whatsnew",
+]);
 
 function keywordRepetitionRatio(text: string): number {
   const tokens = tokenizeQuery(text);
@@ -181,15 +201,16 @@ export function sourceQualityPenalty(result: SearchResult): number {
   if (/^(home|index|page|untitled)$/i.test(title)) penalty += 0.6;
   if (keywordRepetitionRatio(`${title} ${snippet}`) > 0.28) penalty += 0.8;
 
+  const urlInfo = analyzeResultUrl(result.url);
   if (result.url) {
-    try {
-      const parsed = new URL(result.url);
-      const pathSegments = parsed.pathname.toLowerCase().split("/").filter(Boolean);
-      if (pathSegments.some((seg) => LOW_SIGNAL_PATH_SEGMENTS.has(seg))) {
+    if (urlInfo) {
+      if (
+        urlInfo.pathSegments.some((seg) => LOW_SIGNAL_PATH_SEGMENTS.has(seg))
+      ) {
         penalty += 0.8;
       }
-      if (pathSegments.length === 0) penalty += 0.2;
-    } catch {
+      if (urlInfo.pathSegments.length === 0) penalty += 0.2;
+    } else {
       penalty += 0.2;
     }
   }
@@ -198,34 +219,46 @@ export function sourceQualityPenalty(result: SearchResult): number {
 }
 
 function querySignalBoost(query: string, result: SearchResult): number {
-  if (!result.url) return 0;
-  try {
-    const parsed = new URL(result.url);
-    const pathSegments = parsed.pathname.toLowerCase().split("/").filter(Boolean);
-    let boost = 0;
-    if (isDocsLikeQuery(query)) {
-      if (parsed.hostname.toLowerCase().startsWith("docs.") || parsed.hostname.toLowerCase().startsWith("developer.") || parsed.hostname.toLowerCase().startsWith("api.")) {
-        boost += 0.6;
-      }
-      if (pathSegments.some((segment) => AUTHORITY_PATH_SEGMENTS.has(segment))) {
-        boost += 0.45;
-      }
+  const urlInfo = analyzeResultUrl(result.url);
+  if (!urlInfo) return 0;
+
+  let boost = 0;
+  if (isDocsLikeQuery(query)) {
+    if (
+      urlInfo.subdomainLabels.some((label) => AUTHORITY_SUBDOMAINS.has(label))
+    ) {
+      boost += 0.6;
     }
-    if (isReleaseLikeQuery(query)) {
-      if (pathSegments.some((segment) => RELEASE_PATH_SEGMENTS.has(segment))) {
-        boost += 0.55;
-      }
-      if (parsed.hostname.toLowerCase() === "github.com" && pathSegments.includes("releases")) {
-        boost += 0.65;
-      }
+    if (
+      urlInfo.pathSegments.some((segment) =>
+        AUTHORITY_PATH_SEGMENTS.has(segment)
+      )
+    ) {
+      boost += 0.45;
     }
-    return boost;
-  } catch {
-    return 0;
   }
+  if (isReleaseLikeQuery(query)) {
+    if (
+      urlInfo.pathSegments.some((segment) => RELEASE_PATH_SEGMENTS.has(segment))
+    ) {
+      boost += 0.55;
+    }
+    if (
+      urlInfo.hostWithoutWww === "github.com" &&
+      urlInfo.pathSegments.includes("releases")
+    ) {
+      boost += 0.65;
+    }
+  }
+  return boost;
 }
 
-export type SearchConfidenceReason = "ok" | "low_score" | "low_diversity" | "low_coverage" | "mixed";
+export type SearchConfidenceReason =
+  | "ok"
+  | "low_score"
+  | "low_diversity"
+  | "low_coverage"
+  | "mixed";
 
 export interface SearchConfidenceAssessment {
   lowConfidence: boolean;
@@ -258,7 +291,9 @@ export function assessSearchConfidence(
 
   const sample = results.slice(0, sampleSize);
   const considered = sample.length;
-  const scored = sample.filter((r) => typeof r.score === "number" && Number.isFinite(r.score));
+  const scored = sample.filter((r) =>
+    typeof r.score === "number" && Number.isFinite(r.score)
+  );
   const avgScore = scored.length > 0
     ? scored.reduce((sum, r) => sum + (r.score ?? 0), 0) / scored.length
     : undefined;
@@ -270,22 +305,33 @@ export function assessSearchConfidence(
 
   const queryTokens = tokenizeQuery(query);
   const mergedText = sample
-    .map((r) => `${r.title ?? ""} ${r.snippet ?? ""} ${r.url ?? ""}`.toLowerCase())
+    .map((r) =>
+      `${r.title ?? ""} ${r.snippet ?? ""} ${r.url ?? ""}`.toLowerCase()
+    )
     .join(" ");
-  const matchedQueryTokens = queryTokens.filter((t) => mergedText.includes(t)).length;
-  const queryCoverage = queryTokens.length > 0 ? matchedQueryTokens / queryTokens.length : 1;
+  const matchedQueryTokens =
+    queryTokens.filter((t) => mergedText.includes(t)).length;
+  const queryCoverage = queryTokens.length > 0
+    ? matchedQueryTokens / queryTokens.length
+    : 1;
 
   const reasons: Array<"low_score" | "low_diversity" | "low_coverage"> = [];
-  if (avgScore === undefined || avgScore < scoreThreshold) reasons.push("low_score");
-  if (considered >= 3 && hostDiversity < diversityThreshold) reasons.push("low_diversity");
-  if (queryTokens.length >= 2 && queryCoverage < coverageThreshold) reasons.push("low_coverage");
+  if (avgScore === undefined || avgScore < scoreThreshold) {
+    reasons.push("low_score");
+  }
+  if (considered >= 3 && hostDiversity < diversityThreshold) {
+    reasons.push("low_diversity");
+  }
+  if (queryTokens.length >= 2 && queryCoverage < coverageThreshold) {
+    reasons.push("low_coverage");
+  }
 
   const lowConfidence = reasons.length > 0;
   const reason: SearchConfidenceReason = !lowConfidence
     ? "ok"
     : reasons.length === 1
-      ? reasons[0]
-      : "mixed";
+    ? reasons[0]
+    : "mixed";
 
   return {
     lowConfidence,
@@ -300,10 +346,14 @@ export function assessSearchConfidence(
 }
 
 function qualityScore(result: SearchResult): number {
-  return (result.title?.length ?? 0) + (result.snippet?.length ?? 0) + ((result.score ?? 0) * 8);
+  return (result.title?.length ?? 0) + (result.snippet?.length ?? 0) +
+    ((result.score ?? 0) * 8);
 }
 
-function isInsideTimeRange(ageDays: number | undefined, timeRange: SearchTimeRange): boolean {
+function isInsideTimeRange(
+  ageDays: number | undefined,
+  timeRange: SearchTimeRange,
+): boolean {
   if (timeRange === "all") return true;
   if (ageDays === undefined) return true;
   return ageDays <= TIME_RANGE_MAX_DAYS[timeRange];
@@ -316,8 +366,10 @@ export function canonicalizeResultUrl(url?: string): string | undefined {
     parsed.hash = "";
     parsed.hostname = parsed.hostname.toLowerCase();
 
-    if ((parsed.protocol === "https:" && parsed.port === "443") ||
-      (parsed.protocol === "http:" && parsed.port === "80")) {
+    if (
+      (parsed.protocol === "https:" && parsed.port === "443") ||
+      (parsed.protocol === "http:" && parsed.port === "80")
+    ) {
       parsed.port = "";
     }
 
@@ -328,7 +380,9 @@ export function canonicalizeResultUrl(url?: string): string | undefined {
       .sort(([a], [b]) => a.localeCompare(b));
 
     parsed.search = "";
-    cleanedParams.forEach(([key, value]) => parsed.searchParams.append(key, value));
+    cleanedParams.forEach(([key, value]) =>
+      parsed.searchParams.append(key, value)
+    );
 
     return parsed.toString();
   } catch {
@@ -352,7 +406,9 @@ export function dedupeSearchResults(results: SearchResult[]): SearchResult[] {
 
   for (const result of results) {
     const key = canonicalizeResultUrl(result.url) ??
-      `no-url:${(result.title ?? "").toLowerCase()}:${(result.snippet ?? "").toLowerCase()}`;
+      `no-url:${(result.title ?? "").toLowerCase()}:${
+        (result.snippet ?? "").toLowerCase()
+      }`;
     const existing = bestByCanonical.get(key);
     if (!existing) {
       bestByCanonical.set(key, result);
@@ -381,7 +437,7 @@ const PASSAGE_MIN_CHARS = 40;
  *   occurrences of distinct tokens → higher bonus (1 / (1 + span/100)).
  */
 export function scorePassage(lower: string, tokens: string[]): number {
-  const positions: number[] = [];  // first-occurrence index per matched token
+  const positions: number[] = []; // first-occurrence index per matched token
   let tf = 0;
 
   for (const t of tokens) {
@@ -436,8 +492,8 @@ export function extractRelevantPassages(
   });
 
   return scored
-    .filter((s) => s.score > 0)             // Must match at least 1 query token
-    .sort((a, b) => b.score - a.score)       // Best matches first
+    .filter((s) => s.score > 0) // Must match at least 1 query token
+    .sort((a, b) => b.score - a.score) // Best matches first
     .slice(0, maxPassages)
     .map((s) =>
       s.text.length > PASSAGE_MAX_CHARS
@@ -451,60 +507,149 @@ export function extractRelevantPassages(
 // ============================================================
 
 const AUTHORITY_TLDS = new Set(["edu", "gov"]);
-const AUTHORITY_SUBDOMAINS = new Set(["docs", "developer", "api", "wiki", "learn", "reference"]);
-const AUTHORITY_PATH_SEGMENTS = new Set(["docs", "documentation", "guide", "tutorial", "api", "reference"]);
+const AUTHORITY_SUBDOMAINS = new Set([
+  "docs",
+  "developer",
+  "api",
+  "wiki",
+  "learn",
+  "reference",
+]);
+const AUTHORITY_PATH_SEGMENTS = new Set([
+  "docs",
+  "documentation",
+  "guide",
+  "tutorial",
+  "api",
+  "reference",
+]);
+const GENERIC_HOSTING_DOMAINS = new Set([
+  "readthedocs.io",
+  "vercel.app",
+  "netlify.app",
+  "pages.dev",
+  "web.app",
+  "firebaseapp.com",
+]);
+const GENERIC_HOSTING_SUFFIXES = new Set(["github.io"]);
 
 /** URL-pattern domain authority boost (no hardcoded domain map). */
 export function domainAuthorityBoost(url: string): number {
-  try {
-    const parsed = new URL(url);
-    let boost = 0;
-    const hostParts = parsed.hostname.toLowerCase().split(".");
-    const tld = hostParts[hostParts.length - 1];
-    if (AUTHORITY_TLDS.has(tld)) boost += 0.3;
-    if (hostParts.length >= 2 && AUTHORITY_SUBDOMAINS.has(hostParts[0])) boost += 0.2;
-    const pathSegments = parsed.pathname.toLowerCase().split("/").filter(Boolean);
-    if (pathSegments.some((seg) => AUTHORITY_PATH_SEGMENTS.has(seg))) boost += 0.1;
-    return boost;
-  } catch {
-    return 0;
+  const urlInfo = analyzeResultUrl(url);
+  if (!urlInfo) return 0;
+
+  let boost = 0;
+  if (urlInfo.hostLabels.some((label) => AUTHORITY_TLDS.has(label))) {
+    boost += 0.3;
   }
+  if (
+    urlInfo.subdomainLabels.some((label) => AUTHORITY_SUBDOMAINS.has(label))
+  ) boost += 0.2;
+  if (urlInfo.pathSegments.some((seg) => AUTHORITY_PATH_SEGMENTS.has(seg))) {
+    boost += 0.1;
+  }
+  return boost;
 }
 
-const REPO_HOSTS = new Set(["github.com", "gitlab.com", "bitbucket.org", "sr.ht"]);
-const COMMUNITY_HOSTS = new Set([
-  "reddit.com", "stackoverflow.com", "stackexchange.com",
-  "dev.to", "medium.com", "quora.com", "news.ycombinator.com",
-  "discord.com", "twitter.com", "x.com",
+const REPO_HOSTS = new Set([
+  "github.com",
+  "gitlab.com",
+  "bitbucket.org",
+  "sr.ht",
 ]);
+const COMMUNITY_DOMAINS = new Set([
+  "reddit.com",
+  "stackoverflow.com",
+  "stackexchange.com",
+  "dev.to",
+  "medium.com",
+  "quora.com",
+  "discord.com",
+  "twitter.com",
+  "x.com",
+]);
+const COMMUNITY_HOSTS = new Set(["news.ycombinator.com"]);
+const GITHUB_COMMUNITY_PATH_SEGMENTS = new Set([
+  "discussions",
+  "issues",
+  "pull",
+  "pulls",
+]);
+const GITLAB_COMMUNITY_PATH_SEGMENTS = new Set(["issues", "merge_requests"]);
+const BITBUCKET_COMMUNITY_PATH_SEGMENTS = new Set(["issues", "pull-requests"]);
+
+function isKnownHostingDomain(
+  urlInfo: ReturnType<typeof analyzeResultUrl>,
+): boolean {
+  if (!urlInfo) return false;
+  return (urlInfo.registrableDomain !== undefined &&
+    GENERIC_HOSTING_DOMAINS.has(urlInfo.registrableDomain)) ||
+    (urlInfo.publicSuffix !== undefined &&
+      GENERIC_HOSTING_SUFFIXES.has(urlInfo.publicSuffix));
+}
+
+function classifyRepositoryHost(
+  urlInfo: NonNullable<ReturnType<typeof analyzeResultUrl>>,
+): "repository" | "community" | undefined {
+  if (!REPO_HOSTS.has(urlInfo.hostWithoutWww)) return undefined;
+
+  switch (urlInfo.hostWithoutWww) {
+    case "github.com":
+      if (urlInfo.pathSegments.length < 2) return undefined;
+      return urlInfo.pathSegments.some((segment) =>
+          GITHUB_COMMUNITY_PATH_SEGMENTS.has(segment)
+        )
+        ? "community"
+        : "repository";
+    case "gitlab.com":
+      if (urlInfo.pathSegments.length < 2) return undefined;
+      return urlInfo.pathSegments.some((segment) =>
+          GITLAB_COMMUNITY_PATH_SEGMENTS.has(segment)
+        )
+        ? "community"
+        : "repository";
+    case "bitbucket.org":
+      if (urlInfo.pathSegments.length < 2) return undefined;
+      return urlInfo.pathSegments.some((segment) =>
+          BITBUCKET_COMMUNITY_PATH_SEGMENTS.has(segment)
+        )
+        ? "community"
+        : "repository";
+    case "sr.ht":
+      return urlInfo.pathSegments.length > 0 ? "repository" : undefined;
+    default:
+      return undefined;
+  }
+}
 
 export function classifySourceAuthority(
   url: string,
   query: string,
 ): "official" | "authoritative" | "repository" | "community" | "unknown" {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  const urlInfo = analyzeResultUrl(url);
+  if (!urlInfo) return "unknown";
 
-    // Community sites — check first (GitHub issue discussions are community, not repo)
-    if (COMMUNITY_HOSTS.has(host)) return "community";
+  if (COMMUNITY_HOSTS.has(urlInfo.hostWithoutWww)) return "community";
+  if (
+    urlInfo.registrableDomain &&
+    COMMUNITY_DOMAINS.has(urlInfo.registrableDomain)
+  ) return "community";
 
-    // Repository hosts
-    if (REPO_HOSTS.has(host)) return "repository";
+  const repoClassification = classifyRepositoryHost(urlInfo);
+  if (repoClassification) return repoClassification;
 
-    // Official: domain name contains a significant query term
-    // e.g. "bun" query + "bun.sh" domain, "deno" query + "deno.com" domain
-    const queryTerms = tokenizeQuery(query).filter(t => t.length >= 3);
-    const domainBase = host.split(".").slice(0, -1).join(".");
-    if (queryTerms.some(term => domainBase.includes(term))) return "official";
-
-    // Authoritative: high domain authority boost
-    if (domainAuthorityBoost(url) >= 0.3) return "authoritative";
-
-    return "unknown";
-  } catch {
-    return "unknown";
+  const queryTerms = tokenizeQuery(query).filter((term) => term.length >= 3);
+  const domainTerms = tokenizeQuery(urlInfo.domainWithoutSuffix ?? "");
+  if (
+    !isKnownHostingDomain(urlInfo) &&
+    domainTerms.length > 0 &&
+    queryTerms.some((term) => domainTerms.includes(term))
+  ) {
+    return "official";
   }
+
+  if (domainAuthorityBoost(url) >= 0.3) return "authoritative";
+  return "unknown";
 }
 
 // ============================================================
@@ -512,7 +657,10 @@ export function classifySourceAuthority(
 // ============================================================
 
 /** Drop passages that substantially overlap with the DDG snippet (Jaccard > 0.6). */
-export function deduplicateSnippetPassages(snippet: string, passages: string[]): string[] {
+export function deduplicateSnippetPassages(
+  snippet: string,
+  passages: string[],
+): string[] {
   if (!snippet || passages.length === 0) return passages;
   const snippetTokens = new Set(tokenizeQuery(snippet));
   if (snippetTokens.size === 0) return passages;
@@ -540,8 +688,10 @@ export function rankSearchResults(
   // Score once: base relevance + authority - quality penalty, with conditional recency boost
   const scored = deduped.map((result) => {
     const ageDays = extractResultAgeDays(result);
-    const base = relevanceScore(tokens, result) + recencyBoost(ageDays, timeRange) + querySignalBoost(query, result);
-    const score = base * (1 + domainAuthorityBoost(result.url ?? "")) - sourceQualityPenalty(result);
+    const base = relevanceScore(tokens, result) +
+      recencyBoost(ageDays, timeRange) + querySignalBoost(query, result);
+    const score = base * (1 + domainAuthorityBoost(result.url ?? "")) -
+      sourceQualityPenalty(result);
     return { result, ageDays, baseScore: score, host: resultHost(result.url) };
   });
 

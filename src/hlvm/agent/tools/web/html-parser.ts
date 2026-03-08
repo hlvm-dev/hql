@@ -286,12 +286,14 @@ export function parseHtml(
   textTruncated: boolean;
   links: string[];
   linkCount: number;
+  publishedDate?: string;
 } {
   const normalized = normalizeHtmlForExtraction(html);
   const title = extractTitle(html);
   const description = extractMetaDescription(html);
   const { text, truncated } = extractTextContent(normalized, maxTextLength);
   const links = extractLinks(normalized, maxLinks);
+  const publishedDate = extractPublicationDate(html);
 
   return {
     title,
@@ -300,6 +302,7 @@ export function parseHtml(
     textTruncated: truncated,
     links,
     linkCount: links.length,
+    publishedDate,
   };
 }
 

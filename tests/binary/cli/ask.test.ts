@@ -19,6 +19,15 @@ function normalizeCliOutput(text: string): string {
     .replace(/[ \t]+\n/g, "\n");
 }
 
+function assertOrderedSubstrings(output: string, parts: string[]): void {
+  let cursor = 0;
+  for (const part of parts) {
+    const index = output.indexOf(part, cursor);
+    assertEquals(index >= 0, true, `Missing "${part}" in output:\n${output}`);
+    cursor = index + part.length;
+  }
+}
+
 binaryTest("CLI ask: fixture-backed default transcript shows todo and delegation progress", async () => {
   await withTempDir(async (dir) => {
     const port = await findFreePort();
@@ -37,14 +46,19 @@ binaryTest("CLI ask: fixture-backed default transcript shows todo and delegation
 
     const output = normalizeCliOutput(result.stdout + result.stderr);
     assertEquals(result.success, true, output);
-    assertEquals(output.includes("todo_write"), true, output);
-    assertEquals(output.includes("1 todo"), true, output);
-    assertEquals(output.includes("delegate web"), true, output);
-    assertEquals(output.includes("Exploration complete"), true, output);
+    assertOrderedSubstrings(output, [
+      "todo_write",
+      "1 todo",
+      "delegate web",
+      "Exploration complete",
+      "Parent complete",
+    ]);
+    assertEquals(output.includes("[Delegate]"), false, output);
+    assertEquals(output.includes("Result:"), false, output);
   });
 });
 
-binaryTest("CLI ask: fixture-backed default transcript shows plan creation for multi-step requests", async () => {
+binaryTest("CLI ask: fixture-backed default transcript stays compact for multi-step requests", async () => {
   await withTempDir(async (dir) => {
     const port = await findFreePort();
     const result = await runCLI(
@@ -67,8 +81,13 @@ binaryTest("CLI ask: fixture-backed default transcript shows plan creation for m
 
     const output = normalizeCliOutput(result.stdout + result.stderr);
     assertEquals(result.success, true, output);
-    assertEquals(output.includes("Plan"), true, output);
-    assertEquals(output.includes("2 steps"), true, output);
+    assertOrderedSubstrings(output, [
+      "todo_write",
+      "delegate web",
+      "Parent complete",
+    ]);
+    assertEquals(output.includes("Plan"), false, output);
+    assertEquals(output.includes("Todo ->"), false, output);
   });
 });
 
@@ -96,12 +115,14 @@ binaryTest("CLI ask: fixture-backed verbose transcript includes delegate details
 
     const output = normalizeCliOutput(result.stdout + result.stderr);
     assertEquals(result.success, true, output);
-    assertEquals(output.includes("[Delegate] web"), true, output);
-    assertEquals(output.includes("[Delegate Result] web"), true, output);
-    assertEquals(output.includes("Child transcript:"), true, output);
-    assertEquals(output.includes("Tool read_file"), true, output);
-    assertEquals(output.includes("Exploration complete"), true, output);
-    assertEquals(output.includes("Result:\nParent complete"), true, output);
+    assertOrderedSubstrings(output, [
+      "[Delegate] web",
+      "[Delegate Result] web",
+      "Child transcript:",
+      "Tool read_file",
+      "Exploration complete",
+      "Result:\nParent complete",
+    ]);
   });
 });
 
@@ -133,6 +154,7 @@ binaryTest("CLI ask: fixture-backed json transcript streams NDJSON events", asyn
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line) as { type: string; event?: { type?: string } });
+    assertEquals(lines.at(-1)?.type, "final");
     assertEquals(
       lines.some((line) =>
         line.type === "agent_event" && line.event?.type === "plan_created"

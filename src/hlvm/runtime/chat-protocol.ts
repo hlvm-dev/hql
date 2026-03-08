@@ -2,6 +2,7 @@ import type { PermissionMode } from "../../common/config/types.ts";
 import type { FinalResponseMeta, TraceEvent } from "../agent/orchestrator.ts";
 import type { Plan } from "../agent/planning.ts";
 import type { DelegateTranscriptSnapshot } from "../agent/delegate-transcript.ts";
+import type { TodoState } from "../agent/todo-state.ts";
 
 export const CLAUDE_CODE_AGENT_MODE = "claude-code-agent" as const;
 
@@ -25,7 +26,6 @@ export interface ChatRequest {
   client_turn_id?: string;
   assistant_client_turn_id?: string;
   expected_version?: number;
-  workspace?: string;
   context_window?: number;
   permission_mode?: PermissionMode;
   skip_session_history?: boolean;
@@ -96,6 +96,7 @@ export type ChatStreamEvent =
     event: "delegate_start";
     agent: string;
     task: string;
+    child_session_id?: string;
   }
   | {
     event: "delegate_end";
@@ -106,6 +107,12 @@ export type ChatStreamEvent =
     duration_ms?: number;
     error?: string;
     snapshot?: DelegateTranscriptSnapshot;
+    child_session_id?: string;
+  }
+  | {
+    event: "todo_updated";
+    todo_state: TodoState;
+    source: "tool" | "plan";
   }
   | { event: "plan_created"; plan: Plan }
   | { event: "plan_step"; step_id: string; index: number; completed: boolean }

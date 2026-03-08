@@ -36,7 +36,6 @@ async function withInteractiveTerminal(
 }
 
 Deno.test("mcp command routes add/list/remove through the runtime host", async () => {
-  const workspace = getPlatform().process.cwd();
   let addBody: Record<string, unknown> | null = null;
   let removeBody: Record<string, unknown> | null = null;
 
@@ -53,17 +52,17 @@ Deno.test("mcp command routes add/list/remove through the runtime host", async (
         servers: [{
           name: "github",
           command: ["npx", "-y", "@modelcontextprotocol/server-github"],
-          scope: "project",
+          scope: "user",
           transport: "stdio",
           target: "npx -y @modelcontextprotocol/server-github",
-          scopeLabel: "project",
+          scopeLabel: "user",
         }],
       });
     }
 
     if (url.pathname === "/api/mcp/servers" && req.method === "DELETE") {
       removeBody = await req.json() as Record<string, unknown>;
-      return Response.json({ removed: true, scope: "project" });
+      return Response.json({ removed: true });
     }
 
     return new Response("Not found", { status: 404 });
@@ -80,25 +79,23 @@ Deno.test("mcp command routes add/list/remove through the runtime host", async (
       await mcpCommand(["list"]);
       await mcpCommand(["remove", "github"]);
 
-      assertEquals(addBody?.workspace, workspace);
-      assertEquals(addBody?.scope, "project");
+      assertEquals(addBody?.server !== undefined, true);
       assertEquals(removeBody?.name, "github");
       assertStringIncludes(
         output(),
-        'Added MCP server "github" (project scope, stdio)',
+        'Added MCP server "github" (global, stdio)',
       );
       assertStringIncludes(output(), "MCP Servers:");
       assertStringIncludes(output(), "github");
       assertStringIncludes(
         output(),
-        'Removed MCP server "github" from project scope',
+        'Removed MCP server "github" from global scope',
       );
     });
   });
 });
 
 Deno.test("mcp command routes login/logout through the runtime host", async () => {
-  const workspace = getPlatform().process.cwd();
   let loginBody: Record<string, unknown> | null = null;
   let logoutBody: Record<string, unknown> | null = null;
 
@@ -132,7 +129,6 @@ Deno.test("mcp command routes login/logout through the runtime host", async () =
         await mcpCommand(["login", "github"]);
         await mcpCommand(["logout", "github"]);
 
-        assertEquals(loginBody?.workspace, workspace);
         assertEquals(logoutBody?.name, "github");
         assertStringIncludes(
           output(),

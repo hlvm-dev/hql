@@ -11,9 +11,7 @@
  */
 
 import { ContextManager } from "./context.ts";
-import {
-  generateSystemPrompt,
-} from "./llm-integration.ts";
+import { generateSystemPrompt } from "./llm-integration.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
 import { type AgentPolicy, loadAgentPolicy } from "./policy.ts";
 import {
@@ -26,22 +24,20 @@ import {
   type ModelTier,
 } from "./constants.ts";
 import type { LLMFunction } from "./orchestrator.ts";
-import {
-  loadMcpTools,
-  type McpHandlers,
-  resolveBuiltinMcpServers,
-} from "./mcp/mod.ts";
+import { loadMcpTools, type McpHandlers } from "./mcp/mod.ts";
 import { getAgentLogger } from "./logger.ts";
 import { ValidationError } from "../../common/error.ts";
 import { generateUUID } from "../../common/utils.ts";
-import { resolveContextBudget, type ResolvedBudget } from "./context-resolver.ts";
+import {
+  resolveContextBudget,
+  type ResolvedBudget,
+} from "./context-resolver.ts";
 import type { ModelInfo } from "../providers/types.ts";
-import { getPlatform } from "../../platform/platform.ts";
 import { createTodoState, type TodoState } from "./todo-state.ts";
 import {
   type AgentEngine,
-  type ToolFilterState,
   getAgentEngine,
+  type ToolFilterState,
 } from "./engine.ts";
 import { loadMemoryContext } from "../memory/mod.ts";
 
@@ -51,8 +47,6 @@ export interface AgentSessionOptions {
   fixturePath?: string;
   engineProfile?: keyof typeof ENGINE_PROFILES;
   failOnContextOverflow?: boolean;
-  policyPath?: string;
-  mcpConfigPath?: string;
   toolAllowlist?: string[];
   toolDenylist?: string[];
   /** Optional callback for streaming tokens to the terminal */
@@ -107,8 +101,6 @@ export interface AgentSession {
   todoState: TodoState;
 }
 
-
-
 /** Try to get ModelInfo from the provider (best-effort, non-blocking) */
 async function tryGetModelInfo(
   providerName: string,
@@ -125,58 +117,14 @@ async function tryGetModelInfo(
   return null;
 }
 
-/** Git context for system prompt */
-export interface GitContext {
-  branch: string;
-  dirty: boolean;
-}
-
-/**
- * Detect git branch and dirty state with a 3-second timeout.
- * Returns null on any failure (not a git repo, git not installed, timeout).
- * @internal Exported for unit testing only.
- */
-export async function detectGitContext(workspace: string): Promise<GitContext | null> {
-  try {
-    return await Promise.race([
-      detectGitContextInner(workspace),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
-    ]);
-  } catch {
-    return null;
-  }
-}
-
-async function detectGitContextInner(
-  workspace: string,
-): Promise<GitContext | null> {
-  const platform = getPlatform();
-  const run = (cmd: string[]) =>
-    platform.command.output({
-      cmd,
-      cwd: workspace,
-      stdout: "piped",
-      stderr: "piped",
-      stdin: "null",
-    });
-
-  const [branchResult, statusResult] = await Promise.all([
-    run(["git", "rev-parse", "--abbrev-ref", "HEAD"]),
-    run(["git", "status", "--porcelain"]),
-  ]);
-
-  if (!branchResult.success) return null;
-
-  const branch = new TextDecoder().decode(branchResult.stdout).trim();
-  const statusOutput = new TextDecoder().decode(statusResult.stdout).trim();
-  return { branch, dirty: statusOutput.length > 0 };
-}
-
 function cloneStringList(list?: string[]): string[] | undefined {
   return list?.length ? [...list] : undefined;
 }
 
-function mergeMcpHandlers(current: McpHandlers, next: McpHandlers): McpHandlers {
+function mergeMcpHandlers(
+  current: McpHandlers,
+  next: McpHandlers,
+): McpHandlers {
   const roots = [...(current.roots ?? []), ...(next.roots ?? [])];
   return {
     onSampling: next.onSampling ?? current.onSampling,
@@ -194,21 +142,23 @@ export async function createAgentSession(
   // Parallelize independent I/O: policy, MCP server discovery, and model info
   const providerName = extractProviderName(options.model);
   const modelName = extractModelSuffix(options.model);
-  const [policy, builtinMcpServers, modelInfo, gitContext] = await Promise.all([
-    loadAgentPolicy(options.workspace, options.policyPath),
-    resolveBuiltinMcpServers(options.workspace),
+  const [policy, modelInfo] = await Promise.all([
+    loadAgentPolicy(),
     options.modelInfo !== undefined
       ? Promise.resolve(options.modelInfo)
       : (options.model && !options.fixturePath
         ? tryGetModelInfo(providerName, modelName)
         : Promise.resolve(null)),
-    detectGitContext(options.workspace),
   ]);
 
   // Compute model tier BEFORE MCP loading (weak models skip MCP entirely)
   const isFrontier = isFrontierProvider(options.model);
   const modelTier = classifyModelTier(modelInfo, isFrontier);
-  const tierFilter = computeTierToolFilter(modelTier, options.toolAllowlist, options.toolDenylist);
+  const tierFilter = computeTierToolFilter(
+    modelTier,
+    options.toolAllowlist,
+    options.toolDenylist,
+  );
   const baseToolFilter: ToolFilterState = {
     allowlist: cloneStringList(tierFilter.allowlist),
     denylist: cloneStringList(tierFilter.denylist),
@@ -253,8 +203,7 @@ export async function createAgentSession(
     if (!loadingMcp) {
       loadingMcp = loadMcpTools(
         options.workspace,
-        options.mcpConfigPath,
-        builtinMcpServers,
+        undefined,
         toolOwnerId,
       ).then((mcp) => {
         loadedMcp = mcp;
@@ -323,7 +272,6 @@ export async function createAgentSession(
       toolOwnerId,
       customInstructions: options.customInstructions,
       modelTier,
-      gitContext: gitContext ?? undefined,
     }),
   });
 

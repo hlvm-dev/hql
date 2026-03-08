@@ -4,18 +4,14 @@
  * Replaces hand-rolled provider plumbing (SSE parsing, message conversion,
  * token heuristics) with the Vercel AI SDK's generateText/streamText.
  *
- * Reuses existing project functions:
+ * Reuses existing HLVM functions:
  *   - buildToolDefinitions() from llm-integration.ts (tool schema building)
  *   - getClaudeCodeToken() from providers/claude-code/auth.ts (OAuth)
  */
 
 import { generateText, streamText } from "ai";
 import type { LanguageModel, ToolSet } from "ai";
-import type {
-  AgentEngine,
-  AgentLLMConfig,
-  ToolFilterState,
-} from "./engine.ts";
+import type { AgentEngine, AgentLLMConfig, ToolFilterState } from "./engine.ts";
 import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
 import type { LLMResponse, ToolCall } from "./tool-call.ts";
@@ -33,8 +29,8 @@ import {
 import type { ProviderConfig } from "../providers/types.ts";
 import {
   assertSupportedSdkProvider,
-  convertToSdkMessages,
   convertToolDefinitionsToSdk,
+  convertToSdkMessages,
   createSdkLanguageModel,
   mapSdkSources,
   mapSdkUsage,
@@ -204,13 +200,14 @@ export class SdkAgentEngine implements AgentEngine {
           }
 
           // streamText properties are PromiseLike — await them
-          const [toolCalls, usage, text, sources, providerMetadata] = await Promise.all([
-            result.toolCalls,
-            result.usage,
-            result.text,
-            result.sources,
-            result.providerMetadata,
-          ]);
+          const [toolCalls, usage, text, sources, providerMetadata] =
+            await Promise.all([
+              result.toolCalls,
+              result.usage,
+              result.text,
+              result.sources,
+              result.providerMetadata,
+            ]);
 
           return {
             content: chunks.join("") || text || "",
@@ -236,7 +233,9 @@ export class SdkAgentEngine implements AgentEngine {
         if (message.includes("No output generated")) {
           let fallbackText = "";
           let fallbackCalls: ToolCall[] = [];
-          let fallbackUsage: { inputTokens: number; outputTokens: number } | undefined;
+          let fallbackUsage:
+            | { inputTokens: number; outputTokens: number }
+            | undefined;
           let fallbackSources;
           let fallbackProviderMetadata;
 

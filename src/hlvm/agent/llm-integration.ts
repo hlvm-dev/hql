@@ -130,8 +130,6 @@ export interface SystemPromptOptions {
   customInstructions?: string;
   /** Model tier — controls prompt depth */
   modelTier?: ModelTier;
-  /** Git context from async detection */
-  gitContext?: { branch: string; dirty: boolean };
 }
 
 /** Human-readable labels for routing table */
@@ -311,19 +309,15 @@ function renderWebToolGuidance(
   return { id: "web_guidance", content: lines.join("\n"), minTier: "weak" };
 }
 
-function renderEnvironment(
-  gitContext?: { branch: string; dirty: boolean },
-): PromptSection {
+function renderEnvironment(): PromptSection {
   const platform = getPlatform();
   const homePath = platform.env.get("HOME") ?? "unknown";
-  const cwd = platform.process.cwd();
-  let env =
-    `# Environment\nPlatform: ${platform.build.os} | Working directory: ${cwd} | HOME: ${homePath}`;
-  if (gitContext) {
-    const status = gitContext.dirty ? "dirty" : "clean";
-    env += `\nGit: branch=${gitContext.branch} (${status})`;
-  }
-  return { id: "environment", content: env, minTier: "weak" };
+  return {
+    id: "environment",
+    content:
+      `# Environment\nPlatform: ${platform.build.os} | HOME: ${homePath}`,
+    minTier: "weak",
+  };
 }
 
 function renderCustomInstructions(text: string): PromptSection {
@@ -401,7 +395,7 @@ export function generateSystemPrompt(
     renderToolRouting(tools),
     renderWebToolGuidance(tools),
     renderPermissionTiers(tools),
-    renderEnvironment(options.gitContext),
+    renderEnvironment(),
   ];
 
   if (options.customInstructions) {

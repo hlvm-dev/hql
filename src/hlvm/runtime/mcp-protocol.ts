@@ -1,5 +1,4 @@
-export type RuntimeMcpScope = "dotmcp" | "project" | "user" | "claude-code";
-export type RuntimeMcpMutableScope = "project" | "user";
+export type RuntimeMcpScope = "user" | "claude-code";
 
 export interface RuntimeMcpServerDescriptor {
   name: string;
@@ -24,24 +23,18 @@ export interface RuntimeMcpServerInput {
 }
 
 export interface RuntimeMcpAddRequest {
-  workspace: string;
-  scope: RuntimeMcpMutableScope;
   server: RuntimeMcpServerInput;
 }
 
 export interface RuntimeMcpRemoveRequest {
-  workspace: string;
   name: string;
-  scope?: RuntimeMcpMutableScope;
 }
 
 export interface RuntimeMcpRemoveResponse {
   removed: boolean;
-  scope: RuntimeMcpMutableScope | null;
 }
 
 export interface RuntimeMcpOauthRequest {
-  workspace: string;
   name: string;
 }
 

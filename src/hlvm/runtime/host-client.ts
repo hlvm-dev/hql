@@ -101,7 +101,6 @@ export interface HostBackedChatOptions {
   messages: ChatRequestMessage[];
   model?: string;
   fixturePath?: string;
-  workspace?: string;
   contextWindow?: number;
   skipSessionHistory?: boolean;
   permissionMode?: PermissionMode;
@@ -117,7 +116,6 @@ export interface HostBackedChatOptions {
 export interface HostBackedAgentQueryOptions {
   query: string;
   model: string;
-  workspace: string;
   fixturePath?: string;
   imagePaths?: string[];
   contextWindow?: number;
@@ -374,6 +372,7 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         type: "delegate_start",
         agent: event.agent,
         task: event.task,
+        childSessionId: event.child_session_id,
       };
     case "delegate_end":
       return {
@@ -385,6 +384,13 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         durationMs: event.duration_ms ?? 0,
         error: event.error,
         snapshot: event.snapshot,
+        childSessionId: event.child_session_id,
+      };
+    case "todo_updated":
+      return {
+        type: "todo_updated",
+        todoState: event.todo_state,
+        source: event.source,
       };
     case "plan_created":
       return {
@@ -898,18 +904,16 @@ export async function runRuntimeOllamaSignin(): Promise<
   return await response.json() as RuntimeOllamaSigninResponse;
 }
 
-export async function listRuntimeMcpServers(
-  workspace: string,
-): Promise<RuntimeMcpServerDescriptor[]> {
+export async function listRuntimeMcpServers(): Promise<
+  RuntimeMcpServerDescriptor[]
+> {
   const response = await fetchRuntimeJson<RuntimeMcpListResponse>(
-    `/api/mcp/servers?workspace=${encodeURIComponent(workspace)}`,
+    "/api/mcp/servers",
   );
   return response.servers;
 }
 
 export async function addRuntimeMcpServer(input: {
-  workspace: string;
-  scope: "project" | "user";
   server: RuntimeMcpServerInput;
 }): Promise<void> {
   const response = await fetchRuntimeRaw("/api/mcp/servers", {
@@ -928,9 +932,7 @@ export async function addRuntimeMcpServer(input: {
 }
 
 export async function removeRuntimeMcpServer(input: {
-  workspace: string;
   name: string;
-  scope?: "project" | "user";
 }): Promise<RuntimeMcpRemoveResponse> {
   const response = await fetchRuntimeRaw("/api/mcp/servers", {
     method: "DELETE",
@@ -948,7 +950,6 @@ export async function removeRuntimeMcpServer(input: {
 }
 
 export async function loginRuntimeMcpServer(input: {
-  workspace: string;
   name: string;
 }): Promise<RuntimeMcpOauthResponse> {
   const response = await fetchRuntimeRaw("/api/mcp/oauth/login", {
@@ -968,7 +969,6 @@ export async function loginRuntimeMcpServer(input: {
 }
 
 export async function logoutRuntimeMcpServer(input: {
-  workspace: string;
   name: string;
 }): Promise<RuntimeMcpOauthResponse> {
   const response = await fetchRuntimeRaw("/api/mcp/oauth/logout", {
@@ -1004,7 +1004,6 @@ export async function runChatViaHost(
     expected_version: options.expectedVersion,
     model: options.model,
     fixture_path: options.fixturePath,
-    workspace: options.workspace,
     context_window: options.contextWindow,
     permission_mode: options.permissionMode,
     skip_session_history: options.skipSessionHistory,
@@ -1158,7 +1157,6 @@ export async function runAgentQueryViaHost(
     }],
     model: options.model,
     fixturePath: options.fixturePath,
-    workspace: options.workspace,
     contextWindow: options.contextWindow,
     permissionMode: options.permissionMode,
     skipSessionHistory: options.skipSessionHistory,

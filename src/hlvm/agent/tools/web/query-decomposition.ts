@@ -108,7 +108,14 @@ function buildReleaseSubqueries(
   addUniqueSearchQuery(
     queries,
     seen,
-    appendQueryQualifier(stripped, intent.wantsOfficialDocs || intent.wantsReference ? "documentation updates" : "official updates"),
+    appendQueryQualifier(
+      stripped,
+      intent.wantsReleaseNotes
+        ? "official blog changelog"
+        : intent.wantsOfficialDocs || intent.wantsReference
+        ? "documentation updates"
+        : "official updates",
+    ),
     maxSubqueries,
   );
 

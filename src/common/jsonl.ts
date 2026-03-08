@@ -2,7 +2,7 @@
  * Shared JSONL utilities.
  *
  * SSOT for common JSONL read/parse/append/write patterns used across
- * REPL history, session storage, and agent persistence.
+ * REPL history and transcript persistence.
  */
 
 import { getPlatform } from "../platform/platform.ts";
