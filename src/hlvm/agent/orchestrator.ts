@@ -62,6 +62,7 @@ import {
   formatDelegateInboxUpdateMessage,
   type DelegateInbox,
 } from "./delegate-inbox.ts";
+import type { DelegateCoordinationBoard } from "./delegate-coordination.ts";
 import type {
   AgentCheckpointSummary,
   CheckpointRecorder,
@@ -361,6 +362,10 @@ export interface OrchestratorConfig {
   checkpointRecorder?: CheckpointRecorder;
   /** Input queue for parent→child mid-task steering messages. */
   inputQueue?: string[];
+  /** Shared supervisor-managed coordination state for delegated work. */
+  coordinationBoard?: DelegateCoordinationBoard;
+  /** Internal coordination item ID for child report_result updates. */
+  delegateCoordinationId?: string;
 }
 
 // ============================================================

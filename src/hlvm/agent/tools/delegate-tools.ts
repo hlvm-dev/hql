@@ -7,10 +7,13 @@
 import type { ToolMetadata } from "../registry.ts";
 import {
   cancelThread,
+  clearThreadWorkspace,
   type DelegateThread,
   getAllThreads,
   getThread,
+  resolveResumableThread,
   sendThreadInput,
+  updateThreadMerge,
 } from "../delegate-threads.ts";
 import { applyChildChanges } from "../delegation.ts";
 
@@ -26,19 +29,24 @@ function formatThreadResult(
     status: thread.status,
     result: thread.snapshot?.finalResponse,
     error: thread.snapshot?.error,
+    mergeState: thread.mergeState ?? "none",
   };
+  if (thread.batchId) {
+    base.batchId = thread.batchId;
+  }
   if (thread.filesModified?.length) {
     base.filesModified = thread.filesModified;
   }
-  if (mergeResult) {
-    if (mergeResult.applied.length > 0) {
-      base.filesApplied = mergeResult.applied;
+  const resolvedMerge = mergeResult ?? thread.mergeResult;
+  if (resolvedMerge) {
+    if (resolvedMerge.applied.length > 0) {
+      base.filesApplied = resolvedMerge.applied;
     }
-    if (mergeResult.conflicts.length > 0) {
-      base.conflicts = mergeResult.conflicts;
+    if (resolvedMerge.conflicts.length > 0) {
+      base.conflicts = resolvedMerge.conflicts;
     }
   }
-  if (thread.resultDiff && !mergeResult) {
+  if (thread.resultDiff && !resolvedMerge) {
     base.diff = thread.resultDiff;
   }
   return base;
@@ -53,10 +61,18 @@ async function maybeApplyChildChanges(
   parentWorkspace?: string,
 ): Promise<{ applied: string[]; conflicts: string[] } | undefined> {
   if (
-    !thread.workspacePath || !thread.filesModified?.length ||
     thread.status !== "completed" || !parentWorkspace
   ) {
     return undefined;
+  }
+  if (
+    thread.mergeState === "applied" || thread.mergeState === "conflicted" ||
+    thread.mergeState === "discarded"
+  ) {
+    return thread.mergeResult;
+  }
+  if (!thread.workspacePath || !thread.filesModified?.length) {
+    return thread.mergeResult;
   }
   try {
     const result = await applyChildChanges(
@@ -65,8 +81,13 @@ async function maybeApplyChildChanges(
       thread.filesModified,
       thread.parentSnapshots,
     );
-    // Cleanup workspace after successful apply
+    if (result.conflicts.length > 0) {
+      updateThreadMerge(thread.threadId, "conflicted", result);
+      return result;
+    }
+    updateThreadMerge(thread.threadId, "applied", result);
     await thread.workspaceCleanup?.();
+    clearThreadWorkspace(thread.threadId);
     return result;
   } catch {
     return undefined;
@@ -130,18 +151,22 @@ const waitAgent: ToolMetadata = {
     const active = threads.filter(
       (t) => t.status === "queued" || t.status === "running",
     );
-    if (active.length === 0) {
-      // Check for any completed threads
-      const finished = threads.filter(
-        (t) =>
-          t.status === "completed" || t.status === "errored" ||
-          t.status === "cancelled",
-      );
-      if (finished.length > 0) {
-        return formatThreadResult(finished[finished.length - 1]);
+      if (active.length === 0) {
+        // Check for any completed threads
+        const finished = threads.filter(
+          (t) =>
+            t.status === "completed" || t.status === "errored" ||
+            t.status === "cancelled",
+        );
+        if (finished.length > 0) {
+          const mergeResult = await maybeApplyChildChanges(
+            finished[finished.length - 1],
+            workspace,
+          );
+          return formatThreadResult(finished[finished.length - 1], mergeResult);
+        }
+        return { error: "No active or completed delegate threads" };
       }
-      return { error: "No active or completed delegate threads" };
-    }
 
     let raceTimeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -160,7 +185,8 @@ const waitAgent: ToolMetadata = {
         ]
         : promises;
       const finished = await Promise.race(racePromises);
-      return formatThreadResult(finished);
+      const mergeResult = await maybeApplyChildChanges(finished, workspace);
+      return formatThreadResult(finished, mergeResult);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { error: message };
@@ -203,6 +229,8 @@ const listAgents: ToolMetadata = {
         task: t.task,
         status: t.status,
         childSessionId: t.childSessionId,
+        mergeState: t.mergeState ?? "none",
+        batchId: t.batchId,
       })),
     };
   },
@@ -212,7 +240,7 @@ const listAgents: ToolMetadata = {
   args: {},
   returns: {
     agents:
-      "array - List of { threadId, nickname, agent, task, status, childSessionId }",
+      "array - List of { threadId, nickname, agent, task, status, childSessionId, mergeState, batchId }",
   },
   safetyLevel: "L0",
   safety: "Read-only observation of delegate scheduler state.",
@@ -328,27 +356,11 @@ const resumeAgent: ToolMetadata = {
     if (!threadId || !prompt) {
       return { success: false, message: "thread_id and prompt are required" };
     }
-    const thread = getThread(threadId);
-    if (!thread) {
+    const { thread, error } = resolveResumableThread(threadId);
+    if (!thread || error) {
       return {
         success: false,
-        message: `No thread found with ID "${threadId}"`,
-      };
-    }
-    if (!thread.childSessionId) {
-      return {
-        success: false,
-        message:
-          `Thread "${thread.nickname}" has no persisted session to resume`,
-      };
-    }
-    if (
-      thread.status !== "completed" && thread.status !== "errored"
-    ) {
-      return {
-        success: false,
-        message:
-          `Thread "${thread.nickname}" is ${thread.status} — can only resume completed/errored threads`,
+        message: error ?? "Unable to resume delegate",
       };
     }
     return {
@@ -357,7 +369,7 @@ const resumeAgent: ToolMetadata = {
       threadId,
       prompt,
       message:
-        `Ready to resume session ${thread.childSessionId} with new prompt. Use delegate_agent with sessionId to continue.`,
+        `Resume request validated for session ${thread.childSessionId}.`,
     };
   },
   description:
@@ -376,6 +388,54 @@ const resumeAgent: ToolMetadata = {
   },
   safetyLevel: "L1",
   safety: "Read-only session lookup. Actual resume happens via delegation.",
+};
+
+const discardAgentChanges: ToolMetadata = {
+  fn: async (args: unknown) => {
+    const record = (args && typeof args === "object")
+      ? args as Record<string, unknown>
+      : {};
+    const threadId = typeof record.thread_id === "string"
+      ? record.thread_id
+      : "";
+    if (!threadId) {
+      return { success: false, message: "thread_id is required" };
+    }
+    const thread = getThread(threadId);
+    if (!thread) {
+      return {
+        success: false,
+        message: `No thread found with ID "${threadId}"`,
+      };
+    }
+    if (!thread.workspacePath && thread.mergeState !== "conflicted") {
+      return {
+        success: false,
+        message: `Thread "${thread.nickname}" has no pending child changes to discard`,
+      };
+    }
+    await thread.workspaceCleanup?.();
+    clearThreadWorkspace(threadId);
+    updateThreadMerge(threadId, "discarded", thread.mergeResult ?? {
+      applied: [],
+      conflicts: thread.filesModified ?? [],
+    });
+    return {
+      success: true,
+      message: `Discarded child changes for thread "${thread.nickname}" (${threadId})`,
+    };
+  },
+  description: "Discard a child workspace after conflicts or unwanted delegated changes.",
+  category: "meta",
+  args: {
+    thread_id: "string - Thread ID of the delegate whose child changes should be discarded",
+  },
+  returns: {
+    success: "boolean",
+    message: "string",
+  },
+  safetyLevel: "L1",
+  safety: "Deletes unmerged child workspace changes for a completed delegate.",
 };
 
 const reportResult: ToolMetadata = {
@@ -421,6 +481,7 @@ export const DELEGATE_TOOLS: Record<string, ToolMetadata> = {
   wait_agent: waitAgent,
   list_agents: listAgents,
   close_agent: closeAgent,
+  discard_agent_changes: discardAgentChanges,
   send_input: sendInput,
   resume_agent: resumeAgent,
   report_result: reportResult,

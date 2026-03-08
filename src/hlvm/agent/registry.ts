@@ -248,6 +248,7 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
       threadIds: "array",
       status: "string",
     },
+    skipValidation: true,
     safetyLevel: "L0",
     safety: "Internal delegation (auto-approved).",
   },

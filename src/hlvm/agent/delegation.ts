@@ -35,6 +35,7 @@ import {
   type DelegateThreadResult,
   getActiveNicknames,
   registerThread,
+  updateThreadBatchId,
   updateThreadChildSession,
   updateThreadDiff,
   updateThreadParentSnapshots,
@@ -250,7 +251,10 @@ export async function applyChildChanges(
         const spawnContent = parentSnapshots.get(relPath);
         try {
           const currentParent = await platform.fs.readTextFile(parentPath);
-          if (spawnContent !== undefined && currentParent !== spawnContent) {
+          if (
+            (spawnContent === undefined && currentParent.length >= 0) ||
+            (spawnContent !== undefined && currentParent !== spawnContent)
+          ) {
             // Parent file changed since child was spawned — conflict
             conflicts.push(relPath);
             continue;
@@ -274,36 +278,36 @@ export async function applyChildChanges(
   return { applied, conflicts };
 }
 
-/** Max files to snapshot at spawn time (prevents memory explosion on huge repos). */
-const MAX_SNAPSHOT_FILES = 500;
-
 /**
- * Collect relative file paths in a workspace directory (non-recursive into
- * .hlvm-child-* dirs, node_modules, .git). Returns at most MAX_SNAPSHOT_FILES paths.
+ * Snapshot the content of every parent file at child spawn time.
+ * This is the live conflict-detection baseline for background delegates.
  */
-export async function collectWorkspaceFilePaths(
-  workspace: string,
-): Promise<string[]> {
+export async function snapshotWorkspaceFiles(
+  parentWorkspace: string,
+): Promise<Map<string, string>> {
   const platform = getPlatform();
-  const paths: string[] = [];
-  const SKIP_DIRS = new Set([".git", "node_modules", ".hlvm", "dist", "build", "__pycache__"]);
+  const snapshots = new Map<string, string>();
 
-  async function walk(dir: string, rel: string): Promise<void> {
-    if (paths.length >= MAX_SNAPSHOT_FILES) return;
+  async function walkDir(dir: string, rel: string): Promise<void> {
     for await (const entry of platform.fs.readDir(dir)) {
-      if (paths.length >= MAX_SNAPSHOT_FILES) return;
+      const childPath = platform.path.join(dir, entry.name);
       const relPath = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory) {
-        if (entry.name.startsWith(".hlvm-child-") || SKIP_DIRS.has(entry.name)) continue;
-        await walk(platform.path.join(dir, entry.name), relPath);
-      } else if (entry.isFile) {
-        paths.push(relPath);
+        if (entry.name.startsWith(".hlvm-child-")) continue;
+        await walkDir(childPath, relPath);
+        continue;
+      }
+      if (!entry.isFile) continue;
+      try {
+        snapshots.set(relPath, await platform.fs.readTextFile(childPath));
+      } catch {
+        // Best-effort snapshot only
       }
     }
   }
 
-  await walk(workspace, "");
-  return paths;
+  await walkDir(parentWorkspace, "");
+  return snapshots;
 }
 
 /**
@@ -477,6 +481,8 @@ async function runDelegateChild(
         todoState: childTodoState,
         signal,
         inputQueue,
+        coordinationBoard: config.coordinationBoard,
+        delegateCoordinationId: config.delegateCoordinationId,
         // If not at max depth, wire child delegate handler for nested delegation
         ...(!atMaxDepth
           ? {
@@ -616,6 +622,12 @@ export function createDelegateHandler(
     config: OrchestratorConfig,
   ): Promise<unknown> => {
     const { agent, task, record } = validateDelegateArgs(args);
+    const coordinationId = typeof record._coordinationId === "string"
+      ? record._coordinationId
+      : undefined;
+    const batchId = typeof record._batchId === "string"
+      ? record._batchId
+      : undefined;
 
     // Handle resume from persisted session (routed from resume_agent orchestrator special-case)
     const resumeSessionId = typeof record._resumeSessionId === "string"
@@ -636,15 +648,46 @@ export function createDelegateHandler(
 
     // Synchronous (foreground) path — existing behavior, zero regression risk
     if (!background) {
-      const { result } = await runDelegateChild(
-        llm,
-        baseConfig,
-        config,
-        agent,
-        task,
-        record,
-      );
-      return result;
+      if (coordinationId && config.coordinationBoard) {
+        config.coordinationBoard.ensureItem({
+          id: coordinationId,
+          goal: task,
+          assignedAgent: agent,
+          status: "running",
+          batchId,
+          inputs: { task },
+        });
+      }
+      try {
+        const { result, childSessionId, snapshot } = await runDelegateChild(
+          llm,
+          baseConfig,
+          {
+            ...config,
+            delegateCoordinationId: coordinationId,
+          },
+          agent,
+          task,
+          record,
+        );
+        if (coordinationId && config.coordinationBoard) {
+          config.coordinationBoard.updateItem(coordinationId, {
+            status: "completed",
+            resultSummary: snapshot.finalResponse,
+            childSessionId,
+          });
+        }
+        return result;
+      } catch (error) {
+        if (coordinationId && config.coordinationBoard) {
+          const message = error instanceof Error ? error.message : String(error);
+          config.coordinationBoard.updateItem(coordinationId, {
+            status: "errored",
+            error: message,
+          });
+        }
+        throw error;
+      }
     }
 
     // Background path: fire-and-forget with concurrency limiting
@@ -662,6 +705,9 @@ export function createDelegateHandler(
       const release = await limiter.acquire(threadId);
       updateThreadStatus(threadId, "running");
       config.onAgentEvent?.({ type: "delegate_running", threadId });
+      if (coordinationId && config.coordinationBoard) {
+        config.coordinationBoard.updateItem(coordinationId, { status: "running" });
+      }
 
       // Create isolated workspace for this child agent
       let lease: WorkspaceLease | undefined;
@@ -673,20 +719,14 @@ export function createDelegateHandler(
         lease = undefined;
       }
 
-      // Snapshot parent files at SPAWN TIME for conflict detection.
-      // Captures parent state BEFORE the child runs, so we can detect if the
-      // parent changed files while the child was working.
       if (lease) {
         try {
-          const parentFiles = await collectWorkspaceFilePaths(config.workspace);
-          const spawnSnapshots = await snapshotParentFiles(
-            config.workspace,
-            config.workspace,
-            parentFiles,
+          updateThreadParentSnapshots(
+            threadId,
+            await snapshotWorkspaceFiles(config.workspace),
           );
-          updateThreadParentSnapshots(threadId, spawnSnapshots);
         } catch {
-          // Best-effort — conflict detection degrades gracefully without snapshots
+          // Best-effort snapshotting only
         }
       }
 
@@ -694,7 +734,10 @@ export function createDelegateHandler(
         const { result, snapshot, childSessionId } = await runDelegateChild(
           llm,
           baseConfig,
-          config,
+          {
+            ...config,
+            delegateCoordinationId: coordinationId,
+          },
           agent,
           task,
           record,
@@ -719,11 +762,18 @@ export function createDelegateHandler(
                 diffResult.diff,
                 diffResult.filesModified,
               );
-              // parentSnapshots already captured at spawn time (above)
             }
           } catch {
             // Diff generation is best-effort
           }
+        }
+
+        if (coordinationId && config.coordinationBoard) {
+          config.coordinationBoard.updateItem(coordinationId, {
+            status: "completed",
+            resultSummary: snapshot.finalResponse,
+            childSessionId,
+          });
         }
 
         // Emit delegate_end for UI
@@ -756,6 +806,12 @@ export function createDelegateHandler(
         const status = isAbort ? "cancelled" : "errored";
         updateThreadStatus(threadId, status);
         const message = error instanceof Error ? error.message : String(error);
+        if (coordinationId && config.coordinationBoard) {
+          config.coordinationBoard.updateItem(coordinationId, {
+            status,
+            error: message,
+          });
+        }
 
         // Try to get snapshot from error
         const snapshot = getDelegateTranscriptSnapshot(error);
@@ -800,7 +856,23 @@ export function createDelegateHandler(
       controller,
       promise,
       inputQueue: sharedInputQueue,
+      batchId,
+      mergeState: "none",
     });
+    if (batchId) {
+      updateThreadBatchId(threadId, batchId);
+    }
+    if (coordinationId && config.coordinationBoard) {
+      config.coordinationBoard.ensureItem({
+        id: coordinationId,
+        goal: task,
+        assignedAgent: agent,
+        status: "queued",
+        threadId,
+        batchId,
+        inputs: { task },
+      });
+    }
 
     getAgentLogger().debug(
       `[Delegation] Background thread ${nickname} (${threadId}) queued for ${agent}: ${task}`,

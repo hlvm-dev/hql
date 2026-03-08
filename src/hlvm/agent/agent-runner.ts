@@ -31,6 +31,7 @@ import { createDelegateHandler } from "./delegation.ts";
 import { cancelAllThreads } from "./delegate-threads.ts";
 import { setDelegateLimiterMax } from "./concurrency.ts";
 import { createDelegateInbox } from "./delegate-inbox.ts";
+import { createDelegateCoordinationBoard } from "./delegate-coordination.ts";
 import {
   type AgentUIEvent,
   type FinalResponseMeta,
@@ -644,6 +645,7 @@ export async function runAgentQuery(
     let text: string;
     try {
       const delegateInbox = createDelegateInbox();
+      const coordinationBoard = createDelegateCoordinationBoard();
       text = await runReActLoop(
         query,
         {
@@ -663,6 +665,7 @@ export async function runAgentQuery(
           noInput,
           delegate,
           delegateInbox,
+          coordinationBoard,
           planning: { mode: "auto", requireStepMarkers: false },
           skipModelCompensation: session.isFrontierModel,
           modelTier: session.modelTier,

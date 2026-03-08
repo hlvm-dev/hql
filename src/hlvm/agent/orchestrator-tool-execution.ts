@@ -45,8 +45,14 @@ import {
   sanitizeArgs,
 } from "./orchestrator-tool-formatting.ts";
 import { getDelegateTranscriptSnapshot } from "./delegate-transcript.ts";
-import { getThread } from "./delegate-threads.ts";
+import { resolveResumableThread } from "./delegate-threads.ts";
 import { ConcurrencyLimiter } from "./concurrency.ts";
+import {
+  addBatchSpawnFailure,
+  addBatchThread,
+  getBatchSnapshot,
+  registerBatch,
+} from "./delegate-batches.ts";
 
 const CHECKPOINT_SUPPORTED_MUTATION_TOOLS = new Set([
   "write_file",
@@ -298,7 +304,16 @@ export async function executeToolCall(
         });
       }
       try {
-        const result = await config.delegate(coercedArgs, config);
+        const coordinationId = config.coordinationBoard
+          ? crypto.randomUUID()
+          : undefined;
+        const delegateArgs = coordinationId
+          ? {
+            ...(coercedArgs as Record<string, unknown>),
+            _coordinationId: coordinationId,
+          }
+          : coercedArgs;
+        const result = await config.delegate(delegateArgs, config);
         const { llmContent, summaryDisplay, returnDisplay } =
           buildToolResultOutputs(toolCall.toolName, result, config);
 
@@ -389,22 +404,11 @@ export async function executeToolCall(
           toolCall.id,
         );
       }
-      const thread = getThread(resumeThreadId);
-      if (!thread?.childSessionId) {
+      const { thread, error } = resolveResumableThread(resumeThreadId);
+      if (!thread || error) {
         return buildToolErrorResult(
           toolCall.toolName,
-          thread
-            ? `Thread "${thread.nickname}" has no persisted session to resume`
-            : `No thread found with ID "${resumeThreadId}"`,
-          startedAt,
-          config,
-          toolCall.id,
-        );
-      }
-      if (thread.status !== "completed" && thread.status !== "errored") {
-        return buildToolErrorResult(
-          toolCall.toolName,
-          `Thread "${thread.nickname}" is ${thread.status} — can only resume completed/errored threads`,
+          error ?? `No thread found with ID "${resumeThreadId}"`,
           startedAt,
           config,
           toolCall.id,
@@ -435,6 +439,7 @@ export async function executeToolCall(
         );
         return {
           success: true,
+          result,
           llmContent,
           summaryDisplay,
           returnDisplay,
@@ -478,6 +483,7 @@ export async function executeToolCall(
 
       const batchId = crypto.randomUUID();
       const threadIds: string[] = [];
+      registerBatch(batchId, agent, data.length);
 
       // Per-batch concurrency limiter (defaults to 4 if not specified)
       const batchLimiter = maxConcurrency
@@ -495,18 +501,31 @@ export async function executeToolCall(
               task = task.replaceAll(`{{${key}}}`, String(value));
             }
           }
+          const coordinationId = config.coordinationBoard
+            ? crypto.randomUUID()
+            : undefined;
           const result = await config.delegate!(
-            { agent, task, background: true },
+            {
+              agent,
+              task,
+              background: true,
+              _batchId: batchId,
+              ...(coordinationId ? { _coordinationId: coordinationId } : {}),
+            },
             config,
           );
           if (result && typeof result === "object") {
             const bgResult = result as Record<string, unknown>;
             if (typeof bgResult.threadId === "string") {
               threadIds.push(bgResult.threadId);
+              addBatchThread(batchId, bgResult.threadId);
+            } else {
+              addBatchSpawnFailure(batchId);
             }
           }
         } catch {
           // Individual spawn failure — continue with rest
+          addBatchSpawnFailure(batchId);
         } finally {
           release?.();
         }
@@ -515,13 +534,16 @@ export async function executeToolCall(
       // Spawn all concurrently, gated by the per-batch limiter
       await Promise.all(data.map((row) => spawnOne(row)));
 
-      const batchResult = {
-        batchId,
-        totalRows: data.length,
-        spawned: threadIds.length,
-        threadIds,
-        status: "running",
-      };
+      const snapshot = getBatchSnapshot(batchId);
+      const batchResult = snapshot
+        ? { ...snapshot, threadIds }
+        : {
+          batchId,
+          totalRows: data.length,
+          spawned: threadIds.length,
+          threadIds,
+          status: "running",
+        };
       const { llmContent, summaryDisplay, returnDisplay } =
         buildToolResultOutputs(toolCall.toolName, batchResult, config);
       emitToolSuccess(
@@ -611,6 +633,22 @@ export async function executeToolCall(
       result,
       config,
     );
+
+    if (
+      toolCall.toolName === "report_result" &&
+      config.coordinationBoard &&
+      config.delegateCoordinationId &&
+      result &&
+      typeof result === "object"
+    ) {
+      const report = result as Record<string, unknown>;
+      config.coordinationBoard.updateItem(config.delegateCoordinationId, {
+        resultSummary: typeof report.summary === "string"
+          ? report.summary
+          : undefined,
+        artifacts: report,
+      });
+    }
 
     emitToolSuccess(
       config,

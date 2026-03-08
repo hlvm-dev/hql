@@ -19,6 +19,13 @@ import {
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { callLLMWithRetry } from "../../../src/hlvm/agent/orchestrator-llm.ts";
 import { createDelegateInbox } from "../../../src/hlvm/agent/delegate-inbox.ts";
+import { createDelegateCoordinationBoard } from "../../../src/hlvm/agent/delegate-coordination.ts";
+import {
+  getThread,
+  registerThread,
+  resetThreadRegistry,
+  type DelegateThread,
+} from "../../../src/hlvm/agent/delegate-threads.ts";
 import { withDelegateTranscriptSnapshot } from "../../../src/hlvm/agent/delegate-transcript.ts";
 import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
 import { clearAllL1Confirmations } from "../../../src/hlvm/agent/security/safety.ts";
@@ -117,6 +124,21 @@ function makeReminderHarness(): {
   return {
     context,
     config: { workspace: TEST_WORKSPACE, context },
+  };
+}
+
+function createMockThread(
+  overrides: Partial<DelegateThread> = {},
+): DelegateThread {
+  return {
+    threadId: overrides.threadId ?? crypto.randomUUID(),
+    agent: overrides.agent ?? "code",
+    nickname: overrides.nickname ?? "Alpha",
+    task: overrides.task ?? "test task",
+    status: overrides.status ?? "completed",
+    controller: overrides.controller ?? new AbortController(),
+    promise: overrides.promise ?? Promise.resolve({ success: true }),
+    ...overrides,
   };
 }
 
@@ -231,6 +253,136 @@ Deno.test({
     assertEquals(
       (readResult.result as { items: Array<{ id: string }> }).items[0]?.id,
       "step-1",
+    );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCall routes resume_agent through the real delegate path",
+  async fn() {
+    resetApprovals();
+    resetThreadRegistry();
+    const context = new ContextManager();
+    registerThread(createMockThread({
+      threadId: "resume-thread",
+      childSessionId: "session-123",
+    }));
+
+    let seenResumeSessionId: string | undefined;
+    const result = await executeToolCall(
+      {
+        toolName: "resume_agent",
+        args: { thread_id: "resume-thread", prompt: "continue analysis" },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        delegate: async (args) => {
+          seenResumeSessionId =
+            (args as Record<string, unknown>)._resumeSessionId as string;
+          return {
+            agent: "code",
+            result: "continued",
+            resumed: true,
+            childSessionId: seenResumeSessionId,
+          };
+        },
+      },
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(seenResumeSessionId, "session-123");
+    assertEquals(
+      (result.result as Record<string, unknown>).childSessionId,
+      "session-123",
+    );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCall records report_result artifacts in coordination board",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const coordinationBoard = createDelegateCoordinationBoard();
+    coordinationBoard.ensureItem({
+      id: "coord-1",
+      goal: "inspect code",
+      assignedAgent: "code",
+      status: "running",
+    });
+
+    const result = await executeToolCall(
+      {
+        toolName: "report_result",
+        args: { summary: "done", data: { count: 2 } },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        coordinationBoard,
+        delegateCoordinationId: "coord-1",
+      },
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(coordinationBoard.getById("coord-1")?.resultSummary, "done");
+    assertEquals(
+      (coordinationBoard.getById("coord-1")?.artifacts?.data as
+        Record<string, unknown>).count,
+      2,
+    );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: executeToolCall batch_delegate attaches batchId to spawned threads",
+  async fn() {
+    resetApprovals();
+    resetThreadRegistry();
+    const context = new ContextManager();
+    let index = 0;
+
+    const result = await executeToolCall(
+      {
+        toolName: "batch_delegate",
+        args: {
+          agent: "code",
+          task_template: "inspect {{file}}",
+          data: [{ file: "a.ts" }, { file: "b.ts" }],
+          max_concurrency: 1,
+        },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        delegate: async (args) => {
+          index += 1;
+          const threadId = `batch-thread-${index}`;
+          const batchId = (args as Record<string, unknown>)._batchId as string;
+          registerThread(createMockThread({
+            threadId,
+            status: "queued",
+            batchId,
+          }));
+          return { threadId, nickname: `Agent-${index}` };
+        },
+      },
+    );
+
+    assertEquals(result.success, true);
+    const batchResult = result.result as Record<string, unknown>;
+    assertEquals(typeof batchResult.batchId, "string");
+    assertEquals(
+      getThread("batch-thread-1")?.batchId,
+      batchResult.batchId,
+    );
+    assertEquals(
+      getThread("batch-thread-2")?.batchId,
+      batchResult.batchId,
     );
   },
 });

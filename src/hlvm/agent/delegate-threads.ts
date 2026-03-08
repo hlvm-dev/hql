@@ -18,6 +18,18 @@ export type DelegateThreadStatus =
   | "errored"
   | "cancelled";
 
+export type DelegateMergeState =
+  | "none"
+  | "pending"
+  | "applied"
+  | "conflicted"
+  | "discarded";
+
+export interface DelegateMergeResult {
+  applied: string[];
+  conflicts: string[];
+}
+
 export interface DelegateThreadResult {
   success: boolean;
   result?: unknown;
@@ -50,6 +62,10 @@ export interface DelegateThread {
   batchId?: string;
   /** Snapshot of parent file contents at spawn time, for conflict detection. */
   parentSnapshots?: Map<string, string>;
+  /** Merge lifecycle for child workspace changes. */
+  mergeState?: DelegateMergeState;
+  /** Latest merge outcome returned by wait/discard flows. */
+  mergeResult?: DelegateMergeResult;
 }
 
 /** Check if a thread is still active (queued or running). */
@@ -139,6 +155,7 @@ export function updateThreadDiff(
   if (thread) {
     thread.resultDiff = diff;
     thread.filesModified = filesModified;
+    thread.mergeState = filesModified.length > 0 ? "pending" : thread.mergeState;
   }
 }
 
@@ -150,6 +167,36 @@ export function updateThreadParentSnapshots(
   if (thread) {
     thread.parentSnapshots = snapshots;
   }
+}
+
+export function updateThreadBatchId(
+  threadId: string,
+  batchId: string,
+): void {
+  const thread = threads.get(threadId);
+  if (thread) {
+    thread.batchId = batchId;
+  }
+}
+
+export function updateThreadMerge(
+  threadId: string,
+  mergeState: DelegateMergeState,
+  mergeResult?: DelegateMergeResult,
+): void {
+  const thread = threads.get(threadId);
+  if (!thread) return;
+  thread.mergeState = mergeState;
+  if (mergeResult) {
+    thread.mergeResult = mergeResult;
+  }
+}
+
+export function clearThreadWorkspace(threadId: string): void {
+  const thread = threads.get(threadId);
+  if (!thread) return;
+  thread.workspacePath = undefined;
+  thread.workspaceCleanup = undefined;
 }
 
 export function sendThreadInput(threadId: string, message: string): boolean {
@@ -172,6 +219,27 @@ export function getBatchThreads(batchId: string): DelegateThread[] {
     if (thread.batchId === batchId) result.push(thread);
   }
   return result;
+}
+
+export function resolveResumableThread(
+  threadId: string,
+): { thread?: DelegateThread; error?: string } {
+  const thread = threads.get(threadId);
+  if (!thread) {
+    return { error: `No thread found with ID "${threadId}"` };
+  }
+  if (!thread.childSessionId) {
+    return {
+      error: `Thread "${thread.nickname}" has no persisted session to resume`,
+    };
+  }
+  if (thread.status !== "completed" && thread.status !== "errored") {
+    return {
+      error:
+        `Thread "${thread.nickname}" is ${thread.status} — can only resume completed/errored threads`,
+    };
+  }
+  return { thread };
 }
 
 export function cancelThread(threadId: string): boolean {

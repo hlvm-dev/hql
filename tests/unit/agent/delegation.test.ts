@@ -29,6 +29,14 @@ import {
   type DelegateThread,
 } from "../../../src/hlvm/agent/delegate-threads.ts";
 import { createDelegateHandler } from "../../../src/hlvm/agent/delegation.ts";
+import {
+  addBatchSpawnFailure,
+  addBatchThread,
+  getBatchSnapshot,
+  registerBatch,
+  resetBatchRegistry,
+} from "../../../src/hlvm/agent/delegate-batches.ts";
+import { createDelegateCoordinationBoard } from "../../../src/hlvm/agent/delegate-coordination.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import {
   isDelegateTask,
@@ -426,7 +434,7 @@ import type { DelegateTranscriptSnapshot } from "../../../src/hlvm/agent/delegat
 // Cast to (args: unknown) => Promise<unknown> for test convenience.
 // The ToolFunction type may require a workspace param (WIP from other domain),
 // but these tools don't use it — cast keeps tests isolated from that change.
-type TestToolFn = (args: unknown) => Promise<unknown>;
+type TestToolFn = (args: unknown, workspace?: string) => Promise<unknown>;
 const waitAgentFn = DELEGATE_TOOLS.wait_agent.fn as TestToolFn;
 const listAgentsFn = DELEGATE_TOOLS.list_agents.fn as TestToolFn;
 const closeAgentFn = DELEGATE_TOOLS.close_agent.fn as TestToolFn;
@@ -651,6 +659,81 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "wait_agent: race path auto-applies clean child changes for winning thread",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    resetThreadRegistry();
+    const parentDir = await Deno.makeTempDir();
+    const childDir = await Deno.makeTempDir();
+    let slowTimer: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      await Deno.writeTextFile(`${parentDir}/file.txt`, "original");
+      await Deno.writeTextFile(`${childDir}/file.txt`, "child version");
+
+      const snapshot: DelegateTranscriptSnapshot = {
+        agent: "code",
+        task: "apply child change",
+        success: true,
+        durationMs: 20,
+        toolCount: 0,
+        finalResponse: "Applied",
+        events: [],
+      };
+
+      const slowPromise = new Promise<{ success: boolean }>((resolve) => {
+        slowTimer = setTimeout(() => resolve({ success: true }), 200);
+      });
+      const fastPromise = new Promise<{ success: boolean }>((resolve) =>
+        setTimeout(() => {
+          updateThreadStatus("race-merge-fast", "completed");
+          updateThreadSnapshot("race-merge-fast", snapshot);
+          resolve({ success: true });
+        }, 20)
+      );
+
+      registerThread(createMockThread({
+        threadId: "race-merge-slow",
+        nickname: "Alpha",
+        agent: "research",
+        status: "running",
+        promise: slowPromise,
+      }));
+      registerThread(createMockThread({
+        threadId: "race-merge-fast",
+        nickname: "Bravo",
+        agent: "code",
+        status: "running",
+        promise: fastPromise,
+        workspacePath: childDir,
+        workspaceCleanup: async () => {
+          try {
+            await Deno.remove(childDir, { recursive: true });
+          } catch {
+            // ignore double cleanup
+          }
+        },
+        filesModified: ["file.txt"],
+        parentSnapshots: new Map([["file.txt", "original"]]),
+      }));
+
+      const result = await waitAgentFn({}, parentDir) as Record<string, unknown>;
+      assertEquals(result.threadId, "race-merge-fast");
+      assertEquals(result.filesApplied, ["file.txt"]);
+      assertEquals(getThread("race-merge-fast")?.mergeState, "applied");
+      assertEquals(getThread("race-merge-fast")?.workspacePath, undefined);
+      const parentContent = await Deno.readTextFile(`${parentDir}/file.txt`);
+      assertEquals(parentContent, "child version");
+    } finally {
+      if (slowTimer) clearTimeout(slowTimer);
+      await Deno.remove(parentDir, { recursive: true }).catch(() => {});
+      await Deno.remove(childDir, { recursive: true }).catch(() => {});
+    }
+  },
+});
+
 // ============================================================
 // Delegate Inbox (automatic supervisor intake)
 // ============================================================
@@ -690,6 +773,43 @@ Deno.test("background delegate queues automatic supervisor update", async () => 
     formatDelegateInboxUpdateMessage(updates[0]),
     "Delegated result",
   );
+});
+
+Deno.test("background delegate snapshots parent workspace at spawn time", async () => {
+  resetThreadRegistry();
+  resetDelegateLimiter();
+  const parentDir = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(`${parentDir}/root.txt`, "baseline");
+    const handler = createDelegateHandler(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return {
+        content: "Delegated result",
+        toolCalls: [],
+      };
+    }, {});
+
+    const response = await handler(
+      { agent: "code", task: "inspect codebase", background: true },
+      {
+        workspace: parentDir,
+        context: new ContextManager(),
+        permissionMode: "yolo",
+      },
+    ) as Record<string, unknown>;
+
+    const threadId = response.threadId as string;
+    let thread = getThread(threadId);
+    for (let i = 0; i < 20 && !thread?.parentSnapshots; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      thread = getThread(threadId);
+    }
+    assertExists(thread);
+    assertEquals(thread.parentSnapshots?.get("root.txt"), "baseline");
+    await waitAgentFn({ thread_id: threadId }, parentDir);
+  } finally {
+    await Deno.remove(parentDir, { recursive: true });
+  }
 });
 
 // ============================================================
@@ -1188,6 +1308,160 @@ Deno.test("applyChildChanges: no conflict when parent unchanged since spawn", as
   }
 });
 
+Deno.test("applyChildChanges: detects conflict when parent creates file after spawn", async () => {
+  const parentDir = await Deno.makeTempDir();
+  const childDir = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(`${childDir}/new-file.txt`, "child content");
+    const snapshots = new Map<string, string>();
+
+    await Deno.writeTextFile(`${parentDir}/new-file.txt`, "parent content");
+    const result = await applyChildChanges(
+      parentDir,
+      childDir,
+      ["new-file.txt"],
+      snapshots,
+    );
+
+    assertEquals(result.applied.length, 0);
+    assertEquals(result.conflicts, ["new-file.txt"]);
+    const parentContent = await Deno.readTextFile(`${parentDir}/new-file.txt`);
+    assertEquals(parentContent, "parent content");
+  } finally {
+    await Deno.remove(parentDir, { recursive: true });
+    await Deno.remove(childDir, { recursive: true });
+  }
+});
+
+Deno.test("wait_agent auto-applies clean child changes and records merge state", async () => {
+  resetThreadRegistry();
+  const parentDir = await Deno.makeTempDir();
+  const childDir = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(`${parentDir}/file.txt`, "original");
+    await Deno.writeTextFile(`${childDir}/file.txt`, "child version");
+
+    const thread = createMockThread({
+      threadId: "merge-clean",
+      status: "completed",
+      workspacePath: childDir,
+      workspaceCleanup: async () => {
+        try {
+          await Deno.remove(childDir, { recursive: true });
+        } catch {
+          // ignore double cleanup
+        }
+      },
+      filesModified: ["file.txt"],
+      parentSnapshots: new Map([["file.txt", "original"]]),
+    });
+    registerThread(thread);
+
+    const result = await waitAgentFn(
+      { thread_id: "merge-clean" },
+      parentDir,
+    ) as Record<string, unknown>;
+    assertEquals(result.filesApplied, ["file.txt"]);
+    assertEquals(getThread("merge-clean")?.mergeState, "applied");
+    assertEquals(getThread("merge-clean")?.workspacePath, undefined);
+    const parentContent = await Deno.readTextFile(`${parentDir}/file.txt`);
+    assertEquals(parentContent, "child version");
+  } finally {
+    await Deno.remove(parentDir, { recursive: true }).catch(() => {});
+    await Deno.remove(childDir, { recursive: true }).catch(() => {});
+  }
+});
+
+Deno.test("wait_agent preserves conflicts until discard_agent_changes", async () => {
+  resetThreadRegistry();
+  const parentDir = await Deno.makeTempDir();
+  const childDir = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(`${parentDir}/file.txt`, "original");
+    await Deno.writeTextFile(`${childDir}/file.txt`, "child version");
+    await Deno.writeTextFile(`${parentDir}/file.txt`, "parent changed");
+
+    const thread = createMockThread({
+      threadId: "merge-conflict",
+      status: "completed",
+      workspacePath: childDir,
+      workspaceCleanup: async () => {
+        try {
+          await Deno.remove(childDir, { recursive: true });
+        } catch {
+          // ignore double cleanup
+        }
+      },
+      filesModified: ["file.txt"],
+      parentSnapshots: new Map([["file.txt", "original"]]),
+    });
+    registerThread(thread);
+
+    const result = await waitAgentFn(
+      { thread_id: "merge-conflict" },
+      parentDir,
+    ) as Record<string, unknown>;
+    assertEquals(result.conflicts, ["file.txt"]);
+    assertEquals(getThread("merge-conflict")?.mergeState, "conflicted");
+    assertEquals(getThread("merge-conflict")?.workspacePath, childDir);
+
+    const discardFn = DELEGATE_TOOLS.discard_agent_changes.fn as TestToolFn;
+    const discard = await discardFn({ thread_id: "merge-conflict" }) as Record<
+      string,
+      unknown
+    >;
+    assertEquals(discard.success, true);
+    assertEquals(getThread("merge-conflict")?.mergeState, "discarded");
+    assertEquals(getThread("merge-conflict")?.workspacePath, undefined);
+  } finally {
+    await Deno.remove(parentDir, { recursive: true }).catch(() => {});
+    await Deno.remove(childDir, { recursive: true }).catch(() => {});
+  }
+});
+
+Deno.test("DelegateBatchRegistry: derives counts from thread state and spawn failures", () => {
+  resetBatchRegistry();
+  resetThreadRegistry();
+  registerBatch("batch-1", "code", 4);
+  registerThread(createMockThread({ threadId: "b1-t1", status: "queued", batchId: "batch-1" }));
+  registerThread(createMockThread({ threadId: "b1-t2", status: "running", batchId: "batch-1" }));
+  registerThread(createMockThread({ threadId: "b1-t3", status: "completed", batchId: "batch-1" }));
+  addBatchThread("batch-1", "b1-t1");
+  addBatchThread("batch-1", "b1-t2");
+  addBatchThread("batch-1", "b1-t3");
+  addBatchSpawnFailure("batch-1");
+
+  const snapshot = getBatchSnapshot("batch-1");
+  assertExists(snapshot);
+  assertEquals(snapshot.queued, 1);
+  assertEquals(snapshot.running, 1);
+  assertEquals(snapshot.completed, 1);
+  assertEquals(snapshot.errored, 1);
+  assertEquals(snapshot.spawned, 3);
+  assertEquals(snapshot.status, "running");
+});
+
+Deno.test("DelegateCoordinationBoard: tracks work by ID and thread", () => {
+  const board = createDelegateCoordinationBoard();
+  board.ensureItem({
+    id: "coord-1",
+    goal: "inspect code",
+    assignedAgent: "code",
+    status: "queued",
+  });
+  board.attachThread("coord-1", "thread-1");
+  board.updateItemByThread("thread-1", {
+    status: "completed",
+    resultSummary: "Found the issue",
+    artifacts: { summary: "Found the issue" },
+  });
+
+  const item = board.getByThread("thread-1");
+  assertExists(item);
+  assertEquals(item.status, "completed");
+  assertEquals(item.resultSummary, "Found the issue");
+});
+
 // ============================================================
 // Stage 5: send_input
 // ============================================================
@@ -1338,6 +1612,7 @@ Deno.test({
   name: "cleanup: reset singletons",
   fn() {
     resetThreadRegistry();
+    resetBatchRegistry();
     resetDelegateLimiter();
     resetTaskManager();
   },
