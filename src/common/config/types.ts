@@ -9,7 +9,7 @@ import { THEME_NAMES } from "../../hlvm/cli/theme/palettes.ts";
 // Model Defaults
 // ============================================================
 
-export const DEFAULT_MODEL_ID = "ollama/llama3.1:8b";
+export const DEFAULT_MODEL_ID = "ollama/mistral-large-3:675b-cloud";
 export const DEFAULT_MODEL_PROVIDER = DEFAULT_MODEL_ID.split("/")[0];
 export const DEFAULT_MODEL_NAME = DEFAULT_MODEL_ID.split("/")[1];
 export const DEFAULT_OLLAMA_ENDPOINT = "http://localhost:11434";
@@ -52,7 +52,11 @@ export type AgentMode = "hlvm" | "claude-code-agent";
  * - "yolo": auto-approve everything (no prompts)
  */
 export type PermissionMode = "default" | "auto-edit" | "yolo";
-export const PERMISSION_MODES: PermissionMode[] = ["default", "auto-edit", "yolo"];
+export const PERMISSION_MODES: PermissionMode[] = [
+  "default",
+  "auto-edit",
+  "yolo",
+];
 
 /** User-customized keybindings (action ID -> key combo) */
 export type KeybindingsConfig = Record<string, string>;
@@ -93,7 +97,7 @@ export interface HlvmConfig {
   theme: string; // UI theme
   keybindings?: KeybindingsConfig; // Custom keybindings (optional)
   tools?: ToolsConfig; // Tool-specific configuration (optional)
-  modelConfigured?: boolean; // true after first explicit model selection
+  modelConfigured?: boolean; // true after first explicit or automatic initial model selection
   approvedProviders?: string[]; // Providers the user has consented to (e.g., ["openai", "anthropic"])
   agentMode?: AgentMode; // Agent mode for Claude models: "hlvm" (HLVM orchestrates) or "claude-code-agent" (full passthrough)
   sessionMemory?: boolean; // Claude Code session memory: remembers context across messages in same chat session (default: true)
@@ -282,14 +286,20 @@ export function validateValue(
     case "approvedProviders":
       if (value === undefined) return { valid: true }; // optional field
       if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) {
-        return { valid: false, error: "approvedProviders must be an array of strings" };
+        return {
+          valid: false,
+          error: "approvedProviders must be an array of strings",
+        };
       }
       return { valid: true };
 
     case "agentMode":
       if (value === undefined) return { valid: true }; // optional field
       if (value !== "hlvm" && value !== "claude-code-agent") {
-        return { valid: false, error: "agentMode must be 'hlvm' or 'claude-code-agent'" };
+        return {
+          valid: false,
+          error: "agentMode must be 'hlvm' or 'claude-code-agent'",
+        };
       }
       return { valid: true };
 
@@ -303,7 +313,12 @@ export function validateValue(
     case "permissionMode":
       if (value === undefined) return { valid: true }; // optional field
       if (!PERMISSION_MODES.includes(value as PermissionMode)) {
-        return { valid: false, error: `permissionMode must be one of: ${PERMISSION_MODES.join(", ")}` };
+        return {
+          valid: false,
+          error: `permissionMode must be one of: ${
+            PERMISSION_MODES.join(", ")
+          }`,
+        };
       }
       return { valid: true };
 

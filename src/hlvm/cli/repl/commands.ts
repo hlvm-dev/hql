@@ -9,6 +9,7 @@ import { handleConfigCommand } from "./config/index.ts";
 import { registry } from "../repl-ink/keybindings/index.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
+import { session as sessionApi } from "../../api/session.ts";
 import { listSessions } from "../../store/conversation-store.ts";
 import { handleDeleteAllSessions } from "./handlers/sessions.ts";
 import { normalizeModelId } from "../../../common/config/types.ts";
@@ -76,6 +77,7 @@ export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
     { name: "/tasks", description: "View background tasks" },
     { name: "/bg", description: "Push current eval to background" },
     { name: "/resume", description: "Switch to another session" },
+    { name: "/undo", description: "Restore the latest checkpoint" },
     { name: "/clear-history", description: "Delete all chat history" },
     { name: "/mcp", description: "List configured MCP servers" },
     { name: "/quickstart", description: "Show getting-started examples" },
@@ -227,6 +229,29 @@ export const commands: Record<string, Command> = {
       } else {
         context.output(`${YELLOW}'${name}' not found in memory.${RESET}`);
       }
+    },
+  },
+
+  "/undo": {
+    description: "Restore the latest checkpoint",
+    handler: async (_state, _args, context) => {
+      const current = sessionApi.current();
+      if (!current) {
+        context.output(`${YELLOW}No current session to undo.${RESET}`);
+        return;
+      }
+
+      const result = await sessionApi.restoreCheckpoint(current.id);
+      if (!result.restored) {
+        context.output(`${YELLOW}No checkpoint available to restore.${RESET}`);
+        return;
+      }
+
+      context.output(
+        `${GREEN}Restored checkpoint ${result.checkpointId?.slice(0, 8) ?? ""} (${result.restoredFileCount} file${
+          result.restoredFileCount === 1 ? "" : "s"
+        }).${RESET}`,
+      );
     },
   },
 

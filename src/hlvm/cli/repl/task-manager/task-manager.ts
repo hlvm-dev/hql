@@ -27,7 +27,7 @@ import { log } from "../../../api/log.ts";
 import { ValidationError, RuntimeError } from "../../../../common/error.ts";
 import { ensureError } from "../../../../common/utils.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
-import { pullRuntimeModelViaHost } from "../../../runtime/host-client.ts";
+import { ensureRuntimeModelAvailable } from "../../../runtime/model-availability.ts";
 
 // ============================================================
 // Resource Registry
@@ -378,7 +378,7 @@ export class TaskManager {
 
   /**
    * Execute the model pull (internal).
-   * 100% SSOT: Uses the runtime host model pull API only - no fallback.
+   * 100% SSOT: Uses the shared runtime model-availability pipeline.
    * Uses state machine for transitions and immutable updates.
    */
   private async executePull(
@@ -405,15 +405,31 @@ export class TaskManager {
       const combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
 
       try {
-        for await (
-          const progress of pullRuntimeModelViaHost(
-            modelName,
-            undefined,
-            combinedSignal,
-          )
-        ) {
-          if (signal.aborted) break;
-          this.updateProgress(taskId, progress);
+        const result = await ensureRuntimeModelAvailable(`ollama/${modelName}`, {
+          pull: true,
+          signal: combinedSignal,
+          onProgress: (progress) => {
+            if (!signal.aborted) {
+              this.updateProgress(taskId, progress);
+            }
+          },
+          onCloudWaiting: () => {
+            this.updateProgress(taskId, { status: "waiting for sign-in" });
+          },
+          onCloudError: (message) => {
+            this.updateProgress(taskId, { status: message });
+          },
+          onCloudOutput: (line) => {
+            const status = line.trim();
+            if (status) {
+              this.updateProgress(taskId, { status });
+            }
+          },
+        });
+        if (!result.ok) {
+          throw new RuntimeError(
+            result.error ?? `Model unavailable: ${result.modelName}`,
+          );
         }
       } finally {
         clearTimeout(timeoutId);

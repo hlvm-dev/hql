@@ -11,9 +11,12 @@ import {
   createPersistedAgentChildSession,
   getPersistedAgentSessionId,
   loadPersistedAgentHistory,
+  loadPersistedAgentSessionMetadata,
   loadPersistedAgentTodos,
   parsePersistedAgentSessionMetadata,
+  persistAgentCheckpointSummary,
   persistAgentPlanState,
+  persistPendingPlanReview,
   persistAgentTodos,
   startPersistedAgentTurn,
 } from "../../../src/hlvm/agent/persisted-transcript.ts";
@@ -179,6 +182,34 @@ Deno.test("persisted transcript: child sessions link back to parent metadata", (
   }
 });
 
+Deno.test("persisted transcript: pending plan review and checkpoint summaries persist in session metadata", () => {
+  const db = setupStoreTestDb();
+  try {
+    const sessionId = getPersistedAgentSessionId();
+    startPersistedAgentTurn(sessionId, "edit config");
+    const plan = {
+      goal: "Edit config safely",
+      steps: [{ id: "step-1", title: "Update config" }],
+    };
+
+    persistPendingPlanReview(sessionId, "review-1", plan);
+    persistAgentCheckpointSummary(sessionId, {
+      id: "cp-1",
+      requestId: "req-1",
+      createdAt: 1,
+      fileCount: 1,
+      reversible: true,
+    });
+
+    const metadata = loadPersistedAgentSessionMetadata(sessionId);
+    assertEquals(metadata.pendingPlanReview?.requestId, "review-1");
+    assertEquals(metadata.pendingPlanReview?.plan.goal, "Edit config safely");
+    assertEquals(metadata.checkpoints?.[0]?.id, "cp-1");
+  } finally {
+    db.close();
+  }
+});
+
 Deno.test({
   name: "agent-runner: direct persistence uses conversations.db history",
   sanitizeOps: false,
@@ -310,6 +341,49 @@ Deno.test({
         });
 
         assertEquals(reusableSession.todoState.items, []);
+      });
+    } finally {
+      resetAgentEngine();
+      await disposeAllSessions();
+      db.close();
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "agent-runner: external message history still persists current turn metadata for the session",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const db = setupStoreTestDb();
+    setAgentEngine(new PersistenceTestEngine());
+
+    try {
+      await withWorkspace(async (workspace) => {
+        const model = "test-chat/plain";
+        const sessionId = getPersistedAgentSessionId();
+
+        await runAgentQuery({
+          query: "with external history",
+          model,
+          workspace,
+          sessionId,
+          messageHistory: [{
+            role: "assistant",
+            content: "external-history",
+          }],
+          callbacks: {},
+        });
+
+        const messages = loadAllMessages(sessionId);
+        assertEquals(
+          messages.map((message) => [message.role, message.content]),
+          [
+            ["user", "with external history"],
+            ["assistant", "persisted:with external history"],
+          ],
+        );
       });
     } finally {
       resetAgentEngine();

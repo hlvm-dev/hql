@@ -8,7 +8,9 @@ import {
   appendPersistedAgentToolResult,
   completePersistedAgentTurn,
   createPersistedAgentChildSession,
+  persistAgentCheckpointSummary,
   persistAgentPlanState,
+  persistPendingPlanReview,
   persistAgentTodos,
   startPersistedAgentTurn,
 } from "../../../src/hlvm/agent/persisted-transcript.ts";
@@ -267,6 +269,50 @@ Deno.test("buildTranscriptStateFromSession restores child snapshot tool failures
         assertEquals(delegate.snapshot.events[0].argsSummary, "docs");
       }
     }
+  } finally {
+    db.close();
+  }
+});
+
+Deno.test("buildTranscriptStateFromSession hydrates pending plan review and latest checkpoint metadata", () => {
+  const db = setupStoreTestDb();
+  try {
+    const sessionId = getPersistedAgentSessionId();
+    startPersistedAgentTurn(sessionId, "edit config");
+    const plan = {
+      goal: "Edit config safely",
+      steps: [{ id: "step-1", title: "Update config" }],
+    };
+    persistAgentPlanState(sessionId, plan, []);
+    persistPendingPlanReview(sessionId, "review-1", plan);
+    persistAgentCheckpointSummary(sessionId, {
+      id: "cp-1",
+      requestId: "req-1",
+      createdAt: 10,
+      fileCount: 1,
+      reversible: true,
+    });
+
+    const session = getSession(sessionId);
+    const state = buildTranscriptStateFromSession({
+      meta: {
+        id: sessionId,
+        title: session?.title ?? "Session",
+        createdAt: 1,
+        updatedAt: 2,
+        messageCount: 1,
+        metadata: session?.metadata ?? null,
+      },
+      messages: [{
+        role: "user",
+        content: "edit config",
+        ts: 1,
+      }],
+    });
+
+    assertEquals(state.pendingPlanReview?.plan.goal, "Edit config safely");
+    assertEquals(state.latestCheckpoint?.id, "cp-1");
+    assertEquals(state.latestCheckpoint?.fileCount, 1);
   } finally {
     db.close();
   }

@@ -15,6 +15,7 @@ import type {
 import { StreamingState as ConversationStreamingState } from "../types.ts";
 import type { Plan } from "../../../agent/planning.ts";
 import type { TodoState } from "../../../agent/todo-state.ts";
+import type { AgentCheckpointSummary } from "../../../agent/checkpoints.ts";
 import type {
   InteractionRequestEvent,
   InteractionResponse,
@@ -45,6 +46,8 @@ interface ConversationPanelProps {
   streamingState?: StreamingState;
   activePlan?: Plan;
   todoState?: TodoState;
+  pendingPlanReview?: { plan: Plan };
+  latestCheckpoint?: AgentCheckpointSummary;
   /** Whether section toggle hotkeys should be active (avoid conflicts with input editing) */
   allowToggleHotkeys?: boolean;
   /** Pending interaction request (permission or question) */
@@ -174,6 +177,8 @@ export function ConversationPanel({
   streamingState,
   activePlan,
   todoState,
+  pendingPlanReview,
+  latestCheckpoint,
   allowToggleHotkeys = true,
   interactionRequest,
   interactionQueueLength = 0,
@@ -222,6 +227,26 @@ export function ConversationPanel({
         } in progress · ${
           todoState.items.filter((item) => item.status === "pending").length
         } pending`,
+        contentWidth,
+      ) + 1;
+    }
+    if (pendingPlanReview) {
+      total += estimateWrappedRows(
+        `Plan review pending · ${
+          pendingPlanReview.plan.steps.length
+        } step${pendingPlanReview.plan.steps.length === 1 ? "" : "s"} awaiting approval`,
+        contentWidth,
+      ) + 1;
+    }
+    if (latestCheckpoint) {
+      total += estimateWrappedRows(
+        latestCheckpoint.restoredAt
+          ? `Checkpoint restored · ${latestCheckpoint.fileCount} file${
+            latestCheckpoint.fileCount === 1 ? "" : "s"
+          }`
+          : `Checkpoint ready · ${latestCheckpoint.fileCount} file${
+            latestCheckpoint.fileCount === 1 ? "" : "s"
+          } protected · /undo available`,
         contentWidth,
       ) + 1;
     }
@@ -390,6 +415,54 @@ export function ConversationPanel({
             {todoState.items.filter((item) => item.status === "pending").length}
             {" "}
             pending
+          </Text>
+        </Box>
+      )}
+
+      {pendingPlanReview && (
+        <Box
+          marginBottom={1}
+          paddingLeft={1}
+          borderLeft
+          borderColor={sc.status.warning}
+        >
+          <Text color={sc.status.warning} bold>
+            Plan Review
+          </Text>
+          <Text color={sc.text.secondary}>
+            {" "}
+            {pendingPlanReview.plan.steps.length} step
+            {pendingPlanReview.plan.steps.length === 1 ? "" : "s"} awaiting
+            {" "}
+            approval
+          </Text>
+        </Box>
+      )}
+
+      {latestCheckpoint && (
+        <Box
+          marginBottom={1}
+          paddingLeft={1}
+          borderLeft
+          borderColor={latestCheckpoint.restoredAt
+            ? sc.status.success
+            : sc.border.active}
+        >
+          <Text
+            color={latestCheckpoint.restoredAt
+              ? sc.status.success
+              : sc.border.active}
+            bold
+          >
+            {latestCheckpoint.restoredAt ? "Checkpoint Restored" : "Checkpoint"}
+          </Text>
+          <Text color={sc.text.secondary}>
+            {" "}
+            {latestCheckpoint.fileCount} file
+            {latestCheckpoint.fileCount === 1 ? "" : "s"}
+            {latestCheckpoint.restoredAt
+              ? " reverted"
+              : " protected · /undo available"}
           </Text>
         </Box>
       )}

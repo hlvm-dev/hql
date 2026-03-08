@@ -1,10 +1,12 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
   autoConfigureInitialClaudeCodeModel,
+  autoConfigureInitialOllamaCloudModel,
   ensureInitialModelConfigured,
   reconcileConfiguredClaudeCodeModel,
   resolveCompatibleClaudeCodeModel,
   selectPreferredClaudeCodeModel,
+  selectPreferredOllamaCloudModel,
 } from "../../../src/common/ai-default-model.ts";
 import { DEFAULT_MODEL_ID } from "../../../src/common/config/types.ts";
 import type { ConfigKey } from "../../../src/common/config/types.ts";
@@ -32,9 +34,45 @@ Deno.test("ai default model: selection prefers newest supported Sonnet and skips
     { name: "claude-opus-4.6" },
   ];
 
-  assertEquals(selectPreferredClaudeCodeModel(ranked), "claude-sonnet-4-5-20251015");
-  assertEquals(selectPreferredClaudeCodeModel(filtered), "claude-opus-4-1-20251101");
+  assertEquals(
+    selectPreferredClaudeCodeModel(ranked),
+    "claude-sonnet-4-5-20251015",
+  );
+  assertEquals(
+    selectPreferredClaudeCodeModel(filtered),
+    "claude-opus-4-1-20251101",
+  );
   assertEquals(selectPreferredClaudeCodeModel(dottedOnly), null);
+});
+
+Deno.test("ai default model: selection prefers the strongest Ollama cloud tool model", () => {
+  const models: ModelInfo[] = [
+    {
+      name: "ollama/qwen3-coder:480b-cloud",
+      parameterSize: "480B",
+      capabilities: ["chat", "tools"],
+    },
+    {
+      name: "deepseek-v3.1:671b-cloud",
+      parameterSize: "671B",
+      capabilities: ["chat", "tools"],
+    },
+    {
+      name: "mistral-large-3:675b-cloud",
+      parameterSize: "675B",
+      capabilities: ["chat", "tools"],
+    },
+    {
+      name: "qwen3-vl:235b-cloud",
+      parameterSize: "235B",
+      capabilities: ["chat", "vision"],
+    },
+  ];
+
+  assertEquals(
+    selectPreferredOllamaCloudModel(models),
+    "mistral-large-3:675b-cloud",
+  );
 });
 
 Deno.test("ai default model: first-use auto-configuration sets a Claude default and preserves explicit agent mode", async () => {
@@ -77,11 +115,49 @@ Deno.test("ai default model: first-use auto-configuration sets a Claude default 
 
   assertEquals(firstUse, "claude-code/claude-sonnet-4-5-20251015");
   assertEquals(firstUseUpdates.length, 1);
-  assertEquals(firstUseUpdates[0].model, "claude-code/claude-sonnet-4-5-20251015");
+  assertEquals(
+    firstUseUpdates[0].model,
+    "claude-code/claude-sonnet-4-5-20251015",
+  );
   assertEquals(firstUseUpdates[0].modelConfigured, true);
   assertEquals(firstUseUpdates[0].agentMode, "hlvm");
   assertEquals(preservedModeUpdates.length, 1);
   assertEquals("agentMode" in preservedModeUpdates[0], false);
+});
+
+Deno.test("ai default model: first-use auto-configuration falls back to Ollama cloud when Claude is unavailable", async () => {
+  const updates: Array<Record<string, unknown>> = [];
+
+  const selected = await autoConfigureInitialOllamaCloudModel({
+    getSnapshot: () => ({
+      model: DEFAULT_MODEL_ID,
+      modelConfigured: false,
+      agentMode: undefined,
+    }),
+    listCatalogModels: () =>
+      Promise.resolve([
+        {
+          name: "deepseek-v3.1:671b-cloud",
+          parameterSize: "671B",
+          capabilities: ["chat", "tools"],
+        },
+        {
+          name: "mistral-large-3:675b-cloud",
+          parameterSize: "675B",
+          capabilities: ["chat", "tools"],
+        },
+      ]),
+    patchConfig: (patch) => {
+      updates.push(patch as Record<string, unknown>);
+      return Promise.resolve();
+    },
+  });
+
+  assertEquals(selected, "ollama/mistral-large-3:675b-cloud");
+  assertEquals(updates.length, 1);
+  assertEquals(updates[0].model, "ollama/mistral-large-3:675b-cloud");
+  assertEquals(updates[0].modelConfigured, true);
+  assertEquals(updates[0].agentMode, "hlvm");
 });
 
 Deno.test("ai default model: auto-configuration no-ops when model is already configured or Claude Code is unavailable", async () => {
@@ -209,6 +285,7 @@ Deno.test("ai default model: unified initial-model resolver runs first-time setu
       getSnapshot: () => snapshot,
       getStatus: () => Promise.resolve({ available: false }),
       listModels: () => Promise.resolve([]),
+      listCatalogModels: () => Promise.resolve([]),
       patchConfig: () => Promise.resolve(),
       syncSnapshot: () => Promise.resolve(snapshot),
       now: () => nextNow(),
@@ -219,7 +296,62 @@ Deno.test("ai default model: unified initial-model resolver runs first-time setu
   assertEquals(resolved.model, "ollama/deepseek-r1:70b-cloud");
   assertEquals(resolved.modelConfigured, true);
   assertEquals(resolved.autoConfiguredClaude, false);
+  assertEquals(resolved.autoConfiguredOllamaCloud, false);
   assertEquals(resolved.firstRunConfigured, true);
+  assertEquals(resolved.reconciledClaudeModel, false);
+});
+
+Deno.test("ai default model: unified initial-model resolver auto-configures Ollama cloud before first-run setup", async () => {
+  let snapshot = {
+    model: "ollama/llama3.1:8b",
+    modelConfigured: false,
+    agentMode: undefined as "hlvm" | undefined,
+  };
+  let firstRunCalls = 0;
+
+  const resolved = await ensureInitialModelConfigured(
+    {
+      allowFirstRunSetup: true,
+      runFirstTimeSetup: async () => {
+        firstRunCalls++;
+        return null;
+      },
+    },
+    {
+      getSnapshot: () => snapshot,
+      getStatus: () => Promise.resolve({ available: false }),
+      listModels: () => Promise.resolve([]),
+      listCatalogModels: () =>
+        Promise.resolve([
+          {
+            name: "deepseek-v3.1:671b-cloud",
+            parameterSize: "671B",
+            capabilities: ["chat", "tools"],
+          },
+          {
+            name: "mistral-large-3:675b-cloud",
+            parameterSize: "675B",
+            capabilities: ["chat", "tools"],
+          },
+        ]),
+      patchConfig: (patch) => {
+        snapshot = {
+          ...snapshot,
+          ...(patch as Partial<Record<ConfigKey, unknown>>),
+        } as typeof snapshot;
+        return Promise.resolve();
+      },
+      syncSnapshot: () => Promise.resolve(snapshot),
+      now: () => nextNow(),
+    },
+  );
+
+  assertEquals(firstRunCalls, 0);
+  assertEquals(resolved.model, "ollama/mistral-large-3:675b-cloud");
+  assertEquals(resolved.modelConfigured, true);
+  assertEquals(resolved.autoConfiguredClaude, false);
+  assertEquals(resolved.autoConfiguredOllamaCloud, true);
+  assertEquals(resolved.firstRunConfigured, false);
   assertEquals(resolved.reconciledClaudeModel, false);
 });
 
@@ -240,6 +372,7 @@ Deno.test("ai default model: unified initial-model resolver repairs configured C
           { name: "claude-sonnet-4-6" },
           { name: "claude-sonnet-4-5-20250929" },
         ]),
+      listCatalogModels: () => Promise.resolve([]),
       patchConfig: (patch) => {
         snapshot = {
           ...snapshot,
@@ -255,6 +388,7 @@ Deno.test("ai default model: unified initial-model resolver repairs configured C
   assertEquals(resolved.model, "claude-code/claude-sonnet-4-5-20250929");
   assertEquals(resolved.modelConfigured, true);
   assertEquals(resolved.autoConfiguredClaude, false);
+  assertEquals(resolved.autoConfiguredOllamaCloud, false);
   assertEquals(resolved.firstRunConfigured, false);
   assertEquals(resolved.reconciledClaudeModel, true);
 });

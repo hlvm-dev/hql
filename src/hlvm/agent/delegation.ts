@@ -277,6 +277,10 @@ function toDelegateTranscriptEvent(
     case "delegate_start":
     case "delegate_end":
     case "todo_updated":
+    case "plan_review_required":
+    case "plan_review_resolved":
+    case "checkpoint_created":
+    case "checkpoint_restored":
     case "interaction_request":
       return null;
   }

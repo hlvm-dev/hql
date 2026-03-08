@@ -404,6 +404,28 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         index: event.index,
         completed: event.completed,
       };
+    case "plan_review_required":
+      return {
+        type: "plan_review_required",
+        plan: event.plan,
+      };
+    case "plan_review_resolved":
+      return {
+        type: "plan_review_resolved",
+        plan: event.plan,
+        approved: event.approved,
+      };
+    case "checkpoint_created":
+      return {
+        type: "checkpoint_created",
+        checkpoint: event.checkpoint,
+      };
+    case "checkpoint_restored":
+      return {
+        type: "checkpoint_restored",
+        checkpoint: event.checkpoint,
+        restoredFileCount: event.restored_file_count,
+      };
     case "turn_stats":
       return {
         type: "turn_stats",

@@ -176,6 +176,20 @@ export function formatPlanForContext(plan: Plan, config?: PlanningConfig): strin
   return lines.join("\n");
 }
 
+export function getPlanSignature(plan: Plan): string {
+  return JSON.stringify({
+    goal: plan.goal,
+    steps: plan.steps.map((step) => ({
+      id: step.id,
+      title: step.title,
+      ...(step.goal ? { goal: step.goal } : {}),
+      ...(step.tools ? { tools: [...step.tools] } : {}),
+      ...(step.successCriteria ? { successCriteria: [...step.successCriteria] } : {}),
+      ...(step.agent ? { agent: step.agent } : {}),
+    })),
+  });
+}
+
 export function extractStepDoneId(response: string): string | null {
   const match = STEP_DONE_PATTERN.exec(response);
   if (!match) return null;

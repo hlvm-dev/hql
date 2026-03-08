@@ -31,7 +31,6 @@ import {
   normalizeModelBrowserSearchState,
 } from "../utils/model-browser-loading.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
-import { isOllamaAuthErrorMessage } from "../../../../common/ollama-auth.ts";
 import { truncate } from "../../../../common/utils.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { isSelectedModelActive } from "../../../../common/config/model-selection.ts";
@@ -48,7 +47,6 @@ import {
   deleteRuntimeModel,
   getRuntimeModelDiscovery,
   listRuntimeInstalledModels,
-  runRuntimeOllamaSignin,
 } from "../../../runtime/host-client.ts";
 import { calculateScrollWindow } from "../completion/navigation.ts";
 import { HighlightedText } from "./HighlightedText.tsx";
@@ -832,53 +830,16 @@ export function ModelBrowser({
     };
   }, [fetchDiscovery]);
 
-  // Reactive Ollama Cloud signin: on auth error during cloud model pull,
-  // spawn `ollama signin` then retry pull
-  const triggerOllamaSignin = useCallback(async (thenPullModel?: string) => {
-    setStatusMessage("Signing in to Ollama Cloud...");
-    try {
-      const result = await runRuntimeOllamaSignin();
-      if (result.success) {
-        setStatusMessage("Signed in! Pulling model...");
-        if (thenPullModel) {
-          try {
-            manager.pullModel(thenPullModel);
-          } catch { /* already downloading */ }
-        }
-      } else {
-        setStatusMessage(
-          "Sign-in cancelled or failed. Try 'ollama signin' manually.",
-        );
-      }
-    } catch {
-      setStatusMessage("Could not run AI engine sign-in. Is Ollama available?");
-    }
-  }, [manager]);
-
-  // Auto-refresh when downloads complete + detect auth failures for cloud models
+  // Auto-refresh when downloads complete.
   useEffect(() => {
     const unsubscribe = manager.onEvent((event: TaskEvent) => {
-      // Refresh model list when a model pull completes successfully
       if (event.type === "task:completed") {
         const task = manager.getTask(event.taskId);
         if (task && isModelPullTask(task)) {
           fetchModels();
-          // Auto-select if this was a pending cloud model pull
           if (pendingSelectRef.current === task.modelName && onSelectModel) {
             pendingSelectRef.current = null;
             void selectAsDefaultModel(task.modelName);
-          }
-        }
-      }
-      // Detect auth failure on cloud model pull → trigger `ollama signin`
-      if (event.type === "task:failed") {
-        const task = manager.getTask(event.taskId);
-        if (
-          task && isModelPullTask(task) && isOllamaCloudModel(task.modelName)
-        ) {
-          const errorMsg = task.error?.message ?? "";
-          if (isOllamaAuthErrorMessage(errorMsg)) {
-            triggerOllamaSignin(task.modelName);
           }
         }
       }
@@ -889,7 +850,6 @@ export function ModelBrowser({
     manager,
     onSelectModel,
     selectAsDefaultModel,
-    triggerOllamaSignin,
   ]);
 
   // Build display list - POSITION STABLE (models never move regardless of status)

@@ -5,24 +5,34 @@
 import { ai } from "../hlvm/api/ai.ts";
 import { config } from "../hlvm/api/config.ts";
 import { parseModelString } from "../hlvm/providers/index.ts";
-import type { ModelInfo, PullProgress } from "../hlvm/providers/types.ts";
+import { isOllamaCloudModel } from "../hlvm/providers/ollama/cloud.ts";
+import type { ModelInfo } from "../hlvm/providers/types.ts";
 import {
   type ConfigKey,
   DEFAULT_MODEL_ID,
-  DEFAULT_MODEL_PROVIDER,
   type HlvmConfig,
 } from "./config/types.ts";
-import { getErrorMessage } from "./utils.ts";
+import { ensureModelAvailability } from "./model-availability.ts";
 import { getPlatform } from "../platform/platform.ts";
 import { RuntimeError } from "./error.ts";
 
 let defaultModelEnsured = false;
 const CLAUDE_CODE_PROVIDER = "claude-code";
+const OLLAMA_PROVIDER = "ollama";
 const CLAUDE_CODE_AGENT_SUFFIX = ":agent";
 const CLAUDE_DATE_SUFFIX_REGEX = /-20\d{6}$/;
 const CLAUDE_BOOTSTRAP_CACHE_MS = 30_000;
+const LEGACY_DEFAULT_MODEL_IDS = new Set([
+  "ollama/llama3.1:8b",
+]);
 let claudeBootstrapProbeAt = 0;
 let claudeBootstrapProbeResult: string | null = null;
+
+export {
+  getProgressPercent,
+  isModelInstalled,
+  logModelPullProgress,
+} from "./model-availability.ts";
 
 export interface EnsureDefaultModelOptions {
   log?: (message: string) => void;
@@ -48,7 +58,9 @@ function stripClaudeAgentSuffix(name: string): string {
 }
 
 function normalizeClaudeMatchKey(name: string): string {
-  return stripClaudeAgentSuffix(normalizeProviderLocalModelName(name).toLowerCase())
+  return stripClaudeAgentSuffix(
+    normalizeProviderLocalModelName(name).toLowerCase(),
+  )
     .replace(/\./g, "-");
 }
 
@@ -69,13 +81,43 @@ function getClaudeLatestScore(name: string): number {
   return name.toLowerCase().includes("latest") ? 1 : 0;
 }
 
+function isAutomaticDefaultCandidate(
+  snapshot: Pick<HlvmConfig, "model" | "modelConfigured">,
+): boolean {
+  if (snapshot.modelConfigured) return false;
+  if (snapshot.model === DEFAULT_MODEL_ID) return true;
+  return typeof snapshot.model === "string" &&
+    LEGACY_DEFAULT_MODEL_IDS.has(snapshot.model);
+}
+
+function parseParameterSize(size: string | undefined): number {
+  if (!size) return -1;
+  const match = size.match(/^(\d+(?:\.\d+)?)\s*([TBMK])/i);
+  if (!match) return -1;
+  const value = parseFloat(match[1]);
+  switch (match[2]?.toUpperCase()) {
+    case "T":
+      return value * 1_000_000_000_000;
+    case "B":
+      return value * 1_000_000_000;
+    case "M":
+      return value * 1_000_000;
+    case "K":
+      return value * 1_000;
+    default:
+      return value;
+  }
+}
+
 function scoreClaudeModel(name: string): number {
   return (getClaudeFamilyScore(name) * 10_000_000) +
     (getClaudeLatestScore(name) * 1_000_000) +
     getClaudeDateScore(name);
 }
 
-export function selectPreferredClaudeCodeModel(models: ModelInfo[]): string | null {
+export function selectPreferredClaudeCodeModel(
+  models: ModelInfo[],
+): string | null {
   const candidates = models
     .map((model) => normalizeProviderLocalModelName(model.name))
     .filter((name) =>
@@ -93,6 +135,31 @@ export function selectPreferredClaudeCodeModel(models: ModelInfo[]): string | nu
   });
 
   return candidates[0] ?? null;
+}
+
+export function selectPreferredOllamaCloudModel(
+  models: ModelInfo[],
+): string | null {
+  const candidates = models
+    .map((model) => ({
+      model,
+      normalizedName: normalizeProviderLocalModelName(model.name),
+    }))
+    .filter(({ model, normalizedName }) =>
+      isOllamaCloudModel(normalizedName) &&
+      (model.capabilities?.includes("tools") ?? false)
+    );
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => {
+    const sizeDiff = parseParameterSize(b.model.parameterSize) -
+      parseParameterSize(a.model.parameterSize);
+    if (sizeDiff !== 0) return sizeDiff;
+    return b.normalizedName.localeCompare(a.normalizedName);
+  });
+
+  return candidates[0]?.normalizedName ?? null;
 }
 
 function findBestClaudeMatch(
@@ -158,7 +225,10 @@ function findBestClaudeMatch(
 }
 
 interface ClaudeBootstrapDeps {
-  getSnapshot: () => Pick<HlvmConfig, "model" | "modelConfigured" | "agentMode">;
+  getSnapshot: () => Pick<
+    HlvmConfig,
+    "model" | "modelConfigured" | "agentMode"
+  >;
   getStatus: (providerName?: string) => Promise<{ available: boolean }>;
   listModels: (providerName?: string) => Promise<ModelInfo[]>;
   patchConfig: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<void>;
@@ -177,9 +247,10 @@ function getClaudeBootstrapDeps(): ClaudeBootstrapDeps {
   };
 }
 
-function shouldAutoBootstrapClaude(snapshot: Pick<HlvmConfig, "model" | "modelConfigured">): boolean {
-  if (snapshot.modelConfigured) return false;
-  return snapshot.model === DEFAULT_MODEL_ID;
+function shouldAutoBootstrapClaude(
+  snapshot: Pick<HlvmConfig, "model" | "modelConfigured">,
+): boolean {
+  return isAutomaticDefaultCandidate(snapshot);
 }
 
 /**
@@ -236,6 +307,57 @@ export async function autoConfigureInitialClaudeCodeModel(
   return selectedModelId;
 }
 
+interface OllamaCloudBootstrapDeps {
+  getSnapshot: () => Pick<
+    HlvmConfig,
+    "model" | "modelConfigured" | "agentMode"
+  >;
+  listCatalogModels: (providerName?: string) => Promise<ModelInfo[]>;
+  patchConfig: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<void>;
+}
+
+function getOllamaCloudBootstrapDeps(): OllamaCloudBootstrapDeps {
+  return {
+    getSnapshot: () => config.snapshot,
+    listCatalogModels: (providerName?: string) =>
+      ai.models.catalog(providerName),
+    patchConfig: async (updates) => {
+      await config.patch(updates);
+    },
+  };
+}
+
+/**
+ * Auto-select the strongest Ollama cloud model for first-time users when
+ * Claude Code is unavailable. This avoids silently defaulting back to a local
+ * Llama baseline.
+ */
+export async function autoConfigureInitialOllamaCloudModel(
+  depsOverride: Partial<OllamaCloudBootstrapDeps> = {},
+): Promise<string | null> {
+  const deps = { ...getOllamaCloudBootstrapDeps(), ...depsOverride };
+  const snapshot = deps.getSnapshot();
+  if (!isAutomaticDefaultCandidate(snapshot)) return null;
+
+  let models: ModelInfo[];
+  try {
+    models = await deps.listCatalogModels(OLLAMA_PROVIDER);
+  } catch {
+    return null;
+  }
+
+  const preferred = selectPreferredOllamaCloudModel(models);
+  if (!preferred) return null;
+
+  const selectedModelId = `${OLLAMA_PROVIDER}/${preferred}`;
+  await deps.patchConfig({
+    model: selectedModelId,
+    modelConfigured: true,
+    ...(snapshot.agentMode ? {} : { agentMode: "hlvm" }),
+  });
+  return selectedModelId;
+}
+
 export interface EnsureInitialModelConfiguredOptions {
   allowFirstRunSetup?: boolean;
   runFirstTimeSetup?: () => Promise<string | null>;
@@ -245,17 +367,24 @@ export interface EnsureInitialModelConfiguredResult {
   model: string;
   modelConfigured: boolean;
   autoConfiguredClaude: boolean;
+  autoConfiguredOllamaCloud: boolean;
   firstRunConfigured: boolean;
   reconciledClaudeModel: boolean;
 }
 
 interface InitialModelConfigDeps {
-  getSnapshot: () => Pick<HlvmConfig, "model" | "modelConfigured" | "agentMode">;
+  getSnapshot: () => Pick<
+    HlvmConfig,
+    "model" | "modelConfigured" | "agentMode"
+  >;
   getStatus: (providerName?: string) => Promise<{ available: boolean }>;
   listModels: (providerName?: string) => Promise<ModelInfo[]>;
+  listCatalogModels: (providerName?: string) => Promise<ModelInfo[]>;
   patchConfig: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<void>;
   now: () => number;
-  syncSnapshot: () => Promise<Pick<HlvmConfig, "model" | "modelConfigured" | "agentMode">>;
+  syncSnapshot: () => Promise<
+    Pick<HlvmConfig, "model" | "modelConfigured" | "agentMode">
+  >;
 }
 
 function getInitialModelConfigDeps(): InitialModelConfigDeps {
@@ -265,6 +394,8 @@ function getInitialModelConfigDeps(): InitialModelConfigDeps {
     getSnapshot: bootstrapDeps.getSnapshot,
     getStatus: bootstrapDeps.getStatus,
     listModels: resolveDeps.listModels,
+    listCatalogModels: (providerName?: string) =>
+      ai.models.catalog(providerName),
     patchConfig: bootstrapDeps.patchConfig,
     now: bootstrapDeps.now,
     syncSnapshot: async () => config.snapshot,
@@ -278,6 +409,7 @@ export async function ensureInitialModelConfigured(
   const deps = { ...getInitialModelConfigDeps(), ...depsOverride };
   let snapshot = deps.getSnapshot();
   let autoConfiguredClaude = false;
+  let autoConfiguredOllamaCloud = false;
   let firstRunConfigured = false;
   let reconciledClaudeModel = false;
 
@@ -291,6 +423,18 @@ export async function ensureInitialModelConfigured(
     });
     if (autoModel) {
       autoConfiguredClaude = true;
+      snapshot = await deps.syncSnapshot();
+    }
+  }
+
+  if (isAutomaticDefaultCandidate(snapshot)) {
+    const autoModel = await autoConfigureInitialOllamaCloudModel({
+      getSnapshot: deps.getSnapshot,
+      listCatalogModels: deps.listCatalogModels,
+      patchConfig: deps.patchConfig,
+    });
+    if (autoModel) {
+      autoConfiguredOllamaCloud = true;
       snapshot = await deps.syncSnapshot();
     }
   }
@@ -329,6 +473,7 @@ export async function ensureInitialModelConfigured(
     }),
     modelConfigured: snapshot.modelConfigured === true,
     autoConfiguredClaude,
+    autoConfiguredOllamaCloud,
     firstRunConfigured,
     reconciledClaudeModel,
   };
@@ -406,129 +551,45 @@ export async function reconcileConfiguredClaudeCodeModel(
   const snapshot = deps.getSnapshot();
   if (!snapshot.model) return null;
 
-  const repairedFullModel = await resolveCompatibleClaudeCodeModel(snapshot.model, {
-    listModels: deps.listModels,
-  });
+  const repairedFullModel = await resolveCompatibleClaudeCodeModel(
+    snapshot.model,
+    {
+      listModels: deps.listModels,
+    },
+  );
   if (repairedFullModel === snapshot.model) return null;
 
   await deps.patchConfig({ model: repairedFullModel });
   return repairedFullModel;
 }
 
-export function isModelInstalled(models: ModelInfo[], target: string): boolean {
-  if (!target) return false;
-  const normalizedTarget = target.toLowerCase();
-  const hasTag = normalizedTarget.includes(":");
-  if (hasTag) {
-    return models.some((model) => model.name.toLowerCase() === normalizedTarget);
-  }
-  const latest = `${normalizedTarget}:latest`;
-  return models.some((model) => {
-    const name = model.name.toLowerCase();
-    return name === normalizedTarget || name === latest;
-  });
-}
-
-export function getProgressPercent(progress: PullProgress): number | undefined {
-  if (typeof progress.percent === "number") {
-    return Math.round(progress.percent);
-  }
-  if (typeof progress.total === "number" && progress.total > 0 && typeof progress.completed === "number") {
-    return Math.round((progress.completed / progress.total) * 100);
-  }
-  return undefined;
-}
-
-export async function logModelPullProgress(
-  progressStream: AsyncIterable<PullProgress>,
-  log?: (message: string) => void,
-): Promise<void> {
-  let lastPercent = -1;
-  let lastStatus = "";
-
-  for await (const progress of progressStream) {
-    if (!log) continue;
-    const percent = getProgressPercent(progress);
-    const status = (progress.status || "").trim();
-    const statusChanged = status && status !== lastStatus;
-    const percentChanged = typeof percent === "number" && percent >= lastPercent + 5;
-
-    if (statusChanged || percentChanged) {
-      const suffix = typeof percent === "number" ? ` ${percent}%` : "";
-      const message = status ? `${status}${suffix}` : `Downloading${suffix}`;
-      log(message.trim());
-      lastStatus = status;
-      if (typeof percent === "number") {
-        lastPercent = percent;
-      }
-    }
-  }
-}
-
-export async function pullModelWithProgress(
-  modelName: string,
-  providerName?: string,
-  log?: (message: string) => void
-): Promise<void> {
-  await logModelPullProgress(ai.models.pull(modelName, providerName), log);
-}
-
 export async function ensureDefaultModelInstalled(
-  options: EnsureDefaultModelOptions = {}
+  options: EnsureDefaultModelOptions = {},
 ): Promise<boolean> {
   if (defaultModelEnsured) return true;
   if (getPlatform().env.get("HLVM_DISABLE_AI_AUTOSTART")) return false;
 
-  const log = options.log;
-  const configuredModel = getConfiguredModel();
-  let [providerName, modelName] = parseModelString(configuredModel);
+  const result = await ensureModelAvailability(
+    getConfiguredModel(),
+    {
+      listModels: (providerName?: string) => ai.models.list(providerName),
+      pullModel: (
+        modelName: string,
+        providerName?: string,
+      ) => ai.models.pull(modelName, providerName),
+    },
+    {
+      pull: true,
+      log: options.log,
+    },
+  );
 
-  if (!modelName) {
-    providerName = DEFAULT_MODEL_PROVIDER;
-    modelName = DEFAULT_MODEL_ID.split("/")[1];
-  }
-
-  let models: ModelInfo[] = [];
-  try {
-    models = await ai.models.list(providerName ?? undefined);
-  } catch (error) {
+  if (!result.ok) {
     throw new RuntimeError(
-      `AI provider unavailable while checking models. Ensure Ollama is running: ${getErrorMessage(error)}`
+      result.error ?? `Default model unavailable: ${result.modelName}`,
     );
-  }
-
-  if (isModelInstalled(models, modelName)) {
-    defaultModelEnsured = true;
-    return true;
-  }
-
-  if (log) {
-    log(`Downloading default model (${modelName})...`);
-  }
-
-  try {
-    await pullModelWithProgress(modelName, providerName ?? undefined, log);
-  } catch (error) {
-    throw new RuntimeError(
-      `Default model download failed (${modelName}): ${getErrorMessage(error)}`
-    );
-  }
-
-  try {
-    models = await ai.models.list(providerName ?? undefined);
-  } catch (error) {
-    throw new RuntimeError(
-      `Unable to verify default model installation: ${getErrorMessage(error)}`
-    );
-  }
-
-  if (!isModelInstalled(models, modelName)) {
-    throw new RuntimeError(`Default model download did not complete: ${modelName}`);
   }
 
   defaultModelEnsured = true;
-  if (log) {
-    log(`Default model ready: ${modelName}`);
-  }
   return true;
 }

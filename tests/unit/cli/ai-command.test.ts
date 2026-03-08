@@ -28,9 +28,18 @@ async function withCapturedOutput(
 
 Deno.test("ai command: pull streams through the runtime host", async () => {
   let capturedBody: { name?: string; provider?: string } | null = null;
+  let installedChecks = 0;
 
   await withRuntimeHostServer(async (req) => {
     const url = new URL(req.url);
+    if (url.pathname === "/api/models/installed") {
+      installedChecks += 1;
+      return Response.json({
+        models: installedChecks >= 2
+          ? [{ name: "test-model:latest", metadata: { provider: "ollama" } }]
+          : [],
+      });
+    }
     if (url.pathname === "/api/models/pull") {
       capturedBody = await req.json() as { name?: string; provider?: string };
       const stream = new ReadableStream({
@@ -62,6 +71,7 @@ Deno.test("ai command: pull streams through the runtime host", async () => {
         name: "test-model:latest",
         provider: "ollama",
       });
+      assertEquals(installedChecks, 2);
       assertStringIncludes(output(), "Downloading model (test-model:latest)...");
       assertStringIncludes(output(), "pulling 55%");
       assertStringIncludes(output(), "Model ready: test-model:latest");

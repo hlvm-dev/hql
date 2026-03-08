@@ -14,7 +14,7 @@ import { setCustomKeybindingsSnapshot } from "../keybindings/custom-bindings.ts"
 import { checkDefaultModelInstalled, getDefaultModelName } from "../components/ModelSetupOverlay.tsx";
 import { log } from "../../../api/log.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
-import { getRuntimeConfig } from "../../../runtime/host-client.ts";
+import { createRuntimeConfigManager } from "../../../runtime/model-config.ts";
 
 export interface InitializationState {
   loading: boolean;
@@ -79,8 +79,9 @@ export function useInitialization(state: ReplState): InitializationState {
 
         setErrors(loadErrors);
         (globalThis as Record<string, unknown>).__hlvmStartupWarnings = loadErrors;
-        const runtimeConfig = await getRuntimeConfig();
-        setCustomKeybindingsSnapshot(runtimeConfig.keybindings);
+        const runtimeConfig = await createRuntimeConfigManager();
+        const runtimeSnapshot = await runtimeConfig.sync();
+        setCustomKeybindingsSnapshot(runtimeSnapshot.keybindings);
         refreshKeybindingLookup();
 
         // Register API names for tab completion

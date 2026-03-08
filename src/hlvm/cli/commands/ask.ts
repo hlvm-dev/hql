@@ -18,33 +18,32 @@ import {
 } from "../../agent/model-compat.ts";
 import { classifyError, getRecoveryHint } from "../../agent/error-taxonomy.ts";
 import { getPlatform } from "../../../platform/platform.ts";
-import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
-import { extractProvider, isPaidProvider } from "../../providers/approval.ts";
 import type {
   AgentUIEvent,
   FinalResponseMeta,
   TraceEvent,
 } from "../../agent/orchestrator.ts";
+import {
+  isOllamaCloudModelId,
+  runOllamaCloudSignin,
+  verifyOllamaCloudAccess,
+} from "../../runtime/ollama-cloud-access.ts";
 import type { ChatResultStats } from "../../runtime/chat-protocol.ts";
 import type { PermissionMode } from "../../../common/config/types.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 import { runAgentQueryViaHost } from "../../runtime/host-client.ts";
-import { createRuntimeModelConfigManager } from "../../runtime/model-config.ts";
+import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 import type {
   DelegateTranscriptEvent,
   DelegateTranscriptSnapshot,
 } from "../../agent/delegate-transcript.ts";
+import { formatPlanForContext } from "../../agent/planning.ts";
 import {
   createTranscriptState,
   getVisibleTodoSummary,
   reduceTranscriptState,
 } from "../agent-transcript-state.ts";
-
-// MARK: - Paid Provider Consent
-
-export { extractProvider, isPaidProvider } from "../../providers/approval.ts";
-export { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 
 export function showAskHelp(): void {
   log.raw.log(`
@@ -93,6 +92,17 @@ async function promptRuntimeInteraction(event: {
     log.raw.write("> ");
     const userInput = await readLineInput();
     return { approved: true, userInput };
+  }
+
+  if (event.toolName === "plan_review") {
+    log.raw.log("\n[Plan Review Required]");
+    if (event.toolArgs?.trim()) {
+      log.raw.log(event.toolArgs);
+    }
+    log.raw.log("\nApprove this plan before any mutations? [y/N] ");
+    const key = await readSingleKey();
+    log.raw.log("");
+    return { approved: key === "y" };
   }
 
   log.raw.log(`\n[Tool: ${event.toolName ?? "unknown"}]`);
@@ -188,15 +198,6 @@ function createTraceCallback(
         break;
     }
   };
-}
-
-function isOllamaCloudModelId(modelId: string): boolean {
-  const slashIndex = modelId.indexOf("/");
-  if (slashIndex <= 0) return false;
-  const provider = modelId.slice(0, slashIndex).toLowerCase();
-  if (provider !== "ollama") return false;
-  const modelName = modelId.slice(slashIndex + 1);
-  return isOllamaCloudModel(modelName);
 }
 
 const DEFAULT_TOOL_OUTPUT_MAX_LINES = 18;
@@ -418,11 +419,11 @@ export async function askCommand(args: string[]): Promise<void> {
     freshSession = true;
   }
 
-  const runtimeModelConfig = await createRuntimeModelConfigManager();
+  const runtimeConfig = await createRuntimeConfigManager();
 
   const forceSetup = getPlatform().env.get("HLVM_FORCE_SETUP") === "1";
   if (!fixturePath && !modelOverride) {
-    const initialModel = await runtimeModelConfig.ensureInitialModelConfigured({
+    const initialModel = await runtimeConfig.ensureInitialModelConfigured({
       allowFirstRunSetup: getPlatform().terminal.stdin.isTerminal() ||
         forceSetup,
       runFirstTimeSetup: async () => {
@@ -435,9 +436,9 @@ export async function askCommand(args: string[]): Promise<void> {
     }
   }
 
-  let resolvedModel = modelOverride ?? runtimeModelConfig.getConfiguredModel();
+  let resolvedModel = modelOverride ?? runtimeConfig.getConfiguredModel();
   if (!fixturePath) {
-    const normalized = await runtimeModelConfig
+    const normalized = await runtimeConfig
       .resolveCompatibleClaudeCodeModel(
         resolvedModel,
       );
@@ -450,15 +451,15 @@ export async function askCommand(args: string[]): Promise<void> {
   }
 
   const model = modelOverride ?? undefined;
-  const contextWindow = runtimeModelConfig.getContextWindow();
+  const contextWindow = runtimeConfig.getContextWindow();
 
   // Paid provider consent gate
   if (
     !fixturePath &&
-    isPaidProvider(resolvedModel) &&
-    !runtimeModelConfig.isProviderApproved(resolvedModel)
+    runtimeConfig.evaluateProviderApproval(resolvedModel).status ===
+      "approval_required"
   ) {
-    const consented = await confirmPaidProviderConsent(resolvedModel);
+    const consented = await confirmPaidProviderConsent(resolvedModel, runtimeConfig);
     if (!consented) {
       log.raw.log(
         "Aborted. Use a free model (e.g., Ollama) or re-run to approve.",
@@ -550,6 +551,49 @@ export async function askCommand(args: string[]): Promise<void> {
           }
           log.raw.log(
             `\n[Todo] ${getVisibleTodoSummary(transcriptState) ?? "updated"}\n`,
+          );
+          break;
+        case "plan_review_required":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          log.raw.log(
+            `\n[Plan Review]\n${formatPlanForContext(event.plan, {
+              mode: "always",
+              requireStepMarkers: false,
+            })}\n`,
+          );
+          break;
+        case "plan_review_resolved":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          log.raw.log(
+            `\n[Plan Review Result] ${event.approved ? "approved" : "cancelled"}\n`,
+          );
+          break;
+        case "checkpoint_created":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          log.raw.log(
+            `\n[Checkpoint] ${event.checkpoint.fileCount} file${
+              event.checkpoint.fileCount === 1 ? "" : "s"
+            } protected\n`,
+          );
+          break;
+        case "checkpoint_restored":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          log.raw.log(
+            `\n[Checkpoint Restored] ${event.restoredFileCount} file${
+              event.restoredFileCount === 1 ? "" : "s"
+            }\n`,
           );
           break;
       }
@@ -679,6 +723,11 @@ export async function askCommand(args: string[]): Promise<void> {
       case "plan_step": {
         break;
       }
+      case "plan_review_required":
+      case "plan_review_resolved":
+      case "checkpoint_created":
+      case "checkpoint_restored":
+        break;
       case "turn_stats": {
         const dur = event.durationMs
           ? `${(event.durationMs / 1000).toFixed(1)}s`
@@ -699,7 +748,7 @@ export async function askCommand(args: string[]): Promise<void> {
 
   // Resolve permission mode: CLI flag > config > default
   const effectivePermissionMode: PermissionMode = permissionModeOverride ??
-    runtimeModelConfig.getPermissionMode() ??
+    runtimeConfig.getPermissionMode() ??
     "default";
 
   const executeQuery = async () => {
@@ -794,20 +843,20 @@ export async function askCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const {
-    runOllamaSignin,
-    verifyOllamaCloudModelAccess,
-  } = await import(
-    "./first-run-setup.ts"
-  );
   const recovery = await attemptCloudAuthRecovery(
     { executionError, resolvedModel, streamedTokens },
     {
       isCloudModelId: isOllamaCloudModelId,
       isInteractiveTerminal: () => getPlatform().terminal.stdin.isTerminal(),
       isAuthErrorMessage: isOllamaAuthErrorMessage,
-      runSignin: runOllamaSignin,
-      verifyCloudAccess: verifyOllamaCloudModelAccess,
+      runSignin: () =>
+        runOllamaCloudSignin({
+          onOutput: (line) => log.raw.log(line),
+        }),
+      verifyCloudAccess: (modelId) =>
+        verifyOllamaCloudAccess(modelId, {
+          onError: (message) => log.error(`Cloud access check failed: ${message}`),
+        }),
       executeQuery,
       logRaw: (message: string) => log.raw.log(message),
       writeRaw: (message: string) => log.raw.write(message),

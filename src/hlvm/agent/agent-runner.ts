@@ -59,8 +59,12 @@ import {
   loadPersistedAgentHistory,
   loadPersistedAgentSessionMetadata,
   loadPersistedAgentTodos,
+  persistAgentCheckpointSummary,
   persistAgentPlanState,
+  persistPendingPlanReview,
   persistAgentTodos,
+  resetApprovedPlanSignature,
+  resolvePendingPlanReview,
   type PersistedAgentTurn,
   startPersistedAgentTurn,
 } from "./persisted-transcript.ts";
@@ -68,7 +72,13 @@ import {
   createTodoStateFromPlan,
   isTodoStateDerivedFromPlan,
 } from "./todo-state.ts";
-import { formatPlanForContext, restorePlanState } from "./planning.ts";
+import {
+  formatPlanForContext,
+  getPlanSignature,
+  restorePlanState,
+} from "./planning.ts";
+import { effectiveToolSurfaceIncludesMutation } from "./security/safety.ts";
+import { createCheckpointRecorder } from "./checkpoints.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
@@ -345,12 +355,12 @@ export async function runAgentQuery(
     });
 
   const useExternalHistory = !!options.messageHistory;
-  const shouldUsePersistedSession = !skipSessionHistory && !useExternalHistory;
-  const sessionKey = shouldUsePersistedSession
+  const shouldPersistSession = !skipSessionHistory;
+  const sessionKey = shouldPersistSession
     ? (options.sessionId ?? deriveDefaultSessionKey())
     : null;
   const shouldRestorePersistedTodos = !!sessionKey;
-  const persistedTurnSessionId = shouldUsePersistedSession ? sessionKey : null;
+  const persistedTurnSessionId = sessionKey;
   let persistedTurn: PersistedAgentTurn | null = null;
 
   try {
@@ -423,6 +433,7 @@ export async function runAgentQuery(
       | undefined;
     const completedPlanStepIds = new Set<string>();
     activePlan = sessionMetadata.plan;
+    let approvedPlanSignature = sessionMetadata.approvedPlanSignature;
     for (const stepId of sessionMetadata.completedPlanStepIds ?? []) {
       completedPlanStepIds.add(stepId);
     }
@@ -474,6 +485,93 @@ export async function runAgentQuery(
         source: "plan",
       });
     };
+    let latestCheckpointSignature = "";
+    const checkpointRecorder = sessionKey
+      ? createCheckpointRecorder({
+        sessionId: sessionKey,
+        requestId: persistedTurn?.requestId ?? crypto.randomUUID(),
+        onSummaryChanged: (summary) => {
+          persistAgentCheckpointSummary(sessionKey, summary);
+          const signature =
+            `${summary.id}:${summary.fileCount}:${summary.restoredAt ?? 0}`;
+          if (signature === latestCheckpointSignature) {
+            return;
+          }
+          latestCheckpointSignature = signature;
+          callbacks.onAgentEvent?.({
+            type: "checkpoint_created",
+            checkpoint: { ...summary },
+          });
+        },
+      })
+      : undefined;
+    const planReview = {
+      getCurrentPlan: (): typeof activePlan => activePlan,
+      shouldGateMutatingTools: (): boolean =>
+        permissionMode !== "yolo" &&
+        effectiveToolSurfaceIncludesMutation({
+          allowlist: session.toolFilterState?.allowlist ??
+            session.llmConfig?.toolAllowlist,
+          denylist: session.toolFilterState?.denylist ??
+            session.llmConfig?.toolDenylist,
+          ownerId: session.toolOwnerId,
+        }),
+      ensureApproved: async (
+        plan: NonNullable<typeof activePlan>,
+      ): Promise<"approved" | "cancelled"> => {
+        const signature = getPlanSignature(plan);
+        if (approvedPlanSignature === signature) {
+          return "approved";
+        }
+
+        callbacks.onAgentEvent?.({
+          type: "plan_review_required",
+          plan,
+        });
+
+        if (!sessionKey || !callbacks.onInteraction) {
+          callbacks.onAgentEvent?.({
+            type: "plan_review_resolved",
+            plan,
+            approved: false,
+          });
+          return "cancelled";
+        }
+
+        const requestId = crypto.randomUUID();
+        persistPendingPlanReview(sessionKey, requestId, plan);
+
+        try {
+          const response = await callbacks.onInteraction({
+            type: "interaction_request",
+            requestId,
+            mode: "permission",
+            toolName: "plan_review",
+            toolArgs: formatPlanForContext(plan, {
+              mode: "always",
+              requireStepMarkers: false,
+            }),
+          });
+          const approved = response.approved === true;
+          resolvePendingPlanReview(sessionKey, {
+            approved,
+            planSignature: approved ? signature : undefined,
+          });
+          approvedPlanSignature = approved ? signature : undefined;
+          callbacks.onAgentEvent?.({
+            type: "plan_review_resolved",
+            plan,
+            approved,
+          });
+          return approved ? "approved" : "cancelled";
+        } catch (error) {
+          approvedPlanSignature = undefined;
+          throw error;
+        }
+      },
+    } satisfies NonNullable<
+      NonNullable<Parameters<typeof runReActLoop>[1]>["planReview"]
+    >;
     const onAgentEvent = (() => {
       if (!persistedTurn && !sessionKey) return callbacks.onAgentEvent;
       const activePersistedTurn = persistedTurn;
@@ -495,8 +593,10 @@ export async function runAgentQuery(
           activePlan = event.plan;
           completedPlanStepIds.clear();
           if (sessionKey) {
+            resetApprovedPlanSignature(sessionKey);
             persistAgentPlanState(sessionKey, activePlan, completedPlanStepIds);
           }
+          approvedPlanSignature = undefined;
           emitSyncedTodoState();
         }
         if (event.type === "plan_step") {
@@ -513,6 +613,11 @@ export async function runAgentQuery(
           if (sessionKey) {
             persistAgentTodos(sessionKey, event.todoState.items, event.source);
           }
+        }
+        if (event.type === "plan_review_resolved" && sessionKey) {
+          approvedPlanSignature = event.approved
+            ? getPlanSignature(event.plan)
+            : undefined;
         }
         callbacks.onAgentEvent?.(event);
       };
@@ -549,6 +654,8 @@ export async function runAgentQuery(
           initialPlanState: hasIncompleteRestoredPlan && activePlan
             ? restorePlanState(activePlan, completedPlanStepIds)
             : null,
+          planReview,
+          checkpointRecorder,
           toolAllowlist: session.toolFilterState?.allowlist ??
             session.llmConfig?.toolAllowlist,
           toolDenylist: session.toolFilterState?.denylist ??

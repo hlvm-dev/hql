@@ -79,6 +79,14 @@ export const commandKeybindings: Keybinding[] = [
     action: { type: "SLASH_COMMAND", cmd: "/resume" },
   },
   {
+    id: "/undo",
+    display: "/undo",
+    label: "Restore checkpoint",
+    description: "Restore the latest reversible checkpoint",
+    category: "Commands",
+    action: { type: "SLASH_COMMAND", cmd: "/undo" },
+  },
+  {
     id: "/exit",
     display: "/exit",
     label: "Exit",

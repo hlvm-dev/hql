@@ -19,11 +19,11 @@ import { pushSSEEvent } from "../../../store/sse-store.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
 import { config } from "../../../api/config.ts";
-import type { PermissionMode } from "../../../../common/config/types.ts";
 import { log } from "../../../api/log.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { RuntimeError, ValidationError } from "../../../../common/error.ts";
 import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../../../common/ai-messages.ts";
+import { getPermissionMode } from "../../../../common/config/selectors.ts";
 import {
   buildClaudeCodeCommand,
   captureSessionIdFromInitEvent,
@@ -103,7 +103,7 @@ export async function handleAgentMode(
     model: resolvedModel,
     sessionId: body.session_id,
     permissionMode: body.permission_mode ??
-      (config.snapshot.permissionMode as PermissionMode | undefined) ??
+      getPermissionMode(config.snapshot) ??
       "default",
     noInput: false,
     signal,
@@ -215,6 +215,32 @@ export async function handleAgentMode(
               step_id: event.stepId,
               index: event.index,
               completed: event.completed,
+            });
+            break;
+          case "plan_review_required":
+            emit({
+              event: "plan_review_required",
+              plan: event.plan,
+            });
+            break;
+          case "plan_review_resolved":
+            emit({
+              event: "plan_review_resolved",
+              plan: event.plan,
+              approved: event.approved,
+            });
+            break;
+          case "checkpoint_created":
+            emit({
+              event: "checkpoint_created",
+              checkpoint: event.checkpoint,
+            });
+            break;
+          case "checkpoint_restored":
+            emit({
+              event: "checkpoint_restored",
+              checkpoint: event.checkpoint,
+              restored_file_count: event.restoredFileCount,
             });
             break;
           case "turn_stats":

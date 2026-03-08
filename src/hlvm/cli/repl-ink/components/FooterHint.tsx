@@ -20,6 +20,8 @@ interface FooterProps {
   modelName?: string;
   /** Compact context/tokens indicator (e.g., "35% ctx", "4200 tokens") */
   contextUsageLabel?: string;
+  /** Compact safety/checkpoint indicator (e.g., "undo ready") */
+  checkpointLabel?: string;
   /** Number of queued interactions */
   interactionQueueLength?: number;
   /** Number of queued user chat turns */
@@ -101,6 +103,7 @@ export function FooterHint({
   activeTool,
   modelName,
   contextUsageLabel,
+  checkpointLabel,
   interactionQueueLength = 0,
   queuedUserTurnCount = 0,
   inConversation,
@@ -129,6 +132,7 @@ export function FooterHint({
 
   const rightParts: string[] = [];
   if (contextUsageLabel) rightParts.push(contextUsageLabel);
+  if (checkpointLabel) rightParts.push(checkpointLabel);
   if (model) rightParts.push(model);
 
   return (

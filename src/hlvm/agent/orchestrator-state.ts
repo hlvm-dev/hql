@@ -31,6 +31,7 @@ export interface ToolExecutionResult {
   summaryDisplay?: string;
   returnDisplay?: string;
   error?: string;
+  stopReason?: "plan_review_cancelled";
 }
 
 /** Mutable state for the ReAct loop, consolidated from 16 local variables */

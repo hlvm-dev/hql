@@ -495,6 +495,15 @@ export async function handlePostToolExecution(
   config: OrchestratorConfig,
   llmFunction: LLMFunction,
 ): Promise<LoopDirective> {
+  if (result.results.some((toolResult) =>
+    toolResult.stopReason === "plan_review_cancelled"
+  )) {
+    return {
+      action: "return",
+      value: "Plan review was cancelled. No changes were made.",
+    };
+  }
+
   // --- Denial tracking (per-tool) ---
   let anyDeniedThisTurn = false;
 

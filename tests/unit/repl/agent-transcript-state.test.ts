@@ -272,3 +272,63 @@ Deno.test("agent transcript state clears prior plan and todo state when hydratin
   assertEquals(replaced.planTodoState, undefined);
   assertEquals(replaced.completedPlanStepIds, []);
 });
+
+Deno.test("agent transcript state tracks plan review and checkpoint safety state", () => {
+  const withReview = reduceTranscriptState(createTranscriptState(), {
+    type: "agent_event",
+    event: {
+      type: "plan_review_required",
+      plan: {
+        goal: "Review file edits",
+        steps: [{ id: "step-1", title: "Edit config" }],
+      },
+    },
+  });
+
+  const withCheckpoint = reduceTranscriptState(withReview, {
+    type: "agent_event",
+    event: {
+      type: "checkpoint_created",
+      checkpoint: {
+        id: "cp-1",
+        requestId: "req-1",
+        createdAt: 1,
+        fileCount: 2,
+        reversible: true,
+      },
+    },
+  });
+
+  const restored = reduceTranscriptState(withCheckpoint, {
+    type: "agent_event",
+    event: {
+      type: "checkpoint_restored",
+      checkpoint: {
+        id: "cp-1",
+        requestId: "req-1",
+        createdAt: 1,
+        fileCount: 2,
+        reversible: true,
+        restoredAt: 2,
+      },
+      restoredFileCount: 2,
+    },
+  });
+
+  const resolved = reduceTranscriptState(restored, {
+    type: "agent_event",
+    event: {
+      type: "plan_review_resolved",
+      plan: {
+        goal: "Review file edits",
+        steps: [{ id: "step-1", title: "Edit config" }],
+      },
+      approved: true,
+    },
+  });
+
+  assertEquals(withReview.pendingPlanReview?.plan.goal, "Review file edits");
+  assertEquals(withCheckpoint.latestCheckpoint?.fileCount, 2);
+  assertEquals(restored.latestCheckpoint?.restoredAt, 2);
+  assertEquals(resolved.pendingPlanReview, undefined);
+});

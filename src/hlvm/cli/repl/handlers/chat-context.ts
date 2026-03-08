@@ -9,6 +9,7 @@
  * - reconstructing prior tool observations for HTTP agent follow-up turns
  */
 
+import { getContextWindow } from "../../../../common/config/selectors.ts";
 import { isObjectValue } from "../../../../common/utils.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { config } from "../../../api/config.ts";
@@ -192,16 +193,9 @@ export function resolveChatContextBudget(
   modelInfo?: ModelInfo | null,
   _modelKey?: string,
 ): ResolvedBudget {
-  const rawContextWindow = isObjectValue(config.snapshot)
-    ? config.snapshot.contextWindow
-    : undefined;
-  const userOverride = typeof rawContextWindow === "number" &&
-      Number.isInteger(rawContextWindow) && rawContextWindow > 0
-    ? rawContextWindow
-    : undefined;
   return resolveContextBudget({
     modelInfo: modelInfo ?? undefined,
-    userOverride,
+    userOverride: getContextWindow(config.snapshot),
   });
 }
 

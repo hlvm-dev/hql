@@ -14,7 +14,12 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import { getTool, type InteractionRequestEvent, type InteractionResponse } from "../registry.ts";
+import {
+  getTool,
+  resolveTools,
+  type InteractionRequestEvent,
+  type InteractionResponse,
+} from "../registry.ts";
 import { DEFAULT_TIMEOUTS } from "../constants.ts";
 import { type AgentPolicy, resolvePolicyDecision } from "../policy.ts";
 import {
@@ -194,6 +199,21 @@ function getDeclaredSafetyClassification(
   }
 }
 
+function isDeclaredMutatingTool(
+  toolName: string,
+  ownerId?: string,
+): boolean {
+  try {
+    const tool = getTool(toolName, ownerId);
+    return tool.category === "write" ||
+      toolName === "shell_exec" ||
+      toolName === "shell_script" ||
+      toolName === "git_commit";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Classify tool execution safety level
  *
@@ -236,6 +256,24 @@ export function classifyTool(
     level: "L2",
     reason: "Unknown tool, defaulting to highest safety level",
   };
+}
+
+export function isMutatingTool(
+  toolName: string,
+  ownerId?: string,
+): boolean {
+  return isDeclaredMutatingTool(toolName, ownerId);
+}
+
+export function effectiveToolSurfaceIncludesMutation(options?: {
+  allowlist?: string[];
+  denylist?: string[];
+  ownerId?: string;
+}): boolean {
+  const tools = resolveTools(options);
+  return Object.keys(tools).some((toolName) =>
+    isDeclaredMutatingTool(toolName, options?.ownerId)
+  );
 }
 
 /**
@@ -362,17 +400,22 @@ async function promptUserConfirmation(
   args: unknown,
   classification: SafetyClassification,
   onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>,
+  warning?: string,
   timeoutMs: number = DEFAULT_TIMEOUTS.userInput,
 ): Promise<ConfirmationResult> {
   // GUI mode: emit interaction request and await response
   if (onInteraction) {
     const requestId = crypto.randomUUID();
+    const toolArgs = [
+      warning?.trim(),
+      truncate(JSON.stringify(args, null, 2), 200),
+    ].filter(Boolean).join("\n\n");
     const response = await onInteraction({
       type: "interaction_request",
       requestId,
       mode: "permission",
       toolName,
-      toolArgs: truncate(JSON.stringify(args, null, 2), 200),
+      toolArgs,
     });
     return {
       confirmed: response.approved,
@@ -394,6 +437,9 @@ async function promptUserConfirmation(
   // Display tool information
   await write("\n");
   await write(`[Tool: ${toolName}] (${classification.level})\n`);
+  if (warning?.trim()) {
+    await write(`${warning.trim()}\n`);
+  }
   await write(preview + "\n");
 
   // Show appropriate prompt based on safety level
@@ -526,6 +572,7 @@ export async function checkToolSafety(
   l1Store: Map<string, boolean>,
   ownerId?: string,
   onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>,
+  warning?: string,
 ): Promise<boolean> {
   // Classify tool
   const classification = classifyTool(toolName, args, ownerId);
@@ -570,6 +617,7 @@ export async function checkToolSafety(
       args,
       classification,
       onInteraction,
+      warning,
     );
 
     if (result.confirmed && result.rememberChoice) {
@@ -580,6 +628,12 @@ export async function checkToolSafety(
   }
 
   // L2: Always prompt (unless yolo, handled above)
-  const result = await promptUserConfirmation(toolName, args, classification, onInteraction);
+  const result = await promptUserConfirmation(
+    toolName,
+    args,
+    classification,
+    onInteraction,
+    warning,
+  );
   return result.confirmed;
 }

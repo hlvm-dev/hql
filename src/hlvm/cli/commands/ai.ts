@@ -1,19 +1,11 @@
 import { log } from "../../api/log.ts";
-import {
-  getProgressPercent,
-  isModelInstalled,
-  logModelPullProgress,
-} from "../../../common/ai-default-model.ts";
-import {
-  DEFAULT_MODEL_ID,
-  DEFAULT_MODEL_PROVIDER,
-} from "../../../common/config/types.ts";
+import { getProgressPercent } from "../../../common/ai-default-model.ts";
 import {
   capabilitiesToDisplayTags,
   parseModelString,
 } from "../../providers/index.ts";
 import type { ModelInfo } from "../../providers/types.ts";
-import { ValidationError, RuntimeError } from "../../../common/error.ts";
+import { RuntimeError, ValidationError } from "../../../common/error.ts";
 import { startModelBrowser } from "../repl-ink/model-browser.tsx";
 import { formatBytes } from "../../../common/limits.ts";
 import { getPlatform } from "../../../platform/platform.ts";
@@ -31,35 +23,13 @@ import {
 import {
   getRuntimeModelDiscovery,
   listRuntimeInstalledModels,
-  pullRuntimeModelViaHost,
 } from "../../runtime/host-client.ts";
-import { createRuntimeModelConfigManager } from "../../runtime/model-config.ts";
-
-function resolveDefaultLocalName(
-  localModels: { name: string }[],
-  configuredModel: string | undefined,
-): string | null {
-  if (!configuredModel) return null;
-  const [, modelName] = parseModelString(configuredModel);
-  if (!modelName) return null;
-  const normalized = modelName.toLowerCase();
-  const hasTag = normalized.includes(":");
-  if (hasTag) {
-    const exact = localModels.find((m) => m.name.toLowerCase() === normalized);
-    return exact?.name ?? null;
-  }
-
-  const exact = localModels.find((m) => m.name.toLowerCase() === normalized);
-  if (exact) return exact.name;
-  const latest = localModels.find((m) =>
-    m.name.toLowerCase() === `${normalized}:latest`
-  );
-  if (latest) return latest.name;
-  const prefix = localModels.find((m) =>
-    m.name.toLowerCase().startsWith(`${normalized}:`)
-  );
-  return prefix?.name ?? null;
-}
+import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
+import {
+  ensureRuntimeModelAvailable,
+  getRuntimeModelAvailability,
+} from "../../runtime/model-availability.ts";
+import { isOllamaCloudModelId } from "../../runtime/ollama-cloud-access.ts";
 
 function buildCatalogIndex(models: ModelInfo[]): Map<string, ModelInfo> {
   const index = new Map<string, ModelInfo>();
@@ -111,65 +81,31 @@ function formatDownloadProgress(task: ModelPullTask): string {
   return parts.join(" ");
 }
 
-function resolveConfiguredModelParts(configuredModel: string): {
-  providerName: string | undefined;
-  modelName: string;
-} {
-  let [providerName, modelName] = parseModelString(configuredModel);
-  if (!modelName) {
-    providerName = DEFAULT_MODEL_PROVIDER;
-    modelName = DEFAULT_MODEL_ID.split("/")[1] ?? DEFAULT_MODEL_ID;
-  }
-  return { providerName: providerName ?? undefined, modelName };
-}
-
 async function ensureConfiguredModelInstalledViaHost(
   logMessage: (message: string) => void,
 ): Promise<boolean> {
   if (getPlatform().env.get("HLVM_DISABLE_AI_AUTOSTART")) return false;
 
-  const modelConfig = await createRuntimeModelConfigManager();
+  const modelConfig = await createRuntimeConfigManager();
   const configuredModel = modelConfig.getConfiguredModel();
-  const { providerName, modelName } = resolveConfiguredModelParts(configuredModel);
-
-  let models: ModelInfo[] = [];
-  try {
-    models = await listRuntimeInstalledModels(providerName);
-  } catch (error) {
+  const result = await ensureRuntimeModelAvailable(
+    configuredModel,
+    {
+      pull: true,
+      log: logMessage,
+      requireCloudAccess: isOllamaCloudModelId(configuredModel),
+      onPullStart: (target) =>
+        logMessage(`Downloading default model (${target.modelName})...`),
+    },
+  );
+  if (!result.ok) {
     throw new RuntimeError(
-      `AI provider unavailable while checking models. Ensure the runtime host is available: ${error instanceof Error ? error.message : String(error)}`,
+      result.error ?? `Default model unavailable: ${result.modelName}`,
     );
   }
-
-  if (isModelInstalled(models, modelName)) {
-    return true;
+  if (result.status === "pulled") {
+    logMessage(`Default model ready: ${result.modelName}`);
   }
-
-  logMessage(`Downloading default model (${modelName})...`);
-  try {
-    await logModelPullProgress(
-      pullRuntimeModelViaHost(modelName, providerName),
-      logMessage,
-    );
-  } catch (error) {
-    throw new RuntimeError(
-      `Default model download failed (${modelName}): ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
-  try {
-    models = await listRuntimeInstalledModels(providerName);
-  } catch (error) {
-    throw new RuntimeError(
-      `Unable to verify default model installation: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
-  if (!isModelInstalled(models, modelName)) {
-    throw new RuntimeError(`Default model download did not complete: ${modelName}`);
-  }
-
-  logMessage(`Default model ready: ${modelName}`);
   return true;
 }
 
@@ -200,7 +136,9 @@ export async function aiCommand(args: string[]): Promise<void> {
 
   switch (subcommand) {
     case "setup": {
-      await ensureConfiguredModelInstalledViaHost((message) => log.raw.log(message));
+      await ensureConfiguredModelInstalledViaHost((message) =>
+        log.raw.log(message)
+      );
       return;
     }
     case "pull": {
@@ -211,17 +149,28 @@ export async function aiCommand(args: string[]): Promise<void> {
           "hlvm ai pull",
         );
       }
-      const [providerName, modelName] = parseModelString(modelArg);
-      log.raw.log(`Downloading model (${modelName})...`);
-      await logModelPullProgress(
-        pullRuntimeModelViaHost(modelName, providerName ?? undefined),
-        (message) => log.raw.log(message),
-      );
-      log.raw.log(`Model ready: ${modelName}`);
+      const result = await ensureRuntimeModelAvailable(modelArg, {
+        pull: true,
+        log: (message) => log.raw.log(message),
+        onPullStart: (target) =>
+          log.raw.log(`Downloading model (${target.modelName})...`),
+      });
+      if (!result.supportsLocalInstall) {
+        throw new ValidationError(
+          `Model pull is only supported for local Ollama models: ${modelArg}`,
+          "hlvm ai pull",
+        );
+      }
+      if (!result.ok) {
+        throw new RuntimeError(
+          result.error ?? `Model unavailable: ${result.modelName}`,
+        );
+      }
+      log.raw.log(`Model ready: ${result.modelName}`);
       return;
     }
     case "list": {
-      const modelConfig = await createRuntimeModelConfigManager();
+      const modelConfig = await createRuntimeConfigManager();
       const configuredModel = modelConfig.getConfig().model;
       const discoverySnapshot = await getRuntimeModelDiscovery();
       const allModels = getModelDiscoveryModels({
@@ -347,22 +296,21 @@ export async function aiCommand(args: string[]): Promise<void> {
     case "model":
     case "current-model":
     case "current": {
-      const modelConfig = await createRuntimeModelConfigManager();
+      const modelConfig = await createRuntimeConfigManager();
       const configuredModel = modelConfig.getConfig().model;
       if (!configuredModel) {
         log.raw.log("No default model configured.");
         return;
       }
-      const [providerName] = parseModelString(configuredModel);
-      const models = await listRuntimeInstalledModels(providerName ?? undefined);
-      const defaultLocalName = resolveDefaultLocalName(models, configuredModel);
-      const status = defaultLocalName ? "installed" : "not installed";
+      const availability = await getRuntimeModelAvailability(configuredModel);
+      const status = availability.available ? "installed" : "not installed";
       log.raw.log(`Default: ${configuredModel} (${status})`);
       return;
     }
     case "browse":
     case "models": {
-      const beforeModel = (await createRuntimeModelConfigManager()).getConfig().model;
+      const beforeModel =
+        (await createRuntimeConfigManager()).getConfig().model;
       const result = await startModelBrowser();
       if (result.code !== 0) return;
       if (result.selectedModel) {

@@ -8,19 +8,16 @@ import { ValidationError } from "../../../common/error.ts";
 import { generateUUID } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
-import { isPaidProvider } from "../../providers/approval.ts";
+import { session as sessionApi } from "../../api/session.ts";
 import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 import {
   parseSessionFlags,
   type SessionInitOptions,
 } from "../repl/session/types.ts";
-import {
-  getRuntimeSession,
-  listRuntimeSessions,
-  runDirectChatViaHost,
-} from "../../runtime/host-client.ts";
-import { createRuntimeModelConfigManager } from "../../runtime/model-config.ts";
+import { resolveSessionStart } from "../repl/session/start.ts";
+import { runDirectChatViaHost } from "../../runtime/host-client.ts";
+import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 
 interface ParsedChatArgs {
   modelOverride?: string;
@@ -110,20 +107,29 @@ export function parseChatArgs(args: string[]): ParsedChatArgs {
 export async function resolveChatSessionId(
   session: SessionInitOptions,
 ): Promise<string> {
-  if (session.forceNew) {
-    return generateUUID();
-  }
-  if (session.resumeId) {
-    const existing = await getRuntimeSession(session.resumeId);
-    if (!existing) {
+  const resolution = await resolveSessionStart(session, {
+    listSessions: (options) => sessionApi.list(options),
+    hasSession: (sessionId) => sessionApi.has(sessionId),
+  });
+
+  switch (resolution.kind) {
+    case "missing":
       throw new ValidationError(
-        `Session not found: ${session.resumeId}`,
+        `Session not found: ${resolution.sessionId}`,
         "chat",
       );
-    }
-    return session.resumeId;
+    case "new":
+      return generateUUID();
+    case "resume":
+      return resolution.sessionId;
+    case "latest":
+      return resolution.sessionId ?? generateUUID();
+    case "picker":
+      throw new ValidationError(
+        "--resume requires a session id for `hlvm chat`",
+        "chat",
+      );
   }
-  return (await listRuntimeSessions())[0]?.id ?? generateUUID();
 }
 
 export async function chatCommand(args: string[]): Promise<void> {
@@ -133,10 +139,10 @@ export async function chatCommand(args: string[]): Promise<void> {
   }
 
   const parsedArgs = parseChatArgs(args);
-  const runtimeModelConfig = await createRuntimeModelConfigManager();
+  const runtimeConfig = await createRuntimeConfigManager();
 
   if (!parsedArgs.modelOverride) {
-    await runtimeModelConfig.ensureInitialModelConfigured({
+    await runtimeConfig.ensureInitialModelConfigured({
       allowFirstRunSetup: getPlatform().terminal.stdin.isTerminal(),
       runFirstTimeSetup: async () => {
         const { runFirstTimeSetup } = await import("./first-run-setup.ts");
@@ -146,16 +152,16 @@ export async function chatCommand(args: string[]): Promise<void> {
   }
 
   let resolvedModel = parsedArgs.modelOverride ??
-    runtimeModelConfig.getConfiguredModel();
-  resolvedModel = await runtimeModelConfig.resolveCompatibleClaudeCodeModel(
+    runtimeConfig.getConfiguredModel();
+  resolvedModel = await runtimeConfig.resolveCompatibleClaudeCodeModel(
     resolvedModel,
   );
 
   if (
-    isPaidProvider(resolvedModel) &&
-    !runtimeModelConfig.isProviderApproved(resolvedModel)
+    runtimeConfig.evaluateProviderApproval(resolvedModel).status ===
+      "approval_required"
   ) {
-    const consented = await confirmPaidProviderConsent(resolvedModel);
+    const consented = await confirmPaidProviderConsent(resolvedModel, runtimeConfig);
     if (!consented) {
       log.raw.log("Aborted.");
       return;

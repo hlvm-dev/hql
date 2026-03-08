@@ -26,6 +26,7 @@ import { safeStringify } from "../../common/safe-stringify.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { isToolArgsObject } from "./validation.ts";
 import type { TodoState } from "./todo-state.ts";
+import type { CheckpointRecorder } from "./checkpoints.ts";
 import {
   buildToolJsonSchema,
   coerceArgsToSchema,
@@ -71,6 +72,8 @@ export interface ToolExecutionOptions {
   ensureMcpLoaded?: () => Promise<void>;
   /** Session-scoped todo state used by todo_read/todo_write. */
   todoState?: TodoState;
+  /** Session-scoped automatic checkpoint recorder for supported file mutations. */
+  checkpointRecorder?: CheckpointRecorder;
   /** Optional registry-backed tool search callback used by tool_search. */
   searchTools?: (
     query: string,

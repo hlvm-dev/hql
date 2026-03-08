@@ -1,6 +1,14 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { clearCurrentSession, session } from "../../../src/hlvm/api/session.ts";
+import { createCheckpointRecorder } from "../../../src/hlvm/agent/checkpoints.ts";
+import {
+  getPersistedAgentSessionId,
+  persistAgentCheckpointSummary,
+  startPersistedAgentTurn,
+} from "../../../src/hlvm/agent/persisted-transcript.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 import type { MessageRow } from "../../../src/hlvm/store/types.ts";
+import { setupStoreTestDb } from "../_shared/store-test-db.ts";
 import { withRuntimeHostServer } from "../../shared/light-helpers.ts";
 
 Deno.test("session API lists, loads, resumes, exports, and counts runtime conversation sessions", async () => {
@@ -215,4 +223,47 @@ Deno.test("session API records into runtime conversation sessions and clears cur
   });
 
   clearCurrentSession();
+});
+
+Deno.test({
+  name: "session API restoreCheckpoint restores the latest reversible checkpoint",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const db = setupStoreTestDb();
+    const platform = getPlatform();
+    const workspace = await platform.fs.makeTempDir({
+      prefix: "hlvm-session-checkpoint-",
+    });
+
+    try {
+      const sessionId = getPersistedAgentSessionId();
+      startPersistedAgentTurn(sessionId, "edit file");
+      const filePath = platform.path.join(workspace, "config.txt");
+      await platform.fs.writeTextFile(filePath, "before");
+
+      const recorder = createCheckpointRecorder({
+        sessionId,
+        requestId: "req-1",
+      });
+      const summary = await recorder.captureFileMutation(filePath, {
+        status: "modified",
+      });
+      persistAgentCheckpointSummary(sessionId, summary);
+
+      await platform.fs.writeTextFile(filePath, "after");
+
+      const restored = await session.restoreCheckpoint(sessionId);
+      const content = await platform.fs.readTextFile(filePath);
+
+      assertEquals(restored.restored, true);
+      assertEquals(restored.restoredFileCount, 1);
+      assertEquals(restored.checkpoint?.restoredAt !== undefined, true);
+      assertEquals(content, "before");
+    } finally {
+      await platform.fs.remove(workspace, { recursive: true });
+      db.close();
+      clearCurrentSession();
+    }
+  },
 });

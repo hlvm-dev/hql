@@ -12,9 +12,9 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
 import {
-  getRuntimeConfig,
   getRuntimeConfigApi,
 } from "../../runtime/host-client.ts";
+import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { setCurrentThemeName } from "../theme/state.ts";
 
 export interface ModelBrowserOptions {
@@ -83,12 +83,13 @@ export async function startModelBrowser(options: ModelBrowserOptions = {}): Prom
     return { code: 1 };
   }
 
-  const runtimeConfig = await getRuntimeConfig();
-  const currentModel = options.currentModel ?? runtimeConfig.model;
+  const runtimeConfig = await createRuntimeConfigManager();
+  const runtimeSnapshot = await runtimeConfig.sync();
+  const currentModel = options.currentModel ?? runtimeSnapshot.model;
   const currentModelConfigured = options.currentModelConfigured ??
-    (runtimeConfig.modelConfigured === true);
-  const endpoint = options.endpoint ?? runtimeConfig.endpoint;
-  const initialTheme = setCurrentThemeName(runtimeConfig.theme);
+    (runtimeSnapshot.modelConfigured === true);
+  const endpoint = options.endpoint ?? runtimeSnapshot.endpoint;
+  const initialTheme = setCurrentThemeName(runtimeConfig.getTheme());
   let selectedModel: string | undefined;
 
   const { waitUntilExit } = render(

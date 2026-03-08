@@ -152,5 +152,18 @@ export function buildTranscriptStateFromSession(session: Session): TranscriptSta
           : undefined,
       )
       : undefined,
+    pendingPlanReview: metadata.pendingPlanReview
+      ? {
+        plan: {
+          goal: metadata.pendingPlanReview.plan.goal,
+          steps: metadata.pendingPlanReview.plan.steps.map((step) => ({
+            ...step,
+          })),
+        },
+      }
+      : undefined,
+    latestCheckpoint: metadata.checkpoints?.length
+      ? { ...metadata.checkpoints[metadata.checkpoints.length - 1]! }
+      : undefined,
   };
 }

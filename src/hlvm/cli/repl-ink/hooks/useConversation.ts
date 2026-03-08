@@ -23,6 +23,8 @@ export interface UseConversationResult {
   activePlan?: TranscriptState["activePlan"];
   todoState?: TranscriptState["todoState"];
   planTodoState?: TranscriptState["planTodoState"];
+  pendingPlanReview?: TranscriptState["pendingPlanReview"];
+  latestCheckpoint?: TranscriptState["latestCheckpoint"];
   hydrateState: (state: TranscriptState) => void;
   addEvent: (event: AgentUIEvent) => void;
   addUserMessage: (
@@ -122,6 +124,8 @@ export function useConversation(): UseConversationResult {
     activePlan: state.activePlan,
     todoState: state.todoState,
     planTodoState: state.planTodoState,
+    pendingPlanReview: state.pendingPlanReview,
+    latestCheckpoint: state.latestCheckpoint,
     hydrateState,
     addEvent,
     addUserMessage,

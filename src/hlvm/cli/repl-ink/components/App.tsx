@@ -65,6 +65,10 @@ import {
   normalizeModelId,
 } from "../../../../common/config/types.ts";
 import {
+  getConfiguredModel,
+  getContextWindow,
+} from "../../../../common/config/selectors.ts";
+import {
   buildSelectedModelConfigUpdates,
   persistSelectedModelConfig,
 } from "../../../../common/config/model-selection.ts";
@@ -73,12 +77,11 @@ import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { log } from "../../../api/log.ts";
 import { looksLikeNaturalLanguage } from "../../repl/input-routing.ts";
 import {
-  getRuntimeConfig,
   getRuntimeConfigApi,
   patchRuntimeConfig,
   runChatViaHost,
 } from "../../../runtime/host-client.ts";
-import { createRuntimeModelConfigManager } from "../../../runtime/model-config.ts";
+import { createRuntimeConfigManager } from "../../../runtime/model-config.ts";
 import {
   getCustomKeybindingsSnapshot,
   setCustomKeybindingsSnapshot,
@@ -89,6 +92,7 @@ import {
   session as sessionApi,
   syncCurrentSession,
 } from "../../../api/session.ts";
+import { resolveSessionStart } from "../../repl/session/start.ts";
 import { buildTranscriptStateFromSession } from "../conversation-history.ts";
 
 interface HistoryEntry {
@@ -154,15 +158,6 @@ function sanitizeHistoryInput(input: string): string {
   return withoutAnsi.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "");
 }
 
-function readConfigContextWindow(
-  config: Record<string, unknown> | undefined,
-): number | undefined {
-  return typeof config?.contextWindow === "number" &&
-      Number.isInteger(config.contextWindow) && config.contextWindow > 0
-    ? config.contextWindow
-    : undefined;
-}
-
 /**
  * App wrapper - provides ReplContext for FRP state management
  */
@@ -211,39 +206,51 @@ function AppContent(
 
     const initConversationSession = async () => {
       try {
-        if (sessionOptions?.openPicker) {
-          clearCurrentSession();
-          if (!cancelled) {
-            setCurrentSession(null);
-          }
-          const sessions = await sessionApi.list({ limit: 20 });
-          if (!cancelled && sessions.length > 0) {
-            setPickerSessions(sessions);
-            setActivePanel("picker");
-          }
-          return;
-        }
+        const resolution = await resolveSessionStart(sessionOptions, {
+          listSessions: (options) => sessionApi.list(options),
+          hasSession: (sessionId) => sessionApi.has(sessionId),
+        });
 
-        if (sessionOptions?.resumeId) {
-          const resumed = await sessionApi.resume(sessionOptions.resumeId);
-          if (!cancelled) {
-            setCurrentSession(resumed?.meta ?? null);
+        switch (resolution.kind) {
+          case "picker":
+            clearCurrentSession();
+            if (!cancelled) {
+              setCurrentSession(null);
+              setPickerSessions(resolution.sessions);
+              if (resolution.sessions.length > 0) {
+                setActivePanel("picker");
+              }
+            }
+            return;
+          case "resume": {
+            const resumed = await sessionApi.resume(resolution.sessionId);
+            if (!cancelled) {
+              setCurrentSession(resumed?.meta ?? null);
+            }
+            return;
           }
-          return;
-        }
-
-        if (sessionOptions?.forceNew) {
-          clearCurrentSession();
-          if (!cancelled) {
-            setCurrentSession(null);
+          case "missing":
+            clearCurrentSession();
+            log.error(`Conversation session not found: ${resolution.sessionId}`);
+            if (!cancelled) {
+              setCurrentSession(null);
+            }
+            return;
+          case "new":
+            clearCurrentSession();
+            if (!cancelled) {
+              setCurrentSession(null);
+            }
+            return;
+          case "latest": {
+            const active = resolution.sessionId
+              ? await syncCurrentSession(resolution.sessionId)
+              : null;
+            if (!cancelled) {
+              setCurrentSession(active);
+            }
+            return;
           }
-          return;
-        }
-
-        const latest = (await sessionApi.list({ limit: 1 }))[0] ?? null;
-        const active = latest ? await syncCurrentSession(latest.id) : null;
-        if (!cancelled) {
-          setCurrentSession(active);
         }
       } catch (error) {
         log.error(`Conversation session init failed: ${error}`);
@@ -389,7 +396,7 @@ function AppContent(
     Map<string, (response: InteractionResponse) => void>
   >(new Map());
   const [configuredModelId, setConfiguredModelId] = useState<string>(
-    typeof initialConfig?.model === "string" ? initialConfig.model : "",
+    getConfiguredModel(initialConfig),
   );
   const [isConfiguredModelExplicit, setIsConfiguredModelExplicit] = useState(
     initialConfig?.modelConfigured === true,
@@ -401,9 +408,7 @@ function AppContent(
   );
   const [configuredContextWindow, setConfiguredContextWindow] = useState<
     number | undefined
-  >(readConfigContextWindow(
-    initialConfig as Record<string, unknown> | undefined,
-  ));
+  >(getContextWindow(initialConfig));
   const [footerContextUsageLabel, setFooterContextUsageLabel] = useState<
     string
   >("");
@@ -416,14 +421,22 @@ function AppContent(
 
   const applyRuntimeConfigState = useCallback(
     (cfg: Record<string, unknown>) => {
-      const modelId = typeof cfg.model === "string" ? cfg.model : "";
+      const modelId = getConfiguredModel(cfg);
       setConfiguredModelId(modelId);
       setIsConfiguredModelExplicit(cfg.modelConfigured === true);
       setFooterModelName(modelId.replace("ollama/", ""));
-      setConfiguredContextWindow(readConfigContextWindow(cfg));
+      setConfiguredContextWindow(getContextWindow(cfg));
     },
     [],
   );
+
+  const refreshRuntimeConfigState = useCallback(async () => {
+    const runtimeConfig = await createRuntimeConfigManager();
+    const runtimeSnapshot = await runtimeConfig.sync();
+    applyRuntimeConfigState(
+      runtimeSnapshot as unknown as Record<string, unknown>,
+    );
+  }, [applyRuntimeConfigState]);
 
   useEffect(() => {
     if (initialConfig) {
@@ -433,21 +446,15 @@ function AppContent(
       return;
     }
 
-    getRuntimeConfig()
-      .then((cfg) =>
-        applyRuntimeConfigState(cfg as unknown as Record<string, unknown>)
-      )
+    refreshRuntimeConfigState()
       .catch(() => {});
-  }, [applyRuntimeConfigState, initialConfig]);
+  }, [applyRuntimeConfigState, initialConfig, refreshRuntimeConfigState]);
 
   useEffect(() => {
     if (!init.ready) return;
-    getRuntimeConfig()
-      .then((cfg) =>
-        applyRuntimeConfigState(cfg as unknown as Record<string, unknown>)
-      )
+    refreshRuntimeConfigState()
       .catch(() => {});
-  }, [applyRuntimeConfigState, init.ready]);
+  }, [init.ready, refreshRuntimeConfigState]);
 
   // Show model setup overlay if default model needs to be downloaded (only once)
   useEffect(() => {
@@ -646,17 +653,17 @@ function AppContent(
     conversation.addUserMessage(query);
 
     try {
-      const runtimeModelConfig = await createRuntimeModelConfigManager();
-      const ensuredModel = await runtimeModelConfig
+      const runtimeConfig = await createRuntimeConfigManager();
+      const ensuredModel = await runtimeConfig
         .ensureInitialModelConfigured();
-      const runtimeConfig = runtimeModelConfig.getConfig();
+      const runtimeSnapshot = runtimeConfig.getConfig();
       const model = ensuredModel.model || configuredModelId || undefined;
       if (
-        runtimeConfig.model !== configuredModelId ||
-        (runtimeConfig.modelConfigured === true) !== isConfiguredModelExplicit
+        runtimeSnapshot.model !== configuredModelId ||
+        (runtimeSnapshot.modelConfigured === true) !== isConfiguredModelExplicit
       ) {
         applyRuntimeConfigState(
-          runtimeConfig as unknown as Record<string, unknown>,
+          runtimeSnapshot as unknown as Record<string, unknown>,
         );
       }
       if (model) {
@@ -971,6 +978,54 @@ function AppContent(
           setPendingResumeInput(code); // Store command for history
           setPickerSessions(sessions);
           setActivePanel("picker");
+        }
+        return;
+      }
+
+      // Handle /undo command
+      if (commandName === "/undo") {
+        const sessionId = sessionApi.current()?.id ?? currentSession?.id;
+        if (!sessionId) {
+          addHistoryEntry(code, {
+            success: false,
+            error: new Error("No current session to undo."),
+          });
+          return;
+        }
+
+        const restored = await sessionApi.restoreCheckpoint(sessionId);
+        if (!restored.restored || !restored.checkpoint) {
+          addHistoryEntry(code, {
+            success: false,
+            error: new Error("No checkpoint available to restore."),
+          });
+          return;
+        }
+
+        if (activePanel === "conversation") {
+          conversation.addEvent({
+            type: "checkpoint_restored",
+            checkpoint: restored.checkpoint,
+            restoredFileCount: restored.restoredFileCount,
+          });
+          conversation.addInfo(
+            `Restored checkpoint (${restored.restoredFileCount} file${
+              restored.restoredFileCount === 1 ? "" : "s"
+            }).`,
+          );
+        } else {
+          addHistoryEntry(code, {
+            success: true,
+            value: `Restored checkpoint (${restored.restoredFileCount} file${
+              restored.restoredFileCount === 1 ? "" : "s"
+            }).`,
+            isCommandOutput: true,
+          });
+        }
+
+        const refreshed = await syncCurrentSession(sessionId);
+        if (refreshed) {
+          setCurrentSession(refreshed);
         }
         return;
       }
@@ -1572,6 +1627,8 @@ function AppContent(
             streamingState={conversation.streamingState}
             activePlan={conversation.activePlan}
             todoState={conversation.todoState ?? conversation.planTodoState}
+            pendingPlanReview={conversation.pendingPlanReview}
+            latestCheckpoint={conversation.latestCheckpoint}
             allowToggleHotkeys={allowConversationToggleHotkeys}
             interactionRequest={pendingInteraction}
             interactionQueueLength={interactionQueue.length}
@@ -1614,6 +1671,11 @@ function AppContent(
               : undefined}
             contextUsageLabel={activePanel === "conversation"
               ? footerContextUsageLabel
+              : ""}
+            checkpointLabel={activePanel === "conversation" &&
+                conversation.latestCheckpoint &&
+                !conversation.latestCheckpoint.restoredAt
+              ? "/undo ready"
               : ""}
             interactionQueueLength={activePanel === "conversation"
               ? interactionQueue.length

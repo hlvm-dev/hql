@@ -358,6 +358,58 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Orchestrator: plan review gate cancels mutating tools before execution",
+  async fn() {
+    resetApprovals();
+    const toolName = uniqueToolName("plan_review");
+    let executed = false;
+
+    await withTemporaryTool(
+      toolName,
+      {
+        fn: async () => {
+          executed = true;
+          return "mutated";
+        },
+        description: "test mutating tool",
+        args: {},
+        category: "write",
+        safetyLevel: "L2",
+      },
+      async () => {
+        const result = await executeToolCall(
+          {
+            toolName,
+            args: {},
+          },
+          {
+            workspace: TEST_WORKSPACE,
+            context: new ContextManager(),
+            permissionMode: "default",
+            planReview: {
+              getCurrentPlan: () => ({
+                goal: "Mutate files",
+                steps: [{ id: "step-1", title: "Edit file" }],
+              }),
+              shouldGateMutatingTools: () => true,
+              ensureApproved: async () => "cancelled",
+            },
+          },
+        );
+
+        assertEquals(result.success, false);
+        assertStringIncludes(
+          result.error ?? "",
+          "Plan review was cancelled before mutation.",
+        );
+        assertEquals(result.stopReason, "plan_review_cancelled");
+        assertEquals(executed, false);
+      },
+    );
+  },
+});
+
+Deno.test({
   name: "Orchestrator: executeToolCall shell_exec preflight blocks complex syntax but allows simple commands",
   async fn() {
     resetApprovals();

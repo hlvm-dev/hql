@@ -9,7 +9,7 @@ import { ThemeProvider } from "../theme/index.ts";
 import { parseSessionFlags, type SessionInitOptions } from "../repl/session/types.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
-import { getRuntimeConfig } from "../../runtime/host-client.ts";
+import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { setCurrentThemeName } from "../theme/state.ts";
 import { setCustomKeybindingsSnapshot } from "./keybindings/custom-bindings.ts";
 
@@ -26,15 +26,16 @@ export async function startInkRepl(options: InkReplOptions = {}): Promise<number
   }
 
   const { showBanner = true, session } = options;
-  const runtimeConfig = await getRuntimeConfig();
-  const initialTheme = setCurrentThemeName(runtimeConfig.theme);
-  setCustomKeybindingsSnapshot(runtimeConfig.keybindings);
+  const runtimeConfig = await createRuntimeConfigManager();
+  const runtimeSnapshot = await runtimeConfig.sync();
+  const initialTheme = setCurrentThemeName(runtimeConfig.getTheme());
+  setCustomKeybindingsSnapshot(runtimeSnapshot.keybindings);
   const { waitUntilExit } = render(
     <ThemeProvider initialTheme={initialTheme}>
       <App
         showBanner={showBanner}
         sessionOptions={session}
-        initialConfig={runtimeConfig}
+        initialConfig={runtimeSnapshot}
       />
     </ThemeProvider>
   );

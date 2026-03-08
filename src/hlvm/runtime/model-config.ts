@@ -1,63 +1,46 @@
 import {
   autoConfigureInitialClaudeCodeModel,
   ensureInitialModelConfigured as ensureInitialModelConfiguredCommon,
-  reconcileConfiguredClaudeCodeModel,
-  resolveCompatibleClaudeCodeModel,
   type EnsureInitialModelConfiguredOptions,
   type EnsureInitialModelConfiguredResult,
+  reconcileConfiguredClaudeCodeModel,
+  resolveCompatibleClaudeCodeModel,
 } from "../../common/ai-default-model.ts";
+import { type ConfigKey, type HlvmConfig } from "../../common/config/types.ts";
 import {
-  DEFAULT_MODEL_ID,
-  type ConfigKey,
-  type HlvmConfig,
-  type PermissionMode,
-} from "../../common/config/types.ts";
-import { isObjectValue } from "../../common/utils.ts";
+  getApprovedProviders,
+  getConfiguredModel,
+  getContextWindow,
+  getPermissionMode,
+  getTheme,
+} from "../../common/config/selectors.ts";
 import {
   getRuntimeConfig,
+  getRuntimeModelDiscovery,
   getRuntimeProviderStatus,
   listRuntimeInstalledModels,
   patchRuntimeConfig,
 } from "./host-client.ts";
-import { isProviderApprovedForProviders } from "../providers/approval.ts";
+import {
+  evaluateProviderApproval,
+  type ProviderApprovalDecision,
+} from "../providers/approval.ts";
 
 function listRuntimeModels(providerName?: string) {
   return listRuntimeInstalledModels(providerName);
 }
 
-function getConfiguredModelFromConfig(config: Pick<HlvmConfig, "model">): string {
-  return typeof config.model === "string" && config.model.length > 0
-    ? config.model
-    : DEFAULT_MODEL_ID;
-}
-
-function getContextWindowFromConfig(config: unknown): number | undefined {
-  const rawContextWindow = isObjectValue(config)
-    ? config.contextWindow
-    : undefined;
-  return typeof rawContextWindow === "number" &&
-      Number.isInteger(rawContextWindow) && rawContextWindow > 0
-    ? rawContextWindow
-    : undefined;
-}
-
-function getPermissionModeFromConfig(config: unknown): PermissionMode | undefined {
-  const rawPermissionMode = isObjectValue(config)
-    ? config.permissionMode
-    : undefined;
-  return rawPermissionMode === "default" || rawPermissionMode === "auto-edit" ||
-      rawPermissionMode === "yolo"
-    ? rawPermissionMode
-    : undefined;
-}
-
-export interface RuntimeModelConfigManager {
+export interface RuntimeConfigManager {
   getConfig: () => HlvmConfig;
   sync: () => Promise<HlvmConfig>;
+  patch: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<HlvmConfig>;
   getConfiguredModel: () => string;
   getContextWindow: () => number | undefined;
-  getPermissionMode: () => PermissionMode | undefined;
-  isProviderApproved: (modelId: string) => boolean;
+  getPermissionMode: () => HlvmConfig["permissionMode"];
+  getApprovedProviders: () => string[];
+  getTheme: () => string;
+  evaluateProviderApproval: (modelId: string) => ProviderApprovalDecision;
+  approveProvider: (provider: string) => Promise<HlvmConfig>;
   ensureInitialModelConfigured: (
     options?: EnsureInitialModelConfiguredOptions,
   ) => Promise<EnsureInitialModelConfiguredResult>;
@@ -66,13 +49,22 @@ export interface RuntimeModelConfigManager {
   resolveCompatibleClaudeCodeModel: (modelId: string) => Promise<string>;
 }
 
-export async function createRuntimeModelConfigManager(): Promise<RuntimeModelConfigManager> {
+export async function createRuntimeConfigManager(): Promise<
+  RuntimeConfigManager
+> {
   let runtimeConfig = await getRuntimeConfig();
+
+  const patchRuntimeSnapshot = async (
+    updates: Partial<Record<ConfigKey, unknown>>,
+  ): Promise<HlvmConfig> => {
+    runtimeConfig = await patchRuntimeConfig(updates);
+    return runtimeConfig;
+  };
 
   const patchConfig = async (
     updates: Partial<Record<ConfigKey, unknown>>,
   ): Promise<void> => {
-    runtimeConfig = await patchRuntimeConfig(updates);
+    await patchRuntimeSnapshot(updates);
   };
 
   const syncRuntimeConfig = async (): Promise<HlvmConfig> => {
@@ -83,17 +75,33 @@ export async function createRuntimeModelConfigManager(): Promise<RuntimeModelCon
   return {
     getConfig: () => runtimeConfig,
     sync: syncRuntimeConfig,
-    getConfiguredModel: () => getConfiguredModelFromConfig(runtimeConfig),
-    getContextWindow: () => getContextWindowFromConfig(runtimeConfig),
-    getPermissionMode: () => getPermissionModeFromConfig(runtimeConfig),
-    isProviderApproved: (modelId: string) =>
-      isProviderApprovedForProviders(modelId, runtimeConfig.approvedProviders),
+    patch: patchRuntimeSnapshot,
+    getConfiguredModel: () => getConfiguredModel(runtimeConfig),
+    getContextWindow: () => getContextWindow(runtimeConfig),
+    getPermissionMode: () => getPermissionMode(runtimeConfig),
+    getApprovedProviders: () => getApprovedProviders(runtimeConfig),
+    getTheme: () => getTheme(runtimeConfig),
+    evaluateProviderApproval: (modelId: string) =>
+      evaluateProviderApproval(modelId, getApprovedProviders(runtimeConfig)),
+    approveProvider: async (provider: string) => {
+      const approvedProviders = getApprovedProviders(runtimeConfig);
+      if (approvedProviders.includes(provider)) {
+        return runtimeConfig;
+      }
+      return await patchRuntimeSnapshot({
+        approvedProviders: [...approvedProviders, provider],
+      });
+    },
     ensureInitialModelConfigured: async (options = {}) => {
       return await ensureInitialModelConfiguredCommon(options, {
         getSnapshot: () => runtimeConfig,
         getStatus: (providerName?: string) =>
           getRuntimeProviderStatus(providerName),
         listModels: listRuntimeModels,
+        listCatalogModels: async () => {
+          const snapshot = await getRuntimeModelDiscovery();
+          return snapshot.remoteModels;
+        },
         patchConfig,
         syncSnapshot: syncRuntimeConfig,
       });

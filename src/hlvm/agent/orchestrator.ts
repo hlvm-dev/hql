@@ -58,6 +58,10 @@ import { resetWebToolBudget } from "./tools/web-tools.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
 import type { TodoState } from "./todo-state.ts";
 import type { DelegateTranscriptSnapshot } from "./delegate-transcript.ts";
+import type {
+  AgentCheckpointSummary,
+  CheckpointRecorder,
+} from "./checkpoints.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -236,6 +240,8 @@ export type AgentUIEvent =
   }
   | { type: "plan_created"; plan: Plan }
   | { type: "plan_step"; stepId: string; index: number; completed: boolean }
+  | { type: "plan_review_required"; plan: Plan }
+  | { type: "plan_review_resolved"; plan: Plan; approved: boolean }
   | {
     type: "turn_stats";
     iteration: number;
@@ -265,6 +271,15 @@ export type AgentUIEvent =
     type: "todo_updated";
     todoState: TodoState;
     source: "tool" | "plan";
+  }
+  | {
+    type: "checkpoint_created";
+    checkpoint: AgentCheckpointSummary;
+  }
+  | {
+    type: "checkpoint_restored";
+    checkpoint: AgentCheckpointSummary;
+    restoredFileCount: number;
   }
   | InteractionRequestEvent;
 
@@ -324,6 +339,14 @@ export interface OrchestratorConfig {
   todoState?: TodoState;
   /** Optional restored plan state for continued multi-step runs. */
   initialPlanState?: PlanState | null;
+  /** Optional plan review gate before mutating actions. */
+  planReview?: {
+    getCurrentPlan: () => Plan | undefined;
+    ensureApproved: (plan: Plan) => Promise<"approved" | "cancelled">;
+    shouldGateMutatingTools: () => boolean;
+  };
+  /** Session-scoped automatic checkpoint recorder for supported file mutations. */
+  checkpointRecorder?: CheckpointRecorder;
 }
 
 // ============================================================

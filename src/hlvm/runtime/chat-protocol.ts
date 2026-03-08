@@ -3,6 +3,7 @@ import type { FinalResponseMeta, TraceEvent } from "../agent/orchestrator.ts";
 import type { Plan } from "../agent/planning.ts";
 import type { DelegateTranscriptSnapshot } from "../agent/delegate-transcript.ts";
 import type { TodoState } from "../agent/todo-state.ts";
+import type { AgentCheckpointSummary } from "../agent/checkpoints.ts";
 
 export const CLAUDE_CODE_AGENT_MODE = "claude-code-agent" as const;
 
@@ -116,6 +117,14 @@ export type ChatStreamEvent =
   }
   | { event: "plan_created"; plan: Plan }
   | { event: "plan_step"; step_id: string; index: number; completed: boolean }
+  | { event: "plan_review_required"; plan: Plan }
+  | { event: "plan_review_resolved"; plan: Plan; approved: boolean }
+  | { event: "checkpoint_created"; checkpoint: AgentCheckpointSummary }
+  | {
+    event: "checkpoint_restored";
+    checkpoint: AgentCheckpointSummary;
+    restored_file_count: number;
+  }
   | {
     event: "interaction_request";
     request_id: string;

@@ -1,4 +1,3 @@
-import { config } from "../api/config.ts";
 import { parseModelString } from "./index.ts";
 
 const PAID_PROVIDERS = new Set(["openai", "anthropic", "google"]);
@@ -21,21 +20,40 @@ export function isPaidProvider(modelId: string): boolean {
   return provider !== null && PAID_PROVIDERS.has(provider);
 }
 
-export function isProviderApprovedForProviders(
+export type ProviderApprovalDecision =
+  | {
+    status: "not_required";
+    provider: string | null;
+    label: string | null;
+  }
+  | {
+    status: "approved" | "approval_required";
+    provider: string;
+    label: string;
+  };
+
+export function evaluateProviderApproval(
   modelId: string,
   approvedProviders: readonly string[] | undefined,
-): boolean {
+): ProviderApprovalDecision {
   const provider = extractProvider(modelId);
-  if (!provider) return true;
-  return (approvedProviders ?? []).includes(provider);
-}
+  const label = getProviderApprovalLabel(modelId);
 
-/** Check if the user has already approved a provider. */
-export function isProviderApproved(modelId: string): boolean {
-  return isProviderApprovedForProviders(
-    modelId,
-    config.snapshot.approvedProviders,
-  );
+  if (!provider || !PAID_PROVIDERS.has(provider)) {
+    return {
+      status: "not_required",
+      provider,
+      label,
+    };
+  }
+
+  return {
+    status: (approvedProviders ?? []).includes(provider)
+      ? "approved"
+      : "approval_required",
+    provider,
+    label: label ?? provider,
+  };
 }
 
 /** Return the user-facing provider label for approval messaging. */

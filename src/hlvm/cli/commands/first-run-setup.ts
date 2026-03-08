@@ -8,30 +8,29 @@
  */
 
 import { log } from "../../api/log.ts";
+import { selectPreferredOllamaCloudModel } from "../../../common/ai-default-model.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { readSingleKey } from "../utils/input.ts";
-import { isOllamaCloudModel } from "../../providers/ollama/cloud.ts";
-import { logModelPullProgress } from "../../../common/ai-default-model.ts";
 import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
-import { isOllamaAuthErrorMessage } from "../../../common/ollama-auth.ts";
 import type { AIEngineLifecycle } from "../../runtime/ai-runtime.ts";
 import type { ModelInfo } from "../../providers/types.ts";
 import {
   ensureRuntimeHostReady,
   getRuntimeConfigApi,
   getRuntimeModelDiscovery,
-  pullRuntimeModelViaHost,
-  runRuntimeOllamaSignin,
-  verifyRuntimeModelAccess,
 } from "../../runtime/host-client.ts";
+import {
+  ensureOllamaCloudAccess,
+  runOllamaCloudSignin,
+  verifyOllamaCloudAccess,
+} from "../../runtime/ollama-cloud-access.ts";
+import { ensureRuntimeModelAvailable } from "../../runtime/model-availability.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const CLOUD_SIGNIN_WAIT_TIMEOUT_MS = 120_000;
-const CLOUD_SIGNIN_WAIT_INTERVAL_MS = 2_000;
 const TOTAL_SETUP_STEPS = 4;
 
 const ANSI = {
@@ -113,15 +112,16 @@ export function parseParamSize(size: string | undefined): number {
 /** Pick the best cloud model with tool-calling from the catalog (dynamic, no hardcoded list). */
 export async function pickBestCloudModel(): Promise<ModelInfo | null> {
   const snapshot = await getRuntimeModelDiscovery();
-  const cloudTools = snapshot.cloudModels.filter(
-    (m) => isOllamaCloudModel(m.name) && m.capabilities?.includes("tools"),
-  );
+  const candidates = [...snapshot.remoteModels, ...snapshot.cloudModels];
+  const preferredName = selectPreferredOllamaCloudModel(candidates);
+  if (!preferredName) return null;
 
-  // Sort by parameter size descending — largest = most capable
-  cloudTools.sort(
-    (a, b) => parseParamSize(b.parameterSize) - parseParamSize(a.parameterSize),
-  );
-  return cloudTools[0] ?? null;
+  return candidates.find((model) => {
+    const normalizedName = model.name.includes("/")
+      ? model.name.split("/").slice(1).join("/")
+      : model.name;
+    return normalizedName === preferredName;
+  }) ?? null;
 }
 
 /** Run Ollama sign-in through the runtime host. */
@@ -129,39 +129,18 @@ export async function runOllamaSignin(
   _engine?: AIEngineLifecycle,
 ): Promise<boolean> {
   log.raw.log(style("  -> Signing in to Ollama...", ANSI.yellow));
-  try {
-    const result = await runRuntimeOllamaSignin();
-    for (const line of result.output) {
-      log.raw.log(line);
-    }
-    return result.success;
-  } catch {
-    return false;
-  }
+  return await runOllamaCloudSignin({
+    onOutput: (line) => log.raw.log(line),
+  });
 }
 
 /** Probe cloud model access with a tiny non-streaming chat request. */
 export async function verifyOllamaCloudModelAccess(
   modelId: string,
 ): Promise<boolean> {
-  try {
-    return await verifyRuntimeModelAccess(modelId);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    log.error(`Cloud access check failed: ${message}`);
-    return false;
-  }
-}
-
-async function waitForCloudAccess(modelId: string): Promise<boolean> {
-  const deadline = Date.now() + CLOUD_SIGNIN_WAIT_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if (await verifyOllamaCloudModelAccess(modelId)) return true;
-    await new Promise((resolve) =>
-      setTimeout(resolve, CLOUD_SIGNIN_WAIT_INTERVAL_MS)
-    );
-  }
-  return false;
+  return await verifyOllamaCloudAccess(modelId, {
+    onError: (message) => log.error(`Cloud access check failed: ${message}`),
+  });
 }
 
 /**
@@ -172,53 +151,23 @@ export async function ensureCloudAccessWithSignin(
   modelId: string,
   _engine?: AIEngineLifecycle,
 ): Promise<boolean> {
-  if (await verifyOllamaCloudModelAccess(modelId)) return true;
-  if (!(await runOllamaSignin())) return false;
-  log.raw.log(style("  -> Waiting for cloud sign-in completion...", ANSI.dim));
-  if (!(await waitForCloudAccess(modelId))) {
+  const result = await ensureOllamaCloudAccess(modelId, {
+    runSignin: () => runOllamaSignin(),
+    verifyAccess: verifyOllamaCloudModelAccess,
+    onWaiting: () =>
+      log.raw.log(
+        style("  -> Waiting for cloud sign-in completion...", ANSI.dim),
+      ),
+  });
+  if (!result.ok && result.status === "verification_failed") {
     log.error(
       "Cloud sign-in not completed. Open the URL above and try again.",
     );
     log.raw.log(
       style(`  -> Check cloud usage/sign-in: ${OLLAMA_SETTINGS_URL}`, ANSI.dim),
     );
-    return false;
   }
-  return true;
-}
-
-/** Pull a model, reactively signing in on auth error. */
-async function pullWithSignin(
-  modelName: string,
-  _engine: AIEngineLifecycle,
-): Promise<boolean> {
-  log.raw.log(`Pulling ${modelName}...`);
-  try {
-    await logModelPullProgress(
-      pullRuntimeModelViaHost(modelName, "ollama"),
-      (msg) => log.raw.log(msg),
-    );
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const isAuthError = isOllamaAuthErrorMessage(message);
-    if (!isAuthError) {
-      log.error(`Pull failed: ${message}`);
-      return false;
-    }
-    if (!(await ensureCloudAccessWithSignin(`ollama/${modelName}`))) {
-      return false;
-    }
-    try {
-      await logModelPullProgress(
-        pullRuntimeModelViaHost(modelName, "ollama"),
-        (msg) => log.raw.log(msg),
-      );
-      return true;
-    } catch {
-      return false;
-    }
-  }
+  return result.ok;
 }
 
 /** Fall back to the model browser (existing behavior). */
@@ -233,12 +182,8 @@ export interface FirstRunSetupDeps {
   confirmSetup: () => Promise<boolean>;
   ensureEngineRunning: (engine: AIEngineLifecycle) => Promise<boolean>;
   pickBestCloudModel: () => Promise<ModelInfo | null>;
-  ensureCloudModelAccess: (
+  ensureSelectedModelAvailable: (
     modelId: string,
-    engine: AIEngineLifecycle,
-  ) => Promise<boolean>;
-  pullWithSignin: (
-    modelName: string,
     engine: AIEngineLifecycle,
   ) => Promise<boolean>;
   fallbackToModelBrowser: () => Promise<string | null>;
@@ -252,9 +197,24 @@ function getDefaultFirstRunSetupDeps(): FirstRunSetupDeps {
     confirmSetup,
     ensureEngineRunning: (engine: AIEngineLifecycle) => engine.ensureRunning(),
     pickBestCloudModel,
-    ensureCloudModelAccess: (modelId: string, engine: AIEngineLifecycle) =>
-      ensureCloudAccessWithSignin(modelId, engine),
-    pullWithSignin,
+    ensureSelectedModelAvailable: async (
+      modelId: string,
+      _engine: AIEngineLifecycle,
+    ) => {
+      const result = await ensureRuntimeModelAvailable(modelId, {
+        pull: true,
+        requireCloudAccess: true,
+        log: (message) => log.raw.log(message),
+        onCloudWaiting: () =>
+          log.raw.log(
+            style("  -> Waiting for cloud sign-in completion...", ANSI.dim),
+          ),
+        onCloudError: (message) =>
+          log.error(`Cloud access check failed: ${message}`),
+        onCloudOutput: (line) => log.raw.log(line),
+      });
+      return result.ok;
+    },
     fallbackToModelBrowser,
     saveConfiguredModel: async (modelId: string) => {
       await persistSelectedModelConfig(getRuntimeConfigApi(), modelId);
@@ -307,16 +267,11 @@ export async function runFirstTimeSetup(
     style(`  -> Selected: ${model.displayName ?? model.name}`, ANSI.dim),
   );
 
-  // 4. Pull model (with reactive signin)
+  // 4. Ensure selected model is usable
   printSetupStep(deps.logRaw, 3, "Pulling selected model...");
-  if (!(await deps.pullWithSignin(model.name, resolvedEngine))) {
-    deps.logError("Model pull failed. Falling back to model browser.");
-    return await deps.fallbackToModelBrowser();
-  }
-
   const modelId = `ollama/${model.name}`;
-  if (!(await deps.ensureCloudModelAccess(modelId, resolvedEngine))) {
-    deps.logError("Cloud sign-in required. Falling back to model browser.");
+  if (!(await deps.ensureSelectedModelAvailable(modelId, resolvedEngine))) {
+    deps.logError("Model pull failed. Falling back to model browser.");
     return await deps.fallbackToModelBrowser();
   }
 

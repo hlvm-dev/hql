@@ -38,10 +38,7 @@ import { loadAllMessages, loadRecentMessages } from "../../../store/message-util
 import { config } from "../../../api/config.ts";
 import { ai } from "../../../api/ai.ts";
 import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
-import {
-  isPaidProvider,
-  isProviderApproved,
-} from "../../../providers/approval.ts";
+import { evaluateProviderApproval } from "../../../providers/approval.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -314,8 +311,9 @@ export async function handleChat(req: Request): Promise<Response> {
   }
 
   if (
-    resolvedModel && isPaidProvider(resolvedModel) &&
-    !isProviderApproved(resolvedModel)
+    resolvedModel &&
+    evaluateProviderApproval(resolvedModel, config.snapshot.approvedProviders)
+      .status === "approval_required"
   ) {
     return jsonError(
       `Paid provider not approved. Run "hlvm ask --model ${resolvedModel}" in terminal first to grant consent.`,

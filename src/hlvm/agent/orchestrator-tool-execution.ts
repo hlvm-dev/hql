@@ -11,7 +11,7 @@ import {
   suggestToolNames,
   type ToolFunction,
 } from "./registry.ts";
-import { checkToolSafety } from "./security/safety.ts";
+import { checkToolSafety, isMutatingTool } from "./security/safety.ts";
 import { DEFAULT_TIMEOUTS, RATE_LIMITS } from "./constants.ts";
 import { withTimeout } from "../../common/timeout-utils.ts";
 import { SlidingWindowRateLimiter } from "../../common/rate-limiter.ts";
@@ -45,6 +45,16 @@ import {
 } from "./orchestrator-tool-formatting.ts";
 import { getDelegateTranscriptSnapshot } from "./delegate-transcript.ts";
 
+const CHECKPOINT_SUPPORTED_MUTATION_TOOLS = new Set([
+  "write_file",
+  "edit_file",
+  "archive_files",
+]);
+
+function supportsAutomaticCheckpoint(toolName: string): boolean {
+  return CHECKPOINT_SUPPORTED_MUTATION_TOOLS.has(toolName);
+}
+
 /**
  * Execute tool with timeout
  */
@@ -58,6 +68,7 @@ export async function executeToolWithTimeout(
   toolOwnerId?: string,
   ensureMcpLoaded?: () => Promise<void>,
   todoState?: OrchestratorConfig["todoState"],
+  checkpointRecorder?: OrchestratorConfig["checkpointRecorder"],
   parentSignal?: AbortSignal,
 ): Promise<unknown> {
   return await withTimeout(
@@ -69,6 +80,7 @@ export async function executeToolWithTimeout(
         toolOwnerId,
         ensureMcpLoaded,
         todoState,
+        checkpointRecorder,
         searchTools: (query, options) =>
           searchTools(query, {
             ...options,
@@ -204,6 +216,34 @@ export async function executeToolCall(
       }
     }
 
+    const mutatingTool = isMutatingTool(toolCall.toolName, config.toolOwnerId);
+    if (
+      mutatingTool &&
+      config.planReview?.shouldGateMutatingTools() &&
+      config.planReview.getCurrentPlan()
+    ) {
+      const plan = config.planReview.getCurrentPlan();
+      if (plan) {
+        const reviewDecision = await config.planReview.ensureApproved(plan);
+        if (reviewDecision !== "approved") {
+          const result = buildToolErrorResult(
+            toolCall.toolName,
+            "Plan review was cancelled before mutation.",
+            startedAt,
+            config,
+            toolCall.id,
+          );
+          result.stopReason = "plan_review_cancelled";
+          return result;
+        }
+      }
+    }
+
+    const safetyWarning = mutatingTool &&
+        !supportsAutomaticCheckpoint(toolCall.toolName)
+      ? "Automatic rollback is not available for this mutation."
+      : undefined;
+
     // Check safety
     const permissionMode: PermissionMode = config.permissionMode ?? "default";
     const approved = await checkToolSafety(
@@ -214,6 +254,7 @@ export async function executeToolCall(
       l1Store,
       config.toolOwnerId,
       config.onInteraction,
+      safetyWarning,
     );
 
     if (!approved) {
@@ -304,6 +345,7 @@ export async function executeToolCall(
         config.toolOwnerId,
         config.ensureMcpLoaded,
         config.todoState,
+        config.checkpointRecorder,
         config.signal,
       );
     } catch (error) {
@@ -323,6 +365,7 @@ export async function executeToolCall(
             config.toolOwnerId,
             config.ensureMcpLoaded,
             config.todoState,
+            config.checkpointRecorder,
             config.signal,
           );
         } else {

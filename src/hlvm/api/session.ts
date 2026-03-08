@@ -17,6 +17,14 @@ import {
   listRuntimeSessionMessages,
   listRuntimeSessions,
 } from "../runtime/host-client.ts";
+import {
+  loadPersistedAgentCheckpointSummaries,
+  persistAgentCheckpointSummary,
+} from "../agent/persisted-transcript.ts";
+import {
+  loadCheckpointManifest,
+  restoreCheckpoint as restoreAgentCheckpoint,
+} from "../agent/checkpoints.ts";
 import type {
   RuntimeSession,
   RuntimeSessionMessage,
@@ -351,6 +359,77 @@ function createSessionApi() {
 
       const loaded = await loadSessionById(sessionId);
       return loaded ? formatSessionExport(loaded) : null;
+    },
+
+    /**
+     * Restore the latest reversible checkpoint for a session.
+     * @example (session.restoreCheckpoint "abc123")
+     */
+    restoreCheckpoint: async (
+      sessionId: string,
+      checkpointId?: string,
+    ): Promise<{
+      restored: boolean;
+      restoredFileCount: number;
+      checkpointId?: string;
+      checkpoint?: {
+        id: string;
+        requestId: string;
+        createdAt: number;
+        fileCount: number;
+        reversible: boolean;
+        restoredAt?: number;
+      };
+    }> => {
+      assertString(
+        sessionId,
+        "session.restoreCheckpoint",
+        "session.restoreCheckpoint requires a session ID string",
+      );
+      if (checkpointId !== undefined) {
+        assertString(
+          checkpointId,
+          "session.restoreCheckpoint",
+          "session.restoreCheckpoint checkpointId must be a string when provided",
+        );
+      }
+
+      const summaries = loadPersistedAgentCheckpointSummaries(sessionId);
+      const target = checkpointId
+        ? summaries.find((summary) => summary.id === checkpointId)
+        : [...summaries]
+          .reverse()
+          .find((summary) => summary.restoredAt === undefined);
+      if (!target) {
+        return { restored: false, restoredFileCount: 0 };
+      }
+
+      const result = await restoreAgentCheckpoint(sessionId, target.id);
+      if (!result.restored) {
+        return { restored: false, restoredFileCount: 0, checkpointId: target.id };
+      }
+
+      const manifest = await loadCheckpointManifest(sessionId, target.id);
+      let checkpointSummary = target;
+      if (manifest) {
+        checkpointSummary = {
+          id: manifest.id,
+          requestId: manifest.requestId,
+          createdAt: manifest.createdAt,
+          fileCount: manifest.files.length,
+          reversible: manifest.reversible,
+          ...(manifest.restoredAt ? { restoredAt: manifest.restoredAt } : {}),
+        };
+        persistAgentCheckpointSummary(sessionId, checkpointSummary);
+      }
+
+      await refreshCurrentSession(sessionId);
+      return {
+        restored: true,
+        restoredFileCount: result.restoredFileCount,
+        checkpointId: target.id,
+        checkpoint: checkpointSummary,
+      };
     },
 
     /**

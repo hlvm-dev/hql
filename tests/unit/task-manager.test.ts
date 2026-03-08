@@ -19,11 +19,25 @@ import { withRuntimeHostServer } from "../shared/light-helpers.ts";
 async function withPullHost(
   fn: () => Promise<void>,
 ): Promise<void> {
+  const installedModels = new Set<string>();
+
   await withRuntimeHostServer(async (req, authToken) => {
     const url = new URL(req.url);
     assertEquals(req.headers.get("Authorization"), `Bearer ${authToken}`);
+    if (url.pathname === "/api/models/installed") {
+      return Response.json({
+        models: [...installedModels].map((name) => ({
+          name,
+          metadata: { provider: "ollama" },
+        })),
+      });
+    }
     if (url.pathname === "/api/models/pull") {
       let timer: number | undefined;
+      const body = await req.json() as { name?: string };
+      if (body.name) {
+        installedModels.add(body.name);
+      }
       const stream = new ReadableStream({
         start(controller) {
           const encoder = new TextEncoder();
@@ -176,6 +190,94 @@ Deno.test({
 
         unsubscribe();
         unsubscribeEvent();
+      } finally {
+        manager.shutdown();
+      }
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "TaskManager: pullModel treats Ollama Cloud models as external availability without local pulls",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const installedModels = new Set<string>();
+    let pullRequests = 0;
+    let signinRequests = 0;
+    let verifyRequests = 0;
+
+    await withRuntimeHostServer(async (req, authToken) => {
+      const url = new URL(req.url);
+      assertEquals(req.headers.get("Authorization"), `Bearer ${authToken}`);
+
+      if (url.pathname === "/api/models/installed") {
+        return Response.json({
+          models: [...installedModels].map((name) => ({
+            name,
+            metadata: { provider: "ollama" },
+          })),
+        });
+      }
+
+      if (url.pathname === "/api/models/verify-access") {
+        verifyRequests += 1;
+        return Response.json({ available: verifyRequests >= 2 });
+      }
+
+      if (url.pathname === "/api/providers/ollama/signin") {
+        signinRequests += 1;
+        return Response.json({
+          success: true,
+          output: ["browser opened"],
+          signinUrl: null,
+          browserOpened: true,
+        });
+      }
+
+      if (url.pathname === "/api/models/pull") {
+        pullRequests += 1;
+        const body = await req.json() as { name?: string };
+        if (pullRequests === 1) {
+          return new Response(
+            JSON.stringify({ event: "error", message: "401 Unauthorized" }) +
+              "\n",
+            {
+              headers: { "Content-Type": "application/x-ndjson" },
+            },
+          );
+        }
+
+        if (body.name) {
+          installedModels.add(body.name);
+        }
+
+        return new Response(
+          JSON.stringify({
+            event: "progress",
+            status: "pulling",
+            percent: 100,
+          }) +
+            "\n" +
+            JSON.stringify({ event: "complete", name: body.name ?? "ok" }) +
+            "\n",
+          {
+            headers: { "Content-Type": "application/x-ndjson" },
+          },
+        );
+      }
+
+      return new Response("Not found", { status: 404 });
+    }, async () => {
+      const manager = new TaskManager();
+      try {
+        const taskId = manager.pullModel("deepseek-v3.1:671b-cloud");
+        await waitFor(() => manager.getTask(taskId)?.status === "completed", 400);
+
+        assertEquals(pullRequests, 0);
+        assertEquals(signinRequests, 0);
+        assertEquals(verifyRequests, 0);
       } finally {
         manager.shutdown();
       }

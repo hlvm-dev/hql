@@ -1,5 +1,6 @@
 import type { AgentUIEvent } from "../agent/orchestrator.ts";
 import type { Plan } from "../agent/planning.ts";
+import type { AgentCheckpointSummary } from "../agent/checkpoints.ts";
 import {
   cloneTodoState,
   createTodoStateFromPlan,
@@ -28,6 +29,8 @@ export interface TranscriptState {
   completedPlanStepIds: string[];
   todoState?: TodoState;
   planTodoState?: TodoState;
+  pendingPlanReview?: { plan: Plan };
+  latestCheckpoint?: AgentCheckpointSummary;
 }
 
 export type TranscriptInput =
@@ -459,6 +462,28 @@ export function reduceTranscriptState(
             planTodoState: derivePlanTodoState(state.activePlan, completedPlanStepIds),
           };
         }
+        case "plan_review_required":
+          return {
+            ...state,
+            pendingPlanReview: { plan: event.plan },
+            streamingState: ConversationStreamingState.WaitingForConfirmation,
+          };
+        case "plan_review_resolved":
+          return {
+            ...state,
+            pendingPlanReview: undefined,
+            streamingState: ConversationStreamingState.Responding,
+          };
+        case "checkpoint_created":
+          return {
+            ...state,
+            latestCheckpoint: { ...event.checkpoint },
+          };
+        case "checkpoint_restored":
+          return {
+            ...state,
+            latestCheckpoint: { ...event.checkpoint },
+          };
         case "turn_stats": {
           const cleaned = cleanupTransientItems(state.items);
           const [nextState, id] = nextItemId({
@@ -577,6 +602,8 @@ export function reduceTranscriptState(
         completedPlanStepIds: [],
         todoState: undefined,
         planTodoState: undefined,
+        pendingPlanReview: undefined,
+        latestCheckpoint: undefined,
         nextId: input.items.length,
       };
     case "reset_status":

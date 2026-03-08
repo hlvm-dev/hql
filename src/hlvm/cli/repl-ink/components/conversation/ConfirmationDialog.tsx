@@ -17,6 +17,7 @@ interface ConfirmationDialogProps {
 
 export function ConfirmationDialog({ toolName, toolArgs }: ConfirmationDialogProps): React.ReactElement {
   const sc = useSemanticColors();
+  const isPlanReview = toolName === "plan_review";
   const parsedArgs = (() => {
     if (!toolArgs) return [];
     try {
@@ -40,18 +41,22 @@ export function ConfirmationDialog({ toolName, toolArgs }: ConfirmationDialogPro
     >
       <Box>
         <Text color={sc.status.warning} bold>
-          {"⚠ Permission Required"}
+          {isPlanReview ? "⚠ Plan Review Required" : "⚠ Permission Required"}
         </Text>
       </Box>
       {toolName && (
         <Box marginTop={0}>
-          <Text color={sc.text.secondary}>Tool: </Text>
-          <Text color={sc.text.primary} bold>{toolName}</Text>
+          <Text color={sc.text.secondary}>
+            {isPlanReview ? "Review: " : "Tool: "}
+          </Text>
+          <Text color={sc.text.primary} bold>
+            {isPlanReview ? "execution plan" : toolName}
+          </Text>
         </Box>
       )}
       {visibleArgLines.length > 0 && (
         <Box flexDirection="column" marginTop={0}>
-          <Text color={sc.text.secondary}>Args:</Text>
+          <Text color={sc.text.secondary}>{isPlanReview ? "Plan:" : "Args:"}</Text>
           <Box paddingLeft={1} flexDirection="column">
             {visibleArgLines.map((line: string, i: number) => (
               <React.Fragment key={i}>
@@ -66,9 +71,13 @@ export function ConfirmationDialog({ toolName, toolArgs }: ConfirmationDialogPro
       )}
       <Box marginTop={1}>
         <Text color={sc.status.success} bold> y </Text>
-        <Text color={sc.text.muted}>/Enter approve  </Text>
+        <Text color={sc.text.muted}>
+          /Enter {isPlanReview ? "approve plan" : "approve"}  
+        </Text>
         <Text color={sc.status.error} bold> n </Text>
-        <Text color={sc.text.muted}>/Esc reject</Text>
+        <Text color={sc.text.muted}>
+          /Esc {isPlanReview ? "cancel run" : "reject"}
+        </Text>
       </Box>
     </Box>
   );

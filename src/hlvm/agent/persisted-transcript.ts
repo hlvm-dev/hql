@@ -17,6 +17,7 @@ import { buildStoredAgentHistoryMessages } from "../cli/repl/handlers/chat-conte
 import type { TodoItem } from "./todo-state.ts";
 import type { DelegateTranscriptSnapshot } from "./delegate-transcript.ts";
 import type { Plan } from "./planning.ts";
+import type { AgentCheckpointSummary } from "./checkpoints.ts";
 
 const DEFAULT_TITLE_LENGTH = 60;
 const AGENT_SESSION_METADATA_KEY = "agentSession";
@@ -40,6 +41,13 @@ export interface PersistedAgentSessionMetadata {
   completedPlanStepIds?: string[];
   agent?: string;
   task?: string;
+  pendingPlanReview?: {
+    requestId: string;
+    plan: Plan;
+    requestedAt: number;
+  };
+  approvedPlanSignature?: string;
+  checkpoints?: AgentCheckpointSummary[];
 }
 
 export interface CreatePersistedAgentChildSessionOptions {
@@ -171,6 +179,17 @@ export function parsePersistedAgentSessionMetadata(
       )
     )
     : undefined;
+  const pendingPlanReview =
+    isPendingPlanReviewRecord(agentRecord.pendingPlanReview)
+      ? {
+        requestId: agentRecord.pendingPlanReview.requestId,
+        plan: agentRecord.pendingPlanReview.plan,
+        requestedAt: agentRecord.pendingPlanReview.requestedAt,
+      }
+      : undefined;
+  const checkpoints = Array.isArray(agentRecord.checkpoints)
+    ? agentRecord.checkpoints.filter(isCheckpointSummaryRecord)
+    : undefined;
 
   return {
     parentSessionId: typeof agentRecord.parentSessionId === "string"
@@ -189,6 +208,11 @@ export function parsePersistedAgentSessionMetadata(
       : undefined,
     agent: typeof agentRecord.agent === "string" ? agentRecord.agent : undefined,
     task: typeof agentRecord.task === "string" ? agentRecord.task : undefined,
+    pendingPlanReview,
+    approvedPlanSignature: typeof agentRecord.approvedPlanSignature === "string"
+      ? agentRecord.approvedPlanSignature
+      : undefined,
+    checkpoints: checkpoints?.map((checkpoint) => ({ ...checkpoint })),
   };
 }
 
@@ -201,6 +225,29 @@ function isPlanRecord(value: unknown): value is Plan {
       !!step && typeof step === "object" &&
       typeof (step as { id?: unknown }).id === "string" &&
       typeof (step as { title?: unknown }).title === "string"
+    );
+}
+
+function isPendingPlanReviewRecord(
+  value: unknown,
+): value is { requestId: string; plan: Plan; requestedAt: number } {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.requestId === "string" &&
+    typeof record.requestedAt === "number" &&
+    isPlanRecord(record.plan);
+}
+
+function isCheckpointSummaryRecord(value: unknown): value is AgentCheckpointSummary {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === "string" &&
+    typeof record.requestId === "string" &&
+    typeof record.createdAt === "number" &&
+    typeof record.fileCount === "number" &&
+    typeof record.reversible === "boolean" &&
+    (
+      record.restoredAt === undefined || typeof record.restoredAt === "number"
     );
 }
 
@@ -249,6 +296,72 @@ export function persistAgentPlanState(
       ? [...new Set([...completedPlanStepIds])]
       : undefined;
   });
+}
+
+export function persistPendingPlanReview(
+  sessionId: string,
+  requestId: string,
+  plan: Plan,
+): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    metadata.pendingPlanReview = {
+      requestId,
+      requestedAt: Date.now(),
+      plan: {
+        goal: plan.goal,
+        steps: plan.steps.map((step) => ({
+          id: step.id,
+          title: step.title,
+          ...(step.goal ? { goal: step.goal } : {}),
+          ...(step.tools ? { tools: [...step.tools] } : {}),
+          ...(step.successCriteria ? { successCriteria: [...step.successCriteria] } : {}),
+          ...(step.agent ? { agent: step.agent } : {}),
+        })),
+      },
+    };
+  });
+}
+
+export function resolvePendingPlanReview(
+  sessionId: string,
+  options: { approved: boolean; planSignature?: string },
+): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    metadata.pendingPlanReview = undefined;
+    metadata.approvedPlanSignature = options.approved
+      ? options.planSignature
+      : undefined;
+  });
+}
+
+export function resetApprovedPlanSignature(sessionId: string): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    metadata.approvedPlanSignature = undefined;
+    metadata.pendingPlanReview = undefined;
+  });
+}
+
+export function persistAgentCheckpointSummary(
+  sessionId: string,
+  summary: AgentCheckpointSummary,
+): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    const next = new Map(
+      (metadata.checkpoints ?? []).map((checkpoint) => [checkpoint.id, checkpoint]),
+    );
+    next.set(summary.id, { ...summary });
+    metadata.checkpoints = [...next.values()].sort((a, b) =>
+      a.createdAt - b.createdAt
+    );
+  });
+}
+
+export function loadPersistedAgentCheckpointSummaries(
+  sessionId: string,
+): AgentCheckpointSummary[] {
+  const session = getSession(sessionId);
+  const metadata = parsePersistedAgentSessionMetadata(session?.metadata);
+  return (metadata.checkpoints ?? []).map((checkpoint) => ({ ...checkpoint }));
 }
 
 export function createPersistedAgentChildSession(

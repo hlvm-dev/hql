@@ -142,8 +142,7 @@ Deno.test({
     const result = await runFirstTimeSetup(engine, {
       confirmSetup: () => Promise.resolve(true),
       pickBestCloudModel: () => Promise.resolve(cloudModel),
-      pullWithSignin: () => Promise.resolve(false),
-      ensureCloudModelAccess: () => Promise.resolve(true),
+      ensureSelectedModelAvailable: () => Promise.resolve(false),
       fallbackToModelBrowser: () => {
         calls.push("fallback");
         return Promise.resolve("ollama/fallback-model:cloud");
@@ -173,8 +172,7 @@ Deno.test({
     const result = await runFirstTimeSetup(engine, {
       confirmSetup: () => Promise.resolve(true),
       pickBestCloudModel: () => Promise.resolve(cloudModel),
-      pullWithSignin: () => Promise.resolve(true),
-      ensureCloudModelAccess: () => Promise.resolve(true),
+      ensureSelectedModelAvailable: () => Promise.resolve(true),
       saveConfiguredModel: (modelId: string) => {
         saved.push(modelId);
         return Promise.resolve();
@@ -207,8 +205,7 @@ Deno.test({
     const result = await runFirstTimeSetup(engine, {
       confirmSetup: () => Promise.resolve(true),
       pickBestCloudModel: () => Promise.resolve(cloudModel),
-      pullWithSignin: () => Promise.resolve(true),
-      ensureCloudModelAccess: () => Promise.resolve(false),
+      ensureSelectedModelAvailable: () => Promise.resolve(false),
       saveConfiguredModel: (modelId: string) => {
         saved.push(modelId);
         return Promise.resolve();
