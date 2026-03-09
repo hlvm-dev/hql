@@ -427,6 +427,18 @@ export async function ensureInitialModelConfigured(
     }
   }
 
+  if (
+    isAutomaticDefaultCandidate(snapshot) &&
+    options.allowFirstRunSetup &&
+    typeof options.runFirstTimeSetup === "function"
+  ) {
+    const setupModel = await options.runFirstTimeSetup();
+    if (setupModel) {
+      firstRunConfigured = true;
+      snapshot = await deps.syncSnapshot();
+    }
+  }
+
   if (isAutomaticDefaultCandidate(snapshot)) {
     const autoModel = await autoConfigureInitialOllamaCloudModel({
       getSnapshot: deps.getSnapshot,
@@ -435,18 +447,6 @@ export async function ensureInitialModelConfigured(
     });
     if (autoModel) {
       autoConfiguredOllamaCloud = true;
-      snapshot = await deps.syncSnapshot();
-    }
-  }
-
-  if (
-    !snapshot.modelConfigured &&
-    options.allowFirstRunSetup &&
-    typeof options.runFirstTimeSetup === "function"
-  ) {
-    const setupModel = await options.runFirstTimeSetup();
-    if (setupModel) {
-      firstRunConfigured = true;
       snapshot = await deps.syncSnapshot();
     }
   }

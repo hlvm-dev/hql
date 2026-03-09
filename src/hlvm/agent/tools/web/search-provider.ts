@@ -23,7 +23,16 @@ export interface SearchResult {
   evidenceReason?: string;
   fetchPriority?: number;
   selectedForFetch?: boolean;
+  sourceClass?: SearchResultSourceClass;
 }
+
+export type SearchResultSourceClass =
+  | "official_docs"
+  | "vendor_docs"
+  | "repo_docs"
+  | "technical_article"
+  | "forum"
+  | "other";
 
 export interface SearchProviderResponse {
   query: string;
@@ -90,6 +99,7 @@ export interface Citation {
   confidence?: number;
   spanText?: string;
   sourceKind?: "snippet" | "passage";
+  sourceClass?: SearchResultSourceClass;
 }
 
 // ============================================================

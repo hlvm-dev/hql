@@ -9,16 +9,14 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
-import { ProgressBar, formatBytes } from "./ProgressBar.tsx";
+import { formatBytes, ProgressBar } from "./ProgressBar.tsx";
 import { isModelPullTask } from "../../repl/task-manager/types.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { createRuntimeConfigManager } from "../../../runtime/model-config.ts";
-import {
-  getRuntimeModelAvailability,
-  resolveModelAvailabilityTarget,
-} from "../../../runtime/model-availability.ts";
+import { resolveModelAvailabilityTarget } from "../../../runtime/model-availability.ts";
+import { getConfiguredModelReadiness } from "../../../runtime/configured-model-readiness.ts";
 
 // ============================================================
 // Types
@@ -60,7 +58,7 @@ export function ModelSetupOverlay({
   // Find the download task for this model
   const task = useMemo(() => {
     return tasks.find(
-      (t) => isModelPullTask(t) && t.modelName === modelName
+      (t) => isModelPullTask(t) && t.modelName === modelName,
     );
   }, [tasks, modelName]);
 
@@ -68,7 +66,7 @@ export function ModelSetupOverlay({
   useEffect(() => {
     // Check if there's already a task for this model
     const existingTask = tasks.find(
-      (t) => isModelPullTask(t) && t.modelName === modelName
+      (t) => isModelPullTask(t) && t.modelName === modelName,
     );
     if (!existingTask) {
       try {
@@ -111,7 +109,8 @@ export function ModelSetupOverlay({
   const status = progress?.status ?? "Preparing...";
 
   // Determine display state
-  const isDownloading = task?.status === "running" || task?.status === "pending";
+  const isDownloading = task?.status === "running" ||
+    task?.status === "pending";
   const isFailed = task?.status === "failed";
   const isCancelled = task?.status === "cancelled";
 
@@ -133,7 +132,7 @@ export function ModelSetupOverlay({
 
       {/* Status */}
       <Box marginBottom={1}>
-        <Text>Downloading </Text>
+        <Text>Downloading</Text>
         <Text bold color={color("accent")}>{modelName}</Text>
       </Box>
 
@@ -198,10 +197,8 @@ export async function checkDefaultModelInstalled(): Promise<boolean> {
   }
 
   try {
-    const runtimeConfig = await createRuntimeConfigManager();
-    const { model: configuredModel } = await runtimeConfig
-      .ensureInitialModelConfigured();
-    return (await getRuntimeModelAvailability(configuredModel)).available;
+    const readiness = await getConfiguredModelReadiness();
+    return readiness.state !== "setup_required";
   } catch {
     // If check fails, assume model is installed to avoid blocking
     return true;

@@ -42,7 +42,11 @@ import {
   UsageTracker,
 } from "./usage.ts";
 export type { LLMResponse, ToolCall } from "./tool-call.ts";
-import { getAgentProfile, listAgentProfiles } from "./agent-registry.ts";
+import {
+  getAgentProfile,
+  listAgentProfiles,
+  type AgentProfile,
+} from "./agent-registry.ts";
 import {
   createPlanState,
   formatPlanForContext,
@@ -63,7 +67,8 @@ import {
   type DelegateInbox,
 } from "./delegate-inbox.ts";
 import type { DelegateCoordinationBoard } from "./delegate-coordination.ts";
-import type { TeamRuntime } from "./team-runtime.ts";
+import type { TeamRuntime, TeamSummary } from "./team-runtime.ts";
+import { cancelThread } from "./delegate-threads.ts";
 import type {
   AgentCheckpointSummary,
   CheckpointRecorder,
@@ -90,6 +95,7 @@ export {
   handleTextOnlyResponse,
   handleFinalResponse,
   handlePostToolExecution,
+  maybeShortCircuitWeakWebQuery,
 } from "./orchestrator-response.ts";
 
 import { type LLMFunction, callLLMWithRetry } from "./orchestrator-llm.ts";
@@ -105,6 +111,7 @@ import {
   handleFinalResponse,
   handlePostToolExecution,
   handleTextOnlyResponse,
+  maybeShortCircuitWeakWebQuery,
   processAgentResponse,
 } from "./orchestrator-response.ts";
 
@@ -329,6 +336,10 @@ export type AgentUIEvent =
     status: "acknowledged" | "forced";
   }
   | {
+    type: "batch_progress_updated";
+    snapshot: import("./delegate-batches.ts").DelegateBatchSnapshot;
+  }
+  | {
     type: "checkpoint_created";
     checkpoint: AgentCheckpointSummary;
   }
@@ -389,6 +400,7 @@ export interface OrchestratorConfig {
   modelTier?: ModelTier;
   delegateInbox?: DelegateInbox;
   modelId?: string;
+  sessionId?: string;
   signal?: AbortSignal;
   /** Enable one-time automatic memory recall for this user turn. */
   autoMemoryRecall?: boolean;
@@ -412,6 +424,7 @@ export interface OrchestratorConfig {
   delegateCoordinationId?: string;
   /** Shared team runtime for system-managed collaboration. */
   teamRuntime?: TeamRuntime;
+  agentProfiles?: readonly AgentProfile[];
   /** Current member ID for this team-aware run. */
   teamMemberId?: string;
   /** Lead member ID for the current team runtime. */
@@ -500,6 +513,56 @@ function formatShutdownRequestForContext(
   return request.reason
     ? `[Team shutdown] ${request.requestedByMemberId} requested graceful shutdown: ${request.reason}`
     : `[Team shutdown] ${request.requestedByMemberId} requested graceful shutdown.`;
+}
+
+function formatTeamSummaryForContext(
+  summary: TeamSummary,
+  pendingApprovals: Array<{
+    id: string;
+    taskId: string;
+    submittedByMemberId: string;
+  }>,
+): string {
+  const taskCounts = Object.entries(summary.taskCounts)
+    .map(([status, count]) => `${status}=${count}`)
+    .join(", ");
+  const blocked = summary.blockedTasks.length > 0
+    ? summary.blockedTasks.map((task) =>
+      `${task.id} <- ${task.dependencies.join(", ")}`
+    ).join("; ")
+    : "none";
+  const approvals = pendingApprovals.length > 0
+    ? pendingApprovals.map((approval) =>
+      `${approval.taskId} by ${approval.submittedByMemberId}`
+    ).join("; ")
+    : "none";
+
+  return [
+    `[Team Summary] Members: ${summary.activeMembers}/${summary.memberCount} active. Pending approvals: ${summary.pendingApprovals}. Unread messages: ${summary.unreadMessages}.`,
+    `Policy: implementation=${summary.policy.implementationProfile}, review=${summary.policy.reviewProfile}, research=${summary.policy.researchProfile}, synthesis=${summary.policy.synthesisProfile}, reviewRequired=${summary.policy.reviewRequired}, autoApplyCleanChanges=${summary.policy.autoApplyCleanChanges}.`,
+    `Task counts: ${taskCounts}.`,
+    `Blocked tasks: ${blocked}.`,
+    `Pending approvals: ${approvals}.`,
+  ].join("\n");
+}
+
+function hasMeaningfulTeamSummary(
+  summary: TeamSummary,
+  pendingApprovals: Array<{
+    id: string;
+    taskId: string;
+    submittedByMemberId: string;
+  }>,
+): boolean {
+  const totalTasks = Object.values(summary.taskCounts).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
+  return summary.memberCount > 1 ||
+    pendingApprovals.length > 0 ||
+    summary.unreadMessages > 0 ||
+    summary.blockedTasks.length > 0 ||
+    totalTasks > 0;
 }
 
 /**
@@ -617,6 +680,16 @@ export async function runReActLoop(
 
   addContextMessage(config, { role: "user", content: userRequest, images });
 
+  const weakWebShortCircuit = await maybeShortCircuitWeakWebQuery(
+    userRequest,
+    state,
+    lc,
+    config,
+  );
+  if (weakWebShortCircuit?.action === "return") {
+    return weakWebShortCircuit.value;
+  }
+
   // Planning (optional)
   if (
     !state.planState &&
@@ -624,7 +697,9 @@ export async function runReActLoop(
     shouldPlanRequest(userRequest, lc.planningConfig.mode!)
   ) {
     try {
-      const agentNames = listAgentProfiles().map((agent) => agent.name);
+      const agentNames = listAgentProfiles(config.agentProfiles).map((agent) =>
+        agent.name
+      );
       const plan = await requestPlan(
         llmFunction,
         context.getMessages(),
@@ -665,6 +740,33 @@ export async function runReActLoop(
         role: "user",
         content: formatDelegateInboxUpdateMessage(update),
       });
+    }
+
+    if (
+      config.teamRuntime &&
+      config.teamMemberId &&
+      config.teamMemberId === config.teamLeadMemberId
+    ) {
+      const summary = config.teamRuntime.deriveSummary(config.teamLeadMemberId);
+      const pendingApprovals = config.teamRuntime.listPendingApprovals().map((approval) => ({
+        id: approval.id,
+        taskId: approval.taskId,
+        submittedByMemberId: approval.submittedByMemberId,
+      }));
+      const signature = JSON.stringify({
+        summary,
+        pendingApprovals,
+      });
+      if (
+        hasMeaningfulTeamSummary(summary, pendingApprovals) &&
+        signature !== state.lastTeamSummarySignature
+      ) {
+        state.lastTeamSummarySignature = signature;
+        addContextMessage(config, {
+          role: "user",
+          content: formatTeamSummaryForContext(summary, pendingApprovals),
+        });
+      }
     }
 
     // Drain parent→child steering messages (delivered at iteration boundary)
@@ -711,6 +813,24 @@ export async function runReActLoop(
       });
     }
 
+    const forcedShutdowns = config.teamRuntime &&
+        config.teamMemberId === config.teamLeadMemberId
+      ? config.teamRuntime.forceExpiredShutdowns(config.teamLeadMemberId)
+      : [];
+    for (const request of forcedShutdowns) {
+      const member = config.teamRuntime?.getMember(request.memberId);
+      if (member?.threadId) {
+        cancelThread(member.threadId);
+      }
+      config.onAgentEvent?.({
+        type: "team_shutdown_resolved",
+        requestId: request.id,
+        memberId: request.memberId,
+        requestedByMemberId: request.requestedByMemberId,
+        status: "forced",
+      });
+    }
+
     onTrace?.({
       type: "iteration",
       current: state.iterations,
@@ -727,7 +847,7 @@ export async function runReActLoop(
           !state.planState.delegatedIds.has(currentStep.id) &&
           config.delegate
         ) {
-          const profile = getAgentProfile(currentStep.agent);
+          const profile = getAgentProfile(currentStep.agent, config.agentProfiles);
           if (profile) {
             const delegateArgs: Record<string, unknown> = {
               agent: profile.name,

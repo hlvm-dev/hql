@@ -2,6 +2,7 @@ import type { PermissionMode } from "../../common/config/types.ts";
 import type { FinalResponseMeta, TraceEvent } from "../agent/orchestrator.ts";
 import type { Plan } from "../agent/planning.ts";
 import type { DelegateTranscriptSnapshot } from "../agent/delegate-transcript.ts";
+import type { DelegateBatchSnapshot } from "../agent/delegate-batches.ts";
 import type { TodoState } from "../agent/todo-state.ts";
 import type { AgentCheckpointSummary } from "../agent/checkpoints.ts";
 
@@ -97,7 +98,13 @@ export type ChatStreamEvent =
     event: "delegate_start";
     agent: string;
     task: string;
+    thread_id?: string;
+    nickname?: string;
     child_session_id?: string;
+  }
+  | {
+    event: "delegate_running";
+    thread_id: string;
   }
   | {
     event: "delegate_end";
@@ -109,6 +116,7 @@ export type ChatStreamEvent =
     error?: string;
     snapshot?: DelegateTranscriptSnapshot;
     child_session_id?: string;
+    thread_id?: string;
   }
   | {
     event: "todo_updated";
@@ -157,6 +165,10 @@ export type ChatStreamEvent =
     member_id: string;
     requested_by_member_id: string;
     status: "acknowledged" | "forced";
+  }
+  | {
+    event: "batch_progress_updated";
+    snapshot: DelegateBatchSnapshot;
   }
   | { event: "plan_created"; plan: Plan }
   | { event: "plan_step"; step_id: string; index: number; completed: boolean }

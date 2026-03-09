@@ -18,6 +18,7 @@ import {
   type ToolCall,
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { callLLMWithRetry } from "../../../src/hlvm/agent/orchestrator-llm.ts";
+import { WEB_RESEARCH_TOOL_ALLOWLIST } from "../../../src/hlvm/agent/query-tool-routing.ts";
 import { createDelegateInbox } from "../../../src/hlvm/agent/delegate-inbox.ts";
 import { createDelegateCoordinationBoard } from "../../../src/hlvm/agent/delegate-coordination.ts";
 import { createTeamRuntime } from "../../../src/hlvm/agent/team-runtime.ts";
@@ -88,6 +89,7 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     iterationsSinceReminder: 3,
     memoryFlushedThisCycle: false,
     memoryRecallInjected: false,
+    lastTeamSummarySignature: "",
     ...overrides,
   };
 }
@@ -302,6 +304,54 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Orchestrator: executeToolCall routes interrupt_agent through cancel and resume",
+  async fn() {
+    resetApprovals();
+    resetThreadRegistry();
+    const context = new ContextManager();
+    const controller = new AbortController();
+    registerThread(createMockThread({
+      threadId: "interrupt-thread",
+      status: "running",
+      controller,
+      childSessionId: "session-789",
+      promise: Promise.resolve({ success: false, error: "cancelled" }),
+    }));
+
+    let seenResumeSessionId: string | undefined;
+    const result = await executeToolCall(
+      {
+        toolName: "interrupt_agent",
+        args: { thread_id: "interrupt-thread", message: "use a safer plan" },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        delegate: async (args) => {
+          seenResumeSessionId =
+            (args as Record<string, unknown>)._resumeSessionId as string;
+          return {
+            agent: "code",
+            result: "rerouted",
+            resumed: true,
+            childSessionId: seenResumeSessionId,
+          };
+        },
+      },
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(controller.signal.aborted, true);
+    assertEquals(seenResumeSessionId, "session-789");
+    assertEquals(
+      (result.result as Record<string, unknown>).childSessionId,
+      "session-789",
+    );
+  },
+});
+
+Deno.test({
   name: "Orchestrator: executeToolCall records report_result artifacts in coordination board",
   async fn() {
     resetApprovals();
@@ -389,6 +439,81 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Orchestrator: executeToolCall batch_delegate accepts CSV text input",
+  async fn() {
+    resetApprovals();
+    resetThreadRegistry();
+    const context = new ContextManager();
+    let index = 0;
+
+    const result = await executeToolCall(
+      {
+        toolName: "batch_delegate",
+        args: {
+          agent: "code",
+          task_template: "inspect {{file}}",
+          data: "file\none.ts\ntwo.ts\n",
+        },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        delegate: async (args) => {
+          index += 1;
+          const threadId = `csv-thread-${index}`;
+          const batchId = (args as Record<string, unknown>)._batchId as string;
+          registerThread(createMockThread({
+            threadId,
+            status: "queued",
+            batchId,
+          }));
+          return { threadId, nickname: `Agent-${index}` };
+        },
+      },
+    );
+
+    assertEquals(result.success, true);
+    const batchResult = result.result as Record<string, unknown>;
+    assertEquals((batchResult.threadIds as string[]).length, 2);
+    assertEquals(getThread("csv-thread-1")?.batchId, batchResult.batchId);
+    assertEquals(getThread("csv-thread-2")?.batchId, batchResult.batchId);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: team_task_write creates a new task when an explicit id is provided",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const teamRuntime = createTeamRuntime("lead", "lead");
+
+    const result = await executeToolCall(
+      {
+        toolName: "team_task_write",
+        args: {
+          id: "task-explicit",
+          goal: "Coordinate review",
+          status: "in_progress",
+        },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        teamRuntime,
+        teamMemberId: teamRuntime.leadMemberId,
+        teamLeadMemberId: teamRuntime.leadMemberId,
+      },
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(teamRuntime.getTask("task-explicit")?.goal, "Coordinate review");
+    assertEquals(teamRuntime.getTask("task-explicit")?.status, "in_progress");
+  },
+});
+
+Deno.test({
   name: "Orchestrator: team task tools emit task updates and bind current member task",
   async fn() {
     resetApprovals();
@@ -417,6 +542,94 @@ Deno.test({
     const task = (result.result as { task: { id: string } }).task;
     assertEquals(teamRuntime.getMember("worker-1")?.currentTaskId, task.id);
     assertEquals(events.includes("team_task_updated"), true);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: team_task_write update preserves unspecified task fields",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const teamRuntime = createTeamRuntime("lead", "lead");
+    teamRuntime.registerMember({ id: "worker-1", agent: "code" });
+    teamRuntime.registerMember({ id: "worker-2", agent: "code" });
+    teamRuntime.ensureTask({
+      id: "task-1",
+      goal: "Review patch",
+      status: "in_progress",
+      assigneeMemberId: "worker-2",
+      dependencies: ["task-a"],
+      artifacts: { source: "initial" },
+    });
+
+    const result = await executeToolCall(
+      {
+        toolName: "team_task_write",
+        args: {
+          id: "task-1",
+          goal: "Review patch",
+          result_summary: "Updated summary",
+        },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        teamRuntime,
+        teamMemberId: "worker-1",
+        teamLeadMemberId: teamRuntime.leadMemberId,
+      },
+    );
+
+    assertEquals(result.success, true);
+    const task = teamRuntime.getTask("task-1");
+    assertEquals(task?.status, "in_progress");
+    assertEquals(task?.assigneeMemberId, "worker-2");
+    assertEquals(task?.dependencies, ["task-a"]);
+    assertEquals(task?.resultSummary, "Updated summary");
+    assertEquals(task?.artifacts?.source, "initial");
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: team_task_claim rejects blocked tasks with dependency context",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const teamRuntime = createTeamRuntime("lead", "lead");
+    teamRuntime.registerMember({ id: "worker-1", agent: "code" });
+    teamRuntime.ensureTask({
+      id: "task-a",
+      goal: "Prepare patch",
+      status: "pending",
+    });
+    teamRuntime.ensureTask({
+      id: "task-b",
+      goal: "Review patch",
+      status: "pending",
+      dependencies: ["task-a"],
+    });
+
+    const result = await executeToolCall(
+      {
+        toolName: "team_task_claim",
+        args: { task_id: "task-b" },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        teamRuntime,
+        teamMemberId: "worker-1",
+        teamLeadMemberId: teamRuntime.leadMemberId,
+      },
+    );
+
+    assertEquals(result.success, false);
+    assertEquals(
+      result.error?.includes("blocked by dependencies: task-a"),
+      true,
+    );
   },
 });
 
@@ -487,6 +700,71 @@ Deno.test({
     assertEquals(review.success, true);
     assertEquals(teamRuntime.getTask("task-1")?.status, "in_progress");
     assertEquals(events.includes("team_plan_review_resolved"), true);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: team_message_send rejects unknown recipients",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const teamRuntime = createTeamRuntime("lead", "lead");
+    teamRuntime.registerMember({ id: "worker-1", agent: "code" });
+
+    const result = await executeToolCall(
+      {
+        toolName: "team_message_send",
+        args: {
+          to_member_id: "missing-worker",
+          content: "Are you there?",
+        },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        teamRuntime,
+        teamMemberId: "worker-1",
+        teamLeadMemberId: teamRuntime.leadMemberId,
+      },
+    );
+
+    assertEquals(result.success, false);
+    assertEquals(result.error?.includes("not found"), true);
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: submit_team_plan rejects unknown tasks",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const teamRuntime = createTeamRuntime("lead", "lead");
+    teamRuntime.registerMember({ id: "worker-1", agent: "code" });
+
+    const result = await executeToolCall(
+      {
+        toolName: "submit_team_plan",
+        args: {
+          task_id: "missing-task",
+          plan: {
+            goal: "Missing task",
+            steps: [{ id: "step-1", title: "Impossible" }],
+          },
+        },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        teamRuntime,
+        teamMemberId: "worker-1",
+        teamLeadMemberId: teamRuntime.leadMemberId,
+      },
+    );
+
+    assertEquals(result.success, false);
+    assertEquals(result.error?.includes("task 'missing-task' not found"), true);
   },
 });
 
@@ -1055,6 +1333,56 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Orchestrator: runReActLoop injects lead-side team summary context when team state changes",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const teamRuntime = createTeamRuntime("lead", "lead");
+    teamRuntime.registerMember({ id: "worker-1", agent: "code", currentTaskId: "task-1" });
+    teamRuntime.ensureTask({
+      id: "task-1",
+      goal: "Implement parser change",
+      status: "in_progress",
+      assigneeMemberId: "worker-1",
+    });
+    teamRuntime.requestPlanApproval({
+      taskId: "task-1",
+      submittedByMemberId: "worker-1",
+      plan: {
+        goal: "Implement parser change",
+        steps: [{ id: "step-1", title: "Inspect parser" }],
+      },
+      note: "Need lead review",
+    });
+
+    let sawSummary = false;
+    const result = await runReActLoop(
+      "Coordinate the current team work",
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        teamRuntime,
+        teamMemberId: teamRuntime.leadMemberId,
+        teamLeadMemberId: teamRuntime.leadMemberId,
+      },
+      async (messages) => {
+        sawSummary = messages.some((message) =>
+          message.role === "user" &&
+          message.content.includes("[Team Summary]") &&
+          message.content.includes("review=code") &&
+          message.content.includes("task-1 by worker-1")
+        );
+        return makeResponse("done");
+      },
+    );
+
+    assertEquals(result, "done");
+    assertEquals(sawSummary, true);
+  },
+});
+
+Deno.test({
   name: "Orchestrator: runReActLoop rejects text tool-call JSON fallback",
   async fn() {
     resetApprovals();
@@ -1417,5 +1745,355 @@ Deno.test({
       assertEquals(midPeriodic, false);
       assertEquals(context.getMessages().length, 0);
     }
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: runReActLoop bypasses the LLM for weak-tier web-only queries",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    let finalMeta:
+      | import("../../../src/hlvm/agent/orchestrator.ts").FinalResponseMeta
+      | undefined;
+
+    await withTemporaryTool(
+      "search_web",
+      {
+        fn: async () => ({
+          provider: "duckduckgo",
+          results: [
+            {
+              url: "https://react.dev/reference/react/useEffect",
+              title: "useEffect - React",
+              snippet:
+                "The cleanup function runs before the effect runs again and when the component unmounts.",
+              selectedForFetch: true,
+              pageDescription:
+                "React documents that cleanup runs before re-running an effect and on unmount.",
+              passages: [
+                "The cleanup function runs not only during unmount, but before every re-render with changed dependencies.",
+              ],
+              evidenceStrength: "high",
+              evidenceReason: "Official React documentation with fetched passages.",
+            },
+          ],
+          answerDraft: {
+            text:
+              "The cleanup function runs before the effect runs again and when the component unmounts.",
+            confidence: "high",
+            mode: "direct",
+            strategy: "deterministic",
+            sources: [
+              {
+                url: "https://react.dev/reference/react/useEffect",
+                title: "useEffect - React",
+                evidenceStrength: "high",
+              },
+            ],
+          },
+          guidance: { answerAvailable: true },
+        }),
+        description: "test search tool",
+        args: { query: "string" },
+        safetyLevel: "L0",
+      },
+      async () => {
+        const result = await runReActLoop(
+          "Search the public web only. Answer with citations: What does the useEffect cleanup function do in React?",
+          {
+            workspace: TEST_WORKSPACE,
+            context,
+            permissionMode: "yolo",
+            modelTier: "weak",
+            toolAllowlist: [...WEB_RESEARCH_TOOL_ALLOWLIST],
+            onFinalResponseMeta: (meta) => {
+              finalMeta = meta;
+            },
+          },
+          async () => {
+            throw new Error("LLM should not be called for weak-tier web bypass");
+          },
+        );
+
+        assertEquals(
+          result,
+          "The cleanup function runs before the effect runs again and when the component unmounts.",
+        );
+      },
+    );
+
+    assertEquals(finalMeta?.citationSpans.length, 1);
+    assertEquals(
+      finalMeta?.citationSpans[0]?.url,
+      "https://react.dev/reference/react/useEffect",
+    );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: runReActLoop bypasses the LLM for weak-tier docs-intent queries without explicit web-only phrasing",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    let finalMeta:
+      | import("../../../src/hlvm/agent/orchestrator.ts").FinalResponseMeta
+      | undefined;
+
+    await withTemporaryTool(
+      "search_web",
+      {
+        fn: async () => ({
+          provider: "duckduckgo",
+          results: [
+            {
+              url: "https://docs.python.org/3/library/asyncio-task.html#task-groups",
+              title: "Task Groups - asyncio",
+              snippet:
+                "Task groups combine task creation with reliable waiting and cancellation handling.",
+              selectedForFetch: true,
+              pageDescription:
+                "Python docs describe TaskGroup as structured-concurrency support for asyncio.",
+              passages: [
+                "A task group combines a task creation API with a convenient and reliable way to wait for all tasks in the group to finish.",
+              ],
+              evidenceStrength: "high",
+              evidenceReason: "Official Python documentation with fetched passages.",
+              sourceClass: "vendor_docs",
+            },
+          ],
+          answerDraft: {
+            text:
+              "TaskGroup provides structured concurrency for asyncio by letting you create related tasks and wait for the whole group to finish reliably.",
+            confidence: "high",
+            mode: "direct",
+            strategy: "deterministic",
+            sources: [
+              {
+                url: "https://docs.python.org/3/library/asyncio-task.html#task-groups",
+                title: "Task Groups - asyncio",
+                evidenceStrength: "high",
+              },
+            ],
+          },
+          guidance: { answerAvailable: true },
+        }),
+        description: "test search tool",
+        args: { query: "string" },
+        safetyLevel: "L0",
+      },
+      async () => {
+        const result = await runReActLoop(
+          "official docs: what does the TaskGroup class do in Python asyncio?",
+          {
+            workspace: TEST_WORKSPACE,
+            context,
+            permissionMode: "yolo",
+            modelTier: "weak",
+            onFinalResponseMeta: (meta) => {
+              finalMeta = meta;
+            },
+          },
+          async () => {
+            throw new Error("LLM should not be called for weak-tier docs-intent bypass");
+          },
+        );
+
+        assertEquals(
+          result,
+          "TaskGroup provides structured concurrency for asyncio by letting you create related tasks and wait for the whole group to finish reliably.",
+        );
+      },
+    );
+
+    assertEquals(finalMeta?.citationSpans.length, 1);
+    assertEquals(
+      finalMeta?.citationSpans[0]?.url,
+      "https://docs.python.org/3/library/asyncio-task.html#task-groups",
+    );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: runReActLoop short-circuits weak-tier deterministic search_web answers",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const originalListFiles = TOOL_REGISTRY.list_files;
+    let llmCalls = 0;
+    let finalMeta:
+      | import("../../../src/hlvm/agent/orchestrator.ts").FinalResponseMeta
+      | undefined;
+
+    try {
+      TOOL_REGISTRY.list_files = {
+        ...originalListFiles,
+        fn: async () => {
+          throw new Error("list_files should not run after terminal search_web");
+        },
+      };
+
+      await withTemporaryTool(
+        "search_web",
+        {
+          fn: async () => ({
+            provider: "duckduckgo",
+            results: [
+              {
+                url: "https://react.dev/reference/react/useEffect",
+                title: "useEffect - React",
+                snippet:
+                  "The cleanup function runs before the effect runs again and when the component unmounts.",
+                selectedForFetch: true,
+                pageDescription:
+                  "React documents that cleanup runs before re-running an effect and on unmount.",
+                passages: [
+                  "The cleanup function runs not only during unmount, but before every re-render with changed dependencies.",
+                ],
+                evidenceStrength: "high",
+                evidenceReason: "Official React documentation with fetched passages.",
+              },
+            ],
+            answerDraft: {
+              text:
+                "The cleanup function runs before the effect runs again and when the component unmounts.",
+              confidence: "high",
+              mode: "direct",
+              strategy: "deterministic",
+              sources: [
+                {
+                  url: "https://react.dev/reference/react/useEffect",
+                  title: "useEffect - React",
+                  evidenceStrength: "high",
+                },
+              ],
+            },
+            guidance: { answerAvailable: true },
+          }),
+          description: "test search tool",
+          args: { query: "string" },
+          safetyLevel: "L0",
+        },
+        async () => {
+          const result = await runReActLoop(
+            "Need help answering a question.",
+            {
+              workspace: TEST_WORKSPACE,
+              context,
+              permissionMode: "yolo",
+              onFinalResponseMeta: (meta) => {
+                finalMeta = meta;
+              },
+              modelTier: "weak",
+            },
+            async () => {
+              llmCalls += 1;
+              if (llmCalls === 1) {
+                return makeResponse("Searching the web.", [
+                  { toolName: "search_web", args: { query: "React useEffect cleanup" } },
+                ]);
+              }
+              return makeResponse("This second LLM call should never happen.", [
+                { toolName: "list_files", args: { path: "." } },
+              ]);
+            },
+          );
+
+          assertEquals(
+            result,
+            "The cleanup function runs before the effect runs again and when the component unmounts.",
+          );
+        },
+      );
+    } finally {
+      if (originalListFiles) {
+        TOOL_REGISTRY.list_files = originalListFiles;
+      } else {
+        delete TOOL_REGISTRY.list_files;
+      }
+    }
+
+    assertEquals(llmCalls, 1);
+    assertEquals(finalMeta?.citationSpans.length, 1);
+    assertEquals(
+      finalMeta?.citationSpans[0]?.url,
+      "https://react.dev/reference/react/useEffect",
+    );
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: runReActLoop keeps deterministic search_web answers non-terminal for mid-tier",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    let llmCalls = 0;
+
+    await withTemporaryTool(
+      "search_web",
+      {
+        fn: async () => ({
+          provider: "duckduckgo",
+          results: [
+            {
+              url: "https://react.dev/reference/react/useEffect",
+              title: "useEffect - React",
+              snippet:
+                "The cleanup function runs before the effect runs again and when the component unmounts.",
+              selectedForFetch: true,
+              pageDescription:
+                "React documents that cleanup runs before re-running an effect and on unmount.",
+              passages: [
+                "The cleanup function runs not only during unmount, but before every re-render with changed dependencies.",
+              ],
+              evidenceStrength: "high",
+              evidenceReason: "Official React documentation with fetched passages.",
+            },
+          ],
+          answerDraft: {
+            text:
+              "The cleanup function runs before the effect runs again and when the component unmounts.",
+            confidence: "high",
+            mode: "direct",
+            strategy: "deterministic",
+            sources: [
+              {
+                url: "https://react.dev/reference/react/useEffect",
+                title: "useEffect - React",
+                evidenceStrength: "high",
+              },
+            ],
+          },
+          guidance: { answerAvailable: true },
+        }),
+        description: "test search tool",
+        args: { query: "string" },
+        safetyLevel: "L0",
+      },
+      async () => {
+        const result = await runReActLoop(
+          "Need help answering a question.",
+          {
+            workspace: TEST_WORKSPACE,
+            context,
+            permissionMode: "yolo",
+            modelTier: "mid",
+          },
+          async () => {
+            llmCalls += 1;
+            if (llmCalls === 1) {
+              return makeResponse("Searching the web.", [
+                { toolName: "search_web", args: { query: "React useEffect cleanup" } },
+              ]);
+            }
+            return makeResponse("Here is the polished answer.");
+          },
+        );
+
+        assertEquals(result, "Here is the polished answer.");
+      },
+    );
+
+    assertEquals(llmCalls, 2);
   },
 });

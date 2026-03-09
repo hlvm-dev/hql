@@ -30,7 +30,6 @@ import {
   runDirectChatViaHost,
   runRuntimeOllamaSignin,
 } from "../../../src/hlvm/runtime/host-client.ts";
-import { getRuntimeHostIdentity } from "../../../src/hlvm/runtime/host-identity.ts";
 import type { RuntimeSessionMessage } from "../../../src/hlvm/runtime/session-protocol.ts";
 import { deriveDefaultSessionKey } from "../../../src/hlvm/runtime/session-key.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
@@ -39,24 +38,9 @@ import {
   withEnv,
   withRuntimeHostServer,
 } from "../../shared/light-helpers.ts";
+import { createRuntimeHostHealthResponse } from "../../shared/runtime-host-test-helpers.ts";
 
 const encoder = new TextEncoder();
-
-async function createHealthResponse(authToken: string, overrides: {
-  aiReady?: boolean;
-  authToken?: string | null;
-} = {}): Promise<Record<string, unknown>> {
-  const identity = await getRuntimeHostIdentity();
-  return {
-    status: "ok",
-    initialized: true,
-    definitions: 0,
-    aiReady: overrides.aiReady ?? true,
-    version: identity.version,
-    buildId: identity.buildId,
-    authToken: overrides.authToken ?? authToken,
-  };
-}
 
 Deno.test("runAgentQueryViaHost streams events, traces, and interaction responses", async () => {
   const port = await findFreePort();
@@ -67,7 +51,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
   const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
-      return Response.json(await createHealthResponse(authToken));
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
     }
 
     const authHeader = req.headers.get("Authorization");
@@ -295,6 +279,168 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
   }
 });
 
+Deno.test("runAgentQueryViaHost maps team and batch events through the host stream", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+  const uiEvents: Array<Record<string, unknown>> = [];
+
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
+    }
+
+    if (url.pathname === "/api/chat") {
+      const stream = new ReadableStream({
+        start(controller) {
+          const emit = (obj: unknown) =>
+            controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+          emit({
+            event: "delegate_start",
+            agent: "code",
+            task: "Review patch",
+            thread_id: "thread-1",
+            nickname: "Alpha",
+            child_session_id: "child-1",
+          });
+          emit({
+            event: "delegate_running",
+            thread_id: "thread-1",
+          });
+          emit({
+            event: "delegate_end",
+            agent: "code",
+            task: "Review patch",
+            success: true,
+            summary: "Review complete",
+            duration_ms: 12,
+            child_session_id: "child-1",
+            thread_id: "thread-1",
+          });
+          emit({
+            event: "team_task_updated",
+            task_id: "task-1",
+            goal: "Implement parser change",
+            status: "in_progress",
+            assignee_member_id: "worker-1",
+          });
+          emit({
+            event: "team_message",
+            kind: "direct",
+            from_member_id: "worker-1",
+            to_member_id: "lead",
+            related_task_id: "task-1",
+            content_preview: "Need clarification on scope",
+          });
+          emit({
+            event: "team_plan_review_required",
+            approval_id: "approval-1",
+            task_id: "task-1",
+            submitted_by_member_id: "worker-1",
+          });
+          emit({
+            event: "team_plan_review_resolved",
+            approval_id: "approval-1",
+            task_id: "task-1",
+            submitted_by_member_id: "worker-1",
+            approved: true,
+            reviewed_by_member_id: "lead",
+          });
+          emit({
+            event: "team_shutdown_requested",
+            request_id: "shutdown-1",
+            member_id: "worker-1",
+            requested_by_member_id: "lead",
+            reason: "Task complete",
+          });
+          emit({
+            event: "team_shutdown_resolved",
+            request_id: "shutdown-1",
+            member_id: "worker-1",
+            requested_by_member_id: "lead",
+            status: "acknowledged",
+          });
+          emit({
+            event: "batch_progress_updated",
+            snapshot: {
+              batchId: "batch-1",
+              agent: "code",
+              totalRows: 3,
+              spawned: 3,
+              queued: 1,
+              running: 1,
+              completed: 1,
+              errored: 0,
+              cancelled: 0,
+              spawnFailures: 0,
+              createdAt: 1,
+              status: "running",
+              threadIds: ["t1", "t2", "t3"],
+            },
+          });
+          emit({ event: "token", text: "done" });
+          emit({
+            event: "complete",
+            request_id: "req-team-1",
+            session_version: 1,
+          });
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/x-ndjson",
+          "X-Request-ID": "req-team-1",
+        },
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      const result = await runAgentQueryViaHost({
+        query: "Coordinate the current team work",
+        model: "ollama/llama3.1:8b",
+        callbacks: {
+          onAgentEvent: (event) => uiEvents.push(event as Record<string, unknown>),
+        },
+      });
+
+      assertEquals(result.text, "done");
+      assertEquals(uiEvents.map((event) => event.type), [
+        "delegate_start",
+        "delegate_running",
+        "delegate_end",
+        "team_task_updated",
+        "team_message",
+        "team_plan_review_required",
+        "team_plan_review_resolved",
+        "team_shutdown_requested",
+        "team_shutdown_resolved",
+        "batch_progress_updated",
+      ]);
+      assertEquals(uiEvents[0]?.threadId, "thread-1");
+      assertEquals(uiEvents[0]?.nickname, "Alpha");
+      assertEquals(uiEvents[1]?.threadId, "thread-1");
+      assertEquals(uiEvents[2]?.threadId, "thread-1");
+      assertEquals(uiEvents[3]?.taskId, "task-1");
+      assertEquals(uiEvents[4]?.contentPreview, "Need clarification on scope");
+      assertEquals(uiEvents[9]?.snapshot && typeof uiEvents[9].snapshot, "object");
+    });
+  } finally {
+    await handle.shutdown();
+    await handle.finished;
+  }
+});
+
 Deno.test("runtime host client lists sessions, resolves session lookups, and streams direct chat", async () => {
   const port = await findFreePort();
   const authToken = "test-auth-token";
@@ -332,7 +478,7 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
   const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
-      return Response.json(await createHealthResponse(authToken));
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
     }
 
     if (url.pathname === "/api/sessions") {
@@ -472,7 +618,7 @@ Deno.test("runAgentQueryViaHost labels host rejections as runtime-host failures"
   const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
-      return Response.json(await createHealthResponse(authToken));
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
     }
 
     if (url.pathname === "/api/chat") {
@@ -519,7 +665,7 @@ Deno.test("runAgentQueryViaHost uses ephemeral session ids for fresh sessions", 
   const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
-      return Response.json(await createHealthResponse(authToken));
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
     }
 
     if (url.pathname === "/api/chat") {
@@ -587,7 +733,7 @@ Deno.test("runAgentQueryViaHost waits for runtime readiness before sending chat"
     if (url.pathname === "/health") {
       healthChecks += 1;
       return Response.json(
-        await createHealthResponse(authToken, {
+        await createRuntimeHostHealthResponse(authToken, {
           aiReady: healthChecks >= 3,
         }),
       );
@@ -640,6 +786,76 @@ Deno.test("runAgentQueryViaHost waits for runtime readiness before sending chat"
       assertEquals(result.text, "ready");
       assertEquals(chatRequests, 1);
       assertEquals(healthChecks >= 3, true);
+    });
+  } finally {
+    await handle.shutdown();
+    await handle.finished;
+  }
+});
+
+Deno.test("runAgentQueryViaHost accepts compatible runtime hosts when the compiled artifact path differs", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+  let chatRequests = 0;
+
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      const health = await createRuntimeHostHealthResponse(authToken);
+      const buildIdParts = String(health.buildId).split("|");
+      buildIdParts[1] = `/private/var/folders/runtime/${buildIdParts[1]?.split("/").pop() ?? "hlvm"}`;
+      return Response.json({
+        ...health,
+        buildId: buildIdParts.join("|"),
+      });
+    }
+
+    if (url.pathname === "/api/chat") {
+      chatRequests += 1;
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({ event: "token", text: "compatible" }) + "\n",
+            ),
+          );
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({
+                event: "complete",
+                request_id: "req-compatible",
+                session_version: 1,
+              }) + "\n",
+            ),
+          );
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/x-ndjson",
+          "X-Request-ID": "req-compatible",
+        },
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      const result = await runAgentQueryViaHost({
+        query: "compatible host",
+        model: "ollama/llama3.1:8b",
+        callbacks: {},
+      });
+      assertEquals(result.text, "compatible");
+      assertEquals(chatRequests, 1);
     });
   } finally {
     await handle.shutdown();

@@ -33,6 +33,7 @@ import {
   filterSearchResultsForTimeRange,
 } from "./search-ranking.ts";
 import {
+  appendQueryQualifier,
   buildFollowupQueries,
 } from "./query-strategy.ts";
 import { planSearchQueries } from "./query-decomposition.ts";
@@ -54,6 +55,10 @@ import {
 } from "./search-result-selector.ts";
 import { hasStructuredEvidence } from "./web-utils.ts";
 import { discoverAllowedDomainResults } from "./domain-discovery.ts";
+import {
+  annotateSearchResultSources,
+  classifySearchResultSource,
+} from "./source-authority.ts";
 
 // ============================================================
 // Constants
@@ -72,6 +77,7 @@ const LLM_SELECTOR_TIMEOUT_MS = 5_000;
 const PREFETCH_MAX_BYTES = 128_000;
 const PREFETCH_MAX_TEXT = 8_000;
 const PREFETCH_MAX_REDIRECTS = 2;
+const DIRECT_QUESTION_RE = /^(?:what|how|why|when|where|which|who)\b/i;
 
 // ============================================================
 // Helpers
@@ -204,6 +210,94 @@ function annotateFetchedResults(
       ? annotatedByUrl.get(result.url)!
       : result
   );
+}
+
+function needsAuthorityRecovery(
+  query: string,
+  results: SearchResult[],
+  allowedDomains?: string[],
+  wantsAuthoritativeBias?: boolean,
+): boolean {
+  if (allowedDomains?.length) return false;
+  if (!(wantsAuthoritativeBias || DIRECT_QUESTION_RE.test(query.trim()))) {
+    return false;
+  }
+  return !results.some((result) =>
+    classifySearchResultSource(result, allowedDomains).isAuthoritative
+  );
+}
+
+function ensureAuthoritativePrefetchTargets(
+  targets: SearchResult[],
+  candidates: SearchResult[],
+  maxTargets: number,
+  allowedDomains: string[] | undefined,
+  wantsAuthoritativeBias: boolean,
+): SearchResult[] {
+  if (!wantsAuthoritativeBias || maxTargets <= 0) return targets;
+  if (targets.some((result) => classifySearchResultSource(result, allowedDomains).isAuthoritative)) {
+    return targets;
+  }
+
+  const selectedUrls = new Set(targets.map((result) => result.url).filter(Boolean));
+  const authoritativeFallback = candidates
+    .filter((result) => result.url && !selectedUrls.has(result.url))
+    .map((result) => ({
+      result,
+      authorityScore: classifySearchResultSource(result, allowedDomains).authorityScore,
+      rankScore: result.score ?? 0,
+    }))
+    .filter((entry) => entry.authorityScore >= 3)
+    .sort((a, b) =>
+      b.authorityScore - a.authorityScore ||
+      b.rankScore - a.rankScore ||
+      (a.result.url ?? "").localeCompare(b.result.url ?? "")
+    )[0]?.result;
+
+  if (!authoritativeFallback) return targets;
+  return [
+    authoritativeFallback,
+    ...targets.filter((result) => result.url !== authoritativeFallback.url),
+  ].slice(0, maxTargets);
+}
+
+function collectAuthorityDiagnostics(
+  results: SearchResult[],
+  prefetchTargets: SearchResult[],
+  followupRoundDiagnostics: Array<Record<string, unknown>>,
+  allowedDomains?: string[],
+): {
+  authoritativeResultCount: number;
+  topAuthoritativeRank?: number;
+  authorityRecoveryTriggered: boolean;
+  authorityRecoverySucceeded: boolean;
+  selectedAuthoritativeFetchCount: number;
+} {
+  let authoritativeResultCount = 0;
+  let topAuthoritativeRank: number | undefined;
+  for (const [index, result] of results.entries()) {
+    if (!classifySearchResultSource(result, allowedDomains).isAuthoritative) {
+      continue;
+    }
+    authoritativeResultCount += 1;
+    topAuthoritativeRank ??= index + 1;
+  }
+
+  const selectedAuthoritativeFetchCount = prefetchTargets.filter((result) =>
+    classifySearchResultSource(result, allowedDomains).isAuthoritative
+  ).length;
+  const authorityRecoveryTriggered = followupRoundDiagnostics.some((round) =>
+    round.phase === "authority_recovery"
+  );
+
+  return {
+    authoritativeResultCount,
+    topAuthoritativeRank,
+    authorityRecoveryTriggered,
+    authorityRecoverySucceeded:
+      authorityRecoveryTriggered && authoritativeResultCount > 0,
+    selectedAuthoritativeFetchCount,
+  };
 }
 
 // ============================================================
@@ -340,6 +434,47 @@ export class DdgSearchBackend implements WebSearchBackend {
         query: subquery,
         providerDiagnostics: subqueryResult.diagnostics ?? undefined,
       });
+    }
+
+    if (
+      recallExpansionEnabled &&
+      executedQueryTrail.length < QUERY_PLAN_MAX_TOTAL &&
+      needsAuthorityRecovery(
+        query,
+        result.results,
+        allowedDomains,
+        queryIntent.wantsAuthoritativeBias,
+      )
+    ) {
+      const authorityQuery = appendQueryQualifier(
+        queryPlan.primaryQuery,
+        "official docs reference",
+      );
+      if (!executedQueryTrail.some((item) => item.toLowerCase() === authorityQuery.toLowerCase())) {
+        const authorityResult = await provider.search(authorityQuery, {
+          limit: candidatePoolLimit,
+          timeoutMs: timeout,
+          allowedDomains,
+          blockedDomains,
+          timeRange,
+          locale,
+          toolOptions: options,
+          reformulate: true,
+          searchDepth: searchDepth === "low" ? "medium" : searchDepth,
+        });
+        executedQueryTrail.push(authorityQuery);
+        deepDiagnostics.autoTriggered = true;
+        if (deepDiagnostics.triggerReason === "none") {
+          deepDiagnostics.triggerReason = "authority_recovery";
+        }
+        result.results = mergeSearchResults(result.results, authorityResult.results);
+        result.count = result.results.length;
+        followupRoundDiagnostics.push({
+          phase: "authority_recovery",
+          query: authorityQuery,
+          providerDiagnostics: authorityResult.diagnostics ?? undefined,
+        });
+      }
     }
 
     let confidenceBeforeDeep = assessToolSearchConfidence(query, result.results);
@@ -554,6 +689,14 @@ export class DdgSearchBackend implements WebSearchBackend {
           prefetchTargets = fallbackSelection.picks.filter((entry) => entry.url);
         }
 
+        prefetchTargets = ensureAuthoritativePrefetchTargets(
+          prefetchTargets,
+          prefetchCandidates,
+          prefetchTargetCount,
+          allowedDomains,
+          queryIntent.wantsAuthoritativeBias,
+        );
+
         if (prefetchTargets.length === 0) {
           prefetchTargets = prefetchCandidates.slice(0, prefetchTargetCount);
         }
@@ -709,12 +852,21 @@ export class DdgSearchBackend implements WebSearchBackend {
         ? `${fetchEvidenceCount} fetched source(s) include extracted evidence. Prefer these before unfetched search results.`
         : undefined,
     };
+    result.results = annotateSearchResultSources(result.results, allowedDomains);
+    const authorityDiagnostics = collectAuthorityDiagnostics(
+      result.results,
+      prefetchTargets,
+      followupRoundDiagnostics,
+      allowedDomains,
+    );
+
     const answerDraft = buildDeterministicAnswer({
       query,
       results: result.results,
       intent: queryIntent,
       lowConfidence: confidenceFinal.lowConfidence,
       modelTier: options?.modelTier,
+      allowedDomains,
     });
 
     const diagnostics = {
@@ -771,6 +923,14 @@ export class DdgSearchBackend implements WebSearchBackend {
         newsResultCount: newsResults.length,
         domainDiscoveryTriggered: domainDiscovery.triggered,
         domainDiscoveryResultCount: domainDiscovery.discoveredResultCount,
+        authoritativeResultCount: authorityDiagnostics.authoritativeResultCount,
+        topAuthoritativeRank: authorityDiagnostics.topAuthoritativeRank,
+        authorityRecoveryTriggered:
+          authorityDiagnostics.authorityRecoveryTriggered,
+        authorityRecoverySucceeded:
+          authorityDiagnostics.authorityRecoverySucceeded,
+        selectedAuthoritativeFetchCount:
+          authorityDiagnostics.selectedAuthoritativeFetchCount,
       },
       domainDiscovery,
       recoveryTriggered,
@@ -783,8 +943,12 @@ export class DdgSearchBackend implements WebSearchBackend {
       .map((entry) => ({
         url: entry.url!,
         title: entry.title,
-        excerpt: entry.snippet,
+        excerpt: entry.passages?.[0] ?? entry.pageDescription ?? entry.snippet,
         provider: result.provider,
+        sourceKind: (entry.passages?.length || entry.pageDescription)
+          ? "passage" as const
+          : "snippet" as const,
+        sourceClass: entry.sourceClass,
       }));
 
     return {

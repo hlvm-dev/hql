@@ -6,6 +6,10 @@
  */
 
 import type { DelegateTranscriptSnapshot } from "./delegate-transcript.ts";
+import type {
+  SandboxCapability,
+  WorkspaceLeaseKind,
+} from "./workspace-leases.ts";
 
 // ============================================================
 // Types
@@ -50,6 +54,10 @@ export interface DelegateThread {
   completedAt?: number;
   /** Isolated workspace path for this child agent. */
   workspacePath?: string;
+  /** Lease backend used for this child agent. */
+  workspaceKind?: WorkspaceLeaseKind;
+  /** Effective sandbox capability for this child agent. */
+  sandboxCapability?: SandboxCapability;
   /** Cleanup function to remove the isolated workspace. */
   workspaceCleanup?: () => Promise<void>;
   /** Unified diff of child's changes vs parent workspace. */
@@ -137,11 +145,15 @@ export function updateThreadChildSession(
 export function updateThreadWorkspace(
   threadId: string,
   workspacePath: string,
+  workspaceKind: WorkspaceLeaseKind,
+  sandboxCapability: SandboxCapability,
   cleanup: () => Promise<void>,
 ): void {
   const thread = threads.get(threadId);
   if (thread) {
     thread.workspacePath = workspacePath;
+    thread.workspaceKind = workspaceKind;
+    thread.sandboxCapability = sandboxCapability;
     thread.workspaceCleanup = cleanup;
   }
 }
@@ -196,6 +208,8 @@ export function clearThreadWorkspace(threadId: string): void {
   const thread = threads.get(threadId);
   if (!thread) return;
   thread.workspacePath = undefined;
+  thread.workspaceKind = undefined;
+  thread.sandboxCapability = undefined;
   thread.workspaceCleanup = undefined;
 }
 
@@ -211,14 +225,6 @@ export function drainThreadInput(threadId: string): string[] {
   const thread = threads.get(threadId);
   if (!thread?.inputQueue?.length) return [];
   return thread.inputQueue.splice(0);
-}
-
-export function getBatchThreads(batchId: string): DelegateThread[] {
-  const result: DelegateThread[] = [];
-  for (const thread of threads.values()) {
-    if (thread.batchId === batchId) result.push(thread);
-  }
-  return result;
 }
 
 export function resolveResumableThread(

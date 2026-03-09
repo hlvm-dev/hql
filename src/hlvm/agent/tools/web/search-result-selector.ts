@@ -17,6 +17,7 @@ import {
   hasStructuredEvidence,
   resultHost,
 } from "./web-utils.ts";
+import { classifySearchResultSource } from "./source-authority.ts";
 import {
   COMPARISON_TERMS,
   OFFICIAL_DOCS_TERMS,
@@ -359,6 +360,36 @@ function allowedDomainBoost(
   }
 }
 
+function authorityBoost(
+  result: SearchResult,
+  input: DeterministicSearchSignalInput,
+  mode: "selection" | "fetched",
+): number {
+  const authority = classifySearchResultSource(result, input.allowedDomains);
+  const authoritativeBias = Boolean(input.intent?.wantsAuthoritativeBias);
+
+  switch (authority.sourceClass) {
+    case "official_docs":
+      return authoritativeBias
+        ? mode === "fetched" ? 5.5 : 4.5
+        : mode === "fetched" ? 3.25 : 2.5;
+    case "vendor_docs":
+      return authoritativeBias
+        ? mode === "fetched" ? 4.5 : 3.5
+        : mode === "fetched" ? 2.5 : 1.75;
+    case "repo_docs":
+      return authoritativeBias
+        ? mode === "fetched" ? 3 : 2.25
+        : mode === "fetched" ? 1.5 : 1;
+    case "technical_article":
+      return authoritativeBias ? 0.25 : 0.5;
+    case "forum":
+      return mode === "fetched" ? -1.5 : -1;
+    case "other":
+      return 0;
+  }
+}
+
 function deterministicBaseScore(
   result: SearchResult,
   queryTokens: string[],
@@ -387,6 +418,7 @@ function deterministicBaseScore(
   if (result.publishedDate) score += 0.25;
   if (titleMatches > 0 && snippetMatches > 0) score += 0.5;
   score += allowedDomainBoost(result, input.allowedDomains);
+  score += authorityBoost(result, input, "selection");
 
   if (input.intent?.wantsOfficialDocs || input.intent?.wantsReference) {
     if (hasDocLikeSignal(result)) score += 2.5;
@@ -587,6 +619,7 @@ function fetchedEvidenceScore(
   if (result.url?.startsWith("https://")) score += 0.25;
   if (result.publishedDate) score += 0.25;
   score += allowedDomainBoost(result, input.allowedDomains) * 0.6;
+  score += authorityBoost(result, input, "fetched");
 
   if (input.intent?.wantsOfficialDocs || input.intent?.wantsReference) {
     if (hasDocLikeSignal(result)) score += 2;

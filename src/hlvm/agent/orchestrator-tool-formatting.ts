@@ -7,10 +7,15 @@ import { getTool, hasTool } from "./registry.ts";
 import { isObjectValue, truncate } from "../../common/utils.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
 import { getRecoveryHint } from "./error-taxonomy.ts";
+import type { ModelTier } from "./constants.ts";
 import type { ToolCall } from "./tool-call.ts";
 import type { OrchestratorConfig, ToolEventMeta, WebSearchToolEventMeta } from "./orchestrator.ts";
 import type { ToolExecutionResult } from "./orchestrator-state.ts";
 import type { FormattedToolResult } from "./registry.ts";
+import type {
+  DeterministicAnswerDraft,
+  DeterministicAnswerSource,
+} from "./tools/web/answer-from-evidence.ts";
 import type { SearchResult } from "./tools/web/search-provider.ts";
 import { hasStructuredEvidence } from "./tools/web/web-utils.ts";
 import { summarizeToolResult } from "./tool-result-summary.ts";
@@ -418,4 +423,91 @@ export function emitToolSuccess(
     argsSummary: generateArgsSummary(toolName, args),
     meta,
   });
+}
+
+export interface TerminalToolResponse {
+  finalResponse: string;
+  reason: "weak_search_web_deterministic";
+}
+
+function isTerminalSearchWebTool(toolName: string): boolean {
+  return toolName === "search_web" || toolName.endsWith("_search_web");
+}
+
+function extractDeterministicAnswerDraft(
+  result: unknown,
+): DeterministicAnswerDraft | undefined {
+  if (!isObjectValue(result) || !isObjectValue(result.answerDraft)) {
+    return undefined;
+  }
+  const draft = result.answerDraft as Record<string, unknown>;
+  if (typeof draft.text !== "string" || draft.text.trim().length === 0) {
+    return undefined;
+  }
+  if (draft.confidence !== "high") return undefined;
+  if (draft.strategy !== "deterministic") return undefined;
+  if (
+    draft.mode !== "direct" &&
+    draft.mode !== "comparison" &&
+    draft.mode !== "recency" &&
+    draft.mode !== "insufficient_evidence"
+  ) {
+    return undefined;
+  }
+  if (!Array.isArray(draft.sources)) {
+    return undefined;
+  }
+
+  const sources = draft.sources
+    .filter(isObjectValue)
+    .map((source): DeterministicAnswerSource => {
+      const evidenceStrength: DeterministicAnswerSource["evidenceStrength"] =
+        source.evidenceStrength === "high" ||
+          source.evidenceStrength === "medium" ||
+          source.evidenceStrength === "low"
+        ? source.evidenceStrength
+        : undefined;
+      return {
+        url: typeof source.url === "string" ? source.url : "",
+        title: typeof source.title === "string" ? source.title : "",
+        ...(evidenceStrength ? { evidenceStrength } : {}),
+        ...(typeof source.publishedDate === "string"
+          ? { publishedDate: source.publishedDate }
+          : {}),
+      };
+    })
+    .filter((source) => source.url.length > 0 && source.title.length > 0);
+
+  return {
+    text: draft.text,
+    confidence: "high",
+    mode: draft.mode,
+    strategy: "deterministic",
+    sources,
+  };
+}
+
+export function extractTerminalToolResponse(
+  toolName: string,
+  result: unknown,
+  modelTier: ModelTier | undefined,
+): TerminalToolResponse | undefined {
+  if (modelTier !== "weak") return undefined;
+  if (!isTerminalSearchWebTool(toolName)) return undefined;
+
+  const answerDraft = extractDeterministicAnswerDraft(result);
+  if (!answerDraft) return undefined;
+
+  if (
+    isObjectValue(result) &&
+    isObjectValue(result.guidance) &&
+    result.guidance.answerAvailable === false
+  ) {
+    return undefined;
+  }
+
+  return {
+    finalResponse: answerDraft.text.trim(),
+    reason: "weak_search_web_deterministic",
+  };
 }

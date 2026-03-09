@@ -12,6 +12,7 @@
 
 import { ContextManager } from "./context.ts";
 import { generateSystemPrompt } from "./llm-integration.ts";
+import type { AgentProfile } from "./agent-registry.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
 import { type AgentPolicy, loadAgentPolicy } from "./policy.ts";
 import {
@@ -59,6 +60,8 @@ export interface AgentSessionOptions {
   customInstructions?: string;
   /** Override the LLM engine (defaults to getAgentEngine()) */
   engine?: AgentEngine;
+  /** Preloaded agent profiles for delegation guidance. */
+  agentProfiles?: readonly AgentProfile[];
 }
 
 export interface AgentSession {
@@ -272,6 +275,7 @@ export async function createAgentSession(
       toolOwnerId,
       customInstructions: options.customInstructions,
       modelTier,
+      agentProfiles: options.agentProfiles,
     }),
   });
 

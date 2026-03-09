@@ -46,9 +46,6 @@
           ]
         },
         {
-          "response": "Exploration complete"
-        },
-        {
           "response": "Parent complete"
         }
       ]
@@ -105,10 +102,175 @@
           ]
         },
         {
-          "response": "Exploration complete"
+          "response": "Parent complete"
+        }
+      ]
+    },
+    {
+      "name": "team",
+      "match": {
+        "contains": [
+          "coordinate the team runtime"
+        ]
+      },
+      "steps": [
+        {
+          "toolCalls": [
+            {
+              "id": "team_task_1",
+              "toolName": "team_task_write",
+              "args": {
+                "id": "task-1",
+                "goal": "Review parser change",
+                "status": "in_progress"
+              }
+            }
+          ]
         },
         {
-          "response": "Parent complete"
+          "toolCalls": [
+            {
+              "id": "team_plan_1",
+              "toolName": "submit_team_plan",
+              "args": {
+                "task_id": "task-1",
+                "note": "Need lead review",
+                "plan": {
+                  "goal": "Review parser change",
+                  "steps": [
+                    {
+                      "id": "step-1",
+                      "title": "Inspect the task board"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "toolCalls": [
+            {
+              "id": "team_status_1",
+              "toolName": "team_status_read",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "response": "Team coordination complete"
+        }
+      ]
+    },
+    {
+      "name": "natural-language-team-delegation",
+      "match": {
+        "contains": [
+          "spawn multiple agents and get this parser job done"
+        ]
+      },
+      "steps": [
+        {
+          "response": "No explicit plan required."
+        },
+        {
+          "toolCalls": [
+            {
+              "id": "delegate_1",
+              "toolName": "delegate_agent",
+              "args": {
+                "agent": "code",
+                "task": "Inspect parser failure modes"
+              }
+            }
+          ]
+        },
+        {
+          "toolCalls": [
+            {
+              "id": "team_task_1",
+              "toolName": "team_task_write",
+              "args": {
+                "id": "task-review",
+                "goal": "Review parser patch",
+                "status": "pending"
+              }
+            }
+          ]
+        },
+        {
+          "toolCalls": [
+            {
+              "id": "team_plan_1",
+              "toolName": "submit_team_plan",
+              "args": {
+                "task_id": "task-review",
+                "note": "Need lead review before patching",
+                "plan": {
+                  "goal": "Review parser patch",
+                  "steps": [
+                    {
+                      "id": "step-1",
+                      "title": "Inspect parser code"
+                    },
+                    {
+                      "id": "step-2",
+                      "title": "Prepare patch"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "toolCalls": [
+            {
+              "id": "team_status_1",
+              "toolName": "team_status_read",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "response": "Multi-agent parser coordination complete"
+        }
+      ]
+    },
+    {
+      "name": "child-parser-inspection",
+      "match": {
+        "contains": [
+          "Inspect parser failure modes"
+        ]
+      },
+      "steps": [
+        {
+          "toolCalls": [
+            {
+              "id": "list_1",
+              "toolName": "list_files",
+              "args": {
+                "path": "."
+              }
+            }
+          ]
+        },
+        {
+          "response": "Parser failure modes inspected"
+        }
+      ]
+    },
+    {
+      "name": "child-inspect-files",
+      "match": {
+        "contains": [
+          "Inspect files"
+        ]
+      },
+      "steps": [
+        {
+          "response": "Exploration complete"
         }
       ]
     }

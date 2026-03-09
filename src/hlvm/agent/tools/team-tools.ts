@@ -3,6 +3,8 @@ import type { Plan } from "../planning.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 import { isToolArgsObject } from "../validation.ts";
 import type {
+  TeamPlanApproval,
+  TeamShutdownRequest,
   TeamTaskStatus,
 } from "../team-runtime.ts";
 
@@ -72,30 +74,101 @@ const teamTaskRead: ToolMetadata = {
   safety: "Read-only observation of team task state.",
 };
 
+const teamStatusRead: ToolMetadata = {
+  fn: async (_args: unknown, _workspace: string, options?: ToolExecutionOptions) => {
+    const { teamMemberId } = requireTeamContext("team_status_read", options);
+    if (!options?.teamRuntime) {
+      throw new ValidationError("team runtime is not configured", "team_status_read");
+    }
+    const currentMember = options.teamRuntime.getMember(teamMemberId);
+    const summary = options.teamRuntime.deriveSummary(teamMemberId);
+    const pendingApprovals = options.teamRuntime.listPendingApprovals().map(
+      (approval: TeamPlanApproval) => ({
+        id: approval.id,
+        taskId: approval.taskId,
+        submittedByMemberId: approval.submittedByMemberId,
+        note: approval.note,
+        createdAt: approval.createdAt,
+      }),
+    );
+    const pendingShutdowns = options.teamRuntime.listShutdowns().filter(
+      (shutdown: TeamShutdownRequest) =>
+        shutdown.status === "requested" || shutdown.status === "acknowledged",
+    ).map((shutdown) => ({
+      id: shutdown.id,
+      memberId: shutdown.memberId,
+      requestedByMemberId: shutdown.requestedByMemberId,
+      status: shutdown.status,
+      reason: shutdown.reason,
+      escalateAt: shutdown.escalateAt,
+    }));
+    const unreadMessages = options.teamRuntime.readMessages(teamMemberId, {
+      markRead: false,
+    });
+    return {
+      summary,
+      current_member: currentMember,
+      pending_approvals: pendingApprovals,
+      pending_shutdowns: pendingShutdowns,
+      unread_messages: unreadMessages,
+    };
+  },
+  description:
+    "Read the current team summary, your member state, pending approvals, pending shutdowns, and unread messages.",
+  category: "meta",
+  args: {},
+  returns: {
+    summary: "object - Team summary including policy, members, task counts, blocked tasks, and unread counts",
+    current_member: "object (optional) - Current team member record",
+    pending_approvals: "array - Pending approval records",
+    pending_shutdowns: "array - Active shutdown requests",
+    unread_messages: "array - Unread team messages for the current member",
+  },
+  safetyLevel: "L0",
+  safety: "Read-only observation of aggregate team state.",
+};
+
 const teamTaskWrite: ToolMetadata = {
   fn: async (args: unknown, _workspace: string, options?: ToolExecutionOptions) => {
     const { teamMemberId } = requireTeamContext("team_task_write", options);
     if (!options?.teamRuntime || !isToolArgsObject(args)) {
       throw new ValidationError("args must be an object", "team_task_write");
     }
+    const taskId = typeof args.id === "string" ? args.id : undefined;
     const goal = typeof args.goal === "string" ? args.goal : "";
-    if (!goal) {
+    const existingTask = taskId ? options.teamRuntime.getTask(taskId) : undefined;
+    if (!existingTask && !goal) {
       throw new ValidationError("goal must be a non-empty string", "team_task_write");
     }
+    if (existingTask && goal && goal !== existingTask.goal) {
+      throw new ValidationError(
+        "team_task_write cannot change the goal of an existing task",
+        "team_task_write",
+      );
+    }
+    const hasDependencies = "dependencies" in args;
+    const hasResultSummary = "result_summary" in args;
+    const hasArtifacts = "artifacts" in args;
     const task = options.teamRuntime.ensureTask({
-      id: typeof args.id === "string" ? args.id : undefined,
-      goal,
-      status: parseTaskStatus(args.status, "team_task_write") ?? "pending",
+      id: taskId,
+      goal: goal || existingTask?.goal || "",
+      status: parseTaskStatus(args.status, "team_task_write") ??
+        existingTask?.status ??
+        "pending",
       assigneeMemberId: typeof args.assignee_member_id === "string"
         ? args.assignee_member_id
-        : teamMemberId,
-      dependencies: parseDependencies(args.dependencies, "team_task_write"),
-      resultSummary: typeof args.result_summary === "string"
-        ? args.result_summary
-        : undefined,
-      artifacts: args.artifacts && typeof args.artifacts === "object"
+        : existingTask?.assigneeMemberId ?? teamMemberId,
+      dependencies: hasDependencies
+        ? parseDependencies(args.dependencies, "team_task_write")
+        : existingTask?.dependencies,
+      resultSummary: hasResultSummary
+        ? (typeof args.result_summary === "string" ? args.result_summary : undefined)
+        : existingTask?.resultSummary,
+      artifacts: hasArtifacts && args.artifacts && typeof args.artifacts === "object"
         ? args.artifacts as Record<string, unknown>
-        : undefined,
+        : hasArtifacts
+        ? undefined
+        : existingTask?.artifacts,
     });
     return { task };
   },
@@ -103,7 +176,7 @@ const teamTaskWrite: ToolMetadata = {
   category: "meta",
   args: {
     id: "string (optional) - Existing task ID to update",
-    goal: "string - Task goal",
+    goal: "string (required for create, immutable for update) - Task goal",
     status: "string (optional) - pending|claimed|in_progress|blocked|completed|cancelled|errored",
     assignee_member_id: "string (optional) - Assignee member ID",
     dependencies: "array (optional) - Dependency task IDs",
@@ -127,9 +200,22 @@ const teamTaskClaim: ToolMetadata = {
     if (!taskId) {
       throw new ValidationError("task_id is required", "team_task_claim");
     }
+    const existing = options.teamRuntime.getTask(taskId);
+    if (!existing) {
+      throw new ValidationError(`task '${taskId}' not found`, "team_task_claim");
+    }
+    const blockers = options.teamRuntime.getBlockingDependencies(taskId);
+    if (blockers.length > 0) {
+      throw new ValidationError(
+        `task '${taskId}' is blocked by dependencies: ${
+          blockers.map((blocker) => blocker.taskId).join(", ")
+        }`,
+        "team_task_claim",
+      );
+    }
     const task = options.teamRuntime.claimTask(taskId, teamMemberId);
     if (!task) {
-      throw new ValidationError(`task '${taskId}' not found`, "team_task_claim");
+      throw new ValidationError(`task '${taskId}' could not be claimed`, "team_task_claim");
     }
     return { task };
   },
@@ -369,6 +455,7 @@ const ackTeamShutdown: ToolMetadata = {
 
 export const TEAM_TOOLS: Record<string, ToolMetadata> = {
   team_task_read: teamTaskRead,
+  team_status_read: teamStatusRead,
   team_task_write: teamTaskWrite,
   team_task_claim: teamTaskClaim,
   team_message_send: teamMessageSend,

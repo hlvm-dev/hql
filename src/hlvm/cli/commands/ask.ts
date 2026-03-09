@@ -611,6 +611,15 @@ export async function askCommand(args: string[]): Promise<void> {
             `\n[Team Shutdown] ${event.status} for ${event.memberId}\n`,
           );
           break;
+        case "batch_progress_updated":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          log.raw.log(
+            `\n[Batch ${event.snapshot.batchId}] ${event.snapshot.running} running · ${event.snapshot.completed} completed · ${event.snapshot.errored} errored · ${event.snapshot.cancelled} cancelled\n`,
+          );
+          break;
         case "plan_review_required":
           if (streamedTokens) {
             log.raw.write("\n");
@@ -781,6 +790,7 @@ export async function askCommand(args: string[]): Promise<void> {
       case "team_plan_review_resolved":
       case "team_shutdown_requested":
       case "team_shutdown_resolved":
+      case "batch_progress_updated":
       case "plan_created": {
         break;
       }

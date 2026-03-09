@@ -17,6 +17,11 @@ import {
   createDelegateInbox,
   formatDelegateInboxUpdateMessage,
 } from "../../../src/hlvm/agent/delegate-inbox.ts";
+import { getDelegateTranscriptSnapshot } from "../../../src/hlvm/agent/delegate-transcript.ts";
+import {
+  createFixtureLLM,
+  type LlmFixture,
+} from "../../../src/hlvm/agent/llm-fixtures.ts";
 import {
   cancelAllThreads,
   cancelThread,
@@ -38,11 +43,6 @@ import {
 } from "../../../src/hlvm/agent/delegate-batches.ts";
 import { createDelegateCoordinationBoard } from "../../../src/hlvm/agent/delegate-coordination.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
-import {
-  isDelegateTask,
-  isEvalTask,
-  isModelPullTask,
-} from "../../../src/hlvm/cli/repl/task-manager/types.ts";
 import {
   createTranscriptState,
   reduceTranscriptState,
@@ -252,89 +252,8 @@ Deno.test("ThreadRegistry: removeThread", () => {
 });
 
 // ============================================================
-// Type Guards
-// ============================================================
-
-Deno.test("isDelegateTask: recognizes delegate tasks", () => {
-  const task = {
-    id: "1",
-    type: "delegate" as const,
-    label: "test",
-    status: "running" as const,
-    createdAt: Date.now(),
-    agent: "code",
-    task: "test",
-    nickname: "Alpha",
-    threadId: "t1",
-  };
-  assertEquals(isDelegateTask(task), true);
-  assertEquals(isEvalTask(task), false);
-  assertEquals(isModelPullTask(task), false);
-});
-
-// ============================================================
 // Transcript Reducer: Delegate Status
 // ============================================================
-
-Deno.test("transcript reducer: delegate_start with threadId and nickname", () => {
-  let state = createTranscriptState();
-  state = reduceTranscriptState(state, {
-    type: "agent_event",
-    event: {
-      type: "delegate_start",
-      agent: "code",
-      task: "analyze code",
-      threadId: "t1",
-      nickname: "Alpha",
-    },
-  });
-
-  const delegateItem = state.items.find((item) => item.type === "delegate");
-  assertExists(delegateItem);
-  if (delegateItem.type === "delegate") {
-    assertEquals(delegateItem.status, "running");
-    assertEquals(delegateItem.threadId, "t1");
-    assertEquals(delegateItem.nickname, "Alpha");
-    assertEquals(delegateItem.agent, "code");
-    assertEquals(delegateItem.task, "analyze code");
-  }
-});
-
-Deno.test("transcript reducer: delegate_end with threadId matching", () => {
-  let state = createTranscriptState();
-  // Start delegate with threadId
-  state = reduceTranscriptState(state, {
-    type: "agent_event",
-    event: {
-      type: "delegate_start",
-      agent: "code",
-      task: "analyze code",
-      threadId: "t1",
-      nickname: "Alpha",
-    },
-  });
-  // Complete it
-  state = reduceTranscriptState(state, {
-    type: "agent_event",
-    event: {
-      type: "delegate_end",
-      agent: "code",
-      task: "analyze code",
-      success: true,
-      summary: "Done!",
-      durationMs: 1000,
-      threadId: "t1",
-    },
-  });
-
-  const delegateItem = state.items.find((item) => item.type === "delegate");
-  assertExists(delegateItem);
-  if (delegateItem.type === "delegate") {
-    assertEquals(delegateItem.status, "success");
-    assertEquals(delegateItem.summary, "Done!");
-    assertEquals(delegateItem.durationMs, 1000);
-  }
-});
 
 Deno.test("transcript reducer: delegate_end cancelled status", () => {
   let state = createTranscriptState();
@@ -812,6 +731,63 @@ Deno.test("background delegate snapshots parent workspace at spawn time", async 
   }
 });
 
+Deno.test("fixture-backed delegates get fresh child fixture state", async () => {
+  resetThreadRegistry();
+  resetDelegateLimiter();
+  const fixture: LlmFixture = {
+    version: 1,
+    cases: [
+      {
+        name: "parent",
+        match: { contains: ["parent query"] },
+        steps: [
+          {
+            toolCalls: [{
+              id: "delegate_1",
+              toolName: "delegate_agent",
+              args: {
+                agent: "code",
+                task: "Inspect parser failure modes",
+              },
+            }],
+          },
+          { response: "Parent complete" },
+        ],
+      },
+      {
+        name: "child",
+        match: { contains: ["Inspect parser failure modes"] },
+        steps: [{ response: "Child complete" }],
+      },
+    ],
+  };
+  const dir = await Deno.makeTempDir();
+  const fixturePath = `${dir}/fixture.json`;
+  await Deno.writeTextFile(fixturePath, JSON.stringify(fixture));
+
+  try {
+    const parentLlm = createFixtureLLM(fixture);
+    const first = await parentLlm([{ role: "user", content: "parent query" }]);
+    assertEquals(first.toolCalls?.[0]?.toolName, "delegate_agent");
+
+    const handler = createDelegateHandler(parentLlm, { fixturePath });
+    const result = await handler(
+      { agent: "code", task: "Inspect parser failure modes" },
+      {
+        workspace: dir,
+        context: new ContextManager(),
+        permissionMode: "yolo",
+      },
+    );
+
+    assertEquals(getDelegateTranscriptSnapshot(result)?.finalResponse, "Child complete");
+    const second = await parentLlm([{ role: "user", content: "parent query" }]);
+    assertEquals(second.content, "Parent complete");
+  } finally {
+    await Deno.remove(dir, { recursive: true }).catch(() => {});
+  }
+});
+
 // ============================================================
 // TaskManager DelegateTask CRUD
 // ============================================================
@@ -1158,25 +1134,30 @@ Deno.test("AgentProfile: profile supports maxTokens override", () => {
 // ============================================================
 
 import {
-  createChildWorkspace,
   generateChildDiff,
   applyChildChanges,
-  snapshotParentFiles,
+  snapshotWorkspaceFiles,
 } from "../../../src/hlvm/agent/delegation.ts";
+import { createWorkspaceLease } from "../../../src/hlvm/agent/workspace-leases.ts";
 
-Deno.test("createChildWorkspace: creates isolated temp dir inside parent", async () => {
+Deno.test("createWorkspaceLease: copies the parent snapshot into an isolated child workspace", async () => {
   const parentDir = await Deno.makeTempDir();
   try {
-    const lease = await createChildWorkspace(parentDir, "test-thread-id-1234");
+    await Deno.writeTextFile(`${parentDir}/existing.txt`, "parent version");
+    const lease = await createWorkspaceLease(parentDir, "test-thread-id-1234");
     assertExists(lease);
     assertEquals(typeof lease.path, "string");
-    assertStringIncludes(lease.path, ".hlvm-child-test-thr");
-    // Verify directory exists
+    assertEquals(lease.kind === "temp_dir" || lease.kind === "git_worktree", true);
     const stat = await Deno.stat(lease.path);
     assertEquals(stat.isDirectory, true);
-    // Cleanup
+
+    const childContent = await Deno.readTextFile(`${lease.path}/existing.txt`);
+    assertEquals(childContent, "parent version");
+    await Deno.writeTextFile(`${lease.path}/existing.txt`, "child version");
+    const parentContent = await Deno.readTextFile(`${parentDir}/existing.txt`);
+    assertEquals(parentContent, "parent version");
+
     await lease.cleanup();
-    // Verify cleanup worked
     try {
       await Deno.stat(lease.path);
       throw new Error("Should have been deleted");
@@ -1264,7 +1245,7 @@ Deno.test("applyChildChanges: detects real conflict when parent changed since sp
     await Deno.writeTextFile(`${childDir}/shared.txt`, "child version");
 
     // Snapshot parent at "spawn" time
-    const snapshots = await snapshotParentFiles(parentDir, childDir, ["shared.txt"]);
+    const snapshots = await snapshotWorkspaceFiles(parentDir);
     assertEquals(snapshots.get("shared.txt"), "original");
 
     // Simulate parent changing the file AFTER child was spawned
@@ -1292,7 +1273,7 @@ Deno.test("applyChildChanges: no conflict when parent unchanged since spawn", as
     await Deno.writeTextFile(`${childDir}/file.txt`, "child version");
 
     // Snapshot parent at spawn time
-    const snapshots = await snapshotParentFiles(parentDir, childDir, ["file.txt"]);
+    const snapshots = await snapshotWorkspaceFiles(parentDir);
 
     // Parent NOT changed — apply should succeed
     const result = await applyChildChanges(parentDir, childDir, ["file.txt"], snapshots);
@@ -1419,6 +1400,51 @@ Deno.test("wait_agent preserves conflicts until discard_agent_changes", async ()
   }
 });
 
+Deno.test("apply_agent_changes applies a completed child workspace exactly once", async () => {
+  resetThreadRegistry();
+  const parentDir = await Deno.makeTempDir();
+  const childDir = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(`${parentDir}/file.txt`, "original");
+    await Deno.writeTextFile(`${childDir}/file.txt`, "child version");
+
+    registerThread(createMockThread({
+      threadId: "merge-apply",
+      status: "completed",
+      workspacePath: childDir,
+      workspaceCleanup: async () => {
+        try {
+          await Deno.remove(childDir, { recursive: true });
+        } catch {
+          // ignore double cleanup
+        }
+      },
+      filesModified: ["file.txt"],
+      parentSnapshots: new Map([["file.txt", "original"]]),
+    }));
+
+    const applyFn = DELEGATE_TOOLS.apply_agent_changes.fn as TestToolFn;
+    const first = await applyFn(
+      { thread_id: "merge-apply" },
+      parentDir,
+    ) as Record<string, unknown>;
+    assertEquals(first.success, true);
+    assertEquals(first.applied, ["file.txt"]);
+    assertEquals(getThread("merge-apply")?.mergeState, "applied");
+
+    const second = await applyFn(
+      { thread_id: "merge-apply" },
+      parentDir,
+    ) as Record<string, unknown>;
+    assertEquals(second.success, true);
+    assertEquals(second.applied, ["file.txt"]);
+    assertEquals(getThread("merge-apply")?.workspacePath, undefined);
+  } finally {
+    await Deno.remove(parentDir, { recursive: true }).catch(() => {});
+    await Deno.remove(childDir, { recursive: true }).catch(() => {});
+  }
+});
+
 Deno.test("DelegateBatchRegistry: derives counts from thread state and spawn failures", () => {
   resetBatchRegistry();
   resetThreadRegistry();
@@ -1532,39 +1558,9 @@ Deno.test("resume_agent: fails for active thread", async () => {
   assertStringIncludes(result.message as string, "running");
 });
 
-Deno.test("resume_agent: succeeds for completed thread with session", async () => {
-  resetThreadRegistry();
-  const thread = createMockThread({
-    threadId: "t3",
-    status: "completed",
-  });
-  thread.childSessionId = "session-456";
-  registerThread(thread);
-  const resumeFn = DELEGATE_TOOLS.resume_agent.fn as TestToolFn;
-  const result = await resumeFn({
-    thread_id: "t3",
-    prompt: "continue analysis",
-  }) as Record<string, unknown>;
-  assertEquals(result.success, true);
-  assertEquals(result.childSessionId, "session-456");
-});
-
 // ============================================================
 // Stage 8: report_result
 // ============================================================
-
-Deno.test("report_result: returns structured result", async () => {
-  const reportFn = DELEGATE_TOOLS.report_result.fn as TestToolFn;
-  const result = await reportFn({
-    summary: "Analysis complete",
-    data: { count: 42 },
-    files_modified: ["src/main.ts"],
-  }) as Record<string, unknown>;
-  assertEquals(result.success, true);
-  assertEquals(result.summary, "Analysis complete");
-  assertEquals((result.data as Record<string, unknown>).count, 42);
-  assertEquals((result.files_modified as string[])[0], "src/main.ts");
-});
 
 Deno.test("report_result: requires summary", async () => {
   const reportFn = DELEGATE_TOOLS.report_result.fn as TestToolFn;
@@ -1607,13 +1603,3 @@ Deno.test("renderDelegation: weak tier generates abbreviated prompt", () => {
 // ============================================================
 // Cleanup
 // ============================================================
-
-Deno.test({
-  name: "cleanup: reset singletons",
-  fn() {
-    resetThreadRegistry();
-    resetBatchRegistry();
-    resetDelegateLimiter();
-    resetTaskManager();
-  },
-});

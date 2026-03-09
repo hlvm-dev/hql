@@ -95,6 +95,7 @@ import {
 } from "../../../api/session.ts";
 import { resolveSessionStart } from "../../repl/session/start.ts";
 import { buildTranscriptStateFromSession } from "../conversation-history.ts";
+import type { ConfiguredModelReadinessState } from "../../../runtime/configured-model-readiness.ts";
 
 interface HistoryEntry {
   id: number;
@@ -114,6 +115,7 @@ interface CurrentEval {
 interface BannerItem {
   id: string;
   aiExports: string[];
+  aiReadiness: ConfiguredModelReadinessState;
   errors: string[];
   modelName: string;
 }
@@ -232,7 +234,9 @@ function AppContent(
           }
           case "missing":
             clearCurrentSession();
-            log.error(`Conversation session not found: ${resolution.sessionId}`);
+            log.error(
+              `Conversation session not found: ${resolution.sessionId}`,
+            );
             if (!cancelled) {
               setCurrentSession(null);
             }
@@ -1440,6 +1444,7 @@ function AppContent(
       ? [{
         id: "banner",
         aiExports: init.aiExports,
+        aiReadiness: init.aiReadiness,
         errors: init.errors,
         modelName: footerModelName,
       }]
@@ -1467,6 +1472,7 @@ function AppContent(
     <Box key={item.id}>
       <Banner
         aiExports={item.aiExports}
+        aiReadiness={item.aiReadiness}
         errors={item.errors}
         modelName={item.modelName}
       />

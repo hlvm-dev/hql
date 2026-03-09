@@ -221,6 +221,7 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
       maxToolCalls: "number (optional) - Max tool calls for the delegate",
       groundingMode: "string (optional) - off|warn|strict",
       background: "boolean (optional) - Run in background (default: false). Returns immediately with threadId.",
+      fork_with_history: "boolean (optional) - Seed child with parent conversation context (default: false)",
     },
     returns: {
       agent: "string",
@@ -246,7 +247,8 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
       agent: "string - Agent profile name",
       task_template:
         "string - Task template with {{column}} placeholders",
-      data: "array - Array of row objects for template substitution",
+      data: "array|string - Array of row objects or CSV text for template substitution",
+      csv_path: "string (optional) - Workspace-relative CSV file path",
       max_concurrency: "number (optional) - Max concurrent agents",
     },
     returns: {

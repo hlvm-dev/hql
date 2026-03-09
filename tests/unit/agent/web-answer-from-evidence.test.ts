@@ -5,19 +5,19 @@ import type { SearchResult } from "../../../src/hlvm/agent/tools/web/search-prov
 Deno.test("web answer from evidence: builds direct answer from fetched passages", () => {
   const results: SearchResult[] = [
     {
-      title: "useEffect - React",
-      url: "https://react.dev/reference/react/useEffect",
+      title: "Garbage Collection - MDN Web Docs",
+      url: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Memory_Management",
       passages: [
-        "The cleanup function runs before the effect re-runs and after the component unmounts.",
+        "Garbage collection is a form of automatic memory management that reclaims memory occupied by objects that are no longer reachable by the program.",
       ],
       selectedForFetch: true,
       evidenceStrength: "high",
     },
     {
-      title: "Synchronizing with Effects - React",
-      url: "https://react.dev/learn/synchronizing-with-effects",
+      title: "Memory Management in Programming Languages",
+      url: "https://docs.example.com/memory-management",
       passages: [
-        "React will call your cleanup function each time before the Effect runs again, and one final time when the component unmounts.",
+        "The garbage collector periodically scans the heap to find objects that are no longer referenced, and frees the memory they occupy so it can be reused by future allocations.",
       ],
       selectedForFetch: true,
       evidenceStrength: "high",
@@ -25,7 +25,7 @@ Deno.test("web answer from evidence: builds direct answer from fetched passages"
   ];
 
   const answer = buildDeterministicAnswer({
-    query: "What does the useEffect cleanup function do in React?",
+    query: "What does garbage collection do in programming?",
     results,
     modelTier: "weak",
   });
@@ -34,7 +34,7 @@ Deno.test("web answer from evidence: builds direct answer from fetched passages"
   assertEquals(answer.mode, "direct");
   assertEquals(answer.strategy, "deterministic");
   assertEquals(answer.confidence, "high");
-  assert(answer.text.includes("cleanup function"));
+  assert(answer.text.includes("memory") || answer.text.includes("garbage collect"));
   assertEquals(answer.sources.length, 2);
 });
 
@@ -148,4 +148,99 @@ Deno.test("web answer from evidence: returns low-confidence insufficient-evidenc
   assertEquals(answer.mode, "insufficient_evidence");
   assertEquals(answer.confidence, "low");
   assert(answer.text.includes("Available evidence is limited"));
+});
+
+Deno.test("web answer from evidence: direct answers prefer explanatory passages over headline-like intros", () => {
+  const results: SearchResult[] = [
+    {
+      title: "Mastering CSS Grid Layout",
+      url: "https://example.com/article",
+      passages: [
+        "Mastering CSS Grid Layout: 10 Essential Tips CSS Grid is a powerful tool for building modern responsive web layouts.",
+        "CSS Grid is a two-dimensional layout system that allows you to organize content into rows and columns, providing control over sizing, positioning, and spacing of child elements.",
+      ],
+      selectedForFetch: true,
+      evidenceStrength: "high",
+    },
+  ];
+
+  const answer = buildDeterministicAnswer({
+    query: "What is CSS grid layout?",
+    results,
+    modelTier: "weak",
+  });
+
+  assert(answer);
+  assertEquals(answer.mode, "direct");
+  assertEquals(
+    answer.text,
+    "CSS Grid is a two-dimensional layout system that allows you to organize content into rows and columns, providing control over sizing, positioning, and spacing of child elements.",
+  );
+});
+
+Deno.test("web answer from evidence: authoritative docs beat community articles when both are fetched", () => {
+  const results: SearchResult[] = [
+    {
+      title: "Mastering Python Asyncio",
+      url: "https://dev.to/example/python-asyncio",
+      passages: [
+        "Mastering Python Asyncio: A Complete Guide Python's asyncio is an incredible tool for handling I/O-bound operations.",
+      ],
+      selectedForFetch: true,
+      evidenceStrength: "high",
+    },
+    {
+      title: "asyncio - Asynchronous I/O",
+      url: "https://docs.python.org/3/library/asyncio.html",
+      passages: [
+        "asyncio is a library to write concurrent code using the async/await syntax, and is used as a foundation for high-performance network and web servers.",
+      ],
+      selectedForFetch: true,
+      evidenceStrength: "high",
+    },
+  ];
+
+  const answer = buildDeterministicAnswer({
+    query: "official Python docs: what is asyncio?",
+    results,
+    allowedDomains: ["docs.python.org"],
+    modelTier: "weak",
+  });
+
+  assert(answer);
+  assertEquals(
+    answer.text,
+    "asyncio is a library to write concurrent code using the async/await syntax, and is used as a foundation for high-performance network and web servers.",
+  );
+  assertEquals(answer.sources[0]?.url, "https://docs.python.org/3/library/asyncio.html");
+  assertEquals(answer.sources[0]?.sourceClass, "official_docs");
+});
+
+Deno.test("web answer from evidence: direct answers avoid historical or boilerplate sections when a cleaner definition exists", () => {
+  const results: SearchResult[] = [
+    {
+      title: "TaskGroup reference",
+      url: "https://docs.python.org/3/library/asyncio-task.html",
+      passages: [
+        "Before TaskGroup, Python developers often used gather to run several awaitables concurrently and collect their results.",
+        "TaskGroup is an asynchronous context manager for managing groups of related tasks and waiting for them to finish together.",
+        "Your original request: https://docs.python.org/3/library/asyncio-task.html",
+      ],
+      selectedForFetch: true,
+      evidenceStrength: "high",
+    },
+  ];
+
+  const answer = buildDeterministicAnswer({
+    query: "What does TaskGroup do in Python asyncio?",
+    results,
+    allowedDomains: ["docs.python.org"],
+    modelTier: "weak",
+  });
+
+  assert(answer);
+  assertEquals(
+    answer.text,
+    "TaskGroup is an asynchronous context manager for managing groups of related tasks and waiting for them to finish together.",
+  );
 });

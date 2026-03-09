@@ -45,6 +45,7 @@ import type {
 } from "./mcp-protocol.ts";
 import type { RuntimeOllamaSigninResponse } from "./provider-protocol.ts";
 import {
+  areRuntimeHostBuildIdsCompatible,
   buildRuntimeServeCommand,
   getRuntimeHostIdentity,
 } from "./host-identity.ts";
@@ -171,7 +172,7 @@ function matchesRuntimeHostIdentity(
   health: HostHealthResponse,
   buildId: string,
 ): boolean {
-  return health.buildId === buildId;
+  return areRuntimeHostBuildIdsCompatible(buildId, health.buildId);
 }
 
 async function readHealth(baseUrl: string): Promise<HostHealthResponse | null> {
@@ -372,7 +373,14 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         type: "delegate_start",
         agent: event.agent,
         task: event.task,
+        threadId: event.thread_id,
+        nickname: event.nickname,
         childSessionId: event.child_session_id,
+      };
+    case "delegate_running":
+      return {
+        type: "delegate_running",
+        threadId: event.thread_id,
       };
     case "delegate_end":
       return {
@@ -385,6 +393,7 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         error: event.error,
         snapshot: event.snapshot,
         childSessionId: event.child_session_id,
+        threadId: event.thread_id,
       };
     case "todo_updated":
       return {
@@ -440,6 +449,11 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         memberId: event.member_id,
         requestedByMemberId: event.requested_by_member_id,
         status: event.status,
+      };
+    case "batch_progress_updated":
+      return {
+        type: "batch_progress_updated",
+        snapshot: event.snapshot,
       };
     case "plan_created":
       return {

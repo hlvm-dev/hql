@@ -9,6 +9,7 @@
     "jsr:@std/async@1.0.13": "1.0.13",
     "jsr:@std/cli@1.0.13": "1.0.13",
     "jsr:@std/cli@^1.0.28": "1.0.28",
+    "jsr:@std/csv@*": "1.0.6",
     "jsr:@std/encoding@1": "1.0.10",
     "jsr:@std/encoding@^1.0.10": "1.0.10",
     "jsr:@std/fmt@1": "1.0.8",
@@ -57,7 +58,8 @@
     "npm:swagger-jsdoc@6.2.8": "6.2.8",
     "npm:tldts@7.0.23": "7.0.23",
     "npm:typescript@5.3.3": "5.3.3",
-    "npm:vlq@2.0.4": "2.0.4"
+    "npm:vlq@2.0.4": "2.0.4",
+    "npm:yaml@2.0.0-1": "2.0.0-1"
   },
   "jsr": {
     "@db/sqlite@0.12.0": {
@@ -93,6 +95,9 @@
     },
     "@std/cli@1.0.28": {
       "integrity": "74ef9b976db59ca6b23a5283469c9072be6276853807a83ec6c7ce412135c70a"
+    },
+    "@std/csv@1.0.6": {
+      "integrity": "52ef0e62799a0028d278fa04762f17f9bd263fad9a8e7f98c14fbd371d62d9fd"
     },
     "@std/encoding@1.0.10": {
       "integrity": "8783c6384a2d13abd5e9e87a7ae0520a30e9f56aeeaa3bdf910a3eaaf5c811a1"

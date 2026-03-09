@@ -54,6 +54,15 @@ Deno.test("LLM integration: prompt renders routing and permission sections witho
   assertEquals(prompt.includes("Safety Level"), false);
 });
 
+Deno.test("LLM integration: prompt includes team coordination guidance when team tools are available", () => {
+  const prompt = generateSystemPrompt({ modelTier: "mid" });
+
+  assertStringIncludes(prompt, "# Team Coordination");
+  assertStringIncludes(prompt, "team_status_read");
+  assertStringIncludes(prompt, "submit_team_plan");
+  assertStringIncludes(prompt, "apply_agent_changes");
+});
+
 Deno.test("LLM integration: custom instructions are included and truncated", () => {
   const prompt = generateSystemPrompt({
     customInstructions: "x".repeat(3000),

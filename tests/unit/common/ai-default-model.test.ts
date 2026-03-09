@@ -301,7 +301,7 @@ Deno.test("ai default model: unified initial-model resolver runs first-time setu
   assertEquals(resolved.reconciledClaudeModel, false);
 });
 
-Deno.test("ai default model: unified initial-model resolver auto-configures Ollama cloud before first-run setup", async () => {
+Deno.test("ai default model: unified initial-model resolver prefers interactive first-run setup before silent Ollama cloud bootstrap", async () => {
   let snapshot = {
     model: "ollama/llama3.1:8b",
     modelConfigured: false,
@@ -314,7 +314,12 @@ Deno.test("ai default model: unified initial-model resolver auto-configures Olla
       allowFirstRunSetup: true,
       runFirstTimeSetup: async () => {
         firstRunCalls++;
-        return null;
+        snapshot = {
+          model: "ollama/deepseek-r1:70b-cloud",
+          modelConfigured: true,
+          agentMode: "hlvm",
+        };
+        return snapshot.model;
       },
     },
     {
@@ -346,7 +351,58 @@ Deno.test("ai default model: unified initial-model resolver auto-configures Olla
     },
   );
 
-  assertEquals(firstRunCalls, 0);
+  assertEquals(firstRunCalls, 1);
+  assertEquals(resolved.model, "ollama/deepseek-r1:70b-cloud");
+  assertEquals(resolved.modelConfigured, true);
+  assertEquals(resolved.autoConfiguredClaude, false);
+  assertEquals(resolved.autoConfiguredOllamaCloud, false);
+  assertEquals(resolved.firstRunConfigured, true);
+  assertEquals(resolved.reconciledClaudeModel, false);
+});
+
+Deno.test("ai default model: unified initial-model resolver auto-configures Ollama cloud when interactive first-run setup is unavailable", async () => {
+  let snapshot = {
+    model: "ollama/llama3.1:8b",
+    modelConfigured: false,
+    agentMode: undefined as "hlvm" | undefined,
+  };
+
+  const resolved = await ensureInitialModelConfigured(
+    {
+      allowFirstRunSetup: false,
+      runFirstTimeSetup: async () => {
+        throw new Error("runFirstTimeSetup should not be called");
+      },
+    },
+    {
+      getSnapshot: () => snapshot,
+      getStatus: () => Promise.resolve({ available: false }),
+      listModels: () => Promise.resolve([]),
+      listCatalogModels: () =>
+        Promise.resolve([
+          {
+            name: "deepseek-v3.1:671b-cloud",
+            parameterSize: "671B",
+            capabilities: ["chat", "tools"],
+          },
+          {
+            name: "mistral-large-3:675b-cloud",
+            parameterSize: "675B",
+            capabilities: ["chat", "tools"],
+          },
+        ]),
+      patchConfig: (patch) => {
+        snapshot = {
+          ...snapshot,
+          ...(patch as Partial<Record<ConfigKey, unknown>>),
+        } as typeof snapshot;
+        return Promise.resolve();
+      },
+      syncSnapshot: () => Promise.resolve(snapshot),
+      now: () => nextNow(),
+    },
+  );
+
   assertEquals(resolved.model, "ollama/mistral-large-3:675b-cloud");
   assertEquals(resolved.modelConfigured, true);
   assertEquals(resolved.autoConfiguredClaude, false);

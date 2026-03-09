@@ -23,15 +23,18 @@ export function traceCompanion(
   stage: string,
   data?: Record<string, unknown>,
 ): void {
-  const record: Record<string, unknown> = {
-    ts: new Date().toISOString(),
-    stage,
-  };
-  if (data && Object.keys(data).length > 0) {
-    record.data = data;
+  try {
+    const record: Record<string, unknown> = {
+      ts: new Date().toISOString(),
+      stage,
+    };
+    if (data && Object.keys(data).length > 0) {
+      record.data = data;
+    }
+
+    // Best-effort only: tracing must never break companion flow.
+    appendJsonLine(getCompanionTracePath(), record).catch(() => {});
+  } catch {
+    // Best-effort only: path resolution or append setup must never break companion flow.
   }
-
-  // Best-effort only: tracing must never break companion flow.
-  appendJsonLine(getCompanionTracePath(), record).catch(() => {});
 }
-

@@ -45,7 +45,7 @@ import {
   sanitizeArgs,
 } from "./orchestrator-tool-formatting.ts";
 import { getDelegateTranscriptSnapshot } from "./delegate-transcript.ts";
-import { resolveResumableThread } from "./delegate-threads.ts";
+import { cancelThread, getThread, resolveResumableThread } from "./delegate-threads.ts";
 import { ConcurrencyLimiter } from "./concurrency.ts";
 import {
   addBatchSpawnFailure,
@@ -53,6 +53,9 @@ import {
   getBatchSnapshot,
   registerBatch,
 } from "./delegate-batches.ts";
+import { getPlatform } from "../../platform/platform.ts";
+import { parse as parseCsv } from "jsr:@std/csv/parse";
+import { emitDelegateBatchProgress } from "./delegate-batch-progress.ts";
 
 const CHECKPOINT_SUPPORTED_MUTATION_TOOLS = new Set([
   "write_file",
@@ -104,6 +107,39 @@ function emitTeamMessages(
       contentPreview: truncate(message.content, 120),
     });
   }
+}
+
+async function coerceBatchRows(
+  args: Record<string, unknown>,
+  workspace: string,
+): Promise<Record<string, unknown>[]> {
+  const data = args.data;
+  if (Array.isArray(data)) {
+    return data.filter((row): row is Record<string, unknown> =>
+      !!row && typeof row === "object" && !Array.isArray(row)
+    );
+  }
+  let csvText = "";
+  if (typeof data === "string") {
+    csvText = data;
+  } else if (typeof args.csv_path === "string" && args.csv_path) {
+    const platform = getPlatform();
+    const csvPath = platform.path.isAbsolute(args.csv_path)
+      ? args.csv_path
+      : platform.path.join(workspace, args.csv_path);
+    csvText = await platform.fs.readTextFile(csvPath);
+  }
+  if (!csvText.trim()) return [];
+  const parsedRows = parseCsv(csvText);
+  if (!Array.isArray(parsedRows) || parsedRows.length === 0) return [];
+  const [headerRow, ...valueRows] = parsedRows;
+  if (!Array.isArray(headerRow)) return [];
+  const headers = headerRow.map((value) => String(value));
+  return valueRows
+    .filter((row): row is string[] => Array.isArray(row))
+    .map((row) =>
+      Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]))
+    );
 }
 
 /**
@@ -442,6 +478,103 @@ export async function executeToolCall(
       }
     }
 
+    // interrupt_agent: stop the active turn and immediately resume with new instructions
+    if (toolCall.toolName === "interrupt_agent" && config.delegate) {
+      const interruptArgs = coercedArgs as Record<string, unknown>;
+      const interruptThreadId = typeof interruptArgs.thread_id === "string"
+        ? interruptArgs.thread_id
+        : "";
+      const interruptPrompt = typeof interruptArgs.message === "string"
+        ? interruptArgs.message
+        : "";
+      if (!interruptThreadId || !interruptPrompt) {
+        return buildToolErrorResult(
+          toolCall.toolName,
+          "interrupt_agent requires { thread_id, message }",
+          startedAt,
+          config,
+          toolCall.id,
+        );
+      }
+      const thread = getThread(interruptThreadId);
+      if (!thread) {
+        return buildToolErrorResult(
+          toolCall.toolName,
+          `No thread found with ID "${interruptThreadId}"`,
+          startedAt,
+          config,
+          toolCall.id,
+        );
+      }
+      if (thread.status !== "running") {
+        return buildToolErrorResult(
+          toolCall.toolName,
+          `Thread "${thread.nickname}" is ${thread.status} — only running threads can be interrupted`,
+          startedAt,
+          config,
+          toolCall.id,
+        );
+      }
+      if (!thread.childSessionId) {
+        return buildToolErrorResult(
+          toolCall.toolName,
+          `Thread "${thread.nickname}" does not yet have a resumable child session`,
+          startedAt,
+          config,
+          toolCall.id,
+        );
+      }
+      cancelThread(interruptThreadId);
+      try {
+        await thread.promise;
+      } catch {
+        // Cancellation is expected here.
+      }
+      try {
+        const resumeMemberId = config.teamRuntime?.getMemberByThread(interruptThreadId)?.id;
+        const resumeTaskId = resumeMemberId
+          ? config.teamRuntime?.getMember(resumeMemberId)?.currentTaskId
+          : undefined;
+        const result = await config.delegate(
+          {
+            agent: thread.agent,
+            task: interruptPrompt,
+            _resumeSessionId: thread.childSessionId,
+            ...(resumeTaskId ? { _teamTaskId: resumeTaskId } : {}),
+            ...(resumeMemberId ? { _teamMemberId: resumeMemberId } : {}),
+          },
+          config,
+        );
+        const { llmContent, summaryDisplay, returnDisplay } =
+          buildToolResultOutputs(toolCall.toolName, result, config);
+        emitToolSuccess(
+          config,
+          toolCall.toolName,
+          toolCall.id,
+          llmContent,
+          summaryDisplay,
+          returnDisplay,
+          startedAt,
+          coercedArgs,
+        );
+        return {
+          success: true,
+          result,
+          llmContent,
+          summaryDisplay,
+          returnDisplay,
+        };
+      } catch (error) {
+        return buildToolErrorResult(
+          toolCall.toolName,
+          getErrorMessage(error),
+          startedAt,
+          config,
+          toolCall.id,
+        );
+      }
+    }
+
     // resume_agent: validate thread, then route through config.delegate with _resume flag
     if (toolCall.toolName === "resume_agent" && config.delegate) {
       const resumeArgs = coercedArgs as Record<string, unknown>;
@@ -526,17 +659,26 @@ export async function executeToolCall(
       const taskTemplate = typeof batchArgs.task_template === "string"
         ? batchArgs.task_template
         : "";
-      const data = Array.isArray(batchArgs.data) ? batchArgs.data : [];
+      const data = await coerceBatchRows(batchArgs, config.workspace);
       const maxConcurrency = typeof batchArgs.max_concurrency === "number"
         ? batchArgs.max_concurrency
         : undefined;
 
       if (!agent || !taskTemplate || data.length === 0) {
         const errorMsg =
-          "batch_delegate requires { agent, task_template, data[] }";
+          "batch_delegate requires { agent, task_template, data[] | csv_path | CSV string }";
         return buildToolErrorResult(
           toolCall.toolName,
           errorMsg,
+          startedAt,
+          config,
+          toolCall.id,
+        );
+      }
+      if (config.teamRuntime && !config.teamRuntime.getPolicy().allowBatchDelegation) {
+        return buildToolErrorResult(
+          toolCall.toolName,
+          "batch delegation is disabled by the current team policy",
           startedAt,
           config,
           toolCall.id,
@@ -610,6 +752,7 @@ export async function executeToolCall(
           threadIds,
           status: "running",
         };
+      emitDelegateBatchProgress(config, snapshot);
       const { llmContent, summaryDisplay, returnDisplay } =
         buildToolResultOutputs(toolCall.toolName, batchResult, config);
       emitToolSuccess(
@@ -739,6 +882,32 @@ export async function executeToolCall(
           artifacts: report,
         });
         emitTeamTaskUpdated(config, task);
+        const reviewForTaskId = task?.artifacts &&
+            typeof task.artifacts.reviewForTaskId === "string"
+          ? task.artifacts.reviewForTaskId
+          : undefined;
+        const reportData = report.data && typeof report.data === "object"
+          ? report.data as Record<string, unknown>
+          : undefined;
+        const approved = reportData?.approved === true
+          ? "approved"
+          : reportData?.approved === false
+          ? "rejected"
+          : undefined;
+        if (reviewForTaskId && approved) {
+          const reviewTarget = config.teamRuntime.getTask(reviewForTaskId);
+          const nextArtifacts = {
+            ...(reviewTarget?.artifacts ?? {}),
+            reviewStatus: approved,
+            reviewFeedback: typeof report.summary === "string"
+              ? report.summary
+              : undefined,
+          };
+          const updatedTarget = config.teamRuntime.updateTask(reviewForTaskId, {
+            artifacts: nextArtifacts,
+          });
+          emitTeamTaskUpdated(config, updatedTarget);
+        }
       }
     }
 
@@ -774,14 +943,6 @@ export async function executeToolCall(
         status: string;
         assigneeMemberId?: string;
       } }).task;
-      if (
-        task && config.teamRuntime && config.teamMemberId &&
-        task.assigneeMemberId === config.teamMemberId
-      ) {
-        config.teamRuntime.updateMember(config.teamMemberId, {
-          currentTaskId: task.id,
-        });
-      }
       emitTeamTaskUpdated(config, task);
     }
 
@@ -858,7 +1019,7 @@ export async function executeToolCall(
         const approved = approval.status === "approved";
         const task = config.teamRuntime.updateTask(approval.taskId, {
           approvalId: approval.id,
-          status: approved ? "in_progress" : "blocked",
+          status: approved ? "in_progress" : "pending",
           resultSummary: approval.feedback,
         });
         emitTeamTaskUpdated(config, task);

@@ -18,6 +18,11 @@ import type { TodoItem } from "./todo-state.ts";
 import type { DelegateTranscriptSnapshot } from "./delegate-transcript.ts";
 import type { Plan } from "./planning.ts";
 import type { AgentCheckpointSummary } from "./checkpoints.ts";
+import {
+  cloneTeamRuntimeSnapshot,
+  type TeamRuntimeSnapshot,
+} from "./team-runtime.ts";
+import type { DelegateBatchSnapshot } from "./delegate-batches.ts";
 
 const DEFAULT_TITLE_LENGTH = 60;
 const AGENT_SESSION_METADATA_KEY = "agentSession";
@@ -48,6 +53,8 @@ export interface PersistedAgentSessionMetadata {
   };
   approvedPlanSignature?: string;
   checkpoints?: AgentCheckpointSummary[];
+  teamRuntime?: TeamRuntimeSnapshot;
+  delegateBatches?: DelegateBatchSnapshot[];
 }
 
 export interface CreatePersistedAgentChildSessionOptions {
@@ -190,6 +197,14 @@ export function parsePersistedAgentSessionMetadata(
   const checkpoints = Array.isArray(agentRecord.checkpoints)
     ? agentRecord.checkpoints.filter(isCheckpointSummaryRecord)
     : undefined;
+  const teamRuntime = isTeamRuntimeSnapshotRecord(agentRecord.teamRuntime)
+    ? cloneTeamRuntimeSnapshot(agentRecord.teamRuntime)
+    : undefined;
+  const delegateBatches = Array.isArray(agentRecord.delegateBatches)
+    ? agentRecord.delegateBatches.filter(isDelegateBatchSnapshotRecord).map(
+      cloneDelegateBatchSnapshot,
+    )
+    : undefined;
 
   return {
     parentSessionId: typeof agentRecord.parentSessionId === "string"
@@ -215,6 +230,17 @@ export function parsePersistedAgentSessionMetadata(
       ? agentRecord.approvedPlanSignature
       : undefined,
     checkpoints: checkpoints?.map((checkpoint) => ({ ...checkpoint })),
+    teamRuntime,
+    delegateBatches,
+  };
+}
+
+function cloneDelegateBatchSnapshot(
+  snapshot: DelegateBatchSnapshot,
+): DelegateBatchSnapshot {
+  return {
+    ...snapshot,
+    threadIds: [...snapshot.threadIds],
   };
 }
 
@@ -250,6 +276,46 @@ function isCheckpointSummaryRecord(value: unknown): value is AgentCheckpointSumm
     typeof record.reversible === "boolean" &&
     (
       record.restoredAt === undefined || typeof record.restoredAt === "number"
+    );
+}
+
+function isTeamRuntimeSnapshotRecord(value: unknown): value is TeamRuntimeSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.teamId !== "string" ||
+    typeof record.leadMemberId !== "string" ||
+    !Array.isArray(record.members) ||
+    !Array.isArray(record.tasks) ||
+    !Array.isArray(record.messages) ||
+    !Array.isArray(record.approvals) ||
+    !Array.isArray(record.shutdowns)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function isDelegateBatchSnapshotRecord(
+  value: unknown,
+): value is DelegateBatchSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.batchId === "string" &&
+    typeof record.agent === "string" &&
+    typeof record.totalRows === "number" &&
+    Array.isArray(record.threadIds) &&
+    typeof record.spawnFailures === "number" &&
+    typeof record.createdAt === "number" &&
+    typeof record.queued === "number" &&
+    typeof record.running === "number" &&
+    typeof record.completed === "number" &&
+    typeof record.errored === "number" &&
+    typeof record.cancelled === "number" &&
+    typeof record.spawned === "number" &&
+    (
+      record.status === "running" || record.status === "completed" ||
+      record.status === "partial"
     );
 }
 
@@ -355,6 +421,24 @@ export function persistAgentCheckpointSummary(
     metadata.checkpoints = [...next.values()].sort((a, b) =>
       a.createdAt - b.createdAt
     );
+  });
+}
+
+export function persistAgentTeamRuntime(
+  sessionId: string,
+  snapshot: TeamRuntimeSnapshot,
+): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    metadata.teamRuntime = cloneTeamRuntimeSnapshot(snapshot);
+  });
+}
+
+export function persistAgentDelegateBatches(
+  sessionId: string,
+  snapshots: readonly DelegateBatchSnapshot[],
+): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    metadata.delegateBatches = snapshots.map(cloneDelegateBatchSnapshot);
   });
 }
 

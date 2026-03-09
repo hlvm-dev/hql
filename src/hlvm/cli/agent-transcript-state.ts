@@ -541,6 +541,14 @@ export function reduceTranscriptState(
             },
             `Shutdown ${event.status} for ${event.memberId}`,
           );
+        case "batch_progress_updated":
+          return appendInfoItem(
+            {
+              ...state,
+              items: removeTransientInfoItems(state.items),
+            },
+            `Batch ${event.snapshot.batchId}: ${event.snapshot.running} running · ${event.snapshot.completed} completed · ${event.snapshot.errored} errored`,
+          );
         case "plan_created":
           return {
             ...state,

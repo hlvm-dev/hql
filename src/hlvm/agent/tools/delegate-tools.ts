@@ -4,7 +4,7 @@
  * These are internal scheduler/control-plane tools for background delegates.
  */
 
-import type { ToolMetadata } from "../registry.ts";
+import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 import {
   cancelThread,
   clearThreadWorkspace,
@@ -16,6 +16,36 @@ import {
   updateThreadMerge,
 } from "../delegate-threads.ts";
 import { applyChildChanges } from "../delegation.ts";
+
+function shouldAutoApplyChildChanges(
+  thread: DelegateThread,
+  options?: ToolExecutionOptions,
+): boolean {
+  const policy = options?.teamRuntime?.getPolicy?.();
+  if (!policy) return true;
+  if (!policy.autoApplyCleanChanges) return false;
+  if (!policy.reviewRequired) return true;
+  const task = options?.teamRuntime?.getTaskByThread(thread.threadId);
+  const reviewStatus = task?.artifacts && typeof task.artifacts.reviewStatus === "string"
+    ? task.artifacts.reviewStatus
+    : undefined;
+  return reviewStatus === "approved";
+}
+
+function syncTeamTaskMergeState(
+  thread: DelegateThread,
+  mergeState: string,
+  options?: ToolExecutionOptions,
+): void {
+  const task = options?.teamRuntime?.getTaskByThread(thread.threadId);
+  if (!task) return;
+  options?.teamRuntime?.updateTask(task.id, {
+    artifacts: {
+      ...(task.artifacts ?? {}),
+      mergeState,
+    },
+  });
+}
 
 /** DRY: format a thread into the standard result shape. */
 function formatThreadResult(
@@ -31,6 +61,12 @@ function formatThreadResult(
     error: thread.snapshot?.error,
     mergeState: thread.mergeState ?? "none",
   };
+  if (thread.workspaceKind) {
+    base.workspaceKind = thread.workspaceKind;
+  }
+  if (thread.sandboxCapability) {
+    base.sandboxCapability = thread.sandboxCapability;
+  }
   if (thread.batchId) {
     base.batchId = thread.batchId;
   }
@@ -59,6 +95,8 @@ function formatThreadResult(
 async function maybeApplyChildChanges(
   thread: DelegateThread,
   parentWorkspace?: string,
+  options?: ToolExecutionOptions,
+  force = false,
 ): Promise<{ applied: string[]; conflicts: string[] } | undefined> {
   if (
     thread.status !== "completed" || !parentWorkspace
@@ -71,7 +109,17 @@ async function maybeApplyChildChanges(
   ) {
     return thread.mergeResult;
   }
-  if (!thread.workspacePath || !thread.filesModified?.length) {
+  if (!thread.workspacePath) {
+    return thread.mergeResult;
+  }
+  if (!thread.filesModified?.length) {
+    await thread.workspaceCleanup?.();
+    clearThreadWorkspace(thread.threadId);
+    return thread.mergeResult;
+  }
+  if (!force && !shouldAutoApplyChildChanges(thread, options)) {
+    updateThreadMerge(thread.threadId, "pending", thread.mergeResult);
+    syncTeamTaskMergeState(thread, "pending", options);
     return thread.mergeResult;
   }
   try {
@@ -83,9 +131,11 @@ async function maybeApplyChildChanges(
     );
     if (result.conflicts.length > 0) {
       updateThreadMerge(thread.threadId, "conflicted", result);
+      syncTeamTaskMergeState(thread, "conflicted", options);
       return result;
     }
     updateThreadMerge(thread.threadId, "applied", result);
+    syncTeamTaskMergeState(thread, "applied", options);
     await thread.workspaceCleanup?.();
     clearThreadWorkspace(thread.threadId);
     return result;
@@ -95,7 +145,11 @@ async function maybeApplyChildChanges(
 }
 
 const waitAgent: ToolMetadata = {
-  fn: async (args: unknown, workspace?: string) => {
+  fn: async (
+    args: unknown,
+    workspace?: string,
+    options?: ToolExecutionOptions,
+  ) => {
     const record = (args && typeof args === "object")
       ? args as Record<string, unknown>
       : {};
@@ -116,7 +170,7 @@ const waitAgent: ToolMetadata = {
         thread.status === "completed" || thread.status === "errored" ||
         thread.status === "cancelled"
       ) {
-        const mergeResult = await maybeApplyChildChanges(thread, workspace);
+        const mergeResult = await maybeApplyChildChanges(thread, workspace, options);
         return formatThreadResult(thread, mergeResult);
       }
       // Await with optional timeout (cleanup timer to prevent leaks)
@@ -133,7 +187,7 @@ const waitAgent: ToolMetadata = {
             }),
           ])
           : await thread.promise;
-        const mergeResult = await maybeApplyChildChanges(thread, workspace);
+          const mergeResult = await maybeApplyChildChanges(thread, workspace, options);
         return {
           ...formatThreadResult(thread, mergeResult),
           ...(typeof result === "object" && result !== null ? result : {}),
@@ -157,13 +211,14 @@ const waitAgent: ToolMetadata = {
           (t) =>
             t.status === "completed" || t.status === "errored" ||
             t.status === "cancelled",
-        );
+        ).sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0));
         if (finished.length > 0) {
           const mergeResult = await maybeApplyChildChanges(
-            finished[finished.length - 1],
+            finished[0],
             workspace,
+            options,
           );
-          return formatThreadResult(finished[finished.length - 1], mergeResult);
+          return formatThreadResult(finished[0], mergeResult);
         }
         return { error: "No active or completed delegate threads" };
       }
@@ -185,7 +240,7 @@ const waitAgent: ToolMetadata = {
         ]
         : promises;
       const finished = await Promise.race(racePromises);
-      const mergeResult = await maybeApplyChildChanges(finished, workspace);
+      const mergeResult = await maybeApplyChildChanges(finished, workspace, options);
       return formatThreadResult(finished, mergeResult);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -231,6 +286,8 @@ const listAgents: ToolMetadata = {
         childSessionId: t.childSessionId,
         mergeState: t.mergeState ?? "none",
         batchId: t.batchId,
+        workspaceKind: t.workspaceKind,
+        sandboxCapability: t.sandboxCapability,
       })),
     };
   },
@@ -240,7 +297,7 @@ const listAgents: ToolMetadata = {
   args: {},
   returns: {
     agents:
-      "array - List of { threadId, nickname, agent, task, status, childSessionId, mergeState, batchId }",
+      "array - List of { threadId, nickname, agent, task, status, childSessionId, mergeState, batchId, workspaceKind, sandboxCapability }",
   },
   safetyLevel: "L0",
   safety: "Read-only observation of delegate scheduler state.",
@@ -344,6 +401,59 @@ const sendInput: ToolMetadata = {
   safety: "Queues a non-interruptible steering message for a delegate.",
 };
 
+const interruptAgent: ToolMetadata = {
+  fn: async (args: unknown) => {
+    const record = (args && typeof args === "object")
+      ? args as Record<string, unknown>
+      : {};
+    const threadId = typeof record.thread_id === "string"
+      ? record.thread_id
+      : "";
+    const message = typeof record.message === "string"
+      ? record.message
+      : "";
+    if (!threadId || !message) {
+      return {
+        success: false,
+        message: "thread_id and message are required",
+      };
+    }
+    const thread = getThread(threadId);
+    if (!thread) {
+      return {
+        success: false,
+        message: `No thread found with ID "${threadId}"`,
+      };
+    }
+    if (thread.status !== "queued" && thread.status !== "running") {
+      return {
+        success: false,
+        message: `Thread "${thread.nickname}" is ${thread.status} — only active threads can be interrupted`,
+      };
+    }
+    return {
+      success: true,
+      threadId,
+      message:
+        `Interrupt request validated for thread "${threadId}". Execution is handled by the orchestrator.`,
+    };
+  },
+  description:
+    "Interrupt an active delegate turn and resume it from persisted history with a new instruction.",
+  category: "meta",
+  args: {
+    thread_id: "string - Thread ID of the running delegate",
+    message: "string - New instruction to run after interruption",
+  },
+  returns: {
+    success: "boolean",
+    threadId: "string",
+    message: "string",
+  },
+  safetyLevel: "L1",
+  safety: "Interrupts active delegated work before resuming it.",
+};
+
 const resumeAgent: ToolMetadata = {
   fn: async (args: unknown) => {
     const record = (args && typeof args === "object")
@@ -391,7 +501,11 @@ const resumeAgent: ToolMetadata = {
 };
 
 const discardAgentChanges: ToolMetadata = {
-  fn: async (args: unknown) => {
+  fn: async (
+    args: unknown,
+    _workspace: string,
+    options?: ToolExecutionOptions,
+  ) => {
     const record = (args && typeof args === "object")
       ? args as Record<string, unknown>
       : {};
@@ -420,6 +534,7 @@ const discardAgentChanges: ToolMetadata = {
       applied: [],
       conflicts: thread.filesModified ?? [],
     });
+    syncTeamTaskMergeState(thread, "discarded", options);
     return {
       success: true,
       message: `Discarded child changes for thread "${thread.nickname}" (${threadId})`,
@@ -436,6 +551,60 @@ const discardAgentChanges: ToolMetadata = {
   },
   safetyLevel: "L1",
   safety: "Deletes unmerged child workspace changes for a completed delegate.",
+};
+
+const applyAgentChanges: ToolMetadata = {
+  fn: async (
+    args: unknown,
+    workspace: string,
+    options?: ToolExecutionOptions,
+  ) => {
+    const record = (args && typeof args === "object")
+      ? args as Record<string, unknown>
+      : {};
+    const threadId = typeof record.thread_id === "string"
+      ? record.thread_id
+      : "";
+    if (!threadId) {
+      return { success: false, message: "thread_id is required" };
+    }
+    const thread = getThread(threadId);
+    if (!thread) {
+      return {
+        success: false,
+        message: `No thread found with ID "${threadId}"`,
+      };
+    }
+    const mergeResult = await maybeApplyChildChanges(thread, workspace, options, true);
+    if (!mergeResult) {
+      return {
+        success: false,
+        message: `Thread "${thread.nickname}" has no pending child changes to apply`,
+      };
+    }
+    return {
+      success: mergeResult.conflicts.length === 0,
+      threadId,
+      mergeState: thread.mergeState ?? "none",
+      applied: mergeResult.applied,
+      conflicts: mergeResult.conflicts,
+    };
+  },
+  description:
+    "Apply pending child workspace changes for a completed delegate after review or policy gating.",
+  category: "meta",
+  args: {
+    thread_id: "string - Thread ID of the completed delegate whose changes should be applied",
+  },
+  returns: {
+    success: "boolean",
+    threadId: "string",
+    mergeState: "string",
+    applied: "array",
+    conflicts: "array",
+  },
+  safetyLevel: "L1",
+  safety: "Mutates the parent workspace by applying delegated changes.",
 };
 
 const reportResult: ToolMetadata = {
@@ -481,8 +650,10 @@ export const DELEGATE_TOOLS: Record<string, ToolMetadata> = {
   wait_agent: waitAgent,
   list_agents: listAgents,
   close_agent: closeAgent,
+  apply_agent_changes: applyAgentChanges,
   discard_agent_changes: discardAgentChanges,
   send_input: sendInput,
+  interrupt_agent: interruptAgent,
   resume_agent: resumeAgent,
   report_result: reportResult,
 };

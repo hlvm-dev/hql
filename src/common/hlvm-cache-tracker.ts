@@ -13,6 +13,7 @@ import {
   sanitizeIdentifier,
   TEXT_ENCODER,
 } from "./utils.ts";
+import { copyDirectoryRecursive } from "./fs-copy.ts";
 import {
   isHqlFile,
   isJsFile,
@@ -485,31 +486,6 @@ async function joinAndEnsureDirExists(...parts: string[]): Promise<string> {
   const result = path().join(...parts);
   await fs().ensureDir(path().dirname(result));
   return result;
-}
-
-/**
- * Recursively copy a directory and all its contents
- */
-async function copyDirectoryRecursive(
-  sourceDir: string,
-  targetDir: string,
-): Promise<void> {
-  await fs().ensureDir(targetDir);
-
-  for await (const entry of fs().readDir(sourceDir)) {
-    const sourcePath = path().join(sourceDir, entry.name);
-    const targetPath = path().join(targetDir, entry.name);
-
-    if (entry.isDirectory) {
-      // Recursively copy subdirectory
-      await copyDirectoryRecursive(sourcePath, targetPath);
-    } else if (entry.isFile) {
-      // Copy file using binary read/write to avoid corrupting non-text files
-      const content = await fs().readFile(sourcePath);
-      await fs().writeFile(targetPath, content);
-      logger.debug(`Copied file: ${sourcePath} -> ${targetPath}`);
-    }
-  }
 }
 
 /**

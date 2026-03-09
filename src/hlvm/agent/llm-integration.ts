@@ -13,7 +13,7 @@ import {
   resolveTools,
   type ToolMetadata,
 } from "./registry.ts";
-import { listAgentProfiles } from "./agent-registry.ts";
+import { listAgentProfiles, type AgentProfile } from "./agent-registry.ts";
 import { buildToolJsonSchema } from "./tool-schema.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { type ModelTier, tierMeetsMinimum } from "./constants.ts";
@@ -130,6 +130,8 @@ export interface SystemPromptOptions {
   customInstructions?: string;
   /** Model tier — controls prompt depth */
   modelTier?: ModelTier;
+  /** Preloaded agent profiles for delegation guidance. */
+  agentProfiles?: readonly AgentProfile[];
 }
 
 /** Human-readable labels for routing table */
@@ -335,11 +337,12 @@ function renderCustomInstructions(text: string): PromptSection {
 function renderDelegation(
   tools: Record<string, ToolMetadata>,
   tier: ModelTier,
+  agentProfiles?: readonly AgentProfile[],
 ): PromptSection {
   if (!("delegate_agent" in tools)) {
     return { id: "delegation", content: "", minTier: "weak" };
   }
-  const agents = listAgentProfiles();
+  const agents = listAgentProfiles(agentProfiles);
   const agentList = agents.map((a) => `- **${a.name}**: ${a.description}`)
     .join("\n");
 
@@ -370,12 +373,15 @@ function renderDelegation(
     "",
     "## Coordination Patterns",
     "- **Fan-out**: Spawn background agents for independent subtasks, wait for all, synthesize",
+    "- **Batch**: Use batch_delegate for repeated row/file-oriented work when one template applies to many inputs",
     "- **Specialist**: Route to right profile (code for analysis, web for research, shell for execution)",
     "- **Review**: After completing work, delegate review to a fresh agent with different perspective",
-    "- **Isolation**: Each background agent works in its own workspace. Use wait_agent to collect results, then integrate changes into your workspace.",
+    "- **Isolation**: Each background agent works in its own isolated lease (prefer worktree, fall back to temp workspace).",
     "",
     "## Rules",
     "- Each child agent works in an isolated workspace — avoid conflicting file modifications",
+    "- Use wait_agent to observe completion and merge state; use apply_agent_changes or discard_agent_changes when work is not auto-applied",
+    "- Use interrupt_agent when a running agent needs a hard course correction",
     "- Always close_agent when done to free resources",
     "- Don't delegate when you can do it faster yourself",
     "- Use send_input to steer a running agent mid-task",
@@ -385,6 +391,51 @@ function renderDelegation(
 
   return {
     id: "delegation",
+    content: lines.join("\n"),
+    minTier: "weak",
+  };
+}
+
+function renderTeamCoordination(
+  tools: Record<string, ToolMetadata>,
+  tier: ModelTier,
+): PromptSection {
+  if (!("team_task_read" in tools) || !("team_status_read" in tools)) {
+    return { id: "team_coordination", content: "", minTier: "weak" };
+  }
+
+  if (!tierMeetsMinimum(tier, "mid")) {
+    return {
+      id: "team_coordination",
+      content:
+        "# Team Coordination\nUse team_status_read and team_task_read to coordinate shared team work.",
+      minTier: "weak",
+    };
+  }
+
+  const lines = [
+    "# Team Coordination",
+    "",
+    "## Lead Responsibilities",
+    "- Use team_status_read to inspect members, blocked tasks, pending approvals, pending shutdowns, unread messages, and team policy",
+    "- Keep the shared task board current with team_task_write and use dependencies for multi-step work",
+    "- Route implementation, review, research, and synthesis work using the preferred profiles in team policy",
+    "- Use team_message_send only when direct coordination is needed; prefer task state over chat when possible",
+    "",
+    "## Worker Responsibilities",
+    "- Read team task state before starting or claiming work",
+    "- Claim tasks before doing work and keep result_summary/artifacts current",
+    "- Submit plans with submit_team_plan when a task needs lead review before execution",
+    "- Acknowledge shutdown requests promptly at a safe boundary",
+    "",
+    "## Review and Merge",
+    "- When review is required, implementation work should produce reviewable artifacts first",
+    "- After review approval, use apply_agent_changes when delegated changes are still pending",
+    "- If review rejects or conflicts remain, preserve artifacts and continue with a safer revision",
+  ];
+
+  return {
+    id: "team_coordination",
     content: lines.join("\n"),
     minTier: "weak",
   };
@@ -449,7 +500,8 @@ export function generateSystemPrompt(
     sections.push(renderCustomInstructions(options.customInstructions));
   }
 
-  sections.push(renderDelegation(tools, tier));
+  sections.push(renderDelegation(tools, tier, options.agentProfiles));
+  sections.push(renderTeamCoordination(tools, tier));
   sections.push(renderExamples());
   sections.push(renderTips());
   sections.push(renderFooter());

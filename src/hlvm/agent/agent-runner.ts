@@ -32,7 +32,10 @@ import { cancelAllThreads } from "./delegate-threads.ts";
 import { setDelegateLimiterMax } from "./concurrency.ts";
 import { createDelegateInbox } from "./delegate-inbox.ts";
 import { createDelegateCoordinationBoard } from "./delegate-coordination.ts";
+import { restoreBatchSnapshots } from "./delegate-batches.ts";
 import { createTeamRuntime } from "./team-runtime.ts";
+import { loadAgentProfiles } from "./agent-registry.ts";
+import { hasTool } from "./registry.ts";
 import {
   type AgentUIEvent,
   type FinalResponseMeta,
@@ -67,6 +70,7 @@ import {
   persistAgentCheckpointSummary,
   persistAgentPlanState,
   persistPendingPlanReview,
+  persistAgentTeamRuntime,
   persistAgentTodos,
   resetApprovedPlanSignature,
   resolvePendingPlanReview,
@@ -114,6 +118,7 @@ export async function createReusableSession(
   },
 ): Promise<AgentSession> {
   const engine = getAgentEngine();
+  const agentProfiles = await loadAgentProfiles(workspace, { toolValidator: hasTool });
   const session = await createAgentSession({
     workspace,
     model,
@@ -125,6 +130,7 @@ export async function createReusableSession(
     onToken: opts?.onToken,
     modelInfo: opts?.modelInfo,
     engine,
+    agentProfiles,
   });
   reusableSessions.add(session);
   return session;
@@ -325,6 +331,7 @@ export async function runAgentQuery(
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const profile = ENGINE_PROFILES.normal;
   const toolAllowlist = resolveQueryToolAllowlist(query, options.toolAllowlist);
+  const agentProfiles = await loadAgentProfiles(workspace, { toolValidator: hasTool });
 
   // Pre-read custom instructions (~/.hlvm/HLVM.md) — non-blocking
   let customInstructions = "";
@@ -358,6 +365,7 @@ export async function runAgentQuery(
       modelInfo: options.modelInfo,
       customInstructions,
       engine,
+      agentProfiles,
     });
 
   const useExternalHistory = !!options.messageHistory;
@@ -400,6 +408,9 @@ export async function runAgentQuery(
     const sessionMetadata = sessionKey
       ? loadPersistedAgentSessionMetadata(sessionKey)
       : {};
+    if (sessionMetadata.delegateBatches?.length) {
+      restoreBatchSnapshots(sessionMetadata.delegateBatches);
+    }
     if (shouldRestorePersistedTodos && sessionKey) {
       session.todoState.items = loadPersistedAgentTodos(sessionKey);
     } else {
@@ -429,8 +440,10 @@ export async function runAgentQuery(
       policy,
       sessionId: sessionKey,
       modelId: model,
+      fixturePath: options.fixturePath,
       currentDepth: 0,
       maxDepth: agentMaxDepth,
+      agentProfiles,
     });
 
     // Wire MCP server-initiated request handlers (sampling, elicitation, roots)
@@ -667,7 +680,19 @@ export async function runAgentQuery(
     try {
       const delegateInbox = createDelegateInbox();
       const coordinationBoard = createDelegateCoordinationBoard();
-      teamRuntime = createTeamRuntime("lead", "lead");
+      teamRuntime = createTeamRuntime("lead", "lead", {
+        snapshot: sessionMetadata.teamRuntime,
+        onChange: (snapshot) => {
+          if (sessionKey) {
+            persistAgentTeamRuntime(sessionKey, snapshot);
+          }
+        },
+      });
+      if (sessionMetadata.teamRuntime) {
+        session.todoState.items = teamRuntime.deriveTodoState().items.map((item) => ({
+          ...item,
+        }));
+      }
       text = await runReActLoop(
         query,
         {
@@ -691,10 +716,12 @@ export async function runAgentQuery(
           teamRuntime,
           teamMemberId: teamRuntime.leadMemberId,
           teamLeadMemberId: teamRuntime.leadMemberId,
+          agentProfiles,
           planning: { mode: "auto", requireStepMarkers: false },
           skipModelCompensation: session.isFrontierModel,
           modelTier: session.modelTier,
           modelId: model,
+          sessionId: sessionKey ?? undefined,
           signal: options.signal,
           autoMemoryRecall: true,
           usage: usageTracker,

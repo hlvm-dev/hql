@@ -393,3 +393,36 @@ Deno.test("agent transcript state accepts team-sourced todo updates", () => {
   assertEquals(next.todoState?.items.length, 1);
   assertEquals(next.todoState?.items[0]?.id, "task-1");
 });
+
+Deno.test("agent transcript state records batch progress updates as info items", () => {
+  const next = reduceTranscriptState(createTranscriptState(), {
+    type: "agent_event",
+    event: {
+      type: "batch_progress_updated",
+      snapshot: {
+        batchId: "batch-1",
+        agent: "code",
+        totalRows: 4,
+        queued: 1,
+        running: 2,
+        completed: 1,
+        errored: 0,
+        cancelled: 0,
+        spawned: 4,
+        spawnFailures: 0,
+        createdAt: 1,
+        status: "running",
+        threadIds: ["t1", "t2", "t3", "t4"],
+      },
+    },
+  });
+
+  assertEquals(next.items.length, 1);
+  assertEquals(next.items[0]?.type, "info");
+  if (next.items[0]?.type === "info") {
+    assertEquals(
+      next.items[0].text,
+      "Batch batch-1: 2 running · 1 completed · 0 errored",
+    );
+  }
+});

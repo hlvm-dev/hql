@@ -3,18 +3,24 @@
  * Handles runtime initialization, AI import, memory loading
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { initializeRuntime } from "../../../../common/runtime-initializer.ts";
 import { getFileIndex } from "../../repl/file-search.ts";
 import { ReplState } from "../../repl/state.ts";
-import { initReplState, startReplHistoryInit } from "../../repl/init-repl-state.ts";
+import {
+  initReplState,
+  startReplHistoryInit,
+} from "../../repl/init-repl-state.ts";
 import { getMedia } from "../../repl/context.ts";
 import { refreshKeybindingLookup } from "../keybindings/index.ts";
 import { setCustomKeybindingsSnapshot } from "../keybindings/custom-bindings.ts";
-import { checkDefaultModelInstalled, getDefaultModelName } from "../components/ModelSetupOverlay.tsx";
 import { log } from "../../../api/log.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { createRuntimeConfigManager } from "../../../runtime/model-config.ts";
+import {
+  type ConfiguredModelReadinessState,
+  getConfiguredModelReadiness,
+} from "../../../runtime/configured-model-readiness.ts";
 
 export interface InitializationState {
   loading: boolean;
@@ -22,6 +28,7 @@ export interface InitializationState {
   aiExports: string[];
   readyTime: number;
   errors: string[];
+  aiReadiness: ConfiguredModelReadinessState;
   /** True if the default AI model needs to be downloaded */
   needsModelSetup: boolean;
   /** The model name that needs to be downloaded */
@@ -35,6 +42,9 @@ export function useInitialization(state: ReplState): InitializationState {
   const [aiExports, setAiExports] = useState<string[]>([]);
   const [readyTime, setReadyTime] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
+  const [aiReadiness, setAiReadiness] = useState<ConfiguredModelReadinessState>(
+    "unavailable",
+  );
   const [needsModelSetup, setNeedsModelSetup] = useState(false);
   const [modelToSetup, setModelToSetup] = useState("");
   const initialized = useRef(false);
@@ -78,24 +88,38 @@ export function useInitialization(state: ReplState): InitializationState {
         }
 
         setErrors(loadErrors);
-        (globalThis as Record<string, unknown>).__hlvmStartupWarnings = loadErrors;
+        (globalThis as Record<string, unknown>).__hlvmStartupWarnings =
+          loadErrors;
         const runtimeConfig = await createRuntimeConfigManager();
         const runtimeSnapshot = await runtimeConfig.sync();
         setCustomKeybindingsSnapshot(runtimeSnapshot.keybindings);
         refreshKeybindingLookup();
 
         // Register API names for tab completion
-        for (const name of ["config", "memory", "session", "history", "ai", "runtime"]) {
+        for (
+          const name of [
+            "config",
+            "memory",
+            "session",
+            "history",
+            "ai",
+            "runtime",
+          ]
+        ) {
           state.addBinding(name);
         }
 
         await historyInit;
 
-        // Check if default AI model needs to be downloaded (non-blocking)
-        const modelInstalled = await checkDefaultModelInstalled();
-        if (!modelInstalled) {
+        const modelReadiness = await getConfiguredModelReadiness();
+        setAiReadiness(
+          initResult.moduleResult?.aiExports.length
+            ? modelReadiness.state
+            : "unavailable",
+        );
+        if (modelReadiness.state === "setup_required") {
           setNeedsModelSetup(true);
-          setModelToSetup(await getDefaultModelName());
+          setModelToSetup(modelReadiness.modelName);
         }
 
         setReadyTime(Date.now() - startTime);
@@ -104,7 +128,8 @@ export function useInitialization(state: ReplState): InitializationState {
       } catch (error) {
         const startupErrors = [getErrorMessage(error)];
         setErrors(startupErrors);
-        (globalThis as Record<string, unknown>).__hlvmStartupWarnings = startupErrors;
+        (globalThis as Record<string, unknown>).__hlvmStartupWarnings =
+          startupErrors;
         setLoading(false);
       }
     })();
@@ -116,6 +141,7 @@ export function useInitialization(state: ReplState): InitializationState {
     aiExports,
     readyTime,
     errors,
+    aiReadiness,
     needsModelSetup,
     modelToSetup,
   };

@@ -12,6 +12,7 @@ export interface DelegateBatch {
   threadIds: string[];
   spawnFailures: number;
   createdAt: number;
+  persistedSnapshot?: DelegateBatchSnapshot;
 }
 
 export interface DelegateBatchSnapshot extends DelegateBatch {
@@ -26,6 +27,15 @@ export interface DelegateBatchSnapshot extends DelegateBatch {
 
 const batches = new Map<string, DelegateBatch>();
 
+function cloneBatchSnapshot(
+  snapshot: DelegateBatchSnapshot,
+): DelegateBatchSnapshot {
+  return {
+    ...snapshot,
+    threadIds: [...snapshot.threadIds],
+  };
+}
+
 export function registerBatch(
   batchId: string,
   agent: string,
@@ -39,10 +49,6 @@ export function registerBatch(
     spawnFailures: 0,
     createdAt: Date.now(),
   });
-}
-
-export function getBatch(batchId: string): DelegateBatch | undefined {
-  return batches.get(batchId);
 }
 
 export function addBatchThread(batchId: string, threadId: string): void {
@@ -62,6 +68,10 @@ export function getBatchSnapshot(
 ): DelegateBatchSnapshot | undefined {
   const batch = batches.get(batchId);
   if (!batch) return undefined;
+  const hasLiveThreads = batch.threadIds.some((threadId) => getThread(threadId));
+  if (!hasLiveThreads && batch.persistedSnapshot) {
+    return cloneBatchSnapshot(batch.persistedSnapshot);
+  }
 
   let queued = 0;
   let running = 0;
@@ -97,7 +107,7 @@ export function getBatchSnapshot(
     ? (errored > 0 || cancelled > 0 ? "partial" : "completed")
     : "running";
 
-  return {
+  const snapshot: DelegateBatchSnapshot = {
     ...batch,
     queued,
     running,
@@ -107,6 +117,8 @@ export function getBatchSnapshot(
     spawned: batch.threadIds.length,
     status,
   };
+  batch.persistedSnapshot = cloneBatchSnapshot(snapshot);
+  return snapshot;
 }
 
 export function listBatchSnapshots(): DelegateBatchSnapshot[] {
@@ -115,10 +127,22 @@ export function listBatchSnapshots(): DelegateBatchSnapshot[] {
     .filter((batch): batch is DelegateBatchSnapshot => batch !== undefined);
 }
 
-export function removeBatch(batchId: string): void {
-  batches.delete(batchId);
-}
-
 export function resetBatchRegistry(): void {
   batches.clear();
+}
+
+export function restoreBatchSnapshots(
+  snapshots: readonly DelegateBatchSnapshot[],
+): void {
+  for (const snapshot of snapshots) {
+    batches.set(snapshot.batchId, {
+      batchId: snapshot.batchId,
+      agent: snapshot.agent,
+      totalRows: snapshot.totalRows,
+      threadIds: [...snapshot.threadIds],
+      spawnFailures: snapshot.spawnFailures,
+      createdAt: snapshot.createdAt,
+      persistedSnapshot: cloneBatchSnapshot(snapshot),
+    });
+  }
 }

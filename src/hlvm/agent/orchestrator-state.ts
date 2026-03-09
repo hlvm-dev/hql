@@ -61,6 +61,8 @@ export interface LoopState {
   memoryFlushedThisCycle: boolean;
   /** Whether automatic memory recall has already been injected for this user turn */
   memoryRecallInjected: boolean;
+  /** Dedupes lead-side team summary reminders injected into context. */
+  lastTeamSummarySignature: string;
   /** Indexed citation candidates extracted from recent web tool results. */
   passageIndex?: CitationSourceEntry[];
 }
@@ -127,6 +129,7 @@ export function initializeLoopState(config: OrchestratorConfig): LoopState {
     iterationsSinceReminder: 3, // Start at cooldown to avoid immediate reminder
     memoryFlushedThisCycle: false,
     memoryRecallInjected: false,
+    lastTeamSummarySignature: "",
     passageIndex: [],
   };
 }

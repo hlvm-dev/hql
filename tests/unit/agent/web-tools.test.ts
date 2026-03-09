@@ -924,6 +924,9 @@ Deno.test({
           const prefetch = diagnostics.prefetch as Record<string, unknown>;
           const retrieval = diagnostics.retrieval as Record<string, unknown>;
           const results = raw.results as Array<Record<string, unknown>>;
+          const answerDraft = raw.answerDraft as Record<string, unknown>;
+          const draftSources = answerDraft.sources as Array<Record<string, unknown>>;
+          const citations = raw.citations as Array<Record<string, unknown>>;
 
           assertEquals(llmChooserCalls, 0);
           assertEquals(prefetch.chooserUsed, false);
@@ -934,11 +937,15 @@ Deno.test({
           assertEquals(retrieval.answerStrategy, "deterministic");
           assertEquals(results[0].url, "https://react.dev/reference/react/useEffect");
           assertEquals(results[0].evidenceStrength, "high");
+          assertEquals(results[0].sourceClass, "official_docs");
           assertEquals(results[1].evidenceStrength, "high");
           assertEquals(
-            ((raw.answerDraft as Record<string, unknown>).strategy),
+            answerDraft.strategy,
             "deterministic",
           );
+          assertEquals(draftSources[0]?.sourceClass, "official_docs");
+          assertEquals(citations[0]?.sourceClass, "official_docs");
+          assertEquals(citations[0]?.sourceKind, "passage");
         });
       });
     } finally {
@@ -1048,6 +1055,121 @@ Deno.test({
         ]);
         assertEquals(results[0].url, "https://react.dev/reference/react/useEffect");
         assertEquals(results[0].evidenceStrength, "high");
+      });
+    });
+  },
+});
+
+Deno.test({
+  name: "web tools: authority recovery follow-up pulls in official docs for direct questions",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withIsolatedSearchRegistry(async () => {
+      const seenQueries: string[] = [];
+      registerSearchProvider({
+        name: "duckduckgo",
+        displayName: "authority-recovery",
+        requiresApiKey: false,
+        search(query: string, opts: SearchCallOptions) {
+          seenQueries.push(query);
+          if (query.includes("official docs reference")) {
+            return Promise.resolve({
+              query,
+              provider: "duckduckgo",
+              count: 2,
+              results: [
+                {
+                  title: "useEffect - React",
+                  url: "https://react.dev/reference/react/useEffect",
+                  snippet: "Official React reference for useEffect and cleanup behavior.",
+                },
+                {
+                  title: "Synchronizing with Effects - React",
+                  url: "https://react.dev/learn/synchronizing-with-effects",
+                  snippet: "Official React guide to effects.",
+                },
+              ],
+              diagnostics: { limit: opts.limit },
+            });
+          }
+          return Promise.resolve({
+            query,
+            provider: "duckduckgo",
+            count: 3,
+            results: [
+              {
+                title: "Understanding useEffect cleanup",
+                url: "https://dev.to/example/useeffect-cleanup",
+                snippet: "Community article on useEffect cleanup basics.",
+              },
+              {
+                title: "Cleanup function in useEffect",
+                url: "https://medium.com/@example/react-cleanup",
+                snippet: "Medium article explaining cleanup behavior.",
+              },
+              {
+                title: "React cleanup guide",
+                url: "https://www.linkedin.com/pulse/react-cleanup-guide",
+                snippet: "LinkedIn write-up on cleanup functions.",
+              },
+            ],
+            diagnostics: { limit: opts.limit },
+          });
+        },
+      });
+
+      await withStubbedFetch(async (input) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url === "https://react.dev/reference/react/useEffect") {
+          return new Response(
+            `<html><head><title>useEffect - React</title><meta name="description" content="Official useEffect reference." /></head><body><article><p>The cleanup function is a function returned from useEffect, and React runs it before the effect runs again and when the component unmounts.</p></article></body></html>`,
+            { status: 200, headers: { "Content-Type": "text/html" } },
+          );
+        }
+        if (url === "https://react.dev/learn/synchronizing-with-effects") {
+          return new Response(
+            `<html><head><title>Synchronizing with Effects - React</title></head><body><article><p>Effects synchronize with external systems.</p></article></body></html>`,
+            { status: 200, headers: { "Content-Type": "text/html" } },
+          );
+        }
+        return new Response(
+          `<html><head><title>Community cleanup article</title></head><body><article><p>A cleanup function is a function returned from within useEffect, and it gets executed either when the component unmounts or before the effect runs again.</p></article></body></html>`,
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        );
+      }, async () => {
+        resetWebToolBudget();
+        const raw = await WEB_TOOLS.search_web.fn(
+          {
+            query: "What does the useEffect cleanup function do in React?",
+            maxResults: 5,
+            prefetch: true,
+            reformulate: true,
+          },
+          "/tmp",
+          { modelId: "ollama/llama3.2:1b", modelTier: "weak" },
+        ) as Record<string, unknown>;
+
+        const diagnostics = raw.diagnostics as Record<string, unknown>;
+        const retrieval = diagnostics.retrieval as Record<string, unknown>;
+        const results = raw.results as Array<Record<string, unknown>>;
+        const answerDraft = raw.answerDraft as Record<string, unknown>;
+        const draftSources = answerDraft.sources as Array<Record<string, unknown>>;
+
+        assert(seenQueries.some((query) => query.includes("official docs reference")));
+        assertEquals((retrieval.queryTrail as string[]).length, 2);
+        assertEquals(retrieval.authoritativeResultCount, 2);
+        assertEquals(retrieval.topAuthoritativeRank, 1);
+        assertEquals(retrieval.authorityRecoveryTriggered, true);
+        assertEquals(retrieval.authorityRecoverySucceeded, true);
+        assertEquals((retrieval.selectedAuthoritativeFetchCount as number) >= 1, true);
+        assertEquals(results[0].url, "https://react.dev/reference/react/useEffect");
+        assertEquals(results[0].sourceClass, "vendor_docs");
+        assertEquals(draftSources[0]?.url, "https://react.dev/reference/react/useEffect");
+        assertEquals(
+          answerDraft.text,
+          "The cleanup function is a function returned from useEffect, and React runs it before the effect runs again and when the component unmounts.",
+        );
       });
     });
   },
