@@ -25,7 +25,7 @@ import {
 } from "../../common/shell-parser.ts";
 import { getAgentLogger } from "./logger.ts";
 import type { AgentPolicy } from "./policy.ts";
-import type { PermissionMode } from "../../common/config/types.ts";
+import { isPlanExecutionMode } from "./execution-mode.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import type { ToolCall } from "./tool-call.ts";
 import {
@@ -314,6 +314,15 @@ export async function executeToolCall(
     }
 
     const mutatingTool = isMutatingTool(toolCall.toolName, config.toolOwnerId);
+    if (mutatingTool && isPlanExecutionMode(config.permissionMode)) {
+      return buildToolErrorResult(
+        toolCall.toolName,
+        "Plan mode does not allow mutating tools. Inspect the workspace, refine the plan, or ask the user to leave plan mode before editing.",
+        startedAt,
+        config,
+        toolCall.id,
+      );
+    }
     if (
       mutatingTool &&
       config.planReview?.shouldGateMutatingTools() &&
@@ -342,7 +351,11 @@ export async function executeToolCall(
       : undefined;
 
     // Check safety
-    const permissionMode: PermissionMode = config.permissionMode ?? "default";
+    const permissionMode = config.permissionMode === "yolo"
+      ? "yolo"
+      : config.permissionMode === "auto-edit"
+      ? "auto-edit"
+      : "default";
     const approved = await checkToolSafety(
       toolCall.toolName,
       coercedArgs,

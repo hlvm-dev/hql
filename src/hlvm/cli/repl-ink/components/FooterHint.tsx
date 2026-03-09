@@ -18,6 +18,8 @@ interface FooterProps {
   streamingState?: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   modelName?: string;
+  modeLabel?: string;
+  statusMessage?: string;
   /** Compact context/tokens indicator (e.g., "35% ctx", "4200 tokens") */
   contextUsageLabel?: string;
   /** Compact safety/checkpoint indicator (e.g., "undo ready") */
@@ -43,6 +45,7 @@ interface FooterCenterStateInput {
   hasPendingPermission?: boolean;
   hasPendingQuestion?: boolean;
   spinner: string;
+  statusMessage?: string;
 }
 
 export function buildFooterCenterState({
@@ -54,12 +57,13 @@ export function buildFooterCenterState({
   hasPendingPermission,
   hasPendingQuestion,
   spinner,
+  statusMessage,
 }: FooterCenterStateInput): { text: string; tone: "muted" | "warning" } {
   let text = "";
   let tone: "muted" | "warning" = "muted";
 
   if (!inConversation) {
-    return { text: "? shortcuts", tone };
+    return { text: statusMessage || "? shortcuts", tone };
   }
 
   if (hasPendingPermission) {
@@ -82,6 +86,8 @@ export function buildFooterCenterState({
       // The conversation body already renders a Thinking block; keep the footer action-focused.
       text = "Esc cancel · PgUp/PgDn scroll";
     }
+  } else if (statusMessage) {
+    text = statusMessage;
   } else {
     text = "Ready · PgUp/PgDn scroll · ? shortcuts";
   }
@@ -98,10 +104,35 @@ export function buildFooterCenterState({
   return { text, tone };
 }
 
+interface FooterRightStateInput {
+  modelName?: string;
+  modeLabel?: string;
+  contextUsageLabel?: string;
+  checkpointLabel?: string;
+}
+
+export function buildFooterRightState({
+  modelName,
+  modeLabel,
+  contextUsageLabel,
+  checkpointLabel,
+}: FooterRightStateInput): { modeLabel?: string; infoText: string } {
+  const infoParts: string[] = [];
+  if (contextUsageLabel) infoParts.push(contextUsageLabel);
+  if (checkpointLabel) infoParts.push(checkpointLabel);
+  if (modelName) infoParts.push(modelName);
+  return {
+    modeLabel,
+    infoText: infoParts.join(" · "),
+  };
+}
+
 export function FooterHint({
   streamingState,
   activeTool,
   modelName,
+  modeLabel,
+  statusMessage,
   contextUsageLabel,
   checkpointLabel,
   interactionQueueLength = 0,
@@ -125,15 +156,17 @@ export function FooterHint({
     hasPendingPermission,
     hasPendingQuestion,
     spinner,
+    statusMessage,
   });
   const centerColor = center.tone === "warning"
     ? sc.status.warning
     : sc.text.muted;
-
-  const rightParts: string[] = [];
-  if (contextUsageLabel) rightParts.push(contextUsageLabel);
-  if (checkpointLabel) rightParts.push(checkpointLabel);
-  if (model) rightParts.push(model);
+  const right = buildFooterRightState({
+    modelName: model,
+    modeLabel,
+    contextUsageLabel,
+    checkpointLabel,
+  });
 
   return (
     <Box flexGrow={1} flexDirection="row" justifyContent="space-between">
@@ -142,8 +175,16 @@ export function FooterHint({
       </Box>
 
       <Box flexShrink={0} marginLeft={1}>
+        {right.modeLabel && (
+          <Text color={sc.border.active}>
+            {right.modeLabel}
+          </Text>
+        )}
+        {right.modeLabel && right.infoText && (
+          <Text color={sc.text.muted}>{" · "}</Text>
+        )}
         <Text color={sc.text.muted}>
-          {rightParts.join(" · ")}
+          {right.infoText}
         </Text>
       </Box>
     </Box>

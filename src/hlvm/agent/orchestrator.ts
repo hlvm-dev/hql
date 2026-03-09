@@ -25,7 +25,6 @@ import {
   type ContextManager,
 } from "./context.ts";
 import type { GroundingMode, ModelTier } from "./constants.ts";
-import type { PermissionMode } from "../../common/config/types.ts";
 import { getErrorMessage, truncate } from "../../common/utils.ts";
 import {
   RateLimitError,
@@ -56,6 +55,8 @@ import {
   requestPlan,
   shouldPlanRequest,
 } from "./planning.ts";
+import type { AgentExecutionMode } from "./execution-mode.ts";
+import { isPlanExecutionMode } from "./execution-mode.ts";
 import { getAgentLogger } from "./logger.ts";
 import { retrieveMemory, type RetrievalResult } from "../memory/retrieve.ts";
 import { resetWebToolBudget } from "./tools/web-tools.ts";
@@ -357,7 +358,7 @@ export type { InteractionRequestEvent, InteractionResponse };
 export interface OrchestratorConfig {
   workspace: string;
   context: ContextManager;
-  permissionMode?: PermissionMode;
+  permissionMode?: AgentExecutionMode;
   maxToolCalls?: number;
   maxDenials?: number;
   onTrace?: (event: TraceEvent) => void;
@@ -679,6 +680,13 @@ export async function runReActLoop(
   resetWebToolBudget();
 
   addContextMessage(config, { role: "user", content: userRequest, images });
+  if (isPlanExecutionMode(config.permissionMode)) {
+    addContextMessage(config, {
+      role: "user",
+      content:
+        "[System Reminder] Plan mode is active. You may inspect, reason, search, and propose a plan, but do not make file edits or run other mutating actions. If implementation is needed, explain the plan and wait for the user to leave plan mode.",
+    });
+  }
 
   const weakWebShortCircuit = await maybeShortCircuitWeakWebQuery(
     userRequest,

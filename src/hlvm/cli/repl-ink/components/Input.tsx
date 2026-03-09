@@ -114,6 +114,7 @@ interface InputProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string, attachments?: AnyAttachment[]) => void;
+  onCycleMode?: () => void;
   disabled?: boolean;
   /** "chat" disables code token coloring for natural-language turns */
   highlightMode?: "code" | "chat";
@@ -126,6 +127,7 @@ export function Input({
   value,
   onChange,
   onSubmit,
+  onCycleMode,
   disabled = false,
   highlightMode = "code",
   promptLabel = "hlvm>",
@@ -1586,6 +1588,11 @@ export function Input({
         executeCompletionAction(selectedItem, "SELECT");
         return;
       }
+    }
+
+    if (isTabKey && key.shift && onCycleMode) {
+      onCycleMode();
+      return;
     }
 
     // Enter - submit if balanced OR if it's an @mention query.

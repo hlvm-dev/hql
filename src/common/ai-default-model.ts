@@ -15,6 +15,7 @@ import {
 import { ensureModelAvailability } from "./model-availability.ts";
 import { getPlatform } from "../platform/platform.ts";
 import { RuntimeError } from "./error.ts";
+import { parseModelParameterSize } from "./model-ranking.ts";
 
 let defaultModelEnsured = false;
 const CLAUDE_CODE_PROVIDER = "claude-code";
@@ -90,25 +91,6 @@ function isAutomaticDefaultCandidate(
     LEGACY_DEFAULT_MODEL_IDS.has(snapshot.model);
 }
 
-function parseParameterSize(size: string | undefined): number {
-  if (!size) return -1;
-  const match = size.match(/^(\d+(?:\.\d+)?)\s*([TBMK])/i);
-  if (!match) return -1;
-  const value = parseFloat(match[1]);
-  switch (match[2]?.toUpperCase()) {
-    case "T":
-      return value * 1_000_000_000_000;
-    case "B":
-      return value * 1_000_000_000;
-    case "M":
-      return value * 1_000_000;
-    case "K":
-      return value * 1_000;
-    default:
-      return value;
-  }
-}
-
 function scoreClaudeModel(name: string): number {
   return (getClaudeFamilyScore(name) * 10_000_000) +
     (getClaudeLatestScore(name) * 1_000_000) +
@@ -153,8 +135,8 @@ export function selectPreferredOllamaCloudModel(
   if (candidates.length === 0) return null;
 
   candidates.sort((a, b) => {
-    const sizeDiff = parseParameterSize(b.model.parameterSize) -
-      parseParameterSize(a.model.parameterSize);
+    const sizeDiff = parseModelParameterSize(b.model.parameterSize) -
+      parseModelParameterSize(a.model.parameterSize);
     if (sizeDiff !== 0) return sizeDiff;
     return b.normalizedName.localeCompare(a.normalizedName);
   });

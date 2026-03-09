@@ -1,4 +1,4 @@
-import type { PermissionMode } from "../../common/config/types.ts";
+import type { AgentExecutionMode } from "../agent/execution-mode.ts";
 import type { FinalResponseMeta, TraceEvent } from "../agent/orchestrator.ts";
 import type { Plan } from "../agent/planning.ts";
 import type { DelegateTranscriptSnapshot } from "../agent/delegate-transcript.ts";
@@ -29,7 +29,7 @@ export interface ChatRequest {
   assistant_client_turn_id?: string;
   expected_version?: number;
   context_window?: number;
-  permission_mode?: PermissionMode;
+  permission_mode?: AgentExecutionMode;
   skip_session_history?: boolean;
   tool_denylist?: string[];
   trace?: boolean;

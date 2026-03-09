@@ -1029,6 +1029,30 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Orchestrator: plan mode rejects mutating tools before execution",
+  async fn() {
+    resetApprovals();
+    const result = await executeToolCall(
+      {
+        toolName: "write_file",
+        args: { path: "src/plan-mode-test.ts", content: "export {};\n" },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context: new ContextManager(),
+        permissionMode: "plan",
+      },
+    );
+
+    assertEquals(result.success, false);
+    assertStringIncludes(
+      result.error ?? "",
+      "Plan mode does not allow mutating tools",
+    );
+  },
+});
+
+Deno.test({
   name: "Orchestrator: executeToolCall shell_exec preflight blocks complex syntax but allows simple commands",
   async fn() {
     resetApprovals();

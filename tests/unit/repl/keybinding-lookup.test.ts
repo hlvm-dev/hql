@@ -1,6 +1,7 @@
 import { assertEquals } from "jsr:@std/assert";
 import type { Key } from "ink";
 import { normalizeKeyInput } from "../../../src/hlvm/cli/repl-ink/keybindings/keybinding-lookup.ts";
+import { globalKeybindings } from "../../../src/hlvm/cli/repl-ink/keybindings/definitions/global.ts";
 
 function makeKey(overrides: Partial<Key> = {}): Key {
   return {
@@ -42,4 +43,18 @@ Deno.test("normalizeKeyInput: alt/meta text sequences normalize consistently", (
 
 Deno.test("normalizeKeyInput: meta return sequences preserve cmd+enter on mac-style bindings", () => {
   assertEquals(normalizeKeyInput("\r", makeKey({ meta: true, return: true })), "cmd+enter");
+});
+
+Deno.test("normalizeKeyInput: shift-tab remains addressable for mode cycling", () => {
+  assertEquals(normalizeKeyInput("\t", makeKey({ shift: true, tab: true })), "shift+tab");
+});
+
+Deno.test("global keybindings include Shift+Tab mode cycling", () => {
+  assertEquals(
+    globalKeybindings.some((binding) =>
+      binding.display === "Shift+Tab" &&
+      binding.label === "Cycle agent mode"
+    ),
+    true,
+  );
 });

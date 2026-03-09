@@ -1,5 +1,8 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { buildFooterCenterState } from "../../../src/hlvm/cli/repl-ink/components/FooterHint.tsx";
+import {
+  buildFooterCenterState,
+  buildFooterRightState,
+} from "../../../src/hlvm/cli/repl-ink/components/FooterHint.tsx";
 import { StreamingState } from "../../../src/hlvm/cli/repl-ink/types.ts";
 
 Deno.test("buildFooterCenterState removes duplicate thinking label when no active tool", () => {
@@ -44,4 +47,28 @@ Deno.test("buildFooterCenterState shows shortcuts hint outside conversation", ()
 
   assertEquals(state.text, "? shortcuts");
   assertEquals(state.tone, "muted");
+});
+
+Deno.test("buildFooterCenterState surfaces transient status messages when idle", () => {
+  const state = buildFooterCenterState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    spinner: "x",
+    statusMessage: "Plan mode enabled",
+  });
+
+  assertEquals(state.text, "Plan mode enabled");
+  assertEquals(state.tone, "muted");
+});
+
+Deno.test("buildFooterRightState keeps the mode badge separate from model metadata", () => {
+  const state = buildFooterRightState({
+    modeLabel: "plan mode on",
+    contextUsageLabel: "12% ctx",
+    checkpointLabel: "/undo ready",
+    modelName: "claude-sonnet-4-6",
+  });
+
+  assertEquals(state.modeLabel, "plan mode on");
+  assertEquals(state.infoText, "12% ctx · /undo ready · claude-sonnet-4-6");
 });

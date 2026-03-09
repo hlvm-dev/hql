@@ -5,13 +5,13 @@ import { getPlatform } from "../../platform/platform.ts";
 import type {
   ConfigKey,
   HlvmConfig,
-  PermissionMode,
 } from "../../common/config/types.ts";
 import type {
   AgentUIEvent,
   FinalResponseMeta,
   TraceEvent,
 } from "../agent/orchestrator.ts";
+import type { AgentExecutionMode } from "../agent/execution-mode.ts";
 import { getHlvmRuntimeBaseUrl } from "./host-config.ts";
 import {
   type ChatMode,
@@ -104,7 +104,7 @@ export interface HostBackedChatOptions {
   fixturePath?: string;
   contextWindow?: number;
   skipSessionHistory?: boolean;
-  permissionMode?: PermissionMode;
+  permissionMode?: AgentExecutionMode;
   toolDenylist?: string[];
   expectedVersion?: number;
   signal?: AbortSignal;
@@ -121,7 +121,7 @@ export interface HostBackedAgentQueryOptions {
   imagePaths?: string[];
   contextWindow?: number;
   skipSessionHistory?: boolean;
-  permissionMode?: PermissionMode;
+  permissionMode?: AgentExecutionMode;
   toolDenylist?: string[];
   signal?: AbortSignal;
   callbacks: HostBackedChatCallbacks;

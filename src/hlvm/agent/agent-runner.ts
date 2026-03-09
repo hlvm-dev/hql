@@ -53,7 +53,10 @@ import {
   MAX_SESSION_HISTORY,
 } from "./constants.ts";
 import { resolveQueryToolAllowlist } from "./query-tool-routing.ts";
-import type { PermissionMode } from "../../common/config/types.ts";
+import {
+  getPlanningModeForExecutionMode,
+  type AgentExecutionMode,
+} from "./execution-mode.ts";
 import { UsageTracker } from "./usage.ts";
 import { ContextManager, takeLastMessageGroups } from "./context.ts";
 import type { ModelInfo } from "../providers/types.ts";
@@ -246,7 +249,7 @@ export interface AgentRunnerOptions {
   contextWindow?: number;
   workspace?: string;
   callbacks: AgentRunnerCallbacks;
-  permissionMode?: PermissionMode;
+  permissionMode?: AgentExecutionMode;
   noInput?: boolean;
   toolAllowlist?: string[];
   toolDenylist?: string[];
@@ -325,7 +328,8 @@ export async function runAgentQuery(
     toolDenylist = [...DEFAULT_TOOL_DENYLIST],
     skipSessionHistory = false,
   } = options;
-  const permissionMode: PermissionMode = options.permissionMode ?? "default";
+  const permissionMode: AgentExecutionMode = options.permissionMode ??
+    "default";
   let model = options.model ?? getConfiguredModel();
   model = await resolveCompatibleClaudeCodeModel(model);
   const workspace = options.workspace ?? getPlatform().process.cwd();
@@ -717,7 +721,10 @@ export async function runAgentQuery(
           teamMemberId: teamRuntime.leadMemberId,
           teamLeadMemberId: teamRuntime.leadMemberId,
           agentProfiles,
-          planning: { mode: "auto", requireStepMarkers: false },
+          planning: {
+            mode: getPlanningModeForExecutionMode(permissionMode),
+            requireStepMarkers: false,
+          },
           skipModelCompensation: session.isFrontierModel,
           modelTier: session.modelTier,
           modelId: model,

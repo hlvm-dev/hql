@@ -67,6 +67,7 @@ import {
 import {
   getConfiguredModel,
   getContextWindow,
+  getPermissionMode,
 } from "../../../../common/config/selectors.ts";
 import {
   buildSelectedModelConfigUpdates,
@@ -96,6 +97,13 @@ import {
 import { resolveSessionStart } from "../../repl/session/start.ts";
 import { buildTranscriptStateFromSession } from "../conversation-history.ts";
 import type { ConfiguredModelReadinessState } from "../../../runtime/configured-model-readiness.ts";
+import {
+  cycleReplAgentExecutionMode,
+  getAgentExecutionModeBadge,
+  getAgentExecutionModeChangeMessage,
+  toAgentExecutionMode,
+  type AgentExecutionMode,
+} from "../../../agent/execution-mode.ts";
 
 interface HistoryEntry {
   id: number;
@@ -364,6 +372,14 @@ function AppContent(
     InteractionRequestEvent[]
   >([]);
   const pendingInteraction = interactionQueue[0];
+  const replModeTouchedRef = useRef(false);
+  const footerStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const [agentExecutionMode, setAgentExecutionMode] = useState<
+    AgentExecutionMode
+  >(() => toAgentExecutionMode(getPermissionMode(initialConfig)));
+  const [footerStatusMessage, setFooterStatusMessage] = useState("");
 
   const prepareConversationMediaPayload = useCallback(
     (attachments?: AnyAttachment[]) => {
@@ -424,6 +440,25 @@ function AppContent(
     conversation.items.length >= 80;
   useAlternateBuffer(shouldUseAlternateBuffer);
 
+  useEffect(() => {
+    return () => {
+      if (footerStatusTimerRef.current) {
+        clearTimeout(footerStatusTimerRef.current);
+      }
+    };
+  }, []);
+
+  const flashFooterStatus = useCallback((message: string) => {
+    if (footerStatusTimerRef.current) {
+      clearTimeout(footerStatusTimerRef.current);
+    }
+    setFooterStatusMessage(message);
+    footerStatusTimerRef.current = setTimeout(() => {
+      footerStatusTimerRef.current = null;
+      setFooterStatusMessage("");
+    }, 2200);
+  }, []);
+
   const applyRuntimeConfigState = useCallback(
     (cfg: Record<string, unknown>) => {
       const modelId = getConfiguredModel(cfg);
@@ -431,9 +466,19 @@ function AppContent(
       setIsConfiguredModelExplicit(cfg.modelConfigured === true);
       setFooterModelName(modelId.replace("ollama/", ""));
       setConfiguredContextWindow(getContextWindow(cfg));
+      if (!replModeTouchedRef.current) {
+        setAgentExecutionMode(toAgentExecutionMode(getPermissionMode(cfg)));
+      }
     },
     [],
   );
+
+  const cycleAgentMode = useCallback(() => {
+    const nextMode = cycleReplAgentExecutionMode(agentExecutionMode);
+    replModeTouchedRef.current = true;
+    setAgentExecutionMode(nextMode);
+    flashFooterStatus(getAgentExecutionModeChangeMessage(nextMode));
+  }, [agentExecutionMode, flashFooterStatus]);
 
   const refreshRuntimeConfigState = useCallback(async () => {
     const runtimeConfig = await createRuntimeConfigManager();
@@ -697,6 +742,7 @@ function AppContent(
           client_turn_id: crypto.randomUUID(),
         }],
         model,
+        permissionMode: agentExecutionMode,
         // REPL UX: avoid model-initiated ask_user detours for simple chat turns.
         // Keep direct conversational flow unless explicit permission prompts are needed.
         toolDenylist: ["ask_user", "complete_task"],
@@ -834,6 +880,7 @@ function AppContent(
     }
   }, [
     applyRuntimeConfigState,
+    agentExecutionMode,
     configuredContextWindow,
     isConfiguredModelExplicit,
     configuredModelId,
@@ -1674,6 +1721,7 @@ function AppContent(
             value={input}
             onChange={setInput}
             onSubmit={handleSubmit}
+            onCycleMode={cycleAgentMode}
             disabled={isInputDisabled}
             highlightMode={activePanel === "conversation" ? "chat" : "code"}
             promptLabel={activePanel === "conversation" &&
@@ -1688,6 +1736,8 @@ function AppContent(
         (
           <FooterHint
             modelName={footerModelName}
+            modeLabel={getAgentExecutionModeBadge(agentExecutionMode)}
+            statusMessage={footerStatusMessage}
             streamingState={activePanel === "conversation"
               ? conversation.streamingState
               : undefined}

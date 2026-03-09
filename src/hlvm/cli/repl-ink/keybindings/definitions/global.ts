@@ -45,6 +45,14 @@ export const globalKeybindings: Keybinding[] = [
     action: { type: "HANDLER", id: "app.openTasks" },
   },
   {
+    id: "shift+tab",
+    display: "Shift+Tab",
+    label: "Cycle agent mode",
+    description: "Cycle default, accept-edits, and plan modes",
+    category: "Global",
+    action: { type: "INFO" },
+  },
+  {
     id: "ctrl+o",
     display: "Ctrl+O",
     label: "Toggle latest section",
