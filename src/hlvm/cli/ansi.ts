@@ -19,12 +19,30 @@ export const ANSI_COLORS = {
 // Re-export only what's needed for ANSI terminal output
 export { getThemedAnsi } from "./theme/index.ts";
 
+export function getTerminalClearSequence(
+  options: { clearScrollback?: boolean } = {},
+): string {
+  const { clearScrollback = true } = options;
+  return clearScrollback ? "\x1b[3J\x1b[2J\x1b[H" : "\x1b[2J\x1b[H";
+}
+
+function writeTerminalSequence(sequence: string): void {
+  const encoder = new TextEncoder();
+  getPlatform().terminal.stdout.writeSync(encoder.encode(sequence));
+}
+
 /**
  * Clear terminal screen and scrollback buffer.
  * Used for Ctrl+L and Cmd+K screen clear in REPL.
  */
 export function clearTerminal(): void {
-  const encoder = new TextEncoder();
-  // \x1b[3J = clear scrollback, \x1b[2J = clear screen, \x1b[H = cursor home
-  getPlatform().terminal.stdout.writeSync(encoder.encode("\x1b[3J\x1b[2J\x1b[H"));
+  writeTerminalSequence(getTerminalClearSequence());
+}
+
+/**
+ * Reset the visible terminal viewport without destroying scrollback.
+ * Used when launching fullscreen-ish REPL surfaces after build/log output.
+ */
+export function resetTerminalViewport(): void {
+  writeTerminalSequence(getTerminalClearSequence({ clearScrollback: false }));
 }

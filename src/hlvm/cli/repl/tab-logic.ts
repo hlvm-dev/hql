@@ -11,7 +11,7 @@ import type { Suggestion } from "./suggester.ts";
  * Determine if Tab should accept the ghost text suggestion.
  *
  * Current contract: never accept suggestion via Tab.
- * Ghost text acceptance is explicit via Right Arrow / Ctrl+E / Enter flow.
+ * Ghost text acceptance is explicit via Right Arrow / Ctrl+E only.
  */
 export function shouldTabAcceptSuggestion(
   _suggestion: Suggestion | null,

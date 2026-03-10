@@ -7,7 +7,11 @@
  * - Transcript reducer delegate status handling
  */
 
-import { assertEquals, assertExists, assertStringIncludes } from "jsr:@std/assert";
+import {
+  assertEquals,
+  assertExists,
+  assertStringIncludes,
+} from "jsr:@std/assert";
 import {
   allocateNickname,
   ConcurrencyLimiter,
@@ -25,13 +29,13 @@ import {
 import {
   cancelAllThreads,
   cancelThread,
+  type DelegateThread,
   getAllThreads,
   getThread,
   registerThread,
   removeThread,
   resetThreadRegistry,
   updateThreadStatus,
-  type DelegateThread,
 } from "../../../src/hlvm/agent/delegate-threads.ts";
 import { createDelegateHandler } from "../../../src/hlvm/agent/delegation.ts";
 import {
@@ -150,10 +154,26 @@ Deno.test("allocateNickname: reuse after removal", () => {
 
 Deno.test("allocateNickname: fallback when pool exhausted", () => {
   const active = new Set([
-    "Alpha", "Bravo", "Charlie", "Delta", "Echo",
-    "Foxtrot", "Golf", "Hotel", "India", "Juliet",
-    "Kilo", "Lima", "Mike", "November", "Oscar",
-    "Papa", "Quebec", "Romeo", "Sierra", "Tango",
+    "Alpha",
+    "Bravo",
+    "Charlie",
+    "Delta",
+    "Echo",
+    "Foxtrot",
+    "Golf",
+    "Hotel",
+    "India",
+    "Juliet",
+    "Kilo",
+    "Lima",
+    "Mike",
+    "November",
+    "Oscar",
+    "Papa",
+    "Quebec",
+    "Romeo",
+    "Sierra",
+    "Tango",
   ]);
   const name = allocateNickname(active);
   assertEquals(name, "Agent-21");
@@ -331,8 +351,12 @@ Deno.test("transcript reducer: concurrent delegates distinguished by threadId", 
   });
 
   const delegates = state.items.filter((i) => i.type === "delegate");
-  const d1 = delegates.find((d) => d.type === "delegate" && d.threadId === "t1");
-  const d2 = delegates.find((d) => d.type === "delegate" && d.threadId === "t2");
+  const d1 = delegates.find((d) =>
+    d.type === "delegate" && d.threadId === "t1"
+  );
+  const d2 = delegates.find((d) =>
+    d.type === "delegate" && d.threadId === "t2"
+  );
 
   assertExists(d1);
   assertExists(d2);
@@ -403,7 +427,10 @@ Deno.test("close_agent: cancels running thread", async () => {
   });
   registerThread(thread);
 
-  const result = await closeAgentFn({ thread_id: "t1" }) as Record<string, unknown>;
+  const result = await closeAgentFn({ thread_id: "t1" }) as Record<
+    string,
+    unknown
+  >;
   assertEquals(result.success, true);
   assertEquals(thread.controller.signal.aborted, true);
   assertEquals(getThread("t1")?.status, "cancelled");
@@ -417,14 +444,20 @@ Deno.test("close_agent: fails for completed thread", async () => {
     status: "completed",
   }));
 
-  const result = await closeAgentFn({ thread_id: "t1" }) as Record<string, unknown>;
+  const result = await closeAgentFn({ thread_id: "t1" }) as Record<
+    string,
+    unknown
+  >;
   assertEquals(result.success, false);
   assertExists((result.message as string).includes("already completed"));
 });
 
 Deno.test("close_agent: fails for nonexistent thread", async () => {
   resetThreadRegistry();
-  const result = await closeAgentFn({ thread_id: "nonexistent" }) as Record<string, unknown>;
+  const result = await closeAgentFn({ thread_id: "nonexistent" }) as Record<
+    string,
+    unknown
+  >;
   assertEquals(result.success, false);
   assertExists((result.message as string).includes("No thread found"));
 });
@@ -455,7 +488,10 @@ Deno.test("wait_agent: returns immediately for already-completed thread", async 
   }));
   updateThreadSnapshot("t1", snapshot);
 
-  const result = await waitAgentFn({ thread_id: "t1" }) as Record<string, unknown>;
+  const result = await waitAgentFn({ thread_id: "t1" }) as Record<
+    string,
+    unknown
+  >;
   assertEquals(result.threadId, "t1");
   assertEquals(result.nickname, "Alpha");
   assertEquals(result.agent, "code");
@@ -465,7 +501,10 @@ Deno.test("wait_agent: returns immediately for already-completed thread", async 
 
 Deno.test("wait_agent: returns error for nonexistent thread", async () => {
   resetThreadRegistry();
-  const result = await waitAgentFn({ thread_id: "nonexistent" }) as Record<string, unknown>;
+  const result = await waitAgentFn({ thread_id: "nonexistent" }) as Record<
+    string,
+    unknown
+  >;
   assertExists(result.error);
   assertEquals(typeof result.error, "string");
 });
@@ -482,9 +521,11 @@ Deno.test("wait_agent: awaits running thread and returns result", async () => {
     events: [],
   };
   // Create a thread that resolves after 50ms
-  const promise = new Promise<{ success: boolean; result: string }>((resolve) => {
-    setTimeout(() => resolve({ success: true, result: "Done" }), 50);
-  });
+  const promise = new Promise<{ success: boolean; result: string }>(
+    (resolve) => {
+      setTimeout(() => resolve({ success: true, result: "Done" }), 50);
+    },
+  );
   const thread = createMockThread({
     threadId: "t1",
     nickname: "Alpha",
@@ -496,7 +537,10 @@ Deno.test("wait_agent: awaits running thread and returns result", async () => {
   // Pre-set snapshot so it's available after resolve
   updateThreadSnapshot("t1", snapshot);
 
-  const result = await waitAgentFn({ thread_id: "t1" }) as Record<string, unknown>;
+  const result = await waitAgentFn({ thread_id: "t1" }) as Record<
+    string,
+    unknown
+  >;
   assertEquals(result.threadId, "t1");
   // Promise resolved, so result is spread into the return
   assertEquals(result.success, true);
@@ -579,7 +623,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "wait_agent: race path auto-applies clean child changes for winning thread",
+  name:
+    "wait_agent: race path auto-applies clean child changes for winning thread",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -638,7 +683,10 @@ Deno.test({
         parentSnapshots: new Map([["file.txt", "original"]]),
       }));
 
-      const result = await waitAgentFn({}, parentDir) as Record<string, unknown>;
+      const result = await waitAgentFn({}, parentDir) as Record<
+        string,
+        unknown
+      >;
       assertEquals(result.threadId, "race-merge-fast");
       assertEquals(result.filesApplied, ["file.txt"]);
       assertEquals(getThread("race-merge-fast")?.mergeState, "applied");
@@ -780,9 +828,98 @@ Deno.test("fixture-backed delegates get fresh child fixture state", async () => 
       },
     );
 
-    assertEquals(getDelegateTranscriptSnapshot(result)?.finalResponse, "Child complete");
+    assertEquals(
+      getDelegateTranscriptSnapshot(result)?.finalResponse,
+      "Child complete",
+    );
     const second = await parentLlm([{ role: "user", content: "parent query" }]);
     assertEquals(second.content, "Parent complete");
+  } finally {
+    await Deno.remove(dir, { recursive: true }).catch(() => {});
+  }
+});
+
+Deno.test("foreground delegates strip mutating tools in shared workspace", async () => {
+  resetThreadRegistry();
+  resetDelegateLimiter();
+  let systemNote = "";
+  const dir = await Deno.makeTempDir();
+
+  try {
+    const handler = createDelegateHandler(async (messages) => {
+      systemNote = messages.find((message) =>
+        message.role === "system" && message.content.includes("Allowed tools:")
+      )?.content ?? "";
+      return {
+        content: "Read-only inspection complete",
+        toolCalls: [],
+      };
+    }, {});
+
+    const result = await handler(
+      { agent: "file", task: "Inspect the workspace and report" },
+      {
+        workspace: dir,
+        context: new ContextManager(),
+        permissionMode: "yolo",
+      },
+    );
+
+    assertStringIncludes(
+      systemNote,
+      "Workspace mode: shared parent workspace without isolation. Stay read-only: inspect, analyze, and report only.",
+    );
+    assertStringIncludes(systemNote, "Allowed tools: read_file, list_files");
+    assertEquals(systemNote.includes("write_file"), false);
+    assertEquals(systemNote.includes("edit_file"), false);
+    assertEquals(
+      getDelegateTranscriptSnapshot(result)?.finalResponse,
+      "Read-only inspection complete",
+    );
+  } finally {
+    await Deno.remove(dir, { recursive: true }).catch(() => {});
+  }
+});
+
+Deno.test("background delegates keep mutating tools when running in isolated workspaces", async () => {
+  resetThreadRegistry();
+  resetDelegateLimiter();
+  let systemNote = "";
+  const dir = await Deno.makeTempDir();
+
+  try {
+    const handler = createDelegateHandler(async (messages) => {
+      systemNote = messages.find((message) =>
+        message.role === "system" && message.content.includes("Allowed tools:")
+      )?.content ?? "";
+      return {
+        content: "Isolated edit complete",
+        toolCalls: [],
+      };
+    }, {});
+
+    const started = await handler(
+      { agent: "file", task: "Update files in isolation", background: true },
+      {
+        workspace: dir,
+        context: new ContextManager(),
+        permissionMode: "yolo",
+      },
+    ) as { threadId: string };
+
+    const waited = await waitAgentFn({ thread_id: started.threadId }, dir) as {
+      result?: { result?: string };
+    };
+
+    assertStringIncludes(
+      systemNote,
+      "Workspace mode: isolated child workspace. File changes may be merged later by the parent.",
+    );
+    assertStringIncludes(
+      systemNote,
+      "Allowed tools: read_file, write_file, edit_file, list_files",
+    );
+    assertEquals(waited.result?.result, "Isolated edit complete");
   } finally {
     await Deno.remove(dir, { recursive: true }).catch(() => {});
   }
@@ -804,7 +941,12 @@ Deno.test({
   fn() {
     resetTaskManager();
     const tm = getTaskManager();
-    const taskId = tm.createDelegateTask("thread-1", "code", "Alpha", "analyze code");
+    const taskId = tm.createDelegateTask(
+      "thread-1",
+      "code",
+      "Alpha",
+      "analyze code",
+    );
 
     const found = tm.findDelegateTaskByThreadId("thread-1");
     assertExists(found);
@@ -821,7 +963,12 @@ Deno.test({
 Deno.test("TaskManager: completeDelegateTask updates status and summary", () => {
   resetTaskManager();
   const tm = getTaskManager();
-  const taskId = tm.createDelegateTask("thread-2", "research", "Bravo", "find docs");
+  const taskId = tm.createDelegateTask(
+    "thread-2",
+    "research",
+    "Bravo",
+    "find docs",
+  );
 
   tm.completeDelegateTask(taskId, "Found 3 docs");
   const task = tm.findDelegateTaskByThreadId("thread-2");
@@ -833,7 +980,12 @@ Deno.test("TaskManager: completeDelegateTask updates status and summary", () => 
 Deno.test("TaskManager: failDelegateTask updates status and error", () => {
   resetTaskManager();
   const tm = getTaskManager();
-  const taskId = tm.createDelegateTask("thread-3", "code", "Charlie", "build feature");
+  const taskId = tm.createDelegateTask(
+    "thread-3",
+    "code",
+    "Charlie",
+    "build feature",
+  );
 
   tm.failDelegateTask(taskId, new Error("Network timeout"));
   const task = tm.findDelegateTaskByThreadId("thread-3");
@@ -877,7 +1029,12 @@ Deno.test("TaskManager: markDelegateThreadRunning buffers start before task crea
   const tm = getTaskManager();
 
   tm.markDelegateThreadRunning("thread-buffered-running");
-  tm.createDelegateTask("thread-buffered-running", "code", "Foxtrot", "buffered task");
+  tm.createDelegateTask(
+    "thread-buffered-running",
+    "code",
+    "Foxtrot",
+    "buffered task",
+  );
 
   const task = tm.findDelegateTaskByThreadId("thread-buffered-running");
   assertExists(task);
@@ -929,7 +1086,10 @@ Deno.test("TaskManager: resolveDelegateThread treats abort errors as cancelled",
 // Stage 2: Configurable Concurrency
 // ============================================================
 
-import { setDelegateLimiterMax, getDelegateLimiter } from "../../../src/hlvm/agent/concurrency.ts";
+import {
+  getDelegateLimiter,
+  setDelegateLimiterMax,
+} from "../../../src/hlvm/agent/concurrency.ts";
 
 Deno.test("setDelegateLimiterMax: changes max for new limiter", () => {
   resetDelegateLimiter();
@@ -944,7 +1104,9 @@ Deno.test("setDelegateLimiterMax: changes max for new limiter", () => {
   assertExists(r2);
   assertExists(r3);
   assertEquals(r4, null); // 4th should fail
-  r1!(); r2!(); r3!();
+  r1!();
+  r2!();
+  r3!();
 });
 
 Deno.test("setDelegateLimiterMax: no-op when same max", () => {
@@ -1038,7 +1200,7 @@ Deno.test("updateThreadStatus: does not set completedAt for non-terminal", () =>
 // Stage 5: Configurable Depth (config validation)
 // ============================================================
 
-import { validateValue, parseValue } from "../../../src/common/config/types.ts";
+import { parseValue, validateValue } from "../../../src/common/config/types.ts";
 
 Deno.test("config validation: agentMaxThreads", () => {
   assertEquals(validateValue("agentMaxThreads", undefined).valid, true);
@@ -1066,7 +1228,10 @@ Deno.test("config parseValue: agentMaxThreads and agentMaxDepth parse as integer
 });
 
 // Config selectors
-import { getAgentMaxThreads, getAgentMaxDepth } from "../../../src/common/config/selectors.ts";
+import {
+  getAgentMaxDepth,
+  getAgentMaxThreads,
+} from "../../../src/common/config/selectors.ts";
 
 Deno.test("getAgentMaxThreads: returns config value or default", () => {
   assertEquals(getAgentMaxThreads({ agentMaxThreads: 8 }), 8);
@@ -1134,8 +1299,8 @@ Deno.test("AgentProfile: profile supports maxTokens override", () => {
 // ============================================================
 
 import {
-  generateChildDiff,
   applyChildChanges,
+  generateChildDiff,
   snapshotWorkspaceFiles,
 } from "../../../src/hlvm/agent/delegation.ts";
 import { createWorkspaceLease } from "../../../src/hlvm/agent/workspace-leases.ts";
@@ -1147,7 +1312,10 @@ Deno.test("createWorkspaceLease: copies the parent snapshot into an isolated chi
     const lease = await createWorkspaceLease(parentDir, "test-thread-id-1234");
     assertExists(lease);
     assertEquals(typeof lease.path, "string");
-    assertEquals(lease.kind === "temp_dir" || lease.kind === "git_worktree", true);
+    assertEquals(
+      lease.kind === "temp_dir" || lease.kind === "git_worktree",
+      true,
+    );
     const stat = await Deno.stat(lease.path);
     assertEquals(stat.isDirectory, true);
 
@@ -1224,7 +1392,9 @@ Deno.test("applyChildChanges: copies modified files to parent", async () => {
   const childDir = await Deno.makeTempDir();
   try {
     await Deno.writeTextFile(`${childDir}/new-file.txt`, "child content");
-    const result = await applyChildChanges(parentDir, childDir, ["new-file.txt"]);
+    const result = await applyChildChanges(parentDir, childDir, [
+      "new-file.txt",
+    ]);
     assertEquals(result.applied, ["new-file.txt"]);
     assertEquals(result.conflicts.length, 0);
     // Verify file exists in parent
@@ -1252,7 +1422,12 @@ Deno.test("applyChildChanges: detects real conflict when parent changed since sp
     await Deno.writeTextFile(`${parentDir}/shared.txt`, "parent changed it");
 
     // Now apply with snapshots — should detect conflict
-    const result = await applyChildChanges(parentDir, childDir, ["shared.txt"], snapshots);
+    const result = await applyChildChanges(
+      parentDir,
+      childDir,
+      ["shared.txt"],
+      snapshots,
+    );
     assertEquals(result.conflicts, ["shared.txt"]);
     assertEquals(result.applied.length, 0);
 
@@ -1276,7 +1451,12 @@ Deno.test("applyChildChanges: no conflict when parent unchanged since spawn", as
     const snapshots = await snapshotWorkspaceFiles(parentDir);
 
     // Parent NOT changed — apply should succeed
-    const result = await applyChildChanges(parentDir, childDir, ["file.txt"], snapshots);
+    const result = await applyChildChanges(
+      parentDir,
+      childDir,
+      ["file.txt"],
+      snapshots,
+    );
     assertEquals(result.applied, ["file.txt"]);
     assertEquals(result.conflicts.length, 0);
 
@@ -1449,9 +1629,27 @@ Deno.test("DelegateBatchRegistry: derives counts from thread state and spawn fai
   resetBatchRegistry();
   resetThreadRegistry();
   registerBatch("batch-1", "code", 4);
-  registerThread(createMockThread({ threadId: "b1-t1", status: "queued", batchId: "batch-1" }));
-  registerThread(createMockThread({ threadId: "b1-t2", status: "running", batchId: "batch-1" }));
-  registerThread(createMockThread({ threadId: "b1-t3", status: "completed", batchId: "batch-1" }));
+  registerThread(
+    createMockThread({
+      threadId: "b1-t1",
+      status: "queued",
+      batchId: "batch-1",
+    }),
+  );
+  registerThread(
+    createMockThread({
+      threadId: "b1-t2",
+      status: "running",
+      batchId: "batch-1",
+    }),
+  );
+  registerThread(
+    createMockThread({
+      threadId: "b1-t3",
+      status: "completed",
+      batchId: "batch-1",
+    }),
+  );
   addBatchThread("batch-1", "b1-t1");
   addBatchThread("batch-1", "b1-t2");
   addBatchThread("batch-1", "b1-t3");
@@ -1493,8 +1691,8 @@ Deno.test("DelegateCoordinationBoard: tracks work by ID and thread", () => {
 // ============================================================
 
 import {
-  sendThreadInput,
   drainThreadInput,
+  sendThreadInput,
 } from "../../../src/hlvm/agent/delegate-threads.ts";
 
 Deno.test("sendThreadInput: queues message for active thread", () => {
@@ -1598,6 +1796,68 @@ Deno.test("renderDelegation: weak tier generates abbreviated prompt", () => {
   // Weak tier should NOT include the detailed sections
   assertEquals(prompt.includes("When to Delegate"), false);
   assertEquals(prompt.includes("Coordination Patterns"), false);
+});
+
+// ============================================================
+// Fix 1: Worker member retirement (maxMembers not cumulative)
+// ============================================================
+
+import { createTeamRuntime } from "../../../src/hlvm/agent/team-runtime.ts";
+
+Deno.test("completed delegates terminate their team member so maxMembers is not cumulative", async () => {
+  resetThreadRegistry();
+  resetDelegateLimiter();
+
+  const teamRuntime = createTeamRuntime("lead", "lead-id", {
+    snapshot: {
+      teamId: "test-team",
+      leadMemberId: "lead-id",
+      policy: {
+        maxMembers: 2,
+        reviewRequired: false,
+        allowBatchDelegation: true,
+        autoApplyCleanChanges: true,
+        implementationProfile: "code",
+        reviewProfile: "code",
+        researchProfile: "web",
+        synthesisProfile: "general",
+      },
+      members: [],
+      tasks: [],
+      messages: [],
+      approvals: [],
+      shutdowns: [],
+    },
+  });
+
+  const handler = createDelegateHandler(async () => ({
+    content: "Done",
+    toolCalls: [],
+  }), {});
+
+  const config = {
+    workspace: "/tmp/hlvm-test-member-retire",
+    context: new ContextManager(),
+    permissionMode: "yolo" as const,
+    teamRuntime,
+    teamLeadMemberId: "lead-id",
+  };
+
+  // Run 2 foreground delegates (fills maxMembers)
+  await handler({ agent: "code", task: "task 1" }, config);
+  await handler({ agent: "code", task: "task 2" }, config);
+
+  // Both members should be terminated
+  const members = teamRuntime.listMembers();
+  const workers = members.filter((m) => m.role === "worker");
+  assertEquals(workers.length, 2);
+  for (const w of workers) {
+    assertEquals(w.status, "terminated");
+  }
+
+  // A 3rd delegate should still succeed (not blocked by maxMembers)
+  const result = await handler({ agent: "code", task: "task 3" }, config);
+  assertExists(result);
 });
 
 // ============================================================

@@ -1,6 +1,7 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   buildFooterCenterState,
+  getFooterColumnWidths,
   buildFooterRightState,
 } from "../../../src/hlvm/cli/repl-ink/components/FooterHint.tsx";
 import { StreamingState } from "../../../src/hlvm/cli/repl-ink/types.ts";
@@ -63,12 +64,44 @@ Deno.test("buildFooterCenterState surfaces transient status messages when idle",
 
 Deno.test("buildFooterRightState keeps the mode badge separate from model metadata", () => {
   const state = buildFooterRightState({
-    modeLabel: "plan mode on",
+    inConversation: true,
     contextUsageLabel: "12% ctx",
     checkpointLabel: "/undo ready",
     modelName: "claude-sonnet-4-6",
   });
 
-  assertEquals(state.modeLabel, "plan mode on");
   assertEquals(state.infoText, "12% ctx · /undo ready · claude-sonnet-4-6");
+});
+
+Deno.test("buildFooterRightState hides idle model-only metadata outside conversation", () => {
+  const state = buildFooterRightState({
+    inConversation: false,
+    modelName: "llama3.2:1b",
+  });
+
+  assertEquals(state.infoText, "");
+});
+
+Deno.test("getFooterColumnWidths gives the center the full row when side columns are empty", () => {
+  assertEquals(getFooterColumnWidths(90), {
+    width: 90,
+    leftWidth: 0,
+    centerWidth: 90,
+    rightWidth: 0,
+  });
+  assertEquals(getFooterColumnWidths(48), {
+    width: 48,
+    leftWidth: 0,
+    centerWidth: 48,
+    rightWidth: 0,
+  });
+});
+
+Deno.test("getFooterColumnWidths fits side content without stealing unnecessary center space", () => {
+  assertEquals(getFooterColumnWidths(90, "accept edits on", "llama3.2:1b"), {
+    width: 90,
+    leftWidth: 15,
+    centerWidth: 62,
+    rightWidth: 11,
+  });
 });

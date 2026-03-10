@@ -62,6 +62,8 @@ export interface AgentSessionOptions {
   engine?: AgentEngine;
   /** Preloaded agent profiles for delegation guidance. */
   agentProfiles?: readonly AgentProfile[];
+  /** Disable persistent memory injection for this session. */
+  disablePersistentMemory?: boolean;
 }
 
 export interface AgentSession {
@@ -281,16 +283,18 @@ export async function createAgentSession(
 
   // Inject memory as a SEPARATE system message (not embedded in main prompt).
   // This allows reuseSession() to refresh memory without duplicating it.
-  try {
-    const memoryContext = await loadMemoryContext(resolved.budget);
-    if (memoryContext) {
-      context.addMessage({
-        role: "system",
-        content: `# Your Memory\n${memoryContext}`,
-      });
+  if (!options.disablePersistentMemory) {
+    try {
+      const memoryContext = await loadMemoryContext(resolved.budget);
+      if (memoryContext) {
+        context.addMessage({
+          role: "system",
+          content: `# Your Memory\n${memoryContext}`,
+        });
+      }
+    } catch {
+      // Memory loading is best-effort — don't block session creation
     }
-  } catch {
-    // Memory loading is best-effort — don't block session creation
   }
 
   const llm = options.fixturePath

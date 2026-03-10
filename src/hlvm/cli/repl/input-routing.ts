@@ -1,5 +1,12 @@
+import { supportsAgentExecution } from "../../agent/constants.ts";
+
 interface NaturalLanguageDetectionOptions {
   hasBinding?: (name: string) => boolean;
+}
+
+export interface ConversationRoutingModelInfo {
+  parameterSize?: string;
+  contextWindow?: number;
 }
 
 const RESERVED_LITERAL_NAMES = new Set([
@@ -82,4 +89,11 @@ export function looksLikeNaturalLanguage(
   if (!hasWhitespace) return false;
 
   return true;
+}
+
+export function resolveConversationMode(
+  model?: string,
+  modelInfo?: ConversationRoutingModelInfo | null,
+): "chat" | "agent" {
+  return supportsAgentExecution(model, modelInfo) ? "agent" : "chat";
 }

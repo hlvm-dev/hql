@@ -1,22 +1,12 @@
 /**
- * DdgSearchBackend - DuckDuckGo-based full-pipeline web search orchestration.
+ * DdgSearchBackend - Thin single-pass web retrieval.
  *
- * Active path:
- *   query planning -> primary search -> Google News -> follow-up retries ->
- *   raw merged result pool -> fetch-target selection -> fetch enrichment ->
- *   citations + diagnostics assembly
- *
- * Primary chooser: LLM result selection using the active session model.
- * Fallback chooser: small deterministic query-overlap selector.
+ * Strong models own routing, iteration, and final synthesis.
+ * This backend only does:
+ *   search -> deterministic fetch selection -> fetch/enrich -> evidence annotation
  */
 
-import { combineSignals } from "../../../../common/timeout-utils.ts";
-import type { SearchResult } from "./search-provider.ts";
-import {
-  filterSearchResultsByDomain,
-  isAllowedByDomainFilters,
-  normalizeDomain,
-} from "./search-provider.ts";
+import type { Citation, SearchResult } from "./search-provider.ts";
 import {
   fetchWithRedirects,
   readResponseBody,
@@ -31,79 +21,44 @@ import {
   deduplicateSnippetPassages,
   extractRelevantPassages,
   filterSearchResultsForTimeRange,
+  scorePassage,
+  tokenizeQuery,
 } from "./search-ranking.ts";
-import {
-  appendQueryQualifier,
-  buildFollowupQueries,
-} from "./query-strategy.ts";
-import { planSearchQueries } from "./query-decomposition.ts";
-import { fetchGoogleNewsResults } from "./google-news.ts";
 import {
   assessToolSearchConfidence,
   LOW_CONFIDENCE_SCORE_THRESHOLD,
-  type RetrievalGuidance,
   type WebSearchBackend,
   type WebSearchRequest,
   type WebSearchResponse,
 } from "./search-backend.ts";
-import { buildDeterministicAnswer } from "./answer-from-evidence.ts";
-import { VERSION_RE, YEAR_RE } from "./intent-patterns.ts";
 import {
   rankFetchedEvidenceDeterministically,
   selectSearchResultsDeterministically,
-  selectSearchResultsWithLlm,
 } from "./search-result-selector.ts";
-import { hasStructuredEvidence } from "./web-utils.ts";
-import { discoverAllowedDomainResults } from "./domain-discovery.ts";
 import {
   annotateSearchResultSources,
-  classifySearchResultSource,
 } from "./source-authority.ts";
-
-// ============================================================
-// Constants
-// ============================================================
+import { detectSearchQueryIntent } from "./query-strategy.ts";
+import { hasStructuredEvidence } from "./web-utils.ts";
 
 const DEFAULT_PREFETCH_TARGETS = 3;
-const LOW_CONFIDENCE_PREFETCH_TARGETS = 4;
 const MAX_PREFETCH_TARGETS = 5;
 const PREFETCH_CANDIDATE_EXTRA_RESULTS = 5;
 const PREFETCH_CANDIDATE_MAX_RESULTS = 10;
-const AUTO_DEEP_MAX_ROUNDS = 2;
-const AUTO_DEEP_EXTRA_RESULTS = 3;
-const AUTO_DEEP_MAX_RESULTS = 12;
-const QUERY_PLAN_MAX_TOTAL = 3;
-const LLM_SELECTOR_TIMEOUT_MS = 5_000;
 const PREFETCH_MAX_BYTES = 128_000;
 const PREFETCH_MAX_TEXT = 8_000;
 const PREFETCH_MAX_REDIRECTS = 2;
-const DIRECT_QUESTION_RE = /^(?:what|how|why|when|where|which|who)\b/i;
-
-// ============================================================
-// Helpers
-// ============================================================
-
-function mergeSearchResults(
-  results: SearchResult[],
-  incoming: SearchResult[],
-): SearchResult[] {
-  return dedupeSearchResultsStable([...results, ...incoming]);
-}
+const PREFETCH_TIMEOUT_MS = 5_000;
+const MAX_FOCUSED_CITATIONS = 3;
+const MAX_BROAD_CITATIONS = 4;
 
 function resolvePrefetchTargetCount(
   baseTargetCount: number,
   resultLimit: number,
-  lowConfidence: boolean,
 ): number {
   const boundedBase = Math.max(0, baseTargetCount);
   if (boundedBase === 0) return 0;
-
-  const limitCap = Math.max(1, resultLimit);
-  const preferredCount = lowConfidence
-    ? Math.max(boundedBase, LOW_CONFIDENCE_PREFETCH_TARGETS)
-    : boundedBase;
-
-  return Math.min(MAX_PREFETCH_TARGETS, Math.min(limitCap, preferredCount));
+  return Math.min(MAX_PREFETCH_TARGETS, Math.max(1, Math.min(resultLimit, boundedBase)));
 }
 
 function resolveCandidatePoolLimit(
@@ -115,39 +70,6 @@ function resolveCandidatePoolLimit(
     PREFETCH_CANDIDATE_MAX_RESULTS,
     Math.max(resultLimit, resultLimit + PREFETCH_CANDIDATE_EXTRA_RESULTS),
   );
-}
-
-function buildChooserSignal(parentSignal?: AbortSignal): AbortSignal {
-  const timeoutSignal = AbortSignal.timeout(LLM_SELECTOR_TIMEOUT_MS);
-  return parentSignal ? combineSignals(timeoutSignal, parentSignal) : timeoutSignal;
-}
-
-function buildDomainPinnedQueries(
-  query: string,
-  allowedDomains?: string[],
-): string[] {
-  if (!allowedDomains?.length) return [];
-  return allowedDomains
-    .map(normalizeDomain)
-    .filter((domain) => domain.length > 0)
-    .slice(0, 2)
-    .map((domain) => `site:${domain} ${query}`);
-}
-
-function hasAllowedDomainHit(
-  results: SearchResult[],
-  allowedDomains?: string[],
-): boolean {
-  if (!allowedDomains?.length) return true;
-  return results.some((result) => {
-    if (!result.url) return false;
-    try {
-      const hostname = new URL(result.url).hostname.toLowerCase();
-      return isAllowedByDomainFilters(hostname, allowedDomains, undefined);
-    } catch {
-      return false;
-    }
-  });
 }
 
 function markFetchTargets(
@@ -212,97 +134,187 @@ function annotateFetchedResults(
   );
 }
 
-function needsAuthorityRecovery(
-  query: string,
-  results: SearchResult[],
-  allowedDomains?: string[],
-  wantsAuthoritativeBias?: boolean,
-): boolean {
-  if (allowedDomains?.length) return false;
-  if (!(wantsAuthoritativeBias || DIRECT_QUESTION_RE.test(query.trim()))) {
-    return false;
+function getResultHost(result: SearchResult): string {
+  if (!result.url) return "";
+  try {
+    return new URL(result.url).hostname.toLowerCase();
+  } catch {
+    return "";
   }
-  return !results.some((result) =>
-    classifySearchResultSource(result, allowedDomains).isAuthoritative
-  );
 }
 
-function ensureAuthoritativePrefetchTargets(
-  targets: SearchResult[],
-  candidates: SearchResult[],
-  maxTargets: number,
-  allowedDomains: string[] | undefined,
-  wantsAuthoritativeBias: boolean,
-): SearchResult[] {
-  if (!wantsAuthoritativeBias || maxTargets <= 0) return targets;
-  if (targets.some((result) => classifySearchResultSource(result, allowedDomains).isAuthoritative)) {
-    return targets;
-  }
-
-  const selectedUrls = new Set(targets.map((result) => result.url).filter(Boolean));
-  const authoritativeFallback = candidates
-    .filter((result) => result.url && !selectedUrls.has(result.url))
-    .map((result) => ({
-      result,
-      authorityScore: classifySearchResultSource(result, allowedDomains).authorityScore,
-      rankScore: result.score ?? 0,
-    }))
-    .filter((entry) => entry.authorityScore >= 3)
-    .sort((a, b) =>
-      b.authorityScore - a.authorityScore ||
-      b.rankScore - a.rankScore ||
-      (a.result.url ?? "").localeCompare(b.result.url ?? "")
-    )[0]?.result;
-
-  if (!authoritativeFallback) return targets;
-  return [
-    authoritativeFallback,
-    ...targets.filter((result) => result.url !== authoritativeFallback.url),
-  ].slice(0, maxTargets);
+function isAuthoritativeResult(result: SearchResult): boolean {
+  return result.sourceClass === "official_docs" ||
+    result.sourceClass === "vendor_docs" ||
+    result.sourceClass === "repo_docs";
 }
 
-function collectAuthorityDiagnostics(
-  results: SearchResult[],
-  prefetchTargets: SearchResult[],
-  followupRoundDiagnostics: Array<Record<string, unknown>>,
-  allowedDomains?: string[],
-): {
-  authoritativeResultCount: number;
-  topAuthoritativeRank?: number;
-  authorityRecoveryTriggered: boolean;
-  authorityRecoverySucceeded: boolean;
-  selectedAuthoritativeFetchCount: number;
-} {
-  let authoritativeResultCount = 0;
-  let topAuthoritativeRank: number | undefined;
-  for (const [index, result] of results.entries()) {
-    if (!classifySearchResultSource(result, allowedDomains).isAuthoritative) {
-      continue;
+function toCitation(result: SearchResult, providerName: string, query?: string): Citation | null {
+  if (!result.url) return null;
+  let excerpt = result.passages?.[0] ?? result.pageDescription ?? result.snippet;
+
+  // Pick the most query-relevant passage (not just the first) when query is available.
+  if (query && result.passages && result.passages.length > 1) {
+    const tokens = tokenizeQuery(query);
+    if (tokens.length > 0) {
+      let bestScore = -1;
+      for (const passage of result.passages) {
+        const score = scorePassage(passage.toLowerCase(), tokens);
+        if (score > bestScore) {
+          bestScore = score;
+          excerpt = passage;
+        }
+      }
     }
-    authoritativeResultCount += 1;
-    topAuthoritativeRank ??= index + 1;
   }
-
-  const selectedAuthoritativeFetchCount = prefetchTargets.filter((result) =>
-    classifySearchResultSource(result, allowedDomains).isAuthoritative
-  ).length;
-  const authorityRecoveryTriggered = followupRoundDiagnostics.some((round) =>
-    round.phase === "authority_recovery"
-  );
 
   return {
-    authoritativeResultCount,
-    topAuthoritativeRank,
-    authorityRecoveryTriggered,
-    authorityRecoverySucceeded:
-      authorityRecoveryTriggered && authoritativeResultCount > 0,
-    selectedAuthoritativeFetchCount,
+    url: result.url,
+    title: result.title,
+    excerpt,
+    provider: providerName,
+    sourceKind: (result.passages?.length || result.pageDescription)
+      ? "passage"
+      : "snippet",
+    sourceClass: result.sourceClass,
   };
 }
 
-// ============================================================
-// DdgSearchBackend
-// ============================================================
+function appendCitationGroup(
+  sink: Citation[],
+  seenUrls: Set<string>,
+  results: SearchResult[],
+  providerName: string,
+  limit: number,
+  query?: string,
+): void {
+  for (const result of results) {
+    if (sink.length >= limit || !result.url || seenUrls.has(result.url)) continue;
+    const citation = toCitation(result, providerName, query);
+    if (!citation) continue;
+    seenUrls.add(result.url);
+    sink.push(citation);
+  }
+}
+
+function hasAuthoritativeCitation(citations: Citation[]): boolean {
+  return citations.some((citation) =>
+    citation.sourceClass === "official_docs" ||
+    citation.sourceClass === "vendor_docs" ||
+    citation.sourceClass === "repo_docs"
+  );
+}
+
+function buildSearchCitations(
+  results: SearchResult[],
+  providerName: string,
+  lowConfidence: boolean,
+  wantsBroadCoverage: boolean,
+  query?: string,
+): Citation[] {
+  const limit = wantsBroadCoverage ? MAX_BROAD_CITATIONS : MAX_FOCUSED_CITATIONS;
+  const citations: Citation[] = [];
+  const seenUrls = new Set<string>();
+  const resultsWithUrl = results.filter((result) => Boolean(result.url));
+  const fetchedResults = resultsWithUrl.filter((result) =>
+    result.selectedForFetch === true
+  );
+  const fetchedEvidence = fetchedResults.filter((result) =>
+    hasStructuredEvidence(result)
+  );
+  const authoritativeFetchedEvidence = fetchedEvidence.filter(isAuthoritativeResult);
+  const primaryFetchedEvidence = !wantsBroadCoverage &&
+      authoritativeFetchedEvidence.length > 0
+    ? authoritativeFetchedEvidence
+    : fetchedEvidence;
+  const authoritativeSelected = fetchedResults.filter((result) =>
+    !hasStructuredEvidence(result) && isAuthoritativeResult(result)
+  );
+  const authoritativeSupporting = resultsWithUrl.filter((result) =>
+    result.selectedForFetch !== true && isAuthoritativeResult(result)
+  );
+  const selectedFallback = fetchedResults.filter((result) =>
+    !hasStructuredEvidence(result) || !isAuthoritativeResult(result)
+  );
+
+  appendCitationGroup(
+    citations,
+    seenUrls,
+    primaryFetchedEvidence,
+    providerName,
+    limit,
+    query,
+  );
+  appendCitationGroup(
+    citations,
+    seenUrls,
+    authoritativeSelected,
+    providerName,
+    limit,
+    query,
+  );
+  appendCitationGroup(
+    citations,
+    seenUrls,
+    authoritativeSupporting,
+    providerName,
+    limit,
+    query,
+  );
+
+  const authoritativeCoverage = hasAuthoritativeCitation(citations);
+  if (
+    citations.length === 0 ||
+    ((wantsBroadCoverage || lowConfidence) && !authoritativeCoverage)
+  ) {
+    appendCitationGroup(
+      citations,
+      seenUrls,
+      selectedFallback,
+      providerName,
+      limit,
+      query,
+    );
+  }
+
+  if (citations.length === 0) {
+    appendCitationGroup(
+      citations,
+      seenUrls,
+      resultsWithUrl,
+      providerName,
+      limit,
+      query,
+    );
+  }
+
+  return citations;
+}
+
+function ensureDistinctTopHosts(
+  targets: SearchResult[],
+  candidates: SearchResult[],
+  maxTargets: number,
+): SearchResult[] {
+  if (targets.length < 2 || maxTargets < 2) return targets;
+  const firstHost = getResultHost(targets[0]);
+  const secondHost = getResultHost(targets[1]);
+  if (!firstHost || !secondHost || firstHost !== secondHost) return targets;
+
+  const selectedUrls = new Set(targets.map((result) => result.url).filter(Boolean));
+  const fallback = candidates.find((candidate) => {
+    if (!candidate.url || selectedUrls.has(candidate.url)) return false;
+    const host = getResultHost(candidate);
+    return host.length > 0 && host !== firstHost;
+  });
+  if (!fallback) return targets;
+
+  return [
+    targets[0],
+    fallback,
+    ...targets.slice(1).filter((result) => result.url !== fallback.url),
+  ].slice(0, maxTargets);
+}
 
 export class DdgSearchBackend implements WebSearchBackend {
   async search(request: WebSearchRequest): Promise<WebSearchResponse> {
@@ -323,29 +335,9 @@ export class DdgSearchBackend implements WebSearchBackend {
       toolOptions: options,
     } = request;
 
-    const queryPlan = planSearchQueries({
-      userQuery: query,
-      maxSubqueries: QUERY_PLAN_MAX_TOTAL,
-    });
-    const queryIntent = queryPlan.intent;
-
-    const wantsRecent = queryIntent.wantsRecency || queryIntent.wantsReleaseNotes;
     const candidatePoolLimit = resolveCandidatePoolLimit(limit, shouldPrefetch);
-    const effectiveQuery = wantsRecent &&
-        !VERSION_RE.test(query) &&
-        !YEAR_RE.test(query)
-      ? `${queryPlan.primaryQuery} ${new Date().getFullYear()}`
-      : queryPlan.primaryQuery;
-
-    const newsPromise = wantsRecent
-      ? fetchGoogleNewsResults(queryPlan.primaryQuery, {
-        limit: Math.min(8, limit),
-        timeoutMs: Math.min(3_000, timeout ?? 3_000),
-        locale,
-      }).catch(() => [] as SearchResult[])
-      : Promise.resolve([] as SearchResult[]);
-
-    const result = await provider.search(effectiveQuery, {
+    const intent = detectSearchQueryIntent(query);
+    const result = await provider.search(query, {
       limit: candidatePoolLimit,
       timeoutMs: timeout,
       allowedDomains,
@@ -356,347 +348,55 @@ export class DdgSearchBackend implements WebSearchBackend {
       reformulate: resolvedReformulate,
       searchDepth,
     });
-    const initialProviderDiagnostics =
+    const providerDiagnostics =
       result.diagnostics as Record<string, unknown> | undefined;
-    const recallExpansionEnabled = resolvedReformulate !== false;
-    const executedQueryTrail = [effectiveQuery];
-    const executedSubqueries: string[] = [];
 
-    const newsResults = filterSearchResultsByDomain(
-      await newsPromise,
-      allowedDomains,
-      blockedDomains,
+    result.results = filterSearchResultsForTimeRange(
+      dedupeSearchResultsStable(result.results),
+      timeRange,
     );
-    if (newsResults.length > 0) {
-      result.results = mergeSearchResults(result.results, newsResults);
-      result.count = result.results.length;
-    }
-
-    const domainPinnedQueries = buildDomainPinnedQueries(
-      queryPlan.primaryQuery,
-      allowedDomains,
-    );
-
-    const deepDiagnostics: {
-      autoTriggered: boolean;
-      rounds: number;
-      triggerReason: string;
-      queryTrail: string[];
-      recovered: boolean;
-      decompositionApplied: boolean;
-    } = {
-      autoTriggered: false,
-      rounds: 1,
-      triggerReason: "none",
-      queryTrail: executedQueryTrail,
-      recovered: false,
-      decompositionApplied: false,
-    };
-    const followupRoundDiagnostics: Array<Record<string, unknown>> = [];
-
-    const exploratoryQueries = [...domainPinnedQueries, ...queryPlan.subqueries];
-    for (const subquery of exploratoryQueries) {
-      if (executedQueryTrail.length >= QUERY_PLAN_MAX_TOTAL) break;
-      const confidenceBeforeSubquery = assessToolSearchConfidence(query, result.results);
-      const shouldTryPinnedQuery = subquery.startsWith("site:");
-      if (
-        !shouldTryPinnedQuery &&
-        result.results.length > 0 &&
-        !confidenceBeforeSubquery.lowConfidence
-      ) {
-        break;
-      }
-      const subqueryResult = await provider.search(subquery, {
-        limit: candidatePoolLimit,
-        timeoutMs: timeout,
-        allowedDomains,
-        blockedDomains,
-        timeRange,
-        locale,
-        toolOptions: options,
-        reformulate: true,
-        searchDepth: searchDepth === "low" ? "medium" : searchDepth,
-      });
-      executedQueryTrail.push(subquery);
-      executedSubqueries.push(subquery);
-      deepDiagnostics.autoTriggered = true;
-      deepDiagnostics.decompositionApplied = deepDiagnostics.decompositionApplied ||
-        !shouldTryPinnedQuery;
-      if (deepDiagnostics.triggerReason === "none") {
-        deepDiagnostics.triggerReason = shouldTryPinnedQuery
-          ? "allowed_domain"
-          : "decomposition";
-      }
-      result.results = mergeSearchResults(result.results, subqueryResult.results);
-      result.count = result.results.length;
-      followupRoundDiagnostics.push({
-        phase: shouldTryPinnedQuery ? "allowed_domain" : "decomposition",
-        query: subquery,
-        providerDiagnostics: subqueryResult.diagnostics ?? undefined,
-      });
-    }
-
-    if (
-      recallExpansionEnabled &&
-      executedQueryTrail.length < QUERY_PLAN_MAX_TOTAL &&
-      needsAuthorityRecovery(
-        query,
-        result.results,
-        allowedDomains,
-        queryIntent.wantsAuthoritativeBias,
-      )
-    ) {
-      const authorityQuery = appendQueryQualifier(
-        queryPlan.primaryQuery,
-        "official docs reference",
-      );
-      if (!executedQueryTrail.some((item) => item.toLowerCase() === authorityQuery.toLowerCase())) {
-        const authorityResult = await provider.search(authorityQuery, {
-          limit: candidatePoolLimit,
-          timeoutMs: timeout,
-          allowedDomains,
-          blockedDomains,
-          timeRange,
-          locale,
-          toolOptions: options,
-          reformulate: true,
-          searchDepth: searchDepth === "low" ? "medium" : searchDepth,
-        });
-        executedQueryTrail.push(authorityQuery);
-        deepDiagnostics.autoTriggered = true;
-        if (deepDiagnostics.triggerReason === "none") {
-          deepDiagnostics.triggerReason = "authority_recovery";
-        }
-        result.results = mergeSearchResults(result.results, authorityResult.results);
-        result.count = result.results.length;
-        followupRoundDiagnostics.push({
-          phase: "authority_recovery",
-          query: authorityQuery,
-          providerDiagnostics: authorityResult.diagnostics ?? undefined,
-        });
-      }
-    }
-
-    let confidenceBeforeDeep = assessToolSearchConfidence(query, result.results);
-    const remainingFollowupBudget = Math.max(
-      0,
-      AUTO_DEEP_MAX_ROUNDS - (executedQueryTrail.length - 1),
-    );
-    if (
-      recallExpansionEnabled &&
-      confidenceBeforeDeep.lowConfidence &&
-      remainingFollowupBudget > 0
-    ) {
-      const followupQueries = buildFollowupQueries({
-        userQuery: query,
-        confidenceReason: confidenceBeforeDeep.reason,
-        currentResults: result.results,
-        maxQueries: remainingFollowupBudget,
-      });
-
-      const seenQueries = new Set(
-        executedQueryTrail.map((item) => item.toLowerCase()),
-      );
-      for (const followupQuery of followupQueries) {
-        if (!confidenceBeforeDeep.lowConfidence) break;
-        if (!followupQuery || seenQueries.has(followupQuery.toLowerCase())) {
-          continue;
-        }
-
-        deepDiagnostics.autoTriggered = true;
-        if (deepDiagnostics.triggerReason === "none") {
-          deepDiagnostics.triggerReason = confidenceBeforeDeep.reason;
-        }
-        executedQueryTrail.push(followupQuery);
-        seenQueries.add(followupQuery.toLowerCase());
-
-        const deepLimit = Math.min(
-          AUTO_DEEP_MAX_RESULTS,
-          Math.max(candidatePoolLimit, limit + AUTO_DEEP_EXTRA_RESULTS),
-        );
-
-        const deepResult = await provider.search(followupQuery, {
-          limit: deepLimit,
-          timeoutMs: timeout,
-          allowedDomains,
-          blockedDomains,
-          timeRange,
-          locale,
-          toolOptions: options,
-          reformulate: true,
-          searchDepth: "high",
-        });
-
-        result.results = mergeSearchResults(result.results, deepResult.results);
-        result.count = result.results.length;
-        followupRoundDiagnostics.push({
-          phase: "followup",
-          query: followupQuery,
-          providerDiagnostics: deepResult.diagnostics ?? undefined,
-        });
-
-        confidenceBeforeDeep = assessToolSearchConfidence(query, result.results);
-      }
-    }
-    deepDiagnostics.queryTrail = executedQueryTrail;
-    deepDiagnostics.rounds = executedQueryTrail.length;
-    deepDiagnostics.recovered = deepDiagnostics.autoTriggered &&
-      !confidenceBeforeDeep.lowConfidence;
-
-    result.results = filterSearchResultsForTimeRange(result.results, timeRange);
     result.count = result.results.length;
-    let domainDiscovery: {
-      triggered: boolean;
-      domains: string[];
-      seedUrls: string[];
-      fetchedSeedUrls: string[];
-      discoveredResultCount: number;
-    } = {
-      triggered: false,
-      domains: [],
-      seedUrls: [],
-      fetchedSeedUrls: [],
-      discoveredResultCount: 0,
-    };
-    let discoveredDomainResults: SearchResult[] = [];
 
-    if (shouldPrefetch && allowedDomains?.length) {
-      const shouldDiscoverFromDomain = result.results.length === 0 ||
-        confidenceBeforeDeep.lowConfidence ||
-        !hasAllowedDomainHit(result.results, allowedDomains);
-      if (shouldDiscoverFromDomain) {
-        const discovered = await discoverAllowedDomainResults({
-          query,
-          allowedDomains,
-          maxResults: candidatePoolLimit,
-          intent: queryIntent,
-          timeoutMs: timeout,
-          fetchUserAgent,
-          toolOptions: options,
-        });
-        domainDiscovery = discovered.diagnostics;
-        if (discovered.results.length > 0) {
-          discoveredDomainResults = discovered.results;
-          result.results = dedupeSearchResultsStable([
-            ...discovered.results,
-            ...result.results,
-          ]);
-          result.count = result.results.length;
-          followupRoundDiagnostics.push({
-            phase: "allowed_domain_discovery",
-            domains: discovered.diagnostics.domains,
-            seedUrls: discovered.diagnostics.seedUrls,
-            fetchedSeedUrls: discovered.diagnostics.fetchedSeedUrls,
-            discoveredCount: discovered.results.length,
-          });
-        }
-      }
-    }
-
-    const confidenceBeforePrefetch = assessToolSearchConfidence(query, result.results);
-    const lowConfidenceBeforePrefetch = confidenceBeforePrefetch.lowConfidence;
     let prefetchCandidateCount = 0;
     let prefetchTargets: SearchResult[] = [];
-    let chooserUsed = false;
-    let chooserStrategy: "llm" | "deterministic" = "deterministic";
-    let chooserConfidence: "high" | "medium" | "low" = "low";
-    let chooserReason =
-      "Deterministic chooser was used to select fetch targets.";
-    let chooserPickedIndices: number[] = [];
-    let fallbackUsed = false;
-    let evidenceStrategy: "deterministic" | "annotated" | "none" = "none";
+    let selectionConfidence: "high" | "medium" | "low" = "low";
+    let selectionReason =
+      "Deterministic fetch selection prioritized query overlap and host diversity.";
+    let evidenceStrategy: "deterministic" | "none" = "none";
     let evidenceConfidence: "high" | "medium" | "low" = "low";
     let evidenceReason =
       "No fetched results were available for deterministic evidence ranking.";
     const fetchedUrls: string[] = [];
-    const prefersDeterministicRetriever = options?.modelTier === "weak";
 
     if (shouldPrefetch) {
-      const prefetchCandidates = (
-        prefersDeterministicRetriever && discoveredDomainResults.length > 0
-          ? discoveredDomainResults
-          : result.results
-      ).filter((entry) => entry.url);
+      const prefetchCandidates = result.results.filter((entry) => entry.url);
       prefetchCandidateCount = prefetchCandidates.length;
       const defaultPrefetchTargetCount = profilePrefetchTargets > 0
         ? profilePrefetchTargets
         : DEFAULT_PREFETCH_TARGETS;
-      const basePrefetchTargetCount = prefersDeterministicRetriever
-        ? Math.max(defaultPrefetchTargetCount, LOW_CONFIDENCE_PREFETCH_TARGETS)
-        : defaultPrefetchTargetCount;
-      const desiredPrefetchTargetCount = resolvePrefetchTargetCount(
-        basePrefetchTargetCount,
-        limit,
-        lowConfidenceBeforePrefetch,
-      );
       const prefetchTargetCount = Math.min(
         prefetchCandidateCount,
-        desiredPrefetchTargetCount,
+        resolvePrefetchTargetCount(defaultPrefetchTargetCount, limit),
       );
 
       if (prefetchTargetCount > 0) {
-        const deterministicInput = {
+        const selection = selectSearchResultsDeterministically({
           query,
           results: prefetchCandidates,
           maxPicks: prefetchTargetCount,
-          intent: queryIntent,
+          intent,
           allowedDomains,
           toolOptions: options,
-        } as const;
-
-        if (options?.modelId && !prefersDeterministicRetriever) {
-          try {
-            chooserUsed = true;
-            const selection = await selectSearchResultsWithLlm({
-              ...deterministicInput,
-              toolOptions: {
-                ...options,
-                signal: buildChooserSignal(options.signal),
-              },
-            });
-            chooserStrategy = selection.strategy;
-            chooserConfidence = selection.confidence;
-            chooserReason = selection.reason;
-            chooserPickedIndices = selection.pickedIndices;
-            prefetchTargets = selection.picks.filter((entry) => entry.url);
-          } catch (error) {
-            fallbackUsed = true;
-            const fallbackSelection = selectSearchResultsDeterministically(
-              deterministicInput,
-            );
-            chooserStrategy = fallbackSelection.strategy;
-            chooserConfidence = fallbackSelection.confidence;
-            chooserReason = error instanceof Error
-              ? `LLM chooser failed: ${error.message}. ${fallbackSelection.reason}`
-              : `LLM chooser failed. ${fallbackSelection.reason}`;
-            chooserPickedIndices = fallbackSelection.pickedIndices;
-            prefetchTargets = fallbackSelection.picks.filter((entry) =>
-              entry.url
-            );
-          }
-        } else {
-          const fallbackSelection = selectSearchResultsDeterministically(
-            deterministicInput,
-          );
-          chooserStrategy = fallbackSelection.strategy;
-          chooserConfidence = fallbackSelection.confidence;
-          chooserReason = prefersDeterministicRetriever
-            ? "Weak-tier model uses deterministic fetch-target selection to reduce tool-calling burden. " +
-              fallbackSelection.reason
-            : "No active modelId was available for LLM fetch-target selection. " +
-              fallbackSelection.reason;
-          chooserPickedIndices = fallbackSelection.pickedIndices;
-          prefetchTargets = fallbackSelection.picks.filter((entry) => entry.url);
-        }
-
-        prefetchTargets = ensureAuthoritativePrefetchTargets(
-          prefetchTargets,
-          prefetchCandidates,
-          prefetchTargetCount,
-          allowedDomains,
-          queryIntent.wantsAuthoritativeBias,
-        );
-
+        });
+        selectionConfidence = selection.confidence;
+        selectionReason = selection.reason;
+        const picksWithUrl = selection.picks.filter((entry) => entry.url);
+        // Skip host diversity enforcement for official-docs queries or explicit
+        // allowed-domain filters — these intentionally want multiple pages from
+        // the same authoritative host.
+        prefetchTargets = (intent.wantsOfficialDocs || allowedDomains?.length)
+          ? picksWithUrl.slice(0, prefetchTargetCount)
+          : ensureDistinctTopHosts(picksWithUrl, prefetchCandidates, prefetchTargetCount);
         if (prefetchTargets.length === 0) {
           prefetchTargets = prefetchCandidates.slice(0, prefetchTargetCount);
         }
@@ -707,7 +407,7 @@ export class DdgSearchBackend implements WebSearchBackend {
         .filter((url): url is string => Boolean(url));
       result.results = markFetchTargets(result.results, selectedUrls);
 
-      const prefetchTimeout = Math.min(timeout ?? LLM_SELECTOR_TIMEOUT_MS, LLM_SELECTOR_TIMEOUT_MS);
+      const prefetchTimeout = Math.min(timeout ?? PREFETCH_TIMEOUT_MS, PREFETCH_TIMEOUT_MS);
       const settled = await Promise.allSettled(
         prefetchTargets.map(async (target) => {
           const { finalUrl, response } = await fetchWithRedirects(
@@ -724,7 +424,6 @@ export class DdgSearchBackend implements WebSearchBackend {
             return { url: target.url!, passages: [] as string[] };
           }
 
-          // Use Readability (battle-tested) for text extraction, regex parseHtml as fallback
           const parsed = parseHtml(rawHtml, PREFETCH_MAX_TEXT, 3);
           const readable = await extractReadableContent(rawHtml, finalUrl);
           const extractionText = readable?.text || parsed.text;
@@ -748,7 +447,7 @@ export class DdgSearchBackend implements WebSearchBackend {
               });
               if (relatedLinks.length === 0) relatedLinks = undefined;
             } catch {
-              // Ignore malformed URLs in extracted links.
+              // Ignore malformed extracted links.
             }
           }
 
@@ -798,7 +497,7 @@ export class DdgSearchBackend implements WebSearchBackend {
       const rankedFetched = rankFetchedEvidenceDeterministically({
         query,
         results: result.results.filter((entry) => entry.selectedForFetch === true),
-        intent: queryIntent,
+        intent,
         allowedDomains,
       });
       evidenceConfidence = rankedFetched.confidence;
@@ -808,66 +507,26 @@ export class DdgSearchBackend implements WebSearchBackend {
         const supportingResults = result.results.filter((entry) =>
           entry.selectedForFetch !== true
         );
-        const orderedFetched = prefersDeterministicRetriever ||
-            chooserStrategy === "deterministic" || fallbackUsed
-          ? rankedFetched.results
-          : selectedUrls
-            .map((url) =>
-              rankedFetched.results.find((entry) => entry.url === url)
-            )
-            .filter((entry): entry is SearchResult => Boolean(entry));
-        const annotatedResults = annotateFetchedResults(
-          [...orderedFetched, ...supportingResults],
+        result.results = annotateFetchedResults(
+          [...rankedFetched.results, ...supportingResults],
           rankedFetched.results,
           selectedUrls,
         );
-        result.results = annotatedResults;
-        evidenceStrategy = prefersDeterministicRetriever ||
-            chooserStrategy === "deterministic" || fallbackUsed
-          ? "deterministic"
-          : "annotated";
-        if (evidenceStrategy === "annotated") {
-          evidenceReason =
-            "Fetched results kept chooser order and were annotated with deterministic evidence strength.";
-        }
+        evidenceStrategy = "deterministic";
       }
     }
 
-    result.results = result.results.slice(0, limit);
+    result.results = annotateSearchResultSources(result.results, allowedDomains)
+      .slice(0, limit);
     result.count = result.results.length;
 
     const evidencePages = result.results.filter((entry) =>
       entry.selectedForFetch === true && hasStructuredEvidence(entry)
     );
-    const fetchEvidenceCount = evidencePages.length;
     const confidenceFinal = assessToolSearchConfidence(query, result.results);
-    const recoveryTriggered =
-      initialProviderDiagnostics?.lowConfidenceRetryTriggered === true ||
-      deepDiagnostics.recovered;
-
-    const answerAvailable = fetchEvidenceCount >= 1;
-    const guidance: RetrievalGuidance = {
-      answerAvailable,
-      stopReason: answerAvailable
-        ? `${fetchEvidenceCount} fetched source(s) include extracted evidence. Prefer these before unfetched search results.`
-        : undefined,
-    };
-    result.results = annotateSearchResultSources(result.results, allowedDomains);
-    const authorityDiagnostics = collectAuthorityDiagnostics(
-      result.results,
-      prefetchTargets,
-      followupRoundDiagnostics,
-      allowedDomains,
+    const wantsBroadCoverage = Boolean(
+      intent.wantsComparison || intent.wantsMultiSourceSynthesis,
     );
-
-    const answerDraft = buildDeterministicAnswer({
-      query,
-      results: result.results,
-      intent: queryIntent,
-      lowConfidence: confidenceFinal.lowConfidence,
-      modelTier: options?.modelTier,
-      allowedDomains,
-    });
 
     const diagnostics = {
       profile: {
@@ -893,63 +552,29 @@ export class DdgSearchBackend implements WebSearchBackend {
         candidateCount: prefetchCandidateCount,
         targetCount: prefetchTargets.length,
         targetUrls: prefetchTargets.map((entry) => entry.url).filter((url): url is string => Boolean(url)),
-        adaptiveDepth: lowConfidenceBeforePrefetch,
-        chooserUsed,
-        chooserStrategy,
-        chooserConfidence,
-        chooserReason,
-        chooserPickedIndices,
-        fallbackUsed,
+        selectionStrategy: "deterministic",
+        selectionConfidence,
+        selectionReason,
       },
-      deep: deepDiagnostics,
       retrieval: {
-        queryTrail: executedQueryTrail,
-        rounds: deepDiagnostics.rounds,
         fetchedUrls,
         evidenceUrls: evidencePages.map((entry) => entry.url).filter((url): url is string => Boolean(url)),
-        synthesizedFromFetch: fetchEvidenceCount > 0,
-        fetchEvidenceCount,
+        fetchEvidenceCount: evidencePages.length,
         evidenceStrategy,
         evidenceConfidence,
         evidenceReason,
-        answerDraftAvailable: Boolean(answerDraft?.text),
-        answerDraftConfidence: answerDraft?.confidence,
-        answerDraftMode: answerDraft?.mode,
-        answerStrategy: answerDraft?.strategy,
         weakEvidence: confidenceFinal.lowConfidence,
-        decompositionApplied: deepDiagnostics.decompositionApplied,
-        subqueries: executedSubqueries,
-        newsSupplemented: newsResults.length > 0,
-        newsResultCount: newsResults.length,
-        domainDiscoveryTriggered: domainDiscovery.triggered,
-        domainDiscoveryResultCount: domainDiscovery.discoveredResultCount,
-        authoritativeResultCount: authorityDiagnostics.authoritativeResultCount,
-        topAuthoritativeRank: authorityDiagnostics.topAuthoritativeRank,
-        authorityRecoveryTriggered:
-          authorityDiagnostics.authorityRecoveryTriggered,
-        authorityRecoverySucceeded:
-          authorityDiagnostics.authorityRecoverySucceeded,
-        selectedAuthoritativeFetchCount:
-          authorityDiagnostics.selectedAuthoritativeFetchCount,
       },
-      domainDiscovery,
-      recoveryTriggered,
-      provider: initialProviderDiagnostics ?? undefined,
-      followupRounds: followupRoundDiagnostics,
+      provider: providerDiagnostics ?? undefined,
     };
 
-    const citations = result.results
-      .filter((entry) => entry.url)
-      .map((entry) => ({
-        url: entry.url!,
-        title: entry.title,
-        excerpt: entry.passages?.[0] ?? entry.pageDescription ?? entry.snippet,
-        provider: result.provider,
-        sourceKind: (entry.passages?.length || entry.pageDescription)
-          ? "passage" as const
-          : "snippet" as const,
-        sourceClass: entry.sourceClass,
-      }));
+    const citations = buildSearchCitations(
+      result.results,
+      result.provider,
+      confidenceFinal.lowConfidence,
+      wantsBroadCoverage,
+      query,
+    );
 
     return {
       query: result.query,
@@ -958,8 +583,6 @@ export class DdgSearchBackend implements WebSearchBackend {
       count: result.count,
       citations,
       diagnostics,
-      guidance,
-      answerDraft,
     };
   }
 }

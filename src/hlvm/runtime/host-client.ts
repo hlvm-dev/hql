@@ -12,7 +12,7 @@ import type {
   TraceEvent,
 } from "../agent/orchestrator.ts";
 import type { AgentExecutionMode } from "../agent/execution-mode.ts";
-import { getHlvmRuntimeBaseUrl } from "./host-config.ts";
+import { getHlvmRuntimeBaseUrl, resolveHlvmRuntimePort } from "./host-config.ts";
 import {
   type ChatMode,
   type ChatRequest,
@@ -54,6 +54,8 @@ const STREAM_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const HEALTH_POLL_ATTEMPTS = 60;
 const HEALTH_POLL_DELAY_MS = 100;
 const RUNTIME_SHUTDOWN_POLL_ATTEMPTS = 30;
+const RUNTIME_START_LOCK_WAIT_ATTEMPTS = 120;
+const RUNTIME_START_LOCK_STALE_MS = 30_000;
 
 export interface RuntimeInteractionRequest {
   requestId: string;
@@ -191,14 +193,40 @@ async function readHealth(baseUrl: string): Promise<HostHealthResponse | null> {
 async function waitForHealthyRuntime(
   baseUrl: string,
   predicate?: (health: HostHealthResponse) => boolean,
+  attempts = HEALTH_POLL_ATTEMPTS,
 ): Promise<HostHealthResponse | null> {
-  for (let i = 0; i < HEALTH_POLL_ATTEMPTS; i++) {
+  for (let i = 0; i < attempts; i++) {
     const health = await readHealth(baseUrl);
     if (
       health?.status === "ok" && health.authToken &&
       (!predicate || predicate(health))
     ) {
       if (health.aiReady) return health;
+    }
+    await sleep(HEALTH_POLL_DELAY_MS);
+  }
+  const health = await readHealth(baseUrl);
+  if (
+    health?.status === "ok" && health.authToken &&
+    (!predicate || predicate(health))
+  ) {
+    return health;
+  }
+  return null;
+}
+
+async function waitForRuntimeHost(
+  baseUrl: string,
+  predicate?: (health: HostHealthResponse) => boolean,
+  attempts = HEALTH_POLL_ATTEMPTS,
+): Promise<HostHealthResponse | null> {
+  for (let i = 0; i < attempts; i++) {
+    const health = await readHealth(baseUrl);
+    if (
+      health?.status === "ok" && health.authToken &&
+      (!predicate || predicate(health))
+    ) {
+      return health;
     }
     await sleep(HEALTH_POLL_DELAY_MS);
   }
@@ -255,55 +283,156 @@ function spawnRuntimeHost(authToken: string): void {
   process.unref?.();
 }
 
+function getRuntimeStartLockPath(): string {
+  const platform = getPlatform();
+  return platform.path.join(
+    platform.env.get("TMPDIR") ?? "/tmp",
+    `hlvm-runtime-host-start-${resolveHlvmRuntimePort()}.lock`,
+  );
+}
+
+export function __testOnlyGetRuntimeStartLockPath(): string {
+  return getRuntimeStartLockPath();
+}
+
+async function tryAcquireRuntimeStartLock(): Promise<boolean> {
+  const platform = getPlatform();
+  const lockPath = getRuntimeStartLockPath();
+
+  try {
+    await platform.fs.mkdir(lockPath);
+    return true;
+  } catch {
+    try {
+      const info = await platform.fs.stat(lockPath);
+      const modifiedAt = typeof info.mtimeMs === "number"
+        ? info.mtimeMs
+        : undefined;
+      if (
+        modifiedAt !== undefined &&
+        Date.now() - modifiedAt > RUNTIME_START_LOCK_STALE_MS
+      ) {
+        await platform.fs.remove(lockPath, { recursive: true });
+        await platform.fs.mkdir(lockPath);
+        return true;
+      }
+    } catch {
+      // Another process may have released or recreated the lock meanwhile.
+    }
+    return false;
+  }
+}
+
+async function releaseRuntimeStartLock(): Promise<void> {
+  try {
+    await getPlatform().fs.remove(getRuntimeStartLockPath(), { recursive: true });
+  } catch {
+    // Best-effort cleanup only.
+  }
+}
+
+async function waitForRuntimeStartLockRelease(): Promise<void> {
+  for (let i = 0; i < RUNTIME_START_LOCK_WAIT_ATTEMPTS; i++) {
+    if (await tryAcquireRuntimeStartLock()) {
+      await releaseRuntimeStartLock();
+      return;
+    }
+    await sleep(HEALTH_POLL_DELAY_MS);
+  }
+}
+
 async function ensureRuntimeHost(): Promise<{
   baseUrl: string;
   authToken: string;
 }> {
   const baseUrl = getHlvmRuntimeBaseUrl();
   const identity = await getRuntimeHostIdentity();
-  const attached = await waitForHealthyRuntime(baseUrl);
+  const attachCompatibleHost = async (attempts = HEALTH_POLL_ATTEMPTS) => {
+    const attached = await waitForRuntimeHost(
+      baseUrl,
+      (health) => matchesRuntimeHostIdentity(health, identity.buildId),
+      attempts,
+    );
+    return attached?.authToken
+      ? { baseUrl, authToken: attached.authToken }
+      : null;
+  };
+
+  const attached = await readHealth(baseUrl);
   if (
     attached?.status === "ok" && attached.authToken &&
     matchesRuntimeHostIdentity(attached, identity.buildId)
   ) {
     return { baseUrl, authToken: attached.authToken };
   }
-  if (
-    attached?.status === "ok" && attached.authToken &&
-    !matchesRuntimeHostIdentity(attached, identity.buildId)
-  ) {
-    const shutdownRequested = await requestRuntimeShutdown(
-      baseUrl,
-      attached.authToken,
+
+  const acquiredLock = await tryAcquireRuntimeStartLock();
+  if (!acquiredLock) {
+    await waitForRuntimeStartLockRelease();
+    const waitedAttachment = await attachCompatibleHost(
+      HEALTH_POLL_ATTEMPTS * 4,
     );
-    if (shutdownRequested) {
-      const stopped = await waitForRuntimeShutdown(baseUrl);
-      if (!stopped) {
-        throw createRuntimeHostError(
-          "Failed to replace the stale local HLVM runtime host.",
-        );
-      }
+    if (waitedAttachment) {
+      return waitedAttachment;
     }
-  }
-
-  const authToken = crypto.randomUUID();
-  spawnRuntimeHost(authToken);
-
-  const started = await waitForHealthyRuntime(
-    baseUrl,
-    (health) =>
-      health.authToken === authToken &&
-      matchesRuntimeHostIdentity(health, identity.buildId),
-  );
-  if (
-    !started?.authToken ||
-    !matchesRuntimeHostIdentity(started, identity.buildId)
-  ) {
     throw createRuntimeHostError(
       "Failed to start a matching local HLVM runtime host. Restart HLVM and try again.",
     );
   }
-  return { baseUrl, authToken: started.authToken };
+
+  try {
+    const reattached = await readHealth(baseUrl);
+    if (
+      reattached?.status === "ok" && reattached.authToken &&
+      matchesRuntimeHostIdentity(reattached, identity.buildId)
+    ) {
+      return { baseUrl, authToken: reattached.authToken };
+    }
+    if (
+      reattached?.status === "ok" && reattached.authToken &&
+      !matchesRuntimeHostIdentity(reattached, identity.buildId)
+    ) {
+      const shutdownRequested = await requestRuntimeShutdown(
+        baseUrl,
+        reattached.authToken,
+      );
+      if (shutdownRequested) {
+        const stopped = await waitForRuntimeShutdown(baseUrl);
+        if (!stopped) {
+          throw createRuntimeHostError(
+            "Failed to replace the stale local HLVM runtime host.",
+          );
+        }
+      }
+    }
+
+    const authToken = crypto.randomUUID();
+    spawnRuntimeHost(authToken);
+
+    const started = await waitForRuntimeHost(
+      baseUrl,
+      (health) =>
+        health.authToken === authToken &&
+        matchesRuntimeHostIdentity(health, identity.buildId),
+      HEALTH_POLL_ATTEMPTS * 4,
+    );
+    if (started?.authToken && matchesRuntimeHostIdentity(started, identity.buildId)) {
+      return { baseUrl, authToken: started.authToken };
+    }
+
+    const compatibleAttached = await attachCompatibleHost(
+      HEALTH_POLL_ATTEMPTS * 4,
+    );
+    if (compatibleAttached) {
+      return compatibleAttached;
+    }
+
+    throw createRuntimeHostError(
+      "Failed to start a matching local HLVM runtime host. Restart HLVM and try again.",
+    );
+  } finally {
+    await releaseRuntimeStartLock();
+  }
 }
 
 async function ensureRuntimeAiReady(): Promise<{

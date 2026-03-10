@@ -7,6 +7,7 @@ import {
 import { HQLErrorCode } from "../../../src/common/error-codes.ts";
 import { RuntimeError } from "../../../src/common/error.ts";
 import {
+  __testOnlyGetRuntimeStartLockPath,
   addRuntimeMcpServer,
   addRuntimeSessionMessage,
   createRuntimeSession,
@@ -30,6 +31,7 @@ import {
   runDirectChatViaHost,
   runRuntimeOllamaSignin,
 } from "../../../src/hlvm/runtime/host-client.ts";
+import { withRuntimePortOverrideForTests } from "../../../src/hlvm/runtime/host-config.ts";
 import type { RuntimeSessionMessage } from "../../../src/hlvm/runtime/session-protocol.ts";
 import { deriveDefaultSessionKey } from "../../../src/hlvm/runtime/session-key.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
@@ -41,6 +43,19 @@ import {
 import { createRuntimeHostHealthResponse } from "../../shared/runtime-host-test-helpers.ts";
 
 const encoder = new TextEncoder();
+
+Deno.test("runtime host start lock path is scoped by runtime port", async () => {
+  const first = await withRuntimePortOverrideForTests(19143, async () =>
+    __testOnlyGetRuntimeStartLockPath()
+  );
+  const second = await withRuntimePortOverrideForTests(19144, async () =>
+    __testOnlyGetRuntimeStartLockPath()
+  );
+
+  assert(first !== second);
+  assertStringIncludes(first, "19143");
+  assertStringIncludes(second, "19144");
+});
 
 Deno.test("runAgentQueryViaHost streams events, traces, and interaction responses", async () => {
   const port = await findFreePort();
@@ -70,6 +85,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
             controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
           emit({ event: "start", request_id: "req-1" });
           emit({ event: "thinking", iteration: 1 });
+          emit({ event: "token", text: "Let me fetch that first. " });
           emit({
             event: "tool_start",
             name: "read_file",
@@ -98,7 +114,6 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
               }],
             },
           });
-          emit({ event: "token", text: "done" });
           emit({
             event: "tool_end",
             name: "read_file",
@@ -196,6 +211,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
               },
             },
           });
+          emit({ event: "token", text: "done" });
           emit({ event: "complete", request_id: "req-1", session_version: 2 });
           controller.close();
         },
@@ -243,7 +259,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
         },
       });
 
-      assertEquals(tokens, ["done"]);
+      assertEquals(tokens, ["Let me fetch that first. ", "done"]);
       assert(uiEvents.includes("thinking"));
       assert(uiEvents.includes("tool_start"));
       assert(uiEvents.includes("tool_end"));
@@ -257,7 +273,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       assert(uiEvents.includes("checkpoint_restored"));
       assertEquals(traces, ["iteration"]);
       assertEquals(metaEvents, [1]);
-      assertEquals(result.text, "done");
+      assertEquals(result.text, "Let me fetch that first. done");
       assertEquals(result.stats.estimatedTokens, 123);
       assertEquals(result.stats.usage?.totalTokens, 15);
 

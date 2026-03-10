@@ -25,6 +25,9 @@ import {
   shouldHonorRequestMessages,
 } from "./chat-context.ts";
 
+const DIRECT_CHAT_ACCESS_RULE =
+  "You have no live tool access in this response. Do not claim that you searched the web, fetched URLs, inspected files, or ran commands unless those results already appear in the conversation history.";
+
 /** Cached catalog result with TTL */
 let _catalogCache: {
   data: ModelInfo[];
@@ -78,6 +81,10 @@ export async function handleChatMode(
     assistantMessageId,
     modelInfo,
     modelKey: resolvedModel,
+  });
+  providerMessages.unshift({
+    role: "system",
+    content: DIRECT_CHAT_ACCESS_RULE,
   });
 
   let fullText = "";
@@ -164,6 +171,10 @@ export async function streamDirectChatFallback(
     assistantMessageId,
     modelInfo,
     modelKey: resolvedModel,
+  });
+  providerMessages.unshift({
+    role: "system",
+    content: DIRECT_CHAT_ACCESS_RULE,
   });
 
   const tokenIterator = ai.chat(providerMessages, {

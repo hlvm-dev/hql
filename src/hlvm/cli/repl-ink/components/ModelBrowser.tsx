@@ -72,6 +72,8 @@ interface ModelBrowserProps {
   onSelectModel?: (modelName: string) => void | Promise<void>;
   /** Optional callback after model is successfully set as default */
   onModelSet?: (modelName: string) => void;
+  /** Scope label for the active selection (e.g. "default model", "plan mode model") */
+  selectionScopeLabel?: string;
   /** Current active model */
   currentModel?: string;
   /** Whether the current model has already been explicitly configured */
@@ -636,6 +638,7 @@ export function ModelBrowser({
   onClose,
   onSelectModel,
   onModelSet,
+  selectionScopeLabel = "default model",
   currentModel,
   isCurrentModelConfigured = false,
   endpoint = DEFAULT_OLLAMA_ENDPOINT,
@@ -656,6 +659,8 @@ export function ModelBrowser({
     22,
     Math.min(48, Math.floor(contentWidth * 0.34)),
   );
+  const selectionScopeTitle = selectionScopeLabel.charAt(0).toUpperCase() +
+    selectionScopeLabel.slice(1);
 
   // State
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
@@ -695,11 +700,11 @@ export function ModelBrowser({
       if (!onSelectModel) return;
 
       setIsSelecting(true);
-      setStatusMessage(`Setting default model: ${modelName}...`);
+      setStatusMessage(`Setting ${selectionScopeLabel}: ${modelName}...`);
       try {
         await onSelectModel(modelName);
         if (!isMountedRef.current) return;
-        setStatusMessage(`Default model set: ${modelName}`);
+        setStatusMessage(`${selectionScopeTitle} set: ${modelName}`);
         onModelSet?.(modelName);
         // Brief confirmation dwell so user can see success before panel closes.
         await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -709,7 +714,7 @@ export function ModelBrowser({
         if (!isMountedRef.current) return;
         const message = error instanceof Error ? error.message : String(error);
         setStatusMessage(
-          `Failed to set default model: ${message} (press Ctrl+O for model info)`,
+          `Failed to set ${selectionScopeLabel}: ${message} (press Ctrl+O for model info)`,
         );
       } finally {
         if (isMountedRef.current) {
@@ -717,7 +722,7 @@ export function ModelBrowser({
         }
       }
     },
-    [onClose, onModelSet, onSelectModel],
+    [onClose, onModelSet, onSelectModel, selectionScopeLabel, selectionScopeTitle],
   );
 
   const modelPullTasks = useMemo(() => {
@@ -1041,7 +1046,7 @@ export function ModelBrowser({
           void selectAsDefaultModel(model.name);
           return;
         }
-        setStatusMessage(`Already default model: ${model.name}`);
+        setStatusMessage(`Already ${selectionScopeLabel}: ${model.name}`);
         return;
       }
 
@@ -1310,8 +1315,10 @@ export function ModelBrowser({
         </Text>
         <Text dimColor wrap="truncate-end">
           {currentModel
-            ? `Default: ${truncate(currentModel, defaultModelWidth, "…")}`
-            : "Default: none"}
+            ? `${selectionScopeTitle}: ${
+              truncate(currentModel, defaultModelWidth, "…")
+            }`
+            : `${selectionScopeTitle}: none`}
         </Text>
       </Box>
       <Box justifyContent="space-between">

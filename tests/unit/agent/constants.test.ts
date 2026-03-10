@@ -3,6 +3,7 @@ import {
   computeTierToolFilter,
   DEFAULT_MAX_TOOL_CALLS,
   ENGINE_PROFILES,
+  supportsAgentExecution,
   WEAK_TIER_CORE_TOOLS,
 } from "../../../src/hlvm/agent/constants.ts";
 
@@ -49,4 +50,19 @@ Deno.test("computeTierToolFilter - weak tier denylist preserved", () => {
   const result = computeTierToolFilter("weak", undefined, ["memory_write"]);
   assertEquals(result.allowlist, [...WEAK_TIER_CORE_TOOLS]);
   assertEquals(result.denylist, ["memory_write"]);
+});
+
+Deno.test("supportsAgentExecution - weak local models are chat-only", () => {
+  assertEquals(
+    supportsAgentExecution("ollama/llama3.2:1b", { parameterSize: "7B" }),
+    false,
+  );
+  assertEquals(
+    supportsAgentExecution("ollama/llama3.1:70b", { parameterSize: "70B" }),
+    true,
+  );
+  assertEquals(
+    supportsAgentExecution("openai/gpt-5", null),
+    true,
+  );
 });

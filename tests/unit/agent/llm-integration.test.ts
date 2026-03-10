@@ -25,6 +25,8 @@ Deno.test("LLM integration: default prompt includes core role, tools, and concis
   assertStringIncludes(prompt, "read_file");
   assertStringIncludes(prompt, "shell_exec");
   assertStringIncludes(prompt, "Be direct and concise");
+  assertStringIncludes(prompt, "do not narrate that you are about to search, fetch, inspect, or check something");
+  assertStringIncludes(prompt, "Final answers must not include workflow filler");
   assertStringIncludes(prompt, "Do NOT output tool call JSON");
 });
 
@@ -49,9 +51,21 @@ Deno.test("LLM integration: prompt renders routing and permission sections witho
   );
   assertStringIncludes(prompt, "# Permission Cost");
   assertStringIncludes(prompt, "Prefer Free tools");
+  assertEquals(prompt.includes("deterministic answer draft"), false);
   assertEquals(prompt.includes("**Arguments:**"), false);
   assertEquals(prompt.includes("**Returns:**"), false);
   assertEquals(prompt.includes("Safety Level"), false);
+});
+
+Deno.test("LLM integration: prompt omits memory exceptions when memory tools are denied", () => {
+  const prompt = generateSystemPrompt({
+    toolDenylist: ["memory_write", "memory_search", "memory_edit"],
+  });
+
+  assertEquals(
+    prompt.includes("memory_write, memory_search, and memory_edit"),
+    false,
+  );
 });
 
 Deno.test("LLM integration: prompt includes team coordination guidance when team tools are available", () => {
@@ -61,6 +75,10 @@ Deno.test("LLM integration: prompt includes team coordination guidance when team
   assertStringIncludes(prompt, "team_status_read");
   assertStringIncludes(prompt, "submit_team_plan");
   assertStringIncludes(prompt, "apply_agent_changes");
+  assertStringIncludes(
+    prompt,
+    "Foreground or resumed delegates share the parent workspace and must stay read-only",
+  );
 });
 
 Deno.test("LLM integration: custom instructions are included and truncated", () => {

@@ -18,7 +18,6 @@ import {
   type ToolCall,
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { callLLMWithRetry } from "../../../src/hlvm/agent/orchestrator-llm.ts";
-import { WEB_RESEARCH_TOOL_ALLOWLIST } from "../../../src/hlvm/agent/query-tool-routing.ts";
 import { createDelegateInbox } from "../../../src/hlvm/agent/delegate-inbox.ts";
 import { createDelegateCoordinationBoard } from "../../../src/hlvm/agent/delegate-coordination.ts";
 import { createTeamRuntime } from "../../../src/hlvm/agent/team-runtime.ts";
@@ -1750,304 +1749,19 @@ Deno.test({
 
     {
       const { config, context } = makeReminderHarness();
-      const weakPeriodic = maybeInjectReminder(
-        makeLoopState({ iterations: 7, iterationsSinceReminder: 3 }),
-        makeLoopConfig({ modelTier: "weak" }),
-        config,
-      );
-      assertEquals(weakPeriodic, true);
-      assertStringIncludes(context.getMessages()[0]?.content ?? "", "dedicated tools");
-    }
-
-    {
-      const { config, context } = makeReminderHarness();
-      const midPeriodic = maybeInjectReminder(
+      const periodic = maybeInjectReminder(
         makeLoopState({ iterations: 7, iterationsSinceReminder: 3 }),
         makeLoopConfig({ modelTier: "mid" }),
         config,
       );
-      assertEquals(midPeriodic, false);
+      assertEquals(periodic, false);
       assertEquals(context.getMessages().length, 0);
     }
   },
 });
 
 Deno.test({
-  name: "Orchestrator: runReActLoop bypasses the LLM for weak-tier web-only queries",
-  async fn() {
-    resetApprovals();
-    const context = new ContextManager();
-    let finalMeta:
-      | import("../../../src/hlvm/agent/orchestrator.ts").FinalResponseMeta
-      | undefined;
-
-    await withTemporaryTool(
-      "search_web",
-      {
-        fn: async () => ({
-          provider: "duckduckgo",
-          results: [
-            {
-              url: "https://react.dev/reference/react/useEffect",
-              title: "useEffect - React",
-              snippet:
-                "The cleanup function runs before the effect runs again and when the component unmounts.",
-              selectedForFetch: true,
-              pageDescription:
-                "React documents that cleanup runs before re-running an effect and on unmount.",
-              passages: [
-                "The cleanup function runs not only during unmount, but before every re-render with changed dependencies.",
-              ],
-              evidenceStrength: "high",
-              evidenceReason: "Official React documentation with fetched passages.",
-            },
-          ],
-          answerDraft: {
-            text:
-              "The cleanup function runs before the effect runs again and when the component unmounts.",
-            confidence: "high",
-            mode: "direct",
-            strategy: "deterministic",
-            sources: [
-              {
-                url: "https://react.dev/reference/react/useEffect",
-                title: "useEffect - React",
-                evidenceStrength: "high",
-              },
-            ],
-          },
-          guidance: { answerAvailable: true },
-        }),
-        description: "test search tool",
-        args: { query: "string" },
-        safetyLevel: "L0",
-      },
-      async () => {
-        const result = await runReActLoop(
-          "Search the public web only. Answer with citations: What does the useEffect cleanup function do in React?",
-          {
-            workspace: TEST_WORKSPACE,
-            context,
-            permissionMode: "yolo",
-            modelTier: "weak",
-            toolAllowlist: [...WEB_RESEARCH_TOOL_ALLOWLIST],
-            onFinalResponseMeta: (meta) => {
-              finalMeta = meta;
-            },
-          },
-          async () => {
-            throw new Error("LLM should not be called for weak-tier web bypass");
-          },
-        );
-
-        assertEquals(
-          result,
-          "The cleanup function runs before the effect runs again and when the component unmounts.",
-        );
-      },
-    );
-
-    assertEquals(finalMeta?.citationSpans.length, 1);
-    assertEquals(
-      finalMeta?.citationSpans[0]?.url,
-      "https://react.dev/reference/react/useEffect",
-    );
-  },
-});
-
-Deno.test({
-  name: "Orchestrator: runReActLoop bypasses the LLM for weak-tier docs-intent queries without explicit web-only phrasing",
-  async fn() {
-    resetApprovals();
-    const context = new ContextManager();
-    let finalMeta:
-      | import("../../../src/hlvm/agent/orchestrator.ts").FinalResponseMeta
-      | undefined;
-
-    await withTemporaryTool(
-      "search_web",
-      {
-        fn: async () => ({
-          provider: "duckduckgo",
-          results: [
-            {
-              url: "https://docs.python.org/3/library/asyncio-task.html#task-groups",
-              title: "Task Groups - asyncio",
-              snippet:
-                "Task groups combine task creation with reliable waiting and cancellation handling.",
-              selectedForFetch: true,
-              pageDescription:
-                "Python docs describe TaskGroup as structured-concurrency support for asyncio.",
-              passages: [
-                "A task group combines a task creation API with a convenient and reliable way to wait for all tasks in the group to finish.",
-              ],
-              evidenceStrength: "high",
-              evidenceReason: "Official Python documentation with fetched passages.",
-              sourceClass: "vendor_docs",
-            },
-          ],
-          answerDraft: {
-            text:
-              "TaskGroup provides structured concurrency for asyncio by letting you create related tasks and wait for the whole group to finish reliably.",
-            confidence: "high",
-            mode: "direct",
-            strategy: "deterministic",
-            sources: [
-              {
-                url: "https://docs.python.org/3/library/asyncio-task.html#task-groups",
-                title: "Task Groups - asyncio",
-                evidenceStrength: "high",
-              },
-            ],
-          },
-          guidance: { answerAvailable: true },
-        }),
-        description: "test search tool",
-        args: { query: "string" },
-        safetyLevel: "L0",
-      },
-      async () => {
-        const result = await runReActLoop(
-          "official docs: what does the TaskGroup class do in Python asyncio?",
-          {
-            workspace: TEST_WORKSPACE,
-            context,
-            permissionMode: "yolo",
-            modelTier: "weak",
-            onFinalResponseMeta: (meta) => {
-              finalMeta = meta;
-            },
-          },
-          async () => {
-            throw new Error("LLM should not be called for weak-tier docs-intent bypass");
-          },
-        );
-
-        assertEquals(
-          result,
-          "TaskGroup provides structured concurrency for asyncio by letting you create related tasks and wait for the whole group to finish reliably.",
-        );
-      },
-    );
-
-    assertEquals(finalMeta?.citationSpans.length, 1);
-    assertEquals(
-      finalMeta?.citationSpans[0]?.url,
-      "https://docs.python.org/3/library/asyncio-task.html#task-groups",
-    );
-  },
-});
-
-Deno.test({
-  name: "Orchestrator: runReActLoop short-circuits weak-tier deterministic search_web answers",
-  async fn() {
-    resetApprovals();
-    const context = new ContextManager();
-    const originalListFiles = TOOL_REGISTRY.list_files;
-    let llmCalls = 0;
-    let finalMeta:
-      | import("../../../src/hlvm/agent/orchestrator.ts").FinalResponseMeta
-      | undefined;
-
-    try {
-      TOOL_REGISTRY.list_files = {
-        ...originalListFiles,
-        fn: async () => {
-          throw new Error("list_files should not run after terminal search_web");
-        },
-      };
-
-      await withTemporaryTool(
-        "search_web",
-        {
-          fn: async () => ({
-            provider: "duckduckgo",
-            results: [
-              {
-                url: "https://react.dev/reference/react/useEffect",
-                title: "useEffect - React",
-                snippet:
-                  "The cleanup function runs before the effect runs again and when the component unmounts.",
-                selectedForFetch: true,
-                pageDescription:
-                  "React documents that cleanup runs before re-running an effect and on unmount.",
-                passages: [
-                  "The cleanup function runs not only during unmount, but before every re-render with changed dependencies.",
-                ],
-                evidenceStrength: "high",
-                evidenceReason: "Official React documentation with fetched passages.",
-              },
-            ],
-            answerDraft: {
-              text:
-                "The cleanup function runs before the effect runs again and when the component unmounts.",
-              confidence: "high",
-              mode: "direct",
-              strategy: "deterministic",
-              sources: [
-                {
-                  url: "https://react.dev/reference/react/useEffect",
-                  title: "useEffect - React",
-                  evidenceStrength: "high",
-                },
-              ],
-            },
-            guidance: { answerAvailable: true },
-          }),
-          description: "test search tool",
-          args: { query: "string" },
-          safetyLevel: "L0",
-        },
-        async () => {
-          const result = await runReActLoop(
-            "Need help answering a question.",
-            {
-              workspace: TEST_WORKSPACE,
-              context,
-              permissionMode: "yolo",
-              onFinalResponseMeta: (meta) => {
-                finalMeta = meta;
-              },
-              modelTier: "weak",
-            },
-            async () => {
-              llmCalls += 1;
-              if (llmCalls === 1) {
-                return makeResponse("Searching the web.", [
-                  { toolName: "search_web", args: { query: "React useEffect cleanup" } },
-                ]);
-              }
-              return makeResponse("This second LLM call should never happen.", [
-                { toolName: "list_files", args: { path: "." } },
-              ]);
-            },
-          );
-
-          assertEquals(
-            result,
-            "The cleanup function runs before the effect runs again and when the component unmounts.",
-          );
-        },
-      );
-    } finally {
-      if (originalListFiles) {
-        TOOL_REGISTRY.list_files = originalListFiles;
-      } else {
-        delete TOOL_REGISTRY.list_files;
-      }
-    }
-
-    assertEquals(llmCalls, 1);
-    assertEquals(finalMeta?.citationSpans.length, 1);
-    assertEquals(
-      finalMeta?.citationSpans[0]?.url,
-      "https://react.dev/reference/react/useEffect",
-    );
-  },
-});
-
-Deno.test({
-  name: "Orchestrator: runReActLoop keeps deterministic search_web answers non-terminal for mid-tier",
+  name: "Orchestrator: runReActLoop keeps search_web results non-terminal for strong models",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -2074,21 +1788,6 @@ Deno.test({
               evidenceReason: "Official React documentation with fetched passages.",
             },
           ],
-          answerDraft: {
-            text:
-              "The cleanup function runs before the effect runs again and when the component unmounts.",
-            confidence: "high",
-            mode: "direct",
-            strategy: "deterministic",
-            sources: [
-              {
-                url: "https://react.dev/reference/react/useEffect",
-                title: "useEffect - React",
-                evidenceStrength: "high",
-              },
-            ],
-          },
-          guidance: { answerAvailable: true },
         }),
         description: "test search tool",
         args: { query: "string" },

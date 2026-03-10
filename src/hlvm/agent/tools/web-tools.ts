@@ -54,7 +54,6 @@ import {
   DdgSearchBackend,
 } from "./web/ddg-search-backend.ts";
 import { assessToolSearchConfidence } from "./web/search-backend.ts";
-import type { DeterministicAnswerDraft } from "./web/answer-from-evidence.ts";
 import { hasStructuredEvidence } from "./web/web-utils.ts";
 
 // ============================================================
@@ -250,9 +249,6 @@ function buildSearchWebCacheKey(
   searchDepth: SearchDepthProfile = DEFAULT_SEARCH_DEPTH,
   prefetch?: boolean,
   reformulate?: boolean,
-  modelId?: string,
-  modelTier?: string,
-  queryYear?: string,
 ): string {
   return makeCacheKey(`search_web:${provider}`, [
     query,
@@ -264,9 +260,6 @@ function buildSearchWebCacheKey(
     searchDepth,
     prefetch === false ? "nopf" : "pf",
     reformulate === false ? "norf" : "rf",
-    modelId ?? "",
-    modelTier ?? "",
-    queryYear ?? "",
   ]);
 }
 
@@ -351,24 +344,6 @@ function buildSupportingLines(results: SearchResult[]): string[] {
     );
     for (const excerpt of resultEvidenceSummary(result, 1).map(compactEvidenceText)) {
       lines.push(`    > ${excerpt}`);
-    }
-  }
-  return lines;
-}
-
-function buildAnswerDraftLines(answerDraft: DeterministicAnswerDraft): string[] {
-  const lines = [
-    "Deterministic answer draft:",
-    answerDraft.text,
-    `Draft confidence: ${answerDraft.confidence.toUpperCase()}`,
-  ];
-  if (answerDraft.sources.length > 0) {
-    lines.push("Draft sources:");
-    for (let i = 0; i < answerDraft.sources.length; i++) {
-      const source = answerDraft.sources[i];
-      const published = source.publishedDate ? ` | published: ${source.publishedDate}` : "";
-      const strength = source.evidenceStrength ? ` | evidence: ${source.evidenceStrength}` : "";
-      lines.push(`[${i + 1}] ${source.title} — ${source.url}${published}${strength}`);
     }
   }
   return lines;
@@ -776,12 +751,6 @@ async function searchWeb(
 
   const timeRange = resolveSearchTimeRange(typed.timeRange);
   const locale = resolveLocale(typed.locale);
-  const queryIntent = detectSearchQueryIntent(query);
-  const queryYearKey = queryIntent.wantsRecency &&
-      !/\b(?:19|20)\d{2}\b/.test(query) &&
-      !/\bv?\d+(?:\.\d+){1,3}\b/.test(query)
-    ? String(new Date().getFullYear())
-    : "";
 
   const cacheKey = buildSearchWebCacheKey(
     webConfig.search.provider,
@@ -794,9 +763,6 @@ async function searchWeb(
     searchDepth,
     resolvedPrefetch,
     resolvedReformulate,
-    options?.modelId,
-    options?.modelTier,
-    queryYearKey,
   );
   const cachedSearch = await checkCacheHit(
     cacheKey,
@@ -852,9 +818,6 @@ function formatSearchWebResult(
 
   const queryStr = typeof data.query === "string" ? data.query : "";
   const provider = typeof data.provider === "string" ? data.provider : "search";
-  const answerDraft = data.answerDraft && typeof data.answerDraft === "object"
-    ? data.answerDraft as DeterministicAnswerDraft
-    : undefined;
   const queryIntent = detectSearchQueryIntent(queryStr);
   const confidence = assessToolSearchConfidence(queryStr, results);
   const lowConfidence = confidence.lowConfidence;
@@ -867,9 +830,6 @@ function formatSearchWebResult(
   const detailLines: string[] = [
     `Search: "${queryStr}" (${results.length} results, ${provider})\n`,
   ];
-  if (answerDraft?.text) {
-    detailLines.push(...buildAnswerDraftLines(answerDraft), "");
-  }
 
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
@@ -891,10 +851,6 @@ function formatSearchWebResult(
   const displayLines: string[] = [
     `Top sources for "${queryStr}" (${results.length} results, ${provider})`,
   ];
-  if (answerDraft?.text) {
-    displayLines.push("");
-    displayLines.push(answerDraft.text);
-  }
   if (topResults.length > 0) {
     displayLines.push("");
     for (let i = 0; i < topResults.length; i++) {
@@ -921,45 +877,14 @@ function formatSearchWebResult(
   );
   const llmSections: string[] = [
     `Web search evidence\nQuery: "${queryStr}"\nProvider: ${provider}\nResults: ${results.length}`,
-    answerDraft?.text
-      ? "A deterministic answer draft is included below. Use it as the grounded baseline answer. Rewrite only for clarity, brevity, or citation style; do not replace it with unsupported claims."
-      : undefined,
     fetchedEvidenceAvailable
       ? "Use fetched sources as primary evidence. Use supporting search results only to fill small gaps or corroborate."
       : "Fetched evidence is limited. Prefer the strongest fetched source if present, and treat snippet-only results cautiously.",
   ].filter((value): value is string => Boolean(value));
-  if (answerDraft?.text) {
-    llmSections.push(buildAnswerDraftLines(answerDraft).join("\n"));
-  }
-  const retrieval =
-    typeof data.diagnostics === "object" && data.diagnostics !== null
-      ? (data.diagnostics as Record<string, unknown>).retrieval as
-        | Record<string, unknown>
-        | undefined
-      : undefined;
-  const queryTrail = Array.isArray(retrieval?.queryTrail)
-    ? retrieval?.queryTrail.filter((value): value is string =>
-      typeof value === "string" && value.trim().length > 0
-    )
-    : [];
-  if (queryTrail.length > 1) {
-    llmSections.push(
-      `Query trail:\n${
-        queryTrail.map((item, index) => `${index + 1}. ${item}`).join("\n")
-      }`,
-    );
-  }
   if (fetchedResults.length > 0) {
     llmSections.push(
       buildEvidencePackLines(fetchedResults, evidenceExcerptCount).join("\n"),
     );
-  }
-  // Sufficiency guidance — tell the LLM when passages already answer the question
-  const guidance = typeof data.guidance === "object" && data.guidance !== null
-    ? data.guidance as { answerAvailable?: boolean; stopReason?: string }
-    : undefined;
-  if (guidance?.answerAvailable && guidance.stopReason) {
-    llmSections.push(guidance.stopReason);
   }
   if (!fetchedEvidenceAvailable) {
     llmSections.push(

@@ -31,7 +31,11 @@ import {
   transposeSexp,
   type PareditResult,
 } from "../../repl/paredit.ts";
-import { findSuggestion, acceptSuggestion, type Suggestion } from "../../repl/suggester.ts";
+import {
+  findSuggestion,
+  resolveSuggestionValue,
+  type Suggestion,
+} from "../../repl/suggester.ts";
 import { calculateWordBackPosition, calculateWordForwardPosition } from "../../repl/keyboard.ts";
 import { isSupportedMedia, detectMimeType, getAttachmentType, getDisplayName, shouldCollapseText } from "../../repl/attachment.ts";
 import { useAttachments, type AnyAttachment } from "../hooks/useAttachments.ts";
@@ -760,12 +764,12 @@ export function Input({
   // Helper: accept and apply suggestion (DRY helper)
   const acceptAndApplySuggestion = useCallback(() => {
     if (!suggestion) return false;
-    const accepted = acceptSuggestion(suggestion);
+    const accepted = resolveSuggestionValue(value, suggestion, "accept");
     onChange(accepted);
     setCursorPos(accepted.length);
     setSuggestion(null);
     return true;
-  }, [suggestion, onChange]);
+  }, [value, suggestion, onChange]);
 
   // Helper: check if character is a word boundary (LISP structural editing)
   // This is a SUBSET of string-utils.ts:WORD_BOUNDARY_CHARS - intentionally.
@@ -1604,13 +1608,7 @@ export function Input({
         return;
       }
 
-      // If there's a ghost text suggestion, accept it first then submit
-      // This makes slash commands like /config execute immediately when completed
-      let finalValue = value;
-      if (suggestion) {
-        finalValue = acceptSuggestion(suggestion);
-        setSuggestion(null);
-      }
+      const finalValue = resolveSuggestionValue(value, suggestion, "submit");
 
       // Backslash-Enter: replace trailing \ with newline for explicit multi-line
       const charBeforeCursor = cursorPos > 0 ? finalValue[cursorPos - 1] : '';

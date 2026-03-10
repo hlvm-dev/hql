@@ -1,5 +1,9 @@
 import { assertEquals } from "jsr:@std/assert";
-import { acceptSuggestion, findSuggestion } from "../../../src/hlvm/cli/repl/suggester.ts";
+import {
+  acceptSuggestion,
+  findSuggestion,
+  resolveSuggestionValue,
+} from "../../../src/hlvm/cli/repl/suggester.ts";
 
 Deno.test("Suggester: empty input or no candidates returns null", () => {
   assertEquals(findSuggestion("", ["(+ 1 2)"], new Set()), null);
@@ -49,4 +53,12 @@ Deno.test("Suggester: multiline history suggestions truncate ghost text at the f
 Deno.test("Suggester: acceptSuggestion returns the full suggestion verbatim", () => {
   const suggestion = { full: "(defn foo [x]\n  x)", ghost: " [x] ..." };
   assertEquals(acceptSuggestion(suggestion), "(defn foo [x]\n  x)");
+});
+
+Deno.test("Suggester: submit preserves typed input while explicit accept expands ghost text", () => {
+  const suggestion = { full: "hello - go apple.com", ghost: " - go apple.com" };
+
+  assertEquals(resolveSuggestionValue("hello", suggestion, "submit"), "hello");
+  assertEquals(resolveSuggestionValue("hello", suggestion, "accept"), "hello - go apple.com");
+  assertEquals(resolveSuggestionValue("hello", null, "submit"), "hello");
 });

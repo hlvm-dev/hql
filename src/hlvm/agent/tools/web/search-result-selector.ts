@@ -21,9 +21,7 @@ import { classifySearchResultSource } from "./source-authority.ts";
 import {
   COMPARISON_TERMS,
   OFFICIAL_DOCS_TERMS,
-  RECENCY_TERMS,
   REFERENCE_TERMS,
-  RELEASE_NOTES_TERMS,
 } from "./intent-patterns.ts";
 
 export interface SelectSearchResultsInput {
@@ -95,6 +93,13 @@ const RELEASE_SIGNAL_TERMS = [
   "what's new",
   "whats new",
 ];
+const LIFECYCLE_SIGNAL_TERMS = [
+  "end of life",
+  "end-of-life",
+  "eol",
+  "lifecycle",
+  "support status",
+];
 const COMPARISON_SIGNAL_TERMS = [
   "compare",
   "comparison",
@@ -104,6 +109,7 @@ const COMPARISON_SIGNAL_TERMS = [
   "versus",
   "vs",
 ];
+const COMPOUND_TERM_RE = /\b[a-z0-9]+(?:[._-][a-z0-9]+)+\b/gi;
 
 const SELECT_RESULTS_TOOL: ToolDefinition = {
   type: "function",
@@ -210,16 +216,6 @@ function intentNoiseTokens(intent?: SearchQueryIntent): Set<string> {
       for (const token of tokenizeSearchText(term)) tokens.add(token);
     }
   }
-  if (intent.wantsRecency) {
-    for (const term of RECENCY_TERMS) {
-      for (const token of tokenizeSearchText(term)) tokens.add(token);
-    }
-  }
-  if (intent.wantsReleaseNotes) {
-    for (const term of RELEASE_NOTES_TERMS) {
-      for (const token of tokenizeSearchText(term)) tokens.add(token);
-    }
-  }
   if (intent.wantsComparison) {
     for (const term of COMPARISON_TERMS) {
       for (const token of tokenizeSearchText(term)) tokens.add(token);
@@ -236,15 +232,67 @@ function selectorTokens(
 ): string[] {
   const noiseTokens = domainNoiseTokens(allowedDomains);
   const intentNoise = intentNoiseTokens(intent);
+  const compoundNoise = compoundComponentNoiseTokens(query);
   return tokenizeQuery(query).filter((token) =>
     token !== "site" &&
     !noiseTokens.has(token) &&
-    !intentNoise.has(token)
+    !intentNoise.has(token) &&
+    !compoundNoise.has(token)
   );
 }
 
 function normalizeMatchText(value?: string): string {
   return value?.toLowerCase() ?? "";
+}
+
+function normalizeCompoundTerm(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function extractCompoundTerms(text: string): string[] {
+  const matches = text.match(COMPOUND_TERM_RE) ?? [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const match of matches) {
+    const term = normalizeCompoundTerm(match);
+    if (term.length < 4 || seen.has(term)) continue;
+    seen.add(term);
+    normalized.push(term);
+  }
+  return normalized;
+}
+
+function extractCompoundQueryTerms(query: string): string[] {
+  return extractCompoundTerms(query);
+}
+
+function compoundComponentNoiseTokens(query: string): Set<string> {
+  const noise = new Set<string>();
+  const matches = query.match(COMPOUND_TERM_RE) ?? [];
+  for (const match of matches) {
+    for (const token of tokenizeSearchText(match)) {
+      noise.add(token);
+    }
+  }
+  return noise;
+}
+
+function compoundTermMatches(text: string, compoundTerms: string[]): number {
+  if (compoundTerms.length === 0) return 0;
+  const collapsed = normalizeCompoundTerm(text);
+  let matches = 0;
+  for (const term of compoundTerms) {
+    if (collapsed.includes(term)) {
+      matches += 1;
+    }
+  }
+  return matches;
+}
+
+function compoundTermAdjustment(text: string, compoundTerms: string[]): number {
+  if (compoundTerms.length === 0) return 0;
+  if (compoundTermMatches(text, compoundTerms) > 0) return 0;
+  return extractCompoundTerms(text).length > 0 ? -13 : -11;
 }
 
 function matchedTokenCount(textTokens: Set<string>, tokens: string[]): number {
@@ -339,10 +387,33 @@ function hasReleaseSignal(result: SearchResult): boolean {
     ) === true;
 }
 
+function hasLifecycleSignal(result: SearchResult): boolean {
+  const title = normalizeMatchText(result.title);
+  const snippet = normalizeMatchText(result.snippet);
+  const pageDescription = normalizeMatchText(result.pageDescription);
+  return hasAnyTerm(
+    `${title} ${snippet} ${pageDescription}`,
+    LIFECYCLE_SIGNAL_TERMS,
+  );
+}
+
 function hasComparisonSignal(result: SearchResult): boolean {
   const title = normalizeMatchText(result.title);
   const snippet = normalizeMatchText(result.snippet);
   return hasAnyTerm(`${title} ${snippet}`, COMPARISON_SIGNAL_TERMS);
+}
+
+function hostCompoundTermMatches(
+  result: SearchResult,
+  compoundTerms: string[],
+): boolean {
+  if (compoundTerms.length === 0) return false;
+  const analysis = analyzeResultUrl(result.url);
+  if (!analysis) return false;
+  return compoundTermMatches(analysis.hostWithoutWww, compoundTerms) > 0 ||
+    analysis.subdomainLabels.some((label) =>
+      compoundTermMatches(label, compoundTerms) > 0
+    );
 }
 
 function allowedDomainBoost(
@@ -382,12 +453,43 @@ function authorityBoost(
         ? mode === "fetched" ? 3 : 2.25
         : mode === "fetched" ? 1.5 : 1;
     case "technical_article":
-      return authoritativeBias ? 0.25 : 0.5;
+      return authoritativeBias
+        ? mode === "fetched" ? -1.25 : -1.5
+        : 0.5;
     case "forum":
       return mode === "fetched" ? -1.5 : -1;
     case "other":
       return 0;
   }
+}
+
+function releaseIntentAuthorityAdjustment(
+  result: SearchResult,
+  input: DeterministicSearchSignalInput,
+  compoundTerms: string[],
+): number {
+  if (!(input.intent?.wantsReleaseNotes || input.intent?.wantsRecency)) {
+    return 0;
+  }
+
+  const authority = classifySearchResultSource(result, input.allowedDomains);
+  const releaseSignal = hasReleaseSignal(result);
+  let score = authority.isAuthoritative
+    ? releaseSignal ? 6 : -1.25
+    : releaseSignal ? 0.5 : -2.5;
+  if (releaseSignal && hostCompoundTermMatches(result, compoundTerms)) {
+    score += 5;
+  }
+  if (hasLifecycleSignal(result)) {
+    score -= 3;
+  }
+  if (releaseSignal && result.publishedDate) {
+    score += 0.5;
+  }
+  if (authority.isCommunity) {
+    score -= 1.5;
+  }
+  return score;
 }
 
 function deterministicBaseScore(
@@ -398,18 +500,23 @@ function deterministicBaseScore(
   const title = normalizeMatchText(result.title);
   const snippet = normalizeMatchText(result.snippet);
   const phrase = normalizeMatchText(input.query).trim();
+  const compoundTerms = extractCompoundQueryTerms(input.query);
   const titleTokens = new Set(tokenizeSearchText(result.title ?? ""));
   const snippetTokens = new Set(tokenizeSearchText(result.snippet ?? ""));
   const urlTokens = new Set(tokenizeSearchText(result.url ?? ""));
+  const candidateText = `${result.title ?? ""} ${result.snippet ?? ""} ${result.url ?? ""}`;
 
   const titleMatches = matchedTokenCount(titleTokens, queryTokens);
   const snippetMatches = matchedTokenCount(snippetTokens, queryTokens);
   const urlMatches = matchedTokenCount(urlTokens, queryTokens);
+  const compoundMatches = compoundTermMatches(candidateText, compoundTerms);
 
   let score = 0;
   score += titleMatches * 3;
   score += snippetMatches * 1.5;
   score += urlMatches;
+  score += compoundMatches * 4;
+  score += compoundTermAdjustment(candidateText, compoundTerms);
 
   if (phrase.length >= 8 && (title.includes(phrase) || snippet.includes(phrase))) {
     score += 2;
@@ -426,6 +533,7 @@ function deterministicBaseScore(
   if (input.intent?.wantsReleaseNotes || input.intent?.wantsRecency) {
     if (hasReleaseSignal(result)) score += 2;
     if (result.publishedDate) score += 0.5;
+    score += releaseIntentAuthorityAdjustment(result, input, compoundTerms);
   }
   if (input.intent?.wantsComparison || input.intent?.wantsMultiSourceSynthesis) {
     if (hasComparisonSignal(result)) score += 1.5;
@@ -586,17 +694,21 @@ function fetchedEvidenceScore(
   const pageDescription = normalizeMatchText(result.pageDescription);
   const passagesText = normalizeMatchText((result.passages ?? []).join(" "));
   const phrase = normalizeMatchText(input.query).trim();
+  const compoundTerms = extractCompoundQueryTerms(input.query);
   const titleTokens = new Set(tokenizeSearchText(result.title ?? ""));
   const snippetTokens = new Set(tokenizeSearchText(result.snippet ?? ""));
   const urlTokens = new Set(tokenizeSearchText(result.url ?? ""));
   const pageTokens = new Set(tokenizeSearchText(result.pageDescription ?? ""));
   const passageTokens = new Set(tokenizeSearchText((result.passages ?? []).join(" ")));
+  const candidateText =
+    `${result.title ?? ""} ${result.snippet ?? ""} ${result.url ?? ""} ${result.pageDescription ?? ""} ${passagesText}`;
 
   const titleMatches = matchedTokenCount(titleTokens, queryTokens);
   const snippetMatches = matchedTokenCount(snippetTokens, queryTokens);
   const urlMatches = matchedTokenCount(urlTokens, queryTokens);
   const pageMatches = matchedTokenCount(pageTokens, queryTokens);
   const passageMatches = matchedTokenCount(passageTokens, queryTokens);
+  const compoundMatches = compoundTermMatches(candidateText, compoundTerms);
   const hasPassages = (result.passages?.length ?? 0) > 0;
   const hasEvidence = hasStructuredEvidence(result);
 
@@ -606,6 +718,8 @@ function fetchedEvidenceScore(
   score += urlMatches * 0.5;
   score += pageMatches * 2.25;
   score += passageMatches * 3;
+  score += compoundMatches * 3.5;
+  score += compoundTermAdjustment(candidateText, compoundTerms);
 
   if (phrase.length >= 8 &&
     (title.includes(phrase) || pageDescription.includes(phrase) || passagesText.includes(phrase))
@@ -627,6 +741,7 @@ function fetchedEvidenceScore(
   if (input.intent?.wantsReleaseNotes || input.intent?.wantsRecency) {
     if (hasReleaseSignal(result)) score += 1.5;
     if (result.publishedDate) score += 0.5;
+    score += releaseIntentAuthorityAdjustment(result, input, compoundTerms);
   }
   if (input.intent?.wantsComparison || input.intent?.wantsMultiSourceSynthesis) {
     if (hasComparisonSignal(result)) score += 1.25;

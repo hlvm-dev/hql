@@ -12,6 +12,7 @@ import { log } from "../../api/log.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { setCurrentThemeName } from "../theme/state.ts";
 import { setCustomKeybindingsSnapshot } from "./keybindings/custom-bindings.ts";
+import { resetTerminalViewport } from "../ansi.ts";
 
 export interface InkReplOptions {
   showBanner?: boolean;
@@ -30,6 +31,7 @@ export async function startInkRepl(options: InkReplOptions = {}): Promise<number
   const runtimeSnapshot = await runtimeConfig.sync();
   const initialTheme = setCurrentThemeName(runtimeConfig.getTheme());
   setCustomKeybindingsSnapshot(runtimeSnapshot.keybindings);
+  resetTerminalViewport();
   const { waitUntilExit } = render(
     <ThemeProvider initialTheme={initialTheme}>
       <App

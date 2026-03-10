@@ -11,13 +11,14 @@ import {
   runReActLoop,
 } from "./orchestrator.ts";
 import {
+  type AgentProfile,
   getAgentProfile,
   listAgentProfiles,
-  type AgentProfile,
 } from "./agent-registry.ts";
 import { DEFAULT_MAX_TOOL_CALLS, isGroundingMode } from "./constants.ts";
-import { ValidationError } from "../../common/error.ts";
+import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { hasTool } from "./registry.ts";
+import { isMutatingTool } from "./security/safety.ts";
 import { createTodoState } from "./todo-state.ts";
 import {
   type DelegateTranscriptEvent,
@@ -48,8 +49,8 @@ import {
   updateThreadWorkspace,
 } from "./delegate-threads.ts";
 import {
-  createDelegateInbox,
   type BackgroundDelegateUpdate,
+  createDelegateInbox,
 } from "./delegate-inbox.ts";
 import { getAgentLogger } from "./logger.ts";
 import { getPlatform } from "../../platform/platform.ts";
@@ -82,11 +83,14 @@ const CHILD_TOOL_DENYLIST = [
 function buildAgentSystemNote(
   profile: AgentProfile,
   tools: string[],
-  options: { canDelegate: boolean },
+  options: { canDelegate: boolean; isolatedWorkspace: boolean },
 ): string {
   return [
     `Specialist agent: ${profile.name}`,
     `Allowed tools: ${tools.join(", ") || "none"}`,
+    options.isolatedWorkspace
+      ? "Workspace mode: isolated child workspace. File changes may be merged later by the parent."
+      : "Workspace mode: shared parent workspace without isolation. Stay read-only: inspect, analyze, and report only.",
     options.canDelegate
       ? "Call delegate_agent only when a clearly separable subtask materially advances the parent task."
       : "Do not call delegate_agent.",
@@ -101,10 +105,15 @@ function resolveAllowedTools(
   profileName: string,
   agentProfiles: readonly AgentProfile[] | undefined,
   toolOwnerId?: string,
+  options?: { allowMutation?: boolean },
 ): string[] {
   const profile = getAgentProfile(profileName, agentProfiles);
   if (!profile) return [];
-  return profile.tools.filter((tool) => hasTool(tool, toolOwnerId));
+  const allowed = profile.tools.filter((tool) => hasTool(tool, toolOwnerId));
+  if (options?.allowMutation === false) {
+    return allowed.filter((tool) => !isMutatingTool(tool, toolOwnerId));
+  }
+  return allowed;
 }
 
 /** Validate delegate_agent args and return parsed fields. */
@@ -166,7 +175,9 @@ export async function generateChildDiff(
 
       if (entry.isDirectory) {
         // Skip nested .hlvm-child dirs
-        if (entry.name.startsWith(".hlvm-child-") || entry.name === ".git") continue;
+        if (entry.name.startsWith(".hlvm-child-") || entry.name === ".git") {
+          continue;
+        }
         await walkDir(childPath, relPath);
       } else if (entry.isFile) {
         const parentPath = platform.path.join(parentWorkspace, relPath);
@@ -281,7 +292,9 @@ export async function snapshotWorkspaceFiles(
       const childPath = platform.path.join(dir, entry.name);
       const relPath = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory) {
-        if (entry.name.startsWith(".hlvm-child-") || entry.name === ".git") continue;
+        if (entry.name.startsWith(".hlvm-child-") || entry.name === ".git") {
+          continue;
+        }
         await walkDir(childPath, relPath);
         continue;
       }
@@ -330,12 +343,17 @@ async function runDelegateChild(
     ? CHILD_TOOL_DENYLIST
     : CHILD_TOOL_DENYLIST.filter((t) => t !== "delegate_agent");
 
+  const isolatedWorkspace = workspaceOverride !== undefined;
   const allowedTools = resolveAllowedTools(
     agent,
     config.agentProfiles ?? baseConfig.agentProfiles,
     config.toolOwnerId,
+    { allowMutation: isolatedWorkspace },
   );
-  const profile = getAgentProfile(agent, config.agentProfiles ?? baseConfig.agentProfiles);
+  const profile = getAgentProfile(
+    agent,
+    config.agentProfiles ?? baseConfig.agentProfiles,
+  );
 
   let childLlm = llm;
   if (baseConfig.fixturePath) {
@@ -370,13 +388,18 @@ async function runDelegateChild(
   });
   context.addMessage({
     role: "system",
-    content: buildAgentSystemNote(profile ?? {
-      name: agent,
-      description: "",
-      tools: allowedTools,
-    }, allowedTools, {
-      canDelegate: !atMaxDepth,
-    }),
+    content: buildAgentSystemNote(
+      profile ?? {
+        name: agent,
+        description: "",
+        tools: allowedTools,
+      },
+      allowedTools,
+      {
+        canDelegate: !atMaxDepth,
+        isolatedWorkspace,
+      },
+    ),
   });
   // Fork-with-history: copy parent non-system messages into child context
   if (record.fork_with_history === true) {
@@ -432,8 +455,7 @@ async function runDelegateChild(
     childSessionId: childTurn?.sessionId,
     success: options.success,
     durationMs: Date.now() - startedAt,
-    toolCount:
-      childEvents.filter((event) => event.type === "tool_end").length,
+    toolCount: childEvents.filter((event) => event.type === "tool_end").length,
     finalResponse: options.finalResponse,
     error: options.error,
     events: [...childEvents],
@@ -447,7 +469,9 @@ async function runDelegateChild(
       {
         workspace: childWorkspace,
         context,
-        permissionMode: config.permissionMode === "yolo" ? "default" : config.permissionMode,
+        permissionMode: config.permissionMode === "yolo"
+          ? "default"
+          : config.permissionMode,
         maxToolCalls: typeof record.maxToolCalls === "number"
           ? Math.min(
             record.maxToolCalls,
@@ -467,18 +491,18 @@ async function runDelegateChild(
         onAgentEvent: pushChildEvent,
         delegateInbox: createDelegateInbox(),
         planning: { mode: "off" },
-      todoState: childTodoState,
-      signal,
-      inputQueue,
-      coordinationBoard: config.coordinationBoard,
-      delegateCoordinationId: config.delegateCoordinationId,
+        todoState: childTodoState,
+        signal,
+        inputQueue,
+        coordinationBoard: config.coordinationBoard,
+        delegateCoordinationId: config.delegateCoordinationId,
         teamRuntime: config.teamRuntime,
         teamMemberId: config.teamMemberId,
         teamLeadMemberId: config.teamLeadMemberId,
         agentProfiles: config.agentProfiles ?? baseConfig.agentProfiles,
-      // If not at max depth, wire child delegate handler for nested delegation
-      ...(!atMaxDepth
-        ? {
+        // If not at max depth, wire child delegate handler for nested delegation
+        ...(!atMaxDepth
+          ? {
             delegate: createDelegateHandler(childLlm, {
               ...baseConfig,
               currentDepth: currentDepth + 1,
@@ -545,7 +569,12 @@ export async function resumeDelegateChild(
   modelId?: string,
 ): Promise<unknown> {
   const profile = getAgentProfile(agent, config.agentProfiles);
-  const allowedTools = resolveAllowedTools(agent, config.agentProfiles, config.toolOwnerId);
+  const allowedTools = resolveAllowedTools(
+    agent,
+    config.agentProfiles,
+    config.toolOwnerId,
+    { allowMutation: false },
+  );
   const childMaxTokens = profile?.maxTokens ?? config.context.getMaxTokens();
   const parentCtxConfig = config.context.getConfig();
   const context = new ContextManager({
@@ -668,14 +697,18 @@ export function createDelegateHandler(
       ...(input.childSessionId ? { childSessionId: input.childSessionId } : {}),
       ...(batchId ? { batchId } : {}),
       ...(input.mergeState ? { mergeState: input.mergeState } : {}),
-      ...(input.filesModified?.length ? { filesModified: input.filesModified } : {}),
+      ...(input.filesModified?.length
+        ? { filesModified: input.filesModified }
+        : {}),
       ...(input.workspaceKind ? { workspaceKind: input.workspaceKind } : {}),
       ...(input.sandboxCapability
         ? { sandboxCapability: input.sandboxCapability }
         : {}),
       ...(input.reviewTaskId ? { reviewTaskId: input.reviewTaskId } : {}),
       ...(input.reviewStatus ? { reviewStatus: input.reviewStatus } : {}),
-      ...(input.preferredProfile ? { preferredProfile: input.preferredProfile } : {}),
+      ...(input.preferredProfile
+        ? { preferredProfile: input.preferredProfile }
+        : {}),
     });
 
     // Handle resume from persisted session (routed from resume_agent orchestrator special-case)
@@ -695,7 +728,10 @@ export function createDelegateHandler(
 
     const background = record.background === true;
 
-    if (config.teamRuntime && teamMemberId && !config.teamRuntime.getMember(teamMemberId)) {
+    if (
+      config.teamRuntime && teamMemberId &&
+      !config.teamRuntime.getMember(teamMemberId)
+    ) {
       const policy = config.teamRuntime.getPolicy();
       const activeWorkers = config.teamRuntime.listMembers().filter((member) =>
         member.role === "worker" && member.status !== "terminated"
@@ -726,7 +762,12 @@ export function createDelegateHandler(
       emitTeamTaskUpdated(background ? "pending" : "in_progress");
     }
 
-    // Synchronous (foreground) path — existing behavior, zero regression risk
+    // Synchronous (foreground) path — child mutates the parent workspace directly.
+    // ACCEPTED TRADEOFF: The parent's ReAct loop is blocked (awaiting) while the
+    // foreground child runs, so no concurrent workspace mutations can occur.
+    // This assumption breaks if the orchestrator is ever made concurrent or if
+    // foreground delegates are fired in parallel (e.g., via Promise.all).
+    // Background delegates MUST use workspace isolation (enforced above).
     if (!background) {
       if (coordinationId && config.coordinationBoard) {
         config.coordinationBoard.ensureItem({
@@ -767,6 +808,7 @@ export function createDelegateHandler(
           config.teamRuntime.updateMember(teamMemberId, {
             childSessionId,
             currentTaskId: undefined,
+            status: "terminated",
           });
         }
         if (coordinationId && config.coordinationBoard) {
@@ -781,12 +823,22 @@ export function createDelegateHandler(
         if (config.teamRuntime && teamTaskId) {
           config.teamRuntime.updateTask(teamTaskId, {
             status: "errored",
-            resultSummary: error instanceof Error ? error.message : String(error),
+            resultSummary: error instanceof Error
+              ? error.message
+              : String(error),
           });
           emitTeamTaskUpdated("errored");
         }
+        if (config.teamRuntime && teamMemberId) {
+          config.teamRuntime.updateMember(teamMemberId, {
+            currentTaskId: undefined,
+            status: "terminated",
+          });
+        }
         if (coordinationId && config.coordinationBoard) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = error instanceof Error
+            ? error.message
+            : String(error);
           config.coordinationBoard.updateItem(coordinationId, {
             status: "errored",
             error: message,
@@ -812,7 +864,9 @@ export function createDelegateHandler(
       updateThreadStatus(threadId, "running");
       config.onAgentEvent?.({ type: "delegate_running", threadId });
       if (coordinationId && config.coordinationBoard) {
-        config.coordinationBoard.updateItem(coordinationId, { status: "running" });
+        config.coordinationBoard.updateItem(coordinationId, {
+          status: "running",
+        });
       }
       if (config.teamRuntime && teamTaskId) {
         config.teamRuntime.updateTask(teamTaskId, {
@@ -833,9 +887,14 @@ export function createDelegateHandler(
           lease.sandboxCapability,
           lease.cleanup,
         );
-      } catch {
-        // Fall back to parent workspace if isolation fails
-        lease = undefined;
+      } catch (isolationError) {
+        const msg = isolationError instanceof Error
+          ? isolationError.message
+          : String(isolationError);
+        throw new RuntimeError(
+          `Background delegate requires workspace isolation: ${msg}`,
+          { source: "delegation" },
+        );
       }
 
       if (lease) {
@@ -864,7 +923,8 @@ export function createDelegateHandler(
           controller.signal,
           lease?.path,
           sharedInputQueue,
-          (childSessionId) => updateThreadChildSession(threadId, childSessionId),
+          (childSessionId) =>
+            updateThreadChildSession(threadId, childSessionId),
         );
         updateThreadStatus(threadId, "completed");
         if (snapshot) updateThreadSnapshot(threadId, snapshot);
@@ -941,6 +1001,7 @@ export function createDelegateHandler(
           config.teamRuntime.updateMember(teamMemberId, {
             childSessionId,
             currentTaskId: undefined,
+            status: "terminated",
           });
         }
 
@@ -990,6 +1051,12 @@ export function createDelegateHandler(
             resultSummary: message,
           });
           emitTeamTaskUpdated(isAbort ? "cancelled" : "errored");
+        }
+        if (config.teamRuntime && teamMemberId) {
+          config.teamRuntime.updateMember(teamMemberId, {
+            currentTaskId: undefined,
+            status: "terminated",
+          });
         }
         if (coordinationId && config.coordinationBoard) {
           config.coordinationBoard.updateItem(coordinationId, {

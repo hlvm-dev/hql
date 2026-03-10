@@ -23,10 +23,10 @@ const EXECUTION_MODE_BADGES: Partial<Record<AgentExecutionMode, string>> = {
 };
 
 const EXECUTION_MODE_CHANGE_MESSAGES: Record<AgentExecutionMode, string> = {
-  "default": "Default mode enabled",
-  "auto-edit": "Accept edits mode enabled",
-  "plan": "Plan mode enabled",
-  "yolo": "Full auto mode enabled",
+  "default": "Default mode",
+  "auto-edit": "Accept edits",
+  "plan": "Plan mode",
+  "yolo": "Full auto",
 };
 
 const EXECUTION_MODE_SELECTION_LABELS: Record<ReplAgentExecutionMode, string> =

@@ -48,7 +48,7 @@ export const globalKeybindings: Keybinding[] = [
     id: "shift+tab",
     display: "Shift+Tab",
     label: "Cycle agent mode",
-    description: "Cycle default, accept-edits, and plan modes",
+    description: "Cycle default, accept-edits, plan, and full-auto modes",
     category: "Global",
     action: { type: "INFO" },
   },

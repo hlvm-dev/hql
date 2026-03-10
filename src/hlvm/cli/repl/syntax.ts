@@ -47,6 +47,14 @@ export interface Token {
   readonly end: number;
 }
 
+export type HighlightColorKey = Exclude<TokenType, "symbol" | "whitespace"> | "functionCall";
+
+export interface HighlightSegment {
+  readonly value: string;
+  readonly colorKey?: HighlightColorKey;
+  readonly bold?: boolean;
+}
+
 // ============================================================
 // Pre-computed Sets for O(1) Lookup (extend shared sets)
 // ============================================================
@@ -309,6 +317,93 @@ function getTokenColors(): Partial<Record<TokenType, string>> & { functionCall: 
   };
 }
 
+function getFunctionPositionTokens(tokens: readonly Token[]): ReadonlySet<number> {
+  const functionPositionTokens = new Set<number>();
+  let lastNonWhitespaceType: string | null = null;
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.type === "whitespace") continue;
+
+    if ((token.type === "symbol" || token.type === "operator") &&
+      lastNonWhitespaceType === "open-paren") {
+      functionPositionTokens.add(i);
+    }
+
+    lastNonWhitespaceType = token.type;
+  }
+
+  return functionPositionTokens;
+}
+
+function getHighlightColorKey(
+  token: Token,
+  isFunctionPosition: boolean,
+): HighlightColorKey | undefined {
+  if (token.type === "macro") {
+    return "macro";
+  }
+  if (isFunctionPosition) {
+    return "functionCall";
+  }
+  if (token.type === "symbol" || token.type === "whitespace") {
+    return undefined;
+  }
+  return token.type;
+}
+
+export function getHighlightSegments(
+  input: string,
+  bracketPositions: number | number[] | null = null,
+): HighlightSegment[] {
+  if (input.length === 0) return [];
+
+  const tokens = tokenizeCached(input);
+  const parts: HighlightSegment[] = [];
+  const functionPositionTokens = getFunctionPositionTokens(tokens);
+  const highlightSet: ReadonlySet<number> | null = bracketPositions === null
+    ? null
+    : new Set<number>(typeof bracketPositions === "number" ? [bracketPositions] : bracketPositions);
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const colorKey = getHighlightColorKey(token, functionPositionTokens.has(i));
+
+    const matchPositions: number[] = [];
+    if (highlightSet !== null) {
+      for (let pos = token.start; pos < token.end; pos++) {
+        if (highlightSet.has(pos)) {
+          matchPositions.push(pos - token.start);
+        }
+      }
+    }
+
+    if (matchPositions.length === 0) {
+      parts.push({ value: token.value, colorKey });
+      continue;
+    }
+
+    let lastEnd = 0;
+    for (const relPos of matchPositions) {
+      const beforeMatch = token.value.slice(lastEnd, relPos);
+      const matchChar = token.value[relPos];
+
+      if (beforeMatch.length > 0) {
+        parts.push({ value: beforeMatch, colorKey });
+      }
+      parts.push({ value: matchChar, colorKey: "functionCall", bold: true });
+      lastEnd = relPos + 1;
+    }
+
+    const afterMatch = token.value.slice(lastEnd);
+    if (afterMatch.length > 0) {
+      parts.push({ value: afterMatch, colorKey });
+    }
+  }
+
+  return parts;
+}
+
 /**
  * Highlight input string with ANSI colors.
  * Uses context-aware highlighting for function position detection.
@@ -320,96 +415,23 @@ function getTokenColors(): Partial<Record<TokenType, string>> & { functionCall: 
 export function highlight(input: string, bracketPositions: number | number[] | null = null): string {
   if (input.length === 0) return "";
 
-  const tokens = tokenizeCached(input);
   const parts: string[] = [];
   const tokenColors = getTokenColors();
-
-  // Normalize to Set for O(1) lookup (skip allocation when no highlights)
-  const highlightSet: ReadonlySet<number> | null = bracketPositions === null
-    ? null
-    : new Set<number>(typeof bracketPositions === "number" ? [bracketPositions] : bracketPositions);
-
-  // Pre-compute which tokens are in function position (after open-paren, skipping whitespace)
-  // OPTIMIZED: Single forward pass O(n) instead of O(n²) backward scans
-  const functionPositionTokens = new Set<number>();
-  let lastNonWhitespaceType: string | null = null;
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (token.type === "whitespace") continue;
-
-    // Check if this token is in function position (right after open-paren)
-    if ((token.type === "symbol" || token.type === "operator") &&
-        lastNonWhitespaceType === "open-paren") {
-      functionPositionTokens.add(i);
-    }
-
-    lastNonWhitespaceType = token.type;
-  }
-
-  // Bracket highlight color (bold + accent)
-  const bracketHighlightColor = tokenColors.functionCall; // always defined from getSyntaxAnsi()
-
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    const isFunctionPosition = functionPositionTokens.has(i);
-
-    // Determine color with priority:
-    // 1. Macros ALWAYS use macro color (even in function position) - signals non-standard evaluation
-    // 2. Function position gets functionCall color (for user-defined functions, operators)
-    // 3. Otherwise use token type color
-    let color: string | undefined;
-    if (token.type === "macro") {
-      color = tokenColors.macro;
-    } else if (isFunctionPosition) {
-      color = tokenColors.functionCall;
-    } else {
-      color = tokenColors[token.type];
-    }
-
-    // Check if this token contains any highlighted bracket positions
-    // Only scan when bracket highlighting is active
-    const matchPositions: number[] = [];
-    if (highlightSet !== null) {
-      for (let pos = token.start; pos < token.end; pos++) {
-        if (highlightSet.has(pos)) {
-          matchPositions.push(pos - token.start); // Convert to token-relative offset
-        }
-      }
-    }
-
-    if (matchPositions.length > 0) {
-      // Render token with highlighted brackets
-      const tokenParts: string[] = [];
-      let lastEnd = 0;
-
-      for (const relPos of matchPositions) {
-        // Text before this match
-        const beforeMatch = token.value.slice(lastEnd, relPos);
-        const matchChar = token.value[relPos];
-
-        if (color) {
-          tokenParts.push(color, beforeMatch, RESET);
-        } else {
-          tokenParts.push(beforeMatch);
-        }
-        // Highlight the bracket with bold + accent color for visibility
-        tokenParts.push(BOLD, bracketHighlightColor, matchChar, RESET);
-        lastEnd = relPos + 1;
-      }
-
-      // Remaining text after last match
-      const afterMatch = token.value.slice(lastEnd);
+  for (const segment of getHighlightSegments(input, bracketPositions)) {
+    const color = segment.colorKey ? tokenColors[segment.colorKey] : undefined;
+    if (segment.bold) {
       if (color) {
-        tokenParts.push(color, afterMatch, RESET);
+        parts.push(BOLD, color, segment.value, RESET);
       } else {
-        tokenParts.push(afterMatch);
+        parts.push(BOLD, segment.value, RESET);
       }
+      continue;
+    }
 
-      parts.push(tokenParts.join(""));
-    } else if (color) {
-      parts.push(color, token.value, RESET);
+    if (color) {
+      parts.push(color, segment.value, RESET);
     } else {
-      parts.push(token.value);
+      parts.push(segment.value);
     }
   }
 

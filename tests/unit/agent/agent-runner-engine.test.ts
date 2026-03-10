@@ -1,7 +1,8 @@
-import { assertEquals, assertExists } from "jsr:@std/assert";
+import { assertEquals, assertExists, assertRejects } from "jsr:@std/assert";
 import {
   createReusableSession,
   disposeAllSessions,
+  runAgentQuery,
 } from "../../../src/hlvm/agent/agent-runner.ts";
 import { SdkAgentEngine } from "../../../src/hlvm/agent/engine-sdk.ts";
 import {
@@ -9,6 +10,7 @@ import {
   resetAgentEngine,
   setAgentEngine,
 } from "../../../src/hlvm/agent/engine.ts";
+import { ValidationError } from "../../../src/common/error.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { generateUUID } from "../../../src/common/utils.ts";
 
@@ -170,5 +172,23 @@ Deno.test({
       await disposeAllSessions();
       await platform.fs.remove(workspace, { recursive: true });
     }
+  },
+});
+
+Deno.test({
+  name: "agent-runner: runAgentQuery rejects weak models before agent execution",
+  async fn() {
+    await assertRejects(
+      () =>
+        runAgentQuery({
+          query: "search the web for latest release notes",
+          model: "ollama/llama3.2:1b",
+          modelInfo: { name: "llama3.2:1b", parameterSize: "7B" },
+          callbacks: {},
+          workspace: getPlatform().process.cwd(),
+        }),
+      ValidationError,
+      "Weak models do not support agent mode",
+    );
   },
 });

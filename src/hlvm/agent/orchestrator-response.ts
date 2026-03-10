@@ -16,10 +16,6 @@ import {
 } from "./tools/web/citation-spans.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
 import {
-  extractWebSearchQueryCandidate,
-  shouldShortCircuitWeakTierWebQuery,
-} from "./query-tool-routing.ts";
-import {
   ensureToolCallIds,
   type LLMSource,
   type LLMResponse,
@@ -45,13 +41,12 @@ import type {
 import { checkToolResultBytesLimit } from "./orchestrator-state.ts";
 import {
   buildToolObservation,
-  extractTerminalToolResponse,
   buildToolRequiredMessage,
   buildToolSignature,
   deduplicateToolCalls,
   stringifyToolResult,
 } from "./orchestrator-tool-formatting.ts";
-import { executeToolCall, executeToolCalls } from "./orchestrator-tool-execution.ts";
+import { executeToolCalls } from "./orchestrator-tool-execution.ts";
 import { callLLMWithRetry, type LLMFunction } from "./orchestrator-llm.ts";
 import type { ToolUse } from "./grounding.ts";
 
@@ -218,9 +213,6 @@ export async function processAgentResponse(
   }
 
   let finalResponse: string | undefined;
-  let terminalToolResponse:
-    | ReturnType<typeof extractTerminalToolResponse>
-    | undefined;
   const completeIndex = limitedCalls.findIndex((call) =>
     call.toolName === "complete_task"
   );
@@ -232,20 +224,6 @@ export async function processAgentResponse(
         stringifyToolResult(completeResult.result);
     } else if (completeResult?.error) {
       finalResponse = `complete_task failed: ${completeResult.error}`;
-    }
-  } else {
-    for (let i = 0; i < results.length; i++) {
-      const toolResult = results[i];
-      const toolCall = limitedCalls[i];
-      if (!toolCall || !toolResult?.success) continue;
-      terminalToolResponse = extractTerminalToolResponse(
-        toolCall.toolName,
-        toolResult.result,
-        config.modelTier,
-      );
-      if (!terminalToolResponse) continue;
-      finalResponse = terminalToolResponse.finalResponse;
-      break;
     }
   }
 
@@ -262,66 +240,12 @@ export async function processAgentResponse(
     toolCalls: limitedCalls,
     toolUses,
     toolBytes,
-    shouldContinue: completeIndex < 0 && !terminalToolResponse,
+    shouldContinue: completeIndex < 0,
     finalResponse,
     nativeSources: agentResponse.sources,
     providerMetadata: agentResponse.providerMetadata,
     latestCitationSourceIndex,
   };
-}
-
-/**
- * Weak-tier direct web path:
- * run search_web before the first LLM turn when the request already has
- * strong web/docs intent, and return immediately on a strong deterministic
- * answer draft.
- */
-export async function maybeShortCircuitWeakWebQuery(
-  userRequest: string,
-  state: LoopState,
-  lc: LoopConfig,
-  config: OrchestratorConfig,
-): Promise<LoopDirective | undefined> {
-  if (lc.modelTier !== "weak") return undefined;
-  const allowlist = config.toolFilterState?.allowlist ?? config.toolAllowlist;
-  if (!shouldShortCircuitWeakTierWebQuery(userRequest, allowlist)) {
-    return undefined;
-  }
-
-  const searchResult = await executeToolCall(
-    {
-      id: crypto.randomUUID(),
-      toolName: "search_web",
-      args: { query: extractWebSearchQueryCandidate(userRequest) },
-    },
-    config,
-    0,
-    1,
-  );
-  if (!searchResult.success) return undefined;
-
-  const terminalToolResponse = extractTerminalToolResponse(
-    "search_web",
-    searchResult.result,
-    lc.modelTier,
-  );
-  if (!terminalToolResponse) return undefined;
-
-  state.lastToolsIncludedWeb = true;
-  return handleFinalResponse(
-    "",
-    {
-      toolCallsMade: 1,
-      finalResponse: terminalToolResponse.finalResponse,
-      latestCitationSourceIndex: buildCitationSourceIndex([{
-        toolName: "search_web",
-        result: searchResult.result,
-      }]),
-    },
-    state,
-    lc,
-    config,
-  );
 }
 
 /**

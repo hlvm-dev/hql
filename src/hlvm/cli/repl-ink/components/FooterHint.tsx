@@ -15,6 +15,7 @@ import { BRAILLE_SPINNER_FRAMES } from "../ui-constants.ts";
 import { useSpinnerFrame } from "../hooks/useSpinnerFrame.ts";
 
 interface FooterProps {
+  terminalWidth?: number;
   streamingState?: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   modelName?: string;
@@ -106,28 +107,83 @@ export function buildFooterCenterState({
 
 interface FooterRightStateInput {
   modelName?: string;
-  modeLabel?: string;
   contextUsageLabel?: string;
   checkpointLabel?: string;
+  inConversation?: boolean;
+}
+
+function getFooterTextWidth(text?: string): number {
+  return text ? Array.from(text).length : 0;
+}
+
+export function getFooterColumnWidths(
+  terminalWidth?: number,
+  leftText?: string,
+  rightText?: string,
+): { width: number; leftWidth: number; centerWidth: number; rightWidth: number } {
+  const safeWidth = Math.max(terminalWidth ?? 80, 32);
+  const maxSideWidth = Math.max(12, Math.floor(safeWidth * 0.28));
+  const minCenterWidth = Math.min(safeWidth, Math.max(16, Math.floor(safeWidth * 0.4)));
+
+  let leftWidth = leftText ? Math.min(maxSideWidth, getFooterTextWidth(leftText)) : 0;
+  let rightWidth = rightText ? Math.min(maxSideWidth, getFooterTextWidth(rightText)) : 0;
+
+  const getGapWidth = (width: number) => width > 0 ? 1 : 0;
+  const computeCenterWidth = () =>
+    safeWidth - leftWidth - rightWidth - getGapWidth(leftWidth) - getGapWidth(rightWidth);
+
+  let centerWidth = computeCenterWidth();
+  let deficit = minCenterWidth - centerWidth;
+
+  const shrinkSide = (side: "left" | "right", minimumWidth: number) => {
+    if (deficit <= 0) return;
+    if (side === "left") {
+      const available = Math.max(0, leftWidth - minimumWidth);
+      const delta = Math.min(deficit, available);
+      leftWidth -= delta;
+      deficit -= delta;
+      return;
+    }
+
+    const available = Math.max(0, rightWidth - minimumWidth);
+    const delta = Math.min(deficit, available);
+    rightWidth -= delta;
+    deficit -= delta;
+  };
+
+  const widerSide = leftWidth >= rightWidth ? "left" : "right";
+  const narrowerSide = widerSide === "left" ? "right" : "left";
+  shrinkSide(widerSide, 8);
+  shrinkSide(narrowerSide, 8);
+  shrinkSide(widerSide, 0);
+  shrinkSide(narrowerSide, 0);
+  centerWidth = Math.max(0, computeCenterWidth());
+
+  return {
+    width: safeWidth,
+    leftWidth,
+    centerWidth,
+    rightWidth,
+  };
 }
 
 export function buildFooterRightState({
   modelName,
-  modeLabel,
   contextUsageLabel,
   checkpointLabel,
-}: FooterRightStateInput): { modeLabel?: string; infoText: string } {
+  inConversation,
+}: FooterRightStateInput): { infoText: string } {
   const infoParts: string[] = [];
   if (contextUsageLabel) infoParts.push(contextUsageLabel);
   if (checkpointLabel) infoParts.push(checkpointLabel);
-  if (modelName) infoParts.push(modelName);
+  if (modelName && inConversation) infoParts.push(modelName);
   return {
-    modeLabel,
     infoText: infoParts.join(" · "),
   };
 }
 
 export function FooterHint({
+  terminalWidth,
   streamingState,
   activeTool,
   modelName,
@@ -163,30 +219,45 @@ export function FooterHint({
     : sc.text.muted;
   const right = buildFooterRightState({
     modelName: model,
-    modeLabel,
     contextUsageLabel,
     checkpointLabel,
+    inConversation,
   });
+  const columns = getFooterColumnWidths(terminalWidth, modeLabel, right.infoText);
 
   return (
-    <Box flexGrow={1} flexDirection="row" justifyContent="space-between">
-      <Box flexGrow={1} justifyContent="center">
-        <Text color={centerColor}>{center.text}</Text>
-      </Box>
+    <Box width={columns.width}>
+      {columns.leftWidth > 0 && (
+        <>
+          <Box width={columns.leftWidth} flexShrink={0}>
+            <Text color={sc.border.active} wrap="truncate-end">
+              {modeLabel ?? ""}
+            </Text>
+          </Box>
+          <Box width={1} flexShrink={0}>
+            <Text> </Text>
+          </Box>
+        </>
+      )}
 
-      <Box flexShrink={0} marginLeft={1}>
-        {right.modeLabel && (
-          <Text color={sc.border.active}>
-            {right.modeLabel}
-          </Text>
-        )}
-        {right.modeLabel && right.infoText && (
-          <Text color={sc.text.muted}>{" · "}</Text>
-        )}
-        <Text color={sc.text.muted}>
-          {right.infoText}
+      <Box width={columns.centerWidth} justifyContent="center" flexShrink={0}>
+        <Text color={centerColor} wrap="truncate-end">
+          {center.text}
         </Text>
       </Box>
+
+      {columns.rightWidth > 0 && (
+        <>
+          <Box width={1} flexShrink={0}>
+            <Text> </Text>
+          </Box>
+          <Box width={columns.rightWidth} justifyContent="flex-end" flexShrink={0}>
+            <Text color={sc.text.muted} wrap="truncate-end">
+              {right.infoText}
+            </Text>
+          </Box>
+        </>
+      )}
     </Box>
   );
 }

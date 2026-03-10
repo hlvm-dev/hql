@@ -441,6 +441,20 @@ export function classifyModelTier(
   return "mid"; // safe default
 }
 
+export function resolveExecutionModelTier(
+  model?: string,
+  modelInfo?: { parameterSize?: string; contextWindow?: number } | null,
+): ModelTier {
+  return classifyModelTier(modelInfo, isFrontierProvider(model));
+}
+
+export function supportsAgentExecution(
+  model?: string,
+  modelInfo?: { parameterSize?: string; contextWindow?: number } | null,
+): boolean {
+  return resolveExecutionModelTier(model, modelInfo) !== "weak";
+}
+
 /** Default tool denylist for interactive ask mode */
 export const DEFAULT_TOOL_DENYLIST = [
   "complete_task",

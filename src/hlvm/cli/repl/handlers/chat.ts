@@ -39,6 +39,7 @@ import { config } from "../../../api/config.ts";
 import { ai } from "../../../api/ai.ts";
 import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
 import { evaluateProviderApproval } from "../../../providers/approval.ts";
+import { supportsAgentExecution } from "../../../agent/constants.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -425,10 +426,16 @@ export async function handleChat(req: Request): Promise<Response> {
         const isAgentModel = resolvedModel?.endsWith(AGENT_MODEL_SUFFIX) ??
           false;
         const configAgentMode = cfgSnapshot.agentMode;
+        const requestHasExplicitModel = typeof body.model === "string" &&
+          body.model.length > 0;
         const effectiveMode = body.mode === CLAUDE_CODE_AGENT_MODE
           ? CLAUDE_CODE_AGENT_MODE
           : (body.mode === "agent" &&
-              (isAgentModel || configAgentMode === "claude-code-agent"))
+              (
+                isAgentModel ||
+                (!requestHasExplicitModel &&
+                  configAgentMode === "claude-code-agent")
+              ))
           ? CLAUDE_CODE_AGENT_MODE
           : body.mode;
 
@@ -441,16 +448,29 @@ export async function handleChat(req: Request): Promise<Response> {
             onPartial,
           );
         } else if (effectiveMode === "agent") {
-          resultStats = await handleAgentMode(
-            body,
-            resolvedModel!,
-            assistantMessageId,
-            controller.signal,
-            emit,
-            onPartial,
-            requestId,
-            resolvedModelInfo,
-          );
+          if (supportsAgentExecution(resolvedModel, resolvedModelInfo)) {
+            resultStats = await handleAgentMode(
+              body,
+              resolvedModel!,
+              assistantMessageId,
+              controller.signal,
+              emit,
+              onPartial,
+              requestId,
+              resolvedModelInfo,
+            );
+          } else {
+            await handleChatMode(
+              body,
+              resolvedModel,
+              sessionId,
+              assistantMessageId,
+              controller.signal,
+              emit,
+              onPartial,
+              resolvedModelInfo,
+            );
+          }
         } else {
           await handleChatMode(
             body,

@@ -391,6 +391,7 @@ export function filterSearchResultsForTimeRange(
 
 const PASSAGE_MAX_CHARS = 280;
 const PASSAGE_MIN_CHARS = 40;
+const PASSAGE_TOTAL_MAX_CHARS = 600;
 
 /**
  * Score a lowercased paragraph against query tokens.
@@ -454,15 +455,24 @@ export function extractRelevantPassages(
     return { text: p, score: scorePassage(lower, tokens) };
   });
 
-  return scored
-    .filter((s) => s.score > 0) // Must match at least 1 query token
-    .sort((a, b) => b.score - a.score) // Best matches first
-    .slice(0, maxPassages)
-    .map((s) =>
-      s.text.length > PASSAGE_MAX_CHARS
-        ? s.text.slice(0, PASSAGE_MAX_CHARS - 1) + "\u2026"
-        : s.text
-    );
+  const ranked = scored
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxPassages);
+
+  // Cap total passage chars to prevent unbounded token cost in tool results.
+  const passages: string[] = [];
+  let totalChars = 0;
+  for (const s of ranked) {
+    const truncated = s.text.length > PASSAGE_MAX_CHARS
+      ? s.text.slice(0, PASSAGE_MAX_CHARS - 1) + "\u2026"
+      : s.text;
+    if (totalChars + truncated.length > PASSAGE_TOTAL_MAX_CHARS && passages.length > 0) break;
+    passages.push(truncated);
+    totalChars += truncated.length;
+  }
+
+  return passages;
 }
 
 /** Drop passages that substantially overlap with the DDG snippet (Jaccard > 0.6). */

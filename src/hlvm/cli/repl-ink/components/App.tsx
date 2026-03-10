@@ -10,7 +10,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";
@@ -57,7 +57,6 @@ import type {
   InteractionRequestEvent,
   InteractionResponse,
 } from "../../../agent/registry.ts";
-import { getPlatform } from "../../../../platform/platform.ts";
 import { ensureError } from "../../../../common/utils.ts";
 import {
   ConfigError,
@@ -77,9 +76,14 @@ import { ReplProvider } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { log } from "../../../api/log.ts";
-import { looksLikeNaturalLanguage } from "../../repl/input-routing.ts";
+import {
+  looksLikeNaturalLanguage,
+  resolveConversationMode,
+} from "../../repl/input-routing.ts";
+import { stripTerminalControlBytes } from "../../repl/input-normalization.ts";
 import {
   getRuntimeConfigApi,
+  getRuntimeModelDiscovery,
   patchRuntimeConfig,
   runChatViaHost,
 } from "../../../runtime/host-client.ts";
@@ -96,14 +100,21 @@ import {
 } from "../../../api/session.ts";
 import { resolveSessionStart } from "../../repl/session/start.ts";
 import { buildTranscriptStateFromSession } from "../conversation-history.ts";
-import type { ConfiguredModelReadinessState } from "../../../runtime/configured-model-readiness.ts";
 import {
   cycleReplAgentExecutionMode,
   getAgentExecutionModeBadge,
   getAgentExecutionModeChangeMessage,
+  getAgentExecutionModeSelectionLabel,
   toAgentExecutionMode,
   type AgentExecutionMode,
 } from "../../../agent/execution-mode.ts";
+import {
+  formatExecutionModeModelDisplayName,
+  getExecutionModeModelForMode,
+  resolveExecutionModeModels,
+  type ReplAgentExecutionModeModelOverrides,
+} from "../../../agent/execution-mode-models.ts";
+import type { RuntimeModelDiscoveryResponse } from "../../../runtime/model-protocol.ts";
 
 interface HistoryEntry {
   id: number;
@@ -118,14 +129,6 @@ interface CurrentEval {
   cancelled?: boolean;
   taskId?: string;
   historyId?: number;
-}
-
-interface BannerItem {
-  id: string;
-  aiExports: string[];
-  aiReadiness: ConfiguredModelReadinessState;
-  errors: string[];
-  modelName: string;
 }
 
 interface QueuedConversationTurn {
@@ -146,27 +149,12 @@ function isAsyncIterable(
     Symbol.asyncIterator in (value as object);
 }
 
-function stringifyOutput(value: unknown): string {
-  if (value === undefined) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    try {
-      return String(value);
-    } catch {
-      return "";
-    }
-  }
-}
-
 /**
  * Keep history input rendering stable by stripping terminal control bytes that
  * can leak from key sequences while preserving tabs/newlines.
  */
 function sanitizeHistoryInput(input: string): string {
-  const withoutAnsi = input.replace(/\x1B\[[0-9;?]*[ -/]*[@-~]/g, "");
-  return withoutAnsi.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "");
+  return stripTerminalControlBytes(input);
 }
 
 /**
@@ -288,8 +276,6 @@ function AppContent(
   const [nextId, setNextId] = useState(1);
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
-  // Banner rendered once via Static to prevent double-render issues with Ink
-  const [bannerRendered, setBannerRendered] = useState(false);
 
   // Task manager for background evaluation
   const {
@@ -336,13 +322,6 @@ function AppContent(
   const [pendingResumeInput, setPendingResumeInput] = useState<string | null>(
     null,
   );
-
-  // Mark banner as rendered once when init completes (for Static component)
-  useEffect(() => {
-    if (init.ready && !bannerRendered) {
-      setBannerRendered(true);
-    }
-  }, [init.ready, bannerRendered]);
 
   // Command palette persistent state (survives open/close)
   const [paletteState, setPaletteState] = useState<PaletteState>({
@@ -422,20 +401,42 @@ function AppContent(
   const [isConfiguredModelExplicit, setIsConfiguredModelExplicit] = useState(
     initialConfig?.modelConfigured === true,
   );
-  const [footerModelName, setFooterModelName] = useState<string>(
-    typeof initialConfig?.model === "string"
-      ? initialConfig.model.replace("ollama/", "")
-      : "",
-  );
   const [configuredContextWindow, setConfiguredContextWindow] = useState<
     number | undefined
   >(getContextWindow(initialConfig));
+  const [runtimeModelDiscovery, setRuntimeModelDiscovery] = useState<
+    RuntimeModelDiscoveryResponse | undefined
+  >(undefined);
+  const [modeModelOverrides, setModeModelOverrides] = useState<
+    ReplAgentExecutionModeModelOverrides
+  >({});
   const [footerContextUsageLabel, setFooterContextUsageLabel] = useState<
     string
   >("");
   const [pendingConversationQueue, setPendingConversationQueue] = useState<
     QueuedConversationTurn[]
   >([]);
+  const executionModeModels = useMemo(
+    () =>
+      resolveExecutionModeModels(
+        configuredModelId,
+        runtimeModelDiscovery,
+        modeModelOverrides,
+      ),
+    [configuredModelId, runtimeModelDiscovery, modeModelOverrides],
+  );
+  const activeExecutionModeModel = getExecutionModeModelForMode(
+    agentExecutionMode,
+    executionModeModels,
+    configuredModelId,
+    configuredContextWindow,
+  );
+  const activeModelId = activeExecutionModeModel?.id ?? configuredModelId;
+  const footerModelName = activeExecutionModeModel?.displayName ??
+    formatExecutionModeModelDisplayName(configuredModelId);
+  const activeContextWindow = activeExecutionModeModel?.contextWindow ??
+    configuredContextWindow;
+  const activeModeModelOverrideId = modeModelOverrides[agentExecutionMode];
   const shouldUseAlternateBuffer = activePanel === "conversation" &&
     conversation.items.length >= 80;
   useAlternateBuffer(shouldUseAlternateBuffer);
@@ -464,7 +465,6 @@ function AppContent(
       const modelId = getConfiguredModel(cfg);
       setConfiguredModelId(modelId);
       setIsConfiguredModelExplicit(cfg.modelConfigured === true);
-      setFooterModelName(modelId.replace("ollama/", ""));
       setConfiguredContextWindow(getContextWindow(cfg));
       if (!replModeTouchedRef.current) {
         setAgentExecutionMode(toAgentExecutionMode(getPermissionMode(cfg)));
@@ -473,12 +473,28 @@ function AppContent(
     [],
   );
 
+  const refreshRuntimeModelDiscovery = useCallback(async () => {
+    const discovery = await getRuntimeModelDiscovery();
+    setRuntimeModelDiscovery(discovery);
+  }, []);
+
   const cycleAgentMode = useCallback(() => {
     const nextMode = cycleReplAgentExecutionMode(agentExecutionMode);
     replModeTouchedRef.current = true;
     setAgentExecutionMode(nextMode);
-    flashFooterStatus(getAgentExecutionModeChangeMessage(nextMode));
-  }, [agentExecutionMode, flashFooterStatus]);
+    const nextModel = executionModeModels.byMode[nextMode];
+    const modeMessage = getAgentExecutionModeChangeMessage(nextMode);
+    flashFooterStatus(
+      nextModel && nextModel.id !== activeModelId
+        ? `${modeMessage} · ${nextModel.displayName}`
+        : modeMessage,
+    );
+  }, [
+    agentExecutionMode,
+    activeModelId,
+    executionModeModels.byMode,
+    flashFooterStatus,
+  ]);
 
   const refreshRuntimeConfigState = useCallback(async () => {
     const runtimeConfig = await createRuntimeConfigManager();
@@ -504,7 +520,9 @@ function AppContent(
     if (!init.ready) return;
     refreshRuntimeConfigState()
       .catch(() => {});
-  }, [init.ready, refreshRuntimeConfigState]);
+    refreshRuntimeModelDiscovery()
+      .catch(() => {});
+  }, [init.ready, refreshRuntimeConfigState, refreshRuntimeModelDiscovery]);
 
   // Show model setup overlay if default model needs to be downloaded (only once)
   useEffect(() => {
@@ -707,7 +725,24 @@ function AppContent(
       const ensuredModel = await runtimeConfig
         .ensureInitialModelConfigured();
       const runtimeSnapshot = runtimeConfig.getConfig();
-      const model = ensuredModel.model || configuredModelId || undefined;
+      const runtimeConfiguredModelId = ensuredModel.model || runtimeSnapshot.model ||
+        configuredModelId;
+      const runtimeExecutionModeModels = resolveExecutionModeModels(
+        runtimeConfiguredModelId,
+        runtimeModelDiscovery,
+        modeModelOverrides,
+      );
+      const runtimeExecutionModeModel = getExecutionModeModelForMode(
+        agentExecutionMode,
+        runtimeExecutionModeModels,
+        runtimeConfiguredModelId,
+        configuredContextWindow,
+      );
+      const model = runtimeExecutionModeModel?.id;
+      const conversationMode = resolveConversationMode(
+        model,
+        runtimeExecutionModeModel,
+      );
       if (
         runtimeSnapshot.model !== configuredModelId ||
         (runtimeSnapshot.modelConfigured === true) !== isConfiguredModelExplicit
@@ -717,7 +752,14 @@ function AppContent(
         );
       }
       if (model) {
-        conversation.addInfo("Initializing agent...", { isTransient: true });
+        conversation.addInfo(
+          `${
+            conversationMode === "agent"
+              ? "Initializing agent"
+              : "Starting chat"
+          } (${runtimeExecutionModeModel?.displayName ?? formatExecutionModeModelDisplayName(model)})...`,
+          { isTransient: true },
+        );
       } else {
         throw new ConfigError(
           "No configured model available for conversation mode.",
@@ -733,7 +775,7 @@ function AppContent(
       let textBuffer = "";
       let finalCitations: AssistantCitation[] | undefined;
       const result = await runChatViaHost({
-        mode: "agent",
+        mode: conversationMode,
         sessionId: sessionMeta.id,
         messages: [{
           role: "user",
@@ -742,10 +784,14 @@ function AppContent(
           client_turn_id: crypto.randomUUID(),
         }],
         model,
-        permissionMode: agentExecutionMode,
-        // REPL UX: avoid model-initiated ask_user detours for simple chat turns.
-        // Keep direct conversational flow unless explicit permission prompts are needed.
-        toolDenylist: ["ask_user", "complete_task"],
+        ...(conversationMode === "agent"
+          ? {
+            permissionMode: agentExecutionMode,
+            // REPL UX: avoid model-initiated ask_user detours for simple chat turns.
+            // Keep direct conversational flow unless explicit permission prompts are needed.
+            toolDenylist: ["ask_user", "complete_task"],
+          }
+          : {}),
         signal: controller.signal,
         callbacks: {
           onToken: (text: string) => {
@@ -779,7 +825,7 @@ function AppContent(
               | undefined;
           },
         },
-        onInteraction: (event) => {
+        onInteraction: conversationMode === "agent" ? (event) => {
           const interactionEvent: InteractionRequestEvent = {
             type: "interaction_request",
             requestId: event.requestId,
@@ -831,7 +877,7 @@ function AppContent(
               once: true,
             });
           });
-        },
+        } : undefined,
       });
 
       // Finalize assistant message
@@ -844,14 +890,28 @@ function AppContent(
       // Footer context usage (Gemini-style compact indicator)
       const usage = result.stats.usage;
       if (
-        usage && typeof configuredContextWindow === "number" &&
-        configuredContextWindow > 0
+        usage && typeof runtimeExecutionModeModel?.contextWindow === "number" &&
+        runtimeExecutionModeModel.contextWindow > 0
       ) {
         const pct = Math.max(
           0,
           Math.min(
             100,
-            Math.round((usage.totalTokens / configuredContextWindow) * 100),
+            Math.round(
+              (usage.totalTokens / runtimeExecutionModeModel.contextWindow) *
+                100,
+            ),
+          ),
+        );
+        setFooterContextUsageLabel(`${pct}% ctx`);
+      } else if (
+        usage && typeof activeContextWindow === "number" && activeContextWindow > 0
+      ) {
+        const pct = Math.max(
+          0,
+          Math.min(
+            100,
+            Math.round((usage.totalTokens / activeContextWindow) * 100),
           ),
         );
         setFooterContextUsageLabel(`${pct}% ctx`);
@@ -881,11 +941,13 @@ function AppContent(
   }, [
     applyRuntimeConfigState,
     agentExecutionMode,
-    configuredContextWindow,
+    activeContextWindow,
     isConfiguredModelExplicit,
     configuredModelId,
     conversation,
     currentSession,
+    modeModelOverrides,
+    runtimeModelDiscovery,
   ]);
 
   const handleInteractionResponse = useCallback(
@@ -1287,8 +1349,6 @@ function AppContent(
         return;
       }
 
-      const outputStr = stringifyOutput(result.value);
-
       if (evalState.backgrounded || evalState.taskId) {
         const taskId = evalState.taskId ?? createEvalTask(code, controller);
         evalState.taskId = taskId;
@@ -1485,18 +1545,6 @@ function AppContent(
     }
   });
 
-  // Prepare banner items for Static component (renders once, never re-renders)
-  const bannerItems: BannerItem[] =
-    showBanner && !hasBeenCleared && bannerRendered
-      ? [{
-        id: "banner",
-        aiExports: init.aiExports,
-        aiReadiness: init.aiReadiness,
-        errors: init.errors,
-        modelName: footerModelName,
-      }]
-      : [];
-
   // Input visible: always for normal/overlay modes and always visible in conversation mode.
   const isConversationInputVisible = activePanel === "conversation";
   const isInputVisible = activePanel === "none" ||
@@ -1515,17 +1563,7 @@ function AppContent(
   // - empty prompt (paredit no-op)
   const allowConversationToggleHotkeys = !isInputVisible || isInputDisabled ||
     input.length === 0;
-  const renderBannerItem = (item: BannerItem): React.ReactElement => (
-    <Box key={item.id}>
-      <Banner
-        aiExports={item.aiExports}
-        aiReadiness={item.aiReadiness}
-        errors={item.errors}
-        modelName={item.modelName}
-      />
-    </Box>
-  );
-  const staticBannerProps = { items: bannerItems, children: renderBannerItem };
+
   const tokenColor = (type: TokenType): string | undefined => {
     switch (type) {
       case "string":
@@ -1549,169 +1587,198 @@ function AppContent(
 
   return (
     <Box key={clearKey} flexDirection="column" paddingX={1}>
-      {/* Banner rendered via Static to prevent double-render issues */}
-      {showBanner && !hasBeenCleared && !bannerRendered && (
-        <Text dimColor>Loading HLVM...</Text>
-      )}
-      <Static<BannerItem> {...staticBannerProps} />
-
-      {/* History of inputs and outputs (hidden during conversation to prevent ghost rendering) */}
-      {activePanel !== "conversation" && history.map((entry: HistoryEntry) => {
-        const lines = entry.input.split("\n");
-        const unclosedDepth = lines.length > 1
-          ? getUnclosedDepth(entry.input)
-          : 0;
-        return (
-          <Box key={entry.id} flexDirection="column" marginBottom={1}>
-            {lines.map((line: string, lineIndex: number) => (
-              <Box key={`${entry.id}-${lineIndex}`}>
-                <Text color={color("primary")} bold>
-                  {lineIndex === 0
-                    ? "hlvm>"
-                    : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
-                </Text>
-                <Box>
-                  {tokenize(line).map((token, tokenIdx) => (
-                    <React.Fragment
-                      key={`${entry.id}-${lineIndex}-${tokenIdx}`}
-                    >
-                      <Text color={tokenColor(token.type)}>
-                        {token.value}
-                      </Text>
-                    </React.Fragment>
-                  ))}
-                </Box>
-              </Box>
-            ))}
-            <Output result={entry.result} />
-          </Box>
-        );
-      })}
-
-      {/* Session Picker */}
-      {activePanel === "picker" && (
-        <SessionPicker
-          sessions={pickerSessions}
-          currentSessionId={sessionApi.current()?.id ?? currentSession?.id}
-          onSelect={handlePickerSelect}
-          onCancel={handlePickerCancel}
-        />
-      )}
-
-      {/* Command Palette (True Floating Overlay) */}
-      {activePanel === "palette" && (
-        <CommandPaletteOverlay
-          onClose={() => setActivePanel("none")}
-          onExecute={handlePaletteAction}
-          onRebind={handleRebind}
-          initialState={paletteState}
-          onStateChange={setPaletteState}
-        />
-      )}
-
-      {/* Config Overlay (True Floating Overlay) */}
-      {activePanel === "config-overlay" && (
-        <ConfigOverlay
-          onClose={() => setActivePanel("none")}
-          onOpenModelBrowser={() => {
-            setModelBrowserParent("config-overlay");
-            setActivePanel("models");
-          }}
-          onConfigChange={(cfg) =>
-            applyRuntimeConfigState(cfg as unknown as Record<string, unknown>)}
-          initialState={configOverlayState}
-          onStateChange={setConfigOverlayState}
-        />
-      )}
-
-      {/* Background Tasks Overlay (True Floating Overlay) */}
-      {activePanel === "tasks-overlay" && (
-        <BackgroundTasksOverlay onClose={() => setActivePanel("none")} />
-      )}
-
-      {/* Shortcuts Overlay (True Floating Overlay) */}
-      {activePanel === "shortcuts-overlay" && (
-        <ShortcutsOverlay onClose={() => setActivePanel("none")} />
-      )}
-
-      {/* Model Browser Panel */}
-      {activePanel === "models" && (
-        <ModelBrowser
-          currentModel={configuredModelId}
-          isCurrentModelConfigured={isConfiguredModelExplicit}
-          onClose={() => {
-            setActivePanel(modelBrowserParent);
-            setModelBrowserParent("none");
-          }}
-          onModelSet={(modelName: string) => {
-            const normalizedModel = normalizeModelId(modelName) ?? modelName;
-            addHistoryEntry("", {
-              success: true,
-              value: `✓ Default model: ${normalizedModel}`,
-              isCommandOutput: true,
-            });
-          }}
-          onSelectModel={async (modelName: string) => {
-            const updates = buildSelectedModelConfigUpdates(modelName);
-            const configApi = getRuntimeConfigApi();
-            await persistSelectedModelConfig(configApi, modelName);
-            applyRuntimeConfigState(
-              updates as unknown as Record<string, unknown>,
-            );
-          }}
-        />
-      )}
-
-      {/* Model Setup Overlay (first-time AI model download) */}
-      {activePanel === "model-setup" && init.modelToSetup && (
-        <ModelSetupOverlay
-          modelName={init.modelToSetup}
-          onComplete={() => {
-            setModelSetupHandled(true); // Prevent showing overlay again
-            setActivePanel("none");
-            // Add success message to history
-            addHistoryEntry("", {
-              success: true,
-              value: `✓ AI model installed: ${init.modelToSetup}`,
-              isCommandOutput: true,
-            });
-          }}
-          onCancel={() => {
-            setModelSetupHandled(true); // Prevent showing overlay again
-            setActivePanel("none");
-            // Add cancelled message to history
-            addHistoryEntry("", {
-              success: true,
-              value:
-                `AI model setup cancelled. Run "hlvm ai pull ${init.modelToSetup}" to download later.`,
-              isCommandOutput: true,
-            });
-          }}
-        />
-      )}
-
-      {/* Conversation Panel (agent mode) */}
-      {activePanel === "conversation" && (
-        <Box flexGrow={1} flexDirection="column" justifyContent="flex-end">
-          <ConversationPanel
-            items={conversation.items}
-            width={Math.max(20, terminalWidth - 2)}
-            streamingState={conversation.streamingState}
-            activePlan={conversation.activePlan}
-            todoState={conversation.todoState ?? conversation.planTodoState}
-            pendingPlanReview={conversation.pendingPlanReview}
-            latestCheckpoint={conversation.latestCheckpoint}
-            allowToggleHotkeys={allowConversationToggleHotkeys}
-            interactionRequest={pendingInteraction}
-            interactionQueueLength={interactionQueue.length}
-            onInteractionResponse={handleInteractionResponse}
+        {/* Banner hidden during conversation to prevent Ink re-render duplication */}
+        {showBanner && !hasBeenCleared && activePanel !== "conversation" && !init.ready && (
+          <Text dimColor>Loading HLVM...</Text>
+        )}
+        {showBanner && !hasBeenCleared && activePanel !== "conversation" && init.ready && (
+          <Banner
+            aiExports={init.aiExports}
+            aiReadiness={init.aiReadiness}
+            errors={init.errors}
+            modelName={footerModelName}
           />
-        </Box>
-      )}
+        )}
 
-      {/* Push input/footer to the visual bottom when there is spare terminal space */}
-      {activePanel !== "conversation" && <Box flexGrow={1} />}
+        {/* History of inputs and outputs (hidden during conversation to prevent ghost rendering) */}
+        {activePanel !== "conversation" && history.map((entry: HistoryEntry) => {
+          const lines = entry.input.split("\n");
+          const unclosedDepth = lines.length > 1
+            ? getUnclosedDepth(entry.input)
+            : 0;
+          return (
+            <Box key={entry.id} flexDirection="column" marginBottom={1}>
+              {lines.map((line: string, lineIndex: number) => (
+                <Box key={`${entry.id}-${lineIndex}`}>
+                  <Text color={color("primary")} bold>
+                    {lineIndex === 0
+                      ? "hlvm>"
+                      : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
+                  </Text>
+                  <Box>
+                    {tokenize(line).map((token, tokenIdx) => (
+                      <React.Fragment
+                        key={`${entry.id}-${lineIndex}-${tokenIdx}`}
+                      >
+                        <Text color={tokenColor(token.type)}>
+                          {token.value}
+                        </Text>
+                      </React.Fragment>
+                    ))}
+                  </Box>
+                </Box>
+              ))}
+              <Output result={entry.result} />
+            </Box>
+          );
+        })}
 
+        {/* Session Picker */}
+        {activePanel === "picker" && (
+          <SessionPicker
+            sessions={pickerSessions}
+            currentSessionId={sessionApi.current()?.id ?? currentSession?.id}
+            onSelect={handlePickerSelect}
+            onCancel={handlePickerCancel}
+          />
+        )}
+
+        {/* Command Palette (True Floating Overlay) */}
+        {activePanel === "palette" && (
+          <CommandPaletteOverlay
+            onClose={() => setActivePanel("none")}
+            onExecute={handlePaletteAction}
+            onRebind={handleRebind}
+            initialState={paletteState}
+            onStateChange={setPaletteState}
+          />
+        )}
+
+        {/* Config Overlay (True Floating Overlay) */}
+        {activePanel === "config-overlay" && (
+          <ConfigOverlay
+            onClose={() => setActivePanel("none")}
+            onOpenModelBrowser={() => {
+              setModelBrowserParent("config-overlay");
+              setActivePanel("models");
+            }}
+            onConfigChange={(cfg) =>
+              applyRuntimeConfigState(cfg as unknown as Record<string, unknown>)}
+            initialState={configOverlayState}
+            onStateChange={setConfigOverlayState}
+          />
+        )}
+
+        {/* Background Tasks Overlay (True Floating Overlay) */}
+        {activePanel === "tasks-overlay" && (
+          <BackgroundTasksOverlay onClose={() => setActivePanel("none")} />
+        )}
+
+        {/* Shortcuts Overlay (True Floating Overlay) */}
+        {activePanel === "shortcuts-overlay" && (
+          <ShortcutsOverlay onClose={() => setActivePanel("none")} />
+        )}
+
+        {/* Model Browser Panel */}
+        {activePanel === "models" && (
+          <ModelBrowser
+            currentModel={activeModelId}
+            isCurrentModelConfigured={agentExecutionMode === "default"
+              ? isConfiguredModelExplicit
+              : !!activeModeModelOverrideId}
+            selectionScopeLabel={getAgentExecutionModeSelectionLabel(
+              agentExecutionMode,
+            )}
+            onClose={() => {
+              setActivePanel(modelBrowserParent);
+              setModelBrowserParent("none");
+            }}
+            onModelSet={(modelName: string) => {
+              const normalizedModel = normalizeModelId(modelName) ?? modelName;
+              addHistoryEntry("", {
+                success: true,
+                value: `✓ ${
+                  getAgentExecutionModeSelectionLabel(agentExecutionMode)
+                }: ${normalizedModel}`,
+                isCommandOutput: true,
+              });
+            }}
+            onSelectModel={async (modelName: string) => {
+              if (agentExecutionMode === "default") {
+                const updates = buildSelectedModelConfigUpdates(modelName);
+                const configApi = getRuntimeConfigApi();
+                await persistSelectedModelConfig(configApi, modelName);
+                setModeModelOverrides((current: ReplAgentExecutionModeModelOverrides) => {
+                  const next = { ...current };
+                  delete next.default;
+                  return next;
+                });
+                applyRuntimeConfigState(
+                  updates as unknown as Record<string, unknown>,
+                );
+                return;
+              }
+
+              const normalizedModel = normalizeModelId(modelName) ?? modelName;
+              setModeModelOverrides((current: ReplAgentExecutionModeModelOverrides) => ({
+                ...current,
+                [agentExecutionMode]: normalizedModel,
+              }));
+              flashFooterStatus(
+                `${
+                  getAgentExecutionModeSelectionLabel(agentExecutionMode)
+                } · ${formatExecutionModeModelDisplayName(normalizedModel)}`,
+              );
+            }}
+          />
+        )}
+
+        {/* Model Setup Overlay (first-time AI model download) */}
+        {activePanel === "model-setup" && init.modelToSetup && (
+          <ModelSetupOverlay
+            modelName={init.modelToSetup}
+            onComplete={() => {
+              setModelSetupHandled(true); // Prevent showing overlay again
+              setActivePanel("none");
+              // Add success message to history
+              addHistoryEntry("", {
+                success: true,
+                value: `✓ AI model installed: ${init.modelToSetup}`,
+                isCommandOutput: true,
+              });
+            }}
+            onCancel={() => {
+              setModelSetupHandled(true); // Prevent showing overlay again
+              setActivePanel("none");
+              // Add cancelled message to history
+              addHistoryEntry("", {
+                success: true,
+                value:
+                  `AI model setup cancelled. Run "hlvm ai pull ${init.modelToSetup}" to download later.`,
+                isCommandOutput: true,
+              });
+            }}
+          />
+        )}
+
+        {/* Conversation Panel */}
+        {activePanel === "conversation" && (
+          <Box flexDirection="column">
+            <ConversationPanel
+              items={conversation.items}
+              width={Math.max(20, terminalWidth - 2)}
+              streamingState={conversation.streamingState}
+              activePlan={conversation.activePlan}
+              todoState={conversation.todoState ?? conversation.planTodoState}
+              pendingPlanReview={conversation.pendingPlanReview}
+              latestCheckpoint={conversation.latestCheckpoint}
+              allowToggleHotkeys={allowConversationToggleHotkeys}
+              interactionRequest={pendingInteraction}
+              interactionQueueLength={interactionQueue.length}
+              onInteractionResponse={handleInteractionResponse}
+            />
+          </Box>
+        )}
       {/* Input line (hidden when modal panels are open, but visible under overlay) */}
       {/* FRP: Input now gets history, bindings, signatures, docstrings from ReplContext */}
       {/* Note: CommandPalette, ConfigOverlay, and BackgroundTasksOverlay are true overlays, so Input stays visible underneath */}
@@ -1735,6 +1802,7 @@ function AppContent(
       {(isInputVisible || activePanel === "conversation") &&
         (
           <FooterHint
+            terminalWidth={terminalWidth}
             modelName={footerModelName}
             modeLabel={getAgentExecutionModeBadge(agentExecutionMode)}
             statusMessage={footerStatusMessage}

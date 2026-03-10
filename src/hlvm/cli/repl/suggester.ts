@@ -2,7 +2,7 @@
  * HLVM REPL Suggester - Fish-style Autosuggestions
  *
  * Provides ghost-text suggestions from command history AND user bindings.
- * Shows gray text after cursor, accept with → or End.
+ * Shows gray text after cursor, accept explicitly with Right Arrow or Ctrl+E.
  */
 
 import { getWordAtCursor } from "./string-utils.ts";
@@ -63,6 +63,8 @@ export interface Suggestion {
   readonly ghost: string;
 }
 
+export type SuggestionIntent = "accept" | "submit";
+
 /**
  * Find autosuggestion for current input from history AND bindings.
  *
@@ -116,4 +118,21 @@ export function findSuggestion(
  */
 export function acceptSuggestion(suggestion: Suggestion): string {
   return suggestion.full;
+}
+
+/**
+ * Resolve the value to use for a suggestion-aware action.
+ *
+ * Submit preserves exactly what the user typed. Only explicit accept actions
+ * are allowed to expand the gray ghost text into the full suggestion.
+ */
+export function resolveSuggestionValue(
+  currentValue: string,
+  suggestion: Suggestion | null,
+  intent: SuggestionIntent,
+): string {
+  if (intent === "accept" && suggestion) {
+    return acceptSuggestion(suggestion);
+  }
+  return currentValue;
 }

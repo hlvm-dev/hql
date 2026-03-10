@@ -18,6 +18,7 @@
 import {
   type InteractionRequestEvent,
   type InteractionResponse,
+  resolveTools,
 } from "./registry.ts";
 import type { ToolFilterState } from "./engine.ts";
 import {
@@ -96,7 +97,6 @@ export {
   handleTextOnlyResponse,
   handleFinalResponse,
   handlePostToolExecution,
-  maybeShortCircuitWeakWebQuery,
 } from "./orchestrator-response.ts";
 
 import { type LLMFunction, callLLMWithRetry } from "./orchestrator-llm.ts";
@@ -112,7 +112,6 @@ import {
   handleFinalResponse,
   handlePostToolExecution,
   handleTextOnlyResponse,
-  maybeShortCircuitWeakWebQuery,
   processAgentResponse,
 } from "./orchestrator-response.ts";
 
@@ -432,6 +431,15 @@ export interface OrchestratorConfig {
   teamLeadMemberId?: string;
 }
 
+function memoryWriteAvailable(config: OrchestratorConfig): boolean {
+  const tools = resolveTools({
+    allowlist: config.toolFilterState?.allowlist ?? config.toolAllowlist,
+    denylist: config.toolFilterState?.denylist ?? config.toolDenylist,
+    ownerId: config.toolOwnerId,
+  });
+  return "memory_write" in tools;
+}
+
 // ============================================================
 // Mid-Conversation Reminders
 // ============================================================
@@ -594,21 +602,6 @@ export function maybeInjectReminder(
     return true;
   }
 
-  // Periodic: tool routing reinforcement (weak models only)
-  if (
-    lc.modelTier === "weak" &&
-    state.iterations > 0 &&
-    state.iterations % 7 === 0
-  ) {
-    state.iterationsSinceReminder = 0;
-    addContextMessage(config, {
-      role: "user",
-      content:
-        "[System Reminder] Use dedicated tools (read_file, search_code, list_files) instead of shell_exec. Use native function calling, not JSON in text.",
-    });
-    return true;
-  }
-
   state.iterationsSinceReminder++;
   return false;
 }
@@ -686,16 +679,6 @@ export async function runReActLoop(
       content:
         "[System Reminder] Plan mode is active. You may inspect, reason, search, and propose a plan, but do not make file edits or run other mutating actions. If implementation is needed, explain the plan and wait for the user to leave plan mode.",
     });
-  }
-
-  const weakWebShortCircuit = await maybeShortCircuitWeakWebQuery(
-    userRequest,
-    state,
-    lc,
-    config,
-  );
-  if (weakWebShortCircuit?.action === "return") {
-    return weakWebShortCircuit.value;
   }
 
   // Planning (optional)
@@ -917,7 +900,11 @@ export async function runReActLoop(
       // When flush is first injected, SKIP compaction this iteration so the model
       // gets a chance to call memory_write. Compaction runs on the next iteration.
       let skipCompaction = false;
-      if (context.isPendingCompaction && !state.memoryFlushedThisCycle) {
+      if (
+        context.isPendingCompaction &&
+        !state.memoryFlushedThisCycle &&
+        memoryWriteAvailable(config)
+      ) {
         state.memoryFlushedThisCycle = true;
         skipCompaction = true;
         context.addMessage({

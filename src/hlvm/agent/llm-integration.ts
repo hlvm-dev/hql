@@ -13,7 +13,7 @@ import {
   resolveTools,
   type ToolMetadata,
 } from "./registry.ts";
-import { listAgentProfiles, type AgentProfile } from "./agent-registry.ts";
+import { type AgentProfile, listAgentProfiles } from "./agent-registry.ts";
 import { buildToolJsonSchema } from "./tool-schema.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { type ModelTier, tierMeetsMinimum } from "./constants.ts";
@@ -166,7 +166,12 @@ function renderRole(): PromptSection {
   };
 }
 
-function renderCriticalRules(): PromptSection {
+function renderCriticalRules(
+  tools: Record<string, ToolMetadata>,
+): PromptSection {
+  const memoryToolsAvailable = "memory_write" in tools ||
+    "memory_search" in tools ||
+    "memory_edit" in tools;
   return {
     id: "critical_rules",
     content: `# CRITICAL: When NOT to use tools
@@ -175,8 +180,11 @@ Answer DIRECTLY from your knowledge for:
 - General knowledge, math, greetings, explanations
 - Questions fully answerable without inspecting local files, running commands, or fetching live data
 Do NOT create files, run commands, or search the web for generic questions you can answer yourself.
-Use tools whenever accuracy depends on repository state, local files, command output, test/build results, git history, or live external data.
-Exception: memory_write, memory_search, and memory_edit may be used proactively — save important facts, decisions, and preferences without being asked. Use memory_edit to correct outdated information.`,
+Use tools whenever accuracy depends on repository state, local files, command output, test/build results, git history, or live external data.${
+      memoryToolsAvailable
+        ? "\nException: memory_write, memory_search, and memory_edit may be used proactively — save important facts, decisions, and preferences without being asked. Use memory_edit to correct outdated information."
+        : ""
+    }`,
     minTier: "weak",
   };
 }
@@ -184,6 +192,8 @@ Exception: memory_write, memory_search, and memory_edit may be used proactively 
 function renderInstructions(tier: ModelTier): PromptSection {
   const base = [
     "- Be direct and concise. No preamble, no filler.",
+    "- If you need a tool, call it immediately; do not narrate that you are about to search, fetch, inspect, or check something.",
+    "- Final answers must not include workflow filler such as 'Let me check', 'I will fetch', or similar internal action narration.",
     "- Trust tool results over your own knowledge when tools are needed",
     "- Never fabricate tool results",
   ];
@@ -199,9 +209,6 @@ function renderInstructions(tier: ModelTier): PromptSection {
       "- When search_web includes fetched passages, prefer those passages over bare snippets. If evidence is weak or conflicting, say so plainly instead of overclaiming",
     );
   }
-  base.push(
-    "- When search_web includes a deterministic answer draft, treat it as the grounded baseline answer. Rewrite only for clarity or citation style; do not replace it with unsupported claims.",
-  );
   return {
     id: "instructions",
     content: `# Instructions\n${base.join("\n")}`,
@@ -376,10 +383,12 @@ function renderDelegation(
     "- **Batch**: Use batch_delegate for repeated row/file-oriented work when one template applies to many inputs",
     "- **Specialist**: Route to right profile (code for analysis, web for research, shell for execution)",
     "- **Review**: After completing work, delegate review to a fresh agent with different perspective",
-    "- **Isolation**: Each background agent works in its own isolated lease (prefer worktree, fall back to temp workspace).",
+    "- **Isolation**: Background delegates that can mutate files work in isolated leases (prefer worktree, fall back to temp workspace).",
     "",
     "## Rules",
-    "- Each child agent works in an isolated workspace — avoid conflicting file modifications",
+    "- Use background delegates for file changes or mutating shell work",
+    "- Foreground or resumed delegates share the parent workspace and must stay read-only",
+    "- Avoid conflicting file modifications even across isolated child workspaces",
     "- Use wait_agent to observe completion and merge state; use apply_agent_changes or discard_agent_changes when work is not auto-applied",
     "- Use interrupt_agent when a running agent needs a hard course correction",
     "- Always close_agent when done to free resources",
@@ -488,7 +497,7 @@ export function generateSystemPrompt(
 
   const sections: PromptSection[] = [
     renderRole(),
-    renderCriticalRules(),
+    renderCriticalRules(tools),
     renderInstructions(tier),
     renderToolRouting(tools),
     renderWebToolGuidance(tools),

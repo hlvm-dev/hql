@@ -84,6 +84,8 @@ const TECHNICAL_ARTICLE_HOST_SUFFIXES = [
 ];
 const ARTICLE_STYLE_SIGNAL_RE =
   /\b(?:complete guide|definitive guide|ultimate guide|best practices?|common mistakes?|pitfalls?|solutions?|how to use|how-to)\b/;
+const VENDOR_RELEASE_SIGNAL_RE =
+  /\b(?:announcement|changelog|release|release notes|security advisory|update|what(?:'| i)?s new)\b/;
 
 function hostMatchesSuffix(host: string, suffixes: readonly string[]): boolean {
   return suffixes.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
@@ -136,6 +138,17 @@ function hasTechnicalArticleLocation(result: SearchResult): boolean {
     ARTICLE_STYLE_SIGNAL_RE.test(signalText);
 }
 
+function hasVendorReleaseLocation(result: SearchResult): boolean {
+  const analysis = analyzeResultUrl(result.url);
+  if (!analysis) return false;
+  const signalText = normalizeSearchText(
+    [result.title, result.snippet, result.pageDescription].filter(Boolean).join(" "),
+  );
+  return !hostMatchesSuffix(analysis.hostWithoutWww, TECHNICAL_ARTICLE_HOST_SUFFIXES) &&
+    hasAnySegment(analysis.pathSegments, ARTICLE_PATH_SEGMENTS) &&
+    VENDOR_RELEASE_SIGNAL_RE.test(signalText);
+}
+
 function scoreForSourceClass(sourceClass: SearchResultSourceClass): number {
   switch (sourceClass) {
     case "official_docs":
@@ -177,6 +190,7 @@ export function classifySearchResultSource(
   const forumLike = hasForumLikeLocation(result);
   const repoDocLike = hasRepoDocLocation(result);
   const technicalArticleLike = hasTechnicalArticleLocation(result);
+  const vendorReleaseLike = hasVendorReleaseLocation(result);
   const docLike = hasDocLikeLocation(result);
 
   const sourceClass: SearchResultSourceClass = onAllowedDomain
@@ -185,6 +199,8 @@ export function classifySearchResultSource(
     ? "forum"
     : repoDocLike
     ? "repo_docs"
+    : vendorReleaseLike
+    ? "vendor_docs"
     : docLike && !technicalArticleLike
     ? "vendor_docs"
     : technicalArticleLike

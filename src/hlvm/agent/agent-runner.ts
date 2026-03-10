@@ -10,8 +10,10 @@
 
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { getCustomInstructionsPath } from "../../common/paths.ts";
+import { ValidationError } from "../../common/error.ts";
 import {
   closeFactDb,
+  MEMORY_TOOLS,
   extractSessionFacts,
   loadMemoryContext,
   persistConversationFacts,
@@ -51,6 +53,7 @@ import {
   extractModelSuffix,
   isFrontierProvider,
   MAX_SESSION_HISTORY,
+  supportsAgentExecution,
 } from "./constants.ts";
 import { resolveQueryToolAllowlist } from "./query-tool-routing.ts";
 import {
@@ -157,6 +160,9 @@ export async function disposeAllSessions(): Promise<void> {
 export async function reuseSession(
   session: AgentSession,
   onToken?: (text: string) => void,
+  options?: {
+    disablePersistentMemory?: boolean;
+  },
 ): Promise<AgentSession> {
   const context = new ContextManager(session.context.getConfig());
   // Copy system messages from the reusable session, excluding stale memory.
@@ -169,18 +175,20 @@ export async function reuseSession(
   }
 
   // Inject FRESH memory context (replaces stale memory from cache)
-  try {
-    const memoryContext = await loadMemoryContext(
-      session.resolvedContextBudget.budget,
-    );
-    if (memoryContext) {
-      context.addMessage({
-        role: "system",
-        content: `# Your Memory\n${memoryContext}`,
-      });
+  if (!options?.disablePersistentMemory) {
+    try {
+      const memoryContext = await loadMemoryContext(
+        session.resolvedContextBudget.budget,
+      );
+      if (memoryContext) {
+        context.addMessage({
+          role: "system",
+          content: `# Your Memory\n${memoryContext}`,
+        });
+      }
+    } catch {
+      // Memory loading is best-effort — don't block session reuse
     }
-  } catch {
-    // Memory loading is best-effort — don't block session reuse
   }
 
   // Rebuild LLM with caller's onToken to enable streaming in GUI mode
@@ -262,6 +270,8 @@ export interface AgentRunnerOptions {
   modelInfo?: ModelInfo | null;
   /** Reuse an existing session (skips policy/MCP/LLM setup) */
   reusableSession?: AgentSession;
+  /** Disable persistent memory reads/writes for this run. */
+  disablePersistentMemory?: boolean;
 }
 
 export interface AgentRunnerResult {
@@ -328,12 +338,23 @@ export async function runAgentQuery(
     toolDenylist = [...DEFAULT_TOOL_DENYLIST],
     skipSessionHistory = false,
   } = options;
+  const disablePersistentMemory = options.disablePersistentMemory ??
+    skipSessionHistory;
   const permissionMode: AgentExecutionMode = options.permissionMode ??
     "default";
   let model = options.model ?? getConfiguredModel();
   model = await resolveCompatibleClaudeCodeModel(model);
+  if (!supportsAgentExecution(model, options.modelInfo)) {
+    throw new ValidationError(
+      "Weak models do not support agent mode. Use direct chat mode instead.",
+      "agent_runner",
+    );
+  }
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const profile = ENGINE_PROFILES.normal;
+  const effectiveToolDenylist = disablePersistentMemory
+    ? [...new Set([...toolDenylist, ...Object.keys(MEMORY_TOOLS)])]
+    : [...toolDenylist];
   const toolAllowlist = resolveQueryToolAllowlist(query, options.toolAllowlist);
   const agentProfiles = await loadAgentProfiles(workspace, { toolValidator: hasTool });
 
@@ -345,7 +366,8 @@ export async function runAgentQuery(
     );
   } catch { /* file not found — skip */ }
 
-  const matchingReusableSession = options.reusableSession &&
+  const matchingReusableSession = !disablePersistentMemory &&
+      options.reusableSession &&
       toolListsMatch(
         options.reusableSession.llmConfig?.toolAllowlist,
         toolAllowlist,
@@ -355,7 +377,9 @@ export async function runAgentQuery(
   const isReusableSession = !!matchingReusableSession;
   const engine = isReusableSession ? undefined : getAgentEngine();
   const session: AgentSession = matchingReusableSession
-    ? await reuseSession(matchingReusableSession, callbacks.onToken)
+    ? await reuseSession(matchingReusableSession, callbacks.onToken, {
+      disablePersistentMemory,
+    })
     : await createAgentSession({
       workspace,
       model,
@@ -364,10 +388,11 @@ export async function runAgentQuery(
       engineProfile: "normal",
       failOnContextOverflow: false,
       toolAllowlist,
-      toolDenylist,
+      toolDenylist: effectiveToolDenylist,
       onToken: callbacks.onToken,
       modelInfo: options.modelInfo,
       customInstructions,
+      disablePersistentMemory,
       engine,
       agentProfiles,
     });
@@ -730,7 +755,7 @@ export async function runAgentQuery(
           modelId: model,
           sessionId: sessionKey ?? undefined,
           signal: options.signal,
-          autoMemoryRecall: true,
+          autoMemoryRecall: !disablePersistentMemory,
           usage: usageTracker,
           l1Confirmations: session.l1Confirmations,
           todoState: session.todoState,
@@ -762,25 +787,27 @@ export async function runAgentQuery(
       completePersistedAgentTurn(persistedTurn, model, text);
     }
 
-    try {
-      persistConversationFacts([{ role: "user", content: query }], {
-        source: "extracted",
-      });
-    } catch {
-      // Best-effort only; extraction should never block agent response.
-    }
-
-    if (session.modelTier === "frontier") {
+    if (!disablePersistentMemory) {
       try {
-        await extractSessionFacts(
-          session.context.getMessages().map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
-          session.modelTier,
-        );
+        persistConversationFacts([{ role: "user", content: query }], {
+          source: "extracted",
+        });
       } catch {
         // Best-effort only; extraction should never block agent response.
+      }
+
+      if (session.modelTier === "frontier") {
+        try {
+          await extractSessionFacts(
+            session.context.getMessages().map((message) => ({
+              role: message.role,
+              content: message.content,
+            })),
+            session.modelTier,
+          );
+        } catch {
+          // Best-effort only; extraction should never block agent response.
+        }
       }
     }
 

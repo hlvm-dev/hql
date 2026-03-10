@@ -28,12 +28,16 @@ async function expectGitSuccess(cwd: string, args: string[]): Promise<void> {
   assertEquals(
     result.success,
     true,
-    `git ${args.join(" ")} failed (${result.code}): ${result.stderr || result.stdout}`,
+    `git ${args.join(" ")} failed (${result.code}): ${
+      result.stderr || result.stdout
+    }`,
   );
 }
 
 Deno.test("createWorkspaceLease falls back to temp_dir outside a git repo", async () => {
-  const parentDir = await platform.fs.makeTempDir({ prefix: "hlvm-lease-temp-" });
+  const parentDir = await platform.fs.makeTempDir({
+    prefix: "hlvm-lease-temp-",
+  });
   try {
     await platform.fs.writeTextFile(
       platform.path.join(parentDir, "existing.txt"),
@@ -90,17 +94,26 @@ Deno.test("createWorkspaceLease prefers git_worktree inside a git workspace", as
     assertExists(lease);
     assertEquals(lease.kind, "git_worktree");
     assertEquals(lease.sandboxCapability, "restricted");
-    assertEquals(lease.path.endsWith(platform.path.join("packages", "feature")), true);
+    assertEquals(
+      lease.path.endsWith(platform.path.join("packages", "feature")),
+      true,
+    );
 
     const childFile = platform.path.join(lease.path, "module.ts");
     const parentFile = platform.path.join(workspaceDir, "module.ts");
-    assertEquals(await platform.fs.readTextFile(childFile), 'export const version = "parent";\n');
+    assertEquals(
+      await platform.fs.readTextFile(childFile),
+      'export const version = "parent";\n',
+    );
 
     await platform.fs.writeTextFile(
       childFile,
       'export const version = "child";\n',
     );
-    assertEquals(await platform.fs.readTextFile(parentFile), 'export const version = "parent";\n');
+    assertEquals(
+      await platform.fs.readTextFile(parentFile),
+      'export const version = "parent";\n',
+    );
 
     await lease.cleanup();
     try {
@@ -108,6 +121,131 @@ Deno.test("createWorkspaceLease prefers git_worktree inside a git workspace", as
       throw new Error("worktree lease path should have been removed");
     } catch (error) {
       assertEquals(error instanceof Deno.errors.NotFound, true);
+    }
+  } finally {
+    await platform.fs.remove(repoDir, { recursive: true });
+  }
+});
+
+Deno.test("createWorkspaceLease git_worktree includes parent uncommitted changes", async () => {
+  const repoDir = await platform.fs.makeTempDir({
+    prefix: "hlvm-lease-dirty-",
+  });
+  try {
+    // Set up repo with initial commit
+    await platform.fs.writeTextFile(
+      platform.path.join(repoDir, "committed.txt"),
+      "committed content\n",
+    );
+    await expectGitSuccess(repoDir, ["init"]);
+    await expectGitSuccess(repoDir, ["add", "."]);
+    await expectGitSuccess(repoDir, [
+      "-c",
+      "user.name=HLVM Test",
+      "-c",
+      "user.email=hlvm@example.com",
+      "commit",
+      "-m",
+      "init",
+    ]);
+
+    // Make uncommitted changes: modify a tracked file + add an untracked file
+    await platform.fs.writeTextFile(
+      platform.path.join(repoDir, "committed.txt"),
+      "dirty tracked content\n",
+    );
+    await platform.fs.writeTextFile(
+      platform.path.join(repoDir, "untracked.txt"),
+      "untracked content\n",
+    );
+
+    const lease = await createWorkspaceLease(repoDir, "dirty-thread-1234");
+    assertExists(lease);
+    assertEquals(lease.kind, "git_worktree");
+
+    // Verify dirty tracked file has parent's working-tree content (not HEAD)
+    const trackedContent = await platform.fs.readTextFile(
+      platform.path.join(lease.path, "committed.txt"),
+    );
+    assertEquals(trackedContent, "dirty tracked content\n");
+
+    // Verify untracked file was copied
+    const untrackedContent = await platform.fs.readTextFile(
+      platform.path.join(lease.path, "untracked.txt"),
+    );
+    assertEquals(untrackedContent, "untracked content\n");
+
+    await lease.cleanup();
+  } finally {
+    await platform.fs.remove(repoDir, { recursive: true });
+  }
+});
+
+Deno.test("createWorkspaceLease falls back to temp_dir when worktree dirty-state mirroring fails", async () => {
+  const repoDir = await platform.fs.makeTempDir({
+    prefix: "hlvm-lease-dirty-fallback-",
+  });
+  try {
+    await platform.fs.writeTextFile(
+      platform.path.join(repoDir, "committed.txt"),
+      "committed content\n",
+    );
+    await expectGitSuccess(repoDir, ["init"]);
+    await expectGitSuccess(repoDir, ["add", "."]);
+    await expectGitSuccess(repoDir, [
+      "-c",
+      "user.name=HLVM Test",
+      "-c",
+      "user.email=hlvm@example.com",
+      "commit",
+      "-m",
+      "init",
+    ]);
+
+    await platform.fs.writeTextFile(
+      platform.path.join(repoDir, "committed.txt"),
+      "dirty tracked content\n",
+    );
+    await platform.fs.writeTextFile(
+      platform.path.join(repoDir, "untracked.txt"),
+      "untracked content\n",
+    );
+
+    const originalWriteFile = platform.fs.writeFile;
+    (platform.fs as typeof platform.fs & {
+      writeFile: typeof originalWriteFile;
+    }).writeFile = async (path, data) => {
+      if (String(path).includes("hlvm-worktree-")) {
+        throw new Error("forced worktree copy failure");
+      }
+      await originalWriteFile(path, data);
+    };
+
+    try {
+      const lease = await createWorkspaceLease(
+        repoDir,
+        "dirty-fallback-thread-1234",
+      );
+      assertExists(lease);
+      assertEquals(lease.kind, "temp_dir");
+      assertEquals(lease.sandboxCapability, "basic");
+      assertEquals(
+        await platform.fs.readTextFile(
+          platform.path.join(lease.path, "committed.txt"),
+        ),
+        "dirty tracked content\n",
+      );
+      assertEquals(
+        await platform.fs.readTextFile(
+          platform.path.join(lease.path, "untracked.txt"),
+        ),
+        "untracked content\n",
+      );
+      await lease.cleanup();
+    } finally {
+      (platform.fs as typeof platform.fs & {
+        writeFile: typeof originalWriteFile;
+      }).writeFile = originalWriteFile;
     }
   } finally {
     await platform.fs.remove(repoDir, { recursive: true });

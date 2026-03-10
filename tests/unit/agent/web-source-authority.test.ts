@@ -52,3 +52,14 @@ Deno.test("web source authority: article-style docs mirrors stay non-authoritati
   assertEquals(mirror.sourceClass, "technical_article");
   assertEquals(mirror.isAuthoritative, false);
 });
+
+Deno.test("web source authority: first-party release blogs classify as vendor docs", () => {
+  const authority = classifySearchResultSource({
+    title: "Next.js 15.5",
+    url: "https://nextjs.org/blog/next-15-5",
+    snippet: "Official Next.js release announcement and changelog.",
+  });
+
+  assertEquals(authority.sourceClass, "vendor_docs");
+  assertEquals(authority.isAuthoritative, true);
+});
