@@ -1,5 +1,6 @@
 import { parseModelString } from "../providers/registry.ts";
 import { isOllamaCloudModel } from "../providers/ollama/cloud.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import {
   runRuntimeOllamaSignin,
   verifyRuntimeModelAccess,
@@ -58,7 +59,7 @@ export async function verifyOllamaCloudAccess(
   try {
     return await verifyRuntimeModelAccess(modelId);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     options.onError?.(message);
     return false;
   }

@@ -32,9 +32,9 @@
  * - safety.ts: classifyShellExec()
  */
 
-export type ShellTier = "L0" | "L1";
+type ShellTier = "L0" | "L1";
 
-export interface ShellCommandSpec {
+interface ShellCommandSpec {
   /** Regex pattern matching the command */
   pattern: RegExp;
   /** Commands covered (for audit/testing — must list every command the pattern matches) */
@@ -43,7 +43,7 @@ export interface ShellCommandSpec {
   tier: ShellTier;
 }
 
-export interface ShellDenySpec {
+interface ShellDenySpec {
   /** Regex pattern that bumps an L0 match to L2 */
   pattern: RegExp;
   /** What this denies (human-readable) */
@@ -56,7 +56,7 @@ export interface ShellDenySpec {
  * L0: read-only, no side effects, auto-approved (same trust as read_file).
  * L1: low-risk execution (build/test/lint), prompt once per session.
  */
-export const SHELL_COMMAND_MANIFEST: readonly ShellCommandSpec[] = [
+const SHELL_COMMAND_MANIFEST: readonly ShellCommandSpec[] = [
   // ── L0: Git read-only ──────────────────────────────────────
   { pattern: /^git\s+status\b/,        commands: ["git status"],     tier: "L0" },
   { pattern: /^git\s+log\b/,           commands: ["git log"],        tier: "L0" },
@@ -134,7 +134,7 @@ export const SHELL_COMMAND_MANIFEST: readonly ShellCommandSpec[] = [
  * Deny-list manifest — patterns that override an L0 match and bump to L2.
  * Catches destructive flags on otherwise-safe commands.
  */
-export const SHELL_DENY_MANIFEST: readonly ShellDenySpec[] = [
+const SHELL_DENY_MANIFEST: readonly ShellDenySpec[] = [
   { pattern: /^find\s.*\s-delete\b/,                         reason: "find -delete" },
   { pattern: /^find\s.*\s-(exec|execdir|ok|okdir)\b/,        reason: "find -exec/-execdir/-ok/-okdir" },
   { pattern: /^find\s.*\s-exec\s+rm\b/,                      reason: "find -exec rm" },
@@ -441,7 +441,7 @@ export function classifyModelTier(
   return "mid"; // safe default
 }
 
-export function resolveExecutionModelTier(
+function resolveExecutionModelTier(
   model?: string,
   modelInfo?: { parameterSize?: string; contextWindow?: number } | null,
 ): ModelTier {
@@ -454,6 +454,29 @@ export function supportsAgentExecution(
 ): boolean {
   return resolveExecutionModelTier(model, modelInfo) !== "weak";
 }
+
+// ============================================================
+// Tool Result Limits
+// ============================================================
+
+/**
+ * Limits for tool result processing.
+ *
+ * Used by:
+ * - orchestrator-tool-formatting.ts: failure payload detection
+ * - orchestrator-response.ts: passage index cap
+ */
+export const TOOL_RESULT_LIMITS = {
+  /** Max bytes for a tool result to be checked for failure-as-data pattern */
+  failurePayloadMaxBytes: 500,
+  /** Max citation source index entries kept in sliding window */
+  maxPassageIndexEntries: 300,
+  /** Max tool uses retained for grounding checks (sliding window) */
+  maxToolUsesForGrounding: 50,
+} as const;
+
+/** Prefix for isolated child workspace directories */
+export const CHILD_WORKSPACE_PREFIX = ".hlvm-child-" as const;
 
 /** Default tool denylist for interactive ask mode */
 export const DEFAULT_TOOL_DENYLIST = [

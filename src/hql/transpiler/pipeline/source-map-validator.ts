@@ -6,6 +6,7 @@
  */
 
 import { decode as vlqDecode } from "vlq";
+import { getErrorMessage } from "../../../common/utils.ts";
 
 export interface RawSourceMap {
   version: number;
@@ -58,7 +59,7 @@ export function decodeVLQ(input: string): number[] {
     return vlqDecode(input);
   } catch (e) {
     // Normalize vlq's "Invalid character (X)" to our expected format
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     const charMatch = msg.match(/Invalid character \((.)\)/);
     if (charMatch) {
       const badChar = charMatch[1];
@@ -150,7 +151,7 @@ export function validateSourceMap(map: unknown): ValidationResult {
       try {
         fields = decodeVLQ(segment);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = getErrorMessage(e);
         errors.push(`Line ${lineIdx + 1}, segment ${segIdx + 1}: ${msg}`);
         continue;
       }

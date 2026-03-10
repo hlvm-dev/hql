@@ -10,6 +10,8 @@ export interface DelegateBatch {
   agent: string;
   totalRows: number;
   threadIds: string[];
+  /** Internal Set for O(1) membership checks on threadIds */
+  _threadIdSet?: Set<string>;
   spawnFailures: number;
   createdAt: number;
   persistedSnapshot?: DelegateBatchSnapshot;
@@ -30,9 +32,11 @@ const batches = new Map<string, DelegateBatch>();
 function cloneBatchSnapshot(
   snapshot: DelegateBatchSnapshot,
 ): DelegateBatchSnapshot {
+  const threadIds = [...snapshot.threadIds];
   return {
     ...snapshot,
-    threadIds: [...snapshot.threadIds],
+    threadIds,
+    _threadIdSet: new Set(threadIds),
   };
 }
 
@@ -46,6 +50,7 @@ export function registerBatch(
     agent,
     totalRows,
     threadIds: [],
+    _threadIdSet: new Set(),
     spawnFailures: 0,
     createdAt: Date.now(),
   });
@@ -53,7 +58,10 @@ export function registerBatch(
 
 export function addBatchThread(batchId: string, threadId: string): void {
   const batch = batches.get(batchId);
-  if (!batch || batch.threadIds.includes(threadId)) return;
+  if (!batch) return;
+  batch._threadIdSet ??= new Set(batch.threadIds);
+  if (batch._threadIdSet.has(threadId)) return;
+  batch._threadIdSet.add(threadId);
   batch.threadIds.push(threadId);
 }
 
@@ -127,6 +135,21 @@ export function listBatchSnapshots(): DelegateBatchSnapshot[] {
     .filter((batch): batch is DelegateBatchSnapshot => batch !== undefined);
 }
 
+export function failedBatchThreads(
+  batchId: string,
+): Array<{ threadId: string; task: string }> {
+  const batch = batches.get(batchId);
+  if (!batch) return [];
+  const result: Array<{ threadId: string; task: string }> = [];
+  for (const threadId of batch.threadIds) {
+    const thread = getThread(threadId);
+    if (thread && thread.status === "errored") {
+      result.push({ threadId, task: thread.task });
+    }
+  }
+  return result;
+}
+
 export function resetBatchRegistry(): void {
   batches.clear();
 }
@@ -135,11 +158,13 @@ export function restoreBatchSnapshots(
   snapshots: readonly DelegateBatchSnapshot[],
 ): void {
   for (const snapshot of snapshots) {
+    const threadIds = [...snapshot.threadIds];
     batches.set(snapshot.batchId, {
       batchId: snapshot.batchId,
       agent: snapshot.agent,
       totalRows: snapshot.totalRows,
-      threadIds: [...snapshot.threadIds],
+      threadIds,
+      _threadIdSet: new Set(threadIds),
       spawnFailures: snapshot.spawnFailures,
       createdAt: snapshot.createdAt,
       persistedSnapshot: cloneBatchSnapshot(snapshot),

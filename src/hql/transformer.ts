@@ -123,10 +123,6 @@ export async function transformAST(
 
     timer.phase("environment init");
 
-    // Note: Macros are already expanded in hql-transpiler.ts before calling transformAST.
-    // Second expansion here was causing macros to run twice (BUG #1).
-    // Removed duplicate expansion - astNodes already have expanded macros.
-
     const imports = processImportNodes(astNodes, contextEnv);
 
     timer.phase("import processing");
@@ -143,9 +139,6 @@ export async function transformAST(
 
     timer.phase("semantic validation");
 
-    // Note: Pattern-specific optimizers (for-loop-optimizer, pipeline-optimizer) were removed.
-    // They were band-aids for eager evaluation. The proper solution is lazy sequences.
-    // TCO optimization is kept (in ir-to-typescript.ts) as it's a legitimate compiler technique.
 
     // Use currentFile for source map references, not the directory
     const sourceFilePath = options.currentFile || "<anonymous>.hql";

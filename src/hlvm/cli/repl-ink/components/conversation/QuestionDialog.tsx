@@ -8,6 +8,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
+import { QUESTION_DIALOG_HINT } from "./interaction-dialog-layout.ts";
 
 interface QuestionDialogProps {
   question?: string;
@@ -38,7 +39,7 @@ export function QuestionDialog({ question }: QuestionDialogProps): React.ReactEl
       )}
       <Box marginTop={1}>
         <Text color={sc.text.muted}>
-          Answer at <Text bold color={sc.text.primary}>answer&gt;</Text> below, then press <Text bold color={sc.text.primary}>Enter</Text>
+          {QUESTION_DIALOG_HINT}
         </Text>
       </Box>
     </Box>

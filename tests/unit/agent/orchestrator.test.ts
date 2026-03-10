@@ -1028,6 +1028,60 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Orchestrator: plan review gate fails closed on approval error before execution",
+  async fn() {
+    resetApprovals();
+    const toolName = uniqueToolName("plan_review_error");
+    let executed = false;
+
+    await withTemporaryTool(
+      toolName,
+      {
+        fn: async () => {
+          executed = true;
+          return "mutated";
+        },
+        description: "test mutating tool",
+        args: {},
+        category: "write",
+        safetyLevel: "L2",
+      },
+      async () => {
+        const result = await executeToolCall(
+          {
+            toolName,
+            args: {},
+          },
+          {
+            workspace: TEST_WORKSPACE,
+            context: new ContextManager(),
+            permissionMode: "default",
+            planReview: {
+              getCurrentPlan: () => ({
+                goal: "Mutate files",
+                steps: [{ id: "step-1", title: "Edit file" }],
+              }),
+              shouldGateMutatingTools: () => true,
+              ensureApproved: async () => {
+                throw new Error("Approval timeout");
+              },
+            },
+          },
+        );
+
+        assertEquals(result.success, false);
+        assertStringIncludes(
+          result.error ?? "",
+          "Plan review failed before mutation: Approval timeout",
+        );
+        assertEquals(result.stopReason, "plan_review_cancelled");
+        assertEquals(executed, false);
+      },
+    );
+  },
+});
+
+Deno.test({
   name: "Orchestrator: plan mode rejects mutating tools before execution",
   async fn() {
     resetApprovals();

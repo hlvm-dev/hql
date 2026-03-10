@@ -292,11 +292,6 @@ function getAutoGensym(name: string, autoGensymMap: AutoGensymMap): SSymbol {
   autoGensymMap.set(name, symbol);
   return symbol;
 }
-// macroCache removed - use env.hasMacro()
-// macroExpansionCache REMOVED - was never actually used for caching
-// symbolRenameMap REMOVED - was part of broken automatic hygiene attempt
-// HQL uses manual hygiene (Common Lisp style) with gensym
-
 export interface MacroExpanderOptions {
   verbose?: boolean;
   maxExpandDepth?: number;

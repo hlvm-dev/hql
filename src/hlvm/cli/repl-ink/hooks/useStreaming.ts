@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { ensureError } from "../../../../common/utils.ts";
 
 interface UseStreamingOptions {
   /** Throttle interval for display updates in ms (default: 100) */
@@ -124,7 +125,7 @@ export function useStreaming(
         }
       } catch (err) {
         // Capture streaming error (e.g., network failure, API error)
-        const streamError = err instanceof Error ? err : new Error(String(err));
+        const streamError = ensureError(err);
         setError(streamError);
         // Only show partial content if any; error message shown by Output component
         setDisplayText(bufferRef.current);

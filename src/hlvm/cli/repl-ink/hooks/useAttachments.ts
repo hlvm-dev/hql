@@ -7,15 +7,15 @@
  * - Clear attachments after submit
  */
 
-import { useState, useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
-  type Attachment,
-  type TextAttachment,
-  type AttachmentError,
   type AnyAttachment,
+  type Attachment,
+  type AttachmentError,
   createAttachment,
   createTextAttachment,
   isAttachment,
+  type TextAttachment,
 } from "../../repl/attachment.ts";
 
 // Re-export for consumers
@@ -27,13 +27,18 @@ export interface UseAttachmentsReturn {
   /** Add a new attachment from file path */
   addAttachment: (path: string) => Promise<Attachment | AttachmentError>;
   /** Add attachment with pre-reserved ID (for instant placeholder) */
-  addAttachmentWithId: (path: string, id: number) => Promise<Attachment | AttachmentError>;
+  addAttachmentWithId: (
+    path: string,
+    id: number,
+  ) => Promise<Attachment | AttachmentError>;
   /** Add a text attachment (for large pasted text) */
   addTextAttachment: (content: string) => TextAttachment;
   /** Reserve the next ID synchronously (for instant placeholder insertion) */
   reserveNextId: () => number;
   /** Remove an attachment by ID */
   removeAttachment: (id: number) => void;
+  /** Replace all attachments and reset next ID accordingly */
+  replaceAttachments: (attachments: AnyAttachment[]) => void;
   /** Clear all attachments */
   clearAttachments: () => void;
   /** Get combined display text for all attachments */
@@ -66,36 +71,42 @@ export function useAttachments(): UseAttachmentsReturn {
     const id = nextIdRef.current;
     nextIdRef.current += 1;
     return id;
-  }, []);  // No dependencies - always returns current ref value
+  }, []); // No dependencies - always returns current ref value
 
   /**
    * Add attachment with a specific ID (used after reserveNextId)
    */
-  const addAttachmentWithId = useCallback(async (path: string, id: number): Promise<Attachment | AttachmentError> => {
-    setLastError(null);
-    const generation = generationRef.current;
+  const addAttachmentWithId = useCallback(
+    async (path: string, id: number): Promise<Attachment | AttachmentError> => {
+      setLastError(null);
+      const generation = generationRef.current;
 
-    const result = await createAttachment(path, id);
+      const result = await createAttachment(path, id);
 
-    if (isAttachment(result)) {
-      // Ignore stale async completions from previous cleared sessions.
-      if (generation === generationRef.current) {
-        setAttachments((prev: AnyAttachment[]) => [...prev, result]);
+      if (isAttachment(result)) {
+        // Ignore stale async completions from previous cleared sessions.
+        if (generation === generationRef.current) {
+          setAttachments((prev: AnyAttachment[]) => [...prev, result]);
+        }
+      } else {
+        setLastError(result);
       }
-    } else {
-      setLastError(result);
-    }
 
-    return result;
-  }, []);
+      return result;
+    },
+    [],
+  );
 
   /**
    * Add a new attachment from file path (auto-assigns ID)
    */
-  const addAttachment = useCallback((path: string): Promise<Attachment | AttachmentError> => {
-    const id = reserveNextId();
-    return addAttachmentWithId(path, id);
-  }, [reserveNextId, addAttachmentWithId]);
+  const addAttachment = useCallback(
+    (path: string): Promise<Attachment | AttachmentError> => {
+      const id = reserveNextId();
+      return addAttachmentWithId(path, id);
+    },
+    [reserveNextId, addAttachmentWithId],
+  );
 
   /**
    * Add a text attachment for large pasted text (synchronous for instant UI)
@@ -111,7 +122,24 @@ export function useAttachments(): UseAttachmentsReturn {
    * Remove an attachment by ID
    */
   const removeAttachment = useCallback((id: number) => {
-    setAttachments((prev: AnyAttachment[]) => prev.filter((a: AnyAttachment) => a.id !== id));
+    setAttachments((prev: AnyAttachment[]) =>
+      prev.filter((a: AnyAttachment) => a.id !== id)
+    );
+  }, []);
+
+  /**
+   * Replace all attachments with a restored draft snapshot.
+   */
+  const replaceAttachments = useCallback((nextAttachments: AnyAttachment[]) => {
+    generationRef.current += 1;
+    setAttachments(
+      nextAttachments.map((attachment: AnyAttachment) => ({ ...attachment })),
+    );
+    nextIdRef.current = nextAttachments.reduce(
+      (maxId, attachment) => Math.max(maxId, attachment.id),
+      0,
+    ) + 1;
+    setLastError(null);
   }, []);
 
   /**
@@ -120,7 +148,7 @@ export function useAttachments(): UseAttachmentsReturn {
   const clearAttachments = useCallback(() => {
     generationRef.current += 1;
     setAttachments([]);
-    nextIdRef.current = 1;  // Reset ID counter
+    nextIdRef.current = 1; // Reset ID counter
     setLastError(null);
   }, []);
 
@@ -139,6 +167,7 @@ export function useAttachments(): UseAttachmentsReturn {
     addTextAttachment,
     reserveNextId,
     removeAttachment,
+    replaceAttachments,
     clearAttachments,
     getDisplayText,
     nextId: nextIdRef.current,

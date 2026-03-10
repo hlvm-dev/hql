@@ -85,10 +85,16 @@ export async function executeHandler(id: string): Promise<boolean> {
  */
 export const HandlerIds = {
   // Global
+  APP_SHORTCUTS: "app.shortcuts",
   APP_EXIT: "app.exit",
   APP_CLEAR: "app.clear",
   APP_PALETTE: "app.palette",
   APP_TASKS: "app.tasks",
+  APP_TEAM_DASHBOARD: "app.openTeamDashboard",
+  CONVERSATION_TOGGLE_LATEST: "conversation.toggle-latest",
+  CONVERSATION_OPEN_LATEST_SOURCE: "conversation.open-latest-source",
+  COMPOSER_CYCLE_MODE: "composer.cycle-mode",
+  COMPOSER_FORCE_SUBMIT: "composer.force-submit",
 
   // Editing
   EDIT_JUMP_START: "edit.jump-start",

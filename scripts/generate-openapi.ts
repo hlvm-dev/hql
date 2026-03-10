@@ -36,7 +36,6 @@ const definition: swaggerJsdoc.Options["definition"] = {
 };
 
 const apis = [
-  `${ROOT}src/hlvm/cli/repl/openapi-schemas.ts`,
   `${ROOT}src/hlvm/cli/repl/handlers/chat.ts`,
   `${ROOT}src/hlvm/cli/repl/handlers/sessions.ts`,
   `${ROOT}src/hlvm/cli/repl/handlers/messages.ts`,

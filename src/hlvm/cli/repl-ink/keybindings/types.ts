@@ -15,6 +15,8 @@ import { getCustomKeybindingsSnapshot } from "./custom-bindings.ts";
 /** Categories for grouping in palette and help */
 export type KeybindingCategory =
   | "Global"
+  | "Conversation"
+  | "Composer"
   | "Editing"
   | "Navigation"
   | "Completion"
@@ -88,6 +90,8 @@ export interface KeybindingMatch {
 /** Order of categories in palette and help */
 export const CATEGORY_ORDER: readonly KeybindingCategory[] = [
   "Global",
+  "Conversation",
+  "Composer",
   "Editing",
   "Navigation",
   "Completion",
@@ -101,7 +105,7 @@ export const CATEGORY_ORDER: readonly KeybindingCategory[] = [
 // ============================================================
 
 /** Get current platform */
-export function getPlatform(): Platform {
+function getPlatform(): Platform {
   const os = getHostPlatform().build.os;
   if (os === "darwin") return "darwin";
   if (os === "windows") return "win32";

@@ -98,6 +98,8 @@ class KeybindingRegistry {
     // Only include certain categories in /help (keep it concise)
     const helpCategories: KeybindingCategory[] = [
       "Global",
+      "Conversation",
+      "Composer",
       "Editing",
       "Navigation",
       "Paredit",

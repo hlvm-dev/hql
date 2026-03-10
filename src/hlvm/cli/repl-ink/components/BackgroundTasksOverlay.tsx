@@ -19,7 +19,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useInput } from "ink";
+import { useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import type { EvalTask, DelegateTask, Task } from "../../repl/task-manager/types.ts";
@@ -29,12 +29,13 @@ import { formatEvalTaskResultLines } from "../utils/eval-task-results.ts";
 import {
   ansi,
   bg,
-  calcOverlayPosition,
   clearOverlay,
   fg,
   hexToRgb,
   OVERLAY_BG_COLOR,
   type RGB,
+  resolveOverlayFrame,
+  shouldClearOverlay,
   writeToTerminal,
 } from "../overlay/index.ts";
 import { truncate } from "../../../../common/utils.ts";
@@ -58,7 +59,8 @@ const OVERLAY_HEIGHT = 20;
 const PADDING = { top: 1, bottom: 1, left: 2, right: 2 };
 const HEADER_ROWS = 3; // header + hint + empty
 const CONTENT_START = PADDING.top + HEADER_ROWS;
-const VISIBLE_ROWS = OVERLAY_HEIGHT - CONTENT_START - PADDING.bottom - 2; // -2 for footer
+const MIN_OVERLAY_WIDTH = 42;
+const MIN_OVERLAY_HEIGHT = 12;
 
 // ============================================================
 // Helpers
@@ -79,14 +81,32 @@ export function BackgroundTasksOverlay({
   onClose,
 }: BackgroundTasksOverlayProps): React.ReactElement | null {
   const { theme } = useTheme();
+  const { stdout } = useStdout();
   const { tasks, cancel, clearCompleted, removeTask } = useTaskManager();
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
   const [resultScrollOffset, setResultScrollOffset] = useState(0);
-
-  const overlayPosRef = useRef({ x: 0, y: 0 });
+  const terminalColumns = stdout?.columns ?? 0;
+  const terminalRows = stdout?.rows ?? 0;
+  const overlayFrame = useMemo(
+    () =>
+      resolveOverlayFrame(OVERLAY_WIDTH, OVERLAY_HEIGHT, {
+        minWidth: MIN_OVERLAY_WIDTH,
+        minHeight: MIN_OVERLAY_HEIGHT,
+      }),
+    [terminalColumns, terminalRows],
+  );
+  const contentWidth = Math.max(
+    16,
+    overlayFrame.width - PADDING.left - PADDING.right,
+  );
+  const visibleRows = Math.max(
+    3,
+    overlayFrame.height - CONTENT_START - PADDING.bottom - 1,
+  );
+  const previousFrameRef = useRef<typeof overlayFrame | null>(null);
 
   // Theme colors
   const colors = useMemo(() => ({
@@ -158,20 +178,21 @@ export function BackgroundTasksOverlay({
 
   // Draw the overlay
   const drawOverlay = useCallback(() => {
-    const pos = calcOverlayPosition(OVERLAY_WIDTH, OVERLAY_HEIGHT);
-    overlayPosRef.current = pos;
+    if (shouldClearOverlay(previousFrameRef.current, overlayFrame)) {
+      clearOverlay(previousFrameRef.current!);
+    }
+    previousFrameRef.current = overlayFrame;
 
-    const contentWidth = OVERLAY_WIDTH - PADDING.left - PADDING.right;
     const bgStyle = colors.bgStyle;
     let output = ansi.cursorSave + ansi.cursorHide;
 
     // Helper: draw a row with exact OVERLAY_WIDTH (ensures full background coverage)
     // Takes a callback that appends content and returns visible char count
     const drawRow = (y: number, renderContent: () => number) => {
-      output += ansi.cursorTo(pos.x, y) + bgStyle;
+      output += ansi.cursorTo(overlayFrame.x, y) + bgStyle;
       const visibleLen = renderContent();
       // Pad to exact width
-      const remaining = OVERLAY_WIDTH - visibleLen;
+      const remaining = overlayFrame.width - visibleLen;
       if (remaining > 0) {
         output += " ".repeat(remaining);
       }
@@ -184,13 +205,13 @@ export function BackgroundTasksOverlay({
 
     // === Top padding ===
     for (let i = 0; i < PADDING.top; i++) {
-      drawEmptyRow(pos.y + i);
+      drawEmptyRow(overlayFrame.y + i);
     }
 
     // === Header row ===
-    const headerY = pos.y + PADDING.top;
+    const headerY = overlayFrame.y + PADDING.top;
     const title = viewMode === "list" ? "Background Tasks" : "Result";
-    const escHint = "esc";
+    const escHint = viewMode === "list" ? "esc close" : "esc back";
 
     drawRow(headerY, () => {
       output += " ".repeat(PADDING.left);
@@ -199,7 +220,7 @@ export function BackgroundTasksOverlay({
       output += " ".repeat(midPad);
       output += fg(colors.muted) + escHint + ansi.reset + bgStyle;
       output += " ".repeat(PADDING.right);
-      return OVERLAY_WIDTH;
+      return overlayFrame.width;
     });
 
     // === Hint row ===
@@ -226,12 +247,12 @@ export function BackgroundTasksOverlay({
       const window = calculateScrollWindow(
         selectedIndex,
         bgTasks.length,
-        VISIBLE_ROWS,
+        visibleRows,
       );
       const visibleTasks = bgTasks.slice(window.start, window.end);
 
-      for (let row = 0; row < VISIBLE_ROWS; row++) {
-        const rowY = pos.y + CONTENT_START + row;
+      for (let row = 0; row < visibleRows; row++) {
+        const rowY = overlayFrame.y + CONTENT_START + row;
         const task = visibleTasks[row];
 
         drawRow(rowY, () => {
@@ -311,7 +332,7 @@ export function BackgroundTasksOverlay({
           len += 2; // icon + space
 
           // Preview (truncated) — use preview for eval, label for delegate
-          const previewMaxLen = contentWidth - 15;
+          const previewMaxLen = Math.max(8, contentWidth - 15);
           const previewText = isEvalTask(task)
             ? (task as EvalTask).preview
             : task.label;
@@ -334,14 +355,14 @@ export function BackgroundTasksOverlay({
       }
     } else {
       // Result view
-      const maxResultRows = VISIBLE_ROWS;
+      const maxResultRows = visibleRows;
       const visibleLines = resultLines.slice(
         resultScrollOffset,
         resultScrollOffset + maxResultRows,
       );
 
-      for (let row = 0; row < VISIBLE_ROWS; row++) {
-        const rowY = pos.y + CONTENT_START + row;
+      for (let row = 0; row < visibleRows; row++) {
+        const rowY = overlayFrame.y + CONTENT_START + row;
         const line = visibleLines[row];
 
         drawRow(rowY, () => {
@@ -353,7 +374,7 @@ export function BackgroundTasksOverlay({
             return PADDING.left + text.length;
           }
           if (
-            row === VISIBLE_ROWS - 1 &&
+            row === visibleRows - 1 &&
             resultScrollOffset + maxResultRows < resultLines.length
           ) {
             // Show "more below" indicator
@@ -374,10 +395,13 @@ export function BackgroundTasksOverlay({
     }
 
     // === Footer row ===
-    const footerY = pos.y + OVERLAY_HEIGHT - PADDING.bottom - 1;
-    const footerText = viewMode === "list"
-      ? "↑↓ nav  Enter view  x dismiss  c clear"
-      : "↑↓ scroll  q/Esc back";
+    const footerY = overlayFrame.y + overlayFrame.height - PADDING.bottom - 1;
+    const footerText = truncate(
+      viewMode === "list"
+        ? "↑↓ nav  Enter view  x dismiss  c clear"
+        : "↑↓ scroll  q/Esc back",
+      contentWidth,
+    );
     const countText = viewMode === "list" && bgTasks.length > 0
       ? `${selectedIndex + 1}/${bgTasks.length}`
       : "";
@@ -394,7 +418,7 @@ export function BackgroundTasksOverlay({
 
     // === Bottom padding ===
     for (let i = 0; i < PADDING.bottom; i++) {
-      drawEmptyRow(pos.y + OVERLAY_HEIGHT - PADDING.bottom + i);
+      drawEmptyRow(overlayFrame.y + overlayFrame.height - PADDING.bottom + i);
     }
 
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
@@ -408,27 +432,15 @@ export function BackgroundTasksOverlay({
     viewingTask,
     resultLines,
     resultScrollOffset,
+    contentWidth,
+    overlayFrame,
+    visibleRows,
   ]);
 
   // Draw overlay on changes
   useEffect(() => {
     drawOverlay();
   }, [drawOverlay]);
-
-  // Clear overlay on unmount
-  useEffect(() => {
-    return () => {
-      const pos = overlayPosRef.current;
-      if (pos.x !== 0 || pos.y !== 0) {
-        clearOverlay({
-          x: pos.x,
-          y: pos.y,
-          width: OVERLAY_WIDTH,
-          height: OVERLAY_HEIGHT,
-        });
-      }
-    };
-  }, []);
 
   // Keyboard handling
   useInput((input, key) => {
@@ -446,19 +458,19 @@ export function BackgroundTasksOverlay({
       }
       if (key.downArrow || input === "j") {
         setResultScrollOffset((o: number) =>
-          Math.min(Math.max(0, resultLines.length - VISIBLE_ROWS), o + 1)
+          Math.min(Math.max(0, resultLines.length - visibleRows), o + 1)
         );
         return;
       }
       if (key.pageUp || input === "u") {
-        setResultScrollOffset((o: number) => Math.max(0, o - VISIBLE_ROWS));
+        setResultScrollOffset((o: number) => Math.max(0, o - visibleRows));
         return;
       }
       if (key.pageDown || input === "d") {
         setResultScrollOffset((o: number) =>
           Math.min(
-            Math.max(0, resultLines.length - VISIBLE_ROWS),
-            o + VISIBLE_ROWS,
+            Math.max(0, resultLines.length - visibleRows),
+            o + visibleRows,
           )
         );
         return;

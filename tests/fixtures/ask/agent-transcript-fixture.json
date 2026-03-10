@@ -273,6 +273,50 @@
           "response": "Exploration complete"
         }
       ]
+    },
+    {
+      "name": "delegation-heuristic-trigger",
+      "match": {
+        "contains": [
+          "[System hint]"
+        ]
+      },
+      "steps": [
+        {
+          "expect": {
+            "contains": ["[System hint]", "fan-out"]
+          },
+          "toolCalls": [
+            {
+              "id": "delegate_1",
+              "toolName": "delegate_agent",
+              "args": {
+                "agent": "code",
+                "task": "Refactor auth.ts"
+              }
+            }
+          ]
+        },
+        {
+          "response": "Delegation heuristic test complete"
+        }
+      ]
+    },
+    {
+      "name": "child-refactor-auth",
+      "match": {
+        "contains": [
+          "Refactor auth.ts"
+        ]
+      },
+      "steps": [
+        {
+          "expect": {
+            "contains": ["Allowed tools:"]
+          },
+          "response": "Auth refactored"
+        }
+      ]
     }
   ]
 }

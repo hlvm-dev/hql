@@ -4,9 +4,9 @@
  */
 
 import { ContextOverflowError, type Message } from "./context.ts";
-import { DEFAULT_MAX_TOOL_CALLS } from "./constants.ts";
+import { DEFAULT_MAX_TOOL_CALLS, TOOL_RESULT_LIMITS } from "./constants.ts";
 import { SlidingWindowRateLimiter } from "../../common/rate-limiter.ts";
-import { isObjectValue, TEXT_ENCODER } from "../../common/utils.ts";
+import { areListsEqual, isObjectValue, TEXT_ENCODER } from "../../common/utils.ts";
 import { checkGrounding } from "./grounding.ts";
 import {
   attributeCitationSpans,
@@ -61,17 +61,6 @@ const TOOL_SEARCH_BASELINE_ALLOWLIST = [
   "edit_file",
   "shell_exec",
 ] as const;
-const MAX_PASSAGE_INDEX_ENTRIES = 300;
-
-function areListsEqual(a?: string[], b?: string[]): boolean {
-  if (!a && !b) return true;
-  if (!a || !b) return false;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
 
 function parseToolSearchAllowlist(result: unknown): string[] {
   if (!isObjectValue(result)) return [];
@@ -350,7 +339,7 @@ export function handleFinalResponse(
     state.passageIndex = [
       ...(state.passageIndex ?? []),
       ...result.latestCitationSourceIndex!,
-    ].slice(-MAX_PASSAGE_INDEX_ENTRIES);
+    ].slice(-TOOL_RESULT_LIMITS.maxPassageIndexEntries);
   }
 
   // Plan state advancement
@@ -652,11 +641,10 @@ export async function handlePostToolExecution(
   }
 
   // --- Tool uses accumulation ---
-  const MAX_TOOL_USES_FOR_GROUNDING = 50;
   if (result.toolUses.length > 0) {
     state.toolUses.push(...result.toolUses);
-    if (state.toolUses.length > MAX_TOOL_USES_FOR_GROUNDING) {
-      state.toolUses = state.toolUses.slice(-MAX_TOOL_USES_FOR_GROUNDING);
+    if (state.toolUses.length > TOOL_RESULT_LIMITS.maxToolUsesForGrounding) {
+      state.toolUses = state.toolUses.slice(-TOOL_RESULT_LIMITS.maxToolUsesForGrounding);
     }
     if (result.toolBytes > 0) {
       checkToolResultBytesLimit(state, lc, config, result.toolBytes);
@@ -675,7 +663,7 @@ export async function handlePostToolExecution(
   );
   if (citationSources.length > 0) {
     state.passageIndex = [...(state.passageIndex ?? []), ...citationSources]
-      .slice(-MAX_PASSAGE_INDEX_ENTRIES);
+      .slice(-TOOL_RESULT_LIMITS.maxPassageIndexEntries);
   }
 
   // --- Web tool tracking (for mid-conversation reminders) ---

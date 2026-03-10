@@ -1,19 +1,19 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   buildFooterCenterState,
-  getFooterColumnWidths,
   buildFooterRightState,
+  shouldUseCompactFooter,
 } from "../../../src/hlvm/cli/repl-ink/components/FooterHint.tsx";
 import { StreamingState } from "../../../src/hlvm/cli/repl-ink/types.ts";
 
-Deno.test("buildFooterCenterState removes duplicate thinking label when no active tool", () => {
+Deno.test("buildFooterCenterState shows force hint when responding without active tool", () => {
   const state = buildFooterCenterState({
     inConversation: true,
     streamingState: StreamingState.Responding,
     spinner: "x",
   });
 
-  assertEquals(state.text, "Esc cancel · PgUp/PgDn scroll");
+  assertEquals(state.text, "Esc cancel \u00B7 Ctrl+Enter force");
   assertEquals(state.tone, "muted");
 });
 
@@ -25,7 +25,7 @@ Deno.test("buildFooterCenterState keeps running tool status in footer", () => {
     spinner: "x",
   });
 
-  assertEquals(state.text, "x Running search_web (1/2) · Esc cancel");
+  assertEquals(state.text, "x Running search_web (1/2) \u00B7 Esc cancel");
   assertEquals(state.tone, "warning");
 });
 
@@ -36,7 +36,10 @@ Deno.test("buildFooterCenterState shows shortcuts hint when idle in conversation
     spinner: "x",
   });
 
-  assertEquals(state.text, "Ready · PgUp/PgDn scroll · ? shortcuts");
+  assertEquals(
+    state.text,
+    "Ready \u00B7 PgUp/PgDn scroll \u00B7 /help shortcuts",
+  );
   assertEquals(state.tone, "muted");
 });
 
@@ -46,7 +49,7 @@ Deno.test("buildFooterCenterState shows shortcuts hint outside conversation", ()
     spinner: "x",
   });
 
-  assertEquals(state.text, "? shortcuts");
+  assertEquals(state.text, "/help shortcuts");
   assertEquals(state.tone, "muted");
 });
 
@@ -62,46 +65,69 @@ Deno.test("buildFooterCenterState surfaces transient status messages when idle",
   assertEquals(state.tone, "muted");
 });
 
-Deno.test("buildFooterRightState keeps the mode badge separate from model metadata", () => {
-  const state = buildFooterRightState({
+Deno.test("buildFooterCenterState shows tab queue hint when draft exists during response", () => {
+  const state = buildFooterCenterState({
     inConversation: true,
+    streamingState: StreamingState.Responding,
+    hasDraftInput: true,
+    spinner: "x",
+  });
+
+  assertEquals(state.text, "Tab to queue message");
+  assertEquals(state.tone, "muted");
+});
+
+Deno.test("buildFooterCenterState includes queued interaction count in footer", () => {
+  const state = buildFooterCenterState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    interactionQueueLength: 3,
+    spinner: "x",
+  });
+
+  assertEquals(
+    state.text,
+    "Ready \u00B7 PgUp/PgDn scroll \u00B7 /help shortcuts \u00B7 +2 queued",
+  );
+});
+
+Deno.test("buildFooterCenterState prefers queue hint over running tool status when draft exists", () => {
+  const state = buildFooterCenterState({
+    inConversation: true,
+    streamingState: StreamingState.Responding,
+    activeTool: { name: "search_web", toolIndex: 1, toolTotal: 2 },
+    hasDraftInput: true,
+    spinner: "x",
+  });
+
+  assertEquals(state.text, "Tab to queue message");
+});
+
+Deno.test("buildFooterRightState includes mode label and model metadata", () => {
+  const state = buildFooterRightState({
+    modeLabel: "[auto]",
     contextUsageLabel: "12% ctx",
     checkpointLabel: "/undo ready",
     modelName: "claude-sonnet-4-6",
   });
 
-  assertEquals(state.infoText, "12% ctx · /undo ready · claude-sonnet-4-6");
+  assertEquals(state.modeLabel, "[auto]");
+  assertEquals(
+    state.infoText,
+    "12% ctx \u00B7 /undo ready \u00B7 claude-sonnet-4-6",
+  );
 });
 
-Deno.test("buildFooterRightState hides idle model-only metadata outside conversation", () => {
+Deno.test("buildFooterRightState shows model name without mode label", () => {
   const state = buildFooterRightState({
-    inConversation: false,
     modelName: "llama3.2:1b",
   });
 
-  assertEquals(state.infoText, "");
+  assertEquals(state.infoText, "llama3.2:1b");
+  assertEquals(state.modeLabel, undefined);
 });
 
-Deno.test("getFooterColumnWidths gives the center the full row when side columns are empty", () => {
-  assertEquals(getFooterColumnWidths(90), {
-    width: 90,
-    leftWidth: 0,
-    centerWidth: 90,
-    rightWidth: 0,
-  });
-  assertEquals(getFooterColumnWidths(48), {
-    width: 48,
-    leftWidth: 0,
-    centerWidth: 48,
-    rightWidth: 0,
-  });
-});
-
-Deno.test("getFooterColumnWidths fits side content without stealing unnecessary center space", () => {
-  assertEquals(getFooterColumnWidths(90, "accept edits on", "llama3.2:1b"), {
-    width: 90,
-    leftWidth: 15,
-    centerWidth: 62,
-    rightWidth: 11,
-  });
+Deno.test("shouldUseCompactFooter hides side metadata on narrow terminals", () => {
+  assertEquals(shouldUseCompactFooter(75), true);
+  assertEquals(shouldUseCompactFooter(90), false);
 });

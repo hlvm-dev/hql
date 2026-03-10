@@ -2,6 +2,10 @@ import { getPlatform } from "../../platform/platform.ts";
 import { readProcessStream } from "../../common/stream-utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { copyDirectoryRecursive } from "../../common/fs-copy.ts";
+import { getErrorMessage } from "../../common/utils.ts";
+import { CHILD_WORKSPACE_PREFIX } from "./constants.ts";
+
+const UUID_SHORT_LENGTH = 8;
 
 export type WorkspaceLeaseKind = "temp_dir" | "git_worktree";
 
@@ -84,7 +88,7 @@ async function createTempDirLease(
   const platform = getPlatform();
   const childDir = platform.path.join(
     parentWorkspace,
-    `.hlvm-child-${threadId.slice(0, 8)}`,
+    `${CHILD_WORKSPACE_PREFIX}${threadId.slice(0, UUID_SHORT_LENGTH)}`,
   );
   await platform.fs.mkdir(childDir, { recursive: true });
   await copyDirectoryRecursive(parentWorkspace, childDir, {
@@ -92,7 +96,7 @@ async function createTempDirLease(
       sourcePath === childDir ||
       sourcePath.startsWith(`${childDir}${platform.path.sep}`) ||
       name === ".git" ||
-      name.startsWith(".hlvm-child-"),
+      name.startsWith(CHILD_WORKSPACE_PREFIX),
   });
   return {
     path: childDir,
@@ -164,7 +168,7 @@ async function copyDirtyFilesToWorktree(
       } catch (error) {
         throw new RuntimeError(
           `unable to mirror dirty file '${relPath}' into worktree: ${
-            error instanceof Error ? error.message : String(error)
+            getErrorMessage(error)
           }`,
           { source: "workspace_lease" },
         );
@@ -181,9 +185,7 @@ async function copyDirtyFilesToWorktree(
         if (!isNotFoundError(removeError)) {
           throw new RuntimeError(
             `unable to mirror dirty deletion for '${relPath}': ${
-              removeError instanceof Error
-                ? removeError.message
-                : String(removeError)
+              getErrorMessage(removeError)
             }`,
             { source: "workspace_lease" },
           );
@@ -203,7 +205,7 @@ async function createGitWorktreeLease(
 ): Promise<WorkspaceLease> {
   const platform = getPlatform();
   const worktreeRoot = await platform.fs.makeTempDir({
-    prefix: `hlvm-worktree-${threadId.slice(0, 8)}-`,
+    prefix: `hlvm-worktree-${threadId.slice(0, UUID_SHORT_LENGTH)}-`,
   });
   const addResult = await runGit(
     [
@@ -247,7 +249,7 @@ async function createGitWorktreeLease(
     }
     throw new RuntimeError(
       `failed to copy parent dirty state into worktree: ${
-        copyError instanceof Error ? copyError.message : String(copyError)
+        getErrorMessage(copyError)
       }`,
       { source: "workspace_lease" },
     );

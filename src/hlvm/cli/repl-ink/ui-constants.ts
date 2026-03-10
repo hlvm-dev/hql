@@ -49,6 +49,44 @@ export const SESSION_PICKER_MAX_WIDTH = 96;
 /** Maximum width for the model browser panel. */
 export const MODEL_BROWSER_MAX_WIDTH = 118;
 
+export function clampPanelWidth(
+  terminalWidth: number,
+  {
+    maxWidth,
+    minWidth = MIN_PANEL_WIDTH,
+    padding = PANEL_PADDING,
+  }: {
+    maxWidth: number;
+    minWidth?: number;
+    padding?: number;
+  },
+): number {
+  const safeTerminalWidth = Math.max(1, terminalWidth);
+  const availableWidth = Math.max(1, safeTerminalWidth - padding);
+
+  if (availableWidth < minWidth) {
+    return availableWidth;
+  }
+
+  return Math.min(maxWidth, availableWidth);
+}
+
+export function clampVisibleRows(
+  terminalRows: number,
+  {
+    reservedRows,
+    minRows,
+    maxRows,
+  }: {
+    reservedRows: number;
+    minRows: number;
+    maxRows: number;
+  },
+): number {
+  const availableRows = Math.max(1, terminalRows - reservedRows);
+  return Math.max(1, Math.min(maxRows, Math.max(minRows, availableRows)));
+}
+
 // ============================================================
 // CLI Cache
 // ============================================================

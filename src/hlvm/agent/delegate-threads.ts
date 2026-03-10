@@ -74,6 +74,8 @@ export interface DelegateThread {
   mergeState?: DelegateMergeState;
   /** Latest merge outcome returned by wait/discard flows. */
   mergeResult?: DelegateMergeResult;
+  /** Stored terminal result so wait/list paths do not need to await the raw promise again. */
+  terminalResult?: DelegateThreadResult;
 }
 
 /** Check if a thread is still active (queued or running). */
@@ -81,11 +83,17 @@ function isThreadActive(thread: DelegateThread): boolean {
   return thread.status === "queued" || thread.status === "running";
 }
 
+function hasActionableMergeState(thread: DelegateThread): boolean {
+  return thread.mergeState === "pending" || thread.mergeState === "conflicted";
+}
+
 // ============================================================
 // Thread Registry (singleton)
 // ============================================================
 
 const threads = new Map<string, DelegateThread>();
+const completedQueue: string[] = [];
+const completedQueueSet = new Set<string>();
 
 export function registerThread(thread: DelegateThread): void {
   threads.set(thread.threadId, thread);
@@ -129,6 +137,16 @@ export function updateThreadSnapshot(
   const thread = threads.get(threadId);
   if (thread) {
     thread.snapshot = snapshot;
+  }
+}
+
+export function updateThreadResult(
+  threadId: string,
+  result: DelegateThreadResult,
+): void {
+  const thread = threads.get(threadId);
+  if (thread) {
+    thread.terminalResult = result;
   }
 }
 
@@ -204,6 +222,25 @@ export function updateThreadMerge(
   }
 }
 
+export function enqueueThreadCompletion(threadId: string): void {
+  const thread = threads.get(threadId);
+  if (!thread || thread.completedAt === undefined || completedQueueSet.has(threadId)) return;
+  completedQueue.push(threadId);
+  completedQueueSet.add(threadId);
+}
+
+export function takeQueuedCompletedThread(): DelegateThread | undefined {
+  while (completedQueue.length > 0) {
+    const threadId = completedQueue.shift()!;
+    completedQueueSet.delete(threadId);
+    const thread = threads.get(threadId);
+    if (thread?.completedAt !== undefined) {
+      return thread;
+    }
+  }
+  return undefined;
+}
+
 export function clearThreadWorkspace(threadId: string): void {
   const thread = threads.get(threadId);
   if (!thread) return;
@@ -266,12 +303,18 @@ export function cancelAllThreads(): void {
 }
 
 export function removeThread(threadId: string): void {
+  completedQueueSet.delete(threadId);
   threads.delete(threadId);
 }
+
+/** Max age for threads with pending/conflicted merge before force-discard + GC. */
+const STALE_MERGE_AGE_MS = 2 * 60 * 60_000; // 2 hours
 
 /**
  * Remove completed/errored/cancelled threads older than maxAgeMs,
  * retaining at most maxRetained recent terminal threads.
+ * Also force-discards merge-pending threads older than STALE_MERGE_AGE_MS
+ * to prevent unbounded memory accumulation.
  * Called lazily at the start of new background delegations.
  */
 export function cleanupCompletedThreads(
@@ -279,9 +322,25 @@ export function cleanupCompletedThreads(
   maxRetained = 20,
 ): number {
   const now = Date.now();
+
+  // Phase 1: Force-discard stale merge-pending threads so they become GC-eligible
+  for (const thread of threads.values()) {
+    if (
+      thread.completedAt !== undefined &&
+      hasActionableMergeState(thread) &&
+      now - thread.completedAt > STALE_MERGE_AGE_MS
+    ) {
+      thread.mergeState = "discarded";
+      thread.workspaceCleanup?.().catch(() => {});
+      thread.workspaceCleanup = undefined;
+      thread.workspacePath = undefined;
+    }
+  }
+
+  // Phase 2: GC terminal threads without actionable merge state
   const terminal: DelegateThread[] = [];
   for (const thread of threads.values()) {
-    if (thread.completedAt !== undefined) {
+    if (thread.completedAt !== undefined && !hasActionableMergeState(thread)) {
       terminal.push(thread);
     }
   }
@@ -295,6 +354,7 @@ export function cleanupCompletedThreads(
     if (i >= maxRetained || age > maxAgeMs) {
       // Fire-and-forget workspace cleanup
       thread.workspaceCleanup?.().catch(() => {});
+      completedQueueSet.delete(thread.threadId);
       threads.delete(thread.threadId);
       removed++;
     }
@@ -305,4 +365,6 @@ export function cleanupCompletedThreads(
 /** Reset registry (for testing). */
 export function resetThreadRegistry(): void {
   threads.clear();
+  completedQueue.length = 0;
+  completedQueueSet.clear();
 }

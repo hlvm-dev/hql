@@ -625,6 +625,22 @@ function processSwitchBodyStatement(
   }
 }
 
+/** Single-pass partition of switch cases into default + regular cases. */
+function partitionSwitchCases(
+  cases: IR.IRSwitchCase[],
+): { defaultCase: IR.IRSwitchCase; regularCases: IR.IRSwitchCase[] } {
+  let defaultCase: IR.IRSwitchCase | undefined;
+  const regularCases: IR.IRSwitchCase[] = [];
+  for (const c of cases) {
+    if ((c as IR.IRSwitchCase).test === null) {
+      defaultCase = c as IR.IRSwitchCase;
+    } else {
+      regularCases.push(c as IR.IRSwitchCase);
+    }
+  }
+  return { defaultCase: defaultCase!, regularCases };
+}
+
 export function transformSwitch(
   list: ListNode,
   currentDir: string,
@@ -787,9 +803,8 @@ export function transformSwitch(
     // This is more idiomatic JS than IIFE wrapping
 
     // Build from the end (default case) backwards
-    // Find the default case (test === null)
-    const defaultCase = cases.find(c => (c as IR.IRSwitchCase).test === null) as IR.IRSwitchCase;
-    const regularCases = cases.filter(c => (c as IR.IRSwitchCase).test !== null) as IR.IRSwitchCase[];
+    // Single-pass partition into default + regular cases
+    const { defaultCase, regularCases } = partitionSwitchCases(cases);
 
     // Start with the default value
     let result: IR.IRNode = (defaultCase.consequent[0] as IR.IRReturnStatement).argument!;
@@ -968,9 +983,8 @@ export function transformCase(
   // case expressions are always simple (no fallthrough), so always use ternary
   // (x === v1 ? r1 : x === v2 ? r2 : default)
 
-  // Find the default case (test === null)
-  const defaultCase = cases.find(c => (c as IR.IRSwitchCase).test === null) as IR.IRSwitchCase;
-  const regularCases = cases.filter(c => (c as IR.IRSwitchCase).test !== null) as IR.IRSwitchCase[];
+  // Single-pass partition into default + regular cases
+  const { defaultCase, regularCases } = partitionSwitchCases(cases);
 
   // Start with the default value
   let result: IR.IRNode = (defaultCase.consequent[0] as IR.IRReturnStatement).argument!;

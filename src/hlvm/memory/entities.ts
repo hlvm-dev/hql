@@ -30,7 +30,7 @@ const TOOLS = new Set([
   "docker",
 ]);
 
-export function upsertEntity(name: string, type: string): number {
+function upsertEntity(name: string, type: string): number {
   const cleaned = name.trim();
   if (!cleaned) return 0;
 
@@ -42,24 +42,6 @@ export function upsertEntity(name: string, type: string): number {
   const row = db.prepare("SELECT id FROM entities WHERE name = ?").value<
     [number]
   >(cleaned);
-  return row?.[0] ?? 0;
-}
-
-export function addRelationship(
-  fromEntity: number,
-  toEntity: number,
-  relation: string,
-  factId?: number,
-  validFrom?: string,
-): number {
-  if (!fromEntity || !toEntity || !relation.trim()) return 0;
-  const db = getFactDb();
-  const vf = validFrom?.trim() || todayDate();
-  db.prepare(
-    "INSERT INTO relationships(from_entity, to_entity, relation, fact_id, valid_from) VALUES(?, ?, ?, ?, ?)",
-  ).run(fromEntity, toEntity, relation, factId ?? null, vf);
-
-  const row = db.prepare("SELECT last_insert_rowid()").value<[number]>();
   return row?.[0] ?? 0;
 }
 

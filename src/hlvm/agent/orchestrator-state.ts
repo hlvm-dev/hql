@@ -63,8 +63,12 @@ export interface LoopState {
   memoryRecallInjected: boolean;
   /** Dedupes lead-side team summary reminders injected into context. */
   lastTeamSummarySignature: string;
+  /** Whether a delegation hint has already been injected this session */
+  delegationHintInjected?: boolean;
   /** Indexed citation candidates extracted from recent web tool results. */
   passageIndex?: CitationSourceEntry[];
+  /** Counter for consecutive transient network retries at the loop level */
+  consecutiveTransientRetries?: number;
 }
 
 /** Resolved constants from OrchestratorConfig, computed once at loop start.
@@ -130,6 +134,7 @@ export function initializeLoopState(config: OrchestratorConfig): LoopState {
     memoryFlushedThisCycle: false,
     memoryRecallInjected: false,
     lastTeamSummarySignature: "",
+    delegationHintInjected: false,
     passageIndex: [],
   };
 }

@@ -571,8 +571,6 @@ function initializeTransformFactory(): void {
     "async",
     (list, currentDir) => asyncGeneratorsModule.transformAsync(list, currentDir, transformHQLNodeToIR),
   );
-  // Note: `range` is no longer a special form - it's a stdlib function
-  // available globally via STDLIB_PUBLIC_API injection in runtime-helpers.ts
   transformFactory.set(
     "await",
     (list, currentDir) => asyncGeneratorsModule.transformAwait(list, currentDir, transformHQLNodeToIR),
@@ -598,7 +596,6 @@ function initializeTransformFactory(): void {
     (list, currentDir) =>
       bindingModule.transformVar(list, currentDir, transformHQLNodeToIR),
   );
-  // "set!" removed - now handled by "=" operator in primitive.ts
   transformFactory.set(
     "if",
     (list, currentDir) =>

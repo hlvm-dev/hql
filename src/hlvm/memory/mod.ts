@@ -18,18 +18,15 @@ export { insertFact, writeMemoryFact, writeMemoryFacts } from "./pipeline.ts";
 export { closeFactDb, getFactDb } from "./db.ts";
 export {
   getValidFacts,
-  insertFact as insertFactRaw,
+  invalidateAllFacts,
   invalidateFact,
   searchFactsFts,
   touchFact,
 } from "./facts.ts";
 export { linkFactEntities } from "./entities.ts";
 export {
-  extractAndPersistBaselineFactsFromMessages,
-  extractAndPersistBaselineFactsFromText,
-  extractBaselineFactsFromMessages,
-  extractBaselineFactsFromText,
   extractConversationFacts,
   extractSessionFacts,
+  parseLLMExtractionResponse,
   persistConversationFacts,
 } from "./extract.ts";

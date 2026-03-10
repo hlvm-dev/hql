@@ -17,7 +17,7 @@ function firstNonEmptyLine(text: string): string {
   return text.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
 }
 
-function pluralize(noun: string, count: number): string {
+export function pluralize(noun: string, count: number): string {
   if (count === 1) return noun;
   if (/(s|x|z|ch|sh)$/i.test(noun)) return `${noun}es`;
   return `${noun}s`;

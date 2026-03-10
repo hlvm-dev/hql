@@ -15,7 +15,7 @@ import React, {
 import { Box, Text, useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
-import { formatBytes, ProgressBar } from "./ProgressBar.tsx";
+import { formatBytes } from "./ProgressBar.tsx";
 import type {
   ModelPullTask,
   TaskEvent,
@@ -31,7 +31,7 @@ import {
   normalizeModelBrowserSearchState,
 } from "../utils/model-browser-loading.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
-import { truncate } from "../../../../common/utils.ts";
+import { getErrorMessage, truncate } from "../../../../common/utils.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { isSelectedModelActive } from "../../../../common/config/model-selection.ts";
 import { capabilitiesToDisplayTags } from "../../../providers/types.ts";
@@ -52,10 +52,11 @@ import { calculateScrollWindow } from "../completion/navigation.ts";
 import { HighlightedText } from "./HighlightedText.tsx";
 import { ListSearchField } from "./ListSearchField.tsx";
 import {
+  clampPanelWidth,
+  clampVisibleRows,
   DEFAULT_TERMINAL_HEIGHT,
   DEFAULT_TERMINAL_WIDTH,
-  MIN_PANEL_WIDTH,
-  PANEL_PADDING,
+  MODEL_BROWSER_MAX_WIDTH,
 } from "../ui-constants.ts";
 
 const platform = getPlatform();
@@ -518,24 +519,13 @@ function ModelItem({
 
   // Size/progress display
   let sizeLabel = "";
-  let progressDisplay: React.ReactNode = null;
   if (isDownloading && model.progress) {
     const { progress } = model;
     sizeLabel = progress.total && progress.completed
-      ? `${Math.round(progress.percent || 0)}%`
+      ? `${Math.round(progress.percent || 0)}% ${
+        formatBytes(progress.completed)
+      }/${formatBytes(progress.total)}`
       : progress.status || "...";
-    if (progress.total && progress.completed) {
-      progressDisplay = (
-        <>
-          <ProgressBar percent={progress.percent || 0} width={10} showPercent />
-          <Text dimColor>
-            {formatBytes(progress.completed)}/{formatBytes(progress.total)}
-          </Text>
-        </>
-      );
-    } else {
-      progressDisplay = <Text dimColor>{progress.status || "..."}</Text>;
-    }
   } else if (model.downloadStatus === "cancelled" && model.progress) {
     const { progress } = model;
     sizeLabel = progress.total && progress.completed
@@ -561,10 +551,16 @@ function ModelItem({
     : undefined;
 
   const providerTag = getModelProviderTagText(model);
-  const sizeWidth = 13;
-  const statusWidth = 16;
-  const providerWidth = Math.max(
+  const sizeWidth = Math.max(
+    10,
+    Math.min(18, Math.floor(contentWidth * 0.18)),
+  );
+  const statusWidth = Math.max(
     12,
+    Math.min(16, Math.floor(contentWidth * 0.18)),
+  );
+  const providerWidth = Math.max(
+    10,
     Math.min(24, Math.floor(contentWidth * 0.2)),
   );
   const nameWidth = Math.max(
@@ -607,9 +603,7 @@ function ModelItem({
           baseColor={nameColor}
           bold={isSelected || isActive}
         />{" "}
-        {isDownloading
-          ? progressDisplay
-          : <Text dimColor>{inlineSizeLabel}</Text>}{" "}
+        <Text dimColor>{inlineSizeLabel}</Text>{" "}
         <Text dimColor>{statusDisplay}</Text>
         {providerTag
           ? (
@@ -647,13 +641,16 @@ export function ModelBrowser({
   const { stdout } = useStdout();
   const { tasks, cancel } = useTaskManager();
   const manager = useMemo(() => getTaskManager(endpoint), [endpoint]);
-  const availableWidth = Math.max(
-    MIN_PANEL_WIDTH,
-    (stdout?.columns ?? DEFAULT_TERMINAL_WIDTH) - PANEL_PADDING,
-  );
+  const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const availableHeight = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
-  const visibleRowCount = Math.max(8, Math.min(16, availableHeight - 22));
-  const panelWidth = availableWidth;
+  const visibleRowCount = clampVisibleRows(availableHeight, {
+    reservedRows: 18,
+    minRows: 4,
+    maxRows: 16,
+  });
+  const panelWidth = clampPanelWidth(terminalWidth, {
+    maxWidth: MODEL_BROWSER_MAX_WIDTH,
+  });
   const contentWidth = panelWidth - 4;
   const defaultModelWidth = Math.max(
     22,
@@ -712,7 +709,7 @@ export function ModelBrowser({
         onClose();
       } catch (error) {
         if (!isMountedRef.current) return;
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         setStatusMessage(
           `Failed to set ${selectionScopeLabel}: ${message} (press Ctrl+O for model info)`,
         );
@@ -1308,6 +1305,7 @@ export function ModelBrowser({
       paddingX={1}
       paddingY={1}
       width={panelWidth}
+      alignSelf="center"
     >
       <Box justifyContent="space-between">
         <Text bold color={color("primary")} wrap="truncate-end">

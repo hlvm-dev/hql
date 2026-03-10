@@ -204,4 +204,5 @@ export type ChatStreamEvent =
     errorClass?: string;
     retryable?: boolean;
   }
-  | { event: "cancelled"; request_id: string; partial_text: string };
+  | { event: "cancelled"; request_id: string; partial_text: string }
+  | { event: "heartbeat" };

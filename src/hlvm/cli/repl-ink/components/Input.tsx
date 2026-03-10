@@ -3,60 +3,84 @@
  * Full keyboard handling with syntax highlighting, completions, history
  */
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Text, Box, useInput } from "ink";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Box, Text, useInput } from "ink";
 import {
-  highlight,
-  findMatchingParen,
-  isBalanced,
-  forwardSexp,
+  AUTO_PAIR_CHARS,
   backwardSexp,
   backwardUpSexp,
-  forwardDownSexp,
-  OPEN_TO_CLOSE,
-  AUTO_PAIR_CHARS,
   deleteBackWithPairSupport,
-  isInsideString,
+  findMatchingParen,
+  forwardDownSexp,
+  forwardSexp,
+  highlight,
+  isBalanced,
   isInsideEmptyQuotePair,
+  isInsideString,
+  OPEN_TO_CLOSE,
 } from "../../repl/syntax.ts";
 import {
-  slurpForward,
-  slurpBackward,
-  barfForward,
   barfBackward,
-  wrapSexp,
-  spliceSexp,
-  raiseSexp,
+  barfForward,
   killSexp,
-  transposeSexp,
   type PareditResult,
+  raiseSexp,
+  slurpBackward,
+  slurpForward,
+  spliceSexp,
+  transposeSexp,
+  wrapSexp,
 } from "../../repl/paredit.ts";
 import {
   findSuggestion,
   resolveSuggestionValue,
   type Suggestion,
 } from "../../repl/suggester.ts";
-import { calculateWordBackPosition, calculateWordForwardPosition } from "../../repl/keyboard.ts";
-import { isSupportedMedia, detectMimeType, getAttachmentType, getDisplayName, shouldCollapseText } from "../../repl/attachment.ts";
-import { useAttachments, type AnyAttachment } from "../hooks/useAttachments.ts";
+import {
+  calculateWordBackPosition,
+  calculateWordForwardPosition,
+} from "../../repl/keyboard.ts";
+import {
+  detectMimeType,
+  getAttachmentType,
+  getDisplayName,
+  isSupportedMedia,
+  shouldCollapseText,
+} from "../../repl/attachment.ts";
+import { type AnyAttachment, useAttachments } from "../hooks/useAttachments.ts";
 import { useHistorySearch } from "../hooks/useHistorySearch.ts";
 import { HistorySearchPrompt } from "./HistorySearchPrompt.tsx";
 import { ANSI_COLORS, getThemedAnsi } from "../../ansi.ts";
 import { useTheme } from "../../theme/index.ts";
+import type {
+  ConversationComposerDraft,
+  ConversationQueueEditBinding,
+} from "../utils/conversation-queue.ts";
+import {
+  createConversationComposerDraft,
+  trimConversationDraftText,
+} from "../utils/conversation-queue.ts";
 
 // Unified Completion System
 import {
-  useCompletion,
-  Dropdown,
   ATTACHMENT_PLACEHOLDER,
-  getWordAtCursor,
   buildContext as buildCompletionContext,
-  shouldTriggerFileMention,
-  extractMentionQuery,
-  shouldTriggerCommand,
-  type CompletionItem,
   type CompletionAction,
+  type CompletionItem,
+  Dropdown,
+  extractMentionQuery,
+  getWordAtCursor,
+  shouldTriggerCommand,
+  shouldTriggerFileMention,
+  useCompletion,
 } from "../completion/index.ts";
+import { MAX_VISIBLE_ITEMS } from "../completion/types.ts";
 
 // FRP Context - reactive state
 import { useReplContext } from "../context/index.ts";
@@ -64,13 +88,12 @@ import { deleteWordPreservingDelimiters } from "../utils/text-editing.ts";
 
 // Handler Registry - for palette/keybinding execution
 import {
+  executeHandler,
+  HandlerIds,
+  inspectHandlerKeybinding,
+  normalizeKeyInput,
   registerHandler,
   unregisterHandler,
-  HandlerIds,
-  matchCustomKeybinding,
-  isDefaultDisabled,
-  executeHandler,
-  normalizeKeyInput,
 } from "../keybindings/index.ts";
 
 // Helper: apply a paredit operation and return new value/cursor
@@ -82,6 +105,14 @@ type PareditFn = (input: string, pos: number) => PareditResult | null;
 // Delay pure ESC handling briefly so modified chords (e.g., Option+Enter) are not swallowed.
 const ESC_SEQUENCE_TIMEOUT_MS = 120;
 const ESC_PREFIX_ENTER_GRACE_MS = 280;
+const INPUT_KEYBINDING_CATEGORIES = [
+  "Editing",
+  "Navigation",
+  "Completion",
+  "History",
+  "Paredit",
+] as const;
+const COMPOSER_KEYBINDING_CATEGORIES = ["Composer"] as const;
 
 // Paste detection: only buffer when we have definite paste indicators
 // Multi-char input or newlines START buffering
@@ -91,8 +122,12 @@ const ESC_PREFIX_ENTER_GRACE_MS = 280;
 // Two thresholds for different purposes:
 // - CONTINUE: Detect if input is part of ongoing paste (char-by-char paste detection)
 // - PROCESS_DELAY: Wait for more chunks before processing (terminal paste timing varies)
-const PASTE_CONTINUE_THRESHOLD_MS = 100;  // Char-by-char paste arrives < 100ms apart (increased for slow terminals)
-const PASTE_PROCESS_DELAY_MS = 300;       // Wait 300ms for more chunks before processing (increased for slow terminals)
+const PASTE_CONTINUE_THRESHOLD_MS = 100; // Char-by-char paste arrives < 100ms apart (increased for slow terminals)
+const PASTE_PROCESS_DELAY_MS = 300; // Wait 300ms for more chunks before processing (increased for slow terminals)
+const CTRL_ENTER_CSI_U_REGEX = new RegExp("^\u001b\\[13;(\\d+)u$");
+const CTRL_ENTER_LEGACY_REGEX = new RegExp("^\u001b\\[27;(\\d+);13~$");
+const MODIFIED_ENTER_CSI_U_REGEX = new RegExp("^\u001b\\[13;\\d+u$");
+const MODIFIED_ENTER_LEGACY_REGEX = new RegExp("^\u001b\\[27;\\d+;13~$");
 
 // ANSI Reset constant
 const { RESET } = ANSI_COLORS;
@@ -101,16 +136,16 @@ const { RESET } = ANSI_COLORS;
 function hasNewlineChars(str: string): boolean {
   for (let i = 0; i < str.length; i++) {
     const ch = str.charCodeAt(i);
-    if (ch === 10 || ch === 13) return true;  // \n or \r
+    if (ch === 10 || ch === 13) return true; // \n or \r
   }
   return false;
 }
 
 // Placeholder for function parameter completion
 interface Placeholder {
-  start: number;    // Position in value string
-  length: number;   // Current length of placeholder text
-  text: string;     // Original param name (e.g., "x")
+  start: number; // Position in value string
+  length: number; // Current length of placeholder text
+  text: string; // Original param name (e.g., "x")
   touched: boolean; // Has user typed in this placeholder?
 }
 
@@ -118,6 +153,28 @@ interface InputProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string, attachments?: AnyAttachment[]) => void;
+  /** Force-submit: abort current agent and send immediately (Ctrl+Enter) */
+  onForceSubmit?: (value: string, attachments?: AnyAttachment[]) => void;
+  /** Queue the current chat draft without sending it immediately */
+  onQueueDraft?: (draft: ConversationComposerDraft) => void;
+  /** Restore the most recently queued draft into the composer */
+  onEditLastQueuedDraft?: () => void;
+  /** Active binding for edit-last-queued-draft */
+  queueEditBinding?: ConversationQueueEditBinding;
+  /** Whether a queued draft exists to restore */
+  canEditQueuedDraft?: boolean;
+  /** Whether the conversation task is currently running */
+  isConversationTaskRunning?: boolean;
+  /** Notify parent when attachment state changes */
+  onAttachmentsChange?: (attachments: AnyAttachment[]) => void;
+  /** Restore attachment state from an external draft snapshot */
+  restoredAttachments?: AnyAttachment[];
+  /** Cursor position to restore alongside restoredAttachments */
+  restoredCursorOffset?: number;
+  /** Monotonic token to apply restored draft state exactly once per restore */
+  restoredDraftRevision?: number;
+  /** Report the composer row budget so the conversation viewport can reserve space accurately */
+  onLayoutRowsChange?: (rows: number) => void;
   onCycleMode?: () => void;
   disabled?: boolean;
   /** "chat" disables code token coloring for natural-language turns */
@@ -127,17 +184,50 @@ interface InputProps {
   // FRP: history, bindings, signatures, docstrings now come from ReplContext
 }
 
+export function shouldApplyRestoredDraft(
+  lastAppliedRevision: number | null,
+  restoredDraftRevision?: number,
+): restoredDraftRevision is number {
+  return restoredDraftRevision != null &&
+    restoredDraftRevision !== lastAppliedRevision;
+}
+
+export function getInputPromptPrefix(
+  promptLabel: string,
+  lineIndex: number,
+): string {
+  const prompt = lineIndex === 0 ? promptLabel : " ".repeat(promptLabel.length);
+  return `${prompt} `;
+}
+
 export function Input({
   value,
   onChange,
   onSubmit,
+  onForceSubmit,
+  onQueueDraft,
+  onEditLastQueuedDraft,
+  queueEditBinding = "alt-up",
+  canEditQueuedDraft = false,
+  isConversationTaskRunning = false,
+  onAttachmentsChange,
+  restoredAttachments,
+  restoredCursorOffset,
+  restoredDraftRevision,
+  onLayoutRowsChange,
   onCycleMode,
   disabled = false,
   highlightMode = "code",
   promptLabel = "hlvm>",
 }: InputProps): React.ReactElement {
   // FRP: Get all reactive state from context
-  const { bindings: userBindings, signatures, docstrings, history, memoryNames } = useReplContext();
+  const {
+    bindings: userBindings,
+    signatures,
+    docstrings,
+    history,
+    memoryNames,
+  } = useReplContext();
   const [cursorPos, setCursorPos] = useState(value.length);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [tempInput, setTempInput] = useState("");
@@ -169,16 +259,15 @@ export function Input({
     attachments,
     addAttachmentWithId,
     addTextAttachment,
+    replaceAttachments,
     reserveNextId,
     clearAttachments,
     lastError: attachmentError,
   } = useAttachments();
 
-
   // Placeholder mode state for function parameter completion
   const [placeholders, setPlaceholders] = useState<Placeholder[]>([]);
   const [placeholderIndex, setPlaceholderIndex] = useState(-1);
-
 
   // Paste detection: buffer rapid inputs and process together
   const pasteBufferRef = useRef<string>("");
@@ -186,12 +275,15 @@ export function Input({
   const lastInputTimeRef = useRef<number>(0);
 
   // Undo/redo stacks (refs to avoid re-render on push)
-  const undoStackRef = useRef<Array<{value: string, cursorPos: number}>>([]);
-  const redoStackRef = useRef<Array<{value: string, cursorPos: number}>>([]);
+  const undoStackRef = useRef<Array<{ value: string; cursorPos: number }>>([]);
+  const redoStackRef = useRef<Array<{ value: string; cursorPos: number }>>([]);
   // Async operation guards
   const pendingAttachmentOpsRef = useRef(0);
-  const escSequenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const escSequenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const lastEscPrefixAtRef = useRef(0);
+  const appliedRestoreRevisionRef = useRef<number | null>(null);
 
   // Track if text change was from cycling (Up/Down) vs typing
   // When cycling, we don't want to re-filter the dropdown
@@ -204,6 +296,36 @@ export function Input({
   useEffect(() => {
     disabledRef.current = disabled;
   }, [disabled]);
+
+  useEffect(() => {
+    onAttachmentsChange?.(attachments);
+  }, [attachments, onAttachmentsChange]);
+
+  useEffect(() => {
+    if (
+      !shouldApplyRestoredDraft(
+        appliedRestoreRevisionRef.current,
+        restoredDraftRevision,
+      )
+    ) {
+      return;
+    }
+    appliedRestoreRevisionRef.current = restoredDraftRevision;
+    pendingAttachmentOpsRef.current = 0;
+    replaceAttachments(restoredAttachments ?? []);
+    setCursorPos(
+      Math.max(
+        0,
+        Math.min(restoredCursorOffset ?? value.length, value.length),
+      ),
+    );
+  }, [
+    replaceAttachments,
+    restoredAttachments,
+    restoredCursorOffset,
+    restoredDraftRevision,
+    value.length,
+  ]);
 
   // Update cursor pos when value changes externally
   useEffect(() => {
@@ -243,7 +365,9 @@ export function Input({
       // Check 2: Prefix (function name area) changed unexpectedly
       // This catches cases like Ctrl+W, paste, or other external modifications
       const currentPrefix = value.slice(0, firstPh.start);
-      if (expectedPrefixRef.current && currentPrefix !== expectedPrefixRef.current) {
+      if (
+        expectedPrefixRef.current && currentPrefix !== expectedPrefixRef.current
+      ) {
         // Function name was modified externally - exit placeholder mode
         // Note: We can't remove placeholder text here (would cause infinite loop)
         // But the placeholder positions are now invalid anyway
@@ -265,7 +389,9 @@ export function Input({
   // Update suggestion when value changes
   useEffect(() => {
     // Don't show ghost text suggestion when completion dropdown is visible
-    if (cursorPos === value.length && value.length > 0 && !completion.isVisible) {
+    if (
+      cursorPos === value.length && value.length > 0 && !completion.isVisible
+    ) {
       const found = findSuggestion(value, history, userBindings);
       setSuggestion(found);
     } else {
@@ -318,7 +444,8 @@ export function Input({
     }
 
     const textBefore = value.slice(0, cursorPos);
-    const inString = isInsideString(value, cursorPos, '"') || isInsideString(value, cursorPos, "'");
+    const inString = isInsideString(value, cursorPos, '"') ||
+      isInsideString(value, cursorPos, "'");
 
     if (inString) {
       if (completion.isVisible) {
@@ -330,16 +457,17 @@ export function Input({
     const { word } = getWordAtCursor(textBefore, cursorPos);
     const trimmedBefore = textBefore.trimStart();
     const lastAt = textBefore.lastIndexOf("@");
-    const isInMention = lastAt >= 0 && !textBefore.slice(lastAt + 1).includes(" ");
-    const isInCommand = trimmedBefore.startsWith("/") && !trimmedBefore.includes(" ");
+    const isInMention = lastAt >= 0 &&
+      !textBefore.slice(lastAt + 1).includes(" ");
+    const isInCommand = trimmedBefore.startsWith("/") &&
+      !trimmedBefore.includes(" ");
 
     // GENERIC: Re-trigger for ANY provider when dropdown is already open (live filtering).
     // IMPORTANT: symbol provider intentionally supports empty/whitespace contexts on explicit Tab.
     // Do not auto-close symbol dropdown when word.length === 0.
     if (completion.isVisible) {
       const activeProvider = completion.renderProps?.providerId;
-      const shouldAutoClose =
-        word.length === 0 &&
+      const shouldAutoClose = word.length === 0 &&
         !isInMention &&
         !isInCommand &&
         activeProvider !== "symbol";
@@ -408,62 +536,70 @@ export function Input({
 
   // Helper: exit placeholder mode AND remove untouched placeholders from value
   // Called when user types ')' or other exit-triggering characters
-  const exitPlaceholderModeAndCleanup = useCallback((removeAll: boolean = false) => {
-    if (placeholders.length === 0) {
-      exitPlaceholderMode();
-      return value;
-    }
+  const exitPlaceholderModeAndCleanup = useCallback(
+    (removeAll: boolean = false) => {
+      if (placeholders.length === 0) {
+        exitPlaceholderMode();
+        return value;
+      }
 
-    // Remove placeholders from the value (from end to start to preserve indices)
-    // If removeAll=true, remove ALL placeholders (when deleting function name)
-    // If removeAll=false, only remove untouched placeholders (normal exit)
-    let newValue = value;
-    let adjustment = 0;
+      // Remove placeholders from the value (from end to start to preserve indices)
+      // If removeAll=true, remove ALL placeholders (when deleting function name)
+      // If removeAll=false, only remove untouched placeholders (normal exit)
+      let newValue = value;
+      let adjustment = 0;
 
-    // Process placeholders in reverse order to maintain correct indices
-    for (let i = placeholders.length - 1; i >= 0; i--) {
-      const ph = placeholders[i];
-      // Remove if: removeAll is true, OR placeholder is untouched
-      if (removeAll || !ph.touched) {
-        // Remove this placeholder (and preceding space if exists)
-        const removeStart = ph.start > 0 && newValue[ph.start - 1] === ' ' ? ph.start - 1 : ph.start;
-        const removeEnd = ph.start + ph.length;
-        newValue = newValue.slice(0, removeStart) + newValue.slice(removeEnd);
-        if (i <= placeholderIndex) {
-          adjustment += (removeEnd - removeStart);
+      // Process placeholders in reverse order to maintain correct indices
+      for (let i = placeholders.length - 1; i >= 0; i--) {
+        const ph = placeholders[i];
+        // Remove if: removeAll is true, OR placeholder is untouched
+        if (removeAll || !ph.touched) {
+          // Remove this placeholder (and preceding space if exists)
+          const removeStart = ph.start > 0 && newValue[ph.start - 1] === " "
+            ? ph.start - 1
+            : ph.start;
+          const removeEnd = ph.start + ph.length;
+          newValue = newValue.slice(0, removeStart) + newValue.slice(removeEnd);
+          if (i <= placeholderIndex) {
+            adjustment += removeEnd - removeStart;
+          }
         }
       }
-    }
 
-    exitPlaceholderMode();
-    return newValue;
-  }, [value, placeholders, placeholderIndex, exitPlaceholderMode]);
+      exitPlaceholderMode();
+      return newValue;
+    },
+    [value, placeholders, placeholderIndex, exitPlaceholderMode],
+  );
 
   // Helper: enter placeholder mode after completing a function
   // FIX C2: Close completion dropdown when entering placeholder mode
-  const enterPlaceholderMode = useCallback((params: string[], startPos: number) => {
-    if (params.length === 0) return;
+  const enterPlaceholderMode = useCallback(
+    (params: string[], startPos: number) => {
+      if (params.length === 0) return;
 
-    // Close completion dropdown when entering placeholder mode
-    completion.close();
+      // Close completion dropdown when entering placeholder mode
+      completion.close();
 
-    const newPlaceholders: Placeholder[] = [];
-    let pos = startPos;
+      const newPlaceholders: Placeholder[] = [];
+      let pos = startPos;
 
-    for (const param of params) {
-      newPlaceholders.push({
-        start: pos,
-        length: param.length,
-        text: param,
-        touched: false,
-      });
-      pos += param.length + 1; // +1 for space between params
-    }
+      for (const param of params) {
+        newPlaceholders.push({
+          start: pos,
+          length: param.length,
+          text: param,
+          touched: false,
+        });
+        pos += param.length + 1; // +1 for space between params
+      }
 
-    setPlaceholders(newPlaceholders);
-    setPlaceholderIndex(0);
-    setCursorPos(newPlaceholders[0].start);
-  }, [completion]);
+      setPlaceholders(newPlaceholders);
+      setPlaceholderIndex(0);
+      setCursorPos(newPlaceholders[0].start);
+    },
+    [completion],
+  );
 
   // Helper: push current state to undo stack (call BEFORE each mutation)
   const pushUndo = useCallback(() => {
@@ -497,58 +633,82 @@ export function Input({
 
   // Helper: execute completion action (GENERIC - uses item.applyAction)
   // This replaces the old applyCompletionSelection with provider-defined behavior
-  const executeCompletionAction = useCallback((item: CompletionItem, action: CompletionAction) => {
-    const context = completion.getApplyContext();
-    if (!context) return; // No active completion session
+  const executeCompletionAction = useCallback(
+    (item: CompletionItem, action: CompletionAction) => {
+      const context = completion.getApplyContext();
+      if (!context) return; // No active completion session
 
-    pushUndo();
+      pushUndo();
 
-    // Let the item define how to apply the action
-    const result = item.applyAction(action, context);
+      // Let the item define how to apply the action
+      const result = item.applyAction(action, context);
 
-    // Handle side effects from providers
-    if (result.sideEffect?.type === "ADD_ATTACHMENT") {
-      // Media file attachment
-      pendingAttachmentOpsRef.current += 1;
-      const id = reserveNextId();
-      const mimeType = detectMimeType(result.sideEffect.path);
-      const type = getAttachmentType(mimeType);
-      const displayName = getDisplayName(type, id);
-      // Replace placeholder with actual display name
-      const finalText = result.text.replace(ATTACHMENT_PLACEHOLDER, displayName);
-      onChange(finalText);
-      const placeholderLen = ATTACHMENT_PLACEHOLDER.length;
-      setCursorPos(result.cursorPosition - placeholderLen + displayName.length);
-      void addAttachmentWithId(result.sideEffect.path, id).finally(() => {
-        pendingAttachmentOpsRef.current = Math.max(0, pendingAttachmentOpsRef.current - 1);
-      });
-    } else if (result.sideEffect?.type === "ENTER_PLACEHOLDER_MODE") {
-      // Function param completion
-      onChange(result.text);
-      enterPlaceholderMode(result.sideEffect.params, result.sideEffect.startPos);
-    } else if (result.sideEffect?.type === "EXECUTE") {
-      // Command execution - close dropdown and submit immediately (single Enter)
-      completion.close();
-      const finalText = result.text.trim();
-      onSubmit(finalText, attachments.length > 0 ? attachments : undefined);
-      pendingAttachmentOpsRef.current = 0;
-      onChange("");
-      setCursorPos(0);
-      setHistoryIndex(-1);
-      setTempInput("");
-      clearAttachments();
-      return; // Early return - already closed dropdown
-    } else {
-      // Normal completion
-      onChange(result.text);
-      setCursorPos(result.cursorPosition);
-    }
+      // Handle side effects from providers
+      if (result.sideEffect?.type === "ADD_ATTACHMENT") {
+        // Media file attachment
+        pendingAttachmentOpsRef.current += 1;
+        const id = reserveNextId();
+        const mimeType = detectMimeType(result.sideEffect.path);
+        const type = getAttachmentType(mimeType);
+        const displayName = getDisplayName(type, id);
+        // Replace placeholder with actual display name
+        const finalText = result.text.replace(
+          ATTACHMENT_PLACEHOLDER,
+          displayName,
+        );
+        onChange(finalText);
+        const placeholderLen = ATTACHMENT_PLACEHOLDER.length;
+        setCursorPos(
+          result.cursorPosition - placeholderLen + displayName.length,
+        );
+        void addAttachmentWithId(result.sideEffect.path, id).finally(() => {
+          pendingAttachmentOpsRef.current = Math.max(
+            0,
+            pendingAttachmentOpsRef.current - 1,
+          );
+        });
+      } else if (result.sideEffect?.type === "ENTER_PLACEHOLDER_MODE") {
+        // Function param completion
+        onChange(result.text);
+        enterPlaceholderMode(
+          result.sideEffect.params,
+          result.sideEffect.startPos,
+        );
+      } else if (result.sideEffect?.type === "EXECUTE") {
+        // Command execution - close dropdown and submit immediately (single Enter)
+        completion.close();
+        const finalText = result.text.trim();
+        onSubmit(finalText, attachments.length > 0 ? attachments : undefined);
+        pendingAttachmentOpsRef.current = 0;
+        onChange("");
+        setCursorPos(0);
+        setHistoryIndex(-1);
+        setTempInput("");
+        clearAttachments();
+        return; // Early return - already closed dropdown
+      } else {
+        // Normal completion
+        onChange(result.text);
+        setCursorPos(result.cursorPosition);
+      }
 
-    // Close dropdown if instructed
-    if (result.closeDropdown) {
-      completion.close();
-    }
-  }, [completion, onChange, onSubmit, attachments, reserveNextId, addAttachmentWithId, enterPlaceholderMode, pushUndo, clearAttachments]);
+      // Close dropdown if instructed
+      if (result.closeDropdown) {
+        completion.close();
+      }
+    },
+    [
+      completion,
+      onChange,
+      onSubmit,
+      attachments,
+      reserveNextId,
+      addAttachmentWithId,
+      enterPlaceholderMode,
+      pushUndo,
+      clearAttachments,
+    ],
+  );
 
   // Helper: move to next placeholder (Tab)
   const nextPlaceholder = useCallback(() => {
@@ -580,7 +740,11 @@ export function Input({
 
   // FIX NEW-6: Helper returns new array instead of mutating (pure function)
   // Shifts subsequent placeholder positions by delta - used in 3 places
-  const shiftPlaceholders = (arr: Placeholder[], fromIndex: number, delta: number): Placeholder[] => {
+  const shiftPlaceholders = (
+    arr: Placeholder[],
+    fromIndex: number,
+    delta: number,
+  ): Placeholder[] => {
     return arr.map((ph, i) =>
       i >= fromIndex ? { ...ph, start: ph.start + delta } : ph
     );
@@ -619,7 +783,11 @@ export function Input({
       updated[placeholderIndex] = { ...ph, length: ph.length + char.length };
 
       // Shift subsequent placeholders (use return value from pure function)
-      const shifted = shiftPlaceholders(updated, placeholderIndex + 1, char.length);
+      const shifted = shiftPlaceholders(
+        updated,
+        placeholderIndex + 1,
+        char.length,
+      );
 
       setPlaceholders(shifted);
       setCursorPos(cursorPos + 1);
@@ -667,16 +835,29 @@ export function Input({
       updated[placeholderIndex] = { ...ph, length: ph.length + pair.length };
 
       // Shift subsequent placeholders
-      const shifted = shiftPlaceholders(updated, placeholderIndex + 1, pair.length);
+      const shifted = shiftPlaceholders(
+        updated,
+        placeholderIndex + 1,
+        pair.length,
+      );
 
       setPlaceholders(shifted);
       setCursorPos(cursorPos + 1); // Cursor between the pair
     }
-  }, [placeholders, placeholderIndex, value, cursorPos, onChange, replaceCurrentPlaceholder]);
+  }, [
+    placeholders,
+    placeholderIndex,
+    value,
+    cursorPos,
+    onChange,
+    replaceCurrentPlaceholder,
+  ]);
 
   // Helper: handle backspace in placeholder mode
   const backspaceInPlaceholder = useCallback(() => {
-    if (placeholderIndex < 0 || placeholderIndex >= placeholders.length) return false;
+    if (placeholderIndex < 0 || placeholderIndex >= placeholders.length) {
+      return false;
+    }
     if (cursorPos <= 0) return false;
 
     const ph = placeholders[placeholderIndex];
@@ -732,6 +913,52 @@ export function Input({
     clearAttachments();
   }, [completion, clearAttachments]);
 
+  const cycleComposerMode = useCallback(() => {
+    onCycleMode?.();
+  }, [onCycleMode]);
+
+  const forceSubmitCurrentDraft = useCallback(() => {
+    if (!onForceSubmit) return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    onForceSubmit(
+      trimmed,
+      attachments.length > 0 ? attachments : undefined,
+    );
+    resetAfterSubmit();
+  }, [attachments, onForceSubmit, resetAfterSubmit, value]);
+
+  const queueCurrentDraft = useCallback(() => {
+    if (!onQueueDraft) return false;
+    if (pendingAttachmentOpsRef.current > 0) return true;
+
+    const finalValue = resolveSuggestionValue(value, suggestion, "submit");
+    const trimmedDraft = trimConversationDraftText(finalValue, cursorPos);
+    const hasAttachments = attachments.length > 0;
+    if (!trimmedDraft.text && !hasAttachments) {
+      return false;
+    }
+
+    onQueueDraft(
+      createConversationComposerDraft(
+        trimmedDraft.text,
+        attachments.length > 0 ? attachments : [],
+        trimmedDraft.cursorOffset,
+      ),
+    );
+    onChange("");
+    setCursorPos(0);
+    resetAfterSubmit();
+    return true;
+  }, [
+    attachments,
+    cursorPos,
+    onChange,
+    onQueueDraft,
+    resetAfterSubmit,
+    suggestion,
+    value,
+  ]);
 
   // FIX H4: Helper to clear paste buffer on mode transitions
   // This prevents paste data from corrupting history entries or mode state
@@ -740,7 +967,7 @@ export function Input({
       clearTimeout(pasteTimeoutRef.current);
       pasteTimeoutRef.current = null;
     }
-    pasteBufferRef.current = '';
+    pasteBufferRef.current = "";
   }, []);
 
   // Helper: cancel pending pure-ESC action (used when ESC is actually a prefix)
@@ -777,7 +1004,7 @@ export function Input({
   // are treated as atomic units. See string-utils.ts header for full explanation.
   const isWordBoundaryChar = (ch: string): boolean => {
     return ch === " " || ch === "\t" || ch === "(" || ch === ")" ||
-           ch === "[" || ch === "]" || ch === "{" || ch === "}";
+      ch === "[" || ch === "]" || ch === "{" || ch === "}";
   };
 
   // Helper: insert auto-closing delimiter pair
@@ -790,51 +1017,61 @@ export function Input({
       return;
     }
     pushUndo();
-    const newValue = value.slice(0, cursorPos) + openChar + closeChar + value.slice(cursorPos);
+    const newValue = value.slice(0, cursorPos) + openChar + closeChar +
+      value.slice(cursorPos);
     onChange(newValue);
     setCursorPos(cursorPos + 1); // Cursor between the pair
   }, [value, cursorPos, onChange, insertAt, pushUndo]);
 
-
   // Helper: delete word backward (Ctrl+W)
   // Accepts optional parameters to work on any value (for placeholder cleanup)
   // LISP-aware: treats parens/brackets as word boundaries
-  const deleteWord = useCallback((targetValue?: string, targetCursor?: number) => {
-    pushUndo();
-    const v = targetValue ?? value;
-    const c = targetCursor ?? cursorPos;
+  const deleteWord = useCallback(
+    (targetValue?: string, targetCursor?: number) => {
+      pushUndo();
+      const v = targetValue ?? value;
+      const c = targetCursor ?? cursorPos;
 
-    // Check if inside paired delimiters first — uses shared implementation from text-editing.ts
-    const delimResult = deleteWordPreservingDelimiters(v, c);
-    if (delimResult) {
-      onChange(delimResult.value);
-      setCursorPos(delimResult.cursor);
-      return;
-    }
+      // Check if inside paired delimiters first — uses shared implementation from text-editing.ts
+      const delimResult = deleteWordPreservingDelimiters(v, c);
+      if (delimResult) {
+        onChange(delimResult.value);
+        setCursorPos(delimResult.cursor);
+        return;
+      }
 
-    // LISP-aware word deletion
-    const before = v.slice(0, c);
-    let pos = before.length;
-    const originalPos = pos;
-    // Skip trailing whitespace (but not parens/brackets - they're significant)
-    while (pos > 0 && isWordBoundaryChar(before[pos - 1]) && before[pos - 1] !== "(" && before[pos - 1] !== "[" && before[pos - 1] !== "{") {
-      pos--;
-    }
-    // Delete word (stop at word boundary including parens)
-    while (pos > 0 && !isWordBoundaryChar(before[pos - 1])) {
-      pos--;
-    }
-    // If nothing was deleted and there's a paren/bracket, delete that single char
-    // This handles: (| → Ctrl+W → empty
-    if (pos === originalPos && pos > 0) {
-      const ch = before[pos - 1];
-      if (ch === "(" || ch === "[" || ch === "{" || ch === ")" || ch === "]" || ch === "}") {
+      // LISP-aware word deletion
+      const before = v.slice(0, c);
+      let pos = before.length;
+      const originalPos = pos;
+      // Skip trailing whitespace (but not parens/brackets - they're significant)
+      while (
+        pos > 0 && isWordBoundaryChar(before[pos - 1]) &&
+        before[pos - 1] !== "(" && before[pos - 1] !== "[" &&
+        before[pos - 1] !== "{"
+      ) {
         pos--;
       }
-    }
-    onChange(before.slice(0, pos) + v.slice(c));
-    setCursorPos(pos);
-  }, [value, cursorPos, onChange, pushUndo]);
+      // Delete word (stop at word boundary including parens)
+      while (pos > 0 && !isWordBoundaryChar(before[pos - 1])) {
+        pos--;
+      }
+      // If nothing was deleted and there's a paren/bracket, delete that single char
+      // This handles: (| → Ctrl+W → empty
+      if (pos === originalPos && pos > 0) {
+        const ch = before[pos - 1];
+        if (
+          ch === "(" || ch === "[" || ch === "{" || ch === ")" || ch === "]" ||
+          ch === "}"
+        ) {
+          pos--;
+        }
+      }
+      onChange(before.slice(0, pos) + v.slice(c));
+      setCursorPos(pos);
+    },
+    [value, cursorPos, onChange, pushUndo],
+  );
 
   // Helper: get value with placeholders cleaned up (DRY for Ctrl+W/U/K)
   const getCleanedValue = useCallback((): { v: string; c: number } => {
@@ -868,7 +1105,7 @@ export function Input({
       clearTimeout(pasteTimeoutRef.current);
       pasteTimeoutRef.current = null;
     }
-    pasteBufferRef.current = '';
+    pasteBufferRef.current = "";
 
     if (direction < 0) {
       // Up arrow - go back in history
@@ -977,12 +1214,24 @@ export function Input({
       const newPos = forwardDownSexp(value, cursorPos);
       if (newPos !== cursorPos) setCursorPos(newPos);
     }, "Input");
-    registerHandler(HandlerIds.NAV_INSERT_NEWLINE, () => insertAt("\n"), "Input");
+    registerHandler(
+      HandlerIds.NAV_INSERT_NEWLINE,
+      () => insertAt("\n"),
+      "Input",
+    );
 
     // Completion handlers
     registerHandler(HandlerIds.COMPLETION_ACCEPT, handleTab, "Input");
-    registerHandler(HandlerIds.COMPLETION_TOGGLE_DOCS, () => completion.toggleDocPanel(), "Input");
-    registerHandler(HandlerIds.COMPLETION_CANCEL, () => completion.close(), "Input");
+    registerHandler(
+      HandlerIds.COMPLETION_TOGGLE_DOCS,
+      () => completion.toggleDocPanel(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.COMPLETION_CANCEL,
+      () => completion.close(),
+      "Input",
+    );
 
     // History handlers
     registerHandler(HandlerIds.HISTORY_SEARCH, () => {
@@ -992,16 +1241,64 @@ export function Input({
       historySearch.actions.startSearch();
     }, "Input");
 
+    // Composer handlers
+    registerHandler(
+      HandlerIds.COMPOSER_CYCLE_MODE,
+      cycleComposerMode,
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.COMPOSER_FORCE_SUBMIT,
+      forceSubmitCurrentDraft,
+      "Input",
+    );
+
     // Paredit handlers
-    registerHandler(HandlerIds.PAREDIT_SLURP_FORWARD, () => applyParedit(slurpForward), "Input");
-    registerHandler(HandlerIds.PAREDIT_SLURP_BACKWARD, () => applyParedit(slurpBackward), "Input");
-    registerHandler(HandlerIds.PAREDIT_BARF_FORWARD, () => applyParedit(barfForward), "Input");
-    registerHandler(HandlerIds.PAREDIT_BARF_BACKWARD, () => applyParedit(barfBackward), "Input");
-    registerHandler(HandlerIds.PAREDIT_WRAP, () => applyParedit(wrapSexp), "Input");
-    registerHandler(HandlerIds.PAREDIT_SPLICE, () => applyParedit(spliceSexp), "Input");
-    registerHandler(HandlerIds.PAREDIT_RAISE, () => applyParedit(raiseSexp), "Input");
-    registerHandler(HandlerIds.PAREDIT_TRANSPOSE, () => applyParedit(transposeSexp), "Input");
-    registerHandler(HandlerIds.PAREDIT_KILL, () => applyParedit(killSexp), "Input");
+    registerHandler(
+      HandlerIds.PAREDIT_SLURP_FORWARD,
+      () => applyParedit(slurpForward),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.PAREDIT_SLURP_BACKWARD,
+      () => applyParedit(slurpBackward),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.PAREDIT_BARF_FORWARD,
+      () => applyParedit(barfForward),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.PAREDIT_BARF_BACKWARD,
+      () => applyParedit(barfBackward),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.PAREDIT_WRAP,
+      () => applyParedit(wrapSexp),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.PAREDIT_SPLICE,
+      () => applyParedit(spliceSexp),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.PAREDIT_RAISE,
+      () => applyParedit(raiseSexp),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.PAREDIT_TRANSPOSE,
+      () => applyParedit(transposeSexp),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.PAREDIT_KILL,
+      () => applyParedit(killSexp),
+      "Input",
+    );
 
     // Cleanup on unmount or when dependencies change
     return () => {
@@ -1027,6 +1324,9 @@ export function Input({
       unregisterHandler(HandlerIds.COMPLETION_CANCEL);
       // History
       unregisterHandler(HandlerIds.HISTORY_SEARCH);
+      // Composer
+      unregisterHandler(HandlerIds.COMPOSER_CYCLE_MODE);
+      unregisterHandler(HandlerIds.COMPOSER_FORCE_SUBMIT);
       // Paredit
       unregisterHandler(HandlerIds.PAREDIT_SLURP_FORWARD);
       unregisterHandler(HandlerIds.PAREDIT_SLURP_BACKWARD);
@@ -1039,10 +1339,28 @@ export function Input({
       unregisterHandler(HandlerIds.PAREDIT_KILL);
     };
   }, [
-    value, cursorPos, suggestion, placeholders, placeholderIndex,
-    onChange, moveWordBack, moveWordForward, deleteWord, handleTab,
-    completion, historySearch.actions, exitPlaceholderMode, getCleanedValue,
-    insertAt, acceptAndApplySuggestion, clearPasteBuffer, undo, redo, pushUndo,
+    value,
+    cursorPos,
+    suggestion,
+    placeholders,
+    placeholderIndex,
+    onChange,
+    moveWordBack,
+    moveWordForward,
+    deleteWord,
+    handleTab,
+    completion,
+    historySearch.actions,
+    exitPlaceholderMode,
+    cycleComposerMode,
+    forceSubmitCurrentDraft,
+    getCleanedValue,
+    insertAt,
+    acceptAndApplySuggestion,
+    clearPasteBuffer,
+    undo,
+    redo,
+    pushUndo,
   ]);
 
   // Main input handler
@@ -1051,12 +1369,21 @@ export function Input({
     if (disabledRef.current) return;
     const nowMs = Date.now();
     const hasPendingEsc = escSequenceTimerRef.current !== null;
-    const recentEscPrefix = nowMs - lastEscPrefixAtRef.current < ESC_PREFIX_ENTER_GRACE_MS;
+    const recentEscPrefix =
+      nowMs - lastEscPrefixAtRef.current < ESC_PREFIX_ENTER_GRACE_MS;
     const isEscPrefixedEnterInput = input === "\x1b\r" || input === "\x1b\n";
-    const isProtocolModifiedEnterInput =
-      /^\x1b\[13;\d+u$/.test(input ?? "") || /^\x1b\[27;\d+;13~$/.test(input ?? "");
-    const isPureEscPrefixEvent =
-      key.escape &&
+    // CSI-u Ctrl+Enter: modifier 5/6/7 (Ctrl, Ctrl+Shift, Ctrl+Alt)
+    const isCtrlEnterProtocol = (() => {
+      if (!input) return false;
+      const csiuMatch = input.match(CTRL_ENTER_CSI_U_REGEX);
+      const legacyMatch = input.match(CTRL_ENTER_LEGACY_REGEX);
+      const mod = parseInt(csiuMatch?.[1] ?? legacyMatch?.[1] ?? "0", 10);
+      return mod === 5 || mod === 6 || mod === 7;
+    })();
+    const isProtocolModifiedEnterInput = !isCtrlEnterProtocol &&
+      (MODIFIED_ENTER_CSI_U_REGEX.test(input ?? "") ||
+        MODIFIED_ENTER_LEGACY_REGEX.test(input ?? ""));
+    const isPureEscPrefixEvent = key.escape &&
       !key.ctrl &&
       !key.meta &&
       !key.return &&
@@ -1070,11 +1397,56 @@ export function Input({
     // Some terminals emit raw \t for Tab without setting key.tab.
     // Others emit Ctrl+I (ASCII 9). Treat all forms as Tab for deterministic toggle behavior.
     const inputCharCode = input?.charCodeAt(0) ?? 0;
-    const isTabKey = key.tab || input === "\t" || inputCharCode === 9 || (key.ctrl && input === "i");
+    const isTabKey = key.tab || input === "\t" || inputCharCode === 9 ||
+      (key.ctrl && input === "i");
 
     // Some terminals emit Option+Enter as one ESC-prefixed payload.
-    if ((isEscPrefixedEnterInput || isProtocolModifiedEnterInput) && !key.ctrl) {
+    if (
+      (isEscPrefixedEnterInput || isProtocolModifiedEnterInput) && !key.ctrl
+    ) {
       insertAt("\n");
+      return;
+    }
+
+    // Ctrl+Enter: force-submit (interrupt current agent and send immediately).
+    // Detection layers (most terminals lack CSI-u, so we need multiple checks):
+    //   1. CSI-u protocol: \x1b[13;5u (kitty, WezTerm, foot, ghostty)
+    //   2. key.return + key.ctrl (some terminals set both flags)
+    //   3. Raw Ctrl+J in chat mode — most terminals send Ctrl+Enter as Ctrl+J (\x0a).
+    //      Ink parses \x0a as name='enter' (not 'return'), so key.return=false and
+    //      input="\n". Regular Enter sends \r which sets key.return=true.
+    //      Detecting input==="\n" && !key.return reliably distinguishes Ctrl+J from Enter.
+    {
+      const isRawCtrlJ = input === "\n" && !key.return;
+      const isCtrlEnterLike = isCtrlEnterProtocol ||
+        (key.return && key.ctrl) ||
+        (highlightMode === "chat" && isRawCtrlJ);
+      if (onForceSubmit && isCtrlEnterLike) {
+        void executeHandler(HandlerIds.COMPOSER_FORCE_SUBMIT);
+        return;
+      }
+    }
+
+    if (
+      highlightMode === "chat" &&
+      queueEditBinding === "shift-left" &&
+      key.shift &&
+      key.leftArrow &&
+      canEditQueuedDraft &&
+      onEditLastQueuedDraft
+    ) {
+      onEditLastQueuedDraft();
+      return;
+    }
+
+    if (
+      highlightMode === "chat" &&
+      isConversationTaskRunning &&
+      !key.shift &&
+      !completion.isVisible &&
+      isTabKey &&
+      queueCurrentDraft()
+    ) {
       return;
     }
 
@@ -1101,39 +1473,39 @@ export function Input({
       }
 
       // Ctrl+R: select next match
-      if (key.ctrl && input === 'r') {
+      if (key.ctrl && input === "r") {
         historySearch.actions.selectNext();
         return;
       }
 
       // Ctrl+S: select previous match
-      if (key.ctrl && input === 's') {
+      if (key.ctrl && input === "s") {
         historySearch.actions.selectPrev();
         return;
       }
 
       // Ctrl+U: clear query (standard readline)
-      if (key.ctrl && input === 'u') {
-        historySearch.actions.setQuery('');
+      if (key.ctrl && input === "u") {
+        historySearch.actions.setQuery("");
         return;
       }
 
       // Ctrl+W: delete word backward (simplified - operates from end)
-      if (key.ctrl && input === 'w') {
+      if (key.ctrl && input === "w") {
         const query = historySearch.state.query;
         if (query.length > 0) {
           // Skip trailing whitespace, then delete word
           let pos = query.length;
-          while (pos > 0 && query[pos - 1] === ' ') pos--;
-          while (pos > 0 && query[pos - 1] !== ' ') pos--;
+          while (pos > 0 && query[pos - 1] === " ") pos--;
+          while (pos > 0 && query[pos - 1] !== " ") pos--;
           historySearch.actions.setQuery(query.slice(0, pos));
         }
         return;
       }
 
       // Ctrl+A: move to start (clear query acts as "start" for search)
-      if (key.ctrl && input === 'a') {
-        historySearch.actions.setQuery('');
+      if (key.ctrl && input === "a") {
+        historySearch.actions.setQuery("");
         return;
       }
 
@@ -1150,7 +1522,9 @@ export function Input({
 
       // Regular character: append to query
       // Note: Check !key.escape to avoid Option+key on macOS (sends ESC+char)
-      if (input && input.length === 1 && !key.ctrl && !key.meta && !key.escape) {
+      if (
+        input && input.length === 1 && !key.ctrl && !key.meta && !key.escape
+      ) {
         historySearch.actions.appendToQuery(input);
         return;
       }
@@ -1161,12 +1535,15 @@ export function Input({
 
     // Unified newline chords via keybinding normalization (Gemini-like reliability):
     // Alt/Opt+Enter, Cmd+Enter, Shift+Enter, Ctrl+J.
+    // In chat mode with force-submit available, Ctrl+J is repurposed (handled above).
     const normalizedCombo = normalizeKeyInput(input, key);
+    const isCtrlJNewline = normalizedCombo === "ctrl+j" &&
+      !(highlightMode === "chat" && onForceSubmit);
     if (
       normalizedCombo === "alt+enter" ||
       normalizedCombo === "cmd+enter" ||
       normalizedCombo === "shift+enter" ||
-      normalizedCombo === "ctrl+j"
+      isCtrlJNewline
     ) {
       insertAt("\n");
       return;
@@ -1189,22 +1566,28 @@ export function Input({
     // Check custom bindings FIRST, before all hardcoded handlers.
     // This makes rebinding work - new keys trigger actions, old keys stop working.
     // ============================================================
-    const customHandlerId = matchCustomKeybinding(input, key);
-    if (customHandlerId) {
-      executeHandler(customHandlerId);
+    const handlerBinding = inspectHandlerKeybinding(input, key, {
+      categories: INPUT_KEYBINDING_CATEGORIES,
+    });
+    if (
+      handlerBinding.kind === "handler" && handlerBinding.source === "custom"
+    ) {
+      executeHandler(handlerBinding.id);
       return;
     }
 
-    // Check if this is a disabled default (was rebound to something else)
-    if (isDefaultDisabled(input, key)) {
-      return; // Ignore - user rebound this key to something else
+    if (
+      handlerBinding.kind === "disabled-default" ||
+      handlerBinding.kind === "shadowed"
+    ) {
+      return;
     }
 
     // Ctrl+R: start history search (when not in search mode)
     // FIX H1: Close dropdown and exit placeholder mode when entering history search
     // FIX H4: Clear paste buffer to prevent data corruption
     // CROSS-PLATFORM: Check both key.ctrl flag AND control code (ASCII 18 = Ctrl+R)
-    if ((key.ctrl && input === 'r') || input === '\x12') {
+    if ((key.ctrl && input === "r") || input === "\x12") {
       completion.close();
       exitPlaceholderMode();
       clearPasteBuffer();
@@ -1220,26 +1603,28 @@ export function Input({
     // ============================================================
     const charCode = input.length === 1 ? input.charCodeAt(0) : -1;
     const isControlChar = charCode >= 0 && charCode <= 31;
-    if (input &&
-        input.length === 1 &&
-        !isControlChar &&  // Ctrl+] sends code 29, Ctrl+\ sends code 28, etc.
-        !key.ctrl &&
-        !key.meta &&
-        !key.escape &&
-        !key.return &&
-        !isTabKey &&
-        !key.backspace &&
-        !key.delete &&
-        !key.upArrow &&
-        !key.downArrow &&
-        !key.leftArrow &&
-        !key.rightArrow &&
-        pasteBufferRef.current.length === 0) {
+    if (
+      input &&
+      input.length === 1 &&
+      !isControlChar && // Ctrl+] sends code 29, Ctrl+\ sends code 28, etc.
+      !key.ctrl &&
+      !key.meta &&
+      !key.escape &&
+      !key.return &&
+      !isTabKey &&
+      !key.backspace &&
+      !key.delete &&
+      !key.upArrow &&
+      !key.downArrow &&
+      !key.leftArrow &&
+      !key.rightArrow &&
+      pasteBufferRef.current.length === 0
+    ) {
       // Placeholder mode: replace placeholder with typed char
       if (placeholders.length > 0 && placeholderIndex >= 0) {
-        if (input === ')') {
+        if (input === ")") {
           const cleanedValue = exitPlaceholderModeAndCleanup();
-          const closingParenPos = cleanedValue.lastIndexOf(')');
+          const closingParenPos = cleanedValue.lastIndexOf(")");
           onChange(cleanedValue);
           setCursorPos(closingParenPos + 1);
         } else if (input in OPEN_TO_CLOSE) {
@@ -1347,6 +1732,15 @@ export function Input({
         return;
       }
       if (key.upArrow) {
+        if (
+          highlightMode === "chat" &&
+          queueEditBinding === "alt-up" &&
+          canEditQueuedDraft &&
+          onEditLastQueuedDraft
+        ) {
+          onEditLastQueuedDraft();
+          return;
+        }
         const newPos = backwardSexp(value, cursorPos);
         if (newPos !== cursorPos) setCursorPos(newPos);
         return;
@@ -1367,8 +1761,12 @@ export function Input({
       // Handle ESC/Option + letter
       switch (input) {
         // Word navigation (Option+B/F) - standard Emacs
-        case 'b': moveWordBack(); return;
-        case 'f': moveWordForward(); return;
+        case "b":
+          moveWordBack();
+          return;
+        case "f":
+          moveWordForward();
+          return;
 
         // ═══════════════════════════════════════════════════════════════
         // PAREDIT: Option+lowercase (reliable on macOS/Linux/Windows)
@@ -1385,16 +1783,36 @@ export function Input({
         //   Option+t = Transpose       (T for Transpose)
         //   Option+k = Kill            (K for Kill)
         // ═══════════════════════════════════════════════════════════════
-        case 's': applyParedit(slurpForward); return;   // Opt+S: (a|) b → (a| b)
-        case 'a': applyParedit(slurpBackward); return;  // Opt+A: a (|b) → (a |b)
-        case 'x': applyParedit(barfForward); return;    // Opt+X: (a| b) → (a|) b
-        case 'z': undo(); return;                        // Alt+Z: Undo
-        case 'Z': redo(); return;                        // Alt+Shift+Z: Redo
-        case 'w': applyParedit(wrapSexp); return;       // Opt+W: |foo → (|foo)
-        case 'u': applyParedit(spliceSexp); return;     // Opt+U: ((|a)) → (|a)
-        case 'r': applyParedit(raiseSexp); return;      // Opt+R: (x (|y)) → (|y)
-        case 't': applyParedit(transposeSexp); return;  // Opt+T: (a |b) → (b |a)
-        case 'k': applyParedit(killSexp); return;       // Opt+K: (a |b c) → (a |)
+        case "s":
+          applyParedit(slurpForward);
+          return; // Opt+S: (a|) b → (a| b)
+        case "a":
+          applyParedit(slurpBackward);
+          return; // Opt+A: a (|b) → (a |b)
+        case "x":
+          applyParedit(barfForward);
+          return; // Opt+X: (a| b) → (a|) b
+        case "z":
+          undo();
+          return; // Alt+Z: Undo
+        case "Z":
+          redo();
+          return; // Alt+Shift+Z: Redo
+        case "w":
+          applyParedit(wrapSexp);
+          return; // Opt+W: |foo → (|foo)
+        case "u":
+          applyParedit(spliceSexp);
+          return; // Opt+U: ((|a)) → (|a)
+        case "r":
+          applyParedit(raiseSexp);
+          return; // Opt+R: (x (|y)) → (|y)
+        case "t":
+          applyParedit(transposeSexp);
+          return; // Opt+T: (a |b) → (b |a)
+        case "k":
+          applyParedit(killSexp);
+          return; // Opt+K: (a |b c) → (a |)
       }
 
       // Treat pure ESC as a potential prefix first; only run ESC action if no follow-up key arrives.
@@ -1424,7 +1842,6 @@ export function Input({
       return;
     }
 
-
     // Placeholder mode handling (highest priority)
     if (isInPlaceholderMode()) {
       // Tab navigates placeholders
@@ -1441,7 +1858,10 @@ export function Input({
       if (key.return) {
         if (value.trim() && isBalanced(value)) {
           exitPlaceholderMode();
-          onSubmit(value.trim(), attachments.length > 0 ? attachments : undefined);
+          onSubmit(
+            value.trim(),
+            attachments.length > 0 ? attachments : undefined,
+          );
           resetAfterSubmit();
         }
         return;
@@ -1460,14 +1880,17 @@ export function Input({
         const isDeletingFunctionName = firstPh && cursorPos <= firstPh.start;
 
         // removeAll=true when deleting function name, false otherwise (only remove untouched)
-        const cleanedValue = exitPlaceholderModeAndCleanup(isDeletingFunctionName);
+        const cleanedValue = exitPlaceholderModeAndCleanup(
+          isDeletingFunctionName,
+        );
 
         // Adjust cursor position for cleaned value
         const newCursor = Math.min(cursorPos, cleanedValue.length);
 
         // Perform backspace on cleaned value
         if (newCursor > 0) {
-          const afterBackspace = cleanedValue.slice(0, newCursor - 1) + cleanedValue.slice(newCursor);
+          const afterBackspace = cleanedValue.slice(0, newCursor - 1) +
+            cleanedValue.slice(newCursor);
           onChange(afterBackspace);
           setCursorPos(newCursor - 1);
         } else {
@@ -1481,11 +1904,11 @@ export function Input({
       if (input && !key.ctrl && !key.meta) {
         // Special case: ')' exits placeholder mode and removes untouched placeholders
         // The closing ')' was already inserted when entering placeholder mode
-        if (input === ')') {
+        if (input === ")") {
           const cleanedValue = exitPlaceholderModeAndCleanup();
           // Find the position of the existing ')' - it's right after the last content
           // After cleanup, untouched placeholders are removed but ')' remains
-          const closingParenPos = cleanedValue.lastIndexOf(')');
+          const closingParenPos = cleanedValue.lastIndexOf(")");
           onChange(cleanedValue);
           setCursorPos(closingParenPos + 1);
           return;
@@ -1494,7 +1917,8 @@ export function Input({
         // FIX: Check if cursor is within the current placeholder bounds
         // If not, cleanup untouched placeholders (they're hints, not real text) and insert normally
         const ph = placeholders[placeholderIndex];
-        const cursorInPlaceholder = ph && cursorPos >= ph.start && cursorPos <= ph.start + ph.length;
+        const cursorInPlaceholder = ph && cursorPos >= ph.start &&
+          cursorPos <= ph.start + ph.length;
         if (!cursorInPlaceholder) {
           const cleanedValue = exitPlaceholderModeAndCleanup();
           // Adjust cursor for cleaned value and insert character
@@ -1502,11 +1926,13 @@ export function Input({
           // Handle auto-close pairs even when exiting placeholder mode
           if (input in OPEN_TO_CLOSE) {
             const closeChar = OPEN_TO_CLOSE[input];
-            const newValue = cleanedValue.slice(0, newCursor) + input + closeChar + cleanedValue.slice(newCursor);
+            const newValue = cleanedValue.slice(0, newCursor) + input +
+              closeChar + cleanedValue.slice(newCursor);
             onChange(newValue);
             setCursorPos(newCursor + 1); // Cursor between the pair
           } else {
-            const newValue = cleanedValue.slice(0, newCursor) + input + cleanedValue.slice(newCursor);
+            const newValue = cleanedValue.slice(0, newCursor) + input +
+              cleanedValue.slice(newCursor);
             onChange(newValue);
             setCursorPos(newCursor + input.length);
           }
@@ -1529,7 +1955,7 @@ export function Input({
 
       // Ctrl+D: Toggle documentation panel
       // CROSS-PLATFORM: Check both key.ctrl flag AND control code (ASCII 4 = Ctrl+D)
-      if ((key.ctrl && input === 'd') || input === '\x04') {
+      if ((key.ctrl && input === "d") || input === "\x04") {
         completion.toggleDocPanel();
         return;
       }
@@ -1594,8 +2020,17 @@ export function Input({
       }
     }
 
-    if (isTabKey && key.shift && onCycleMode) {
-      onCycleMode();
+    const composerBinding = inspectHandlerKeybinding(input, key, {
+      categories: COMPOSER_KEYBINDING_CATEGORIES,
+    });
+    if (composerBinding.kind === "handler") {
+      void executeHandler(composerBinding.id);
+      return;
+    }
+    if (
+      composerBinding.kind === "disabled-default" ||
+      composerBinding.kind === "shadowed"
+    ) {
       return;
     }
 
@@ -1611,8 +2046,8 @@ export function Input({
       const finalValue = resolveSuggestionValue(value, suggestion, "submit");
 
       // Backslash-Enter: replace trailing \ with newline for explicit multi-line
-      const charBeforeCursor = cursorPos > 0 ? finalValue[cursorPos - 1] : '';
-      if (charBeforeCursor === '\\') {
+      const charBeforeCursor = cursorPos > 0 ? finalValue[cursorPos - 1] : "";
+      if (charBeforeCursor === "\\") {
         pushUndo();
         const before = finalValue.slice(0, cursorPos - 1);
         const after = finalValue.slice(cursorPos);
@@ -1704,7 +2139,7 @@ export function Input({
       // Normalize: convert control code to lowercase letter
       // Control codes: A=1, B=2, ... Z=26
       const normalizedInput = isCtrlCode
-        ? String.fromCharCode(ctrlCode + 96)  // Convert control code to lowercase letter
+        ? String.fromCharCode(ctrlCode + 96) // Convert control code to lowercase letter
         : input?.toLowerCase() ?? "";
 
       switch (normalizedInput) {
@@ -1742,7 +2177,6 @@ export function Input({
         //
         // Left-hand keys (QWERTY):
         //   Ctrl+G = Wrap        |foo     →  (|foo)
-        //   Ctrl+T = Transpose   (a |b)   →  (b |a)
         //   Ctrl+F = Slurp →     (a|) b   →  (a| b)
         //   Ctrl+V = Slurp ←     a (|b)   →  (a |b)
         //   Ctrl+X = Barf →      (a| b)   →  (a|) b
@@ -1753,24 +2187,39 @@ export function Input({
         //   Ctrl+L = Raise       (x (|y)) →  (|y)
         //   Ctrl+O = Kill        (a |b c) →  (a |)
         // ═══════════════════════════════════════════════════════════════
-        case "g": applyParedit(wrapSexp); return;       // Ctrl+G = Wrap
-        case "t": applyParedit(transposeSexp); return;  // Ctrl+T = Transpose
-        case "f": applyParedit(slurpForward); return;   // Ctrl+F = Slurp forward
-        case "v": applyParedit(slurpBackward); return;  // Ctrl+V = Slurp backward
-        case "x": applyParedit(barfForward); return;    // Ctrl+X = Barf forward
-        case "q": applyParedit(barfBackward); return;   // Ctrl+Q = Barf backward
-        case "y": applyParedit(spliceSexp); return;     // Ctrl+Y = Splice
-        case "l": applyParedit(raiseSexp); return;      // Ctrl+L = Raise
-        case "o": applyParedit(killSexp); return;       // Ctrl+O = Kill
+        case "g":
+          applyParedit(wrapSexp);
+          return; // Ctrl+G = Wrap
+        case "f":
+          applyParedit(slurpForward);
+          return; // Ctrl+F = Slurp forward
+        case "v":
+          applyParedit(slurpBackward);
+          return; // Ctrl+V = Slurp backward
+        case "x":
+          applyParedit(barfForward);
+          return; // Ctrl+X = Barf forward
+        case "q":
+          applyParedit(barfBackward);
+          return; // Ctrl+Q = Barf backward
+        case "y":
+          applyParedit(spliceSexp);
+          return; // Ctrl+Y = Splice
+        case "l":
+          applyParedit(raiseSexp);
+          return; // Ctrl+L = Raise
+        case "o":
+          applyParedit(killSexp);
+          return; // Ctrl+O = Kill
 
         case "j": // Ctrl+J = insert newline (universal terminal convention)
           insertAt("\n");
           return;
 
-        // Note: Ctrl+P = Command Palette (handled in App.tsx)
-        // Note: Ctrl+D = EOF (handled in App.tsx)
-        // Note: Ctrl+B = Tasks Panel (handled in App.tsx)
-        // Note: Ctrl+R = History Search (handled above)
+          // Note: Ctrl+P = Command Palette (handled in App.tsx)
+          // Note: Ctrl+D = EOF (handled in App.tsx)
+          // Note: Ctrl+B = Tasks Panel (handled in App.tsx)
+          // Note: Ctrl+R = History Search (handled above)
       }
       return;
     }
@@ -1784,13 +2233,17 @@ export function Input({
         pushUndo();
         // Check for empty quote pair first: "|" or '|'
         if (isInsideEmptyQuotePair(value, cursorPos)) {
-          const newValue = value.slice(0, cursorPos - 1) + value.slice(cursorPos + 1);
+          const newValue = value.slice(0, cursorPos - 1) +
+            value.slice(cursorPos + 1);
           onChange(newValue);
           setCursorPos(cursorPos - 1);
           return;
         }
         // Regular pair deletion for ()[]{}
-        const { newValue, newCursor } = deleteBackWithPairSupport(value, cursorPos);
+        const { newValue, newCursor } = deleteBackWithPairSupport(
+          value,
+          cursorPos,
+        );
         onChange(newValue);
         setCursorPos(newCursor);
       }
@@ -1813,8 +2266,12 @@ export function Input({
         const normalizedText = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
         // Check for media file path
-        const cleanText = normalizedText.replace(/\\ /g, " ").replace(/\\'/g, "'").replace(/\\"/g, '"').trim();
-        const isAbsolutePath = cleanText.startsWith("/") || cleanText.startsWith("~");
+        const cleanText = normalizedText.replace(/\\ /g, " ").replace(
+          /\\'/g,
+          "'",
+        ).replace(/\\"/g, '"').trim();
+        const isAbsolutePath = cleanText.startsWith("/") ||
+          cleanText.startsWith("~");
 
         if (isAbsolutePath && isSupportedMedia(cleanText)) {
           const id = reserveNextId();
@@ -1926,7 +2383,10 @@ export function Input({
 
   // Helper: get bracket positions adjusted for a text slice
   // Returns positions relative to the slice, filtering out positions outside the range
-  const getBracketPositionsForSlice = (sliceStart: number, sliceEnd: number): number[] | null => {
+  const getBracketPositionsForSlice = (
+    sliceStart: number,
+    sliceEnd: number,
+  ): number[] | null => {
     if (!bracketPair) return null;
     const positions: number[] = [];
     for (const pos of bracketPair) {
@@ -1939,11 +2399,20 @@ export function Input({
 
   // Helper: render text with placeholder highlighting
   // OPTIMIZED: O(n) single pass instead of O(n²) nested loops
-  const renderWithPlaceholders = (text: string, startOffset: number): string => {
-    const renderHighlighted = (chunk: string, bracketPositions: number[] | null): string =>
+  const renderWithPlaceholders = (
+    text: string,
+    startOffset: number,
+  ): string => {
+    const renderHighlighted = (
+      chunk: string,
+      bracketPositions: number[] | null,
+    ): string =>
       highlightMode === "chat" ? chunk : highlight(chunk, bracketPositions);
 
-    const sliceBrackets = getBracketPositionsForSlice(startOffset, startOffset + text.length);
+    const sliceBrackets = getBracketPositionsForSlice(
+      startOffset,
+      startOffset + text.length,
+    );
 
     if (!isInPlaceholderMode() || placeholders.length === 0) {
       return renderHighlighted(text, sliceBrackets);
@@ -1953,7 +2422,9 @@ export function Input({
     const endOffset = startOffset + text.length;
     const relevantPhs = placeholders
       .map((ph: Placeholder, idx: number) => ({ ph, idx }))
-      .filter(({ ph }: { ph: Placeholder }) => ph.start < endOffset && ph.start + ph.length > startOffset);
+      .filter(({ ph }: { ph: Placeholder }) =>
+        ph.start < endOffset && ph.start + ph.length > startOffset
+      );
 
     if (relevantPhs.length === 0) {
       return renderHighlighted(text, sliceBrackets);
@@ -1968,8 +2439,10 @@ export function Input({
       const pos = startOffset + textPos;
 
       // Skip placeholders that end before current position
-      while (phIdx < relevantPhs.length &&
-             relevantPhs[phIdx].ph.start + relevantPhs[phIdx].ph.length <= pos) {
+      while (
+        phIdx < relevantPhs.length &&
+        relevantPhs[phIdx].ph.start + relevantPhs[phIdx].ph.length <= pos
+      ) {
         phIdx++;
       }
 
@@ -1983,15 +2456,28 @@ export function Input({
           if (phStartInText > textPos) {
             const chunkStart = startOffset + textPos;
             const chunkEnd = startOffset + phStartInText;
-            const chunkBrackets = getBracketPositionsForSlice(chunkStart, chunkEnd);
+            const chunkBrackets = getBracketPositionsForSlice(
+              chunkStart,
+              chunkEnd,
+            );
             // Adjust positions to be relative to the slice being highlighted
-            const adjustedBrackets = chunkBrackets?.map(p => p - textPos) ?? null;
-            result += renderHighlighted(text.slice(textPos, phStartInText), adjustedBrackets);
+            const adjustedBrackets = chunkBrackets?.map((p) => p - textPos) ??
+              null;
+            result += renderHighlighted(
+              text.slice(textPos, phStartInText),
+              adjustedBrackets,
+            );
           }
 
           // Render placeholder text with styling
-          const phEndInText = Math.min(text.length, ph.start + ph.length - startOffset);
-          const phText = text.slice(Math.max(textPos, phStartInText), phEndInText);
+          const phEndInText = Math.min(
+            text.length,
+            ph.start + ph.length - startOffset,
+          );
+          const phText = text.slice(
+            Math.max(textPos, phStartInText),
+            phEndInText,
+          );
 
           if (ph.touched) {
             result += renderHighlighted(phText, null);
@@ -2010,15 +2496,18 @@ export function Input({
         const chunkStart = startOffset + textPos;
         const chunkEnd = startOffset + nextPhStart;
         const chunkBrackets = getBracketPositionsForSlice(chunkStart, chunkEnd);
-        const adjustedBrackets = chunkBrackets?.map(p => p - textPos) ?? null;
-        result += renderHighlighted(text.slice(textPos, nextPhStart), adjustedBrackets);
+        const adjustedBrackets = chunkBrackets?.map((p) => p - textPos) ?? null;
+        result += renderHighlighted(
+          text.slice(textPos, nextPhStart),
+          adjustedBrackets,
+        );
         textPos = nextPhStart;
       } else {
         // No more placeholders - render rest of text
         const chunkStart = startOffset + textPos;
         const chunkEnd = startOffset + text.length;
         const chunkBrackets = getBracketPositionsForSlice(chunkStart, chunkEnd);
-        const adjustedBrackets = chunkBrackets?.map(p => p - textPos) ?? null;
+        const adjustedBrackets = chunkBrackets?.map((p) => p - textPos) ?? null;
         result += renderHighlighted(text.slice(textPos), adjustedBrackets);
         break;
       }
@@ -2045,18 +2534,19 @@ export function Input({
   }
 
   // Render a single line with cursor if applicable
-  const renderLine = (line: string, lineIndex: number, lineStartOffset: number): React.ReactNode => {
+  const renderLine = (
+    line: string,
+    lineIndex: number,
+    lineStartOffset: number,
+  ): React.ReactNode => {
     const isCurrentLine = lineIndex === cursorLine;
-    // Continuation lines align with the primary prompt to behave like a text area.
-    const prompt = lineIndex === 0
-      ? promptLabel
-      : " ".repeat(promptLabel.length);
+    const promptPrefix = getInputPromptPrefix(promptLabel, lineIndex);
 
     if (!isCurrentLine) {
       // No cursor on this line
       return (
         <Box key={lineIndex}>
-          <Text color={color("primary")} bold>{prompt} </Text>
+          <Text color={color("primary")} bold>{promptPrefix}</Text>
           <Text>{renderWithPlaceholders(line, lineStartOffset)}</Text>
         </Box>
       );
@@ -2069,11 +2559,15 @@ export function Input({
 
     return (
       <Box key={lineIndex}>
-        <Text color={color("primary")} bold>{prompt} </Text>
+        <Text color={color("primary")} bold>{promptPrefix}</Text>
         <Text>{renderWithPlaceholders(beforeCursor, lineStartOffset)}</Text>
         <Text backgroundColor="white" color="black">{charAtCursor}</Text>
-        <Text>{renderWithPlaceholders(afterCursor, lineStartOffset + cursorCol + 1)}</Text>
-        {lineIndex === lines.length - 1 && ghostText && <Text dimColor>{ghostText}</Text>}
+        <Text>
+          {renderWithPlaceholders(afterCursor, lineStartOffset + cursorCol + 1)}
+        </Text>
+        {lineIndex === lines.length - 1 && ghostText && (
+          <Text dimColor>{ghostText}</Text>
+        )}
       </Box>
     );
   };
@@ -2091,12 +2585,33 @@ export function Input({
   // Priority: history search > placeholder > completion
   // This prevents UI corruption from overlapping overlays
   // ============================================================
-  const activeOverlay = useMemo((): 'history' | 'placeholder' | 'completion' | 'none' => {
-    if (historySearch.state.isSearching) return 'history';
-    if (isInPlaceholderMode()) return 'placeholder';
-    if (completion.renderProps) return 'completion';
-    return 'none';
-  }, [historySearch.state.isSearching, placeholders, placeholderIndex, completion.renderProps]);
+  const activeOverlay = useMemo(
+    (): "history" | "placeholder" | "completion" | "none" => {
+      if (historySearch.state.isSearching) return "history";
+      if (isInPlaceholderMode()) return "placeholder";
+      if (completion.renderProps) return "completion";
+      return "none";
+    },
+    [
+      historySearch.state.isSearching,
+      placeholders,
+      placeholderIndex,
+      completion.renderProps,
+    ],
+  );
+
+  const completionReservedRows = activeOverlay === "completion" &&
+      completion.renderProps
+    ? MAX_VISIBLE_ITEMS + 3 + (completion.renderProps.showDocPanel ? 14 : 0)
+    : 0;
+  const layoutRows = lineElements.length + (attachmentError ? 1 : 0) +
+    (activeOverlay === "placeholder" ? 1 : 0) +
+    (activeOverlay === "history" ? 2 : 0) +
+    completionReservedRows;
+
+  useEffect(() => {
+    onLayoutRowsChange?.(layoutRows);
+  }, [layoutRows, onLayoutRowsChange]);
 
   return (
     <Box flexDirection="column">
@@ -2112,7 +2627,7 @@ export function Input({
 
       {/* Placeholder mode hint - shows current parameter context */}
       {/* FIX M4: Use getCurrentPlaceholder for safe bounds-checked access */}
-      {activeOverlay === 'placeholder' && (() => {
+      {activeOverlay === "placeholder" && (() => {
         const currentPh = getCurrentPlaceholder();
         return (
           <Box marginLeft={5}>
@@ -2121,19 +2636,20 @@ export function Input({
                 <Text color={color("accent")}>{currentPh.text}</Text>
               )}
               {currentPh && " "}
-              ({placeholderIndex + 1}/{placeholders.length}) • Tab: next • Shift+Tab: prev • Esc: exit
+              ({placeholderIndex + 1}/{placeholders.length}) • Tab: next •
+              Shift+Tab: prev • Esc: exit
             </Text>
           </Box>
         );
       })()}
 
       {/* Ctrl+R history search prompt */}
-      {activeOverlay === 'history' && (
+      {activeOverlay === "history" && (
         <HistorySearchPrompt state={historySearch.state} />
       )}
 
       {/* Unified completion dropdown (@mention, symbols, commands) */}
-      {activeOverlay === 'completion' && completion.renderProps && (
+      {activeOverlay === "completion" && completion.renderProps && (
         <Dropdown
           items={completion.renderProps.items}
           selectedIndex={completion.renderProps.selectedIndex}
@@ -2142,7 +2658,6 @@ export function Input({
           showDocPanel={completion.renderProps.showDocPanel}
         />
       )}
-
     </Box>
   );
 }

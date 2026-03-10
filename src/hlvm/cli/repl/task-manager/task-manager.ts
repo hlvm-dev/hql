@@ -28,7 +28,7 @@ import { cancelThread } from "../../../agent/delegate-threads.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { log } from "../../../api/log.ts";
 import { ValidationError, RuntimeError } from "../../../../common/error.ts";
-import { ensureError } from "../../../../common/utils.ts";
+import { ensureError, truncate } from "../../../../common/utils.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { ensureRuntimeModelAvailable } from "../../../runtime/model-availability.ts";
 
@@ -516,7 +516,7 @@ export class TaskManager {
     }
 
     const id = crypto.randomUUID();
-    const preview = code.length > 50 ? code.slice(0, 47) + "..." : code;
+    const preview = truncate(code, 50);
 
     // Create task (note: _controller is not frozen since it's a reference)
     const task: EvalTask = {
@@ -675,7 +675,7 @@ export class TaskManager {
     const delegateTask: DelegateTask = Object.freeze({
       id,
       type: "delegate" as const,
-      label: `${nickname} [${agent}]: ${task.length > 40 ? task.slice(0, 37) + "..." : task}`,
+      label: `${nickname} [${agent}]: ${truncate(task, 40)}`,
       status: initialStatus,
       createdAt: Date.now(),
       startedAt,

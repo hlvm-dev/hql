@@ -13,7 +13,12 @@ import type {
   ConversationItem,
   DelegateItem,
   InfoItem,
+  StructuredTeamInfoItem,
   StreamingState,
+  TeamMessageInfoItem,
+  TeamPlanReviewInfoItem,
+  TeamShutdownInfoItem,
+  TeamTaskInfoItem,
   ThinkingItem,
   ToolCallDisplay,
   ToolGroupItem,
@@ -78,6 +83,28 @@ function findPendingAssistantIndex(items: ConversationItem[]): number {
   );
 }
 
+function findCurrentTurnStartIndex(items: ConversationItem[]): number {
+  return items.findLastIndex((item) => item.type === "user");
+}
+
+function findCurrentTurnAssistantIndices(items: ConversationItem[]): number[] {
+  const turnStartIdx = findCurrentTurnStartIndex(items);
+  const indices: number[] = [];
+  for (let i = Math.max(0, turnStartIdx + 1); i < items.length; i++) {
+    if (items[i]?.type === "assistant") {
+      indices.push(i);
+    }
+  }
+  return indices;
+}
+
+function removeCurrentTurnTurnStats(items: ConversationItem[]): ConversationItem[] {
+  const turnStartIdx = findCurrentTurnStartIndex(items);
+  return items.filter((item, index) =>
+    !(index > turnStartIdx && item.type === "turn_stats")
+  );
+}
+
 function insertBeforePendingAssistant(
   items: ConversationItem[],
   nextItem: ConversationItem,
@@ -121,6 +148,69 @@ function appendInfoItem(
     ...nextState,
     items: insertBeforePendingAssistant(nextState.items, item),
   };
+}
+
+type StructuredTeamInfoInput =
+  | Omit<TeamTaskInfoItem, "id" | "type" | "text" | "ts">
+  | Omit<TeamMessageInfoItem, "id" | "type" | "text" | "ts">
+  | Omit<TeamPlanReviewInfoItem, "id" | "type" | "text" | "ts">
+  | Omit<TeamShutdownInfoItem, "id" | "type" | "text" | "ts">;
+
+function appendStructuredTeamInfoItem(
+  state: TranscriptState,
+  item: StructuredTeamInfoInput,
+  text: string,
+): TranscriptState {
+  const [nextState, id] = nextItemId(state);
+  const nextItem: StructuredTeamInfoItem = {
+    type: "info",
+    ...item,
+    id,
+    text,
+    ts: Date.now(),
+  };
+  return {
+    ...nextState,
+    items: insertBeforePendingAssistant(nextState.items, nextItem),
+  };
+}
+
+function describeTeamTaskUpdate(event: Extract<AgentUIEvent, { type: "team_task_updated" }>): string {
+  return event.assigneeMemberId
+    ? `Team task ${event.status}: ${event.goal} (${event.assigneeMemberId})`
+    : `Team task ${event.status}: ${event.goal}`;
+}
+
+function describeTeamMessage(event: Extract<AgentUIEvent, { type: "team_message" }>): string {
+  return event.toMemberId
+    ? `Team ${event.kind}: ${event.fromMemberId} -> ${event.toMemberId}: ${event.contentPreview}`
+    : `Team ${event.kind}: ${event.fromMemberId}: ${event.contentPreview}`;
+}
+
+function describeTeamPlanReview(
+  event: Extract<
+    AgentUIEvent,
+    { type: "team_plan_review_required" | "team_plan_review_resolved" }
+  >,
+): string {
+  if (event.type === "team_plan_review_required") {
+    return `Team plan review requested for task ${event.taskId}`;
+  }
+  return `Team plan review ${event.approved ? "approved" : "rejected"} for task ${event.taskId}`;
+}
+
+function describeTeamShutdown(
+  event: Extract<
+    AgentUIEvent,
+    { type: "team_shutdown_requested" | "team_shutdown_resolved" }
+  >,
+): string {
+  if (event.type === "team_shutdown_requested") {
+    return event.reason
+      ? `Shutdown requested for ${event.memberId}: ${event.reason}`
+      : `Shutdown requested for ${event.memberId}`;
+  }
+  return `Shutdown ${event.status} for ${event.memberId}`;
 }
 
 function upsertThinkingItem(
@@ -271,7 +361,9 @@ function upsertAssistantTextItem(
   isPending: boolean,
   citations?: AssistantCitation[],
 ): TranscriptState {
-  const cleanedItems = removeTransientInfoItems(state.items);
+  const cleanedItems = removeCurrentTurnTurnStats(
+    removeTransientInfoItems(state.items),
+  );
   let pendingIdx = -1;
   for (let i = cleanedItems.length - 1; i >= 0; i--) {
     const item = cleanedItems[i];
@@ -286,6 +378,37 @@ function upsertAssistantTextItem(
     const nextItems = [...cleanedItems];
     nextItems[pendingIdx] = { ...target, text, isPending, citations };
     return { ...state, items: nextItems };
+  }
+
+  const currentTurnAssistantIndices = findCurrentTurnAssistantIndices(
+    cleanedItems,
+  );
+  if (currentTurnAssistantIndices.length > 0) {
+    const lastAssistant = cleanedItems[
+      currentTurnAssistantIndices[currentTurnAssistantIndices.length - 1]
+    ];
+    if (lastAssistant?.type === "assistant") {
+      const nextItems = cleanedItems.filter((item, index) =>
+        !currentTurnAssistantIndices.includes(index)
+      );
+      const updatedAssistant: AssistantItem = {
+        ...lastAssistant,
+        text,
+        citations,
+        isPending,
+      };
+      const trailingTurnStatsIdx = !isPending &&
+          nextItems.length > 0 &&
+          nextItems[nextItems.length - 1]?.type === "turn_stats"
+        ? nextItems.length - 1
+        : -1;
+      if (trailingTurnStatsIdx >= 0) {
+        nextItems.splice(trailingTurnStatsIdx, 0, updatedAssistant);
+      } else {
+        nextItems.push(updatedAssistant);
+      }
+      return { ...state, items: nextItems };
+    }
   }
 
   const [nextState, id] = nextItemId({
@@ -488,58 +611,98 @@ export function reduceTranscriptState(
             todoState: cloneTodoState(event.todoState),
           };
         case "team_task_updated":
-          return appendInfoItem(
+          return appendStructuredTeamInfoItem(
             {
               ...state,
               items: removeTransientInfoItems(state.items),
             },
-            event.assigneeMemberId
-              ? `Team task ${event.status}: ${event.goal} (${event.assigneeMemberId})`
-              : `Team task ${event.status}: ${event.goal}`,
+            {
+              teamEventType: "team_task_updated",
+              taskId: event.taskId,
+              goal: event.goal,
+              status: event.status,
+              assigneeMemberId: event.assigneeMemberId,
+              artifacts: event.artifacts,
+            },
+            describeTeamTaskUpdate(event),
           );
         case "team_message":
-          return appendInfoItem(
+          return appendStructuredTeamInfoItem(
             {
               ...state,
               items: removeTransientInfoItems(state.items),
             },
-            event.toMemberId
-              ? `Team ${event.kind}: ${event.fromMemberId} -> ${event.toMemberId}: ${event.contentPreview}`
-              : `Team ${event.kind}: ${event.fromMemberId}: ${event.contentPreview}`,
+            {
+              teamEventType: "team_message",
+              kind: event.kind,
+              fromMemberId: event.fromMemberId,
+              toMemberId: event.toMemberId,
+              relatedTaskId: event.relatedTaskId,
+              contentPreview: event.contentPreview,
+            },
+            describeTeamMessage(event),
           );
         case "team_plan_review_required":
-          return appendInfoItem(
+          return appendStructuredTeamInfoItem(
             {
               ...state,
               items: removeTransientInfoItems(state.items),
             },
-            `Team plan review requested for task ${event.taskId}`,
+            {
+              teamEventType: "team_plan_review",
+              approvalId: event.approvalId,
+              taskId: event.taskId,
+              submittedByMemberId: event.submittedByMemberId,
+              status: "pending",
+            },
+            describeTeamPlanReview(event),
           );
         case "team_plan_review_resolved":
-          return appendInfoItem(
+          return appendStructuredTeamInfoItem(
             {
               ...state,
               items: removeTransientInfoItems(state.items),
             },
-            `Team plan review ${event.approved ? "approved" : "rejected"} for task ${event.taskId}`,
+            {
+              teamEventType: "team_plan_review",
+              approvalId: event.approvalId,
+              taskId: event.taskId,
+              submittedByMemberId: event.submittedByMemberId,
+              status: event.approved ? "approved" : "rejected",
+              reviewedByMemberId: event.reviewedByMemberId,
+            },
+            describeTeamPlanReview(event),
           );
         case "team_shutdown_requested":
-          return appendInfoItem(
+          return appendStructuredTeamInfoItem(
             {
               ...state,
               items: removeTransientInfoItems(state.items),
             },
-            event.reason
-              ? `Shutdown requested for ${event.memberId}: ${event.reason}`
-              : `Shutdown requested for ${event.memberId}`,
+            {
+              teamEventType: "team_shutdown",
+              requestId: event.requestId,
+              memberId: event.memberId,
+              requestedByMemberId: event.requestedByMemberId,
+              status: "requested",
+              reason: event.reason,
+            },
+            describeTeamShutdown(event),
           );
         case "team_shutdown_resolved":
-          return appendInfoItem(
+          return appendStructuredTeamInfoItem(
             {
               ...state,
               items: removeTransientInfoItems(state.items),
             },
-            `Shutdown ${event.status} for ${event.memberId}`,
+            {
+              teamEventType: "team_shutdown",
+              requestId: event.requestId,
+              memberId: event.memberId,
+              requestedByMemberId: event.requestedByMemberId,
+              status: event.status,
+            },
+            describeTeamShutdown(event),
           );
         case "batch_progress_updated":
           return appendInfoItem(
@@ -589,7 +752,9 @@ export function reduceTranscriptState(
             latestCheckpoint: { ...event.checkpoint },
           };
         case "turn_stats": {
-          const cleaned = cleanupTransientItems(state.items);
+          const cleaned = removeCurrentTurnTurnStats(
+            cleanupTransientItems(state.items),
+          );
           const [nextState, id] = nextItemId({
             ...state,
             streamingState: ConversationStreamingState.Idle,

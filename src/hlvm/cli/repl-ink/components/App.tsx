@@ -10,10 +10,10 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
-import { Banner } from "./Banner.tsx";
+import { Banner, getBannerRowCount } from "./Banner.tsx";
 import { SessionPicker } from "./SessionPicker.tsx";
 import { ConfigOverlay, type ConfigOverlayState } from "./ConfigOverlay.tsx";
 import {
@@ -22,23 +22,32 @@ import {
   type PaletteState,
 } from "./CommandPaletteOverlay.tsx";
 import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
+import { TeamDashboardOverlay } from "./TeamDashboardOverlay.tsx";
 import { ShortcutsOverlay } from "./ShortcutsOverlay.tsx";
 import { ModelBrowser } from "./ModelBrowser.tsx";
 import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
+import { QueuePreview } from "./QueuePreview.tsx";
 import { ConversationPanel } from "./ConversationPanel.tsx";
 import type { KeybindingAction } from "../keybindings/index.ts";
 import {
   executeHandler,
+  inspectHandlerKeybinding,
   refreshKeybindingLookup,
 } from "../keybindings/index.ts";
+import {
+  HandlerIds,
+  registerHandler,
+  unregisterHandler,
+} from "../keybindings/handler-registry.ts";
 import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
+import { useTeamState } from "../hooks/useTeamState.ts";
 import { useAlternateBuffer } from "../hooks/useAlternateBuffer.ts";
 import type { AssistantCitation, EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
-import { clearTerminal } from "../../ansi.ts";
+import { clearTerminal, resetTerminalViewport } from "../../ansi.ts";
 import {
   getUnclosedDepth,
   tokenize,
@@ -47,7 +56,10 @@ import {
 import { useTheme } from "../../theme/index.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { resetContext } from "../../repl/context.ts";
-import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
+import {
+  DEFAULT_TERMINAL_HEIGHT,
+  DEFAULT_TERMINAL_WIDTH,
+} from "../ui-constants.ts";
 import { isCommand, runCommand } from "../../repl/commands.ts";
 import type {
   SessionInitOptions,
@@ -57,7 +69,8 @@ import type {
   InteractionRequestEvent,
   InteractionResponse,
 } from "../../../agent/registry.ts";
-import { ensureError } from "../../../../common/utils.ts";
+import { getPlatform } from "../../../../platform/platform.ts";
+import { ensureError, truncate } from "../../../../common/utils.ts";
 import {
   ConfigError,
   type HlvmConfig,
@@ -76,14 +89,9 @@ import { ReplProvider } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { log } from "../../../api/log.ts";
-import {
-  looksLikeNaturalLanguage,
-  resolveConversationMode,
-} from "../../repl/input-routing.ts";
-import { stripTerminalControlBytes } from "../../repl/input-normalization.ts";
+import { looksLikeNaturalLanguage } from "../../repl/input-routing.ts";
 import {
   getRuntimeConfigApi,
-  getRuntimeModelDiscovery,
   patchRuntimeConfig,
   runChatViaHost,
 } from "../../../runtime/host-client.ts";
@@ -100,21 +108,25 @@ import {
 } from "../../../api/session.ts";
 import { resolveSessionStart } from "../../repl/session/start.ts";
 import { buildTranscriptStateFromSession } from "../conversation-history.ts";
+import type { ConfiguredModelReadinessState } from "../../../runtime/configured-model-readiness.ts";
 import {
+  type AgentExecutionMode,
   cycleReplAgentExecutionMode,
   getAgentExecutionModeBadge,
   getAgentExecutionModeChangeMessage,
-  getAgentExecutionModeSelectionLabel,
   toAgentExecutionMode,
-  type AgentExecutionMode,
 } from "../../../agent/execution-mode.ts";
 import {
-  formatExecutionModeModelDisplayName,
-  getExecutionModeModelForMode,
-  resolveExecutionModeModels,
-  type ReplAgentExecutionModeModelOverrides,
-} from "../../../agent/execution-mode-models.ts";
-import type { RuntimeModelDiscoveryResponse } from "../../../runtime/model-protocol.ts";
+  type ConversationComposerDraft,
+  createConversationComposerDraft,
+  enqueueConversationDraft,
+  getConversationQueueEditBinding,
+  getConversationQueueEditBindingLabel,
+  mergeConversationDraftsForInterrupt,
+  popLastQueuedConversationDraft,
+  shiftQueuedConversationDraft,
+} from "../utils/conversation-queue.ts";
+import { buildQueuePreviewLines } from "./QueuePreview.tsx";
 
 interface HistoryEntry {
   id: number;
@@ -131,15 +143,35 @@ interface CurrentEval {
   historyId?: number;
 }
 
-interface QueuedConversationTurn {
-  query: string;
-  mediaPaths?: string[];
+interface BannerItem {
+  id: string;
+  aiExports: string[];
+  aiReadiness: ConfiguredModelReadinessState;
+  errors: string[];
+  modelName: string;
 }
 
 interface AppProps {
   showBanner?: boolean;
   sessionOptions?: SessionInitOptions;
   initialConfig?: HlvmConfig;
+}
+
+const GLOBAL_KEYBINDING_CATEGORIES = ["Global"] as const;
+
+export function usesConversationContext(surfacePanel: string): boolean {
+  return surfacePanel === "conversation";
+}
+
+export function usesStandaloneSurfacePanel(surfacePanel: string): boolean {
+  return surfacePanel === "picker" || surfacePanel === "models" ||
+    surfacePanel === "model-setup";
+}
+
+export function isModalOverlayPanel(panel: string): boolean {
+  return panel === "palette" || panel === "config-overlay" ||
+    panel === "tasks-overlay" || panel === "team-dashboard" ||
+    panel === "shortcuts-overlay";
 }
 
 function isAsyncIterable(
@@ -154,7 +186,10 @@ function isAsyncIterable(
  * can leak from key sequences while preserving tabs/newlines.
  */
 function sanitizeHistoryInput(input: string): string {
-  return stripTerminalControlBytes(input);
+  // deno-lint-ignore no-control-regex -- intentional ANSI escape stripping
+  const withoutAnsi = input.replace(/\x1B\[[0-9;?]*[ -/]*[@-~]/g, "");
+  // deno-lint-ignore no-control-regex -- intentional control-byte stripping except tab/newline
+  return withoutAnsi.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "");
 }
 
 /**
@@ -217,7 +252,7 @@ function AppContent(
               setCurrentSession(null);
               setPickerSessions(resolution.sessions);
               if (resolution.sessions.length > 0) {
-                setActivePanel("picker");
+                setSurfacePanel("picker");
               }
             }
             return;
@@ -276,6 +311,8 @@ function AppContent(
   const [nextId, setNextId] = useState(1);
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
+  // Banner rendered once via Static to prevent double-render issues with Ink
+  const [bannerRendered, setBannerRendered] = useState(false);
 
   // Task manager for background evaluation
   const {
@@ -290,38 +327,47 @@ function AppContent(
   // AbortController enables true cancellation of async operations (AI calls, fetch, etc.)
   const currentEvalRef = useRef<CurrentEval | null>(null);
 
-  // Unified panel state - only one panel can be open at a time
-  // "palette", "config-overlay", "tasks-overlay", and "shortcuts-overlay" are overlays
-  // (input visible but disabled), others hide input entirely
-  // "conversation" renders the agent conversation panel
-  type ActivePanel =
+  type SurfacePanel =
     | "none"
     | "picker"
-    | "config-overlay"
-    | "tasks-overlay"
-    | "shortcuts-overlay"
     | "models"
-    | "palette"
     | "model-setup"
     | "conversation";
-  const [activePanel, setActivePanel] = useState<ActivePanel>("none");
+  type OverlayPanel =
+    | "none"
+    | "palette"
+    | "config-overlay"
+    | "tasks-overlay"
+    | "team-dashboard"
+    | "shortcuts-overlay";
+  const [surfacePanel, setSurfacePanel] = useState<SurfacePanel>("none");
+  const [activeOverlay, setActiveOverlay] = useState<OverlayPanel>("none");
 
   // Track where ModelBrowser was opened from (for back navigation)
-  const [modelBrowserParent, setModelBrowserParent] = useState<ActivePanel>(
-    "none",
-  );
+  const [modelBrowserParentOverlay, setModelBrowserParentOverlay] = useState<
+    OverlayPanel
+  >("none");
+  const [modelBrowserParentSurface, setModelBrowserParentSurface] = useState<
+    SurfacePanel
+  >("none");
 
   // Track if model setup has been handled (completed or cancelled) to prevent infinite loop
   const [modelSetupHandled, setModelSetupHandled] = useState(false);
 
   // Debounce ref for panel toggles - prevents rapid open/close during streaming re-renders
   const lastPanelToggleRef = useRef<number>(0);
-
   // Session picker data (separate from panel state)
   const [pickerSessions, setPickerSessions] = useState<SessionMeta[]>([]);
   const [pendingResumeInput, setPendingResumeInput] = useState<string | null>(
     null,
   );
+
+  // Mark banner as rendered once when init completes (for Static component)
+  useEffect(() => {
+    if (init.ready && !bannerRendered) {
+      setBannerRendered(true);
+    }
+  }, [init.ready, bannerRendered]);
 
   // Command palette persistent state (survives open/close)
   const [paletteState, setPaletteState] = useState<PaletteState>({
@@ -344,9 +390,12 @@ function AppContent(
   // Terminal width for responsive layout
   const { stdout } = useStdout();
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
+  const terminalHeight = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
 
   // Conversation state for agent mode
   const conversation = useConversation();
+  const teamState = useTeamState(conversation.items);
+  const hasConversationContext = usesConversationContext(surfacePanel);
   const [interactionQueue, setInteractionQueue] = useState<
     InteractionRequestEvent[]
   >([]);
@@ -391,6 +440,22 @@ function AppContent(
     [],
   );
 
+  const expandConversationDraftText = useCallback((
+    text: string,
+    attachments?: AnyAttachment[],
+  ): string => {
+    let expandedText = text;
+    for (const attachment of attachments ?? []) {
+      if ("content" in attachment) {
+        expandedText = expandedText.replace(
+          attachment.displayName,
+          attachment.content,
+        );
+      }
+    }
+    return expandedText;
+  }, []);
+
   const agentControllerRef = useRef<AbortController | null>(null);
   const interactionResolversRef = useRef<
     Map<string, (response: InteractionResponse) => void>
@@ -401,45 +466,58 @@ function AppContent(
   const [isConfiguredModelExplicit, setIsConfiguredModelExplicit] = useState(
     initialConfig?.modelConfigured === true,
   );
+  const [footerModelName, setFooterModelName] = useState<string>(
+    typeof initialConfig?.model === "string"
+      ? initialConfig.model.replace("ollama/", "")
+      : "",
+  );
   const [configuredContextWindow, setConfiguredContextWindow] = useState<
     number | undefined
   >(getContextWindow(initialConfig));
-  const [runtimeModelDiscovery, setRuntimeModelDiscovery] = useState<
-    RuntimeModelDiscoveryResponse | undefined
-  >(undefined);
-  const [modeModelOverrides, setModeModelOverrides] = useState<
-    ReplAgentExecutionModeModelOverrides
-  >({});
   const [footerContextUsageLabel, setFooterContextUsageLabel] = useState<
     string
   >("");
   const [pendingConversationQueue, setPendingConversationQueue] = useState<
-    QueuedConversationTurn[]
+    ConversationComposerDraft[]
   >([]);
-  const executionModeModels = useMemo(
+  const [composerAttachments, setComposerAttachments] = useState<
+    AnyAttachment[]
+  >([]);
+  const [
+    restoredComposerDraftRevision,
+    setRestoredComposerDraftRevision,
+  ] = useState(0);
+  const [
+    restoredComposerCursorOffset,
+    setRestoredComposerCursorOffset,
+  ] = useState(0);
+  const [composerLayoutRows, setComposerLayoutRows] = useState(1);
+  const queueEditBinding = useMemo(
+    () => getConversationQueueEditBinding(getPlatform().env),
+    [],
+  );
+  const queueEditBindingLabel = useMemo(
+    () => getConversationQueueEditBindingLabel(queueEditBinding),
+    [queueEditBinding],
+  );
+  const queuePreviewRows = useMemo(
     () =>
-      resolveExecutionModeModels(
-        configuredModelId,
-        runtimeModelDiscovery,
-        modeModelOverrides,
-      ),
-    [configuredModelId, runtimeModelDiscovery, modeModelOverrides],
+      buildQueuePreviewLines(
+        pendingConversationQueue,
+        queueEditBindingLabel,
+      ).length,
+    [pendingConversationQueue, queueEditBindingLabel],
   );
-  const activeExecutionModeModel = getExecutionModeModelForMode(
-    agentExecutionMode,
-    executionModeModels,
-    configuredModelId,
-    configuredContextWindow,
-  );
-  const activeModelId = activeExecutionModeModel?.id ?? configuredModelId;
-  const footerModelName = activeExecutionModeModel?.displayName ??
-    formatExecutionModeModelDisplayName(configuredModelId);
-  const activeContextWindow = activeExecutionModeModel?.contextWindow ??
-    configuredContextWindow;
-  const activeModeModelOverrideId = modeModelOverrides[agentExecutionMode];
-  const shouldUseAlternateBuffer = activePanel === "conversation" &&
+  const shouldUseAlternateBuffer = hasConversationContext &&
     conversation.items.length >= 80;
   useAlternateBuffer(shouldUseAlternateBuffer);
+
+  const previousOverlayRef = useRef<OverlayPanel>("none");
+  useEffect(() => {
+    if (previousOverlayRef.current === activeOverlay) return;
+    resetTerminalViewport();
+    previousOverlayRef.current = activeOverlay;
+  }, [activeOverlay]);
 
   useEffect(() => {
     return () => {
@@ -465,6 +543,7 @@ function AppContent(
       const modelId = getConfiguredModel(cfg);
       setConfiguredModelId(modelId);
       setIsConfiguredModelExplicit(cfg.modelConfigured === true);
+      setFooterModelName(modelId.replace("ollama/", ""));
       setConfiguredContextWindow(getContextWindow(cfg));
       if (!replModeTouchedRef.current) {
         setAgentExecutionMode(toAgentExecutionMode(getPermissionMode(cfg)));
@@ -473,28 +552,12 @@ function AppContent(
     [],
   );
 
-  const refreshRuntimeModelDiscovery = useCallback(async () => {
-    const discovery = await getRuntimeModelDiscovery();
-    setRuntimeModelDiscovery(discovery);
-  }, []);
-
   const cycleAgentMode = useCallback(() => {
     const nextMode = cycleReplAgentExecutionMode(agentExecutionMode);
     replModeTouchedRef.current = true;
     setAgentExecutionMode(nextMode);
-    const nextModel = executionModeModels.byMode[nextMode];
-    const modeMessage = getAgentExecutionModeChangeMessage(nextMode);
-    flashFooterStatus(
-      nextModel && nextModel.id !== activeModelId
-        ? `${modeMessage} · ${nextModel.displayName}`
-        : modeMessage,
-    );
-  }, [
-    agentExecutionMode,
-    activeModelId,
-    executionModeModels.byMode,
-    flashFooterStatus,
-  ]);
+    flashFooterStatus(getAgentExecutionModeChangeMessage(nextMode));
+  }, [agentExecutionMode, flashFooterStatus]);
 
   const refreshRuntimeConfigState = useCallback(async () => {
     const runtimeConfig = await createRuntimeConfigManager();
@@ -520,19 +583,24 @@ function AppContent(
     if (!init.ready) return;
     refreshRuntimeConfigState()
       .catch(() => {});
-    refreshRuntimeModelDiscovery()
-      .catch(() => {});
-  }, [init.ready, refreshRuntimeConfigState, refreshRuntimeModelDiscovery]);
+  }, [init.ready, refreshRuntimeConfigState]);
 
   // Show model setup overlay if default model needs to be downloaded (only once)
   useEffect(() => {
     if (
-      init.ready && init.needsModelSetup && activePanel === "none" &&
+      init.ready && init.needsModelSetup && surfacePanel === "none" &&
+      activeOverlay === "none" &&
       !modelSetupHandled
     ) {
-      setActivePanel("model-setup");
+      setSurfacePanel("model-setup");
     }
-  }, [init.ready, init.needsModelSetup, activePanel, modelSetupHandled]);
+  }, [
+    activeOverlay,
+    init.ready,
+    init.needsModelSetup,
+    modelSetupHandled,
+    surfacePanel,
+  ]);
 
   // Helper to add history entry and increment ID (DRY pattern used 8+ times)
   // Uses ref to avoid stale closure — no dependency on nextId state
@@ -561,7 +629,7 @@ function AppContent(
         success: false,
         error: new Error(`Session not found: ${sessionTitle ?? sessionId}`),
       });
-      setActivePanel("none");
+      setSurfacePanel("none");
       return false;
     }
 
@@ -573,7 +641,7 @@ function AppContent(
     conversation.resetStatus();
     setCurrentSession(loaded.meta);
     setFooterContextUsageLabel("");
-    setActivePanel("conversation");
+    setSurfacePanel("conversation");
     return true;
   }, [addHistoryEntry, conversation]);
 
@@ -596,7 +664,7 @@ function AppContent(
       });
       setPendingResumeInput(null);
     }
-    setActivePanel("none");
+    setSurfacePanel("none");
   }, [pendingResumeInput, addHistoryEntry]);
 
   const suppressHistoryOutput = useCallback((historyId: number) => {
@@ -683,7 +751,7 @@ function AppContent(
           cancel(taskId);
           return;
         }
-        const error = err instanceof Error ? err : new Error(String(err));
+        const error = ensureError(err);
         failEvalTask(taskId, error);
       } finally {
         finalizeForeground();
@@ -715,8 +783,10 @@ function AppContent(
     if (agentControllerRef.current) return;
     const controller = new AbortController();
     agentControllerRef.current = controller;
+    const isActiveConversationRun = () =>
+      agentControllerRef.current === controller;
 
-    setActivePanel("conversation");
+    setSurfacePanel("conversation");
     setFooterContextUsageLabel("");
     conversation.addUserMessage(query);
 
@@ -725,24 +795,7 @@ function AppContent(
       const ensuredModel = await runtimeConfig
         .ensureInitialModelConfigured();
       const runtimeSnapshot = runtimeConfig.getConfig();
-      const runtimeConfiguredModelId = ensuredModel.model || runtimeSnapshot.model ||
-        configuredModelId;
-      const runtimeExecutionModeModels = resolveExecutionModeModels(
-        runtimeConfiguredModelId,
-        runtimeModelDiscovery,
-        modeModelOverrides,
-      );
-      const runtimeExecutionModeModel = getExecutionModeModelForMode(
-        agentExecutionMode,
-        runtimeExecutionModeModels,
-        runtimeConfiguredModelId,
-        configuredContextWindow,
-      );
-      const model = runtimeExecutionModeModel?.id;
-      const conversationMode = resolveConversationMode(
-        model,
-        runtimeExecutionModeModel,
-      );
+      const model = ensuredModel.model || configuredModelId || undefined;
       if (
         runtimeSnapshot.model !== configuredModelId ||
         (runtimeSnapshot.modelConfigured === true) !== isConfiguredModelExplicit
@@ -752,14 +805,7 @@ function AppContent(
         );
       }
       if (model) {
-        conversation.addInfo(
-          `${
-            conversationMode === "agent"
-              ? "Initializing agent"
-              : "Starting chat"
-          } (${runtimeExecutionModeModel?.displayName ?? formatExecutionModeModelDisplayName(model)})...`,
-          { isTransient: true },
-        );
+        conversation.addInfo("Initializing agent...", { isTransient: true });
       } else {
         throw new ConfigError(
           "No configured model available for conversation mode.",
@@ -775,7 +821,7 @@ function AppContent(
       let textBuffer = "";
       let finalCitations: AssistantCitation[] | undefined;
       const result = await runChatViaHost({
-        mode: conversationMode,
+        mode: "agent",
         sessionId: sessionMeta.id,
         messages: [{
           role: "user",
@@ -784,21 +830,23 @@ function AppContent(
           client_turn_id: crypto.randomUUID(),
         }],
         model,
-        ...(conversationMode === "agent"
-          ? {
-            permissionMode: agentExecutionMode,
-            // REPL UX: avoid model-initiated ask_user detours for simple chat turns.
-            // Keep direct conversational flow unless explicit permission prompts are needed.
-            toolDenylist: ["ask_user", "complete_task"],
-          }
-          : {}),
+        permissionMode: agentExecutionMode,
+        // REPL UX: avoid model-initiated ask_user detours for simple chat turns.
+        // Keep direct conversational flow unless explicit permission prompts are needed.
+        toolDenylist: ["ask_user", "complete_task"],
         signal: controller.signal,
         callbacks: {
           onToken: (text: string) => {
+            if (controller.signal.aborted || !isActiveConversationRun()) {
+              return;
+            }
             textBuffer += text;
             conversation.addAssistantText(textBuffer, true);
           },
           onAgentEvent: (event) => {
+            if (controller.signal.aborted || !isActiveConversationRun()) {
+              return;
+            }
             conversation.addEvent(event);
             // Wire background delegate lifecycle to TaskManager
             if (event.type === "delegate_start" && event.threadId) {
@@ -820,12 +868,16 @@ function AppContent(
             }
           },
           onFinalResponseMeta: (meta) => {
+            if (!isActiveConversationRun()) return;
             finalCitations = meta.citationSpans as
               | AssistantCitation[]
               | undefined;
           },
         },
-        onInteraction: conversationMode === "agent" ? (event) => {
+        onInteraction: (event) => {
+          if (controller.signal.aborted || !isActiveConversationRun()) {
+            throw new DOMException("Agent interaction aborted", "AbortError");
+          }
           const interactionEvent: InteractionRequestEvent = {
             type: "interaction_request",
             requestId: event.requestId,
@@ -861,7 +913,9 @@ function AppContent(
               if (settled) return;
               settled = true;
               finalizeRequest();
-              reject(new Error("Agent interaction aborted"));
+              reject(
+                new DOMException("Agent interaction aborted", "AbortError"),
+              );
             };
             const handler = (response: InteractionResponse) => {
               if (settled) return;
@@ -877,8 +931,11 @@ function AppContent(
               once: true,
             });
           });
-        } : undefined,
+        },
       });
+      if (!isActiveConversationRun()) {
+        return;
+      }
 
       // Finalize assistant message
       if (textBuffer) {
@@ -890,28 +947,14 @@ function AppContent(
       // Footer context usage (Gemini-style compact indicator)
       const usage = result.stats.usage;
       if (
-        usage && typeof runtimeExecutionModeModel?.contextWindow === "number" &&
-        runtimeExecutionModeModel.contextWindow > 0
+        usage && typeof configuredContextWindow === "number" &&
+        configuredContextWindow > 0
       ) {
         const pct = Math.max(
           0,
           Math.min(
             100,
-            Math.round(
-              (usage.totalTokens / runtimeExecutionModeModel.contextWindow) *
-                100,
-            ),
-          ),
-        );
-        setFooterContextUsageLabel(`${pct}% ctx`);
-      } else if (
-        usage && typeof activeContextWindow === "number" && activeContextWindow > 0
-      ) {
-        const pct = Math.max(
-          0,
-          Math.min(
-            100,
-            Math.round((usage.totalTokens / activeContextWindow) * 100),
+            Math.round((usage.totalTokens / configuredContextWindow) * 100),
           ),
         );
         setFooterContextUsageLabel(`${pct}% ctx`);
@@ -927,27 +970,54 @@ function AppContent(
       }
     } catch (error) {
       if (controller.signal.aborted) {
-        conversation.addInfo("Cancelled");
+        if (isActiveConversationRun()) {
+          conversation.addInfo("Cancelled");
+        }
       } else {
-        conversation.addError(ensureError(error).message);
+        if (isActiveConversationRun()) {
+          conversation.addError(ensureError(error).message);
+        }
       }
     } finally {
-      agentControllerRef.current = null;
-      interactionResolversRef.current.clear();
-      setInteractionQueue([]);
-      setIsEvaluating(false);
-      conversation.finalize();
+      if (isActiveConversationRun()) {
+        agentControllerRef.current = null;
+        interactionResolversRef.current.clear();
+        setInteractionQueue([]);
+        setIsEvaluating(false);
+        conversation.finalize();
+      }
     }
   }, [
     applyRuntimeConfigState,
     agentExecutionMode,
-    activeContextWindow,
+    configuredContextWindow,
     isConfiguredModelExplicit,
     configuredModelId,
     conversation,
     currentSession,
-    modeModelOverrides,
-    runtimeModelDiscovery,
+  ]);
+
+  const submitConversationDraft = useCallback((
+    draft: ConversationComposerDraft,
+  ): { started: boolean; unsupportedMimeType?: string } => {
+    const expandedText = expandConversationDraftText(
+      draft.text,
+      draft.attachments,
+    );
+    const { images, unsupportedMimeType } = prepareConversationMediaPayload(
+      draft.attachments,
+    );
+    if (unsupportedMimeType) {
+      return { started: false, unsupportedMimeType };
+    }
+    const imagePaths = images && images.length > 0 ? images : undefined;
+    setIsEvaluating(true);
+    void runConversation(expandedText, imagePaths);
+    return { started: true };
+  }, [
+    expandConversationDraftText,
+    prepareConversationMediaPayload,
+    runConversation,
   ]);
 
   const handleInteractionResponse = useCallback(
@@ -957,6 +1027,28 @@ function AppContent(
       resolver(response);
     },
     [],
+  );
+
+  const restoreComposerDraft = useCallback(
+    (draft: ConversationComposerDraft | null) => {
+      if (!draft) {
+        setInput("");
+        setComposerAttachments([]);
+        setRestoredComposerCursorOffset(0);
+        setRestoredComposerDraftRevision((prev: number) => prev + 1);
+        return;
+      }
+      setInput(draft.text);
+      setComposerAttachments(draft.attachments);
+      setRestoredComposerCursorOffset(draft.cursorOffset);
+      setRestoredComposerDraftRevision((prev: number) => prev + 1);
+    },
+    [],
+  );
+
+  const currentComposerDraft = useMemo(
+    () => createConversationComposerDraft(input, composerAttachments),
+    [composerAttachments, input],
   );
 
   const closeConversationMode = useCallback(
@@ -984,21 +1076,209 @@ function AppContent(
       }
       setPendingConversationQueue([]);
       setFooterContextUsageLabel("");
-      setActivePanel("none");
+      setActiveOverlay("none");
+      setSurfacePanel("none");
     },
     [conversation, interactionQueue],
   );
 
+  const clearReplSurface = useCallback(() => {
+    clearTerminal();
+    setHistory([]);
+    setNextId(1);
+    setHasBeenCleared(true);
+    setClearKey((k: number) => k + 1);
+    interactionResolversRef.current.clear();
+    setInteractionQueue([]);
+    conversation.clear();
+    setFooterContextUsageLabel("");
+    setActiveOverlay("none");
+    setSurfacePanel("none");
+    if (hasConversationContext) {
+      closeConversationMode({ clearConversation: true });
+    }
+  }, [
+    closeConversationMode,
+    conversation,
+    hasConversationContext,
+  ]);
+
   useEffect(() => {
-    if (activePanel !== "conversation") return;
+    if (!hasConversationContext) return;
     if (agentControllerRef.current) return;
     if (pendingConversationQueue.length === 0) return;
 
-    const [nextTurn, ...rest] = pendingConversationQueue;
-    setPendingConversationQueue(rest);
-    setIsEvaluating(true);
-    void runConversation(nextTurn.query, nextTurn.mediaPaths);
-  }, [activePanel, pendingConversationQueue, runConversation]);
+    const { draft: nextTurn, remaining } = shiftQueuedConversationDraft(
+      pendingConversationQueue,
+    );
+    if (!nextTurn) return;
+    const result = submitConversationDraft(nextTurn);
+    if (result.started) {
+      setPendingConversationQueue(remaining);
+      return;
+    }
+    setPendingConversationQueue(remaining);
+    restoreComposerDraft(
+      mergeConversationDraftsForInterrupt([nextTurn], currentComposerDraft),
+    );
+    if (result.unsupportedMimeType) {
+      conversation.addError(
+        `Attachment unsupported: ${result.unsupportedMimeType}`,
+      );
+    }
+  }, [
+    conversation,
+    currentComposerDraft,
+    hasConversationContext,
+    pendingConversationQueue,
+    restoreComposerDraft,
+    submitConversationDraft,
+  ]);
+
+  const toggleTeamDashboard = useCallback(() => {
+    const now = Date.now();
+    if (now - lastPanelToggleRef.current < 150) {
+      return;
+    }
+    lastPanelToggleRef.current = now;
+    setActiveOverlay((prev: OverlayPanel) =>
+      prev === "team-dashboard" ? "none" : "team-dashboard"
+    );
+  }, []);
+
+  const togglePalette = useCallback(() => {
+    const now = Date.now();
+    if (now - lastPanelToggleRef.current < 150) {
+      return;
+    }
+    lastPanelToggleRef.current = now;
+    setActiveOverlay((prev: OverlayPanel) =>
+      prev === "palette" ? "none" : "palette"
+    );
+  }, []);
+
+  const toggleTasksOverlay = useCallback(() => {
+    const now = Date.now();
+    if (now - lastPanelToggleRef.current < 150) {
+      return;
+    }
+    lastPanelToggleRef.current = now;
+    setActiveOverlay((prev: OverlayPanel) =>
+      prev === "tasks-overlay" ? "none" : "tasks-overlay"
+    );
+  }, []);
+
+  const toggleShortcutsOverlay = useCallback(() => {
+    const now = Date.now();
+    if (now - lastPanelToggleRef.current < 150) {
+      return;
+    }
+    lastPanelToggleRef.current = now;
+    setActiveOverlay((prev: OverlayPanel) =>
+      prev === "shortcuts-overlay" ? "none" : "shortcuts-overlay"
+    );
+  }, []);
+
+  const handleAppExit = useCallback(() => {
+    replState.flushHistorySync();
+    exit();
+  }, [exit, replState]);
+
+  useEffect(() => {
+    registerHandler(
+      HandlerIds.APP_EXIT,
+      handleAppExit,
+      "App",
+    );
+    registerHandler(
+      HandlerIds.APP_SHORTCUTS,
+      toggleShortcutsOverlay,
+      "App",
+    );
+    registerHandler(
+      HandlerIds.APP_CLEAR,
+      clearReplSurface,
+      "App",
+    );
+    registerHandler(
+      HandlerIds.APP_PALETTE,
+      togglePalette,
+      "App",
+    );
+    registerHandler(
+      HandlerIds.APP_TASKS,
+      toggleTasksOverlay,
+      "App",
+    );
+    registerHandler(
+      HandlerIds.APP_TEAM_DASHBOARD,
+      toggleTeamDashboard,
+      "App",
+    );
+    return () => {
+      unregisterHandler(HandlerIds.APP_EXIT);
+      unregisterHandler(HandlerIds.APP_SHORTCUTS);
+      unregisterHandler(HandlerIds.APP_CLEAR);
+      unregisterHandler(HandlerIds.APP_PALETTE);
+      unregisterHandler(HandlerIds.APP_TASKS);
+      unregisterHandler(HandlerIds.APP_TEAM_DASHBOARD);
+    };
+  }, [
+    clearReplSurface,
+    handleAppExit,
+    toggleShortcutsOverlay,
+    togglePalette,
+    toggleTasksOverlay,
+    toggleTeamDashboard,
+  ]);
+
+  // Force-interrupt: abort current agent and immediately send new message
+  const handleForceInterrupt = useCallback(
+    (code: string, attachments?: AnyAttachment[]) => {
+      if (!code.trim()) return;
+      restoreComposerDraft(null);
+      const draft = createConversationComposerDraft(code.trim(), attachments);
+
+      // Abort current agent if running
+      if (agentControllerRef.current) {
+        agentControllerRef.current.abort();
+        agentControllerRef.current = null;
+      }
+      interactionResolversRef.current.clear();
+      setInteractionQueue([]);
+      setIsEvaluating(false);
+      setPendingConversationQueue([]);
+      conversation.finalize();
+
+      // Send immediately (bypass queue)
+      const result = submitConversationDraft(draft);
+      if (!result.started) {
+        restoreComposerDraft(draft);
+        if (result.unsupportedMimeType) {
+          conversation.addError(
+            `Attachment unsupported: ${result.unsupportedMimeType}`,
+          );
+        }
+      }
+    },
+    [conversation, restoreComposerDraft, submitConversationDraft],
+  );
+
+  const handleQueueDraft = useCallback((draft: ConversationComposerDraft) => {
+    setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
+      enqueueConversationDraft(prev, draft)
+    );
+    setComposerAttachments([]);
+  }, []);
+
+  const handleEditLastQueuedDraft = useCallback(() => {
+    const { draft, remaining } = popLastQueuedConversationDraft(
+      pendingConversationQueue,
+    );
+    if (!draft) return;
+    setPendingConversationQueue(remaining);
+    restoreComposerDraft(draft);
+  }, [pendingConversationQueue, restoreComposerDraft]);
 
   const handleSubmit = useCallback(
     async (code: string, attachments?: AnyAttachment[]) => {
@@ -1031,10 +1311,10 @@ function AppContent(
       const commandArgs = argTokens.join(" ").trim();
       const opensModelPicker = commandName === "/models" ||
         (commandName === "/model" && commandArgs.length === 0);
-      const isPanelCommand = commandName === "/config" ||
-        commandName === "/tasks" || commandName === "/bg" ||
-        commandName === "/resume" || commandName === "/clear" ||
-        opensModelPicker;
+      const isPanelCommand = commandName === "/help" ||
+        commandName === "/config" || commandName === "/tasks" ||
+        commandName === "/bg" || commandName === "/resume" ||
+        commandName === "/clear" || opensModelPicker;
       const isAnyCommand = isPanelCommand || isCommand(code);
 
       // If there's a pending question interaction, route non-command input as the answer.
@@ -1050,15 +1330,20 @@ function AppContent(
         return;
       }
 
+      if (commandName === "/help") {
+        setActiveOverlay("shortcuts-overlay");
+        return;
+      }
+
       // Handle /config command - show floating overlay
       if (commandName === "/config") {
-        setActivePanel("config-overlay");
+        setActiveOverlay("config-overlay");
         return;
       }
 
       // Handle /tasks command - show background tasks overlay
       if (commandName === "/tasks") {
-        setActivePanel("tasks-overlay");
+        setActiveOverlay("tasks-overlay");
         return;
       }
 
@@ -1078,9 +1363,7 @@ function AppContent(
           currentEvalRef.current = null;
           setIsEvaluating(false);
 
-          const preview = activeEval.code.length > 40
-            ? activeEval.code.slice(0, 37) + "..."
-            : activeEval.code;
+          const preview = truncate(activeEval.code, 40);
           addHistoryEntry("/bg", {
             success: true,
             value: `⏳ Pushed to background (Task ${
@@ -1109,7 +1392,7 @@ function AppContent(
         } else {
           setPendingResumeInput(code); // Store command for history
           setPickerSessions(sessions);
-          setActivePanel("picker");
+          setSurfacePanel("picker");
         }
         return;
       }
@@ -1134,7 +1417,7 @@ function AppContent(
           return;
         }
 
-        if (activePanel === "conversation") {
+        if (hasConversationContext) {
           conversation.addEvent({
             type: "checkpoint_restored",
             checkpoint: restored.checkpoint,
@@ -1164,25 +1447,15 @@ function AppContent(
 
       // Handle /model and /models commands - open model picker
       if (opensModelPicker) {
-        setModelBrowserParent("none");
-        setActivePanel("models");
+        setModelBrowserParentSurface(surfacePanel);
+        setModelBrowserParentOverlay("none");
+        setSurfacePanel("models");
         return;
       }
 
       // Handle /clear command - clear screen and history (fallback for Cmd+K)
       if (commandName === "/clear") {
-        clearTerminal();
-        setHistory([]);
-        setNextId(1);
-        setHasBeenCleared(true);
-        setClearKey((k: number) => k + 1);
-        interactionResolversRef.current.clear();
-        setInteractionQueue([]);
-        conversation.clear();
-        setFooterContextUsageLabel("");
-        if (activePanel === "conversation") {
-          closeConversationMode({ clearConversation: true });
-        }
+        clearReplSurface();
         return;
       }
 
@@ -1209,27 +1482,27 @@ function AppContent(
       }
 
       // Conversation mode: keep input active and queue turns while the agent is running.
-      if (activePanel === "conversation") {
-        const { images, unsupportedMimeType } = prepareConversationMediaPayload(
+      if (hasConversationContext) {
+        const conversationDraft = createConversationComposerDraft(
+          forceConversationPrompt ?? code.trim(),
           attachments,
         );
-        if (unsupportedMimeType) {
-          conversation.addError(
-            `Attachment unsupported: ${unsupportedMimeType}`,
-          );
-          return;
-        }
-        const imagePayload = images && images.length > 0 ? images : undefined;
-        const conversationQuery = forceConversationPrompt ?? expandedCode;
         if (agentControllerRef.current) {
-          setPendingConversationQueue((prev: QueuedConversationTurn[]) => [
-            ...prev,
-            { query: conversationQuery, mediaPaths: imagePayload },
-          ]);
+          setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
+            enqueueConversationDraft(prev, conversationDraft)
+          );
+          setComposerAttachments([]);
           return;
         }
-        setIsEvaluating(true);
-        runConversation(conversationQuery, imagePayload);
+        const result = submitConversationDraft(conversationDraft);
+        if (!result.started) {
+          restoreComposerDraft(conversationDraft);
+          if (result.unsupportedMimeType) {
+            conversation.addError(
+              `Attachment unsupported: ${result.unsupportedMimeType}`,
+            );
+          }
+        }
         return;
       }
 
@@ -1243,16 +1516,19 @@ function AppContent(
 
       // Natural language → agent conversation mode
       const candidateConversationQuery = forceConversationPrompt ??
-        expandedCode;
+        code.trim();
       if (
         forceConversationPrompt || isNaturalLanguage(candidateConversationQuery)
       ) {
-        // Convert media attachments to structured payload for multimodal models.
-        // Fail fast on generic/untyped binary payloads with explicit guidance.
-        const { images, unsupportedMimeType } = prepareConversationMediaPayload(
+        const conversationDraft = createConversationComposerDraft(
+          candidateConversationQuery,
           attachments,
         );
-        if (unsupportedMimeType) {
+        const result = submitConversationDraft(conversationDraft);
+        if (!result.started) {
+          restoreComposerDraft(conversationDraft);
+          const unsupportedMimeType = result.unsupportedMimeType;
+          if (!unsupportedMimeType) return;
           const modelLabel = footerModelName || "current model";
           addHistoryEntry(code, {
             success: false,
@@ -1262,12 +1538,6 @@ function AppContent(
           });
           return;
         }
-
-        setIsEvaluating(true);
-        runConversation(
-          candidateConversationQuery,
-          images?.length ? images : undefined,
-        );
         return;
       }
 
@@ -1371,7 +1641,6 @@ function AppContent(
       isNaturalLanguage,
       runConversation,
       conversation,
-      activePanel,
       pendingConversationQueue,
       closeConversationMode,
       pendingInteraction,
@@ -1381,12 +1650,14 @@ function AppContent(
       configuredContextWindow,
       applyRuntimeConfigState,
       prepareConversationMediaPayload,
+      restoreComposerDraft,
+      submitConversationDraft,
     ],
   );
 
   // Command palette action handler
   const handlePaletteAction = useCallback((action: KeybindingAction) => {
-    setActivePanel("none");
+    setActiveOverlay("none");
     if (action.type === "SLASH_COMMAND") {
       // Execute slash command directly
       handleSubmit(action.cmd);
@@ -1419,72 +1690,51 @@ function AppContent(
     }).catch(() => {});
   }, []);
 
-  // Global shortcuts (Ctrl+C exit, Ctrl+L/Cmd+K clear, Ctrl+P palette, Ctrl+B tasks, ESC cancel-in-place)
+  // Global shortcuts (handler-backed globals plus ESC cancel-in-place)
   useInput((char, key) => {
-    if (key.ctrl && char === "c") {
-      replState.flushHistorySync();
-      exit();
+    const globalBinding = inspectHandlerKeybinding(char, key, {
+      categories: GLOBAL_KEYBINDING_CATEGORIES,
+    });
+    const canOpenDefaultShortcuts = globalBinding.kind === "handler" &&
+      globalBinding.id === HandlerIds.APP_SHORTCUTS &&
+      globalBinding.source === "default" &&
+      char === "?" &&
+      !key.ctrl &&
+      !key.meta &&
+      !key.escape &&
+      activeOverlay === "none" &&
+      input.length === 0 &&
+      pendingInteraction?.mode !== "question";
+    if (
+      globalBinding.kind === "handler" && globalBinding.id === HandlerIds.APP_EXIT
+    ) {
+      void executeHandler(globalBinding.id);
+      return;
     }
     if (
-      char === "?" && !key.ctrl && !key.meta && !key.escape &&
-      (activePanel === "none" || activePanel === "conversation" ||
-        activePanel === "shortcuts-overlay") &&
-      input.length === 0 &&
-      pendingInteraction?.mode !== "question"
+      globalBinding.kind === "handler" &&
+      globalBinding.id === HandlerIds.APP_SHORTCUTS
     ) {
-      setActivePanel((prev: ActivePanel) =>
-        prev === "shortcuts-overlay" ? "none" : "shortcuts-overlay"
-      );
+      if (globalBinding.source === "custom" || canOpenDefaultShortcuts) {
+        void executeHandler(globalBinding.id);
+      }
       return;
     }
-    if (key.ctrl && char === "p") {
-      // Debounce: prevent rapid toggles during streaming re-renders
-      const now = Date.now();
-      if (now - lastPanelToggleRef.current < 150) {
-        return; // Ignore if toggled within 150ms
-      }
-      lastPanelToggleRef.current = now;
-      // Toggle palette
-      setActivePanel((prev: ActivePanel) =>
-        prev === "palette" ? "none" : "palette"
-      );
+    if (activeOverlay !== "none") {
       return;
     }
-    // Ctrl+B: Toggle Background Tasks Overlay
-    if (key.ctrl && char === "b") {
-      const now = Date.now();
-      if (now - lastPanelToggleRef.current < 150) {
-        return;
-      }
-      lastPanelToggleRef.current = now;
-      setActivePanel((prev: ActivePanel) =>
-        prev === "tasks-overlay" ? "none" : "tasks-overlay"
-      );
+    if (globalBinding.kind === "handler") {
+      void executeHandler(globalBinding.id);
       return;
     }
-    // Ctrl+L or Cmd+K: Clear screen and history
-    // Note: Cmd+K may be intercepted by terminal emulator first, sending ANSI clear
-    // but we still need to clear React state to prevent content from reappearing on re-render
-    if ((key.ctrl && char === "l") || (key.meta && char === "k")) {
-      // Clear terminal first
-      clearTerminal();
-      // Then clear React state
-      setHistory([]);
-      setNextId(1);
-      setHasBeenCleared(true); // Hide banner after clear
-      setClearKey((k: number) => k + 1); // Force full re-render
-      interactionResolversRef.current.clear();
-      setInteractionQueue([]);
-      conversation.clear();
-      setFooterContextUsageLabel("");
-      // Also clear conversation if in conversation mode
-      if (activePanel === "conversation") {
-        closeConversationMode({ clearConversation: true });
-      }
+    if (
+      globalBinding.kind === "disabled-default" ||
+      globalBinding.kind === "shadowed"
+    ) {
       return;
     }
     // Interaction response keys (y/n/Enter) during conversation permission dialogs
-    if (activePanel === "conversation" && pendingInteraction) {
+    if (hasConversationContext && pendingInteraction) {
       if (pendingInteraction.mode === "permission") {
         if (char === "y" || key.return) {
           handleInteractionResponse(pendingInteraction.requestId, {
@@ -1508,12 +1758,18 @@ function AppContent(
     }
 
     // ESC during conversation:
-    // - running: cancel in-place (keep chat surface)
+    // - running: cancel in-place and restore queued drafts into composer
     // - idle: exit conversation mode
-    if (key.escape && activePanel === "conversation") {
+    if (key.escape && surfacePanel === "conversation") {
       if (agentControllerRef.current) {
+        const restoredDraft = mergeConversationDraftsForInterrupt(
+          pendingConversationQueue,
+          currentComposerDraft,
+        );
         agentControllerRef.current.abort();
         setIsEvaluating(false);
+        setPendingConversationQueue([]);
+        restoreComposerDraft(restoredDraft);
       } else {
         closeConversationMode();
       }
@@ -1545,17 +1801,25 @@ function AppContent(
     }
   });
 
-  // Input visible: always for normal/overlay modes and always visible in conversation mode.
-  const isConversationInputVisible = activePanel === "conversation";
-  const isInputVisible = activePanel === "none" ||
-    activePanel === "palette" || activePanel === "config-overlay" ||
-    activePanel === "tasks-overlay" || activePanel === "shortcuts-overlay" ||
-    isConversationInputVisible;
-  const isInputDisabled = init.loading || activePanel === "palette" ||
-    activePanel === "config-overlay" || activePanel === "tasks-overlay" ||
-    activePanel === "shortcuts-overlay" ||
-    (activePanel === "conversation" &&
-      pendingInteraction?.mode === "permission");
+  // Prepare banner items for Static component (renders once, never re-renders)
+  const bannerItems: BannerItem[] =
+    showBanner && !hasBeenCleared && bannerRendered
+      ? [{
+        id: "banner",
+        aiExports: init.aiExports,
+        aiReadiness: init.aiReadiness,
+        errors: init.errors,
+        modelName: footerModelName,
+      }]
+      : [];
+
+  const isOverlayOpen = isModalOverlayPanel(activeOverlay);
+  const hasStandaloneSurface = usesStandaloneSurfacePanel(surfacePanel);
+  const isConversationInputVisible = hasConversationContext && !isOverlayOpen;
+  const isInputVisible = !isOverlayOpen &&
+    (surfacePanel === "none" || isConversationInputVisible);
+  const isInputDisabled = init.loading ||
+    (hasConversationContext && pendingInteraction?.mode === "permission");
   // Keep Ctrl+O section toggles from conflicting with Input paredit Ctrl+O.
   // Safe contexts:
   // - conversation mode without input visible (Input hidden, no conflict)
@@ -1563,7 +1827,144 @@ function AppContent(
   // - empty prompt (paredit no-op)
   const allowConversationToggleHotkeys = !isInputVisible || isInputDisabled ||
     input.length === 0;
-
+  const renderBannerItem = (item: BannerItem): React.ReactElement => (
+    <Box key={item.id}>
+      <Banner
+        aiExports={item.aiExports}
+        aiReadiness={item.aiReadiness}
+        errors={item.errors}
+        modelName={item.modelName}
+      />
+    </Box>
+  );
+  const staticBannerProps = { items: bannerItems, children: renderBannerItem };
+  const bannerReservedRows = showBanner && !hasBeenCleared
+    ? bannerRendered
+      ? getBannerRowCount(
+        init.errors.length,
+        terminalWidth,
+        terminalHeight,
+      )
+      : 1
+    : 0;
+  const mainViewportHeight = Math.max(1, terminalHeight - bannerReservedRows);
+  const overlayScreen = (() => {
+    switch (activeOverlay) {
+      case "palette":
+        return (
+          <CommandPaletteOverlay
+            onClose={() => setActiveOverlay("none")}
+            onExecute={handlePaletteAction}
+            onRebind={handleRebind}
+            initialState={paletteState}
+            onStateChange={setPaletteState}
+          />
+        );
+      case "config-overlay":
+        return (
+          <ConfigOverlay
+            onClose={() => setActiveOverlay("none")}
+            onOpenModelBrowser={() => {
+              setModelBrowserParentSurface(surfacePanel);
+              setModelBrowserParentOverlay("config-overlay");
+              setActiveOverlay("none");
+              setSurfacePanel("models");
+            }}
+            onConfigChange={(cfg) =>
+              applyRuntimeConfigState(
+                cfg as unknown as Record<string, unknown>,
+              )}
+            initialState={configOverlayState}
+            onStateChange={setConfigOverlayState}
+          />
+        );
+      case "tasks-overlay":
+        return <BackgroundTasksOverlay onClose={() => setActiveOverlay("none")} />;
+      case "team-dashboard":
+        return (
+          <TeamDashboardOverlay
+            onClose={() => setActiveOverlay("none")}
+            teamState={teamState}
+            interactionMode={pendingInteraction?.mode}
+          />
+        );
+      case "shortcuts-overlay":
+        return <ShortcutsOverlay onClose={() => setActiveOverlay("none")} />;
+      default:
+        return null;
+    }
+  })();
+  const standaloneSurfaceScreen = (() => {
+    switch (surfacePanel) {
+      case "picker":
+        return (
+          <SessionPicker
+            sessions={pickerSessions}
+            currentSessionId={sessionApi.current()?.id ?? currentSession?.id}
+            onSelect={handlePickerSelect}
+            onCancel={handlePickerCancel}
+          />
+        );
+      case "models":
+        return (
+          <ModelBrowser
+            currentModel={configuredModelId}
+            isCurrentModelConfigured={isConfiguredModelExplicit}
+            onClose={() => {
+              setSurfacePanel(modelBrowserParentSurface);
+              setActiveOverlay(modelBrowserParentOverlay);
+              setModelBrowserParentSurface("none");
+              setModelBrowserParentOverlay("none");
+            }}
+            onModelSet={(modelName: string) => {
+              const normalizedModel = normalizeModelId(modelName) ?? modelName;
+              addHistoryEntry("", {
+                success: true,
+                value: `✓ Default model: ${normalizedModel}`,
+                isCommandOutput: true,
+              });
+            }}
+            onSelectModel={async (modelName: string) => {
+              const updates = buildSelectedModelConfigUpdates(modelName);
+              const configApi = getRuntimeConfigApi();
+              await persistSelectedModelConfig(configApi, modelName);
+              applyRuntimeConfigState(
+                updates as unknown as Record<string, unknown>,
+              );
+            }}
+          />
+        );
+      case "model-setup":
+        return init.modelToSetup
+          ? (
+            <ModelSetupOverlay
+              modelName={init.modelToSetup}
+              onComplete={() => {
+                setModelSetupHandled(true);
+                setSurfacePanel("none");
+                addHistoryEntry("", {
+                  success: true,
+                  value: `✓ AI model installed: ${init.modelToSetup}`,
+                  isCommandOutput: true,
+                });
+              }}
+              onCancel={() => {
+                setModelSetupHandled(true);
+                setSurfacePanel("none");
+                addHistoryEntry("", {
+                  success: true,
+                  value:
+                    `AI model setup cancelled. Run "hlvm ai pull ${init.modelToSetup}" to download later.`,
+                  isCommandOutput: true,
+                });
+              }}
+            />
+          )
+          : null;
+      default:
+        return null;
+    }
+  })();
   const tokenColor = (type: TokenType): string | undefined => {
     switch (type) {
       case "string":
@@ -1586,256 +1987,173 @@ function AppContent(
   };
 
   return (
-    <Box key={clearKey} flexDirection="column" paddingX={1}>
-        {/* Banner hidden during conversation to prevent Ink re-render duplication */}
-        {showBanner && !hasBeenCleared && activePanel !== "conversation" && !init.ready && (
-          <Text dimColor>Loading HLVM...</Text>
-        )}
-        {showBanner && !hasBeenCleared && activePanel !== "conversation" && init.ready && (
-          <Banner
-            aiExports={init.aiExports}
-            aiReadiness={init.aiReadiness}
-            errors={init.errors}
-            modelName={footerModelName}
-          />
-        )}
+    <Box
+      key={clearKey}
+      flexDirection="column"
+      paddingX={1}
+      height={mainViewportHeight}
+    >
+      {isOverlayOpen ? overlayScreen : (
+        <>
+      {/* Banner rendered via Static to prevent double-render issues */}
+      {showBanner && !hasBeenCleared && !bannerRendered && (
+        <Text dimColor>Loading HLVM...</Text>
+      )}
+      <Static<BannerItem> {...staticBannerProps} />
 
-        {/* History of inputs and outputs (hidden during conversation to prevent ghost rendering) */}
-        {activePanel !== "conversation" && history.map((entry: HistoryEntry) => {
-          const lines = entry.input.split("\n");
-          const unclosedDepth = lines.length > 1
-            ? getUnclosedDepth(entry.input)
-            : 0;
-          return (
-            <Box key={entry.id} flexDirection="column" marginBottom={1}>
-              {lines.map((line: string, lineIndex: number) => (
-                <Box key={`${entry.id}-${lineIndex}`}>
-                  <Text color={color("primary")} bold>
-                    {lineIndex === 0
-                      ? "hlvm>"
-                      : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
-                  </Text>
-                  <Box>
-                    {tokenize(line).map((token, tokenIdx) => (
-                      <React.Fragment
-                        key={`${entry.id}-${lineIndex}-${tokenIdx}`}
-                      >
-                        <Text color={tokenColor(token.type)}>
-                          {token.value}
-                        </Text>
-                      </React.Fragment>
-                    ))}
-                  </Box>
+      {/* History of inputs and outputs (hidden while the conversation surface is active) */}
+      {!hasConversationContext && !hasStandaloneSurface &&
+        history.map((entry: HistoryEntry) => {
+        const lines = entry.input.split("\n");
+        const unclosedDepth = lines.length > 1
+          ? getUnclosedDepth(entry.input)
+          : 0;
+        return (
+          <Box key={entry.id} flexDirection="column" marginBottom={1}>
+            {lines.map((line: string, lineIndex: number) => (
+              <Box key={`${entry.id}-${lineIndex}`}>
+                <Text color={color("primary")} bold>
+                  {lineIndex === 0
+                    ? "hlvm>"
+                    : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
+                </Text>
+                <Box>
+                  {tokenize(line).map((token, tokenIdx) => (
+                    <React.Fragment
+                      key={`${entry.id}-${lineIndex}-${tokenIdx}`}
+                    >
+                      <Text color={tokenColor(token.type)}>
+                        {token.value}
+                      </Text>
+                    </React.Fragment>
+                  ))}
                 </Box>
-              ))}
-              <Output result={entry.result} />
-            </Box>
-          );
-        })}
-
-        {/* Session Picker */}
-        {activePanel === "picker" && (
-          <SessionPicker
-            sessions={pickerSessions}
-            currentSessionId={sessionApi.current()?.id ?? currentSession?.id}
-            onSelect={handlePickerSelect}
-            onCancel={handlePickerCancel}
-          />
-        )}
-
-        {/* Command Palette (True Floating Overlay) */}
-        {activePanel === "palette" && (
-          <CommandPaletteOverlay
-            onClose={() => setActivePanel("none")}
-            onExecute={handlePaletteAction}
-            onRebind={handleRebind}
-            initialState={paletteState}
-            onStateChange={setPaletteState}
-          />
-        )}
-
-        {/* Config Overlay (True Floating Overlay) */}
-        {activePanel === "config-overlay" && (
-          <ConfigOverlay
-            onClose={() => setActivePanel("none")}
-            onOpenModelBrowser={() => {
-              setModelBrowserParent("config-overlay");
-              setActivePanel("models");
-            }}
-            onConfigChange={(cfg) =>
-              applyRuntimeConfigState(cfg as unknown as Record<string, unknown>)}
-            initialState={configOverlayState}
-            onStateChange={setConfigOverlayState}
-          />
-        )}
-
-        {/* Background Tasks Overlay (True Floating Overlay) */}
-        {activePanel === "tasks-overlay" && (
-          <BackgroundTasksOverlay onClose={() => setActivePanel("none")} />
-        )}
-
-        {/* Shortcuts Overlay (True Floating Overlay) */}
-        {activePanel === "shortcuts-overlay" && (
-          <ShortcutsOverlay onClose={() => setActivePanel("none")} />
-        )}
-
-        {/* Model Browser Panel */}
-        {activePanel === "models" && (
-          <ModelBrowser
-            currentModel={activeModelId}
-            isCurrentModelConfigured={agentExecutionMode === "default"
-              ? isConfiguredModelExplicit
-              : !!activeModeModelOverrideId}
-            selectionScopeLabel={getAgentExecutionModeSelectionLabel(
-              agentExecutionMode,
-            )}
-            onClose={() => {
-              setActivePanel(modelBrowserParent);
-              setModelBrowserParent("none");
-            }}
-            onModelSet={(modelName: string) => {
-              const normalizedModel = normalizeModelId(modelName) ?? modelName;
-              addHistoryEntry("", {
-                success: true,
-                value: `✓ ${
-                  getAgentExecutionModeSelectionLabel(agentExecutionMode)
-                }: ${normalizedModel}`,
-                isCommandOutput: true,
-              });
-            }}
-            onSelectModel={async (modelName: string) => {
-              if (agentExecutionMode === "default") {
-                const updates = buildSelectedModelConfigUpdates(modelName);
-                const configApi = getRuntimeConfigApi();
-                await persistSelectedModelConfig(configApi, modelName);
-                setModeModelOverrides((current: ReplAgentExecutionModeModelOverrides) => {
-                  const next = { ...current };
-                  delete next.default;
-                  return next;
-                });
-                applyRuntimeConfigState(
-                  updates as unknown as Record<string, unknown>,
-                );
-                return;
-              }
-
-              const normalizedModel = normalizeModelId(modelName) ?? modelName;
-              setModeModelOverrides((current: ReplAgentExecutionModeModelOverrides) => ({
-                ...current,
-                [agentExecutionMode]: normalizedModel,
-              }));
-              flashFooterStatus(
-                `${
-                  getAgentExecutionModeSelectionLabel(agentExecutionMode)
-                } · ${formatExecutionModeModelDisplayName(normalizedModel)}`,
-              );
-            }}
-          />
-        )}
-
-        {/* Model Setup Overlay (first-time AI model download) */}
-        {activePanel === "model-setup" && init.modelToSetup && (
-          <ModelSetupOverlay
-            modelName={init.modelToSetup}
-            onComplete={() => {
-              setModelSetupHandled(true); // Prevent showing overlay again
-              setActivePanel("none");
-              // Add success message to history
-              addHistoryEntry("", {
-                success: true,
-                value: `✓ AI model installed: ${init.modelToSetup}`,
-                isCommandOutput: true,
-              });
-            }}
-            onCancel={() => {
-              setModelSetupHandled(true); // Prevent showing overlay again
-              setActivePanel("none");
-              // Add cancelled message to history
-              addHistoryEntry("", {
-                success: true,
-                value:
-                  `AI model setup cancelled. Run "hlvm ai pull ${init.modelToSetup}" to download later.`,
-                isCommandOutput: true,
-              });
-            }}
-          />
-        )}
-
-        {/* Conversation Panel */}
-        {activePanel === "conversation" && (
-          <Box flexDirection="column">
-            <ConversationPanel
-              items={conversation.items}
-              width={Math.max(20, terminalWidth - 2)}
-              streamingState={conversation.streamingState}
-              activePlan={conversation.activePlan}
-              todoState={conversation.todoState ?? conversation.planTodoState}
-              pendingPlanReview={conversation.pendingPlanReview}
-              latestCheckpoint={conversation.latestCheckpoint}
-              allowToggleHotkeys={allowConversationToggleHotkeys}
-              interactionRequest={pendingInteraction}
-              interactionQueueLength={interactionQueue.length}
-              onInteractionResponse={handleInteractionResponse}
-            />
+              </Box>
+            ))}
+            <Output result={entry.result} />
           </Box>
+        );
+      })}
+
+      {hasStandaloneSurface && standaloneSurfaceScreen && (
+        <Box flexGrow={1} justifyContent="center" alignItems="center">
+          {standaloneSurfaceScreen}
+        </Box>
+      )}
+
+      {/* Conversation Panel (agent mode) */}
+      {hasConversationContext && (
+        <Box flexGrow={1} flexDirection="column" justifyContent="flex-end">
+          <ConversationPanel
+            items={conversation.items}
+            width={Math.max(20, terminalWidth - 2)}
+            reservedRows={Math.max(
+              4,
+              composerLayoutRows +
+                queuePreviewRows + 1,
+            )}
+            streamingState={conversation.streamingState}
+            activePlan={conversation.activePlan}
+            todoState={conversation.todoState ?? conversation.planTodoState}
+            pendingPlanReview={conversation.pendingPlanReview}
+            latestCheckpoint={conversation.latestCheckpoint}
+            allowToggleHotkeys={surfacePanel === "conversation" &&
+              allowConversationToggleHotkeys}
+            interactionRequest={pendingInteraction}
+            interactionQueueLength={interactionQueue.length}
+            onInteractionResponse={handleInteractionResponse}
+          />
+        </Box>
+      )}
+
+      {/* Queue preview bar (visible above input when queue has items in conversation mode) */}
+      {hasConversationContext && pendingConversationQueue.length > 0 &&
+        (
+          <QueuePreview
+            items={pendingConversationQueue}
+            editBindingLabel={queueEditBindingLabel}
+          />
         )}
-      {/* Input line (hidden when modal panels are open, but visible under overlay) */}
+
+      {/* Input line */}
       {/* FRP: Input now gets history, bindings, signatures, docstrings from ReplContext */}
-      {/* Note: CommandPalette, ConfigOverlay, and BackgroundTasksOverlay are true overlays, so Input stays visible underneath */}
       {isInputVisible &&
         (
           <Input
             value={input}
             onChange={setInput}
             onSubmit={handleSubmit}
+            onForceSubmit={hasConversationContext
+              ? handleForceInterrupt
+              : undefined}
+            onQueueDraft={hasConversationContext && agentControllerRef.current
+              ? handleQueueDraft
+              : undefined}
+            onEditLastQueuedDraft={hasConversationContext &&
+                pendingConversationQueue.length > 0
+              ? handleEditLastQueuedDraft
+              : undefined}
+            queueEditBinding={queueEditBinding}
+            canEditQueuedDraft={hasConversationContext &&
+              pendingConversationQueue.length > 0}
+            isConversationTaskRunning={hasConversationContext &&
+              agentControllerRef.current !== null}
+            onAttachmentsChange={setComposerAttachments}
+            restoredAttachments={composerAttachments}
+            restoredCursorOffset={restoredComposerCursorOffset}
+            restoredDraftRevision={restoredComposerDraftRevision}
+            onLayoutRowsChange={setComposerLayoutRows}
             onCycleMode={cycleAgentMode}
             disabled={isInputDisabled}
-            highlightMode={activePanel === "conversation" ? "chat" : "code"}
-            promptLabel={activePanel === "conversation" &&
+            highlightMode={hasConversationContext ? "chat" : "code"}
+            promptLabel={hasConversationContext &&
                 pendingInteraction?.mode === "question"
               ? "answer>"
               : "hlvm>"}
           />
         )}
 
-      {/* Footer hint (visible during normal mode, overlays, and conversation mode) */}
-      {(isInputVisible || activePanel === "conversation") &&
+      {/* Keep the prompt attached to content while pinning the footer to the bottom in plain REPL mode */}
+      {!hasConversationContext && !hasStandaloneSurface && <Box flexGrow={1} />}
+
+      {/* Footer hint */}
+      {(isInputVisible || hasConversationContext) &&
         (
           <FooterHint
-            terminalWidth={terminalWidth}
             modelName={footerModelName}
             modeLabel={getAgentExecutionModeBadge(agentExecutionMode)}
             statusMessage={footerStatusMessage}
-            streamingState={activePanel === "conversation"
+            streamingState={hasConversationContext
               ? conversation.streamingState
               : undefined}
-            activeTool={activePanel === "conversation"
+            activeTool={hasConversationContext
               ? conversation.activeTool
               : undefined}
-            contextUsageLabel={activePanel === "conversation"
+            contextUsageLabel={hasConversationContext
               ? footerContextUsageLabel
               : ""}
-            checkpointLabel={activePanel === "conversation" &&
+            checkpointLabel={hasConversationContext &&
                 conversation.latestCheckpoint &&
                 !conversation.latestCheckpoint.restoredAt
               ? "/undo ready"
               : ""}
-            interactionQueueLength={activePanel === "conversation"
+            interactionQueueLength={hasConversationContext
               ? interactionQueue.length
               : 0}
-            queuedUserTurnCount={activePanel === "conversation"
-              ? pendingConversationQueue.length
-              : 0}
-            inConversation={activePanel === "conversation"}
-            hasPendingPermission={activePanel === "conversation" &&
+            hasDraftInput={input.trim().length > 0 ||
+              composerAttachments.length > 0}
+            inConversation={hasConversationContext}
+            hasPendingPermission={hasConversationContext &&
               pendingInteraction?.mode === "permission"}
-            hasPendingQuestion={activePanel === "conversation" &&
+            hasPendingQuestion={hasConversationContext &&
               pendingInteraction?.mode === "question"}
+            teamActive={teamState.active}
+            teamAttentionCount={teamState.attentionItems.length}
           />
         )}
 
-      {isEvaluating && activePanel !== "conversation" && (
-        <Text dimColor>...</Text>
+      {isEvaluating && !hasConversationContext && <Text dimColor>...</Text>}
+        </>
       )}
     </Box>
   );

@@ -4,6 +4,8 @@
  * These are internal scheduler/control-plane tools for background delegates.
  */
 
+import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
+import { getAgentLogger } from "../logger.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 import {
   cancelThread,
@@ -13,9 +15,12 @@ import {
   getThread,
   resolveResumableThread,
   sendThreadInput,
+  takeQueuedCompletedThread,
   updateThreadMerge,
 } from "../delegate-threads.ts";
 import { applyChildChanges } from "../delegation.ts";
+
+const WAIT_POLL_INTERVAL_MS = 25;
 
 function shouldAutoApplyChildChanges(
   thread: DelegateThread,
@@ -88,6 +93,64 @@ function formatThreadResult(
   return base;
 }
 
+function isTerminalThread(thread: DelegateThread | undefined): thread is DelegateThread {
+  return !!thread &&
+    (thread.status === "completed" || thread.status === "errored" || thread.status === "cancelled");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function buildWaitResult(
+  thread: DelegateThread,
+  workspace?: string,
+  options?: ToolExecutionOptions,
+): Promise<Record<string, unknown>> {
+  const mergeResult = await maybeApplyChildChanges(thread, workspace, options);
+  return {
+    ...formatThreadResult(thread, mergeResult),
+    ...(isObjectValue(thread.terminalResult) ? thread.terminalResult : {}),
+  };
+}
+
+async function waitForSpecificThreadCompletion(
+  threadId: string,
+  timeoutMs?: number,
+): Promise<DelegateThread | undefined> {
+  const deadline = timeoutMs !== undefined ? Date.now() + timeoutMs : undefined;
+  while (true) {
+    const thread = getThread(threadId);
+    if (!thread) return undefined;
+    if (isTerminalThread(thread)) return thread;
+    if (deadline !== undefined && Date.now() >= deadline) return thread;
+    const remaining = deadline === undefined ? WAIT_POLL_INTERVAL_MS : Math.max(0, deadline - Date.now());
+    await sleep(Math.min(WAIT_POLL_INTERVAL_MS, remaining));
+  }
+}
+
+function getLatestTerminalThread(threads: DelegateThread[]): DelegateThread | undefined {
+  return threads
+    .filter(isTerminalThread)
+    .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))[0];
+}
+
+async function waitForAnyThreadCompletion(timeoutMs?: number): Promise<DelegateThread | undefined> {
+  const deadline = timeoutMs !== undefined ? Date.now() + timeoutMs : undefined;
+  while (true) {
+    const queued = takeQueuedCompletedThread();
+    if (queued) return queued;
+    const threads = getAllThreads();
+    const active = threads.filter((t) => t.status === "queued" || t.status === "running");
+    if (active.length === 0) {
+      return getLatestTerminalThread(threads);
+    }
+    if (deadline !== undefined && Date.now() >= deadline) return undefined;
+    const remaining = deadline === undefined ? WAIT_POLL_INTERVAL_MS : Math.max(0, deadline - Date.now());
+    await sleep(Math.min(WAIT_POLL_INTERVAL_MS, remaining));
+  }
+}
+
 /**
  * Auto-apply child workspace changes to parent workspace on completion.
  * Returns merge result or undefined if no merge needed.
@@ -139,7 +202,10 @@ async function maybeApplyChildChanges(
     await thread.workspaceCleanup?.();
     clearThreadWorkspace(thread.threadId);
     return result;
-  } catch {
+  } catch (error) {
+    getAgentLogger().warn(
+      `Failed to apply child changes for thread "${thread.nickname}": ${getErrorMessage(error)}`,
+    );
     return undefined;
   }
 }
@@ -161,93 +227,37 @@ const waitAgent: ToolMetadata = {
       : undefined;
 
     if (threadId) {
-      // Wait for specific thread
       const thread = getThread(threadId);
       if (!thread) {
         return { error: `No thread found with ID "${threadId}"` };
       }
-      if (
-        thread.status === "completed" || thread.status === "errored" ||
-        thread.status === "cancelled"
-      ) {
-        const mergeResult = await maybeApplyChildChanges(thread, workspace, options);
-        return formatThreadResult(thread, mergeResult);
+      if (isTerminalThread(thread)) {
+        return await buildWaitResult(thread, workspace, options);
       }
-      // Await with optional timeout (cleanup timer to prevent leaks)
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      try {
-        const result = timeoutMs
-          ? await Promise.race([
-            thread.promise,
-            new Promise<never>((_, reject) => {
-              timeoutId = setTimeout(
-                () => reject(new Error("Timeout waiting for agent")),
-                timeoutMs,
-              );
-            }),
-          ])
-          : await thread.promise;
-          const mergeResult = await maybeApplyChildChanges(thread, workspace, options);
-        return {
-          ...formatThreadResult(thread, mergeResult),
-          ...(typeof result === "object" && result !== null ? result : {}),
-        };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return { ...formatThreadResult(thread), error: message };
-      } finally {
-        if (timeoutId !== undefined) clearTimeout(timeoutId);
+      const completedThread = await waitForSpecificThreadCompletion(threadId, timeoutMs);
+      if (completedThread && isTerminalThread(completedThread)) {
+        return await buildWaitResult(completedThread, workspace, options);
       }
+      return { ...formatThreadResult(thread), error: "Timeout waiting for agent" };
     }
 
-    // No thread_id: await first completed thread (Promise.race)
     const threads = getAllThreads();
     const active = threads.filter(
       (t) => t.status === "queued" || t.status === "running",
     );
-      if (active.length === 0) {
-        // Check for any completed threads
-        const finished = threads.filter(
-          (t) =>
-            t.status === "completed" || t.status === "errored" ||
-            t.status === "cancelled",
-        ).sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0));
-        if (finished.length > 0) {
-          const mergeResult = await maybeApplyChildChanges(
-            finished[0],
-            workspace,
-            options,
-          );
-          return formatThreadResult(finished[0], mergeResult);
-        }
-        return { error: "No active or completed delegate threads" };
+    if (active.length === 0) {
+      const finished = getLatestTerminalThread(threads);
+      if (finished) {
+        return await buildWaitResult(finished, workspace, options);
       }
-
-    let raceTimeoutId: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const promises = active.map((t) =>
-        t.promise.then(() => t)
-      );
-      const racePromises = timeoutMs
-        ? [
-          ...promises,
-          new Promise<never>((_, reject) => {
-            raceTimeoutId = setTimeout(
-              () => reject(new Error("Timeout waiting for agent")),
-              timeoutMs,
-            );
-          }),
-        ]
-        : promises;
-      const finished = await Promise.race(racePromises);
-      const mergeResult = await maybeApplyChildChanges(finished, workspace, options);
-      return formatThreadResult(finished, mergeResult);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return { error: message };
-    } finally {
-      if (raceTimeoutId !== undefined) clearTimeout(raceTimeoutId);
+      return { error: "No active or completed delegate threads" };
     }
+
+    const finished = await waitForAnyThreadCompletion(timeoutMs);
+    if (finished) {
+      return await buildWaitResult(finished, workspace, options);
+    }
+    return { error: "Timeout waiting for agent" };
   },
   description:
     "Await a background delegate result for ongoing orchestration.",

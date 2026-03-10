@@ -18,7 +18,7 @@ import { TEXT_ENCODER } from "../../../common/utils.ts";
 import { safeStringify } from "../../../common/safe-stringify.ts";
 import { isToolArgsObject } from "../validation.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
-import type { TodoItem, TodoState, TodoStatus } from "../todo-state.ts";
+import { cloneTodoItems, type TodoItem, type TodoState, type TodoStatus } from "../todo-state.ts";
 
 // ============================================================
 // Tool 1: ask_user
@@ -207,10 +207,6 @@ const TODO_STATUSES = new Set<TodoStatus>([
   "in_progress",
   "completed",
 ]);
-
-function cloneTodoItems(items: TodoItem[]): TodoItem[] {
-  return items.map((item) => ({ ...item }));
-}
 
 function summarizeTodoState(items: TodoItem[]): string {
   if (items.length === 0) return "0 todos";

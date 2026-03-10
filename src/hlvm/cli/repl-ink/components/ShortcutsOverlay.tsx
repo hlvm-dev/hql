@@ -5,16 +5,15 @@
  * Built from the keybinding registry SSOT plus a few curated section ids.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { useInput } from "ink";
+import React, { useCallback, useEffect, useMemo } from "react";
+import { useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { getDisplay, registry } from "../keybindings/index.ts";
 import type { Keybinding } from "../keybindings/index.ts";
 import {
   ansi,
   bg,
-  calcOverlayPosition,
-  clearOverlay,
+  fitOverlayRect,
   fg,
   hexToRgb,
   OVERLAY_BG_COLOR,
@@ -39,17 +38,61 @@ interface ShortcutSection {
 const SECTION_IDS = [
   {
     title: "General",
-    ids: ["question-mark", "ctrl+p", "ctrl+b", "/help"],
+    ids: ["ctrl+p", "ctrl+b", "ctrl+t", "/help"],
   },
   {
     title: "Conversation",
-    ids: ["ctrl+o", "ctrl+y", "esc-global", "pgup-pgdn"],
+    ids: [
+      "ctrl+o",
+      "ctrl+y",
+      "shift+tab",
+      "ctrl+enter-force",
+      "esc-global",
+      "pgup-pgdn",
+    ],
   },
 ] as const;
 
 const OVERLAY_WIDTH = 58;
-const OVERLAY_HEIGHT = 17;
 const PADDING = { top: 1, bottom: 1, left: 2, right: 2 };
+
+function getOverlayHeight(sections: readonly ShortcutSection[]): number {
+  const sectionRows = sections.reduce(
+    (rows: number, section: ShortcutSection) => rows + section.rows.length + 2,
+    0,
+  );
+  return PADDING.top + PADDING.bottom + sectionRows + 4;
+}
+
+function fitShortcutSections(
+  sections: readonly ShortcutSection[],
+  maxBodyRows: number,
+): ShortcutSection[] {
+  if (maxBodyRows <= 0) return [];
+
+  const fitted: ShortcutSection[] = [];
+  let usedRows = 0;
+
+  for (const section of sections) {
+    const rowsRemaining = maxBodyRows - usedRows;
+    if (rowsRemaining < 2) break;
+
+    const visibleRows = section.rows.slice(0, Math.max(1, rowsRemaining - 2));
+    if (visibleRows.length === 0) break;
+
+    fitted.push({
+      title: section.title,
+      rows: visibleRows,
+    });
+    usedRows += visibleRows.length + 2;
+
+    if (visibleRows.length < section.rows.length) {
+      break;
+    }
+  }
+
+  return fitted;
+}
 
 function padRight(value: string, width: number): string {
   return value.length >= width ? value.slice(0, width) : value.padEnd(width, " ");
@@ -84,7 +127,9 @@ export function ShortcutsOverlay({
   onClose,
 }: ShortcutsOverlayProps): React.ReactElement | null {
   const { theme } = useTheme();
-  const overlayPosRef = useRef({ x: 0, y: 0 });
+  const { stdout } = useStdout();
+  const terminalColumns = stdout?.columns ?? 0;
+  const terminalRows = stdout?.rows ?? 0;
 
   const colors = useMemo(() => ({
     primary: hexToRgb(theme.primary) as RGB,
@@ -96,38 +141,58 @@ export function ShortcutsOverlay({
   const sections = useMemo(() => buildShortcutSections(), []);
 
   const drawOverlay = useCallback(() => {
-    const pos = calcOverlayPosition(OVERLAY_WIDTH, OVERLAY_HEIGHT);
-    overlayPosRef.current = pos;
-
-    const contentWidth = OVERLAY_WIDTH - PADDING.left - PADDING.right;
-    const displayWidth = 12;
+    const desiredHeight = getOverlayHeight(sections);
+    const overlay = fitOverlayRect(OVERLAY_WIDTH, desiredHeight, {
+      marginX: 1,
+      marginY: 1,
+    });
+    const overlayHeight = overlay.height;
+    const contentWidth = Math.max(12, overlay.width - PADDING.left - PADDING.right);
+    const displayWidth = Math.max(
+      8,
+      Math.min(12, Math.floor(contentWidth * 0.3)),
+    );
+    const bodyRows = Math.max(
+      0,
+      overlayHeight - PADDING.top - PADDING.bottom - 4,
+    );
+    const visibleSections = fitShortcutSections(sections, bodyRows);
+    const renderedRowCount = visibleSections.reduce(
+      (rows: number, section: ShortcutSection) => rows + section.rows.length,
+      0,
+    );
+    const totalRowCount = sections.reduce(
+      (rows: number, section: ShortcutSection) => rows + section.rows.length,
+      0,
+    );
+    const hasHiddenRows = renderedRowCount < totalRowCount;
     const bgStyle = colors.bgStyle;
     let output = ansi.cursorSave + ansi.cursorHide;
 
     const drawRow = (y: number, render: () => number): void => {
-      output += ansi.cursorTo(pos.x, y) + bgStyle;
+      output += ansi.cursorTo(overlay.x, y) + bgStyle;
       const visibleLen = render();
-      const remaining = OVERLAY_WIDTH - visibleLen;
+      const remaining = overlay.width - visibleLen;
       if (remaining > 0) output += " ".repeat(remaining);
     };
 
     const drawEmptyRow = (y: number): void => drawRow(y, () => 0);
 
     for (let i = 0; i < PADDING.top; i++) {
-      drawEmptyRow(pos.y + i);
+      drawEmptyRow(overlay.y + i);
     }
 
-    const headerY = pos.y + PADDING.top;
+    const headerY = overlay.y + PADDING.top;
     drawRow(headerY, () => {
       const title = "Shortcuts";
-      const closeHint = "esc/?";
+      const closeHint = "esc";
       output += " ".repeat(PADDING.left);
       output += fg(colors.primary) + ansi.bold + title + ansi.reset + bgStyle;
       const pad = contentWidth - title.length - closeHint.length;
       output += " ".repeat(Math.max(1, pad));
       output += fg(colors.muted) + closeHint + ansi.reset + bgStyle;
       output += " ".repeat(PADDING.right);
-      return OVERLAY_WIDTH;
+      return overlay.width;
     });
 
     drawRow(headerY + 1, () => {
@@ -138,7 +203,7 @@ export function ShortcutsOverlay({
     });
 
     let rowY = headerY + 3;
-    for (const section of sections) {
+    for (const section of visibleSections) {
       drawRow(rowY, () => {
         output += " ".repeat(PADDING.left);
         output += fg(colors.accent) + section.title + ansi.reset + bgStyle;
@@ -161,42 +226,31 @@ export function ShortcutsOverlay({
       rowY += 1;
     }
 
-    const footerY = pos.y + OVERLAY_HEIGHT - PADDING.bottom - 1;
+    const footerY = overlay.y + overlayHeight - PADDING.bottom - 1;
     drawRow(footerY, () => {
-      const footer = "Use ? on an empty prompt to reopen";
+      const footer = hasHiddenRows
+        ? "Reopen with /help. Widen terminal for the full list."
+        : "Reopen with /help. Ctrl+P opens command palette.";
       output += " ".repeat(PADDING.left);
-      output += fg(colors.muted) + footer + ansi.reset + bgStyle;
-      return PADDING.left + footer.length;
+      const visibleFooter = footer.slice(0, contentWidth);
+      output += fg(colors.muted) + visibleFooter + ansi.reset + bgStyle;
+      return PADDING.left + visibleFooter.length;
     });
 
     for (let i = 0; i < PADDING.bottom; i++) {
-      drawEmptyRow(pos.y + OVERLAY_HEIGHT - PADDING.bottom + i);
+      drawEmptyRow(overlay.y + overlayHeight - PADDING.bottom + i);
     }
 
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
     writeToTerminal(output);
-  }, [colors, sections]);
+  }, [colors, sections, terminalColumns, terminalRows]);
 
   useEffect(() => {
     drawOverlay();
   }, [drawOverlay]);
 
-  useEffect(() => {
-    return () => {
-      const pos = overlayPosRef.current;
-      if (pos.x !== 0 || pos.y !== 0) {
-        clearOverlay({
-          x: pos.x,
-          y: pos.y,
-          width: OVERLAY_WIDTH,
-          height: OVERLAY_HEIGHT,
-        });
-      }
-    };
-  }, []);
-
-  useInput((input, key) => {
-    if (key.escape || input === "?") {
+  useInput((_input, key) => {
+    if (key.escape || key.return) {
       onClose();
     }
   });

@@ -32,6 +32,8 @@ export function allocateNickname(activeNicknames: Set<string>): string {
 interface QueueEntry {
   threadId: string;
   resolve: (release: () => void) => void;
+  reject: (error: Error) => void;
+  cleanup: () => void;
 }
 
 export class ConcurrencyLimiter {
@@ -41,13 +43,43 @@ export class ConcurrencyLimiter {
   constructor(private max = 2) {}
 
   /** Acquire a slot, waiting if at capacity. Returns a release function. */
-  acquire(threadId: string): Promise<() => void> {
+  acquire(threadId: string, signal?: AbortSignal): Promise<() => void> {
+    if (signal?.aborted) {
+      return Promise.reject(createAbortError(signal.reason));
+    }
     if (this.active.size < this.max) {
       this.active.add(threadId);
       return Promise.resolve(this.createRelease(threadId));
     }
-    return new Promise<() => void>((resolve) => {
-      this.queue.push({ threadId, resolve });
+    return new Promise<() => void>((resolve, reject) => {
+      const abortHandler = () => {
+        const index = this.queue.indexOf(entry);
+        if (index >= 0) {
+          this.queue.splice(index, 1);
+        }
+        entry.reject(createAbortError(signal?.reason));
+      };
+      const cleanup = () => {
+        if (signal) {
+          signal.removeEventListener("abort", abortHandler);
+        }
+      };
+      const entry: QueueEntry = {
+        threadId,
+        resolve: (release) => {
+          cleanup();
+          resolve(release);
+        },
+        reject: (error) => {
+          cleanup();
+          reject(error);
+        },
+        cleanup,
+      };
+      if (signal) {
+        signal.addEventListener("abort", abortHandler, { once: true });
+      }
+      this.queue.push(entry);
     });
   }
 
@@ -77,11 +109,20 @@ export class ConcurrencyLimiter {
       // Wake next queued entry — add it to active and give proper release
       const next = this.queue.shift();
       if (next) {
+        next.cleanup();
         this.active.add(next.threadId);
         next.resolve(this.createRelease(next.threadId));
       }
     };
   }
+}
+
+function createAbortError(reason?: unknown): Error {
+  const error = new Error(
+    typeof reason === "string" && reason.length > 0 ? reason : "Operation aborted",
+  );
+  error.name = "AbortError";
+  return error;
 }
 
 // ============================================================

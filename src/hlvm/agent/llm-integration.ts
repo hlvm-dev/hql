@@ -394,8 +394,15 @@ function renderDelegation(
     "- Always close_agent when done to free resources",
     "- Don't delegate when you can do it faster yourself",
     "- Use send_input to steer a running agent mid-task",
+    "- Child delegates cannot write or edit persistent memory — only the parent agent manages memory",
     "",
     `## Available Agents\n${agentList}`,
+    "",
+    "## Examples",
+    '- "Refactor auth across 5 modules" -> fan-out: 5 code delegates, one per module',
+    '- "Research competitors and write report" -> specialist: web delegate + code delegate',
+    '- "Fix typo in README" -> just do it yourself, delegation overhead > benefit',
+    '- "Update config.ts then test it" -> sequential dependency, don\'t parallelize',
   ];
 
   return {

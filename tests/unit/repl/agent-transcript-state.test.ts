@@ -3,7 +3,10 @@ import {
   createTranscriptState,
   reduceTranscriptState,
 } from "../../../src/hlvm/cli/agent-transcript-state.ts";
-import type { ConversationItem } from "../../../src/hlvm/cli/repl-ink/types.ts";
+import {
+  isStructuredTeamInfoItem,
+  type ConversationItem,
+} from "../../../src/hlvm/cli/repl-ink/types.ts";
 
 function withItems(items: ConversationItem[]) {
   return {
@@ -13,7 +16,7 @@ function withItems(items: ConversationItem[]) {
   };
 }
 
-Deno.test("agent transcript state inserts a final assistant response before trailing turn stats", () => {
+Deno.test("agent transcript state drops stale turn stats when assistant text continues the same turn", () => {
   const state = withItems([
     {
       type: "user",
@@ -54,7 +57,6 @@ Deno.test("agent transcript state inserts a final assistant response before trai
     "user",
     "tool_group",
     "assistant",
-    "turn_stats",
   ]);
   assertEquals(next.items[2]?.type, "assistant");
   if (next.items[2]?.type === "assistant") {
@@ -225,6 +227,129 @@ Deno.test("agent transcript state finalization removes transient rows and empty 
   }
 });
 
+Deno.test("agent transcript state collapses repeated assistant blocks within one user turn", () => {
+  const state = withItems([
+    {
+      type: "user",
+      id: "u1",
+      text: "hello",
+      ts: 1,
+    },
+    {
+      type: "tool_group",
+      id: "tg1",
+      ts: 2,
+      tools: [{
+        id: "tool1",
+        name: "list_agents",
+        argsSummary: "{}",
+        status: "success",
+        resultSummaryText: "{}",
+        resultText: "{}",
+        toolIndex: 1,
+        toolTotal: 1,
+      }],
+    },
+    {
+      type: "assistant",
+      id: "a1",
+      text: "Hello there",
+      isPending: false,
+      ts: 3,
+    },
+    {
+      type: "turn_stats",
+      id: "stats1",
+      toolCount: 1,
+      durationMs: 1000,
+    },
+    {
+      type: "tool_group",
+      id: "tg2",
+      ts: 4,
+      tools: [{
+        id: "tool2",
+        name: "read_file",
+        argsSummary: "/tmp/test.txt",
+        status: "success",
+        resultSummaryText: "contents",
+        resultText: "contents",
+        toolIndex: 1,
+        toolTotal: 1,
+      }],
+    },
+    {
+      type: "assistant",
+      id: "a2",
+      text: "Hello there again",
+      isPending: false,
+      ts: 5,
+    },
+    {
+      type: "turn_stats",
+      id: "stats2",
+      toolCount: 2,
+      durationMs: 2000,
+    },
+  ]);
+
+  const next = reduceTranscriptState(state, {
+    type: "assistant_text",
+    text: "Final answer",
+    isPending: false,
+  });
+
+  assertEquals(next.items.map((item) => item.type), [
+    "user",
+    "tool_group",
+    "tool_group",
+    "assistant",
+  ]);
+  assertEquals(next.items[3]?.type, "assistant");
+  if (next.items[3]?.type === "assistant") {
+    assertEquals(next.items[3].text, "Final answer");
+    assertEquals(next.items[3].id, "a2");
+  }
+});
+
+Deno.test("agent transcript state keeps only the latest turn stats for the active user turn", () => {
+  const withUser = reduceTranscriptState(createTranscriptState(), {
+    type: "user_message",
+    text: "hello",
+  });
+
+  const firstStats = reduceTranscriptState(withUser, {
+    type: "agent_event",
+    event: {
+      type: "turn_stats",
+      iteration: 1,
+      toolCount: 1,
+      durationMs: 1000,
+    },
+  });
+
+  const secondStats = reduceTranscriptState(firstStats, {
+    type: "agent_event",
+    event: {
+      type: "turn_stats",
+      iteration: 2,
+      toolCount: 2,
+      durationMs: 2000,
+    },
+  });
+
+  assertEquals(
+    secondStats.items.filter((item) => item.type === "turn_stats").length,
+    1,
+  );
+  assertEquals(secondStats.items.at(-1)?.type, "turn_stats");
+  const latestItem = secondStats.items.at(-1);
+  if (latestItem?.type === "turn_stats") {
+    assertEquals(latestItem.toolCount, 2);
+    assertEquals(latestItem.durationMs, 2000);
+  }
+});
+
 Deno.test("agent transcript state clears prior plan and todo state when hydrating a resumed transcript", () => {
   const withPlan = reduceTranscriptState(createTranscriptState(), {
     type: "agent_event",
@@ -333,7 +458,7 @@ Deno.test("agent transcript state tracks plan review and checkpoint safety state
   assertEquals(resolved.pendingPlanReview, undefined);
 });
 
-Deno.test("agent transcript state records team lifecycle events as info items", () => {
+Deno.test("agent transcript state preserves structured team lifecycle metadata", () => {
   const withTask = reduceTranscriptState(createTranscriptState(), {
     type: "agent_event",
     event: {
@@ -358,15 +483,28 @@ Deno.test("agent transcript state records team lifecycle events as info items", 
   });
 
   assertEquals(withMessage.items.map((item) => item.type), ["info", "info"]);
-  assertEquals(withMessage.items[0]?.type, "info");
-  if (withMessage.items[0]?.type === "info") {
+  assertEquals(isStructuredTeamInfoItem(withMessage.items[0]!), true);
+  if (
+    withMessage.items[0] &&
+    isStructuredTeamInfoItem(withMessage.items[0]) &&
+    withMessage.items[0].teamEventType === "team_task_updated"
+  ) {
+    assertEquals(withMessage.items[0].teamEventType, "team_task_updated");
+    assertEquals(withMessage.items[0].taskId, "task-1");
+    assertEquals(withMessage.items[0].assigneeMemberId, "worker-1");
     assertEquals(
       withMessage.items[0].text,
       "Team task in_progress: Review patch (worker-1)",
     );
   }
-  assertEquals(withMessage.items[1]?.type, "info");
-  if (withMessage.items[1]?.type === "info") {
+  assertEquals(isStructuredTeamInfoItem(withMessage.items[1]!), true);
+  if (
+    withMessage.items[1] &&
+    isStructuredTeamInfoItem(withMessage.items[1]) &&
+    withMessage.items[1].teamEventType === "team_message"
+  ) {
+    assertEquals(withMessage.items[1].teamEventType, "team_message");
+    assertEquals(withMessage.items[1].relatedTaskId, "task-1");
     assertEquals(
       withMessage.items[1].text,
       "Team direct: worker-1 -> lead: Need clarification on scope",

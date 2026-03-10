@@ -225,8 +225,127 @@ Deno.test("session API records into runtime conversation sessions and clears cur
   clearCurrentSession();
 });
 
+Deno.test("session API hides cancelled transcript rows on resume and export", async () => {
+  const runtimeSession = {
+    id: "sess-cancelled",
+    title: "Cancelled",
+    created_at: "2026-03-07T00:00:00.000Z",
+    updated_at: "2026-03-07T00:05:00.000Z",
+    message_count: 4,
+    session_version: 3,
+    metadata: null,
+  };
+  const messages: MessageRow[] = [
+    {
+      id: 1,
+      session_id: "sess-cancelled",
+      order: 1,
+      role: "user",
+      content: "keep me",
+      client_turn_id: "turn-1",
+      request_id: "req-1",
+      sender_type: "user",
+      sender_detail: null,
+      image_paths: null,
+      tool_calls: null,
+      tool_name: null,
+      tool_call_id: null,
+      cancelled: 0,
+      created_at: "2026-03-07T00:00:00.000Z",
+    },
+    {
+      id: 2,
+      session_id: "sess-cancelled",
+      order: 2,
+      role: "assistant",
+      content: "keep reply",
+      client_turn_id: "turn-1",
+      request_id: "req-1",
+      sender_type: "assistant",
+      sender_detail: null,
+      image_paths: null,
+      tool_calls: null,
+      tool_name: null,
+      tool_call_id: null,
+      cancelled: 0,
+      created_at: "2026-03-07T00:00:01.000Z",
+    },
+    {
+      id: 3,
+      session_id: "sess-cancelled",
+      order: 3,
+      role: "user",
+      content: "cancel me",
+      client_turn_id: "turn-2",
+      request_id: "req-2",
+      sender_type: "user",
+      sender_detail: null,
+      image_paths: null,
+      tool_calls: null,
+      tool_name: null,
+      tool_call_id: null,
+      cancelled: 0,
+      created_at: "2026-03-07T00:00:02.000Z",
+    },
+    {
+      id: 4,
+      session_id: "sess-cancelled",
+      order: 4,
+      role: "assistant",
+      content: "partial",
+      client_turn_id: "turn-2",
+      request_id: "req-2",
+      sender_type: "assistant",
+      sender_detail: null,
+      image_paths: null,
+      tool_calls: null,
+      tool_name: null,
+      tool_call_id: null,
+      cancelled: 1,
+      created_at: "2026-03-07T00:00:03.000Z",
+    },
+  ];
+
+  clearCurrentSession();
+
+  await withRuntimeHostServer(async (req) => {
+    const url = new URL(req.url);
+
+    if (url.pathname === "/api/sessions/sess-cancelled/messages") {
+      return Response.json({
+        messages,
+        total: messages.length,
+        has_more: false,
+        session_version: 3,
+      });
+    }
+
+    if (url.pathname === "/api/sessions/sess-cancelled") {
+      return Response.json(runtimeSession);
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, async () => {
+    const resumed = await session.resume("sess-cancelled");
+    const exported = await session.export("sess-cancelled");
+
+    assertEquals(
+      resumed?.messages.map((message) => [message.role, message.content]),
+      [
+        ["user", "keep me"],
+        ["assistant", "keep reply"],
+      ],
+    );
+    assertStringIncludes(exported ?? "", "keep me");
+    assertEquals((exported ?? "").includes("cancel me"), false);
+  });
+
+  clearCurrentSession();
+});
+
 Deno.test({
-  name: "session API restoreCheckpoint restores the latest reversible checkpoint",
+  name:
+    "session API restoreCheckpoint restores the latest reversible checkpoint",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {

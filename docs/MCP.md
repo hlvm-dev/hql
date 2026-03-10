@@ -9,7 +9,7 @@ This document describes the MCP implementation that is currently in this reposit
 - User-facing management: `hlvm mcp add/list/remove/login/logout` and REPL `/mcp`.
 - OAuth for HTTP MCP servers: implemented (Authorization Code + PKCE).
 - OAuth callback UX: local listener at `http://127.0.0.1:35017/hlvm/oauth/callback` with success page.
-- Conformance suites in repo: `41` conformance tests + `8` interop tests.
+- Interop test suite in repo: `8` interop tests (conformance handled by MCP SDK).
 
 ## What users can do now
 
@@ -193,16 +193,16 @@ These are intentionally explicit so docs match implementation reality:
 
 ## Test coverage in repository
 
-- Conformance tests: `tests/conformance/mcp/` (41 tests)
-- Interop tests: `tests/interop/mcp/` (8 tests)
+- Interop tests: `tests/interop/mcp/` (8 tests against @modelcontextprotocol/server-everything)
 - OAuth unit tests: `tests/unit/agent/mcp-oauth.test.ts`
+- MCP unit tests: `tests/unit/agent/mcp.test.ts`
 
 Run commands:
 
 ```bash
-deno task test:conformance
-deno task test:interop
+deno task test:conformance   # interop tests
 deno test --allow-all tests/unit/agent/mcp-oauth.test.ts
+deno test --allow-all tests/unit/agent/mcp.test.ts
 ```
 
 ## Live verification performed
@@ -245,8 +245,7 @@ Recent live verification against Notion MCP in this environment:
 
 ## Source map (where MCP code lives)
 
-- `src/hlvm/agent/mcp/client.ts`
-- `src/hlvm/agent/mcp/transport.ts`
+- `src/hlvm/agent/mcp/sdk-client.ts`
 - `src/hlvm/agent/mcp/oauth.ts`
 - `src/hlvm/agent/mcp/config.ts`
 - `src/hlvm/agent/mcp/tools.ts`

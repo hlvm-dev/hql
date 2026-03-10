@@ -1,7 +1,4 @@
-import {
-  assertEquals,
-  assertExists,
-} from "jsr:@std/assert";
+import { assertEquals, assertExists } from "jsr:@std/assert";
 import type { MessageRow } from "../../../src/hlvm/store/types.ts";
 import {
   buildAgentHistoryMessages,
@@ -82,7 +79,11 @@ Deno.test("chat context: single-turn requests fall back to stored session transc
     storedMessages: [
       createStoredMessage(1, { role: "user", content: "before" }),
       createStoredMessage(2, { role: "assistant", content: "before-reply" }),
-      createStoredMessage(3, { role: "user", content: "current", request_id: "request-2" }),
+      createStoredMessage(3, {
+        role: "user",
+        content: "current",
+        request_id: "request-2",
+      }),
       createStoredMessage(4, {
         role: "assistant",
         content: "",
@@ -98,6 +99,55 @@ Deno.test("chat context: single-turn requests fall back to stored session transc
       ["user", "before"],
       ["assistant", "before-reply"],
       ["user", "current"],
+    ],
+  );
+});
+
+Deno.test("chat context: cancelled request groups are excluded from future replay", async () => {
+  const replay = await buildReplayMessages({
+    requestMessages: [{ role: "user", content: "hello" }],
+    storedMessages: [
+      createStoredMessage(1, {
+        role: "user",
+        content: "before",
+        request_id: "request-1",
+      }),
+      createStoredMessage(2, {
+        role: "assistant",
+        content: "before-reply",
+        request_id: "request-1",
+      }),
+      createStoredMessage(3, {
+        role: "user",
+        content: "cancel me",
+        request_id: "request-2",
+      }),
+      createStoredMessage(4, {
+        role: "assistant",
+        content: "partial",
+        request_id: "request-2",
+        cancelled: 1,
+      }),
+      createStoredMessage(5, {
+        role: "user",
+        content: "hello",
+        request_id: "request-3",
+      }),
+      createStoredMessage(6, {
+        role: "assistant",
+        content: "",
+        request_id: "request-3",
+      }),
+    ],
+    assistantMessageId: 6,
+  });
+
+  assertEquals(
+    replay.map((message) => [message.role, message.content]),
+    [
+      ["user", "before"],
+      ["assistant", "before-reply"],
+      ["user", "hello"],
     ],
   );
 });
@@ -140,7 +190,9 @@ Deno.test("chat context: explicit request history persists only the new visible 
   });
 
   assertEquals(
-    toPersist.map((message) => [message.role, message.content, message.clientTurnId ?? ""]),
+    toPersist.map((
+      message,
+    ) => [message.role, message.content, message.clientTurnId ?? ""]),
     [["user", "second", "current-user-turn"]],
   );
 });
@@ -228,7 +280,8 @@ Deno.test("chat context: agent replay reconstructs prior tool results and reorde
   });
 
   const syntheticAssistantIndex = history.findIndex((message) =>
-    message.role === "assistant" && message.toolCalls?.[0]?.function.name === "shell_exec"
+    message.role === "assistant" &&
+    message.toolCalls?.[0]?.function.name === "shell_exec"
   );
   const toolIndex = history.findIndex((message) =>
     message.role === "tool" && message.content === "observed-from-tool"
@@ -265,7 +318,13 @@ Deno.test("chat context: trims by token budget instead of raw message count", ()
     "test-chat/plain",
   );
 
-  assertEquals(trimmed.some((message) => message.content === "a".repeat(500)), false);
-  assertEquals(trimmed.some((message) => message.content === "b".repeat(500)), false);
+  assertEquals(
+    trimmed.some((message) => message.content === "a".repeat(500)),
+    false,
+  );
+  assertEquals(
+    trimmed.some((message) => message.content === "b".repeat(500)),
+    false,
+  );
   assertEquals(trimmed[trimmed.length - 1]?.content, "keep-me");
 });

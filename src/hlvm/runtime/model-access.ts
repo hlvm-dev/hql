@@ -1,5 +1,6 @@
 import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../common/ai-messages.ts";
 import { isOllamaAuthErrorMessage } from "../../common/ollama-auth.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import { ai } from "../api/ai.ts";
 import { log } from "../api/log.ts";
 
@@ -37,7 +38,7 @@ export async function probeModelAccess(
 
     return { available: true };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     if (isOllamaAuthErrorMessage(message)) {
       return { available: false, authRequired: true };
     }

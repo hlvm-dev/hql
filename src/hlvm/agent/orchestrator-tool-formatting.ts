@@ -4,6 +4,7 @@
  */
 
 import { getTool, hasTool } from "./registry.ts";
+import { TOOL_RESULT_LIMITS } from "./constants.ts";
 import { isObjectValue, truncate } from "../../common/utils.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
 import { getRecoveryHint } from "./error-taxonomy.ts";
@@ -52,7 +53,7 @@ export function buildToolResultOutputs(
 /** Check if tool result content indicates failure despite no exception.
  *  Only matches small, explicit {success: false, error: "..."} payloads. */
 export function isToolResultFailure(content: string): boolean {
-  if (!content.startsWith("{") || content.length > 500) return false;
+  if (!content.startsWith("{") || content.length > TOOL_RESULT_LIMITS.failurePayloadMaxBytes) return false;
   try {
     const parsed = JSON.parse(content);
     if (

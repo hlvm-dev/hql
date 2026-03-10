@@ -7,15 +7,19 @@
  */
 
 import React from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useStdout } from "ink";
 import { useSemanticColors } from "../../theme/index.ts";
 import type { StreamingState } from "../types.ts";
 import { StreamingState as ConversationStreamingState } from "../types.ts";
 import { BRAILLE_SPINNER_FRAMES } from "../ui-constants.ts";
 import { useSpinnerFrame } from "../hooks/useSpinnerFrame.ts";
+import { truncate } from "../../../../common/utils.ts";
+import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
+
+export const FOOTER_SECTION_SEPARATOR = " · ";
+const COMPACT_FOOTER_WIDTH = 76;
 
 interface FooterProps {
-  terminalWidth?: number;
   streamingState?: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   modelName?: string;
@@ -27,14 +31,17 @@ interface FooterProps {
   checkpointLabel?: string;
   /** Number of queued interactions */
   interactionQueueLength?: number;
-  /** Number of queued user chat turns */
-  queuedUserTurnCount?: number;
+  /** Whether the composer currently has draft content */
+  hasDraftInput?: boolean;
   /** Whether conversation panel is active */
   inConversation?: boolean;
   /** Whether a permission dialog is pending */
   hasPendingPermission?: boolean;
   /** Whether a question dialog is pending */
   hasPendingQuestion?: boolean;
+  /** Whether a team session is active even if there is no attention item yet */
+  teamActive?: boolean;
+  teamAttentionCount?: number;
 }
 
 interface FooterCenterStateInput {
@@ -42,9 +49,11 @@ interface FooterCenterStateInput {
   streamingState?: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   interactionQueueLength?: number;
-  queuedUserTurnCount?: number;
+  hasDraftInput?: boolean;
   hasPendingPermission?: boolean;
   hasPendingQuestion?: boolean;
+  teamActive?: boolean;
+  teamAttentionCount?: number;
   spinner: string;
   statusMessage?: string;
 }
@@ -54,9 +63,11 @@ export function buildFooterCenterState({
   streamingState,
   activeTool,
   interactionQueueLength = 0,
-  queuedUserTurnCount = 0,
+  hasDraftInput,
   hasPendingPermission,
   hasPendingQuestion,
+  teamActive,
+  teamAttentionCount,
   spinner,
   statusMessage,
 }: FooterCenterStateInput): { text: string; tone: "muted" | "warning" } {
@@ -64,42 +75,54 @@ export function buildFooterCenterState({
   let tone: "muted" | "warning" = "muted";
 
   if (!inConversation) {
-    return { text: statusMessage || "? shortcuts", tone };
+    const baseText = statusMessage || "/help shortcuts";
+    const teamHint = teamActive
+      ? teamAttentionCount && teamAttentionCount > 0
+        ? ` \u00B7 Ctrl+T team (${teamAttentionCount})`
+        : " \u00B7 Ctrl+T team"
+      : "";
+    return { text: `${baseText}${teamHint}`, tone };
   }
 
   if (hasPendingPermission) {
-    text = "⚠ Awaiting approval: y/Enter approve · n/Esc reject";
+    text = "\u26A0 Awaiting approval: y/Enter approve \u00B7 n/Esc reject";
     tone = "warning";
   } else if (hasPendingQuestion) {
-    text = "? Awaiting answer: use answer> prompt + Enter · Esc reject";
+    text = "? Awaiting answer: use answer> prompt + Enter \u00B7 Esc reject";
     tone = "warning";
+  } else if (
+    streamingState === ConversationStreamingState.Responding &&
+    hasDraftInput
+  ) {
+    text = "Tab to queue message";
   } else if (
     streamingState === ConversationStreamingState.WaitingForConfirmation
   ) {
-    text = "⚠ Waiting for confirmation";
+    text = "\u26A0 Waiting for confirmation";
     tone = "warning";
   } else if (streamingState === ConversationStreamingState.Responding) {
     if (activeTool) {
       text =
-        `${spinner} Running ${activeTool.name} (${activeTool.toolIndex}/${activeTool.toolTotal}) · Esc cancel`;
+        `${spinner} Running ${activeTool.name} (${activeTool.toolIndex}/${activeTool.toolTotal}) \u00B7 Esc cancel`;
       tone = "warning";
     } else {
-      // The conversation body already renders a Thinking block; keep the footer action-focused.
-      text = "Esc cancel · PgUp/PgDn scroll";
+      text = "Esc cancel \u00B7 Ctrl+Enter force";
     }
   } else if (statusMessage) {
     text = statusMessage;
   } else {
-    text = "Ready · PgUp/PgDn scroll · ? shortcuts";
+    text = "Ready \u00B7 PgUp/PgDn scroll \u00B7 /help shortcuts";
   }
 
-  if (interactionQueueLength > 1) {
-    text += ` · +${interactionQueueLength - 1} queued`;
+  const queuedCount = Math.max(0, interactionQueueLength - 1);
+  if (queuedCount > 0) {
+    text += ` \u00B7 +${queuedCount} queued`;
   }
-  if (queuedUserTurnCount > 0) {
-    text += ` · +${queuedUserTurnCount} queued message${
-      queuedUserTurnCount === 1 ? "" : "s"
-    }`;
+
+  if (teamActive) {
+    text += teamAttentionCount && teamAttentionCount > 0
+      ? ` \u00B7 Ctrl+T team (${teamAttentionCount})`
+      : " \u00B7 Ctrl+T team";
   }
 
   return { text, tone };
@@ -107,83 +130,32 @@ export function buildFooterCenterState({
 
 interface FooterRightStateInput {
   modelName?: string;
+  modeLabel?: string;
   contextUsageLabel?: string;
   checkpointLabel?: string;
-  inConversation?: boolean;
-}
-
-function getFooterTextWidth(text?: string): number {
-  return text ? Array.from(text).length : 0;
-}
-
-export function getFooterColumnWidths(
-  terminalWidth?: number,
-  leftText?: string,
-  rightText?: string,
-): { width: number; leftWidth: number; centerWidth: number; rightWidth: number } {
-  const safeWidth = Math.max(terminalWidth ?? 80, 32);
-  const maxSideWidth = Math.max(12, Math.floor(safeWidth * 0.28));
-  const minCenterWidth = Math.min(safeWidth, Math.max(16, Math.floor(safeWidth * 0.4)));
-
-  let leftWidth = leftText ? Math.min(maxSideWidth, getFooterTextWidth(leftText)) : 0;
-  let rightWidth = rightText ? Math.min(maxSideWidth, getFooterTextWidth(rightText)) : 0;
-
-  const getGapWidth = (width: number) => width > 0 ? 1 : 0;
-  const computeCenterWidth = () =>
-    safeWidth - leftWidth - rightWidth - getGapWidth(leftWidth) - getGapWidth(rightWidth);
-
-  let centerWidth = computeCenterWidth();
-  let deficit = minCenterWidth - centerWidth;
-
-  const shrinkSide = (side: "left" | "right", minimumWidth: number) => {
-    if (deficit <= 0) return;
-    if (side === "left") {
-      const available = Math.max(0, leftWidth - minimumWidth);
-      const delta = Math.min(deficit, available);
-      leftWidth -= delta;
-      deficit -= delta;
-      return;
-    }
-
-    const available = Math.max(0, rightWidth - minimumWidth);
-    const delta = Math.min(deficit, available);
-    rightWidth -= delta;
-    deficit -= delta;
-  };
-
-  const widerSide = leftWidth >= rightWidth ? "left" : "right";
-  const narrowerSide = widerSide === "left" ? "right" : "left";
-  shrinkSide(widerSide, 8);
-  shrinkSide(narrowerSide, 8);
-  shrinkSide(widerSide, 0);
-  shrinkSide(narrowerSide, 0);
-  centerWidth = Math.max(0, computeCenterWidth());
-
-  return {
-    width: safeWidth,
-    leftWidth,
-    centerWidth,
-    rightWidth,
-  };
 }
 
 export function buildFooterRightState({
   modelName,
+  modeLabel,
   contextUsageLabel,
   checkpointLabel,
-  inConversation,
-}: FooterRightStateInput): { infoText: string } {
+}: FooterRightStateInput): { modeLabel?: string; infoText: string } {
   const infoParts: string[] = [];
   if (contextUsageLabel) infoParts.push(contextUsageLabel);
   if (checkpointLabel) infoParts.push(checkpointLabel);
-  if (modelName && inConversation) infoParts.push(modelName);
+  if (modelName) infoParts.push(modelName);
   return {
-    infoText: infoParts.join(" · "),
+    modeLabel,
+    infoText: infoParts.join(FOOTER_SECTION_SEPARATOR),
   };
 }
 
+export function shouldUseCompactFooter(width: number): boolean {
+  return width < COMPACT_FOOTER_WIDTH;
+}
+
 export function FooterHint({
-  terminalWidth,
   streamingState,
   activeTool,
   modelName,
@@ -192,11 +164,14 @@ export function FooterHint({
   contextUsageLabel,
   checkpointLabel,
   interactionQueueLength = 0,
-  queuedUserTurnCount = 0,
+  hasDraftInput,
   inConversation,
   hasPendingPermission,
   hasPendingQuestion,
+  teamActive,
+  teamAttentionCount,
 }: FooterProps): React.ReactElement {
+  const { stdout } = useStdout();
   const sc = useSemanticColors();
   const model = modelName ?? "";
   const isResponding = inConversation &&
@@ -208,9 +183,11 @@ export function FooterHint({
     streamingState,
     activeTool,
     interactionQueueLength,
-    queuedUserTurnCount,
+    hasDraftInput,
     hasPendingPermission,
     hasPendingQuestion,
+    teamActive,
+    teamAttentionCount,
     spinner,
     statusMessage,
   });
@@ -219,44 +196,64 @@ export function FooterHint({
     : sc.text.muted;
   const right = buildFooterRightState({
     modelName: model,
+    modeLabel,
     contextUsageLabel,
     checkpointLabel,
-    inConversation,
   });
-  const columns = getFooterColumnWidths(terminalWidth, modeLabel, right.infoText);
+  const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
+  const compactFooter = shouldUseCompactFooter(terminalWidth);
+  let sideWidth = compactFooter
+    ? 0
+    : Math.min(
+      right.infoText.length +
+        (right.modeLabel ? right.modeLabel.length + 3 : 0),
+      Math.max(14, Math.floor(terminalWidth * 0.32)),
+    );
+  sideWidth = compactFooter
+    ? 0
+    : Math.min(
+      sideWidth,
+      Math.max(0, Math.floor((terminalWidth - 12) / 2)),
+    );
+  const centerWidth = compactFooter
+    ? terminalWidth
+    : Math.max(12, terminalWidth - sideWidth * 2);
+  const centerText = truncate(center.text, centerWidth);
+  const rightModeWidth = right.modeLabel
+    ? Math.min(right.modeLabel.length, sideWidth)
+    : 0;
+  const rightInfoWidth = Math.max(
+    0,
+    sideWidth - rightModeWidth - (right.modeLabel && right.infoText ? 3 : 0),
+  );
+  const truncatedModeLabel = right.modeLabel && rightModeWidth > 0
+    ? truncate(right.modeLabel, rightModeWidth)
+    : "";
+  const truncatedInfoText = rightInfoWidth > 0
+    ? truncate(right.infoText, rightInfoWidth)
+    : "";
 
   return (
-    <Box width={columns.width}>
-      {columns.leftWidth > 0 && (
-        <>
-          <Box width={columns.leftWidth} flexShrink={0}>
-            <Text color={sc.border.active} wrap="truncate-end">
-              {modeLabel ?? ""}
-            </Text>
-          </Box>
-          <Box width={1} flexShrink={0}>
-            <Text> </Text>
-          </Box>
-        </>
-      )}
-
-      <Box width={columns.centerWidth} justifyContent="center" flexShrink={0}>
-        <Text color={centerColor} wrap="truncate-end">
-          {center.text}
-        </Text>
+    <Box flexDirection="row" width={terminalWidth}>
+      {!compactFooter && <Box width={sideWidth} />}
+      <Box width={centerWidth} justifyContent="center">
+        <Text color={centerColor}>{centerText}</Text>
       </Box>
 
-      {columns.rightWidth > 0 && (
-        <>
-          <Box width={1} flexShrink={0}>
-            <Text> </Text>
-          </Box>
-          <Box width={columns.rightWidth} justifyContent="flex-end" flexShrink={0}>
-            <Text color={sc.text.muted} wrap="truncate-end">
-              {right.infoText}
+      {!compactFooter && (
+        <Box width={sideWidth} justifyContent="flex-end">
+          {truncatedModeLabel && (
+            <Text color={sc.border.active}>
+              {truncatedModeLabel}
             </Text>
-          </Box>
-        </>
+          )}
+          {truncatedModeLabel && truncatedInfoText && (
+            <Text color={sc.text.muted}>{FOOTER_SECTION_SEPARATOR}</Text>
+          )}
+          <Text color={sc.text.muted}>
+            {truncatedInfoText}
+          </Text>
+        </Box>
       )}
     </Box>
   );

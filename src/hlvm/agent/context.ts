@@ -46,7 +46,7 @@ export interface Message {
   toolCallId?: string;
 }
 
-export function isSummaryMessage(message: Message): boolean {
+function isSummaryMessage(message: Message): boolean {
   return message.role === "assistant" &&
     message.content.startsWith("Summary of earlier context:");
 }

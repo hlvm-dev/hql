@@ -13,9 +13,10 @@ import { ListSearchField } from "./ListSearchField.tsx";
 import { getListSearchSeed } from "../utils/list-search.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import {
+  clampPanelWidth,
+  clampVisibleRows,
+  DEFAULT_TERMINAL_HEIGHT,
   DEFAULT_TERMINAL_WIDTH,
-  MIN_PANEL_WIDTH,
-  PANEL_PADDING,
   SESSION_PICKER_MAX_WIDTH,
 } from "../ui-constants.ts";
 
@@ -64,12 +65,17 @@ export function SessionPicker({
 }: SessionPickerProps): React.ReactElement {
   const { color } = useTheme();
   const { stdout } = useStdout();
-  const availableWidth = Math.max(
-    MIN_PANEL_WIDTH,
-    (stdout?.columns ?? DEFAULT_TERMINAL_WIDTH) - PANEL_PADDING,
-  );
-  const panelWidth = Math.min(SESSION_PICKER_MAX_WIDTH, availableWidth);
+  const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
+  const terminalRows = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
+  const panelWidth = clampPanelWidth(terminalWidth, {
+    maxWidth: SESSION_PICKER_MAX_WIDTH,
+  });
   const contentWidth = panelWidth - 4;
+  const visibleRowCount = clampVisibleRows(terminalRows, {
+    reservedRows: 12,
+    minRows: 4,
+    maxRows: MAX_VISIBLE_SESSIONS,
+  });
 
   const [selection, setSelection] = useState<SelectionState>({
     index: 0,
@@ -195,7 +201,7 @@ export function SessionPicker({
   const window = calculateScrollWindow(
     selection.index,
     filteredSessions.length,
-    MAX_VISIBLE_SESSIONS,
+    visibleRowCount,
   );
   const visibleSessions = filteredSessions.slice(window.start, window.end);
   const selectedSession = filteredSessions[selection.index] ??
@@ -208,6 +214,7 @@ export function SessionPicker({
       borderStyle="single"
       paddingX={1}
       width={panelWidth}
+      alignSelf="center"
     >
       <Box justifyContent="space-between">
         <Text bold color={color("primary")} wrap="truncate-end">

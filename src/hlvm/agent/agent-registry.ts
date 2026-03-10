@@ -18,7 +18,20 @@ export interface AgentProfile {
   maxTokens?: number;
   /** Additional profile-specific instructions appended to child system notes. */
   instructions?: string;
+  /** Maximum token budget for delegated child sessions. */
+  maxTokenBudget?: number;
 }
+
+/** Team tools available to worker agents (claim tasks, send messages, read status). */
+const TEAM_WORKER_TOOLS = [
+  "team_task_read",
+  "team_task_claim",
+  "team_status_read",
+  "team_message_send",
+  "team_message_read",
+  "ack_team_shutdown",
+  "submit_team_plan",
+];
 
 /** Frozen profiles: immutable at runtime, safe to return by reference */
 const AGENT_PROFILES: readonly AgentProfile[] = [
@@ -43,6 +56,9 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
       "memory_write",
       "memory_search",
       "memory_edit",
+      // Team worker tools + task creation for generalist
+      ...TEAM_WORKER_TOOLS,
+      "team_task_write",
     ],
   },
   {
@@ -54,6 +70,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
       "list_files",
       "find_symbol",
       "get_structure",
+      ...TEAM_WORKER_TOOLS,
     ],
     temperature: 0.2,
   },
@@ -65,6 +82,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
       "write_file",
       "edit_file",
       "list_files",
+      ...TEAM_WORKER_TOOLS,
     ],
   },
   {
@@ -73,6 +91,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
     tools: [
       "shell_exec",
       "shell_script",
+      ...TEAM_WORKER_TOOLS,
     ],
   },
   {
@@ -84,6 +103,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
       "web_fetch",
       "render_url",
       "mcp_playwright_render_url",
+      ...TEAM_WORKER_TOOLS,
     ],
   },
   {

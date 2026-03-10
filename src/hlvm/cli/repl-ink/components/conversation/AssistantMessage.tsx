@@ -7,6 +7,7 @@
 
 import React from "react";
 import { Box, Text } from "ink";
+import { truncate } from "../../../../../common/utils.ts";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { MarkdownDisplay } from "../markdown/index.ts";
 import type { AssistantCitation } from "../../types.ts";
@@ -38,11 +39,6 @@ function resolveSourcesLabel(citations: AssistantCitation[]): string {
     : "Inferred Sources";
 }
 
-function truncate(text: string, maxLen: number): string {
-  if (maxLen <= 0) return "";
-  if (text.length <= maxLen) return text;
-  return maxLen > 3 ? `${text.slice(0, maxLen - 1)}…` : text.slice(0, maxLen);
-}
 
 function toValidRange(
   startIndex: unknown,
@@ -147,8 +143,8 @@ export function AssistantMessage(
               const lead = `[${source.index}] ${source.title}`;
               return (
                 <Box key={`${source.index}:${source.url}`} flexDirection="column" marginTop={0}>
-                  <Text color={sc.text.secondary}>{truncate(lead, contentWidth)}</Text>
-                  <Text color={sc.text.muted}>{truncate(source.url, contentWidth)}</Text>
+                  <Text color={sc.text.secondary}>{truncate(lead, contentWidth, "…")}</Text>
+                  <Text color={sc.text.muted}>{truncate(source.url, contentWidth, "…")}</Text>
                 </Box>
               );
             })}

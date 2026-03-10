@@ -120,9 +120,6 @@ export class Environment {
     return cloned;
   }
 
-  // Legacy singleton removed to enforce dependency injection and statelessness.
-  // Use Environment.createStandard() instead.
-
   constructor(parent: Environment | null = null, logger?: Logger) {
     this.parent = parent;
     this.logger = logger || new Logger(false);

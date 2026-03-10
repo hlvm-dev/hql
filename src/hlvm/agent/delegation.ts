@@ -15,7 +15,12 @@ import {
   getAgentProfile,
   listAgentProfiles,
 } from "./agent-registry.ts";
-import { DEFAULT_MAX_TOOL_CALLS, isGroundingMode } from "./constants.ts";
+import {
+  CHILD_WORKSPACE_PREFIX,
+  DEFAULT_MAX_TOOL_CALLS,
+  DEFAULT_TIMEOUTS,
+  isGroundingMode,
+} from "./constants.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { hasTool } from "./registry.ts";
 import { isMutatingTool } from "./security/safety.ts";
@@ -38,12 +43,14 @@ import { allocateNickname, getDelegateLimiter } from "./concurrency.ts";
 import {
   cleanupCompletedThreads,
   type DelegateThreadResult,
+  enqueueThreadCompletion,
   getActiveNicknames,
   registerThread,
   updateThreadBatchId,
   updateThreadChildSession,
   updateThreadDiff,
   updateThreadParentSnapshots,
+  updateThreadResult,
   updateThreadSnapshot,
   updateThreadStatus,
   updateThreadWorkspace,
@@ -61,6 +68,8 @@ import {
   type WorkspaceLease,
 } from "./workspace-leases.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
+import { createDelegateTokenBudget } from "./delegate-token-budget.ts";
+import { getErrorMessage, truncate } from "../../common/utils.ts";
 
 function queueBackgroundDelegateUpdate(
   config: OrchestratorConfig,
@@ -69,8 +78,18 @@ function queueBackgroundDelegateUpdate(
   config.delegateInbox?.push(update);
 }
 
-/** Tools denied to child agents (prevent recursion + parent-only tools). */
-const CHILD_TOOL_DENYLIST = [
+const BACKGROUND_DELEGATE_WATCHDOG_MS =
+  DEFAULT_TIMEOUTS.total + DEFAULT_TIMEOUTS.tool;
+
+function createDelegateAbortError(message: string): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
+/** Tools denied to child agents (prevent recursion + parent-only tools).
+ * @internal Exported for regression testing. */
+export const CHILD_TOOL_DENYLIST = [
   "delegate_agent",
   "wait_agent",
   "list_agents",
@@ -78,6 +97,8 @@ const CHILD_TOOL_DENYLIST = [
   "send_input",
   "resume_agent",
   "batch_delegate",
+  "memory_write", // Memory is singleton DB, not workspace-scoped
+  "memory_edit", // Memory is singleton DB, not workspace-scoped
 ];
 
 function buildAgentSystemNote(
@@ -85,6 +106,9 @@ function buildAgentSystemNote(
   tools: string[],
   options: { canDelegate: boolean; isolatedWorkspace: boolean },
 ): string {
+  const hasTeamTools = tools.includes("team_task_claim") &&
+    tools.includes("team_status_read");
+
   return [
     `Specialist agent: ${profile.name}`,
     `Allowed tools: ${tools.join(", ") || "none"}`,
@@ -94,6 +118,11 @@ function buildAgentSystemNote(
     options.canDelegate
       ? "Call delegate_agent only when a clearly separable subtask materially advances the parent task."
       : "Do not call delegate_agent.",
+    ...(hasTeamTools
+      ? [
+        "Team worker: Use team_task_claim to claim tasks, team_message_send to report progress or ask questions, team_status_read to check team state. Acknowledge shutdown requests promptly via ack_team_shutdown.",
+      ]
+      : []),
     ...(profile.instructions?.trim()
       ? [`Profile instructions:\n${profile.instructions.trim()}`]
       : []),
@@ -175,7 +204,7 @@ export async function generateChildDiff(
 
       if (entry.isDirectory) {
         // Skip nested .hlvm-child dirs
-        if (entry.name.startsWith(".hlvm-child-") || entry.name === ".git") {
+        if (entry.name.startsWith(CHILD_WORKSPACE_PREFIX) || entry.name === ".git") {
           continue;
         }
         await walkDir(childPath, relPath);
@@ -292,7 +321,7 @@ export async function snapshotWorkspaceFiles(
       const childPath = platform.path.join(dir, entry.name);
       const relPath = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory) {
-        if (entry.name.startsWith(".hlvm-child-") || entry.name === ".git") {
+        if (entry.name.startsWith(CHILD_WORKSPACE_PREFIX) || entry.name === ".git") {
           continue;
         }
         await walkDir(childPath, relPath);
@@ -500,6 +529,9 @@ async function runDelegateChild(
         teamMemberId: config.teamMemberId,
         teamLeadMemberId: config.teamLeadMemberId,
         agentProfiles: config.agentProfiles ?? baseConfig.agentProfiles,
+        delegateTokenBudget: profile?.maxTokenBudget
+          ? createDelegateTokenBudget(profile.maxTokenBudget)
+          : undefined,
         // If not at max depth, wire child delegate handler for nested delegation
         ...(!atMaxDepth
           ? {
@@ -538,7 +570,7 @@ async function runDelegateChild(
       childSessionId: childTurn?.sessionId,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     if (childTurn) {
       persistAgentTodos(
         childTurn.sessionId,
@@ -644,6 +676,7 @@ export function createDelegateHandler(
     currentDepth?: number;
     maxDepth?: number;
     agentProfiles?: readonly AgentProfile[];
+    backgroundWatchdogMs?: number;
   },
 ): (args: unknown, config: OrchestratorConfig) => Promise<unknown> {
   return async (
@@ -677,6 +710,7 @@ export function createDelegateHandler(
         goal: teamTask.goal,
         status,
         assigneeMemberId: teamTask.assigneeMemberId,
+        artifacts: teamTask.artifacts,
       });
     };
 
@@ -859,8 +893,24 @@ export function createDelegateHandler(
 
     // Create the background promise (acquires concurrency slot, then runs child)
     const promise = (async (): Promise<DelegateThreadResult> => {
-      // Acquire concurrency slot (may queue if at capacity)
-      const release = await limiter.acquire(threadId);
+      // Start watchdog BEFORE acquire so it covers both queue wait + execution time.
+      // Without this, queued delegates waiting for a slot have no timeout protection.
+      let abortReason: string | undefined;
+      const watchdogMs = baseConfig.backgroundWatchdogMs ??
+        BACKGROUND_DELEGATE_WATCHDOG_MS;
+      const watchdog = watchdogMs > 0
+        ? setTimeout(() => {
+          abortReason = `Background delegate lifetime exceeded after ${watchdogMs}ms`;
+          controller.abort(abortReason);
+        }, watchdogMs)
+        : undefined;
+
+      // release may be undefined if acquire rejects (e.g., watchdog aborts while queued)
+      let release: (() => void) | undefined;
+      let lease: WorkspaceLease | undefined;
+      try {
+      // Acquire concurrency slot (may queue if at capacity; watchdog aborts if stalled)
+      release = await limiter.acquire(threadId, controller.signal);
       updateThreadStatus(threadId, "running");
       config.onAgentEvent?.({ type: "delegate_running", threadId });
       if (coordinationId && config.coordinationBoard) {
@@ -877,38 +927,23 @@ export function createDelegateHandler(
       }
 
       // Create isolated workspace for this child agent
-      let lease: WorkspaceLease | undefined;
+      lease = await createWorkspaceLease(config.workspace, threadId);
+      updateThreadWorkspace(
+        threadId,
+        lease.path,
+        lease.kind,
+        lease.sandboxCapability,
+        lease.cleanup,
+      );
+
       try {
-        lease = await createWorkspaceLease(config.workspace, threadId);
-        updateThreadWorkspace(
+        updateThreadParentSnapshots(
           threadId,
-          lease.path,
-          lease.kind,
-          lease.sandboxCapability,
-          lease.cleanup,
+          await snapshotWorkspaceFiles(config.workspace),
         );
-      } catch (isolationError) {
-        const msg = isolationError instanceof Error
-          ? isolationError.message
-          : String(isolationError);
-        throw new RuntimeError(
-          `Background delegate requires workspace isolation: ${msg}`,
-          { source: "delegation" },
-        );
+      } catch {
+        // Best-effort snapshotting only
       }
-
-      if (lease) {
-        try {
-          updateThreadParentSnapshots(
-            threadId,
-            await snapshotWorkspaceFiles(config.workspace),
-          );
-        } catch {
-          // Best-effort snapshotting only
-        }
-      }
-
-      try {
         const { result, snapshot, childSessionId } = await runDelegateChild(
           llm,
           baseConfig,
@@ -926,7 +961,14 @@ export function createDelegateHandler(
           (childSessionId) =>
             updateThreadChildSession(threadId, childSessionId),
         );
-        updateThreadStatus(threadId, "completed");
+        if (controller.signal.aborted) {
+          throw createDelegateAbortError(
+            abortReason ?? "Tool execution aborted",
+          );
+        }
+        // NOTE: updateThreadStatus("completed") is deferred to AFTER all side
+        // effects (snapshot, diff, inbox push, result) so poll-based waiters
+        // see a fully-populated thread when they detect the terminal status.
         if (snapshot) updateThreadSnapshot(threadId, snapshot);
         if (childSessionId) updateThreadChildSession(threadId, childSessionId);
 
@@ -976,6 +1018,7 @@ export function createDelegateHandler(
               goal: reviewTask.goal,
               status: reviewTask.status,
               assigneeMemberId: reviewTask.assigneeMemberId,
+              artifacts: reviewTask.artifacts,
             });
           }
           config.teamRuntime.updateTask(teamTaskId, {
@@ -1035,6 +1078,9 @@ export function createDelegateHandler(
           snapshot,
           childSessionId,
         });
+        updateThreadResult(threadId, { success: true, result, snapshot });
+        updateThreadStatus(threadId, "completed");
+        enqueueThreadCompletion(threadId);
         emitDelegateBatchProgress(config, batchId);
 
         return { success: true, result, snapshot };
@@ -1042,8 +1088,10 @@ export function createDelegateHandler(
         const isAbort = controller.signal.aborted ||
           (error instanceof Error && error.name === "AbortError");
         const status = isAbort ? "cancelled" : "errored";
-        updateThreadStatus(threadId, status);
-        const message = error instanceof Error ? error.message : String(error);
+        // NOTE: updateThreadStatus deferred to after side effects (same as success path)
+        const message = isAbort
+          ? abortReason ?? getErrorMessage(error)
+          : getErrorMessage(error);
         if (config.teamRuntime && teamTaskId) {
           config.teamRuntime.updateTask(teamTaskId, {
             status: isAbort ? "cancelled" : "errored",
@@ -1088,12 +1136,20 @@ export function createDelegateHandler(
           success: false,
           error: message,
           snapshot,
+          attentionRequired: true,
+          attentionReason: `Worker "${nickname}" failed: ${truncate(message, 100)}`,
         });
+        updateThreadResult(threadId, { success: false, error: message, snapshot });
+        updateThreadStatus(threadId, status);
+        enqueueThreadCompletion(threadId);
         emitDelegateBatchProgress(config, batchId);
 
         return { success: false, error: message, snapshot };
       } finally {
-        release();
+        if (watchdog !== undefined) {
+          clearTimeout(watchdog);
+        }
+        release?.();
         // Don't cleanup workspace yet — parent needs to merge first (Stage 4)
         // Cleanup happens on thread GC (cleanupCompletedThreads)
       }
@@ -1112,6 +1168,15 @@ export function createDelegateHandler(
       batchId,
       mergeState: "none",
     });
+    if (batchId) {
+      config.onAgentEvent?.({
+        type: "delegate_start",
+        agent,
+        task,
+        threadId,
+        nickname,
+      });
+    }
     emitDelegateBatchProgress(config, batchId);
     if (config.teamRuntime && teamMemberId) {
       config.teamRuntime.updateMember(teamMemberId, {

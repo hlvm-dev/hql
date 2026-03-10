@@ -23,7 +23,7 @@ export function createSession(title?: string, id?: string): SessionRow {
 
   db.prepare(
     `INSERT INTO sessions (id, title, created_at, updated_at)
-     VALUES (?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?)`,
   ).run(sessionId, title ?? "", now, now);
 
   return getSession(sessionId)!;
@@ -33,7 +33,7 @@ export function getSession(id: string): SessionRow | null {
   const db = getDb();
   const row = db.prepare(
     `SELECT id, title, created_at, updated_at, message_count, session_version, metadata
-     FROM sessions WHERE id = ?`
+     FROM sessions WHERE id = ?`,
   ).get<SessionRow>(id);
   return row ?? null;
 }
@@ -42,7 +42,7 @@ export function listSessions(): SessionRow[] {
   const db = getDb();
   return db.prepare(
     `SELECT id, title, created_at, updated_at, message_count, session_version, metadata
-     FROM sessions ORDER BY updated_at DESC`
+     FROM sessions ORDER BY updated_at DESC`,
   ).all<SessionRow>();
 }
 
@@ -73,7 +73,7 @@ export function updateSession(
   values.push(id);
 
   db.prepare(
-    `UPDATE sessions SET ${updates.join(", ")} WHERE id = ?`
+    `UPDATE sessions SET ${updates.join(", ")} WHERE id = ?`,
   ).run(...values);
 
   return getSession(id);
@@ -95,7 +95,7 @@ export function getOrCreateSession(id: string): SessionRow {
   const now = new Date().toISOString();
   db.prepare(
     `INSERT OR IGNORE INTO sessions (id, title, created_at, updated_at)
-     VALUES (?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?)`,
   ).run(id, "", now, now);
 
   return getSession(id)!;
@@ -124,14 +124,14 @@ function bumpSessionVersion(
        SET session_version = session_version + 1,
            message_count = ${countExpr},
            updated_at = ?
-       WHERE id = ?`
+       WHERE id = ?`,
     ).run(ts, sessionId);
   } else {
     db.prepare(
       `UPDATE sessions
        SET session_version = session_version + 1,
            updated_at = ?
-       WHERE id = ?`
+       WHERE id = ?`,
     ).run(ts, sessionId);
   }
 }
@@ -141,7 +141,7 @@ function bumpSessionVersion(
 function getMaxOrder(sessionId: string): number {
   const db = getDb();
   const row = db.prepare(
-    `SELECT COALESCE(MAX("order"), 0) as max_order FROM messages WHERE session_id = ?`
+    `SELECT COALESCE(MAX("order"), 0) as max_order FROM messages WHERE session_id = ?`,
   ).value<[number]>(sessionId);
   return row?.[0] ?? 0;
 }
@@ -151,7 +151,10 @@ export function insertMessage(opts: InsertMessageOpts): MessageRow {
   const now = opts.created_at ?? new Date().toISOString();
 
   if (opts.client_turn_id) {
-    const existing = getMessageByClientTurnId(opts.session_id, opts.client_turn_id);
+    const existing = getMessageByClientTurnId(
+      opts.session_id,
+      opts.client_turn_id,
+    );
     if (existing) return existing;
   }
 
@@ -165,7 +168,7 @@ export function insertMessage(opts: InsertMessageOpts): MessageRow {
          (session_id, "order", role, content, client_turn_id, request_id,
           sender_type, sender_detail, image_paths, tool_calls, tool_name,
           tool_call_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       opts.session_id,
       order,
@@ -186,7 +189,7 @@ export function insertMessage(opts: InsertMessageOpts): MessageRow {
 
     const id = db.lastInsertRowId;
     const result = db.prepare(
-      `SELECT * FROM messages WHERE id = ?`
+      `SELECT * FROM messages WHERE id = ?`,
     ).get<MessageRow>(Number(id))!;
 
     db.exec("COMMIT");
@@ -216,11 +219,11 @@ export function getMessages(
       `SELECT * FROM messages
        WHERE session_id = ? AND "order" ${op} ?
        ORDER BY "order" ${sort}
-       LIMIT ?`
+       LIMIT ?`,
     ).all<MessageRow>(sessionId, opts.after_order, limit);
 
     const countRow = db.prepare(
-      `SELECT COUNT(*) FROM messages WHERE session_id = ? AND "order" ${op} ?`
+      `SELECT COUNT(*) FROM messages WHERE session_id = ? AND "order" ${op} ?`,
     ).value<[number]>(sessionId, opts.after_order);
     total = countRow?.[0] ?? 0;
     consumed = messages.length;
@@ -230,11 +233,11 @@ export function getMessages(
       `SELECT * FROM messages
        WHERE session_id = ?
        ORDER BY "order" ${sort}
-       LIMIT ? OFFSET ?`
+       LIMIT ? OFFSET ?`,
     ).all<MessageRow>(sessionId, limit, offset);
 
     const countRow = db.prepare(
-      `SELECT COUNT(*) FROM messages WHERE session_id = ?`
+      `SELECT COUNT(*) FROM messages WHERE session_id = ?`,
     ).value<[number]>(sessionId);
     total = countRow?.[0] ?? 0;
     consumed = offset + messages.length;
@@ -258,7 +261,7 @@ export function getMessages(
 export function getMessage(id: number): MessageRow | null {
   const db = getDb();
   const row = db.prepare(
-    `SELECT * FROM messages WHERE id = ?`
+    `SELECT * FROM messages WHERE id = ?`,
   ).get<MessageRow>(id);
   return row ?? null;
 }
@@ -266,7 +269,7 @@ export function getMessage(id: number): MessageRow | null {
 export function deleteMessage(id: number, sessionId: string): boolean {
   const db = getDb();
   const result = db.prepare(
-    "DELETE FROM messages WHERE id = ? AND session_id = ?"
+    "DELETE FROM messages WHERE id = ? AND session_id = ?",
   ).run(id, sessionId);
 
   if (result > 0) {
@@ -297,12 +300,56 @@ export function updateMessage(
   values.push(id);
 
   db.prepare(
-    `UPDATE messages SET ${updates.join(", ")} WHERE id = ?`
+    `UPDATE messages SET ${updates.join(", ")} WHERE id = ?`,
   ).run(...values);
 
   const msg = getMessage(id);
   if (msg) {
     bumpSessionVersion(msg.session_id);
+  }
+}
+
+export function cancelRequestMessages(
+  sessionId: string,
+  requestId: string,
+  options?: { assistantMessageId?: number; assistantContent?: string },
+): number {
+  const db = getDb();
+
+  db.exec("BEGIN");
+  try {
+    const changed = db.prepare(
+      `UPDATE messages
+       SET cancelled = 1
+       WHERE session_id = ? AND request_id = ? AND cancelled = 0`,
+    ).run(sessionId, requestId);
+
+    if (options?.assistantMessageId !== undefined) {
+      const updates: string[] = ["cancelled = 1"];
+      const values: (string | number)[] = [];
+
+      if (options.assistantContent !== undefined) {
+        updates.push("content = ?");
+        values.push(options.assistantContent);
+      }
+
+      values.push(options.assistantMessageId, sessionId);
+      db.prepare(
+        `UPDATE messages
+         SET ${updates.join(", ")}
+         WHERE id = ? AND session_id = ?`,
+      ).run(...values);
+    }
+
+    if (changed > 0) {
+      bumpSessionVersion(sessionId);
+    }
+
+    db.exec("COMMIT");
+    return changed;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
   }
 }
 
@@ -312,7 +359,7 @@ export function getMessageByClientTurnId(
 ): MessageRow | null {
   const db = getDb();
   const row = db.prepare(
-    `SELECT * FROM messages WHERE session_id = ? AND client_turn_id = ?`
+    `SELECT * FROM messages WHERE session_id = ? AND client_turn_id = ?`,
   ).get<MessageRow>(sessionId, clientTurnId);
   return row ?? null;
 }
@@ -324,4 +371,3 @@ export function validateExpectedVersion(
   const session = getSession(sessionId);
   return session ? session.session_version === expected : expected === 0;
 }
-

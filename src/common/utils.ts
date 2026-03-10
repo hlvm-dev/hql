@@ -423,6 +423,20 @@ export function generateUUID(): string {
 }
 
 /**
+ * Compare two optional string arrays for shallow equality.
+ * Returns true if both are undefined/null, or have identical elements in order.
+ */
+export function areListsEqual(a?: string[], b?: string[]): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+/**
  * FNV-1a hash of a string, returned as hex.
  * SSOT: all string hashing in the codebase goes through this function.
  */

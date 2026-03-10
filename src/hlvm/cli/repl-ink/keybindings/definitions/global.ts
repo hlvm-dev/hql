@@ -1,32 +1,24 @@
 /**
  * Global Keybindings - App-level shortcuts
- * Source: App.tsx lines 323-340
  */
 
 import type { Keybinding } from "../types.ts";
+import { HandlerIds } from "../handler-registry.ts";
 
 export const globalKeybindings: Keybinding[] = [
-  {
-    id: "question-mark",
-    display: "?",
-    label: "Show shortcuts",
-    description: "Open shortcuts overlay when the prompt is empty",
-    category: "Global",
-    action: { type: "INFO" },
-  },
   {
     id: "ctrl+c",
     display: "Ctrl+C",
     label: "Exit",
     category: "Global",
-    action: { type: "HANDLER", id: "app.exit" },
+    action: { type: "HANDLER", id: HandlerIds.APP_EXIT },
   },
   {
     id: "ctrl+l",
     display: "Ctrl+L",
     label: "Clear screen",
     category: "Global",
-    action: { type: "HANDLER", id: "app.clear" },
+    action: { type: "HANDLER", id: HandlerIds.APP_CLEAR },
   },
   {
     id: "ctrl+p",
@@ -34,7 +26,7 @@ export const globalKeybindings: Keybinding[] = [
     label: "Command palette",
     description: "Open searchable command palette",
     category: "Global",
-    action: { type: "HANDLER", id: "app.openPalette" },
+    action: { type: "HANDLER", id: HandlerIds.APP_PALETTE },
   },
   {
     id: "ctrl+b",
@@ -42,39 +34,15 @@ export const globalKeybindings: Keybinding[] = [
     label: "Background tasks",
     description: "Open background tasks overlay",
     category: "Global",
-    action: { type: "HANDLER", id: "app.openTasks" },
+    action: { type: "HANDLER", id: HandlerIds.APP_TASKS },
   },
   {
-    id: "shift+tab",
-    display: "Shift+Tab",
-    label: "Cycle agent mode",
-    description: "Cycle default, accept-edits, plan, and full-auto modes",
+    id: "ctrl+t",
+    display: "Ctrl+T",
+    label: "Team dashboard",
+    description: "Open team dashboard overlay",
     category: "Global",
-    action: { type: "INFO" },
-  },
-  {
-    id: "ctrl+o",
-    display: "Ctrl+O",
-    label: "Toggle latest section",
-    description: "Expand or collapse the latest tool or thinking block",
-    category: "Global",
-    action: { type: "INFO" },
-  },
-  {
-    id: "ctrl+y",
-    display: "Ctrl+Y",
-    label: "Open latest source",
-    description: "Open the latest assistant source URL",
-    category: "Global",
-    action: { type: "INFO" },
-  },
-  {
-    id: "pgup-pgdn",
-    display: "PgUp/PgDn",
-    label: "Scroll terminal",
-    description: "Scroll conversation output in the terminal",
-    category: "Global",
-    action: { type: "INFO" },
+    action: { type: "HANDLER", id: HandlerIds.APP_TEAM_DASHBOARD },
   },
   {
     id: "esc-global",

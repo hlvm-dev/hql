@@ -3,11 +3,9 @@
  * Extracted from chat.ts for modularity.
  */
 
+import { pushSSEEvent, SESSIONS_CHANNEL } from "../../../store/sse-store.ts";
 import {
-  pushSSEEvent,
-  SESSIONS_CHANNEL,
-} from "../../../store/sse-store.ts";
-import {
+  cancelRequestMessages,
   updateMessage,
 } from "../../../store/conversation-store.ts";
 import type { InteractionResponse } from "../../../agent/orchestrator.ts";
@@ -117,7 +115,16 @@ export function emitCancellation(
   requestId: string,
   emit: (obj: unknown) => void,
 ): void {
-  updateMessage(assistantMessageId, { cancelled: true, content: partialText });
+  const cancelled = cancelRequestMessages(sessionId, requestId, {
+    assistantMessageId,
+    assistantContent: partialText,
+  });
+  if (cancelled === 0) {
+    updateMessage(assistantMessageId, {
+      cancelled: true,
+      content: partialText,
+    });
+  }
   pushSSEEvent(sessionId, "message_updated", {
     id: assistantMessageId,
     content: partialText,

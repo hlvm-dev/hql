@@ -90,6 +90,55 @@ Deno.test({
 
 Deno.test({
   name:
+    "delegation heuristic injects system hint for multi-file concurrent request",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    const port = await findFreePort();
+    const hlvmDir = await platform.fs.makeTempDir({
+      prefix: "hlvm-heuristic-e2e-",
+    });
+    const baseUrl = `http://127.0.0.1:${port}`;
+
+    try {
+      const result = await runLocalAsk(
+        port,
+        [
+          "--fresh",
+          "--verbose",
+          "--model",
+          "ollama/test-fixture",
+          "refactor auth.ts login.ts session.ts config.ts concurrently",
+        ],
+        {
+          HLVM_DIR: hlvmDir,
+          HLVM_ASK_FIXTURE_PATH: FIXTURE_PATH,
+        },
+      );
+
+      const output = normalizeCliOutput(result.stdout + result.stderr);
+      // If the fixture expect passes (it checks for [System hint] and fan-out
+      // in the messages fed to the LLM), the process exits successfully.
+      // A fixture expect mismatch would cause a non-zero exit code.
+      assertEquals(
+        result.success,
+        true,
+        `Delegation heuristic e2e failed:\n${output}`,
+      );
+      assertStringIncludes(output, "[Delegate] code");
+      assertStringIncludes(
+        output,
+        "Result:\nDelegation heuristic test complete",
+      );
+    } finally {
+      await shutdownRuntimeHostIfPresent(baseUrl);
+      await platform.fs.remove(hlvmDir, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name:
     "live local ask smoke test uses natural language to trigger delegation and team coordination",
   ignore: LIVE_MODEL.length === 0,
   sanitizeOps: false,

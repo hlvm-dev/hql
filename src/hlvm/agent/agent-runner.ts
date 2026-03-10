@@ -11,6 +11,7 @@
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { getCustomInstructionsPath } from "../../common/paths.ts";
 import { ValidationError } from "../../common/error.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import {
   closeFactDb,
   MEMORY_TOOLS,
@@ -711,6 +712,7 @@ export async function runAgentQuery(
       const coordinationBoard = createDelegateCoordinationBoard();
       teamRuntime = createTeamRuntime("lead", "lead", {
         snapshot: sessionMetadata.teamRuntime,
+        reconcileStaleWorkers: true,
         onChange: (snapshot) => {
           if (sessionKey) {
             persistAgentTeamRuntime(sessionKey, snapshot);
@@ -721,6 +723,18 @@ export async function runAgentQuery(
         session.todoState.items = teamRuntime.deriveTodoState().items.map((item) => ({
           ...item,
         }));
+        // If stale workers were cleaned up, inject a notice so the model
+        // doesn't trust stale team state from conversation history.
+        const hasStaleWorkers = teamRuntime.listMembers().some(
+          (m) => m.role !== "lead" && m.status === "terminated",
+        );
+        if (hasStaleWorkers) {
+          session.context.addMessage({
+            role: "user",
+            content:
+              "[System Notice] Previous team session has been reset. All prior delegate workers and their tasks have been terminated/cancelled. Start fresh — create new tasks and spawn new delegates as needed. Ignore any team state from earlier messages.",
+          });
+        }
       }
       text = await runReActLoop(
         query,
@@ -777,7 +791,7 @@ export async function runAgentQuery(
       );
     } catch (error) {
       if (persistedTurn) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         completePersistedAgentTurn(persistedTurn, model, `Error: ${message}`);
       }
       throw error;
@@ -804,6 +818,7 @@ export async function runAgentQuery(
               content: message.content,
             })),
             session.modelTier,
+            model,
           );
         } catch {
           // Best-effort only; extraction should never block agent response.

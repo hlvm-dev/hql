@@ -1,10 +1,13 @@
 /**
- * Shared baseline fact extraction for chat and agent flows.
+ * Shared fact extraction for chat and agent flows.
+ * Frontier models use LLM-based extraction; all tiers fall back to regex.
  */
 
 import { getFactDb } from "./db.ts";
 import { type WriteMemoryFactOptions, writeMemoryFacts } from "./pipeline.ts";
 import type { MemoryModelTier } from "./invalidate.ts";
+
+declare const ai: { chat(messages: Array<{ role: string; content: string }>, options?: Record<string, unknown>): AsyncGenerator<string, void, unknown> };
 
 export interface SessionMessage {
   role: string;
@@ -211,7 +214,7 @@ function persistExtractedFacts(
   };
 }
 
-export function extractBaselineFactsFromText(
+function extractBaselineFactsFromText(
   text: string,
 ): ExtractedMemoryFact[] {
   if (shouldSkipText(text)) return [];
@@ -250,7 +253,7 @@ export function extractBaselineFactsFromText(
   return extracted;
 }
 
-export function extractBaselineFactsFromMessages(
+function extractBaselineFactsFromMessages(
   messages: SessionMessage[],
   options?: {
     limit?: number;
@@ -280,6 +283,90 @@ export function extractBaselineFactsFromMessages(
   return extracted;
 }
 
+const LLM_EXTRACTION_PROMPT = `Extract key facts from the following conversation that would be useful to remember for future sessions.
+
+Return a JSON array of objects with "category" and "content" fields.
+
+Categories: Identity, Preferences, Decisions, Bugs, Environment, General
+
+Rules:
+- Max 10 facts. Be concise — one sentence per fact.
+- Skip trivial/obvious info, code snippets, and transient task details.
+- Focus on durable information: who the user is, what they prefer, what was decided and why.
+
+Examples of GOOD extractions:
+- {"category": "Identity", "content": "User's name: Alice"}
+- {"category": "Preferences", "content": "User prefers Deno over Node for all new projects"}
+- {"category": "Decisions", "content": "Chose JWT over session cookies for stateless auth"}
+
+Examples of BAD extractions (too vague or trivial):
+- {"category": "General", "content": "We talked about some stuff"}
+- {"category": "General", "content": "The user asked a question"}
+- {"category": "Bugs", "content": "There was an error"}
+
+Return ONLY the JSON array, no other text.`;
+
+export function parseLLMExtractionResponse(
+  text: string,
+): ExtractedMemoryFact[] {
+  try {
+    const cleaned = text.replace(/^```(?:json)?\s*\n?/m, "").replace(
+      /\n?```\s*$/m,
+      "",
+    ).trim();
+    const parsed = JSON.parse(cleaned);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (entry: unknown): entry is { category: string; content: string } =>
+          typeof entry === "object" && entry !== null &&
+          typeof (entry as Record<string, unknown>).category === "string" &&
+          typeof (entry as Record<string, unknown>).content === "string" &&
+          ((entry as Record<string, unknown>).content as string).trim() !== "",
+      )
+      .slice(0, 10)
+      .map((entry) => ({
+        category: entry.category,
+        content: entry.content.trim(),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+async function extractFactsWithLLM(
+  messages: SessionMessage[],
+  model?: string,
+): Promise<ExtractedMemoryFact[]> {
+  try {
+    const formatted = messages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .slice(-20)
+      .map((m) => {
+        const content = m.content.length > 600
+          ? m.content.slice(0, 600) + "..."
+          : m.content;
+        return `[${m.role}]: ${content}`;
+      })
+      .join("\n\n");
+
+    const prompt = `${LLM_EXTRACTION_PROMPT}\n\n--- Conversation ---\n${formatted}`;
+    const opts: Record<string, unknown> = {
+      stream: false,
+      maxTokens: 1000,
+      temperature: 0,
+    };
+    if (model) opts.model = model;
+
+    const gen = ai.chat([{ role: "user", content: prompt }], opts);
+    let text = "";
+    for await (const chunk of gen) text += chunk;
+    return parseLLMExtractionResponse(text);
+  } catch {
+    return [];
+  }
+}
+
 export function extractConversationFacts(
   messages: SessionMessage[],
 ): ExtractedMemoryFact[] {
@@ -290,18 +377,7 @@ export function extractConversationFacts(
   });
 }
 
-export function extractAndPersistBaselineFactsFromText(
-  text: string,
-  options?: {
-    source?: string;
-    invalidateConflicts?: boolean;
-    modelTier?: MemoryModelTier;
-  },
-): PersistedExtractionResult {
-  return persistExtractedFacts(extractBaselineFactsFromText(text), options);
-}
-
-export function extractAndPersistBaselineFactsFromMessages(
+function extractAndPersistBaselineFactsFromMessages(
   messages: SessionMessage[],
   options?: {
     source?: string;
@@ -333,14 +409,30 @@ export function persistConversationFacts(
   });
 }
 
-export function extractSessionFacts(
+export async function extractSessionFacts(
   messages: SessionMessage[],
   modelTier: MemoryModelTier,
-): { factsExtracted: number; entitiesCreated: number } {
+  model?: string,
+): Promise<{ factsExtracted: number; entitiesCreated: number }> {
   if (modelTier !== "frontier") {
     return { factsExtracted: 0, entitiesCreated: 0 };
   }
 
+  // Try LLM extraction first, fall back to regex
+  const llmFacts = await extractFactsWithLLM(messages, model);
+  if (llmFacts.length > 0) {
+    const result = persistExtractedFacts(llmFacts, {
+      source: "extracted",
+      invalidateConflicts: false,
+      modelTier,
+    });
+    return {
+      factsExtracted: result.factsExtracted,
+      entitiesCreated: result.entitiesCreated,
+    };
+  }
+
+  // Fallback to regex-based extraction
   const result = extractAndPersistBaselineFactsFromMessages(messages, {
     source: "extracted",
     modelTier,

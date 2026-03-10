@@ -23,10 +23,10 @@ openapi:
 	@echo "Generating OpenAPI specification..."
 	@deno task openapi
 
-# Quick build for current computer
-build: stdlib embed-packages
-	@echo "🔨 Building HLVM binary..."
-	@deno compile --allow-all --no-check --config deno.json \
+# Quick build for current computer (always clean — no stale cache)
+build: clean stdlib embed-packages
+	@echo "🔨 Building HLVM binary (clean)..."
+	@DENO_DIR=$$(mktemp -d) deno compile --allow-all --no-check --config deno.json \
 		--include src/hql/lib/stdlib/js/index.js \
 		--include src/hql/lib/stdlib/js/ai.js \
 		--output $(BINARY) $(CLI_ENTRY)
@@ -133,10 +133,11 @@ test-ai: build-ai
 	@./$(BINARY) run -e '(import [ask] from "@hlvm/ai") (print (ask "Say: Hello from HLVM!"))'
 	@echo "✅ AI test passed!"
 
-# Clean up
+# Clean up (binaries + Deno compile cache)
 clean:
 	@rm -f hlvm hlvm-* /tmp/hlvm-test.hql
-	@echo "🧹 Cleaned build files"
+	@rm -rf "$${DENO_DIR:-$$HOME/.cache/deno}/deno_compile_*" 2>/dev/null || true
+	@echo "🧹 Cleaned build files + compile cache"
 
 # Show help
 help:

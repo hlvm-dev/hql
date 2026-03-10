@@ -1,5 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
+import { truncate } from "../../../../../common/utils.ts";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { formatDurationMs } from "../../utils/formatting.ts";
 import type { DelegateItem as DelegateItemData } from "../../types.ts";
@@ -11,11 +12,6 @@ interface DelegateItemProps {
   expanded?: boolean;
 }
 
-function truncate(text: string, maxLen: number): string {
-  if (maxLen <= 0) return "";
-  if (text.length <= maxLen) return text;
-  return maxLen > 3 ? `${text.slice(0, maxLen - 1)}…` : text.slice(0, maxLen);
-}
 
 export function DelegateItem(
   { item, width, expanded = false }: DelegateItemProps,
@@ -66,15 +62,15 @@ export function DelegateItem(
         paddingLeft={1}
       >
         <Text bold color={accent}>
-          {truncate(header, Math.max(10, width - 8))}
+          {truncate(header, Math.max(10, width - 8), "…")}
         </Text>
         <Text color={sc.text.secondary}>
-          {truncate(item.task, Math.max(10, width - 8))}
+          {truncate(item.task, Math.max(10, width - 8), "…")}
           {duration}
         </Text>
         {body && (
           <Text color={item.status === "error" ? sc.status.error : sc.text.muted}>
-            {truncate(body, Math.max(10, width - 8))}
+            {truncate(body, Math.max(10, width - 8), "…")}
           </Text>
         )}
         {item.childSessionId && (
@@ -82,6 +78,7 @@ export function DelegateItem(
             {truncate(
               `child session: ${item.childSessionId}`,
               Math.max(10, width - 8),
+              "…",
             )}
           </Text>
         )}
@@ -90,7 +87,7 @@ export function DelegateItem(
             {item.snapshot.events.map((event, index) => (
               <React.Fragment key={`${item.id}-event-${index}`}>
                 <Text color={sc.text.muted}>
-                  {truncate(formatSnapshotEvent(event), Math.max(10, width - 8))}
+                  {truncate(formatSnapshotEvent(event), Math.max(10, width - 8), "…")}
                 </Text>
               </React.Fragment>
             ))}
@@ -99,6 +96,7 @@ export function DelegateItem(
                 {truncate(
                   `Final: ${item.snapshot.finalResponse}`,
                   Math.max(10, width - 8),
+                  "…",
                 )}
               </Text>
             )}

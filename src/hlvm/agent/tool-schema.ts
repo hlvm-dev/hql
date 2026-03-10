@@ -8,14 +8,14 @@
 import type { ToolMetadata } from "./registry.ts";
 import { getAgentLogger } from "./logger.ts";
 
-export interface JsonSchemaObject {
+interface JsonSchemaObject {
   type: "object";
   properties: Record<string, JsonSchemaProperty>;
   required?: string[];
   additionalProperties: boolean;
 }
 
-export interface JsonSchemaProperty {
+interface JsonSchemaProperty {
   type?:
     | "string"
     | "number"

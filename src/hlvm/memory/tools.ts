@@ -6,7 +6,7 @@ import { ValidationError } from "../../common/error.ts";
 import { isToolArgsObject } from "../agent/validation.ts";
 import type { ToolMetadata } from "../agent/registry.ts";
 import { isObjectValue } from "../../common/utils.ts";
-import { invalidateFactsByCategory, replaceInFacts } from "./facts.ts";
+import { invalidateAllFacts, invalidateFactsByCategory, replaceInFacts } from "./facts.ts";
 import { retrieveMemory } from "./retrieve.ts";
 import { type MemoryModelTier } from "./invalidate.ts";
 import { writeMemoryFact } from "./pipeline.ts";
@@ -112,6 +112,21 @@ function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
     });
   }
 
+  if (action === "clear_all") {
+    if (record.confirm !== true) {
+      throw new ValidationError(
+        "clear_all requires confirm: true to prevent accidental data loss",
+        "memory_edit",
+      );
+    }
+    const invalidated = invalidateAllFacts();
+    return Promise.resolve({
+      edited: invalidated > 0,
+      action: "clear_all",
+      invalidated,
+    });
+  }
+
   if (action === "replace") {
     const find = record.find;
     const replaceWith = record.replace_with;
@@ -137,7 +152,7 @@ function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
   }
 
   throw new ValidationError(
-    'action must be "delete_section" or "replace"',
+    'action must be "delete_section", "replace", or "clear_all"',
     "memory_edit",
   );
 }
@@ -199,7 +214,13 @@ function formatMemoryEditResult(
   | null {
   if (!isObjectValue(result) || result.edited !== true) return null;
   const action = typeof result.action === "string" ? result.action : "edit";
-  const detail = action === "replace"
+  const detail = action === "clear_all"
+    ? `Cleared all memory${
+      typeof result.invalidated === "number"
+        ? ` (${result.invalidated} facts invalidated)`
+        : ""
+    }`
+    : action === "replace"
     ? `Updated memory${
       typeof result.replacements === "number"
         ? ` (${result.replacements} replacements)`
@@ -278,11 +299,13 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     category: "memory",
     args: {
       action:
-        'string - "delete_section" to invalidate a category, "replace" to find/replace text across active facts.',
+        'string - "delete_section" to invalidate a category, "replace" to find/replace text across active facts, "clear_all" to wipe all stored facts (requires confirm: true).',
       section: "string (for delete_section) - Category name to invalidate.",
       find: "string (for replace) - Exact text to find in active facts.",
       replace_with:
         'string (for replace) - Replacement text. Use "" to remove matched text.',
+      confirm:
+        "boolean (for clear_all) - Must be true to confirm deletion of all facts.",
     },
     returns: {
       edited: "boolean",

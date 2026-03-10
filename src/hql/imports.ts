@@ -1877,9 +1877,6 @@ async function tryImportSources(
   }
 }
 
-// Removed: loadNpmModule, loadJsrModule, loadHttpModule
-// These three functions were nearly identical wrappers around tryImportSources.
-// Consolidated into loadRemoteModule() above for DRY compliance.
 
 /**
  * Process file definitions (let, fn, macro) for variables, functions and macros

@@ -8,6 +8,7 @@
 import { registry } from "./registry.ts";
 import type { Key } from "ink";
 import { getCustomKeybindingsSnapshot } from "./custom-bindings.ts";
+import type { KeybindingCategory } from "./types.ts";
 
 // ============================================================
 // State
@@ -21,6 +22,9 @@ const disabledDefaults = new Map<string, boolean>();
 
 /** Default keybindings: normalized key -> handler ID (built from definitions) */
 const defaultMap = new Map<string, string>();
+
+/** Handler metadata: handler ID -> keybinding category */
+const handlerCategoryMap = new Map<string, KeybindingCategory>();
 
 // ============================================================
 // Key Normalization
@@ -43,16 +47,23 @@ export function normalizeKeyInput(input: string, key: Key): string | null {
 
   // Modified Enter from CSI-u / modifyOtherKeys protocols.
   // Examples:
-  // - \x1b[13;3u    (Alt+Enter)
-  // - \x1b[13;2u    (Shift+Enter)
+  // - \x1b[13;3u    (Alt+Enter, modifier 3)
+  // - \x1b[13;2u    (Shift+Enter, modifier 2)
+  // - \x1b[13;5u    (Ctrl+Enter, modifier 5)
   // - \x1b[27;3;13~ (legacy Alt+Enter form)
-  // We normalize all modified-enter protocol payloads to alt+enter because
-  // higher-level behavior is the same: insert newline (not submit).
-  if (
-    input &&
-    (/^\x1b\[13;\d+u$/.test(input) || /^\x1b\[27;\d+;13~$/.test(input))
-  ) {
-    return "alt+enter";
+  // Ctrl+Enter (modifier 5) is force-submit; all others insert newline.
+  if (input) {
+    // deno-lint-ignore no-control-regex -- terminal escape-sequence parsing
+    const csiuMatch = input.match(/^\x1b\[13;(\d+)u$/);
+    // deno-lint-ignore no-control-regex -- terminal escape-sequence parsing
+    const legacyMatch = input.match(/^\x1b\[27;(\d+);13~$/);
+    const modifier = csiuMatch?.[1] ?? legacyMatch?.[1];
+    if (modifier) {
+      const mod = parseInt(modifier, 10);
+      // CSI-u modifier bits: 2=Shift, 3=Alt, 5=Ctrl, 6=Ctrl+Shift, 7=Ctrl+Alt
+      if (mod === 5 || mod === 6 || mod === 7) return "ctrl+enter";
+      return "alt+enter";
+    }
   }
 
   // Special keys first (Tab, Enter, Esc, arrows, delete keys).
@@ -119,6 +130,7 @@ export function refreshKeybindingLookup(): void {
   customMap.clear();
   disabledDefaults.clear();
   defaultMap.clear();
+  handlerCategoryMap.clear();
 
   // Build custom map and disabled defaults from config (via global cache)
   const customBindings = getCustomKeybindingsSnapshot();
@@ -126,6 +138,8 @@ export function refreshKeybindingLookup(): void {
   // Single pass over all keybindings (builds both defaultMap and customMap)
   for (const kb of registry.getAll()) {
     if (kb.action.type !== "HANDLER") continue;
+
+    handlerCategoryMap.set(kb.action.id, kb.category);
 
     const defaultCombo = displayToCombo(kb.display);
     if (defaultCombo) {
@@ -170,13 +184,50 @@ export function isDefaultDisabled(input: string, key: Key): boolean {
   return disabledDefaults.has(combo);
 }
 
-/**
- * Get effective display for a keybinding (custom override or null).
- * Used by getDisplay() to show custom bindings in palette.
- */
-export function getEffectiveDisplay(keybindingId: string): string | null {
-  const customBindings = getCustomKeybindingsSnapshot();
-  return customBindings[keybindingId] ?? null;
+export interface HandlerKeybindingScope {
+  categories?: readonly KeybindingCategory[];
+}
+
+export type HandlerKeybindingInspection =
+  | { kind: "handler"; id: string; source: "custom" | "default" }
+  | { kind: "disabled-default"; id: string }
+  | { kind: "shadowed" }
+  | { kind: "none" };
+
+function matchesScope(
+  handlerId: string,
+  scope?: HandlerKeybindingScope,
+): boolean {
+  if (!scope?.categories?.length) return true;
+  const category = handlerCategoryMap.get(handlerId);
+  return category !== undefined && scope.categories.includes(category);
+}
+
+export function inspectHandlerKeybinding(
+  input: string,
+  key: Key,
+  scope?: HandlerKeybindingScope,
+): HandlerKeybindingInspection {
+  const combo = normalizeKeyInput(input, key);
+  if (!combo) return { kind: "none" };
+
+  const customHandlerId = customMap.get(combo);
+  if (customHandlerId) {
+    return matchesScope(customHandlerId, scope)
+      ? { kind: "handler", id: customHandlerId, source: "custom" }
+      : { kind: "shadowed" };
+  }
+
+  const defaultHandlerId = defaultMap.get(combo);
+  if (!defaultHandlerId || !matchesScope(defaultHandlerId, scope)) {
+    return { kind: "none" };
+  }
+
+  if (disabledDefaults.has(combo)) {
+    return { kind: "disabled-default", id: defaultHandlerId };
+  }
+
+  return { kind: "handler", id: defaultHandlerId, source: "default" };
 }
 
 // ============================================================
@@ -205,6 +256,11 @@ function displayToCombo(display: string): string | null {
   };
   if (SPECIAL_DISPLAY_MAP[normalizedDisplay]) {
     return SPECIAL_DISPLAY_MAP[normalizedDisplay];
+  }
+
+  // Handle single printable keys like "?".
+  if (normalizedDisplay.length === 1) {
+    return normalizedDisplay;
   }
 
   // Handle "^X" format (caret notation)

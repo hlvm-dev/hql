@@ -1,3 +1,5 @@
+import { isObjectValue } from "./utils.ts";
+
 /**
  * Circular-reference-safe JSON stringification.
  * Handles bigint, function, symbol, and circular references gracefully.
@@ -12,7 +14,7 @@ export function safeStringify(value: unknown, spacing = 2): string {
         if (typeof val === "bigint") return `${val}n`;
         if (typeof val === "function") return "[Function]";
         if (typeof val === "symbol") return String(val);
-        if (typeof val === "object" && val !== null) {
+        if (isObjectValue(val)) {
           if (seen.has(val)) return "[Circular]";
           seen.add(val);
         }

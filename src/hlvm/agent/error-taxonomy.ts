@@ -43,10 +43,14 @@ function isTimeoutError(err: unknown, message: string): boolean {
 
 // Compiled regex patterns for error classification (module-level, created once)
 const RE_RATE_LIMIT = /rate limit|too many requests|429/;
-const RE_TRANSIENT_NETWORK = /econnreset|econnrefused|enetunreach|enotfound|etimedout|http 50[023]/;
-const RE_AUTH = /api key not configured|api key not valid|incorrect api key|invalid api key|invalid x-api-key|authentication_error|exceeded your current quota|insufficient_quota|http 40[13]/;
-const RE_CONTEXT_OVERFLOW = /context length|maximum context|token limit|too many tokens|exceeds the model|prompt is too long/;
-const RE_PERMANENT = /invalid request|invalid model|invalid parameter|bad request|http 400|http 422|http 501|not allowed|permission denied|denied by user/;
+const RE_TRANSIENT_NETWORK =
+  /econnreset|econnrefused|enetunreach|enotfound|etimedout|epipe|econnaborted|error reading a body|connection.*closed|socket hang up|network error|http 50[023]/;
+const RE_AUTH =
+  /api key not configured|api key not valid|incorrect api key|invalid api key|invalid x-api-key|authentication_error|exceeded your current quota|insufficient_quota|http 40[13]/;
+const RE_CONTEXT_OVERFLOW =
+  /context length|maximum context|token limit|too many tokens|exceeds the model|prompt is too long/;
+const RE_PERMANENT =
+  /invalid request|invalid model|invalid parameter|bad request|http 400|http 422|http 501|not allowed|permission denied|denied by user/;
 
 function isRateLimitError(message: string): boolean {
   return RE_RATE_LIMIT.test(message);
@@ -101,6 +105,12 @@ export function classifyError(err: unknown): ClassifiedError {
       return { class: "context_overflow", retryable: true, message };
     }
     if (code && code >= 500 && code < 600) {
+      return { class: "transient", retryable: true, message };
+    }
+    // Connection-level errors are always transient regardless of SDK flag.
+    // The SDK sets isRetryable: false for errors without HTTP status codes
+    // (e.g. "error reading a body from connection"), but these ARE retryable.
+    if (isTransientNetworkError(message)) {
       return { class: "transient", retryable: true, message };
     }
     // Fall back to SDK's own retryable flag
@@ -182,7 +192,10 @@ export function getRecoveryHint(errorMessage: string): string | null {
   }
 
   // File system errors
-  if (msg.includes("enoent") || msg.includes("no such file") || msg.includes("not found")) {
+  if (
+    msg.includes("enoent") || msg.includes("no such file") ||
+    msg.includes("not found")
+  ) {
     return "Verify the path exists. Use list_files to check the directory contents first.";
   }
   if (msg.includes("eacces") || msg.includes("permission denied")) {
@@ -202,7 +215,10 @@ export function getRecoveryHint(errorMessage: string): string | null {
   if (msg.includes("required") && msg.includes("missing")) {
     return "Missing required argument. Check the tool schema and provide all required fields.";
   }
-  if (msg.includes("invalid") && (msg.includes("argument") || msg.includes("parameter"))) {
+  if (
+    msg.includes("invalid") &&
+    (msg.includes("argument") || msg.includes("parameter"))
+  ) {
     return "Invalid argument value. Check the expected type and format in the tool schema.";
   }
   if (msg.includes("denied by user")) {
@@ -210,10 +226,16 @@ export function getRecoveryHint(errorMessage: string): string | null {
   }
 
   // Network/API errors
-  if (msg.includes("timeout") || msg.includes("timed out") || msg.includes("etimedout")) {
+  if (
+    msg.includes("timeout") || msg.includes("timed out") ||
+    msg.includes("etimedout")
+  ) {
     return "Operation timed out. Try a simpler query or break the task into smaller steps.";
   }
-  if (msg.includes("rate limit") || msg.includes("429") || msg.includes("too many requests")) {
+  if (
+    msg.includes("rate limit") || msg.includes("429") ||
+    msg.includes("too many requests")
+  ) {
     return "Rate limit hit. Wait a moment before retrying this operation.";
   }
 

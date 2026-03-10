@@ -22,7 +22,8 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useInput } from "ink";
+import { useInput, useStdout } from "ink";
+import { calculateScrollWindow } from "../completion/navigation.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import {
   type ConfigKey,
@@ -50,12 +51,13 @@ import {
 import {
   ansi,
   bg,
-  calcOverlayPosition,
   clearOverlay,
   fg,
   hexToRgb,
   OVERLAY_BG_COLOR,
   type RGB,
+  resolveOverlayFrame,
+  shouldClearOverlay,
   writeToTerminal,
 } from "../overlay/index.ts";
 import { CURSOR_BLINK_MS } from "../ui-constants.ts";
@@ -121,10 +123,11 @@ const OVERLAY_CONFIG_KEYS: readonly EditableConfigKey[] = [
   "sessionMemory",
   "permissionMode",
 ];
-const VISIBLE_FIELDS = OVERLAY_CONFIG_KEYS.length;
-const OVERLAY_HEIGHT = PADDING.top + HEADER_ROWS + VISIBLE_FIELDS + 1 + 1 +
+const OVERLAY_HEIGHT = PADDING.top + HEADER_ROWS + OVERLAY_CONFIG_KEYS.length + 1 + 1 +
   PADDING.bottom;
 const SELECTED_BG_COLOR: RGB = [55, 55, 65];
+const MIN_OVERLAY_WIDTH = 48;
+const MIN_OVERLAY_HEIGHT = 12;
 
 // Config field metadata
 const FIELD_META: Record<EditableConfigKey, FieldMeta> = {
@@ -220,6 +223,7 @@ export function ConfigOverlay({
   onStateChange,
 }: ConfigOverlayProps): React.ReactElement | null {
   const { theme, setTheme } = useTheme();
+  const { stdout } = useStdout();
 
   // Config state
   const [config, setConfig] = useState<HlvmConfig>(DEFAULT_CONFIG);
@@ -235,8 +239,40 @@ export function ConfigOverlay({
   const [cursorVisible, setCursorVisible] = useState(true);
 
   // Refs for overlay management
-  const overlayPosRef = useRef({ x: 0, y: 0 });
+  const previousFrameRef = useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const isFirstRender = useRef(true);
+  const terminalColumns = stdout?.columns ?? 0;
+  const terminalRows = stdout?.rows ?? 0;
+  const overlayFrame = useMemo(
+    () =>
+      resolveOverlayFrame(OVERLAY_WIDTH, OVERLAY_HEIGHT, {
+        minWidth: MIN_OVERLAY_WIDTH,
+        minHeight: MIN_OVERLAY_HEIGHT,
+      }),
+    [terminalColumns, terminalRows],
+  );
+  const contentWidth = Math.max(
+    18,
+    overlayFrame.width - PADDING.left - PADDING.right,
+  );
+  const visibleFieldCount = Math.max(
+    2,
+    overlayFrame.height - CONTENT_START - PADDING.bottom - 2,
+  );
+  const visibleWindow = useMemo(
+    () =>
+      calculateScrollWindow(
+        selectedIndex,
+        OVERLAY_CONFIG_KEYS.length,
+        visibleFieldCount,
+      ),
+    [selectedIndex, visibleFieldCount],
+  );
 
   // Theme colors (memoized)
   const colors = useMemo(() => ({
@@ -421,10 +457,10 @@ export function ConfigOverlay({
 
   // Draw full overlay
   const drawOverlay = useCallback(() => {
-    const pos = calcOverlayPosition(OVERLAY_WIDTH, OVERLAY_HEIGHT);
-    overlayPosRef.current = pos;
-
-    const contentWidth = OVERLAY_WIDTH - PADDING.left - PADDING.right;
+    if (shouldClearOverlay(previousFrameRef.current, overlayFrame)) {
+      clearOverlay(previousFrameRef.current!);
+    }
+    previousFrameRef.current = overlayFrame;
     const bgStyle = colors.bgStyle;
     let output = ansi.cursorSave + ansi.cursorHide;
 
@@ -439,10 +475,10 @@ export function ConfigOverlay({
       rowBgStyle?: string,
     ) => {
       const bg = rowBgStyle || bgStyle;
-      output += ansi.cursorTo(pos.x, y) + bg;
+      output += ansi.cursorTo(overlayFrame.x, y) + bg;
       output += styledContent;
       // Pad to full width
-      const padding = OVERLAY_WIDTH - visibleLen;
+      const padding = overlayFrame.width - visibleLen;
       if (padding > 0) {
         output += " ".repeat(padding);
       }
@@ -450,16 +486,17 @@ export function ConfigOverlay({
 
     // Helper: draw empty row
     const drawEmptyRow = (y: number) => {
-      output += ansi.cursorTo(pos.x, y) + bgStyle + " ".repeat(OVERLAY_WIDTH);
+      output += ansi.cursorTo(overlayFrame.x, y) + bgStyle +
+        " ".repeat(overlayFrame.width);
     };
 
     // === Top padding ===
     for (let i = 0; i < PADDING.top; i++) {
-      drawEmptyRow(pos.y + i);
+      drawEmptyRow(overlayFrame.y + i);
     }
 
     // === Header row ===
-    const headerY = pos.y + PADDING.top;
+    const headerY = overlayFrame.y + PADDING.top;
     const title = "Configuration";
     const hints = "d: default  r: reset all";
     const headerPad = contentWidth - title.length - hints.length;
@@ -476,12 +513,17 @@ export function ConfigOverlay({
     drawEmptyRow(headerY + 1);
 
     // === Config field rows ===
-    for (let i = 0; i < VISIBLE_FIELDS; i++) {
-      const rowY = pos.y + CONTENT_START + i;
-      const key = OVERLAY_CONFIG_KEYS[i];
+    for (let i = 0; i < visibleFieldCount; i++) {
+      const rowY = overlayFrame.y + CONTENT_START + i;
+      const key = OVERLAY_CONFIG_KEYS[visibleWindow.start + i];
+      if (!key) {
+        drawEmptyRow(rowY);
+        continue;
+      }
       const meta = FIELD_META[key];
       const value = config[key as keyof HlvmConfig];
-      const isSelected = i === selectedIndex;
+      const actualIndex = visibleWindow.start + i;
+      const isSelected = actualIndex === selectedIndex;
       const isEditing = isSelected && mode === "edit";
       const defaultMark = isDefault(key) ? " (default)" : "";
       const isSelectType = meta.type === "select";
@@ -562,7 +604,7 @@ export function ConfigOverlay({
         if (isModelField && capabilityTags) {
           const usedWidth = PADDING.left + 14 + (isSelectType ? 4 : 0) +
             displayValue.length + displayDefault.length;
-          const remainingSpace = OVERLAY_WIDTH - usedWidth - PADDING.right - 1;
+          const remainingSpace = overlayFrame.width - usedWidth - PADDING.right - 1;
           if (remainingSpace >= capabilityTags.length + 1) {
             rowContent += " " + fg(colors.muted) + capabilityTags + ansi.reset +
               rowBg;
@@ -579,7 +621,7 @@ export function ConfigOverlay({
     }
 
     // === Empty row before footer ===
-    const preFooterY = pos.y + CONTENT_START + VISIBLE_FIELDS;
+    const preFooterY = overlayFrame.y + CONTENT_START + visibleFieldCount;
     drawEmptyRow(preFooterY);
 
     // === Footer row (shows error if any, otherwise hints) ===
@@ -600,14 +642,18 @@ export function ConfigOverlay({
       footerText = "\u2191\u2193 Navigate  Enter Edit  Esc Close";
       footerColor = colors.muted;
     }
+    const footerCount = OVERLAY_CONFIG_KEYS.length > visibleFieldCount
+      ? ` ${selectedIndex + 1}/${OVERLAY_CONFIG_KEYS.length}`
+      : "";
+    const footerDisplay = (footerText + footerCount).slice(0, contentWidth);
 
     const footerContent = " ".repeat(PADDING.left) +
-      fg(footerColor) + footerText + ansi.reset + bgStyle +
+      fg(footerColor) + footerDisplay + ansi.reset + bgStyle +
       " ".repeat(PADDING.right);
     drawRow(
       footerY,
       footerContent,
-      PADDING.left + footerText.length + PADDING.right,
+      PADDING.left + footerDisplay.length + PADDING.right,
     );
 
     // === Bottom padding ===
@@ -631,26 +677,28 @@ export function ConfigOverlay({
     isDefault,
     modelInfo,
     fieldMeta.type,
+    contentWidth,
+    overlayFrame,
+    selectedIndex,
+    visibleFieldCount,
+    visibleWindow.start,
   ]);
 
   // Draw cursor only (optimized for blink in edit mode)
   // Uses selectedBgStyle since edit mode is always on the selected row
   const drawCursor = useCallback(() => {
     if (mode !== "edit") return;
-
-    const pos = overlayPosRef.current;
-    if (pos.x === 0 && pos.y === 0) return;
-
-    const rowY = pos.y + CONTENT_START + selectedIndex;
-
-    const contentWidth = OVERLAY_WIDTH - PADDING.left - PADDING.right;
+    const selectedRow = selectedIndex - visibleWindow.start;
+    if (selectedRow < 0 || selectedRow >= visibleFieldCount) return;
+    const rowY = overlayFrame.y + CONTENT_START + selectedRow;
     const maxEditWidth = contentWidth - 14 - 2; // label + selection indicator
     const display = buildCursorWindowDisplay(
       editValue,
       editCursor,
       maxEditWidth,
     );
-    const cursorX = pos.x + PADDING.left + 14 + display.beforeCursor.length; // label width + cursor pos
+    const cursorX = overlayFrame.x + PADDING.left + 14 +
+      display.beforeCursor.length;
 
     const cursorStyle = cursorVisible
       ? ansi.inverse + display.cursorChar + ansi.reset
@@ -670,6 +718,10 @@ export function ConfigOverlay({
     editCursor,
     cursorVisible,
     colors.selectedBgStyle,
+    contentWidth,
+    overlayFrame,
+    visibleFieldCount,
+    visibleWindow.start,
   ]);
 
   // Cursor blink effect
@@ -699,21 +751,6 @@ export function ConfigOverlay({
     setCursorVisible(true);
   }, [editValue]);
 
-  // Clear overlay on unmount
-  useEffect(() => {
-    return () => {
-      const pos = overlayPosRef.current;
-      if (pos.x !== 0 || pos.y !== 0) {
-        clearOverlay({
-          x: pos.x,
-          y: pos.y,
-          width: OVERLAY_WIDTH,
-          height: OVERLAY_HEIGHT,
-        });
-      }
-    };
-  }, []);
-
   // Keyboard handling
   useInput((input, key) => {
     if (mode === "navigate") {
@@ -728,6 +765,18 @@ export function ConfigOverlay({
       if (key.downArrow) {
         setSelectedIndex((i: number) =>
           Math.min(OVERLAY_CONFIG_KEYS.length - 1, i + 1)
+        );
+        setError(null);
+        return;
+      }
+      if (key.pageUp) {
+        setSelectedIndex((i: number) => Math.max(0, i - visibleFieldCount));
+        setError(null);
+        return;
+      }
+      if (key.pageDown) {
+        setSelectedIndex((i: number) =>
+          Math.min(OVERLAY_CONFIG_KEYS.length - 1, i + visibleFieldCount)
         );
         setError(null);
         return;

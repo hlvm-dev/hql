@@ -67,6 +67,23 @@ function supportsAutomaticCheckpoint(toolName: string): boolean {
   return CHECKPOINT_SUPPORTED_MUTATION_TOOLS.has(toolName);
 }
 
+function buildPlanReviewCancelledResult(
+  toolCall: ToolCall,
+  startedAt: number,
+  config: OrchestratorConfig,
+  message = "Plan review was cancelled before mutation.",
+): ToolExecutionResult {
+  const result = buildToolErrorResult(
+    toolCall.toolName,
+    message,
+    startedAt,
+    config,
+    toolCall.id,
+  );
+  result.stopReason = "plan_review_cancelled";
+  return result;
+}
+
 function emitTeamTaskUpdated(
   config: OrchestratorConfig,
   task: {
@@ -74,6 +91,7 @@ function emitTeamTaskUpdated(
     goal: string;
     status: string;
     assigneeMemberId?: string;
+    artifacts?: Record<string, unknown>;
   } | undefined,
 ): void {
   if (!task) return;
@@ -83,6 +101,7 @@ function emitTeamTaskUpdated(
     goal: task.goal,
     status: task.status,
     assigneeMemberId: task.assigneeMemberId,
+    artifacts: task.artifacts,
   });
 }
 
@@ -330,17 +349,22 @@ export async function executeToolCall(
     ) {
       const plan = config.planReview.getCurrentPlan();
       if (plan) {
-        const reviewDecision = await config.planReview.ensureApproved(plan);
-        if (reviewDecision !== "approved") {
-          const result = buildToolErrorResult(
-            toolCall.toolName,
-            "Plan review was cancelled before mutation.",
+        try {
+          const reviewDecision = await config.planReview.ensureApproved(plan);
+          if (reviewDecision !== "approved") {
+            return buildPlanReviewCancelledResult(
+              toolCall,
+              startedAt,
+              config,
+            );
+          }
+        } catch (error) {
+          return buildPlanReviewCancelledResult(
+            toolCall,
             startedAt,
             config,
-            toolCall.id,
+            `Plan review failed before mutation: ${truncate(getErrorMessage(error), 120)}`,
           );
-          result.stopReason = "plan_review_cancelled";
-          return result;
         }
       }
     }

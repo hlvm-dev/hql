@@ -11,6 +11,8 @@ export interface BackgroundDelegateUpdate {
   error?: string;
   snapshot?: DelegateTranscriptSnapshot;
   childSessionId?: string;
+  attentionRequired?: boolean;
+  attentionReason?: string;
 }
 
 export interface DelegateInbox {
@@ -54,8 +56,9 @@ function resolveUpdateDetail(update: BackgroundDelegateUpdate): string {
 export function formatDelegateInboxUpdateMessage(
   update: BackgroundDelegateUpdate,
 ): string {
+  const attentionPrefix = update.attentionRequired ? "[ATTENTION REQUIRED] " : "";
   const prefix =
-    `[System Delegate Update] ${update.nickname} [${update.agent}]`;
+    `${attentionPrefix}[System Delegate Update] ${update.nickname} [${update.agent}]`;
   const task = `"${truncate(update.task, 120)}"`;
   const detail = resolveUpdateDetail(update);
   if (update.success) {

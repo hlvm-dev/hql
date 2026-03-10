@@ -337,6 +337,8 @@ export function createTeamRuntime(
     snapshot?: TeamRuntimeSnapshot;
     onChange?: (snapshot: TeamRuntimeSnapshot, summary: TeamSummary) => void;
     shutdownEscalationMs?: number;
+    /** Terminate stale workers from a previous process on snapshot restore. */
+    reconcileStaleWorkers?: boolean;
   },
 ): TeamRuntime {
   const teamId = options?.snapshot?.teamId ?? crypto.randomUUID();
@@ -677,6 +679,19 @@ export function createTeamRuntime(
         }
         return task;
       }
+      if (
+        task.assigneeMemberId &&
+        task.assigneeMemberId !== memberId &&
+        (task.status === "claimed" || task.status === "in_progress")
+      ) {
+        return task;
+      }
+      if (
+        task.assigneeMemberId === memberId &&
+        (task.status === "claimed" || task.status === "in_progress")
+      ) {
+        return task;
+      }
       return touchTask(task, {
         assigneeMemberId: memberId,
         status: "claimed",
@@ -985,6 +1000,44 @@ export function createTeamRuntime(
       shutdowns.set(shutdown.id, { ...shutdown });
     }
     syncBlockedTasks();
+
+    // Reconcile stale workers when restoring across process boundaries:
+    // no worker threads survive a process restart, so terminate them and
+    // cancel their in-flight tasks to free maxMembers slots.
+    if (options?.reconcileStaleWorkers) {
+      const terminatedIds = new Set<string>();
+      for (const member of members.values()) {
+        if (member.role !== "lead" && member.status !== "terminated") {
+          terminatedIds.add(member.id);
+          members.set(member.id, {
+            ...member,
+            status: "terminated",
+            currentTaskId: undefined,
+            updatedAt: Date.now(),
+          });
+        }
+      }
+      // Cancel ALL non-terminal tasks assigned to terminated members.
+      // This covers both `currentTaskId` and `assigneeMemberId` linkages.
+      if (terminatedIds.size > 0) {
+        for (const task of tasks.values()) {
+          if (
+            task.assigneeMemberId &&
+            terminatedIds.has(task.assigneeMemberId) &&
+            task.status !== "completed" && task.status !== "cancelled" &&
+            task.status !== "errored"
+          ) {
+            tasks.set(task.id, {
+              ...task,
+              status: "cancelled",
+              assigneeMemberId: undefined,
+              updatedAt: Date.now(),
+            });
+          }
+        }
+      }
+      syncBlockedTasks();
+    }
   } else {
     runtime.registerMember({
       id: leadMemberId,

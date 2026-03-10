@@ -2,6 +2,7 @@ import { getPlatform } from "../../../../platform/platform.ts";
 import { aiEngine } from "../../../runtime/ai-runtime.ts";
 import type { RuntimeOllamaSigninResponse } from "../../../runtime/provider-protocol.ts";
 import { jsonError, parseJsonBody } from "../http-utils.ts";
+import { getErrorMessage } from "../../../../common/utils.ts";
 
 const OLLAMA_SIGNIN_URL_PATTERN = /https:\/\/ollama\.com\/connect\?[^\s"'`]+/i;
 
@@ -50,7 +51,7 @@ export async function handleOllamaSignin(req: Request): Promise<Response> {
         browserOpened = true;
         output.push("Opened browser for Ollama sign-in.");
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         output.push(`Could not open browser automatically: ${message}`);
       }
     }

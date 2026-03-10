@@ -34,44 +34,51 @@ import {
   textEncoder,
 } from "../http-utils.ts";
 import { parseModelString } from "../../../providers/index.ts";
-import { loadAllMessages, loadRecentMessages } from "../../../store/message-utils.ts";
+import {
+  loadAllMessages,
+  loadRecentMessages,
+} from "../../../store/message-utils.ts";
 import { config } from "../../../api/config.ts";
 import { ai } from "../../../api/ai.ts";
+import { log } from "../../../api/log.ts";
 import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
 import { evaluateProviderApproval } from "../../../providers/approval.ts";
 import { supportsAgentExecution } from "../../../agent/constants.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
-  type ChatRequest,
-  type CancelRequest,
-  type ChatMode,
-  CLAUDE_CODE_AGENT_MODE,
   activeRequests,
+  AGENT_CONTEXT_HISTORY_LIMIT,
+  awaitInteractionResponse,
+  type CancelRequest,
+  cancelSessionRequests,
+  CHAT_CONTEXT_HISTORY_LIMIT,
+  type ChatMode,
+  type ChatRequest,
+  CLAUDE_CODE_AGENT_MODE,
+  emitCancellation,
+  getLastUserMessage,
+  handleChatInteraction,
+  handleSessionCancel,
   isAgentReady,
   markAgentReady,
-  cancelSessionRequests,
-  handleSessionCancel,
-  handleChatInteraction,
-  awaitInteractionResponse,
-  emitCancellation,
-  CHAT_CONTEXT_HISTORY_LIMIT,
-  TITLE_SEARCH_HISTORY_LIMIT,
-  AGENT_CONTEXT_HISTORY_LIMIT,
   pushSessionUpdatedEvent,
-  getLastUserMessage,
+  TITLE_SEARCH_HISTORY_LIMIT,
 } from "./chat-session.ts";
 
 import {
+  activeRequests,
   type ChatRequest,
   CLAUDE_CODE_AGENT_MODE,
-  TITLE_SEARCH_HISTORY_LIMIT,
-  activeRequests,
   emitCancellation,
   getLastUserMessage,
   pushSessionUpdatedEvent,
+  TITLE_SEARCH_HISTORY_LIMIT,
 } from "./chat-session.ts";
-import { handleAgentMode, handleClaudeCodeAgentMode } from "./chat-agent-mode.ts";
+import {
+  handleAgentMode,
+  handleClaudeCodeAgentMode,
+} from "./chat-agent-mode.ts";
 import { handleChatMode, modelSupportsTools } from "./chat-direct.ts";
 import {
   buildRequestMessagesToPersist,
@@ -216,7 +223,8 @@ export async function handleChat(req: Request): Promise<Response> {
   }
 
   const currentUserMessage = getLastUserMessage(body.messages)!;
-  const currentTurnId = currentUserMessage.client_turn_id ?? body.client_turn_id;
+  const currentTurnId = currentUserMessage.client_turn_id ??
+    body.client_turn_id;
 
   if (
     body.mode !== "chat" && body.mode !== "agent" &&
@@ -251,7 +259,8 @@ export async function handleChat(req: Request): Promise<Response> {
   }
 
   let cfgSnapshot = config.snapshot;
-  const resolvedModel = body.model ?? (await ensureInitialModelConfigured()).model;
+  const resolvedModel = body.model ??
+    (await ensureInitialModelConfigured()).model;
   if (!body.model) {
     cfgSnapshot = config.snapshot;
   }
@@ -267,7 +276,9 @@ export async function handleChat(req: Request): Promise<Response> {
     return jsonError("No model configured for agent mode", 400);
   }
 
-  let resolvedModelInfo: import("../../../providers/types.ts").ModelInfo | null = null;
+  let resolvedModelInfo:
+    | import("../../../providers/types.ts").ModelInfo
+    | null = null;
   let modelDiscoveryFailed = false;
   if (resolvedModel && !fixturePath) {
     const [parsedProvider, parsedModelName] = parseModelString(resolvedModel);
@@ -293,7 +304,10 @@ export async function handleChat(req: Request): Promise<Response> {
       );
     }
     if (body.mode === "agent") {
-      const toolCheck = await modelSupportsTools(resolvedModel, resolvedModelInfo);
+      const toolCheck = await modelSupportsTools(
+        resolvedModel,
+        resolvedModelInfo,
+      );
       if (!toolCheck.supported) {
         if (toolCheck.catalogFailed) {
           return jsonError(
@@ -314,7 +328,7 @@ export async function handleChat(req: Request): Promise<Response> {
   if (
     resolvedModel &&
     evaluateProviderApproval(resolvedModel, config.snapshot.approvedProviders)
-      .status === "approval_required"
+        .status === "approval_required"
   ) {
     return jsonError(
       `Paid provider not approved. Run "hlvm ask --model ${resolvedModel}" in terminal first to grant consent.`,
@@ -392,13 +406,52 @@ export async function handleChat(req: Request): Promise<Response> {
       const emitCancellationOnce = () => {
         if (cancellationEmitted) return;
         cancellationEmitted = true;
-        emitCancellation(
-          assistantMessageId,
-          partialText,
-          sessionId,
-          requestId,
-          emit,
-        );
+        try {
+          emitCancellation(
+            assistantMessageId,
+            partialText,
+            sessionId,
+            requestId,
+            emit,
+          );
+        } catch (error) {
+          log.warn("Failed to emit chat cancellation state", error);
+        }
+      };
+
+      const emitErrorState = (error: unknown): void => {
+        const errorMsg = getErrorMessage(error);
+        const displayContent = partialText.length > 0
+          ? `${partialText}\n\n[Error: ${errorMsg}]`
+          : `Error: ${errorMsg}`;
+
+        try {
+          updateMessage(assistantMessageId, { content: displayContent });
+        } catch (updateError) {
+          log.warn("Failed to persist chat error message", updateError);
+        }
+
+        try {
+          pushSSEEvent(sessionId, "message_updated", {
+            id: assistantMessageId,
+            content: displayContent,
+          });
+          pushSessionUpdatedEvent(sessionId);
+        } catch (pushError) {
+          log.warn("Failed to publish chat error update", pushError);
+        }
+
+        if (partialText.length === 0) {
+          emit({ event: "token", text: `Error: ${errorMsg}` });
+        }
+
+        const classified = classifyError(error);
+        emit({
+          event: "error",
+          message: errorMsg,
+          errorClass: classified.class,
+          retryable: classified.retryable,
+        });
       };
 
       const activeEntry = activeRequests.get(requestId);
@@ -415,6 +468,12 @@ export async function handleChat(req: Request): Promise<Response> {
           }
         };
       }
+
+      // Best-effort keepalive for long-running agent operations with sparse output.
+      const heartbeatInterval = setInterval(
+        () => emit({ event: "heartbeat" }),
+        15_000,
+      );
 
       try {
         emit({ event: "start", request_id: requestId });
@@ -525,29 +584,11 @@ export async function handleChat(req: Request): Promise<Response> {
         if (controller.signal.aborted) {
           emitCancellationOnce();
         } else {
-          const errorMsg = getErrorMessage(error);
-          const displayContent = partialText.length > 0
-            ? `${partialText}\n\n[Error: ${errorMsg}]`
-            : `Error: ${errorMsg}`;
-          updateMessage(assistantMessageId, { content: displayContent });
-          pushSSEEvent(sessionId, "message_updated", {
-            id: assistantMessageId,
-            content: displayContent,
-          });
-          pushSessionUpdatedEvent(sessionId);
-          if (partialText.length === 0) {
-            emit({ event: "token", text: `Error: ${errorMsg}` });
-          }
-          const classified = classifyError(error);
-          emit({
-            event: "error",
-            message: errorMsg,
-            errorClass: classified.class,
-            retryable: classified.retryable,
-          });
+          emitErrorState(error);
         }
       }
 
+      clearInterval(heartbeatInterval);
       try {
         streamController.close();
       } catch {

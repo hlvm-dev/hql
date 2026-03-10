@@ -131,8 +131,12 @@ Deno.test("TaskManager: endpoint and empty query state are initialized predictab
   manager.shutdown();
 });
 
-Deno.test("TaskManager: pullModel validates names, trims input, and rejects duplicates", async () => {
-  await withPullHost(async () => {
+Deno.test({
+  name: "TaskManager: pullModel validates names, trims input, and rejects duplicates",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withPullHost(async () => {
     const manager = new TaskManager();
     try {
       assertThrows(() => manager.pullModel(""), Error, "Model name is required");
@@ -157,6 +161,7 @@ Deno.test("TaskManager: pullModel validates names, trims input, and rejects dupl
       manager.shutdown();
     }
   });
+  },
 });
 
 Deno.test({

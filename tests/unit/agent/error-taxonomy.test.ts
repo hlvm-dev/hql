@@ -31,6 +31,22 @@ Deno.test("error taxonomy: string-based fallback classification covers rate limi
   assertEquals(classifyError(new TypeError("bad type")).class, "permanent");
 });
 
+Deno.test("error taxonomy: connection-death errors classify as retryable transient", () => {
+  const connectionErrors = [
+    "error reading a body from connection",
+    "connection was closed before message completed",
+    "socket hang up",
+    "EPIPE: broken pipe",
+    "ECONNABORTED: software caused connection abort",
+    "network error",
+  ];
+  for (const msg of connectionErrors) {
+    const result = classifyError(new Error(msg));
+    assertEquals(result.class, "transient", `"${msg}" should be transient`);
+    assertEquals(result.retryable, true, `"${msg}" should be retryable`);
+  }
+});
+
 Deno.test("error taxonomy: APICallError uses structured status codes before string matching", () => {
   const rateLimited = classifyError(new APICallError({
     statusCode: 429,

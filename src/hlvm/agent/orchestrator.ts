@@ -27,6 +27,7 @@ import {
 } from "./context.ts";
 import type { GroundingMode, ModelTier } from "./constants.ts";
 import { getErrorMessage, truncate } from "../../common/utils.ts";
+import { classifyError } from "./error-taxonomy.ts";
 import {
   RateLimitError,
   type RateLimitConfig,
@@ -61,6 +62,7 @@ import { isPlanExecutionMode } from "./execution-mode.ts";
 import { getAgentLogger } from "./logger.ts";
 import { retrieveMemory, type RetrievalResult } from "../memory/retrieve.ts";
 import { resetWebToolBudget } from "./tools/web-tools.ts";
+import { evaluateDelegationSignal } from "./delegation-heuristics.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
 import type { TodoState } from "./todo-state.ts";
 import type { DelegateTranscriptSnapshot } from "./delegate-transcript.ts";
@@ -75,6 +77,8 @@ import type {
   AgentCheckpointSummary,
   CheckpointRecorder,
 } from "./checkpoints.ts";
+import type { DelegateTokenBudget } from "./delegate-token-budget.ts";
+import { recordBudgetUsage } from "./delegate-token-budget.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -190,7 +194,8 @@ export type TraceEvent =
     progress: number;
     total?: number;
     message?: string;
-  };
+  }
+  | { type: "transient_retry"; attempt: number; error: string };
 
 /** Agent UI event for display in CLI/GUI */
 export interface WebSearchToolEventMeta {
@@ -298,6 +303,7 @@ export type AgentUIEvent =
     goal: string;
     status: string;
     assigneeMemberId?: string;
+    artifacts?: Record<string, unknown>;
   }
   | {
     type: "team_message";
@@ -429,6 +435,7 @@ export interface OrchestratorConfig {
   teamMemberId?: string;
   /** Lead member ID for the current team runtime. */
   teamLeadMemberId?: string;
+  delegateTokenBudget?: DelegateTokenBudget;
 }
 
 function memoryWriteAvailable(config: OrchestratorConfig): boolean {
@@ -497,6 +504,33 @@ function maybeInjectMemoryRecall(
   } catch {
     // Best-effort only; memory recall should never block the main loop.
   }
+}
+
+function maybeInjectDelegationHint(
+  state: LoopState,
+  userRequest: string,
+  config: OrchestratorConfig,
+): void {
+  if (state.delegationHintInjected) return;
+  state.delegationHintInjected = true;
+
+  // Only inject when delegate_agent is actually available
+  const effectiveAllowlist = config.toolFilterState?.allowlist ??
+    config.toolAllowlist;
+  const effectiveDenylist = config.toolFilterState?.denylist ??
+    config.toolDenylist;
+  if (effectiveAllowlist && !effectiveAllowlist.includes("delegate_agent")) {
+    return;
+  }
+  if (effectiveDenylist?.includes("delegate_agent")) return;
+
+  const signal = evaluateDelegationSignal(userRequest);
+  if (!signal.shouldDelegate) return;
+
+  addContextMessage(config, {
+    role: "user",
+    content: `[System hint] This task should use delegation (${signal.suggestedPattern}): ${signal.reason}. Use delegate_agent to fan out work NOW rather than exploring files yourself first.`,
+  });
 }
 
 function formatTeamMessageForContext(
@@ -895,6 +929,7 @@ export async function runReActLoop(
       if (autoMemoryRecall) {
         maybeInjectMemoryRecall(state, userRequest, config);
       }
+      maybeInjectDelegationHint(state, userRequest, config);
 
       // Pre-compaction memory flush: give model a turn to save context before compaction.
       // When flush is first injected, SKIP compaction this iteration so the model
@@ -936,6 +971,9 @@ export async function runReActLoop(
         context,
       );
 
+      // Reset transient retry counter on successful LLM call
+      state.consecutiveTransientRetries = 0;
+
       const responseText = agentResponse.content ?? "";
       if (responseText) state.lastResponse = responseText;
       const response = agentResponse;
@@ -957,6 +995,18 @@ export async function runReActLoop(
         );
       }
       onTrace?.({ type: "llm_usage", usage });
+
+      // Check delegate token budget
+      if (config.delegateTokenBudget) {
+        const totalTokens = (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0);
+        if (recordBudgetUsage(config.delegateTokenBudget, totalTokens)) {
+          addContextMessage(config, {
+            role: "user",
+            content: "[System] Token budget exceeded. Wrap up your current work and provide a final summary.",
+          });
+        }
+      }
+
       onTrace?.({
         type: "llm_response",
         length: responseText.length,
@@ -1025,6 +1075,24 @@ export async function runReActLoop(
       if (error instanceof ContextOverflowError) {
         return state.lastResponse ||
           "Context limit reached. Please start a new conversation.";
+      }
+      // Retry transient network errors (e.g., connection idle timeout during
+      // delegation) at the orchestrator loop level.  The LLM-level retry only
+      // covers the chat call itself; errors thrown during response parsing or
+      // tool execution are unretried without this guard.
+      const classified = classifyError(error);
+      if (classified.retryable && classified.class === "transient") {
+        state.consecutiveTransientRetries = (state.consecutiveTransientRetries ?? 0) + 1;
+        if (state.consecutiveTransientRetries <= 2) {
+          onTrace?.({
+            type: "transient_retry",
+            attempt: state.consecutiveTransientRetries,
+            error: classified.message,
+          });
+          const delayMs = Math.pow(2, state.consecutiveTransientRetries - 1) * 1000;
+          await new Promise((r) => setTimeout(r, delayMs));
+          continue;
+        }
       }
       throw error;
     }

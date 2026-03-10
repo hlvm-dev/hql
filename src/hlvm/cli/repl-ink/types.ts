@@ -10,6 +10,11 @@ export type { EvalResult } from "../repl/evaluator.ts";
 import type { Citation } from "../../agent/tools/web/search-provider.ts";
 import type { ToolEventMeta } from "../../agent/orchestrator.ts";
 import type { DelegateTranscriptSnapshot } from "../../agent/delegate-transcript.ts";
+import type {
+  TeamApprovalStatus,
+  TeamRuntimeSnapshot,
+  TeamShutdownStatus,
+} from "../../agent/team-runtime.ts";
 
 // ============================================================
 // Tool Call Display
@@ -109,7 +114,56 @@ export interface InfoItem {
   id: string;
   text: string;
   isTransient?: boolean;
+  ts?: number;
 }
+
+export interface TeamTaskInfoItem extends InfoItem {
+  teamEventType: "team_task_updated";
+  taskId: string;
+  goal: string;
+  status: string;
+  assigneeMemberId?: string;
+  artifacts?: Record<string, unknown>;
+}
+
+export interface TeamMessageInfoItem extends InfoItem {
+  teamEventType: "team_message";
+  kind: string;
+  fromMemberId: string;
+  toMemberId?: string;
+  relatedTaskId?: string;
+  contentPreview: string;
+}
+
+export interface TeamPlanReviewInfoItem extends InfoItem {
+  teamEventType: "team_plan_review";
+  approvalId: string;
+  taskId: string;
+  submittedByMemberId: string;
+  status: TeamApprovalStatus;
+  reviewedByMemberId?: string;
+}
+
+export interface TeamShutdownInfoItem extends InfoItem {
+  teamEventType: "team_shutdown";
+  requestId: string;
+  memberId: string;
+  requestedByMemberId: string;
+  status: TeamShutdownStatus;
+  reason?: string;
+}
+
+export interface TeamRuntimeSnapshotInfoItem extends InfoItem {
+  teamEventType: "team_runtime_snapshot";
+  snapshot: TeamRuntimeSnapshot;
+}
+
+export type StructuredTeamInfoItem =
+  | TeamTaskInfoItem
+  | TeamMessageInfoItem
+  | TeamPlanReviewInfoItem
+  | TeamShutdownInfoItem
+  | TeamRuntimeSnapshotInfoItem;
 
 /** Discriminated union of all renderable conversation items */
 export type ConversationItem =
@@ -120,7 +174,14 @@ export type ConversationItem =
   | DelegateItem
   | TurnStatsItem
   | ErrorItem
+  | StructuredTeamInfoItem
   | InfoItem;
+
+export function isStructuredTeamInfoItem(
+  item: ConversationItem,
+): item is StructuredTeamInfoItem {
+  return item.type === "info" && "teamEventType" in item;
+}
 
 // ============================================================
 // Conversation Streaming State

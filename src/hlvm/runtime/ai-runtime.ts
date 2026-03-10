@@ -8,6 +8,7 @@
  * SSOT: Uses ai.status() from the API module directly - no fallback fetch.
  */
 
+import { delay } from "@std/async";
 import { RuntimeError } from "../../common/error.ts";
 import { ai } from "../api/ai.ts";
 import { log } from "../api/log.ts";
@@ -38,10 +39,6 @@ const AI_STARTUP_MAX_POLLS = 30;
 const AI_STARTUP_POLL_INTERVAL_MS = 300;
 
 let initPromise: Promise<void> | null = null;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 function isMissingEmbeddedEngineError(error: unknown): boolean {
   return error instanceof Error && error.message.includes("No such file");
@@ -97,7 +94,7 @@ async function waitForAIEngineReady(): Promise<boolean> {
     if (await isAIRunning()) {
       return true;
     }
-    await sleep(AI_STARTUP_POLL_INTERVAL_MS);
+    await delay(AI_STARTUP_POLL_INTERVAL_MS);
   }
   return false;
 }

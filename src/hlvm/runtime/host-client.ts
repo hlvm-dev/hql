@@ -1,18 +1,19 @@
+import { delay } from "@std/async";
 import { http } from "../../common/http-client.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { HQLErrorCode } from "../../common/error-codes.ts";
 import { getPlatform } from "../../platform/platform.ts";
-import type {
-  ConfigKey,
-  HlvmConfig,
-} from "../../common/config/types.ts";
+import type { ConfigKey, HlvmConfig } from "../../common/config/types.ts";
 import type {
   AgentUIEvent,
   FinalResponseMeta,
   TraceEvent,
 } from "../agent/orchestrator.ts";
 import type { AgentExecutionMode } from "../agent/execution-mode.ts";
-import { getHlvmRuntimeBaseUrl, resolveHlvmRuntimePort } from "./host-config.ts";
+import {
+  getHlvmRuntimeBaseUrl,
+  resolveHlvmRuntimePort,
+} from "./host-config.ts";
 import {
   type ChatMode,
   type ChatRequest,
@@ -142,10 +143,6 @@ export interface HostBackedDirectChatOptions {
   callbacks: Pick<HostBackedChatCallbacks, "onToken">;
 }
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function defaultChatStats(): ChatResultStats {
   return {
     messageCount: 0,
@@ -203,7 +200,7 @@ async function waitForHealthyRuntime(
     ) {
       if (health.aiReady) return health;
     }
-    await sleep(HEALTH_POLL_DELAY_MS);
+    await delay(HEALTH_POLL_DELAY_MS);
   }
   const health = await readHealth(baseUrl);
   if (
@@ -228,7 +225,7 @@ async function waitForRuntimeHost(
     ) {
       return health;
     }
-    await sleep(HEALTH_POLL_DELAY_MS);
+    await delay(HEALTH_POLL_DELAY_MS);
   }
   const health = await readHealth(baseUrl);
   if (
@@ -245,7 +242,7 @@ async function waitForRuntimeShutdown(baseUrl: string): Promise<boolean> {
     if ((await readHealth(baseUrl)) === null) {
       return true;
     }
-    await sleep(HEALTH_POLL_DELAY_MS);
+    await delay(HEALTH_POLL_DELAY_MS);
   }
   return (await readHealth(baseUrl)) === null;
 }
@@ -325,7 +322,9 @@ async function tryAcquireRuntimeStartLock(): Promise<boolean> {
 
 async function releaseRuntimeStartLock(): Promise<void> {
   try {
-    await getPlatform().fs.remove(getRuntimeStartLockPath(), { recursive: true });
+    await getPlatform().fs.remove(getRuntimeStartLockPath(), {
+      recursive: true,
+    });
   } catch {
     // Best-effort cleanup only.
   }
@@ -337,7 +336,7 @@ async function waitForRuntimeStartLockRelease(): Promise<void> {
       await releaseRuntimeStartLock();
       return;
     }
-    await sleep(HEALTH_POLL_DELAY_MS);
+    await delay(HEALTH_POLL_DELAY_MS);
   }
 }
 
@@ -416,7 +415,10 @@ async function ensureRuntimeHost(): Promise<{
         matchesRuntimeHostIdentity(health, identity.buildId),
       HEALTH_POLL_ATTEMPTS * 4,
     );
-    if (started?.authToken && matchesRuntimeHostIdentity(started, identity.buildId)) {
+    if (
+      started?.authToken &&
+      matchesRuntimeHostIdentity(started, identity.buildId)
+    ) {
       return { baseUrl, authToken: started.authToken };
     }
 
@@ -1318,6 +1320,8 @@ export async function runChatViaHost(
       case "cancelled":
         throw createRuntimeHostError("Runtime host request cancelled.");
       case "start":
+        return;
+      case "heartbeat":
         return;
       default: {
         const uiEvent = toAgentUiEvent(event);

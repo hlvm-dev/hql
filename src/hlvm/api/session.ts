@@ -92,9 +92,10 @@ function parseToolMessageMetadata(
     const record = Array.isArray(parsed) ? parsed[0] : parsed;
     if (!record || typeof record !== "object") return {};
     return {
-      argsSummary: typeof (record as { argsSummary?: unknown }).argsSummary === "string"
-        ? (record as { argsSummary: string }).argsSummary
-        : undefined,
+      argsSummary:
+        typeof (record as { argsSummary?: unknown }).argsSummary === "string"
+          ? (record as { argsSummary: string }).argsSummary
+          : undefined,
       success: typeof (record as { success?: unknown }).success === "boolean"
         ? (record as { success: boolean }).success
         : undefined,
@@ -107,7 +108,7 @@ function parseToolMessageMetadata(
 function adaptSessionMessage(
   message: RuntimeSessionMessage,
 ): SessionMessage | null {
-  if (message.role === "system") return null;
+  if (message.role === "system" || message.cancelled) return null;
 
   const role = message.role === "tool"
     ? "tool"
@@ -125,9 +126,45 @@ function adaptSessionMessage(
     ts: parseTimestamp(message.created_at),
     ...(message.tool_name ? { toolName: message.tool_name } : {}),
     ...(toolMeta.argsSummary ? { toolArgsSummary: toolMeta.argsSummary } : {}),
-    ...(typeof toolMeta.success === "boolean" ? { toolSuccess: toolMeta.success } : {}),
+    ...(typeof toolMeta.success === "boolean"
+      ? { toolSuccess: toolMeta.success }
+      : {}),
     ...(attachments ? { attachments } : {}),
   };
+}
+
+function filterCancelledRequestGroups(
+  messages: RuntimeSessionMessage[],
+): RuntimeSessionMessage[] {
+  const filtered: RuntimeSessionMessage[] = [];
+  let index = 0;
+
+  while (index < messages.length) {
+    const current = messages[index];
+    if (!current.request_id) {
+      if (!current.cancelled) {
+        filtered.push(current);
+      }
+      index += 1;
+      continue;
+    }
+
+    let end = index + 1;
+    while (
+      end < messages.length &&
+      messages[end].request_id === current.request_id
+    ) {
+      end += 1;
+    }
+
+    const requestGroup = messages.slice(index, end);
+    if (!requestGroup.some((message) => message.cancelled !== 0)) {
+      filtered.push(...requestGroup);
+    }
+    index = end;
+  }
+
+  return filtered;
 }
 
 function sortSessionMetas(
@@ -154,7 +191,9 @@ async function loadSessionById(sessionId: string): Promise<Session | null> {
   const runtimeSession = await getRuntimeSession(sessionId);
   if (!runtimeSession) return null;
 
-  const messages = await listRuntimeSessionMessages(sessionId);
+  const messages = filterCancelledRequestGroups(
+    await listRuntimeSessionMessages(sessionId),
+  );
   return {
     meta: adaptSessionMeta(runtimeSession),
     messages: messages
@@ -183,25 +222,27 @@ function formatSessionExport(session: Session): string {
     const time = new Date(message.ts).toLocaleTimeString();
     lines.push(`### ${role} (${time})`);
     lines.push("");
-    lines.push(message.role === "tool"
-      ? formatToolMessage({
-        id: 0,
-        session_id: session.meta.id,
-        order: 0,
-        role: "tool",
-        content: message.content,
-        client_turn_id: null,
-        request_id: null,
-        sender_type: "agent",
-        sender_detail: null,
-        image_paths: null,
-        tool_calls: null,
-        tool_name: message.toolName ?? null,
-        tool_call_id: null,
-        cancelled: 0,
-        created_at: new Date(message.ts).toISOString(),
-      })
-      : message.content);
+    lines.push(
+      message.role === "tool"
+        ? formatToolMessage({
+          id: 0,
+          session_id: session.meta.id,
+          order: 0,
+          role: "tool",
+          content: message.content,
+          client_turn_id: null,
+          request_id: null,
+          sender_type: "agent",
+          sender_detail: null,
+          image_paths: null,
+          tool_calls: null,
+          tool_name: message.toolName ?? null,
+          tool_call_id: null,
+          cancelled: 0,
+          created_at: new Date(message.ts).toISOString(),
+        })
+        : message.content,
+    );
     lines.push("");
   }
 
@@ -406,7 +447,11 @@ function createSessionApi() {
 
       const result = await restoreAgentCheckpoint(sessionId, target.id);
       if (!result.restored) {
-        return { restored: false, restoredFileCount: 0, checkpointId: target.id };
+        return {
+          restored: false,
+          restoredFileCount: 0,
+          checkpointId: target.id,
+        };
       }
 
       const manifest = await loadCheckpointManifest(sessionId, target.id);

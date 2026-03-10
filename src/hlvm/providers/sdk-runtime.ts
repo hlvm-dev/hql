@@ -20,6 +20,7 @@ import { normalizeToolArgs } from "../agent/validation.ts";
 import { generateToolCallId } from "../agent/tool-call.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { ValidationError } from "../../common/error.ts";
+import { isObjectValue } from "../../common/utils.ts";
 
 export type SdkProviderName =
   | "openai"
@@ -406,7 +407,7 @@ function toProviderToolCalls(
 export function normalizeProviderMetadata(
   value: unknown,
 ): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null
+  return isObjectValue(value)
     ? value as Record<string, unknown>
     : undefined;
 }

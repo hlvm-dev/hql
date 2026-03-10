@@ -8,6 +8,7 @@
 
 import type { Citation } from "./search-provider.ts";
 import type { LLMSource } from "../../tool-call.ts";
+import { isObjectValue } from "../../../../common/utils.ts";
 
 export type CitationSourceKind = "snippet" | "passage";
 
@@ -79,10 +80,6 @@ const STOP_WORDS = new Set([
   "with",
   "would",
 ]);
-
-function isObjectValue(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function normalizeText(input: string): string {
   return input.replace(/\s+/g, " ").trim();

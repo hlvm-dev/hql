@@ -170,7 +170,7 @@ export function formatPlainValue(value: unknown): string {
 }
 
 /** Format an error for display */
-export function formatError(error: Error): string {
+function formatError(error: Error): string {
   const { RED, DIM_GRAY, RESET } = ANSI_COLORS;
   const name = error.name || "Error";
   const message = error.message || "Unknown error";

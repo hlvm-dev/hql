@@ -12,7 +12,10 @@ import type {
   ConversationItem,
   StreamingState,
 } from "../types.ts";
-import { StreamingState as ConversationStreamingState } from "../types.ts";
+import {
+  isStructuredTeamInfoItem,
+  StreamingState as ConversationStreamingState,
+} from "../types.ts";
 import type { Plan } from "../../../agent/planning.ts";
 import type { TodoState } from "../../../agent/todo-state.ts";
 import type { AgentCheckpointSummary } from "../../../agent/checkpoints.ts";
@@ -27,6 +30,13 @@ import {
   getConversationVisibleCount,
 } from "../utils/conversation-viewport.ts";
 import {
+  executeHandler,
+  HandlerIds,
+  inspectHandlerKeybinding,
+  registerHandler,
+  unregisterHandler,
+} from "../keybindings/index.ts";
+import {
   AssistantMessage,
   ConfirmationDialog,
   DelegateItem,
@@ -38,11 +48,21 @@ import {
   TurnStats,
   UserMessage,
 } from "./conversation/index.ts";
+import { buildCitationRenderView } from "./conversation/AssistantMessage.tsx";
+import { resolveToolResultText } from "./conversation/ToolCallItem.tsx";
+import {
+  detectContentType,
+  tryFormatJson,
+} from "./conversation/ToolResult.tsx";
 import { useSemanticColors } from "../../theme/index.ts";
+import { estimateInteractionDialogRows } from "./conversation/interaction-dialog-layout.ts";
+
+const CONVERSATION_KEYBINDING_CATEGORIES = ["Conversation"] as const;
 
 interface ConversationPanelProps {
   items: ConversationItem[];
   width: number;
+  reservedRows?: number;
   streamingState?: StreamingState;
   activePlan?: Plan;
   todoState?: TodoState;
@@ -67,8 +87,152 @@ type ToggleTarget =
   | { kind: "delegate"; id: string };
 
 function estimateWrappedRows(text: string, width: number): number {
+  if (text.length === 0) return 0;
   const usableWidth = Math.max(1, width);
-  return Math.max(1, Math.ceil(text.length / usableWidth));
+  return text.split("\n").reduce((rows: number, line: string) => {
+    return rows + Math.max(1, Math.ceil(Array.from(line).length / usableWidth));
+  }, 0);
+}
+
+function shouldRenderConversationItem(item: ConversationItem): boolean {
+  return !(
+    isStructuredTeamInfoItem(item) &&
+    item.teamEventType === "team_runtime_snapshot"
+  );
+}
+
+function estimateToolResultRows(
+  text: string,
+  maxLines: number,
+  expanded: boolean,
+): number {
+  if (!text) return 0;
+
+  const contentType = detectContentType(text);
+  const displayText = contentType === "json"
+    ? (tryFormatJson(text) ?? text)
+    : text;
+  const allLines = displayText.split("\n");
+  const effectiveMaxLines = expanded ? Number.MAX_SAFE_INTEGER : maxLines;
+  const truncated = allLines.length > effectiveMaxLines;
+  return Math.min(allLines.length, effectiveMaxLines) + (truncated ? 1 : 0);
+}
+
+function estimateConversationItemRows(
+  item: ConversationItem,
+  width: number,
+  {
+    isToolExpanded,
+    isThinkingExpanded,
+    isDelegateExpanded,
+  }: {
+    isToolExpanded: (toolId: string) => boolean;
+    isThinkingExpanded: (thinkingId: string) => boolean;
+    isDelegateExpanded: (delegateId: string) => boolean;
+  },
+): number {
+  if (!shouldRenderConversationItem(item)) {
+    return 0;
+  }
+
+  switch (item.type) {
+    case "user":
+      return estimateWrappedRows(item.text, Math.max(10, width - 8)) + 2;
+    case "assistant": {
+      const contentWidth = Math.max(10, width - 5);
+      const citationView = buildCitationRenderView(
+        item.text,
+        item.citations ?? [],
+      );
+      const visibleSources = citationView.sources.slice(0, 6);
+      let rows = estimateWrappedRows(citationView.text, contentWidth);
+
+      if (!item.isPending && visibleSources.length > 0) {
+        rows += 1; // Sources label
+        rows += visibleSources.length * 2; // title + url
+        if (citationView.sources.length > visibleSources.length) {
+          rows += 1;
+        }
+        rows += 1; // latest source hint
+      }
+
+      if (item.isPending) {
+        rows += 1;
+      }
+
+      return Math.max(1, rows) + 1; // outer marginBottom
+    }
+    case "thinking": {
+      const lines = item.summary ? item.summary.split("\n") : [];
+      const bodyLines = lines.slice(1);
+      const visibleBodyLines = bodyLines.slice(
+        0,
+        isThinkingExpanded(item.id) ? bodyLines.length : 3,
+      );
+      let rows = 1; // title line
+
+      if (visibleBodyLines.length > 0) {
+        rows += estimateWrappedRows(
+          visibleBodyLines.join("\n").trim(),
+          Math.max(10, width - 8),
+        );
+      }
+      if (bodyLines.length > visibleBodyLines.length) {
+        rows += 1;
+      }
+
+      return rows + 1; // marginBottom
+    }
+    case "tool_group": {
+      let rows = 3; // top border + header + bottom border
+
+      for (const tool of item.tools) {
+        rows += 1; // primary tool line
+        const expanded = isToolExpanded(tool.id);
+        const resultText = resolveToolResultText(tool, expanded);
+        if (resultText && tool.status !== "running") {
+          rows += estimateToolResultRows(
+            resultText,
+            tool.status === "error" ? 12 : 8,
+            expanded,
+          );
+        }
+      }
+
+      return rows;
+    }
+    case "delegate": {
+      let rows = 2; // header + task
+      const body = item.status === "error"
+        ? item.error
+        : item.status === "cancelled"
+        ? "Cancelled"
+        : item.summary;
+
+      if (body) {
+        rows += 1;
+      }
+      if (item.childSessionId) {
+        rows += 1;
+      }
+      if (isDelegateExpanded(item.id) && item.snapshot) {
+        rows += item.snapshot.events.length;
+        if (item.snapshot.finalResponse) {
+          rows += 1;
+        }
+      }
+
+      return rows + 1; // marginBottom
+    }
+    case "turn_stats":
+      return 3;
+    case "error":
+      return estimateWrappedRows(item.text, Math.max(10, width - 4)) + 1;
+    case "info":
+      return estimateWrappedRows(item.text, Math.max(10, width - 4)) + 1;
+    default:
+      return 1;
+  }
 }
 
 function getToggleTargets(items: ConversationItem[]): ToggleTarget[] {
@@ -116,6 +280,10 @@ function renderItem(
   isThinkingExpanded: (thinkingId: string) => boolean,
   isDelegateExpanded: (delegateId: string) => boolean,
 ): React.ReactElement | null {
+  if (!shouldRenderConversationItem(item)) {
+    return null;
+  }
+
   switch (item.type) {
     case "user":
       return <UserMessage text={item.text} width={width} />;
@@ -174,6 +342,7 @@ function renderItem(
 export function ConversationPanel({
   items,
   width,
+  reservedRows,
   streamingState,
   activePlan,
   todoState,
@@ -196,15 +365,19 @@ export function ConversationPanel({
     () => new Set(),
   );
   const [scrollOffsetFromBottom, setScrollOffsetFromBottom] = useState(0);
+  const displayItems = useMemo(
+    () => items.filter(shouldRenderConversationItem),
+    [items],
+  );
 
   useEffect(() => {
-    if (items.length === 0) {
+    if (displayItems.length === 0) {
       setExpandedToolIds(new Set());
       setExpandedThinkingIds(new Set());
       setExpandedDelegateIds(new Set());
       setScrollOffsetFromBottom(0);
     }
-  }, [items.length]);
+  }, [displayItems.length]);
 
   const terminalRows = stdout?.rows ?? 24;
   const contentWidth = Math.max(10, width - 6);
@@ -232,9 +405,9 @@ export function ConversationPanel({
     }
     if (pendingPlanReview) {
       total += estimateWrappedRows(
-        `Plan review pending · ${
-          pendingPlanReview.plan.steps.length
-        } step${pendingPlanReview.plan.steps.length === 1 ? "" : "s"} awaiting approval`,
+        `Plan review pending · ${pendingPlanReview.plan.steps.length} step${
+          pendingPlanReview.plan.steps.length === 1 ? "" : "s"
+        } awaiting approval`,
         contentWidth,
       ) + 1;
     }
@@ -252,32 +425,63 @@ export function ConversationPanel({
     }
     return total;
   })();
-  const visibleCount = useMemo(
+  const visibleRows = useMemo(
+    () => {
+      const interactionRows = interactionRequest
+        ? estimateInteractionDialogRows(interactionRequest, contentWidth) +
+          (interactionQueueLength > 1 ? 1 : 0) + 1
+        : 0;
+      return getConversationVisibleCount(terminalRows, {
+        reservedRows: (reservedRows ?? 8) + interactionRows + headerRows,
+      });
+    },
+    [
+      contentWidth,
+      headerRows,
+      interactionQueueLength,
+      interactionRequest,
+      reservedRows,
+      terminalRows,
+    ],
+  );
+  const itemRowHeights = useMemo(
     () =>
-      getConversationVisibleCount(terminalRows, {
-        reservedRows: (interactionRequest ? 12 : 8) + headerRows,
-      }),
-    [headerRows, interactionRequest, terminalRows],
+      displayItems.map((item: ConversationItem) =>
+        estimateConversationItemRows(item, width, {
+          isToolExpanded: (toolId: string) => expandedToolIds.has(toolId),
+          isThinkingExpanded: (thinkingId: string) =>
+            expandedThinkingIds.has(thinkingId),
+          isDelegateExpanded: (delegateId: string) =>
+            expandedDelegateIds.has(delegateId),
+        })
+      ),
+    [
+      displayItems,
+      expandedDelegateIds,
+      expandedThinkingIds,
+      expandedToolIds,
+      width,
+    ],
   );
   const viewport = useMemo(
     () =>
       computeConversationViewport(
-        items.length,
-        visibleCount,
+        itemRowHeights,
+        visibleRows,
         scrollOffsetFromBottom,
       ),
-    [items.length, scrollOffsetFromBottom, visibleCount],
+    [itemRowHeights, scrollOffsetFromBottom, visibleRows],
   );
   const visibleItems = useMemo(
-    () => items.slice(viewport.start, viewport.end),
-    [items, viewport.end, viewport.start],
+    () => displayItems.slice(viewport.start, viewport.end),
+    [displayItems, viewport.end, viewport.start],
   );
 
   useEffect(() => {
     setScrollOffsetFromBottom((prev: number) =>
-      clampConversationScrollOffset(prev, items.length, visibleCount)
+      clampConversationScrollOffset(prev, itemRowHeights, visibleRows)
     );
-  }, [items.length, visibleCount]);
+  }, [itemRowHeights, visibleRows]);
 
   // Toggle targets operate over the visible conversation so the latest
   // tool/thinking block can always be expanded without duplicating turns.
@@ -320,61 +524,79 @@ export function ConversationPanel({
     });
   };
 
+  useEffect(() => {
+    registerHandler(
+      HandlerIds.CONVERSATION_TOGGLE_LATEST,
+      () => {
+        const target = toggleTargets[toggleTargets.length - 1];
+        if (target) {
+          toggleTarget(target);
+        }
+      },
+      "ConversationPanel",
+    );
+    registerHandler(
+      HandlerIds.CONVERSATION_OPEN_LATEST_SOURCE,
+      async () => {
+        const citation = getLatestCitation(items);
+        if (citation?.url) {
+          await getPlatform().openUrl(citation.url).catch(() => {});
+        }
+      },
+      "ConversationPanel",
+    );
+    return () => {
+      unregisterHandler(HandlerIds.CONVERSATION_TOGGLE_LATEST);
+      unregisterHandler(HandlerIds.CONVERSATION_OPEN_LATEST_SOURCE);
+    };
+  }, [items, toggleTargets]);
+
   useInput((char, key) => {
-    const ctrlCode = char?.charCodeAt(0) ?? 0;
-    const isCtrlO = (key.ctrl && char?.toLowerCase() === "o") ||
-      ctrlCode === 15;
-    const isCtrlY = (key.ctrl && char?.toLowerCase() === "y") ||
-      ctrlCode === 25;
-    if (!items.length) return;
+    if (!displayItems.length) return;
 
     if (key.pageUp) {
-      const pageSize = Math.max(1, visibleCount - 1);
+      const pageSize = Math.max(1, visibleRows - 1);
       setScrollOffsetFromBottom((prev: number) =>
         clampConversationScrollOffset(
           prev + pageSize,
-          items.length,
-          visibleCount,
+          itemRowHeights,
+          visibleRows,
         )
       );
       return;
     }
     if (key.pageDown) {
-      const pageSize = Math.max(1, visibleCount - 1);
+      const pageSize = Math.max(1, visibleRows - 1);
       setScrollOffsetFromBottom((prev: number) =>
         clampConversationScrollOffset(
           prev - pageSize,
-          items.length,
-          visibleCount,
+          itemRowHeights,
+          visibleRows,
         )
       );
       return;
     }
 
-    if (isCtrlO) {
+    const conversationBinding = inspectHandlerKeybinding(char, key, {
+      categories: CONVERSATION_KEYBINDING_CATEGORIES,
+    });
+    if (conversationBinding.kind === "handler") {
       if (interactionRequest?.mode === "question") return;
       if (!allowToggleHotkeys) return;
-      const target = toggleTargets[toggleTargets.length - 1];
-      if (target) {
-        toggleTarget(target);
-      }
+      void executeHandler(conversationBinding.id);
       return;
     }
-    if (isCtrlY) {
-      if (interactionRequest?.mode === "question") return;
-      if (!allowToggleHotkeys) return;
-      const citation = getLatestCitation(items);
-      if (!citation?.url) {
-        return;
-      }
-      void getPlatform().openUrl(citation.url).catch(() => {});
+    if (
+      conversationBinding.kind === "disabled-default" ||
+      conversationBinding.kind === "shadowed"
+    ) {
       return;
     }
   });
 
   return (
     <Box flexDirection="column" width={width}>
-      {items.length === 0 && streamingState && (
+      {displayItems.length === 0 && streamingState && (
         <Text color={sc.text.muted}>Conversation starting...</Text>
       )}
 
@@ -432,8 +654,7 @@ export function ConversationPanel({
           <Text color={sc.text.secondary}>
             {" "}
             {pendingPlanReview.plan.steps.length} step
-            {pendingPlanReview.plan.steps.length === 1 ? "" : "s"} awaiting
-            {" "}
+            {pendingPlanReview.plan.steps.length === 1 ? "" : "s"} awaiting{" "}
             approval
           </Text>
         </Box>

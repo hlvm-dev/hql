@@ -9,6 +9,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
+import { getConfirmationDialogDisplay } from "./interaction-dialog-layout.ts";
 
 interface ConfirmationDialogProps {
   toolName?: string;
@@ -17,19 +18,8 @@ interface ConfirmationDialogProps {
 
 export function ConfirmationDialog({ toolName, toolArgs }: ConfirmationDialogProps): React.ReactElement {
   const sc = useSemanticColors();
-  const isPlanReview = toolName === "plan_review";
-  const parsedArgs = (() => {
-    if (!toolArgs) return [];
-    try {
-      const normalized = JSON.stringify(JSON.parse(toolArgs), null, 2);
-      return normalized.split("\n");
-    } catch {
-      return toolArgs.split("\n");
-    }
-  })();
-  const maxArgLines = 10;
-  const visibleArgLines = parsedArgs.slice(0, maxArgLines);
-  const hiddenArgLines = Math.max(0, parsedArgs.length - visibleArgLines.length);
+  const { isPlanReview, visibleArgLines, hiddenArgLines } =
+    getConfirmationDialogDisplay(toolName, toolArgs);
 
   return (
     <Box

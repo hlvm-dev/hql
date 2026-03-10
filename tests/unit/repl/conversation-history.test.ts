@@ -8,14 +8,20 @@ import {
   appendPersistedAgentToolResult,
   completePersistedAgentTurn,
   createPersistedAgentChildSession,
+  persistAgentTeamRuntime,
   persistAgentCheckpointSummary,
   persistAgentPlanState,
   persistPendingPlanReview,
   persistAgentTodos,
   startPersistedAgentTurn,
 } from "../../../src/hlvm/agent/persisted-transcript.ts";
+import { createTeamRuntime } from "../../../src/hlvm/agent/team-runtime.ts";
 import { getPersistedAgentSessionId } from "../../../src/hlvm/agent/persisted-transcript.ts";
 import { getSession } from "../../../src/hlvm/store/conversation-store.ts";
+import {
+  isStructuredTeamInfoItem,
+} from "../../../src/hlvm/cli/repl-ink/types.ts";
+import { deriveTeamDashboardState } from "../../../src/hlvm/cli/repl-ink/hooks/useTeamState.ts";
 
 Deno.test("buildConversationItemsFromSessionMessages preserves user and assistant transcript content in order", () => {
   const items = buildConversationItemsFromSessionMessages([
@@ -313,6 +319,67 @@ Deno.test("buildTranscriptStateFromSession hydrates pending plan review and late
     assertEquals(state.pendingPlanReview?.plan.goal, "Edit config safely");
     assertEquals(state.latestCheckpoint?.id, "cp-1");
     assertEquals(state.latestCheckpoint?.fileCount, 1);
+  } finally {
+    db.close();
+  }
+});
+
+Deno.test("buildTranscriptStateFromSession rehydrates persisted team runtime into dashboard state", () => {
+  const db = setupStoreTestDb();
+  try {
+    const sessionId = getPersistedAgentSessionId();
+    startPersistedAgentTurn(sessionId, "coordinate review");
+
+    const teamRuntime = createTeamRuntime("lead", "lead");
+    teamRuntime.registerMember({ id: "worker-1", agent: "code" });
+    teamRuntime.ensureTask({
+      id: "task-1",
+      goal: "Review patch",
+      status: "blocked",
+      assigneeMemberId: "worker-1",
+      approvalId: "approval-1",
+    });
+    teamRuntime.requestPlanApproval({
+      taskId: "task-1",
+      submittedByMemberId: "worker-1",
+      plan: {
+        goal: "Review patch",
+        steps: [{ id: "step-1", title: "Inspect changes" }],
+      },
+    });
+    persistAgentTeamRuntime(sessionId, teamRuntime.snapshot());
+
+    const session = getSession(sessionId);
+    const state = buildTranscriptStateFromSession({
+      meta: {
+        id: sessionId,
+        title: session?.title ?? "Session",
+        createdAt: 1,
+        updatedAt: 2,
+        messageCount: 1,
+        metadata: session?.metadata ?? null,
+      },
+      messages: [{
+        role: "user",
+        content: "coordinate review",
+        ts: 1,
+      }],
+    });
+
+    const snapshotItem = state.items.find((item) =>
+      isStructuredTeamInfoItem(item) && item.teamEventType === "team_runtime_snapshot"
+    );
+    assertEquals(snapshotItem !== undefined, true);
+    if (snapshotItem && isStructuredTeamInfoItem(snapshotItem)) {
+      assertEquals(snapshotItem.text.includes("Restored team state:"), true);
+      assertEquals(snapshotItem.snapshot.members.length, 2);
+      assertEquals(snapshotItem.snapshot.tasks.length, 1);
+    }
+
+    const dashboardState = deriveTeamDashboardState(state.items);
+    assertEquals(dashboardState.members.length, 2);
+    assertEquals(dashboardState.taskBoard[0]?.id, "task-1");
+    assertEquals(dashboardState.pendingApprovals[0]?.status, "pending");
   } finally {
     db.close();
   }

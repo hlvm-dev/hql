@@ -1,4 +1,5 @@
 import { ValidationError } from "../../../../common/error.ts";
+import { getErrorMessage } from "../../../../common/utils.ts";
 import {
   addServerToConfig,
   formatServerEntry,
@@ -26,9 +27,6 @@ function getErrorStatus(error: unknown): number {
   return error instanceof ValidationError ? 400 : 500;
 }
 
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function resolveServerInput(
   server: RuntimeMcpAddRequest["server"],

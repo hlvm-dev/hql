@@ -18,7 +18,7 @@ const fs = () => getPlatform().fs;
 const path = () => getPlatform().path;
 const getMemoryDir = () => path().dirname(getMemoryFilePath());
 
-await initializeRuntime();
+await initializeRuntime({ ai: false });
 
 async function cleanMemory(): Promise<void> {
   const filePath = getMemoryFilePath();

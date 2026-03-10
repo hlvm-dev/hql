@@ -24,9 +24,6 @@
 (macro list [& items]
   `[~@items])
 
-// REMOVED: nil? - use isNil instead (camelCase convention)
-// REMOVED: empty? - use isEmpty from stdlib instead (camelCase convention)
-
 // ----------------------------------------
 // JavaScript-Style Type Predicates
 // ----------------------------------------

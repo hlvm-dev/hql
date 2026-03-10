@@ -6,7 +6,6 @@
  */
 
 import { RuntimeError } from "../../common/error.ts";
-import { tryParseJson } from "../../common/utils.ts";
 
 // =============================================================================
 // Constants
@@ -31,23 +30,6 @@ export function bearerAuthHeaders(token: string): Record<string, string> {
     ...JSON_HEADERS,
     "Authorization": `Bearer ${token}`,
   };
-}
-
-// =============================================================================
-// JSON Parsing
-// =============================================================================
-
-/**
- * Safely parse a JSON string argument to an object.
- * Returns empty object on parse failure — downstream validation will
- * catch missing required fields with actionable error messages.
- * SSOT: delegates to tryParseJson from common/utils.ts.
- */
-export function parseJsonArgs(args: string | unknown): unknown {
-  if (typeof args !== "string") return args ?? {};
-  const trimmed = args.trim();
-  if (trimmed.length === 0) return {};
-  return tryParseJson(trimmed, {});
 }
 
 // =============================================================================

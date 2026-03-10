@@ -32,6 +32,34 @@ Deno.test("team runtime: dependencies block claim until prerequisites complete",
   assertEquals(claimed?.assigneeMemberId, "worker-1");
 });
 
+Deno.test("team runtime: claimTask does not steal claimed or in-progress work", () => {
+  const runtime = createTeamRuntime("lead", "lead");
+  runtime.registerMember({ id: "worker-1", agent: "code" });
+  runtime.registerMember({ id: "worker-2", agent: "review" });
+  runtime.ensureTask({
+    id: "task-1",
+    goal: "Implement guarded claim",
+    status: "pending",
+  });
+
+  const firstClaim = runtime.claimTask("task-1", "worker-1");
+  assertEquals(firstClaim?.status, "claimed");
+  assertEquals(firstClaim?.assigneeMemberId, "worker-1");
+
+  const stolenClaim = runtime.claimTask("task-1", "worker-2");
+  assertEquals(stolenClaim?.status, "claimed");
+  assertEquals(stolenClaim?.assigneeMemberId, "worker-1");
+
+  runtime.updateTask("task-1", { status: "in_progress" });
+  const inProgressClaim = runtime.claimTask("task-1", "worker-2");
+  assertEquals(inProgressClaim?.status, "in_progress");
+  assertEquals(inProgressClaim?.assigneeMemberId, "worker-1");
+
+  const idempotentClaim = runtime.claimTask("task-1", "worker-1");
+  assertEquals(idempotentClaim?.status, "in_progress");
+  assertEquals(idempotentClaim?.assigneeMemberId, "worker-1");
+});
+
 Deno.test("team runtime: snapshot restores members, tasks, messages, approvals, and shutdowns", () => {
   const runtime = createTeamRuntime("lead", "lead");
   runtime.registerMember({ id: "worker-1", agent: "code", currentTaskId: "task-1" });
@@ -350,4 +378,50 @@ Deno.test("team runtime: only the lead can review plans and request shutdown", (
     Error,
     "only the lead can request teammate shutdown",
   );
+});
+
+Deno.test("team runtime: reconcileStaleWorkers terminates members and cancels their tasks", () => {
+  // Build a snapshot that simulates a crashed previous process with active workers
+  const original = createTeamRuntime("lead", "lead");
+  original.registerMember({ id: "worker-1", agent: "code" });
+  original.registerMember({ id: "worker-2", agent: "web" });
+  original.ensureTask({
+    id: "task-1",
+    goal: "Implement feature A",
+    status: "in_progress",
+    assigneeMemberId: "worker-1",
+  });
+  original.ensureTask({
+    id: "task-2",
+    goal: "Research topic B",
+    status: "claimed",
+    assigneeMemberId: "worker-2",
+  });
+  original.ensureTask({
+    id: "task-3",
+    goal: "Already done",
+    status: "completed",
+    assigneeMemberId: "worker-1",
+  });
+  const snapshot = original.snapshot();
+
+  // Restore with reconcileStaleWorkers — simulates new process
+  const restored = createTeamRuntime("lead", "lead", {
+    snapshot,
+    reconcileStaleWorkers: true,
+  });
+
+  // Workers should be terminated
+  assertEquals(restored.getMember("worker-1")?.status, "terminated");
+  assertEquals(restored.getMember("worker-2")?.status, "terminated");
+  assertEquals(restored.getMember("lead")?.status, "active");
+
+  // In-flight tasks should be cancelled, completed task untouched
+  assertEquals(restored.getTask("task-1")?.status, "cancelled");
+  assertEquals(restored.getTask("task-2")?.status, "cancelled");
+  assertEquals(restored.getTask("task-3")?.status, "completed");
+
+  // Cancelled tasks should have assignee cleared
+  assertEquals(restored.getTask("task-1")?.assigneeMemberId, undefined);
+  assertEquals(restored.getTask("task-2")?.assigneeMemberId, undefined);
 });

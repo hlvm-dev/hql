@@ -58,16 +58,6 @@ export function resolveApproval(response: CompanionResponse): boolean {
   return true;
 }
 
-/** Cancel a specific pending approval (rejects its promise). */
-export function cancelPendingApproval(eventId: string): void {
-  const entry = pending.get(eventId);
-  if (!entry) return;
-
-  clearTimeout(entry.timeoutId);
-  pending.delete(eventId);
-  entry.reject(new Error(`Approval cancelled for ${eventId}`));
-}
-
 /** Number of currently pending approvals. */
 export function getPendingApprovalCount(): number {
   return pending.size;

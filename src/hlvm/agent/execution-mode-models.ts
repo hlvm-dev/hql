@@ -168,7 +168,3 @@ export function getExecutionModeModelForMode(
     contextWindow: configuredContextWindow,
   };
 }
-
-export function formatExecutionModeModelDisplayName(modelId?: string): string {
-  return modelId ? extractModelSuffix(modelId) : "";
-}

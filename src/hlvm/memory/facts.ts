@@ -116,17 +116,58 @@ export function insertFact(opts: InsertFactOptions): number {
 
 export function invalidateFact(factId: number): void {
   const db = getFactDb();
+  const row = db.prepare(
+    "SELECT content FROM facts WHERE id = ? AND valid_until IS NULL",
+  ).value<[string]>(factId);
+  if (!row) return;
   db.prepare(
-    "UPDATE facts SET valid_until = ? WHERE id = ? AND valid_until IS NULL",
+    "UPDATE facts SET valid_until = ? WHERE id = ?",
   ).run(todayDate(), factId);
+  db.prepare(
+    "INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', ?, ?)",
+  ).run(factId, row[0]);
 }
 
 export function invalidateFactsByCategory(category: string): number {
   const db = getFactDb();
-  const result = db.prepare(
-    "UPDATE facts SET valid_until = ? WHERE category = ? AND valid_until IS NULL",
-  ).run(todayDate(), category.trim());
-  return Number(result);
+  const rows = db.prepare(
+    "SELECT id, content FROM facts WHERE category = ? AND valid_until IS NULL",
+  ).all(category.trim()) as Array<{ id: number; content: string }>;
+  if (rows.length === 0) return 0;
+  const today = todayDate();
+  for (const row of rows) {
+    db.prepare("UPDATE facts SET valid_until = ? WHERE id = ?").run(today, row.id);
+    db.prepare(
+      "INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', ?, ?)",
+    ).run(row.id, row.content);
+  }
+  return rows.length;
+}
+
+export function invalidateAllFacts(): number {
+  const db = getFactDb();
+  const rows = db.prepare(
+    "SELECT id, content FROM facts WHERE valid_until IS NULL",
+  ).all() as Array<{ id: number; content: string }>;
+  if (rows.length === 0) return 0;
+  const today = todayDate();
+  db.exec("BEGIN");
+  try {
+    for (const row of rows) {
+      db.prepare("UPDATE facts SET valid_until = ? WHERE id = ?").run(today, row.id);
+      db.prepare(
+        "INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', ?, ?)",
+      ).run(row.id, row.content);
+    }
+    db.prepare(
+      "UPDATE relationships SET valid_until = ? WHERE valid_until IS NULL AND fact_id IN (SELECT id FROM facts WHERE valid_until = ?)",
+    ).run(today, today);
+    db.exec("COMMIT");
+    return rows.length;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function getValidFacts(

@@ -1,4 +1,5 @@
 import { log } from "../../api/log.ts";
+import { truncate } from "../../../common/utils.ts";
 
 export type RegistryType = "npm" | "jsr";
 
@@ -34,9 +35,7 @@ export function printPublishSummary(summaries: PublishSummary[]) {
 
   function row(cells: string[]): string {
     return "║" + cells.map((c, i) => {
-      const content = c.length > colWidths[i] - 2
-        ? c.slice(0, colWidths[i] - 5) + "..."
-        : c;
+      const content = truncate(c, colWidths[i] - 2);
       return padCell(content, colWidths[i]);
     }).join("║") + "║";
   }
@@ -61,9 +60,7 @@ export function printPublishSummary(summaries: PublishSummary[]) {
       s.name,
       s.version,
       status,
-      link.length > LINK_WIDTH - 5
-        ? link.slice(0, LINK_WIDTH - 8) + "..."
-        : link,
+      truncate(link, LINK_WIDTH - 5),
     ]));
   }
 

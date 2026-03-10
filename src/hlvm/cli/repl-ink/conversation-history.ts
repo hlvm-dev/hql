@@ -9,10 +9,12 @@ import {
   loadPersistedAgentChildSessionSummaries,
   parsePersistedAgentSessionMetadata,
 } from "../../agent/persisted-transcript.ts";
+import { cloneTeamRuntimeSnapshot } from "../../agent/team-runtime.ts";
 import type { Session, SessionMessage } from "../repl/session/types.ts";
 import type {
   ConversationItem,
   DelegateItem,
+  TeamRuntimeSnapshotInfoItem,
   ToolCallDisplay,
   ToolGroupItem,
 } from "./types.ts";
@@ -116,7 +118,8 @@ function getItemTimestamp(item: ConversationItem): number {
     case "assistant":
     case "tool_group":
     case "delegate":
-      return item.ts;
+    case "info":
+      return item.ts ?? Number.MAX_SAFE_INTEGER;
     default:
       return Number.MAX_SAFE_INTEGER;
   }
@@ -126,7 +129,38 @@ export function buildTranscriptStateFromSession(session: Session): TranscriptSta
   const baseItems = buildConversationItemsFromSessionMessages(session.messages);
   const delegateItems = buildDelegateItemsFromSession(session);
   const metadata = parsePersistedAgentSessionMetadata(session.meta.metadata);
-  const items = [...baseItems, ...delegateItems]
+  const teamSnapshotItem: TeamRuntimeSnapshotInfoItem | undefined =
+    metadata.teamRuntime
+      ? (() => {
+        const snapshot = cloneTeamRuntimeSnapshot(metadata.teamRuntime);
+        const activeMembers = snapshot.members.filter((member) =>
+          member.status === "active" ||
+          member.status === "shutdown_requested" ||
+          member.status === "shutting_down"
+        ).length;
+        const pendingApprovals = snapshot.approvals.filter((approval) =>
+          approval.status === "pending"
+        ).length;
+        const unreadMessages = snapshot.messages.filter((message) =>
+          (!message.toMemberId || message.toMemberId === snapshot.leadMemberId) &&
+          !message.readBy.includes(snapshot.leadMemberId)
+        ).length;
+        return {
+          type: "info",
+          id: "session-team-runtime",
+          teamEventType: "team_runtime_snapshot",
+          text:
+            `Restored team state: ${activeMembers}/${snapshot.members.length} active · ${snapshot.tasks.length} tasks · ${pendingApprovals} pending reviews · ${unreadMessages} unread`,
+          snapshot,
+          ts: session.meta.updatedAt,
+        };
+      })()
+      : undefined;
+  const items = [
+    ...baseItems,
+    ...delegateItems,
+    ...(teamSnapshotItem ? [teamSnapshotItem] : []),
+  ]
     .map((item, index) => ({ item, index }))
     .sort((a, b) => {
       const tsDiff = getItemTimestamp(a.item) - getItemTimestamp(b.item);

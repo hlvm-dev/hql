@@ -16,8 +16,8 @@ import { config } from "../../../api/config.ts";
 import { log } from "../../../api/log.ts";
 import {
   ContextManager,
-  takeLastMessageGroups,
   type Message as AgentMessage,
+  takeLastMessageGroups,
 } from "../../../agent/context.ts";
 import {
   resolveContextBudget,
@@ -109,13 +109,16 @@ export function buildRequestMessagesToPersist(
     fallbackClientTurnId?: string;
   },
 ): PersistableRequestMessage[] {
-  const currentMessage = options.requestMessages[options.requestMessages.length - 1];
+  const currentMessage =
+    options.requestMessages[options.requestMessages.length - 1];
   if (!currentMessage || currentMessage.role !== "user") {
     return [];
   }
 
   if (!shouldHonorRequestMessages(options.requestMessages)) {
-    return [normalizeCurrentUserMessage(currentMessage, options.fallbackClientTurnId)];
+    return [
+      normalizeCurrentUserMessage(currentMessage, options.fallbackClientTurnId),
+    ];
   }
 
   const requestTranscript = normalizeRequestMessagesForPersistence(
@@ -284,7 +287,13 @@ function reorderStoredMessages(
       end++;
     }
 
-    const group = storedMessages.slice(index, end).filter((message) =>
+    const requestGroup = storedMessages.slice(index, end);
+    if (requestGroupHasCancelledMessage(requestGroup)) {
+      index = end;
+      continue;
+    }
+
+    const group = requestGroup.filter((message) =>
       shouldIncludeStoredMessage(message, assistantMessageId)
     );
     ordered.push(...reorderRequestGroup(group));
@@ -332,6 +341,12 @@ function shouldIncludeStoredMessage(
   if (message.tool_calls) return true;
   if (message.image_paths) return true;
   return message.content.length > 0;
+}
+
+function requestGroupHasCancelledMessage(
+  group: readonly MessageRow[],
+): boolean {
+  return group.some((message) => message.cancelled !== 0);
 }
 
 function normalizeCurrentUserMessage(
@@ -382,25 +397,55 @@ function normalizeStoredMessagesForPersistence(
   storedMessages: MessageRow[],
 ): PersistableRequestMessage[] {
   const persistable: PersistableRequestMessage[] = [];
+  let index = 0;
 
-  for (const message of storedMessages) {
-    if (message.cancelled) continue;
-    if (message.role === "tool") continue;
+  while (index < storedMessages.length) {
+    const current = storedMessages[index];
+    if (!current.request_id) {
+      appendStoredMessageForPersistence(current, persistable);
+      index++;
+      continue;
+    }
 
-    const imagePaths = sanitizeImagePaths(parseImagePaths(message.image_paths));
-    const hasVisibleContent = message.content.length > 0 || imagePaths !== undefined;
-    if (!hasVisibleContent) continue;
+    let end = index + 1;
+    while (
+      end < storedMessages.length &&
+      storedMessages[end].request_id === current.request_id
+    ) {
+      end++;
+    }
 
-    persistable.push({
-      role: message.role,
-      content: message.content,
-      imagePaths,
-      clientTurnId: message.client_turn_id ?? undefined,
-      senderType: getPersistedSenderType(message.role),
-    });
+    const requestGroup = storedMessages.slice(index, end);
+    if (!requestGroupHasCancelledMessage(requestGroup)) {
+      for (const message of requestGroup) {
+        appendStoredMessageForPersistence(message, persistable);
+      }
+    }
+    index = end;
   }
 
   return persistable;
+}
+
+function appendStoredMessageForPersistence(
+  message: MessageRow,
+  persistable: PersistableRequestMessage[],
+): void {
+  if (message.cancelled) return;
+  if (message.role === "tool") return;
+
+  const imagePaths = sanitizeImagePaths(parseImagePaths(message.image_paths));
+  const hasVisibleContent = message.content.length > 0 ||
+    imagePaths !== undefined;
+  if (!hasVisibleContent) return;
+
+  persistable.push({
+    role: message.role,
+    content: message.content,
+    imagePaths,
+    clientTurnId: message.client_turn_id ?? undefined,
+    senderType: getPersistedSenderType(message.role),
+  });
 }
 
 function getPersistedSenderType(
@@ -510,7 +555,9 @@ function parseImagePaths(imagePathsJson: string | null): string[] {
   }
 }
 
-function parseToolCalls(toolCallsJson: string | null): ProviderToolCall[] | undefined {
+function parseToolCalls(
+  toolCallsJson: string | null,
+): ProviderToolCall[] | undefined {
   if (!toolCallsJson) return undefined;
   try {
     const parsed = JSON.parse(toolCallsJson);

@@ -30,9 +30,9 @@ export type {
 // Re-export keybinding lookup functions
 export {
   refreshKeybindingLookup,
+  inspectHandlerKeybinding,
   matchCustomKeybinding,
   isDefaultDisabled,
-  getEffectiveDisplay,
   normalizeKeyInput,
 } from "./keybinding-lookup.ts";
 

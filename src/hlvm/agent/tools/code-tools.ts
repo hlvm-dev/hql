@@ -18,6 +18,7 @@ import { resolveToolPath, createPolicyPathChecker } from "../path-utils.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
 import { escapeRegExp, isObjectValue } from "../../../common/utils.ts";
 import { formatToolError, okTool, failTool } from "../tool-results.ts";
+import { pluralize } from "../tool-result-summary.ts";
 import { walkDirectory, loadGitignore } from "../../../common/file-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import { assertMaxBytes } from "../../../common/limits.ts";
@@ -573,10 +574,6 @@ export async function getStructure(
 // ============================================================
 // Tool Registry
 // ============================================================
-
-function pluralize(noun: string, count: number): string {
-  return count === 1 ? noun : `${noun}s`;
-}
 
 function formatSearchCodeResult(
   result: unknown,

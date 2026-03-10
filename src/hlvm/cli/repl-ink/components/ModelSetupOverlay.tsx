@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useMemo, useRef } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { formatBytes, ProgressBar } from "./ProgressBar.tsx";
@@ -17,6 +17,11 @@ import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { createRuntimeConfigManager } from "../../../runtime/model-config.ts";
 import { resolveModelAvailabilityTarget } from "../../../runtime/model-availability.ts";
 import { getConfiguredModelReadiness } from "../../../runtime/configured-model-readiness.ts";
+import {
+  clampPanelWidth,
+  DEFAULT_TERMINAL_WIDTH,
+} from "../ui-constants.ts";
+import { truncate } from "../../../../common/utils.ts";
 
 // ============================================================
 // Types
@@ -44,8 +49,16 @@ export function ModelSetupOverlay({
   endpoint = DEFAULT_OLLAMA_ENDPOINT,
 }: ModelSetupOverlayProps): React.ReactElement {
   const { color } = useTheme();
+  const { stdout } = useStdout();
   const { tasks, cancel } = useTaskManager();
   const manager = useMemo(() => getTaskManager(endpoint), [endpoint]);
+  const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
+  const panelWidth = clampPanelWidth(terminalWidth, {
+    maxWidth: 72,
+    minWidth: 40,
+  });
+  const contentWidth = Math.max(20, panelWidth - 4);
+  const progressWidth = Math.max(8, Math.min(30, contentWidth - 8));
 
   // Prevent multiple onComplete/onCancel calls
   const handledRef = useRef(false);
@@ -122,6 +135,8 @@ export function ModelSetupOverlay({
       paddingX={2}
       paddingY={1}
       marginY={1}
+      width={panelWidth}
+      alignSelf="center"
     >
       {/* Header */}
       <Box marginBottom={1}>
@@ -132,15 +147,17 @@ export function ModelSetupOverlay({
 
       {/* Status */}
       <Box marginBottom={1}>
-        <Text>Downloading</Text>
-        <Text bold color={color("accent")}>{modelName}</Text>
+        <Text>Downloading </Text>
+        <Text bold color={color("accent")}>
+          {truncate(modelName, Math.max(8, contentWidth - 12), "…")}
+        </Text>
       </Box>
 
       {/* Progress bar */}
       {isDownloading && (
         <Box flexDirection="column">
           <Box>
-            <ProgressBar percent={percent} width={30} showPercent />
+            <ProgressBar percent={percent} width={progressWidth} showPercent />
           </Box>
           {total > 0 && (
             <Box marginTop={0}>
@@ -174,8 +191,12 @@ export function ModelSetupOverlay({
 
       {/* Footer hint */}
       <Box marginTop={1}>
-        <Text dimColor>
-          This is a one-time download (~2GB). Press Esc to cancel.
+        <Text dimColor wrap="truncate-end">
+          {truncate(
+            "This is a one-time download (~2GB). Press Esc to cancel.",
+            contentWidth,
+            "…",
+          )}
         </Text>
       </Box>
     </Box>

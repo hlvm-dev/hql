@@ -1,5 +1,6 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import {
+  cancelRequestMessages,
   createSession,
   deleteMessage,
   deleteSession,
@@ -32,7 +33,10 @@ Deno.test("conversation store: session lifecycle covers create, get, list, updat
 
     assertEquals(defaultSession.title, "");
     assertEquals(custom.id, "my-custom-id");
-    assertEquals(listSessions().map((session) => session.title).sort(), ["", "Custom ID"]);
+    assertEquals(listSessions().map((session) => session.title).sort(), [
+      "",
+      "Custom ID",
+    ]);
 
     const updated = updateSession(custom.id, { title: "Updated" });
     assertExists(updated);
@@ -59,8 +63,16 @@ Deno.test("conversation store: getOrCreateSession is idempotent", async () => {
 Deno.test("conversation store: insertMessage handles ordering, versioning, dedup, and timestamps", async () => {
   await withDb(() => {
     const session = createSession("Messages");
-    const first = insertMessage({ session_id: session.id, role: "user", content: "Hello" });
-    const second = insertMessage({ session_id: session.id, role: "assistant", content: "Hi" });
+    const first = insertMessage({
+      session_id: session.id,
+      role: "user",
+      content: "Hello",
+    });
+    const second = insertMessage({
+      session_id: session.id,
+      role: "assistant",
+      content: "Hi",
+    });
     const deduped = insertMessage({
       session_id: session.id,
       role: "user",
@@ -94,15 +106,34 @@ Deno.test("conversation store: getMessages supports offset and cursor pagination
   await withDb(() => {
     const session = createSession("Paging");
     for (let i = 0; i < 5; i++) {
-      insertMessage({ session_id: session.id, role: "user", content: `Message ${i}` });
+      insertMessage({
+        session_id: session.id,
+        role: "user",
+        content: `Message ${i}`,
+      });
     }
 
-    const offsetPage = getMessages(session.id, { limit: 2, offset: 2, sort: "asc" });
-    const ascCursor = getMessages(session.id, { limit: 2, sort: "asc", after_order: 2 });
-    const descCursor = getMessages(session.id, { limit: 2, sort: "desc", after_order: 5 });
+    const offsetPage = getMessages(session.id, {
+      limit: 2,
+      offset: 2,
+      sort: "asc",
+    });
+    const ascCursor = getMessages(session.id, {
+      limit: 2,
+      sort: "asc",
+      after_order: 2,
+    });
+    const descCursor = getMessages(session.id, {
+      limit: 2,
+      sort: "desc",
+      after_order: 5,
+    });
     const descAll = getMessages(session.id, { sort: "desc" });
 
-    assertEquals(offsetPage.messages.map((message) => message.content), ["Message 2", "Message 3"]);
+    assertEquals(offsetPage.messages.map((message) => message.content), [
+      "Message 2",
+      "Message 3",
+    ]);
     assertEquals(offsetPage.has_more, true);
     assertEquals(offsetPage.total, 5);
     assertEquals(ascCursor.messages.map((message) => message.order), [3, 4]);
@@ -124,7 +155,10 @@ Deno.test("conversation store: getMessage and getMessageByClientTurnId resolve s
 
     assertEquals(getMessage(message.id)?.content, "Tracked");
     assertEquals(getMessage(99999), null);
-    assertEquals(getMessageByClientTurnId(session.id, "turn-abc")?.content, "Tracked");
+    assertEquals(
+      getMessageByClientTurnId(session.id, "turn-abc")?.content,
+      "Tracked",
+    );
     assertEquals(getMessageByClientTurnId(session.id, "missing"), null);
   });
 });
@@ -132,7 +166,11 @@ Deno.test("conversation store: getMessage and getMessageByClientTurnId resolve s
 Deno.test("conversation store: updateMessage edits content, cancellation, and session version", async () => {
   await withDb(() => {
     const session = createSession("Update Msg");
-    const message = insertMessage({ session_id: session.id, role: "assistant", content: "Original" });
+    const message = insertMessage({
+      session_id: session.id,
+      role: "assistant",
+      content: "Original",
+    });
     assertEquals(getSession(session.id)?.session_version, 1);
 
     updateMessage(message.id, { content: "Updated" });
@@ -145,11 +183,48 @@ Deno.test("conversation store: updateMessage edits content, cancellation, and se
   });
 });
 
+Deno.test("conversation store: cancelRequestMessages cancels the full persisted request group", async () => {
+  await withDb(() => {
+    const session = createSession("Cancel Request");
+    const user = insertMessage({
+      session_id: session.id,
+      role: "user",
+      content: "hello world",
+      request_id: "req-1",
+    });
+    const assistant = insertMessage({
+      session_id: session.id,
+      role: "assistant",
+      content: "",
+      request_id: "req-1",
+    });
+    const baselineVersion = getSession(session.id)?.session_version ?? 0;
+
+    const changed = cancelRequestMessages(session.id, "req-1", {
+      assistantMessageId: assistant.id,
+      assistantContent: "partial reply",
+    });
+
+    assertEquals(changed, 2);
+    assertEquals(getMessage(user.id)?.cancelled, 1);
+    assertEquals(getMessage(assistant.id)?.cancelled, 1);
+    assertEquals(getMessage(assistant.id)?.content, "partial reply");
+    assertEquals(
+      getSession(session.id)?.session_version,
+      baselineVersion + 1,
+    );
+  });
+});
+
 Deno.test("conversation store: deleteMessage enforces ownership and decrements counts", async () => {
   await withDb(() => {
     const owner = createSession("Owner Test");
     const other = createSession("Other Test");
-    const message = insertMessage({ session_id: owner.id, role: "user", content: "Owned" });
+    const message = insertMessage({
+      session_id: owner.id,
+      role: "user",
+      content: "Owned",
+    });
 
     assertEquals(deleteMessage(message.id, "wrong-session"), false);
     assertExists(getMessage(message.id));

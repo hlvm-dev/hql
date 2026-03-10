@@ -21,7 +21,7 @@ export { ToolResult } from "./ToolResult.tsx";
 export { ProgressBar } from "./ProgressBar.tsx";
 
 // Diff renderer
-export { default as DiffRenderer, parseDiffLines } from "./DiffRenderer.tsx";
+export { default as DiffRenderer } from "./DiffRenderer.tsx";
 
 // Dialog components
 export { ConfirmationDialog } from "./ConfirmationDialog.tsx";

@@ -17,13 +17,14 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import { SecurityError, validatePath } from "../security/path-sandbox.ts";
+import { isPathWithinRoot, SecurityError, validatePath } from "../security/path-sandbox.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
 import { createPolicyPathChecker, resolveToolPath } from "../path-utils.ts";
 import {
   GlobPatternError,
   globToRegex,
 } from "../../../common/pattern-utils.ts";
+import { isIgnored, loadGitignore } from "../../../common/file-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import {
   assertMaxBytes,
@@ -517,6 +518,11 @@ export async function listFiles(
       workspace,
     );
 
+    // Load gitignore patterns to skip node_modules, .git, etc.
+    const gitignorePatterns = normalizedArgs.recursive
+      ? await loadGitignore(validPath)
+      : null;
+
     // Compile glob pattern once (path-aware by default)
     let patternRegex: RegExp | null = null;
     let basenameRegex: RegExp | null = null;
@@ -580,6 +586,14 @@ export async function listFiles(
         const entryRelativePath = relativePath
           ? `${relativePath}/${entry.name}`
           : entry.name;
+
+        // Skip gitignored entries (node_modules, .git, build output, etc.)
+        if (gitignorePatterns) {
+          const checkPath = entry.isDirectory
+            ? `${entryRelativePath}/`
+            : entryRelativePath;
+          if (isIgnored(checkPath, gitignorePatterns)) continue;
+        }
 
         // Get entry info
         const entryPath = platform.path.join(dir, entry.name);
@@ -768,7 +782,7 @@ export async function archiveFiles(
     for (const inputPath of inputPaths) {
       const stat = await platform.fs.stat(inputPath);
       if (
-        stat.isDirectory && isPathWithinRoot(outputPath, inputPath, platform)
+        stat.isDirectory && isPathWithinRoot(outputPath, inputPath)
       ) {
         return failTool(
           `outputPath must not be inside source directory: ${inputPath}`,
@@ -853,23 +867,13 @@ function quotePowerShellString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-function isPathWithinRoot(
-  path: string,
-  root: string,
-  platform: ReturnType<typeof getPlatform>,
-): boolean {
-  const relative = platform.path.relative(root, path);
-  return relative === "" ||
-    (!relative.startsWith("..") && !platform.path.isAbsolute(relative));
-}
-
 function getCommonParentDirectory(
   paths: string[],
   platform: ReturnType<typeof getPlatform>,
 ): string {
   let common = platform.path.dirname(paths[0]);
   for (const path of paths.slice(1)) {
-    while (!isPathWithinRoot(path, common, platform)) {
+    while (!isPathWithinRoot(path, common)) {
       const parent = platform.path.dirname(common);
       if (parent === common) {
         return common;

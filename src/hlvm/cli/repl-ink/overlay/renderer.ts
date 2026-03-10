@@ -67,6 +67,18 @@ export interface ClearRegion {
   height: number;
 }
 
+/** Fitted overlay rectangle within the current terminal viewport. */
+export interface OverlayRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface OverlayFrame extends ClearRegion {
+  clipped: boolean;
+}
+
 /**
  * Clear a region of the screen (restore what was behind overlay).
  * Note: This doesn't restore original content - Ink will need to re-render.
@@ -137,11 +149,92 @@ export function bg(rgb: RGB): string {
 
 /** Calculate centered overlay position */
 export function calcOverlayPosition(width: number, height: number): { x: number; y: number } {
-  const term = getTerminalSize();
+  const rect = fitOverlayRect(width, height);
   return {
-    x: Math.max(2, Math.floor((term.columns - width) / 2)),
-    y: Math.max(2, Math.floor((term.rows - height) / 2)),
+    x: rect.x,
+    y: rect.y,
   };
+}
+
+/**
+ * Clamp an overlay to the visible terminal viewport while preserving centering.
+ * Margin values reserve breathing room around the overlay when space allows.
+ */
+export function fitOverlayRect(
+  width: number,
+  height: number,
+  options: {
+    marginX?: number;
+    marginY?: number;
+    viewport?: { columns: number; rows: number };
+  } = {},
+): OverlayRect {
+  const term = options.viewport ?? getTerminalSize();
+  const marginX = Math.max(0, options.marginX ?? 0);
+  const marginY = Math.max(0, options.marginY ?? 0);
+  const maxWidth = Math.max(1, term.columns - marginX * 2);
+  const maxHeight = Math.max(1, term.rows - marginY * 2);
+  const fittedWidth = Math.max(1, Math.min(width, maxWidth));
+  const fittedHeight = Math.max(1, Math.min(height, maxHeight));
+
+  return {
+    width: fittedWidth,
+    height: fittedHeight,
+    x: Math.max(0, Math.floor((term.columns - fittedWidth) / 2)),
+    y: Math.max(0, Math.floor((term.rows - fittedHeight) / 2)),
+  };
+}
+
+export function resolveOverlayFrame(
+  requestedWidth: number,
+  requestedHeight: number,
+  {
+    minWidth = 24,
+    minHeight = 8,
+    marginX = 2,
+    marginY = 1,
+    viewport,
+  }: {
+    minWidth?: number;
+    minHeight?: number;
+    marginX?: number;
+    marginY?: number;
+    viewport?: { columns: number; rows: number };
+  } = {},
+): OverlayFrame {
+  const term = viewport ?? getTerminalSize();
+  const availableWidth = Math.max(1, term.columns - marginX * 2);
+  const availableHeight = Math.max(1, term.rows - marginY * 2);
+  const fittedMinWidth = Math.min(Math.max(1, minWidth), availableWidth);
+  const fittedMinHeight = Math.min(Math.max(1, minHeight), availableHeight);
+  const width = Math.max(
+    fittedMinWidth,
+    Math.min(requestedWidth, availableWidth),
+  );
+  const height = Math.max(
+    fittedMinHeight,
+    Math.min(requestedHeight, availableHeight),
+  );
+  const position = calcOverlayPosition(width, height);
+
+  return {
+    ...position,
+    width,
+    height,
+    clipped: width !== requestedWidth || height !== requestedHeight,
+  };
+}
+
+export function shouldClearOverlay(
+  previous: ClearRegion | null | undefined,
+  next: ClearRegion,
+): boolean {
+  return !!previous && (
+    previous.x !== next.x ||
+    previous.y !== next.y ||
+    previous.width !== next.width ||
+    previous.height !== next.height
+  );
 }
 
 /** Write raw ANSI output to terminal */

@@ -1,7 +1,19 @@
 import { assertEquals } from "jsr:@std/assert";
 import type { Key } from "ink";
-import { normalizeKeyInput } from "../../../src/hlvm/cli/repl-ink/keybindings/keybinding-lookup.ts";
-import { globalKeybindings } from "../../../src/hlvm/cli/repl-ink/keybindings/definitions/global.ts";
+import {
+  inspectHandlerKeybinding,
+  normalizeKeyInput,
+  refreshKeybindingLookup,
+} from "../../../src/hlvm/cli/repl-ink/keybindings/index.ts";
+import {
+  getCustomKeybindingsSnapshot,
+  setCustomKeybindingsSnapshot,
+} from "../../../src/hlvm/cli/repl-ink/keybindings/custom-bindings.ts";
+import { composerKeybindings } from "../../../src/hlvm/cli/repl-ink/keybindings/definitions/composer.ts";
+import { conversationKeybindings } from "../../../src/hlvm/cli/repl-ink/keybindings/definitions/conversation.ts";
+import { globalKeybindings } from "../../../src/hlvm/cli/repl-ink/keybindings/definitions/index.ts";
+import { HandlerIds } from "../../../src/hlvm/cli/repl-ink/keybindings/handler-registry.ts";
+import type { Keybinding } from "../../../src/hlvm/cli/repl-ink/keybindings/types.ts";
 
 function makeKey(overrides: Partial<Key> = {}): Key {
   return {
@@ -49,12 +61,154 @@ Deno.test("normalizeKeyInput: shift-tab remains addressable for mode cycling", (
   assertEquals(normalizeKeyInput("\t", makeKey({ shift: true, tab: true })), "shift+tab");
 });
 
-Deno.test("global keybindings include Shift+Tab mode cycling", () => {
+Deno.test("composer keybindings include Shift+Tab mode cycling", () => {
   assertEquals(
-    globalKeybindings.some((binding) =>
+    composerKeybindings.some((binding) =>
       binding.display === "Shift+Tab" &&
-      binding.label === "Cycle agent mode"
+      binding.label === "Cycle agent mode" &&
+      binding.action.type === "HANDLER" &&
+      binding.action.id === HandlerIds.COMPOSER_CYCLE_MODE
     ),
     true,
   );
+});
+
+Deno.test("global keybindings do not reserve bare question-mark", () => {
+  assertEquals(
+    globalKeybindings.some((binding) =>
+      binding.display === "?" &&
+      binding.label === "Show shortcuts"
+    ),
+    false,
+  );
+});
+
+Deno.test("global keybindings include Ctrl+T team dashboard handler", () => {
+  assertEquals(
+    globalKeybindings.some((binding) =>
+      binding.display === "Ctrl+T" &&
+      binding.label === "Team dashboard" &&
+      binding.action.type === "HANDLER" &&
+      binding.action.id === HandlerIds.APP_TEAM_DASHBOARD
+    ),
+    true,
+  );
+});
+
+Deno.test("conversation keybindings include toggle and source handlers", () => {
+  const conversationHandlerIds = new Map(
+    conversationKeybindings
+      .filter((
+        binding,
+      ): binding is Keybinding & { action: { type: "HANDLER"; id: string } } =>
+        binding.action.type === "HANDLER"
+      )
+      .map((binding) => [binding.id, binding.action.id] as const),
+  );
+
+  assertEquals(
+    conversationHandlerIds.get("ctrl+o"),
+    HandlerIds.CONVERSATION_TOGGLE_LATEST,
+  );
+  assertEquals(
+    conversationHandlerIds.get("ctrl+y"),
+    HandlerIds.CONVERSATION_OPEN_LATEST_SOURCE,
+  );
+});
+
+Deno.test("global keybindings omit unsupported queue navigation shortcuts", () => {
+  const globalIds = new Set(globalKeybindings.map((binding) => binding.id));
+  assertEquals(globalIds.has("alt+up-queue"), false);
+  assertEquals(globalIds.has("alt+down-queue"), false);
+  assertEquals(globalIds.has("alt+backspace-queue"), false);
+});
+
+Deno.test("global keybindings use canonical handler IDs", () => {
+  const globalHandlerIds = new Map(
+    globalKeybindings
+      .filter((
+        binding,
+      ): binding is Keybinding & { action: { type: "HANDLER"; id: string } } =>
+        binding.action.type === "HANDLER"
+      )
+      .map((binding) => [binding.id, binding.action.id] as const),
+  );
+  assertEquals(globalHandlerIds.get("ctrl+c"), HandlerIds.APP_EXIT);
+  assertEquals(globalHandlerIds.get("ctrl+l"), HandlerIds.APP_CLEAR);
+  assertEquals(globalHandlerIds.get("ctrl+p"), HandlerIds.APP_PALETTE);
+  assertEquals(globalHandlerIds.get("ctrl+b"), HandlerIds.APP_TASKS);
+  assertEquals(globalHandlerIds.get("ctrl+t"), HandlerIds.APP_TEAM_DASHBOARD);
+});
+
+Deno.test("inspectHandlerKeybinding leaves bare question-mark available for typing", () => {
+  const previousBindings = getCustomKeybindingsSnapshot();
+  try {
+    setCustomKeybindingsSnapshot({});
+    refreshKeybindingLookup();
+
+    const result = inspectHandlerKeybinding(
+      "?",
+      makeKey(),
+      { categories: ["Global"] },
+    );
+
+    assertEquals(result, { kind: "none" });
+  } finally {
+    setCustomKeybindingsSnapshot(previousBindings);
+    refreshKeybindingLookup();
+  }
+});
+
+Deno.test("inspectHandlerKeybinding resolves global default handlers by scope", () => {
+  const previousBindings = getCustomKeybindingsSnapshot();
+  try {
+    setCustomKeybindingsSnapshot({});
+    refreshKeybindingLookup();
+
+    const result = inspectHandlerKeybinding(
+      "t",
+      makeKey({ ctrl: true }),
+      { categories: ["Global"] },
+    );
+
+    assertEquals(result, {
+      kind: "handler",
+      id: HandlerIds.APP_TEAM_DASHBOARD,
+      source: "default",
+    });
+  } finally {
+    setCustomKeybindingsSnapshot(previousBindings);
+    refreshKeybindingLookup();
+  }
+});
+
+Deno.test("inspectHandlerKeybinding lets custom non-global bindings shadow global defaults", () => {
+  const previousBindings = getCustomKeybindingsSnapshot();
+  try {
+    setCustomKeybindingsSnapshot({
+      "alt+z": "Ctrl+T",
+    });
+    refreshKeybindingLookup();
+
+    const globalResult = inspectHandlerKeybinding(
+      "t",
+      makeKey({ ctrl: true }),
+      { categories: ["Global"] },
+    );
+    const editingResult = inspectHandlerKeybinding(
+      "t",
+      makeKey({ ctrl: true }),
+      { categories: ["Editing"] },
+    );
+
+    assertEquals(globalResult, { kind: "shadowed" });
+    assertEquals(editingResult, {
+      kind: "handler",
+      id: HandlerIds.EDIT_UNDO,
+      source: "custom",
+    });
+  } finally {
+    setCustomKeybindingsSnapshot(previousBindings);
+    refreshKeybindingLookup();
+  }
 });

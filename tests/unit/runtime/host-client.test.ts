@@ -45,11 +45,13 @@ import { createRuntimeHostHealthResponse } from "../../shared/runtime-host-test-
 const encoder = new TextEncoder();
 
 Deno.test("runtime host start lock path is scoped by runtime port", async () => {
-  const first = await withRuntimePortOverrideForTests(19143, async () =>
-    __testOnlyGetRuntimeStartLockPath()
+  const first = await withRuntimePortOverrideForTests(
+    19143,
+    async () => __testOnlyGetRuntimeStartLockPath(),
   );
-  const second = await withRuntimePortOverrideForTests(19144, async () =>
-    __testOnlyGetRuntimeStartLockPath()
+  const second = await withRuntimePortOverrideForTests(
+    19144,
+    async () => __testOnlyGetRuntimeStartLockPath(),
   );
 
   assert(first !== second);
@@ -84,6 +86,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
           const emit = (obj: unknown) =>
             controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
           emit({ event: "start", request_id: "req-1" });
+          emit({ event: "heartbeat" });
           emit({ event: "thinking", iteration: 1 });
           emit({ event: "token", text: "Let me fetch that first. " });
           emit({
@@ -426,7 +429,8 @@ Deno.test("runAgentQueryViaHost maps team and batch events through the host stre
         query: "Coordinate the current team work",
         model: "ollama/llama3.1:8b",
         callbacks: {
-          onAgentEvent: (event) => uiEvents.push(event as Record<string, unknown>),
+          onAgentEvent: (event) =>
+            uiEvents.push(event as Record<string, unknown>),
         },
       });
 
@@ -449,7 +453,10 @@ Deno.test("runAgentQueryViaHost maps team and batch events through the host stre
       assertEquals(uiEvents[2]?.threadId, "thread-1");
       assertEquals(uiEvents[3]?.taskId, "task-1");
       assertEquals(uiEvents[4]?.contentPreview, "Need clarification on scope");
-      assertEquals(uiEvents[9]?.snapshot && typeof uiEvents[9].snapshot, "object");
+      assertEquals(
+        uiEvents[9]?.snapshot && typeof uiEvents[9].snapshot,
+        "object",
+      );
     });
   } finally {
     await handle.shutdown();
@@ -819,7 +826,9 @@ Deno.test("runAgentQueryViaHost accepts compatible runtime hosts when the compil
     if (url.pathname === "/health") {
       const health = await createRuntimeHostHealthResponse(authToken);
       const buildIdParts = String(health.buildId).split("|");
-      buildIdParts[1] = `/private/var/folders/runtime/${buildIdParts[1]?.split("/").pop() ?? "hlvm"}`;
+      buildIdParts[1] = `/private/var/folders/runtime/${
+        buildIdParts[1]?.split("/").pop() ?? "hlvm"
+      }`;
       return Response.json({
         ...health,
         buildId: buildIdParts.join("|"),

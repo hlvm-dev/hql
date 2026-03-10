@@ -8,6 +8,7 @@
 
 import React from "react";
 import { Box, Text } from "ink";
+import { truncate } from "../../../../../common/utils.ts";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { formatDurationMs } from "../../utils/formatting.ts";
 import { ToolStatusIcon } from "./ToolStatusIcon.tsx";
@@ -20,11 +21,6 @@ interface ToolCallItemProps {
   expanded?: boolean;
 }
 
-function truncate(text: string, maxLen: number): string {
-  if (maxLen <= 0) return "";
-  if (text.length <= maxLen) return text;
-  return maxLen > 3 ? text.slice(0, maxLen - 1) + "…" : text.slice(0, maxLen);
-}
 
 export function resolveToolResultText(
   tool: Pick<ToolCallDisplay, "resultSummaryText" | "resultText">,
@@ -42,7 +38,7 @@ export function ToolCallItem(
   const durationStr = tool.durationMs != null ? `(${formatDurationMs(tool.durationMs)})` : "";
   const fixedWidth = 2 + tool.name.length + 1 + (durationStr ? durationStr.length + 1 : 0);
   const argsWidth = Math.max(0, width - fixedWidth);
-  const argsSummary = truncate(tool.argsSummary, argsWidth);
+  const argsSummary = truncate(tool.argsSummary, argsWidth, "…");
 
   const nameColor = tool.status === "error" ? sc.status.error : sc.text.primary;
   const argsColor = tool.status === "error" ? sc.status.error : sc.text.secondary;

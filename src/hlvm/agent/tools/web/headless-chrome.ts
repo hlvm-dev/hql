@@ -13,6 +13,7 @@
 import { getPlatform } from "../../../../platform/platform.ts";
 import { withTimeout } from "../../../../common/timeout-utils.ts";
 import { getAgentLogger } from "../../logger.ts";
+import { getErrorMessage } from "../../../../common/utils.ts";
 import type { PlatformCommandProcess } from "../../../../platform/types.ts";
 
 // ============================================================
@@ -371,7 +372,7 @@ export async function renderWithChrome(
     }
   } catch (error) {
     getAgentLogger().debug?.(
-      `Chrome render failed for ${url}: ${error instanceof Error ? error.message : String(error)}`,
+      `Chrome render failed for ${url}: ${getErrorMessage(error)}`,
     );
     return null;
   }
