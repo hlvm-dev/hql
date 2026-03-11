@@ -9,12 +9,18 @@ import { isObjectValue, truncate } from "../../common/utils.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
 import { getRecoveryHint } from "./error-taxonomy.ts";
 import type { ToolCall } from "./tool-call.ts";
-import type { OrchestratorConfig, ToolEventMeta, WebSearchToolEventMeta } from "./orchestrator.ts";
+import type {
+  OrchestratorConfig,
+  ToolEventMeta,
+  WebSearchToolEventMeta,
+} from "./orchestrator.ts";
 import type { ToolExecutionResult } from "./orchestrator-state.ts";
 import type { FormattedToolResult } from "./registry.ts";
 import type { SearchResult } from "./tools/web/search-provider.ts";
 import { hasStructuredEvidence } from "./tools/web/web-utils.ts";
 import { summarizeToolResult } from "./tool-result-summary.ts";
+import { parseShellCommand } from "../../common/shell-parser.ts";
+import { getPlatform } from "../../platform/platform.ts";
 
 export function stringifyToolResult(result: unknown): string {
   return safeStringify(result, 2);
@@ -39,8 +45,12 @@ export function buildToolResultOutputs(
     const summaryDisplay = formatted.summaryDisplay ??
       summarizeToolResult(toolName, result, formatted.returnDisplay);
     const returnDisplay = formatted.returnDisplay;
-    const llmContent = formatted.llmContent ??
-      config.context.truncateResult(returnDisplay);
+    // Always enforce context truncation — even when formatResult provides
+    // custom llmContent (e.g., web tools returning full page text).
+    // Without this, a single 50K-char web fetch bypasses the 8K-char
+    // maxResultLength safety net and can blow out the context window.
+    const rawLlmContent = formatted.llmContent ?? returnDisplay;
+    const llmContent = config.context.truncateResult(rawLlmContent);
     return { llmContent, summaryDisplay, returnDisplay };
   }
 
@@ -53,7 +63,10 @@ export function buildToolResultOutputs(
 /** Check if tool result content indicates failure despite no exception.
  *  Only matches small, explicit {success: false, error: "..."} payloads. */
 export function isToolResultFailure(content: string): boolean {
-  if (!content.startsWith("{") || content.length > TOOL_RESULT_LIMITS.failurePayloadMaxBytes) return false;
+  if (
+    !content.startsWith("{") ||
+    content.length > TOOL_RESULT_LIMITS.failurePayloadMaxBytes
+  ) return false;
   try {
     const parsed = JSON.parse(content);
     if (
@@ -177,9 +190,7 @@ export function generateArgsSummary(
     case "write_file":
       return typeof a.path === "string" ? truncate(a.path, 80) : "";
     case "compute":
-      return typeof a.expression === "string"
-        ? truncate(a.expression, 80)
-        : "";
+      return typeof a.expression === "string" ? truncate(a.expression, 80) : "";
     case "search_web":
       return typeof a.query === "string" ? truncate(a.query, 80) : "";
     case "web_fetch":
@@ -244,7 +255,9 @@ export function buildToolErrorResult(
 }
 
 function toFiniteNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function toSearchResults(value: unknown): SearchResult[] {
@@ -265,19 +278,30 @@ function toTrustLevel(
   return "medium";
 }
 
-function extractWebSearchEventMeta(result: unknown): WebSearchToolEventMeta | undefined {
+function extractWebSearchEventMeta(
+  result: unknown,
+): WebSearchToolEventMeta | undefined {
   if (!isObjectValue(result)) return undefined;
 
-  const diagnostics = isObjectValue(result.diagnostics) ? result.diagnostics : null;
-  const deep = diagnostics && isObjectValue(diagnostics.deep) ? diagnostics.deep : null;
-  const score = diagnostics && isObjectValue(diagnostics.score) ? diagnostics.score : null;
+  const diagnostics = isObjectValue(result.diagnostics)
+    ? result.diagnostics
+    : null;
+  const deep = diagnostics && isObjectValue(diagnostics.deep)
+    ? diagnostics.deep
+    : null;
+  const score = diagnostics && isObjectValue(diagnostics.score)
+    ? diagnostics.score
+    : null;
   const retrieval = diagnostics && isObjectValue(diagnostics.retrieval)
     ? diagnostics.retrieval
     : null;
   const results = toSearchResults(result.results);
   const resultCount = toFiniteNumber(result.count) ?? results.length;
-  const citationsCount = Array.isArray(result.citations) ? result.citations.length : undefined;
-  const selectedFetchCount = results.filter((entry) => entry.selectedForFetch === true).length;
+  const citationsCount = Array.isArray(result.citations)
+    ? result.citations.length
+    : undefined;
+  const selectedFetchCount =
+    results.filter((entry) => entry.selectedForFetch === true).length;
   const fetchedEvidenceCount = toFiniteNumber(retrieval?.fetchEvidenceCount) ??
     results.filter((entry) =>
       entry.selectedForFetch === true && hasStructuredEvidence(entry)
@@ -287,7 +311,9 @@ function extractWebSearchEventMeta(result: unknown): WebSearchToolEventMeta | un
     ? {
       autoTriggered: deep.autoTriggered === true,
       rounds: toFiniteNumber(deep.rounds) ?? 1,
-      triggerReason: typeof deep.triggerReason === "string" ? deep.triggerReason : "none",
+      triggerReason: typeof deep.triggerReason === "string"
+        ? deep.triggerReason
+        : "none",
       queryTrail: Array.isArray(deep.queryTrail)
         ? deep.queryTrail.filter((v): v is string => typeof v === "string")
         : [],
@@ -324,7 +350,9 @@ function extractWebSearchEventMeta(result: unknown): WebSearchToolEventMeta | un
     resultCount,
   };
 
-  if (!deepMeta && !scoreMeta && citationsCount === undefined && resultCount === 0) {
+  if (
+    !deepMeta && !scoreMeta && citationsCount === undefined && resultCount === 0
+  ) {
     return undefined;
   }
   return {
@@ -335,8 +363,13 @@ function extractWebSearchEventMeta(result: unknown): WebSearchToolEventMeta | un
   };
 }
 
-function extractToolEventMeta(toolName: string, result: unknown): ToolEventMeta | undefined {
-  if (!(toolName === "search_web" || toolName.endsWith("_search_web"))) return undefined;
+function extractToolEventMeta(
+  toolName: string,
+  result: unknown,
+): ToolEventMeta | undefined {
+  if (!(toolName === "search_web" || toolName.endsWith("_search_web"))) {
+    return undefined;
+  }
   const webSearch = extractWebSearchEventMeta(result);
   if (!webSearch) return undefined;
   return { webSearch };
@@ -348,12 +381,8 @@ export function buildIsToolAllowed(
 ): (name: string) => boolean {
   const allowlist = config.toolFilterState?.allowlist ?? config.toolAllowlist;
   const denylist = config.toolFilterState?.denylist ?? config.toolDenylist;
-  const allowSet = allowlist?.length
-    ? new Set(allowlist)
-    : null;
-  const denySet = denylist?.length
-    ? new Set(denylist)
-    : null;
+  const allowSet = allowlist?.length ? new Set(allowlist) : null;
+  const denySet = denylist?.length ? new Set(denylist) : null;
   return (name: string) => {
     if (allowSet && !allowSet.has(name)) return false;
     if (denySet && denySet.has(name)) return false;
@@ -369,12 +398,91 @@ export function isRenderToolName(toolName: string): boolean {
 export function buildToolSignature(calls: ToolCall[]): string {
   if (calls.length === 0) return "";
   return calls
-    .map((call) => {
-      const args = stableStringifyArgs(call.args, true);
-      return `${call.toolName.toLowerCase()}:${args}`;
-    })
+    .map(buildSingleToolSignature)
     .sort()
     .join("|");
+}
+
+function buildSingleToolSignature(call: ToolCall): string {
+  const openIntent = extractOpenIntentTarget(call);
+  if (openIntent) {
+    return `open:${normalizeIntentPath(openIntent)}`;
+  }
+  const args = stableStringifyArgs(call.args, true);
+  return `${call.toolName.toLowerCase()}:${args}`;
+}
+
+function extractOpenIntentTarget(call: ToolCall): string | null {
+  if (call.toolName === "open_path") {
+    return typeof call.args.path === "string" ? call.args.path : null;
+  }
+  if (call.toolName !== "shell_exec") {
+    return null;
+  }
+  const command = typeof call.args.command === "string"
+    ? call.args.command
+    : "";
+  if (!command.trim()) return null;
+  try {
+    const parsed = parseShellCommand(command);
+    if (parsed.hasChaining || parsed.hasPipes || parsed.hasRedirects) {
+      return null;
+    }
+    const program = parsed.program.toLowerCase();
+    if (program === "open" || program === "xdg-open") {
+      for (let index = parsed.args.length - 1; index >= 0; index--) {
+        const candidate = parsed.args[index];
+        if (candidate && !candidate.startsWith("-")) {
+          return candidate;
+        }
+      }
+    }
+    if (
+      program === "cmd.exe" &&
+      parsed.args.length >= 3 &&
+      parsed.args[0]?.toLowerCase() === "/c" &&
+      parsed.args[1]?.toLowerCase() === "start"
+    ) {
+      return parsed.args[parsed.args.length - 1] ?? null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function normalizeIntentPath(value: string): string {
+  let normalized = value.trim();
+  if (!normalized) return normalized;
+
+  if (normalized.startsWith("file://")) {
+    normalized = normalized.slice("file://".length);
+    try {
+      normalized = decodeURIComponent(normalized);
+    } catch {
+      // Keep the raw path if decoding fails.
+    }
+  }
+
+  const home = getPlatform().env.get("HOME");
+  if (home) {
+    const normalizedHome = home.replaceAll("\\", "/");
+    const homePrefixes = [normalizedHome, normalizedHome.toLowerCase()];
+    for (const prefix of homePrefixes) {
+      if (
+        normalized === prefix ||
+        normalized.startsWith(`${prefix}/`)
+      ) {
+        normalized = `~${normalized.slice(prefix.length)}`;
+        break;
+      }
+    }
+  }
+
+  normalized = normalized.replace(/^\$HOME(?=\/|\\|$)/i, "~");
+  normalized = normalized.replaceAll("\\", "/");
+  normalized = normalized.replace(/\/{2,}/g, "/");
+  return normalized.toLowerCase();
 }
 
 export function buildToolRequiredMessage(allowlist?: string[]): string {

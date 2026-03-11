@@ -119,7 +119,7 @@ export function buildCitationRenderView(
   return { text: annotated, sources };
 }
 
-export function AssistantMessage(
+export const AssistantMessage = React.memo(function AssistantMessage(
   { text, citations, isPending, width }: AssistantMessageProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
@@ -160,4 +160,4 @@ export function AssistantMessage(
       </Box>
     </Box>
   );
-}
+});

@@ -8,6 +8,7 @@ import {
   normalizeToolName,
   prepareToolArgsForExecution,
   searchTools,
+  type ToolExecutionOptions,
   suggestToolNames,
   type ToolFunction,
 } from "./registry.ts";
@@ -45,7 +46,11 @@ import {
   sanitizeArgs,
 } from "./orchestrator-tool-formatting.ts";
 import { getDelegateTranscriptSnapshot } from "./delegate-transcript.ts";
-import { cancelThread, getThread, resolveResumableThread } from "./delegate-threads.ts";
+import {
+  cancelThread,
+  getThreadForOwner,
+  resolveResumableThread,
+} from "./delegate-threads.ts";
 import { ConcurrencyLimiter } from "./concurrency.ts";
 import {
   addBatchSpawnFailure,
@@ -181,16 +186,18 @@ export async function executeToolWithTimeout(
   teamRuntime?: OrchestratorConfig["teamRuntime"],
   teamMemberId?: string,
   teamLeadMemberId?: string,
+  delegateOwnerId?: string,
 ): Promise<unknown> {
   return await withTimeout(
     async (signal) => {
-      const result = await toolFn(args, workspace, {
+      const toolOptions: ToolExecutionOptions = {
         signal,
         modelId,
         modelTier,
         policy,
         onInteraction,
         toolOwnerId,
+        delegateOwnerId,
         ensureMcpLoaded,
         todoState,
         checkpointRecorder,
@@ -202,7 +209,8 @@ export async function executeToolWithTimeout(
         teamRuntime,
         teamMemberId,
         teamLeadMemberId,
-      });
+      };
+      const result = await toolFn(args, workspace, toolOptions);
       if (signal.aborted) {
         throw new RuntimeError("Tool execution aborted");
       }
@@ -533,7 +541,10 @@ export async function executeToolCall(
           toolCall.id,
         );
       }
-      const thread = getThread(interruptThreadId);
+      const thread = getThreadForOwner(
+        interruptThreadId,
+        config.delegateOwnerId,
+      );
       if (!thread) {
         return buildToolErrorResult(
           toolCall.toolName,
@@ -630,7 +641,10 @@ export async function executeToolCall(
           toolCall.id,
         );
       }
-      const { thread, error } = resolveResumableThread(resumeThreadId);
+      const { thread, error } = resolveResumableThread(
+        resumeThreadId,
+        config.delegateOwnerId,
+      );
       if (!thread || error) {
         return buildToolErrorResult(
           toolCall.toolName,
@@ -834,6 +848,7 @@ export async function executeToolCall(
         config.teamRuntime,
         config.teamMemberId,
         config.teamLeadMemberId,
+        config.delegateOwnerId,
       );
     } catch (error) {
       const message = getErrorMessage(error);
@@ -859,6 +874,7 @@ export async function executeToolCall(
             config.teamRuntime,
             config.teamMemberId,
             config.teamLeadMemberId,
+            config.delegateOwnerId,
           );
         } else {
           return buildToolErrorResult(

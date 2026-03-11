@@ -25,7 +25,7 @@ function formatTokens(n: number): string {
   return `${Math.round(n / 1000)}k`;
 }
 
-export function TurnStats({ toolCount, durationMs, inputTokens, outputTokens }: TurnStatsProps): React.ReactElement {
+export const TurnStats = React.memo(function TurnStats({ toolCount, durationMs, inputTokens, outputTokens }: TurnStatsProps): React.ReactElement {
   const sc = useSemanticColors();
   const duration = formatDurationMs(durationMs);
   const tools = toolCount === 0 ? "" : toolCount === 1 ? "1 tool" : `${toolCount} tools`;
@@ -49,4 +49,4 @@ export function TurnStats({ toolCount, durationMs, inputTokens, outputTokens }: 
       </Text>
     </Box>
   );
-}
+});

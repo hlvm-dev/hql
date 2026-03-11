@@ -6,21 +6,26 @@
 import { ContextOverflowError, type Message } from "./context.ts";
 import { DEFAULT_MAX_TOOL_CALLS, TOOL_RESULT_LIMITS } from "./constants.ts";
 import { SlidingWindowRateLimiter } from "../../common/rate-limiter.ts";
-import { areListsEqual, isObjectValue, TEXT_ENCODER } from "../../common/utils.ts";
+import {
+  areListsEqual,
+  isObjectValue,
+  TEXT_ENCODER,
+} from "../../common/utils.ts";
 import { checkGrounding } from "./grounding.ts";
 import {
   attributeCitationSpans,
-  buildRetrievalCitations,
   buildCitationSourceIndex,
+  buildRetrievalCitations,
   mapLlmSourcesToCitations,
 } from "./tools/web/citation-spans.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
 import {
   ensureToolCallIds,
-  type LLMSource,
   type LLMResponse,
+  type LLMSource,
   type ToolCall,
 } from "./tool-call.ts";
+import { getTool, hasTool } from "./registry.ts";
 import {
   AGENT_ORCHESTRATOR_FAILURE_MESSAGES,
   looksLikeToolCallJsonAnywhere,
@@ -120,7 +125,8 @@ export async function processAgentResponse(
   finalResponse?: string;
   nativeSources?: LLMSource[];
   providerMetadata?: Record<string, unknown>;
-  latestCitationSourceIndex?: import("./tools/web/citation-spans.ts").CitationSourceEntry[];
+  latestCitationSourceIndex?:
+    import("./tools/web/citation-spans.ts").CitationSourceEntry[];
 }> {
   const content = (agentResponse.content ?? "").trim();
   const maxCalls = config.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
@@ -223,18 +229,48 @@ export async function processAgentResponse(
     })).filter((item) => item.toolName.length > 0),
   );
 
+  const terminalToolFinalResponse = resolveTerminalToolFinalResponse(
+    limitedCalls,
+    results,
+    config,
+  );
+  if (terminalToolFinalResponse) {
+    finalResponse = terminalToolFinalResponse;
+  }
+
   return {
     toolCallsMade: results.length,
     results,
     toolCalls: limitedCalls,
     toolUses,
     toolBytes,
-    shouldContinue: completeIndex < 0,
+    shouldContinue: completeIndex < 0 && !terminalToolFinalResponse,
     finalResponse,
     nativeSources: agentResponse.sources,
     providerMetadata: agentResponse.providerMetadata,
     latestCitationSourceIndex,
   };
+}
+
+function resolveTerminalToolFinalResponse(
+  toolCalls: readonly ToolCall[],
+  results: readonly ToolExecutionResult[],
+  config: OrchestratorConfig,
+): string | undefined {
+  if (toolCalls.length !== 1 || results.length !== 1) return undefined;
+
+  const [toolCall] = toolCalls;
+  const [result] = results;
+  if (!toolCall || !result?.success) return undefined;
+  if (!hasTool(toolCall.toolName, config.toolOwnerId)) return undefined;
+
+  const tool = getTool(toolCall.toolName, config.toolOwnerId);
+  if (!tool.terminalOnSuccess) return undefined;
+
+  return result.returnDisplay ??
+    result.summaryDisplay ??
+    result.llmContent ??
+    (typeof result.result === "string" ? result.result : undefined);
 }
 
 /**
@@ -299,7 +335,8 @@ export function handleFinalResponse(
     finalResponse?: string;
     nativeSources?: LLMSource[];
     providerMetadata?: Record<string, unknown>;
-    latestCitationSourceIndex?: import("./tools/web/citation-spans.ts").CitationSourceEntry[];
+    latestCitationSourceIndex?:
+      import("./tools/web/citation-spans.ts").CitationSourceEntry[];
   },
   state: LoopState,
   lc: LoopConfig,
@@ -501,9 +538,11 @@ export async function handlePostToolExecution(
   config: OrchestratorConfig,
   llmFunction: LLMFunction,
 ): Promise<LoopDirective> {
-  if (result.results.some((toolResult) =>
-    toolResult.stopReason === "plan_review_cancelled"
-  )) {
+  if (
+    result.results.some((toolResult) =>
+      toolResult.stopReason === "plan_review_cancelled"
+    )
+  ) {
     return {
       action: "return",
       value: "Plan review was cancelled. No changes were made.",
@@ -644,7 +683,9 @@ export async function handlePostToolExecution(
   if (result.toolUses.length > 0) {
     state.toolUses.push(...result.toolUses);
     if (state.toolUses.length > TOOL_RESULT_LIMITS.maxToolUsesForGrounding) {
-      state.toolUses = state.toolUses.slice(-TOOL_RESULT_LIMITS.maxToolUsesForGrounding);
+      state.toolUses = state.toolUses.slice(
+        -TOOL_RESULT_LIMITS.maxToolUsesForGrounding,
+      );
     }
     if (result.toolBytes > 0) {
       checkToolResultBytesLimit(state, lc, config, result.toolBytes);

@@ -89,6 +89,13 @@ function isOwnedBy(thread: DelegateThread, ownerId: string): boolean {
   return thread.ownerId === ownerId;
 }
 
+function matchesOwner(
+  thread: DelegateThread,
+  ownerId?: string,
+): boolean {
+  return ownerId === undefined || isOwnedBy(thread, ownerId);
+}
+
 function hasActionableMergeState(thread: DelegateThread): boolean {
   return thread.mergeState === "pending" || thread.mergeState === "conflicted";
 }
@@ -111,6 +118,20 @@ export function getThread(threadId: string): DelegateThread | undefined {
 
 export function getAllThreads(): DelegateThread[] {
   return [...threads.values()];
+}
+
+export function getThreadForOwner(
+  threadId: string,
+  ownerId?: string,
+): DelegateThread | undefined {
+  const thread = getThread(threadId);
+  return thread && matchesOwner(thread, ownerId) ? thread : undefined;
+}
+
+export function getThreadsForOwner(ownerId?: string): DelegateThread[] {
+  return ownerId === undefined
+    ? getAllThreads()
+    : [...threads.values()].filter((thread) => matchesOwner(thread, ownerId));
 }
 
 export function getActiveThreadsForOwner(ownerId: string): DelegateThread[] {
@@ -260,6 +281,30 @@ export function takeQueuedCompletedThread(): DelegateThread | undefined {
   return undefined;
 }
 
+export function takeQueuedCompletedThreadForOwner(
+  ownerId?: string,
+): DelegateThread | undefined {
+  if (ownerId === undefined) {
+    return takeQueuedCompletedThread();
+  }
+  for (let index = 0; index < completedQueue.length; index++) {
+    const threadId = completedQueue[index]!;
+    const thread = threads.get(threadId);
+    if (!thread || thread.completedAt === undefined) {
+      completedQueue.splice(index, 1);
+      completedQueueSet.delete(threadId);
+      index--;
+      continue;
+    }
+    if (matchesOwner(thread, ownerId)) {
+      completedQueue.splice(index, 1);
+      completedQueueSet.delete(threadId);
+      return thread;
+    }
+  }
+  return undefined;
+}
+
 export function clearThreadWorkspace(threadId: string): void {
   const thread = threads.get(threadId);
   if (!thread) return;
@@ -285,8 +330,9 @@ export function drainThreadInput(threadId: string): string[] {
 
 export function resolveResumableThread(
   threadId: string,
+  ownerId?: string,
 ): { thread?: DelegateThread; error?: string } {
-  const thread = threads.get(threadId);
+  const thread = getThreadForOwner(threadId, ownerId);
   if (!thread) {
     return { error: `No thread found with ID "${threadId}"` };
   }

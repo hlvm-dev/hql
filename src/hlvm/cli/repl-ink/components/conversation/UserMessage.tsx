@@ -14,7 +14,7 @@ interface UserMessageProps {
   width: number;
 }
 
-export function UserMessage({ text, width }: UserMessageProps): React.ReactElement {
+export const UserMessage = React.memo(function UserMessage({ text, width }: UserMessageProps): React.ReactElement {
   const sc = useSemanticColors();
   const contentWidth = Math.max(10, width - 6);
 
@@ -35,4 +35,4 @@ export function UserMessage({ text, width }: UserMessageProps): React.ReactEleme
       </Box>
     </Box>
   );
-}
+});

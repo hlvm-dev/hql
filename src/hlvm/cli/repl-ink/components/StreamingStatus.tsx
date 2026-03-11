@@ -51,7 +51,7 @@ export function StreamingStatus({
 
     const interval = setInterval(() => {
       setElapsed(Date.now() - startTime);
-    }, 250);
+    }, 1000);
 
     return () => clearInterval(interval);
   }, [isStreaming, startTime]);

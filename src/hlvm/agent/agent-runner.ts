@@ -799,6 +799,7 @@ export async function runAgentQuery(
             session.llmConfig?.toolDenylist,
           toolFilterState: session.toolFilterState,
           toolOwnerId: session.toolOwnerId,
+          delegateOwnerId,
           ensureMcpLoaded: session.ensureMcpLoaded,
         },
         session.llm,

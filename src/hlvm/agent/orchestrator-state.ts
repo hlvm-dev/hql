@@ -146,9 +146,9 @@ export function resolveLoopConfig(config: OrchestratorConfig): LoopConfig {
   const llmLimiter = config.llmRateLimiter ?? createRateLimiter(llmRateConfig);
   const toolRateLimiter = config.toolRateLimiter ??
     createRateLimiter(config.toolRateLimit ?? RATE_LIMITS.toolCalls);
-  const totalTimeout = DEFAULT_TIMEOUTS.total;
+  const totalTimeout = config.totalTimeout ?? DEFAULT_TIMEOUTS.total;
   return {
-    maxIterations: MAX_ITERATIONS,
+    maxIterations: config.maxIterations ?? MAX_ITERATIONS,
     maxDenials: config.maxDenials ?? 3,
     llmTimeout: config.llmTimeout ?? DEFAULT_TIMEOUTS.llm,
     maxRetries: config.maxRetries ?? MAX_RETRIES,

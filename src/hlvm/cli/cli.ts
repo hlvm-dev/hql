@@ -50,7 +50,7 @@ OPTIONS:
   --version         Show version
 
 SESSION OPTIONS:
-  --continue, -c    Explicitly continue the latest session (default)
+  --continue, -c    Continue the latest session
   --resume, -r [id] Resume specific session (or open picker if no id)
   --new             Force new session
 
@@ -64,7 +64,7 @@ POLYGLOT MODE (always on):
   Both languages share variables via globalThis.
 
 EXAMPLES:
-  hlvm repl              Start REPL (continues latest session)
+  hlvm repl              Start REPL with a fresh session
   hlvm repl --continue   Continue latest session
   hlvm repl -c           Continue latest session (short form)
   hlvm repl --resume     Open session picker

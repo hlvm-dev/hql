@@ -120,12 +120,16 @@ export function invalidateFact(factId: number): void {
     "SELECT content FROM facts WHERE id = ? AND valid_until IS NULL",
   ).value<[string]>(factId);
   if (!row) return;
+  const today = todayDate();
   db.prepare(
     "UPDATE facts SET valid_until = ? WHERE id = ?",
-  ).run(todayDate(), factId);
+  ).run(today, factId);
   db.prepare(
     "INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', ?, ?)",
   ).run(factId, row[0]);
+  db.prepare(
+    "UPDATE relationships SET valid_until = ? WHERE valid_until IS NULL AND fact_id = ?",
+  ).run(today, factId);
 }
 
 export function invalidateFactsByCategory(category: string): number {
@@ -135,13 +139,25 @@ export function invalidateFactsByCategory(category: string): number {
   ).all(category.trim()) as Array<{ id: number; content: string }>;
   if (rows.length === 0) return 0;
   const today = todayDate();
-  for (const row of rows) {
-    db.prepare("UPDATE facts SET valid_until = ? WHERE id = ?").run(today, row.id);
+  db.exec("BEGIN");
+  try {
+    for (const row of rows) {
+      db.prepare("UPDATE facts SET valid_until = ? WHERE id = ?").run(today, row.id);
+      db.prepare(
+        "INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', ?, ?)",
+      ).run(row.id, row.content);
+    }
+    const factIds = rows.map((r) => r.id);
+    const placeholders = factIds.map(() => "?").join(",");
     db.prepare(
-      "INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', ?, ?)",
-    ).run(row.id, row.content);
+      `UPDATE relationships SET valid_until = ? WHERE valid_until IS NULL AND fact_id IN (${placeholders})`,
+    ).run(today, ...factIds);
+    db.exec("COMMIT");
+    return rows.length;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
   }
-  return rows.length;
 }
 
 export function invalidateAllFacts(): number {

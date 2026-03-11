@@ -338,16 +338,6 @@ async function releaseRuntimeStartLock(): Promise<void> {
   }
 }
 
-async function waitForRuntimeStartLockRelease(): Promise<void> {
-  for (let i = 0; i < RUNTIME_START_LOCK_WAIT_ATTEMPTS; i++) {
-    if (await tryAcquireRuntimeStartLock()) {
-      await releaseRuntimeStartLock();
-      return;
-    }
-    await delay(HEALTH_POLL_DELAY_MS);
-  }
-}
-
 async function ensureRuntimeHost(): Promise<{
   baseUrl: string;
   authToken: string;
@@ -373,18 +363,31 @@ async function ensureRuntimeHost(): Promise<{
     return { baseUrl, authToken: attached.authToken };
   }
 
-  const acquiredLock = await tryAcquireRuntimeStartLock();
+  let acquiredLock = await tryAcquireRuntimeStartLock();
   if (!acquiredLock) {
-    await waitForRuntimeStartLockRelease();
-    const waitedAttachment = await attachCompatibleHost(
-      HEALTH_POLL_ATTEMPTS * 4,
-    );
-    if (waitedAttachment) {
-      return waitedAttachment;
+    for (let i = 0; i < RUNTIME_START_LOCK_WAIT_ATTEMPTS; i++) {
+      const waitingAttachment = await attachCompatibleHost(1);
+      if (waitingAttachment) {
+        return waitingAttachment;
+      }
+      acquiredLock = await tryAcquireRuntimeStartLock();
+      if (acquiredLock) {
+        break;
+      }
+      await delay(HEALTH_POLL_DELAY_MS);
     }
-    throw createRuntimeHostError(
-      "Failed to start a matching local HLVM runtime host. Restart HLVM and try again.",
-    );
+
+    if (!acquiredLock) {
+      const waitedAttachment = await attachCompatibleHost(
+        HEALTH_POLL_ATTEMPTS * 4,
+      );
+      if (waitedAttachment) {
+        return waitedAttachment;
+      }
+      throw createRuntimeHostError(
+        "Failed to start a matching local HLVM runtime host. Restart HLVM and try again.",
+      );
+    }
   }
 
   try {

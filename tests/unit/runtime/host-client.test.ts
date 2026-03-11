@@ -34,7 +34,8 @@ import {
 import { withRuntimePortOverrideForTests } from "../../../src/hlvm/runtime/host-config.ts";
 import type { RuntimeSessionMessage } from "../../../src/hlvm/runtime/session-protocol.ts";
 import { deriveDefaultSessionKey } from "../../../src/hlvm/runtime/session-key.ts";
-import { getPlatform } from "../../../src/platform/platform.ts";
+import { getPlatform, setPlatform } from "../../../src/platform/platform.ts";
+import type { PlatformHttpServerHandle } from "../../../src/platform/types.ts";
 import {
   findFreePort,
   withEnv,
@@ -813,6 +814,129 @@ Deno.test("runAgentQueryViaHost waits for runtime readiness before sending chat"
   } finally {
     await handle.shutdown();
     await handle.finished;
+  }
+});
+
+Deno.test("runAgentQueryViaHost takes over runtime startup after an abandoned start lock", async () => {
+  const port = await findFreePort();
+  const authToken = "lock-handoff-auth-token";
+  const originalPlatform = getPlatform();
+  const lockPath = await withRuntimePortOverrideForTests(
+    port,
+    async () => __testOnlyGetRuntimeStartLockPath(),
+  );
+  const serverHandleRef: { current: PlatformHttpServerHandle | null } = {
+    current: null,
+  };
+  let spawnCount = 0;
+
+  setPlatform({
+    ...originalPlatform,
+    command: {
+      ...originalPlatform.command,
+      run: () => {
+        spawnCount += 1;
+        if (!serverHandleRef.current) {
+          serverHandleRef.current = originalPlatform.http.serveWithHandle!(
+            async (req) => {
+              const url = new URL(req.url);
+              if (url.pathname === "/health") {
+                return Response.json(
+                  await createRuntimeHostHealthResponse(authToken),
+                );
+              }
+
+              if (url.pathname === "/api/chat") {
+                const stream = new ReadableStream({
+                  start(controller) {
+                    controller.enqueue(
+                      encoder.encode(
+                        JSON.stringify({ event: "token", text: "handoff" }) +
+                          "\n",
+                      ),
+                    );
+                    controller.enqueue(
+                      encoder.encode(
+                        JSON.stringify({
+                          event: "complete",
+                          request_id: "req-lock-handoff",
+                          session_version: 1,
+                        }) + "\n",
+                      ),
+                    );
+                    controller.close();
+                  },
+                });
+
+                return new Response(stream, {
+                  status: 200,
+                  headers: {
+                    "Content-Type": "application/x-ndjson",
+                    "X-Request-ID": "req-lock-handoff",
+                  },
+                });
+              }
+
+              return new Response("Not found", { status: 404 });
+            },
+            {
+              hostname: "127.0.0.1",
+              port,
+              onListen: () => {},
+            },
+          );
+        }
+
+        return {
+          status: Promise.resolve({
+            success: true,
+            code: 0,
+            signal: undefined,
+          }),
+          unref: () => {},
+        };
+      },
+    },
+  });
+
+  try {
+    await originalPlatform.fs.remove(lockPath, { recursive: true }).catch(
+      () => {},
+    );
+    await originalPlatform.fs.mkdir(lockPath);
+
+    const releaseTimer = setTimeout(() => {
+      void originalPlatform.fs.remove(lockPath, { recursive: true }).catch(
+        () => {},
+      );
+    }, 150);
+
+    try {
+      const result = await withRuntimePortOverrideForTests(
+        port,
+        async () =>
+          await runAgentQueryViaHost({
+            query: "recover from abandoned lock",
+            model: "ollama/llama3.1:8b",
+            callbacks: {},
+          }),
+      );
+
+      assertEquals(result.text, "handoff");
+      assertEquals(spawnCount, 1);
+    } finally {
+      clearTimeout(releaseTimer);
+    }
+  } finally {
+    setPlatform(originalPlatform);
+    await originalPlatform.fs.remove(lockPath, { recursive: true }).catch(
+      () => {},
+    );
+    const serverHandle = serverHandleRef.current;
+    if (serverHandle) {
+      await serverHandle.shutdown();
+      await serverHandle.finished;
+    }
   }
 });
 

@@ -366,6 +366,10 @@ export interface OrchestratorConfig {
   permissionMode?: AgentExecutionMode;
   maxToolCalls?: number;
   maxDenials?: number;
+  /** Override max ReAct loop iterations (default: MAX_ITERATIONS). */
+  maxIterations?: number;
+  /** Override total loop timeout in ms (default: DEFAULT_TIMEOUTS.total). */
+  totalTimeout?: number;
   onTrace?: (event: TraceEvent) => void;
   onAgentEvent?: (event: AgentUIEvent) => void;
   onFinalResponseMeta?: (meta: FinalResponseMeta) => void;
@@ -394,6 +398,8 @@ export interface OrchestratorConfig {
   toolFilterState?: ToolFilterState;
   l1Confirmations?: Map<string, boolean>;
   toolOwnerId?: string;
+  /** Top-level delegate owner used to scope background agent control tools. */
+  delegateOwnerId?: string;
   /** Optional lazy MCP loader called on demand. */
   ensureMcpLoaded?: () => Promise<void>;
   requireToolCalls?: boolean;
@@ -1081,6 +1087,12 @@ export async function runReActLoop(
       // covers the chat call itself; errors thrown during response parsing or
       // tool execution are unretried without this guard.
       const classified = classifyError(error);
+      // Provider-side context overflow (after callLLMWithRetry already tried
+      // trimming once) — treat like ContextOverflowError: return gracefully.
+      if (classified.class === "context_overflow") {
+        return state.lastResponse ||
+          "Context limit reached. Please start a new conversation.";
+      }
       if (classified.retryable && classified.class === "transient") {
         state.consecutiveTransientRetries = (state.consecutiveTransientRetries ?? 0) + 1;
         if (state.consecutiveTransientRetries <= 2) {

@@ -105,6 +105,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
       "mcp_playwright_render_url",
       ...TEAM_WORKER_TOOLS,
     ],
+    maxTokens: 32_000,
   },
   {
     name: "memory",

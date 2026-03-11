@@ -15,7 +15,7 @@ interface ToolStatusIconProps {
   status: "pending" | "running" | "success" | "error";
 }
 
-export function ToolStatusIcon({ status }: ToolStatusIconProps): React.ReactElement {
+export const ToolStatusIcon = React.memo(function ToolStatusIcon({ status }: ToolStatusIconProps): React.ReactElement {
   const sc = useSemanticColors();
   const frame = useSpinnerFrame(status === "running");
 
@@ -29,4 +29,4 @@ export function ToolStatusIcon({ status }: ToolStatusIconProps): React.ReactElem
     case "error":
       return <Text color={sc.tool.error}>✗</Text>;
   }
-}
+});

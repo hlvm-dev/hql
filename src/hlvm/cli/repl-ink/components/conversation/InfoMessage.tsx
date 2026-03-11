@@ -12,7 +12,7 @@ interface InfoMessageProps {
   text: string;
 }
 
-export function InfoMessage({ text }: InfoMessageProps): React.ReactElement {
+export const InfoMessage = React.memo(function InfoMessage({ text }: InfoMessageProps): React.ReactElement {
   const sc = useSemanticColors();
 
   return (
@@ -21,4 +21,4 @@ export function InfoMessage({ text }: InfoMessageProps): React.ReactElement {
       <Text color={sc.text.muted} wrap="wrap">{text}</Text>
     </Box>
   );
-}
+});

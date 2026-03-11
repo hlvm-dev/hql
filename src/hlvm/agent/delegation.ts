@@ -19,6 +19,8 @@ import {
   CHILD_WORKSPACE_PREFIX,
   DEFAULT_MAX_TOOL_CALLS,
   DEFAULT_TIMEOUTS,
+  DELEGATE_MAX_ITERATIONS,
+  DELEGATE_TOTAL_TIMEOUT,
   isGroundingMode,
 } from "./constants.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
@@ -361,6 +363,7 @@ export async function snapshotWorkspaceFiles(
 async function runDelegateChild(
   llm: LLMFunction,
   baseConfig: Pick<OrchestratorConfig, "policy"> & {
+    ownerId?: string;
     sessionId?: string | null;
     modelId?: string;
     fixturePath?: string;
@@ -411,7 +414,7 @@ async function runDelegateChild(
   } else {
     try {
       childLlm = getAgentEngine().createLLM({
-        model: profile?.model,
+        model: profile?.model ?? config.modelId ?? baseConfig.modelId,
         options: {
           temperature: profile?.temperature,
         },
@@ -522,6 +525,8 @@ async function runDelegateChild(
         permissionMode: config.permissionMode === "yolo"
           ? "default"
           : config.permissionMode,
+        maxIterations: DELEGATE_MAX_ITERATIONS,
+        totalTimeout: DELEGATE_TOTAL_TIMEOUT,
         maxToolCalls: typeof record.maxToolCalls === "number"
           ? Math.min(
             record.maxToolCalls,
@@ -537,6 +542,7 @@ async function runDelegateChild(
         toolDenylist: childDenylist,
         l1Confirmations: new Map<string, boolean>(),
         toolOwnerId: config.toolOwnerId,
+        delegateOwnerId: baseConfig.ownerId,
         onInteraction: config.onInteraction,
         onAgentEvent: pushChildEvent,
         delegateInbox: createDelegateInbox(),
@@ -659,6 +665,8 @@ export async function resumeDelegateChild(
       workspace: config.workspace,
       context,
       permissionMode: config.permissionMode,
+      maxIterations: DELEGATE_MAX_ITERATIONS,
+      totalTimeout: DELEGATE_TOTAL_TIMEOUT,
       maxToolCalls: config.maxToolCalls,
       groundingMode: config.groundingMode,
       policy: config.policy ?? null,
@@ -667,6 +675,7 @@ export async function resumeDelegateChild(
       toolDenylist: CHILD_TOOL_DENYLIST,
       l1Confirmations: new Map<string, boolean>(),
       toolOwnerId: config.toolOwnerId,
+      delegateOwnerId: config.delegateOwnerId,
       onInteraction: config.onInteraction,
       delegateInbox: createDelegateInbox(),
       planning: { mode: "off" },

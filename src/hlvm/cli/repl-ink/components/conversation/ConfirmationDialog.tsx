@@ -16,7 +16,7 @@ interface ConfirmationDialogProps {
   toolArgs?: string;
 }
 
-export function ConfirmationDialog({ toolName, toolArgs }: ConfirmationDialogProps): React.ReactElement {
+export const ConfirmationDialog = React.memo(function ConfirmationDialog({ toolName, toolArgs }: ConfirmationDialogProps): React.ReactElement {
   const sc = useSemanticColors();
   const { isPlanReview, visibleArgLines, hiddenArgLines } =
     getConfirmationDialogDisplay(toolName, toolArgs);
@@ -71,4 +71,4 @@ export function ConfirmationDialog({ toolName, toolArgs }: ConfirmationDialogPro
       </Box>
     </Box>
   );
-}
+});

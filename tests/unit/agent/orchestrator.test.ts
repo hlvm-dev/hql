@@ -18,14 +18,18 @@ import {
   type ToolCall,
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { callLLMWithRetry } from "../../../src/hlvm/agent/orchestrator-llm.ts";
+import {
+  buildToolResultOutputs,
+  buildToolSignature,
+} from "../../../src/hlvm/agent/orchestrator-tool-formatting.ts";
 import { createDelegateInbox } from "../../../src/hlvm/agent/delegate-inbox.ts";
 import { createDelegateCoordinationBoard } from "../../../src/hlvm/agent/delegate-coordination.ts";
 import { createTeamRuntime } from "../../../src/hlvm/agent/team-runtime.ts";
 import {
+  type DelegateThread,
   getThread,
   registerThread,
   resetThreadRegistry,
-  type DelegateThread,
 } from "../../../src/hlvm/agent/delegate-threads.ts";
 import { withDelegateTranscriptSnapshot } from "../../../src/hlvm/agent/delegate-transcript.ts";
 import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
@@ -40,7 +44,10 @@ function resetApprovals(): void {
   clearAllL1Confirmations();
 }
 
-function makeResponse(content: string, toolCalls: ToolCall[] = []): LLMResponse {
+function makeResponse(
+  content: string,
+  toolCalls: ToolCall[] = [],
+): LLMResponse {
   return { content, toolCalls };
 }
 
@@ -145,7 +152,8 @@ function createMockThread(
 }
 
 Deno.test({
-  name: "Orchestrator: executeToolCall executes registered tools and passes AbortSignal",
+  name:
+    "Orchestrator: executeToolCall executes registered tools and passes AbortSignal",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -260,7 +268,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: executeToolCall routes resume_agent through the real delegate path",
+  name:
+    "Orchestrator: executeToolCall routes resume_agent through the real delegate path",
   async fn() {
     resetApprovals();
     resetThreadRegistry();
@@ -281,8 +290,8 @@ Deno.test({
         context,
         permissionMode: "yolo",
         delegate: async (args) => {
-          seenResumeSessionId =
-            (args as Record<string, unknown>)._resumeSessionId as string;
+          seenResumeSessionId = (args as Record<string, unknown>)
+            ._resumeSessionId as string;
           return {
             agent: "code",
             result: "continued",
@@ -303,7 +312,45 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: executeToolCall routes interrupt_agent through cancel and resume",
+  name:
+    "Orchestrator: executeToolCall rejects resume_agent for foreign-owned thread",
+  async fn() {
+    resetApprovals();
+    resetThreadRegistry();
+    const context = new ContextManager();
+    registerThread(createMockThread({
+      threadId: "resume-thread",
+      ownerId: "request-b",
+      childSessionId: "session-123",
+    }));
+
+    const result = await executeToolCall(
+      {
+        toolName: "resume_agent",
+        args: { thread_id: "resume-thread", prompt: "continue analysis" },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        delegateOwnerId: "request-a",
+        delegate: async () => {
+          throw new Error("should not delegate foreign thread");
+        },
+      },
+    );
+
+    assertEquals(result.success, false);
+    assertStringIncludes(
+      String(result.error),
+      'No thread found with ID "resume-thread"',
+    );
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: executeToolCall routes interrupt_agent through cancel and resume",
   async fn() {
     resetApprovals();
     resetThreadRegistry();
@@ -328,8 +375,8 @@ Deno.test({
         context,
         permissionMode: "yolo",
         delegate: async (args) => {
-          seenResumeSessionId =
-            (args as Record<string, unknown>)._resumeSessionId as string;
+          seenResumeSessionId = (args as Record<string, unknown>)
+            ._resumeSessionId as string;
           return {
             agent: "code",
             result: "rerouted",
@@ -351,7 +398,50 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: executeToolCall records report_result artifacts in coordination board",
+  name:
+    "Orchestrator: executeToolCall rejects interrupt_agent for foreign-owned thread",
+  async fn() {
+    resetApprovals();
+    resetThreadRegistry();
+    const context = new ContextManager();
+    const controller = new AbortController();
+    registerThread(createMockThread({
+      threadId: "interrupt-thread",
+      ownerId: "request-b",
+      status: "running",
+      controller,
+      childSessionId: "session-789",
+      promise: Promise.resolve({ success: false, error: "cancelled" }),
+    }));
+
+    const result = await executeToolCall(
+      {
+        toolName: "interrupt_agent",
+        args: { thread_id: "interrupt-thread", message: "use a safer plan" },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "yolo",
+        delegateOwnerId: "request-a",
+        delegate: async () => {
+          throw new Error("should not delegate foreign thread");
+        },
+      },
+    );
+
+    assertEquals(result.success, false);
+    assertEquals(controller.signal.aborted, false);
+    assertStringIncludes(
+      String(result.error),
+      'No thread found with ID "interrupt-thread"',
+    );
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: executeToolCall records report_result artifacts in coordination board",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -380,15 +470,18 @@ Deno.test({
     assertEquals(result.success, true);
     assertEquals(coordinationBoard.getById("coord-1")?.resultSummary, "done");
     assertEquals(
-      (coordinationBoard.getById("coord-1")?.artifacts?.data as
-        Record<string, unknown>).count,
+      (coordinationBoard.getById("coord-1")?.artifacts?.data as Record<
+        string,
+        unknown
+      >).count,
       2,
     );
   },
 });
 
 Deno.test({
-  name: "Orchestrator: executeToolCall batch_delegate attaches batchId to spawned threads",
+  name:
+    "Orchestrator: executeToolCall batch_delegate attaches batchId to spawned threads",
   async fn() {
     resetApprovals();
     resetThreadRegistry();
@@ -481,7 +574,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: team_task_write creates a new task when an explicit id is provided",
+  name:
+    "Orchestrator: team_task_write creates a new task when an explicit id is provided",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -507,13 +601,17 @@ Deno.test({
     );
 
     assertEquals(result.success, true);
-    assertEquals(teamRuntime.getTask("task-explicit")?.goal, "Coordinate review");
+    assertEquals(
+      teamRuntime.getTask("task-explicit")?.goal,
+      "Coordinate review",
+    );
     assertEquals(teamRuntime.getTask("task-explicit")?.status, "in_progress");
   },
 });
 
 Deno.test({
-  name: "Orchestrator: team task tools emit task updates and bind current member task",
+  name:
+    "Orchestrator: team task tools emit task updates and bind current member task",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -545,7 +643,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: team_task_write update preserves unspecified task fields",
+  name:
+    "Orchestrator: team_task_write update preserves unspecified task fields",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -591,7 +690,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: team_task_claim rejects blocked tasks with dependency context",
+  name:
+    "Orchestrator: team_task_claim rejects blocked tasks with dependency context",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -633,7 +733,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: team plan review emits approval events and task transitions",
+  name:
+    "Orchestrator: team plan review emits approval events and task transitions",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -819,7 +920,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: delegate_agent attaches stable team IDs when team runtime is present",
+  name:
+    "Orchestrator: delegate_agent attaches stable team IDs when team runtime is present",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -946,7 +1048,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: executeToolCall routes delegate_agent through delegate handler",
+  name:
+    "Orchestrator: executeToolCall routes delegate_agent through delegate handler",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -976,7 +1079,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: plan review gate cancels mutating tools before execution",
+  name:
+    "Orchestrator: plan review gate cancels mutating tools before execution",
   async fn() {
     resetApprovals();
     const toolName = uniqueToolName("plan_review");
@@ -1028,7 +1132,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: plan review gate fails closed on approval error before execution",
+  name:
+    "Orchestrator: plan review gate fails closed on approval error before execution",
   async fn() {
     resetApprovals();
     const toolName = uniqueToolName("plan_review_error");
@@ -1106,7 +1211,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: executeToolCall shell_exec preflight blocks complex syntax but allows simple commands",
+  name:
+    "Orchestrator: executeToolCall shell_exec preflight blocks complex syntax but allows simple commands",
   async fn() {
     resetApprovals();
     const rejects = [
@@ -1230,7 +1336,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: processAgentResponse records text-only replies and stops",
+  name:
+    "Orchestrator: processAgentResponse records text-only replies and stops",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -1254,7 +1361,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: processAgentResponse preserves same-turn tool calls, applies limits, and records tool observations",
+  name:
+    "Orchestrator: processAgentResponse preserves same-turn tool calls, applies limits, and records tool observations",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -1263,7 +1371,9 @@ Deno.test({
     await withTemporaryTool(
       toolName,
       {
-        fn: async (args: unknown) => ({ path: (args as { path: string }).path }),
+        fn: async (args: unknown) => ({
+          path: (args as { path: string }).path,
+        }),
         description: "test tool",
         args: { path: "string" },
         safetyLevel: "L0",
@@ -1306,16 +1416,22 @@ Deno.test({
         assertEquals(returnedPaths, ["src", "src"]);
 
         const messages = context.getMessages();
-        const assistant = messages.findLast((message) => message.role === "assistant");
+        const assistant = messages.findLast((message) =>
+          message.role === "assistant"
+        );
         assertEquals(assistant?.toolCalls?.length, 2);
-        assertEquals(messages.filter((message) => message.role === "tool").length, 2);
+        assertEquals(
+          messages.filter((message) => message.role === "tool").length,
+          2,
+        );
       },
     );
   },
 });
 
 Deno.test({
-  name: "Orchestrator: processAgentResponse assigns tool ids before persistence",
+  name:
+    "Orchestrator: processAgentResponse assigns tool ids before persistence",
   async fn() {
     clearAllL1Confirmations();
 
@@ -1333,7 +1449,10 @@ Deno.test({
     );
 
     assertEquals(result.toolCalls.length, 2);
-    assertEquals(result.toolCalls.every((call) => typeof call.id === "string"), true);
+    assertEquals(
+      result.toolCalls.every((call) => typeof call.id === "string"),
+      true,
+    );
     const assistant = context.getMessages().findLast((message) =>
       message.role === "assistant" && (message.toolCalls?.length ?? 0) > 0
     );
@@ -1345,7 +1464,53 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: runReActLoop returns final answers and passes AbortSignal to the LLM",
+  name:
+    "Orchestrator: processAgentResponse stops after a successful terminal tool",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const toolName = uniqueToolName("terminal");
+
+    await withTemporaryTool(
+      toolName,
+      {
+        fn: async () => ({ success: true, openedPath: "/tmp/demo.png" }),
+        description: "terminal test tool",
+        args: {},
+        safetyLevel: "L0",
+        skipValidation: true,
+        terminalOnSuccess: true,
+        formatResult: () => ({
+          summaryDisplay: "Opened demo.png",
+          returnDisplay: "Opened /tmp/demo.png",
+          llmContent: "Opened /tmp/demo.png",
+        }),
+      },
+      async () => {
+        const result = await processAgentResponse(
+          makeResponse("", [{
+            id: "1",
+            toolName,
+            args: {},
+          }]),
+          {
+            workspace: TEST_WORKSPACE,
+            context,
+            permissionMode: "yolo",
+          },
+        );
+
+        assertEquals(result.toolCallsMade, 1);
+        assertEquals(result.shouldContinue, false);
+        assertEquals(result.finalResponse, "Opened /tmp/demo.png");
+      },
+    );
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: runReActLoop returns final answers and passes AbortSignal to the LLM",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -1370,7 +1535,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: runReActLoop drains delegate inbox into supervisor context",
+  name:
+    "Orchestrator: runReActLoop drains delegate inbox into supervisor context",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -1410,12 +1576,17 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: runReActLoop injects lead-side team summary context when team state changes",
+  name:
+    "Orchestrator: runReActLoop injects lead-side team summary context when team state changes",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
     const teamRuntime = createTeamRuntime("lead", "lead");
-    teamRuntime.registerMember({ id: "worker-1", agent: "code", currentTaskId: "task-1" });
+    teamRuntime.registerMember({
+      id: "worker-1",
+      agent: "code",
+      currentTaskId: "task-1",
+    });
     teamRuntime.ensureTask({
       id: "task-1",
       goal: "Implement parser change",
@@ -1511,7 +1682,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: runReActLoop does not retry AbortError and enforces llm rate limits",
+  name:
+    "Orchestrator: runReActLoop does not retry AbortError and enforces llm rate limits",
   async fn() {
     resetApprovals();
 
@@ -1599,7 +1771,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: runReActLoop narrows the runtime tool filter after tool_search",
+  name:
+    "Orchestrator: runReActLoop narrows the runtime tool filter after tool_search",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -1651,14 +1824,35 @@ Deno.test({
     );
 
     assertEquals(
-      result.includes("Maximum iterations") || result.includes("Tool call loop detected"),
+      result.includes("Maximum iterations") ||
+        result.includes("Tool call loop detected"),
       true,
     );
   },
 });
 
 Deno.test({
-  name: "Orchestrator: runReActLoop retries context overflow with a trimmed context budget",
+  name:
+    "Orchestrator: buildToolSignature normalizes open intents across open_path and shell_exec",
+  fn() {
+    const viaOpenPath = buildToolSignature([{
+      toolName: "open_path",
+      args: { path: "~/Desktop/Screenshot 2026-03-11 at 4.16.13 AM.png" },
+    }]);
+    const viaShellExec = buildToolSignature([{
+      toolName: "shell_exec",
+      args: {
+        command: 'open "$HOME/Desktop/Screenshot 2026-03-11 at 4.16.13 AM.png"',
+      },
+    }]);
+
+    assertEquals(viaOpenPath, viaShellExec);
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: runReActLoop retries context overflow with a trimmed context budget",
   async fn() {
     resetApprovals();
     const context = new ContextManager({
@@ -1680,7 +1874,9 @@ Deno.test({
         permissionMode: "yolo",
         maxRetries: 3,
       },
-      async (messages: import("../../../src/hlvm/agent/context.ts").Message[]) => {
+      async (
+        messages: import("../../../src/hlvm/agent/context.ts").Message[],
+      ) => {
         seenMessageCounts.push(messages.length);
         if (messages.length > 4) {
           throw new Error("maximum context length is 100 tokens");
@@ -1720,7 +1916,9 @@ Deno.test({
       async () => {
         calls += 1;
         if (calls === 1) {
-          return makeResponse(`PLAN\n{"goal":"Test","steps":[{"id":"step-1","title":"Research","agent":"web","goal":"Find details"}]}\nEND_PLAN`);
+          return makeResponse(
+            `PLAN\n{"goal":"Test","steps":[{"id":"step-1","title":"Research","agent":"web","goal":"Find details"}]}\nEND_PLAN`,
+          );
         }
         return makeResponse("Done.\nSTEP_DONE step-1");
       },
@@ -1732,7 +1930,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: runReActLoop stops after repeated denials and suggests ask_user",
+  name:
+    "Orchestrator: runReActLoop stops after repeated denials and suggests ask_user",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -1751,7 +1950,10 @@ Deno.test({
         calls += 1;
         if (calls <= 2) {
           return makeResponse("Let me write the file.", [
-            { toolName: "write_file", args: { path: "test.ts", content: "test" } },
+            {
+              toolName: "write_file",
+              args: { path: "test.ts", content: "test" },
+            },
           ]);
         }
         return makeResponse("Clarify with the user via ask_user.");
@@ -1769,11 +1971,15 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: maybeInjectReminder enforces cooldown and injects the correct reminder by priority",
+  name:
+    "Orchestrator: maybeInjectReminder enforces cooldown and injects the correct reminder by priority",
   fn() {
     {
       const { config, context } = makeReminderHarness();
-      const state = makeLoopState({ iterationsSinceReminder: 0, lastToolsIncludedWeb: true });
+      const state = makeLoopState({
+        iterationsSinceReminder: 0,
+        lastToolsIncludedWeb: true,
+      });
       const injected = maybeInjectReminder(state, makeLoopConfig(), config);
 
       assertEquals(injected, false);
@@ -1795,7 +2001,9 @@ Deno.test({
       );
 
       assertEquals(injected, true);
-      const reminder = context.getMessages().find((message) => message.role === "user");
+      const reminder = context.getMessages().find((message) =>
+        message.role === "user"
+      );
       assertStringIncludes(reminder?.content ?? "", "web content");
       assertEquals(state.lastToolsIncludedWeb, false);
       assertEquals(state.iterationsSinceReminder, 0);
@@ -1815,7 +2023,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: runReActLoop keeps search_web results non-terminal for strong models",
+  name:
+    "Orchestrator: runReActLoop keeps search_web results non-terminal for strong models",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -1839,7 +2048,8 @@ Deno.test({
                 "The cleanup function runs not only during unmount, but before every re-render with changed dependencies.",
               ],
               evidenceStrength: "high",
-              evidenceReason: "Official React documentation with fetched passages.",
+              evidenceReason:
+                "Official React documentation with fetched passages.",
             },
           ],
         }),
@@ -1860,7 +2070,10 @@ Deno.test({
             llmCalls += 1;
             if (llmCalls === 1) {
               return makeResponse("Searching the web.", [
-                { toolName: "search_web", args: { query: "React useEffect cleanup" } },
+                {
+                  toolName: "search_web",
+                  args: { query: "React useEffect cleanup" },
+                },
               ]);
             }
             return makeResponse("Here is the polished answer.");
@@ -1874,3 +2087,72 @@ Deno.test({
     assertEquals(llmCalls, 2);
   },
 });
+
+// ── Regression: Bug 1 — buildToolResultOutputs must truncate llmContent ──
+
+Deno.test(
+  "buildToolResultOutputs truncates llmContent from formatResult (context explosion fix)",
+  async () => {
+    const toolName = uniqueToolName("large_llm_content");
+    const largeContent = "x".repeat(50_000); // 50K chars — simulates untruncated web fetch
+
+    await withTemporaryTool(
+      toolName,
+      {
+        fn: async () => ({ text: largeContent }),
+        description: "tool that returns large content",
+        args: {},
+        safetyLevel: "L0" as const,
+        formatResult: (_result: unknown) => ({
+          llmContent: largeContent, // This was the bypass — llmContent skipped truncation
+          returnDisplay: largeContent,
+        }),
+      },
+      async (name) => {
+        const context = new ContextManager({ maxResultLength: 8000 });
+        const config = { workspace: TEST_WORKSPACE, context } as OrchestratorConfig;
+
+        const { llmContent, returnDisplay } = buildToolResultOutputs(
+          name,
+          { text: largeContent },
+          config,
+        );
+
+        // llmContent MUST be truncated to maxResultLength (8000 chars)
+        assertEquals(llmContent.length <= 8000, true,
+          `llmContent should be ≤8000 chars but was ${llmContent.length}`);
+        // returnDisplay is preserved for UI (not sent to LLM)
+        assertEquals(returnDisplay.length, 50_000);
+      },
+    );
+  },
+);
+
+Deno.test(
+  "buildToolResultOutputs passes through small llmContent unchanged",
+  async () => {
+    const toolName = uniqueToolName("small_llm_content");
+    const smallContent = "Short answer from web fetch";
+
+    await withTemporaryTool(
+      toolName,
+      {
+        fn: async () => ({ text: smallContent }),
+        description: "tool that returns small content",
+        args: {},
+        safetyLevel: "L0" as const,
+        formatResult: (_result: unknown) => ({
+          llmContent: smallContent,
+          returnDisplay: smallContent,
+        }),
+      },
+      async (name) => {
+        const context = new ContextManager({ maxResultLength: 8000 });
+        const config = { workspace: TEST_WORKSPACE, context } as OrchestratorConfig;
+
+        const { llmContent } = buildToolResultOutputs(name, { text: smallContent }, config);
+        assertEquals(llmContent, smallContent); // no truncation needed
+      },
+    );
+  },
+);

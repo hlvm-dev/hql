@@ -19,8 +19,6 @@ export const BRAILLE_SPINNER_FRAMES = [
   "⠏",
 ] as const;
 
-/** Shared spinner frame interval (ms). */
-export const SPINNER_FRAME_MS = 80;
 
 /** Shared helper hint for expanding/collapsing latest tool/thinking section. */
 export const TOGGLE_LATEST_HINT = "Ctrl+O toggles latest section";

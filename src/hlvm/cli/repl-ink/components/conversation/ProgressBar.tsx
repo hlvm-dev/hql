@@ -18,7 +18,7 @@ interface ProgressBarProps {
   width?: number;
 }
 
-export function ProgressBar({
+export const ProgressBar = React.memo(function ProgressBar({
   current,
   total,
   width = 10,
@@ -42,4 +42,4 @@ export function ProgressBar({
       <Text color={sc.text.muted}> {safeCurrent}/{safeTotal}</Text>
     </Text>
   );
-}
+});

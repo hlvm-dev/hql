@@ -1,0 +1,24 @@
+import type { ReplState } from "./state.ts";
+
+export type PromptHistorySource =
+  | "evaluate"
+  | "command"
+  | "conversation"
+  | "interaction";
+
+export function shouldRecordPromptHistory(
+  source: PromptHistorySource,
+): boolean {
+  return source !== "evaluate";
+}
+
+export function recordPromptHistory(
+  replState: Pick<ReplState, "addHistory">,
+  input: string,
+  source: PromptHistorySource,
+): void {
+  if (!shouldRecordPromptHistory(source)) {
+    return;
+  }
+  replState.addHistory(input);
+}

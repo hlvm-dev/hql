@@ -40,7 +40,7 @@ export interface Session {
  * Session startup flags
  */
 export interface SessionInitOptions {
-  /** Explicitly continue the latest global session (same as default) */
+  /** Explicitly continue the latest global session. */
   readonly continue?: boolean;
   /** Resume a specific session by ID */
   readonly resumeId?: string;

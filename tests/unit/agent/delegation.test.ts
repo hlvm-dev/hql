@@ -47,6 +47,11 @@ import {
   snapshotWorkspaceFiles,
 } from "../../../src/hlvm/agent/delegation.ts";
 import {
+  resetAgentEngine,
+  setAgentEngine,
+  type AgentEngine,
+} from "../../../src/hlvm/agent/engine.ts";
+import {
   addBatchSpawnFailure,
   addBatchThread,
   getBatchSnapshot,
@@ -55,6 +60,7 @@ import {
 } from "../../../src/hlvm/agent/delegate-batches.ts";
 import { createDelegateCoordinationBoard } from "../../../src/hlvm/agent/delegate-coordination.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
+import type { ToolExecutionOptions } from "../../../src/hlvm/agent/registry.ts";
 import {
   createTranscriptState,
   reduceTranscriptState,
@@ -439,10 +445,12 @@ import {
 } from "../../../src/hlvm/agent/delegate-threads.ts";
 import type { DelegateTranscriptSnapshot } from "../../../src/hlvm/agent/delegate-transcript.ts";
 
-// Cast to (args: unknown) => Promise<unknown> for test convenience.
-// The ToolFunction type may require a workspace param (WIP from other domain),
-// but these tools don't use it — cast keeps tests isolated from that change.
-type TestToolFn = (args: unknown, workspace?: string) => Promise<unknown>;
+// Cast to a flexible tool signature for focused delegate tool tests.
+type TestToolFn = (
+  args: unknown,
+  workspace?: string,
+  options?: ToolExecutionOptions,
+) => Promise<unknown>;
 const waitAgentFn = DELEGATE_TOOLS.wait_agent.fn as TestToolFn;
 const listAgentsFn = DELEGATE_TOOLS.list_agents.fn as TestToolFn;
 const closeAgentFn = DELEGATE_TOOLS.close_agent.fn as TestToolFn;
@@ -481,6 +489,31 @@ Deno.test("list_agents: returns all registered threads", async () => {
   assertEquals(agents[0].status, "running");
   assertEquals(agents[1].threadId, "t2");
   assertEquals(agents[1].status, "completed");
+});
+
+Deno.test("list_agents: scopes visible threads to delegate owner", async () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({
+    threadId: "owned",
+    ownerId: "request-a",
+    nickname: "Alpha",
+    status: "running",
+  }));
+  registerThread(createMockThread({
+    threadId: "foreign",
+    ownerId: "request-b",
+    nickname: "Bravo",
+    status: "completed",
+  }));
+
+  const result = await listAgentsFn(
+    {},
+    undefined,
+    { delegateOwnerId: "request-a" },
+  ) as Record<string, unknown>;
+  const agents = result.agents as Record<string, unknown>[];
+  assertEquals(agents.length, 1);
+  assertEquals(agents[0].threadId, "owned");
 });
 
 Deno.test("close_agent: cancels running thread", async () => {
@@ -532,6 +565,26 @@ Deno.test("close_agent: fails when no thread_id provided", async () => {
   const result = await closeAgentFn({}) as Record<string, unknown>;
   assertEquals(result.success, false);
   assertEquals(result.message, "thread_id is required");
+});
+
+Deno.test("close_agent: cannot cancel foreign-owned thread", async () => {
+  resetThreadRegistry();
+  const thread = createMockThread({
+    threadId: "foreign-thread",
+    ownerId: "request-b",
+    nickname: "Bravo",
+    status: "running",
+  });
+  registerThread(thread);
+
+  const result = await closeAgentFn(
+    { thread_id: "foreign-thread" },
+    undefined,
+    { delegateOwnerId: "request-a" },
+  ) as Record<string, unknown>;
+  assertEquals(result.success, false);
+  assertStringIncludes(result.message as string, "No thread found");
+  assertEquals(thread.controller.signal.aborted, false);
 });
 
 Deno.test("wait_agent: returns immediately for already-completed thread", async () => {
@@ -641,6 +694,65 @@ Deno.test("wait_agent: no threads returns error", async () => {
   resetThreadRegistry();
   const result = await waitAgentFn({}) as Record<string, unknown>;
   assertEquals(result.error, "No active or completed delegate threads");
+});
+
+Deno.test("wait_agent: owner-scoped any-thread wait ignores foreign completions", async () => {
+  resetThreadRegistry();
+  const foreignSnapshot: DelegateTranscriptSnapshot = {
+    agent: "code",
+    task: "foreign",
+    success: true,
+    durationMs: 10,
+    toolCount: 0,
+    finalResponse: "foreign result",
+    events: [],
+  };
+  const ownedSnapshot: DelegateTranscriptSnapshot = {
+    agent: "code",
+    task: "owned",
+    success: true,
+    durationMs: 10,
+    toolCount: 0,
+    finalResponse: "owned result",
+    events: [],
+  };
+  registerThread(createMockThread({
+    threadId: "foreign",
+    ownerId: "request-b",
+    nickname: "Bravo",
+    status: "completed",
+  }));
+  updateThreadSnapshot("foreign", foreignSnapshot);
+  updateThreadResult("foreign", {
+    success: true,
+    result: "foreign result",
+    snapshot: foreignSnapshot,
+  });
+  updateThreadStatus("foreign", "completed");
+  enqueueThreadCompletion("foreign");
+
+  registerThread(createMockThread({
+    threadId: "owned",
+    ownerId: "request-a",
+    nickname: "Alpha",
+    status: "completed",
+  }));
+  updateThreadSnapshot("owned", ownedSnapshot);
+  updateThreadResult("owned", {
+    success: true,
+    result: "owned result",
+    snapshot: ownedSnapshot,
+  });
+  updateThreadStatus("owned", "completed");
+  enqueueThreadCompletion("owned");
+
+  const result = await waitAgentFn(
+    {},
+    undefined,
+    { delegateOwnerId: "request-a" },
+  ) as Record<string, unknown>;
+  assertEquals(result.threadId, "owned");
+  assertEquals(result.result, "owned result");
 });
 
 Deno.test({
@@ -1064,6 +1176,54 @@ Deno.test("fixture-backed delegates get fresh child fixture state", async () => 
     const second = await parentLlm([{ role: "user", content: "parent query" }]);
     assertEquals(second.content, "Parent complete");
   } finally {
+    await Deno.remove(dir, { recursive: true }).catch(() => {});
+  }
+});
+
+Deno.test("built-in delegates create a fresh child LLM using the parent model fallback", async () => {
+  resetThreadRegistry();
+  resetDelegateLimiter();
+  const createdModels: string[] = [];
+  const engine: AgentEngine = {
+    createLLM(config) {
+      createdModels.push(String(config.model));
+      return () =>
+        Promise.resolve({
+          content: `Fresh child LLM for ${config.model}`,
+          toolCalls: [],
+        });
+    },
+    createSummarizer: () => () => Promise.resolve(""),
+  };
+  const dir = await Deno.makeTempDir();
+
+  try {
+    setAgentEngine(engine);
+    const parentLlm = () =>
+      Promise.resolve({
+        content: "Parent LLM fallback should not be reused",
+        toolCalls: [],
+      });
+    const handler = createDelegateHandler(parentLlm, {
+      modelId: "ollama/parent-model",
+    });
+
+    const result = await handler(
+      { agent: "general", task: "Inspect the workspace and report" },
+      {
+        workspace: dir,
+        context: new ContextManager(),
+        permissionMode: "yolo",
+      },
+    );
+
+    assertEquals(createdModels, ["ollama/parent-model"]);
+    assertEquals(
+      getDelegateTranscriptSnapshot(result)?.finalResponse,
+      "Fresh child LLM for ollama/parent-model",
+    );
+  } finally {
+    resetAgentEngine();
     await Deno.remove(dir, { recursive: true }).catch(() => {});
   }
 });
@@ -1982,6 +2142,23 @@ Deno.test("sendThreadInput: fails for nonexistent thread", () => {
   resetThreadRegistry();
   const sent = sendThreadInput("nonexistent", "hello");
   assertEquals(sent, false);
+});
+
+Deno.test("send_input: cannot queue messages for foreign-owned thread", async () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({
+    threadId: "foreign-running",
+    ownerId: "request-b",
+    status: "running",
+  }));
+  const sendInputFn = DELEGATE_TOOLS.send_input.fn as TestToolFn;
+  const result = await sendInputFn(
+    { thread_id: "foreign-running", message: "change direction" },
+    undefined,
+    { delegateOwnerId: "request-a" },
+  ) as Record<string, unknown>;
+  assertEquals(result.success, false);
+  assertStringIncludes(result.message as string, "No thread found");
 });
 
 // ============================================================

@@ -229,6 +229,12 @@ export const DEFAULT_TIMEOUTS = {
  */
 export const MAX_ITERATIONS = 20;
 
+/** Max ReAct loop iterations for delegate child agents (tighter than parent) */
+export const DELEGATE_MAX_ITERATIONS = 10;
+
+/** Total timeout for delegate child agents (120s = 2 minutes) */
+export const DELEGATE_TOTAL_TIMEOUT = 120_000;
+
 /**
  * Maximum retries for failed LLM calls
  *

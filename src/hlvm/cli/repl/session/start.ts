@@ -2,6 +2,10 @@ import type { SessionInitOptions, SessionMeta } from "./types.ts";
 
 export const SESSION_PICKER_LIMIT = 20;
 
+export interface SessionStartResolverOptions {
+  defaultBehavior?: "latest" | "new";
+}
+
 export type SessionStartResolution =
   | {
     kind: "picker";
@@ -34,6 +38,7 @@ export interface SessionStartResolverDeps {
 export async function resolveSessionStart(
   session: SessionInitOptions | undefined,
   deps: SessionStartResolverDeps,
+  options?: SessionStartResolverOptions,
 ): Promise<SessionStartResolution> {
   if (session?.forceNew) {
     return { kind: "new" };
@@ -51,6 +56,18 @@ export async function resolveSessionStart(
     return exists
       ? { kind: "resume", sessionId: session.resumeId }
       : { kind: "missing", sessionId: session.resumeId };
+  }
+
+  if (session?.continue) {
+    const latest = (await deps.listSessions({ limit: 1 }))[0] ?? null;
+    return {
+      kind: "latest",
+      sessionId: latest?.id ?? null,
+    };
+  }
+
+  if (options?.defaultBehavior === "new") {
+    return { kind: "new" };
   }
 
   const latest = (await deps.listSessions({ limit: 1 }))[0] ?? null;

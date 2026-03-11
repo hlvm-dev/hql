@@ -311,7 +311,7 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
       edited: "boolean",
       action: "string",
       replacements: "number (for replace action)",
-      invalidated: "number (for delete_section action)",
+      invalidated: "number (for delete_section and clear_all actions)",
     },
     safetyLevel: "L0",
     safety: "Local-only edits in canonical memory DB",

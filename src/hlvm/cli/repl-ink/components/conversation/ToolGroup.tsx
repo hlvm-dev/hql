@@ -32,7 +32,7 @@ function aggregateStatus(
   return "pending";
 }
 
-export function ToolGroup({
+export const ToolGroup = React.memo(function ToolGroup({
   tools,
   width,
   isToolExpanded,
@@ -114,4 +114,4 @@ export function ToolGroup({
       ))}
     </Box>
   );
-}
+});

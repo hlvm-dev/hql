@@ -13,7 +13,7 @@ interface ErrorMessageProps {
   text: string;
 }
 
-export function ErrorMessage({ text }: ErrorMessageProps): React.ReactElement {
+export const ErrorMessage = React.memo(function ErrorMessage({ text }: ErrorMessageProps): React.ReactElement {
   const sc = useSemanticColors();
 
   return (
@@ -31,4 +31,4 @@ export function ErrorMessage({ text }: ErrorMessageProps): React.ReactElement {
       <Text color={sc.status.error} wrap="wrap">{text}</Text>
     </Box>
   );
-}
+});

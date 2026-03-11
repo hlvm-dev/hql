@@ -30,7 +30,7 @@ export function resolveToolResultText(
   return tool.resultSummaryText ?? tool.resultText ?? "";
 }
 
-export function ToolCallItem(
+export const ToolCallItem = React.memo(function ToolCallItem(
   { tool, width, expanded = false }: ToolCallItemProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
@@ -80,4 +80,4 @@ export function ToolCallItem(
       )}
     </Box>
   );
-}
+});

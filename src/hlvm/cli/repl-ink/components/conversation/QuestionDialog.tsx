@@ -14,7 +14,7 @@ interface QuestionDialogProps {
   question?: string;
 }
 
-export function QuestionDialog({ question }: QuestionDialogProps): React.ReactElement {
+export const QuestionDialog = React.memo(function QuestionDialog({ question }: QuestionDialogProps): React.ReactElement {
   const sc = useSemanticColors();
 
   return (
@@ -44,4 +44,4 @@ export function QuestionDialog({ question }: QuestionDialogProps): React.ReactEl
       </Box>
     </Box>
   );
-}
+});

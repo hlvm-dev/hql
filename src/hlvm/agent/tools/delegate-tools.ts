@@ -11,11 +11,11 @@ import {
   cancelThread,
   clearThreadWorkspace,
   type DelegateThread,
-  getAllThreads,
-  getThread,
+  getThreadForOwner,
+  getThreadsForOwner,
   resolveResumableThread,
   sendThreadInput,
-  takeQueuedCompletedThread,
+  takeQueuedCompletedThreadForOwner,
   updateThreadMerge,
 } from "../delegate-threads.ts";
 import { applyChildChanges } from "../delegation.ts";
@@ -102,6 +102,50 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function resolveDelegateOwnerId(
+  options?: ToolExecutionOptions,
+): string | undefined {
+  return options?.delegateOwnerId;
+}
+
+function getScopedThread(
+  threadId: string,
+  options?: ToolExecutionOptions,
+): DelegateThread | undefined {
+  return getThreadForOwner(threadId, resolveDelegateOwnerId(options));
+}
+
+function getScopedThreads(options?: ToolExecutionOptions): DelegateThread[] {
+  return getThreadsForOwner(resolveDelegateOwnerId(options));
+}
+
+function buildTimeoutResult(
+  options?: ToolExecutionOptions,
+  specificThread?: DelegateThread,
+): Record<string, unknown> {
+  const threads = getScopedThreads(options);
+  const summary = threads.map((t) => ({
+    id: t.threadId,
+    agent: t.agent,
+    status: t.status,
+  }));
+  const errored = threads.filter((t) => t.status === "errored");
+  const running = threads.filter((t) =>
+    t.status === "queued" || t.status === "running"
+  );
+  const hint = errored.length > 0 && running.length === 0
+    ? "All delegates have errored. Use list_agents to inspect errors, then summarize available results for the user."
+    : running.length > 0
+    ? "Delegates are still running. You may call wait_agent once more, or use close_agent to cancel them and summarize partial results."
+    : "No active delegates remain. Summarize available results for the user.";
+  return {
+    ...(specificThread ? formatThreadResult(specificThread) : {}),
+    error: "Timeout waiting for agent",
+    threads: summary,
+    hint,
+  };
+}
+
 async function buildWaitResult(
   thread: DelegateThread,
   workspace?: string,
@@ -116,11 +160,12 @@ async function buildWaitResult(
 
 async function waitForSpecificThreadCompletion(
   threadId: string,
+  options?: ToolExecutionOptions,
   timeoutMs?: number,
 ): Promise<DelegateThread | undefined> {
   const deadline = timeoutMs !== undefined ? Date.now() + timeoutMs : undefined;
   while (true) {
-    const thread = getThread(threadId);
+    const thread = getScopedThread(threadId, options);
     if (!thread) return undefined;
     if (isTerminalThread(thread)) return thread;
     if (deadline !== undefined && Date.now() >= deadline) return thread;
@@ -136,11 +181,18 @@ function getLatestTerminalThread(threads: DelegateThread[]): DelegateThread | un
 }
 
 async function waitForAnyThreadCompletion(timeoutMs?: number): Promise<DelegateThread | undefined> {
+  return await waitForAnyThreadCompletionForOwner(undefined, timeoutMs);
+}
+
+async function waitForAnyThreadCompletionForOwner(
+  options?: ToolExecutionOptions,
+  timeoutMs?: number,
+): Promise<DelegateThread | undefined> {
   const deadline = timeoutMs !== undefined ? Date.now() + timeoutMs : undefined;
   while (true) {
-    const queued = takeQueuedCompletedThread();
+    const queued = takeQueuedCompletedThreadForOwner(resolveDelegateOwnerId(options));
     if (queued) return queued;
-    const threads = getAllThreads();
+    const threads = getScopedThreads(options);
     const active = threads.filter((t) => t.status === "queued" || t.status === "running");
     if (active.length === 0) {
       return getLatestTerminalThread(threads);
@@ -227,21 +279,25 @@ const waitAgent: ToolMetadata = {
       : undefined;
 
     if (threadId) {
-      const thread = getThread(threadId);
+      const thread = getScopedThread(threadId, options);
       if (!thread) {
         return { error: `No thread found with ID "${threadId}"` };
       }
       if (isTerminalThread(thread)) {
         return await buildWaitResult(thread, workspace, options);
       }
-      const completedThread = await waitForSpecificThreadCompletion(threadId, timeoutMs);
+      const completedThread = await waitForSpecificThreadCompletion(
+        threadId,
+        options,
+        timeoutMs,
+      );
       if (completedThread && isTerminalThread(completedThread)) {
         return await buildWaitResult(completedThread, workspace, options);
       }
-      return { ...formatThreadResult(thread), error: "Timeout waiting for agent" };
+      return buildTimeoutResult(options, thread);
     }
 
-    const threads = getAllThreads();
+    const threads = getScopedThreads(options);
     const active = threads.filter(
       (t) => t.status === "queued" || t.status === "running",
     );
@@ -253,11 +309,11 @@ const waitAgent: ToolMetadata = {
       return { error: "No active or completed delegate threads" };
     }
 
-    const finished = await waitForAnyThreadCompletion(timeoutMs);
+    const finished = await waitForAnyThreadCompletionForOwner(options, timeoutMs);
     if (finished) {
       return await buildWaitResult(finished, workspace, options);
     }
-    return { error: "Timeout waiting for agent" };
+    return buildTimeoutResult(options);
   },
   description:
     "Await a background delegate result for ongoing orchestration.",
@@ -281,8 +337,8 @@ const waitAgent: ToolMetadata = {
 };
 
 const listAgents: ToolMetadata = {
-  fn: async () => {
-    const threads = getAllThreads();
+  fn: async (_args: unknown, _workspace?: string, options?: ToolExecutionOptions) => {
+    const threads = getScopedThreads(options);
     if (threads.length === 0) {
       return { agents: [], message: "No delegate threads" };
     }
@@ -314,7 +370,7 @@ const listAgents: ToolMetadata = {
 };
 
 const closeAgent: ToolMetadata = {
-  fn: async (args: unknown) => {
+  fn: async (args: unknown, _workspace?: string, options?: ToolExecutionOptions) => {
     const record = (args && typeof args === "object")
       ? args as Record<string, unknown>
       : {};
@@ -324,7 +380,7 @@ const closeAgent: ToolMetadata = {
     if (!threadId) {
       return { success: false, message: "thread_id is required" };
     }
-    const thread = getThread(threadId);
+    const thread = getScopedThread(threadId, options);
     if (!thread) {
       return {
         success: false,
@@ -359,7 +415,7 @@ const closeAgent: ToolMetadata = {
 };
 
 const sendInput: ToolMetadata = {
-  fn: async (args: unknown) => {
+  fn: async (args: unknown, _workspace?: string, options?: ToolExecutionOptions) => {
     const record = (args && typeof args === "object")
       ? args as Record<string, unknown>
       : {};
@@ -375,15 +431,15 @@ const sendInput: ToolMetadata = {
         message: "thread_id and message are required",
       };
     }
+    const thread = getScopedThread(threadId, options);
+    if (!thread) {
+      return {
+        success: false,
+        message: `No thread found with ID "${threadId}"`,
+      };
+    }
     const sent = sendThreadInput(threadId, message);
     if (!sent) {
-      const thread = getThread(threadId);
-      if (!thread) {
-        return {
-          success: false,
-          message: `No thread found with ID "${threadId}"`,
-        };
-      }
       return {
         success: false,
         message:
@@ -412,7 +468,7 @@ const sendInput: ToolMetadata = {
 };
 
 const interruptAgent: ToolMetadata = {
-  fn: async (args: unknown) => {
+  fn: async (args: unknown, _workspace?: string, options?: ToolExecutionOptions) => {
     const record = (args && typeof args === "object")
       ? args as Record<string, unknown>
       : {};
@@ -428,7 +484,7 @@ const interruptAgent: ToolMetadata = {
         message: "thread_id and message are required",
       };
     }
-    const thread = getThread(threadId);
+    const thread = getScopedThread(threadId, options);
     if (!thread) {
       return {
         success: false,
@@ -465,7 +521,7 @@ const interruptAgent: ToolMetadata = {
 };
 
 const resumeAgent: ToolMetadata = {
-  fn: async (args: unknown) => {
+  fn: async (args: unknown, _workspace?: string, options?: ToolExecutionOptions) => {
     const record = (args && typeof args === "object")
       ? args as Record<string, unknown>
       : {};
@@ -476,7 +532,10 @@ const resumeAgent: ToolMetadata = {
     if (!threadId || !prompt) {
       return { success: false, message: "thread_id and prompt are required" };
     }
-    const { thread, error } = resolveResumableThread(threadId);
+    const { thread, error } = resolveResumableThread(
+      threadId,
+      resolveDelegateOwnerId(options),
+    );
     if (!thread || error) {
       return {
         success: false,
@@ -525,7 +584,7 @@ const discardAgentChanges: ToolMetadata = {
     if (!threadId) {
       return { success: false, message: "thread_id is required" };
     }
-    const thread = getThread(threadId);
+    const thread = getScopedThread(threadId, options);
     if (!thread) {
       return {
         success: false,
@@ -578,7 +637,7 @@ const applyAgentChanges: ToolMetadata = {
     if (!threadId) {
       return { success: false, message: "thread_id is required" };
     }
-    const thread = getThread(threadId);
+    const thread = getScopedThread(threadId, options);
     if (!thread) {
       return {
         success: false,

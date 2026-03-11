@@ -13,7 +13,7 @@ interface DelegateItemProps {
 }
 
 
-export function DelegateItem(
+export const DelegateItem = React.memo(function DelegateItem(
   { item, width, expanded = false }: DelegateItemProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
@@ -105,7 +105,7 @@ export function DelegateItem(
       </Box>
     </Box>
   );
-}
+});
 
 function formatSnapshotEvent(event: DelegateTranscriptEvent): string {
   switch (event.type) {

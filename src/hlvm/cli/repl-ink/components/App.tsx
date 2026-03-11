@@ -107,6 +107,7 @@ import {
   syncCurrentSession,
 } from "../../../api/session.ts";
 import { resolveSessionStart } from "../../repl/session/start.ts";
+import { recordPromptHistory } from "../../repl/prompt-history.ts";
 import { buildTranscriptStateFromSession } from "../conversation-history.ts";
 import type { ConfiguredModelReadinessState } from "../../../runtime/configured-model-readiness.ts";
 import {
@@ -243,6 +244,8 @@ function AppContent(
         const resolution = await resolveSessionStart(sessionOptions, {
           listSessions: (options) => sessionApi.list(options),
           hasSession: (sessionId) => sessionApi.has(sessionId),
+        }, {
+          defaultBehavior: "new",
         });
 
         switch (resolution.kind) {
@@ -822,6 +825,18 @@ function AppContent(
 
       let textBuffer = "";
       let finalCitations: AssistantCitation[] | undefined;
+      // Throttle streaming renders to avoid Ink full-screen redraws on every token.
+      // Tokens arrive every ~10-30ms; batching to 80ms gives smooth output without flicker.
+      const STREAM_RENDER_INTERVAL = 80;
+      let lastStreamRender = 0;
+      let pendingStreamTimer: ReturnType<typeof setTimeout> | null = null;
+      const flushStreamBuffer = () => {
+        pendingStreamTimer = null;
+        if (!controller.signal.aborted && isActiveConversationRun()) {
+          conversation.addAssistantText(textBuffer, true);
+          lastStreamRender = Date.now();
+        }
+      };
       const result = await runChatViaHost({
         mode: "agent",
         sessionId: sessionMeta.id,
@@ -843,7 +858,19 @@ function AppContent(
               return;
             }
             textBuffer += text;
-            conversation.addAssistantText(textBuffer, true);
+            const now = Date.now();
+            if (now - lastStreamRender >= STREAM_RENDER_INTERVAL) {
+              if (pendingStreamTimer) {
+                clearTimeout(pendingStreamTimer);
+                pendingStreamTimer = null;
+              }
+              flushStreamBuffer();
+            } else if (!pendingStreamTimer) {
+              pendingStreamTimer = setTimeout(
+                flushStreamBuffer,
+                STREAM_RENDER_INTERVAL - (now - lastStreamRender),
+              );
+            }
           },
           onAgentEvent: (event) => {
             if (controller.signal.aborted || !isActiveConversationRun()) {
@@ -935,6 +962,11 @@ function AppContent(
           });
         },
       });
+      // Clear any pending streaming render timer
+      if (pendingStreamTimer) {
+        clearTimeout(pendingStreamTimer);
+        pendingStreamTimer = null;
+      }
       if (!isActiveConversationRun()) {
         return;
       }
@@ -1238,6 +1270,7 @@ function AppContent(
   const handleForceInterrupt = useCallback(
     (code: string, attachments?: AnyAttachment[]) => {
       if (!code.trim()) return;
+      recordPromptHistory(replState, code, "conversation");
       restoreComposerDraft(null);
       const draft = createConversationComposerDraft(code.trim(), attachments);
 
@@ -1263,15 +1296,21 @@ function AppContent(
         }
       }
     },
-    [conversation, restoreComposerDraft, submitConversationDraft],
+    [
+      conversation,
+      replState,
+      restoreComposerDraft,
+      submitConversationDraft,
+    ],
   );
 
   const handleQueueDraft = useCallback((draft: ConversationComposerDraft) => {
+    recordPromptHistory(replState, draft.text, "conversation");
     setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
       enqueueConversationDraft(prev, draft)
     );
     setComposerAttachments([]);
-  }, []);
+  }, [replState]);
 
   const handleEditLastQueuedDraft = useCallback(() => {
     const { draft, remaining } = popLastQueuedConversationDraft(
@@ -1322,6 +1361,7 @@ function AppContent(
       // If there's a pending question interaction, route non-command input as the answer.
       // Commands must still work while a question prompt is active.
       if (pendingInteraction?.mode === "question" && !isAnyCommand) {
+        recordPromptHistory(replState, code, "interaction");
         conversation.addUserMessage(forceConversationPrompt ?? code.trim(), {
           startTurn: false,
         });
@@ -1463,6 +1503,7 @@ function AppContent(
 
       // Commands (supports both /command and .command)
       if (isAnyCommand) {
+        recordPromptHistory(replState, code, "command");
         const output = await handleCommand(code, repl, exit, replState);
         if (output !== null) {
           addHistoryEntry(code, {
@@ -1485,6 +1526,7 @@ function AppContent(
 
       // Conversation mode: keep input active and queue turns while the agent is running.
       if (hasConversationContext) {
+        recordPromptHistory(replState, code, "conversation");
         const conversationDraft = createConversationComposerDraft(
           forceConversationPrompt ?? code.trim(),
           attachments,
@@ -1522,6 +1564,7 @@ function AppContent(
       if (
         forceConversationPrompt || isNaturalLanguage(candidateConversationQuery)
       ) {
+        recordPromptHistory(replState, code, "conversation");
         const conversationDraft = createConversationComposerDraft(
           candidateConversationQuery,
           attachments,
@@ -1650,6 +1693,7 @@ function AppContent(
       footerModelName,
       configuredModelId,
       configuredContextWindow,
+      replState,
       applyRuntimeConfigState,
       prepareConversationMediaPayload,
       restoreComposerDraft,
@@ -1708,7 +1752,8 @@ function AppContent(
       input.length === 0 &&
       pendingInteraction?.mode !== "question";
     if (
-      globalBinding.kind === "handler" && globalBinding.id === HandlerIds.APP_EXIT
+      globalBinding.kind === "handler" &&
+      globalBinding.id === HandlerIds.APP_EXIT
     ) {
       void executeHandler(globalBinding.id);
       return;
@@ -1989,36 +2034,36 @@ function AppContent(
       {/* History of inputs and outputs (hidden during conversation to prevent ghost rendering) */}
       {!isOverlayOpen && !hasConversationContext && !hasStandaloneSurface &&
         history.map((entry: HistoryEntry) => {
-        const lines = entry.input.split("\n");
-        const unclosedDepth = lines.length > 1
-          ? getUnclosedDepth(entry.input)
-          : 0;
-        return (
-          <Box key={entry.id} flexDirection="column" marginBottom={1}>
-            {lines.map((line: string, lineIndex: number) => (
-              <Box key={`${entry.id}-${lineIndex}`}>
-                <Text color={color("primary")} bold>
-                  {lineIndex === 0
-                    ? "hlvm>"
-                    : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
-                </Text>
-                <Box>
-                  {tokenize(line).map((token, tokenIdx) => (
-                    <React.Fragment
-                      key={`${entry.id}-${lineIndex}-${tokenIdx}`}
-                    >
-                      <Text color={tokenColor(token.type)}>
-                        {token.value}
-                      </Text>
-                    </React.Fragment>
-                  ))}
+          const lines = entry.input.split("\n");
+          const unclosedDepth = lines.length > 1
+            ? getUnclosedDepth(entry.input)
+            : 0;
+          return (
+            <Box key={entry.id} flexDirection="column" marginBottom={1}>
+              {lines.map((line: string, lineIndex: number) => (
+                <Box key={`${entry.id}-${lineIndex}`}>
+                  <Text color={color("primary")} bold>
+                    {lineIndex === 0
+                      ? "hlvm>"
+                      : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
+                  </Text>
+                  <Box>
+                    {tokenize(line).map((token, tokenIdx) => (
+                      <React.Fragment
+                        key={`${entry.id}-${lineIndex}-${tokenIdx}`}
+                      >
+                        <Text color={tokenColor(token.type)}>
+                          {token.value}
+                        </Text>
+                      </React.Fragment>
+                    ))}
+                  </Box>
                 </Box>
-              </Box>
-            ))}
-            <Output result={entry.result} />
-          </Box>
-        );
-      })}
+              ))}
+              <Output result={entry.result} />
+            </Box>
+          );
+        })}
 
       {/* Standalone surfaces (picker, model browser, etc.) */}
       {!isOverlayOpen && hasStandaloneSurface && standaloneSurfaceScreen && (
@@ -2048,7 +2093,8 @@ function AppContent(
       )}
 
       {/* Queue preview bar (visible above input when queue has items in conversation mode) */}
-      {!isOverlayOpen && hasConversationContext && pendingConversationQueue.length > 0 &&
+      {!isOverlayOpen && hasConversationContext &&
+        pendingConversationQueue.length > 0 &&
         (
           <QueuePreview
             items={pendingConversationQueue}
@@ -2094,7 +2140,9 @@ function AppContent(
         )}
 
       {/* Keep the prompt attached to content while pinning the footer to the bottom in plain REPL mode */}
-      {!isOverlayOpen && !hasConversationContext && !hasStandaloneSurface && <Box flexGrow={1} />}
+      {!isOverlayOpen && !hasConversationContext && !hasStandaloneSurface && (
+        <Box flexGrow={1} />
+      )}
 
       {/* Footer hint */}
       {!isOverlayOpen && (isInputVisible || hasConversationContext) &&
@@ -2132,7 +2180,9 @@ function AppContent(
           />
         )}
 
-      {!isOverlayOpen && isEvaluating && !hasConversationContext && <Text dimColor>...</Text>}
+      {!isOverlayOpen && isEvaluating && !hasConversationContext && (
+        <Text dimColor>...</Text>
+      )}
     </Box>
   );
 }

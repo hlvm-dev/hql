@@ -17,7 +17,11 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import { isPathWithinRoot, SecurityError, validatePath } from "../security/path-sandbox.ts";
+import {
+  isPathWithinRoot,
+  SecurityError,
+  validatePath,
+} from "../security/path-sandbox.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
 import { createPolicyPathChecker, resolveToolPath } from "../path-utils.ts";
 import {
@@ -703,16 +707,54 @@ export async function openPath(
       workspace,
       options?.policy ?? null,
     );
+    const openablePath = await resolveOpenPathAlias(validPath);
 
-    await platform.openUrl(validPath);
+    await platform.openUrl(openablePath);
     return okTool({
-      openedPath: validPath,
+      openedPath: openablePath,
       message: `Opened ${args.path}`,
     });
   } catch (error) {
     const { message } = formatToolError("Failed to open path", error);
     return failTool(message);
   }
+}
+
+async function resolveOpenPathAlias(path: string): Promise<string> {
+  const platform = getPlatform();
+  try {
+    await platform.fs.lstat(path);
+    return path;
+  } catch {
+    // Fall back to tolerant sibling lookup below.
+  }
+
+  const parentDir = platform.path.dirname(path);
+  const requestedName = platform.path.basename(path);
+  const normalizedRequested = normalizeFilenameWhitespace(requestedName);
+  const matches: string[] = [];
+
+  try {
+    for await (const entry of platform.fs.readDir(parentDir)) {
+      if (normalizeFilenameWhitespace(entry.name) === normalizedRequested) {
+        matches.push(entry.name);
+      }
+    }
+  } catch {
+    return path;
+  }
+
+  if (matches.length === 1) {
+    return platform.path.join(parentDir, matches[0]!);
+  }
+  return path;
+}
+
+function normalizeFilenameWhitespace(value: string): string {
+  return value.normalize("NFC").replace(
+    /[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/gu,
+    " ",
+  );
 }
 
 // ============================================================
@@ -886,7 +928,9 @@ function getCommonParentDirectory(
 
 function formatListFilesResult(
   result: unknown,
-): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
   if (!isObjectValue(result)) return null;
   if (result.success !== true) return null;
   const entriesRaw = (result as { entries?: unknown }).entries;
@@ -933,9 +977,13 @@ function formatListFilesResult(
 
 function formatReadFileResult(
   result: unknown,
-): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
   if (!isObjectValue(result) || result.success !== true) return null;
-  const content = typeof result.content === "string" ? result.content : undefined;
+  const content = typeof result.content === "string"
+    ? result.content
+    : undefined;
   if (content === undefined) return null;
   const path = typeof result.path === "string" ? result.path : "file";
   const size = typeof result.size === "number" ? result.size : undefined;
@@ -955,6 +1003,27 @@ function formatReadFileResult(
   };
 }
 
+function formatOpenPathResult(
+  result: unknown,
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
+  if (!isObjectValue(result) || result.success !== true) return null;
+  const openedPath = typeof result.openedPath === "string"
+    ? result.openedPath
+    : undefined;
+  if (!openedPath) return null;
+  const message = typeof result.message === "string" && result.message.trim()
+    ? result.message
+    : `Opened ${openedPath}`;
+  return {
+    summaryDisplay: message,
+    returnDisplay: `Opened ${openedPath}`,
+    llmContent:
+      `Opened ${openedPath}. The open action already succeeded. Do not retry opening the same path unless the user asks again.`,
+  };
+}
+
 // ============================================================
 // Tool Registry
 // ============================================================
@@ -966,7 +1035,8 @@ function formatReadFileResult(
 export const FILE_TOOLS = {
   read_file: {
     fn: readFile,
-    description: "Read file contents. Use this for ALL file reading — never use shell_exec with cat/head/tail.",
+    description:
+      "Read file contents. Use this for ALL file reading — never use shell_exec with cat/head/tail.",
     category: "read",
     replaces: "cat/head/tail",
     safetyLevel: "L0",
@@ -981,7 +1051,8 @@ export const FILE_TOOLS = {
       path: "string - File path (on success)",
       content: "string - File contents (on success)",
       size: "number - File size in bytes (on success)",
-      truncated: "boolean - Whether content was truncated by maxBytes (on success)",
+      truncated:
+        "boolean - Whether content was truncated by maxBytes (on success)",
       message: "string - Human-readable result message",
     },
     formatResult: formatReadFileResult,
@@ -1006,7 +1077,8 @@ export const FILE_TOOLS = {
   },
   edit_file: {
     fn: editFile,
-    description: "Edit file using find/replace. Use this instead of shell_exec with sed/awk.",
+    description:
+      "Edit file using find/replace. Use this instead of shell_exec with sed/awk.",
     category: "write",
     replaces: "sed/awk",
     safetyLevel: "L1",
@@ -1028,7 +1100,8 @@ export const FILE_TOOLS = {
   },
   list_files: {
     fn: listFiles,
-    description: `List files and directories in a path. Use this instead of shell_exec with ls/find.
+    description:
+      `List files and directories in a path. Use this instead of shell_exec with ls/find.
 
 IMPORTANT:
 - For "all/every/entire" requests, set recursive: true
@@ -1076,8 +1149,11 @@ Examples:
     category: "meta",
     replaces: "open",
     safetyLevel: "L0",
+    terminalOnSuccess: true,
+    formatResult: formatOpenPathResult,
     args: {
-      path: "string - Path to open (e.g., '~/Downloads', '~/.Trash', './notes.txt')",
+      path:
+        "string - Path to open (e.g., '~/Downloads', '~/.Trash', './notes.txt')",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",

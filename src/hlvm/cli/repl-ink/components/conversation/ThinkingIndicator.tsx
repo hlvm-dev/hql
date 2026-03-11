@@ -22,7 +22,7 @@ interface ThinkingIndicatorProps {
   isAnimating?: boolean;
 }
 
-export function ThinkingIndicator({
+export const ThinkingIndicator = React.memo(function ThinkingIndicator({
   summary,
   iteration,
   expanded = false,
@@ -77,4 +77,4 @@ export function ThinkingIndicator({
       )}
     </Box>
   );
-}
+});

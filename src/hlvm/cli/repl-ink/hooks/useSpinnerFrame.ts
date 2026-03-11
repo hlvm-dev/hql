@@ -1,31 +1,21 @@
 /**
  * useSpinnerFrame
  *
- * Shared spinner-frame animation hook for REPL/TUI components.
- * Keeps spinner behavior consistent and avoids duplicated interval logic.
+ * Returns a static frame index (always 0) — NO animation, NO timers.
+ *
+ * Ink does full erase+redraw on every React render. Any setInterval that
+ * triggers setState causes a complete screen repaint, which is the root
+ * cause of visible flicker during streaming. Competitors (Claude Code,
+ * Gemini CLI, Codex) avoid this by using static indicators.
+ *
+ * Consumers display BRAILLE_SPINNER_FRAMES[0] ("⠋") as a static
+ * activity indicator. This is visually clear and flicker-free.
  */
 
-import { useEffect, useState } from "react";
-import {
-  BRAILLE_SPINNER_FRAMES,
-  SPINNER_FRAME_MS,
-} from "../ui-constants.ts";
-
-export function useSpinnerFrame(isActive = true): number {
-  const [frame, setFrame] = useState(0);
-
-  useEffect(() => {
-    if (!isActive) {
-      setFrame(0);
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setFrame((current: number) => (current + 1) % BRAILLE_SPINNER_FRAMES.length);
-    }, SPINNER_FRAME_MS);
-
-    return () => clearInterval(interval);
-  }, [isActive]);
-
-  return frame;
+/**
+ * Returns frame index 0 (static). The `isActive` parameter is kept
+ * for API compatibility but has no effect — no animation runs.
+ */
+export function useSpinnerFrame(_isActive = true): number {
+  return 0;
 }

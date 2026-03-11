@@ -76,6 +76,8 @@ export interface ToolExecutionOptions {
   ) => Promise<InteractionResponse>;
   /** Session-scoped tool owner (used by dynamic tool families like MCP). */
   toolOwnerId?: string;
+  /** Top-level delegate owner used to scope background agent control tools. */
+  delegateOwnerId?: string;
   /** Optional lazy MCP loader hook used by tool_search. */
   ensureMcpLoaded?: () => Promise<void>;
   /** Session-scoped todo state used by todo_read/todo_write. */
@@ -140,6 +142,11 @@ export interface ToolMetadata {
   skipValidation?: boolean;
   /** Optional formatter for tool results (for display/LLM output) */
   formatResult?: (result: unknown) => FormattedToolResult | null;
+  /**
+   * If true, a successful standalone call can end the turn immediately using
+   * the formatted tool result as the final user-facing response.
+   */
+  terminalOnSuccess?: boolean;
 }
 
 /** Condensed tool summary used by the tool_search meta tool. */
