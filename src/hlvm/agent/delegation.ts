@@ -78,8 +78,8 @@ function queueBackgroundDelegateUpdate(
   config.delegateInbox?.push(update);
 }
 
-const BACKGROUND_DELEGATE_WATCHDOG_MS =
-  DEFAULT_TIMEOUTS.total + DEFAULT_TIMEOUTS.tool;
+const BACKGROUND_DELEGATE_WATCHDOG_MS = DEFAULT_TIMEOUTS.total +
+  DEFAULT_TIMEOUTS.tool;
 
 function createDelegateAbortError(message: string): Error {
   const error = new Error(message);
@@ -204,7 +204,9 @@ export async function generateChildDiff(
 
       if (entry.isDirectory) {
         // Skip nested .hlvm-child dirs
-        if (entry.name.startsWith(CHILD_WORKSPACE_PREFIX) || entry.name === ".git") {
+        if (
+          entry.name.startsWith(CHILD_WORKSPACE_PREFIX) || entry.name === ".git"
+        ) {
           continue;
         }
         await walkDir(childPath, relPath);
@@ -334,7 +336,9 @@ export async function snapshotWorkspaceFiles(
       const childPath = platform.path.join(dir, entry.name);
       const relPath = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory) {
-        if (entry.name.startsWith(CHILD_WORKSPACE_PREFIX) || entry.name === ".git") {
+        if (
+          entry.name.startsWith(CHILD_WORKSPACE_PREFIX) || entry.name === ".git"
+        ) {
           continue;
         }
         await walkDir(childPath, relPath);
@@ -687,6 +691,7 @@ export async function resumeDelegateChild(
 export function createDelegateHandler(
   llm: LLMFunction,
   baseConfig: Pick<OrchestratorConfig, "policy"> & {
+    ownerId?: string;
     sessionId?: string | null;
     modelId?: string;
     fixturePath?: string;
@@ -917,7 +922,8 @@ export function createDelegateHandler(
         BACKGROUND_DELEGATE_WATCHDOG_MS;
       const watchdog = watchdogMs > 0
         ? setTimeout(() => {
-          abortReason = `Background delegate lifetime exceeded after ${watchdogMs}ms`;
+          abortReason =
+            `Background delegate lifetime exceeded after ${watchdogMs}ms`;
           controller.abort(abortReason);
         }, watchdogMs)
         : undefined;
@@ -926,41 +932,41 @@ export function createDelegateHandler(
       let release: (() => void) | undefined;
       let lease: WorkspaceLease | undefined;
       try {
-      // Acquire concurrency slot (may queue if at capacity; watchdog aborts if stalled)
-      release = await limiter.acquire(threadId, controller.signal);
-      updateThreadStatus(threadId, "running");
-      config.onAgentEvent?.({ type: "delegate_running", threadId });
-      if (coordinationId && config.coordinationBoard) {
-        config.coordinationBoard.updateItem(coordinationId, {
-          status: "running",
-        });
-      }
-      if (config.teamRuntime && teamTaskId) {
-        config.teamRuntime.updateTask(teamTaskId, {
-          status: "in_progress",
-          delegateThreadId: threadId,
-        });
-        emitTeamTaskUpdated("in_progress");
-      }
+        // Acquire concurrency slot (may queue if at capacity; watchdog aborts if stalled)
+        release = await limiter.acquire(threadId, controller.signal);
+        updateThreadStatus(threadId, "running");
+        config.onAgentEvent?.({ type: "delegate_running", threadId });
+        if (coordinationId && config.coordinationBoard) {
+          config.coordinationBoard.updateItem(coordinationId, {
+            status: "running",
+          });
+        }
+        if (config.teamRuntime && teamTaskId) {
+          config.teamRuntime.updateTask(teamTaskId, {
+            status: "in_progress",
+            delegateThreadId: threadId,
+          });
+          emitTeamTaskUpdated("in_progress");
+        }
 
-      // Create isolated workspace for this child agent
-      lease = await createWorkspaceLease(config.workspace, threadId);
-      updateThreadWorkspace(
-        threadId,
-        lease.path,
-        lease.kind,
-        lease.sandboxCapability,
-        lease.cleanup,
-      );
-
-      try {
-        updateThreadParentSnapshots(
+        // Create isolated workspace for this child agent
+        lease = await createWorkspaceLease(config.workspace, threadId);
+        updateThreadWorkspace(
           threadId,
-          await snapshotWorkspaceFiles(config.workspace),
+          lease.path,
+          lease.kind,
+          lease.sandboxCapability,
+          lease.cleanup,
         );
-      } catch {
-        // Best-effort snapshotting only
-      }
+
+        try {
+          updateThreadParentSnapshots(
+            threadId,
+            await snapshotWorkspaceFiles(config.workspace),
+          );
+        } catch {
+          // Best-effort snapshotting only
+        }
         const { result, snapshot, childSessionId } = await runDelegateChild(
           llm,
           baseConfig,
@@ -1154,9 +1160,15 @@ export function createDelegateHandler(
           error: message,
           snapshot,
           attentionRequired: true,
-          attentionReason: `Worker "${nickname}" failed: ${truncate(message, 100)}`,
+          attentionReason: `Worker "${nickname}" failed: ${
+            truncate(message, 100)
+          }`,
         });
-        updateThreadResult(threadId, { success: false, error: message, snapshot });
+        updateThreadResult(threadId, {
+          success: false,
+          error: message,
+          snapshot,
+        });
         updateThreadStatus(threadId, status);
         enqueueThreadCompletion(threadId);
         emitDelegateBatchProgress(config, batchId);
@@ -1175,6 +1187,7 @@ export function createDelegateHandler(
     // Register thread as queued (will transition to running when slot acquired)
     registerThread({
       threadId,
+      ownerId: baseConfig.ownerId,
       agent,
       nickname,
       task,

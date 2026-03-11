@@ -176,7 +176,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "agent-runner: runAgentQuery rejects weak models before agent execution",
+  name:
+    "agent-runner: runAgentQuery rejects weak models before agent execution",
   async fn() {
     await assertRejects(
       () =>

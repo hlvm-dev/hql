@@ -14,9 +14,9 @@ import { ValidationError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import {
   closeFactDb,
-  MEMORY_TOOLS,
   extractSessionFacts,
   loadMemoryContext,
+  MEMORY_TOOLS,
   persistConversationFacts,
   setMemoryModelTier,
 } from "../memory/mod.ts";
@@ -31,7 +31,11 @@ import { deriveDefaultSessionKey } from "../runtime/session-key.ts";
 import { type AgentSession, createAgentSession } from "./session.ts";
 import { getAgentEngine } from "./engine.ts";
 import { createDelegateHandler } from "./delegation.ts";
-import { cancelAllThreads, getAllThreads } from "./delegate-threads.ts";
+import {
+  cancelAllThreads,
+  cancelThreadsForOwner,
+  getActiveThreadsForOwner,
+} from "./delegate-threads.ts";
 import { setDelegateLimiterMax } from "./concurrency.ts";
 import { createDelegateInbox } from "./delegate-inbox.ts";
 import { createDelegateCoordinationBoard } from "./delegate-coordination.ts";
@@ -58,8 +62,8 @@ import {
 } from "./constants.ts";
 import { resolveQueryToolAllowlist } from "./query-tool-routing.ts";
 import {
-  getPlanningModeForExecutionMode,
   type AgentExecutionMode,
+  getPlanningModeForExecutionMode,
 } from "./execution-mode.ts";
 import { UsageTracker } from "./usage.ts";
 import { ContextManager, takeLastMessageGroups } from "./context.ts";
@@ -76,12 +80,12 @@ import {
   loadPersistedAgentTodos,
   persistAgentCheckpointSummary,
   persistAgentPlanState,
-  persistPendingPlanReview,
   persistAgentTeamRuntime,
   persistAgentTodos,
+  type PersistedAgentTurn,
+  persistPendingPlanReview,
   resetApprovedPlanSignature,
   resolvePendingPlanReview,
-  type PersistedAgentTurn,
   startPersistedAgentTurn,
 } from "./persisted-transcript.ts";
 import {
@@ -125,7 +129,9 @@ export async function createReusableSession(
   },
 ): Promise<AgentSession> {
   const engine = getAgentEngine();
-  const agentProfiles = await loadAgentProfiles(workspace, { toolValidator: hasTool });
+  const agentProfiles = await loadAgentProfiles(workspace, {
+    toolValidator: hasTool,
+  });
   const session = await createAgentSession({
     workspace,
     model,
@@ -357,7 +363,9 @@ export async function runAgentQuery(
     ? [...new Set([...toolDenylist, ...Object.keys(MEMORY_TOOLS)])]
     : [...toolDenylist];
   const toolAllowlist = resolveQueryToolAllowlist(query, options.toolAllowlist);
-  const agentProfiles = await loadAgentProfiles(workspace, { toolValidator: hasTool });
+  const agentProfiles = await loadAgentProfiles(workspace, {
+    toolValidator: hasTool,
+  });
 
   // Pre-read custom instructions (~/.hlvm/HLVM.md) — non-blocking
   let customInstructions = "";
@@ -403,6 +411,7 @@ export async function runAgentQuery(
   const sessionKey = shouldPersistSession
     ? (options.sessionId ?? deriveDefaultSessionKey())
     : null;
+  const delegateOwnerId = crypto.randomUUID();
   const shouldRestorePersistedTodos = !!sessionKey;
   const persistedTurnSessionId = sessionKey;
   let persistedTurn: PersistedAgentTurn | null = null;
@@ -467,6 +476,7 @@ export async function runAgentQuery(
     }
 
     const delegate = createDelegateHandler(session.llm, {
+      ownerId: delegateOwnerId,
       policy,
       sessionId: sessionKey,
       modelId: model,
@@ -556,8 +566,9 @@ export async function runAgentQuery(
         requestId: persistedTurn?.requestId ?? crypto.randomUUID(),
         onSummaryChanged: (summary) => {
           persistAgentCheckpointSummary(sessionKey, summary);
-          const signature =
-            `${summary.id}:${summary.fileCount}:${summary.restoredAt ?? 0}`;
+          const signature = `${summary.id}:${summary.fileCount}:${
+            summary.restoredAt ?? 0
+          }`;
           if (signature === latestCheckpointSignature) {
             return;
           }
@@ -642,7 +653,9 @@ export async function runAgentQuery(
       const activePersistedTurn = persistedTurn;
       const syncTeamTodoState = (): void => {
         if (!teamRuntime) return;
-        session.todoState.items = teamRuntime.deriveTodoState().items.map((item) => ({
+        session.todoState.items = teamRuntime.deriveTodoState().items.map((
+          item,
+        ) => ({
           ...item,
         }));
         if (sessionKey) {
@@ -720,7 +733,9 @@ export async function runAgentQuery(
         },
       });
       if (sessionMetadata.teamRuntime) {
-        session.todoState.items = teamRuntime.deriveTodoState().items.map((item) => ({
+        session.todoState.items = teamRuntime.deriveTodoState().items.map((
+          item,
+        ) => ({
           ...item,
         }));
         // If stale workers were cleaned up, inject a notice so the model
@@ -797,12 +812,12 @@ export async function runAgentQuery(
       throw error;
     } finally {
       // Cancel any still-active background delegates and wait for their promises
-      // to settle so they don't emit on a closed stream controller.
-      const active = getAllThreads().filter((t) =>
-        t.status === "queued" || t.status === "running"
-      );
+      // to settle so they don't emit on a closed stream controller. Scope this
+      // to the current top-level run so concurrent requests do not cancel each
+      // other's delegates.
+      const active = getActiveThreadsForOwner(delegateOwnerId);
       if (active.length > 0) {
-        cancelAllThreads();
+        cancelThreadsForOwner(delegateOwnerId);
         await Promise.allSettled(active.map((t) => t.promise));
       }
     }

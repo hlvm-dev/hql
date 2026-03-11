@@ -30,7 +30,9 @@ import {
 import {
   cancelAllThreads,
   cancelThread,
+  cancelThreadsForOwner,
   type DelegateThread,
+  getActiveThreadsForOwner,
   getAllThreads,
   getThread,
   registerThread,
@@ -281,6 +283,36 @@ Deno.test("ThreadRegistry: cancelAllThreads", () => {
   assertEquals(getThread("t3")?.status, "completed"); // Already completed, not changed
   assertExists(getThread("t1")?.completedAt);
   assertExists(getThread("t2")?.completedAt);
+});
+
+Deno.test("ThreadRegistry: owner-scoped cancellation only affects matching active threads", () => {
+  resetThreadRegistry();
+  registerThread(createMockThread({
+    threadId: "t1",
+    ownerId: "request-a",
+    status: "running",
+  }));
+  registerThread(createMockThread({
+    threadId: "t2",
+    ownerId: "request-b",
+    status: "running",
+  }));
+  registerThread(createMockThread({
+    threadId: "t3",
+    ownerId: "request-a",
+    status: "completed",
+  }));
+
+  assertEquals(
+    getActiveThreadsForOwner("request-a").map((thread) => thread.threadId),
+    ["t1"],
+  );
+
+  cancelThreadsForOwner("request-a");
+
+  assertEquals(getThread("t1")?.status, "cancelled");
+  assertEquals(getThread("t2")?.status, "running");
+  assertEquals(getThread("t3")?.status, "completed");
 });
 
 Deno.test("ThreadRegistry: updateThreadStatus", () => {
@@ -553,10 +585,14 @@ Deno.test("wait_agent: returns completed thread state without blocking on raw pr
     finalResponse: "Done",
     events: [],
   };
-  let resolvePromise: ((value: { success: boolean; result: string }) => void) | undefined;
-  const promise = new Promise<{ success: boolean; result: string }>((resolve) => {
-    resolvePromise = resolve;
-  });
+  let resolvePromise:
+    | ((value: { success: boolean; result: string }) => void)
+    | undefined;
+  const promise = new Promise<{ success: boolean; result: string }>(
+    (resolve) => {
+      resolvePromise = resolve;
+    },
+  );
   const thread = createMockThread({
     threadId: "t1",
     nickname: "Alpha",
@@ -794,6 +830,37 @@ Deno.test("background delegate queues automatic supervisor update", async () => 
   );
 });
 
+Deno.test("background delegate threads retain ownerId for request-scoped cleanup", async () => {
+  resetThreadRegistry();
+  resetDelegateLimiter();
+  const workspace = await Deno.makeTempDir();
+
+  try {
+    const handler = createDelegateHandler(() =>
+      Promise.resolve({
+        content: "Delegated result",
+        toolCalls: [],
+      }), { ownerId: "request-a" });
+
+    const response = await handler(
+      { agent: "code", task: "inspect codebase", background: true },
+      {
+        workspace,
+        context: new ContextManager(),
+        permissionMode: "yolo",
+      },
+    ) as Record<string, unknown>;
+
+    const thread = getThread(String(response.threadId));
+    assertExists(thread);
+    assertEquals(thread.ownerId, "request-a");
+
+    await waitAgentFn({ thread_id: response.threadId }, workspace);
+  } finally {
+    await Deno.remove(workspace, { recursive: true }).catch(() => {});
+  }
+});
+
 Deno.test({
   name: "background batch delegates emit delegate_start from runtime handler",
   sanitizeOps: false,
@@ -822,7 +889,8 @@ Deno.test({
           workspace,
           context: new ContextManager(),
           permissionMode: "yolo",
-          onAgentEvent: (event) => events.push(event as unknown as Record<string, unknown>),
+          onAgentEvent: (event) =>
+            events.push(event as unknown as Record<string, unknown>),
         },
       ) as Record<string, unknown>;
 
@@ -840,7 +908,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "background delegate watchdog cancels overlong worker and releases limiter slot",
+  name:
+    "background delegate watchdog cancels overlong worker and releases limiter slot",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -849,25 +918,28 @@ Deno.test({
     const workspace = await Deno.makeTempDir();
 
     try {
-      const handler = createDelegateHandler((_messages, signal) =>
-        new Promise((resolve, reject) => {
-          const timer = setTimeout(() => {
-            resolve({
-              content: "Too late",
-              toolCalls: [],
-            });
-          }, 1_000);
-          signal?.addEventListener(
-            "abort",
-            () => {
-              clearTimeout(timer);
-              const error = new Error("Tool execution aborted");
-              error.name = "AbortError";
-              reject(error);
-            },
-            { once: true },
-          );
-        }), { backgroundWatchdogMs: 40 });
+      const handler = createDelegateHandler(
+        (_messages, signal) =>
+          new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+              resolve({
+                content: "Too late",
+                toolCalls: [],
+              });
+            }, 1_000);
+            signal?.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                const error = new Error("Tool execution aborted");
+                error.name = "AbortError";
+                reject(error);
+              },
+              { once: true },
+            );
+          }),
+        { backgroundWatchdogMs: 40 },
+      );
 
       const response = await handler(
         { agent: "code", task: "stall worker", background: true },
@@ -926,7 +998,10 @@ Deno.test("background delegate snapshots parent workspace at spawn time", async 
       thread = getThread(threadId);
     }
     assertExists(thread);
-    assertEquals(thread.parentSnapshots?.get("root.txt"), await hashContent("baseline"));
+    assertEquals(
+      thread.parentSnapshots?.get("root.txt"),
+      await hashContent("baseline"),
+    );
     await waitAgentFn({ thread_id: threadId }, parentDir);
   } finally {
     await Deno.remove(parentDir, { recursive: true });
@@ -1334,10 +1409,12 @@ Deno.test("cleanupCompletedThreads: respects maxRetained", () => {
 Deno.test("cleanupCompletedThreads: preserves actionable merge threads", () => {
   resetThreadRegistry();
 
-  for (const [threadId, mergeState] of [
-    ["merge-pending", "pending"],
-    ["merge-conflicted", "conflicted"],
-  ] as const) {
+  for (
+    const [threadId, mergeState] of [
+      ["merge-pending", "pending"],
+      ["merge-conflicted", "conflicted"],
+    ] as const
+  ) {
     registerThread(createMockThread({
       threadId,
       status: "completed",

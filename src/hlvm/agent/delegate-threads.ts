@@ -43,6 +43,8 @@ export interface DelegateThreadResult {
 
 export interface DelegateThread {
   threadId: string;
+  /** Top-level run owner for request-scoped cleanup. */
+  ownerId?: string;
   agent: string;
   nickname: string;
   task: string;
@@ -83,6 +85,10 @@ function isThreadActive(thread: DelegateThread): boolean {
   return thread.status === "queued" || thread.status === "running";
 }
 
+function isOwnedBy(thread: DelegateThread, ownerId: string): boolean {
+  return thread.ownerId === ownerId;
+}
+
 function hasActionableMergeState(thread: DelegateThread): boolean {
   return thread.mergeState === "pending" || thread.mergeState === "conflicted";
 }
@@ -107,6 +113,12 @@ export function getAllThreads(): DelegateThread[] {
   return [...threads.values()];
 }
 
+export function getActiveThreadsForOwner(ownerId: string): DelegateThread[] {
+  return [...threads.values()].filter((thread) =>
+    isThreadActive(thread) && isOwnedBy(thread, ownerId)
+  );
+}
+
 export function getActiveNicknames(): Set<string> {
   const nicknames = new Set<string>();
   for (const thread of threads.values()) {
@@ -124,7 +136,9 @@ export function updateThreadStatus(
   const thread = threads.get(threadId);
   if (thread) {
     thread.status = status;
-    if (status === "completed" || status === "errored" || status === "cancelled") {
+    if (
+      status === "completed" || status === "errored" || status === "cancelled"
+    ) {
       thread.completedAt = Date.now();
     }
   }
@@ -185,7 +199,9 @@ export function updateThreadDiff(
   if (thread) {
     thread.resultDiff = diff;
     thread.filesModified = filesModified;
-    thread.mergeState = filesModified.length > 0 ? "pending" : thread.mergeState;
+    thread.mergeState = filesModified.length > 0
+      ? "pending"
+      : thread.mergeState;
   }
 }
 
@@ -224,7 +240,10 @@ export function updateThreadMerge(
 
 export function enqueueThreadCompletion(threadId: string): void {
   const thread = threads.get(threadId);
-  if (!thread || thread.completedAt === undefined || completedQueueSet.has(threadId)) return;
+  if (
+    !thread || thread.completedAt === undefined ||
+    completedQueueSet.has(threadId)
+  ) return;
   completedQueue.push(threadId);
   completedQueueSet.add(threadId);
 }
@@ -296,6 +315,15 @@ export function cancelThread(threadId: string): boolean {
 export function cancelAllThreads(): void {
   for (const thread of threads.values()) {
     if (isThreadActive(thread)) {
+      thread.controller.abort();
+      updateThreadStatus(thread.threadId, "cancelled");
+    }
+  }
+}
+
+export function cancelThreadsForOwner(ownerId: string): void {
+  for (const thread of threads.values()) {
+    if (isThreadActive(thread) && isOwnedBy(thread, ownerId)) {
       thread.controller.abort();
       updateThreadStatus(thread.threadId, "cancelled");
     }
