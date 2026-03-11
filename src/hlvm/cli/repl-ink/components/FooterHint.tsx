@@ -200,24 +200,26 @@ export function FooterHint({
     contextUsageLabel,
     checkpointLabel,
   });
-  const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
-  const compactFooter = shouldUseCompactFooter(terminalWidth);
+  const rawTerminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
+  // Account for parent paddingX={1} (1 char each side = 2 chars total)
+  const contentWidth = Math.max(20, rawTerminalWidth - 2);
+  const compactFooter = shouldUseCompactFooter(contentWidth);
   let sideWidth = compactFooter
     ? 0
     : Math.min(
       right.infoText.length +
         (right.modeLabel ? right.modeLabel.length + 3 : 0),
-      Math.max(14, Math.floor(terminalWidth * 0.32)),
+      Math.max(14, Math.floor(contentWidth * 0.32)),
     );
   sideWidth = compactFooter
     ? 0
     : Math.min(
       sideWidth,
-      Math.max(0, Math.floor((terminalWidth - 12) / 2)),
+      Math.max(0, Math.floor((contentWidth - 12) / 2)),
     );
   const centerWidth = compactFooter
-    ? terminalWidth
-    : Math.max(12, terminalWidth - sideWidth * 2);
+    ? contentWidth
+    : Math.max(12, contentWidth - sideWidth * 2);
   const centerText = truncate(center.text, centerWidth);
   const rightModeWidth = right.modeLabel
     ? Math.min(right.modeLabel.length, sideWidth)
@@ -234,7 +236,7 @@ export function FooterHint({
     : "";
 
   return (
-    <Box flexDirection="row" width={terminalWidth}>
+    <Box flexGrow={1} flexDirection="row">
       {!compactFooter && <Box width={sideWidth} />}
       <Box width={centerWidth} justifyContent="center">
         <Text color={centerColor}>{centerText}</Text>
