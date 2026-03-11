@@ -107,7 +107,10 @@ import {
   syncCurrentSession,
 } from "../../../api/session.ts";
 import { resolveSessionStart } from "../../repl/session/start.ts";
-import { recordPromptHistory } from "../../repl/prompt-history.ts";
+import {
+  buildRecentPromptHistoryContext,
+  recordPromptHistory,
+} from "../../repl/prompt-history.ts";
 import { buildTranscriptStateFromSession } from "../conversation-history.ts";
 import type { ConfiguredModelReadinessState } from "../../../runtime/configured-model-readiness.ts";
 import {
@@ -822,6 +825,10 @@ function AppContent(
       if (!currentSession || currentSession.id !== sessionMeta.id) {
         setCurrentSession(sessionMeta);
       }
+      const recentPromptContext = buildRecentPromptHistoryContext(
+        replState.history,
+        query,
+      );
 
       let textBuffer = "";
       let finalCitations: AssistantCitation[] | undefined;
@@ -840,12 +847,23 @@ function AppContent(
       const result = await runChatViaHost({
         mode: "agent",
         sessionId: sessionMeta.id,
-        messages: [{
-          role: "user",
-          content: query,
-          image_paths: mediaPaths,
-          client_turn_id: crypto.randomUUID(),
-        }],
+        messages: recentPromptContext
+          ? [{
+            role: "system",
+            content: recentPromptContext,
+          }, {
+            role: "user",
+            content: query,
+            image_paths: mediaPaths,
+            client_turn_id: crypto.randomUUID(),
+          }]
+          : [{
+            role: "user",
+            content: query,
+            image_paths: mediaPaths,
+            client_turn_id: crypto.randomUUID(),
+          }],
+        disablePersistentMemory: recentPromptContext !== null,
         model,
         permissionMode: agentExecutionMode,
         // REPL UX: avoid model-initiated ask_user detours for simple chat turns.
@@ -2144,40 +2162,42 @@ function AppContent(
         <Box flexGrow={1} />
       )}
 
-      {/* Footer hint */}
+      {/* Footer hint — marginTop for breathing room between input and footer */}
       {!isOverlayOpen && (isInputVisible || hasConversationContext) &&
         (
-          <FooterHint
-            modelName={footerModelName}
-            modeLabel={getAgentExecutionModeBadge(agentExecutionMode)}
-            statusMessage={footerStatusMessage}
-            streamingState={hasConversationContext
-              ? conversation.streamingState
-              : undefined}
-            activeTool={hasConversationContext
-              ? conversation.activeTool
-              : undefined}
-            contextUsageLabel={hasConversationContext
-              ? footerContextUsageLabel
-              : ""}
-            checkpointLabel={hasConversationContext &&
-                conversation.latestCheckpoint &&
-                !conversation.latestCheckpoint.restoredAt
-              ? "/undo ready"
-              : ""}
-            interactionQueueLength={hasConversationContext
-              ? interactionQueue.length
-              : 0}
-            hasDraftInput={input.trim().length > 0 ||
-              composerAttachments.length > 0}
-            inConversation={hasConversationContext}
-            hasPendingPermission={hasConversationContext &&
-              pendingInteraction?.mode === "permission"}
-            hasPendingQuestion={hasConversationContext &&
-              pendingInteraction?.mode === "question"}
-            teamActive={teamState.active}
-            teamAttentionCount={teamState.attentionItems.length}
-          />
+          <Box marginTop={1}>
+            <FooterHint
+              modelName={footerModelName}
+              modeLabel={getAgentExecutionModeBadge(agentExecutionMode)}
+              statusMessage={footerStatusMessage}
+              streamingState={hasConversationContext
+                ? conversation.streamingState
+                : undefined}
+              activeTool={hasConversationContext
+                ? conversation.activeTool
+                : undefined}
+              contextUsageLabel={hasConversationContext
+                ? footerContextUsageLabel
+                : ""}
+              checkpointLabel={hasConversationContext &&
+                  conversation.latestCheckpoint &&
+                  !conversation.latestCheckpoint.restoredAt
+                ? "/undo ready"
+                : ""}
+              interactionQueueLength={hasConversationContext
+                ? interactionQueue.length
+                : 0}
+              hasDraftInput={input.trim().length > 0 ||
+                composerAttachments.length > 0}
+              inConversation={hasConversationContext}
+              hasPendingPermission={hasConversationContext &&
+                pendingInteraction?.mode === "permission"}
+              hasPendingQuestion={hasConversationContext &&
+                pendingInteraction?.mode === "question"}
+              teamActive={teamState.active}
+              teamAttentionCount={teamState.attentionItems.length}
+            />
+          </Box>
         )}
 
       {!isOverlayOpen && isEvaluating && !hasConversationContext && (

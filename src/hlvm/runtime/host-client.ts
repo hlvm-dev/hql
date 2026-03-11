@@ -107,6 +107,7 @@ export interface HostBackedChatOptions {
   fixturePath?: string;
   contextWindow?: number;
   skipSessionHistory?: boolean;
+  disablePersistentMemory?: boolean;
   permissionMode?: AgentExecutionMode;
   toolDenylist?: string[];
   expectedVersion?: number;
@@ -124,6 +125,7 @@ export interface HostBackedAgentQueryOptions {
   imagePaths?: string[];
   contextWindow?: number;
   skipSessionHistory?: boolean;
+  disablePersistentMemory?: boolean;
   permissionMode?: AgentExecutionMode;
   toolDenylist?: string[];
   signal?: AbortSignal;
@@ -1234,6 +1236,7 @@ export async function runChatViaHost(
     context_window: options.contextWindow,
     permission_mode: options.permissionMode,
     skip_session_history: options.skipSessionHistory,
+    disable_persistent_memory: options.disablePersistentMemory,
     tool_denylist: options.toolDenylist,
     trace: !!options.callbacks.onTrace,
   };
@@ -1389,6 +1392,7 @@ export async function runAgentQueryViaHost(
     contextWindow: options.contextWindow,
     permissionMode: options.permissionMode,
     skipSessionHistory: options.skipSessionHistory,
+    disablePersistentMemory: options.disablePersistentMemory,
     toolDenylist: options.toolDenylist,
     signal: options.signal,
     callbacks: options.callbacks,

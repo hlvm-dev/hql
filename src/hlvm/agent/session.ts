@@ -40,7 +40,7 @@ import {
   getAgentEngine,
   type ToolFilterState,
 } from "./engine.ts";
-import { loadMemoryContext } from "../memory/mod.ts";
+import { buildMemorySystemMessage, loadMemoryContext } from "../memory/mod.ts";
 
 export interface AgentSessionOptions {
   workspace: string;
@@ -289,7 +289,7 @@ export async function createAgentSession(
       if (memoryContext) {
         context.addMessage({
           role: "system",
-          content: `# Your Memory\n${memoryContext}`,
+          content: buildMemorySystemMessage(memoryContext),
         });
       }
     } catch {

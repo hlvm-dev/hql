@@ -204,29 +204,20 @@ export function FooterHint({
   // Account for parent paddingX={1} (1 char each side = 2 chars total)
   const contentWidth = Math.max(20, rawTerminalWidth - 2);
   const compactFooter = shouldUseCompactFooter(contentWidth);
-  let sideWidth = compactFooter
+
+  // Right section: mode badge + info (model, context, checkpoint)
+  const rightRawLength = (right.modeLabel ? right.modeLabel.length + 3 : 0) +
+    right.infoText.length;
+  const rightMaxWidth = compactFooter
     ? 0
-    : Math.min(
-      right.infoText.length +
-        (right.modeLabel ? right.modeLabel.length + 3 : 0),
-      Math.max(14, Math.floor(contentWidth * 0.32)),
-    );
-  sideWidth = compactFooter
-    ? 0
-    : Math.min(
-      sideWidth,
-      Math.max(0, Math.floor((contentWidth - 12) / 2)),
-    );
-  const centerWidth = compactFooter
-    ? contentWidth
-    : Math.max(12, contentWidth - sideWidth * 2);
-  const centerText = truncate(center.text, centerWidth);
+    : Math.min(rightRawLength, Math.max(14, Math.floor(contentWidth * 0.45)));
   const rightModeWidth = right.modeLabel
-    ? Math.min(right.modeLabel.length, sideWidth)
+    ? Math.min(right.modeLabel.length, rightMaxWidth)
     : 0;
   const rightInfoWidth = Math.max(
     0,
-    sideWidth - rightModeWidth - (right.modeLabel && right.infoText ? 3 : 0),
+    rightMaxWidth - rightModeWidth -
+      (right.modeLabel && right.infoText ? 3 : 0),
   );
   const truncatedModeLabel = right.modeLabel && rightModeWidth > 0
     ? truncate(right.modeLabel, rightModeWidth)
@@ -235,15 +226,20 @@ export function FooterHint({
     ? truncate(right.infoText, rightInfoWidth)
     : "";
 
+  // Left section gets the remaining space
+  const leftWidth = compactFooter
+    ? contentWidth
+    : Math.max(12, contentWidth - rightMaxWidth);
+  const centerText = truncate(center.text, leftWidth);
+
   return (
-    <Box flexGrow={1} flexDirection="row">
-      {!compactFooter && <Box width={sideWidth} />}
-      <Box width={centerWidth} justifyContent="center">
+    <Box flexGrow={1} flexDirection="row" justifyContent="space-between">
+      <Box>
         <Text color={centerColor}>{centerText}</Text>
       </Box>
 
       {!compactFooter && (
-        <Box width={sideWidth} justifyContent="flex-end">
+        <Box justifyContent="flex-end" flexShrink={0}>
           {truncatedModeLabel && (
             <Text color={sc.border.active}>
               {truncatedModeLabel}

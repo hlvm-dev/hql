@@ -12,6 +12,7 @@ import {
   resetHlvmDirCacheForTests,
 } from "../../../src/common/paths.ts";
 import {
+  buildMemorySystemMessage,
   closeFactDb,
   extractConversationFacts,
   extractSessionFacts,
@@ -27,7 +28,11 @@ import {
   searchFactsFts,
   touchFact,
 } from "../../../src/hlvm/memory/mod.ts";
-import { retrieveMemory, temporalDecay, accessBoost } from "../../../src/hlvm/memory/retrieve.ts";
+import {
+  accessBoost,
+  retrieveMemory,
+  temporalDecay,
+} from "../../../src/hlvm/memory/retrieve.ts";
 import { sanitizeSensitiveContent } from "../../../src/hlvm/memory/store.ts";
 import { reuseSession } from "../../../src/hlvm/agent/agent-runner.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
@@ -144,6 +149,25 @@ Deno.test("memory: loadMemoryContext scales with context budget and truncates sa
     assertStringIncludes(large, "Decision");
     assert(large.length >= small.length);
   });
+});
+
+Deno.test("memory: system message warns that memory is not chronology", () => {
+  const message = buildMemorySystemMessage(
+    "## Preferences\n- User prefers Deno",
+  );
+  assertStringIncludes(
+    message,
+    "non-chronological",
+  );
+  assertStringIncludes(
+    message,
+    "Do not use it to answer recency questions",
+  );
+  assertStringIncludes(
+    message,
+    "treat that as authoritative and do not fill chronology gaps from memory",
+  );
+  assertStringIncludes(message, "## Preferences");
 });
 
 Deno.test("memory: shared conversation extractor emits stable facts", async () => {
@@ -365,8 +389,12 @@ Deno.test("memory: temporal decay and access boost score recent facts higher", a
     assert(accessBoost(5) > accessBoost(1));
 
     // Insert two facts with identical query-relevant content
-    const recentId = insertFact({ content: "The database uses PostgreSQL for production" });
-    const oldId = insertFact({ content: "The database uses PostgreSQL for staging" });
+    const recentId = insertFact({
+      content: "The database uses PostgreSQL for production",
+    });
+    const oldId = insertFact({
+      content: "The database uses PostgreSQL for staging",
+    });
 
     // Backdate the old fact by 90 days
     getFactDb().prepare("UPDATE facts SET created_at = ? WHERE id = ?").run(
@@ -383,14 +411,20 @@ Deno.test("memory: temporal decay and access boost score recent facts higher", a
     assert(oldResult !== undefined);
     assert(
       recentResult!.score > oldResult!.score,
-      `Recent (${recentResult!.score}) should score higher than old (${oldResult!.score})`,
+      `Recent (${recentResult!.score}) should score higher than old (${
+        oldResult!.score
+      })`,
     );
   });
 });
 
 Deno.test("memory: memory_edit clear_all requires confirm and wipes all facts", async () => {
   await withTestEnv(async () => {
-    await memoryWrite({ content: "Fact A", target: "memory", section: "Alpha" });
+    await memoryWrite({
+      content: "Fact A",
+      target: "memory",
+      section: "Alpha",
+    });
     await memoryWrite({ content: "Fact B", target: "memory", section: "Beta" });
     await memoryWrite({ content: "Fact C", target: "journal" });
 
@@ -408,14 +442,20 @@ Deno.test("memory: memory_edit clear_all requires confirm and wipes all facts", 
     assertEquals(getValidFacts().length, 3);
 
     // clear_all with confirm: true should invalidate all
-    const result = await memoryEdit({ action: "clear_all", confirm: true }) as Record<string, unknown>;
+    const result = await memoryEdit({
+      action: "clear_all",
+      confirm: true,
+    }) as Record<string, unknown>;
     assertEquals(result.edited, true);
     assertEquals(result.action, "clear_all");
     assertEquals(result.invalidated, 3);
     assertEquals(getValidFacts().length, 0);
 
     // search should return nothing
-    const search = await memorySearch({ query: "Fact" }) as Record<string, unknown>;
+    const search = await memorySearch({ query: "Fact" }) as Record<
+      string,
+      unknown
+    >;
     assertEquals(search.count, 0);
   });
 });
@@ -508,7 +548,8 @@ Deno.test("memory: parseLLMExtractionResponse handles valid JSON array", () => {
 });
 
 Deno.test("memory: parseLLMExtractionResponse strips markdown code fences", () => {
-  const input = '```json\n[{"category": "Decisions", "content": "Chose SQLite"}]\n```';
+  const input =
+    '```json\n[{"category": "Decisions", "content": "Chose SQLite"}]\n```';
   const result = parseLLMExtractionResponse(input);
   assertEquals(result.length, 1);
   assertEquals(result[0].content, "Chose SQLite");
@@ -523,10 +564,10 @@ Deno.test("memory: parseLLMExtractionResponse returns empty array for garbage", 
 Deno.test("memory: parseLLMExtractionResponse filters invalid entries", () => {
   const input = JSON.stringify([
     { category: "Identity", content: "Valid fact" },
-    { category: "Bugs" },  // missing content
-    { content: "No category" },  // missing category
-    { category: "Preferences", content: "" },  // empty content
-    { category: 123, content: "Number category" },  // wrong type
+    { category: "Bugs" }, // missing content
+    { content: "No category" }, // missing category
+    { category: "Preferences", content: "" }, // empty content
+    { category: 123, content: "Number category" }, // wrong type
     "not an object",
   ]);
   const result = parseLLMExtractionResponse(input);

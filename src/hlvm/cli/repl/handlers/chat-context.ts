@@ -23,7 +23,10 @@ import {
   resolveContextBudget,
   type ResolvedBudget,
 } from "../../../agent/context-resolver.ts";
-import { loadMemoryContext } from "../../../memory/mod.ts";
+import {
+  buildMemorySystemMessage,
+  loadMemoryContext,
+} from "../../../memory/mod.ts";
 import type {
   Message as ProviderMessage,
   ModelInfo,
@@ -617,7 +620,7 @@ async function injectMemoryReplayMessage(
     if (memoryContext) {
       replayMessages.unshift({
         role: "system",
-        content: `# Your Memory\n${memoryContext}`,
+        content: buildMemorySystemMessage(memoryContext),
       });
     }
   } catch {

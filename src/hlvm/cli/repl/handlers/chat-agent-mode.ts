@@ -113,6 +113,7 @@ export async function handleAgentMode(
     contextWindow: body.context_window,
     fixturePath,
     skipSessionHistory: body.skip_session_history === true,
+    disablePersistentMemory: body.disable_persistent_memory === true,
     messageHistory: history,
     modelInfo,
     callbacks: {

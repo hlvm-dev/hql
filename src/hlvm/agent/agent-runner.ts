@@ -13,6 +13,7 @@ import { getCustomInstructionsPath } from "../../common/paths.ts";
 import { ValidationError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import {
+  buildMemorySystemMessage,
   closeFactDb,
   extractSessionFacts,
   loadMemoryContext,
@@ -190,7 +191,7 @@ export async function reuseSession(
       if (memoryContext) {
         context.addMessage({
           role: "system",
-          content: `# Your Memory\n${memoryContext}`,
+          content: buildMemorySystemMessage(memoryContext),
         });
       }
     } catch {

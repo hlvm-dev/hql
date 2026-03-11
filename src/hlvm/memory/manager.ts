@@ -33,7 +33,21 @@ function groupFactsForPrompt(facts: ReturnType<typeof getValidFacts>): string {
     .join("\n\n");
 }
 
-export async function loadMemoryContext(contextWindow: number): Promise<string> {
+export function buildMemorySystemMessage(memoryContext: string): string {
+  return [
+    "# Your Memory",
+    "This memory is durable, global, and non-chronological.",
+    "Use it for facts, preferences, and prior decisions.",
+    'Do not use it to answer recency questions like "last time", "most recent", or "what did we just do" unless the same chronology is confirmed by session history or an explicit recent-history context.',
+    "If recent prompt history or explicit chronology context is provided, treat that as authoritative and do not fill chronology gaps from memory.",
+    "",
+    memoryContext,
+  ].join("\n");
+}
+
+export async function loadMemoryContext(
+  contextWindow: number,
+): Promise<string> {
   const maxFacts = maxFactsForContext(contextWindow);
   const facts = getValidFacts({ limit: maxFacts });
   if (facts.length === 0) return "";
@@ -50,16 +64,20 @@ export async function loadMemoryContext(contextWindow: number): Promise<string> 
     const truncated = combined.slice(0, maxChars);
     const lastNewline = truncated.lastIndexOf("\n");
     const finalContent = lastNewline > 0
-      ? truncated.slice(0, lastNewline) + "\n\n[Memory truncated — consider consolidating facts]"
+      ? truncated.slice(0, lastNewline) +
+        "\n\n[Memory truncated — consider consolidating facts]"
       : truncated;
-    await warnMemory(`Memory context truncated from ~${tokens} to ~${maxTokens} tokens.`);
+    await warnMemory(
+      `Memory context truncated from ~${tokens} to ~${maxTokens} tokens.`,
+    );
     return finalContent;
   }
 
   if (tokens > MEMORY_SIZE_WARNING) {
-    await warnMemory(`Memory context is large (~${tokens} tokens). Consider consolidating facts.`);
+    await warnMemory(
+      `Memory context is large (~${tokens} tokens). Consider consolidating facts.`,
+    );
   }
 
   return combined;
 }
-

@@ -86,67 +86,61 @@ const TableBlock = memo(function TableBlock(
       Math.max(3, Math.floor((w / totalNatural) * availableForContent))
     );
 
-  const separator = colWidths.map((w) => "─".repeat(w)).join("  ");
+  const separator = colWidths.map((w) => "─".repeat(w)).join("──");
+
+  const renderCell = (
+    cell: Tokens.TableCell | undefined,
+    w: number,
+    ci: number,
+    align: Alignment,
+    bold: boolean,
+  ) => {
+    const cellText = cell?.text ?? "";
+    const padded = alignCell(cellText, w, align);
+
+    // Try tokenized rendering when cell has inline formatting and fits
+    if (cell?.tokens && cell.tokens.length > 0) {
+      const visible = visibleLength(cellText);
+      if (visible <= w) {
+        const leftPad = align === "right"
+          ? w - visible
+          : align === "center"
+          ? Math.floor((w - visible) / 2)
+          : 0;
+        const rightPad = w - visible - leftPad;
+        return (
+          <React.Fragment key={ci}>
+            {leftPad > 0 && <Text>{" ".repeat(leftPad)}</Text>}
+            {bold
+              ? <Text bold><InlineTokens tokens={cell.tokens} /></Text>
+              : <InlineTokens tokens={cell.tokens} />}
+            {rightPad > 0 && <Text>{" ".repeat(rightPad)}</Text>}
+            {ci < colWidths.length - 1 && <Text>{"  "}</Text>}
+          </React.Fragment>
+        );
+      }
+    }
+
+    // Plain text fallback (handles truncation with "…")
+    return (
+      <React.Fragment key={ci}>
+        {bold ? <Text bold>{padded}</Text> : <Text>{padded}</Text>}
+        {ci < colWidths.length - 1 && <Text>{"  "}</Text>}
+      </React.Fragment>
+    );
+  };
 
   const renderRow = (
     cells: Tokens.TableCell[],
     bold: boolean,
     key: string,
-  ) => {
-    const parts = colWidths.map((w, ci) => {
-      const cell = cells[ci];
-      const cellText = cell?.text ?? "";
-      const align = alignments[ci] ?? "left";
-      return alignCell(cellText, w, align);
-    });
-    const line = parts.join("  ");
-
-    if (bold) {
-      return (
-        <Box key={key}>
-          <Text bold>{line}</Text>
-        </Box>
-      );
-    }
-
-    // For data rows, render each cell with inline token support
-    return (
-      <Box key={key}>
-        {colWidths.map((w, ci) => {
-          const cell = cells[ci];
-          const align = alignments[ci] ?? "left";
-          const cellText = cell?.text ?? "";
-          const padded = alignCell(cellText, w, align);
-
-          if (cell?.tokens && cell.tokens.length > 0) {
-            // Cell has inline formatting — render tokens within padded space
-            const visible = visibleLength(cellText);
-            const leftPad = align === "right"
-              ? w - visible
-              : align === "center"
-              ? Math.floor((w - visible) / 2)
-              : 0;
-            const rightPad = w - visible - leftPad;
-            return (
-              <React.Fragment key={ci}>
-                {leftPad > 0 && <Text>{" ".repeat(leftPad)}</Text>}
-                <InlineTokens tokens={cell.tokens} />
-                {rightPad > 0 && <Text>{" ".repeat(rightPad)}</Text>}
-                {ci < colWidths.length - 1 && <Text>{"  "}</Text>}
-              </React.Fragment>
-            );
-          }
-
-          return (
-            <React.Fragment key={ci}>
-              <Text>{padded}</Text>
-              {ci < colWidths.length - 1 && <Text>{"  "}</Text>}
-            </React.Fragment>
-          );
-        })}
-      </Box>
-    );
-  };
+  ) => (
+    <Box key={key}>
+      {colWidths.map((w, ci) =>
+        renderCell(cells[ci], w, ci, alignments[ci] ?? "left", bold)
+      )}
+    </Box>
+  );
 
   return (
     <Box flexDirection="column" marginY={0}>
@@ -205,19 +199,45 @@ function renderBlock(
               ? `${Number(t.start) + i}.`
               : "•";
 
+            // Collect inline tokens from list item sub-tokens.
+            // Tight lists emit `text` tokens with nested inline `tokens`.
+            // Loose lists emit `paragraph` tokens. Task lists also have `checkbox` tokens.
+            const inlineTokens: Token[] = [];
+            let hasBlockContent = false;
+            if (item.tokens) {
+              for (const sub of item.tokens) {
+                if (sub.type === "checkbox") continue; // handled by bullet prefix
+                if (
+                  sub.type === "text" && "tokens" in sub &&
+                  Array.isArray((sub as Tokens.Text).tokens)
+                ) {
+                  inlineTokens.push(...(sub as Tokens.Text).tokens!);
+                } else if (sub.type === "paragraph" || sub.type === "list") {
+                  hasBlockContent = true;
+                  break;
+                } else {
+                  inlineTokens.push(sub);
+                }
+              }
+            }
+
             return (
               <Box key={i}>
                 <Text color={sc.text.muted}>{bullet} </Text>
-                {item.tokens && item.tokens.length > 0
+                {hasBlockContent
                   ? (
                     <Box flexDirection="column">
-                      {item.tokens.map((subToken: Token, si: number) => (
-                        <React.Fragment key={si}>
-                          {renderBlock(subToken, width, sc)}
-                        </React.Fragment>
-                      ))}
+                      {item.tokens!
+                        .filter((s: Token) => s.type !== "checkbox")
+                        .map((subToken: Token, si: number) => (
+                          <React.Fragment key={si}>
+                            {renderBlock(subToken, width, sc)}
+                          </React.Fragment>
+                        ))}
                     </Box>
                   )
+                  : inlineTokens.length > 0
+                  ? <InlineTokens tokens={inlineTokens} />
                   : <Text>{item.text}</Text>}
               </Box>
             );

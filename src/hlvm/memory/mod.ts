@@ -6,7 +6,7 @@
  */
 
 // Manager
-export { loadMemoryContext } from "./manager.ts";
+export { buildMemorySystemMessage, loadMemoryContext } from "./manager.ts";
 
 // Tools
 export { MEMORY_TOOLS, setMemoryModelTier } from "./tools.ts";
