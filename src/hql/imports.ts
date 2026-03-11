@@ -804,7 +804,6 @@ async function processSimpleImport(
       scope: "global",
       isImported: true,
       sourceModule: modulePath,
-      meta: { importedInFile: options.currentFile },
     });
     return;
   }
@@ -833,7 +832,6 @@ async function processSimpleImport(
     scope: "global",
     isImported: true,
     sourceModule: modulePath,
-    meta: { importedInFile: options.currentFile },
   });
 }
 
@@ -892,7 +890,6 @@ async function processNamespaceImport(
         scope: "global",
         isImported: true,
         sourceModule: modulePath,
-        meta: { importedInFile: options.currentFile },
       });
       return;
     }
@@ -921,7 +918,6 @@ async function processNamespaceImport(
       scope: "global",
       isImported: true,
       sourceModule: modulePath,
-      meta: { importedInFile: options.currentFile },
     });
   } catch (error) {
     // If the error is already an HQLError with a different filePath, preserve it
@@ -1064,31 +1060,6 @@ async function processVectorBasedImport(
         aliasName || undefined, // Convert null to undefined
       );
 
-      // Add import-specific metadata
-      if (!enrichedSymbolInfo.meta) enrichedSymbolInfo.meta = {};
-      enrichedSymbolInfo.meta.importedInFile = options.currentFile;
-      enrichedSymbolInfo.meta.originalName = symbolName;
-
-      // For functions, mark as JS function for better code generation
-      if (enrichedSymbolInfo.kind === "function") {
-        enrichedSymbolInfo.meta.isJsFunction = true;
-      }
-
-      // For object types with properties, add property information
-      if (
-        importedValue !== undefined && typeof importedValue === "object" &&
-        importedValue !== null
-      ) {
-        // For small objects, capture property names to help with type checking
-        if (!Array.isArray(importedValue)) {
-          const keys = Object.keys(importedValue);
-          if (keys.length <= 10) {
-            enrichedSymbolInfo.meta.properties = keys;
-          }
-        }
-      }
-
-      // Cast to proper SymbolInfo type when setting in table
       globalSymbolTable.set(enrichedSymbolInfo);
     }
   } catch (error) {
@@ -1267,11 +1238,6 @@ function importSymbols(
           scope: "local",
           isImported: true,
           sourceModule: modulePath,
-          meta: {
-            importedInFile: currentFile,
-            originalName: symbolName,
-            isUserMacro: true,
-          },
         });
 
         logger.debug(

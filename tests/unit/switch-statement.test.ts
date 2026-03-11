@@ -1,5 +1,5 @@
 // Tests for native switch statements
-import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { transpile } from "../../src/hql/transpiler/index.ts";
 import hql from "../../mod.ts";
 

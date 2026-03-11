@@ -2,29 +2,10 @@ import {
   assertEquals,
   assertStringIncludes,
 } from "jsr:@std/assert";
-import { log } from "../../../src/hlvm/api/log.ts";
 import { aiCommand } from "../../../src/hlvm/cli/commands/ai.ts";
-import { withEnv, withRuntimeHostServer } from "../../shared/light-helpers.ts";
+import { withCapturedOutput, withEnv, withRuntimeHostServer } from "../../shared/light-helpers.ts";
 
 const encoder = new TextEncoder();
-
-async function withCapturedOutput(
-  fn: (output: () => string) => Promise<void>,
-): Promise<void> {
-  const raw = log.raw as { log: (text: string) => void };
-  const originalLog = raw.log;
-  let output = "";
-
-  raw.log = (text: string) => {
-    output += text + (text.endsWith("\n") ? "" : "\n");
-  };
-
-  try {
-    await fn(() => output);
-  } finally {
-    raw.log = originalLog;
-  }
-}
 
 Deno.test("ai command: pull streams through the runtime host", async () => {
   let capturedBody: { name?: string; provider?: string } | null = null;

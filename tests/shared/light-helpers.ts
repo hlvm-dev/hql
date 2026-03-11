@@ -1,3 +1,4 @@
+import { log } from "../../src/hlvm/api/log.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import { getRuntimeHostIdentity } from "../../src/hlvm/runtime/host-identity.ts";
 import { withRuntimePortOverrideForTests } from "../../src/hlvm/runtime/host-config.ts";
@@ -92,4 +93,22 @@ export async function withRuntimeHostServer(
 
 export async function findFreePort(): Promise<number> {
   return await getPlatform().http.findFreePort();
+}
+
+export async function withCapturedOutput(
+  fn: (output: () => string) => Promise<void>,
+): Promise<void> {
+  const raw = log.raw as { log: (text: string) => void };
+  const originalLog = raw.log;
+  let output = "";
+
+  raw.log = (text: string) => {
+    output += text + (text.endsWith("\n") ? "" : "\n");
+  };
+
+  try {
+    await fn(() => output);
+  } finally {
+    raw.log = originalLog;
+  }
 }

@@ -154,7 +154,6 @@ function registerEnum(list: SList, enumDefinitions: Map<string, SList>): void {
           parent: enumName,
           scope: "global",
           associatedValues,
-          definition: el,
         });
       }
     }
@@ -164,7 +163,6 @@ function registerEnum(list: SList, enumDefinitions: Map<string, SList>): void {
       cases,
       associatedValues,
       scope: "global",
-      definition: list,
     });
   }
 }
@@ -200,7 +198,6 @@ function registerClass(list: SList): void {
               parent: typeName,
               scope: "class",
               type,
-              definition: el,
             });
           } else {
             fields.push({ name: fieldName, type: fieldType });
@@ -210,7 +207,6 @@ function registerClass(list: SList): void {
               parent: typeName,
               scope: "class",
               type: fieldType,
-              definition: el,
             });
           }
         } else if (
@@ -237,7 +233,6 @@ function registerClass(list: SList): void {
             scope: "class",
             params,
             returnType,
-            definition: el,
           });
         }
       }
@@ -248,7 +243,6 @@ function registerClass(list: SList): void {
       fields,
       methods,
       scope: "global",
-      definition: list,
     });
   }
 }
@@ -274,7 +268,6 @@ function registerFunctionOrMacro(list: SList, head: string): void {
       scope: "global",
       params,
       returnType,
-      definition: list,
     });
   }
 }
@@ -291,8 +284,6 @@ function registerBinding(list: SList, bindingKeyword: string): void {
         kind: "variable",
         type: dataType,
         scope: "local",
-        definition: valueNode,
-        attributes: { mutable: isMutable },
       });
       logger.debug(
         `Registered ${bindingKeyword} binding: ${varName} with type ${dataType}`,
@@ -341,8 +332,6 @@ function registerBinding(list: SList, bindingKeyword: string): void {
               kind: "variable",
               type: dataType,
               scope: "local",
-              definition: valueNode,
-              attributes: { mutable: isMutable },
             });
             logger.debug(
               `Registered ${bindingKeyword} binding: ${varName} with type ${dataType}`,
@@ -401,7 +390,6 @@ function registerModuleConstruct(list: SList, head: string): void {
       name,
       kind: symbolKind,
       scope: "global",
-      definition: list,
     });
   }
 }

@@ -18,7 +18,7 @@ export function jsonError(message: string, status: number): Response {
 }
 
 /** Check if origin is a localhost variant (http://localhost:* or http://127.0.0.1:*) */
-export function isLocalhostOrigin(origin: string): boolean {
+function isLocalhostOrigin(origin: string): boolean {
   if (!origin) return false;
   try {
     const url = new URL(origin);

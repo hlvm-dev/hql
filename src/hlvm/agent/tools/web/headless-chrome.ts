@@ -10,6 +10,7 @@
  * - SSOT compliant: getPlatform() for process, fs, env, build.
  */
 
+import { delay } from "@std/async";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { withTimeout } from "../../../../common/timeout-utils.ts";
 import { getAgentLogger } from "../../logger.ts";
@@ -389,7 +390,7 @@ export async function shutdownChromeBrowser(): Promise<void> {
   if (activeRenders > 0) {
     const deadline = Date.now() + 5000;
     while (activeRenders > 0 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await delay(200);
     }
   }
 

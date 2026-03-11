@@ -33,7 +33,7 @@ export function looksLikeToolCallJsonAnywhere(text: string): boolean {
 /**
  * Detect planning envelopes emitted by the planner request.
  */
-export function looksLikePlanEnvelope(text: string): boolean {
+function looksLikePlanEnvelope(text: string): boolean {
   return RE_PLAN_ENVELOPE.test(text.trim());
 }
 

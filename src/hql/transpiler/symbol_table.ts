@@ -1,8 +1,6 @@
 // src/hql/transpiler/symbol_table.ts
 // Enhanced Symbol Table for HQL Transpiler with more comprehensive tracking
 
-import type { HQLNode } from "./type/hql_ast.ts";
-import type { IRNode } from "./type/hql_ir.ts";
 import { globalLogger as logger } from "../../logger.ts";
 
 // Comprehensive SymbolKind for all HQL constructs
@@ -60,10 +58,6 @@ export interface SymbolInfo {
   aliasOf?: string; // for aliases
   isExported?: boolean;
   isImported?: boolean;
-  definition?: HQLNode | IRNode; // Reference to AST/IR node that defines this symbol
-  location?: { filePath: string; line: number; column: number }; // Source location
-  attributes?: Record<string, unknown>; // Additional attributes (e.g., mutability, visibility)
-  meta?: Record<string, unknown>; // extensible for future use
 }
 
 export class SymbolTable {

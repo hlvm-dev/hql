@@ -3,7 +3,7 @@ import { Box, Text } from "ink";
 import { marked, type Token, type Tokens } from "marked";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { CodeBlock } from "./CodeBlock.tsx";
-import { InlineTokens } from "./InlineMarkdown.tsx";
+import { InlineTokens, InlineMarkdown } from "./InlineMarkdown.tsx";
 
 type Alignment = "left" | "center" | "right";
 
@@ -14,17 +14,24 @@ interface MarkdownDisplayProps {
 }
 
 /**
- * Strip markdown formatting to get visible character count.
- * E.g. "**Tesla**" → "Tesla" (5 chars, not 10).
+ * Strip markdown formatting markers from text.
+ * E.g. "**Tesla**" → "Tesla", "`code`" → "code".
  */
-function visibleLength(text: string): number {
+function stripMarkdown(text: string): string {
   return text
     .replace(/\*\*(.+?)\*\*/g, "$1")
     .replace(/\*(.+?)\*/g, "$1")
     .replace(/~~(.+?)~~/g, "$1")
     .replace(/`(.+?)`/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .length;
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+}
+
+/**
+ * Get visible character count (stripped of markdown markers).
+ * E.g. "**Tesla**" → 5 chars, not 10.
+ */
+function visibleLength(text: string): number {
+  return stripMarkdown(text).length;
 }
 
 /**
@@ -33,7 +40,8 @@ function visibleLength(text: string): number {
 function alignCell(text: string, width: number, alignment: Alignment): string {
   const visible = visibleLength(text);
   if (visible > width) {
-    return text.slice(0, Math.max(1, width - 1)) + "…";
+    const stripped = stripMarkdown(text);
+    return stripped.slice(0, Math.max(1, width - 1)) + "…";
   }
   const pad = width - visible;
   if (alignment === "right") return " ".repeat(pad) + text;
@@ -231,7 +239,10 @@ function renderBlock(
                         .filter((s: Token) => s.type !== "checkbox")
                         .map((subToken: Token, si: number) => (
                           <React.Fragment key={si}>
-                            {renderBlock(subToken, width, sc)}
+                            {subToken.type === "text" && "tokens" in subToken &&
+                                Array.isArray((subToken as Tokens.Text).tokens)
+                              ? <InlineTokens tokens={(subToken as Tokens.Text).tokens!} />
+                              : renderBlock(subToken, width, sc)}
                           </React.Fragment>
                         ))}
                     </Box>
@@ -251,15 +262,31 @@ function renderBlock(
     case "blockquote": {
       const t = token as Tokens.Blockquote;
       return (
-        <Box>
-          <Text color={sc.text.secondary}>│ </Text>
-          <Box flexDirection="column">
-            {t.tokens.map((subToken: Token, i: number) => (
-              <React.Fragment key={i}>
-                {renderBlock(subToken, width - 2, sc)}
-              </React.Fragment>
-            ))}
-          </Box>
+        <Box flexDirection="column">
+          {t.tokens.flatMap((subToken: Token, i: number) => {
+            // For paragraphs, split on newlines so each line gets its own │ prefix
+            if (subToken.type === "paragraph") {
+              const para = subToken as Tokens.Paragraph;
+              const lines = para.text.split("\n");
+              return lines.map((line: string, li: number) => (
+                <Box key={`${i}-${li}`}>
+                  <Text color={sc.text.secondary}>│ </Text>
+                  <Box flexShrink={1}>
+                    <InlineMarkdown text={line} />
+                  </Box>
+                </Box>
+              ));
+            }
+            // Other block tokens get one prefix per block
+            return [(
+              <Box key={i}>
+                <Text color={sc.text.secondary}>│ </Text>
+                <Box flexShrink={1}>
+                  {renderBlock(subToken, width - 2, sc)}
+                </Box>
+              </Box>
+            )];
+          })}
         </Box>
       );
     }

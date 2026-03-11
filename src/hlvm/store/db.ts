@@ -27,11 +27,6 @@ export function getDb(): Database {
   return _db;
 }
 
-export function closeDb(): void {
-  _db?.close();
-  _db = null;
-}
-
 export function _setDbForTesting(db: Database): void {
   _db = db;
 }

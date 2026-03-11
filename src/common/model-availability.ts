@@ -140,13 +140,6 @@ async function consumeModelPullProgress(
   }
 }
 
-export async function logModelPullProgress(
-  progressStream: AsyncIterable<PullProgress>,
-  log?: (message: string) => void,
-): Promise<void> {
-  await consumeModelPullProgress(progressStream, { log });
-}
-
 export async function getModelAvailability(
   modelId: string,
   deps: Pick<EnsureModelAvailabilityDeps, "listModels">,

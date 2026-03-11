@@ -206,16 +206,23 @@ export class HistoryStorage {
   }
 
   /**
+   * Get structured history entries in chronological order (oldest first).
+   */
+  getEntries(): HistoryEntry[] {
+    return this.entries.map((entry) => ({ ...entry }));
+  }
+
+  /**
    * Append a command (queues for debounced save).
    * Fire-and-forget - returns immediately.
    */
-  append(cmd: string): void {
+  append(cmd: string): HistoryEntry | null {
     const trimmed = cmd.trim();
-    if (!trimmed) return;
+    if (!trimmed) return null;
 
     // Skip consecutive duplicates
     const last = this.entries[this.entries.length - 1];
-    if (last?.cmd === trimmed) return;
+    if (last?.cmd === trimmed) return null;
 
     const entry: HistoryEntry = {
       ts: Date.now(),
@@ -233,6 +240,7 @@ export class HistoryStorage {
     // Queue for save
     this.pendingWrites.push(entry);
     this.scheduleSave();
+    return { ...entry };
   }
 
   /**

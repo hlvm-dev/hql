@@ -11,19 +11,16 @@ import { globalSymbolTable } from "../symbol_table.ts";
  *
  * @param name - The builtin name (e.g., "if", "+", "cons")
  * @param type - Optional type annotation (default: "Function")
- * @param isCore - Whether this is a core builtin (default: true)
  */
 export function registerBuiltin(
   name: string,
   type: string = "Function",
-  isCore: boolean = true,
 ): void {
   globalSymbolTable.set({
     name,
     kind: "builtin",
     scope: "global",
     type,
-    meta: { isCore },
   });
 }
 
@@ -47,13 +44,13 @@ export function registerBuiltins(
  *
  * @param name - The macro name
  * @param sourceFile - File where the macro is defined
- * @param isSystem - Whether this is a system macro (default: false)
+ * @param _isSystem - Unused (kept for caller compatibility)
  * @param isExported - Whether the macro is exported (default: false)
  */
 export function registerMacro(
   name: string,
   sourceFile: string,
-  isSystem: boolean = false,
+  _isSystem: boolean = false,
   isExported: boolean = false,
 ): void {
   globalSymbolTable.set({
@@ -61,9 +58,6 @@ export function registerMacro(
     kind: "macro",
     scope: "global",
     isExported,
-    meta: {
-      isSystemMacro: isSystem,
-      sourceFile,
-    },
+    sourceModule: sourceFile,
   });
 }

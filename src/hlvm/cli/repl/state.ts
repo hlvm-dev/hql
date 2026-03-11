@@ -4,7 +4,11 @@
  */
 
 import { getGlobalRecord } from "./string-utils.ts";
-import { getHistoryStorage, HistoryStorage } from "./history-storage.ts";
+import {
+  getHistoryStorage,
+  type HistoryEntry,
+  HistoryStorage,
+} from "./history-storage.ts";
 import { log } from "../../api/log.ts";
 
 // Pre-compiled regex patterns (avoid compilation per-call)
@@ -103,6 +107,7 @@ export class ReplState {
   private signatures = new Map<string, string[]>();  // function name -> param names
   private docstrings = new Map<string, string>();    // name -> docstring from comments
   private _history: string[] = [];
+  private _historyEntries: HistoryEntry[] = [];
   private _lineNumber = 0;
   private _isLoadingMemory = false;
   private historyStorage: HistoryStorage | null = null;
@@ -210,15 +215,23 @@ export class ReplState {
     return this._history;
   }
 
+  /** Get structured command history with timestamps */
+  get historyEntries(): HistoryEntry[] {
+    return this._historyEntries.map((entry) => ({ ...entry }));
+  }
+
   /** Add to history (also persists to disk if initialized) */
   addHistory(input: string): void {
     const trimmed = input.trim();
     if (trimmed && this._history[this._history.length - 1] !== trimmed) {
       this._history.push(trimmed);
-      // Persist to disk (fire-and-forget, non-blocking)
-      if (this._historyInitialized && this.historyStorage) {
-        this.historyStorage.append(trimmed);
+      const entry = this._historyInitialized && this.historyStorage
+        ? this.historyStorage.append(trimmed)
+        : { ts: Date.now(), cmd: trimmed };
+      if (entry) {
+        this._historyEntries.push(entry);
       }
+      // Persist to disk (fire-and-forget, non-blocking)
       this.notify();
     }
   }
@@ -235,6 +248,7 @@ export class ReplState {
       this.historyStorage = getHistoryStorage();
       await this.historyStorage.init();
       this._history = this.historyStorage.getCommands();
+      this._historyEntries = this.historyStorage.getEntries();
       this._historyInitialized = true;
       this.notify();
     } catch (err) {
@@ -263,6 +277,7 @@ export class ReplState {
    */
   async clearHistory(): Promise<void> {
     this._history = [];
+    this._historyEntries = [];
     await this.historyStorage?.clear();
     this.notify();
   }

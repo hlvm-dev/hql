@@ -46,7 +46,7 @@ const stripAnsi = (s: string) => s.replace(ANSI_STRIP_REGEX, "");
 /**
  * Render markdown string to ANSI terminal output
  */
-export function renderMarkdown(text: string, width = DEFAULT_TERMINAL_WIDTH): string {
+function renderMarkdown(text: string, width = DEFAULT_TERMINAL_WIDTH): string {
   const t = getThemedAnsi();
   const lines = text.split("\n");
   const result: string[] = [];

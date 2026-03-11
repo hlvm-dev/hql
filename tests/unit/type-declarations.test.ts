@@ -1,4 +1,4 @@
-import { assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertStringIncludes } from "jsr:@std/assert";
 import { hqlToTypeScript } from "./helpers.ts";
 
 function assertTypeScriptSnippets(

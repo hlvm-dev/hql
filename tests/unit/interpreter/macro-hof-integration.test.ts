@@ -3,7 +3,7 @@
 // These tests verify that the interpreter properly wraps HQL functions
 // so they can be called from JavaScript stdlib functions like map, filter, reduce
 
-import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertEquals } from "jsr:@std/assert";
 import { run } from "../helpers.ts";
 
 // ============================================================================

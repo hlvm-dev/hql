@@ -3,7 +3,7 @@
  * Note: Uses --dry-run to avoid actual publishing
  */
 
-import { assertEquals } from "https://deno.land/std@0.218.0/assert/mod.ts";
+import { assertEquals } from "jsr:@std/assert";
 import { runCLI, withTempDir } from "../_shared/binary-helpers.ts";
 
 Deno.test({

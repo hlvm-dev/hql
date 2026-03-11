@@ -60,6 +60,6 @@ export function gensym(prefix: string = "g"): GensymSymbol {
   return new GensymSymbol(`${prefix}_${gensymCounter++}`);
 }
 
-export function resetGensymCounter(): void {
+function resetGensymCounter(): void {
   gensymCounter = 0;
 }

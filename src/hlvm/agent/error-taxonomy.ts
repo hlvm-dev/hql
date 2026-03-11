@@ -18,6 +18,11 @@ import {
 import { TimeoutError } from "../../common/timeout-utils.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 
+/** Precise abort check for error taxonomy — only checks error.name, not message substring */
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
+
 type ErrorClass =
   | "abort"
   | "timeout"
@@ -31,10 +36,6 @@ interface ClassifiedError {
   class: ErrorClass;
   retryable: boolean;
   message: string;
-}
-
-function isAbortError(err: unknown): boolean {
-  return Boolean((err as { name?: string })?.name === "AbortError");
 }
 
 function isTimeoutError(err: unknown, message: string): boolean {
@@ -75,12 +76,12 @@ function isPermanentError(message: string): boolean {
 export function classifyError(err: unknown): ClassifiedError {
   const message = getErrorMessage(err).toLowerCase();
 
-  if (isAbortError(err)) {
-    return { class: "abort", retryable: false, message };
-  }
-
   if (isTimeoutError(err, message)) {
     return { class: "timeout", retryable: true, message };
+  }
+
+  if (isAbortError(err)) {
+    return { class: "abort", retryable: false, message };
   }
 
   // ── SDK structured error checks (before string matching) ──

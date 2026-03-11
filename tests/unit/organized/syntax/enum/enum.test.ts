@@ -2,7 +2,7 @@
 // Comprehensive tests for enum definitions
 // Based on hql_enum.md spec and doc/examples/enum.hql
 
-import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertEquals } from "jsr:@std/assert";
 import { run } from "../../../helpers.ts";
 
 // ============================================================================

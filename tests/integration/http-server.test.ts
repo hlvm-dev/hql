@@ -2,7 +2,7 @@ import {
   assertEquals,
   assertExists,
   assertStringIncludes,
-} from "https://deno.land/std@0.208.0/assert/mod.ts";
+} from "jsr:@std/assert";
 import type { Message as AgentMessage } from "../../src/hlvm/agent/context.ts";
 import { setAgentEngine } from "../../src/hlvm/agent/engine.ts";
 import type {

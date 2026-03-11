@@ -1,4 +1,4 @@
-import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertEquals } from "jsr:@std/assert";
 import { run } from "../../../helpers.ts";
 
 async function runLoose(code: string): Promise<unknown> {

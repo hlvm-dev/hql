@@ -2,7 +2,7 @@ import {
   assert,
   assertEquals,
   assertThrows,
-} from "https://deno.land/std@0.208.0/assert/mod.ts";
+} from "jsr:@std/assert";
 import { ParseError } from "../../src/common/error.ts";
 import { parse } from "../../src/hql/transpiler/pipeline/parser.ts";
 

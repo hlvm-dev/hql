@@ -1,7 +1,7 @@
 import {
   assertEquals,
   assertMatch,
-} from "https://deno.land/std@0.208.0/assert/mod.ts";
+} from "jsr:@std/assert";
 import { macroexpand } from "../../mod.ts";
 import { macroexpand1 } from "../../src/hql/macroexpand.ts";
 

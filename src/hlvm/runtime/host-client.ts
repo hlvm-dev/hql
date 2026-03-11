@@ -108,11 +108,12 @@ export interface HostBackedChatOptions {
   contextWindow?: number;
   skipSessionHistory?: boolean;
   disablePersistentMemory?: boolean;
+  historyContext?: string;
   permissionMode?: AgentExecutionMode;
   toolDenylist?: string[];
   expectedVersion?: number;
   signal?: AbortSignal;
-  callbacks: HostBackedChatCallbacks;
+  callbacks?: HostBackedChatCallbacks;
   onInteraction?: (
     event: RuntimeInteractionRequest,
   ) => Promise<RuntimeInteractionResponse>;
@@ -126,10 +127,11 @@ export interface HostBackedAgentQueryOptions {
   contextWindow?: number;
   skipSessionHistory?: boolean;
   disablePersistentMemory?: boolean;
+  historyContext?: string;
   permissionMode?: AgentExecutionMode;
   toolDenylist?: string[];
   signal?: AbortSignal;
-  callbacks: HostBackedChatCallbacks;
+  callbacks?: HostBackedChatCallbacks;
   onInteraction?: (
     event: RuntimeInteractionRequest,
   ) => Promise<RuntimeInteractionResponse>;
@@ -1218,6 +1220,7 @@ export async function logoutRuntimeMcpServer(input: {
 export async function runChatViaHost(
   options: HostBackedChatOptions,
 ): Promise<HostBackedChatResult> {
+  const callbacks = options.callbacks ?? {};
   const { baseUrl, authToken } = options.fixturePath
     ? await ensureRuntimeHost()
     : await ensureRuntimeAiReady();
@@ -1237,8 +1240,9 @@ export async function runChatViaHost(
     permission_mode: options.permissionMode,
     skip_session_history: options.skipSessionHistory,
     disable_persistent_memory: options.disablePersistentMemory,
+    history_context: options.historyContext,
     tool_denylist: options.toolDenylist,
-    trace: !!options.callbacks.onTrace,
+    trace: !!callbacks.onTrace,
   };
 
   const response = await http.fetchRaw(`${baseUrl}/api/chat`, {
@@ -1294,7 +1298,7 @@ export async function runChatViaHost(
     switch (event.event) {
       case "token":
         text += event.text;
-        options.callbacks.onToken?.(event.text);
+        callbacks.onToken?.(event.text);
         return;
       case "interaction_request": {
         const interaction = options.onInteraction
@@ -1315,10 +1319,10 @@ export async function runChatViaHost(
         return;
       }
       case "trace":
-        options.callbacks.onTrace?.(event.trace);
+        callbacks.onTrace?.(event.trace);
         return;
       case "final_response_meta":
-        options.callbacks.onFinalResponseMeta?.(event.meta);
+        callbacks.onFinalResponseMeta?.(event.meta);
         return;
       case "result_stats":
         stats = event.stats;
@@ -1340,7 +1344,7 @@ export async function runChatViaHost(
       default: {
         const uiEvent = toAgentUiEvent(event);
         if (uiEvent) {
-          options.callbacks.onAgentEvent?.(uiEvent);
+          callbacks.onAgentEvent?.(uiEvent);
         }
       }
     }
@@ -1393,6 +1397,7 @@ export async function runAgentQueryViaHost(
     permissionMode: options.permissionMode,
     skipSessionHistory: options.skipSessionHistory,
     disablePersistentMemory: options.disablePersistentMemory,
+    historyContext: options.historyContext,
     toolDenylist: options.toolDenylist,
     signal: options.signal,
     callbacks: options.callbacks,

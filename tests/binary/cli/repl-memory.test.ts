@@ -5,7 +5,7 @@
  * for memory management.
  */
 
-import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.218.0/assert/mod.ts";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
   BINARY_PATH,
   BINARY_TEST_HLVM_DIR,

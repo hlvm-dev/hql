@@ -5,6 +5,7 @@
  * Download new models with progress tracking.
  */
 
+import { delay } from "@std/async";
 import React, {
   useCallback,
   useEffect,
@@ -704,7 +705,7 @@ export function ModelBrowser({
         setStatusMessage(`${selectionScopeTitle} set: ${modelName}`);
         onModelSet?.(modelName);
         // Brief confirmation dwell so user can see success before panel closes.
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+        await delay(1200);
         if (!isMountedRef.current) return;
         onClose();
       } catch (error) {

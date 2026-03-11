@@ -4,6 +4,7 @@
  * These are internal scheduler/control-plane tools for background delegates.
  */
 
+import { delay } from "@std/async";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getAgentLogger } from "../logger.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
@@ -98,10 +99,6 @@ function isTerminalThread(thread: DelegateThread | undefined): thread is Delegat
     (thread.status === "completed" || thread.status === "errored" || thread.status === "cancelled");
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function resolveDelegateOwnerId(
   options?: ToolExecutionOptions,
 ): string | undefined {
@@ -170,7 +167,7 @@ async function waitForSpecificThreadCompletion(
     if (isTerminalThread(thread)) return thread;
     if (deadline !== undefined && Date.now() >= deadline) return thread;
     const remaining = deadline === undefined ? WAIT_POLL_INTERVAL_MS : Math.max(0, deadline - Date.now());
-    await sleep(Math.min(WAIT_POLL_INTERVAL_MS, remaining));
+    await delay(Math.min(WAIT_POLL_INTERVAL_MS, remaining));
   }
 }
 
@@ -199,7 +196,7 @@ async function waitForAnyThreadCompletionForOwner(
     }
     if (deadline !== undefined && Date.now() >= deadline) return undefined;
     const remaining = deadline === undefined ? WAIT_POLL_INTERVAL_MS : Math.max(0, deadline - Date.now());
-    await sleep(Math.min(WAIT_POLL_INTERVAL_MS, remaining));
+    await delay(Math.min(WAIT_POLL_INTERVAL_MS, remaining));
   }
 }
 

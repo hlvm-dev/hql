@@ -708,7 +708,6 @@ export class Environment {
         kind: "module",
         scope: "global",
         isImported: true,
-        meta: { importPath: this.currentFilePath || "unknown" },
       });
 
       for (const [exportName, exportValue] of Object.entries(exports)) {
@@ -1025,7 +1024,6 @@ export class Environment {
           aliasOf: aliasName ? macroName : undefined,
           sourceModule: sourceFile,
           isImported: true,
-          meta: { importedInFile: targetFile },
         });
       }
       return success;

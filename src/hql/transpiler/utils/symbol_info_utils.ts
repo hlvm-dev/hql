@@ -13,13 +13,12 @@ type MacroLikeFunction =
 export function createBasicSymbolInfo(
   name: string,
   scope: SymbolScope = "global",
-  filePath?: string,
+  _filePath?: string,
 ): SymbolInfo {
   return {
     name,
-    kind: "variable", // Default kind, can be updated later
+    kind: "variable",
     scope,
-    meta: { definedInFile: filePath || "global" },
   };
 }
 
@@ -30,88 +29,33 @@ export function enrichSymbolInfoWithValueType(
   symbolInfo: SymbolInfo,
   value: unknown,
 ): SymbolInfo {
-  // Make a copy to avoid mutating the original
   const result = { ...symbolInfo };
 
   if (typeof value === "function") {
     result.kind = "function";
     result.type = "Function";
 
-    // Try to detect special function types
     const functionValue = value as MacroLikeFunction;
     if ("isUserMacro" in functionValue && functionValue.isUserMacro) {
       result.kind = "macro";
     } else if (
       "isSystemMacro" in functionValue && functionValue.isSystemMacro
     ) {
-      // Use 'macro' for system macros too, with a meta flag
       result.kind = "macro";
-      if (!result.meta) result.meta = {};
-      result.meta.isSystem = true;
-    } else if (
-      "isHqlConstructor" in functionValue && functionValue.isHqlConstructor
-    ) {
-      // Use 'function' for constructors with a meta flag
-      if (!result.meta) result.meta = {};
-      result.meta.isConstructor = true;
     }
 
-    // Extract function parameters
     extractFunctionParams(result, functionValue);
   } else if (typeof value === "object") {
     result.kind = "variable";
-
-    if (value === null) {
-      result.type = "Null";
-    } else if (Array.isArray(value)) {
-      result.type = "Array";
-
-      // Store collection info in meta
-      if (!result.meta) result.meta = {};
-      result.meta.isCollection = true;
-      result.meta.length = value.length;
-
-      // Infer element type if array is not empty
-      if (value.length > 0) {
-        const firstType = typeof value[0];
-        result.meta.elementType = firstType[0].toUpperCase() +
-          firstType.slice(1);
-      }
-    } else {
-      // Regular object
-      result.type = "Object";
-
-      // Store object info in meta
-      if (!result.meta) result.meta = {};
-      result.meta.isObject = true;
-
-      const keys = Object.keys(value);
-      result.meta.propertyCount = keys.length;
-
-      // Store sample of property names for debugging
-      if (keys.length > 0) {
-        result.meta.sampleProperties = keys.slice(0, Math.min(5, keys.length));
-      }
-    }
+    result.type = value === null
+      ? "Null"
+      : Array.isArray(value)
+      ? "Array"
+      : "Object";
   } else {
-    // Primitive types
     result.kind = "variable";
     const typeName = typeof value;
     result.type = typeName[0].toUpperCase() + typeName.slice(1);
-
-    // Add value info for primitive constants
-    if (!result.meta) result.meta = {};
-
-    // For string/number/boolean, store sample of actual value
-    if (
-      typeof value === "string" || typeof value === "number" ||
-      typeof value === "boolean"
-    ) {
-      const stringValue = String(value);
-      result.meta.sampleValue = stringValue.length > 50
-        ? stringValue.substring(0, 47) + "..."
-        : stringValue;
-    }
   }
 
   return result;

@@ -382,7 +382,7 @@ export const ENGINE_PROFILES = {
 export const MAX_SESSION_HISTORY = 10;
 
 /** Cloud/frontier provider prefixes (SSOT for detectFrontierModel + isLocalModel) */
-export const FRONTIER_PROVIDER_PREFIXES = ["anthropic", "openai", "google", "claude-code"] as const;
+const FRONTIER_PROVIDER_PREFIXES = ["anthropic", "openai", "google", "claude-code"] as const;
 
 /** Extract provider prefix from "provider/model" string */
 export function extractProviderName(model?: string): string {
@@ -409,7 +409,7 @@ export function isFrontierProvider(model?: string): boolean {
 // Model Tier Classification
 // ============================================================
 
-export const GROUNDING_MODES = ["off", "warn", "strict"] as const;
+const GROUNDING_MODES = ["off", "warn", "strict"] as const;
 export type GroundingMode = typeof GROUNDING_MODES[number];
 
 export function isGroundingMode(value: unknown): value is GroundingMode {
@@ -498,7 +498,7 @@ export const DEFAULT_TOOL_DENYLIST = [
  * Keeps tool count low to avoid context overflow and tool selection confusion.
  * Mid/frontier models get ALL tools (no cap).
  */
-export const WEAK_TIER_CORE_TOOLS: readonly string[] = [
+const WEAK_TIER_CORE_TOOLS: readonly string[] = [
   "read_file", "write_file", "edit_file", "list_files",
   "search_code", "ask_user", "complete_task",
   "git_status", "git_diff", "git_log",

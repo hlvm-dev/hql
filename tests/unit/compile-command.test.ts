@@ -7,7 +7,7 @@
  * Run with: deno test --allow-all tests/unit/compile-command.test.ts
  */
 
-import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { getPlatform } from "../../src/platform/platform.ts";
 
 const p = getPlatform();

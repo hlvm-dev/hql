@@ -471,7 +471,6 @@ export async function loadSystemMacros(
         name: getPlatform().path.basename(macroPath, ".hql"),
         kind: "module",
         scope: "global",
-        meta: { isCore: true, isMacroModule: true },
       });
     }
 

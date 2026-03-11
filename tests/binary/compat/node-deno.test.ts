@@ -1,7 +1,7 @@
 import {
   assertEquals,
   assertStringIncludes,
-} from "https://deno.land/std@0.218.0/assert/mod.ts";
+} from "jsr:@std/assert";
 import {
   transpileAndRunWithDeno,
   transpileAndRunWithNode,

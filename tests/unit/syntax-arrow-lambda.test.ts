@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertEquals, assertRejects } from "jsr:@std/assert";
 import { run } from "./helpers.ts";
 
 Deno.test("arrow lambda: implicit parameters cover single, multiple, gaps, and inline calls", async () => {

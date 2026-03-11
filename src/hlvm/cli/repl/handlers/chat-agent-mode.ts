@@ -93,6 +93,15 @@ export async function handleAgentMode(
     maxGroups: AGENT_CONTEXT_HISTORY_LIMIT,
     modelKey: resolvedModel,
   });
+  if (
+    typeof body.history_context === "string" &&
+    body.history_context.trim().length > 0
+  ) {
+    history.unshift({
+      role: "system",
+      content: body.history_context.trim(),
+    });
+  }
 
   let streamedFinalText = false;
   let successfulToolCalls = 0;

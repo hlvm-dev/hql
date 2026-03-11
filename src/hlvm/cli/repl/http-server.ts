@@ -4,6 +4,7 @@
  * SSOT: Thin wrapper around shared runtime services and evaluation infrastructure.
  */
 
+import { delay } from "@std/async";
 import { evaluate } from "./evaluator.ts";
 import { formatPlainValue } from "./formatter.ts";
 import { initReplState } from "./init-repl-state.ts";
@@ -496,7 +497,7 @@ async function maybeGateAiRoute(
     try {
       await Promise.race([
         getRuntimeReady(),
-        new Promise<void>((resolve) => setTimeout(resolve, AI_READY_WAIT_MS)),
+        delay(AI_READY_WAIT_MS),
       ]);
     } catch {
       // Runtime readiness failed or server was not started via serveCommand.

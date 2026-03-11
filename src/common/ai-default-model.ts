@@ -32,7 +32,6 @@ let claudeBootstrapProbeResult: string | null = null;
 export {
   getProgressPercent,
   isModelInstalled,
-  logModelPullProgress,
 } from "./model-availability.ts";
 
 export interface EnsureDefaultModelOptions {

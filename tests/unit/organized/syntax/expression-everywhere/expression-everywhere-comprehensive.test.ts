@@ -7,7 +7,7 @@
  * when nested inside other expressions.
  */
 
-import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
+import { assertEquals } from "jsr:@std/assert";
 import { run } from "../../../helpers.ts";
 
 Deno.test("Expr-everywhere: binding declarations evaluate to their bound value", async () => {

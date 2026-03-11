@@ -16,14 +16,17 @@ import { marked, type Token, type Tokens } from "marked";
 // Helper function tests (reimplemented here since they're not exported)
 // ──────────────────────────────────────────────────────────────────────
 
-function visibleLength(text: string): number {
+function stripMarkdown(text: string): string {
   return text
     .replace(/\*\*(.+?)\*\*/g, "$1")
     .replace(/\*(.+?)\*/g, "$1")
     .replace(/~~(.+?)~~/g, "$1")
     .replace(/`(.+?)`/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .length;
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+}
+
+function visibleLength(text: string): number {
+  return stripMarkdown(text).length;
 }
 
 function alignCell(
@@ -33,7 +36,8 @@ function alignCell(
 ): string {
   const visible = visibleLength(text);
   if (visible > width) {
-    return text.slice(0, Math.max(1, width - 1)) + "…";
+    const stripped = stripMarkdown(text);
+    return stripped.slice(0, Math.max(1, width - 1)) + "…";
   }
   const pad = width - visible;
   if (alignment === "right") return " ".repeat(pad) + text;
@@ -287,4 +291,81 @@ Deno.test("ordered list numbering starts from correct value", () => {
   assert(list, "should produce a list token");
   assert(list.ordered, "should be ordered");
   assertEquals(Number(list.start), 3);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Fix 1: Mixed list items — text sub-tokens in hasBlockContent path
+// ──────────────────────────────────────────────────────────────────────
+
+Deno.test("mixed list item: text sub-token has inline tokens for block path", () => {
+  // "- **bold** parent\n  - nested child" produces a list item with both
+  // a text sub-token (inline) and a list sub-token (block)
+  const tokens = marked.lexer("- **bold** parent\n  - nested child");
+  const list = tokens.find((t) => t.type === "list") as Tokens.List;
+  assert(list, "should produce a list token");
+
+  const item = list.items[0];
+  assert(item.tokens, "item should have sub-tokens");
+
+  // Should have both text and list sub-tokens (hasBlockContent = true)
+  const textSub = item.tokens!.find((s) => s.type === "text");
+  const listSub = item.tokens!.find((s) => s.type === "list");
+  assert(textSub, "should have a text sub-token");
+  assert(listSub, "should have a list sub-token (nested)");
+
+  // The text sub-token should have inline tokens with strong formatting
+  assert(
+    "tokens" in textSub! && Array.isArray((textSub as Tokens.Text).tokens),
+    "text sub-token should have inline tokens array",
+  );
+  const inlineTokens = (textSub as Tokens.Text).tokens!;
+  const strongToken = inlineTokens.find((t: Token) => t.type === "strong");
+  assert(strongToken, "text sub-token inline tokens should contain strong");
+  assertEquals((strongToken as Tokens.Strong).text, "bold");
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Fix 2: stripMarkdown + table cell truncation
+// ──────────────────────────────────────────────────────────────────────
+
+Deno.test("stripMarkdown removes bold markers", () => {
+  assertEquals(stripMarkdown("**very long bold text**"), "very long bold text");
+});
+
+Deno.test("stripMarkdown removes mixed formatting", () => {
+  assertEquals(stripMarkdown("**bold** and *italic* `code`"), "bold and italic code");
+});
+
+Deno.test("alignCell truncates bold text to clean visible text", () => {
+  // "**very long bold text**" visible=20, width=8 → strip then truncate
+  const result = alignCell("**very long bold text**", 8, "left");
+  assertEquals(result, "very lo…");
+  // Should NOT contain markdown markers like "**"
+  assert(!result.includes("**"), "truncated result should not contain markdown markers");
+});
+
+Deno.test("alignCell truncates link syntax to clean text", () => {
+  const result = alignCell("[very long link text](http://example.com)", 8, "left");
+  assertEquals(result, "very lo…");
+  assert(!result.includes("["), "should not contain link brackets");
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Fix 3: Multi-line blockquote paragraph splitting
+// ──────────────────────────────────────────────────────────────────────
+
+Deno.test("multi-line blockquote paragraph preserves newlines in text", () => {
+  const tokens = marked.lexer("> line one\n> line two\n> line three");
+  const bq = tokens.find((t) => t.type === "blockquote") as Tokens.Blockquote;
+  assert(bq, "should produce a blockquote token");
+
+  // Should have a single paragraph sub-token with newlines preserved
+  const para = bq.tokens.find((t: Token) => t.type === "paragraph") as Tokens.Paragraph;
+  assert(para, "blockquote should contain a paragraph");
+
+  const lines = para.text.split("\n");
+  assertEquals(lines.length, 3, "paragraph text should have 3 lines");
+  assertEquals(lines[0], "line one");
+  assertEquals(lines[1], "line two");
+  assertEquals(lines[2], "line three");
 });

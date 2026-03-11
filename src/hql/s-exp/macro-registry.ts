@@ -49,7 +49,6 @@ export class MacroRegistry {
       name: name,
       kind: "macro",
       scope: "global",
-      meta: { isCore: true },
     });
   }
 
@@ -133,7 +132,6 @@ export class MacroRegistry {
         scope: "local",
         aliasOf: aliasName ? macroName : undefined,
         isImported: true,
-        meta: { importedInFile: toFile, isSystemMacro: true },
       });
 
       return true;

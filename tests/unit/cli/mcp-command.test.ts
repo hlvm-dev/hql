@@ -1,26 +1,7 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
-import { log } from "../../../src/hlvm/api/log.ts";
 import { mcpCommand } from "../../../src/hlvm/cli/commands/mcp.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
-import { withRuntimeHostServer } from "../../shared/light-helpers.ts";
-
-async function withCapturedOutput(
-  fn: (output: () => string) => Promise<void>,
-): Promise<void> {
-  const raw = log.raw as { log: (text: string) => void };
-  const originalLog = raw.log;
-  let output = "";
-
-  raw.log = (text: string) => {
-    output += text + (text.endsWith("\n") ? "" : "\n");
-  };
-
-  try {
-    await fn(() => output);
-  } finally {
-    raw.log = originalLog;
-  }
-}
+import { withCapturedOutput, withRuntimeHostServer } from "../../shared/light-helpers.ts";
 
 async function withInteractiveTerminal(
   fn: () => Promise<void>,

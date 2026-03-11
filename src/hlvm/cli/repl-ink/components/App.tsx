@@ -109,6 +109,7 @@ import {
 import { resolveSessionStart } from "../../repl/session/start.ts";
 import {
   buildRecentPromptHistoryContext,
+  isPromptRecencyQuery,
   recordPromptHistory,
 } from "../../repl/prompt-history.ts";
 import { buildTranscriptStateFromSession } from "../conversation-history.ts";
@@ -825,9 +826,15 @@ function AppContent(
       if (!currentSession || currentSession.id !== sessionMeta.id) {
         setCurrentSession(sessionMeta);
       }
+      const chronologySession = isPromptRecencyQuery(query)
+        ? await sessionApi.get(sessionMeta.id)
+        : null;
       const recentPromptContext = buildRecentPromptHistoryContext(
-        replState.history,
+        replState.historyEntries,
         query,
+        {
+          sessionMessages: chronologySession?.messages,
+        },
       );
 
       let textBuffer = "";
@@ -847,22 +854,13 @@ function AppContent(
       const result = await runChatViaHost({
         mode: "agent",
         sessionId: sessionMeta.id,
-        messages: recentPromptContext
-          ? [{
-            role: "system",
-            content: recentPromptContext,
-          }, {
-            role: "user",
-            content: query,
-            image_paths: mediaPaths,
-            client_turn_id: crypto.randomUUID(),
-          }]
-          : [{
-            role: "user",
-            content: query,
-            image_paths: mediaPaths,
-            client_turn_id: crypto.randomUUID(),
-          }],
+        messages: [{
+          role: "user",
+          content: query,
+          image_paths: mediaPaths,
+          client_turn_id: crypto.randomUUID(),
+        }],
+        historyContext: recentPromptContext ?? undefined,
         disablePersistentMemory: recentPromptContext !== null,
         model,
         permissionMode: agentExecutionMode,
