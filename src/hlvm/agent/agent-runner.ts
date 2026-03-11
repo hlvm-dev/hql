@@ -31,7 +31,7 @@ import { deriveDefaultSessionKey } from "../runtime/session-key.ts";
 import { type AgentSession, createAgentSession } from "./session.ts";
 import { getAgentEngine } from "./engine.ts";
 import { createDelegateHandler } from "./delegation.ts";
-import { cancelAllThreads } from "./delegate-threads.ts";
+import { cancelAllThreads, getAllThreads } from "./delegate-threads.ts";
 import { setDelegateLimiterMax } from "./concurrency.ts";
 import { createDelegateInbox } from "./delegate-inbox.ts";
 import { createDelegateCoordinationBoard } from "./delegate-coordination.ts";
@@ -795,6 +795,16 @@ export async function runAgentQuery(
         completePersistedAgentTurn(persistedTurn, model, `Error: ${message}`);
       }
       throw error;
+    } finally {
+      // Cancel any still-active background delegates and wait for their promises
+      // to settle so they don't emit on a closed stream controller.
+      const active = getAllThreads().filter((t) =>
+        t.status === "queued" || t.status === "running"
+      );
+      if (active.length > 0) {
+        cancelAllThreads();
+        await Promise.allSettled(active.map((t) => t.promise));
+      }
     }
 
     if (persistedTurn) {

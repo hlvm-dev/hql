@@ -41,6 +41,8 @@ import {
 import {
   CHILD_TOOL_DENYLIST,
   createDelegateHandler,
+  hashContent,
+  snapshotWorkspaceFiles,
 } from "../../../src/hlvm/agent/delegation.ts";
 import {
   addBatchSpawnFailure,
@@ -729,7 +731,7 @@ Deno.test({
           }
         },
         filesModified: ["file.txt"],
-        parentSnapshots: new Map([["file.txt", "original"]]),
+        parentSnapshots: new Map([["file.txt", await hashContent("original")]]),
       }));
 
       const result = await waitAgentFn({}, parentDir) as Record<
@@ -924,7 +926,7 @@ Deno.test("background delegate snapshots parent workspace at spawn time", async 
       thread = getThread(threadId);
     }
     assertExists(thread);
-    assertEquals(thread.parentSnapshots?.get("root.txt"), "baseline");
+    assertEquals(thread.parentSnapshots?.get("root.txt"), await hashContent("baseline"));
     await waitAgentFn({ thread_id: threadId }, parentDir);
   } finally {
     await Deno.remove(parentDir, { recursive: true });
@@ -1487,7 +1489,6 @@ Deno.test("AgentProfile: profile supports maxTokens override", () => {
 import {
   applyChildChanges,
   generateChildDiff,
-  snapshotWorkspaceFiles,
 } from "../../../src/hlvm/agent/delegation.ts";
 import { createWorkspaceLease } from "../../../src/hlvm/agent/workspace-leases.ts";
 
@@ -1602,7 +1603,7 @@ Deno.test("applyChildChanges: detects real conflict when parent changed since sp
 
     // Snapshot parent at "spawn" time
     const snapshots = await snapshotWorkspaceFiles(parentDir);
-    assertEquals(snapshots.get("shared.txt"), "original");
+    assertEquals(snapshots.get("shared.txt"), await hashContent("original"));
 
     // Simulate parent changing the file AFTER child was spawned
     await Deno.writeTextFile(`${parentDir}/shared.txt`, "parent changed it");
@@ -1700,7 +1701,7 @@ Deno.test("wait_agent auto-applies clean child changes and records merge state",
         }
       },
       filesModified: ["file.txt"],
-      parentSnapshots: new Map([["file.txt", "original"]]),
+      parentSnapshots: new Map([["file.txt", await hashContent("original")]]),
     });
     registerThread(thread);
 
@@ -1740,7 +1741,7 @@ Deno.test("wait_agent preserves conflicts until discard_agent_changes", async ()
         }
       },
       filesModified: ["file.txt"],
-      parentSnapshots: new Map([["file.txt", "original"]]),
+      parentSnapshots: new Map([["file.txt", await hashContent("original")]]),
     });
     registerThread(thread);
 
@@ -1786,7 +1787,7 @@ Deno.test("apply_agent_changes applies a completed child workspace exactly once"
         }
       },
       filesModified: ["file.txt"],
-      parentSnapshots: new Map([["file.txt", "original"]]),
+      parentSnapshots: new Map([["file.txt", await hashContent("original")]]),
     }));
 
     const applyFn = DELEGATE_TOOLS.apply_agent_changes.fn as TestToolFn;

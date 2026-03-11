@@ -251,6 +251,18 @@ export async function generateChildDiff(
   return { diff: diffLines.join("\n"), filesModified: modified };
 }
 
+/** SHA-256 hash a string for lightweight conflict detection (avoids storing full file contents). */
+export async function hashContent(content: string): Promise<string> {
+  const data = new TextEncoder().encode(content);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  const arr = new Uint8Array(buf);
+  let hex = "";
+  for (let i = 0; i < arr.length; i++) {
+    hex += arr[i].toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
 /**
  * Apply non-conflicting child changes to the parent workspace.
  * Returns list of files that had conflicts (parent changed since spawn).
@@ -272,16 +284,17 @@ export async function applyChildChanges(
     try {
       const childContent = await platform.fs.readTextFile(childPath);
 
-      // Real conflict detection: if we have a snapshot of the parent at spawn
-      // time, compare current parent to that snapshot. If parent changed since
-      // spawn, it's a true conflict (someone else modified the same file).
+      // Real conflict detection: if we have a snapshot (hash) of the parent at
+      // spawn time, hash the current parent and compare. If parent changed
+      // since spawn, it's a true conflict (someone else modified the same file).
       if (parentSnapshots) {
-        const spawnContent = parentSnapshots.get(relPath);
+        const spawnHash = parentSnapshots.get(relPath);
         try {
           const currentParent = await platform.fs.readTextFile(parentPath);
+          const currentHash = await hashContent(currentParent);
           if (
-            (spawnContent === undefined && currentParent.length >= 0) ||
-            (spawnContent !== undefined && currentParent !== spawnContent)
+            (spawnHash === undefined && currentParent.length >= 0) ||
+            (spawnHash !== undefined && currentHash !== spawnHash)
           ) {
             // Parent file changed since child was spawned — conflict
             conflicts.push(relPath);
@@ -329,7 +342,8 @@ export async function snapshotWorkspaceFiles(
       }
       if (!entry.isFile) continue;
       try {
-        snapshots.set(relPath, await platform.fs.readTextFile(childPath));
+        const content = await platform.fs.readTextFile(childPath);
+        snapshots.set(relPath, await hashContent(content));
       } catch {
         // Best-effort snapshot only
       }
@@ -384,10 +398,13 @@ async function runDelegateChild(
     config.agentProfiles ?? baseConfig.agentProfiles,
   );
 
+  // ALWAYS create a fresh LLM for children — the parent LLM has onToken baked
+  // in, which would leak child tokens into the parent's NDJSON response stream
+  // and cause concurrent writes to the HTTP stream controller.
   let childLlm = llm;
   if (baseConfig.fixturePath) {
     childLlm = createFixtureLLM(await loadLlmFixture(baseConfig.fixturePath));
-  } else if (profile?.model || profile?.temperature !== undefined) {
+  } else {
     try {
       childLlm = getAgentEngine().createLLM({
         model: profile?.model,

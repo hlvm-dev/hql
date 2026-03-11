@@ -269,6 +269,14 @@ function spawnRuntimeHost(authToken: string): void {
   const env = {
     ...platform.env.toObject(),
     HLVM_AUTH_TOKEN: authToken,
+    // Increase V8 heap limit for the runtime server.
+    // Background delegates run in-process and each holds LLM context + tool
+    // schemas, which can exceed the default ~1.7 GB heap with 2+ concurrent
+    // delegates.
+    DENO_V8_FLAGS: [
+      platform.env.get("DENO_V8_FLAGS"),
+      "--max-old-space-size=4096",
+    ].filter(Boolean).join(","),
   };
   const process = platform.command.run({
     cmd: buildRuntimeServeCommand(),

@@ -13,7 +13,7 @@ import React, {
 import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
-import { Banner, getBannerRowCount } from "./Banner.tsx";
+import { Banner } from "./Banner.tsx";
 import { SessionPicker } from "./SessionPicker.tsx";
 import { ConfigOverlay, type ConfigOverlayState } from "./ConfigOverlay.tsx";
 import {
@@ -491,7 +491,9 @@ function AppContent(
     restoredComposerCursorOffset,
     setRestoredComposerCursorOffset,
   ] = useState(0);
-  const [composerLayoutRows, setComposerLayoutRows] = useState(1);
+  // NOTE: composerLayoutRows was removed — the feedback loop between Input's
+  // onLayoutRowsChange → App state → ConversationPanel reservedRows caused
+  // cascading re-renders on every keystroke, duplicating prompt lines in Ink.
   const queueEditBinding = useMemo(
     () => getConversationQueueEditBinding(getPlatform().env),
     [],
@@ -1838,62 +1840,7 @@ function AppContent(
     </Box>
   );
   const staticBannerProps = { items: bannerItems, children: renderBannerItem };
-  const bannerReservedRows = showBanner && !hasBeenCleared
-    ? bannerRendered
-      ? getBannerRowCount(
-        init.errors.length,
-        terminalWidth,
-        terminalHeight,
-      )
-      : 1
-    : 0;
-  const mainViewportHeight = Math.max(1, terminalHeight - bannerReservedRows);
-  const overlayScreen = (() => {
-    switch (activeOverlay) {
-      case "palette":
-        return (
-          <CommandPaletteOverlay
-            onClose={() => setActiveOverlay("none")}
-            onExecute={handlePaletteAction}
-            onRebind={handleRebind}
-            initialState={paletteState}
-            onStateChange={setPaletteState}
-          />
-        );
-      case "config-overlay":
-        return (
-          <ConfigOverlay
-            onClose={() => setActiveOverlay("none")}
-            onOpenModelBrowser={() => {
-              setModelBrowserParentSurface(surfacePanel);
-              setModelBrowserParentOverlay("config-overlay");
-              setActiveOverlay("none");
-              setSurfacePanel("models");
-            }}
-            onConfigChange={(cfg) =>
-              applyRuntimeConfigState(
-                cfg as unknown as Record<string, unknown>,
-              )}
-            initialState={configOverlayState}
-            onStateChange={setConfigOverlayState}
-          />
-        );
-      case "tasks-overlay":
-        return <BackgroundTasksOverlay onClose={() => setActiveOverlay("none")} />;
-      case "team-dashboard":
-        return (
-          <TeamDashboardOverlay
-            onClose={() => setActiveOverlay("none")}
-            teamState={teamState}
-            interactionMode={pendingInteraction?.mode}
-          />
-        );
-      case "shortcuts-overlay":
-        return <ShortcutsOverlay onClose={() => setActiveOverlay("none")} />;
-      default:
-        return null;
-    }
-  })();
+  // overlayScreen removed — overlays are inlined as flat conditional siblings in JSX
   const standaloneSurfaceScreen = (() => {
     switch (surfacePanel) {
       case "picker":
@@ -1991,18 +1938,56 @@ function AppContent(
       key={clearKey}
       flexDirection="column"
       paddingX={1}
-      height={mainViewportHeight}
     >
-      {isOverlayOpen ? overlayScreen : (
-        <>
-      {/* Banner rendered via Static to prevent double-render issues */}
+      {/* Banner rendered via Static — MUST be unconditional direct child (Ink requirement) */}
       {showBanner && !hasBeenCleared && !bannerRendered && (
         <Text dimColor>Loading HLVM...</Text>
       )}
       <Static<BannerItem> {...staticBannerProps} />
 
-      {/* History of inputs and outputs (hidden while the conversation surface is active) */}
-      {!hasConversationContext && !hasStandaloneSurface &&
+      {/* Overlays rendered as siblings (not ternary) to preserve Ink's live area tracking */}
+      {activeOverlay === "palette" && (
+        <CommandPaletteOverlay
+          onClose={() => setActiveOverlay("none")}
+          onExecute={handlePaletteAction}
+          onRebind={handleRebind}
+          initialState={paletteState}
+          onStateChange={setPaletteState}
+        />
+      )}
+      {activeOverlay === "config-overlay" && (
+        <ConfigOverlay
+          onClose={() => setActiveOverlay("none")}
+          onOpenModelBrowser={() => {
+            setModelBrowserParentSurface(surfacePanel);
+            setModelBrowserParentOverlay("config-overlay");
+            setActiveOverlay("none");
+            setSurfacePanel("models");
+          }}
+          onConfigChange={(cfg) =>
+            applyRuntimeConfigState(
+              cfg as unknown as Record<string, unknown>,
+            )}
+          initialState={configOverlayState}
+          onStateChange={setConfigOverlayState}
+        />
+      )}
+      {activeOverlay === "tasks-overlay" && (
+        <BackgroundTasksOverlay onClose={() => setActiveOverlay("none")} />
+      )}
+      {activeOverlay === "team-dashboard" && (
+        <TeamDashboardOverlay
+          onClose={() => setActiveOverlay("none")}
+          teamState={teamState}
+          interactionMode={pendingInteraction?.mode}
+        />
+      )}
+      {activeOverlay === "shortcuts-overlay" && (
+        <ShortcutsOverlay onClose={() => setActiveOverlay("none")} />
+      )}
+
+      {/* History of inputs and outputs (hidden during conversation to prevent ghost rendering) */}
+      {!isOverlayOpen && !hasConversationContext && !hasStandaloneSurface &&
         history.map((entry: HistoryEntry) => {
         const lines = entry.input.split("\n");
         const unclosedDepth = lines.length > 1
@@ -2035,23 +2020,19 @@ function AppContent(
         );
       })}
 
-      {hasStandaloneSurface && standaloneSurfaceScreen && (
+      {/* Standalone surfaces (picker, model browser, etc.) */}
+      {!isOverlayOpen && hasStandaloneSurface && standaloneSurfaceScreen && (
         <Box flexGrow={1} justifyContent="center" alignItems="center">
           {standaloneSurfaceScreen}
         </Box>
       )}
 
       {/* Conversation Panel (agent mode) */}
-      {hasConversationContext && (
+      {!isOverlayOpen && hasConversationContext && (
         <Box flexGrow={1} flexDirection="column" justifyContent="flex-end">
           <ConversationPanel
             items={conversation.items}
             width={Math.max(20, terminalWidth - 2)}
-            reservedRows={Math.max(
-              4,
-              composerLayoutRows +
-                queuePreviewRows + 1,
-            )}
             streamingState={conversation.streamingState}
             activePlan={conversation.activePlan}
             todoState={conversation.todoState ?? conversation.planTodoState}
@@ -2067,7 +2048,7 @@ function AppContent(
       )}
 
       {/* Queue preview bar (visible above input when queue has items in conversation mode) */}
-      {hasConversationContext && pendingConversationQueue.length > 0 &&
+      {!isOverlayOpen && hasConversationContext && pendingConversationQueue.length > 0 &&
         (
           <QueuePreview
             items={pendingConversationQueue}
@@ -2077,7 +2058,7 @@ function AppContent(
 
       {/* Input line */}
       {/* FRP: Input now gets history, bindings, signatures, docstrings from ReplContext */}
-      {isInputVisible &&
+      {!isOverlayOpen && isInputVisible &&
         (
           <Input
             value={input}
@@ -2102,7 +2083,6 @@ function AppContent(
             restoredAttachments={composerAttachments}
             restoredCursorOffset={restoredComposerCursorOffset}
             restoredDraftRevision={restoredComposerDraftRevision}
-            onLayoutRowsChange={setComposerLayoutRows}
             onCycleMode={cycleAgentMode}
             disabled={isInputDisabled}
             highlightMode={hasConversationContext ? "chat" : "code"}
@@ -2114,10 +2094,10 @@ function AppContent(
         )}
 
       {/* Keep the prompt attached to content while pinning the footer to the bottom in plain REPL mode */}
-      {!hasConversationContext && !hasStandaloneSurface && <Box flexGrow={1} />}
+      {!isOverlayOpen && !hasConversationContext && !hasStandaloneSurface && <Box flexGrow={1} />}
 
       {/* Footer hint */}
-      {(isInputVisible || hasConversationContext) &&
+      {!isOverlayOpen && (isInputVisible || hasConversationContext) &&
         (
           <FooterHint
             modelName={footerModelName}
@@ -2152,9 +2132,7 @@ function AppContent(
           />
         )}
 
-      {isEvaluating && !hasConversationContext && <Text dimColor>...</Text>}
-        </>
-      )}
+      {!isOverlayOpen && isEvaluating && !hasConversationContext && <Text dimColor>...</Text>}
     </Box>
   );
 }

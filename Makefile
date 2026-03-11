@@ -27,6 +27,7 @@ openapi:
 build: clean stdlib embed-packages
 	@echo "🔨 Building HLVM binary (clean)..."
 	@DENO_DIR=$$(mktemp -d) deno compile --allow-all --no-check --config deno.json \
+		--v8-flags=--max-old-space-size=4096 \
 		--include src/hql/lib/stdlib/js/index.js \
 		--include src/hql/lib/stdlib/js/ai.js \
 		--output $(BINARY) $(CLI_ENTRY)

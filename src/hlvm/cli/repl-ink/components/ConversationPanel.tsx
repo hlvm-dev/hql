@@ -48,21 +48,13 @@ import {
   TurnStats,
   UserMessage,
 } from "./conversation/index.ts";
-import { buildCitationRenderView } from "./conversation/AssistantMessage.tsx";
-import { resolveToolResultText } from "./conversation/ToolCallItem.tsx";
-import {
-  detectContentType,
-  tryFormatJson,
-} from "./conversation/ToolResult.tsx";
 import { useSemanticColors } from "../../theme/index.ts";
-import { estimateInteractionDialogRows } from "./conversation/interaction-dialog-layout.ts";
 
 const CONVERSATION_KEYBINDING_CATEGORIES = ["Conversation"] as const;
 
 interface ConversationPanelProps {
   items: ConversationItem[];
   width: number;
-  reservedRows?: number;
   streamingState?: StreamingState;
   activePlan?: Plan;
   todoState?: TodoState;
@@ -99,140 +91,6 @@ function shouldRenderConversationItem(item: ConversationItem): boolean {
     isStructuredTeamInfoItem(item) &&
     item.teamEventType === "team_runtime_snapshot"
   );
-}
-
-function estimateToolResultRows(
-  text: string,
-  maxLines: number,
-  expanded: boolean,
-): number {
-  if (!text) return 0;
-
-  const contentType = detectContentType(text);
-  const displayText = contentType === "json"
-    ? (tryFormatJson(text) ?? text)
-    : text;
-  const allLines = displayText.split("\n");
-  const effectiveMaxLines = expanded ? Number.MAX_SAFE_INTEGER : maxLines;
-  const truncated = allLines.length > effectiveMaxLines;
-  return Math.min(allLines.length, effectiveMaxLines) + (truncated ? 1 : 0);
-}
-
-function estimateConversationItemRows(
-  item: ConversationItem,
-  width: number,
-  {
-    isToolExpanded,
-    isThinkingExpanded,
-    isDelegateExpanded,
-  }: {
-    isToolExpanded: (toolId: string) => boolean;
-    isThinkingExpanded: (thinkingId: string) => boolean;
-    isDelegateExpanded: (delegateId: string) => boolean;
-  },
-): number {
-  if (!shouldRenderConversationItem(item)) {
-    return 0;
-  }
-
-  switch (item.type) {
-    case "user":
-      return estimateWrappedRows(item.text, Math.max(10, width - 8)) + 2;
-    case "assistant": {
-      const contentWidth = Math.max(10, width - 5);
-      const citationView = buildCitationRenderView(
-        item.text,
-        item.citations ?? [],
-      );
-      const visibleSources = citationView.sources.slice(0, 6);
-      let rows = estimateWrappedRows(citationView.text, contentWidth);
-
-      if (!item.isPending && visibleSources.length > 0) {
-        rows += 1; // Sources label
-        rows += visibleSources.length * 2; // title + url
-        if (citationView.sources.length > visibleSources.length) {
-          rows += 1;
-        }
-        rows += 1; // latest source hint
-      }
-
-      if (item.isPending) {
-        rows += 1;
-      }
-
-      return Math.max(1, rows) + 1; // outer marginBottom
-    }
-    case "thinking": {
-      const lines = item.summary ? item.summary.split("\n") : [];
-      const bodyLines = lines.slice(1);
-      const visibleBodyLines = bodyLines.slice(
-        0,
-        isThinkingExpanded(item.id) ? bodyLines.length : 3,
-      );
-      let rows = 1; // title line
-
-      if (visibleBodyLines.length > 0) {
-        rows += estimateWrappedRows(
-          visibleBodyLines.join("\n").trim(),
-          Math.max(10, width - 8),
-        );
-      }
-      if (bodyLines.length > visibleBodyLines.length) {
-        rows += 1;
-      }
-
-      return rows + 1; // marginBottom
-    }
-    case "tool_group": {
-      let rows = 3; // top border + header + bottom border
-
-      for (const tool of item.tools) {
-        rows += 1; // primary tool line
-        const expanded = isToolExpanded(tool.id);
-        const resultText = resolveToolResultText(tool, expanded);
-        if (resultText && tool.status !== "running") {
-          rows += estimateToolResultRows(
-            resultText,
-            tool.status === "error" ? 12 : 8,
-            expanded,
-          );
-        }
-      }
-
-      return rows;
-    }
-    case "delegate": {
-      let rows = 2; // header + task
-      const body = item.status === "error"
-        ? item.error
-        : item.status === "cancelled"
-        ? "Cancelled"
-        : item.summary;
-
-      if (body) {
-        rows += 1;
-      }
-      if (item.childSessionId) {
-        rows += 1;
-      }
-      if (isDelegateExpanded(item.id) && item.snapshot) {
-        rows += item.snapshot.events.length;
-        if (item.snapshot.finalResponse) {
-          rows += 1;
-        }
-      }
-
-      return rows + 1; // marginBottom
-    }
-    case "turn_stats":
-      return 3;
-    case "error":
-      return estimateWrappedRows(item.text, Math.max(10, width - 4)) + 1;
-    case "info":
-      return estimateWrappedRows(item.text, Math.max(10, width - 4)) + 1;
-    default:
-      return 1;
-  }
 }
 
 function getToggleTargets(items: ConversationItem[]): ToggleTarget[] {
@@ -342,7 +200,6 @@ function renderItem(
 export function ConversationPanel({
   items,
   width,
-  reservedRows,
   streamingState,
   activePlan,
   todoState,
@@ -425,52 +282,21 @@ export function ConversationPanel({
     }
     return total;
   })();
-  const visibleRows = useMemo(
-    () => {
-      const interactionRows = interactionRequest
-        ? estimateInteractionDialogRows(interactionRequest, contentWidth) +
-          (interactionQueueLength > 1 ? 1 : 0) + 1
-        : 0;
-      return getConversationVisibleCount(terminalRows, {
-        reservedRows: (reservedRows ?? 8) + interactionRows + headerRows,
-      });
-    },
-    [
-      contentWidth,
-      headerRows,
-      interactionQueueLength,
-      interactionRequest,
-      reservedRows,
-      terminalRows,
-    ],
-  );
-  const itemRowHeights = useMemo(
+  const visibleCount = useMemo(
     () =>
-      displayItems.map((item: ConversationItem) =>
-        estimateConversationItemRows(item, width, {
-          isToolExpanded: (toolId: string) => expandedToolIds.has(toolId),
-          isThinkingExpanded: (thinkingId: string) =>
-            expandedThinkingIds.has(thinkingId),
-          isDelegateExpanded: (delegateId: string) =>
-            expandedDelegateIds.has(delegateId),
-        })
-      ),
-    [
-      displayItems,
-      expandedDelegateIds,
-      expandedThinkingIds,
-      expandedToolIds,
-      width,
-    ],
+      getConversationVisibleCount(terminalRows, {
+        reservedRows: (interactionRequest ? 12 : 8) + headerRows,
+      }),
+    [headerRows, interactionRequest, terminalRows],
   );
   const viewport = useMemo(
     () =>
       computeConversationViewport(
-        itemRowHeights,
-        visibleRows,
+        displayItems.length,
+        visibleCount,
         scrollOffsetFromBottom,
       ),
-    [itemRowHeights, scrollOffsetFromBottom, visibleRows],
+    [displayItems.length, scrollOffsetFromBottom, visibleCount],
   );
   const visibleItems = useMemo(
     () => displayItems.slice(viewport.start, viewport.end),
@@ -479,9 +305,9 @@ export function ConversationPanel({
 
   useEffect(() => {
     setScrollOffsetFromBottom((prev: number) =>
-      clampConversationScrollOffset(prev, itemRowHeights, visibleRows)
+      clampConversationScrollOffset(prev, displayItems.length, visibleCount)
     );
-  }, [itemRowHeights, visibleRows]);
+  }, [displayItems.length, visibleCount]);
 
   // Toggle targets operate over the visible conversation so the latest
   // tool/thinking block can always be expanded without duplicating turns.
@@ -555,23 +381,23 @@ export function ConversationPanel({
     if (!displayItems.length) return;
 
     if (key.pageUp) {
-      const pageSize = Math.max(1, visibleRows - 1);
+      const pageSize = Math.max(1, visibleCount - 1);
       setScrollOffsetFromBottom((prev: number) =>
         clampConversationScrollOffset(
           prev + pageSize,
-          itemRowHeights,
-          visibleRows,
+          displayItems.length,
+          visibleCount,
         )
       );
       return;
     }
     if (key.pageDown) {
-      const pageSize = Math.max(1, visibleRows - 1);
+      const pageSize = Math.max(1, visibleCount - 1);
       setScrollOffsetFromBottom((prev: number) =>
         clampConversationScrollOffset(
           prev - pageSize,
-          itemRowHeights,
-          visibleRows,
+          displayItems.length,
+          visibleCount,
         )
       );
       return;

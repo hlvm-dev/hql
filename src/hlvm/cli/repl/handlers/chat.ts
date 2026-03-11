@@ -395,11 +395,13 @@ export async function handleChat(req: Request): Promise<Response> {
 
   const stream = new ReadableStream({
     async start(streamController) {
+      let streamClosed = false;
       function emit(obj: unknown): void {
+        if (streamClosed) return;
         try {
           streamController.enqueue(textEncoder.encode(ndjsonLine(obj)));
         } catch {
-          // Stream closed
+          streamClosed = true;
         }
       }
 
@@ -588,6 +590,7 @@ export async function handleChat(req: Request): Promise<Response> {
         }
       }
 
+      streamClosed = true;
       clearInterval(heartbeatInterval);
       try {
         streamController.close();
