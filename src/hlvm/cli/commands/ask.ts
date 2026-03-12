@@ -459,7 +459,10 @@ export async function askCommand(args: string[]): Promise<void> {
     runtimeConfig.evaluateProviderApproval(resolvedModel).status ===
       "approval_required"
   ) {
-    const consented = await confirmPaidProviderConsent(resolvedModel, runtimeConfig);
+    const consented = await confirmPaidProviderConsent(
+      resolvedModel,
+      runtimeConfig,
+    );
     if (!consented) {
       log.raw.log(
         "Aborted. Use a free model (e.g., Ollama) or re-run to approve.",
@@ -519,13 +522,22 @@ export async function askCommand(args: string[]): Promise<void> {
             log.raw.log(`\n[${label}] ${event.name}\n${event.content}\n`);
           }
           break;
-        case "thinking_update":
+        case "reasoning_update":
           if (streamedTokens) {
             log.raw.write("\n");
             streamedTokens = false;
           }
           if (event.summary.trim()) {
-            log.raw.log(`\n[Thinking] ${event.summary}\n`);
+            log.raw.log(`\n[Reasoning] ${event.summary}\n`);
+          }
+          break;
+        case "planning_update":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          if (event.summary.trim()) {
+            log.raw.log(`\n[Planning] ${event.summary}\n`);
           }
           break;
         case "delegate_start":
@@ -599,7 +611,9 @@ export async function askCommand(args: string[]): Promise<void> {
             streamedTokens = false;
           }
           log.raw.log(
-            `\n[Team Plan Review] ${event.approved ? "approved" : "rejected"} for task ${event.taskId}\n`,
+            `\n[Team Plan Review] ${
+              event.approved ? "approved" : "rejected"
+            } for task ${event.taskId}\n`,
           );
           break;
         case "team_shutdown_requested":
@@ -635,10 +649,12 @@ export async function askCommand(args: string[]): Promise<void> {
             streamedTokens = false;
           }
           log.raw.log(
-            `\n[Plan Review]\n${formatPlanForContext(event.plan, {
-              mode: "always",
-              requireStepMarkers: false,
-            })}\n`,
+            `\n[Plan Review]\n${
+              formatPlanForContext(event.plan, {
+                mode: "always",
+                requireStepMarkers: false,
+              })
+            }\n`,
           );
           break;
         case "plan_review_resolved":
@@ -647,7 +663,9 @@ export async function askCommand(args: string[]): Promise<void> {
             streamedTokens = false;
           }
           log.raw.log(
-            `\n[Plan Review Result] ${event.approved ? "approved" : "cancelled"}\n`,
+            `\n[Plan Review Result] ${
+              event.approved ? "approved" : "cancelled"
+            }\n`,
           );
           break;
         case "checkpoint_created":
@@ -679,7 +697,7 @@ export async function askCommand(args: string[]): Promise<void> {
     switch (event.type) {
       case "thinking":
         if (!streamedTokens) {
-          log.raw.write(`\r\x1b[K\x1b[2m\u2847 Thinking\u2026\x1b[0m`);
+          log.raw.write(`\r\x1b[K\x1b[2m\u2847 Working\u2026\x1b[0m`);
           thinkingShown = true;
         }
         break;
@@ -938,7 +956,8 @@ export async function askCommand(args: string[]): Promise<void> {
         }),
       verifyCloudAccess: (modelId) =>
         verifyOllamaCloudAccess(modelId, {
-          onError: (message) => log.error(`Cloud access check failed: ${message}`),
+          onError: (message) =>
+            log.error(`Cloud access check failed: ${message}`),
         }),
       executeQuery,
       logRaw: (message: string) => log.raw.log(message),
@@ -978,10 +997,10 @@ function formatDelegateSnapshotEvent(
   event: DelegateTranscriptEvent,
 ): string {
   switch (event.type) {
-    case "thinking":
-      return event.summary?.trim()
-        ? `Thinking: ${truncate(event.summary.trim(), 100)}`
-        : "Thinking";
+    case "reasoning":
+      return `Reasoning: ${truncate(event.summary.trim(), 100)}`;
+    case "planning":
+      return `Planning: ${truncate(event.summary.trim(), 100)}`;
     case "plan_created":
       return `Plan created (${event.stepCount} steps)`;
     case "plan_step":

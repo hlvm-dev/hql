@@ -10,6 +10,7 @@
  *   3. Tool reads real DB data and returns it to the LLM
  *   4. The LLM synthesizes a meaningful response from the tool result
  *   5. "before_that" follow-up navigates to the correct older block
+ *   6. "what did I ask last time?" uses literal question history, not activity blocks
  *
  * Requirements:
  *   - Claude Code Max subscription (run `claude login` first)
@@ -243,7 +244,79 @@ Deno.test({
 });
 
 // ============================================================
-// Test 2: sessionId differentiates current_session vs other_session
+// Test 2: literal question history routes to subject=questions
+// ============================================================
+
+Deno.test({
+  name: "E2E real LLM: Claude routes 'what did I ask last time?' to question history",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const db = setupStoreTestDb();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+    try {
+      const sessionId = "e2e-question-last";
+      seedSession(sessionId, [
+        { content: "review cache metrics", created_at: "2026-03-11T09:00:00Z" },
+        { content: "ship billing fix", created_at: "2026-03-11T15:00:00Z" },
+      ]);
+
+      await withIsolatedEnv(async (workspace) => {
+        const events: AgentUIEvent[] = [];
+
+        const result = await runAgentQuery({
+          query: "What did I ask last time?",
+          model: MODEL,
+          workspace,
+          sessionId,
+          permissionMode: "yolo",
+          toolAllowlist: ["recent_activity"],
+          disablePersistentMemory: true,
+          signal: controller.signal,
+          callbacks: {
+            onAgentEvent: (event) => events.push(event),
+          },
+        });
+
+        const toolStart = findToolStart(events);
+        const toolEnd = findToolEnd(events);
+
+        assertEquals(toolEnd?.success, true, "tool must succeed");
+        assertStringIncludes(
+          toolStart!.argsSummary,
+          "last_time",
+          `LLM must call with reference=last_time (got: ${toolStart?.argsSummary})`,
+        );
+        assertStringIncludes(
+          toolStart!.argsSummary,
+          "questions",
+          `LLM must call with subject=questions (got: ${toolStart?.argsSummary})`,
+        );
+        assertStringIncludes(toolEnd!.content, "ship billing fix");
+        assertEquals(
+          toolEnd!.content.includes("review cache metrics"),
+          false,
+          "last question lookup must not fall back to an older prompt",
+        );
+        assertStringIncludes(
+          result.text,
+          "ship billing fix",
+          `assistant must answer from the literal question history (got: ${result.text.slice(0, 200)})`,
+        );
+      });
+    } finally {
+      clearTimeout(timeout);
+      _resetDbForTesting();
+      await disposeAllSessions();
+      db.close();
+    }
+  },
+});
+
+// ============================================================
+// Test 3: sessionId differentiates current_session vs other_session
 // ============================================================
 
 Deno.test({
@@ -308,7 +381,7 @@ Deno.test({
 });
 
 // ============================================================
-// Test 3: a natural yesterday question routes to reference=yesterday
+// Test 4: a natural yesterday question routes to reference=yesterday
 // ============================================================
 
 Deno.test({
@@ -375,7 +448,7 @@ Deno.test({
 });
 
 // ============================================================
-// Test 4: before_that navigates to the correct older block
+// Test 5: before_that navigates to the correct older block
 // ============================================================
 
 Deno.test({

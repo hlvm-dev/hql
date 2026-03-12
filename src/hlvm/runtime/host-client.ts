@@ -466,7 +466,12 @@ async function ensureRuntimeAiReady(): Promise<{
   authToken: string;
 }> {
   const runtime = await ensureRuntimeHost();
-  const health = await waitForRuntimeHost(runtime.baseUrl, undefined, HEALTH_POLL_ATTEMPTS, true);
+  const health = await waitForRuntimeHost(
+    runtime.baseUrl,
+    undefined,
+    HEALTH_POLL_ATTEMPTS,
+    true,
+  );
   if (!health?.authToken) {
     throw createRuntimeHostError(
       "Failed to start or attach to the local HLVM runtime host.",
@@ -498,9 +503,15 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
   switch (event.event) {
     case "thinking":
       return { type: "thinking", iteration: event.iteration };
-    case "thinking_update":
+    case "reasoning_update":
       return {
-        type: "thinking_update",
+        type: "reasoning_update",
+        iteration: event.iteration,
+        summary: event.summary,
+      };
+    case "planning_update":
+      return {
+        type: "planning_update",
         iteration: event.iteration,
         summary: event.summary,
       };
@@ -1020,7 +1031,9 @@ export async function* pullRuntimeModelViaHost(
     throw createRuntimeHostError("Runtime host returned no model pull stream.");
   }
 
-  for await (const event of readNdjsonStream<RuntimeModelPullStreamEvent>(reader)) {
+  for await (
+    const event of readNdjsonStream<RuntimeModelPullStreamEvent>(reader)
+  ) {
     if (event.event === "progress") {
       const { event: _kind, ...progress } = event;
       yield progress;

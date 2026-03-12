@@ -1,6 +1,9 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import { appendJsonLines } from "../../../src/common/jsonl.ts";
-import { getHistoryPath, resetHlvmDirCacheForTests } from "../../../src/common/paths.ts";
+import {
+  getHistoryPath,
+  resetHlvmDirCacheForTests,
+} from "../../../src/common/paths.ts";
 import {
   DAY_MS,
   getLocalDateKey,
@@ -14,6 +17,7 @@ import {
 } from "../../../src/hlvm/store/conversation-store.ts";
 import { _resetDbForTesting } from "../../../src/hlvm/store/db.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { setupStoreTestDb } from "../_shared/store-test-db.ts";
 
 const recentActivity = ACTIVITY_TOOLS.recent_activity.fn;
 const platform = getPlatform;
@@ -30,6 +34,7 @@ interface ActivityBlock {
 
 interface ActivityResult {
   reference: string;
+  subject: "activity" | "questions";
   resolved_label: string;
   blocks: ActivityBlock[];
   total_blocks: number;
@@ -38,15 +43,18 @@ interface ActivityResult {
   timezone: string;
 }
 
-let tempDir: string;
-
-async function setup(): Promise<void> {
-  tempDir = await platform().fs.makeTempDir({ prefix: "hlvm-activity-test-" });
+async function setupTestEnv(): Promise<string> {
+  _resetDbForTesting();
+  setupStoreTestDb();
+  const tempDir = await platform().fs.makeTempDir({
+    prefix: "hlvm-activity-test-",
+  });
   platform().env.set("HLVM_DIR", tempDir);
   resetHlvmDirCacheForTests();
+  return tempDir;
 }
 
-async function teardown(): Promise<void> {
+async function teardownTestEnv(tempDir: string): Promise<void> {
   _resetDbForTesting();
   platform().env.delete("HLVM_DIR");
   resetHlvmDirCacheForTests();
@@ -54,6 +62,15 @@ async function teardown(): Promise<void> {
     await platform().fs.remove(tempDir, { recursive: true });
   } catch {
     // best-effort
+  }
+}
+
+async function withTestEnv(fn: () => Promise<void>): Promise<void> {
+  const tempDir = await setupTestEnv();
+  try {
+    await fn();
+  } finally {
+    await teardownTestEnv(tempDir);
   }
 }
 
@@ -87,8 +104,9 @@ function expectedBlock(
 ): ActivityBlock {
   return {
     date: getLocalDateKey(startTs, TIME_ZONE),
-    time_range:
-      `${getLocalTimeLabel(startTs, TIME_ZONE)} – ${getLocalTimeLabel(endTs, TIME_ZONE)}`,
+    time_range: `${getLocalTimeLabel(startTs, TIME_ZONE)} – ${
+      getLocalTimeLabel(endTs, TIME_ZONE)
+    }`,
     prompts,
     source,
     startTs,
@@ -136,12 +154,12 @@ function findUtcTimestampForLocal(
 }
 
 Deno.test({
-  name: "recent_activity: reference=recent returns exact newest blocks in newest-first order",
+  name:
+    "recent_activity: reference=recent returns exact newest blocks in newest-first order",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
       const sessionId = "session-recent-1";
       const blockATs = Date.parse("2026-03-11T08:00:00Z");
       const blockAEndTs = Date.parse("2026-03-11T08:05:00Z");
@@ -149,10 +167,22 @@ Deno.test({
       const blockCTs = Date.parse("2026-03-11T12:00:00Z");
 
       seedSession(sessionId, [
-        { content: "build React component for dashboard", created_at: new Date(blockATs).toISOString() },
-        { content: "add chart library to package.json", created_at: new Date(blockAEndTs).toISOString() },
-        { content: "deploy to staging environment", created_at: new Date(blockBTs).toISOString() },
-        { content: "publish release notes", created_at: new Date(blockCTs).toISOString() },
+        {
+          content: "build React component for dashboard",
+          created_at: new Date(blockATs).toISOString(),
+        },
+        {
+          content: "add chart library to package.json",
+          created_at: new Date(blockAEndTs).toISOString(),
+        },
+        {
+          content: "deploy to staging environment",
+          created_at: new Date(blockBTs).toISOString(),
+        },
+        {
+          content: "publish release notes",
+          created_at: new Date(blockCTs).toISOString(),
+        },
       ]);
 
       const result = await recentActivity(
@@ -165,7 +195,12 @@ Deno.test({
       assertEquals(result.total_blocks, 3);
       assertEquals(result.has_older, false);
       assertEquals(viewBlocks(result), [
-        expectedBlock(blockCTs, blockCTs, ["publish release notes"], "current_session"),
+        expectedBlock(
+          blockCTs,
+          blockCTs,
+          ["publish release notes"],
+          "current_session",
+        ),
         expectedBlock(
           blockBTs,
           blockBTs,
@@ -182,28 +217,35 @@ Deno.test({
           "current_session",
         ),
       ]);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
 Deno.test({
-  name: "recent_activity: reference=last_time returns the exact newest meaningful block",
+  name:
+    "recent_activity: reference=last_time returns the exact newest meaningful block",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
       const sessionId = "session-last-1";
       const olderTs = Date.parse("2026-03-10T14:00:00Z");
       const newestStartTs = Date.parse("2026-03-11T09:00:00Z");
       const newestEndTs = Date.parse("2026-03-11T09:04:00Z");
 
       seedSession(sessionId, [
-        { content: "research Python asyncio patterns", created_at: new Date(olderTs).toISOString() },
-        { content: "clean up Downloads folder", created_at: new Date(newestStartTs).toISOString() },
-        { content: "remove old xcode zip", created_at: new Date(newestEndTs).toISOString() },
+        {
+          content: "research Python asyncio patterns",
+          created_at: new Date(olderTs).toISOString(),
+        },
+        {
+          content: "clean up Downloads folder",
+          created_at: new Date(newestStartTs).toISOString(),
+        },
+        {
+          content: "remove old xcode zip",
+          created_at: new Date(newestEndTs).toISOString(),
+        },
       ]);
 
       const result = await recentActivity(
@@ -223,29 +265,39 @@ Deno.test({
           "current_session",
         ),
       ]);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
 Deno.test({
-  name: "recent_activity: before_that skips recall-meta prompts and trailing greeting noise",
+  name:
+    "recent_activity: before_that skips recall-meta prompts and trailing greeting noise",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
       const sessionId = "session-before-1";
       const oldestTs = Date.parse("2026-03-09T14:00:00Z");
       const middleTs = Date.parse("2026-03-10T09:00:00Z");
       const newestTs = Date.parse("2026-03-11T11:00:00Z");
 
       seedSession(sessionId, [
-        { content: "research Python asyncio patterns", created_at: new Date(oldestTs).toISOString() },
-        { content: "clean up Downloads folder", created_at: new Date(middleTs).toISOString() },
-        { content: "deploy preview build", created_at: new Date(newestTs).toISOString() },
-        { content: "what did I do last time?", created_at: "2026-03-11T11:05:00Z" },
+        {
+          content: "research Python asyncio patterns",
+          created_at: new Date(oldestTs).toISOString(),
+        },
+        {
+          content: "clean up Downloads folder",
+          created_at: new Date(middleTs).toISOString(),
+        },
+        {
+          content: "deploy preview build",
+          created_at: new Date(newestTs).toISOString(),
+        },
+        {
+          content: "what did I do last time?",
+          created_at: "2026-03-11T11:05:00Z",
+        },
         { content: "hello", created_at: "2026-03-11T11:06:00Z" },
         { content: "and before that?", created_at: "2026-03-11T11:07:00Z" },
       ]);
@@ -267,19 +319,17 @@ Deno.test({
           "current_session",
         ),
       ]);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
 Deno.test({
-  name: "recent_activity: before_that offset_blocks paginates older blocks exactly one block at a time",
+  name:
+    "recent_activity: before_that offset_blocks paginates older blocks exactly one block at a time",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
       const sessionId = "session-before-offset-1";
       const oldestTs = Date.parse("2026-03-08T10:00:00Z");
       const olderTs = Date.parse("2026-03-09T10:00:00Z");
@@ -287,11 +337,26 @@ Deno.test({
       const newestTs = Date.parse("2026-03-11T10:00:00Z");
 
       seedSession(sessionId, [
-        { content: "draft release checklist", created_at: new Date(oldestTs).toISOString() },
-        { content: "prepare rollback plan", created_at: new Date(olderTs).toISOString() },
-        { content: "review CI failures", created_at: new Date(middleTs).toISOString() },
-        { content: "ship hotfix build", created_at: new Date(newestTs).toISOString() },
-        { content: "what did I do last time?", created_at: "2026-03-11T10:05:00Z" },
+        {
+          content: "draft release checklist",
+          created_at: new Date(oldestTs).toISOString(),
+        },
+        {
+          content: "prepare rollback plan",
+          created_at: new Date(olderTs).toISOString(),
+        },
+        {
+          content: "review CI failures",
+          created_at: new Date(middleTs).toISOString(),
+        },
+        {
+          content: "ship hotfix build",
+          created_at: new Date(newestTs).toISOString(),
+        },
+        {
+          content: "what did I do last time?",
+          created_at: "2026-03-11T10:05:00Z",
+        },
         { content: "before that?", created_at: "2026-03-11T10:06:00Z" },
       ]);
 
@@ -312,19 +377,122 @@ Deno.test({
           "current_session",
         ),
       ]);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
 Deno.test({
-  name: "recent_activity: reference=today paginates within today only and reports scoped has_older",
+  name:
+    "recent_activity: question subject returns the literal previous question instead of the latest activity block",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
+      const sessionId = "session-question-last-1";
+      const olderTs = Date.parse("2026-03-10T09:00:00Z");
+      const newestTs = Date.parse("2026-03-11T15:00:00Z");
+      const currentQueryTs = Date.parse("2026-03-11T15:05:00Z");
+      const currentUserRequest = "What did I ask last time?";
+
+      seedSession(sessionId, [
+        {
+          content: "review cache metrics",
+          created_at: new Date(olderTs).toISOString(),
+        },
+        {
+          content: "ship billing fix",
+          created_at: new Date(newestTs).toISOString(),
+        },
+        {
+          content: currentUserRequest,
+          created_at: new Date(currentQueryTs).toISOString(),
+        },
+      ]);
+
+      const result = await recentActivity(
+        { reference: "last_time", subject: "questions" },
+        "/tmp",
+        { sessionId, currentUserRequest },
+      ) as ActivityResult;
+
+      assertEquals(result.reference, "last_time");
+      assertEquals(result.subject, "questions");
+      assertEquals(result.total_blocks, 2);
+      assertEquals(result.has_older, true);
+      assertEquals(viewBlocks(result), [
+        expectedBlock(
+          newestTs,
+          newestTs,
+          ["ship billing fix"],
+          "current_session",
+        ),
+      ]);
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "recent_activity: question subject before_that steps back to the prior literal question",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTestEnv(async () => {
+      const sessionId = "session-question-before-1";
+      const oldestTs = Date.parse("2026-03-10T09:00:00Z");
+      const newerTs = Date.parse("2026-03-11T15:00:00Z");
+      const recallTs = Date.parse("2026-03-11T15:05:00Z");
+      const currentQueryTs = Date.parse("2026-03-11T15:06:00Z");
+      const currentUserRequest = "before that?";
+
+      seedSession(sessionId, [
+        {
+          content: "review cache metrics",
+          created_at: new Date(oldestTs).toISOString(),
+        },
+        {
+          content: "ship billing fix",
+          created_at: new Date(newerTs).toISOString(),
+        },
+        {
+          content: "What did I ask last time?",
+          created_at: new Date(recallTs).toISOString(),
+        },
+        {
+          content: currentUserRequest,
+          created_at: new Date(currentQueryTs).toISOString(),
+        },
+      ]);
+
+      const result = await recentActivity(
+        { reference: "before_that", subject: "questions" },
+        "/tmp",
+        { sessionId, currentUserRequest },
+      ) as ActivityResult;
+
+      assertEquals(result.reference, "before_that");
+      assertEquals(result.subject, "questions");
+      assertEquals(result.total_blocks, 1);
+      assertEquals(result.has_older, false);
+      assertEquals(viewBlocks(result), [
+        expectedBlock(
+          oldestTs,
+          oldestTs,
+          ["review cache metrics"],
+          "current_session",
+        ),
+      ]);
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "recent_activity: reference=today paginates within today only and reports scoped has_older",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTestEnv(async () => {
       const sessionId = "session-today-1";
       const todayKey = getLocalDateKey(Date.now(), TIME_ZONE);
       const yesterdayKey = getLocalDateKey(Date.now() - DAY_MS, TIME_ZONE);
@@ -333,9 +501,18 @@ Deno.test({
       const todayAfternoonTs = findUtcTimestampForLocal(todayKey, 15, 0);
 
       seedSession(sessionId, [
-        { content: "audit legacy metrics snapshot", created_at: new Date(yesterdayTs).toISOString() },
-        { content: "review cache metrics", created_at: new Date(todayMorningTs).toISOString() },
-        { content: "ship billing fix", created_at: new Date(todayAfternoonTs).toISOString() },
+        {
+          content: "audit legacy metrics snapshot",
+          created_at: new Date(yesterdayTs).toISOString(),
+        },
+        {
+          content: "review cache metrics",
+          created_at: new Date(todayMorningTs).toISOString(),
+        },
+        {
+          content: "ship billing fix",
+          created_at: new Date(todayAfternoonTs).toISOString(),
+        },
       ]);
 
       const firstPage = await recentActivity(
@@ -370,33 +547,47 @@ Deno.test({
           "current_session",
         ),
       ]);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
 Deno.test({
-  name: "recent_activity: reference=yesterday returns exact yesterday blocks only",
+  name:
+    "recent_activity: reference=yesterday returns exact yesterday blocks only",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
       const sessionId = "session-yesterday-1";
       const yesterdayKey = getLocalDateKey(Date.now() - DAY_MS, TIME_ZONE);
       const twoDaysAgoKey = getLocalDateKey(Date.now() - 2 * DAY_MS, TIME_ZONE);
       const todayKey = getLocalDateKey(Date.now(), TIME_ZONE);
       const olderTs = findUtcTimestampForLocal(twoDaysAgoKey, 10, 0);
       const yesterdayMorningTs = findUtcTimestampForLocal(yesterdayKey, 10, 0);
-      const yesterdayAfternoonTs = findUtcTimestampForLocal(yesterdayKey, 14, 0);
+      const yesterdayAfternoonTs = findUtcTimestampForLocal(
+        yesterdayKey,
+        14,
+        0,
+      );
       const todayTs = findUtcTimestampForLocal(todayKey, 8, 0);
 
       seedSession(sessionId, [
-        { content: "old task from two days ago", created_at: new Date(olderTs).toISOString() },
-        { content: "trace GraphQL regression", created_at: new Date(yesterdayMorningTs).toISOString() },
-        { content: "inspect checkout API logs", created_at: new Date(yesterdayAfternoonTs).toISOString() },
-        { content: "draft release checklist", created_at: new Date(todayTs).toISOString() },
+        {
+          content: "old task from two days ago",
+          created_at: new Date(olderTs).toISOString(),
+        },
+        {
+          content: "trace GraphQL regression",
+          created_at: new Date(yesterdayMorningTs).toISOString(),
+        },
+        {
+          content: "inspect checkout API logs",
+          created_at: new Date(yesterdayAfternoonTs).toISOString(),
+        },
+        {
+          content: "draft release checklist",
+          created_at: new Date(todayTs).toISOString(),
+        },
       ]);
 
       const result = await recentActivity(
@@ -422,19 +613,17 @@ Deno.test({
           "current_session",
         ),
       ]);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
 Deno.test({
-  name: "recent_activity: reference=date paginates within the requested date only",
+  name:
+    "recent_activity: reference=date paginates within the requested date only",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
       const sessionId = "session-date-1";
       const olderDateTs = Date.parse("2026-03-09T14:00:00Z");
       const targetMorningTs = Date.parse("2026-03-10T09:00:00Z");
@@ -442,10 +631,22 @@ Deno.test({
       const newerDateTs = Date.parse("2026-03-11T14:00:00Z");
 
       seedSession(sessionId, [
-        { content: "march 9 work", created_at: new Date(olderDateTs).toISOString() },
-        { content: "march 10 morning work", created_at: new Date(targetMorningTs).toISOString() },
-        { content: "march 10 afternoon work", created_at: new Date(targetAfternoonTs).toISOString() },
-        { content: "march 11 work", created_at: new Date(newerDateTs).toISOString() },
+        {
+          content: "march 9 work",
+          created_at: new Date(olderDateTs).toISOString(),
+        },
+        {
+          content: "march 10 morning work",
+          created_at: new Date(targetMorningTs).toISOString(),
+        },
+        {
+          content: "march 10 afternoon work",
+          created_at: new Date(targetAfternoonTs).toISOString(),
+        },
+        {
+          content: "march 11 work",
+          created_at: new Date(newerDateTs).toISOString(),
+        },
       ]);
 
       const firstPage = await recentActivity(
@@ -454,7 +655,12 @@ Deno.test({
         { sessionId },
       ) as ActivityResult;
       const secondPage = await recentActivity(
-        { reference: "date", date: "2026-03-10", limit_blocks: 1, offset_blocks: 1 },
+        {
+          reference: "date",
+          date: "2026-03-10",
+          limit_blocks: 1,
+          offset_blocks: 1,
+        },
         "/tmp",
         { sessionId },
       ) as ActivityResult;
@@ -480,30 +686,34 @@ Deno.test({
           "current_session",
         ),
       ]);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
 Deno.test({
-  name: "recent_activity: filters low-signal prompts into the exact surviving block",
+  name:
+    "recent_activity: filters low-signal prompts into the exact surviving block",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
       const sessionId = "session-filter-1";
       const startTs = Date.parse("2026-03-11T09:00:00Z");
       const endTs = Date.parse("2026-03-11T09:05:00Z");
 
       seedSession(sessionId, [
-        { content: "implement user auth system", created_at: new Date(startTs).toISOString() },
+        {
+          content: "implement user auth system",
+          created_at: new Date(startTs).toISOString(),
+        },
         { content: "yes", created_at: "2026-03-11T09:01:00Z" },
         { content: "hello", created_at: "2026-03-11T09:02:00Z" },
         { content: "/help", created_at: "2026-03-11T09:03:00Z" },
         { content: "ok", created_at: "2026-03-11T09:04:00Z" },
-        { content: "add password validation", created_at: new Date(endTs).toISOString() },
+        {
+          content: "add password validation",
+          created_at: new Date(endTs).toISOString(),
+        },
       ]);
 
       const result = await recentActivity(
@@ -520,28 +730,35 @@ Deno.test({
           "current_session",
         ),
       ]);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
 Deno.test({
-  name: "recent_activity: groups 30-minute boundary entries together but splits at 30 minutes and 1 second",
+  name:
+    "recent_activity: groups 30-minute boundary entries together but splits at 30 minutes and 1 second",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
       const sessionId = "session-gap-1";
       const firstTs = Date.parse("2026-03-11T08:00:00Z");
       const sameBlockTs = firstTs + 30 * 60 * 1000;
       const nextBlockTs = sameBlockTs + 30 * 60 * 1000 + 1000;
 
       seedSession(sessionId, [
-        { content: "same block start", created_at: new Date(firstTs).toISOString() },
-        { content: "same block at 30 minutes", created_at: new Date(sameBlockTs).toISOString() },
-        { content: "new block at 30 minutes and 1 second", created_at: new Date(nextBlockTs).toISOString() },
+        {
+          content: "same block start",
+          created_at: new Date(firstTs).toISOString(),
+        },
+        {
+          content: "same block at 30 minutes",
+          created_at: new Date(sameBlockTs).toISOString(),
+        },
+        {
+          content: "new block at 30 minutes and 1 second",
+          created_at: new Date(nextBlockTs).toISOString(),
+        },
       ]);
 
       const result = await recentActivity(
@@ -564,29 +781,33 @@ Deno.test({
           "current_session",
         ),
       ]);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
 Deno.test({
-  name: "recent_activity: source changes split blocks even within the same time window",
+  name:
+    "recent_activity: source changes split blocks even within the same time window",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
       const currentSessionId = "session-source-current";
       const otherSessionId = "session-source-other";
       const currentTs = Date.parse("2026-03-11T10:00:00Z");
       const otherTs = Date.parse("2026-03-11T10:10:00Z");
 
       seedSession(currentSessionId, [
-        { content: "fix the login page CSS bug", created_at: new Date(currentTs).toISOString() },
+        {
+          content: "fix the login page CSS bug",
+          created_at: new Date(currentTs).toISOString(),
+        },
       ]);
       seedSession(otherSessionId, [
-        { content: "write integration tests for user API", created_at: new Date(otherTs).toISOString() },
+        {
+          content: "write integration tests for user API",
+          created_at: new Date(otherTs).toISOString(),
+        },
       ]);
 
       const result = await recentActivity(
@@ -609,19 +830,17 @@ Deno.test({
           "current_session",
         ),
       ]);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
 Deno.test({
-  name: "recent_activity: excludes the triggering recall query when currentUserRequest is provided",
+  name:
+    "recent_activity: excludes the triggering recall query when currentUserRequest is provided",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
       const currentSessionId = "session-current-query-current";
       const otherSessionId = "session-current-query-other";
       const otherTs = Date.parse("2026-03-11T09:00:00Z");
@@ -631,11 +850,20 @@ Deno.test({
         "Walk me through what I was working on here versus earlier work.";
 
       seedSession(currentSessionId, [
-        { content: "fix the login page CSS bug", created_at: new Date(currentWorkTs).toISOString() },
-        { content: currentUserRequest, created_at: new Date(currentQueryTs).toISOString() },
+        {
+          content: "fix the login page CSS bug",
+          created_at: new Date(currentWorkTs).toISOString(),
+        },
+        {
+          content: currentUserRequest,
+          created_at: new Date(currentQueryTs).toISOString(),
+        },
       ]);
       seedSession(otherSessionId, [
-        { content: "write integration tests for user API", created_at: new Date(otherTs).toISOString() },
+        {
+          content: "write integration tests for user API",
+          created_at: new Date(otherTs).toISOString(),
+        },
       ]);
 
       const result = await recentActivity(
@@ -661,19 +889,17 @@ Deno.test({
           "other_session",
         ),
       ]);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
 Deno.test({
-  name: "recent_activity: has_older for recent reflects remaining blocks after pagination",
+  name:
+    "recent_activity: has_older for recent reflects remaining blocks after pagination",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
       const sessionId = "session-hasolder-1";
       seedSession(sessionId, [
         { content: "task one", created_at: "2026-03-11T08:00:00Z" },
@@ -697,19 +923,17 @@ Deno.test({
       assertEquals(firstPage.has_older, true);
       assertEquals(allBlocks.total_blocks, 4);
       assertEquals(allBlocks.has_older, false);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
 Deno.test({
-  name: "recent_activity: handles missing sessionId with exact history-only blocks",
+  name:
+    "recent_activity: handles missing sessionId with exact history-only blocks",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
       const olderTs = Date.parse("2026-03-10T14:00:00Z");
       const newerTs = Date.parse("2026-03-11T09:00:00Z");
       await seedHistory([
@@ -727,23 +951,24 @@ Deno.test({
         expectedBlock(newerTs, newerTs, ["update package deps"], "history"),
         expectedBlock(olderTs, olderTs, ["research Deno deploy"], "history"),
       ]);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
 Deno.test({
-  name: "recent_activity: deduplicates overlapping session and history entries exactly once",
+  name:
+    "recent_activity: deduplicates overlapping session and history entries exactly once",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await setup();
-    try {
+    await withTestEnv(async () => {
       const sessionId = "session-dedup-1";
       const ts = Date.parse("2026-03-11T09:00:00Z");
       seedSession(sessionId, [
-        { content: "deduplicate this prompt", created_at: new Date(ts).toISOString() },
+        {
+          content: "deduplicate this prompt",
+          created_at: new Date(ts).toISOString(),
+        },
       ]);
       await seedHistory([{ ts, cmd: "deduplicate this prompt" }]);
 
@@ -761,9 +986,7 @@ Deno.test({
           "current_session",
         ),
       ]);
-    } finally {
-      await teardown();
-    }
+    });
   },
 });
 
@@ -774,6 +997,7 @@ Deno.test({
 
     const result = format({
       reference: "recent",
+      subject: "activity",
       resolved_label: "Recent activity",
       blocks: [
         {
@@ -806,6 +1030,7 @@ Deno.test({
 
     const result = format({
       reference: "yesterday",
+      subject: "activity",
       resolved_label: "Yesterday",
       blocks: [],
       total_blocks: 0,

@@ -259,7 +259,8 @@ export async function generateChildDiff(
 export async function hashContent(content: string): Promise<string> {
   const data = new TextEncoder().encode(content);
   const buf = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /**
@@ -1262,10 +1263,16 @@ function toDelegateTranscriptEvent(
 ): DelegateTranscriptEvent | null {
   switch (event.type) {
     case "thinking":
-      return { type: "thinking", iteration: event.iteration };
-    case "thinking_update":
+      return null;
+    case "reasoning_update":
       return {
-        type: "thinking",
+        type: "reasoning",
+        iteration: event.iteration,
+        summary: event.summary,
+      };
+    case "planning_update":
+      return {
+        type: "planning",
         iteration: event.iteration,
         summary: event.summary,
       };

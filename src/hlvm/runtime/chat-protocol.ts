@@ -76,7 +76,8 @@ export type ChatStreamEvent =
   | { event: "duplicate"; request_id: string; message: unknown }
   | { event: "token"; text: string }
   | { event: "thinking"; iteration: number }
-  | { event: "thinking_update"; iteration: number; summary: string }
+  | { event: "reasoning_update"; iteration: number; summary: string }
+  | { event: "planning_update"; iteration: number; summary: string }
   | {
     event: "tool_start";
     name: string;

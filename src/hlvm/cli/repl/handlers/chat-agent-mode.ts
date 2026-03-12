@@ -169,9 +169,16 @@ export async function handleAgentMode(
             });
             break;
           }
-          case "thinking_update":
+          case "reasoning_update":
             emit({
-              event: "thinking_update",
+              event: "reasoning_update",
+              iteration: event.iteration,
+              summary: event.summary,
+            });
+            break;
+          case "planning_update":
+            emit({
+              event: "planning_update",
               iteration: event.iteration,
               summary: event.summary,
             });

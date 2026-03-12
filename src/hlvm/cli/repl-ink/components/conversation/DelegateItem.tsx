@@ -12,7 +12,6 @@ interface DelegateItemProps {
   expanded?: boolean;
 }
 
-
 export const DelegateItem = React.memo(function DelegateItem(
   { item, width, expanded = false }: DelegateItemProps,
 ): React.ReactElement {
@@ -48,7 +47,7 @@ export const DelegateItem = React.memo(function DelegateItem(
   return (
     <Box flexDirection="row" width={width} marginBottom={1}>
       <Box width={4} flexShrink={0}>
-        <Text color={accent} bold>{icon} </Text>
+        <Text color={accent} bold>{icon}</Text>
       </Box>
       <Box
         flexDirection="column"
@@ -69,7 +68,9 @@ export const DelegateItem = React.memo(function DelegateItem(
           {duration}
         </Text>
         {body && (
-          <Text color={item.status === "error" ? sc.status.error : sc.text.muted}>
+          <Text
+            color={item.status === "error" ? sc.status.error : sc.text.muted}
+          >
             {truncate(body, Math.max(10, width - 8), "…")}
           </Text>
         )}
@@ -87,7 +88,11 @@ export const DelegateItem = React.memo(function DelegateItem(
             {item.snapshot.events.map((event, index) => (
               <React.Fragment key={`${item.id}-event-${index}`}>
                 <Text color={sc.text.muted}>
-                  {truncate(formatSnapshotEvent(event), Math.max(10, width - 8), "…")}
+                  {truncate(
+                    formatSnapshotEvent(event),
+                    Math.max(10, width - 8),
+                    "…",
+                  )}
                 </Text>
               </React.Fragment>
             ))}
@@ -109,10 +114,10 @@ export const DelegateItem = React.memo(function DelegateItem(
 
 function formatSnapshotEvent(event: DelegateTranscriptEvent): string {
   switch (event.type) {
-    case "thinking":
-      return event.summary?.trim()
-        ? `Thinking: ${event.summary.trim()}`
-        : "Thinking";
+    case "reasoning":
+      return `Reasoning: ${event.summary.trim()}`;
+    case "planning":
+      return `Planning: ${event.summary.trim()}`;
     case "plan_created":
       return `Plan created (${event.stepCount} steps)`;
     case "plan_step":
@@ -126,9 +131,9 @@ function formatSnapshotEvent(event: DelegateTranscriptEvent): string {
           event.summary ?? event.content ?? "error"
         }`;
     case "turn_stats":
-      return `${event.toolCount} tool${
-        event.toolCount === 1 ? "" : "s"
-      } · ${formatDurationMs(event.durationMs)}`;
+      return `${event.toolCount} tool${event.toolCount === 1 ? "" : "s"} · ${
+        formatDurationMs(event.durationMs)
+      }`;
   }
   return "";
 }

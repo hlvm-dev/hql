@@ -89,6 +89,16 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
           emit({ event: "start", request_id: "req-1" });
           emit({ event: "heartbeat" });
           emit({ event: "thinking", iteration: 1 });
+          emit({
+            event: "reasoning_update",
+            iteration: 1,
+            summary: "Inspect the file before editing.",
+          });
+          emit({
+            event: "planning_update",
+            iteration: 1,
+            summary: "Read the file, then patch the smallest safe diff.",
+          });
           emit({ event: "token", text: "Let me fetch that first. " });
           emit({
             event: "tool_start",
@@ -265,6 +275,8 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
 
       assertEquals(tokens, ["Let me fetch that first. ", "done"]);
       assert(uiEvents.includes("thinking"));
+      assert(uiEvents.includes("reasoning_update"));
+      assert(uiEvents.includes("planning_update"));
       assert(uiEvents.includes("tool_start"));
       assert(uiEvents.includes("tool_end"));
       assert(uiEvents.includes("delegate_start"));

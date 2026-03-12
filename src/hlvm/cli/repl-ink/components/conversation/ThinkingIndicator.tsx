@@ -15,6 +15,7 @@ import {
 import { useSpinnerFrame } from "../../hooks/useSpinnerFrame.ts";
 
 interface ThinkingIndicatorProps {
+  kind: "reasoning" | "planning";
   summary: string;
   iteration: number;
   expanded?: boolean;
@@ -23,6 +24,7 @@ interface ThinkingIndicatorProps {
 }
 
 export const ThinkingIndicator = React.memo(function ThinkingIndicator({
+  kind,
   summary,
   iteration,
   expanded = false,
@@ -30,27 +32,24 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
 }: ThinkingIndicatorProps): React.ReactElement {
   const sc = useSemanticColors();
   const frame = useSpinnerFrame(isAnimating);
-
-  // Split summary into subject (first line) and body (rest) — Gemini pattern
   const lines = summary ? summary.split("\n") : [];
-  const subject = lines[0] || "";
-  const bodyLines = lines.slice(1);
-  const maxBodyLines = expanded ? bodyLines.length : 3;
-  const visibleBodyLines = bodyLines.slice(0, maxBodyLines);
-  const hiddenBodyLineCount = Math.max(0, bodyLines.length - visibleBodyLines.length);
+  const maxBodyLines = expanded ? lines.length : 3;
+  const visibleBodyLines = lines.slice(0, maxBodyLines);
+  const hiddenBodyLineCount = Math.max(
+    0,
+    lines.length - visibleBodyLines.length,
+  );
   const body = visibleBodyLines.join("\n").trim();
-  const title = subject || "Thinking";
+  const title = kind === "reasoning" ? "Reasoning" : "Planning";
 
   return (
     <Box paddingLeft={1} flexDirection="column" marginBottom={1}>
       <Box>
-        <Text color={sc.status.warning}>{BRAILLE_SPINNER_FRAMES[frame]} </Text>
+        <Text color={sc.status.warning}>{BRAILLE_SPINNER_FRAMES[frame]}</Text>
         <Text color={sc.status.warning} bold>
           {title}
         </Text>
-        {iteration > 1 && (
-          <Text color={sc.text.muted}> ({iteration})</Text>
-        )}
+        {iteration > 1 && <Text color={sc.text.muted}>({iteration})</Text>}
       </Box>
       {body && (
         <Box

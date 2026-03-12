@@ -12,6 +12,7 @@
 
 /** Where a chronology entry originated. */
 export type ChronologySource = "current_session" | "other_session" | "history";
+export type ChronologyGrouping = "activity" | "questions";
 
 /** A single user prompt with timestamp and origin. */
 export interface ChronologyEntry {
@@ -184,9 +185,20 @@ export function buildPromptBlocks(
   timeZone: string,
   blockGapMs: number,
   limitPromptsPerBlock: number,
+  grouping: ChronologyGrouping = "activity",
 ): PromptBlock[] {
   const meaningfulEntries = entries
     .filter((entry) => entry.cmd && isMeaningfulPrompt(entry.cmd));
+
+  if (grouping === "questions") {
+    return meaningfulEntries.map((entry) => ({
+      dateKey: getLocalDateKey(entry.ts, timeZone),
+      startTs: entry.ts,
+      endTs: entry.ts,
+      prompts: [entry.cmd],
+      source: entry.source,
+    }));
+  }
 
   const blocks: PromptBlock[] = [];
   for (const entry of meaningfulEntries) {

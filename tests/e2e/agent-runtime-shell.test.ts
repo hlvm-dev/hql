@@ -7,9 +7,6 @@ const platform = getPlatform();
 const FIXTURE_PATH = platform.path.fromFileUrl(
   new URL("../fixtures/ask/agent-transcript-fixture.json", import.meta.url),
 );
-const HLVM_BINARY_PATH = platform.path.fromFileUrl(
-  new URL("../../hlvm", import.meta.url),
-);
 const CLI_PATH = platform.path.fromFileUrl(
   new URL("../../src/hlvm/cli/cli.ts", import.meta.url),
 );
@@ -28,9 +25,7 @@ async function runLocalAsk(
   env: Record<string, string>,
   cwd?: string,
 ): Promise<{ success: boolean; stdout: string; stderr: string; code: number }> {
-  const cmd = await platform.fs.exists(HLVM_BINARY_PATH)
-    ? [HLVM_BINARY_PATH, "ask", ...args]
-    : ["deno", "run", "-A", CLI_PATH, "ask", ...args];
+  const cmd = ["deno", "run", "-A", CLI_PATH, "ask", ...args];
   const output = await platform.command.output({
     cmd,
     cwd,
@@ -284,7 +279,7 @@ Deno.test({
 
 Deno.test({
   name:
-    "raw ./hlvm ask verbose output surfaces provider reasoning through thinking_update",
+    "raw ./hlvm ask verbose output surfaces provider reasoning distinctly from generic working state",
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
@@ -311,7 +306,7 @@ Deno.test({
         assertEquals(result.success, true, output);
         assertStringIncludes(
           output,
-          "[Thinking] Inspect the file before acting.",
+          "[Reasoning] Inspect the file before acting.",
         );
         assertStringIncludes(output, "Result:\nReasoning enhancement complete");
       },

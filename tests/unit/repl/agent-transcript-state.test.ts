@@ -4,8 +4,8 @@ import {
   reduceTranscriptState,
 } from "../../../src/hlvm/cli/agent-transcript-state.ts";
 import {
-  isStructuredTeamInfoItem,
   type ConversationItem,
+  isStructuredTeamInfoItem,
 } from "../../../src/hlvm/cli/repl-ink/types.ts";
 
 function withItems(items: ConversationItem[]) {
@@ -224,6 +224,60 @@ Deno.test("agent transcript state finalization removes transient rows and empty 
   if (next.items[1]?.type === "assistant") {
     assertEquals(next.items[1].text, "partial answer");
     assertEquals(next.items[1].isPending, false);
+  }
+});
+
+Deno.test("agent transcript state keeps provider reasoning summaries and drops generic working rows", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "agent_event",
+    event: { type: "thinking", iteration: 1 },
+  });
+
+  assertEquals(state.items.length, 0);
+  assertEquals(state.streamingState, "responding");
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "reasoning_update",
+      iteration: 1,
+      summary: "Inspect parser.ts before editing.",
+    },
+  });
+
+  assertEquals(state.items.length, 1);
+  assertEquals(state.items[0]?.type, "thinking");
+  if (state.items[0]?.type === "thinking") {
+    assertEquals(state.items[0].kind, "reasoning");
+    assertEquals(state.items[0].summary, "Inspect parser.ts before editing.");
+  }
+
+  const finalized = reduceTranscriptState(state, { type: "finalize" });
+  assertEquals(finalized.items.length, 1);
+  assertEquals(finalized.items[0]?.type, "thinking");
+  if (finalized.items[0]?.type === "thinking") {
+    assertEquals(finalized.items[0].kind, "reasoning");
+  }
+});
+
+Deno.test("agent transcript state records fallback planning separately from provider reasoning", () => {
+  const next = reduceTranscriptState(createTranscriptState(), {
+    type: "agent_event",
+    event: {
+      type: "planning_update",
+      iteration: 2,
+      summary: "Read config.ts and then update the import path.",
+    },
+  });
+
+  assertEquals(next.items.length, 1);
+  assertEquals(next.items[0]?.type, "thinking");
+  if (next.items[0]?.type === "thinking") {
+    assertEquals(next.items[0].kind, "planning");
+    assertEquals(
+      next.items[0].summary,
+      "Read config.ts and then update the import path.",
+    );
   }
 });
 

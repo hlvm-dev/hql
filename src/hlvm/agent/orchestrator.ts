@@ -21,16 +21,13 @@ import {
   resolveTools,
 } from "./registry.ts";
 import type { ToolFilterState } from "./engine.ts";
-import {
-  ContextOverflowError,
-  type ContextManager,
-} from "./context.ts";
+import { type ContextManager, ContextOverflowError } from "./context.ts";
 import type { GroundingMode, ModelTier } from "./constants.ts";
 import { getErrorMessage, truncate } from "../../common/utils.ts";
 import { classifyError } from "./error-taxonomy.ts";
 import {
-  RateLimitError,
   type RateLimitConfig,
+  RateLimitError,
   SlidingWindowRateLimiter,
 } from "../../common/rate-limiter.ts";
 import type { AgentPolicy } from "./policy.ts";
@@ -44,9 +41,9 @@ import {
 } from "./usage.ts";
 export type { LLMResponse, ToolCall } from "./tool-call.ts";
 import {
+  type AgentProfile,
   getAgentProfile,
   listAgentProfiles,
-  type AgentProfile,
 } from "./agent-registry.ts";
 import {
   createPlanState,
@@ -60,15 +57,15 @@ import {
 import type { AgentExecutionMode } from "./execution-mode.ts";
 import { isPlanExecutionMode } from "./execution-mode.ts";
 import { getAgentLogger } from "./logger.ts";
-import { retrieveMemory, type RetrievalResult } from "../memory/retrieve.ts";
+import { type RetrievalResult, retrieveMemory } from "../memory/retrieve.ts";
 import { resetWebToolBudget } from "./tools/web-tools.ts";
 import { evaluateDelegationSignal } from "./delegation-heuristics.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
 import type { TodoState } from "./todo-state.ts";
 import type { DelegateTranscriptSnapshot } from "./delegate-transcript.ts";
 import {
-  formatDelegateInboxUpdateMessage,
   type DelegateInbox,
+  formatDelegateInboxUpdateMessage,
 } from "./delegate-inbox.ts";
 import type { DelegateCoordinationBoard } from "./delegate-coordination.ts";
 import type { TeamRuntime, TeamSummary } from "./team-runtime.ts";
@@ -82,15 +79,15 @@ import { recordBudgetUsage } from "./delegate-token-budget.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
-  type ToolExecutionResult,
-  type LoopState,
-  type LoopConfig,
-  type LoopDirective,
-  initializeLoopState,
-  resolveLoopConfig,
   checkToolResultBytesLimit,
   effectiveAllowlist,
   effectiveDenylist,
+  initializeLoopState,
+  type LoopConfig,
+  type LoopDirective,
+  type LoopState,
+  resolveLoopConfig,
+  type ToolExecutionResult,
 } from "./orchestrator-state.ts";
 export {
   executeToolCall,
@@ -98,20 +95,20 @@ export {
 } from "./orchestrator-tool-execution.ts";
 export type { LLMFunction } from "./orchestrator-llm.ts";
 export {
-  processAgentResponse,
   addContextMessage,
-  handleTextOnlyResponse,
   handleFinalResponse,
   handlePostToolExecution,
+  handleTextOnlyResponse,
+  processAgentResponse,
 } from "./orchestrator-response.ts";
 
-import { type LLMFunction, callLLMWithRetry } from "./orchestrator-llm.ts";
+import { callLLMWithRetry, type LLMFunction } from "./orchestrator-llm.ts";
 import {
   effectiveAllowlist,
   effectiveDenylist,
+  initializeLoopState,
   type LoopConfig,
   type LoopState,
-  initializeLoopState,
   resolveLoopConfig,
 } from "./orchestrator-state.ts";
 import { executeToolCall } from "./orchestrator-tool-execution.ts";
@@ -239,7 +236,12 @@ export interface FinalResponseMeta {
 export type AgentUIEvent =
   | { type: "thinking"; iteration: number }
   | {
-    type: "thinking_update";
+    type: "reasoning_update";
+    iteration: number;
+    summary: string;
+  }
+  | {
+    type: "planning_update";
     iteration: number;
     summary: string;
   }
@@ -538,7 +540,8 @@ function maybeInjectDelegationHint(
 
   addContextMessage(config, {
     role: "user",
-    content: `[System hint] This task should use delegation (${signal.suggestedPattern}): ${signal.reason}. Use delegate_agent to fan out work NOW rather than exploring files yourself first.`,
+    content:
+      `[System hint] This task should use delegation (${signal.suggestedPattern}): ${signal.reason}. Use delegate_agent to fan out work NOW rather than exploring files yourself first.`,
   });
 }
 
@@ -654,7 +657,9 @@ function buildProgressSummary(state: LoopState): string {
     new Set(
       state.toolUses
         .map((use) => use.toolName)
-        .filter((name): name is string => typeof name === "string" && name.length > 0),
+        .filter((name): name is string =>
+          typeof name === "string" && name.length > 0
+        ),
     ),
   );
   const toolPreview = toolNames.slice(0, 6);
@@ -664,7 +669,9 @@ function buildProgressSummary(state: LoopState): string {
     : "none";
 
   const toolLine = toolPreview.length > 0
-    ? `Tools used: ${toolPreview.join(", ")}${extraTools > 0 ? ` (+${extraTools} more)` : ""}.`
+    ? `Tools used: ${toolPreview.join(", ")}${
+      extraTools > 0 ? ` (+${extraTools} more)` : ""
+    }.`
     : "Tools used: none.";
 
   return [
@@ -744,7 +751,9 @@ export async function runReActLoop(
       if (plan) {
         addContextMessage(config, {
           role: "user",
-          content: `[System Reminder] ${formatPlanForContext(plan, lc.planningConfig)}`,
+          content: `[System Reminder] ${
+            formatPlanForContext(plan, lc.planningConfig)
+          }`,
         });
         if (lc.planningConfig.mode === "always") {
           state.planState = createPlanState(plan);
@@ -782,7 +791,9 @@ export async function runReActLoop(
       config.teamMemberId === config.teamLeadMemberId
     ) {
       const summary = config.teamRuntime.deriveSummary(config.teamLeadMemberId);
-      const pendingApprovals = config.teamRuntime.listPendingApprovals().map((approval) => ({
+      const pendingApprovals = config.teamRuntime.listPendingApprovals().map((
+        approval,
+      ) => ({
         id: approval.id,
         taskId: approval.taskId,
         submittedByMemberId: approval.submittedByMemberId,
@@ -881,7 +892,10 @@ export async function runReActLoop(
           !state.planState.delegatedIds.has(currentStep.id) &&
           config.delegate
         ) {
-          const profile = getAgentProfile(currentStep.agent, config.agentProfiles);
+          const profile = getAgentProfile(
+            currentStep.agent,
+            config.agentProfiles,
+          );
           if (profile) {
             const delegateArgs: Record<string, unknown> = {
               agent: profile.name,
@@ -953,7 +967,8 @@ export async function runReActLoop(
         skipCompaction = true;
         context.addMessage({
           role: "user",
-          content: "[System] Context nearing limit. If there are important facts, decisions, or outcomes not yet saved to memory, call memory_write now before context is compacted.",
+          content:
+            "[System] Context nearing limit. If there are important facts, decisions, or outcomes not yet saved to memory, call memory_write now before context is compacted.",
         });
       }
 
@@ -1006,11 +1021,13 @@ export async function runReActLoop(
 
       // Check delegate token budget
       if (config.delegateTokenBudget) {
-        const totalTokens = (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0);
+        const totalTokens = (usage.promptTokens ?? 0) +
+          (usage.completionTokens ?? 0);
         if (recordBudgetUsage(config.delegateTokenBudget, totalTokens)) {
           addContextMessage(config, {
             role: "user",
-            content: "[System] Token budget exceeded. Wrap up your current work and provide a final summary.",
+            content:
+              "[System] Token budget exceeded. Wrap up your current work and provide a final summary.",
           });
         }
       }
@@ -1023,10 +1040,10 @@ export async function runReActLoop(
         toolCalls: agentResponse.toolCalls?.length ?? 0,
       });
 
-      // Surface provider-native reasoning (if any) via existing UI events
+      // Surface provider-native reasoning separately from generic planning text.
       if (agentResponse.reasoning) {
         config.onAgentEvent?.({
-          type: "thinking_update",
+          type: "reasoning_update",
           iteration: state.iterations,
           summary: truncate(agentResponse.reasoning, 500),
         });
@@ -1038,7 +1055,7 @@ export async function runReActLoop(
         responseText.trim()
       ) {
         config.onAgentEvent?.({
-          type: "thinking_update",
+          type: "planning_update",
           iteration: state.iterations,
           summary: truncate(responseText, 300),
         });
@@ -1109,14 +1126,16 @@ export async function runReActLoop(
           "Context limit reached. Please start a new conversation.";
       }
       if (classified.retryable && classified.class === "transient") {
-        state.consecutiveTransientRetries = (state.consecutiveTransientRetries ?? 0) + 1;
+        state.consecutiveTransientRetries =
+          (state.consecutiveTransientRetries ?? 0) + 1;
         if (state.consecutiveTransientRetries <= 2) {
           onTrace?.({
             type: "transient_retry",
             attempt: state.consecutiveTransientRetries,
             error: classified.message,
           });
-          const delayMs = Math.pow(2, state.consecutiveTransientRetries - 1) * 1000;
+          const delayMs = Math.pow(2, state.consecutiveTransientRetries - 1) *
+            1000;
           await new Promise((r) => setTimeout(r, delayMs));
           continue;
         }

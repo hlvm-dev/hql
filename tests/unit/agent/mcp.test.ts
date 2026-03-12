@@ -134,60 +134,62 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await withWorkspace(async (workspace) => {
-      const first = await loadMcpTools(
-        workspace,
-        [fixtureServer("test", {
-          allowEnv: ["MCP_REPLY_PREFIX"],
-          env: { MCP_REPLY_PREFIX: "A:" },
-        })],
-        "owner-a",
-      );
-      const second = await loadMcpTools(
-        workspace,
-        [fixtureServer("test", {
-          allowEnv: ["MCP_REPLY_PREFIX"],
-          env: { MCP_REPLY_PREFIX: "B:" },
-        })],
-        "owner-b",
-      );
-
-      try {
-        assertEquals(
-          mcpText(
-            await getTool("mcp_test_echo", "owner-a").fn(
-              { message: "hello" },
-              workspace,
-            ),
-          ),
-          "A:hello",
+    await withTempHlvmDir(async () => {
+      await withWorkspace(async (workspace) => {
+        const first = await loadMcpTools(
+          workspace,
+          [fixtureServer("test", {
+            allowEnv: ["MCP_REPLY_PREFIX"],
+            env: { MCP_REPLY_PREFIX: "A:" },
+          })],
+          "owner-a",
         );
-        assertEquals(
-          mcpText(
-            await getTool("mcp_test_echo", "owner-b").fn(
-              { message: "hello" },
-              workspace,
-            ),
-          ),
-          "B:hello",
+        const second = await loadMcpTools(
+          workspace,
+          [fixtureServer("test", {
+            allowEnv: ["MCP_REPLY_PREFIX"],
+            env: { MCP_REPLY_PREFIX: "B:" },
+          })],
+          "owner-b",
         );
 
-        await first.dispose();
-        assertEquals(hasTool("mcp_test_echo", "owner-a"), false);
-        assertEquals(hasTool("mcp_test_echo", "owner-b"), true);
-        assertEquals(
-          mcpText(
-            await getTool("mcp_test_echo", "owner-b").fn(
-              { message: "ok" },
-              workspace,
+        try {
+          assertEquals(
+            mcpText(
+              await getTool("mcp_test_echo", "owner-a").fn(
+                { message: "hello" },
+                workspace,
+              ),
             ),
-          ),
-          "B:ok",
-        );
-      } finally {
-        await first.dispose();
-        await second.dispose();
-      }
+            "A:hello",
+          );
+          assertEquals(
+            mcpText(
+              await getTool("mcp_test_echo", "owner-b").fn(
+                { message: "hello" },
+                workspace,
+              ),
+            ),
+            "B:hello",
+          );
+
+          await first.dispose();
+          assertEquals(hasTool("mcp_test_echo", "owner-a"), false);
+          assertEquals(hasTool("mcp_test_echo", "owner-b"), true);
+          assertEquals(
+            mcpText(
+              await getTool("mcp_test_echo", "owner-b").fn(
+                { message: "ok" },
+                workspace,
+              ),
+            ),
+            "B:ok",
+          );
+        } finally {
+          await first.dispose();
+          await second.dispose();
+        }
+      });
     });
   },
 });

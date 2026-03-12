@@ -157,6 +157,7 @@ function renderItem(
     case "thinking":
       return (
         <ThinkingIndicator
+          kind={item.kind}
           summary={item.summary}
           iteration={item.iteration}
           expanded={isThinkingExpanded(item.id)}

@@ -62,6 +62,7 @@ export interface AssistantItem {
 export interface ThinkingItem {
   type: "thinking";
   id: string;
+  kind: "reasoning" | "planning";
   summary: string;
   iteration: number;
 }

@@ -13,8 +13,8 @@ import type {
   ConversationItem,
   DelegateItem,
   InfoItem,
-  StructuredTeamInfoItem,
   StreamingState,
+  StructuredTeamInfoItem,
   TeamMessageInfoItem,
   TeamPlanReviewInfoItem,
   TeamShutdownInfoItem,
@@ -63,11 +63,15 @@ export function createTranscriptState(): TranscriptState {
   };
 }
 
-export function getVisibleTodoState(state: TranscriptState): TodoState | undefined {
+export function getVisibleTodoState(
+  state: TranscriptState,
+): TodoState | undefined {
   return state.todoState ?? state.planTodoState;
 }
 
-export function getVisibleTodoSummary(state: TranscriptState): string | undefined {
+export function getVisibleTodoSummary(
+  state: TranscriptState,
+): string | undefined {
   const visible = getVisibleTodoState(state);
   return visible ? summarizeTodoState(visible) : undefined;
 }
@@ -98,7 +102,9 @@ function findCurrentTurnAssistantIndices(items: ConversationItem[]): number[] {
   return indices;
 }
 
-function removeCurrentTurnTurnStats(items: ConversationItem[]): ConversationItem[] {
+function removeCurrentTurnTurnStats(
+  items: ConversationItem[],
+): ConversationItem[] {
   const turnStartIdx = findCurrentTurnStartIndex(items);
   return items.filter((item, index) =>
     !(index > turnStartIdx && item.type === "turn_stats")
@@ -118,7 +124,9 @@ function insertBeforePendingAssistant(
   return next;
 }
 
-function removeTransientInfoItems(items: ConversationItem[]): ConversationItem[] {
+function removeTransientInfoItems(
+  items: ConversationItem[],
+): ConversationItem[] {
   return items.filter((item) =>
     item.type !== "info" || item.isTransient !== true
   );
@@ -126,7 +134,7 @@ function removeTransientInfoItems(items: ConversationItem[]): ConversationItem[]
 
 function cleanupTransientItems(items: ConversationItem[]): ConversationItem[] {
   return removeTransientInfoItems(items).flatMap((item) => {
-    if (item.type === "thinking") return [];
+    if (item.type === "thinking" && item.summary.trim().length === 0) return [];
     if (item.type === "assistant" && item.isPending) {
       return item.text.trim().length > 0 ? [{ ...item, isPending: false }] : [];
     }
@@ -175,13 +183,17 @@ function appendStructuredTeamInfoItem(
   };
 }
 
-function describeTeamTaskUpdate(event: Extract<AgentUIEvent, { type: "team_task_updated" }>): string {
+function describeTeamTaskUpdate(
+  event: Extract<AgentUIEvent, { type: "team_task_updated" }>,
+): string {
   return event.assigneeMemberId
     ? `Team task ${event.status}: ${event.goal} (${event.assigneeMemberId})`
     : `Team task ${event.status}: ${event.goal}`;
 }
 
-function describeTeamMessage(event: Extract<AgentUIEvent, { type: "team_message" }>): string {
+function describeTeamMessage(
+  event: Extract<AgentUIEvent, { type: "team_message" }>,
+): string {
   return event.toMemberId
     ? `Team ${event.kind}: ${event.fromMemberId} -> ${event.toMemberId}: ${event.contentPreview}`
     : `Team ${event.kind}: ${event.fromMemberId}: ${event.contentPreview}`;
@@ -196,7 +208,9 @@ function describeTeamPlanReview(
   if (event.type === "team_plan_review_required") {
     return `Team plan review requested for task ${event.taskId}`;
   }
-  return `Team plan review ${event.approved ? "approved" : "rejected"} for task ${event.taskId}`;
+  return `Team plan review ${
+    event.approved ? "approved" : "rejected"
+  } for task ${event.taskId}`;
 }
 
 function describeTeamShutdown(
@@ -216,6 +230,7 @@ function describeTeamShutdown(
 function upsertThinkingItem(
   state: TranscriptState,
   iteration: number,
+  kind: ThinkingItem["kind"],
   summary: string,
 ): TranscriptState {
   const idx = state.items.findIndex((item) =>
@@ -226,6 +241,7 @@ function upsertThinkingItem(
     const thinking: ThinkingItem = {
       type: "thinking",
       id,
+      kind,
       summary,
       iteration,
     };
@@ -237,7 +253,7 @@ function upsertThinkingItem(
   const nextItems = [...state.items];
   const current = nextItems[idx];
   if (current?.type !== "thinking") return state;
-  nextItems[idx] = { ...current, summary };
+  nextItems[idx] = { ...current, kind, summary };
   return { ...state, items: nextItems };
 }
 
@@ -344,7 +360,9 @@ function completeDelegateItem(
 function findTrailingToolGroupIndex(items: ConversationItem[]): number {
   const pendingAssistantIdx = findPendingAssistantIndex(items);
   for (
-    let i = pendingAssistantIdx >= 0 ? pendingAssistantIdx - 1 : items.length - 1;
+    let i = pendingAssistantIdx >= 0
+      ? pendingAssistantIdx - 1
+      : items.length - 1;
     i >= 0;
     i--
   ) {
@@ -461,18 +479,12 @@ export function reduceTranscriptState(
       switch (event.type) {
         case "thinking":
           return {
-            ...upsertThinkingItem(
-              {
-                ...state,
-                streamingState: ConversationStreamingState.Responding,
-                activeTool: undefined,
-                items: removeTransientInfoItems(state.items),
-              },
-              event.iteration,
-              "",
-            ),
+            ...state,
+            streamingState: ConversationStreamingState.Responding,
+            activeTool: undefined,
+            items: removeTransientInfoItems(state.items),
           };
-        case "thinking_update":
+        case "reasoning_update":
           return {
             ...upsertThinkingItem(
               {
@@ -482,6 +494,21 @@ export function reduceTranscriptState(
                 items: removeTransientInfoItems(state.items),
               },
               event.iteration,
+              "reasoning",
+              event.summary,
+            ),
+          };
+        case "planning_update":
+          return {
+            ...upsertThinkingItem(
+              {
+                ...state,
+                streamingState: ConversationStreamingState.Responding,
+                activeTool: undefined,
+                items: removeTransientInfoItems(state.items),
+              },
+              event.iteration,
+              "planning",
               event.summary,
             ),
           };
@@ -509,7 +536,9 @@ export function reduceTranscriptState(
           const nextTool = { ...tool, id: toolId };
           nextState = stateWithToolId;
 
-          const trailingToolGroupIdx = findTrailingToolGroupIndex(nextState.items);
+          const trailingToolGroupIdx = findTrailingToolGroupIndex(
+            nextState.items,
+          );
           const trailingToolGroup = trailingToolGroupIdx >= 0
             ? nextState.items[trailingToolGroupIdx]
             : undefined;
@@ -720,13 +749,17 @@ export function reduceTranscriptState(
             planTodoState: derivePlanTodoState(event.plan, []),
           };
         case "plan_step": {
-          const completedPlanStepIds = state.completedPlanStepIds.includes(event.stepId)
-            ? state.completedPlanStepIds
-            : [...state.completedPlanStepIds, event.stepId];
+          const completedPlanStepIds =
+            state.completedPlanStepIds.includes(event.stepId)
+              ? state.completedPlanStepIds
+              : [...state.completedPlanStepIds, event.stepId];
           return {
             ...state,
             completedPlanStepIds,
-            planTodoState: derivePlanTodoState(state.activePlan, completedPlanStepIds),
+            planTodoState: derivePlanTodoState(
+              state.activePlan,
+              completedPlanStepIds,
+            ),
           };
         }
         case "plan_review_required":

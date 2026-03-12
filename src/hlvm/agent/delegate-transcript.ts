@@ -5,7 +5,8 @@
  */
 
 export type DelegateTranscriptEvent =
-  | { type: "thinking"; iteration: number; summary?: string }
+  | { type: "reasoning"; iteration: number; summary: string }
+  | { type: "planning"; iteration: number; summary: string }
   | { type: "plan_created"; stepCount: number }
   | { type: "plan_step"; stepId: string; index: number; completed: boolean }
   | {
