@@ -784,6 +784,7 @@ export async function runAgentQuery(
           modelTier: session.modelTier,
           modelId: model,
           sessionId: sessionKey ?? undefined,
+          currentUserRequest: query,
           signal: options.signal,
           autoMemoryRecall: !disablePersistentMemory,
           usage: usageTracker,

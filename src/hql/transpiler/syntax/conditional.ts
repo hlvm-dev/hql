@@ -13,6 +13,7 @@ import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/sour
 import { extractPosition, validateTransformed, validateListLength } from "../utils/validation-helpers.ts";
 import {
   ensureReturnStatement,
+  createBlock,
   createReturn,
   createNull,
   createExprStmt,
@@ -465,11 +466,7 @@ export function transformDo(
   const hasAwaits = bodyStatements.some(stmt =>
     containsNodeTypeInScope(stmt, IR.IRNodeType.AwaitExpression));
 
-  const iifeFn = createFnExpr([], {
-    type: IR.IRNodeType.BlockStatement,
-    body: bodyStatements,
-    position: blockPosition,
-  } as IR.IRBlockStatement, {
+  const iifeFn = createFnExpr([], createBlock(bodyStatements, blockPosition), {
     generator: hasYields, // Make it a generator if yields are present
     async: hasAwaits, // Make it async if awaits are present (can be async generator)
   });
@@ -847,10 +844,7 @@ export function transformSwitch(
   // EXPRESSION-EVERYWHERE: Wrap in IIFE to make switch an expression
   // (() => { switch(expr) { case v1: return r1; ... } })()
   // Check if switch contains await/yield - IIFE needs to be async/generator
-  const switchBody: IR.IRBlockStatement = {
-    type: IR.IRNodeType.BlockStatement,
-    body: [switchStmt],
-  };
+  const switchBody: IR.IRBlockStatement = createBlock([switchStmt]);
   const hasYields = containsNodeTypeInScope(switchBody, IR.IRNodeType.YieldExpression);
   const hasAwaits = containsNodeTypeInScope(switchBody, IR.IRNodeType.AwaitExpression);
 

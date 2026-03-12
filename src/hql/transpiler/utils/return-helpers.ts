@@ -8,7 +8,7 @@ import {
   containsThrowStatement,
   containsMatch,
 } from "./ir-tree-walker.ts";
-import { createId, createReturn, createMember } from "./ir-helpers.ts";
+import { createBlock, createId, createReturn, createMember } from "./ir-helpers.ts";
 
 /**
  * Check if an IR node contains IIFEs or callback functions with throws (early returns)
@@ -116,17 +116,14 @@ export function wrapWithEarlyReturnHandler(
   };
 
   // if (__hql_ret__ && __hql_ret__.__hql_early_return__) return __hql_ret__.value; else throw __hql_ret__;
-  const catchBody: IR.IRBlockStatement = {
-    type: IR.IRNodeType.BlockStatement,
-    body: [
-      {
-        type: IR.IRNodeType.IfStatement,
-        test: checkCondition,
-        consequent: returnValue,
-        alternate: rethrow,
-      } as IR.IRIfStatement,
-    ],
-  };
+  const catchBody: IR.IRBlockStatement = createBlock([
+    {
+      type: IR.IRNodeType.IfStatement,
+      test: checkCondition,
+      consequent: returnValue,
+      alternate: rethrow,
+    } as IR.IRIfStatement,
+  ]);
 
   const catchClause: IR.IRCatchClause = {
     type: IR.IRNodeType.CatchClause,
@@ -141,8 +138,5 @@ export function wrapWithEarlyReturnHandler(
     finalizer: null,
   };
 
-  return {
-    type: IR.IRNodeType.BlockStatement,
-    body: [tryStatement],
-  };
+  return createBlock([tryStatement]);
 }

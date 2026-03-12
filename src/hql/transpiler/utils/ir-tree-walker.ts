@@ -177,35 +177,9 @@ export interface ScopeWalkOptions {
   lookInsideIIFEs?: boolean;
 }
 
-/**
- * Walk children in scope - stops at function boundaries.
- * Optionally can look inside IIFEs.
- */
-function walkChildrenInScope(
-  node: IR.IRNode,
-  fn: (child: IR.IRNode) => boolean,
-  _options: ScopeWalkOptions = {},
-): boolean {
-  for (const key in node) {
-    if (!Object.hasOwn(node, key)) continue;
-    if (IR_SKIP_KEYS.has(key)) continue;
-
-    const value = (node as unknown as Record<string, unknown>)[key];
-    if (!value || typeof value !== "object") continue;
-
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (item && typeof item === "object" && "type" in item) {
-          if (fn(item as IR.IRNode)) return true;
-        }
-      }
-    } else if ("type" in value && typeof (value as IR.IRNode).type === "number") {
-      if (fn(value as IR.IRNode)) return true;
-    }
-  }
-
-  return false;
-}
+// walkChildrenInScope was removed - it was identical to walkChildren.
+// Scope-awareness is handled by the callers checking isFunctionBoundary.
+// Scope-awareness is handled by the callers checking isFunctionBoundary.
 
 /**
  * Check if an IR node tree contains any node of the specified type,
@@ -240,7 +214,7 @@ export function containsNodeTypeInScope(
   }
 
   // Generic tree walk
-  return walkChildrenInScope(node, (child) =>
+  return walkChildren(node, (child) =>
     containsNodeTypeInScope(child, targetType, options)
   );
 }
@@ -272,7 +246,7 @@ export function containsMatchInScope(
   }
 
   // Generic tree walk
-  return walkChildrenInScope(node, (child) =>
+  return walkChildren(node, (child) =>
     containsMatchInScope(child, predicate, options)
   );
 }
@@ -304,7 +278,7 @@ export function forEachNodeInScope(
   }
 
   // Visit children
-  walkChildrenInScope(node, (child) => {
+  walkChildren(node, (child) => {
     forEachNodeInScope(child, fn, options);
     return false; // Continue walking
   });

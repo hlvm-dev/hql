@@ -313,6 +313,7 @@ export async function createAgentSession(
       toolFilterState,
       toolOwnerId,
       onToken: options.onToken,
+      thinkingCapable: modelInfo?.capabilities?.includes("thinking") ?? false,
     });
 
   const llmConfig = options.fixturePath ? undefined : {

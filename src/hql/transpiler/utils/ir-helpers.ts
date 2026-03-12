@@ -147,3 +147,9 @@ export function createNum(value: number): IR.IRNumericLiteral {
 export function createArr(elements: IR.IRNode[]): IR.IRArrayExpression {
   return { type: IR.IRNodeType.ArrayExpression, elements };
 }
+
+export function createBlock(body: IR.IRNode[], position?: IR.SourcePosition): IR.IRBlockStatement {
+  const node: IR.IRBlockStatement = { type: IR.IRNodeType.BlockStatement, body };
+  if (position) node.position = position;
+  return node;
+}

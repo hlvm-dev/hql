@@ -30,3 +30,10 @@ export function getDb(): Database {
 export function _setDbForTesting(db: Database): void {
   _db = db;
 }
+
+export function _resetDbForTesting(): void {
+  if (_db) {
+    try { _db.close(); } catch { /* best-effort */ }
+  }
+  _db = null;
+}

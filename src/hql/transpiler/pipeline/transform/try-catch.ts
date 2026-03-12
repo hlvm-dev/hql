@@ -15,6 +15,7 @@ import {
 import { sanitizeIdentifier } from "../../../../common/utils.ts";
 import { containsAwait } from "./async-generators.ts";
 import { containsYieldExpression } from "../../utils/ir-tree-walker.ts";
+import { createBlock } from "../../utils/ir-helpers.ts";
 
 // Type for transform node function passed from main module
 export type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
@@ -230,11 +231,7 @@ export function transformTry(
     (finalizer ? containsYieldExpression(finalizer) : false);
 
   // The IIFE needs to contain just the try statement
-  const functionBody: IR.IRBlockStatement = {
-    type: IR.IRNodeType.BlockStatement,
-    body: [tryStatement],
-    position: listPosition,
-  };
+  const functionBody: IR.IRBlockStatement = createBlock([tryStatement], listPosition);
 
   const functionExpression: IR.IRFunctionExpression = {
     type: IR.IRNodeType.FunctionExpression,
@@ -314,8 +311,5 @@ export function buildBlockFromExpressions(
     }
   });
 
-  return {
-    type: IR.IRNodeType.BlockStatement,
-    body: statements,
-  };
+  return createBlock(statements);
 }

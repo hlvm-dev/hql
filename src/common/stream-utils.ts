@@ -7,6 +7,7 @@
 
 /** Maximum bytes to read from a single process stream (10 MiB) */
 const MAX_STREAM_BYTES = 10 * 1024 * 1024;
+const FORCE_KILL_DELAY_MS = 750;
 
 /** Concatenate an array of Uint8Arrays into a single Uint8Array */
 function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
@@ -23,6 +24,51 @@ function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
   }
 
   return result;
+}
+
+/**
+ * Create a cross-platform process abort helper.
+ *
+ * Attempts graceful termination first on POSIX, then force-kills if needed.
+ * On Windows, falls back to the default kill behavior.
+ */
+export function createProcessAbortHandler(
+  process: { kill?(signal?: string | number): void },
+  os: string,
+): { abort: () => void; clear: () => void } {
+  let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const tryKill = (signal?: string | number): void => {
+    try {
+      process.kill?.(signal);
+    } catch {
+      // Process may have already exited; no-op.
+    }
+  };
+
+  return {
+    abort: () => {
+      if (!process.kill) return;
+
+      if (os === "windows") {
+        tryKill();
+        return;
+      }
+
+      tryKill("SIGTERM");
+      if (forceKillTimer === null) {
+        forceKillTimer = setTimeout(() => {
+          tryKill("SIGKILL");
+        }, FORCE_KILL_DELAY_MS);
+      }
+    },
+    clear: () => {
+      if (forceKillTimer !== null) {
+        clearTimeout(forceKillTimer);
+        forceKillTimer = null;
+      }
+    },
+  };
 }
 
 /**

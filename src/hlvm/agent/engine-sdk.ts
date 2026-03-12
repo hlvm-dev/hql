@@ -114,6 +114,97 @@ export function mapSdkToolCalls(
 // SdkAgentEngine
 // ============================================================
 
+type ProviderOptionJson =
+  | string
+  | number
+  | boolean
+  | null
+  | ProviderOptionJson[]
+  | { [key: string]: ProviderOptionJson };
+
+/** Provider options value type — must be JSON-serializable for the SDK. */
+type ProviderOptionValue = { [key: string]: ProviderOptionJson };
+
+/** Build provider-specific options (thinking, context budget, etc.) */
+export function buildProviderOptions(
+  spec: ResolvedModelSpec,
+  config: AgentLLMConfig,
+): Record<string, ProviderOptionValue> | undefined {
+  const opts: Record<string, ProviderOptionValue> = {};
+
+  // Ollama num_ctx
+  if (
+    spec.providerName === "ollama" &&
+    typeof config.contextBudget === "number" &&
+    config.contextBudget > 0
+  ) {
+    opts.ollama = { num_ctx: Math.floor(config.contextBudget) };
+  }
+
+  // Thinking — prefer explicit capability flags, then fall back to known
+  // provider/model families until provider model catalogs expose this reliably.
+  if (shouldEnableNativeThinking(spec, config)) {
+    switch (spec.providerName) {
+      case "anthropic":
+      case "claude-code":
+        opts.anthropic = { thinking: { type: "enabled", budgetTokens: 10000 } };
+        break;
+      case "openai":
+        opts.openai = { reasoningEffort: "high" };
+        break;
+      case "google":
+        opts.google = { thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } };
+        break;
+    }
+  }
+
+  return Object.keys(opts).length > 0 ? opts : undefined;
+}
+
+function shouldEnableNativeThinking(
+  spec: ResolvedModelSpec,
+  config: AgentLLMConfig,
+): boolean {
+  if (config.thinkingCapable) return true;
+
+  const modelId = spec.modelId.toLowerCase();
+  switch (spec.providerName) {
+    case "anthropic":
+    case "claude-code":
+      return modelId.startsWith("claude-");
+    case "openai":
+      return /^o[134]/.test(modelId) || modelId.startsWith("gpt-5");
+    case "google":
+      return modelId.startsWith("gemini-2.5");
+    default:
+      return false;
+  }
+}
+
+export function extractReasoningText(reasoning: unknown): string | undefined {
+  if (typeof reasoning === "string") {
+    const trimmed = reasoning.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (!Array.isArray(reasoning)) return undefined;
+
+  const parts: string[] = [];
+  for (const item of reasoning) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    if (typeof record.text === "string" && record.text.length > 0) {
+      parts.push(record.text);
+      continue;
+    }
+    if (typeof record.content === "string" && record.content.length > 0) {
+      parts.push(record.content);
+    }
+  }
+
+  const joined = parts.join("").trim();
+  return joined.length > 0 ? joined : undefined;
+}
+
 export class SdkAgentEngine implements AgentEngine {
   createLLM(config: AgentLLMConfig): LLMFunction {
     // Hoisted: resolved once per createLLM() call (same config → same spec)
@@ -121,12 +212,8 @@ export class SdkAgentEngine implements AgentEngine {
     let cachedModel: LanguageModel | null = null;
     const shouldCacheModel = spec.providerName !== "claude-code";
 
-    // Ollama context budget hint (stable across calls)
-    const numCtx = spec.providerName === "ollama" &&
-        typeof config.contextBudget === "number" &&
-        config.contextBudget > 0
-      ? Math.floor(config.contextBudget)
-      : undefined;
+    // Provider options (thinking, context budget, etc.) — stable across calls
+    const providerOptions = buildProviderOptions(spec, config);
 
     // Tool cache: rebuilt only when registry generation changes
     let cachedSdkTools: ToolSet = {};
@@ -184,7 +271,7 @@ export class SdkAgentEngine implements AgentEngine {
         temperature: config.options?.temperature ?? 0.0,
         maxTokens: config.options?.maxTokens,
         abortSignal: signal,
-        ...(numCtx ? { providerOptions: { ollama: { num_ctx: numCtx } } } : {}),
+        ...(providerOptions ? { providerOptions } : {}),
       };
 
       try {
@@ -200,13 +287,14 @@ export class SdkAgentEngine implements AgentEngine {
           }
 
           // streamText properties are PromiseLike — await them
-          const [toolCalls, usage, text, sources, providerMetadata] =
+          const [toolCalls, usage, text, sources, providerMetadata, reasoning] =
             await Promise.all([
               result.toolCalls,
               result.usage,
               result.text,
               result.sources,
               result.providerMetadata,
+              result.reasoning,
             ]);
 
           return {
@@ -215,6 +303,7 @@ export class SdkAgentEngine implements AgentEngine {
             usage: mapSdkUsage(usage),
             sources: mapSdkSources(sources),
             providerMetadata: normalizeProviderMetadata(providerMetadata),
+            reasoning: extractReasoningText(reasoning),
           };
         }
 
@@ -226,6 +315,7 @@ export class SdkAgentEngine implements AgentEngine {
           usage: mapSdkUsage(result.usage),
           sources: mapSdkSources(result.sources),
           providerMetadata: normalizeProviderMetadata(result.providerMetadata),
+          reasoning: extractReasoningText(result.reasoning),
         };
       } catch (error) {
         await maybeHandleSdkAuthError(spec.providerName, error);

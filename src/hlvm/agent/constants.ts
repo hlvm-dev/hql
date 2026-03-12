@@ -123,12 +123,14 @@ const SHELL_COMMAND_MANIFEST: readonly ShellCommandSpec[] = [
   { pattern: /^deno\s+(test|task|fmt|lint|check|bench)\b/, commands: ["deno test", "deno task", "deno fmt", "deno lint", "deno check", "deno bench"], tier: "L1" },
   { pattern: /^npm\s+(test|run|start)\b/, commands: ["npm test", "npm run", "npm start"], tier: "L1" },
   { pattern: /^npx\s/,                 commands: ["npx"],            tier: "L1" },
+  { pattern: /^node\s+--check\b/,      commands: ["node --check"],   tier: "L1" },
   { pattern: /^yarn\s+(test|run|start)\b/, commands: ["yarn test", "yarn run", "yarn start"], tier: "L1" },
   { pattern: /^pnpm\s+(test|run|start)\b/, commands: ["pnpm test", "pnpm run", "pnpm start"], tier: "L1" },
   { pattern: /^make(\s|$)/,            commands: ["make"],           tier: "L1" },
   { pattern: /^cargo\s+(test|build|check|clippy|fmt|bench|run)\b/, commands: ["cargo test", "cargo build", "cargo check", "cargo clippy", "cargo fmt", "cargo bench", "cargo run"], tier: "L1" },
   { pattern: /^go\s+(test|build|vet|fmt|run)\b/, commands: ["go test", "go build", "go vet", "go fmt", "go run"], tier: "L1" },
   { pattern: /^python3?\s+(-m\s+)?(pytest|unittest|mypy|flake8|black|ruff)\b/, commands: ["python pytest", "python -m pytest", "python3 -m mypy"], tier: "L1" },
+  { pattern: /^python3?\s+-m\s+py_compile\b/, commands: ["python -m py_compile"], tier: "L1" },
   { pattern: /^(pytest|mypy|eslint|prettier|tsc|biome)\b/, commands: ["pytest", "mypy", "eslint", "prettier", "tsc", "biome"], tier: "L1" },
 ] as const;
 

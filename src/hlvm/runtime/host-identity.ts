@@ -23,7 +23,7 @@ function isDenoExecutable(execPath: string): boolean {
   return /(?:^|\/|\\)deno(?:\.exe)?$/i.test(execPath);
 }
 
-export function resolveRuntimeHostArtifactPath(): string {
+function resolveRuntimeHostArtifactPath(): string {
   const platform = getPlatform();
   const execPath = platform.process.execPath();
   if (!isDenoExecutable(execPath)) {

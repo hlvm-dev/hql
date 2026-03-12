@@ -31,6 +31,7 @@ import {
   containsYieldExpression,
 } from "../utils/ir-tree-walker.ts";
 import {
+  createBlock,
   createId,
   ensureReturnStatement,
   createExprStmt,
@@ -272,10 +273,7 @@ function transformBinding(
             return node;
           });
 
-          const bodyBlock: IR.IRBlockStatement = {
-            type: IR.IRNodeType.BlockStatement,
-            body: [variableDecl, ...bodyStmts],
-          };
+          const bodyBlock: IR.IRBlockStatement = createBlock([variableDecl, ...bodyStmts]);
           const hasAwaits = containsAwaitExpression(bodyBlock);
           const hasYields = containsYieldExpression(bodyBlock);
 
@@ -351,10 +349,7 @@ function transformBinding(
       });
 
       // Check if body contains await/yield - IIFE needs to be async/generator
-      const bodyBlock: IR.IRBlockStatement = {
-        type: IR.IRNodeType.BlockStatement,
-        body: [variableDecl, ...bodyStmts],
-      };
+      const bodyBlock: IR.IRBlockStatement = createBlock([variableDecl, ...bodyStmts]);
       const hasAwaits = containsAwaitExpression(bodyBlock);
       const hasYields = containsYieldExpression(bodyBlock);
 
@@ -661,10 +656,7 @@ function processBindings(
 
   // Create an IIFE to contain our block of code
   // Check if body contains await/yield - IIFE needs to be async/generator
-  const bodyBlock: IR.IRBlockStatement = {
-    type: IR.IRNodeType.BlockStatement,
-    body: [...patternDeclarations, ...variableDeclarations, ...bodyStmts],
-  };
+  const bodyBlock: IR.IRBlockStatement = createBlock([...patternDeclarations, ...variableDeclarations, ...bodyStmts]);
   const hasAwaits = containsAwaitExpression(bodyBlock);
   const hasYields = containsYieldExpression(bodyBlock);
 

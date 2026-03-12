@@ -123,10 +123,12 @@ export function dedupeModelList(models: ModelInfo[]): ModelInfo[] {
 export async function listAllProviderModels(
   options?: ModelListAllOptions,
 ): Promise<ModelInfo[]> {
-  const includeProviders = options?.includeProviders;
+  const includeProviders = options?.includeProviders
+    ? new Set(options.includeProviders)
+    : null;
   const excludeProviders = new Set(options?.excludeProviders ?? []);
   const providerNames = listRegisteredProviders().filter((name) =>
-    (!includeProviders || includeProviders.includes(name)) &&
+    (!includeProviders || includeProviders.has(name)) &&
     !excludeProviders.has(name)
   );
   const results = await Promise.all(

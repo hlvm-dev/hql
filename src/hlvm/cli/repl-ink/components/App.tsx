@@ -108,8 +108,6 @@ import {
 } from "../../../api/session.ts";
 import { resolveSessionStart } from "../../repl/session/start.ts";
 import {
-  buildRecentPromptHistoryContext,
-  isPromptRecencyQuery,
   recordPromptHistory,
 } from "../../repl/prompt-history.ts";
 import { buildTranscriptStateFromSession } from "../conversation-history.ts";
@@ -826,16 +824,6 @@ function AppContent(
       if (!currentSession || currentSession.id !== sessionMeta.id) {
         setCurrentSession(sessionMeta);
       }
-      const chronologySession = isPromptRecencyQuery(query)
-        ? await sessionApi.get(sessionMeta.id)
-        : null;
-      const recentPromptContext = buildRecentPromptHistoryContext(
-        replState.historyEntries,
-        query,
-        {
-          sessionMessages: chronologySession?.messages,
-        },
-      );
 
       let textBuffer = "";
       let finalCitations: AssistantCitation[] | undefined;
@@ -860,8 +848,6 @@ function AppContent(
           image_paths: mediaPaths,
           client_turn_id: crypto.randomUUID(),
         }],
-        historyContext: recentPromptContext ?? undefined,
-        disablePersistentMemory: recentPromptContext !== null,
         model,
         permissionMode: agentExecutionMode,
         // REPL UX: avoid model-initiated ask_user detours for simple chat turns.

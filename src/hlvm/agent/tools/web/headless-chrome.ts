@@ -10,7 +10,6 @@
  * - SSOT compliant: getPlatform() for process, fs, env, build.
  */
 
-import { delay } from "@std/async";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { withTimeout } from "../../../../common/timeout-utils.ts";
 import { getAgentLogger } from "../../logger.ts";
@@ -176,7 +175,8 @@ class CdpClient {
 // Singleton Browser Manager
 // ============================================================
 
-let chromeProcess: PlatformCommandProcess | null = null;
+// Keep process handle alive to prevent GC (set in launchChrome, not read)
+let _chromeProcess: PlatformCommandProcess | null = null;
 let browserWsUrl: string | null = null;
 let launchPromise: Promise<string | null> | null = null;
 let activeRenders = 0;
@@ -235,7 +235,7 @@ async function launchChrome(): Promise<string | null> {
     return null;
   }
 
-  chromeProcess = proc;
+  _chromeProcess = proc;
   proc.unref?.();
   browserWsUrl = wsUrl;
   return browserWsUrl;
@@ -379,29 +379,3 @@ export async function renderWithChrome(
   }
 }
 
-/**
- * Shut down the singleton Chrome browser process.
- * Safe to call multiple times or when no browser is running.
- */
-async function shutdownChromeBrowser(): Promise<void> {
-  if (!chromeProcess) return;
-
-  // Wait briefly for in-flight renders
-  if (activeRenders > 0) {
-    const deadline = Date.now() + 5000;
-    while (activeRenders > 0 && Date.now() < deadline) {
-      await delay(200);
-    }
-  }
-
-  try {
-    chromeProcess.kill?.("SIGTERM");
-  } catch {
-    // best-effort
-  }
-
-  chromeProcess = null;
-  browserWsUrl = null;
-  launchPromise = null;
-  activeRenders = 0;
-}

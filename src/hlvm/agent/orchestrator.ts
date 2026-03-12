@@ -89,6 +89,8 @@ export {
   initializeLoopState,
   resolveLoopConfig,
   checkToolResultBytesLimit,
+  effectiveAllowlist,
+  effectiveDenylist,
 } from "./orchestrator-state.ts";
 export {
   executeToolCall,
@@ -105,6 +107,8 @@ export {
 
 import { type LLMFunction, callLLMWithRetry } from "./orchestrator-llm.ts";
 import {
+  effectiveAllowlist,
+  effectiveDenylist,
   type LoopConfig,
   type LoopState,
   initializeLoopState,
@@ -413,6 +417,7 @@ export interface OrchestratorConfig {
   delegateInbox?: DelegateInbox;
   modelId?: string;
   sessionId?: string;
+  currentUserRequest?: string;
   signal?: AbortSignal;
   /** Enable one-time automatic memory recall for this user turn. */
   autoMemoryRecall?: boolean;
@@ -446,8 +451,8 @@ export interface OrchestratorConfig {
 
 function memoryWriteAvailable(config: OrchestratorConfig): boolean {
   const tools = resolveTools({
-    allowlist: config.toolFilterState?.allowlist ?? config.toolAllowlist,
-    denylist: config.toolFilterState?.denylist ?? config.toolDenylist,
+    allowlist: effectiveAllowlist(config),
+    denylist: effectiveDenylist(config),
     ownerId: config.toolOwnerId,
   });
   return "memory_write" in tools;
@@ -521,14 +526,12 @@ function maybeInjectDelegationHint(
   state.delegationHintInjected = true;
 
   // Only inject when delegate_agent is actually available
-  const effectiveAllowlist = config.toolFilterState?.allowlist ??
-    config.toolAllowlist;
-  const effectiveDenylist = config.toolFilterState?.denylist ??
-    config.toolDenylist;
-  if (effectiveAllowlist && !effectiveAllowlist.includes("delegate_agent")) {
+  const allowed = effectiveAllowlist(config);
+  const denied = effectiveDenylist(config);
+  if (allowed && !allowed.includes("delegate_agent")) {
     return;
   }
-  if (effectiveDenylist?.includes("delegate_agent")) return;
+  if (denied?.includes("delegate_agent")) return;
 
   const signal = evaluateDelegationSignal(userRequest);
   if (!signal.shouldDelegate) return;
@@ -621,7 +624,7 @@ function hasMeaningfulTeamSummary(
  */
 export function maybeInjectReminder(
   state: LoopState,
-  lc: LoopConfig,
+  _lc: LoopConfig,
   config: OrchestratorConfig,
 ): boolean {
   // 3-iteration cooldown between reminders
@@ -982,7 +985,6 @@ export async function runReActLoop(
 
       const responseText = agentResponse.content ?? "";
       if (responseText) state.lastResponse = responseText;
-      const response = agentResponse;
 
       const usage = agentResponse.usage
         ? toTokenUsage(agentResponse.usage)
@@ -1021,7 +1023,20 @@ export async function runReActLoop(
         toolCalls: agentResponse.toolCalls?.length ?? 0,
       });
 
-      if ((agentResponse.toolCalls?.length ?? 0) > 0 && responseText.trim()) {
+      // Surface provider-native reasoning (if any) via existing UI events
+      if (agentResponse.reasoning) {
+        config.onAgentEvent?.({
+          type: "thinking_update",
+          iteration: state.iterations,
+          summary: truncate(agentResponse.reasoning, 500),
+        });
+      }
+
+      if (
+        !agentResponse.reasoning &&
+        (agentResponse.toolCalls?.length ?? 0) > 0 &&
+        responseText.trim()
+      ) {
         config.onAgentEvent?.({
           type: "thinking_update",
           iteration: state.iterations,
@@ -1030,7 +1045,7 @@ export async function runReActLoop(
       }
 
       const textResult = handleTextOnlyResponse(
-        response,
+        agentResponse,
         responseText,
         state,
         lc,
@@ -1040,7 +1055,7 @@ export async function runReActLoop(
       if (textResult.action === "return") return textResult.value;
 
       const result = await processAgentResponse(
-        response,
+        agentResponse,
         config,
         lc.toolRateLimiter,
       );

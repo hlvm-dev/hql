@@ -273,7 +273,6 @@ function registerFunctionOrMacro(list: SList, head: string): void {
 }
 
 function registerBinding(list: SList, bindingKeyword: string): void {
-  const isMutable = bindingKeyword === "var";
   try {
     if (list.elements.length === 3 && isSymbol(list.elements[1])) {
       const varName = (list.elements[1] as SSymbol).name;

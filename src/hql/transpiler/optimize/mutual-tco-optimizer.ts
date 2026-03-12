@@ -32,6 +32,7 @@
  */
 
 import * as IR from "../type/hql_ir.ts";
+import { createBlock } from "../utils/ir-helpers.ts";
 import { findTailCallsToFunctions } from "./tail-position-analyzer.ts";
 
 // ============================================================================
@@ -161,13 +162,10 @@ function createThunk(callExpr: IR.IRNode): IR.IRFunctionExpression {
     type: IR.IRNodeType.FunctionExpression,
     id: null,
     params: [],
-    body: {
-      type: IR.IRNodeType.BlockStatement,
-      body: [{
-        type: IR.IRNodeType.ReturnStatement,
-        argument: callExpr
-      } as IR.IRReturnStatement]
-    } as IR.IRBlockStatement,
+    body: createBlock([{
+      type: IR.IRNodeType.ReturnStatement,
+      argument: callExpr
+    } as IR.IRReturnStatement]),
     async: false,
     generator: false
   } as IR.IRFunctionExpression;
@@ -239,10 +237,7 @@ function transformToThunks(
     switch (n.type) {
       case IR.IRNodeType.BlockStatement: {
         const block = n as IR.IRBlockStatement;
-        return {
-          type: IR.IRNodeType.BlockStatement,
-          body: block.body.map(stmt => transformNode(stmt))
-        } as IR.IRBlockStatement;
+        return createBlock(block.body.map(stmt => transformNode(stmt)));
       }
 
       case IR.IRNodeType.ReturnStatement: {
@@ -362,10 +357,7 @@ function transformGenToThunks(
     switch (n.type) {
       case IR.IRNodeType.BlockStatement: {
         const block = n as IR.IRBlockStatement;
-        return {
-          type: IR.IRNodeType.BlockStatement,
-          body: block.body.map(stmt => transformNode(stmt))
-        } as IR.IRBlockStatement;
+        return createBlock(block.body.map(stmt => transformNode(stmt)));
       }
 
       case IR.IRNodeType.ReturnStatement: {

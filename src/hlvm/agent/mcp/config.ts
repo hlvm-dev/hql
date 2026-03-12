@@ -11,7 +11,6 @@ import {
 } from "../../../common/paths.ts";
 import type { McpConfig, McpServerConfig } from "./types.ts";
 
-const MCP_FILE_NAME = "mcp.json";
 const DOT_MCP_FILE = ".mcp.json";
 
 // ============================================================

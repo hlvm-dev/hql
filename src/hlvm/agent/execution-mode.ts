@@ -29,14 +29,6 @@ const EXECUTION_MODE_CHANGE_MESSAGES: Record<AgentExecutionMode, string> = {
   "yolo": "Full auto",
 };
 
-const EXECUTION_MODE_SELECTION_LABELS: Record<ReplAgentExecutionMode, string> =
-  {
-    "default": "default model",
-    "auto-edit": "accept edits model",
-    "plan": "plan mode model",
-    "yolo": "full auto model",
-  };
-
 export function toAgentExecutionMode(
   permissionMode?: PermissionMode,
 ): AgentExecutionMode {
@@ -65,12 +57,6 @@ export function getAgentExecutionModeChangeMessage(
   mode: AgentExecutionMode,
 ): string {
   return EXECUTION_MODE_CHANGE_MESSAGES[mode];
-}
-
-function getAgentExecutionModeSelectionLabel(
-  mode: ReplAgentExecutionMode,
-): string {
-  return EXECUTION_MODE_SELECTION_LABELS[mode];
 }
 
 export function getPlanningModeForExecutionMode(

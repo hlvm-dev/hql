@@ -31,6 +31,8 @@ interface FixtureStep {
   response?: string;
   /** Alias for response */
   content?: string;
+  /** Optional reasoning/thinking text to return for this step */
+  reasoning?: string;
   /** Optional structured tool calls */
   toolCalls?: ToolCall[];
   /** Optional expectations against input messages */
@@ -139,16 +141,26 @@ function normalizeSteps(input: unknown): FixtureStep[] | null {
     const response = typeof entry.response === "string"
       ? entry.response
       : undefined;
-    const content = typeof entry.content === "string" ? entry.content : undefined;
+    const content = typeof entry.content === "string"
+      ? entry.content
+      : undefined;
+    const reasoning = typeof entry.reasoning === "string"
+      ? entry.reasoning
+      : undefined;
     const toolCalls = Array.isArray(entry.toolCalls)
       ? entry.toolCalls.filter((call) =>
         isObjectValue(call) && typeof call.toolName === "string"
       ) as ToolCall[]
       : undefined;
-    if (!response && !content && (!toolCalls || toolCalls.length === 0)) continue;
+    if (
+      !response && !content && !reasoning &&
+      (!toolCalls || toolCalls.length === 0)
+    ) {
+      continue;
+    }
 
     const expect = normalizeExpect(entry.expect);
-    steps.push({ response, content, toolCalls, expect });
+    steps.push({ response, content, reasoning, toolCalls, expect });
   }
 
   return steps.length > 0 ? steps : null;
@@ -211,11 +223,15 @@ export function createFixtureLLM(
     return Promise.resolve({
       content: step.content ?? step.response ?? "",
       toolCalls: step.toolCalls ?? [],
+      reasoning: step.reasoning,
     });
   };
 }
 
-function selectCase(fixture: LlmFixture, messages: AgentMessage[]): FixtureCase {
+function selectCase(
+  fixture: LlmFixture,
+  messages: AgentMessage[],
+): FixtureCase {
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   const haystack = lastUser?.content ?? "";
 
@@ -244,7 +260,9 @@ function assertStepExpect(
   caseName: string,
   stepNumber: number,
 ): void {
-  if (expect.messageCount !== undefined && messages.length !== expect.messageCount) {
+  if (
+    expect.messageCount !== undefined && messages.length !== expect.messageCount
+  ) {
     throw new ValidationError(
       `LLM fixture expect mismatch (case "${caseName}" step ${stepNumber}): ` +
         `messageCount expected ${expect.messageCount}, got ${messages.length}`,

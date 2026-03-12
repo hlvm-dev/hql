@@ -41,6 +41,8 @@ export interface LLMResponse {
   sources?: LLMSource[];
   /** Provider-native metadata returned by the model runtime. */
   providerMetadata?: Record<string, unknown>;
+  /** Provider-native reasoning/thinking output (if model supports it). */
+  reasoning?: string;
 }
 
 /** Shared SSOT for native tool-call ids across agent + provider layers. */

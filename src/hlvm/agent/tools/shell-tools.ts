@@ -61,8 +61,6 @@ interface ShellScriptResult extends ShellResult {
   message?: string;
 }
 
-const FORCE_KILL_DELAY_MS = 2000;
-
 /**
  * Backward-compatible classifier returning only safety level.
  * Use classifyShellCommandWithReason for detailed reasons.
@@ -393,49 +391,6 @@ export async function shellScript(
   }
 }
 
-// ============================================================
-// Helpers
-// ============================================================
-
-function createProcessAbortHandler(
-  process: { kill?(signal?: string | number): void },
-  os: ReturnType<typeof getPlatform>["build"]["os"],
-): { abort: () => void; clear: () => void } {
-  let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const tryKill = (signal?: string | number): void => {
-    try {
-      process.kill?.(signal);
-    } catch {
-      // Process may have already exited; no-op.
-    }
-  };
-
-  return {
-    abort: () => {
-      if (!process.kill) return;
-
-      if (os === "windows") {
-        tryKill();
-        return;
-      }
-
-      tryKill("SIGTERM");
-      if (forceKillTimer === null) {
-        forceKillTimer = setTimeout(() => {
-          tryKill("SIGKILL");
-        }, FORCE_KILL_DELAY_MS);
-      }
-    },
-    clear: () => {
-      if (forceKillTimer !== null) {
-        clearTimeout(forceKillTimer);
-        forceKillTimer = null;
-      }
-    },
-  };
-}
-
 function extractUrlsFromArgs(args: string[]): string[] {
   const urls: string[] = [];
   for (const arg of args) {
@@ -454,8 +409,11 @@ function extractUrlsFromText(text: string): string[] {
   return urls;
 }
 
-// readProcessStream and concatUint8Arrays: see common/stream-utils.ts (SSOT)
-import { readProcessStream } from "../../../common/stream-utils.ts";
+// Process stream and abort helpers: see common/stream-utils.ts (SSOT)
+import {
+  createProcessAbortHandler,
+  readProcessStream,
+} from "../../../common/stream-utils.ts";
 
 // ============================================================
 // Tool Registry

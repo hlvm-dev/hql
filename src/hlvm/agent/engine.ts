@@ -26,6 +26,8 @@ export interface AgentLLMConfig {
   toolFilterState?: ToolFilterState;
   toolOwnerId?: string;
   onToken?: (text: string) => void;
+  /** Whether the model supports thinking/reasoning. From ModelInfo.capabilities. */
+  thinkingCapable?: boolean;
 }
 
 /** Abstract engine interface for creating LLM functions */

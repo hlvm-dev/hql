@@ -8,6 +8,7 @@ import { getErrorMessage, sanitizeIdentifier } from "../../../common/utils.ts";
 import { validateTransformed } from "../utils/validation-helpers.ts";
 import {
   ensureReturnStatement,
+  createBlock,
   createId,
   createReturn,
   createNull,
@@ -197,15 +198,9 @@ export function transformLoop(
               transformNode,
             );
             if (transformed) {
-              bodyBlock = {
-                type: IR.IRNodeType.BlockStatement,
-                body: [transformed],
-              };
+              bodyBlock = createBlock([transformed]);
             } else {
-              bodyBlock = {
-                type: IR.IRNodeType.BlockStatement,
-                body: [],
-              };
+              bodyBlock = createBlock([]);
             }
           } else {
             // Regular case: transform all body expressions
@@ -262,13 +257,10 @@ export function transformLoop(
       const hasAwaits = containsAwaitExpression(bodyBlock);
       const hasYields = containsYieldExpression(bodyBlock);
 
-      const iifeBody: IR.IRBlockStatement = {
-        type: IR.IRNodeType.BlockStatement,
-        body: [
-          loopFunc,
-          createReturn(initialCall),
-        ],
-      };
+      const iifeBody: IR.IRBlockStatement = createBlock([
+        loopFunc,
+        createReturn(initialCall),
+      ]);
 
       const iife = createCall(
         createFnExpr(iifeParams, iifeBody, { async: hasAwaits, generator: hasYields }),
@@ -863,10 +855,7 @@ function transformSimpleLoop(
   const whileStmt: IR.IRWhileStatement = {
     type: IR.IRNodeType.WhileStatement,
     test,
-    body: {
-      type: IR.IRNodeType.BlockStatement,
-      body: whileBodyStatements,
-    } as IR.IRBlockStatement,
+    body: createBlock(whileBodyStatements),
   };
 
   // Transform return value (from the branch that doesn't have recur)
@@ -921,10 +910,7 @@ function transformSimpleLoop(
   iifeBody.push(createReturn(returnValue));
 
   // Check if loop body contains await/yield for async/generator IIFE
-  const iifeBlockBody: IR.IRBlockStatement = {
-    type: IR.IRNodeType.BlockStatement,
-    body: iifeBody,
-  };
+  const iifeBlockBody: IR.IRBlockStatement = createBlock(iifeBody);
   const hasAwaits = containsAwaitExpression(iifeBlockBody);
   const hasYields = containsYieldExpression(iifeBlockBody);
 
@@ -1100,17 +1086,11 @@ function transformLoopBody(
         transformedExpr.type === IR.IRNodeType.ReturnStatement ||
         transformedExpr.type === IR.IRNodeType.IfStatement
       ) {
-        return {
-          type: IR.IRNodeType.BlockStatement,
-          body: [transformedExpr],
-        };
+        return createBlock([transformedExpr]);
       }
 
       // Otherwise wrap in return
-      return {
-        type: IR.IRNodeType.BlockStatement,
-        body: [createReturn(transformedExpr)],
-      };
+      return createBlock([createReturn(transformedExpr)]);
     }
   }
 
@@ -1153,10 +1133,7 @@ function transformLoopBody(
     }
   }
 
-  return {
-    type: IR.IRNodeType.BlockStatement,
-    body: bodyNodes,
-  };
+  return createBlock(bodyNodes);
 }
 
 // forOfLabelTargets is now part of LoopState (see createLoopState)
@@ -1343,10 +1320,7 @@ export function transformForOf(
       type: IR.IRNodeType.ForOfStatement,
       left: createVarDecl(varName, null),
       right: collection,
-      body: {
-        type: IR.IRNodeType.BlockStatement,
-        body: bodyStatements,
-      } as IR.IRBlockStatement,
+      body: createBlock(bodyStatements),
       await: isAwait,
     };
     copyPosition(list, forOfNode);
@@ -1390,13 +1364,10 @@ export function transformForOf(
     // (() => { for (const x of coll) { ... }; return null; })()
     // or for async:
     // (async () => { for await (const x of coll) { ... }; return null; })()
-    const iifeBody: IR.IRBlockStatement = {
-      type: IR.IRNodeType.BlockStatement,
-      body: [
-        forOfNode,
-        createReturn(createNull()),
-      ],
-    };
+    const iifeBody: IR.IRBlockStatement = createBlock([
+      forOfNode,
+      createReturn(createNull()),
+    ]);
 
     // Check if body contains await/yield (beyond for-await-of itself)
     const hasAwaits = isAwait || containsAwaitExpression(forOfNode.body);
@@ -1619,10 +1590,7 @@ export function transformLabel(
       // that handles normal completion, but we still need this one for breaks.
       iifeBodyStatements.push(createReturn(createNull()));
 
-      const iifeBody: IR.IRBlockStatement = {
-        type: IR.IRNodeType.BlockStatement,
-        body: iifeBodyStatements,
-      };
+      const iifeBody: IR.IRBlockStatement = createBlock(iifeBodyStatements);
 
       const iife = createCall(
         createFnExpr([], iifeBody, { async: isBodyAsync, generator: isBodyGenerator }),

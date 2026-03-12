@@ -23,6 +23,7 @@ import { DATA_TOOLS } from "./tools/data-tools.ts";
 import { GIT_TOOLS } from "./tools/git-tools.ts";
 import { DELEGATE_TOOLS } from "./tools/delegate-tools.ts";
 import { TEAM_TOOLS } from "./tools/team-tools.ts";
+import { ACTIVITY_TOOLS } from "./tools/activity-tools.ts";
 import { ValidationError } from "../../common/error.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
 import type { AgentPolicy } from "./policy.ts";
@@ -100,6 +101,10 @@ export interface ToolExecutionOptions {
   teamMemberId?: string;
   /** Lead member ID for the current team runtime. */
   teamLeadMemberId?: string;
+  /** Active session ID for tools that need conversation history access. */
+  sessionId?: string;
+  /** Current user request for tools that need to ignore the triggering prompt. */
+  currentUserRequest?: string;
 }
 
 /** Generic tool function signature */
@@ -275,6 +280,7 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...GIT_TOOLS,
   ...DELEGATE_TOOLS,
   ...TEAM_TOOLS,
+  ...ACTIVITY_TOOLS,
 } as Record<string, ToolMetadata>;
 
 /**

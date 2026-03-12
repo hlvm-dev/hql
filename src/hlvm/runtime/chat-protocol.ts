@@ -32,7 +32,6 @@ export interface ChatRequest {
   permission_mode?: AgentExecutionMode;
   skip_session_history?: boolean;
   disable_persistent_memory?: boolean;
-  history_context?: string;
   tool_denylist?: string[];
   trace?: boolean;
 }

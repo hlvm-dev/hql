@@ -14,7 +14,11 @@ import type {
   ToolEventMeta,
   WebSearchToolEventMeta,
 } from "./orchestrator.ts";
-import type { ToolExecutionResult } from "./orchestrator-state.ts";
+import {
+  effectiveAllowlist,
+  effectiveDenylist,
+  type ToolExecutionResult,
+} from "./orchestrator-state.ts";
 import type { FormattedToolResult } from "./registry.ts";
 import type { SearchResult } from "./tools/web/search-provider.ts";
 import { hasStructuredEvidence } from "./tools/web/web-utils.ts";
@@ -45,19 +49,98 @@ export function buildToolResultOutputs(
     const summaryDisplay = formatted.summaryDisplay ??
       summarizeToolResult(toolName, result, formatted.returnDisplay);
     const returnDisplay = formatted.returnDisplay;
-    // Always enforce context truncation — even when formatResult provides
-    // custom llmContent (e.g., web tools returning full page text).
-    // Without this, a single 50K-char web fetch bypasses the 8K-char
-    // maxResultLength safety net and can blow out the context window.
+    // Smart per-tool compression BEFORE the blunt truncateMiddle safety net.
     const rawLlmContent = formatted.llmContent ?? returnDisplay;
-    const llmContent = config.context.truncateResult(rawLlmContent);
+    const compressed = compressForLLM(toolName, rawLlmContent);
+    const llmContent = config.context.truncateResult(compressed);
     return { llmContent, summaryDisplay, returnDisplay };
   }
 
   const returnDisplay = stringifyToolResult(result);
   const summaryDisplay = summarizeToolResult(toolName, result, returnDisplay);
-  const llmContent = config.context.truncateResult(returnDisplay);
+  const compressed = compressForLLM(toolName, returnDisplay);
+  const llmContent = config.context.truncateResult(compressed);
   return { llmContent, summaryDisplay, returnDisplay };
+}
+
+// ============================================================
+// Smart per-tool compression — keeps signal, drops noise.
+// truncateResult() remains the safety net after this.
+// ============================================================
+
+/** Smart per-tool compression. Small results pass through unchanged. */
+export function compressForLLM(toolName: string, result: string): string {
+  if (result.length <= 4000) return result;
+
+  switch (toolName) {
+    case "read_file":
+      return compressFileContent(result);
+    case "shell_exec":
+    case "shell_script":
+      return compressShellOutput(result);
+    case "git_diff":
+      return compressDiffOutput(result);
+    default:
+      return result; // let truncateResult handle it
+  }
+}
+
+/** read_file: keep first 80 + last 30 lines — head+tail is more useful than blind truncation. */
+function compressFileContent(result: string): string {
+  const lines = result.split("\n");
+  if (lines.length <= 120) return result;
+  const head = lines.slice(0, 80);
+  const tail = lines.slice(-30);
+  const omitted = lines.length - 110;
+  return [...head, `\n... (${omitted} lines omitted) ...\n`, ...tail].join(
+    "\n",
+  );
+}
+
+/** shell_exec: keep head (command context), error/warning lines, and tail (result). */
+function compressShellOutput(result: string): string {
+  const lines = result.split("\n");
+  if (lines.length <= 40) return result;
+  const head = lines.slice(0, 10);
+  const important = lines.filter((l) =>
+    /error|warn|fail|exception|panic/i.test(l)
+  );
+  const tail = lines.slice(-20);
+  // Deduplicate while preserving order
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const l of [...head, ...important, ...tail]) {
+    if (!seen.has(l)) {
+      seen.add(l);
+      kept.push(l);
+    }
+  }
+  const omitted = lines.length - kept.length;
+  if (omitted > 0) {
+    kept.splice(head.length, 0, `\n... (${omitted} lines omitted) ...\n`);
+  }
+  return kept.join("\n");
+}
+
+/** git_diff: keep diff/hunk headers and changed lines, limit context to 2 lines. */
+function compressDiffOutput(result: string): string {
+  const lines = result.split("\n");
+  if (lines.length <= 80) return result;
+  const compressed: string[] = [];
+  let contextCount = 0;
+  for (const line of lines) {
+    if (/^(diff |---|\+\+\+|@@)/.test(line)) {
+      compressed.push(line);
+      contextCount = 0;
+    } else if (line.startsWith("+") || line.startsWith("-")) {
+      compressed.push(line);
+      contextCount = 0;
+    } else {
+      contextCount++;
+      if (contextCount <= 2) compressed.push(line);
+    }
+  }
+  return compressed.join("\n");
 }
 
 /** Check if tool result content indicates failure despite no exception.
@@ -370,8 +453,8 @@ function extractToolEventMeta(
 export function buildIsToolAllowed(
   config: OrchestratorConfig,
 ): (name: string) => boolean {
-  const allowlist = config.toolFilterState?.allowlist ?? config.toolAllowlist;
-  const denylist = config.toolFilterState?.denylist ?? config.toolDenylist;
+  const allowlist = effectiveAllowlist(config);
+  const denylist = effectiveDenylist(config);
   const allowSet = allowlist?.length ? new Set(allowlist) : null;
   const denySet = denylist?.length ? new Set(denylist) : null;
   return (name: string) => {

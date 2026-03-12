@@ -14,10 +14,11 @@ import {
 } from "./registry.ts";
 import type { ModelTier } from "./constants.ts";
 import { checkToolSafety, isMutatingTool } from "./security/safety.ts";
+import { classifyShellCommand } from "./security/shell-classifier.ts";
 import { DEFAULT_TIMEOUTS, RATE_LIMITS } from "./constants.ts";
 import { withTimeout } from "../../common/timeout-utils.ts";
 import { SlidingWindowRateLimiter } from "../../common/rate-limiter.ts";
-import { getErrorMessage, truncate } from "../../common/utils.ts";
+import { getErrorMessage, isObjectValue, truncate } from "../../common/utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import {
   getUnsafeReason,
@@ -59,6 +60,10 @@ import {
   registerBatch,
 } from "./delegate-batches.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import {
+  createProcessAbortHandler,
+  readProcessStream,
+} from "../../common/stream-utils.ts";
 import { parse as parseCsv } from "jsr:@std/csv/parse";
 import { emitDelegateBatchProgress } from "./delegate-batch-progress.ts";
 
@@ -208,6 +213,8 @@ async function executeToolWithTimeout(
   teamMemberId?: string,
   teamLeadMemberId?: string,
   delegateOwnerId?: string,
+  sessionId?: string,
+  currentUserRequest?: string,
 ): Promise<unknown> {
   return await withTimeout(
     async (signal) => {
@@ -230,6 +237,8 @@ async function executeToolWithTimeout(
         teamRuntime,
         teamMemberId,
         teamLeadMemberId,
+        sessionId,
+        currentUserRequest,
       };
       const result = await toolFn(args, workspace, toolOptions);
       if (signal.aborted) {
@@ -861,6 +870,8 @@ export async function executeToolCall(
         config.teamMemberId,
         config.teamLeadMemberId,
         config.delegateOwnerId,
+        config.sessionId,
+        config.currentUserRequest,
       );
     let result: unknown;
     try {
@@ -881,6 +892,13 @@ export async function executeToolCall(
         );
       }
       result = await runTool();
+    }
+
+    if (isFileWriteTool(toolCall.toolName) && isSuccessfulToolPayload(result)) {
+      const verification = await maybeVerifySyntax(toolCall, config);
+      if (verification) {
+        result = attachSyntaxVerification(result, verification);
+      }
     }
 
     const { llmContent, summaryDisplay, returnDisplay } = buildToolResultOutputs(
@@ -1158,6 +1176,171 @@ export async function executeToolCall(
       config,
       toolCall.id,
     );
+  }
+}
+
+// ============================================================
+// Auto-verify: syntax check after file writes
+// ============================================================
+
+const FILE_WRITE_TOOLS = new Set(["write_file", "edit_file"]);
+const DENO_CONFIG_FILES = ["deno.json", "deno.jsonc"] as const;
+
+export function isFileWriteTool(name: string): boolean {
+  return FILE_WRITE_TOOLS.has(name);
+}
+
+const SYNTAX_CHECKER_TIMEOUT = 5000; // 5s — syntax checks should be fast
+
+interface SyntaxVerificationResult {
+  ok: boolean;
+  command: string;
+  summary: string;
+  diagnostics?: string;
+}
+
+function isSuccessfulToolPayload(result: unknown): boolean {
+  return !isObjectValue(result) || result.success !== false;
+}
+
+function appendSentence(base: string, sentence: string): string {
+  const normalized = base.trim();
+  if (!normalized) return sentence;
+  return /[.!?]$/.test(normalized)
+    ? `${normalized} ${sentence}`
+    : `${normalized}. ${sentence}`;
+}
+
+function attachSyntaxVerification(
+  result: unknown,
+  verification: SyntaxVerificationResult,
+): unknown {
+  if (!isObjectValue(result) || result.success !== true) return result;
+
+  const message = typeof result.message === "string"
+    ? result.message
+    : "File operation completed";
+  return {
+    ...result,
+    message: appendSentence(message, verification.summary),
+    syntaxCheck: {
+      ok: verification.ok,
+      command: verification.command,
+      diagnostics: verification.diagnostics,
+    },
+  };
+}
+
+async function resolveSyntaxCheckCommand(
+  filePath: string,
+  workspace: string,
+): Promise<string[] | null> {
+  const platform = getPlatform();
+  const ext = platform.path.extname(filePath).toLowerCase();
+
+  if (ext === ".ts" || ext === ".tsx") {
+    for (const configName of DENO_CONFIG_FILES) {
+      if (await platform.fs.exists(platform.path.join(workspace, configName))) {
+        return ["deno", "check", filePath];
+      }
+    }
+    return ["tsc", "--noEmit", "--pretty", "false", filePath];
+  }
+  if (ext === ".py") {
+    return ["python3", "-m", "py_compile", filePath];
+  }
+  if (ext === ".js" || ext === ".jsx") {
+    return ["node", "--check", filePath];
+  }
+  return null;
+}
+
+/** Run a quick syntax check after a file write. Returns diagnostic info or null. */
+export async function maybeVerifySyntax(
+  toolCall: ToolCall,
+  config: OrchestratorConfig,
+): Promise<SyntaxVerificationResult | null> {
+  const filePath = toolCall.args?.path;
+  if (typeof filePath !== "string") return null;
+
+  const platform = getPlatform();
+  const workspace = config.workspace;
+  const cmd = await resolveSyntaxCheckCommand(filePath, workspace);
+  if (!cmd) return null;
+
+  const commandText = cmd.join(" ");
+  if (classifyShellCommand(commandText).level === "L2") {
+    return null;
+  }
+
+  try {
+    const process = platform.command.run({
+      cmd,
+      cwd: workspace,
+      stdout: "piped",
+      stderr: "piped",
+      stdin: "null",
+    });
+
+    const abortController = new AbortController();
+    const streamSignal = config.signal
+      ? AbortSignal.any([config.signal, abortController.signal])
+      : abortController.signal;
+    const abortHandler = createProcessAbortHandler(process, platform.build.os);
+    let timedOut = false;
+
+    const abortProcess = (): void => {
+      abortController.abort();
+      abortHandler.abort();
+    };
+    const onAbort = (): void => {
+      abortProcess();
+    };
+    if (config.signal) {
+      config.signal.addEventListener("abort", onAbort, { once: true });
+    }
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      abortProcess();
+    }, SYNTAX_CHECKER_TIMEOUT);
+
+    try {
+      const [stdoutBytes, stderrBytes, status] = await Promise.all([
+        readProcessStream(process.stdout, streamSignal),
+        readProcessStream(process.stderr, streamSignal),
+        process.status,
+      ]);
+
+      if (timedOut || config.signal?.aborted) {
+        return null;
+      }
+
+      if (status.code !== 0) {
+        const diag = new TextDecoder()
+          .decode(stderrBytes.length > 0 ? stderrBytes : stdoutBytes)
+          .trim();
+        return {
+          ok: false,
+          command: commandText,
+          summary: "Syntax check failed.",
+          diagnostics: truncate(diag, 500),
+        };
+      }
+
+      return {
+        ok: true,
+        command: commandText,
+        summary: "Syntax check passed.",
+      };
+    } finally {
+      clearTimeout(timeoutId);
+      abortHandler.clear();
+      if (config.signal) {
+        config.signal.removeEventListener("abort", onAbort);
+      }
+    }
+  } catch {
+    return null; // checker not available or timed out — don't block
   }
 }
 

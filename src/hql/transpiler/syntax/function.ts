@@ -53,6 +53,7 @@ import { patternToIR } from "../utils/pattern-to-ir.ts";
 import { parsePattern } from "../../s-exp/pattern-parser.ts";
 import { LRUCache } from "../../../common/lru-cache.ts";
 import {
+  createBlock,
   createCall,
   createExprStmt,
   createFnExpr,
@@ -196,11 +197,7 @@ export function processFunctionBody(
     if (hasNestedReturns) {
       // Get position for block statement from first body node
       const blockPosition = bodyNodes.length > 0 ? bodyNodes[0].position : undefined;
-      const originalBody: IR.IRBlockStatement = {
-        type: IR.IRNodeType.BlockStatement,
-        body: bodyNodes,
-        position: blockPosition, // Propagate position for source mapping
-      };
+      const originalBody: IR.IRBlockStatement = createBlock(bodyNodes, blockPosition);
       const wrappedBody = wrapWithEarlyReturnHandler(originalBody);
       return wrappedBody.body; // Return the statements from the wrapped body
     }
@@ -533,15 +530,9 @@ function transformMultiArityFn(
     caseBody.push(...bodyNodes);
 
     if (arityInfo.hasRest) {
-      switchCases.push(createSwitchCase(null, [{
-        type: IR.IRNodeType.BlockStatement,
-        body: caseBody,
-      } as IR.IRBlockStatement]));
+      switchCases.push(createSwitchCase(null, [createBlock(caseBody)]));
     } else {
-      switchCases.push(createSwitchCase(createNum(arityInfo.arity), [{
-        type: IR.IRNodeType.BlockStatement,
-        body: caseBody,
-      } as IR.IRBlockStatement]));
+      switchCases.push(createSwitchCase(createNum(arityInfo.arity), [createBlock(caseBody)]));
     }
   }
 
@@ -583,10 +574,7 @@ function transformMultiArityFn(
   const restParam = createId(`...${argsIdentifier}`);
 
   // Create function body
-  const functionBody: IR.IRBlockStatement = {
-    type: IR.IRNodeType.BlockStatement,
-    body: [switchStmt],
-  };
+  const functionBody: IR.IRBlockStatement = createBlock([switchStmt]);
 
   if (isNamed && funcId) {
     const fnDecl: IR.IRFnFunctionDeclaration = {
@@ -674,11 +662,7 @@ function transformNamedFn(
     id: funcId,
     params,
     defaults: Array.from(defaults.entries()).map(([name, value]) => ({ name, value })),
-    body: {
-      type: IR.IRNodeType.BlockStatement,
-      body: bodyNodes,
-      position: blockPosition,
-    },
+    body: createBlock(bodyNodes, blockPosition),
     usesJsonMapParams,
     returnType,
     typeParameters,
@@ -726,11 +710,7 @@ function transformAnonymousFn(
   const blockPosition = bodyNodes.length > 0 ? bodyNodes[0].position : undefined;
   const usesThis = containsThisReference(list.elements.slice(bodyStartIndex));
 
-  return createFnExpr(params, {
-    type: IR.IRNodeType.BlockStatement,
-    body: bodyNodes,
-    position: blockPosition,
-  }, { returnType, usesThis: usesThis || undefined });
+  return createFnExpr(params, createBlock(bodyNodes, blockPosition), { returnType, usesThis: usesThis || undefined });
 }
 
 /**

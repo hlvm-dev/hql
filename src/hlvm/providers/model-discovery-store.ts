@@ -24,8 +24,6 @@ export interface ModelDiscoveryRefreshResult {
   failed: boolean;
 }
 
-interface PersistedModelDiscoverySnapshot extends ModelDiscoverySnapshot {}
-
 interface ModelDiscoverySourceResult {
   models: ModelInfo[];
   authoritativeEmpty?: boolean;
@@ -90,7 +88,7 @@ function parsePersistedSnapshot(
   raw: string,
 ): ModelDiscoverySnapshot | null {
   try {
-    const parsed = JSON.parse(raw) as Partial<PersistedModelDiscoverySnapshot>;
+    const parsed = JSON.parse(raw) as Partial<ModelDiscoverySnapshot>;
     if (
       typeof parsed.timestamp !== "number" ||
       !Array.isArray(parsed.remoteModels) ||
@@ -325,12 +323,8 @@ const defaultModelDiscoveryStore = createModelDiscoveryStore();
 
 export const readModelDiscoverySnapshot =
   defaultModelDiscoveryStore.readSnapshot;
-const readModelDiscoverySnapshotSync =
-  defaultModelDiscoveryStore.readSnapshotSync;
 export const refreshModelDiscoverySnapshot =
   defaultModelDiscoveryStore.refreshSnapshot;
 export const readStaleWhileRevalidateModelDiscoverySnapshot =
   defaultModelDiscoveryStore.readStaleWhileRevalidateSnapshot;
-const resetModelDiscoverySnapshotCacheForTests =
-  defaultModelDiscoveryStore.resetCacheForTests;
 export { hasDiscoveryData as hasModelDiscoveryData };

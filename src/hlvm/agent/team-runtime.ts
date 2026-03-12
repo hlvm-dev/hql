@@ -344,7 +344,7 @@ export function createTeamRuntime(
   const teamId = options?.snapshot?.teamId ?? crypto.randomUUID();
   const shutdownEscalationMs = options?.shutdownEscalationMs ?? 30_000;
   const defaultPolicy = createDefaultTeamPolicy();
-  let policy: TeamPolicy = options?.snapshot?.policy
+  const policy: TeamPolicy = options?.snapshot?.policy
     ? { ...defaultPolicy, ...options.snapshot.policy }
     : defaultPolicy;
   const members = new Map<string, TeamMember>();

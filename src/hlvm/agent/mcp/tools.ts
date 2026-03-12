@@ -21,7 +21,6 @@ import { sanitizeToolName } from "../tool-schema.ts";
 import { createSdkMcpClient, SdkMcpClient } from "./sdk-client.ts";
 import {
   dedupeServers,
-  loadMcpConfig,
   loadMcpConfigMultiScope,
 } from "./config.ts";
 import type {
@@ -302,8 +301,7 @@ async function connectWithTimeout(
   });
 
   try {
-    const client = await Promise.race([connectPromise, timeoutPromise]);
-    return client;
+    return await Promise.race([connectPromise, timeoutPromise]);
   } catch (error) {
     if (didTimeout) {
       // If connect eventually succeeds after timeout, close immediately.
@@ -494,7 +492,7 @@ async function connectAndRegisterServer(
 // ============================================================
 
 export async function loadMcpTools(
-  workspace: string,
+  _workspace: string,
   extraServers?: McpServerConfig[],
   ownerId?: string,
 ): Promise<McpLoadResult> {

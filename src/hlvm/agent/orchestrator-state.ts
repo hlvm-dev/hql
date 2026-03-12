@@ -197,3 +197,13 @@ export function checkToolResultBytesLimit(
     }
   }
 }
+
+/** Resolve the effective tool allowlist from OrchestratorConfig. */
+export function effectiveAllowlist(config: OrchestratorConfig): string[] | undefined {
+  return config.toolFilterState?.allowlist ?? config.toolAllowlist;
+}
+
+/** Resolve the effective tool denylist from OrchestratorConfig. */
+export function effectiveDenylist(config: OrchestratorConfig): string[] | undefined {
+  return config.toolFilterState?.denylist ?? config.toolDenylist;
+}

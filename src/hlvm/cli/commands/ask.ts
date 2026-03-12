@@ -519,6 +519,15 @@ export async function askCommand(args: string[]): Promise<void> {
             log.raw.log(`\n[${label}] ${event.name}\n${event.content}\n`);
           }
           break;
+        case "thinking_update":
+          if (streamedTokens) {
+            log.raw.write("\n");
+            streamedTokens = false;
+          }
+          if (event.summary.trim()) {
+            log.raw.log(`\n[Thinking] ${event.summary}\n`);
+          }
+          break;
         case "delegate_start":
           if (streamedTokens) {
             log.raw.write("\n");

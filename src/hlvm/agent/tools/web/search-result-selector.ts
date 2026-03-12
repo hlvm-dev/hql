@@ -690,7 +690,6 @@ function fetchedEvidenceScore(
   evidenceReason: string;
 } {
   const title = normalizeMatchText(result.title);
-  const snippet = normalizeMatchText(result.snippet);
   const pageDescription = normalizeMatchText(result.pageDescription);
   const passagesText = normalizeMatchText((result.passages ?? []).join(" "));
   const phrase = normalizeMatchText(input.query).trim();

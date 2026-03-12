@@ -149,6 +149,30 @@ class TSGenerator {
   }
 
   /**
+   * Emit generic type parameters if present: <T, K, ...>
+   * Consolidates 12 identical guard+emit blocks across generators.
+   */
+  private emitTypeParameters(typeParameters?: string[]): void {
+    if (typeParameters && typeParameters.length > 0) {
+      this.emit("<");
+      this.emit(typeParameters.join(", "));
+      this.emit(">");
+    }
+  }
+
+  /**
+   * Check if a named binding is hoisted (in current block scope or at top level).
+   * Consolidates 3 identical isHoisted computation blocks.
+   */
+  private isNameHoisted(name: string): boolean {
+    const currentScope = this.hoistingStack.length > 0
+      ? this.currentHoistingSet()
+      : null;
+    return !!(currentScope?.has(name) ||
+              (this.isTopLevel && this.topLevelBindingNames.has(name)));
+  }
+
+  /**
    * Build a Map from defaults array for efficient lookup.
    * Consolidates duplicate pattern: new Map(defaults?.map(d => [d.name, d.value]))
    */
@@ -1090,11 +1114,7 @@ class TSGenerator {
   ): void {
     this.emit("type ", node.position);
     this.emit(node.name);
-    if (node.typeParameters && node.typeParameters.length > 0) {
-      this.emit("<");
-      this.emit(node.typeParameters.join(", "));
-      this.emit(">");
-    }
+    this.emitTypeParameters(node.typeParameters);
     this.emit(" = ");
     // Handle both string (passthrough) and IR type expressions
     if (typeof node.typeExpression === "string") {
@@ -1231,11 +1251,7 @@ class TSGenerator {
 
   // (a: A, b: B) => R
   private generateFunctionTypeExpr(node: IR.IRFunctionTypeExpr): void {
-    if (node.typeParameters && node.typeParameters.length > 0) {
-      this.emit("<");
-      this.emit(node.typeParameters.join(", "));
-      this.emit(">");
-    }
+    this.emitTypeParameters(node.typeParameters);
     this.emit("(");
     this.emitCommaSeparated(node.parameters, (param) => {
       if (param.name) {
@@ -1291,11 +1307,7 @@ class TSGenerator {
   private generateInterfaceDeclaration(node: IR.IRInterfaceDeclaration): void {
     this.emit("interface ", node.position);
     this.emit(node.name);
-    if (node.typeParameters && node.typeParameters.length > 0) {
-      this.emit("<");
-      this.emit(node.typeParameters.join(", "));
-      this.emit(">");
-    }
+    this.emitTypeParameters(node.typeParameters);
     if (node.extends && node.extends.length > 0) {
       this.emit(" extends ");
       this.emit(node.extends.join(", "));
@@ -1317,12 +1329,7 @@ class TSGenerator {
 
     this.emit("abstract class ", node.position);
     this.emit(node.id.name);
-
-    if (node.typeParameters && node.typeParameters.length > 0) {
-      this.emit("<");
-      this.emit(node.typeParameters.join(", "));
-      this.emit(">");
-    }
+    this.emitTypeParameters(node.typeParameters);
 
     if (node.superClass) {
       this.emit(" extends ");
@@ -1343,12 +1350,7 @@ class TSGenerator {
   private generateAbstractMethod(node: IR.IRAbstractMethod): void {
     this.emit("abstract ", node.position);
     this.generateNode(node.key);
-
-    if (node.typeParameters && node.typeParameters.length > 0) {
-      this.emit("<");
-      this.emit(node.typeParameters.join(", "));
-      this.emit(">");
-    }
+    this.emitTypeParameters(node.typeParameters);
 
     this.emit("(");
     this.emit(node.params);
@@ -1365,12 +1367,7 @@ class TSGenerator {
   private generateFunctionOverload(node: IR.IRFunctionOverload): void {
     this.emit("function ", node.position);
     this.emit(node.name);
-
-    if (node.typeParameters && node.typeParameters.length > 0) {
-      this.emit("<");
-      this.emit(node.typeParameters.join(", "));
-      this.emit(">");
-    }
+    this.emitTypeParameters(node.typeParameters);
 
     this.emit("(");
     this.emit(node.params);
@@ -2116,12 +2113,7 @@ class TSGenerator {
     // Check if this variable should use expression syntax (was hoisted)
     if (this.isSimpleBinding(node)) {
       const id = node.declarations[0].id as IR.IRIdentifier;
-      const currentScope = this.hoistingStack.length > 0
-        ? this.currentHoistingSet()
-        : null;
-
-      // If hoisted in current block scope OR at top-level, use assignment expression
-      if (currentScope?.has(id.name) || (this.isTopLevel && this.topLevelBindingNames.has(id.name))) {
+      if (this.isNameHoisted(id.name)) {
         this.generateVariableAsAssignment(node);
         return;
       }
@@ -2202,13 +2194,7 @@ class TSGenerator {
       this.emit("function ", node.position);
     }
     this.generateIdentifier(node.id);
-
-    // Add generic type parameters if present
-    if (node.typeParameters && node.typeParameters.length > 0) {
-      this.emit("<");
-      this.emit(node.typeParameters.join(", "));
-      this.emit(">");
-    }
+    this.emitTypeParameters(node.typeParameters);
 
     this.emit("(");
     this.generateFnParams(node.params);
@@ -2240,13 +2226,8 @@ class TSGenerator {
       this.currentMutualRecursionGroup = currentGroup;
     }
 
-    // Check if this function was hoisted (appears in expression context)
-    const currentScope = this.hoistingStack.length > 0 ? this.currentHoistingSet() : null;
-    const isHoisted = currentScope?.has(optimizedNode.id.name) ||
-                      (this.isTopLevel && this.topLevelBindingNames.has(optimizedNode.id.name));
-
     // Expression-everywhere: hoisted functions become assignment expressions
-    if (isHoisted) {
+    if (this.isNameHoisted(optimizedNode.id.name)) {
       this.generateFnAsAssignment(optimizedNode);
       this.currentMutualRecursionGroup = previousGroup;
       return;
@@ -2264,12 +2245,7 @@ class TSGenerator {
     }
     this.generateIdentifier(optimizedNode.id);
 
-    // Add generic type parameters if present
-    if (optimizedNode.typeParameters && optimizedNode.typeParameters.length > 0) {
-      this.emit("<");
-      this.emit(optimizedNode.typeParameters.join(", "));
-      this.emit(">");
-    }
+    this.emitTypeParameters(optimizedNode.typeParameters);
 
     this.emit("(");
     if (optimizedNode.usesJsonMapParams) {
@@ -2319,13 +2295,7 @@ class TSGenerator {
       this.emit("function ");
     }
     this.emit(node.id.name);  // Keep the function name for stack traces
-
-    // Add generic type parameters if present
-    if (node.typeParameters && node.typeParameters.length > 0) {
-      this.emit("<");
-      this.emit(node.typeParameters.join(", "));
-      this.emit(">");
-    }
+    this.emitTypeParameters(node.typeParameters);
 
     this.emit("(");
     if (node.usesJsonMapParams) {
@@ -2354,12 +2324,8 @@ class TSGenerator {
     this.emitDebugComment(node.position, `(class ${node.id.name} ...)`);
 
     // Check if this class was hoisted (appears in expression context)
-    const currentScope = this.hoistingStack.length > 0 ? this.currentHoistingSet() : null;
-    const isHoisted = currentScope?.has(node.id.name) ||
-                      (this.isTopLevel && this.topLevelBindingNames.has(node.id.name));
-
     // Expression-everywhere: hoisted classes become assignment expressions
-    if (isHoisted) {
+    if (this.isNameHoisted(node.id.name)) {
       this.generateClassAsAssignment(node);
       return;
     }
@@ -2368,12 +2334,7 @@ class TSGenerator {
     this.emitIndent();
     this.emit("class ", node.position);
     this.generateIdentifier(node.id);
-    // Emit generic type parameters if present (e.g., <T, K extends string>)
-    if (node.typeParameters && node.typeParameters.length > 0) {
-      this.emit("<");
-      this.emit(node.typeParameters.join(", "));
-      this.emit(">");
-    }
+    this.emitTypeParameters(node.typeParameters);
     // Emit extends clause if present
     if (node.superClass) {
       this.emit(" extends ");
@@ -2403,12 +2364,7 @@ class TSGenerator {
     this.emit(node.id.name);
     this.emit(" = class ");
     this.emit(node.id.name);  // Keep the class name
-    // Emit generic type parameters if present (e.g., <T, K extends string>)
-    if (node.typeParameters && node.typeParameters.length > 0) {
-      this.emit("<");
-      this.emit(node.typeParameters.join(", "));
-      this.emit(">");
-    }
+    this.emitTypeParameters(node.typeParameters);
     // Emit extends clause if present
     if (node.superClass) {
       this.emit(" extends ");
@@ -2492,12 +2448,7 @@ class TSGenerator {
     }
     this.emit(method.name, method.position);
 
-    // Add generic type parameters if present
-    if (method.typeParameters && method.typeParameters.length > 0) {
-      this.emit("<");
-      this.emit(method.typeParameters.join(", "));
-      this.emit(">");
-    }
+    this.emitTypeParameters(method.typeParameters);
 
     // For methods with JSON map parameters, accept single options object with proper typing
     if (method.hasJsonParams) {
@@ -2566,13 +2517,8 @@ class TSGenerator {
     // Debug comment: show HQL origin (superiority feature)
     this.emitDebugComment(node.position, `(enum ${node.id.name} ...)`);
 
-    // Check if this enum was hoisted (appears in expression context)
-    const currentScope = this.hoistingStack.length > 0 ? this.currentHoistingSet() : null;
-    const isHoisted = currentScope?.has(node.id.name) ||
-                      (this.isTopLevel && this.topLevelBindingNames.has(node.id.name));
-
     // Expression-everywhere: hoisted enums become assignment expressions
-    if (isHoisted) {
+    if (this.isNameHoisted(node.id.name)) {
       if (node.hasAssociatedValues) {
         this.generateEnumWithAssociatedValues(node, true);
       } else {

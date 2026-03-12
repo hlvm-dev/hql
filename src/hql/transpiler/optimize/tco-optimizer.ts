@@ -18,6 +18,7 @@
  */
 
 import * as IR from "../type/hql_ir.ts";
+import { createBlock } from "../utils/ir-helpers.ts";
 import { checkTailRecursion } from "./tail-position-analyzer.ts";
 
 // ============================================================================
@@ -99,10 +100,7 @@ function transformBody(
   switch (node.type) {
     case IR.IRNodeType.BlockStatement: {
       const block = node as IR.IRBlockStatement;
-      return {
-        type: IR.IRNodeType.BlockStatement,
-        body: block.body.map(stmt => transformBody(stmt, funcName, paramNames))
-      } as IR.IRBlockStatement;
+      return createBlock(block.body.map(stmt => transformBody(stmt, funcName, paramNames)));
     }
 
     case IR.IRNodeType.ReturnStatement: {
@@ -204,13 +202,10 @@ export function applyTCO(func: IR.IRFnFunctionDeclaration): IR.IRFnFunctionDecla
   // Wrap in while(true)
   return {
     ...func,
-    body: {
-      type: IR.IRNodeType.BlockStatement,
-      body: [{
-        type: IR.IRNodeType.WhileStatement,
-        test: { type: IR.IRNodeType.BooleanLiteral, value: true } as IR.IRBooleanLiteral,
-        body: transformedBody as IR.IRBlockStatement
-      } as IR.IRWhileStatement]
-    }
+    body: createBlock([{
+      type: IR.IRNodeType.WhileStatement,
+      test: { type: IR.IRNodeType.BooleanLiteral, value: true } as IR.IRBooleanLiteral,
+      body: transformedBody as IR.IRBlockStatement
+    } as IR.IRWhileStatement])
   };
 }

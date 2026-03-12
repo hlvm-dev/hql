@@ -58,6 +58,41 @@ const RUNTIME_SHUTDOWN_POLL_ATTEMPTS = 30;
 const RUNTIME_START_LOCK_WAIT_ATTEMPTS = 120;
 const RUNTIME_START_LOCK_STALE_MS = 30_000;
 
+/**
+ * Parse newline-delimited JSON from a ReadableStream.
+ * Yields one parsed object per line, handling partial chunks and trailing data.
+ */
+async function* readNdjsonStream<T>(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): AsyncGenerator<T, void, unknown> {
+  const decoder = new TextDecoder();
+  let pending = "";
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      let newlineIndex = pending.indexOf("\n");
+      while (newlineIndex >= 0) {
+        const line = pending.slice(0, newlineIndex).trim();
+        pending = pending.slice(newlineIndex + 1);
+        if (line.length > 0) {
+          yield JSON.parse(line) as T;
+        }
+        newlineIndex = pending.indexOf("\n");
+      }
+    }
+
+    const trailing = pending.trim();
+    if (trailing.length > 0) {
+      yield JSON.parse(trailing) as T;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 interface RuntimeInteractionRequest {
   requestId: string;
   mode: "permission" | "question";
@@ -985,43 +1020,13 @@ export async function* pullRuntimeModelViaHost(
     throw createRuntimeHostError("Runtime host returned no model pull stream.");
   }
 
-  const decoder = new TextDecoder();
-  let pending = "";
-
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      pending += decoder.decode(value, { stream: true });
-      let newlineIndex = pending.indexOf("\n");
-      while (newlineIndex >= 0) {
-        const line = pending.slice(0, newlineIndex).trim();
-        pending = pending.slice(newlineIndex + 1);
-        if (line.length > 0) {
-          const event = JSON.parse(line) as RuntimeModelPullStreamEvent;
-          if (event.event === "progress") {
-            const { event: _kind, ...progress } = event;
-            yield progress;
-          } else if (event.event === "error") {
-            throw createRuntimeHostError(event.message);
-          }
-        }
-        newlineIndex = pending.indexOf("\n");
-      }
+  for await (const event of readNdjsonStream<RuntimeModelPullStreamEvent>(reader)) {
+    if (event.event === "progress") {
+      const { event: _kind, ...progress } = event;
+      yield progress;
+    } else if (event.event === "error") {
+      throw createRuntimeHostError(event.message);
     }
-
-    const trailing = pending.trim();
-    if (trailing.length > 0) {
-      const event = JSON.parse(trailing) as RuntimeModelPullStreamEvent;
-      if (event.event === "progress") {
-        const { event: _kind, ...progress } = event;
-        yield progress;
-      } else if (event.event === "error") {
-        throw createRuntimeHostError(event.message);
-      }
-    }
-  } finally {
-    reader.releaseLock();
   }
 }
 
@@ -1260,19 +1265,17 @@ export async function runChatViaHost(
     throw createRuntimeHostError("Runtime host returned no response stream.");
   }
 
-  const decoder = new TextDecoder();
-  let pending = "";
   let text = "";
   let stats = defaultChatStats();
   let sessionVersion = 0;
   let duplicateMessage: unknown;
 
-  const handleEvent = async (event: ChatStreamEvent): Promise<void> => {
+  for await (const event of readNdjsonStream<ChatStreamEvent>(reader)) {
     switch (event.event) {
       case "token":
         text += event.text;
         callbacks.onToken?.(event.text);
-        return;
+        break;
       case "interaction_request": {
         const interaction = options.onInteraction
           ? await options.onInteraction({
@@ -1289,31 +1292,30 @@ export async function runChatViaHost(
           remember_choice: interaction.rememberChoice,
           user_input: interaction.userInput,
         });
-        return;
+        break;
       }
       case "trace":
         callbacks.onTrace?.(event.trace);
-        return;
+        break;
       case "final_response_meta":
         callbacks.onFinalResponseMeta?.(event.meta);
-        return;
+        break;
       case "result_stats":
         stats = event.stats;
-        return;
+        break;
       case "duplicate":
         duplicateMessage = event.message;
-        return;
+        break;
       case "complete":
         sessionVersion = event.session_version;
-        return;
+        break;
       case "error":
         throw createRuntimeHostError(event.message);
       case "cancelled":
         throw createRuntimeHostError("Runtime host request cancelled.");
       case "start":
-        return;
       case "heartbeat":
-        return;
+        break;
       default: {
         const uiEvent = toAgentUiEvent(event);
         if (uiEvent) {
@@ -1321,32 +1323,6 @@ export async function runChatViaHost(
         }
       }
     }
-  };
-
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      pending += decoder.decode(value, { stream: true });
-      let newlineIndex = pending.indexOf("\n");
-      while (newlineIndex >= 0) {
-        const line = pending.slice(0, newlineIndex).trim();
-        pending = pending.slice(newlineIndex + 1);
-        if (line.length > 0) {
-          const event = JSON.parse(line) as ChatStreamEvent;
-          await handleEvent(event);
-        }
-        newlineIndex = pending.indexOf("\n");
-      }
-    }
-
-    const trailing = pending.trim();
-    if (trailing.length > 0) {
-      const event = JSON.parse(trailing) as ChatStreamEvent;
-      await handleEvent(event);
-    }
-  } finally {
-    reader.releaseLock();
   }
 
   return { text, stats, sessionVersion, duplicateMessage };

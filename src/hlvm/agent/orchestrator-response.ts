@@ -37,13 +37,14 @@ import {
   stripStepMarkers,
 } from "./planning.ts";
 import { type OrchestratorConfig, WEB_TOOL_NAMES } from "./orchestrator.ts";
-import type {
-  LoopConfig,
-  LoopDirective,
-  LoopState,
-  ToolExecutionResult,
+import {
+  checkToolResultBytesLimit,
+  effectiveAllowlist,
+  type LoopConfig,
+  type LoopDirective,
+  type LoopState,
+  type ToolExecutionResult,
 } from "./orchestrator-state.ts";
-import { checkToolResultBytesLimit } from "./orchestrator-state.ts";
 import {
   buildToolObservation,
   buildToolRequiredMessage,
@@ -387,7 +388,7 @@ export function handleFinalResponse(
     addContextMessage(config, {
       role: "user",
       content: buildToolRequiredMessage(
-        config.toolFilterState?.allowlist ?? config.toolAllowlist,
+        effectiveAllowlist(config),
       ),
     });
     return { action: "continue" };
@@ -628,8 +629,7 @@ export async function handlePostToolExecution(
     const rawAllowlist = parseToolSearchAllowlist(toolResult.result);
     if (rawAllowlist.length === 0) continue;
 
-    const currentAllowlist = config.toolFilterState?.allowlist ??
-      config.toolAllowlist;
+    const currentAllowlist = effectiveAllowlist(config);
     const allowedUniverse = currentAllowlist?.length
       ? new Set(currentAllowlist)
       : null;

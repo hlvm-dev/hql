@@ -4,7 +4,6 @@ import { generateQueryVariants } from "./duckduckgo.ts";
 import {
   COMPARISON_RE,
   OFFICIAL_DOCS_RE,
-  QUOTED_PHRASE_RE,
   RECENCY_RE,
   REFERENCE_RE,
   RELEASE_NOTES_RE,
@@ -60,10 +59,6 @@ function appendQueryQualifier(query: string, qualifier: string): string {
   return `${trimmed} ${qualifier}`.trim();
 }
 
-function extractQuotedPhrases(query: string): string[] {
-  return query.match(QUOTED_PHRASE_RE) ?? [];
-}
-
 /**
  * Detects search intent signals from a query string.
  *
@@ -101,7 +96,7 @@ export function detectSearchQueryIntent(query: string): SearchQueryIntent {
 }
 
 export function buildFollowupQueries(
-  { userQuery, confidenceReason, currentResults, maxQueries }: FollowupQueryInput,
+  { userQuery, confidenceReason, currentResults: _currentResults, maxQueries }: FollowupQueryInput,
 ): string[] {
   const trimmed = userQuery.trim();
   if (!trimmed || maxQueries <= 0) return [];

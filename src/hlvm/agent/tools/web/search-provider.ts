@@ -117,10 +117,6 @@ export function resetSearchProviders(): void {
   providers.clear();
 }
 
-function getSearchProvider(name: string): SearchProviderSpec | undefined {
-  return providers.get(name);
-}
-
 /**
  * Resolve provider with fail-fast semantics:
  * - Explicit unknown provider = ValidationError

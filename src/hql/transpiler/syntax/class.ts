@@ -24,7 +24,7 @@ import {
   parseParametersWithDefaults,
   GENERIC_NAME_REGEX,
 } from "./function.ts";
-import { createExprStmt, createId, createReturn, createStr } from "../utils/ir-helpers.ts";
+import { createBlock, createExprStmt, createId, createReturn, createStr } from "../utils/ir-helpers.ts";
 import {
   VECTOR_SYMBOL,
   EMPTY_ARRAY_SYMBOL,
@@ -699,10 +699,7 @@ function processClassMethodFn(
       type: IR.IRNodeType.ClassMethod,
       name: methodName,
       params,
-      body: {
-        type: IR.IRNodeType.BlockStatement,
-        body: bodyStmts,
-      },
+      body: createBlock(bodyStmts),
       hasJsonParams,
     };
 
@@ -913,10 +910,7 @@ function processClassAccessor(
       type: IR.IRNodeType.ClassMethod,
       name: accessorName,
       params,
-      body: {
-        type: IR.IRNodeType.BlockStatement,
-        body: bodyStmts,
-      },
+      body: createBlock(bodyStmts),
       kind,
     };
   } catch (error) {
@@ -1020,10 +1014,7 @@ function processClassConstructor(
     }
 
     // Transform all body nodes to statements with proper wrapping
-    const bodyBlock: IR.IRBlockStatement = {
-      type: IR.IRNodeType.BlockStatement,
-      body: transformToStatements(bodyNodes, transformNode, currentDir),
-    };
+    const bodyBlock: IR.IRBlockStatement = createBlock(transformToStatements(bodyNodes, transformNode, currentDir));
 
     return {
       type: IR.IRNodeType.ClassConstructor,

@@ -135,21 +135,6 @@ export function listBatchSnapshots(): DelegateBatchSnapshot[] {
     .filter((batch): batch is DelegateBatchSnapshot => batch !== undefined);
 }
 
-function failedBatchThreads(
-  batchId: string,
-): Array<{ threadId: string; task: string }> {
-  const batch = batches.get(batchId);
-  if (!batch) return [];
-  const result: Array<{ threadId: string; task: string }> = [];
-  for (const threadId of batch.threadIds) {
-    const thread = getThread(threadId);
-    if (thread && thread.status === "errored") {
-      result.push({ threadId, task: thread.task });
-    }
-  }
-  return result;
-}
-
 export function resetBatchRegistry(): void {
   batches.clear();
 }

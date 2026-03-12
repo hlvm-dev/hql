@@ -23,7 +23,7 @@ import {
   DELEGATE_TOTAL_TIMEOUT,
   isGroundingMode,
 } from "./constants.ts";
-import { RuntimeError, ValidationError } from "../../common/error.ts";
+import { ValidationError } from "../../common/error.ts";
 import { hasTool } from "./registry.ts";
 import { isMutatingTool } from "./security/safety.ts";
 import { createTodoState } from "./todo-state.ts";
