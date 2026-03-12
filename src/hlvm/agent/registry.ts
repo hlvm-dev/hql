@@ -181,7 +181,7 @@ function formatDelegateAgentResult(
 }
 
 /** Result of argument validation */
-export interface ValidationResult {
+interface ValidationResult {
   valid: boolean;
   errors?: string[];
 }

@@ -7,7 +7,7 @@ export interface ModelListAllOptions {
   excludeProviders?: string[];
 }
 
-export function getCanonicalModelListKey(model: ModelInfo): string {
+function getCanonicalModelListKey(model: ModelInfo): string {
   const provider = typeof model.metadata?.provider === "string"
     ? model.metadata.provider
     : "";

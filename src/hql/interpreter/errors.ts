@@ -160,7 +160,7 @@ export class ArityError extends InterpreterError {
  * Error: Invalid syntax in special form
  * Named HQLSyntaxError to avoid shadowing global SyntaxError
  */
-export class HQLSyntaxError extends InterpreterError {
+class HQLSyntaxError extends InterpreterError {
   readonly form: string;
 
   constructor(form: string, message: string, sourceLocation?: SourceLocation) {

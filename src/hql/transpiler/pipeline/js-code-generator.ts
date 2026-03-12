@@ -75,7 +75,7 @@ export interface JavaScriptOutput {
 /**
  * Options for JavaScript code generation.
  */
-export interface GenerateJavaScriptOptions {
+interface GenerateJavaScriptOptions {
   /** Path to the source HQL file (for source maps) */
   sourceFilePath?: string;
   /** Current file path being processed */

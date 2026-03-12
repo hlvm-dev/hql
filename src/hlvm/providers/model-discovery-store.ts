@@ -325,12 +325,12 @@ const defaultModelDiscoveryStore = createModelDiscoveryStore();
 
 export const readModelDiscoverySnapshot =
   defaultModelDiscoveryStore.readSnapshot;
-export const readModelDiscoverySnapshotSync =
+const readModelDiscoverySnapshotSync =
   defaultModelDiscoveryStore.readSnapshotSync;
 export const refreshModelDiscoverySnapshot =
   defaultModelDiscoveryStore.refreshSnapshot;
 export const readStaleWhileRevalidateModelDiscoverySnapshot =
   defaultModelDiscoveryStore.readStaleWhileRevalidateSnapshot;
-export const resetModelDiscoverySnapshotCacheForTests =
+const resetModelDiscoverySnapshotCacheForTests =
   defaultModelDiscoveryStore.resetCacheForTests;
 export { hasDiscoveryData as hasModelDiscoveryData };

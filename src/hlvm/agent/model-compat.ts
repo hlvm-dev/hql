@@ -179,7 +179,7 @@ const ORCHESTRATOR_FAILURE_ENTRIES = Object.entries(
   AGENT_ORCHESTRATOR_FAILURE_MESSAGES,
 ) as Array<[AgentOrchestratorFailureCode, string]>;
 
-export interface AgentFinalResponseClassification {
+interface AgentFinalResponseClassification {
   suppressFinalResponse: boolean;
   orchestratorFailureCode: AgentOrchestratorFailureCode | null;
 }

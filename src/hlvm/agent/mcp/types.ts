@@ -111,7 +111,7 @@ export interface McpSamplingRequest {
   metadata?: Record<string, unknown>;
 }
 
-export interface McpSamplingResponse {
+interface McpSamplingResponse {
   role: "user" | "assistant";
   content:
     | { type: "text"; text: string }
@@ -135,7 +135,7 @@ export interface McpElicitationRequest {
   elicitationId?: string;
 }
 
-export interface McpElicitationResponse {
+interface McpElicitationResponse {
   action: "accept" | "decline" | "cancel";
   content?: Record<string, unknown>;
 }

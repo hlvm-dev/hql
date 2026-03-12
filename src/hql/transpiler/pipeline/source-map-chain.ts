@@ -27,7 +27,7 @@ import { getErrorMessage } from "../../../common/utils.ts";
 /** Per-line sorted lookup from TS positions to HQL positions */
 export type TsToHqlLookup = Map<number, Array<{ col: number; hqlLine: number; hqlCol: number }>>;
 
-export interface ChainedSourceMap {
+interface ChainedSourceMap {
   /** The final source map (JS → HQL) */
   map: RawSourceMap;
   /** Map from TS line to sorted column entries for type error mapping */

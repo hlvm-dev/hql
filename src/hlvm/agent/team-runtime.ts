@@ -26,7 +26,7 @@ export function createDefaultTeamPolicy(): TeamPolicy {
   };
 }
 
-export type TeamMemberStatus =
+type TeamMemberStatus =
   | "active"
   | "shutdown_requested"
   | "shutting_down"
@@ -67,7 +67,7 @@ export interface TeamTask {
   updatedAt: number;
 }
 
-export interface TeamTaskBlocker {
+interface TeamTaskBlocker {
   taskId: string;
   goal: string;
   status: TeamTaskStatus;
@@ -93,7 +93,7 @@ export interface TeamMessage {
   readBy: Set<string>;
 }
 
-export interface TeamMessageSnapshot
+interface TeamMessageSnapshot
   extends Omit<TeamMessage, "readBy"> {
   readBy: string[];
 }

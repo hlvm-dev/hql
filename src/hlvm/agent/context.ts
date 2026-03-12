@@ -192,7 +192,7 @@ export function takeLastMessageGroups(
 }
 
 /** Context manager configuration */
-export interface ContextConfig {
+interface ContextConfig {
   /** Maximum tokens allowed in context (default: 12000) */
   maxTokens: number;
   /** Maximum length for tool results before truncation (default: 5000 chars) */

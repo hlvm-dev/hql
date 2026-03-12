@@ -51,7 +51,7 @@ async function sleepWithAbort(
 /**
  * Call LLM with timeout
  */
-export async function callLLMWithTimeout(
+async function callLLMWithTimeout(
   llmFn: LLMFunction,
   messages: Message[],
   timeout: number,

@@ -15,21 +15,21 @@ import type {
 // Types
 // ============================================================
 
-export type DelegateThreadStatus =
+type DelegateThreadStatus =
   | "queued"
   | "running"
   | "completed"
   | "errored"
   | "cancelled";
 
-export type DelegateMergeState =
+type DelegateMergeState =
   | "none"
   | "pending"
   | "applied"
   | "conflicted"
   | "discarded";
 
-export interface DelegateMergeResult {
+interface DelegateMergeResult {
   applied: string[];
   conflicts: string[];
 }
@@ -80,9 +80,15 @@ export interface DelegateThread {
   terminalResult?: DelegateThreadResult;
 }
 
+const TERMINAL_STATUSES: ReadonlySet<DelegateThreadStatus> = new Set([
+  "completed",
+  "errored",
+  "cancelled",
+]);
+
 /** Check if a thread is still active (queued or running). */
 function isThreadActive(thread: DelegateThread): boolean {
-  return thread.status === "queued" || thread.status === "running";
+  return !TERMINAL_STATUSES.has(thread.status);
 }
 
 function isOwnedBy(thread: DelegateThread, ownerId: string): boolean {
@@ -157,9 +163,7 @@ export function updateThreadStatus(
   const thread = threads.get(threadId);
   if (thread) {
     thread.status = status;
-    if (
-      status === "completed" || status === "errored" || status === "cancelled"
-    ) {
+    if (TERMINAL_STATUSES.has(status)) {
       thread.completedAt = Date.now();
     }
   }

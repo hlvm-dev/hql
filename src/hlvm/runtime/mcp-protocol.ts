@@ -1,4 +1,4 @@
-export type RuntimeMcpScope = "user" | "claude-code";
+type RuntimeMcpScope = "user" | "claude-code";
 
 export interface RuntimeMcpServerDescriptor {
   name: string;

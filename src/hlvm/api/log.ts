@@ -20,7 +20,7 @@ const textEncoder = new TextEncoder();
 /**
  * Namespaced log interface for scoped logging
  */
-export interface NamespacedLog {
+interface NamespacedLog {
   debug(message: string): void;
   info(message: string): void;
   warn(message: string): void;
@@ -30,7 +30,7 @@ export interface NamespacedLog {
 /**
  * Log API interface - SSOT for all logging
  */
-export interface LogApi {
+interface LogApi {
   // Diagnostics (filtered by verbose flag)
   debug(message: string, ...args: unknown[]): void;
   info(message: string, ...args: unknown[]): void;

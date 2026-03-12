@@ -7,16 +7,16 @@ import { RuntimeError } from "../../common/error.ts";
 import { RESOURCE_LIMITS } from "./constants.ts";
 import { getPlatform } from "../../platform/platform.ts";
 
-export type CheckpointFileStatus = "created" | "modified" | "deleted";
+type CheckpointFileStatus = "created" | "modified" | "deleted";
 
-export interface AgentCheckpointFileEntry {
+interface AgentCheckpointFileEntry {
   path: string;
   status: CheckpointFileStatus;
   backupFile?: string;
   sizeBytes?: number;
 }
 
-export interface AgentCheckpointManifest {
+interface AgentCheckpointManifest {
   id: string;
   sessionId: string;
   requestId: string;

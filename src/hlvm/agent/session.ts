@@ -42,7 +42,7 @@ import {
 } from "./engine.ts";
 import { buildMemorySystemMessage, loadMemoryContext } from "../memory/mod.ts";
 
-export interface AgentSessionOptions {
+interface AgentSessionOptions {
   workspace: string;
   model?: string;
   fixturePath?: string;

@@ -8,6 +8,7 @@ import {
 } from "../../../common/error.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
+  arityError,
   transformElements,
   validateTransformed,
   validateListLength,
@@ -191,14 +192,7 @@ export function transformJsCall(
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
   if (list.elements.length < 2) {
-    throw new ValidationError(
-      `js-call requires at least 1 argument, got ${
-        list.elements.length - 1
-      }`,
-      "js-call",
-      "at least 1 argument",
-      `${list.elements.length - 1} arguments`,
-    );
+    throw arityError("js-call", "at least 1", list.elements.length - 1);
   }
 
   const firstArg = validateTransformed(

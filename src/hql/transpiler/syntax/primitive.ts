@@ -8,21 +8,123 @@ import {
 } from "../../../common/error.ts";
 import { sanitizeIdentifier } from "../../../common/utils.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
-import { transformElements, validateListLength } from "../utils/validation-helpers.ts";
 import {
+  arityError,
+  transformElements,
+  validateListLength,
+} from "../utils/validation-helpers.ts";
+import {
+  ARITHMETIC_OPS_SET,
+  BITWISE_OPS_SET,
+  COMPARISON_OPS_SET,
+  COMPOUND_ASSIGN_OPS_SET,
   KERNEL_PRIMITIVES,
+  LOGICAL_OPS_SET,
   PRIMITIVE_CLASS,
   PRIMITIVE_DATA_STRUCTURE,
   PRIMITIVE_OPS,
   JS_LITERAL_KEYWORDS_SET,
+  TYPE_OPS_SET,
 } from "../keyword/primitives.ts";
 import { createId, createCall, createNum, createMember } from "../utils/ir-helpers.ts";
 import { NUMERIC_PATTERN } from "../constants/index.ts";
 
-/** Compound assignment operators - cached Set for O(1) lookup */
-const COMPOUND_ASSIGN_OPS_SET: ReadonlySet<string> = new Set([
-  "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "^=", "<<=", ">>=", ">>>="
-]);
+// ============================================================================
+// Shared helpers (DRY: extracted from 3 near-identical assignment transforms)
+// ============================================================================
+
+/**
+ * Build a member expression from a dot-notation symbol like "obj.prop" or "obj.a.b".
+ * Handles numeric indices (array.0) and standard identifier properties.
+ */
+function buildMemberFromProperty(object: IR.IRNode, propStr: string): IR.IRMemberExpression {
+  if (NUMERIC_PATTERN.test(propStr)) {
+    return createMember(object, createNum(parseInt(propStr, 10)), true);
+  }
+  return createMember(object, createId(sanitizeIdentifier(propStr)));
+}
+
+/**
+ * Build a member expression chain from dot-notation parts.
+ * @param parts - split parts of the dot notation (e.g., ["obj", "a", "b"])
+ * @param mapSelfToThis - if true, maps "self" base to "this" (used by = operator)
+ */
+function buildDotNotationMember(parts: string[], mapSelfToThis: boolean): IR.IRMemberExpression {
+  const baseName = mapSelfToThis && parts[0] === "self"
+    ? "this"
+    : sanitizeIdentifier(parts[0]);
+
+  let memberExpr = buildMemberFromProperty(createId(baseName), parts[1]);
+  for (let i = 2; i < parts.length; i++) {
+    memberExpr = buildMemberFromProperty(memberExpr, parts[i]);
+  }
+  return memberExpr;
+}
+
+interface AssignmentTargetOptions {
+  /** Map "self" to "this" in dot notation base (only = operator) */
+  mapSelfToThis?: boolean;
+  /** Require list targets to be MemberExpression/OptionalMemberExpression */
+  requireMemberExpr?: boolean;
+}
+
+/**
+ * Resolve a symbol or list node into a valid assignment target (lvalue).
+ * Used by =, +=, -=, ??=, &&=, ||= and all other assignment operators.
+ */
+function resolveAssignmentTarget(
+  targetNode: HQLNode,
+  operator: string,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  options: AssignmentTargetOptions = {},
+): IR.IRNode {
+  if (targetNode.type === "symbol") {
+    const symbolName = (targetNode as SymbolNode).name;
+
+    if (symbolName.includes(".") && !symbolName.startsWith(".")) {
+      return buildDotNotationMember(symbolName.split("."), options.mapSelfToThis === true);
+    }
+
+    return createId(sanitizeIdentifier(symbolName));
+  }
+
+  if (targetNode.type === "list") {
+    const transformed = transformNode(targetNode, currentDir);
+    if (!transformed) {
+      throw new ValidationError(
+        `${operator} target must be a valid lvalue`,
+        operator,
+        "symbol or member expression",
+        targetNode.type,
+      );
+    }
+    if (
+      options.requireMemberExpr &&
+      transformed.type !== IR.IRNodeType.MemberExpression &&
+      transformed.type !== IR.IRNodeType.OptionalMemberExpression
+    ) {
+      throw new ValidationError(
+        `${operator} target must be a valid lvalue`,
+        operator,
+        "identifier or member expression",
+        targetNode.type,
+      );
+    }
+    return transformed;
+  }
+
+  throw new ValidationError(
+    `${operator} target must be a symbol or member expression`,
+    operator,
+    "symbol or member expression",
+    targetNode.type,
+  );
+}
+
+// ============================================================================
+// Main dispatch
+// ============================================================================
 
 /**
  * Transform primitive operations (+, -, *, /, etc.).
@@ -47,7 +149,6 @@ export function transformPrimitiveOp(
   }
 
   // Handle compound assignment operators (+=, -=, *=, /=, %=, **=, &=, |=, ^=, <<=, >>=, >>>=)
-  // Use module-level Set for O(1) lookup instead of creating array each call
   if (COMPOUND_ASSIGN_OPS_SET.has(op)) {
     return transformCompoundAssignment(list, currentDir, transformNode, op);
   }
@@ -62,24 +163,16 @@ export function transformPrimitiveOp(
 
   let result: IR.IRNode;
 
-  if (op === "+" || op === "-" || op === "*" || op === "/" || op === "%" || op === "**") {
+  // O(1) Set-based dispatch instead of chained string equality checks
+  if (ARITHMETIC_OPS_SET.has(op)) {
     result = transformArithmeticOp(op, args);
-  } else if (
-    op === "===" ||
-    op === "==" ||
-    op === "!==" ||
-    op === "!=" ||
-    op === ">" ||
-    op === "<" ||
-    op === ">=" ||
-    op === "<="
-  ) {
+  } else if (COMPARISON_OPS_SET.has(op)) {
     result = transformComparisonOp(op, args);
-  } else if (op === "&&" || op === "||" || op === "!" || op === "??") {
+  } else if (LOGICAL_OPS_SET.has(op)) {
     result = transformLogicalOp(op, args);
-  } else if (op === "&" || op === "|" || op === "^" || op === "~" || op === "<<" || op === ">>" || op === ">>>") {
+  } else if (BITWISE_OPS_SET.has(op)) {
     result = transformBitwiseOp(op, args);
-  } else if (op === "typeof" || op === "delete" || op === "void" || op === "instanceof" || op === "in") {
+  } else if (TYPE_OPS_SET.has(op)) {
     result = transformTypeOp(op, args);
   } else {
     result = createCall(createId(op), args);
@@ -97,12 +190,7 @@ export function transformArithmeticOp(
   args: IR.IRNode[],
 ): IR.IRNode {
   if (args.length === 0) {
-    throw new ValidationError(
-      `${op} requires at least one argument`,
-      `${op} operation`,
-      "at least 1 argument",
-      "0 arguments",
-    );
+    throw arityError(op, "at least 1", 0);
   }
 
   if (args.length === 1 && (op === "+" || op === "-")) {
@@ -136,48 +224,20 @@ export function transformArithmeticOp(
 }
 
 /**
- * Transform comparison operations (===, ==, !==, !=, <, >, <=, >=)
+ * Transform comparison operations (===, ==, !==, !=, <, >, <=, >=).
+ * All HQL comparison operators map directly to their JS equivalents.
  */
 export function transformComparisonOp(
   op: string,
   args: IR.IRNode[],
 ): IR.IRNode {
   if (args.length !== 2) {
-    throw new ValidationError(
-      `${op} requires exactly 2 arguments, got ${args.length}`,
-      `${op} operation`,
-      "2 arguments",
-      `${args.length} arguments`,
-    );
-  }
-
-  let jsOp: string;
-  switch (op) {
-    case "===":
-      jsOp = "===";  // Strict equality (v2.0)
-      break;
-    case "==":
-      jsOp = "==";   // Loose equality (v2.0)
-      break;
-    case "!==":
-      jsOp = "!==";  // Explicit strict inequality
-      break;
-    case "!=":
-      jsOp = "!=";   // Loose inequality (needed for notNil macro)
-      break;
-    case ">":
-    case "<":
-    case ">=":
-    case "<=":
-      jsOp = op;
-      break;
-    default:
-      jsOp = "===";
+    throw arityError(op, 2, args.length);
   }
 
   return {
     type: IR.IRNodeType.BinaryExpression,
-    operator: jsOp,
+    operator: op,
     left: args[0],
     right: args[1],
   } as IR.IRBinaryExpression;
@@ -193,12 +253,7 @@ export function transformBitwiseOp(
   // Bitwise NOT is unary
   if (op === "~") {
     if (args.length !== 1) {
-      throw new ValidationError(
-        `~ requires exactly 1 argument, got ${args.length}`,
-        "bitwise NOT operation",
-        "1 argument",
-        `${args.length} arguments`,
-      );
+      throw arityError("~", 1, args.length);
     }
     return {
       type: IR.IRNodeType.UnaryExpression,
@@ -209,12 +264,7 @@ export function transformBitwiseOp(
 
   // Other bitwise operators are binary
   if (args.length !== 2) {
-    throw new ValidationError(
-      `${op} requires exactly 2 arguments, got ${args.length}`,
-      `${op} operation`,
-      "2 arguments",
-      `${args.length} arguments`,
-    );
+    throw arityError(op, 2, args.length);
   }
 
   return {
@@ -235,12 +285,7 @@ export function transformTypeOp(
   // typeof, delete, void are unary
   if (op === "typeof" || op === "delete" || op === "void") {
     if (args.length !== 1) {
-      throw new ValidationError(
-        `${op} requires exactly 1 argument, got ${args.length}`,
-        `${op} operation`,
-        "1 argument",
-        `${args.length} arguments`,
-      );
+      throw arityError(op, 1, args.length);
     }
 
     let argument = args[0];
@@ -262,12 +307,7 @@ export function transformTypeOp(
   // instanceof, in are binary
   if (op === "instanceof" || op === "in") {
     if (args.length !== 2) {
-      throw new ValidationError(
-        `${op} requires exactly 2 arguments, got ${args.length}`,
-        `${op} operation`,
-        "2 arguments",
-        `${args.length} arguments`,
-      );
+      throw arityError(op, 2, args.length);
     }
     return {
       type: IR.IRNodeType.BinaryExpression,
@@ -296,12 +336,7 @@ export function transformLogicalOp(
   // Logical NOT is unary
   if (op === "!") {
     if (args.length !== 1) {
-      throw new ValidationError(
-        `! requires exactly 1 argument, got ${args.length}`,
-        "logical NOT operation",
-        "1 argument",
-        `${args.length} arguments`,
-      );
+      throw arityError("!", 1, args.length);
     }
     return {
       type: IR.IRNodeType.UnaryExpression,
@@ -312,12 +347,7 @@ export function transformLogicalOp(
 
   // &&, ||, ?? are binary operators (can chain multiple)
   if (args.length < 2) {
-    throw new ValidationError(
-      `${op} requires at least 2 arguments, got ${args.length}`,
-      `${op} operation`,
-      "at least 2 arguments",
-      `${args.length} arguments`,
-    );
+    throw arityError(op, "at least 2", args.length);
   }
 
   // Chain multiple arguments: (&& a b c) => a && b && c
@@ -356,12 +386,7 @@ export function transformEqualsOperator(
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
   if (list.elements.length < 3) {
-    throw new ValidationError(
-      `= requires at least 2 arguments`,
-      "equals operator",
-      "at least 2 arguments",
-      `${list.elements.length - 1} arguments`,
-    );
+    throw arityError("=", "at least 2", list.elements.length - 1);
   }
 
   const firstArg = list.elements[1];
@@ -451,64 +476,7 @@ export function transformAssignment(
   const targetNode = list.elements[1];
   const valueNode = list.elements[2];
 
-  // Handle both simple symbols and member expressions (like this.x)
-  let target: IR.IRNode;
-
-  if (targetNode.type === "symbol") {
-    const symbolName = (targetNode as SymbolNode).name;
-
-    // Check if it's a dot-notation symbol like "this.x" or "obj.prop"
-    if (symbolName.includes(".") && !symbolName.startsWith(".")) {
-      const parts = symbolName.split(".");
-      const baseObjectName = parts[0];
-      // Sanitize base object: "self" -> "this", reserved keywords -> _keyword
-      const sanitizedBase = baseObjectName === "self" ? "this" : sanitizeIdentifier(baseObjectName);
-
-      // Helper to create member expression based on property type
-      const buildMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
-         // Check for numeric index (e.g. array.0 or tuple.1)
-         // Uses pre-compiled module-level regex for performance
-         if (NUMERIC_PATTERN.test(propStr)) {
-             return createMember(object, createNum(parseInt(propStr, 10)), true);
-         }
-
-         // Standard identifier property
-         // We sanitize the property name to handle HQL identifiers (e.g. "my-prop" -> "my_prop")
-         return createMember(object, createId(sanitizeIdentifier(propStr)));
-      };
-
-      let memberExpr = buildMember(createId(sanitizedBase), parts[1]);
-
-      // Handle nested properties like obj.a.b.c
-      for (let i = 2; i < parts.length; i++) {
-        memberExpr = buildMember(memberExpr, parts[i]);
-      }
-
-      target = memberExpr;
-    } else {
-      // Simple variable assignment: (= x 10)
-      target = createId(sanitizeIdentifier(symbolName));
-    }
-  } else if (targetNode.type === "list") {
-    // Could be a member expression like (. this x) or transformed member expression
-    const transformedTarget = transformNode(targetNode, currentDir);
-    if (!transformedTarget) {
-      throw new ValidationError(
-        "Invalid assignment target",
-        "assignment target",
-        "symbol or member expression",
-        targetNode.type,
-      );
-    }
-    target = transformedTarget;
-  } else {
-    throw new ValidationError(
-      "Assignment target must be a symbol or member expression",
-      "assignment target",
-      "symbol or member expression",
-      targetNode.type,
-    );
-  }
+  const target = resolveAssignmentTarget(targetNode, "=", currentDir, transformNode, { mapSelfToThis: true });
 
   const args = transformElements(
     [valueNode],
@@ -554,64 +522,7 @@ export function transformLogicalAssignment(
   const targetNode = list.elements[1];
   const valueNode = list.elements[2];
 
-  // Handle both simple symbols and member expressions (like this.x)
-  let target: IR.IRNode;
-
-  if (targetNode.type === "symbol") {
-    const symbolName = (targetNode as SymbolNode).name;
-
-    // Check for dot notation: obj.prop or obj.nested.prop
-    if (symbolName.includes(".")) {
-      // Build member expression from dot notation
-      const parts = symbolName.split(".");
-      const sanitizedBase = sanitizeIdentifier(parts[0]);
-
-      // Helper to create member expression based on property type
-      const buildMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
-        // Check for numeric index (e.g. array.0 or tuple.1)
-        // Uses pre-compiled module-level regex for performance
-        if (NUMERIC_PATTERN.test(propStr)) {
-          return createMember(object, createNum(parseInt(propStr, 10)), true);
-        }
-        // Standard identifier property
-        return createMember(object, createId(sanitizeIdentifier(propStr)));
-      };
-
-      let memberExpr = buildMember(createId(sanitizedBase), parts[1]);
-
-      // Handle nested properties like obj.a.b.c
-      for (let i = 2; i < parts.length; i++) {
-        memberExpr = buildMember(memberExpr, parts[i]);
-      }
-
-      target = memberExpr;
-    } else {
-      target = createId(sanitizeIdentifier(symbolName));
-    }
-  } else if (targetNode.type === "list") {
-    // Handle (. obj prop) or other member access patterns
-    const transformed = transformNode(targetNode, currentDir);
-    if (
-      !transformed ||
-      (transformed.type !== IR.IRNodeType.MemberExpression &&
-       transformed.type !== IR.IRNodeType.OptionalMemberExpression)
-    ) {
-      throw new ValidationError(
-        `${operator} target must be a valid lvalue`,
-        operator,
-        "identifier or member expression",
-        targetNode.type,
-      );
-    }
-    target = transformed;
-  } else {
-    throw new ValidationError(
-      `${operator} target must be a symbol or member expression`,
-      operator,
-      "symbol or member expression",
-      targetNode.type,
-    );
-  }
+  const target = resolveAssignmentTarget(targetNode, operator, currentDir, transformNode, { requireMemberExpr: true });
 
   const value = transformNode(valueNode, currentDir);
   if (!value) {
@@ -653,64 +564,7 @@ export function transformCompoundAssignment(
   const targetNode = list.elements[1];
   const valueNode = list.elements[2];
 
-  // Handle both simple symbols and member expressions (like this.x)
-  let target: IR.IRNode;
-
-  if (targetNode.type === "symbol") {
-    const symbolName = (targetNode as SymbolNode).name;
-
-    // Check for dot notation: obj.prop or obj.nested.prop
-    if (symbolName.includes(".")) {
-      // Build member expression from dot notation
-      const parts = symbolName.split(".");
-      const sanitizedBase = sanitizeIdentifier(parts[0]);
-
-      // Helper to create member expression based on property type
-      const buildMember = (object: IR.IRNode, propStr: string): IR.IRMemberExpression => {
-        // Check for numeric index (e.g. array.0 or tuple.1)
-        // Uses pre-compiled module-level regex for performance
-        if (NUMERIC_PATTERN.test(propStr)) {
-          return createMember(object, createNum(parseInt(propStr, 10)), true);
-        }
-        // Standard identifier property
-        return createMember(object, createId(sanitizeIdentifier(propStr)));
-      };
-
-      let memberExpr = buildMember(createId(sanitizedBase), parts[1]);
-
-      // Handle nested properties like obj.a.b.c
-      for (let i = 2; i < parts.length; i++) {
-        memberExpr = buildMember(memberExpr, parts[i]);
-      }
-
-      target = memberExpr;
-    } else {
-      target = createId(sanitizeIdentifier(symbolName));
-    }
-  } else if (targetNode.type === "list") {
-    // Handle (. obj prop) or other member access patterns
-    const transformed = transformNode(targetNode, currentDir);
-    if (
-      !transformed ||
-      (transformed.type !== IR.IRNodeType.MemberExpression &&
-       transformed.type !== IR.IRNodeType.OptionalMemberExpression)
-    ) {
-      throw new ValidationError(
-        `${operator} target must be a valid lvalue`,
-        operator,
-        "identifier or member expression",
-        targetNode.type,
-      );
-    }
-    target = transformed;
-  } else {
-    throw new ValidationError(
-      `${operator} target must be a symbol or member expression`,
-      operator,
-      "symbol or member expression",
-      targetNode.type,
-    );
-  }
+  const target = resolveAssignmentTarget(targetNode, operator, currentDir, transformNode, { requireMemberExpr: true });
 
   const value = transformNode(valueNode, currentDir);
   if (!value) {

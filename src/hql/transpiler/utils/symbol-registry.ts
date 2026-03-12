@@ -12,7 +12,7 @@ import { globalSymbolTable } from "../symbol_table.ts";
  * @param name - The builtin name (e.g., "if", "+", "cons")
  * @param type - Optional type annotation (default: "Function")
  */
-export function registerBuiltin(
+function registerBuiltin(
   name: string,
   type: string = "Function",
 ): void {

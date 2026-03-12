@@ -19,8 +19,8 @@ import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 // Types
 // ============================================================
 
-export type AggregateOperation = "sum" | "count" | "average" | "min" | "max";
-export type FilterOperator =
+type AggregateOperation = "sum" | "count" | "average" | "min" | "max";
+type FilterOperator =
   | "equals"
   | "not_equals"
   | "contains"
@@ -28,28 +28,28 @@ export type FilterOperator =
   | "gte"
   | "lt"
   | "lte";
-export type TransformOperation = "pluck" | "length" | "uppercase" | "lowercase";
+type TransformOperation = "pluck" | "length" | "uppercase" | "lowercase";
 
-export interface AggregateEntriesArgs {
+interface AggregateEntriesArgs {
   items: unknown[];
   operation: AggregateOperation;
   field?: string;
 }
 
-export interface FilterEntriesArgs {
+interface FilterEntriesArgs {
   items: unknown[];
   field: string;
   operator: FilterOperator;
   value: unknown;
 }
 
-export interface TransformEntriesArgs {
+interface TransformEntriesArgs {
   items: unknown[];
   operation: TransformOperation;
   field?: string;
 }
 
-export interface ComputeArgs {
+interface ComputeArgs {
   expression: string;
   values?: Record<string, number>;
 }
@@ -138,7 +138,7 @@ function formatJsonResult(
 // Tool: aggregate_entries
 // ============================================================
 
-export function aggregateEntries(
+function aggregateEntries(
   args: unknown,
   _workspace: string,
   options?: ToolExecutionOptions,
@@ -222,7 +222,7 @@ function formatAggregateResult(
 // Tool: filter_entries
 // ============================================================
 
-export function filterEntries(
+function filterEntries(
   args: unknown,
   _workspace: string,
   options?: ToolExecutionOptions,
@@ -297,7 +297,7 @@ function formatFilterResult(
 // Tool: transform_entries
 // ============================================================
 
-export function transformEntries(
+function transformEntries(
   args: unknown,
   _workspace: string,
   options?: ToolExecutionOptions,
@@ -642,7 +642,7 @@ function evaluateExpression(
   return result;
 }
 
-export function compute(
+function compute(
   args: unknown,
   _workspace: string,
   options?: ToolExecutionOptions,

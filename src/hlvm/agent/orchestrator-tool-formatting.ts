@@ -62,7 +62,7 @@ export function buildToolResultOutputs(
 
 /** Check if tool result content indicates failure despite no exception.
  *  Only matches small, explicit {success: false, error: "..."} payloads. */
-export function isToolResultFailure(content: string): boolean {
+function isToolResultFailure(content: string): boolean {
   if (
     !content.startsWith("{") ||
     content.length > TOOL_RESULT_LIMITS.failurePayloadMaxBytes
@@ -108,15 +108,6 @@ export function buildToolObservation(
   };
 }
 
-/**
- * Preserve same-turn tool calls exactly as produced by the model.
- *
- * Duplicate collapsing is unsafe for side-effectful tools and can silently drop
- * legitimate work (`write_file`, memory mutations, shell actions).
- */
-export function deduplicateToolCalls(calls: ToolCall[]): ToolCall[] {
-  return calls;
-}
 
 /**
  * Canonicalize arbitrary values for stable JSON signatures.
@@ -140,7 +131,7 @@ export function canonicalizeForSignature(value: unknown): unknown {
  * Stable stringify for tool-call dedup/loop signatures.
  * Optionally lowercases string values for case-insensitive matching.
  */
-export function stableStringifyArgs(
+function stableStringifyArgs(
   args: unknown,
   lowercaseStringValues: boolean,
 ): string {

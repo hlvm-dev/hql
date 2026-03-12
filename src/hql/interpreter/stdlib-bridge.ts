@@ -72,7 +72,7 @@ function wrapStdlibFn(fn: (...args: unknown[]) => unknown): BuiltinFn {
  * @param interp - Optional interpreter instance for calling HQL functions
  * @param env - Optional environment for context
  */
-export function hqlToJs(
+function hqlToJs(
   value: HQLValue,
   interp?: Interpreter,
   env?: InterpreterEnv
@@ -171,7 +171,7 @@ export function hqlToJs(
  * Convert a JavaScript value to an HQL value
  * Used when returning from stdlib functions
  */
-export function jsToHql(value: unknown, maxLength: number = MAX_SEQ_LENGTH): HQLValue {
+function jsToHql(value: unknown, maxLength: number = MAX_SEQ_LENGTH): HQLValue {
   // Null/undefined → nil (nil-punning)
   if (value == null) {
     return null;

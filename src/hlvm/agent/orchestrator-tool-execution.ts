@@ -133,6 +133,27 @@ function emitTeamMessages(
   }
 }
 
+/** DRY: Resolve team member/task IDs for a delegate thread and build delegate args. */
+function buildDelegateResumeArgs(
+  config: OrchestratorConfig,
+  agent: string,
+  task: string,
+  childSessionId: string,
+  threadId: string,
+): Record<string, unknown> {
+  const resumeMemberId = config.teamRuntime?.getMemberByThread(threadId)?.id;
+  const resumeTaskId = resumeMemberId
+    ? config.teamRuntime?.getMember(resumeMemberId)?.currentTaskId
+    : undefined;
+  return {
+    agent,
+    task,
+    _resumeSessionId: childSessionId,
+    ...(resumeTaskId ? { _teamTaskId: resumeTaskId } : {}),
+    ...(resumeMemberId ? { _teamMemberId: resumeMemberId } : {}),
+  };
+}
+
 async function coerceBatchRows(
   args: Record<string, unknown>,
   workspace: string,
@@ -169,7 +190,7 @@ async function coerceBatchRows(
 /**
  * Execute tool with timeout
  */
-export async function executeToolWithTimeout(
+async function executeToolWithTimeout(
   toolFn: ToolFunction,
   args: unknown,
   workspace: string,
@@ -579,18 +600,14 @@ export async function executeToolCall(
         // Cancellation is expected here.
       }
       try {
-        const resumeMemberId = config.teamRuntime?.getMemberByThread(interruptThreadId)?.id;
-        const resumeTaskId = resumeMemberId
-          ? config.teamRuntime?.getMember(resumeMemberId)?.currentTaskId
-          : undefined;
         const result = await config.delegate(
-          {
-            agent: thread.agent,
-            task: interruptPrompt,
-            _resumeSessionId: thread.childSessionId,
-            ...(resumeTaskId ? { _teamTaskId: resumeTaskId } : {}),
-            ...(resumeMemberId ? { _teamMemberId: resumeMemberId } : {}),
-          },
+          buildDelegateResumeArgs(
+            config,
+            thread.agent,
+            interruptPrompt,
+            thread.childSessionId,
+            interruptThreadId,
+          ),
           config,
         );
         const { llmContent, summaryDisplay, returnDisplay } =
@@ -655,20 +672,16 @@ export async function executeToolCall(
         );
       }
       try {
-        const resumeMemberId = config.teamRuntime?.getMemberByThread(resumeThreadId)?.id;
-        const resumeTaskId = resumeMemberId
-          ? config.teamRuntime?.getMember(resumeMemberId)?.currentTaskId
-          : undefined;
         // Route through delegate handler with _resume marker.
         // The handler detects _resumeSessionId and calls resumeDelegateChild.
         const result = await config.delegate(
-          {
-            agent: thread.agent,
-            task: resumePrompt,
-            _resumeSessionId: thread.childSessionId,
-            ...(resumeTaskId ? { _teamTaskId: resumeTaskId } : {}),
-            ...(resumeMemberId ? { _teamMemberId: resumeMemberId } : {}),
-          },
+          buildDelegateResumeArgs(
+            config,
+            thread.agent,
+            resumePrompt,
+            thread.childSessionId!,
+            resumeThreadId,
+          ),
           config,
         );
         const { llmContent, summaryDisplay, returnDisplay } =
@@ -829,9 +842,8 @@ export async function executeToolCall(
     // Execute tool (with timeout)
     const tool = getTool(toolCall.toolName, config.toolOwnerId);
     const toolTimeout = config.toolTimeout ?? DEFAULT_TIMEOUTS.tool;
-    let result: unknown;
-    try {
-      result = await executeToolWithTimeout(
+    const runTool = () =>
+      executeToolWithTimeout(
         tool.fn,
         coercedArgs,
         config.workspace,
@@ -850,42 +862,16 @@ export async function executeToolCall(
         config.teamLeadMemberId,
         config.delegateOwnerId,
       );
+    let result: unknown;
+    try {
+      result = await runTool();
     } catch (error) {
       const message = getErrorMessage(error);
       if (
-        isRenderToolName(toolCall.toolName) && isPlaywrightMissingError(message)
+        !isRenderToolName(toolCall.toolName) ||
+        !isPlaywrightMissingError(message) ||
+        !await ensurePlaywrightChromium(config)
       ) {
-        const installed = await ensurePlaywrightChromium(config);
-        if (installed) {
-          result = await executeToolWithTimeout(
-            tool.fn,
-            coercedArgs,
-            config.workspace,
-            toolTimeout,
-            config.policy ?? null,
-            config.onInteraction,
-            config.toolOwnerId,
-            config.ensureMcpLoaded,
-            config.todoState,
-            config.checkpointRecorder,
-            config.modelId,
-            config.modelTier,
-            config.signal,
-            config.teamRuntime,
-            config.teamMemberId,
-            config.teamLeadMemberId,
-            config.delegateOwnerId,
-          );
-        } else {
-          return buildToolErrorResult(
-            toolCall.toolName,
-            message,
-            startedAt,
-            config,
-            toolCall.id,
-          );
-        }
-      } else {
         return buildToolErrorResult(
           toolCall.toolName,
           message,
@@ -894,6 +880,7 @@ export async function executeToolCall(
           toolCall.id,
         );
       }
+      result = await runTool();
     }
 
     const { llmContent, summaryDisplay, returnDisplay } = buildToolResultOutputs(

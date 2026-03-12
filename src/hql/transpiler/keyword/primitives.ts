@@ -133,6 +133,25 @@ const ARITHMETIC_OPS = ["+", "-", "*", "/", "%", "**"] as const;
 /** Set version for O(1) lookup */
 export const ARITHMETIC_OPS_SET: ReadonlySet<string> = new Set(ARITHMETIC_OPS);
 
+/** Comparison operators - O(1) dispatch in transformPrimitiveOp */
+export const COMPARISON_OPS_SET: ReadonlySet<string> = new Set([
+  "===", "==", "!==", "!=", ">", "<", ">=", "<=",
+]);
+
+/** Logical operators - O(1) dispatch in transformPrimitiveOp */
+export const LOGICAL_OPS_SET: ReadonlySet<string> = new Set(["&&", "||", "!", "??"]);
+
+/** Bitwise operators - O(1) dispatch in transformPrimitiveOp */
+export const BITWISE_OPS_SET: ReadonlySet<string> = new Set(["&", "|", "^", "~", "<<", ">>", ">>>"]);
+
+/** Type/special operators - O(1) dispatch in transformPrimitiveOp */
+export const TYPE_OPS_SET: ReadonlySet<string> = new Set(["typeof", "delete", "void", "instanceof", "in"]);
+
+/** Compound assignment operators - O(1) lookup */
+export const COMPOUND_ASSIGN_OPS_SET: ReadonlySet<string> = new Set([
+  "+=", "-=", "*=", "/=", "%=", "**=", "&=", "|=", "^=", "<<=", ">>=", ">>>="
+]);
+
 /**
  * First-class operators - can be used as values (passed to higher-order functions).
  * When used in value position, transpiler calls __hql_get_op("+") at runtime.

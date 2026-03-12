@@ -4,7 +4,7 @@ import { getErrorMessage } from "../../common/utils.ts";
 import { ai } from "../api/ai.ts";
 import { log } from "../api/log.ts";
 
-export interface ModelAccessProbeResult {
+interface ModelAccessProbeResult {
   available: boolean;
   authRequired?: boolean;
   error?: string;

@@ -15,7 +15,7 @@ export interface ToolCall {
 }
 
 /** Provider-reported token usage (SSOT for agent-layer usage shape) */
-export interface LLMUsage {
+interface LLMUsage {
   inputTokens: number;
   outputTokens: number;
 }

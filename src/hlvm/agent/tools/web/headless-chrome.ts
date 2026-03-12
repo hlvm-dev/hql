@@ -41,7 +41,7 @@ const CHROME_PATHS: Record<string, string[]> = {
 /**
  * Find system Chrome binary. Returns path or null if not found.
  */
-export async function findSystemChrome(): Promise<string | null> {
+async function findSystemChrome(): Promise<string | null> {
   const platform = getPlatform();
 
   // Check CHROME_PATH env var first
@@ -383,7 +383,7 @@ export async function renderWithChrome(
  * Shut down the singleton Chrome browser process.
  * Safe to call multiple times or when no browser is running.
  */
-export async function shutdownChromeBrowser(): Promise<void> {
+async function shutdownChromeBrowser(): Promise<void> {
   if (!chromeProcess) return;
 
   // Wait briefly for in-flight renders

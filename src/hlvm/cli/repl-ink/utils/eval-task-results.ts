@@ -6,14 +6,6 @@
 import type { EvalTask } from "../../repl/task-manager/types.ts";
 import { safeStringify } from "../../../../common/safe-stringify.ts";
 
-const STATUS_ORDER: Record<string, number> = {
-  running: 0,
-  pending: 1,
-  completed: 2,
-  failed: 3,
-  cancelled: 4,
-};
-
 export function formatEvalTaskResultLines(task: EvalTask): string[] {
   const outputLines = task.output ? task.output.split("\n") : [];
 
@@ -44,8 +36,3 @@ export function formatEvalTaskResultLines(task: EvalTask): string[] {
   return outputLines;
 }
 
-export function sortEvalTasks(tasks: EvalTask[]): EvalTask[] {
-  return [...tasks].sort((a, b) => {
-    return (STATUS_ORDER[a.status] ?? 5) - (STATUS_ORDER[b.status] ?? 5);
-  });
-}

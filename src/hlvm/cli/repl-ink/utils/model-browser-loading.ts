@@ -1,4 +1,4 @@
-export interface NormalizedModelBrowserSearchState {
+interface NormalizedModelBrowserSearchState {
   query: string;
   cursor: number;
 }

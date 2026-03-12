@@ -1,11 +1,11 @@
-export type DelegateWorkStatus =
+type DelegateWorkStatus =
   | "queued"
   | "running"
   | "completed"
   | "errored"
   | "cancelled";
 
-export interface DelegateWorkItem {
+interface DelegateWorkItem {
   id: string;
   goal: string;
   assignedAgent: string;

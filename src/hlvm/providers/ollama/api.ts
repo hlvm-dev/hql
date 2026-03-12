@@ -227,7 +227,7 @@ export async function listModels(endpoint: string): Promise<ModelInfo[]> {
  * Get the currently loaded runtime context length for a model from /api/ps.
  * Returns null when the model is not loaded or the server does not expose it.
  */
-export async function getLoadedModelContext(
+async function getLoadedModelContext(
   endpoint: string,
   modelName: string,
 ): Promise<number | null> {

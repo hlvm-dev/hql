@@ -39,7 +39,7 @@ interface SearchMatch {
 }
 
 /** Arguments for search_code tool */
-export interface SearchCodeArgs {
+interface SearchCodeArgs {
   pattern: string;
   path?: string;
   filePattern?: string;
@@ -66,7 +66,7 @@ interface SymbolMatch {
 }
 
 /** Arguments for find_symbol tool */
-export interface FindSymbolArgs {
+interface FindSymbolArgs {
   name: string;
   type?: "function" | "class" | "const";
   path?: string;
@@ -91,7 +91,7 @@ interface TreeNode {
 }
 
 /** Arguments for get_structure tool */
-export interface GetStructureArgs {
+interface GetStructureArgs {
   path?: string;
   maxDepth?: number;
   maxNodes?: number;

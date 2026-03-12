@@ -16,7 +16,7 @@ import {
   isOllamaCloudModelId,
 } from "./ollama-cloud-access.ts";
 
-export interface RuntimeEnsureModelAvailableOptions
+interface RuntimeEnsureModelAvailableOptions
   extends EnsureModelAvailabilityOptions {
   requireCloudAccess?: boolean;
   onCloudWaiting?: () => void;

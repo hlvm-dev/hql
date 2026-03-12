@@ -8,7 +8,7 @@ export interface RuntimeHostIdentity {
   buildId: string;
 }
 
-export interface ParsedRuntimeHostBuildId {
+interface ParsedRuntimeHostBuildId {
   version: string;
   artifactPath: string;
   artifactBaseName: string;
@@ -19,7 +19,7 @@ export interface ParsedRuntimeHostBuildId {
 
 let cachedRuntimeHostIdentity: Promise<RuntimeHostIdentity> | null = null;
 
-export function isDenoExecutable(execPath: string): boolean {
+function isDenoExecutable(execPath: string): boolean {
   return /(?:^|\/|\\)deno(?:\.exe)?$/i.test(execPath);
 }
 
@@ -49,7 +49,7 @@ function buildRuntimeHostFingerprint(
   return [VERSION, artifactPath, String(size), String(mtimeMs)].join("|");
 }
 
-export function parseRuntimeHostBuildId(
+function parseRuntimeHostBuildId(
   buildId: string,
 ): ParsedRuntimeHostBuildId | null {
   const [version, artifactPath, sizeText, mtimeText] = buildId.split("|");

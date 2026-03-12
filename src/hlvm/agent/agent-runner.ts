@@ -246,7 +246,7 @@ function toolListsMatch(a?: string[], b?: string[]): boolean {
   return left.every((value, index) => value === right[index]);
 }
 
-export interface AgentRunnerCallbacks {
+interface AgentRunnerCallbacks {
   onToken?: (text: string) => void;
   onAgentEvent?: (event: AgentUIEvent) => void;
   onFinalResponseMeta?: (meta: FinalResponseMeta) => void;
@@ -256,7 +256,7 @@ export interface AgentRunnerCallbacks {
   ) => Promise<InteractionResponse>;
 }
 
-export interface AgentRunnerOptions {
+interface AgentRunnerOptions {
   query: string;
   model?: string;
   sessionId?: string | null;
@@ -282,7 +282,7 @@ export interface AgentRunnerOptions {
   disablePersistentMemory?: boolean;
 }
 
-export interface AgentRunnerResult {
+interface AgentRunnerResult {
   text: string;
   finalResponseMeta?: FinalResponseMeta;
   finalResponseState: {

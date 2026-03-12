@@ -122,7 +122,7 @@ export function buildToolDefinitions(
  * context.addMessage({ role: "system", content: systemPrompt });
  * ```
  */
-export interface SystemPromptOptions {
+interface SystemPromptOptions {
   toolAllowlist?: string[];
   toolDenylist?: string[];
   toolOwnerId?: string;

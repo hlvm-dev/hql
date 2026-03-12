@@ -32,11 +32,11 @@ interface FollowupQueryInput {
   maxQueries: number;
 }
 
-export function normalizeSearchQueryCandidate(query: string): string {
+function normalizeSearchQueryCandidate(query: string): string {
   return query.trim().replace(/\s+/g, " ");
 }
 
-export function addUniqueSearchQuery(
+function addUniqueSearchQuery(
   queries: string[],
   seen: Set<string>,
   query: string,
@@ -51,7 +51,7 @@ export function addUniqueSearchQuery(
   queries.push(normalized);
 }
 
-export function appendQueryQualifier(query: string, qualifier: string): string {
+function appendQueryQualifier(query: string, qualifier: string): string {
   const trimmed = query.trim();
   if (!trimmed) return trimmed;
   if (new RegExp(`\\b${qualifier.replace(/\s+/g, "\\s+")}\\b`, "i").test(trimmed)) {
@@ -60,7 +60,7 @@ export function appendQueryQualifier(query: string, qualifier: string): string {
   return `${trimmed} ${qualifier}`.trim();
 }
 
-export function extractQuotedPhrases(query: string): string[] {
+function extractQuotedPhrases(query: string): string[] {
   return query.match(QUOTED_PHRASE_RE) ?? [];
 }
 

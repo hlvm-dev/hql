@@ -48,12 +48,38 @@ import {
   buildToolObservation,
   buildToolRequiredMessage,
   buildToolSignature,
-  deduplicateToolCalls,
   stringifyToolResult,
 } from "./orchestrator-tool-formatting.ts";
 import { executeToolCalls } from "./orchestrator-tool-execution.ts";
 import { callLLMWithRetry, type LLMFunction } from "./orchestrator-llm.ts";
 import type { ToolUse } from "./grounding.ts";
+
+/** DRY: Append citation sources to the passage index with bounded size. */
+function mergePassageIndex(
+  state: LoopState,
+  entries: import("./tools/web/citation-spans.ts").CitationSourceEntry[],
+): void {
+  if (entries.length === 0) return;
+  state.passageIndex = [
+    ...(state.passageIndex ?? []),
+    ...entries,
+  ].slice(-TOOL_RESULT_LIMITS.maxPassageIndexEntries);
+}
+
+/** DRY: Build citation source items from tool execution results + calls. */
+function buildCitationSourceItems(
+  toolCalls: readonly ToolCall[],
+  results: readonly ToolExecutionResult[],
+): Array<{ toolName: string; result: unknown }> {
+  const items: Array<{ toolName: string; result: unknown }> = [];
+  for (let i = 0; i < results.length; i++) {
+    const toolName = toolCalls[i]?.toolName ?? "";
+    if (toolName.length > 0) {
+      items.push({ toolName, result: results[i].result });
+    }
+  }
+  return items;
+}
 
 const TOOL_SEARCH_BASELINE_ALLOWLIST = [
   "tool_search",
@@ -134,7 +160,7 @@ export async function processAgentResponse(
     ? agentResponse.toolCalls
     : [];
 
-  const toolCalls = ensureToolCallIds(deduplicateToolCalls(rawToolCalls));
+  const toolCalls = ensureToolCallIds(rawToolCalls);
 
   if (toolCalls.length === 0) {
     if (content) {
@@ -223,10 +249,7 @@ export async function processAgentResponse(
   }
 
   const latestCitationSourceIndex = buildCitationSourceIndex(
-    results.map((execution, i) => ({
-      toolName: limitedCalls[i]?.toolName ?? "",
-      result: execution.result,
-    })).filter((item) => item.toolName.length > 0),
+    buildCitationSourceItems(limitedCalls, results),
   );
 
   const terminalToolFinalResponse = resolveTerminalToolFinalResponse(
@@ -372,12 +395,7 @@ export function handleFinalResponse(
 
   let finalResponse = result.finalResponse ?? responseText;
 
-  if ((result.latestCitationSourceIndex?.length ?? 0) > 0) {
-    state.passageIndex = [
-      ...(state.passageIndex ?? []),
-      ...result.latestCitationSourceIndex!,
-    ].slice(-TOOL_RESULT_LIMITS.maxPassageIndexEntries);
-  }
+  mergePassageIndex(state, result.latestCitationSourceIndex ?? []);
 
   // Plan state advancement
   if (state.planState) {
@@ -697,15 +715,9 @@ export async function handlePostToolExecution(
 
   // Build citation source index from raw web tool payloads (for span attribution).
   const citationSources = buildCitationSourceIndex(
-    result.results.map((execution, i) => ({
-      toolName: result.toolCalls[i]?.toolName ?? "",
-      result: execution.result,
-    })).filter((item) => item.toolName.length > 0),
+    buildCitationSourceItems(result.toolCalls, result.results),
   );
-  if (citationSources.length > 0) {
-    state.passageIndex = [...(state.passageIndex ?? []), ...citationSources]
-      .slice(-TOOL_RESULT_LIMITS.maxPassageIndexEntries);
-  }
+  mergePassageIndex(state, citationSources);
 
   // --- Web tool tracking (for mid-conversation reminders) ---
   state.lastToolsIncludedWeb = result.toolCalls.some(

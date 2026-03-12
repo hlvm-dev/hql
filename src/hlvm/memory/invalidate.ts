@@ -6,7 +6,7 @@ import { invalidateFact, searchFactsFts } from "./facts.ts";
 
 export type MemoryModelTier = "weak" | "mid" | "frontier";
 
-export interface ConflictCandidate {
+interface ConflictCandidate {
   factId: number;
   content: string;
   category: string;

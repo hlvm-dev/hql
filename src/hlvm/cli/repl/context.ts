@@ -115,7 +115,7 @@ const YAML_EXCLUDE_REGEX = /\{/;
 /**
  * Detect programming language from content
  */
-export function detectLanguage(content: string): string {
+function detectLanguage(content: string): string {
   const sample = content.slice(0, 1000);
 
   for (const [pattern, lang, extra] of LANG_PATTERNS) {

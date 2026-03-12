@@ -25,7 +25,7 @@ export interface TypeDiagnostic {
   code: number;
 }
 
-export interface TSCompileResult {
+interface TSCompileResult {
   /** Generated JavaScript code */
   javascript: string;
   /** Generated .d.ts declarations */
@@ -38,7 +38,7 @@ export interface TSCompileResult {
   success: boolean;
 }
 
-export interface TSCompilerOptions {
+interface TSCompilerOptions {
   /** Source file name for error reporting */
   fileName?: string;
   /** Target ES version (default: ES2020) */

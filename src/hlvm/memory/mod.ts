@@ -12,13 +12,12 @@ export { buildMemorySystemMessage, loadMemoryContext } from "./manager.ts";
 export { MEMORY_TOOLS, setMemoryModelTier } from "./tools.ts";
 
 // Shared write pipeline
-export { insertFact, writeMemoryFact, writeMemoryFacts } from "./pipeline.ts";
+export { insertFact } from "./pipeline.ts";
 
 // Canonical DB — exports used by tests and external consumers
 export { closeFactDb, getFactDb } from "./db.ts";
 export {
   getValidFacts,
-  invalidateAllFacts,
   invalidateFact,
   searchFactsFts,
   touchFact,

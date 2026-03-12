@@ -3,13 +3,13 @@ import type { PlanningMode } from "./planning.ts";
 
 export type AgentExecutionMode = PermissionMode | "plan";
 
-export type ReplAgentExecutionMode =
+type ReplAgentExecutionMode =
   | "default"
   | "auto-edit"
   | "plan"
   | "yolo";
 
-export const REPL_AGENT_EXECUTION_MODES: readonly ReplAgentExecutionMode[] = [
+const REPL_AGENT_EXECUTION_MODES: readonly ReplAgentExecutionMode[] = [
   "default",
   "auto-edit",
   "plan",
@@ -67,7 +67,7 @@ export function getAgentExecutionModeChangeMessage(
   return EXECUTION_MODE_CHANGE_MESSAGES[mode];
 }
 
-export function getAgentExecutionModeSelectionLabel(
+function getAgentExecutionModeSelectionLabel(
   mode: ReplAgentExecutionMode,
 ): string {
   return EXECUTION_MODE_SELECTION_LABELS[mode];

@@ -23,6 +23,13 @@ import { applyChildChanges } from "../delegation.ts";
 
 const WAIT_POLL_INTERVAL_MS = 25;
 
+/** DRY: safely parse tool args into a record (shared by all delegate tools). */
+function parseToolArgs(args: unknown): Record<string, unknown> {
+  return (args && typeof args === "object")
+    ? args as Record<string, unknown>
+    : {};
+}
+
 function shouldAutoApplyChildChanges(
   thread: DelegateThread,
   options?: ToolExecutionOptions,
@@ -172,13 +179,16 @@ async function waitForSpecificThreadCompletion(
 }
 
 function getLatestTerminalThread(threads: DelegateThread[]): DelegateThread | undefined {
-  return threads
-    .filter(isTerminalThread)
-    .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))[0];
-}
-
-async function waitForAnyThreadCompletion(timeoutMs?: number): Promise<DelegateThread | undefined> {
-  return await waitForAnyThreadCompletionForOwner(undefined, timeoutMs);
+  let latest: DelegateThread | undefined;
+  for (const thread of threads) {
+    if (
+      isTerminalThread(thread) &&
+      (!latest || (thread.completedAt ?? 0) > (latest.completedAt ?? 0))
+    ) {
+      latest = thread;
+    }
+  }
+  return latest;
 }
 
 async function waitForAnyThreadCompletionForOwner(
@@ -265,9 +275,7 @@ const waitAgent: ToolMetadata = {
     workspace?: string,
     options?: ToolExecutionOptions,
   ) => {
-    const record = (args && typeof args === "object")
-      ? args as Record<string, unknown>
-      : {};
+    const record = parseToolArgs(args);
     const threadId = typeof record.thread_id === "string"
       ? record.thread_id
       : undefined;
@@ -368,9 +376,7 @@ const listAgents: ToolMetadata = {
 
 const closeAgent: ToolMetadata = {
   fn: async (args: unknown, _workspace?: string, options?: ToolExecutionOptions) => {
-    const record = (args && typeof args === "object")
-      ? args as Record<string, unknown>
-      : {};
+    const record = parseToolArgs(args);
     const threadId = typeof record.thread_id === "string"
       ? record.thread_id
       : "";
@@ -413,9 +419,7 @@ const closeAgent: ToolMetadata = {
 
 const sendInput: ToolMetadata = {
   fn: async (args: unknown, _workspace?: string, options?: ToolExecutionOptions) => {
-    const record = (args && typeof args === "object")
-      ? args as Record<string, unknown>
-      : {};
+    const record = parseToolArgs(args);
     const threadId = typeof record.thread_id === "string"
       ? record.thread_id
       : "";
@@ -466,9 +470,7 @@ const sendInput: ToolMetadata = {
 
 const interruptAgent: ToolMetadata = {
   fn: async (args: unknown, _workspace?: string, options?: ToolExecutionOptions) => {
-    const record = (args && typeof args === "object")
-      ? args as Record<string, unknown>
-      : {};
+    const record = parseToolArgs(args);
     const threadId = typeof record.thread_id === "string"
       ? record.thread_id
       : "";
@@ -519,9 +521,7 @@ const interruptAgent: ToolMetadata = {
 
 const resumeAgent: ToolMetadata = {
   fn: async (args: unknown, _workspace?: string, options?: ToolExecutionOptions) => {
-    const record = (args && typeof args === "object")
-      ? args as Record<string, unknown>
-      : {};
+    const record = parseToolArgs(args);
     const threadId = typeof record.thread_id === "string"
       ? record.thread_id
       : "";
@@ -572,9 +572,7 @@ const discardAgentChanges: ToolMetadata = {
     _workspace: string,
     options?: ToolExecutionOptions,
   ) => {
-    const record = (args && typeof args === "object")
-      ? args as Record<string, unknown>
-      : {};
+    const record = parseToolArgs(args);
     const threadId = typeof record.thread_id === "string"
       ? record.thread_id
       : "";
@@ -625,9 +623,7 @@ const applyAgentChanges: ToolMetadata = {
     workspace: string,
     options?: ToolExecutionOptions,
   ) => {
-    const record = (args && typeof args === "object")
-      ? args as Record<string, unknown>
-      : {};
+    const record = parseToolArgs(args);
     const threadId = typeof record.thread_id === "string"
       ? record.thread_id
       : "";
@@ -675,9 +671,7 @@ const applyAgentChanges: ToolMetadata = {
 
 const reportResult: ToolMetadata = {
   fn: async (args: unknown) => {
-    const record = (args && typeof args === "object")
-      ? args as Record<string, unknown>
-      : {};
+    const record = parseToolArgs(args);
     const summary = typeof record.summary === "string" ? record.summary : "";
     if (!summary) {
       return { success: false, message: "summary is required" };

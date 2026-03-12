@@ -4,7 +4,7 @@ import {
 } from "./conversation-store.ts";
 import type { SessionRow } from "./types.ts";
 
-export type SessionMetadataRecord = Record<string, unknown>;
+type SessionMetadataRecord = Record<string, unknown>;
 
 export function parseSessionMetadata(
   metadata: string | null | undefined,
@@ -20,7 +20,7 @@ export function parseSessionMetadata(
   }
 }
 
-export function stringifySessionMetadata(
+function stringifySessionMetadata(
   metadata: SessionMetadataRecord,
 ): string | null {
   const entries = Object.entries(metadata).filter(([, value]) =>

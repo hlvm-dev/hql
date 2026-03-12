@@ -19,13 +19,13 @@ export interface WriteMemoryFactOptions extends InsertFactOptions {
   modelTier?: MemoryModelTier;
 }
 
-export interface WriteMemoryFactResult {
+interface WriteMemoryFactResult {
   factId: number;
   linkedEntities: number;
   invalidated: number;
 }
 
-export interface WriteMemoryFactsResult {
+interface WriteMemoryFactsResult {
   written: number;
   linkedEntities: number;
   invalidated: number;

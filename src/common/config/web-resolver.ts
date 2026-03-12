@@ -40,7 +40,7 @@ export interface ResolvedWebConfig {
   fetch: ResolvedWebFetchConfig;
 }
 
-export interface WebConfigEnv {
+interface WebConfigEnv {
   get: (key: string) => string | undefined;
 }
 

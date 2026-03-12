@@ -1,6 +1,6 @@
 import { getThread } from "./delegate-threads.ts";
 
-export type DelegateBatchStatus =
+type DelegateBatchStatus =
   | "running"
   | "completed"
   | "partial";
@@ -135,7 +135,7 @@ export function listBatchSnapshots(): DelegateBatchSnapshot[] {
     .filter((batch): batch is DelegateBatchSnapshot => batch !== undefined);
 }
 
-export function failedBatchThreads(
+function failedBatchThreads(
   batchId: string,
 ): Array<{ threadId: string; task: string }> {
   const batch = batches.get(batchId);

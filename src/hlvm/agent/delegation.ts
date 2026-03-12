@@ -259,12 +259,7 @@ export async function generateChildDiff(
 export async function hashContent(content: string): Promise<string> {
   const data = new TextEncoder().encode(content);
   const buf = await crypto.subtle.digest("SHA-256", data);
-  const arr = new Uint8Array(buf);
-  let hex = "";
-  for (let i = 0; i < arr.length; i++) {
-    hex += arr[i].toString(16).padStart(2, "0");
-  }
-  return hex;
+  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**

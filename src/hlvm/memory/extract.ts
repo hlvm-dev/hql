@@ -9,17 +9,17 @@ import type { MemoryModelTier } from "./invalidate.ts";
 
 declare const ai: { chat(messages: Array<{ role: string; content: string }>, options?: Record<string, unknown>): AsyncGenerator<string, void, unknown> };
 
-export interface SessionMessage {
+interface SessionMessage {
   role: string;
   content: string;
 }
 
-export interface ExtractedMemoryFact {
+interface ExtractedMemoryFact {
   category: string;
   content: string;
 }
 
-export interface PersistedExtractionResult {
+interface PersistedExtractionResult {
   factsExtracted: number;
   entitiesCreated: number;
   invalidated: number;

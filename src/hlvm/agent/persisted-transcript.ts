@@ -57,13 +57,13 @@ export interface PersistedAgentSessionMetadata {
   delegateBatches?: DelegateBatchSnapshot[];
 }
 
-export interface CreatePersistedAgentChildSessionOptions {
+interface CreatePersistedAgentChildSessionOptions {
   parentSessionId: string;
   agent: string;
   task: string;
 }
 
-export interface PersistedAgentChildSessionSummary {
+interface PersistedAgentChildSessionSummary {
   sessionId: string;
   agent: string;
   task: string;
@@ -483,7 +483,7 @@ export function loadPersistedAgentSessionMetadata(
   return parsePersistedAgentSessionMetadata(session?.metadata);
 }
 
-export function listPersistedAgentChildSessions(
+function listPersistedAgentChildSessions(
   parentSessionId: string,
 ): string[] {
   return listSessions()

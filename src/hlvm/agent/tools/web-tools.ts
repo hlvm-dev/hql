@@ -103,7 +103,7 @@ const MAX_LLM_SUPPORTING_RESULTS = 2;
 // Structured Error Codes
 // ============================================================
 
-export type WebToolErrorCode =
+type WebToolErrorCode =
   | "max_uses_exceeded"
   | "invalid_input"
   | "disabled";

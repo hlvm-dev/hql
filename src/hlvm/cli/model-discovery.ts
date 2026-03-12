@@ -6,7 +6,7 @@ import {
 import { tagModelsForProvider } from "../providers/model-list.ts";
 import type { ModelInfo } from "../providers/types.ts";
 
-export interface SnapshotBackedModelListOptions {
+interface SnapshotBackedModelListOptions {
   includeRemoteCatalog?: boolean;
   includeLocalInstalled?: boolean;
 }

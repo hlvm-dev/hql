@@ -71,7 +71,7 @@ export interface ProviderToolCall {
 }
 
 /** Token usage reported by the provider */
-export interface ProviderUsage {
+interface ProviderUsage {
   inputTokens: number;
   outputTokens: number;
 }

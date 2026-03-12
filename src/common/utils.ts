@@ -440,7 +440,7 @@ export function areListsEqual(a?: string[], b?: string[]): boolean {
  * FNV-1a hash of a string, returned as hex.
  * SSOT: all string hashing in the codebase goes through this function.
  */
-export function hashString(input: string): string {
+function hashString(input: string): string {
   let h = 2166136261;
   for (let i = 0; i < input.length; i++) {
     h ^= input.charCodeAt(i);

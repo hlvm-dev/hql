@@ -185,7 +185,7 @@ export function getConversationsDbPath(): string {
 /**
  * Get the root directory for automatic agent checkpoints (~/.hlvm/checkpoints)
  */
-export function getCheckpointsRootDir(): string {
+function getCheckpointsRootDir(): string {
   return join(getHlvmDir(), "checkpoints");
 }
 

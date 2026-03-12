@@ -58,7 +58,7 @@ const RUNTIME_SHUTDOWN_POLL_ATTEMPTS = 30;
 const RUNTIME_START_LOCK_WAIT_ATTEMPTS = 120;
 const RUNTIME_START_LOCK_STALE_MS = 30_000;
 
-export interface RuntimeInteractionRequest {
+interface RuntimeInteractionRequest {
   requestId: string;
   mode: "permission" | "question";
   toolName?: string;
@@ -66,20 +66,20 @@ export interface RuntimeInteractionRequest {
   question?: string;
 }
 
-export interface RuntimeInteractionResponse {
+interface RuntimeInteractionResponse {
   approved?: boolean;
   rememberChoice?: boolean;
   userInput?: string;
 }
 
-export interface HostBackedChatResult {
+interface HostBackedChatResult {
   text: string;
   stats: ChatResultStats;
   sessionVersion: number;
   duplicateMessage?: unknown;
 }
 
-export interface HostBackedAgentQueryResult {
+interface HostBackedAgentQueryResult {
   text: string;
   stats: ChatResultStats;
 }
@@ -92,14 +92,14 @@ export interface RuntimeConfigApi {
   readonly all: Promise<HlvmConfig>;
 }
 
-export interface HostBackedChatCallbacks {
+interface HostBackedChatCallbacks {
   onToken?: (text: string) => void;
   onAgentEvent?: (event: AgentUIEvent) => void;
   onTrace?: (event: TraceEvent) => void;
   onFinalResponseMeta?: (meta: FinalResponseMeta) => void;
 }
 
-export interface HostBackedChatOptions {
+interface HostBackedChatOptions {
   mode: ChatMode;
   sessionId: string;
   messages: ChatRequestMessage[];
@@ -108,7 +108,6 @@ export interface HostBackedChatOptions {
   contextWindow?: number;
   skipSessionHistory?: boolean;
   disablePersistentMemory?: boolean;
-  historyContext?: string;
   permissionMode?: AgentExecutionMode;
   toolDenylist?: string[];
   expectedVersion?: number;
@@ -119,7 +118,7 @@ export interface HostBackedChatOptions {
   ) => Promise<RuntimeInteractionResponse>;
 }
 
-export interface HostBackedAgentQueryOptions {
+interface HostBackedAgentQueryOptions {
   query: string;
   model: string;
   fixturePath?: string;
@@ -127,7 +126,6 @@ export interface HostBackedAgentQueryOptions {
   contextWindow?: number;
   skipSessionHistory?: boolean;
   disablePersistentMemory?: boolean;
-  historyContext?: string;
   permissionMode?: AgentExecutionMode;
   toolDenylist?: string[];
   signal?: AbortSignal;
@@ -137,7 +135,7 @@ export interface HostBackedAgentQueryOptions {
   ) => Promise<RuntimeInteractionResponse>;
 }
 
-export interface HostBackedDirectChatOptions {
+interface HostBackedDirectChatOptions {
   query: string;
   sessionId: string;
   model?: string;
@@ -191,35 +189,11 @@ async function readHealth(baseUrl: string): Promise<HostHealthResponse | null> {
   }
 }
 
-async function waitForHealthyRuntime(
-  baseUrl: string,
-  predicate?: (health: HostHealthResponse) => boolean,
-  attempts = HEALTH_POLL_ATTEMPTS,
-): Promise<HostHealthResponse | null> {
-  for (let i = 0; i < attempts; i++) {
-    const health = await readHealth(baseUrl);
-    if (
-      health?.status === "ok" && health.authToken &&
-      (!predicate || predicate(health))
-    ) {
-      if (health.aiReady) return health;
-    }
-    await delay(HEALTH_POLL_DELAY_MS);
-  }
-  const health = await readHealth(baseUrl);
-  if (
-    health?.status === "ok" && health.authToken &&
-    (!predicate || predicate(health))
-  ) {
-    return health;
-  }
-  return null;
-}
-
 async function waitForRuntimeHost(
   baseUrl: string,
   predicate?: (health: HostHealthResponse) => boolean,
   attempts = HEALTH_POLL_ATTEMPTS,
+  requireAiReady = false,
 ): Promise<HostHealthResponse | null> {
   for (let i = 0; i < attempts; i++) {
     const health = await readHealth(baseUrl);
@@ -227,7 +201,7 @@ async function waitForRuntimeHost(
       health?.status === "ok" && health.authToken &&
       (!predicate || predicate(health))
     ) {
-      return health;
+      if (!requireAiReady || health.aiReady) return health;
     }
     await delay(HEALTH_POLL_DELAY_MS);
   }
@@ -457,7 +431,7 @@ async function ensureRuntimeAiReady(): Promise<{
   authToken: string;
 }> {
   const runtime = await ensureRuntimeHost();
-  const health = await waitForHealthyRuntime(runtime.baseUrl);
+  const health = await waitForRuntimeHost(runtime.baseUrl, undefined, HEALTH_POLL_ATTEMPTS, true);
   if (!health?.authToken) {
     throw createRuntimeHostError(
       "Failed to start or attach to the local HLVM runtime host.",
@@ -1240,7 +1214,6 @@ export async function runChatViaHost(
     permission_mode: options.permissionMode,
     skip_session_history: options.skipSessionHistory,
     disable_persistent_memory: options.disablePersistentMemory,
-    history_context: options.historyContext,
     tool_denylist: options.toolDenylist,
     trace: !!callbacks.onTrace,
   };
@@ -1397,7 +1370,6 @@ export async function runAgentQueryViaHost(
     permissionMode: options.permissionMode,
     skipSessionHistory: options.skipSessionHistory,
     disablePersistentMemory: options.disablePersistentMemory,
-    historyContext: options.historyContext,
     toolDenylist: options.toolDenylist,
     signal: options.signal,
     callbacks: options.callbacks,

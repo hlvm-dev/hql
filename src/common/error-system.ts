@@ -15,7 +15,7 @@ import {
 import { getPlatform } from "../platform/platform.ts";
 import { extractContextLinesFromSource } from "./context-helpers.ts";
 
-export interface ErrorSystemOptions {
+interface ErrorSystemOptions {
   debug?: boolean;
   verboseErrors?: boolean;
   showInternalErrors?: boolean;

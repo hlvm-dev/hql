@@ -117,7 +117,7 @@ export function resetSearchProviders(): void {
   providers.clear();
 }
 
-export function getSearchProvider(name: string): SearchProviderSpec | undefined {
+function getSearchProvider(name: string): SearchProviderSpec | undefined {
   return providers.get(name);
 }
 

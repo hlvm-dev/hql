@@ -18,7 +18,7 @@ import {
 // Types
 // ============================================================================
 
-export interface ResolveContextBudgetOptions {
+interface ResolveContextBudgetOptions {
   /** ModelInfo from provider.models.get() — may contain contextWindow */
   modelInfo?: ModelInfo;
   /** User config override (config.contextWindow) */

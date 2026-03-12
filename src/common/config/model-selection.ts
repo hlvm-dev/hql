@@ -7,12 +7,12 @@ import {
 } from "./types.ts";
 import { AGENT_MODEL_SUFFIX } from "../../hlvm/providers/claude-code/provider.ts";
 
-export interface ModelSelectionConfigApi {
+interface ModelSelectionConfigApi {
   set?: (key: string, value: unknown) => Promise<unknown>;
   patch?: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<unknown>;
 }
 
-export interface ModelSelectionUpdates extends Pick<HlvmConfig, "model" | "modelConfigured" | "agentMode"> {}
+interface ModelSelectionUpdates extends Pick<HlvmConfig, "model" | "modelConfigured" | "agentMode"> {}
 
 export function resolveAgentModeForModel(modelId: string): AgentMode {
   return modelId.endsWith(AGENT_MODEL_SUFFIX)

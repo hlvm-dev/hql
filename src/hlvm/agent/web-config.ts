@@ -12,8 +12,6 @@ import {
 } from "../../common/config/web-resolver.ts";
 import type { WebFetchConfig, WebSearchConfig } from "../../common/config/types.ts";
 
-export type { ResolvedWebFetchConfig, ResolvedWebSearchConfig };
-
 /** Web tool config shape accepted by loadWebConfig */
 type WebToolConfig = { search?: WebSearchConfig; fetch?: WebFetchConfig };
 

@@ -104,14 +104,14 @@ interface ParsedBearerChallenge {
   params: Record<string, string>;
 }
 
-export interface McpOAuthLoginOptions {
+interface McpOAuthLoginOptions {
   output?: (line: string) => void;
   promptInput?: (message: string) => Promise<string>;
   openBrowser?: (url: string) => Promise<void>;
   storePath?: string;
 }
 
-export interface McpOAuthStoreOptions {
+interface McpOAuthStoreOptions {
   storePath?: string;
 }
 

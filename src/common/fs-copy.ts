@@ -1,6 +1,6 @@
 import { getPlatform } from "../platform/platform.ts";
 
-export interface CopyDirectoryRecursiveOptions {
+interface CopyDirectoryRecursiveOptions {
   skip?: (sourcePath: string, name: string) => boolean;
 }
 

@@ -12,15 +12,11 @@ export type { McpHandlers } from "./types.ts";
 export {
   addServerToConfig,
   formatServerEntry,
-  loadClaudeCodeMcpServers,
   loadMcpConfig,
   loadMcpConfigMultiScope,
   normalizeServerName,
-  parseClaudeCodeMcpJson,
   removeServerFromConfig,
 } from "./config.ts";
-
-export type { McpScope, McpServerWithScope } from "./config.ts";
 
 // Tool registration
 export { inferMcpSafetyLevel, loadMcpTools } from "./tools.ts";

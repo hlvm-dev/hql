@@ -18,7 +18,7 @@ export interface RawSourceMap {
   sourceRoot?: string;
 }
 
-export interface ValidationResult {
+interface ValidationResult {
   valid: boolean;
   errors: string[];
   warnings: string[];

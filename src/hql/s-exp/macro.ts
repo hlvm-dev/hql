@@ -515,7 +515,7 @@ function processParamList(
 }
 
 /* Exported: Register a global macro definition */
-export function defineMacro(
+function defineMacro(
   macroForm: SList,
   env: Environment,
   logger: Logger,

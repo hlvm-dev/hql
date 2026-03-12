@@ -16,6 +16,8 @@
  * - Easy to modify (single location)
  */
 
+import { extractProvider } from "../providers/approval.ts";
+
 // ============================================================
 // Shell Command Policy Manifest (SSOT)
 // ============================================================
@@ -326,7 +328,7 @@ export const DEFAULT_CONTEXT_WINDOW = 32_000;
 // ============================================================
 
 /** Trigger LLM-powered context compaction at this fraction of maxTokens */
-export const COMPACTION_THRESHOLD = 0.8;
+const COMPACTION_THRESHOLD = 0.8;
 
 // ============================================================
 // Context Defaults + Engine Profiles
@@ -387,8 +389,7 @@ const FRONTIER_PROVIDER_PREFIXES = ["anthropic", "openai", "google", "claude-cod
 /** Extract provider prefix from "provider/model" string */
 export function extractProviderName(model?: string): string {
   if (!model) return "unknown";
-  const slashIdx = model.indexOf("/");
-  return slashIdx > 0 ? model.slice(0, slashIdx).toLowerCase() : "ollama";
+  return extractProvider(model) ?? "ollama";
 }
 
 /** Extract model name from "provider/model" string */

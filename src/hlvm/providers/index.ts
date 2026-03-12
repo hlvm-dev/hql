@@ -60,13 +60,6 @@ export {
   setDefaultProvider,
 } from "./registry.ts";
 
-// Provider implementations
-export { createOllamaProvider } from "./ollama/provider.ts";
-export { createOpenAIProvider } from "./openai/provider.ts";
-export { createAnthropicProvider } from "./anthropic/provider.ts";
-export { createGoogleProvider } from "./google/provider.ts";
-export { createClaudeCodeProvider } from "./claude-code/provider.ts";
-
 // ============================================================================
 // Auto-registration
 // ============================================================================
