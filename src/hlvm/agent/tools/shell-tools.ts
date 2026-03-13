@@ -13,6 +13,7 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
+import { createAbortError } from "../../../common/timeout-utils.ts";
 import { resolveToolPath } from "../path-utils.ts";
 import {
   getUnsafeReason,
@@ -154,9 +155,7 @@ export async function shellExec(
     }
 
     if (options?.signal?.aborted) {
-      const error = new Error("Shell command aborted");
-      error.name = "AbortError";
-      throw error;
+      throw createAbortError("Shell command aborted");
     }
 
     // Execute using platform command API (run + drain streams for cancellation)
@@ -187,9 +186,7 @@ export async function shellExec(
       ]);
 
       if (aborted) {
-        const error = new Error("Shell command aborted");
-        error.name = "AbortError";
-        throw error;
+        throw createAbortError("Shell command aborted");
       }
 
       const stdout = new TextDecoder().decode(stdoutBytes);
@@ -302,9 +299,7 @@ export async function shellScript(
     await platform.fs.writeTextFile(scriptPath, args.script);
 
     if (options?.signal?.aborted) {
-      const error = new Error("Shell script aborted");
-      error.name = "AbortError";
-      throw error;
+      throw createAbortError("Shell script aborted");
     }
 
     const commandArgs = interpreter === "cmd"
@@ -341,9 +336,7 @@ export async function shellScript(
       ]);
 
       if (aborted) {
-        const error = new Error("Shell script aborted");
-        error.name = "AbortError";
-        throw error;
+        throw createAbortError("Shell script aborted");
       }
 
       const stdout = new TextDecoder().decode(stdoutBytes);

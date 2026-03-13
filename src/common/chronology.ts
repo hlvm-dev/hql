@@ -38,7 +38,7 @@ export const DEFAULT_BLOCK_GAP_MS = 30 * 60 * 1000;
 export const DAY_MS = 24 * 60 * 60 * 1000;
 const QUESTION_DUP_WINDOW_MS = 2000;
 
-export const LOW_SIGNAL_PROMPTS = new Set([
+const LOW_SIGNAL_PROMPTS = new Set([
   "y",
   "yes",
   "n",
@@ -54,9 +54,9 @@ export const LOW_SIGNAL_PROMPTS = new Set([
   "continue",
 ]);
 
-export const GREETING_ONLY_PATTERN =
+const GREETING_ONLY_PATTERN =
   /^(?:hi|hello|hey)(?:\s+(?:man|there|hlvm|bot|assistant))?[!.?]*$/i;
-export const SLASH_COMMAND_PATTERN = /^[/.][a-z][\w-]*(?:\s|$)/i;
+const SLASH_COMMAND_PATTERN = /^[/.][a-z][\w-]*(?:\s|$)/i;
 
 const RECALL_META_PATTERNS = [
   /\blast time\b/i,
@@ -96,7 +96,7 @@ export function isGreetingOnlyPrompt(input: string): boolean {
   return GREETING_ONLY_PATTERN.test(normalizePrompt(input));
 }
 
-export function isSlashCommandPrompt(input: string): boolean {
+function isSlashCommandPrompt(input: string): boolean {
   return SLASH_COMMAND_PATTERN.test(normalizePrompt(input));
 }
 
@@ -112,11 +112,12 @@ export function isRecallMetaPrompt(input: string): boolean {
  */
 export function isMeaningfulPrompt(input: string): boolean {
   const normalized = normalizePrompt(input);
-  return !!normalized &&
-    !isLowSignalPrompt(normalized) &&
-    !isGreetingOnlyPrompt(normalized) &&
-    !isSlashCommandPrompt(normalized) &&
-    !isRecallMetaPrompt(normalized);
+  if (!normalized) return false;
+  if (LOW_SIGNAL_PROMPTS.has(normalized.toLowerCase())) return false;
+  if (GREETING_ONLY_PATTERN.test(normalized)) return false;
+  if (SLASH_COMMAND_PATTERN.test(normalized)) return false;
+  if (RECALL_META_PATTERNS.some((p) => p.test(normalized))) return false;
+  return true;
 }
 
 // ============================================================

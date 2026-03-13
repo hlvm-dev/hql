@@ -71,6 +71,7 @@ import {
 } from "./workspace-leases.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
 import { createDelegateTokenBudget } from "./delegate-token-budget.ts";
+import { createAbortError } from "../../common/timeout-utils.ts";
 import { getErrorMessage, truncate } from "../../common/utils.ts";
 
 function queueBackgroundDelegateUpdate(
@@ -83,11 +84,6 @@ function queueBackgroundDelegateUpdate(
 const BACKGROUND_DELEGATE_WATCHDOG_MS = DEFAULT_TIMEOUTS.total +
   DEFAULT_TIMEOUTS.tool;
 
-function createDelegateAbortError(message: string): Error {
-  const error = new Error(message);
-  error.name = "AbortError";
-  return error;
-}
 
 /** Tools denied to child agents (prevent recursion + parent-only tools).
  * @internal Exported for regression testing. */
@@ -990,7 +986,7 @@ export function createDelegateHandler(
             updateThreadChildSession(threadId, childSessionId),
         );
         if (controller.signal.aborted) {
-          throw createDelegateAbortError(
+          throw createAbortError(
             abortReason ?? "Tool execution aborted",
           );
         }

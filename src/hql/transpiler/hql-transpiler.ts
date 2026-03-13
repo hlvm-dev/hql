@@ -433,7 +433,7 @@ function convertSexpsToHqlAst(
 /**
  * Load built-in system macros from the standard library files
  */
-export async function loadSystemMacros(
+async function loadSystemMacros(
   env: Environment,
   options: ProcessOptions,
 ): Promise<void> {

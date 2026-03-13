@@ -168,6 +168,7 @@ export async function processAgentResponse(
       addContextMessage(config, {
         role: "assistant",
         content,
+        _sdkResponseMessages: agentResponse.sdkResponseMessages,
       });
     }
     return {
@@ -207,6 +208,7 @@ export async function processAgentResponse(
       id: tc.id,
       function: { name: tc.toolName, arguments: tc.args },
     })),
+    _sdkResponseMessages: agentResponse.sdkResponseMessages,
   });
 
   const results = await executeToolCalls(limitedCalls, config, toolRateLimiter);

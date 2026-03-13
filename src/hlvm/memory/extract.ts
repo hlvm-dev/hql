@@ -175,9 +175,11 @@ function persistExtractedFacts(
     };
   }
 
+  const categories = [...new Set(facts.map((f) => f.category))];
+  const placeholders = categories.map(() => "?").join(",");
   const existingRows = getFactDb().prepare(
-    "SELECT category, content FROM facts WHERE valid_until IS NULL",
-  ).all() as Array<{ category: string; content: string }>;
+    `SELECT category, content FROM facts WHERE valid_until IS NULL AND category IN (${placeholders})`,
+  ).all(...categories) as Array<{ category: string; content: string }>;
   const seen = new Set(
     existingRows.map((row) => factKey(row.category, row.content)),
   );

@@ -15,6 +15,7 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
+import { createAbortError } from "../../../common/timeout-utils.ts";
 import { resolveToolPath } from "../path-utils.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
 import { formatToolError, okTool, failTool } from "../tool-results.ts";
@@ -103,9 +104,7 @@ async function runGit(
   ]);
 
   if (signal?.aborted) {
-    const err = new Error("Git command aborted");
-    err.name = "AbortError";
-    throw err;
+    throw createAbortError("Git command aborted");
   }
 
   return {

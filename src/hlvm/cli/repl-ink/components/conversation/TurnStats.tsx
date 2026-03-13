@@ -16,6 +16,7 @@ interface TurnStatsProps {
   durationMs: number;
   inputTokens?: number;
   outputTokens?: number;
+  modelId?: string;
 }
 
 /** Compact token count formatter: 420 -> "420", 2800 -> "2.8k", 12500 -> "13k" */
@@ -25,10 +26,11 @@ function formatTokens(n: number): string {
   return `${Math.round(n / 1000)}k`;
 }
 
-export const TurnStats = React.memo(function TurnStats({ toolCount, durationMs, inputTokens, outputTokens }: TurnStatsProps): React.ReactElement {
+export const TurnStats = React.memo(function TurnStats({ toolCount, durationMs, inputTokens, outputTokens, modelId }: TurnStatsProps): React.ReactElement {
   const sc = useSemanticColors();
   const duration = formatDurationMs(durationMs);
   const tools = toolCount === 0 ? "" : toolCount === 1 ? "1 tool" : `${toolCount} tools`;
+  const model = modelId ? modelId.split("/").pop() ?? modelId : "";
 
   // Build token summary with explicit direction labels.
   // Example: "in 2.8k tokens · out 420 tokens"
@@ -40,7 +42,7 @@ export const TurnStats = React.memo(function TurnStats({ toolCount, durationMs, 
     tokenPart = segments.join(" · ");
   }
 
-  const parts = [tools, duration, tokenPart].filter(Boolean).join(" · ");
+  const parts = [model, tools, duration, tokenPart].filter(Boolean).join(" · ");
 
   return (
     <Box marginY={1}>

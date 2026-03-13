@@ -210,7 +210,6 @@ export function getMessages(
 
   let messages: MessageRow[];
   let total: number;
-
   let consumed: number;
 
   if (opts?.after_order !== undefined) {
@@ -243,18 +242,12 @@ export function getMessages(
     consumed = offset + messages.length;
   }
 
-  const session = getSession(sessionId);
-  const sessionVersion = session?.session_version ?? 0;
-
-  const lastMessage = messages[messages.length - 1];
-  const cursor = lastMessage?.order;
-
   return {
     messages,
     total,
     has_more: consumed < total,
-    session_version: sessionVersion,
-    cursor,
+    session_version: getSession(sessionId)?.session_version ?? 0,
+    cursor: messages[messages.length - 1]?.order,
   };
 }
 

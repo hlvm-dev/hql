@@ -51,17 +51,11 @@ const QUOTED_NAME_REGEX = /['"`](\w+)['"`]/;
 
 const COLORS = {
   red: (s: string) => `\x1b[31m${s}\x1b[0m`,
-  yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
   green: (s: string) => `\x1b[32m${s}\x1b[0m`,
   blue: (s: string) => `\x1b[34m${s}\x1b[0m`,
   cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
-  magenta: (s: string) => `\x1b[35m${s}\x1b[0m`,
-  gray: (s: string) => `\x1b[90m${s}\x1b[0m`,
-  white: (s: string) => `\x1b[37m${s}\x1b[0m`,
   bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
   dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
-  underline: (s: string) => `\x1b[4m${s}\x1b[0m`,
-  black: (s: string) => `\x1b[30m${s}\x1b[0m`,
 } as const;
 
 // -----------------------------------------------------------------------------
@@ -108,7 +102,6 @@ function stripErrorCodeFromMessage(msg: string): string {
 function enhanceErrorMessage(
   msg: string,
   errorCode: HQLErrorCode,
-  _opts: { filePath?: string; line?: number; column?: number },
 ): string {
   const codeStr = formatErrorCode(errorCode);
 
@@ -730,7 +723,7 @@ export class ParseError extends HQLError {
     const errorCode = opts.code || inferParseErrorCode(msg);
 
     // Enhance message with error code and location (using helper)
-    const enhancedMsg = enhanceErrorMessage(msg, errorCode, opts);
+    const enhancedMsg = enhanceErrorMessage(msg, errorCode);
 
     super(enhancedMsg, {
       errorType: ErrorType.PARSE,
@@ -1108,7 +1101,7 @@ export class ImportError extends HQLError {
     const { originalError, ...sourceLocation } = opts;
 
     // Enhance message with error code and location (using helper)
-    const enhancedMsg = enhanceErrorMessage(msg, errorCode, opts);
+    const enhancedMsg = enhanceErrorMessage(msg, errorCode);
 
     super(enhancedMsg, {
       errorType: ErrorType.IMPORT,
@@ -1176,7 +1169,7 @@ export class ValidationError extends HQLError {
     } = opts;
 
     // Enhance message with error code and location (using helper)
-    const enhancedMsg = enhanceErrorMessage(msg, errorCode, opts);
+    const enhancedMsg = enhanceErrorMessage(msg, errorCode);
 
     super(enhancedMsg, {
       errorType: ErrorType.VALIDATION,
@@ -1291,7 +1284,7 @@ export class MacroError extends HQLError {
     const { originalError, ...sourceLocation } = collected;
 
     // Enhance message with error code and location (using helper)
-    const enhancedMsg = enhanceErrorMessage(msg, errorCode, collected);
+    const enhancedMsg = enhanceErrorMessage(msg, errorCode);
 
     super(enhancedMsg, {
       errorType: ErrorType.MACRO,
@@ -1431,7 +1424,7 @@ export class TransformError extends HQLError {
     const { originalError, ...sourceLocation } = collected;
 
     // Enhance message with error code and location (using helper)
-    const enhancedMsg = enhanceErrorMessage(msg, errorCode, collected);
+    const enhancedMsg = enhanceErrorMessage(msg, errorCode);
 
     super(enhancedMsg, {
       errorType: ErrorType.TRANSFORM,
@@ -1533,7 +1526,7 @@ export class RuntimeError extends HQLError {
     }
 
     // Enhance message with error code and location (using helper)
-    const enhancedMsg = enhanceErrorMessage(msg, errorCode, opts);
+    const enhancedMsg = enhanceErrorMessage(msg, errorCode);
 
     super(enhancedMsg, {
       errorType: ErrorType.RUNTIME,
@@ -1661,7 +1654,7 @@ export class CodeGenError extends HQLError {
     const { nodeType, originalError, ...sourceLocation } = opts;
 
     // Enhance message with error code and location (using helper)
-    const enhancedMsg = enhanceErrorMessage(msg, errorCode, opts);
+    const enhancedMsg = enhanceErrorMessage(msg, errorCode);
 
     super(enhancedMsg, {
       errorType: ErrorType.CODEGEN,

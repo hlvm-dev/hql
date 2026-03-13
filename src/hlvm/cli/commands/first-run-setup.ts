@@ -26,21 +26,15 @@ import {
 } from "../../runtime/ollama-cloud-access.ts";
 import { ensureRuntimeModelAvailable } from "../../runtime/model-availability.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
+import { ANSI_COLORS } from "../ansi.ts";
+
+const { RESET, BOLD, DIM, CYAN, GREEN, YELLOW } = ANSI_COLORS;
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 const TOTAL_SETUP_STEPS = 4;
-
-const ANSI = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  cyan: "\x1b[36m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-};
 
 const HOST_RUNTIME_ENGINE: AIEngineLifecycle = {
   isRunning: async () => true,
@@ -61,22 +55,22 @@ function isInteractiveTerminal(): boolean {
 
 function style(message: string, ...codes: string[]): string {
   if (!isInteractiveTerminal()) return message;
-  return `${codes.join("")}${message}${ANSI.reset}`;
+  return `${codes.join("")}${message}${RESET}`;
 }
 
 function printSetupBanner(logRaw: (message: string) => void): void {
   logRaw(
     style(
       "============================================================",
-      ANSI.cyan,
+      CYAN,
     ),
   );
-  logRaw(style("Welcome to HLVM!", ANSI.bold, ANSI.cyan));
+  logRaw(style("Welcome to HLVM!", BOLD, CYAN));
   logRaw("Setup will configure the best cloud model (free, no GPU needed).");
   logRaw(
     style(
       "============================================================",
-      ANSI.cyan,
+      CYAN,
     ),
   );
   logRaw("");
@@ -88,7 +82,7 @@ function printSetupStep(
   message: string,
 ): void {
   logRaw(
-    style(`[${step}/${TOTAL_SETUP_STEPS}] ${message}`, ANSI.bold, ANSI.cyan),
+    style(`[${step}/${TOTAL_SETUP_STEPS}] ${message}`, BOLD, CYAN),
   );
 }
 
@@ -96,7 +90,7 @@ function printSetupStep(
 async function confirmSetup(): Promise<boolean> {
   if (getPlatform().env.get("HLVM_FORCE_SETUP") === "1") return true;
 
-  log.raw.log(style("Continue? [Y/n] ", ANSI.bold, ANSI.yellow));
+  log.raw.log(style("Continue? [Y/n] ", BOLD, YELLOW));
   const key = await readSingleKey();
   log.raw.log("");
   return key !== "n";
@@ -128,7 +122,7 @@ export async function pickBestCloudModel(): Promise<ModelInfo | null> {
 export async function runOllamaSignin(
   _engine?: AIEngineLifecycle,
 ): Promise<boolean> {
-  log.raw.log(style("  -> Signing in to Ollama...", ANSI.yellow));
+  log.raw.log(style("  -> Signing in to Ollama...", YELLOW));
   return await runOllamaCloudSignin({
     onOutput: (line) => log.raw.log(line),
   });
@@ -156,7 +150,7 @@ export async function ensureCloudAccessWithSignin(
     verifyAccess: verifyOllamaCloudModelAccess,
     onWaiting: () =>
       log.raw.log(
-        style("  -> Waiting for cloud sign-in completion...", ANSI.dim),
+        style("  -> Waiting for cloud sign-in completion...", DIM),
       ),
   });
   if (!result.ok && result.status === "verification_failed") {
@@ -164,7 +158,7 @@ export async function ensureCloudAccessWithSignin(
       "Cloud sign-in not completed. Open the URL above and try again.",
     );
     log.raw.log(
-      style(`  -> Check cloud usage/sign-in: ${OLLAMA_SETTINGS_URL}`, ANSI.dim),
+      style(`  -> Check cloud usage/sign-in: ${OLLAMA_SETTINGS_URL}`, DIM),
     );
   }
   return result.ok;
@@ -172,7 +166,7 @@ export async function ensureCloudAccessWithSignin(
 
 /** Fall back to the model browser (existing behavior). */
 async function fallbackToModelBrowser(): Promise<string | null> {
-  log.raw.log(style("Opening model browser...\n", ANSI.yellow));
+  log.raw.log(style("Opening model browser...\n", YELLOW));
   const { startModelBrowser } = await import("../repl-ink/model-browser.tsx");
   const result = await startModelBrowser();
   return result.selectedModel ?? null;
@@ -207,7 +201,7 @@ function getDefaultFirstRunSetupDeps(): FirstRunSetupDeps {
         log: (message) => log.raw.log(message),
         onCloudWaiting: () =>
           log.raw.log(
-            style("  -> Waiting for cloud sign-in completion...", ANSI.dim),
+            style("  -> Waiting for cloud sign-in completion...", DIM),
           ),
         onCloudError: (message) =>
           log.error(`Cloud access check failed: ${message}`),
@@ -264,7 +258,7 @@ export async function runFirstTimeSetup(
     return await deps.fallbackToModelBrowser();
   }
   deps.logRaw(
-    style(`  -> Selected: ${model.displayName ?? model.name}`, ANSI.dim),
+    style(`  -> Selected: ${model.displayName ?? model.name}`, DIM),
   );
 
   // 4. Ensure selected model is usable
@@ -280,15 +274,15 @@ export async function runFirstTimeSetup(
   await deps.saveConfiguredModel(modelId);
 
   deps.logRaw(
-    `\n${style("Ready! Using", ANSI.bold, ANSI.green)} ${
+    `\n${style("Ready! Using", BOLD, GREEN)} ${
       model.displayName ?? model.name
     }\n`,
   );
-  deps.logRaw(style(`Cloud usage & limits: ${OLLAMA_SETTINGS_URL}`, ANSI.dim));
+  deps.logRaw(style(`Cloud usage & limits: ${OLLAMA_SETTINGS_URL}`, DIM));
   deps.logRaw(
     style(
       "Tip: if cloud quota is exhausted, switch to a local model in model browser.",
-      ANSI.dim,
+      DIM,
     ),
   );
   return modelId;

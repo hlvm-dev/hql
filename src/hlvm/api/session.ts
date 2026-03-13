@@ -157,9 +157,17 @@ function filterCancelledRequestGroups(
       end += 1;
     }
 
-    const requestGroup = messages.slice(index, end);
-    if (!requestGroup.some((message) => message.cancelled !== 0)) {
-      filtered.push(...requestGroup);
+    let hasCancelled = false;
+    for (let i = index; i < end; i++) {
+      if (messages[i].cancelled !== 0) {
+        hasCancelled = true;
+        break;
+      }
+    }
+    if (!hasCancelled) {
+      for (let i = index; i < end; i++) {
+        filtered.push(messages[i]);
+      }
     }
     index = end;
   }

@@ -42,17 +42,16 @@ type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 const SPECIAL_CHAR_REGEX = /[^a-zA-Z0-9_$]/;
 // GENERIC_NAME_REGEX imported from function.ts (single source of truth)
 
-/**
- * Check if an IR node needs to be wrapped in an ExpressionStatement.
- * Expressions that are not statements need wrapping when used in block bodies.
- */
+/** Expression types that need ExpressionStatement wrapping in block bodies. */
+const EXPR_WRAPPER_TYPES = new Set([
+  IR.IRNodeType.AssignmentExpression,
+  IR.IRNodeType.CallExpression,
+  IR.IRNodeType.BinaryExpression,
+  IR.IRNodeType.UnaryExpression,
+]);
+
 function needsExpressionWrapper(node: IR.IRNode): boolean {
-  return (
-    node.type === IR.IRNodeType.AssignmentExpression ||
-    node.type === IR.IRNodeType.CallExpression ||
-    node.type === IR.IRNodeType.BinaryExpression ||
-    node.type === IR.IRNodeType.UnaryExpression
-  );
+  return EXPR_WRAPPER_TYPES.has(node.type);
 }
 
 /**

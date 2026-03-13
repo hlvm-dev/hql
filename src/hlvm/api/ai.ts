@@ -98,11 +98,8 @@ function createAiApi() {
    * - undefined => undefined
    */
   function resolveModelName(model?: string): string | undefined {
-    if (!model) {
-      return undefined;
-    }
-    const [, modelName] = parseModelString(model);
-    return modelName || undefined;
+    if (!model) return undefined;
+    return parseModelString(model)[1] || undefined;
   }
 
   /**

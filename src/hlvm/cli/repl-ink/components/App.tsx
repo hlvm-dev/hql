@@ -96,6 +96,7 @@ import {
   runChatViaHost,
 } from "../../../runtime/host-client.ts";
 import { createRuntimeConfigManager } from "../../../runtime/model-config.ts";
+import { modelSupportsVision } from "../../model-capabilities.ts";
 import {
   getCustomKeybindingsSnapshot,
   setCustomKeybindingsSnapshot,
@@ -107,9 +108,7 @@ import {
   syncCurrentSession,
 } from "../../../api/session.ts";
 import { resolveSessionStart } from "../../repl/session/start.ts";
-import {
-  recordPromptHistory,
-} from "../../repl/prompt-history.ts";
+import { recordPromptHistory } from "../../repl/prompt-history.ts";
 import { buildTranscriptStateFromSession } from "../conversation-history.ts";
 import type { ConfiguredModelReadinessState } from "../../../runtime/configured-model-readiness.ts";
 import {
@@ -461,6 +460,19 @@ function AppContent(
     return expandedText;
   }, []);
 
+  const getConversationAttachmentLabels = useCallback((
+    attachments?: AnyAttachment[],
+  ): string[] | undefined => {
+    const labels = attachments
+      ?.filter((
+        attachment,
+      ): attachment is import("../../repl/attachment.ts").Attachment =>
+        "base64Data" in attachment && attachment.type !== "text"
+      )
+      .map((attachment) => attachment.displayName) ?? [];
+    return labels.length > 0 ? labels : undefined;
+  }, []);
+
   const agentControllerRef = useRef<AbortController | null>(null);
   const interactionResolversRef = useRef<
     Map<string, (response: InteractionResponse) => void>
@@ -785,6 +797,7 @@ function AppContent(
   const runConversation = useCallback(async (
     query: string,
     mediaPaths?: string[],
+    attachmentLabels?: string[],
   ) => {
     // Guard: prevent double agent start — set ref atomically before any async work
     if (agentControllerRef.current) return;
@@ -795,7 +808,6 @@ function AppContent(
 
     setSurfacePanel("conversation");
     setFooterContextUsageLabel("");
-    conversation.addUserMessage(query);
 
     try {
       const runtimeConfig = await createRuntimeConfigManager();
@@ -818,6 +830,20 @@ function AppContent(
           "No configured model available for conversation mode.",
         );
       }
+      if (mediaPaths?.length) {
+        const visionCheck = await modelSupportsVision(model, null);
+        if (!visionCheck.supported) {
+          if (visionCheck.catalogFailed) {
+            throw new ConfigError(
+              "Could not verify model media-attachment support. Check provider connection and try again.",
+            );
+          }
+          throw new ConfigError(
+            `Selected model does not support media attachments: ${model}`,
+          );
+        }
+      }
+      conversation.addUserMessage(query, { attachments: attachmentLabels });
 
       const sessionMeta = sessionApi.current() ?? currentSession ??
         await ensureCurrentSession();
@@ -1047,11 +1073,13 @@ function AppContent(
       return { started: false, unsupportedMimeType };
     }
     const imagePaths = images && images.length > 0 ? images : undefined;
+    const attachmentLabels = getConversationAttachmentLabels(draft.attachments);
     setIsEvaluating(true);
-    void runConversation(expandedText, imagePaths);
+    void runConversation(expandedText, imagePaths, attachmentLabels);
     return { started: true };
   }, [
     expandConversationDraftText,
+    getConversationAttachmentLabels,
     prepareConversationMediaPayload,
     runConversation,
   ]);
@@ -1576,11 +1604,10 @@ function AppContent(
           restoreComposerDraft(conversationDraft);
           const unsupportedMimeType = result.unsupportedMimeType;
           if (!unsupportedMimeType) return;
-          const modelLabel = footerModelName || "current model";
           addHistoryEntry(code, {
             success: false,
             error: new Error(
-              `Attachment unsupported: ${unsupportedMimeType} is not supported by model ${modelLabel}.`,
+              `Attachment unsupported: ${unsupportedMimeType}. Supported inputs are images, audio, video, and PDF files.`,
             ),
           });
           return;

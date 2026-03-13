@@ -43,6 +43,8 @@ export interface LLMResponse {
   providerMetadata?: Record<string, unknown>;
   /** Provider-native reasoning/thinking output (if model supports it). */
   reasoning?: string;
+  /** SDK-native response messages preserving provider reasoning parts. */
+  sdkResponseMessages?: unknown[];
 }
 
 /** Shared SSOT for native tool-call ids across agent + provider layers. */

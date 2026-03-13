@@ -26,10 +26,6 @@ import {
   type ProviderApprovalDecision,
 } from "../providers/approval.ts";
 
-function listRuntimeModels(providerName?: string) {
-  return listRuntimeInstalledModels(providerName);
-}
-
 export interface RuntimeConfigManager {
   getConfig: () => HlvmConfig;
   sync: () => Promise<HlvmConfig>;
@@ -97,7 +93,7 @@ export async function createRuntimeConfigManager(): Promise<
         getSnapshot: () => runtimeConfig,
         getStatus: (providerName?: string) =>
           getRuntimeProviderStatus(providerName),
-        listModels: listRuntimeModels,
+        listModels: listRuntimeInstalledModels,
         listCatalogModels: async () => {
           const snapshot = await getRuntimeModelDiscovery();
           return snapshot.remoteModels;
@@ -111,20 +107,20 @@ export async function createRuntimeConfigManager(): Promise<
         getSnapshot: () => runtimeConfig,
         getStatus: (providerName?: string) =>
           getRuntimeProviderStatus(providerName),
-        listModels: listRuntimeModels,
+        listModels: listRuntimeInstalledModels,
         patchConfig,
       });
     },
     reconcileConfiguredClaudeCodeModel: async () => {
       return await reconcileConfiguredClaudeCodeModel({
         getSnapshot: () => runtimeConfig,
-        listModels: listRuntimeModels,
+        listModels: listRuntimeInstalledModels,
         patchConfig,
       });
     },
     resolveCompatibleClaudeCodeModel: async (modelId: string) => {
       return await resolveCompatibleClaudeCodeModel(modelId, {
-        listModels: listRuntimeModels,
+        listModels: listRuntimeInstalledModels,
       });
     },
   };

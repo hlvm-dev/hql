@@ -8,6 +8,7 @@
 import { config } from "../../../api/config.ts";
 import { parseJsonBody, jsonError, createSSEResponse } from "../http-utils.ts";
 import { isConfigKey } from "../../../../common/config/storage.ts";
+import { getErrorMessage } from "../../../../common/utils.ts";
 import { validateValue } from "../../../../common/config/types.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { debounce } from "@std/async";
@@ -84,7 +85,7 @@ export async function handlePatchConfig(req: Request): Promise<Response> {
     const updated = await config.patch(updates);
     return Response.json(updated);
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Failed to update config", 500);
+    return jsonError(getErrorMessage(error), 500);
   }
 }
 
@@ -102,7 +103,7 @@ export async function handleResetConfig(): Promise<Response> {
     return Response.json(updated);
   } catch (error) {
     return jsonError(
-      error instanceof Error ? error.message : "Failed to reset config",
+      getErrorMessage(error),
       500,
     );
   }
@@ -122,7 +123,7 @@ export async function handleReloadConfig(): Promise<Response> {
     return Response.json(updated);
   } catch (error) {
     return jsonError(
-      error instanceof Error ? error.message : "Failed to reload config",
+      getErrorMessage(error),
       500,
     );
   }

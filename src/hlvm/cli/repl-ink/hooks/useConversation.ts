@@ -29,7 +29,7 @@ export interface UseConversationResult {
   addEvent: (event: AgentUIEvent) => void;
   addUserMessage: (
     text: string,
-    options?: { startTurn?: boolean },
+    options?: { attachments?: string[]; startTurn?: boolean },
   ) => void;
   addAssistantText: (
     text: string,
@@ -52,7 +52,9 @@ function updateState(
 }
 
 export function useConversation(): UseConversationResult {
-  const [state, setState] = useState<TranscriptState>(() => createTranscriptState());
+  const [state, setState] = useState<TranscriptState>(() =>
+    createTranscriptState()
+  );
 
   const hydrateState = useCallback((nextState: TranscriptState) => {
     setState(nextState);
@@ -64,11 +66,12 @@ export function useConversation(): UseConversationResult {
 
   const addUserMessage = useCallback((
     text: string,
-    options?: { startTurn?: boolean },
+    options?: { attachments?: string[]; startTurn?: boolean },
   ) => {
     updateState(setState, {
       type: "user_message",
       text,
+      attachments: options?.attachments,
       startTurn: options?.startTurn,
     });
   }, []);

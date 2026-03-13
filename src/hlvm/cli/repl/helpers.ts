@@ -12,7 +12,7 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { getGlobalRecord } from "./string-utils.ts";
-import { appendExplicitMemoryNote } from "../../memory/explicit.ts";
+import { appendExplicitMemoryNote, getExplicitMemoryPath } from "../../memory/explicit.ts";
 
 const { GREEN, YELLOW, CYAN, DIM_GRAY, RESET } = ANSI_COLORS;
 
@@ -23,7 +23,14 @@ export function registerReplHelpers(state: ReplState): void {
     globalAny.bindings = bindings;
   }
   if (!globalAny.memory) {
-    globalAny.memory = memory;
+    // (memory) opens MEMORY.md in native editor; memory.search/add/etc still work
+    const openMemory = async () => {
+      const mdPath = getExplicitMemoryPath();
+      log.raw.log(`${DIM_GRAY}Opening ${mdPath}${RESET}`);
+      await getPlatform().openUrl(mdPath);
+    };
+    Object.defineProperties(openMemory, Object.getOwnPropertyDescriptors(memory));
+    globalAny.memory = openMemory;
   }
 
   globalAny.unbind = async (name: string) => {

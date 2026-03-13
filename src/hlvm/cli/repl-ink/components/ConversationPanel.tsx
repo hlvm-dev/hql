@@ -160,7 +160,13 @@ function renderItem(
 
   switch (item.type) {
     case "user":
-      return <UserMessage text={item.text} width={width} />;
+      return (
+        <UserMessage
+          text={item.text}
+          attachments={item.attachments}
+          width={width}
+        />
+      );
     case "assistant":
       return (
         <AssistantMessage
@@ -203,6 +209,7 @@ function renderItem(
           durationMs={item.durationMs}
           inputTokens={item.inputTokens}
           outputTokens={item.outputTokens}
+          modelId={item.modelId}
         />
       );
     case "error":

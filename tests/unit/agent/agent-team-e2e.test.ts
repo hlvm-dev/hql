@@ -12,7 +12,6 @@ import {
 } from "jsr:@std/assert";
 import {
   type LLMFunction,
-  type OrchestratorConfig,
   runReActLoop,
   type ToolCall,
 } from "../../../src/hlvm/agent/orchestrator.ts";

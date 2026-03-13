@@ -5,6 +5,8 @@
  * (single-threaded, no atomics needed).
  */
 
+import { createAbortError } from "../../common/timeout-utils.ts";
+
 // ============================================================
 // Nickname Pool
 // ============================================================
@@ -115,14 +117,6 @@ export class ConcurrencyLimiter {
       }
     };
   }
-}
-
-function createAbortError(reason?: unknown): Error {
-  const error = new Error(
-    typeof reason === "string" && reason.length > 0 ? reason : "Operation aborted",
-  );
-  error.name = "AbortError";
-  return error;
 }
 
 // ============================================================

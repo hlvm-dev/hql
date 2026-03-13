@@ -118,6 +118,11 @@ function buildCachePath(
 const inProgressHql = new Set<string>();
 const inProgressJs = new Set<string>();
 
+function registerHqlImportMappings(hqlSource: string, cachedPath: string): void {
+  registerImportMapping(hqlSource, cachedPath);
+  registerImportMapping(hqlSource.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"), cachedPath);
+}
+
 /**
  * Get cached path for an import
  */
@@ -557,19 +562,6 @@ export async function needsRegeneration(
       return true;
     }
 
-    // Re-derive the expected cache path from current source content.
-    // getCachedPath() hashes the source, so if the source changed the path
-    // will differ (flat layout) or the content at the path will be stale
-    // (preserveRelative layout). Comparing paths handles the flat case;
-    // for preserveRelative we rely on the output existing (checked above).
-    const expectedPath = await getCachedPath(sourcePath, targetExt);
-    if (expectedPath !== outputPath) {
-      logger.debug(
-        `[CACHE MISS] Source content changed, regenerating: ${sourcePath}`,
-      );
-      return true;
-    }
-
     logger.debug(`[CACHE HIT] No changes detected, reusing: ${outputPath}`);
     return false;
   } catch (error) {
@@ -582,7 +574,7 @@ export async function needsRegeneration(
  * Write content to cache
  */
 // Allowed source language extensions for caching
-const ALLOWED_LANG_EXTENSIONS = ["hql", "js", "ts"];
+const ALLOWED_LANG_EXTENSIONS = new Set(["hql", "js", "ts"]);
 
 export async function writeToCachedPath(
   sourcePath: string,
@@ -592,7 +584,7 @@ export async function writeToCachedPath(
 ): Promise<string> {
   // Only allow caching files with allowed extensions
   const ext = sourcePath.split(".").pop()?.toLowerCase();
-  if (!ext || !ALLOWED_LANG_EXTENSIONS.includes(ext)) {
+  if (!ext || !ALLOWED_LANG_EXTENSIONS.has(ext)) {
     logger.debug(
       `writeToCachedPath: Skipping cache for unsupported file type: ${sourcePath}`,
     );
@@ -992,11 +984,7 @@ async function rewriteHqlImportsInJs(
         preserveRelative: true,
       });
 
-      registerImportMapping(resolvedImportPath, preTsPath);
-      registerImportMapping(
-        resolvedImportPath.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"),
-        preTsPath,
-      );
+      registerHqlImportMappings(resolvedImportPath, preTsPath);
 
       try {
         if (!await fs().exists(preJsPath)) {
@@ -1182,11 +1170,7 @@ async function processHqlFile(sourceFile: string): Promise<string> {
         createDir: true,
         preserveRelative: true,
       });
-      registerImportMapping(sourceFile, cached);
-      registerImportMapping(
-        sourceFile.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"),
-        cached,
-      );
+      registerHqlImportMappings(sourceFile, cached);
       return cached;
     }
     inProgressHql.add(sourceFile);
@@ -1197,22 +1181,12 @@ async function processHqlFile(sourceFile: string): Promise<string> {
     });
 
     // Check if we need to process this file
-    if (await fs().exists(cachedTsPath)) {
-      // File exists in cache, check if it's still valid
-      if (!await needsRegeneration(sourceFile, ".ts")) {
-        logger.debug(
-          `Using cached JavaScript for ${sourceFile}: ${cachedTsPath}`,
-        );
-
-        // Register the mapping for future use
-        registerImportMapping(sourceFile, cachedTsPath);
-        registerImportMapping(
-          sourceFile.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"),
-          cachedTsPath,
-        );
-
-        return cachedTsPath;
-      }
+    if (await fs().exists(cachedTsPath) && !await needsRegeneration(sourceFile, ".ts")) {
+      logger.debug(
+        `Using cached JavaScript for ${sourceFile}: ${cachedTsPath}`,
+      );
+      registerHqlImportMappings(sourceFile, cachedTsPath);
+      return cachedTsPath;
     }
 
     // Process the HQL file to JavaScript
@@ -1236,12 +1210,7 @@ async function processHqlFile(sourceFile: string): Promise<string> {
     // Write to cache
     await fs().writeTextFile(cachedTsPath, processedContent);
 
-    // Register the mapping for future use
-    registerImportMapping(sourceFile, cachedTsPath);
-    registerImportMapping(
-      sourceFile.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"),
-      cachedTsPath,
-    );
+    registerHqlImportMappings(sourceFile, cachedTsPath);
 
     logger.debug(`Processed HQL file ${sourceFile} to ${cachedTsPath}`);
 

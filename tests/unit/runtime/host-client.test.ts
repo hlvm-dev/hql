@@ -256,6 +256,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
 
       const result = await runAgentQueryViaHost({
         query: "fix it",
+        imagePaths: ["/tmp/example.png", "/tmp/example.pdf"],
         model: "ollama/llama3.1:8b",
         permissionMode: "auto-edit",
         contextWindow: 4096,
@@ -302,6 +303,11 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       assertEquals(capturedChatBody?.context_window, 4096);
       assertEquals(capturedChatBody?.skip_session_history, undefined);
       assertEquals(capturedChatBody?.trace, true);
+      assertEquals(
+        (capturedChatBody?.messages as Array<Record<string, unknown>>)[0]
+          ?.image_paths,
+        ["/tmp/example.png", "/tmp/example.pdf"],
+      );
       assertEquals(capturedInteractionBody?.request_id, "interaction-1");
       assertEquals(capturedInteractionBody?.approved, true);
     });
@@ -1026,7 +1032,7 @@ Deno.test("runAgentQueryViaHost accepts compatible runtime hosts when the compil
 
 Deno.test("runtime host client exposes model discovery, installed models, get/delete, and pull streams", async () => {
   let deleteCalls = 0;
-  let pullBodies: Array<Record<string, unknown>> = [];
+  const pullBodies: Array<Record<string, unknown>> = [];
 
   await withRuntimeHostServer(async (req, authToken) => {
     const url = new URL(req.url);
@@ -1195,7 +1201,7 @@ Deno.test("runtime host client exposes Ollama signin and MCP admin flows through
   let addBody: Record<string, unknown> | null = null;
   let removeBody: Record<string, unknown> | null = null;
   let loginBody: Record<string, unknown> | null = null;
-  let logoutBody: Record<string, unknown> | null = null;
+  let _logoutBody: Record<string, unknown> | null = null;
   let signinCalls = 0;
 
   await withRuntimeHostServer(async (req, authToken) => {
@@ -1247,7 +1253,7 @@ Deno.test("runtime host client exposes Ollama signin and MCP admin flows through
     }
 
     if (url.pathname === "/api/mcp/oauth/logout") {
-      logoutBody = await req.json() as Record<string, unknown>;
+      _logoutBody = await req.json() as Record<string, unknown>;
       return Response.json({
         serverName: "github",
         messages: [],
@@ -1265,7 +1271,7 @@ Deno.test("runtime host client exposes Ollama signin and MCP admin flows through
         command: ["npx", "-y", "@modelcontextprotocol/server-github"],
       },
     });
-    const removed = await removeRuntimeMcpServer({
+    const _removed = await removeRuntimeMcpServer({
       name: "github",
     });
     const login = await loginRuntimeMcpServer({

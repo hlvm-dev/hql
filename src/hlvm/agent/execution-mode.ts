@@ -16,17 +16,11 @@ const REPL_AGENT_EXECUTION_MODES: readonly ReplAgentExecutionMode[] = [
   "yolo",
 ];
 
-const EXECUTION_MODE_BADGES: Partial<Record<AgentExecutionMode, string>> = {
-  "auto-edit": "accept edits on (shift+tab to cycle)",
-  "plan": "plan mode on (shift+tab to cycle)",
-  "yolo": "full auto on (shift+tab to cycle)",
-};
-
-const EXECUTION_MODE_CHANGE_MESSAGES: Record<AgentExecutionMode, string> = {
-  "default": "Default mode",
-  "auto-edit": "Accept edits",
-  "plan": "Plan mode",
-  "yolo": "Full auto",
+const EXECUTION_MODE_META: Record<AgentExecutionMode, { badge?: string; label: string }> = {
+  "default": { label: "Default mode" },
+  "auto-edit": { badge: "accept edits on (shift+tab to cycle)", label: "Accept edits" },
+  "plan": { badge: "plan mode on (shift+tab to cycle)", label: "Plan mode" },
+  "yolo": { badge: "full auto on (shift+tab to cycle)", label: "Full auto" },
 };
 
 export function toAgentExecutionMode(
@@ -50,13 +44,13 @@ export function cycleReplAgentExecutionMode(
 export function getAgentExecutionModeBadge(
   mode?: AgentExecutionMode,
 ): string | undefined {
-  return mode ? EXECUTION_MODE_BADGES[mode] : undefined;
+  return mode ? EXECUTION_MODE_META[mode]?.badge : undefined;
 }
 
 export function getAgentExecutionModeChangeMessage(
   mode: AgentExecutionMode,
 ): string {
-  return EXECUTION_MODE_CHANGE_MESSAGES[mode];
+  return EXECUTION_MODE_META[mode]?.label ?? mode;
 }
 
 export function getPlanningModeForExecutionMode(

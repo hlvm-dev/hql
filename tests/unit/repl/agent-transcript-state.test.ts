@@ -146,6 +146,24 @@ Deno.test("agent transcript state streams into the existing pending assistant it
   }
 });
 
+Deno.test("agent transcript state preserves user attachment labels for the active turn", () => {
+  const next = reduceTranscriptState(createTranscriptState(), {
+    type: "user_message",
+    text: "describe this UI regression",
+    attachments: ["[Image #1]", "[PDF #2]"],
+  });
+
+  assertEquals(next.items.length, 2);
+  assertEquals(next.items[0]?.type, "user");
+  if (next.items[0]?.type === "user") {
+    assertEquals(next.items[0].attachments, ["[Image #1]", "[PDF #2]"]);
+  }
+  assertEquals(next.items[1]?.type, "assistant");
+  if (next.items[1]?.type === "assistant") {
+    assertEquals(next.items[1].isPending, true);
+  }
+});
+
 Deno.test("agent transcript state keeps prior completed answers when a new turn starts", () => {
   const state = withItems([
     {

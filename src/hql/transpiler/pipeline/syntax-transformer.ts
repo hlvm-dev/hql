@@ -490,7 +490,7 @@ function transformChildren(
 /**
  * Transform a single node, dispatching to specific handlers based on type
  */
-export function transformSExpNode(
+function transformSExpNode(
   node: SExp | null,
   enumDefinitions: Map<string, SList>,
   logger: Logger,

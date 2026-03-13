@@ -153,3 +153,31 @@ export function createBlock(body: IR.IRNode[], position?: IR.SourcePosition): IR
   if (position) node.position = position;
   return node;
 }
+
+/**
+ * Wrap an IIFE call expression in yield* or await if the body contains
+ * yield/await expressions. Returns the IIFE unchanged if neither is needed.
+ *
+ * This consolidates a pattern that appeared 5+ times across loop-recur.ts,
+ * try-catch.ts, and binding.ts.
+ */
+export function wrapIIFEResult(
+  iife: IR.IRCallExpression,
+  hasYields: boolean,
+  hasAwaits: boolean,
+): IR.IRNode {
+  if (hasYields) {
+    return {
+      type: IR.IRNodeType.YieldExpression,
+      delegate: true,
+      argument: iife,
+    } as IR.IRYieldExpression;
+  }
+  if (hasAwaits) {
+    return {
+      type: IR.IRNodeType.AwaitExpression,
+      argument: iife,
+    } as IR.IRAwaitExpression;
+  }
+  return iife;
+}

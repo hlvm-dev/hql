@@ -50,7 +50,7 @@ import {
   detectMimeType,
   getAttachmentType,
   getDisplayName,
-  isSupportedMedia,
+  isSupportedConversationMedia,
   shouldCollapseText,
 } from "../../repl/attachment.ts";
 import { type AnyAttachment, useAttachments } from "../hooks/useAttachments.ts";
@@ -2273,7 +2273,7 @@ export function Input({
         const isAbsolutePath = cleanText.startsWith("/") ||
           cleanText.startsWith("~");
 
-        if (isAbsolutePath && isSupportedMedia(cleanText)) {
+        if (isAbsolutePath && isSupportedConversationMedia(cleanText)) {
           const id = reserveNextId();
           const mimeType = detectMimeType(cleanText);
           const type = getAttachmentType(mimeType);

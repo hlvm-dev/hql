@@ -59,12 +59,3 @@ export function createGetOperation(
   return createCall(createId(GET_HELPER), args);
 }
 
-/**
- * Convert a get() call directly to property access or function call
- * This simplifies the approach by analyzing the object and key at compile time
- * when possible, and falling back to runtime checks when needed
- */
-/**
- * Convert a getNumeric() call to a runtime helper that tries array access first, then function call
- * This resolves the ambiguity between array indexing and function calls at runtime
- */

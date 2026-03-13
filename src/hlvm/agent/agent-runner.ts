@@ -363,7 +363,7 @@ export async function runAgentQuery(
   const effectiveToolDenylist = !persistentMemoryEnabled
     ? [...new Set([...toolDenylist, ...Object.keys(MEMORY_TOOLS)])]
     : [...toolDenylist];
-  const toolAllowlist = resolveQueryToolAllowlist(query, options.toolAllowlist);
+  const toolAllowlist = resolveQueryToolAllowlist(options.toolAllowlist);
   const agentProfiles = await loadAgentProfiles(workspace, {
     toolValidator: hasTool,
   });

@@ -7,63 +7,65 @@ import { ai } from "../../../api/ai.ts";
 import { updateMessage } from "../../../store/conversation-store.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
 import { config } from "../../../api/config.ts";
-import { log } from "../../../api/log.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
-import { CLI_CACHE_TTL_MS } from "../../repl-ink/ui-constants.ts";
 import {
   isPersistentMemoryEnabled,
   persistConversationFacts,
 } from "../../../memory/mod.ts";
-import {
-  findSnapshotBackedModel,
-  listSnapshotBackedModels,
-} from "../../model-discovery.ts";
 import type { ChatRequest } from "./chat-session.ts";
-import {
-  pushSessionUpdatedEvent,
-} from "./chat-session.ts";
+import { pushSessionUpdatedEvent } from "./chat-session.ts";
 import {
   buildChatProviderMessages,
   shouldHonorRequestMessages,
 } from "./chat-context.ts";
+export { modelSupportsTools } from "../../model-capabilities.ts";
+
+/** Drain a token iterator with abort support, forwarding each chunk. */
+async function drainTokenStream(
+  tokenIterator: AsyncIterator<string>,
+  signal: AbortSignal,
+  onChunk: (token: string) => void,
+): Promise<string> {
+  let fullText = "";
+  const waitForAbort: Promise<"aborted"> = signal.aborted
+    ? Promise.resolve("aborted")
+    : new Promise((resolve) => {
+      signal.addEventListener("abort", () => resolve("aborted"), {
+        once: true,
+      });
+    });
+
+  try {
+    while (true) {
+      if (signal.aborted) break;
+      const nextPromise = tokenIterator.next();
+      const nextOrAbort = await Promise.race([
+        nextPromise.then((result) => ({ type: "next" as const, result })),
+        waitForAbort.then(() => ({ type: "abort" as const })),
+      ]);
+
+      if (nextOrAbort.type === "abort") {
+        nextPromise.catch(() => {});
+        break;
+      }
+      if (nextOrAbort.result.done) break;
+
+      const token = nextOrAbort.result.value;
+      fullText += token;
+      onChunk(token);
+    }
+  } finally {
+    try {
+      await tokenIterator.return?.();
+    } catch { /* already closed */ }
+  }
+
+  return fullText;
+}
 
 const DIRECT_CHAT_ACCESS_RULE =
   "You have no live tool access in this response. Do not claim that you searched the web, fetched URLs, inspected files, or ran commands unless those results already appear in the conversation history.";
-
-/** Cached catalog result with TTL */
-let _catalogCache: {
-  data: ModelInfo[];
-  expiry: number;
-} | null = null;
-
-export async function modelSupportsTools(
-  modelName: string,
-  modelInfo: ModelInfo | null,
-): Promise<{ supported: boolean; catalogFailed?: boolean }> {
-  if (modelInfo?.capabilities) {
-    return { supported: modelInfo.capabilities.includes("tools") };
-  }
-  try {
-    const now = Date.now();
-    if (!_catalogCache || now > _catalogCache.expiry) {
-      _catalogCache = {
-        data: await listSnapshotBackedModels({
-          includeRemoteCatalog: true,
-        }),
-        expiry: now + CLI_CACHE_TTL_MS,
-      };
-    }
-    const match = findSnapshotBackedModel(_catalogCache.data, modelName);
-    if (match) {
-      return { supported: match.capabilities?.includes("tools") ?? false };
-    }
-  } catch (e) {
-    log.warn("Model catalog unavailable for tool support check", e);
-    return { supported: false, catalogFailed: true };
-  }
-  return { supported: false };
-}
 
 export async function handleChatMode(
   body: ChatRequest,
@@ -91,8 +93,6 @@ export async function handleChatMode(
     content: DIRECT_CHAT_ACCESS_RULE,
   });
 
-  let fullText = "";
-
   const cfgSnapshot = config.snapshot;
   const tokenIterator = ai.chat(providerMessages, {
     model: resolvedModel,
@@ -101,41 +101,10 @@ export async function handleChatMode(
     signal,
   })[Symbol.asyncIterator]();
 
-  const waitForAbort: Promise<"aborted"> = signal.aborted
-    ? Promise.resolve("aborted")
-    : new Promise((resolve) => {
-      signal.addEventListener("abort", () => resolve("aborted"), {
-        once: true,
-      });
-    });
-
-  try {
-    while (true) {
-      if (signal.aborted) break;
-
-      const nextPromise = tokenIterator.next();
-      const nextOrAbort = await Promise.race([
-        nextPromise.then((result) => ({ type: "next" as const, result })),
-        waitForAbort.then(() => ({ type: "abort" as const })),
-      ]);
-
-      if (nextOrAbort.type === "abort") {
-        nextPromise.catch(() => {});
-        break;
-      }
-
-      if (nextOrAbort.result.done) break;
-
-      const token = nextOrAbort.result.value;
-      fullText += token;
-      onPartial(token);
-      emit({ event: "token", text: token });
-    }
-  } finally {
-    try {
-      await tokenIterator.return?.();
-    } catch { /* already closed */ }
-  }
+  const fullText = await drainTokenStream(tokenIterator, signal, (token) => {
+    onPartial(token);
+    emit({ event: "token", text: token });
+  });
 
   if (!signal.aborted) {
     updateMessage(assistantMessageId, { content: fullText });
@@ -191,42 +160,8 @@ export async function streamDirectChatFallback(
     signal,
   })[Symbol.asyncIterator]();
 
-  let fullText = "";
-  const waitForAbort: Promise<"aborted"> = signal.aborted
-    ? Promise.resolve("aborted")
-    : new Promise((resolve) => {
-      signal.addEventListener("abort", () => resolve("aborted"), {
-        once: true,
-      });
-    });
-
-  try {
-    while (true) {
-      if (signal.aborted) break;
-      const nextPromise = tokenIterator.next();
-      const nextOrAbort = await Promise.race([
-        nextPromise.then((result) => ({ type: "next" as const, result })),
-        waitForAbort.then(() => ({ type: "abort" as const })),
-      ]);
-
-      if (nextOrAbort.type === "abort") {
-        nextPromise.catch(() => {});
-        break;
-      }
-      if (nextOrAbort.result.done) break;
-
-      const token = nextOrAbort.result.value;
-      fullText += token;
-      onPartial(token);
-      emit({ event: "token", text: token });
-    }
-  } finally {
-    try {
-      await tokenIterator.return?.();
-    } catch {
-      // iterator already closed
-    }
-  }
-
-  return fullText;
+  return drainTokenStream(tokenIterator, signal, (token) => {
+    onPartial(token);
+    emit({ event: "token", text: token });
+  });
 }

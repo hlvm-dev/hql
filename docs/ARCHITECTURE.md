@@ -684,9 +684,8 @@ GUI                          Server                    Ollama
 
 ~/.hlvm/memory/
   ├── Server owns exclusively
-  ├── MEMORY.md — structured memory document
-  ├── journal/ — timestamped entries
-  └── FTS5 SQLite index for semantic search
+  ├── MEMORY.md — user-authored notes (explicit memory)
+  └── memory.db — SQLite facts, entities, FTS5 (implicit memory)
 ```
 
 ---
@@ -858,11 +857,13 @@ Cloud providers use the `createCloudProvider()` factory (collapsed from 4 classe
 
 ## Memory System
 
-- **Storage**: `~/.hlvm/memory/MEMORY.md` + `journal/` directory
-- **Search**: SQLite FTS5 with BM25 ranking + temporal decay (30-day half-life)
-- **Indexing**: 400-token chunks, 80-token overlap, content-hash change detection
-- **Agent tools**: `memory_write`, `memory_search` (always available)
-- **Pre-compaction flush**: Orchestrator injects user message before compaction so model can call `memory_write`
+- **Storage**: `~/.hlvm/memory/MEMORY.md` (explicit) + `memory.db` (implicit, SQLite)
+- **Architecture**: DB-as-SSOT with facts, entities, relationships tables + FTS5
+- **Retrieval**: Hybrid (FTS5 BM25 + entity graph traversal) with temporal decay (30-day half-life) + access boost
+- **Agent tools**: `memory_write`, `memory_search`, `memory_edit` (always available)
+- **Auto-extraction**: Regex baseline (all models) + LLM extraction (frontier only)
+- **Pre-compaction flush**: Orchestrator injects save prompt before compaction
+- **Full details**: See `docs/memory-system-final.md`
 
 ---
 
@@ -2492,7 +2493,7 @@ User presses Ctrl+3
     │  Persistent (filesystem):                                                  │
     │  ├── ~/.hlvm/config.json          → model, temperature, agent mode         │
     │  ├── ~/.hlvm/hlvm.db (SQLite)     → sessions, messages, SSE events        │
-    │  ├── ~/.hlvm/memory/              → MEMORY.md, journal/, FTS5 index       │
+    │  ├── ~/.hlvm/memory/              → MEMORY.md, memory.db (SQLite)        │
     │  ├── ~/.hlvm/mcp.json             → MCP server configurations             │
     │  ├── ~/.hlvm/policy.json          → security policy overrides             │
     │  └── .hlvm/prompt.md (per-project) → project-specific instructions        │
@@ -2522,9 +2523,8 @@ User presses Ctrl+3
     │                                                                            │
     │  ~/.hlvm/memory/ (Memory system)                                           │
     │     ├── Server owns exclusively                                            │
-    │     ├── MEMORY.md — structured memory document                             │
-    │     ├── journal/ — timestamped entries                                     │
-    │     └── FTS5 SQLite index for semantic search                              │
+    │     ├── MEMORY.md — user-authored notes (explicit memory)                   │
+    │     └── memory.db — SQLite facts, entities, FTS5 (implicit memory)        │
     │                                                                            │
     └────────────────────────────────────────────────────────────────────────────┘
 

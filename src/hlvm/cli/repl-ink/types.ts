@@ -45,6 +45,7 @@ export interface UserItem {
   type: "user";
   id: string;
   text: string;
+  attachments?: string[];
   ts: number;
 }
 
@@ -83,6 +84,7 @@ export interface TurnStatsItem {
   durationMs: number;
   inputTokens?: number;
   outputTokens?: number;
+  modelId?: string;
 }
 
 /** Delegated sub-agent activity */

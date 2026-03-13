@@ -42,6 +42,7 @@ import {
 import { streamDirectChatFallback } from "./chat-direct.ts";
 import {
   buildAgentHistoryMessages,
+  resolveImages,
   shouldHonorRequestMessages,
 } from "./chat-context.ts";
 import type { ChatResultStats } from "../../../runtime/chat-protocol.ts";
@@ -82,7 +83,8 @@ export async function handleAgentMode(
   const workingDirectory = getPlatform().process.cwd();
   const lastUserMessage = getLastUserMessage(body.messages);
   const query = lastUserMessage?.content ?? "";
-  const toolAllowlist = resolveQueryToolAllowlist(query);
+  const images = await resolveImages(lastUserMessage?.image_paths);
+  const toolAllowlist = resolveQueryToolAllowlist();
 
   const history = await buildAgentHistoryMessages({
     requestMessages: body.messages,
@@ -115,6 +117,7 @@ export async function handleAgentMode(
     skipSessionHistory: body.skip_session_history === true,
     disablePersistentMemory: body.disable_persistent_memory === true,
     messageHistory: history,
+    images: images.length > 0 ? images : undefined,
     modelInfo,
     callbacks: {
       onToken: (text: string) => {

@@ -8,11 +8,11 @@ import {
   appendPersistedAgentToolResult,
   completePersistedAgentTurn,
   createPersistedAgentChildSession,
-  persistAgentTeamRuntime,
   persistAgentCheckpointSummary,
   persistAgentPlanState,
-  persistPendingPlanReview,
+  persistAgentTeamRuntime,
   persistAgentTodos,
+  persistPendingPlanReview,
   startPersistedAgentTurn,
 } from "../../../src/hlvm/agent/persisted-transcript.ts";
 import { createTeamRuntime } from "../../../src/hlvm/agent/team-runtime.ts";
@@ -46,6 +46,23 @@ Deno.test("buildConversationItemsFromSessionMessages preserves user and assistan
   if (items[1]?.type === "assistant") {
     assertEquals(items[1].text, "hi");
     assertEquals(items[1].isPending, false);
+  }
+});
+
+Deno.test("buildConversationItemsFromSessionMessages exposes attachment labels for resumed user turns", () => {
+  const items = buildConversationItemsFromSessionMessages([
+    {
+      role: "user",
+      content: "describe this issue",
+      attachments: ["/tmp/screenshot.png", "/tmp/spec.pdf"],
+      ts: 1,
+    },
+  ]);
+
+  assertEquals(items[0]?.type, "user");
+  if (items[0]?.type === "user") {
+    assertEquals(items[0].text, "describe this issue");
+    assertEquals(items[0].attachments, ["[Image #1]", "[PDF #2]"]);
   }
 });
 
@@ -367,7 +384,8 @@ Deno.test("buildTranscriptStateFromSession rehydrates persisted team runtime int
     });
 
     const snapshotItem = state.items.find((item) =>
-      isStructuredTeamInfoItem(item) && item.teamEventType === "team_runtime_snapshot"
+      isStructuredTeamInfoItem(item) &&
+      item.teamEventType === "team_runtime_snapshot"
     );
     assertEquals(snapshotItem !== undefined, true);
     if (snapshotItem && isStructuredTeamInfoItem(snapshotItem)) {

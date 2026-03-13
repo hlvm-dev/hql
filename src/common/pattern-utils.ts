@@ -18,8 +18,6 @@ import { LRUCache } from "./lru-cache.ts";
 // Types
 // ============================================================
 
-export type Pattern = string | RegExp;
-
 export interface GlobOptions {
   /** Case-sensitive matching (default: true) */
   caseSensitive?: boolean;
@@ -131,15 +129,3 @@ export function matchGlob(input: string, pattern: string, options?: GlobOptions)
   return globToRegex(pattern, options).test(input);
 }
 
-export function matchAny(input: string, patterns: Pattern[], options?: GlobOptions): boolean {
-  for (const pattern of patterns) {
-    const regex = typeof pattern === "string" ? globToRegex(pattern, options) : pattern;
-    if (regex.test(input)) return true;
-  }
-  return false;
-}
-
-export function filterByGlob(inputs: string[], pattern: string, options?: GlobOptions): string[] {
-  const regex = globToRegex(pattern, options);
-  return inputs.filter((input) => regex.test(input));
-}

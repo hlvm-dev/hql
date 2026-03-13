@@ -11,6 +11,7 @@ export const ANSI_COLORS = {
   GREEN: "\x1b[32m",
   YELLOW: "\x1b[33m",
   RED: "\x1b[31m",
+  DIM: "\x1b[2m",
   DIM_GRAY: "\x1b[90m",
   BOLD: "\x1b[1m",
   RESET: "\x1b[0m",

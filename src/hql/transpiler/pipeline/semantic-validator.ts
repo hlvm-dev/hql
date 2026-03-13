@@ -139,47 +139,13 @@ function collectDeclarationsFromNode(node: IR.IRNode): PendingDeclaration[] {
         : [];
     }
 
-    case IR.IRNodeType.ClassDeclaration: {
-      const classDecl = node as IR.IRClassDeclaration;
-      return classDecl.id
-        ? [{
-          name: classDecl.id.name,
-          position: classDecl.position,
-          kind: "const",
-        }]
-        : [];
-    }
-
-    case IR.IRNodeType.EnumDeclaration: {
-      const enumDecl = node as IR.IREnumDeclaration;
-      return enumDecl.id
-        ? [{
-          name: enumDecl.id.name,
-          position: enumDecl.position,
-          kind: "const",
-        }]
-        : [];
-    }
-
-    case IR.IRNodeType.ConstEnumDeclaration: {
-      const constEnumDecl = node as IR.IRConstEnumDeclaration;
-      return constEnumDecl.id
-        ? [{
-          name: constEnumDecl.id.name,
-          position: constEnumDecl.position,
-          kind: "const",
-        }]
-        : [];
-    }
-
+    case IR.IRNodeType.ClassDeclaration:
+    case IR.IRNodeType.EnumDeclaration:
+    case IR.IRNodeType.ConstEnumDeclaration:
     case IR.IRNodeType.AbstractClassDeclaration: {
-      const abstractClassDecl = node as IR.IRAbstractClassDeclaration;
-      return abstractClassDecl.id
-        ? [{
-          name: abstractClassDecl.id.name,
-          position: abstractClassDecl.position,
-          kind: "const",
-        }]
+      const decl = node as { id?: IR.IRIdentifier; position?: IR.SourcePosition };
+      return decl.id
+        ? [{ name: decl.id.name, position: decl.position, kind: "const" as const }]
         : [];
     }
 

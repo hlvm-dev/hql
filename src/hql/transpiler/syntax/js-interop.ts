@@ -72,8 +72,6 @@ function getLiteralString(node: HQLNode): string | null {
   return null;
 }
 
-// resolveMemberProperty is now imported from ../utils/member-expression.ts
-
 export function extractSymbolOrLiteralName(
   node: HQLNode,
   context: string,
@@ -362,29 +360,14 @@ export function transformDotNotation(
   const property = parts.slice(1).join(".");
 
   const objectExpr = createId(objectName);
-
-  if (list.elements.length === 1) {
-    // Zero-argument method call: (p.greet) -> p.greet()
-    const { property: memberProperty, computed } = resolveMemberProperty(
-      createStr(property),
-      true,
-    );
-    const result = createCall(createMember(objectExpr, memberProperty, computed), []);
-    copyPosition(list, result);
-    return result;
-  }
-
-  const args = transformElements(
-    list.elements.slice(1),
-    currentDir,
-    transformNode,
-    "method argument",
-    "Method argument",
-  );
   const { property: memberProperty, computed } = resolveMemberProperty(
     createStr(property),
     true,
   );
+
+  const args = list.elements.length === 1
+    ? []
+    : transformElements(list.elements.slice(1), currentDir, transformNode, "method argument", "Method argument");
 
   const result = createCall(createMember(objectExpr, memberProperty, computed), args);
   copyPosition(list, result);

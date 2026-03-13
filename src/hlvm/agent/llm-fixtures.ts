@@ -24,6 +24,10 @@ interface FixtureStepExpect {
   contains?: string[];
   /** Exact message count expected for this step */
   messageCount?: number;
+  /** Number of multimodal attachments on the latest user message */
+  lastUserAttachmentCount?: number;
+  /** MIME types expected on the latest user message attachments, in order */
+  lastUserAttachmentMimeTypes?: string[];
 }
 
 interface FixtureStep {
@@ -182,8 +186,30 @@ function normalizeExpect(input: unknown): FixtureStepExpect | undefined {
   const messageCount = typeof input.messageCount === "number"
     ? input.messageCount
     : undefined;
-  if (!contains && messageCount === undefined) return undefined;
-  return { contains, messageCount };
+  const lastUserAttachmentCount =
+    typeof input.lastUserAttachmentCount === "number"
+      ? input.lastUserAttachmentCount
+      : undefined;
+  const lastUserAttachmentMimeTypes =
+    Array.isArray(input.lastUserAttachmentMimeTypes)
+      ? input.lastUserAttachmentMimeTypes.filter((s): s is string =>
+        typeof s === "string" && s.length > 0
+      )
+      : undefined;
+  if (
+    !contains &&
+    messageCount === undefined &&
+    lastUserAttachmentCount === undefined &&
+    !lastUserAttachmentMimeTypes
+  ) {
+    return undefined;
+  }
+  return {
+    contains,
+    messageCount,
+    lastUserAttachmentCount,
+    lastUserAttachmentMimeTypes,
+  };
 }
 
 // ============================================================
@@ -280,6 +306,46 @@ function assertStepExpect(
           "llm_fixture",
         );
       }
+    }
+  }
+
+  const lastUser = [...messages].reverse().find((message) =>
+    message.role === "user"
+  );
+  const attachments = lastUser?.images ?? [];
+
+  if (
+    expect.lastUserAttachmentCount !== undefined &&
+    attachments.length !== expect.lastUserAttachmentCount
+  ) {
+    throw new ValidationError(
+      `LLM fixture expect mismatch (case "${caseName}" step ${stepNumber}): ` +
+        `lastUserAttachmentCount expected ${expect.lastUserAttachmentCount}, got ${attachments.length}`,
+      "llm_fixture",
+    );
+  }
+
+  if (
+    expect.lastUserAttachmentMimeTypes &&
+    expect.lastUserAttachmentMimeTypes.length > 0
+  ) {
+    const actualMimeTypes = attachments.map((attachment) =>
+      attachment.mimeType
+    );
+    const expectedMimeTypes = expect.lastUserAttachmentMimeTypes;
+    const sameLength = actualMimeTypes.length === expectedMimeTypes.length;
+    const sameOrder = sameLength &&
+      expectedMimeTypes.every((mimeType, index) =>
+        actualMimeTypes[index] === mimeType
+      );
+    if (!sameOrder) {
+      throw new ValidationError(
+        `LLM fixture expect mismatch (case "${caseName}" step ${stepNumber}): ` +
+          `lastUserAttachmentMimeTypes expected ${
+            JSON.stringify(expectedMimeTypes)
+          }, got ${JSON.stringify(actualMimeTypes)}`,
+        "llm_fixture",
+      );
     }
   }
 }

@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "jsr:@std/assert";
 import {
   buildContext,
   createCompletionItem,
@@ -6,39 +6,11 @@ import {
   extractMentionQuery,
   generateItemId,
   getWordAtCursor,
-  rankCompletions,
   resetItemIdCounter,
   shouldTriggerCommand,
   shouldTriggerFileMention,
   shouldTriggerSymbol,
 } from "../../../../src/hlvm/cli/repl-ink/completion/providers.ts";
-import type { CompletionItem, CompletionType } from "../../../../src/hlvm/cli/repl-ink/completion/types.ts";
-
-function makeItem(
-  id: string,
-  label: string,
-  type: CompletionType,
-  score: number,
-): CompletionItem {
-  return {
-    id,
-    label,
-    type,
-    score,
-    availableActions: ["SELECT"],
-    applyAction: (_action, context) => ({
-      text: context.text.slice(0, context.anchorPosition) + label + context.text.slice(context.cursorPosition),
-      cursorPosition: context.anchorPosition + label.length,
-      closeDropdown: true,
-    }),
-    getRenderSpec: () => ({
-      icon: type,
-      label,
-      truncate: "end",
-      maxWidth: 40,
-    }),
-  };
-}
 
 function ctx(text: string, cursorPosition = text.length) {
   return buildContext(text, cursorPosition, new Set(["localFn"]), new Map([["map", ["fn", "coll"]]]));
@@ -69,20 +41,6 @@ Deno.test("Providers: buildContext derives current word, string state, and enclo
   const stringCtx = ctx('(print "hel', 11);
   assertEquals(stringCtx.isInsideString, true);
   assertEquals(stringCtx.enclosingForm, undefined);
-});
-
-Deno.test("Providers: rankCompletions uses score, then type priority, then alphabetic order without mutation", () => {
-  const items: CompletionItem[] = [
-    makeItem("1", "zebra", "function", 100),
-    makeItem("2", "apple", "function", 100),
-    makeItem("3", "keywordTie", "keyword", 100),
-    makeItem("4", "highest", "function", 110),
-  ];
-
-  const ranked = rankCompletions(items);
-
-  assertEquals(ranked.map((item) => item.label), ["highest", "keywordTie", "apple", "zebra"]);
-  assertEquals(items.map((item) => item.label), ["zebra", "apple", "keywordTie", "highest"]);
 });
 
 Deno.test("Providers: item factories generate stable ids and default/custom apply behavior", () => {

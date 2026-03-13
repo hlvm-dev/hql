@@ -179,7 +179,6 @@ export interface ScopeWalkOptions {
 
 // walkChildrenInScope was removed - it was identical to walkChildren.
 // Scope-awareness is handled by the callers checking isFunctionBoundary.
-// Scope-awareness is handled by the callers checking isFunctionBoundary.
 
 /**
  * Check if an IR node tree contains any node of the specified type,

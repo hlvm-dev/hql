@@ -88,9 +88,6 @@ export interface CompilerContext {
 }
 
 /**
- * Result from compiler with optional metadata
- */
-/**
  * Type guard to check if context has macro registry
  */
 export function hasMacroRegistry(

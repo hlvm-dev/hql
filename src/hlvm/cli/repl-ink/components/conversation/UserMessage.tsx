@@ -11,10 +11,13 @@ import { useSemanticColors } from "../../../theme/index.ts";
 
 interface UserMessageProps {
   text: string;
+  attachments?: string[];
   width: number;
 }
 
-export const UserMessage = React.memo(function UserMessage({ text, width }: UserMessageProps): React.ReactElement {
+export const UserMessage = React.memo(function UserMessage(
+  { text, attachments, width }: UserMessageProps,
+): React.ReactElement {
   const sc = useSemanticColors();
   const contentWidth = Math.max(10, width - 6);
 
@@ -29,9 +32,15 @@ export const UserMessage = React.memo(function UserMessage({ text, width }: User
         borderColor={sc.border.active}
         paddingLeft={1}
         width={contentWidth}
+        flexDirection="column"
       >
-        <Text color={sc.status.success} bold>{">"}</Text>
-        <Text color={sc.text.primary}> {text}</Text>
+        <Box>
+          <Text color={sc.status.success} bold>{">"}</Text>
+          <Text color={sc.text.primary}>{text}</Text>
+        </Box>
+        {attachments && attachments.length > 0
+          ? <Text color={sc.text.secondary}>{attachments.join(" ")}</Text>
+          : null}
       </Box>
     </Box>
   );

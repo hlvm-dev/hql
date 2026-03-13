@@ -16,9 +16,9 @@
  */
 
 import {
+  hasTool,
   type InteractionRequestEvent,
   type InteractionResponse,
-  resolveTools,
 } from "./registry.ts";
 import type { ToolFilterState } from "./engine.ts";
 import { type ContextManager, ContextOverflowError } from "./context.ts";
@@ -273,6 +273,7 @@ export type AgentUIEvent =
     durationMs: number;
     inputTokens?: number;
     outputTokens?: number;
+    modelId?: string;
   }
   | {
     type: "delegate_start";
@@ -452,12 +453,10 @@ export interface OrchestratorConfig {
 }
 
 function memoryWriteAvailable(config: OrchestratorConfig): boolean {
-  const tools = resolveTools({
-    allowlist: effectiveAllowlist(config),
-    denylist: effectiveDenylist(config),
-    ownerId: config.toolOwnerId,
-  });
-  return "memory_write" in tools;
+  const allowlist = effectiveAllowlist(config);
+  if (allowlist && !allowlist.includes("memory_write")) return false;
+  if (effectiveDenylist(config)?.includes("memory_write")) return false;
+  return hasTool("memory_write", config.toolOwnerId);
 }
 
 // ============================================================
@@ -1085,6 +1084,7 @@ export async function runReActLoop(
           durationMs: Date.now() - iterationStart,
           inputTokens: usage.promptTokens || undefined,
           outputTokens: usage.completionTokens || undefined,
+          modelId: config.modelId,
         });
       }
 

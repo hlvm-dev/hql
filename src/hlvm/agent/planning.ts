@@ -54,8 +54,8 @@ interface PlanParseResult {
 // Planning prompt + parsing
 // ============================================================
 
-const PLAN_START = "PLAN";
-const PLAN_END = "END_PLAN";
+export const PLAN_START = "PLAN";
+export const PLAN_END = "END_PLAN";
 const STEP_DONE_PATTERN = /STEP_DONE\s*[:\-]?\s*([a-z0-9_-]+)/i;
 
 export function shouldPlanRequest(

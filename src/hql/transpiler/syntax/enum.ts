@@ -1,15 +1,14 @@
 // src/hql/transpiler/syntax/enum.ts
 
 import * as IR from "../type/hql_ir.ts";
-import type { ListNode, SymbolNode } from "../type/hql_ast.ts";
+import type { HQLNode, ListNode, SymbolNode } from "../type/hql_ast.ts";
 import { TransformError, ValidationError } from "../../../common/error.ts";
 import { sanitizeIdentifier } from "../../../common/utils.ts";
 import { globalLogger as logger } from "../../../logger.ts";
 import { extractMetaSourceLocation, withSourceLocationOpts } from "../utils/source_location_utils.ts";
-import type { HQLNode } from "../type/hql_ast.ts";
 import { copyPosition, copyEndPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 
-export function parseEnumCase(
+function parseEnumCase(
   caseList: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
@@ -201,20 +200,3 @@ export function transformEnumDeclaration(
   return enumDeclaration;
 }
 
-/**
-
-/**
- * Creates a JS object-based implementation for a simple enum
- */
-/**
- * Creates a class-based implementation for an enum with associated values
- */
-/**
- * Create the 'is' method for enum classes
- */
-/**
- * Create the 'getValue' method for enum classes
- */
-/**
- * Create a factory method for an enum case
- */

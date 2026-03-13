@@ -44,6 +44,9 @@ export interface Message {
   toolName?: string;
   /** ID of the tool call this result responds to (correlates with toolCalls[].id) */
   toolCallId?: string;
+  /** SDK-native response messages for lossless reasoning passthrough.
+   *  Not persisted; lost on session reload (graceful degradation). */
+  _sdkResponseMessages?: unknown[];
 }
 
 function isSummaryMessage(message: Message): boolean {

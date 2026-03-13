@@ -40,7 +40,7 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
     lines.length - visibleBodyLines.length,
   );
   const body = visibleBodyLines.join("\n").trim();
-  const title = kind === "reasoning" ? "Reasoning" : "Planning";
+  const title = kind === "reasoning" ? "Reasoning Summary" : "Planning";
 
   return (
     <Box paddingLeft={1} flexDirection="column" marginBottom={1}>

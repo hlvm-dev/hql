@@ -183,6 +183,18 @@ export function isSupportedMedia(path: string): boolean {
 }
 
 /**
+ * Conversation/agent media support is narrower than generic file-type detection.
+ * Keep this as the SSOT for what HLVM can currently submit as multimodal input.
+ */
+export function isSupportedConversationMedia(path: string): boolean {
+  const mimeType = detectMimeType(path);
+  return mimeType.startsWith("image/") ||
+    mimeType.startsWith("audio/") ||
+    mimeType.startsWith("video/") ||
+    mimeType === "application/pdf";
+}
+
+/**
  * Get file extension from path (lowercase, with dot)
  */
 function getExtension(path: string): string {
@@ -221,7 +233,6 @@ export function getDisplayName(type: AttachmentType, id: number): string {
   const prefix = TYPE_DISPLAY[type];
   return `[${prefix} #${id}]`;
 }
-
 
 /**
  * Get size limit for attachment type

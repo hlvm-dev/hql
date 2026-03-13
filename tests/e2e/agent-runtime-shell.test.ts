@@ -157,6 +157,58 @@ async function createAiLoopEnhancementFixture(
   return fixturePath;
 }
 
+async function createAskMultimodalFixture(
+  workspace: string,
+): Promise<{
+  fixturePath: string;
+  imagePath: string;
+  pdfPath: string;
+}> {
+  const imagePath = platform.path.join(workspace, "sample.png");
+  const pdfPath = platform.path.join(workspace, "sample.pdf");
+  const fixturePath = platform.path.join(
+    workspace,
+    "agent-ask-multimodal-fixture.json",
+  );
+
+  await platform.fs.writeFile(
+    imagePath,
+    new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+  );
+  await platform.fs.writeFile(
+    pdfPath,
+    new TextEncoder().encode("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n"),
+  );
+
+  const fixture = {
+    version: 1,
+    name: "ask multimodal fixture",
+    cases: [
+      {
+        name: "multimodal-ask",
+        match: { contains: ["multimodal attachment smoke"] },
+        steps: [
+          {
+            expect: {
+              contains: ["multimodal attachment smoke"],
+              lastUserAttachmentCount: 2,
+              lastUserAttachmentMimeTypes: ["image/png", "application/pdf"],
+            },
+            response: "Multimodal attachment receipt confirmed",
+          },
+        ],
+      },
+    ],
+  };
+
+  await platform.fs.writeTextFile(
+    fixturePath,
+    JSON.stringify(fixture, null, 2),
+  );
+
+  return { fixturePath, imagePath, pdfPath };
+}
+
 async function withAiLoopEnhancementWorkspace(
   prefix: string,
   fn: (
@@ -220,6 +272,55 @@ Deno.test({
       assertStringIncludes(
         output,
         "Result:\nMulti-agent parser coordination complete",
+      );
+    } finally {
+      await shutdownRuntimeHostIfPresent(baseUrl);
+      await platform.fs.remove(hlvmDir, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "local ask command forwards multimodal attachments through the runtime host",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    const port = await findFreePort();
+    const hlvmDir = await platform.fs.makeTempDir({
+      prefix: "hlvm-multimodal-ask-",
+    });
+    const baseUrl = `http://127.0.0.1:${port}`;
+
+    try {
+      const { fixturePath, imagePath, pdfPath } =
+        await createAskMultimodalFixture(
+          hlvmDir,
+        );
+      const result = await runLocalAsk(
+        port,
+        [
+          "--fresh",
+          "--verbose",
+          "--attach",
+          imagePath,
+          "--attach",
+          pdfPath,
+          "--model",
+          "ollama/test-fixture",
+          "multimodal attachment smoke",
+        ],
+        {
+          HLVM_DIR: hlvmDir,
+          HLVM_ASK_FIXTURE_PATH: fixturePath,
+        },
+      );
+
+      const output = normalizeCliOutput(result.stdout + result.stderr);
+      assertEquals(result.success, true, output);
+      assertStringIncludes(
+        output,
+        "Result:\nMultimodal attachment receipt confirmed",
       );
     } finally {
       await shutdownRuntimeHostIfPresent(baseUrl);

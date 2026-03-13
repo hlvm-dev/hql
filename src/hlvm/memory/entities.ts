@@ -3,6 +3,7 @@
  */
 
 import { getFactDb } from "./db.ts";
+import { withTransaction } from "./facts.ts";
 import { todayDate } from "./store.ts";
 
 export interface ExtractedEntity {
@@ -85,9 +86,8 @@ export function linkFactEntities(factId: number, text: string): number {
   const entities = extractEntitiesFromText(text);
   if (entities.length === 0) return 0;
 
-  const db = getFactDb();
-  db.exec("BEGIN");
-  try {
+  return withTransaction(() => {
+    const db = getFactDb();
     const entityIds: number[] = [];
     for (const entity of entities) {
       const entityId = upsertEntity(entity.name, entity.type);
@@ -143,12 +143,8 @@ export function linkFactEntities(factId: number, text: string): number {
       }
     }
 
-    db.exec("COMMIT");
     return entityIds.length;
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
 
 export function getConnectedFacts(entityName: string, limit = 10): number[] {

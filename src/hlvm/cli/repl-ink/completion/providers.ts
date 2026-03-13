@@ -15,7 +15,7 @@ import type {
   ItemRenderSpec,
   EnclosingForm,
 } from "./types.ts";
-import { TYPE_ICONS, TYPE_PRIORITY, RENDER_MAX_WIDTH, CONTEXT_AWARE_FORMS } from "./types.ts";
+import { TYPE_ICONS, RENDER_MAX_WIDTH, CONTEXT_AWARE_FORMS } from "./types.ts";
 import { getWordAtCursor } from "../../repl/string-utils.ts";
 
 // ============================================================
@@ -24,11 +24,8 @@ import { getWordAtCursor } from "../../repl/string-utils.ts";
 
 import { isInsideString as isInsideStringFull } from "../../repl/syntax.ts";
 
-/**
- * Check if cursor is inside a double-quoted string literal.
- * Delegates to the canonical implementation in syntax.ts.
- */
-export function isInsideString(text: string, cursorPosition: number): boolean {
+/** Check if cursor is inside a double-quoted string literal. */
+function isInsideString(text: string, cursorPosition: number): boolean {
   return isInsideStringFull(text, cursorPosition, '"');
 }
 
@@ -177,41 +174,6 @@ export function buildContext(
     bindingNames,
     enclosingForm: detectEnclosingForm(text, cursorPosition),
   };
-}
-
-// ============================================================
-// Ranking
-// ============================================================
-
-/**
- * Rank completions by score first, then type, then alphabetically.
- *
- * Score is PRIMARY because:
- * - User bindings (score 110) should appear before stdlib (score 100)
- * - Exact/better matches can have higher scores
- *
- * @param items - Items to rank
- * @returns Sorted copy of items
- */
-export function rankCompletions(
-  items: readonly CompletionItem[]
-): CompletionItem[] {
-  return [...items].sort((a, b) => {
-    // 1. By score (higher score first) - PRIMARY
-    // User bindings (110) > stdlib (100) > exact matches (90)
-    if (a.score !== b.score) {
-      return b.score - a.score;
-    }
-
-    // 2. By type priority (keywords first) - SECONDARY
-    const typeDiff = TYPE_PRIORITY[a.type] - TYPE_PRIORITY[b.type];
-    if (typeDiff !== 0) {
-      return typeDiff;
-    }
-
-    // 3. Alphabetically - TERTIARY
-    return a.label.localeCompare(b.label);
-  });
 }
 
 // ============================================================

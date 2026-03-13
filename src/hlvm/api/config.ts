@@ -85,6 +85,18 @@ function createConfigApi() {
     return value;
   }
 
+  function parseAndValidateConfigValue(key: ConfigKey, value: unknown): unknown {
+    const parsed = maybeParseConfigValue(key, value);
+    const validation = validateValue(key, parsed);
+    if (!validation.valid) {
+      throw new ValidationError(
+        validation.error ?? "Invalid value",
+        "config.set",
+      );
+    }
+    return parsed;
+  }
+
   function updateCachedConfig(
     nextConfig: HlvmConfig,
     syncProviders = false,
@@ -140,16 +152,7 @@ function createConfigApi() {
      */
     set: async (key: string, value: unknown): Promise<void> => {
       assertConfigKeyOrThrow(key, "config.set");
-      const parsedValue = maybeParseConfigValue(key, value);
-
-      const validation = validateValue(key, parsedValue);
-      if (!validation.valid) {
-        throw new ValidationError(
-          validation.error ?? "Invalid value",
-          "config.set",
-        );
-      }
-
+      const parsedValue = parseAndValidateConfigValue(key, value);
       const cfg = await ensureConfig();
       const newConfig = { ...cfg, [key]: parsedValue };
       await saveConfig(newConfig);
@@ -164,15 +167,7 @@ function createConfigApi() {
 
       for (const [key, value] of Object.entries(updates)) {
         assertConfigKeyOrThrow(key, "config.set");
-        const parsedValue = maybeParseConfigValue(key, value);
-        const validation = validateValue(key, parsedValue);
-        if (!validation.valid) {
-          throw new ValidationError(
-            validation.error ?? "Invalid value",
-            "config.set",
-          );
-        }
-        (next as Record<string, unknown>)[key] = parsedValue;
+        (next as Record<string, unknown>)[key] = parseAndValidateConfigValue(key, value);
       }
 
       await saveConfig(next);

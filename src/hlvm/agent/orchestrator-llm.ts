@@ -5,7 +5,7 @@
 
 import { type ContextManager } from "./context.ts";
 import type { Message } from "./context.ts";
-import { throwIfAborted, withTimeout } from "../../common/timeout-utils.ts";
+import { createAbortError, throwIfAborted, withTimeout } from "../../common/timeout-utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { classifyError } from "./error-taxonomy.ts";
 import { getAgentLogger } from "./logger.ts";
@@ -34,9 +34,7 @@ async function sleepWithAbort(
     const onAbort = () => {
       clearTimeout(timeoutId);
       signal.removeEventListener("abort", onAbort);
-      const error = new Error("LLM retry aborted");
-      error.name = "AbortError";
-      reject(error);
+      reject(createAbortError("LLM retry aborted"));
     };
 
     const timeoutId = setTimeout(() => {

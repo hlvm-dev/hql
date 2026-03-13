@@ -8,36 +8,36 @@
  */
 
 import type {
-  CompletionProvider,
-  CompletionContext,
-  CompletionResult,
-  CompletionItem,
-  CompletionAction,
   ApplyContext,
   ApplyResult,
+  CompletionAction,
+  CompletionContext,
+  CompletionItem,
+  CompletionProvider,
+  CompletionResult,
   ItemRenderSpec,
 } from "./types.ts";
 import {
+  ATTACHMENT_PLACEHOLDER,
+  COMPLETION_DEBOUNCE_MS,
+  COMPLETION_SCORES,
+  CONTEXT_AWARE_FORMS,
+  PROVIDER_HELP_TEXT,
+  RENDER_MAX_WIDTH,
+  STRING_PLACEHOLDER_FUNCTIONS,
   TYPE_ICONS,
   TYPE_LABELS,
-  COMPLETION_SCORES,
-  RENDER_MAX_WIDTH,
-  PROVIDER_HELP_TEXT,
-  COMPLETION_DEBOUNCE_MS,
-  ATTACHMENT_PLACEHOLDER,
-  STRING_PLACEHOLDER_FUNCTIONS,
-  CONTEXT_AWARE_FORMS,
 } from "./types.ts";
 import {
-  resetItemIdCounter,
-  generateItemId,
-  shouldTriggerFileMention,
-  extractMentionQuery,
-  shouldTriggerCommand,
   extractCommandQuery,
+  extractMentionQuery,
+  generateItemId,
+  resetItemIdCounter,
+  shouldTriggerCommand,
+  shouldTriggerFileMention,
   shouldTriggerSymbol,
 } from "./providers.ts";
-import { isSupportedMedia } from "../../repl/attachment.ts";
+import { isSupportedConversationMedia } from "../../repl/attachment.ts";
 import { fuzzyMatch, type FuzzyResult } from "../../repl/fuzzy.ts";
 
 // ============================================================
@@ -46,9 +46,9 @@ import { fuzzyMatch, type FuzzyResult } from "../../repl/fuzzy.ts";
 
 // Import shared sets and functions from known-identifiers.ts (single source of truth)
 import {
+  classifyIdentifier as baseClassify,
   getAllKnownIdentifiers,
   initializeIdentifiers,
-  classifyIdentifier as baseClassify,
 } from "../../../../common/known-identifiers.ts";
 import { COMMAND_CATALOG } from "../../repl/commands.ts";
 
@@ -58,7 +58,7 @@ import { COMMAND_CATALOG } from "../../repl/commands.ts";
  */
 function classifyIdentifier(
   id: string,
-  userBindings: ReadonlySet<string>
+  userBindings: ReadonlySet<string>,
 ): CompletionItem["type"] {
   if (userBindings.has(id)) return "variable";
   const base = baseClassify(id);
@@ -74,7 +74,7 @@ function getDescription(
   id: string,
   _type: CompletionItem["type"],
   signatures: ReadonlyMap<string, readonly string[]>,
-  _docstrings: ReadonlyMap<string, string>
+  _docstrings: ReadonlyMap<string, string>,
 ): string | undefined {
   // Show function signature if available (e.g., "(x y)")
   // This is the most actionable info - tells you how to call it
@@ -99,10 +99,11 @@ function getDescription(
 function createSymbolApplyAction(
   id: string,
   params: readonly string[] | undefined,
-  itemType: CompletionItem["type"]
+  itemType: CompletionItem["type"],
 ): (action: CompletionAction, context: ApplyContext) => ApplyResult {
   const hasParams = params && params.length > 0;
-  const isCallable = itemType === "function" || itemType === "macro" || hasParams;
+  const isCallable = itemType === "function" || itemType === "macro" ||
+    hasParams;
   // Context-aware forms should NOT enter placeholder mode - let dropdown show instead
   const isContextAwareForm = CONTEXT_AWARE_FORMS[id] !== undefined;
   const usesStringPlaceholder = STRING_PLACEHOLDER_FUNCTIONS.has(id);
@@ -151,7 +152,7 @@ function createSymbolApplyAction(
     if (isCallable && usesStringPlaceholder) {
       const openParen = hasOpeningParen ? "" : "(";
       const closeParen = hasClosingParen ? "" : ")";
-      const insertText = openParen + id + " \"\"" + closeParen;
+      const insertText = openParen + id + ' ""' + closeParen;
       return {
         text: before + insertText + after,
         cursorPosition: ctx.anchorPosition + openParen.length + id.length + 2,
@@ -174,7 +175,8 @@ function createSymbolApplyAction(
       const newText = before + insertText + trailingSpace + after;
 
       // Position cursor at first param
-      const firstParamStart = ctx.anchorPosition + openParen.length + id.length + 1;
+      const firstParamStart = ctx.anchorPosition + openParen.length +
+        id.length + 1;
 
       return {
         text: newText,
@@ -217,7 +219,7 @@ function createSymbolRenderSpec(
   type: CompletionItem["type"],
   description: string | undefined,
   matchIndices?: readonly number[],
-  extendedDoc?: string
+  extendedDoc?: string,
 ): () => ItemRenderSpec {
   return (): ItemRenderSpec => ({
     icon: TYPE_ICONS[type],
@@ -261,7 +263,9 @@ export const SymbolProvider: CompletionProvider = {
     // Check if we're inside a form that requires specific completions
     // ============================================================
     const enclosingForm = context.enclosingForm;
-    const contextFilter = enclosingForm ? CONTEXT_AWARE_FORMS[enclosingForm.name] : undefined;
+    const contextFilter = enclosingForm
+      ? CONTEXT_AWARE_FORMS[enclosingForm.name]
+      : undefined;
 
     // Determine which names to show based on context
     // - "persistent": only show bindingNames (persistent definitions)
@@ -297,7 +301,7 @@ export const SymbolProvider: CompletionProvider = {
       name: string,
       type: CompletionItem["type"],
       baseScore: number,
-      matchResult: FuzzyResult | null
+      matchResult: FuzzyResult | null,
     ): CompletionItem | null => {
       // Check context filter FIRST
       if (!passesContextFilter(name)) return null;
@@ -306,7 +310,12 @@ export const SymbolProvider: CompletionProvider = {
       if (prefix && !matchResult) return null;
 
       const params = context.signatures.get(name);
-      const description = getDescription(name, type, context.signatures, context.docstrings);
+      const description = getDescription(
+        name,
+        type,
+        context.signatures,
+        context.docstrings,
+      );
       const matchIndices = matchResult?.indices;
       // Combine base score with fuzzy score for ranking
       const score = baseScore + (matchResult?.score ?? 0);
@@ -324,7 +333,13 @@ export const SymbolProvider: CompletionProvider = {
         matchIndices,
         availableActions: ["SELECT"] as const,
         applyAction: createSymbolApplyAction(name, params, type),
-        getRenderSpec: createSymbolRenderSpec(name, type, description, matchIndices, extendedDoc),
+        getRenderSpec: createSymbolRenderSpec(
+          name,
+          type,
+          description,
+          matchIndices,
+          extendedDoc,
+        ),
       };
     };
 
@@ -332,7 +347,12 @@ export const SymbolProvider: CompletionProvider = {
     // User's definitions should have higher priority than stdlib
     for (const binding of context.userBindings) {
       const matchResult = prefix ? fuzzyMatch(prefix, binding) : null;
-      const item = createItem(binding, "variable", COMPLETION_SCORES.USER_BINDING, matchResult);
+      const item = createItem(
+        binding,
+        "variable",
+        COMPLETION_SCORES.USER_BINDING,
+        matchResult,
+      );
       if (item) {
         items.push(item);
         seen.add(binding);
@@ -347,7 +367,12 @@ export const SymbolProvider: CompletionProvider = {
 
         const matchResult = prefix ? fuzzyMatch(prefix, id) : null;
         const type = classifyIdentifier(id, context.userBindings);
-        const item = createItem(id, type, COMPLETION_SCORES.STDLIB, matchResult);
+        const item = createItem(
+          id,
+          type,
+          COMPLETION_SCORES.STDLIB,
+          matchResult,
+        );
         if (item) {
           items.push(item);
           seen.add(id);
@@ -372,7 +397,11 @@ export const SymbolProvider: CompletionProvider = {
 // File Provider
 // ============================================================
 
-import { searchFiles, unescapeShellPath, type FileMatch } from "../../repl/file-search.ts";
+import {
+  type FileMatch,
+  searchFiles,
+  unescapeShellPath,
+} from "../../repl/file-search.ts";
 
 /**
  * Create applyAction for file items.
@@ -383,7 +412,7 @@ import { searchFiles, unescapeShellPath, type FileMatch } from "../../repl/file-
 function createFileApplyAction(
   rawPath: string,
   isDir: boolean,
-  isMedia: boolean
+  isMedia: boolean,
 ): (action: CompletionAction, context: ApplyContext) => ApplyResult {
   const cleanPath = unescapeShellPath(rawPath);
 
@@ -449,7 +478,7 @@ function createFileApplyAction(
 function createFileRenderSpec(
   path: string,
   isDir: boolean,
-  matchIndices?: readonly number[]
+  matchIndices?: readonly number[],
 ): () => ItemRenderSpec {
   return (): ItemRenderSpec => ({
     icon: isDir ? TYPE_ICONS.directory : TYPE_ICONS.file,
@@ -491,7 +520,7 @@ export const FileProvider: CompletionProvider = {
     const items: CompletionItem[] = matches.map((match: FileMatch) => {
       const isDir = match.isDirectory;
       const cleanPath = unescapeShellPath(match.path);
-      const isMedia = !isDir && isSupportedMedia(cleanPath);
+      const isMedia = !isDir && isSupportedConversationMedia(cleanPath);
 
       return {
         id: generateItemId(isDir ? "directory" : "file"),
@@ -500,9 +529,15 @@ export const FileProvider: CompletionProvider = {
         score: match.score,
         matchIndices: match.matchIndices,
         // Directories support DRILL + SELECT, files only SELECT
-        availableActions: isDir ? ["DRILL", "SELECT"] as const : ["SELECT"] as const,
+        availableActions: isDir
+          ? ["DRILL", "SELECT"] as const
+          : ["SELECT"] as const,
         applyAction: createFileApplyAction(match.path, isDir, isMedia),
-        getRenderSpec: createFileRenderSpec(match.path, isDir, match.matchIndices),
+        getRenderSpec: createFileRenderSpec(
+          match.path,
+          isDir,
+          match.matchIndices,
+        ),
       };
     });
 
@@ -524,7 +559,7 @@ export const FileProvider: CompletionProvider = {
  * - INSERT: Just insert command text (user can edit before executing)
  */
 function createCommandApplyAction(
-  name: string
+  name: string,
 ): (action: CompletionAction, context: ApplyContext) => ApplyResult {
   return (action: CompletionAction, ctx: ApplyContext): ApplyResult => {
     const before = ctx.text.slice(0, ctx.anchorPosition);
@@ -557,7 +592,7 @@ function createCommandApplyAction(
 function createCommandRenderSpec(
   name: string,
   description: string,
-  matchIndices?: readonly number[]
+  matchIndices?: readonly number[],
 ): () => ItemRenderSpec {
   return (): ItemRenderSpec => ({
     icon: TYPE_ICONS.command,
@@ -590,7 +625,8 @@ export const CommandProvider: CompletionProvider = {
 
     // Find the / position for anchor
     const slashPos = context.textBeforeCursor.trimStart().indexOf("/");
-    const leadingSpaces = context.textBeforeCursor.length - context.textBeforeCursor.trimStart().length;
+    const leadingSpaces = context.textBeforeCursor.length -
+      context.textBeforeCursor.trimStart().length;
     const anchor = leadingSpaces + slashPos;
 
     resetItemIdCounter();
@@ -608,7 +644,7 @@ export const CommandProvider: CompletionProvider = {
 
       const score = COMPLETION_SCORES.COMMAND_BASE + (matchResult?.score ?? 0);
       // Shift indices by 1 to account for the leading /
-      const matchIndices = matchResult?.indices.map(i => i + 1);
+      const matchIndices = matchResult?.indices.map((i) => i + 1);
 
       items.push({
         id: generateItemId("command"),
@@ -620,7 +656,11 @@ export const CommandProvider: CompletionProvider = {
         // Commands only support SELECT - no drilling
         availableActions: ["SELECT"] as const,
         applyAction: createCommandApplyAction(cmd.name),
-        getRenderSpec: createCommandRenderSpec(cmd.name, cmd.description, matchIndices),
+        getRenderSpec: createCommandRenderSpec(
+          cmd.name,
+          cmd.description,
+          matchIndices,
+        ),
       });
     }
 
@@ -643,9 +683,9 @@ export const CommandProvider: CompletionProvider = {
  * First matching provider wins.
  */
 export const ALL_PROVIDERS: readonly CompletionProvider[] = [
-  FileProvider,    // @ mentions (highest priority)
+  FileProvider, // @ mentions (highest priority)
   CommandProvider, // / commands
-  SymbolProvider,  // Tab completion (fallback)
+  SymbolProvider, // Tab completion (fallback)
 ];
 
 /**
@@ -653,7 +693,7 @@ export const ALL_PROVIDERS: readonly CompletionProvider[] = [
  * Returns null if no provider should trigger.
  */
 export function getActiveProvider(
-  context: CompletionContext
+  context: CompletionContext,
 ): CompletionProvider | null {
   for (const provider of ALL_PROVIDERS) {
     if (provider.shouldTrigger(context)) {

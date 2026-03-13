@@ -38,6 +38,7 @@ import {
   createCall,
   createFnExpr,
   createVarDecl,
+  wrapIIFEResult,
 } from "../utils/ir-helpers.ts";
 
 /**
@@ -273,29 +274,7 @@ function transformBinding(
             return node;
           });
 
-          const bodyBlock: IR.IRBlockStatement = createBlock([variableDecl, ...bodyStmts]);
-          const hasAwaits = containsAwaitExpression(bodyBlock);
-          const hasYields = containsYieldExpression(bodyBlock);
-
-          const iife = createCall(
-            createFnExpr([], bodyBlock, { async: hasAwaits, generator: hasYields }),
-            [],
-          );
-
-          if (hasYields) {
-            return {
-              type: IR.IRNodeType.YieldExpression,
-              argument: iife,
-              delegate: true,
-            } as IR.IRYieldExpression;
-          } else if (hasAwaits) {
-            return {
-              type: IR.IRNodeType.AwaitExpression,
-              argument: iife,
-            } as IR.IRAwaitExpression;
-          }
-
-          return iife;
+          return makeIIFE(createBlock([variableDecl, ...bodyStmts]));
         }
 
         return variableDecl;
@@ -348,32 +327,7 @@ function transformBinding(
         return node;
       });
 
-      // Check if body contains await/yield - IIFE needs to be async/generator
-      const bodyBlock: IR.IRBlockStatement = createBlock([variableDecl, ...bodyStmts]);
-      const hasAwaits = containsAwaitExpression(bodyBlock);
-      const hasYields = containsYieldExpression(bodyBlock);
-
-      const iife = createCall(
-        createFnExpr([], bodyBlock, { async: hasAwaits, generator: hasYields }),
-        [],
-      );
-
-      // For generator IIFEs, wrap in yield*; for async, wrap in await
-      if (hasYields) {
-        return {
-          type: IR.IRNodeType.YieldExpression,
-          argument: iife,
-          delegate: true,
-        } as IR.IRYieldExpression;
-      }
-      if (hasAwaits) {
-        return {
-          type: IR.IRNodeType.AwaitExpression,
-          argument: iife,
-        } as IR.IRAwaitExpression;
-      }
-
-      return iife;
+      return makeIIFE(createBlock([variableDecl, ...bodyStmts]));
     }
 
     return variableDecl;
@@ -555,17 +509,7 @@ function processBindings(
 
         // Transform the value
         const valueExpr = validateTransformed(
-          valueNode.type === "list" &&
-            (valueNode as ListNode).elements[0]?.type === "symbol" &&
-            ((valueNode as ListNode).elements[0] as SymbolNode).name === "if"
-            ? transformIf(
-              valueNode as ListNode,
-              currentDir,
-              transformNode,
-              () => false,
-              true,
-            )
-            : transformNode(valueNode, currentDir),
+          transformIfOrValue(valueNode, currentDir, transformNode),
           `${kind} binding value`,
           `Binding value for pattern`,
         );
@@ -591,19 +535,8 @@ function processBindings(
     // Extract type annotation if present (e.g., "x:number")
     const { name, type: typeAnnotation } = extractAndNormalizeType((nameNode as SymbolNode).name);
 
-    // Check if the value is an if-expression
     const valueExpr = validateTransformed(
-      valueNode.type === "list" &&
-        (valueNode as ListNode).elements[0]?.type === "symbol" &&
-        ((valueNode as ListNode).elements[0] as SymbolNode).name === "if"
-        ? transformIf(
-          valueNode as ListNode,
-          currentDir,
-          transformNode,
-          () => false,
-          true,
-        )
-        : transformNode(valueNode, currentDir),
+      transformIfOrValue(valueNode, currentDir, transformNode),
       `${kind} binding value`,
       `Binding value for '${name}'`,
     );
@@ -654,9 +587,15 @@ function processBindings(
     return node;
   });
 
-  // Create an IIFE to contain our block of code
-  // Check if body contains await/yield - IIFE needs to be async/generator
-  const bodyBlock: IR.IRBlockStatement = createBlock([...patternDeclarations, ...variableDeclarations, ...bodyStmts]);
+  return makeIIFE(createBlock([...patternDeclarations, ...variableDeclarations, ...bodyStmts]));
+}
+
+/**
+ * Create an IIFE from a block, wrapping in yield-delegate or await if the
+ * block contains generator or async expressions. DRY helper used by all
+ * binding forms that need IIFE-scoped blocks.
+ */
+function makeIIFE(bodyBlock: IR.IRBlockStatement): IR.IRNode {
   const hasAwaits = containsAwaitExpression(bodyBlock);
   const hasYields = containsYieldExpression(bodyBlock);
 
@@ -665,22 +604,7 @@ function processBindings(
     [],
   );
 
-  // For generator IIFEs, wrap in yield*; for async, wrap in await
-  if (hasYields) {
-    return {
-      type: IR.IRNodeType.YieldExpression,
-      argument: iife,
-      delegate: true,
-    } as IR.IRYieldExpression;
-  }
-  if (hasAwaits) {
-    return {
-      type: IR.IRNodeType.AwaitExpression,
-      argument: iife,
-    } as IR.IRAwaitExpression;
-  }
-
-  return iife;
+  return wrapIIFEResult(iife, hasYields, hasAwaits);
 }
 
 /**

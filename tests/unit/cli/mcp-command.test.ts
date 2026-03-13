@@ -77,14 +77,14 @@ Deno.test("mcp command routes add/list/remove through the runtime host", async (
 });
 
 Deno.test("mcp command routes login/logout through the runtime host", async () => {
-  let loginBody: Record<string, unknown> | null = null;
+  let _loginBody: Record<string, unknown> | null = null;
   let logoutBody: Record<string, unknown> | null = null;
 
   await withRuntimeHostServer(async (req) => {
     const url = new URL(req.url);
 
     if (url.pathname === "/api/mcp/oauth/login") {
-      loginBody = await req.json() as Record<string, unknown>;
+      _loginBody = await req.json() as Record<string, unknown>;
       return Response.json({
         serverName: "github",
         messages: [

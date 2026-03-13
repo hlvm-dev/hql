@@ -107,7 +107,6 @@ async function withWorkspace(
 Deno.test("persisted transcript: SQLite-backed agent history replays stored tool results", async () => {
   const db = setupStoreTestDb();
   try {
-    const workspace = "/tmp/agent-history";
     const model = "test-chat/plain";
     const sessionId = getPersistedAgentSessionId();
     const turn = startPersistedAgentTurn(sessionId, "inspect config");

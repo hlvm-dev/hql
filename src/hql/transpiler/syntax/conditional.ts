@@ -59,6 +59,17 @@ const STATEMENT_TYPES = new Set([
   IR.IRNodeType.ThrowStatement,
 ]);
 
+const CONTROL_FLOW_STATEMENT_TYPES = new Set([
+  IR.IRNodeType.ReturnStatement,
+  IR.IRNodeType.ThrowStatement,
+  IR.IRNodeType.IfStatement,
+  IR.IRNodeType.BreakStatement,
+  IR.IRNodeType.ContinueStatement,
+  IR.IRNodeType.ForOfStatement,
+  IR.IRNodeType.ForStatement,
+  IR.IRNodeType.WhileStatement,
+]);
+
 /**
  * Check if an HQL AST node contains a return statement
  * Used to determine if a do block needs an IIFE wrapper even with a single expression
@@ -237,17 +248,8 @@ export function transformIf(
     // are expression-returning - the code generator handles hoisting.
     // LabeledStatement is also not included because label transformation
     // wraps in IIFE when needed, making it expression-returning.
-    const isStatement = (node: IR.IRNode) =>
-      node.type === IR.IRNodeType.ReturnStatement ||
-      node.type === IR.IRNodeType.ThrowStatement ||
-      node.type === IR.IRNodeType.IfStatement ||
-      node.type === IR.IRNodeType.BreakStatement ||
-      node.type === IR.IRNodeType.ContinueStatement ||
-      node.type === IR.IRNodeType.ForOfStatement ||
-      node.type === IR.IRNodeType.ForStatement ||
-      node.type === IR.IRNodeType.WhileStatement;
-
-    const hasControlFlow = isStatement(consequent) || isStatement(alternate);
+    const hasControlFlow = CONTROL_FLOW_STATEMENT_TYPES.has(consequent.type) ||
+      CONTROL_FLOW_STATEMENT_TYPES.has(alternate.type);
 
     if (hasControlFlow) {
       // Use if statement for control flow
@@ -638,6 +640,45 @@ function partitionSwitchCases(
   return { defaultCase: defaultCase!, regularCases };
 }
 
+/**
+ * Build a right-to-left chain of ternary expressions from switch cases.
+ * Shared by transformSwitch (when canUseTernary) and transformCase.
+ *
+ * (discriminant === v1 ? r1 : discriminant === v2 ? r2 : defaultValue)
+ */
+function buildTernaryChain(
+  cases: IR.IRSwitchCase[],
+  discriminant: IR.IRNode,
+  position: IR.SourcePosition | undefined,
+): IR.IRNode {
+  const { defaultCase, regularCases } = partitionSwitchCases(cases);
+
+  let result: IR.IRNode = (defaultCase.consequent[0] as IR.IRReturnStatement).argument!;
+
+  for (let i = regularCases.length - 1; i >= 0; i--) {
+    const caseItem = regularCases[i];
+    const test = caseItem.test!;
+    const value = (caseItem.consequent[0] as IR.IRReturnStatement).argument!;
+
+    const condition: IR.IRBinaryExpression = {
+      type: IR.IRNodeType.BinaryExpression,
+      operator: "===",
+      left: discriminant,
+      right: test,
+    };
+
+    result = {
+      type: IR.IRNodeType.ConditionalExpression,
+      test: condition,
+      consequent: value,
+      alternate: result,
+      position,
+    } as IR.IRConditionalExpression;
+  }
+
+  return result;
+}
+
 export function transformSwitch(
   list: ListNode,
   currentDir: string,
@@ -795,42 +836,7 @@ export function transformSwitch(
   });
 
   if (canUseTernary) {
-    // EXPRESSION-EVERYWHERE: Use native chained ternaries
-    // (x === v1 ? r1 : x === v2 ? r2 : default)
-    // This is more idiomatic JS than IIFE wrapping
-
-    // Build from the end (default case) backwards
-    // Single-pass partition into default + regular cases
-    const { defaultCase, regularCases } = partitionSwitchCases(cases);
-
-    // Start with the default value
-    let result: IR.IRNode = (defaultCase.consequent[0] as IR.IRReturnStatement).argument!;
-
-    // Build chain from right to left
-    for (let i = regularCases.length - 1; i >= 0; i--) {
-      const caseItem = regularCases[i];
-      const test = caseItem.test!;
-      const value = (caseItem.consequent[0] as IR.IRReturnStatement).argument!;
-
-      // Create: discriminant === test ? value : result
-      const condition: IR.IRBinaryExpression = {
-        type: IR.IRNodeType.BinaryExpression,
-        operator: "===",
-        left: discriminant,
-        right: test,
-      };
-
-      result = {
-        type: IR.IRNodeType.ConditionalExpression,
-        test: condition,
-        consequent: value,
-        alternate: result,
-        position: extractPosition(list),
-      } as IR.IRConditionalExpression;
-    }
-
-    // Position is already included in the final ternary expression above
-    return result;
+    return buildTernaryChain(cases, discriminant, extractPosition(list));
   }
 
   // Complex switch (fallthrough or multiple statements): use IIFE
@@ -973,39 +979,6 @@ export function transformCase(
     cases.push(createSwitchCase(null, [createReturn(createNull())]));
   }
 
-  // OPTIMIZATION: Use chained ternaries instead of IIFE-wrapped switch
-  // case expressions are always simple (no fallthrough), so always use ternary
-  // (x === v1 ? r1 : x === v2 ? r2 : default)
-
-  // Single-pass partition into default + regular cases
-  const { defaultCase, regularCases } = partitionSwitchCases(cases);
-
-  // Start with the default value
-  let result: IR.IRNode = (defaultCase.consequent[0] as IR.IRReturnStatement).argument!;
-
-  // Build chain from right to left
-  for (let i = regularCases.length - 1; i >= 0; i--) {
-    const caseItem = regularCases[i];
-    const test = caseItem.test!;
-    const value = (caseItem.consequent[0] as IR.IRReturnStatement).argument!;
-
-    // Create: discriminant === test ? value : result
-    const condition: IR.IRBinaryExpression = {
-      type: IR.IRNodeType.BinaryExpression,
-      operator: "===",
-      left: discriminant,
-      right: test,
-    };
-
-    result = {
-      type: IR.IRNodeType.ConditionalExpression,
-      test: condition,
-      consequent: value,
-      alternate: result,
-      position: extractPosition(list),
-    } as IR.IRConditionalExpression;
-  }
-
-  // Position is already included in the final ternary expression above
-  return result;
+  // OPTIMIZATION: case expressions are always simple (no fallthrough), use ternary chain
+  return buildTernaryChain(cases, discriminant, extractPosition(list));
 }

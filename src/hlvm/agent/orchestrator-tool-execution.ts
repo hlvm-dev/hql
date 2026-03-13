@@ -1293,11 +1293,8 @@ export async function maybeVerifySyntax(
       abortController.abort();
       abortHandler.abort();
     };
-    const onAbort = (): void => {
-      abortProcess();
-    };
     if (config.signal) {
-      config.signal.addEventListener("abort", onAbort, { once: true });
+      config.signal.addEventListener("abort", abortProcess, { once: true });
     }
     const timeoutId = setTimeout(() => {
       timedOut = true;
@@ -1336,7 +1333,7 @@ export async function maybeVerifySyntax(
       clearTimeout(timeoutId);
       abortHandler.clear();
       if (config.signal) {
-        config.signal.removeEventListener("abort", onAbort);
+        config.signal.removeEventListener("abort", abortProcess);
       }
     }
   } catch {

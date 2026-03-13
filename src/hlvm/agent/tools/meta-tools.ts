@@ -13,7 +13,7 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { ValidationError } from "../../../common/error.ts";
-import { throwIfAborted } from "../../../common/timeout-utils.ts";
+import { createAbortError, throwIfAborted } from "../../../common/timeout-utils.ts";
 import { TEXT_ENCODER } from "../../../common/utils.ts";
 import { safeStringify } from "../../../common/safe-stringify.ts";
 import { isToolArgsObject } from "../validation.ts";
@@ -128,9 +128,7 @@ async function readStdinWithAbort(
 
   return await new Promise((resolve, reject) => {
     const onAbort = (): void => {
-      const error = new Error("Ask user aborted");
-      error.name = "AbortError";
-      reject(error);
+      reject(createAbortError("Ask user aborted"));
     };
 
     if (signal.aborted) {

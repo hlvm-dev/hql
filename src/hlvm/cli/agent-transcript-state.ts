@@ -40,7 +40,12 @@ export interface TranscriptState {
 
 export type TranscriptInput =
   | { type: "agent_event"; event: AgentUIEvent }
-  | { type: "user_message"; text: string; startTurn?: boolean }
+  | {
+    type: "user_message";
+    text: string;
+    attachments?: string[];
+    startTurn?: boolean;
+  }
   | {
     type: "assistant_text";
     text: string;
@@ -809,6 +814,7 @@ export function reduceTranscriptState(
                 durationMs: event.durationMs,
                 inputTokens: event.inputTokens,
                 outputTokens: event.outputTokens,
+                modelId: event.modelId,
               },
             ],
           };
@@ -833,6 +839,7 @@ export function reduceTranscriptState(
         type: "user",
         id,
         text: input.text,
+        attachments: input.attachments,
         ts: Date.now(),
       };
 

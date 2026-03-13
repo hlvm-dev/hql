@@ -29,15 +29,7 @@ export interface InsertFactOptions {
   embeddingModel?: string;
 }
 
-function queryWords(query: string): string[] {
-  return query
-    .replace(/['"*():^{}|]/g, " ")
-    .split(/\s+/)
-    .map((w) => w.trim())
-    .filter((w) => w && w.length <= 100 && !/^(AND|OR|NOT|NEAR)$/i.test(w));
-}
-
-function parseFactRow(row: {
+type RawFactRow = {
   id: number;
   content: string;
   category: string;
@@ -49,7 +41,38 @@ function parseFactRow(row: {
   access_count: number;
   embedding?: Uint8Array;
   embedding_model?: string | null;
-}): FactRecord {
+};
+
+/** Run `fn` inside a BEGIN/COMMIT transaction; ROLLBACK on throw. */
+export function withTransaction<T>(fn: () => T): T {
+  const db = getFactDb();
+  db.exec("BEGIN");
+  try {
+    const result = fn();
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+/** Delete a row from the FTS5 index. */
+function deleteFtsRow(rowId: number, content: string): void {
+  getFactDb().prepare(
+    "INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', ?, ?)",
+  ).run(rowId, content);
+}
+
+function queryWords(query: string): string[] {
+  return query
+    .replace(/['"*():^{}|]/g, " ")
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w && w.length <= 100 && !/^(AND|OR|NOT|NEAR)$/i.test(w));
+}
+
+function parseFactRow(row: RawFactRow): FactRecord {
   return {
     id: row.id,
     content: row.content,
@@ -82,9 +105,8 @@ export function insertFact(opts: InsertFactOptions): number {
     );
   }
 
-  const db = getFactDb();
-  db.exec("BEGIN");
-  try {
+  return withTransaction(() => {
+    const db = getFactDb();
     db.prepare(
       "INSERT INTO facts (content, category, source, embedding, embedding_model, valid_from) VALUES (?, ?, ?, ?, ?, ?)",
     ).run(
@@ -106,12 +128,8 @@ export function insertFact(opts: InsertFactOptions): number {
       factId,
       content,
     );
-    db.exec("COMMIT");
     return factId;
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
 
 export function invalidateFact(factId: number): void {
@@ -124,9 +142,7 @@ export function invalidateFact(factId: number): void {
   db.prepare(
     "UPDATE facts SET valid_until = ? WHERE id = ?",
   ).run(today, factId);
-  db.prepare(
-    "INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', ?, ?)",
-  ).run(factId, row[0]);
+  deleteFtsRow(factId, row[0]);
   db.prepare(
     "UPDATE relationships SET valid_until = ? WHERE valid_until IS NULL AND fact_id = ?",
   ).run(today, factId);
@@ -139,25 +155,18 @@ export function invalidateFactsByCategory(category: string): number {
   ).all(category.trim()) as Array<{ id: number; content: string }>;
   if (rows.length === 0) return 0;
   const today = todayDate();
-  db.exec("BEGIN");
-  try {
-    for (const row of rows) {
-      db.prepare("UPDATE facts SET valid_until = ? WHERE id = ?").run(today, row.id);
-      db.prepare(
-        "INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', ?, ?)",
-      ).run(row.id, row.content);
-    }
+  return withTransaction(() => {
     const factIds = rows.map((r) => r.id);
     const placeholders = factIds.map(() => "?").join(",");
     db.prepare(
+      `UPDATE facts SET valid_until = ? WHERE id IN (${placeholders})`,
+    ).run(today, ...factIds);
+    for (const row of rows) deleteFtsRow(row.id, row.content);
+    db.prepare(
       `UPDATE relationships SET valid_until = ? WHERE valid_until IS NULL AND fact_id IN (${placeholders})`,
     ).run(today, ...factIds);
-    db.exec("COMMIT");
     return rows.length;
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
 
 export function invalidateAllFacts(): number {
@@ -167,23 +176,16 @@ export function invalidateAllFacts(): number {
   ).all() as Array<{ id: number; content: string }>;
   if (rows.length === 0) return 0;
   const today = todayDate();
-  db.exec("BEGIN");
-  try {
-    for (const row of rows) {
-      db.prepare("UPDATE facts SET valid_until = ? WHERE id = ?").run(today, row.id);
-      db.prepare(
-        "INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', ?, ?)",
-      ).run(row.id, row.content);
-    }
+  return withTransaction(() => {
+    db.prepare(
+      "UPDATE facts SET valid_until = ? WHERE valid_until IS NULL",
+    ).run(today);
+    for (const row of rows) deleteFtsRow(row.id, row.content);
     db.prepare(
       "UPDATE relationships SET valid_until = ? WHERE valid_until IS NULL AND fact_id IN (SELECT id FROM facts WHERE valid_until = ?)",
     ).run(today, today);
-    db.exec("COMMIT");
     return rows.length;
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
 
 export function getValidFacts(
@@ -192,36 +194,20 @@ export function getValidFacts(
   const db = getFactDb();
   const limit = options?.limit && options.limit > 0 ? options.limit : 200;
   const category = options?.category?.trim();
+  const whereClause = category
+    ? "WHERE valid_until IS NULL AND category = ?"
+    : "WHERE valid_until IS NULL";
+  const params = category ? [category, limit] : [limit];
 
-  const rows = category
-    ? db.prepare(
-      `SELECT id, content, category, source, valid_from, valid_until, created_at, accessed_at, access_count, embedding, embedding_model
-       FROM facts
-       WHERE valid_until IS NULL AND category = ?
-       ORDER BY access_count DESC, created_at DESC, id DESC
-       LIMIT ?`,
-    ).all(category, limit)
-    : db.prepare(
-      `SELECT id, content, category, source, valid_from, valid_until, created_at, accessed_at, access_count, embedding, embedding_model
-       FROM facts
-       WHERE valid_until IS NULL
-       ORDER BY access_count DESC, created_at DESC, id DESC
-       LIMIT ?`,
-    ).all(limit);
+  const rows = db.prepare(
+    `SELECT id, content, category, source, valid_from, valid_until, created_at, accessed_at, access_count, embedding, embedding_model
+     FROM facts
+     ${whereClause}
+     ORDER BY access_count DESC, created_at DESC, id DESC
+     LIMIT ?`,
+  ).all(...params);
 
-  return (rows as Array<{
-    id: number;
-    content: string;
-    category: string;
-    source: string;
-    valid_from: string;
-    valid_until: string | null;
-    created_at: number;
-    accessed_at: number | null;
-    access_count: number;
-    embedding?: Uint8Array;
-    embedding_model?: string | null;
-  }>).map(parseFactRow);
+  return (rows as RawFactRow[]).map(parseFactRow);
 }
 
 export function getFactsByIds(ids: number[]): FactRecord[] {
@@ -234,19 +220,7 @@ export function getFactsByIds(ids: number[]): FactRecord[] {
      WHERE valid_until IS NULL AND id IN (${placeholders})`,
   ).all(...ids);
 
-  return (rows as Array<{
-    id: number;
-    content: string;
-    category: string;
-    source: string;
-    valid_from: string;
-    valid_until: string | null;
-    created_at: number;
-    accessed_at: number | null;
-    access_count: number;
-    embedding?: Uint8Array;
-    embedding_model?: string | null;
-  }>).map(parseFactRow);
+  return (rows as RawFactRow[]).map(parseFactRow);
 }
 
 export function touchFact(factId: number): void {
@@ -260,17 +234,13 @@ export function replaceInFacts(findText: string, replaceWith: string): number {
   const db = getFactDb();
   const { sanitized } = sanitizeSensitiveContent(replaceWith);
 
-  db.exec("BEGIN");
-  try {
+  return withTransaction(() => {
     const rows = db.prepare(
       `SELECT id, content FROM facts
        WHERE valid_until IS NULL AND instr(content, ?) > 0`,
     ).all(findText) as Array<{ id: number; content: string }>;
 
-    if (rows.length === 0) {
-      db.exec("COMMIT");
-      return 0;
-    }
+    if (rows.length === 0) return 0;
 
     for (const row of rows) {
       const newContent = row.content.replaceAll(findText, sanitized);
@@ -278,20 +248,14 @@ export function replaceInFacts(findText: string, replaceWith: string): number {
         newContent,
         row.id,
       );
-      db.prepare(
-        "INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', ?, ?)",
-      ).run(row.id, row.content);
+      deleteFtsRow(row.id, row.content);
       db.prepare("INSERT INTO facts_fts(rowid, content) VALUES(?, ?)").run(
         row.id,
         newContent,
       );
     }
-    db.exec("COMMIT");
     return rows.length;
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
 
 export function searchFactsFts(
@@ -316,36 +280,12 @@ export function searchFactsFts(
      LIMIT ?`,
   );
 
-  let rows = stmt.all(andExpr, limit * 4) as Array<{
-    id: number;
-    content: string;
-    category: string;
-    source: string;
-    valid_from: string;
-    valid_until: string | null;
-    created_at: number;
-    accessed_at: number | null;
-    access_count: number;
-    embedding?: Uint8Array;
-    embedding_model?: string | null;
-    bm25_score: number;
-  }>;
+  type FtsRow = RawFactRow & { bm25_score: number };
+
+  let rows = stmt.all(andExpr, limit * 4) as FtsRow[];
 
   if (rows.length === 0 && words.length > 1) {
-    rows = stmt.all(orExpr, limit * 4) as Array<{
-      id: number;
-      content: string;
-      category: string;
-      source: string;
-      valid_from: string;
-      valid_until: string | null;
-      created_at: number;
-      accessed_at: number | null;
-      access_count: number;
-      embedding?: Uint8Array;
-      embedding_model?: string | null;
-      bm25_score: number;
-    }>;
+    rows = stmt.all(orExpr, limit * 4) as FtsRow[];
   }
 
   return rows.map((row) => ({

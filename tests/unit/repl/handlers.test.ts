@@ -18,10 +18,12 @@ import {
 } from "../../../src/hlvm/cli/repl/handlers/messages.ts";
 import {
   cancelSessionRequests,
+  handleChat,
   handleSessionCancel,
   isAgentReady,
   markAgentReady,
 } from "../../../src/hlvm/cli/repl/handlers/chat.ts";
+import { registerProvider } from "../../../src/hlvm/providers/registry.ts";
 import { setupStoreTestDb } from "../_shared/store-test-db.ts";
 
 function jsonRequest(body: unknown): Request {
@@ -50,7 +52,9 @@ Deno.test("handlers: sessions support list, create, get, and empty-id validation
     const empty = await handleListSessions().json();
     assertEquals(empty.sessions, []);
 
-    const createdResp = await handleCreateSession(jsonRequest({ title: "  New Chat  " }));
+    const createdResp = await handleCreateSession(
+      jsonRequest({ title: "  New Chat  " }),
+    );
     assertEquals(createdResp.status, 201);
     const created = await createdResp.json();
     assertExists(created.id);
@@ -60,14 +64,19 @@ Deno.test("handlers: sessions support list, create, get, and empty-id validation
     assertEquals(listed.sessions.length, 1);
     assertEquals(listed.sessions[0].id, created.id);
 
-    const fetchedResp = handleGetSession(getRequest(`/api/sessions/${created.id}`), {
-      id: created.id,
-    });
+    const fetchedResp = handleGetSession(
+      getRequest(`/api/sessions/${created.id}`),
+      {
+        id: created.id,
+      },
+    );
     assertEquals(fetchedResp.status, 200);
     const fetched = await fetchedResp.json();
     assertEquals(fetched.title, "New Chat");
 
-    const invalidResp = await handleCreateSession(jsonRequest({ id: "   ", title: "X" }));
+    const invalidResp = await handleCreateSession(
+      jsonRequest({ id: "   ", title: "X" }),
+    );
     assertEquals(invalidResp.status, 400);
     const invalid = await invalidResp.json();
     assertEquals(invalid.error, "Session id cannot be empty");
@@ -80,33 +89,46 @@ Deno.test("handlers: sessions update, delete, cascade messages, and 404 when mis
     insertMessage({ session_id: session.id, role: "user", content: "Hello" });
     insertMessage({ session_id: session.id, role: "assistant", content: "Hi" });
 
-    const updatedResp = await handleUpdateSession(jsonRequest({ title: "Renamed" }), {
-      id: session.id,
-    });
+    const updatedResp = await handleUpdateSession(
+      jsonRequest({ title: "Renamed" }),
+      {
+        id: session.id,
+      },
+    );
     assertEquals(updatedResp.status, 200);
     const updated = await updatedResp.json();
     assertEquals(updated.title, "Renamed");
 
-    const deletedResp = handleDeleteSession(getRequest(`/api/sessions/${session.id}`), {
-      id: session.id,
-    });
+    const deletedResp = handleDeleteSession(
+      getRequest(`/api/sessions/${session.id}`),
+      {
+        id: session.id,
+      },
+    );
     assertEquals(deletedResp.status, 200);
     assertEquals((await deletedResp.json()).deleted, true);
 
     assertEquals(
-      handleGetSession(getRequest(`/api/sessions/${session.id}`), { id: session.id }).status,
+      handleGetSession(getRequest(`/api/sessions/${session.id}`), {
+        id: session.id,
+      }).status,
       404,
     );
     assertEquals(
-      handleGetMessages(getRequest(`/api/sessions/${session.id}/messages`), { id: session.id }).status,
+      handleGetMessages(getRequest(`/api/sessions/${session.id}/messages`), {
+        id: session.id,
+      }).status,
       404,
     );
     assertEquals(
-      handleDeleteSession(getRequest("/api/sessions/missing"), { id: "missing" }).status,
+      handleDeleteSession(getRequest("/api/sessions/missing"), {
+        id: "missing",
+      }).status,
       404,
     );
     assertEquals(
-      (await handleUpdateSession(jsonRequest({ title: "X" }), { id: "missing" }).then((r) => r.status)),
+      await handleUpdateSession(jsonRequest({ title: "X" }), { id: "missing" })
+        .then((r) => r.status),
       404,
     );
   });
@@ -116,7 +138,11 @@ Deno.test("handlers: message listing supports pagination and cursor order in bot
   await withDb(async () => {
     const session = createSession("Messages");
     for (let i = 0; i < 5; i++) {
-      insertMessage({ session_id: session.id, role: "user", content: `Msg ${i}` });
+      insertMessage({
+        session_id: session.id,
+        role: "user",
+        content: `Msg ${i}`,
+      });
     }
 
     const asc = await handleGetMessages(
@@ -128,23 +154,39 @@ Deno.test("handlers: message listing supports pagination and cursor order in bot
     assertEquals(asc.total, 5);
 
     const afterAsc = await handleGetMessages(
-      getRequest(`/api/sessions/${session.id}/messages?after_order=2&limit=10&sort=asc`),
+      getRequest(
+        `/api/sessions/${session.id}/messages?after_order=2&limit=10&sort=asc`,
+      ),
       { id: session.id },
     ).json();
-    assertEquals(afterAsc.messages.map((m: { order: number }) => m.order), [3, 4, 5]);
+    assertEquals(afterAsc.messages.map((m: { order: number }) => m.order), [
+      3,
+      4,
+      5,
+    ]);
 
     const afterDesc = await handleGetMessages(
-      getRequest(`/api/sessions/${session.id}/messages?after_order=4&limit=10&sort=desc`),
+      getRequest(
+        `/api/sessions/${session.id}/messages?after_order=4&limit=10&sort=desc`,
+      ),
       { id: session.id },
     ).json();
-    assertEquals(afterDesc.messages.map((m: { order: number }) => m.order), [3, 2, 1]);
+    assertEquals(afterDesc.messages.map((m: { order: number }) => m.order), [
+      3,
+      2,
+      1,
+    ]);
   });
 });
 
 Deno.test("handlers: get message resolves numeric ids and client turn ids", async () => {
   await withDb(async () => {
     const session = createSession("Lookup");
-    const numeric = insertMessage({ session_id: session.id, role: "user", content: "Find me" });
+    const numeric = insertMessage({
+      session_id: session.id,
+      role: "user",
+      content: "Find me",
+    });
     insertMessage({
       session_id: session.id,
       role: "assistant",
@@ -174,20 +216,30 @@ Deno.test("handlers: get message rejects invalid ids and wrong-session access", 
   await withDb(async () => {
     const owner = createSession("Owner");
     const other = createSession("Other");
-    const msg = insertMessage({ session_id: owner.id, role: "user", content: "Owned" });
+    const msg = insertMessage({
+      session_id: owner.id,
+      role: "user",
+      content: "Owned",
+    });
 
     assertEquals(
-      handleGetMessage(getRequest(`/api/sessions/${owner.id}/messages/not-a-number`), {
-        id: owner.id,
-        messageId: "not-a-number",
-      }).status,
+      handleGetMessage(
+        getRequest(`/api/sessions/${owner.id}/messages/not-a-number`),
+        {
+          id: owner.id,
+          messageId: "not-a-number",
+        },
+      ).status,
       400,
     );
     assertEquals(
-      handleGetMessage(getRequest(`/api/sessions/${other.id}/messages/${msg.id}`), {
-        id: other.id,
-        messageId: String(msg.id),
-      }).status,
+      handleGetMessage(
+        getRequest(`/api/sessions/${other.id}/messages/${msg.id}`),
+        {
+          id: other.id,
+          messageId: String(msg.id),
+        },
+      ).status,
       404,
     );
   });
@@ -197,19 +249,29 @@ Deno.test("handlers: update message applies content and cancelled patches and re
   await withDb(async () => {
     const owner = createSession("Owner");
     const other = createSession("Other");
-    const msg = insertMessage({ session_id: owner.id, role: "assistant", content: "Original" });
-
-    const editedResp = await handleUpdateMessage(jsonRequest({ content: "Edited" }), {
-      id: owner.id,
-      messageId: String(msg.id),
+    const msg = insertMessage({
+      session_id: owner.id,
+      role: "assistant",
+      content: "Original",
     });
+
+    const editedResp = await handleUpdateMessage(
+      jsonRequest({ content: "Edited" }),
+      {
+        id: owner.id,
+        messageId: String(msg.id),
+      },
+    );
     assertEquals(editedResp.status, 200);
     assertEquals((await editedResp.json()).content, "Edited");
 
-    const cancelledResp = await handleUpdateMessage(jsonRequest({ cancelled: true }), {
-      id: owner.id,
-      messageId: String(msg.id),
-    });
+    const cancelledResp = await handleUpdateMessage(
+      jsonRequest({ cancelled: true }),
+      {
+        id: owner.id,
+        messageId: String(msg.id),
+      },
+    );
     assertEquals(cancelledResp.status, 200);
     assertEquals((await cancelledResp.json()).cancelled, 1);
 
@@ -234,7 +296,11 @@ Deno.test("handlers: delete message removes the row and updates session counts",
   await withDb(async () => {
     const owner = createSession("Count");
     const other = createSession("Other");
-    const msg = insertMessage({ session_id: owner.id, role: "user", content: "One" });
+    const msg = insertMessage({
+      session_id: owner.id,
+      role: "user",
+      content: "One",
+    });
     insertMessage({ session_id: owner.id, role: "assistant", content: "Two" });
 
     const deletedResp = handleDeleteMessage(
@@ -245,22 +311,85 @@ Deno.test("handlers: delete message removes the row and updates session counts",
     assertEquals((await deletedResp.json()).deleted, true);
 
     assertEquals(
-      handleGetMessage(getRequest(`/api/sessions/${owner.id}/messages/${msg.id}`), {
-        id: owner.id,
-        messageId: String(msg.id),
-      }).status,
+      handleGetMessage(
+        getRequest(`/api/sessions/${owner.id}/messages/${msg.id}`),
+        {
+          id: owner.id,
+          messageId: String(msg.id),
+        },
+      ).status,
       404,
     );
     assertEquals(
-      handleDeleteMessage(getRequest(`/api/sessions/${other.id}/messages/${msg.id}`), {
-        id: other.id,
-        messageId: String(msg.id),
-      }).status,
+      handleDeleteMessage(
+        getRequest(`/api/sessions/${other.id}/messages/${msg.id}`),
+        {
+          id: other.id,
+          messageId: String(msg.id),
+        },
+      ).status,
       404,
     );
 
-    const sessionResp = handleGetSession(getRequest(`/api/sessions/${owner.id}`), { id: owner.id });
+    const sessionResp = handleGetSession(
+      getRequest(`/api/sessions/${owner.id}`),
+      { id: owner.id },
+    );
     assertEquals((await sessionResp.json()).message_count, 1);
+  });
+});
+
+Deno.test("handlers: chat rejects media attachments for agent models without vision support", async () => {
+  await withDb(async () => {
+    registerProvider("multimodal-test", () => ({
+      name: "multimodal-test",
+      displayName: "Multimodal Test",
+      capabilities: ["chat" as const, "tools" as const, "models.list" as const],
+      async *generate() {
+        yield "";
+      },
+      async *chat() {
+        yield "";
+      },
+      status() {
+        return Promise.resolve({ available: true });
+      },
+      models: {
+        list: () =>
+          Promise.resolve([{
+            name: "tools-only",
+            displayName: "Tools Only",
+            capabilities: ["chat", "tools"],
+          }]),
+        get: (name: string) =>
+          Promise.resolve(
+            name === "tools-only"
+              ? {
+                name,
+                displayName: "Tools Only",
+                capabilities: ["chat", "tools"],
+              }
+              : null,
+          ),
+      },
+    }));
+
+    const response = await handleChat(jsonRequest({
+      mode: "agent",
+      session_id: "session-vision-gate",
+      model: "multimodal-test/tools-only",
+      messages: [{
+        role: "user",
+        content: "describe this screenshot",
+        image_paths: ["/tmp/example.png"],
+      }],
+    }));
+
+    assertEquals(response.status, 400);
+    assertEquals(
+      (await response.json()).error,
+      "Selected model does not support media attachments",
+    );
   });
 });
 

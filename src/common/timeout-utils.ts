@@ -218,6 +218,16 @@ export function isAbortError(error: unknown): boolean {
   return false;
 }
 
+/** Create an AbortError without throwing. */
+export function createAbortError(reason?: unknown): Error {
+  const message = typeof reason === "string" && reason.length > 0
+    ? reason
+    : "Aborted";
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
 /**
  * Throw AbortError if signal is already aborted.
  *
@@ -229,7 +239,5 @@ export function throwIfAborted(
 ): void {
   if (!signal) return;
   if (!signal.aborted) return;
-  const error = new Error(message);
-  error.name = "AbortError";
-  throw error;
+  throw createAbortError(message);
 }

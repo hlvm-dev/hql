@@ -16,6 +16,7 @@ import {
   createCall,
   createFnExpr,
   createVarDecl,
+  wrapIIFEResult,
 } from "../utils/ir-helpers.ts";
 import { copyPosition, copyEndPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { extractMetaSourceLocation } from "../utils/source_location_utils.ts";
@@ -29,6 +30,19 @@ import {
   collectJumpTargets,
   collectForOfStatementsInScope,
 } from "../utils/ir-tree-walker.ts";
+
+/** IR node types that are already statements and don't need ExpressionStatement wrapping. */
+const STATEMENT_TYPES: ReadonlySet<IR.IRNodeType> = new Set([
+  IR.IRNodeType.ExpressionStatement,
+  IR.IRNodeType.VariableDeclaration,
+  IR.IRNodeType.ReturnStatement,
+  IR.IRNodeType.IfStatement,
+  IR.IRNodeType.WhileStatement,
+  IR.IRNodeType.ForStatement,
+  IR.IRNodeType.ForOfStatement,
+  IR.IRNodeType.ContinueStatement,
+  IR.IRNodeType.BreakStatement,
+]);
 
 /**
  * Encapsulates all mutable state for loop/recur compilation.
@@ -267,22 +281,7 @@ export function transformLoop(
         iifeCallArgs,
       );
 
-      // For generator IIFEs, wrap the call in yield*
-      // For async IIFEs, wrap the call in await
-      if (hasYields) {
-        return {
-          type: IR.IRNodeType.YieldExpression,
-          delegate: true,
-          argument: iife,
-        } as IR.IRYieldExpression;
-      }
-      if (hasAwaits) {
-        return {
-          type: IR.IRNodeType.AwaitExpression,
-          argument: iife,
-        } as IR.IRAwaitExpression;
-      }
-      return iife;
+      return wrapIIFEResult(iife, hasYields, hasAwaits);
     } finally {
       // Always pop the loop context, even on error
       popLoopContext(state);
@@ -492,6 +491,29 @@ function branchEndsWithRecur(branch: HQLNode): boolean {
   }
 
   return false;
+}
+
+/**
+ * Extract recur arguments from a branch that ends with recur.
+ * Handles both direct recur and recur wrapped in (do ...).
+ */
+function extractRecurArgs(branch: HQLNode): HQLNode[] {
+  if (isRecurExpression(branch)) {
+    return (branch as ListNode).elements.slice(1);
+  }
+  if (
+    branch.type === "list" &&
+    branch.elements.length > 0 &&
+    branch.elements[0].type === "symbol" &&
+    (branch.elements[0] as SymbolNode).name === "do"
+  ) {
+    const doList = branch as ListNode;
+    const lastExpr = doList.elements[doList.elements.length - 1];
+    if (isRecurExpression(lastExpr)) {
+      return (lastExpr as ListNode).elements.slice(1);
+    }
+  }
+  return [];
 }
 
 /**
@@ -707,44 +729,10 @@ function transformSimpleLoop(
 
   if (recurInConsequent) {
     recurBranch = consequent;
-    if (isRecurExpression(consequent)) {
-      // Direct recur: (recur ...)
-      const recurList = consequent as ListNode;
-      recurArgs = recurList.elements.slice(1);
-    } else if (
-      consequent.type === "list" &&
-      consequent.elements.length > 0 &&
-      consequent.elements[0].type === "symbol" &&
-      (consequent.elements[0] as SymbolNode).name === "do"
-    ) {
-      // Recur in do: (do ... (recur ...))
-      const doList = consequent as ListNode;
-      const lastExpr = doList.elements[doList.elements.length - 1];
-      if (isRecurExpression(lastExpr)) {
-        const recurList = lastExpr as ListNode;
-        recurArgs = recurList.elements.slice(1);
-      }
-    }
+    recurArgs = extractRecurArgs(consequent);
   } else if (recurInAlternate && alternate) {
     recurBranch = alternate;
-    if (isRecurExpression(alternate)) {
-      // Direct recur: (recur ...)
-      const recurList = alternate as ListNode;
-      recurArgs = recurList.elements.slice(1);
-    } else if (
-      alternate.type === "list" &&
-      alternate.elements.length > 0 &&
-      alternate.elements[0].type === "symbol" &&
-      (alternate.elements[0] as SymbolNode).name === "do"
-    ) {
-      // Recur in do: (do ... (recur ...))
-      const doList = alternate as ListNode;
-      const lastExpr = doList.elements[doList.elements.length - 1];
-      if (isRecurExpression(lastExpr)) {
-        const recurList = lastExpr as ListNode;
-        recurArgs = recurList.elements.slice(1);
-      }
-    }
+    recurArgs = extractRecurArgs(alternate);
   }
 
   // Build while body:
@@ -770,13 +758,7 @@ function transformSimpleLoop(
       const transformed = transformNode(doList.elements[i], currentDir);
       if (transformed) {
         // Wrap in ExpressionStatement if it's an expression
-        if (
-          transformed.type !== IR.IRNodeType.ExpressionStatement &&
-          transformed.type !== IR.IRNodeType.VariableDeclaration &&
-          transformed.type !== IR.IRNodeType.ReturnStatement &&
-          transformed.type !== IR.IRNodeType.IfStatement &&
-          transformed.type !== IR.IRNodeType.WhileStatement
-        ) {
+        if (!STATEMENT_TYPES.has(transformed.type)) {
           whileBodyStatements.push(createExprStmt(transformed));
         } else {
           whileBodyStatements.push(transformed);
@@ -920,22 +902,7 @@ function transformSimpleLoop(
     iifeCallArgs,
   );
 
-  // For generator IIFEs, wrap the call in yield*
-  // For async IIFEs, wrap the call in await
-  if (hasYields) {
-    return {
-      type: IR.IRNodeType.YieldExpression,
-      delegate: true,
-      argument: iife,
-    } as IR.IRYieldExpression;
-  }
-  if (hasAwaits) {
-    return {
-      type: IR.IRNodeType.AwaitExpression,
-      argument: iife,
-    } as IR.IRAwaitExpression;
-  }
-  return iife;
+  return wrapIIFEResult(iife, hasYields, hasAwaits);
 }
 
 /**
@@ -1297,17 +1264,7 @@ export function transformForOf(
       const transformed = transformNode(expr, currentDir);
       if (transformed) {
         // Wrap expressions in ExpressionStatement if needed
-        if (
-          transformed.type !== IR.IRNodeType.ExpressionStatement &&
-          transformed.type !== IR.IRNodeType.VariableDeclaration &&
-          transformed.type !== IR.IRNodeType.ReturnStatement &&
-          transformed.type !== IR.IRNodeType.IfStatement &&
-          transformed.type !== IR.IRNodeType.WhileStatement &&
-          transformed.type !== IR.IRNodeType.ForStatement &&
-          transformed.type !== IR.IRNodeType.ForOfStatement &&
-          transformed.type !== IR.IRNodeType.ContinueStatement &&
-          transformed.type !== IR.IRNodeType.BreakStatement
-        ) {
+        if (!STATEMENT_TYPES.has(transformed.type)) {
           bodyStatements.push(createExprStmt(transformed));
         } else {
           bodyStatements.push(transformed);
@@ -1379,26 +1336,9 @@ export function transformForOf(
     );
     copyPosition(list, iife);
 
-    // For generator IIFEs, wrap the call in yield*
-    // For async IIFEs, wrap the call in await
-    if (hasYields) {
-      const yieldExpr: IR.IRYieldExpression = {
-        type: IR.IRNodeType.YieldExpression,
-        delegate: true,
-        argument: iife,
-      };
-      copyPosition(list, yieldExpr);
-      return yieldExpr;
-    }
-    if (hasAwaits) {
-      const awaitExpr: IR.IRAwaitExpression = {
-        type: IR.IRNodeType.AwaitExpression,
-        argument: iife,
-      };
-      copyPosition(list, awaitExpr);
-      return awaitExpr;
-    }
-    return iife;
+    const result = wrapIIFEResult(iife, hasYields, hasAwaits);
+    if (result !== iife) copyPosition(list, result);
+    return result;
   } finally {
     popLoopContext(state);
   }
@@ -1598,22 +1538,7 @@ export function transformLabel(
       );
       copyPosition(list, iife);
 
-      // For generator IIFEs, wrap in yield*; for async, wrap in await
-      if (isBodyGenerator) {
-        return {
-          type: IR.IRNodeType.YieldExpression,
-          argument: iife,
-          delegate: true,
-        } as IR.IRYieldExpression;
-      }
-      if (isBodyAsync) {
-        return {
-          type: IR.IRNodeType.AwaitExpression,
-          argument: iife,
-        } as IR.IRAwaitExpression;
-      }
-
-      return iife;
+      return wrapIIFEResult(iife, isBodyGenerator, isBodyAsync);
     }
 
     // Normal case: just wrap body with label (no IIFE needed)

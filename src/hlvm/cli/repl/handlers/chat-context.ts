@@ -599,7 +599,7 @@ async function readImageAsBase64(filePath: string): Promise<string | null> {
   }
 }
 
-async function resolveImages(
+export async function resolveImages(
   imagePaths?: string[],
 ): Promise<Array<{ data: string; mimeType: string }>> {
   if (!imagePaths?.length) return [];

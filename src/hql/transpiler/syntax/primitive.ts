@@ -30,6 +30,26 @@ import { createId, createCall, createNum, createMember } from "../utils/ir-helpe
 import { NUMERIC_PATTERN } from "../constants/index.ts";
 
 // ============================================================================
+// Shared IR node constructors (DRY: used by all operator transforms)
+// ============================================================================
+
+function makeBinaryExpr(op: string, left: IR.IRNode, right: IR.IRNode): IR.IRBinaryExpression {
+  return { type: IR.IRNodeType.BinaryExpression, operator: op, left, right } as IR.IRBinaryExpression;
+}
+
+function makeUnaryExpr(op: string, argument: IR.IRNode): IR.IRUnaryExpression {
+  return { type: IR.IRNodeType.UnaryExpression, operator: op, argument } as IR.IRUnaryExpression;
+}
+
+function chainBinaryExprs(op: string, args: IR.IRNode[]): IR.IRNode {
+  let result = args[0];
+  for (let i = 1; i < args.length; i++) {
+    result = makeBinaryExpr(op, result, args[i]);
+  }
+  return result;
+}
+
+// ============================================================================
 // Shared helpers (DRY: extracted from 3 near-identical assignment transforms)
 // ============================================================================
 
@@ -143,13 +163,8 @@ export function transformPrimitiveOp(
     return transformEqualsOperator(list, currentDir, transformNode);
   }
 
-  // Handle logical assignment operators (??=, &&=, ||=)
-  if (op === "??=" || op === "&&=" || op === "||=") {
-    return transformLogicalAssignment(list, currentDir, transformNode, op as "??=" | "&&=" | "||=");
-  }
-
-  // Handle compound assignment operators (+=, -=, *=, /=, %=, **=, &=, |=, ^=, <<=, >>=, >>>=)
-  if (COMPOUND_ASSIGN_OPS_SET.has(op)) {
+  // Handle all assignment operators (logical: ??=, &&=, ||= and compound: +=, -=, etc.)
+  if (op === "??=" || op === "&&=" || op === "||=" || COMPOUND_ASSIGN_OPS_SET.has(op)) {
     return transformCompoundAssignment(list, currentDir, transformNode, op);
   }
 
@@ -185,7 +200,7 @@ export function transformPrimitiveOp(
 /**
  * Transform arithmetic operations (+, -, *, /, %)
  */
-export function transformArithmeticOp(
+function transformArithmeticOp(
   op: string,
   args: IR.IRNode[],
 ): IR.IRNode {
@@ -194,95 +209,58 @@ export function transformArithmeticOp(
   }
 
   if (args.length === 1 && (op === "+" || op === "-")) {
-    return {
-      type: IR.IRNodeType.UnaryExpression,
-      operator: op,
-      argument: args[0],
-    } as IR.IRUnaryExpression;
+    return makeUnaryExpr(op, args[0]);
   }
 
   if (args.length === 1) {
     const defaultValue = op === "*" || op === "/" ? 1 : 0;
-    return {
-      type: IR.IRNodeType.BinaryExpression,
-      operator: op,
-      left: args[0],
-      right: createNum(defaultValue),
-    } as IR.IRBinaryExpression;
+    return makeBinaryExpr(op, args[0], createNum(defaultValue));
   }
 
-  let result = args[0];
-  for (let i = 1; i < args.length; i++) {
-    result = {
-      type: IR.IRNodeType.BinaryExpression,
-      operator: op,
-      left: result,
-      right: args[i],
-    } as IR.IRBinaryExpression;
-  }
-  return result;
+  return chainBinaryExprs(op, args);
 }
 
 /**
  * Transform comparison operations (===, ==, !==, !=, <, >, <=, >=).
  * All HQL comparison operators map directly to their JS equivalents.
  */
-export function transformComparisonOp(
+function transformComparisonOp(
   op: string,
   args: IR.IRNode[],
 ): IR.IRNode {
   if (args.length !== 2) {
     throw arityError(op, 2, args.length);
   }
-
-  return {
-    type: IR.IRNodeType.BinaryExpression,
-    operator: op,
-    left: args[0],
-    right: args[1],
-  } as IR.IRBinaryExpression;
+  return makeBinaryExpr(op, args[0], args[1]);
 }
 
 /**
  * Transform bitwise operations (&, |, ^, ~, <<, >>, >>>).
  */
-export function transformBitwiseOp(
+function transformBitwiseOp(
   op: string,
   args: IR.IRNode[],
 ): IR.IRNode {
-  // Bitwise NOT is unary
   if (op === "~") {
     if (args.length !== 1) {
       throw arityError("~", 1, args.length);
     }
-    return {
-      type: IR.IRNodeType.UnaryExpression,
-      operator: "~",
-      argument: args[0],
-    } as IR.IRUnaryExpression;
+    return makeUnaryExpr("~", args[0]);
   }
 
-  // Other bitwise operators are binary
   if (args.length !== 2) {
     throw arityError(op, 2, args.length);
   }
-
-  return {
-    type: IR.IRNodeType.BinaryExpression,
-    operator: op,
-    left: args[0],
-    right: args[1],
-  } as IR.IRBinaryExpression;
+  return makeBinaryExpr(op, args[0], args[1]);
 }
 
 /**
  * Transform type operations (typeof, instanceof, in, delete, void).
  */
-export function transformTypeOp(
+function transformTypeOp(
   op: string,
   args: IR.IRNode[],
 ): IR.IRNode {
-  // typeof, delete, void are unary
   if (op === "typeof" || op === "delete" || op === "void") {
     if (args.length !== 1) {
       throw arityError(op, 1, args.length);
@@ -297,24 +275,14 @@ export function transformTypeOp(
       argument = createMember(interopNode.object, interopNode.property, true);
     }
 
-    return {
-      type: IR.IRNodeType.UnaryExpression,
-      operator: op as "typeof" | "delete" | "void",
-      argument: argument,
-    } as IR.IRUnaryExpression;
+    return makeUnaryExpr(op, argument);
   }
 
-  // instanceof, in are binary
   if (op === "instanceof" || op === "in") {
     if (args.length !== 2) {
       throw arityError(op, 2, args.length);
     }
-    return {
-      type: IR.IRNodeType.BinaryExpression,
-      operator: op as "instanceof" | "in",
-      left: args[0],
-      right: args[1],
-    } as IR.IRBinaryExpression;
+    return makeBinaryExpr(op, args[0], args[1]);
   }
 
   throw new ValidationError(
@@ -329,28 +297,21 @@ export function transformTypeOp(
  * Transform logical operations (&&, ||, !, ??).
  * These operators use short-circuit evaluation.
  */
-export function transformLogicalOp(
+function transformLogicalOp(
   op: string,
   args: IR.IRNode[],
 ): IR.IRNode {
-  // Logical NOT is unary
   if (op === "!") {
     if (args.length !== 1) {
       throw arityError("!", 1, args.length);
     }
-    return {
-      type: IR.IRNodeType.UnaryExpression,
-      operator: "!",
-      argument: args[0],
-    } as IR.IRUnaryExpression;
+    return makeUnaryExpr("!", args[0]);
   }
 
-  // &&, ||, ?? are binary operators (can chain multiple)
   if (args.length < 2) {
     throw arityError(op, "at least 2", args.length);
   }
 
-  // Chain multiple arguments: (&& a b c) => a && b && c
   let result = args[0];
   for (let i = 1; i < args.length; i++) {
     result = {
@@ -380,7 +341,7 @@ export function transformLogicalOp(
  *   - (=== a b) for strict equality
  *   - (== a b) for loose equality
  */
-export function transformEqualsOperator(
+function transformEqualsOperator(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
@@ -466,7 +427,7 @@ export function transformEqualsOperator(
  * Handles: (= target value)
  * Compiles to: target = value
  */
-export function transformAssignment(
+function transformAssignment(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
@@ -507,44 +468,6 @@ export function transformAssignment(
 }
 
 /**
- * Transform logical assignment operations (??=, &&=, ||=).
- * Handles: (??= target value), (&&= target value), (||= target value)
- * Compiles to: target ??= value, target &&= value, target ||= value
- */
-export function transformLogicalAssignment(
-  list: ListNode,
-  currentDir: string,
-  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
-  operator: "??=" | "&&=" | "||=",
-): IR.IRNode {
-  validateListLength(list, 3, operator, "logical assignment expression");
-
-  const targetNode = list.elements[1];
-  const valueNode = list.elements[2];
-
-  const target = resolveAssignmentTarget(targetNode, operator, currentDir, transformNode, { requireMemberExpr: true });
-
-  const value = transformNode(valueNode, currentDir);
-  if (!value) {
-    throw new ValidationError(
-      `${operator} value cannot be null`,
-      operator,
-      "expression",
-      "null",
-    );
-  }
-
-  const result = {
-    type: IR.IRNodeType.AssignmentExpression,
-    operator,
-    left: target,
-    right: value,
-  } as IR.IRAssignmentExpression;
-  copyPosition(list, result);
-  return result;
-}
-
-/**
  * Transform compound assignment operators (+=, -=, *=, /=, %=, **=, &=, |=, ^=, <<=, >>=, >>>=)
  *
  * Syntax: (operator target value)
@@ -553,7 +476,7 @@ export function transformLogicalAssignment(
  *   (*= arr.0 2) → arr[0] *= 2
  *   (**= base 2) → base **= 2
  */
-export function transformCompoundAssignment(
+function transformCompoundAssignment(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,

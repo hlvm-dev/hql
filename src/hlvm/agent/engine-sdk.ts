@@ -287,15 +287,18 @@ export class SdkAgentEngine implements AgentEngine {
           }
 
           // streamText properties are PromiseLike — await them
-          const [toolCalls, usage, text, sources, providerMetadata, reasoning] =
-            await Promise.all([
-              result.toolCalls,
-              result.usage,
-              result.text,
-              result.sources,
-              result.providerMetadata,
-              result.reasoning,
-            ]);
+          const [
+            toolCalls, usage, text, sources, providerMetadata, reasoning,
+            response,
+          ] = await Promise.all([
+            result.toolCalls,
+            result.usage,
+            result.text,
+            result.sources,
+            result.providerMetadata,
+            result.reasoning,
+            result.response,
+          ]);
 
           return {
             content: chunks.join("") || text || "",
@@ -304,6 +307,7 @@ export class SdkAgentEngine implements AgentEngine {
             sources: mapSdkSources(sources),
             providerMetadata: normalizeProviderMetadata(providerMetadata),
             reasoning: extractReasoningText(reasoning),
+            sdkResponseMessages: response?.messages,
           };
         }
 
@@ -316,6 +320,7 @@ export class SdkAgentEngine implements AgentEngine {
           sources: mapSdkSources(result.sources),
           providerMetadata: normalizeProviderMetadata(result.providerMetadata),
           reasoning: extractReasoningText(result.reasoning),
+          sdkResponseMessages: result.response?.messages,
         };
       } catch (error) {
         await maybeHandleSdkAuthError(spec.providerName, error);

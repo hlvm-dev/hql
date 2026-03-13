@@ -65,7 +65,7 @@ export async function handleOllamaSignin(req: Request): Promise<Response> {
     return Response.json(payload);
   } catch (error) {
     return jsonError(
-      error instanceof Error ? error.message : "Ollama sign-in failed",
+      getErrorMessage(error),
       500,
     );
   }

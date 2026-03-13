@@ -143,12 +143,7 @@ function createMemoryApi(): MemoryCallable {
       text: string,
       category?: string,
     ): Promise<{ factId: number; category: string }> => {
-      if (typeof text !== "string") {
-        throw new ValidationError(
-          "memory.add requires a non-empty text string",
-          "memory.add",
-        );
-      }
+      assertString(text, "memory.add", "memory.add requires a non-empty text string");
       const trimmed = text.trim();
       if (!trimmed) {
         throw new ValidationError(
@@ -168,12 +163,7 @@ function createMemoryApi(): MemoryCallable {
     },
 
     appendNote: async (text: string): Promise<{ path: string }> => {
-      if (typeof text !== "string") {
-        throw new ValidationError(
-          "memory.appendNote requires a non-empty text string",
-          "memory.appendNote",
-        );
-      }
+      assertString(text, "memory.appendNote", "memory.appendNote requires a non-empty text string");
       const trimmed = text.trim();
       if (!trimmed) {
         throw new ValidationError(
@@ -200,10 +190,8 @@ function createMemoryApi(): MemoryCallable {
           "memory.replace",
         );
       }
-      const [noteReplacements, factReplacements] = await Promise.all([
-        replaceExplicitMemoryText(findText, replaceWith),
-        Promise.resolve(replaceInFacts(findText, replaceWith)),
-      ]);
+      const noteReplacements = await replaceExplicitMemoryText(findText, replaceWith);
+      const factReplacements = replaceInFacts(findText, replaceWith);
       return { noteReplacements, factReplacements };
     },
 

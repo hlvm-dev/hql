@@ -77,11 +77,6 @@ function resolveClaudeBinary(): string {
   return _resolvedClaudePath;
 }
 
-/** @internal Reset cached binary path (for tests only). */
-export function _resetClaudeBinaryCache(): void {
-  _resolvedClaudePath = undefined;
-}
-
 /**
  * Build Claude Code stream-json command with optional resume token.
  */

@@ -18,7 +18,6 @@ import {
 import {
   COMPANION_CHANNEL,
   companionOnInteraction,
-  emitCompanionEvent,
   runCompanionLoop,
 } from "../../../src/hlvm/companion/loop.ts";
 import {

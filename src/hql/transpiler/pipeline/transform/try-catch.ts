@@ -15,7 +15,7 @@ import {
 import { sanitizeIdentifier } from "../../../../common/utils.ts";
 import { containsAwait } from "./async-generators.ts";
 import { containsYieldExpression } from "../../utils/ir-tree-walker.ts";
-import { createBlock } from "../../utils/ir-helpers.ts";
+import { createBlock, wrapIIFEResult } from "../../utils/ir-helpers.ts";
 
 // Type for transform node function passed from main module
 export type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
@@ -250,24 +250,9 @@ export function transformTry(
     position: listPosition,
   };
 
-  // For generator IIFEs, wrap the call in yield*
-  // For async IIFEs, wrap the call in await
-  if (needsGenerator) {
-    return {
-      type: IR.IRNodeType.YieldExpression,
-      delegate: true,
-      argument: iife,
-      position: listPosition,
-    } as IR.IRYieldExpression;
-  }
-  if (needsAsync) {
-    return {
-      type: IR.IRNodeType.AwaitExpression,
-      argument: iife,
-      position: listPosition,
-    } as IR.IRAwaitExpression;
-  }
-  return iife;
+  const result = wrapIIFEResult(iife, needsGenerator, needsAsync);
+  if (result !== iife && listPosition) result.position = listPosition;
+  return result;
 }
 
 /**

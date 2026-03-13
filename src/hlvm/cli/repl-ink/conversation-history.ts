@@ -3,8 +3,11 @@ import {
   type TranscriptState,
 } from "../agent-transcript-state.ts";
 import {
-  createTodoStateFromPlan,
-} from "../../agent/todo-state.ts";
+  detectMimeType,
+  getAttachmentType,
+  getDisplayName,
+} from "../repl/attachment.ts";
+import { createTodoStateFromPlan } from "../../agent/todo-state.ts";
 import {
   loadPersistedAgentChildSessionSummaries,
   parsePersistedAgentSessionMetadata,
@@ -18,6 +21,15 @@ import type {
   ToolCallDisplay,
   ToolGroupItem,
 } from "./types.ts";
+
+function formatAttachmentLabels(
+  attachments?: readonly string[],
+): string[] | undefined {
+  if (!attachments?.length) return undefined;
+  return attachments.map((path, index) =>
+    getDisplayName(getAttachmentType(detectMimeType(path)), index + 1)
+  );
+}
 
 function buildToolGroup(
   startIndex: number,
@@ -77,6 +89,7 @@ export function buildConversationItemsFromSessionMessages(
         type: "user",
         id: `session-user-${index}`,
         text: message.content,
+        attachments: formatAttachmentLabels(message.attachments),
         ts: message.ts,
       });
       continue;
@@ -97,7 +110,9 @@ export function buildConversationItemsFromSessionMessages(
 function buildDelegateItemsFromSession(
   session: Session,
 ): DelegateItem[] {
-  return loadPersistedAgentChildSessionSummaries(session.meta.id).map((child) => ({
+  return loadPersistedAgentChildSessionSummaries(session.meta.id).map((
+    child,
+  ) => ({
     type: "delegate",
     id: `session-delegate-${child.sessionId}`,
     agent: child.agent,
@@ -125,7 +140,9 @@ function getItemTimestamp(item: ConversationItem): number {
   }
 }
 
-export function buildTranscriptStateFromSession(session: Session): TranscriptState {
+export function buildTranscriptStateFromSession(
+  session: Session,
+): TranscriptState {
   const baseItems = buildConversationItemsFromSessionMessages(session.messages);
   const delegateItems = buildDelegateItemsFromSession(session);
   const metadata = parsePersistedAgentSessionMetadata(session.meta.metadata);
@@ -142,7 +159,8 @@ export function buildTranscriptStateFromSession(session: Session): TranscriptSta
           approval.status === "pending"
         ).length;
         const unreadMessages = snapshot.messages.filter((message) =>
-          (!message.toMemberId || message.toMemberId === snapshot.leadMemberId) &&
+          (!message.toMemberId ||
+            message.toMemberId === snapshot.leadMemberId) &&
           !message.readBy.includes(snapshot.leadMemberId)
         ).length;
         return {
@@ -181,7 +199,8 @@ export function buildTranscriptStateFromSession(session: Session): TranscriptSta
       ? createTodoStateFromPlan(
         metadata.plan.steps,
         new Set(metadata.completedPlanStepIds ?? []),
-        (metadata.completedPlanStepIds?.length ?? 0) < metadata.plan.steps.length
+        (metadata.completedPlanStepIds?.length ?? 0) <
+            metadata.plan.steps.length
           ? metadata.completedPlanStepIds?.length
           : undefined,
       )

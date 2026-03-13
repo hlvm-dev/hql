@@ -1,10 +1,6 @@
-function uniqueTools(tools?: readonly string[]): string[] | undefined {
-  return tools?.length ? [...new Set(tools)] : undefined;
-}
-
+/** Deduplicate and validate a tool allowlist. */
 export function resolveQueryToolAllowlist(
-  _query: string,
-  userAllowlist?: string[],
+  userAllowlist?: readonly string[],
 ): string[] | undefined {
-  return uniqueTools(userAllowlist);
+  return userAllowlist?.length ? [...new Set(userAllowlist)] : undefined;
 }

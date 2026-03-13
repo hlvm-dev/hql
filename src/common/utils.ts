@@ -195,13 +195,6 @@ export function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Note: createSExpCallRegex and createJsCallRegex were moved to runtime-error-handler.ts
-// as internal functions since they were only used there (single consumer pattern)
-
-// ============================================================================
-// DRY Utilities - Consolidated patterns used across the codebase
-// ============================================================================
-
 /**
  * Truncate a string to a maximum length, appending a suffix if truncated.
  * Consolidates the ad-hoc `x.length > N ? x.slice(0, N) + "..." : x` pattern.
@@ -436,15 +429,3 @@ export function areListsEqual(a?: string[], b?: string[]): boolean {
   return true;
 }
 
-/**
- * FNV-1a hash of a string, returned as hex.
- * SSOT: all string hashing in the codebase goes through this function.
- */
-function hashString(input: string): string {
-  let h = 2166136261;
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(16).padStart(8, "0");
-}

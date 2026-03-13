@@ -21,6 +21,26 @@ const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 // Pre-compiled whitespace pattern for command parsing
 const WHITESPACE_SPLIT_REGEX = /\s+/;
 
+interface BindingsApi {
+  clear: () => Promise<void>;
+  stats: () => Promise<{ path: string; count: number; size: number } | null>;
+  list: () => Promise<string[]>;
+  remove: (name: string) => Promise<boolean>;
+}
+
+function getBindingsApi(): BindingsApi | undefined {
+  return (globalThis as Record<string, unknown>).bindings as BindingsApi | undefined;
+}
+
+function getStartupWarnings(): string[] {
+  const warnings = (globalThis as Record<string, unknown>).__hlvmStartupWarnings;
+  return Array.isArray(warnings)
+    ? warnings.filter((line: unknown): line is string =>
+      typeof line === "string" && line.length > 0
+    )
+    : [];
+}
+
 export interface Command {
   description: string;
   handler: (
@@ -94,7 +114,7 @@ ${BOLD}HLVM REPL Functions:${RESET}
   ${CYAN}(bindings)${RESET}           List all saved definitions
   ${CYAN}(unbind "x")${RESET}         Remove a definition
   ${CYAN}(remember "text")${RESET}    Save a note to MEMORY.md
-  ${CYAN}(memory)${RESET}             Show all assistant-visible memory
+  ${CYAN}(memory)${RESET}             Open MEMORY.md in your editor
   ${CYAN}(inspect x)${RESET}          Show source code (fast, no AI)
   ${CYAN}(describe x)${RESET}         Source + AI explanation & examples
   ${CYAN}(help)${RESET}               Show this help
@@ -148,10 +168,7 @@ export const commands: Record<string, Command> = {
     description: "Reset REPL state and clear bindings",
     handler: async (state, _args, context) => {
       state.reset();
-      // Use bindings API for single source of truth
-      const bindingsApi = (globalThis as Record<string, unknown>).bindings as {
-        clear: () => Promise<void>;
-      } | undefined;
+      const bindingsApi = getBindingsApi();
       if (bindingsApi?.clear) {
         await bindingsApi.clear();
       }
@@ -173,14 +190,7 @@ export const commands: Record<string, Command> = {
   "/bindings": {
     description: "Show saved definitions",
     handler: async (_state, _args, context) => {
-      // Use bindings API for single source of truth
-      const bindingsApi = (globalThis as Record<string, unknown>).bindings as {
-        stats: () => Promise<
-          { path: string; count: number; size: number } | null
-        >;
-        list: () => Promise<string[]>;
-      } | undefined;
-
+      const bindingsApi = getBindingsApi();
       if (!bindingsApi) {
         context.output(`${YELLOW}Bindings API not initialized.${RESET}`);
         return;
@@ -212,11 +222,7 @@ export const commands: Record<string, Command> = {
         return;
       }
 
-      // Use bindings API for single source of truth
-      const bindingsApi = (globalThis as Record<string, unknown>).bindings as {
-        remove: (name: string) => Promise<boolean>;
-      } | undefined;
-
+      const bindingsApi = getBindingsApi();
       if (!bindingsApi) {
         context.output(`${YELLOW}Bindings API not initialized.${RESET}`);
         return;
@@ -337,13 +343,7 @@ export const commands: Record<string, Command> = {
         | { chat?: unknown }
         | undefined;
       const aiStatus = aiApi?.chat ? "ready" : "off";
-      const warnings =
-        (globalThis as Record<string, unknown>).__hlvmStartupWarnings;
-      const warningCount = Array.isArray(warnings)
-        ? warnings.filter((line: unknown) =>
-          typeof line === "string" && line.length > 0
-        ).length
-        : 0;
+      const warningCount = getStartupWarnings().length;
 
       context.output(`${BOLD}Status:${RESET}`);
       context.output(`  ${CYAN}AI:${RESET} ${aiStatus}`);
@@ -416,14 +416,7 @@ ${DIM_GRAY}Tip: Type /help for all commands and keybindings.${RESET}`);
   "/warnings": {
     description: "Show startup warnings",
     handler: (_state, _args, context) => {
-      const warnings =
-        (globalThis as Record<string, unknown>).__hlvmStartupWarnings;
-      const lines = Array.isArray(warnings)
-        ? warnings.filter((line: unknown): line is string =>
-          typeof line === "string" && line.length > 0
-        )
-        : [];
-
+      const lines = getStartupWarnings();
       if (lines.length === 0) {
         context.output(`${DIM_GRAY}No startup warnings.${RESET}`);
         return;

@@ -201,13 +201,18 @@ Deno.test("chat context: explicit request history persists only the new visible 
   );
 });
 
-Deno.test("chat context: image attachments survive replay for chat and agent builders", async () => {
+Deno.test("chat context: mixed media attachments survive replay for chat and agent builders", async () => {
   const platform = getPlatform();
   const tmpDir = await platform.fs.makeTempDir({ prefix: "chat-ctx-" });
   const imagePath = platform.path.join(tmpDir, "test.png");
+  const pdfPath = platform.path.join(tmpDir, "test.pdf");
   await platform.fs.writeFile(
     imagePath,
     new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+  );
+  await platform.fs.writeFile(
+    pdfPath,
+    new Uint8Array([0x25, 0x50, 0x44, 0x46]),
   );
 
   try {
@@ -217,7 +222,7 @@ Deno.test("chat context: image attachments survive replay for chat and agent bui
     }, {
       role: "user" as const,
       content: "see image",
-      image_paths: [imagePath],
+      image_paths: [imagePath, pdfPath],
     }];
 
     const chat = await buildChatProviderMessages({
@@ -227,7 +232,7 @@ Deno.test("chat context: image attachments survive replay for chat and agent bui
     });
     const chatUser = chat.messages.find((message) => message.role === "user");
     assertExists(chatUser);
-    assertEquals((chatUser.images?.length ?? 0) > 0, true);
+    assertEquals(chatUser.images?.length, 2);
 
     const agent = await buildAgentHistoryMessages({
       requestMessages,
@@ -237,8 +242,12 @@ Deno.test("chat context: image attachments survive replay for chat and agent bui
     });
     const agentUser = agent.find((message) => message.role === "user");
     assertExists(agentUser);
-    assertEquals(agentUser.images?.[0]?.mimeType, "image/png");
+    assertEquals(
+      agentUser.images?.map((attachment) => attachment.mimeType),
+      ["image/png", "application/pdf"],
+    );
     assertEquals((agentUser.images?.[0]?.data.length ?? 0) > 0, true);
+    assertEquals((agentUser.images?.[1]?.data.length ?? 0) > 0, true);
   } finally {
     await platform.fs.remove(tmpDir, { recursive: true });
   }
@@ -254,7 +263,10 @@ Deno.test("chat context: disablePersistentMemory suppresses memory injection for
     await platform.fs.mkdir(platform.path.dirname(getMemoryMdPath()), {
       recursive: true,
     });
-    await platform.fs.writeTextFile(getMemoryMdPath(), "Explicit note for chat");
+    await platform.fs.writeTextFile(
+      getMemoryMdPath(),
+      "Explicit note for chat",
+    );
 
     const enabled = await buildChatProviderMessages({
       requestMessages: [{ role: "user", content: "hello" }],

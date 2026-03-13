@@ -249,6 +249,8 @@ export interface SdkConvertibleMessage {
   >;
   tool_name?: string;
   tool_call_id?: string;
+  /** SDK-native response messages for lossless reasoning passthrough. */
+  _sdkResponseMessages?: unknown[];
 }
 
 /**
@@ -308,6 +310,37 @@ export function convertToSdkMessages(
     }
 
     if (msg.role === "assistant") {
+      // Prefer SDK-native messages when available (preserves ReasoningPart)
+      if (msg._sdkResponseMessages?.length) {
+        const sdkMessages = msg._sdkResponseMessages as ModelMessage[];
+        const sdkAssistant = sdkMessages.find((m) => m.role === "assistant");
+        if (sdkAssistant) {
+          // Extract pendingToolCalls for subsequent tool-result correlation
+          if (Array.isArray(sdkAssistant.content)) {
+            pendingToolCalls = [];
+            for (const part of sdkAssistant.content) {
+              if (
+                part && typeof part === "object" && "type" in part &&
+                part.type === "tool-call"
+              ) {
+                const tcPart = part as {
+                  toolCallId: string;
+                  toolName: string;
+                };
+                pendingToolCalls.push({
+                  id: tcPart.toolCallId,
+                  name: tcPart.toolName,
+                });
+              }
+            }
+          } else {
+            pendingToolCalls = [];
+          }
+          result.push(sdkAssistant);
+          continue;
+        }
+      }
+      // Fallback: reconstruct from HLVM fields (transcript load, legacy engine)
       const toolCalls = msg.toolCalls ?? msg.tool_calls;
       if (toolCalls?.length) {
         const parts: SdkAssistantPart[] = [];

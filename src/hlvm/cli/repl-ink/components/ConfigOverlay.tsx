@@ -62,6 +62,7 @@ import {
 } from "../overlay/index.ts";
 import { CURSOR_BLINK_MS } from "../ui-constants.ts";
 import { buildCursorWindowDisplay } from "../utils/cursor-window.ts";
+import { getErrorMessage } from "../../../../common/utils.ts";
 
 // ============================================================
 // Types
@@ -401,7 +402,7 @@ export function ConfigOverlay({
 
     if (selectedKey === "model") {
       applyModelSelection(String(newValue)).catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : "Update failed");
+        setError(getErrorMessage(e));
       });
       return;
     }
@@ -413,7 +414,7 @@ export function ConfigOverlay({
           setTheme(newValue as ThemeName);
         }
       }).catch((e) => {
-        setError(e instanceof Error ? e.message : "Update failed");
+        setError(getErrorMessage(e));
       });
     }
   }, [selectedKey, getOptions, setTheme, formatValue, applyModelSelection]);
@@ -451,7 +452,7 @@ export function ConfigOverlay({
         setError("Config API not available");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed");
+      setError(getErrorMessage(e));
     }
   }, [selectedKey, editValue, config]);
 
@@ -839,7 +840,7 @@ export function ConfigOverlay({
 
         if (selectedKey === "model") {
           applyModelSelection(String(defaultValue)).catch((e: unknown) => {
-            setError(e instanceof Error ? e.message : "Reset failed");
+            setError(getErrorMessage(e));
           });
           return;
         }
@@ -855,7 +856,7 @@ export function ConfigOverlay({
             }
             setError(null);
           }).catch((e) => {
-            setError(e instanceof Error ? e.message : "Reset failed");
+            setError(getErrorMessage(e));
           });
         }
         return;

@@ -124,11 +124,12 @@ export function replayAfter(
     return { events: [], gapDetected: true };
   }
 
-  const events = buffer.filter((e) => parseInt(e.id, 10) > lastSeq);
-  if (events.length === 0 && lastSeq < currentSeq) {
-    return { events: [], gapDetected: true };
+  // IDs are contiguous integers from nextSequence(), so compute the slice offset directly (O(1)).
+  const startIndex = lastSeq - firstInBuffer + 1;
+  if (startIndex >= buffer.length) {
+    return { events: [], gapDetected: lastSeq < currentSeq };
   }
-  return { events, gapDetected: false };
+  return { events: buffer.slice(startIndex), gapDetected: false };
 }
 
 export function clearSessionBuffer(sessionId: string): void {

@@ -79,12 +79,16 @@ import {
   handleAgentMode,
   handleClaudeCodeAgentMode,
 } from "./chat-agent-mode.ts";
-import { handleChatMode, modelSupportsTools } from "./chat-direct.ts";
+import { handleChatMode } from "./chat-direct.ts";
 import {
   buildRequestMessagesToPersist,
   shouldHonorRequestMessages,
   validateChatRequestMessages,
 } from "./chat-context.ts";
+import {
+  modelSupportsTools,
+  modelSupportsVision,
+} from "../../model-capabilities.ts";
 
 // ============================================================
 // Types (re-exported from chat-session.ts above)
@@ -92,6 +96,12 @@ import {
 
 interface CancelRequest {
   request_id: string;
+}
+
+function requestHasMediaAttachments(
+  messages: ChatRequest["messages"],
+): boolean {
+  return messages.some((message) => (message.image_paths?.length ?? 0) > 0);
 }
 
 // ============================================================
@@ -280,6 +290,7 @@ export async function handleChat(req: Request): Promise<Response> {
     | import("../../../providers/types.ts").ModelInfo
     | null = null;
   let modelDiscoveryFailed = false;
+  const hasMediaAttachments = requestHasMediaAttachments(body.messages);
   if (resolvedModel && !fixturePath) {
     const [parsedProvider, parsedModelName] = parseModelString(resolvedModel);
     try {
@@ -302,6 +313,26 @@ export async function handleChat(req: Request): Promise<Response> {
         "Could not verify selected model capabilities for agent mode. Check provider connection and model availability.",
         503,
       );
+    }
+    if (hasMediaAttachments) {
+      const visionCheck = await modelSupportsVision(
+        resolvedModel,
+        resolvedModelInfo,
+      );
+      if (!visionCheck.supported) {
+        if (visionCheck.catalogFailed) {
+          return jsonError(
+            "Could not verify model media-attachment support. Check provider connection and try again.",
+            503,
+          );
+        }
+        return jsonError(
+          body.model
+            ? "Selected model does not support media attachments"
+            : "Default model does not support media attachments",
+          400,
+        );
+      }
     }
     if (body.mode === "agent") {
       const toolCheck = await modelSupportsTools(

@@ -8,8 +8,10 @@
  */
 
 import { RuntimeError } from "../../../common/error.ts";
+import { getErrorMessage } from "../../../common/utils.ts";
 import { http } from "../../../common/http-client.ts";
 import { parseJsonLine } from "../../../common/jsonl.ts";
+import { createAbortError } from "../../../common/timeout-utils.ts";
 import { API_TIMEOUT_MS, JSON_HEADERS, throwOnHttpError } from "../common.ts";
 import type { ModelInfo, ProviderStatus, PullProgress } from "../types.ts";
 
@@ -99,11 +101,7 @@ async function* streamRequest<T>(
   let buffer = "";
   let searchFrom = 0;
 
-  const abortError = (): Error => {
-    const error = new Error("Aborted");
-    error.name = "AbortError";
-    return error;
-  };
+  const abortError = createAbortError;
 
   const handleAbort = () => {
     reader.cancel().catch(() => {});
@@ -396,7 +394,7 @@ export async function checkStatus(endpoint: string): Promise<ProviderStatus> {
   } catch (err) {
     return {
       available: false,
-      error: err instanceof Error ? err.message : "Connection failed",
+      error: getErrorMessage(err),
     };
   }
 }

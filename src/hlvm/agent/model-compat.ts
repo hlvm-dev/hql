@@ -9,6 +9,8 @@
  * Extracted from orchestrator.ts to keep the ReAct loop focused.
  */
 
+import { PLAN_END, PLAN_START } from "./planning.ts";
+
 // Pre-compiled regexes — hoisted to module level to avoid recompilation per call
 const RE_TOOL_CALL_JSON =
   /\{[\s\S]*?"(toolName|tool_name|function_name|name)"\s*:\s*"[^"]+"[\s\S]*?"(args|parameters|arguments)"\s*:\s*[\s\S]*?\}/m;
@@ -18,8 +20,6 @@ const RE_FUNCTION_TOOL_CALL = /\b(function|tool)\s+call(ing)?\s*[:\(]/i;
 const RE_INVOKE_TOOL = /\b(invoke|execute)\s+the\s+\w+\s+tool\b/;
 const RE_PLAN_ENVELOPE = /^PLAN\s*(?:\r?\n)[\s\S]*?(?:\r?\n)END_PLAN\s*$/;
 const RE_PLAN_BLOCK = /PLAN\s*(?:\r?\n)[\s\S]*?(?:\r?\n)END_PLAN\s*/g;
-const PLAN_START_MARKER = "PLAN";
-const PLAN_END_MARKER = "END_PLAN";
 
 /**
  * Detect JSON-like tool call structures anywhere in text.
@@ -94,13 +94,13 @@ export function createStreamingResponseSanitizer(): StreamingResponseSanitizer {
     const trimmed = text.trimStart();
     if (!trimmed) return "prefix";
     if (
-      trimmed === PLAN_START_MARKER ||
-      trimmed.startsWith(`${PLAN_START_MARKER}\n`) ||
-      trimmed.startsWith(`${PLAN_START_MARKER}\r\n`)
+      trimmed === PLAN_START ||
+      trimmed.startsWith(`${PLAN_START}\n`) ||
+      trimmed.startsWith(`${PLAN_START}\r\n`)
     ) {
       return "plan";
     }
-    if (PLAN_START_MARKER.startsWith(trimmed)) return "prefix";
+    if (PLAN_START.startsWith(trimmed)) return "prefix";
     return "other";
   };
 
@@ -114,12 +114,12 @@ export function createStreamingResponseSanitizer(): StreamingResponseSanitizer {
 
       while (buffer.length > 0) {
         if (insidePlanEnvelope) {
-          const endIndex = buffer.indexOf(PLAN_END_MARKER);
+          const endIndex = buffer.indexOf(PLAN_END);
           if (endIndex < 0) {
-            buffer = buffer.slice(Math.max(0, buffer.length - (PLAN_END_MARKER.length - 1)));
+            buffer = buffer.slice(Math.max(0, buffer.length - (PLAN_END.length - 1)));
             return visible;
           }
-          buffer = buffer.slice(endIndex + PLAN_END_MARKER.length)
+          buffer = buffer.slice(endIndex + PLAN_END.length)
             .replace(/^\s*\r?\n?/, "");
           insidePlanEnvelope = false;
           continue;
@@ -130,7 +130,7 @@ export function createStreamingResponseSanitizer(): StreamingResponseSanitizer {
         if (state === "plan") {
           const trimmed = buffer.trimStart();
           const leadingWhitespaceLength = buffer.length - trimmed.length;
-          buffer = buffer.slice(leadingWhitespaceLength + PLAN_START_MARKER.length);
+          buffer = buffer.slice(leadingWhitespaceLength + PLAN_START.length);
           if (buffer.startsWith("\r\n")) buffer = buffer.slice(2);
           else if (buffer.startsWith("\n")) buffer = buffer.slice(1);
           insidePlanEnvelope = true;

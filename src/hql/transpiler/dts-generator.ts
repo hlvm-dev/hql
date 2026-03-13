@@ -145,6 +145,10 @@ function extractExports(program: IR.IRProgram): ExportInfo[] {
   return exports;
 }
 
+function anyParams(params: string[]): string {
+  return params.map(p => `${p}: any`).join(", ");
+}
+
 /**
  * Generate TypeScript declaration content from export information
  */
@@ -162,28 +166,24 @@ function generateDeclarationContent(
 
     if (exp.kind === "default") {
       if (exp.params) {
-        const paramStr = exp.params.map(p => `${p}: any`).join(", ");
         const asyncPrefix = exp.isAsync ? "async " : "";
-        lines.push(`declare ${asyncPrefix}function _default(${paramStr}): any;`);
+        lines.push(`declare ${asyncPrefix}function _default(${anyParams(exp.params)}): any;`);
         lines.push(`export default _default;`);
       } else {
         lines.push(`declare const _default: any;`);
         lines.push(`export default _default;`);
       }
     } else if (exp.kind === "function") {
-      const paramStr = exp.params ? exp.params.map(p => `${p}: any`).join(", ") : "";
       const asyncPrefix = exp.isAsync ? "async " : "";
-      lines.push(`export declare ${asyncPrefix}function ${exp.name}(${paramStr}): any;`);
+      lines.push(`export declare ${asyncPrefix}function ${exp.name}(${exp.params ? anyParams(exp.params) : ""}): any;`);
     } else if (exp.kind === "class" && exp.classInfo) {
       const { constructorParams, methods } = exp.classInfo;
       lines.push(`export declare class ${exp.name} {`);
       if (constructorParams.length > 0) {
-        const ctorParams = constructorParams.map(p => `${p}: any`).join(", ");
-        lines.push(`  constructor(${ctorParams});`);
+        lines.push(`  constructor(${anyParams(constructorParams)});`);
       }
       for (const method of methods) {
-        const methodParams = method.params.map(p => `${p}: any`).join(", ");
-        lines.push(`  ${method.name}(${methodParams}): any;`);
+        lines.push(`  ${method.name}(${anyParams(method.params)}): any;`);
       }
       lines.push(`}`);
     } else {

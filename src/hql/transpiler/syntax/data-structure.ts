@@ -7,7 +7,7 @@ import {
   ValidationError,
 } from "../../../common/error.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
-import { createGetOperation, transformGet } from "./get.ts";
+import { transformGet } from "./get.ts";
 import {
   transformElements,
   validateTransformed,
@@ -24,7 +24,7 @@ import { HASH_MAP_INTERNAL } from "../../../common/runtime-helper-impl.ts";
 import { createArr, createCall, createId } from "../utils/ir-helpers.ts";
 
 // Export the get function to make it available through the module
-export { createGetOperation, transformGet };
+export { transformGet };
 
 /**
  * Process elements in a vector, handling vector keyword and commas
