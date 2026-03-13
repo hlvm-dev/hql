@@ -12,7 +12,7 @@ interface ConversationSectionProps {
   metaColor?: string;
   marginTop?: number;
   marginBottom?: number;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }
 
 export function ConversationSection({
@@ -35,9 +35,7 @@ export function ConversationSection({
     ? Math.max(8, headerWidth - visibleTitle.length - 3)
     : undefined;
   const visibleMeta = meta
-    ? availableMetaWidth
-      ? truncate(meta, availableMetaWidth, "…")
-      : meta
+    ? availableMetaWidth ? truncate(meta, availableMetaWidth, "…") : meta
     : "";
 
   return (

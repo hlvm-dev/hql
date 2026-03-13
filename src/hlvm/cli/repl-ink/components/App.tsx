@@ -809,6 +809,10 @@ function AppContent(
     setSurfacePanel("conversation");
     setFooterContextUsageLabel("");
 
+    // Show user message and pending indicator immediately — before expensive config/model init
+    conversation.addUserMessage(query, { attachments: attachmentLabels });
+    conversation.addAssistantText("", true);
+
     try {
       const runtimeConfig = await createRuntimeConfigManager();
       const ensuredModel = await runtimeConfig
@@ -823,9 +827,7 @@ function AppContent(
           runtimeSnapshot as unknown as Record<string, unknown>,
         );
       }
-      if (model) {
-        conversation.addInfo("Initializing agent...", { isTransient: true });
-      } else {
+      if (!model) {
         throw new ConfigError(
           "No configured model available for conversation mode.",
         );
@@ -843,7 +845,6 @@ function AppContent(
           );
         }
       }
-      conversation.addUserMessage(query, { attachments: attachmentLabels });
 
       const sessionMeta = sessionApi.current() ?? currentSession ??
         await ensureCurrentSession();
@@ -1152,6 +1153,9 @@ function AppContent(
     setNextId(1);
     setHasBeenCleared(true);
     setClearKey((k: number) => k + 1);
+    restoreComposerDraft(null);
+    clearCurrentSession();
+    setCurrentSession(null);
     interactionResolversRef.current.clear();
     setInteractionQueue([]);
     conversation.clear();
@@ -1162,6 +1166,7 @@ function AppContent(
       closeConversationMode({ clearConversation: true });
     }
   }, [
+    restoreComposerDraft,
     closeConversationMode,
     conversation,
     hasConversationContext,
@@ -2173,42 +2178,40 @@ function AppContent(
         <Box flexGrow={1} />
       )}
 
-      {/* Footer hint — marginTop for breathing room between input and footer */}
+      {/* Footer hint */}
       {!isOverlayOpen && (isInputVisible || hasConversationContext) &&
         (
-          <Box marginTop={1}>
-            <FooterHint
-              modelName={footerModelName}
-              modeLabel={getAgentExecutionModeBadge(agentExecutionMode)}
-              statusMessage={footerStatusMessage}
-              streamingState={hasConversationContext
-                ? conversation.streamingState
-                : undefined}
-              activeTool={hasConversationContext
-                ? conversation.activeTool
-                : undefined}
-              contextUsageLabel={hasConversationContext
-                ? footerContextUsageLabel
-                : ""}
-              checkpointLabel={hasConversationContext &&
-                  conversation.latestCheckpoint &&
-                  !conversation.latestCheckpoint.restoredAt
-                ? "/undo ready"
-                : ""}
-              interactionQueueLength={hasConversationContext
-                ? interactionQueue.length
-                : 0}
-              hasDraftInput={input.trim().length > 0 ||
-                composerAttachments.length > 0}
-              inConversation={hasConversationContext}
-              hasPendingPermission={hasConversationContext &&
-                pendingInteraction?.mode === "permission"}
-              hasPendingQuestion={hasConversationContext &&
-                pendingInteraction?.mode === "question"}
-              teamActive={teamState.active}
-              teamAttentionCount={teamState.attentionItems.length}
-            />
-          </Box>
+          <FooterHint
+            modelName={footerModelName}
+            modeLabel={getAgentExecutionModeBadge(agentExecutionMode)}
+            statusMessage={footerStatusMessage}
+            streamingState={hasConversationContext
+              ? conversation.streamingState
+              : undefined}
+            activeTool={hasConversationContext
+              ? conversation.activeTool
+              : undefined}
+            contextUsageLabel={hasConversationContext
+              ? footerContextUsageLabel
+              : ""}
+            checkpointLabel={hasConversationContext &&
+                conversation.latestCheckpoint &&
+                !conversation.latestCheckpoint.restoredAt
+              ? "/undo ready"
+              : ""}
+            interactionQueueLength={hasConversationContext
+              ? interactionQueue.length
+              : 0}
+            hasDraftInput={input.trim().length > 0 ||
+              composerAttachments.length > 0}
+            inConversation={hasConversationContext}
+            hasPendingPermission={hasConversationContext &&
+              pendingInteraction?.mode === "permission"}
+            hasPendingQuestion={hasConversationContext &&
+              pendingInteraction?.mode === "question"}
+            teamActive={teamState.active}
+            teamAttentionCount={teamState.attentionItems.length}
+          />
         )}
 
       {!isOverlayOpen && isEvaluating && !hasConversationContext && (

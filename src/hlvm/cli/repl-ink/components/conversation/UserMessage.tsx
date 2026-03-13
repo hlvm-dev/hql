@@ -1,7 +1,13 @@
+/**
+ * UserMessage Component
+ *
+ * Displays a user message in the conversation.
+ * Clear ">" marker for strong role differentiation.
+ */
+
 import React from "react";
-import { Text } from "ink";
+import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
-import { ConversationSection } from "./ConversationSection.tsx";
 
 interface UserMessageProps {
   text: string;
@@ -13,25 +19,21 @@ export const UserMessage = React.memo(function UserMessage(
   { text, attachments, width }: UserMessageProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
+  const attachmentText = attachments && attachments.length > 0
+    ? attachments.join(" ")
+    : "";
 
   return (
-    <ConversationSection
-      title="You"
-      titleColor={sc.border.active}
-      accentColor={sc.border.active}
-      width={width}
-      marginTop={1}
-    >
-      <Text color={sc.text.primary} wrap="wrap">
-        {text}
-      </Text>
-      {attachments && attachments.length > 0
-        ? (
-          <Text color={sc.text.secondary} wrap="wrap">
-            {attachments.join(" ")}
-          </Text>
-        )
-        : null}
-    </ConversationSection>
+    <Box width={width} marginTop={1} marginBottom={1} flexDirection="column">
+      <Box>
+        <Text color={sc.status.success} bold>{"> "}</Text>
+        <Text color={sc.text.primary}>{text}</Text>
+      </Box>
+      {attachmentText && (
+        <Text color={sc.text.secondary} wrap="wrap">
+          {"  "}{attachmentText}
+        </Text>
+      )}
+    </Box>
   );
 });

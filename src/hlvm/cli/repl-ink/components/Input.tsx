@@ -10,7 +10,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput, useStdout } from "ink";
 import {
   AUTO_PAIR_CHARS,
   backwardSexp,
@@ -234,6 +234,7 @@ export function Input({
 
   // Theme from context
   const { color } = useTheme();
+  const { stdout } = useStdout();
 
   // Autosuggestion (ghost text - separate from completion)
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
@@ -2379,7 +2380,20 @@ export function Input({
     return null;
   }, [value, cursorPos]);
 
-  const ghostText = suggestion ? suggestion.ghost : "";
+  const rawGhostText = suggestion ? suggestion.ghost : "";
+  // Truncate ghost text to fit on one line — prevents multiline wrap from jumping the input bar
+  const ghostText = useMemo(() => {
+    if (!rawGhostText) return "";
+    const termCols = stdout?.columns ?? 80;
+    const valueLines = value.split("\n");
+    const lastLine = valueLines[valueLines.length - 1] ?? "";
+    const promptLen = getInputPromptPrefix(promptLabel, valueLines.length - 1).length;
+    const usedCols = promptLen + lastLine.length;
+    const available = Math.max(0, termCols - usedCols - 1);
+    return rawGhostText.length <= available
+      ? rawGhostText
+      : rawGhostText.slice(0, Math.max(0, available - 1)) + "…";
+  }, [rawGhostText, stdout?.columns, value, promptLabel]);
 
   // Helper: get bracket positions adjusted for a text slice
   // Returns positions relative to the slice, filtering out positions outside the range

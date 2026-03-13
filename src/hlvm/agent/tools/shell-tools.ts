@@ -34,12 +34,14 @@ interface ShellResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  detached?: boolean;
 }
 
 /** Arguments for shell_exec tool */
 export interface ShellExecArgs {
   command: string;
   cwd?: string;
+  detach?: boolean;
 }
 
 /** Result of shell_exec operation */
@@ -68,6 +70,96 @@ interface ShellScriptResult extends ShellResult {
  */
 export function classifyShellCommand(command: string): "L0" | "L1" | "L2" {
   return classifyShellCommandWithReason(command).level;
+}
+
+const DETACHED_LAUNCH_GRACE_MS = 75;
+
+/**
+ * Auto-detach a narrow set of macOS automation commands that can legitimately
+ * take a long time (for example Finder emptying Trash) and should not block
+ * the interactive REPL turn.
+ */
+export function shouldAutoDetachShellCommand(
+  command: string,
+  os: string,
+): boolean {
+  if (os !== "darwin") return false;
+
+  const normalized = command.trim().toLowerCase();
+  if (!normalized.includes("osascript") || !normalized.includes("finder")) {
+    return false;
+  }
+
+  return normalized.includes("empty the trash") ||
+    normalized.includes("empty trash");
+}
+
+async function launchDetachedShellCommand(
+  platform: ReturnType<typeof getPlatform>,
+  cmdArgs: string[],
+  workDir: string,
+  safetyLevel: "L0" | "L1" | "L2",
+): Promise<ShellExecResult> {
+  const process = platform.command.run({
+    cmd: cmdArgs,
+    cwd: workDir,
+    stdout: "null",
+    stderr: "null",
+    stdin: "null",
+  });
+
+  process.unref?.();
+
+  let graceTimer: ReturnType<typeof setTimeout> | undefined;
+  const statusPromise = process.status;
+  const launchState = await Promise.race([
+    statusPromise.then((status) => ({ type: "status" as const, status })),
+    new Promise<{ type: "detached" }>((resolve) => {
+      graceTimer = setTimeout(
+        () => resolve({ type: "detached" }),
+        DETACHED_LAUNCH_GRACE_MS,
+      );
+    }),
+  ]);
+
+  if (graceTimer !== undefined) {
+    clearTimeout(graceTimer);
+  }
+
+  if (launchState.type === "status") {
+    const message = launchState.status.code === 0
+      ? "Command executed successfully"
+      : `Command exited with code ${launchState.status.code}`;
+
+    if (launchState.status.code === 0) {
+      return okTool({
+        stdout: "",
+        stderr: "",
+        exitCode: launchState.status.code,
+        safetyLevel,
+        message,
+      });
+    }
+
+    return failTool(message, {
+      stdout: "",
+      stderr: "",
+      exitCode: launchState.status.code,
+      safetyLevel,
+    });
+  }
+
+  void statusPromise.catch(() => {});
+
+  return okTool({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+    detached: true,
+    safetyLevel,
+    message:
+      "Command started in background; REPL is not waiting for it to finish.",
+  });
 }
 
 // ============================================================
@@ -138,6 +230,8 @@ export async function shellExec(
 
     // isSafeCommand() above guarantees no pipes/chaining — safe for direct exec on all platforms
     const cmdArgs = [parsedCommand.program, ...parsedCommand.args];
+    const detach = args.detach === true ||
+      shouldAutoDetachShellCommand(args.command, platform.build.os);
 
     // Enforce optional network policy on URL-like args
     const urlSources = cmdArgs;
@@ -156,6 +250,15 @@ export async function shellExec(
 
     if (options?.signal?.aborted) {
       throw createAbortError("Shell command aborted");
+    }
+
+    if (detach) {
+      return await launchDetachedShellCommand(
+        platform,
+        cmdArgs,
+        workDir,
+        safetyLevel,
+      );
     }
 
     // Execute using platform command API (run + drain streams for cancellation)
@@ -418,18 +521,23 @@ import {
 export const SHELL_TOOLS = {
   shell_exec: {
     fn: shellExec,
-    description: "Execute shell command. ONLY use when no dedicated tool exists for the task.",
+    description:
+      "Execute shell command. ONLY use when no dedicated tool exists for the task.",
     category: "shell",
     safetyLevel: "L2",
     args: {
       command: "string - Shell command to execute",
       cwd: "string (optional) - Working directory (default: workspace root)",
+      detach:
+        "boolean (optional) - Launch without waiting for completion. Use for long-running OS automation tasks so the REPL is not blocked.",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",
       stdout: "string - Standard output",
       stderr: "string - Standard error",
       exitCode: "number - Process exit code",
+      detached:
+        "boolean - True when the command was launched in background mode",
       safetyLevel: "string - Applied safety level (L0/L1/L2)",
       message: "string - Human-readable result message",
     },
@@ -438,7 +546,8 @@ export const SHELL_TOOLS = {
   },
   shell_script: {
     fn: shellScript,
-    description: "Execute multi-line shell script. ONLY use when no dedicated tool exists for the task.",
+    description:
+      "Execute multi-line shell script. ONLY use when no dedicated tool exists for the task.",
     category: "shell",
     safetyLevel: "L2",
     args: {

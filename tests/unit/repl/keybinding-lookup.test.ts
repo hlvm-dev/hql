@@ -46,7 +46,10 @@ Deno.test("normalizeKeyInput: ctrl-modified enter and tab keep control-specific 
 
 Deno.test("normalizeKeyInput: alt/meta text sequences normalize consistently", () => {
   assertEquals(normalizeKeyInput("z", makeKey({ escape: true })), "alt+z");
-  assertEquals(normalizeKeyInput("\r", makeKey({ escape: true, return: true })), "alt+enter");
+  assertEquals(
+    normalizeKeyInput("\r", makeKey({ escape: true, return: true })),
+    "alt+enter",
+  );
   assertEquals(normalizeKeyInput("\x1b\r", makeKey()), "alt+enter");
   assertEquals(normalizeKeyInput("\x1b[13;3u", makeKey()), "alt+enter");
   assertEquals(normalizeKeyInput("\x1b[13;2u", makeKey()), "alt+enter");
@@ -54,11 +57,17 @@ Deno.test("normalizeKeyInput: alt/meta text sequences normalize consistently", (
 });
 
 Deno.test("normalizeKeyInput: meta return sequences preserve cmd+enter on mac-style bindings", () => {
-  assertEquals(normalizeKeyInput("\r", makeKey({ meta: true, return: true })), "cmd+enter");
+  assertEquals(
+    normalizeKeyInput("\r", makeKey({ meta: true, return: true })),
+    "cmd+enter",
+  );
 });
 
 Deno.test("normalizeKeyInput: shift-tab remains addressable for mode cycling", () => {
-  assertEquals(normalizeKeyInput("\t", makeKey({ shift: true, tab: true })), "shift+tab");
+  assertEquals(
+    normalizeKeyInput("\t", makeKey({ shift: true, tab: true })),
+    "shift+tab",
+  );
 });
 
 Deno.test("composer keybindings include Shift+Tab mode cycling", () => {
@@ -135,6 +144,7 @@ Deno.test("global keybindings use canonical handler IDs", () => {
   );
   assertEquals(globalHandlerIds.get("ctrl+c"), HandlerIds.APP_EXIT);
   assertEquals(globalHandlerIds.get("ctrl+l"), HandlerIds.APP_CLEAR);
+  assertEquals(globalHandlerIds.get("cmd+k"), HandlerIds.APP_CLEAR);
   assertEquals(globalHandlerIds.get("ctrl+p"), HandlerIds.APP_PALETTE);
   assertEquals(globalHandlerIds.get("ctrl+b"), HandlerIds.APP_TASKS);
   assertEquals(globalHandlerIds.get("ctrl+t"), HandlerIds.APP_TEAM_DASHBOARD);

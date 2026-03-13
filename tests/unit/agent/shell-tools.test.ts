@@ -5,13 +5,18 @@ import {
   type ShellExecArgs,
   shellScript,
   type ShellScriptArgs,
+  shouldAutoDetachShellCommand,
 } from "../../../src/hlvm/agent/tools/shell-tools.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { cleanupWorkspaceDir } from "./workspace-test-helpers.ts";
 
-async function withWorkspace<T>(fn: (workspace: string) => Promise<T>): Promise<T> {
+async function withWorkspace<T>(
+  fn: (workspace: string) => Promise<T>,
+): Promise<T> {
   const platform = getPlatform();
-  const workspace = await platform.fs.makeTempDir({ prefix: "hlvm-shell-test-" });
+  const workspace = await platform.fs.makeTempDir({
+    prefix: "hlvm-shell-test-",
+  });
 
   try {
     await platform.fs.writeTextFile(
@@ -33,9 +38,36 @@ Deno.test("shell tools: classifyShellCommand maps representative commands to L0,
   assertEquals(classifyShellCommand("rm -rf /"), "L2");
 });
 
+Deno.test("shell tools: auto-detach heuristic is limited to Finder empty-trash automation", () => {
+  assertEquals(
+    shouldAutoDetachShellCommand(
+      `osascript -e 'tell application "Finder" to empty the trash'`,
+      "darwin",
+    ),
+    true,
+  );
+  assertEquals(
+    shouldAutoDetachShellCommand(
+      `osascript -e 'tell application "Finder" to activate'`,
+      "darwin",
+    ),
+    false,
+  );
+  assertEquals(
+    shouldAutoDetachShellCommand(
+      `osascript -e 'tell application "Finder" to empty the trash'`,
+      "linux",
+    ),
+    false,
+  );
+});
+
 Deno.test("shell tools: shellExec runs simple commands, respects cwd, and reports safety level", async () => {
   await withWorkspace(async (workspace) => {
-    const echoResult = await shellExec({ command: "echo hello" } as ShellExecArgs, workspace);
+    const echoResult = await shellExec(
+      { command: "echo hello" } as ShellExecArgs,
+      workspace,
+    );
     const pwdResult = await shellExec(
       { command: "pwd", cwd: "." } as ShellExecArgs,
       workspace,
@@ -95,6 +127,28 @@ Deno.test("shell tools: shellExec honors abort signals for long-running commands
     assertEquals(result.success, false);
     assertStringIncludes((result.message ?? "").toLowerCase(), "aborted");
     assertEquals(Date.now() - startedAt < 4500, true);
+  });
+});
+
+Deno.test("shell tools: shellExec detach starts long-running commands without blocking", async () => {
+  if (getPlatform().build.os === "windows") return;
+
+  await withWorkspace(async (workspace) => {
+    const startedAt = Date.now();
+    const result = await shellExec(
+      { command: "sleep 1", detach: true } as ShellExecArgs,
+      workspace,
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(result.detached, true);
+    assertEquals(result.exitCode, 0);
+    assertEquals(result.stdout, "");
+    assertEquals(result.stderr, "");
+    assertStringIncludes(result.message ?? "", "background");
+    assertEquals(Date.now() - startedAt < 500, true);
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
   });
 });
 

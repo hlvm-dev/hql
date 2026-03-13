@@ -36,15 +36,15 @@ export function buildQueuePreviewLines(
 
   const lines: QueuePreviewLine[] = [{
     kind: "header",
-    text: "\u2022 Queued follow-up messages",
+    text: "Queued:",
   }];
 
   const visibleItems = items.slice(0, MAX_VISIBLE_ITEMS);
-  for (const item of visibleItems) {
+  for (let i = 0; i < visibleItems.length; i++) {
     lines.push({
       kind: "item",
-      text: `  \u21B3 ${
-        truncate(getConversationDraftPreview(item), PREVIEW_LENGTH)
+      text: `  ${i + 1}. ${
+        truncate(getConversationDraftPreview(visibleItems[i]), PREVIEW_LENGTH)
       }`,
     });
   }

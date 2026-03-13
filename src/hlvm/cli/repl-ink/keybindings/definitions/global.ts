@@ -21,6 +21,15 @@ export const globalKeybindings: Keybinding[] = [
     action: { type: "HANDLER", id: HandlerIds.APP_CLEAR },
   },
   {
+    id: "cmd+k",
+    display: "Cmd+K",
+    label: "Clear screen",
+    description:
+      "Clear the app surface and start fresh when the terminal forwards Cmd+K",
+    category: "Global",
+    action: { type: "HANDLER", id: HandlerIds.APP_CLEAR },
+  },
+  {
     id: "ctrl+p",
     display: "Ctrl+P",
     label: "Command palette",
