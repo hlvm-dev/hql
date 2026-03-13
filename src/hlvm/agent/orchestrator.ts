@@ -57,7 +57,7 @@ import {
 import type { AgentExecutionMode } from "./execution-mode.ts";
 import { isPlanExecutionMode } from "./execution-mode.ts";
 import { getAgentLogger } from "./logger.ts";
-import { type RetrievalResult, retrieveMemory } from "../memory/retrieve.ts";
+import { type RetrievalResult, retrieveMemory } from "../memory/mod.ts";
 import { resetWebToolBudget } from "./tools/web-tools.ts";
 import { evaluateDelegationSignal } from "./delegation-heuristics.ts";
 import type { Citation } from "./tools/web/search-provider.ts";

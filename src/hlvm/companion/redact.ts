@@ -1,11 +1,11 @@
 /**
  * Companion Agent — Observation Redaction
  *
- * Deterministic PII filter. Imports from memory/store.ts (pure functions, no SQLite).
+ * Deterministic PII filter. Uses sanitizeSensitiveContent from memory barrel.
  */
 
 import type { Observation } from "./types.ts";
-import { sanitizeSensitiveContent } from "../memory/store.ts";
+import { sanitizeSensitiveContent } from "../memory/mod.ts";
 
 const MAX_STRING_LENGTH = 500;
 const MAX_CLIPBOARD_LENGTH = 200;

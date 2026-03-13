@@ -7,7 +7,9 @@
 
 // Manager
 export {
+  buildMemorySystemMessage,
   isMemorySystemMessage,
+  loadMemoryContext,
   loadMemorySystemMessage,
 } from "./manager.ts";
 export { isPersistentMemoryEnabled } from "./policy.ts";
@@ -29,7 +31,7 @@ export {
   touchFact,
 } from "./facts.ts";
 export { linkFactEntities } from "./entities.ts";
-export { retrieveMemory, type RetrievalResult } from "./retrieve.ts";
+export { accessBoost, retrieveMemory, temporalDecay, type RetrievalResult } from "./retrieve.ts";
 export {
   extractConversationFacts,
   extractSessionFacts,
@@ -46,3 +48,6 @@ export {
   replaceExplicitMemoryText,
   writeExplicitMemory,
 } from "./explicit.ts";
+
+// Shared utilities
+export { sanitizeSensitiveContent } from "./store.ts";

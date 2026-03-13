@@ -1,38 +1,17 @@
-/**
- * HLVM Ink REPL - Premium Banner Component
- * SICP-inspired design with professional CLI aesthetics
- */
-
 import React from "react";
 import { Box, Text, useStdout } from "ink";
 import { version as VERSION } from "../../../../../mod.ts";
-import { useTheme } from "../../theme/index.ts";
 import type { ConfiguredModelReadinessState } from "../../../runtime/configured-model-readiness.ts";
 import { truncate } from "../../../../common/utils.ts";
+import { useSemanticColors } from "../../theme/index.ts";
 import {
   DEFAULT_TERMINAL_HEIGHT,
   DEFAULT_TERMINAL_WIDTH,
 } from "../ui-constants.ts";
 
-// =============================================================================
-// HLVM Premium Logo - Block-art design
-// Colors: Logo = primary (SICP purple), Tagline = secondary (SICP red)
-// =============================================================================
-
-const LOGO_LINES = [
-  "██╗  ██╗ ██╗      ██╗   ██╗ ███╗   ███╗",
-  "██║  ██║ ██║      ██║   ██║ ████╗ ████║",
-  "███████║ ██║      ██║   ██║ ██╔████╔██║",
-  "██╔══██║ ██║      ╚██╗ ██╔╝ ██║╚██╔╝██║",
-  "██║  ██║ ███████╗  ╚████╔╝  ██║ ╚═╝ ██║",
-  "╚═╝  ╚═╝ ╚══════╝   ╚═══╝   ╚═╝     ╚═╝",
-];
-
-// Unicode symbols for professional look
-const SYMBOLS = {
-  bullet: "◆", // Diamond bullet for status items
-} as const;
-const FULL_LOGO_WIDTH = Math.max(...LOGO_LINES.map((line) => line.length));
+const EXTENDED_BANNER_MIN_WIDTH = 96;
+const EXTENDED_BANNER_MIN_HEIGHT = 28;
+const SECTION_SEPARATOR = " · ";
 
 interface BannerProps {
   aiExports: string[];
@@ -52,18 +31,18 @@ export function getBannerRowCount(
   height = DEFAULT_TERMINAL_HEIGHT,
 ): number {
   const compact = shouldUseCompactBanner(width, height);
-  const logoRows = compact ? 1 : LOGO_LINES.length;
-  const spacerRows = !compact && height >= 18 ? 1 : 0;
+  const statusRows = compact ? 1 : 2;
   const warningRows = errorCount > 0 ? 1 : 0;
   const marginBottomRows = 1;
-  return logoRows + 1 + spacerRows + 1 + warningRows + marginBottomRows;
+  return statusRows + warningRows + marginBottomRows;
 }
 
 export function shouldUseCompactBanner(
   width: number,
   height = DEFAULT_TERMINAL_HEIGHT,
 ): boolean {
-  return width < FULL_LOGO_WIDTH + 4 || height < 22;
+  return width < EXTENDED_BANNER_MIN_WIDTH ||
+    height < EXTENDED_BANNER_MIN_HEIGHT;
 }
 
 export function resolveBannerAiIndicator(
@@ -84,58 +63,71 @@ export function resolveBannerAiIndicator(
   }
 }
 
+function buildStatusLine(
+  indicator: BannerAiIndicator,
+  modelName: string,
+  width: number,
+): { modelText: string; baseText: string } {
+  const brandText = `HLVM ${VERSION}`;
+  const baseText = `${brandText}${SECTION_SEPARATOR}${indicator.label}`;
+  if (!modelName) {
+    return { modelText: "", baseText };
+  }
+  const availableModelWidth = Math.max(
+    8,
+    width - baseText.length - SECTION_SEPARATOR.length,
+  );
+  return {
+    modelText: truncate(modelName, availableModelWidth, "…"),
+    baseText,
+  };
+}
+
 export function Banner(
   { aiExports, aiReadiness, errors, modelName }: BannerProps,
 ): React.ReactElement {
   const { stdout } = useStdout();
-  const { color } = useTheme();
+  const sc = useSemanticColors();
   const model = modelName?.trim() ?? "";
   const indicator = resolveBannerAiIndicator(aiExports.length > 0, aiReadiness);
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const terminalHeight = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
   const compact = shouldUseCompactBanner(terminalWidth, terminalHeight);
-  const showSpacer = !compact && terminalHeight >= 18;
   const contentWidth = Math.max(20, terminalWidth - 2);
-  const statusLabel = model
-    ? `${indicator.label} · ${model}`
-    : indicator.label;
+  const statusLine = buildStatusLine(indicator, model, contentWidth);
+  const helperLine = truncate(
+    compact
+      ? "Focused terminal chat for code, tools, and sessions"
+      : "Focused terminal chat for code, tools, sessions, and local models",
+    contentWidth,
+    "…",
+  );
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {/* Logo */}
-      <Box flexDirection="column">
-        {(compact ? ["HLVM"] : LOGO_LINES).map((line, index) => (
-          <React.Fragment key={index}>
-            <Text color={color("primary")} bold>{line}</Text>
-          </React.Fragment>
-        ))}
-      </Box>
-
-      {/* Tagline */}
-      <Text color={color("secondary")} bold>
-        {truncate(
-          compact
-            ? `HLVM ${VERSION} • AI-native runtime infrastructure`
-            : `HLVM ${VERSION} • AI-native runtime infrastructure`,
-          contentWidth,
-          "…",
-        )}
-      </Text>
-      {showSpacer && <Text></Text>}
-
-      {/* Compact status line */}
       <Box>
-        <Text color={color("secondary")}>{SYMBOLS.bullet}</Text>
-        <Text color={color(indicator.tone)}>
-          {truncate(statusLabel, Math.max(8, contentWidth - 2), "…")}
+        <Text color={sc.border.active} bold>
+          HLVM
         </Text>
+        <Text color={sc.text.muted}>{` ${VERSION}`}</Text>
+        <Text color={sc.text.muted}>{SECTION_SEPARATOR}</Text>
+        <Text color={sc.status[indicator.tone]}>{indicator.label}</Text>
+        {statusLine.modelText && (
+          <>
+            <Text color={sc.text.muted}>{SECTION_SEPARATOR}</Text>
+            <Text color={sc.text.secondary}>{statusLine.modelText}</Text>
+          </>
+        )}
       </Box>
 
-      {/* Compact warnings */}
+      {!compact && (
+        <Text color={sc.text.muted}>{helperLine}</Text>
+      )}
+
       {errors.length > 0 && (
-        <Text color={color("warning")}>
+        <Text color={sc.status.warning}>
           {truncate(
-            `⚠ ${errors.length} warning${errors.length > 1 ? "s" : ""} (run /warnings for details)`,
+            `${errors.length} warning${errors.length === 1 ? "" : "s"} · /warnings for details`,
             contentWidth,
             "…",
           )}

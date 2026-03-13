@@ -32,18 +32,14 @@ import {
   searchFactsFts,
   touchFact,
   writeExplicitMemory,
-} from "../../../src/hlvm/memory/mod.ts";
-import { memory as memoryApi } from "../../../src/hlvm/api/memory.ts";
-import {
+  accessBoost,
   buildMemorySystemMessage,
   loadMemoryContext,
-} from "../../../src/hlvm/memory/manager.ts";
-import {
-  accessBoost,
   retrieveMemory,
+  sanitizeSensitiveContent,
   temporalDecay,
-} from "../../../src/hlvm/memory/retrieve.ts";
-import { sanitizeSensitiveContent } from "../../../src/hlvm/memory/store.ts";
+} from "../../../src/hlvm/memory/mod.ts";
+import { memory as memoryApi } from "../../../src/hlvm/api/memory.ts";
 import { reuseSession } from "../../../src/hlvm/agent/agent-runner.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import type { AgentSession } from "../../../src/hlvm/agent/session.ts";

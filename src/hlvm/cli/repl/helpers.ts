@@ -12,7 +12,7 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { getGlobalRecord } from "./string-utils.ts";
-import { appendExplicitMemoryNote, getExplicitMemoryPath } from "../../memory/explicit.ts";
+import { appendExplicitMemoryNote, getExplicitMemoryPath } from "../../memory/mod.ts";
 
 const { GREEN, YELLOW, CYAN, DIM_GRAY, RESET } = ANSI_COLORS;
 
