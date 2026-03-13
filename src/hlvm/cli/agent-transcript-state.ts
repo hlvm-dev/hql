@@ -137,6 +137,11 @@ function removeTransientInfoItems(
   );
 }
 
+/** Strip transient info items from state, returning a new state. */
+function withoutTransientItems(state: TranscriptState): TranscriptState {
+  return { ...state, items: removeTransientInfoItems(state.items) };
+}
+
 function cleanupTransientItems(items: ConversationItem[]): ConversationItem[] {
   return removeTransientInfoItems(items).flatMap((item) => {
     if (item.type === "thinking" && item.summary.trim().length === 0) return [];
@@ -650,10 +655,7 @@ export function reduceTranscriptState(
           };
         case "team_task_updated":
           return appendStructuredTeamInfoItem(
-            {
-              ...state,
-              items: removeTransientInfoItems(state.items),
-            },
+            withoutTransientItems(state),
             {
               teamEventType: "team_task_updated",
               taskId: event.taskId,
@@ -666,10 +668,7 @@ export function reduceTranscriptState(
           );
         case "team_message":
           return appendStructuredTeamInfoItem(
-            {
-              ...state,
-              items: removeTransientInfoItems(state.items),
-            },
+            withoutTransientItems(state),
             {
               teamEventType: "team_message",
               kind: event.kind,
@@ -682,10 +681,7 @@ export function reduceTranscriptState(
           );
         case "team_plan_review_required":
           return appendStructuredTeamInfoItem(
-            {
-              ...state,
-              items: removeTransientInfoItems(state.items),
-            },
+            withoutTransientItems(state),
             {
               teamEventType: "team_plan_review",
               approvalId: event.approvalId,
@@ -697,10 +693,7 @@ export function reduceTranscriptState(
           );
         case "team_plan_review_resolved":
           return appendStructuredTeamInfoItem(
-            {
-              ...state,
-              items: removeTransientInfoItems(state.items),
-            },
+            withoutTransientItems(state),
             {
               teamEventType: "team_plan_review",
               approvalId: event.approvalId,
@@ -713,10 +706,7 @@ export function reduceTranscriptState(
           );
         case "team_shutdown_requested":
           return appendStructuredTeamInfoItem(
-            {
-              ...state,
-              items: removeTransientInfoItems(state.items),
-            },
+            withoutTransientItems(state),
             {
               teamEventType: "team_shutdown",
               requestId: event.requestId,
@@ -729,10 +719,7 @@ export function reduceTranscriptState(
           );
         case "team_shutdown_resolved":
           return appendStructuredTeamInfoItem(
-            {
-              ...state,
-              items: removeTransientInfoItems(state.items),
-            },
+            withoutTransientItems(state),
             {
               teamEventType: "team_shutdown",
               requestId: event.requestId,
@@ -744,10 +731,7 @@ export function reduceTranscriptState(
           );
         case "batch_progress_updated":
           return appendInfoItem(
-            {
-              ...state,
-              items: removeTransientInfoItems(state.items),
-            },
+            withoutTransientItems(state),
             `Batch ${event.snapshot.batchId}: ${event.snapshot.running} running · ${event.snapshot.completed} completed · ${event.snapshot.errored} errored`,
           );
         case "plan_created":

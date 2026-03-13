@@ -28,16 +28,15 @@ function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
     throw new ValidationError("content is required", "memory_write");
   }
 
-  const requestedTarget = typeof record.target === "string"
+  const target = typeof record.target === "string"
     ? record.target
     : "memory";
-  if (requestedTarget !== "memory" && requestedTarget !== "journal") {
+  if (target !== "memory") {
     throw new ValidationError(
       'target must be "memory"',
       "memory_write",
     );
   }
-  const target = "memory";
 
   const section = typeof record.section === "string"
     ? record.section.trim()
@@ -52,13 +51,12 @@ function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
   });
 
   return Promise.resolve({
-      written: true,
-      target,
-      requestedTarget: requestedTarget === target ? undefined : requestedTarget,
-      section: section || undefined,
-      factId,
-      linkedEntities,
-      invalidated,
+    written: true,
+    target,
+    section: section || undefined,
+    factId,
+    linkedEntities,
+    invalidated,
   });
 }
 
@@ -266,7 +264,6 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
     returns: {
       written: "boolean",
       target: "string",
-      requestedTarget: "string (legacy alias when normalized)",
       section: "string (if provided)",
       factId: "number",
       linkedEntities: "number",

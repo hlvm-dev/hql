@@ -105,11 +105,13 @@ export function extractJsDocBlock(lines: string[], startIndex: number): { block:
   return { block: normalizeDocBlock(rawLines), endIndex };
 }
 
-export function normalizeDocBlock(lines: string[]): string {
+function normalizeDocBlock(lines: string[]): string {
   const indents = lines
     .filter((line) => line.trim().length > 0)
     .map((line) => line.match(/^\s*/)?.[0].length ?? 0);
-  const minIndent = indents.length > 0 ? Math.min(...indents) : 0;
+  const minIndent = indents.length > 0
+    ? indents.reduce((a, b) => (a < b ? a : b))
+    : 0;
   return lines.map((line) => line.slice(minIndent)).join('\n').trimEnd();
 }
 

@@ -389,21 +389,11 @@ export class ContextManager {
   }
 
   /**
-   * Get all messages as a defensive copy.
-   * Use getMessagesCopy() for explicit mutable copies.
+   * Get all messages as a defensive (shallow) copy.
    *
    * @returns Message array copy
    */
   getMessages(): Message[] {
-    return [...this.messages];
-  }
-
-  /**
-   * Get a mutable copy of all messages
-   *
-   * @returns Shallow copy of message array
-   */
-  getMessagesCopy(): Message[] {
     return [...this.messages];
   }
 

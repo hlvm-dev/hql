@@ -22,6 +22,7 @@ import { UsageTracker } from "./usage.ts";
 import { assertMaxBytes } from "../../common/limits.ts";
 import type { OrchestratorConfig } from "./orchestrator.ts";
 import type { CitationSourceEntry } from "./tools/web/citation-spans.ts";
+import type { EditFileRecovery } from "./error-taxonomy.ts";
 
 /** Result of tool execution */
 export interface ToolExecutionResult {
@@ -32,6 +33,7 @@ export interface ToolExecutionResult {
   returnDisplay?: string;
   error?: string;
   stopReason?: "plan_review_cancelled";
+  recovery?: EditFileRecovery;
 }
 
 /** Mutable state for the ReAct loop, consolidated from 16 local variables */

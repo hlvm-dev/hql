@@ -328,16 +328,16 @@ async function prebundleHqlImports(
     return source;
   }
 
-  let rebuilt = "";
+  const parts: string[] = [];
   let cursor = 0;
   for (const replacement of replacements) {
-    rebuilt += source.slice(cursor, replacement.start);
-    rebuilt += replacement.value;
+    parts.push(source.slice(cursor, replacement.start));
+    parts.push(replacement.value);
     cursor = replacement.end;
   }
-  rebuilt += source.slice(cursor);
+  parts.push(source.slice(cursor));
 
-  return rebuilt;
+  return parts.join("");
 }
 
 // Simplified process functions with shared logic

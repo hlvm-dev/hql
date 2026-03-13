@@ -113,10 +113,10 @@ export function isRecallMetaPrompt(input: string): boolean {
 export function isMeaningfulPrompt(input: string): boolean {
   const normalized = normalizePrompt(input);
   if (!normalized) return false;
-  if (LOW_SIGNAL_PROMPTS.has(normalized.toLowerCase())) return false;
-  if (GREETING_ONLY_PATTERN.test(normalized)) return false;
-  if (SLASH_COMMAND_PATTERN.test(normalized)) return false;
-  if (RECALL_META_PATTERNS.some((p) => p.test(normalized))) return false;
+  if (isLowSignalPrompt(input)) return false;
+  if (isGreetingOnlyPrompt(input)) return false;
+  if (isSlashCommandPrompt(input)) return false;
+  if (isRecallMetaPrompt(input)) return false;
   return true;
 }
 

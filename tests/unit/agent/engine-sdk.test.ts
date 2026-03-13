@@ -4,8 +4,11 @@ import {
   assertRejects,
 } from "jsr:@std/assert";
 import {
+  applyPromptCaching,
+  buildToolCallRepairFunction,
   getSdkModel,
   mapSdkToolCalls,
+  repairMalformedToolCallInput,
   SdkAgentEngine,
 } from "../../../src/hlvm/agent/engine-sdk.ts";
 import {
@@ -15,6 +18,7 @@ import {
 } from "../../../src/hlvm/providers/sdk-runtime.ts";
 import type { Message } from "../../../src/hlvm/agent/context.ts";
 import type { ToolDefinition } from "../../../src/hlvm/agent/llm-integration.ts";
+import { InvalidToolInputError, NoSuchToolError } from "ai";
 
 Deno.test("engine sdk: convertToSdkMessages preserves basic roles and assistant text", () => {
   const messages: Message[] = [
@@ -196,4 +200,167 @@ Deno.test("engine sdk: getSdkModel rejects unsupported provider prefixes", async
     Error,
     "Unsupported SDK provider",
   );
+});
+
+Deno.test("engine sdk: applyPromptCaching decorates anthropic system, last message, and last tool", () => {
+  const messages = convertToSdkMessages([
+    { role: "system", content: "You are helpful." },
+    { role: "user", content: "Read src/app.ts" },
+  ]);
+  const defs: ToolDefinition[] = [
+    {
+      type: "function",
+      function: {
+        name: "read_file",
+        description: "Read a file",
+        parameters: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "edit_file",
+        description: "Edit a file",
+        parameters: {
+          type: "object",
+          properties: { path: { type: "string" }, find: { type: "string" } },
+          required: ["path", "find"],
+        },
+      },
+    },
+  ];
+  const tools = convertToolDefinitionsToSdk(defs)!;
+  const decorated = applyPromptCaching(
+    { providerName: "anthropic", modelId: "claude-sonnet", providerConfig: null },
+    messages,
+    tools,
+    { anthropic: { thinking: { type: "enabled", budgetTokens: 1000 } } },
+    "tool-schema-signature",
+    "tool-filter-signature",
+  );
+
+  const systemProviderOptions = (decorated.messages[0] as Record<string, unknown>).providerOptions as Record<string, unknown>;
+  const lastMessageContent = (decorated.messages[1] as Record<string, unknown>).content as Array<Record<string, unknown>>;
+  const lastMessagePartOptions = lastMessageContent[0].providerOptions as Record<string, unknown>;
+  const lastTool = decorated.tools.edit_file as Record<string, unknown>;
+
+  assertEquals(
+    ((systemProviderOptions.anthropic as Record<string, unknown>).cacheControl as Record<string, unknown>).type,
+    "ephemeral",
+  );
+  assertEquals(
+    ((lastMessagePartOptions.anthropic as Record<string, unknown>).cacheControl as Record<string, unknown>).type,
+    "ephemeral",
+  );
+  assertEquals(
+    ((((lastTool.providerOptions as Record<string, unknown>).anthropic) as Record<string, unknown>).cacheControl as Record<string, unknown>).type,
+    "ephemeral",
+  );
+  assertEquals(
+    ((decorated.providerOptions?.anthropic as Record<string, unknown>).thinking as Record<string, unknown>).type,
+    "enabled",
+  );
+});
+
+Deno.test("engine sdk: applyPromptCaching adds stable openai promptCacheKey and preserves provider options", () => {
+  const messages = convertToSdkMessages([
+    { role: "system", content: "System prompt" },
+    { role: "user", content: "Hello" },
+  ]);
+  const defs: ToolDefinition[] = [
+    {
+      type: "function",
+      function: {
+        name: "read_file",
+        description: "Read a file",
+        parameters: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+        },
+      },
+    },
+  ];
+  const tools = convertToolDefinitionsToSdk(defs)!;
+
+  const first = applyPromptCaching(
+    { providerName: "openai", modelId: "gpt-5", providerConfig: null },
+    messages,
+    tools,
+    { openai: { reasoningEffort: "high" } },
+    "tool-schema-signature",
+    "tool-filter-signature",
+  );
+  const second = applyPromptCaching(
+    { providerName: "openai", modelId: "gpt-5", providerConfig: null },
+    messages,
+    tools,
+    { openai: { reasoningEffort: "high" } },
+    "tool-schema-signature",
+    "tool-filter-signature",
+  );
+
+  const firstOpenAI = first.providerOptions?.openai as Record<string, unknown>;
+  const secondOpenAI = second.providerOptions?.openai as Record<string, unknown>;
+  assertEquals(firstOpenAI.promptCacheKey, secondOpenAI.promptCacheKey);
+  assertEquals(firstOpenAI.reasoningEffort, "high");
+});
+
+Deno.test("engine sdk: malformed tool-call repair unwraps wrapped JSON args", () => {
+  assertEquals(
+    repairMalformedToolCallInput(
+      '{"input":"{\\"path\\":\\"foo.ts\\"}"}',
+    ),
+    '{"path":"foo.ts"}',
+  );
+});
+
+Deno.test("engine sdk: repair hook repairs invalid input but ignores unknown tools", async () => {
+  const repair = buildToolCallRepairFunction();
+
+  const repaired = await repair({
+    system: undefined,
+    messages: [],
+    toolCall: {
+      type: "tool-call",
+      toolCallId: "call_1",
+      toolName: "read_file",
+      input: '{"input":"{\\"path\\":\\"foo.ts\\"}"}',
+    },
+    tools: {},
+    inputSchema: async () => ({
+      type: "object",
+      properties: { path: { type: "string" } },
+      required: ["path"],
+    }),
+    error: new InvalidToolInputError({
+      toolName: "read_file",
+      toolInput: '{"input":"{\\"path\\":\\"foo.ts\\"}"}',
+      cause: new Error("bad input"),
+    }),
+  });
+  const ignored = await repair({
+    system: undefined,
+    messages: [],
+    toolCall: {
+      type: "tool-call",
+      toolCallId: "call_2",
+      toolName: "missing_tool",
+      input: '{"path":"foo.ts"}',
+    },
+    tools: {},
+    inputSchema: async () => ({
+      type: "object",
+      properties: { path: { type: "string" } },
+      required: ["path"],
+    }),
+    error: new NoSuchToolError({ toolName: "missing_tool" }),
+  });
+
+  assertEquals(repaired?.input, '{"path":"foo.ts"}');
+  assertEquals(ignored, null);
 });

@@ -59,8 +59,8 @@ export interface WebSearchBackend {
 // ============================================================
 
 export const LOW_CONFIDENCE_SCORE_THRESHOLD = 4;
-export const LOW_CONFIDENCE_DIVERSITY_THRESHOLD = 0.4;
-export const LOW_CONFIDENCE_COVERAGE_THRESHOLD = 0.55;
+const LOW_CONFIDENCE_DIVERSITY_THRESHOLD = 0.4;
+const LOW_CONFIDENCE_COVERAGE_THRESHOLD = 0.55;
 
 export function assessToolSearchConfidence(query: string, results: SearchResult[]) {
   return assessSearchConfidence(query, results, {

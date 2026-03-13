@@ -18,7 +18,7 @@ export enum ErrorType {
   UNKNOWN = "unknown",
 }
 
-export interface ErrorInfo {
+interface ErrorInfo {
   type: ErrorType;
   message: string;
   originalError?: string;

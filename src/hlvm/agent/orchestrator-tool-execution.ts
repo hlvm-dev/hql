@@ -59,6 +59,8 @@ import {
   getBatchSnapshot,
   registerBatch,
 } from "./delegate-batches.ts";
+import { buildEditFileRecovery } from "./error-taxonomy.ts";
+import { resolveToolPath } from "./path-utils.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import {
   createProcessAbortHandler,
@@ -248,6 +250,67 @@ async function executeToolWithTimeout(
     },
     { timeoutMs: timeout, label: "Tool execution", signal: parentSignal },
   );
+}
+
+function getStructuredFailureMessage(result: unknown): string | undefined {
+  if (!isObjectValue(result) || result.success !== false) return undefined;
+  if (typeof result.message === "string" && result.message.trim().length > 0) {
+    return result.message;
+  }
+  if (typeof result.error === "string" && result.error.trim().length > 0) {
+    return result.error;
+  }
+  return undefined;
+}
+
+async function maybeBuildEditFileRecoveryResult(
+  toolCall: ToolCall,
+  args: unknown,
+  result: unknown,
+  config: OrchestratorConfig,
+): Promise<import("./error-taxonomy.ts").EditFileRecovery | undefined> {
+  if (toolCall.toolName !== "edit_file") return undefined;
+
+  const errorMessage = getStructuredFailureMessage(result);
+  const argRecord = isObjectValue(args) ? args : null;
+  const path = typeof argRecord?.path === "string" ? argRecord.path : undefined;
+  const find = typeof argRecord?.find === "string" ? argRecord.find : undefined;
+  if (!errorMessage || !path || !find) return undefined;
+
+  try {
+    const resolvedPath = await resolveToolPath(
+      path,
+      config.workspace,
+      config.policy ?? null,
+    );
+    const fileContent = await getPlatform().fs.readTextFile(resolvedPath);
+    return buildEditFileRecovery({ path, find }, errorMessage, fileContent) ??
+      undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildEditFileAutoRetryArgs(
+  args: unknown,
+  recovery: import("./error-taxonomy.ts").EditFileRecovery | undefined,
+): Record<string, unknown> | null {
+  if (!recovery?.closestCurrentLine || !isObjectValue(args)) return null;
+
+  const find = typeof args.find === "string" ? args.find : undefined;
+  const replace = typeof args.replace === "string" ? args.replace : undefined;
+  const mode = typeof args.mode === "string" ? args.mode : undefined;
+  if (!find || mode === "regex") return null;
+  if (find.includes("\n") || find.includes("\r")) return null;
+
+  const nextFind = recovery.closestCurrentLine.trim();
+  if (!nextFind || nextFind === find.trim()) return null;
+  if (replace && nextFind === replace.trim()) return null;
+
+  return {
+    ...args,
+    find: recovery.closestCurrentLine,
+  };
 }
 
 /**
@@ -851,10 +914,10 @@ export async function executeToolCall(
     // Execute tool (with timeout)
     const tool = getTool(toolCall.toolName, config.toolOwnerId);
     const toolTimeout = config.toolTimeout ?? DEFAULT_TIMEOUTS.tool;
-    const runTool = () =>
+    const runTool = (args: unknown = coercedArgs) =>
       executeToolWithTimeout(
         tool.fn,
-        coercedArgs,
+        args,
         config.workspace,
         toolTimeout,
         config.policy ?? null,
@@ -894,6 +957,23 @@ export async function executeToolCall(
       result = await runTool();
     }
 
+    let executedArgs = coercedArgs;
+    let recovery = await maybeBuildEditFileRecoveryResult(
+      toolCall,
+      executedArgs,
+      result,
+      config,
+    );
+    const retryArgs = buildEditFileAutoRetryArgs(executedArgs, recovery);
+    if (retryArgs) {
+      const retriedResult = await runTool(retryArgs);
+      if (isSuccessfulToolPayload(retriedResult)) {
+        result = retriedResult;
+        executedArgs = retryArgs;
+        recovery = undefined;
+      }
+    }
+
     if (isFileWriteTool(toolCall.toolName) && isSuccessfulToolPayload(result)) {
       const verification = await maybeVerifySyntax(toolCall, config);
       if (verification) {
@@ -906,7 +986,6 @@ export async function executeToolCall(
       result,
       config,
     );
-
     if (
       toolCall.toolName === "report_result" &&
       config.coordinationBoard &&
@@ -977,7 +1056,7 @@ export async function executeToolCall(
       summaryDisplay,
       returnDisplay,
       startedAt,
-      coercedArgs,
+      executedArgs,
       result,
     );
 
@@ -1167,6 +1246,7 @@ export async function executeToolCall(
       llmContent,
       summaryDisplay,
       returnDisplay,
+      recovery,
     };
   } catch (error) {
     return buildToolErrorResult(

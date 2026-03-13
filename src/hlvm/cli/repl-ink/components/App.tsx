@@ -161,16 +161,16 @@ interface AppProps {
 
 const GLOBAL_KEYBINDING_CATEGORIES = ["Global"] as const;
 
-export function usesConversationContext(surfacePanel: string): boolean {
+function usesConversationContext(surfacePanel: string): boolean {
   return surfacePanel === "conversation";
 }
 
-export function usesStandaloneSurfacePanel(surfacePanel: string): boolean {
+function usesStandaloneSurfacePanel(surfacePanel: string): boolean {
   return surfacePanel === "picker" || surfacePanel === "models" ||
     surfacePanel === "model-setup";
 }
 
-export function isModalOverlayPanel(panel: string): boolean {
+function isModalOverlayPanel(panel: string): boolean {
   return panel === "palette" || panel === "config-overlay" ||
     panel === "tasks-overlay" || panel === "team-dashboard" ||
     panel === "shortcuts-overlay";

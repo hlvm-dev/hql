@@ -15,13 +15,13 @@ interface UseReplOptions {
   state?: ReplState;
 }
 
-export interface EvaluateOptions {
+interface EvaluateOptions {
   attachments?: AnyAttachment[];
   /** AbortSignal for cancellation support */
   signal?: AbortSignal;
 }
 
-export interface UseReplReturn {
+interface UseReplReturn {
   evaluate: (code: string, options?: EvaluateOptions) => Promise<EvalResult>;
   reset: () => void;
   state: ReplState;

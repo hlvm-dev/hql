@@ -240,20 +240,21 @@ export function inspectHandlerKeybinding(
  * "Ctrl+G" -> "ctrl+g"
  * "⌥G" -> "alt+g"
  */
+const SPECIAL_DISPLAY_MAP: Readonly<Record<string, string>> = {
+  tab: "tab",
+  enter: "enter",
+  esc: "esc",
+  escape: "esc",
+  up: "up",
+  down: "down",
+  left: "left",
+  right: "right",
+  backspace: "backspace",
+  delete: "delete",
+};
+
 function displayToCombo(display: string): string | null {
   const normalizedDisplay = display.toLowerCase().trim();
-  const SPECIAL_DISPLAY_MAP: Readonly<Record<string, string>> = {
-    tab: "tab",
-    enter: "enter",
-    esc: "esc",
-    escape: "esc",
-    up: "up",
-    down: "down",
-    left: "left",
-    right: "right",
-    backspace: "backspace",
-    delete: "delete",
-  };
   if (SPECIAL_DISPLAY_MAP[normalizedDisplay]) {
     return SPECIAL_DISPLAY_MAP[normalizedDisplay];
   }

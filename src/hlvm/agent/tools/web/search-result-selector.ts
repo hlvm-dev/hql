@@ -100,15 +100,7 @@ const LIFECYCLE_SIGNAL_TERMS = [
   "lifecycle",
   "support status",
 ];
-const COMPARISON_SIGNAL_TERMS = [
-  "compare",
-  "comparison",
-  "difference",
-  "tradeoff",
-  "tradeoffs",
-  "versus",
-  "vs",
-];
+
 const COMPOUND_TERM_RE = /\b[a-z0-9]+(?:[._-][a-z0-9]+)+\b/gi;
 
 const SELECT_RESULTS_TOOL: ToolDefinition = {
@@ -357,7 +349,7 @@ function backfillIndices(
   return completed;
 }
 
-function hasAnyTerm(text: string, terms: string[]): boolean {
+function hasAnyTerm(text: string, terms: readonly string[]): boolean {
   return terms.some((term) => text.includes(term));
 }
 
@@ -400,7 +392,7 @@ function hasLifecycleSignal(result: SearchResult): boolean {
 function hasComparisonSignal(result: SearchResult): boolean {
   const title = normalizeMatchText(result.title);
   const snippet = normalizeMatchText(result.snippet);
-  return hasAnyTerm(`${title} ${snippet}`, COMPARISON_SIGNAL_TERMS);
+  return hasAnyTerm(`${title} ${snippet}`, COMPARISON_TERMS);
 }
 
 function hostCompoundTermMatches(

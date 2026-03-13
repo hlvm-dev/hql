@@ -39,7 +39,7 @@ import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 import { runAgentQueryViaHost } from "../../runtime/host-client.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
-import { modelSupportsVision } from "../model-capabilities.ts";
+import { checkModelAttachmentPaths } from "../attachment-policy.ts";
 import type {
   DelegateTranscriptSnapshot,
 } from "../../agent/delegate-transcript.ts";
@@ -72,7 +72,7 @@ EXAMPLES:
   hlvm ask --json "count test files"     # Stream NDJSON events for automation
   hlvm ask --model openai/gpt-4o "summarize this codebase"
   hlvm ask --model anthropic/claude-sonnet-4-5-20250929 "list files"
-  hlvm ask --fresh "hello"               # Start fresh (no prior session context)
+  hlvm ask --fresh "hello"               # Start fresh (no prior session history)
 
 OPTIONS:
   --help, -h                   Show this help message
@@ -81,7 +81,7 @@ OPTIONS:
   --usage                      Show token usage summary after execution
   --attach <path>              Attach image/audio/video/PDF input (repeatable)
   --model <provider/model>     Use a specific AI model (e.g., openai/gpt-4o, anthropic/claude-sonnet-4-5-20250929)
-  --fresh                      Start a fresh session (no prior context)
+  --fresh                      Start a fresh session (no prior session history)
   --auto-edit                  Auto-approve file reads and writes; only confirm destructive ops
   --dangerously-skip-permissions  Skip ALL permission prompts (like Claude Code --dangerously-skip-permissions)
 `);
@@ -220,7 +220,7 @@ interface FormattedToolOutput {
   truncated: boolean;
 }
 
-export function formatToolOutputForDefaultMode(
+function formatToolOutputForDefaultMode(
   toolName: string,
   content: string,
 ): FormattedToolOutput {
@@ -257,7 +257,7 @@ export function formatToolOutputForDefaultMode(
   return { text, truncated };
 }
 
-export function summarizeToolEventForDefaultMode(
+function summarizeToolEventForDefaultMode(
   toolName: string,
   summary?: string,
   content?: string,
@@ -297,7 +297,7 @@ export interface CloudAuthRecoveryResult {
   streamedTokens: boolean;
 }
 
-export type AskJsonEvent =
+type AskJsonEvent =
   | { type: "token"; text: string }
   | { type: "agent_event"; event: AgentUIEvent }
   | {
@@ -477,9 +477,13 @@ export async function askCommand(args: string[]): Promise<void> {
   const attachmentPaths = await resolveAskAttachmentPaths(attachmentArgs);
 
   if (!fixturePath && attachmentPaths?.length) {
-    const visionCheck = await modelSupportsVision(resolvedModel, null);
-    if (!visionCheck.supported) {
-      if (visionCheck.catalogFailed) {
+    const attachmentSupport = await checkModelAttachmentPaths(
+      resolvedModel,
+      attachmentPaths,
+      null,
+    );
+    if (!attachmentSupport.supported) {
+      if (attachmentSupport.catalogFailed) {
         throw new ValidationError(
           "Could not verify model media-attachment support. Check provider connection and try again.",
           "ask",

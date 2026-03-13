@@ -37,7 +37,9 @@ export function evaluateProviderApproval(
   approvedProviders: readonly string[] | undefined,
 ): ProviderApprovalDecision {
   const provider = extractProvider(modelId);
-  const label = getProviderApprovalLabel(modelId);
+  const label = provider
+    ? (PROVIDER_LABELS[provider] ?? provider)
+    : null;
 
   if (!provider || !PAID_PROVIDERS.has(provider)) {
     return {

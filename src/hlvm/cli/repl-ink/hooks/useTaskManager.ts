@@ -20,7 +20,7 @@ import {
 // Types
 // ============================================================
 
-export interface UseTaskManagerReturn {
+interface UseTaskManagerReturn {
   /** All tasks */
   tasks: Task[];
   /** Eval tasks only */

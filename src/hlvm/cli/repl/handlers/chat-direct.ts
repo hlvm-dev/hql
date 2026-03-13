@@ -19,7 +19,6 @@ import {
   buildChatProviderMessages,
   shouldHonorRequestMessages,
 } from "./chat-context.ts";
-export { modelSupportsTools } from "../../model-capabilities.ts";
 
 /** Drain a token iterator with abort support, forwarding each chunk. */
 async function drainTokenStream(

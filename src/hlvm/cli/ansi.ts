@@ -27,9 +27,11 @@ function getTerminalClearSequence(
   return clearScrollback ? "\x1b[3J\x1b[2J\x1b[H" : "\x1b[2J\x1b[H";
 }
 
+// Module-level encoder avoids per-call allocation (TextEncoder is stateless and reusable)
+const textEncoder = new TextEncoder();
+
 function writeTerminalSequence(sequence: string): void {
-  const encoder = new TextEncoder();
-  getPlatform().terminal.stdout.writeSync(encoder.encode(sequence));
+  getPlatform().terminal.stdout.writeSync(textEncoder.encode(sequence));
 }
 
 /**

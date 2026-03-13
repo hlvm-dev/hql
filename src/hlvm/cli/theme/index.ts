@@ -72,14 +72,16 @@ function hexToAnsi(hex: string): string {
 
 const ANSI_RESET = "\x1b[0m";
 
-/**
- * Get current theme from config API snapshot (sync)
- * @internal Used by getThemedAnsi
- */
-function getCurrentTheme(): ThemePalette {
-  const themeName = getCurrentThemeName();
-  return THEMES[themeName] || THEMES.sicp;
-}
+// Single-entry caches keyed on theme name — avoids rebuilding identical objects
+// every keystroke while still updating when the user switches themes.
+let _themedAnsiCache: {
+  key: string;
+  value: Record<keyof ThemePalette | "reset", string>;
+} | null = null;
+let _syntaxAnsiCache: {
+  key: string;
+  value: Record<string, string> & { reset: string };
+} | null = null;
 
 /**
  * Get themed ANSI escape codes for raw terminal output.
@@ -92,8 +94,12 @@ function getCurrentTheme(): ThemePalette {
  * ```
  */
 export function getThemedAnsi(): Record<keyof ThemePalette | "reset", string> {
-  const theme = getCurrentTheme();
-  return {
+  const themeName = getCurrentThemeName();
+  if (_themedAnsiCache && _themedAnsiCache.key === themeName) {
+    return _themedAnsiCache.value;
+  }
+  const theme = THEMES[themeName] || THEMES.sicp;
+  const value = {
     primary: hexToAnsi(theme.primary),
     secondary: hexToAnsi(theme.secondary),
     accent: hexToAnsi(theme.accent),
@@ -105,12 +111,18 @@ export function getThemedAnsi(): Record<keyof ThemePalette | "reset", string> {
     bg: hexToAnsi(theme.bg),
     reset: ANSI_RESET,
   };
+  _themedAnsiCache = { key: themeName, value };
+  return value;
 }
 
 /** Syntax token -> themed ANSI color mapping for REPL highlighting */
 export function getSyntaxAnsi(): Record<string, string> & { reset: string } {
-  const theme = getCurrentTheme();
-  return {
+  const themeName = getCurrentThemeName();
+  if (_syntaxAnsiCache && _syntaxAnsiCache.key === themeName) {
+    return _syntaxAnsiCache.value;
+  }
+  const theme = THEMES[themeName] || THEMES.sicp;
+  const value = {
     keyword: hexToAnsi(theme.primary),
     macro: hexToAnsi(theme.secondary),
     string: hexToAnsi(theme.secondary),
@@ -123,4 +135,6 @@ export function getSyntaxAnsi(): Record<string, string> & { reset: string } {
     functionCall: hexToAnsi(theme.primary),
     reset: ANSI_RESET,
   };
+  _syntaxAnsiCache = { key: themeName, value };
+  return value;
 }

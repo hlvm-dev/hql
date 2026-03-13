@@ -12,7 +12,7 @@ import {
   isStructuredTeamInfoItem,
 } from "../types.ts";
 
-export interface WorkerStatus {
+interface WorkerStatus {
   id: string;
   nickname: string;
   agent: string;
@@ -22,7 +22,7 @@ export interface WorkerStatus {
   threadId?: string;
 }
 
-export interface AttentionItem {
+interface AttentionItem {
   id: string;
   kind:
     | "worker_failed"
@@ -33,7 +33,7 @@ export interface AttentionItem {
   timestamp: number;
 }
 
-export interface TaskBoardItem {
+interface TaskBoardItem {
   id: string;
   goal: string;
   status: string;
@@ -44,7 +44,7 @@ export interface TaskBoardItem {
   delegateThreadId?: string;
 }
 
-export interface TeamMemberItem {
+interface TeamMemberItem {
   id: string;
   agent: string;
   role: "lead" | "worker";
@@ -53,7 +53,7 @@ export interface TeamMemberItem {
   currentTaskGoal?: string;
 }
 
-export interface PendingApprovalItem {
+interface PendingApprovalItem {
   id: string;
   taskId: string;
   taskGoal?: string;
@@ -62,7 +62,7 @@ export interface PendingApprovalItem {
   reviewedByMemberId?: string;
 }
 
-export interface ShutdownItem {
+interface ShutdownItem {
   id: string;
   memberId: string;
   requestedByMemberId: string;

@@ -5,7 +5,7 @@
  * Pure functions only: no React/Ink dependency.
  */
 
-export interface ConversationViewport {
+interface ConversationViewport {
   start: number;
   end: number;
   hiddenAbove: number;

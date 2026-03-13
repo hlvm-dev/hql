@@ -92,7 +92,7 @@ This document covers **Agent Memory** only. The other two are trivial and self-c
 └── memory.db       # SQLite — auto-learned facts, entities, relationships
 ```
 
-No journal directory. No index.sqlite. Two files only.
+No index.sqlite. Two files only.
 
 ---
 

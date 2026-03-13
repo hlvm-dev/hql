@@ -16,7 +16,7 @@ import type {
   StreamingState,
 } from "../types.ts";
 
-export interface UseConversationResult {
+interface UseConversationResult {
   items: ConversationItem[];
   streamingState: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };

@@ -47,12 +47,9 @@ export function sanitizeSensitiveContent(
   const stripped: string[] = [];
   let sanitized = text;
   for (const { pattern, label } of SENSITIVE_PATTERNS) {
-    pattern.lastIndex = 0;
-    if (pattern.test(sanitized)) {
-      stripped.push(label);
-      pattern.lastIndex = 0;
-      sanitized = sanitized.replace(pattern, `[REDACTED:${label}]`);
-    }
+    const before = sanitized;
+    sanitized = sanitized.replace(pattern, `[REDACTED:${label}]`);
+    if (sanitized !== before) stripped.push(label);
   }
   return { sanitized, stripped };
 }

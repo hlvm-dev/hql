@@ -35,8 +35,14 @@ import { withDelegateTranscriptSnapshot } from "../../../src/hlvm/agent/delegate
 import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
 import { clearAllL1Confirmations } from "../../../src/hlvm/agent/security/safety.ts";
 import { UsageTracker } from "../../../src/hlvm/agent/usage.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
+import {
+  cleanupWorkspaceDir,
+  ensureWorkspaceDir,
+} from "./workspace-test-helpers.ts";
 
 const TEST_WORKSPACE = "/tmp/hlvm-test-orchestrator";
+const platform = () => getPlatform();
 
 type ToolDefinition = (typeof TOOL_REGISTRY)[string];
 
@@ -71,6 +77,26 @@ async function withTemporaryTool<T>(
       delete TOOL_REGISTRY[name];
     }
   }
+}
+
+async function withWorkspace(fn: () => Promise<void>): Promise<void> {
+  await ensureWorkspaceDir(TEST_WORKSPACE);
+  try {
+    await fn();
+  } finally {
+    await cleanupWorkspaceDir(TEST_WORKSPACE);
+  }
+}
+
+async function writeWorkspaceFile(
+  path: string,
+  content: string,
+): Promise<void> {
+  const fullPath = `${TEST_WORKSPACE}/${path}`;
+  await platform().fs.mkdir(platform().path.dirname(fullPath), {
+    recursive: true,
+  });
+  await platform().fs.writeTextFile(fullPath, content);
 }
 
 function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
@@ -264,6 +290,78 @@ Deno.test({
       (readResult.result as { items: Array<{ id: string }> }).items[0]?.id,
       "step-1",
     );
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: executeToolCall auto-retries edit_file using the closest current line",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+
+    await withWorkspace(async () => {
+      await writeWorkspaceFile("src/app.ts", "export const currentValue = 1;\n");
+
+      const result = await executeToolCall(
+        {
+          toolName: "edit_file",
+          args: {
+            path: "src/app.ts",
+            find: "export const oldValue = 1;",
+            replace: "export const newValue = 2;",
+          },
+        },
+        {
+          workspace: TEST_WORKSPACE,
+          context,
+          permissionMode: "yolo",
+        },
+      );
+
+      assertEquals(result.success, true);
+      assertEquals(result.recovery, undefined);
+      assertEquals(
+        await platform().fs.readTextFile(`${TEST_WORKSPACE}/src/app.ts`),
+        "export const newValue = 2;\n",
+      );
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: executeToolCall keeps edit_file recovery when the closest line already matches replace",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+
+    await withWorkspace(async () => {
+      await writeWorkspaceFile("src/app.ts", "export const newValue = 2;\n");
+
+      const result = await executeToolCall(
+        {
+          toolName: "edit_file",
+          args: {
+            path: "src/app.ts",
+            find: "export const oldValue = 1;",
+            replace: "export const newValue = 2;",
+          },
+        },
+        {
+          workspace: TEST_WORKSPACE,
+          context,
+          permissionMode: "yolo",
+        },
+      );
+
+      assertEquals(result.success, true);
+      assertEquals(result.recovery?.kind, "edit_file_target_not_found");
+      assertEquals(
+        await platform().fs.readTextFile(`${TEST_WORKSPACE}/src/app.ts`),
+        "export const newValue = 2;\n",
+      );
+    });
   },
 });
 

@@ -272,6 +272,34 @@ function registerFunctionOrMacro(list: SList, head: string): void {
   }
 }
 
+/**
+ * Detect whether a binding list uses vector/hash-map prefix and is a destructuring pattern.
+ * Shared between registerBinding (Phase 1) and transformLetExpr (Phase 2) to avoid
+ * duplicated pattern-detection logic.
+ *
+ * @returns strippedBindings with vector prefix removed if present, and isPattern flag
+ */
+function classifyBindingList(
+  bindingList: SList,
+): { strippedBindings: SList; hadVectorPrefix: boolean; hadHashMapPrefix: boolean; isPattern: boolean } {
+  const hadVectorPrefix = bindingList.elements.length > 0 &&
+    isSymbol(bindingList.elements[0]) &&
+    ((bindingList.elements[0] as SSymbol).name === VECTOR_SYMBOL ||
+      (bindingList.elements[0] as SSymbol).name === EMPTY_ARRAY_SYMBOL);
+  const hadHashMapPrefix = bindingList.elements.length > 0 &&
+    isSymbol(bindingList.elements[0]) &&
+    (bindingList.elements[0] as SSymbol).name === "hash-map";
+
+  const strippedBindings = hadVectorPrefix
+    ? { ...bindingList, elements: bindingList.elements.slice(1) } as SList
+    : bindingList;
+
+  const isPattern = (hadVectorPrefix || hadHashMapPrefix) &&
+    couldBePattern(strippedBindings);
+
+  return { strippedBindings, hadVectorPrefix, hadHashMapPrefix, isPattern };
+}
+
 function registerBinding(list: SList, bindingKeyword: string): void {
   try {
     if (list.elements.length === 3 && isSymbol(list.elements[1])) {
@@ -288,24 +316,7 @@ function registerBinding(list: SList, bindingKeyword: string): void {
         `Registered ${bindingKeyword} binding: ${varName} with type ${dataType}`,
       );
     } else if (list.elements.length > 1 && isList(list.elements[1])) {
-      let bindings = list.elements[1] as SList;
-      const hadVectorPrefix = bindings.elements.length > 0 &&
-        isSymbol(bindings.elements[0]) &&
-        ((bindings.elements[0] as SSymbol).name === VECTOR_SYMBOL ||
-          (bindings.elements[0] as SSymbol).name === EMPTY_ARRAY_SYMBOL);
-      const hadHashMapPrefix = bindings.elements.length > 0 &&
-        isSymbol(bindings.elements[0]) &&
-        (bindings.elements[0] as SSymbol).name === "hash-map";
-
-      if (hadVectorPrefix) {
-        bindings = {
-          ...bindings,
-          elements: bindings.elements.slice(1),
-        } as SList;
-      }
-
-      const isPattern = (hadVectorPrefix || hadHashMapPrefix) &&
-        couldBePattern(bindings);
+      const { strippedBindings: bindings, isPattern } = classifyBindingList(list.elements[1] as SList);
 
       if (
         !isPattern && bindings.elements.length > 0 &&
@@ -759,33 +770,7 @@ function transformLetExpr(
 
     // Check for local binding form with binding vector or hash-map
     if (list.elements.length >= 2 && isList(list.elements[1])) {
-      let bindingList = list.elements[1] as SList;
-
-      // Track if this was originally vector syntax [...] or hash-map syntax {...}
-      // Only these syntaxes should be treated as destructuring patterns!
-      const hadVectorPrefix = bindingList.elements.length > 0 &&
-        isSymbol(bindingList.elements[0]) &&
-        ((bindingList.elements[0] as SSymbol).name === VECTOR_SYMBOL ||
-          (bindingList.elements[0] as SSymbol).name === EMPTY_ARRAY_SYMBOL);
-
-      const hadHashMapPrefix = bindingList.elements.length > 0 &&
-        isSymbol(bindingList.elements[0]) &&
-        (bindingList.elements[0] as SSymbol).name === "hash-map";
-
-      // Handle vector notation: [x 10 y 20] is parsed as (vector x 10 y 20)
-      // Skip the "vector" symbol if present
-      // Note: For hash-map, we keep the symbol because couldBePattern expects it
-      if (hadVectorPrefix) {
-        bindingList = {
-          ...bindingList,
-          elements: bindingList.elements.slice(1),
-        } as SList;
-      }
-
-      // Check if this is a destructuring pattern
-      // Only treat as pattern if it came from vector syntax [...] or hash-map syntax {...}
-      const isPattern = (hadVectorPrefix || hadHashMapPrefix) &&
-        couldBePattern(bindingList);
+      const { strippedBindings: bindingList, isPattern } = classifyBindingList(list.elements[1] as SList);
 
       // Validate that binding list has even number of elements (only for multi-binding forms)
       // Empty bindings and patterns are allowed

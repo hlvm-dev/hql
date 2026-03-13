@@ -19,7 +19,7 @@ Deno.test("context: message management records timestamps, copies, filters, and 
   context.addMessage({ role: "user", content: "Later", timestamp: explicitTimestamp });
 
   const firstCopy = context.getMessages();
-  const secondCopy = context.getMessagesCopy();
+  const secondCopy = context.getMessages();
   const stats = context.getStats();
 
   assertEquals(firstCopy.length, 5);

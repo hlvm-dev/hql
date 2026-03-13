@@ -36,7 +36,7 @@ import type { MessageRow } from "../../../store/types.ts";
 import { detectMimeType } from "../attachment.ts";
 import type { ChatRequest } from "./chat-session.ts";
 
-export type ReplayMessage = AgentMessage;
+type ReplayMessage = AgentMessage;
 
 interface BuildReplayMessagesOptions {
   requestMessages: ChatRequest["messages"];
@@ -62,12 +62,12 @@ interface BuildStoredAgentHistoryOptions {
   modelKey?: string;
 }
 
-export interface BuildChatProviderMessagesResult {
+interface BuildChatProviderMessagesResult {
   messages: ProviderMessage[];
   resolvedContextBudget: ResolvedBudget;
 }
 
-export interface PersistableRequestMessage {
+interface PersistableRequestMessage {
   role: "system" | "user" | "assistant";
   content: string;
   imagePaths?: string[];

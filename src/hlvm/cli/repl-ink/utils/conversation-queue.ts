@@ -15,12 +15,12 @@ export interface ConversationComposerDraft {
 
 export type ConversationQueueEditBinding = "alt-up" | "shift-left";
 
-export interface QueueShiftResult {
+interface QueueShiftResult {
   draft?: ConversationComposerDraft;
   remaining: ConversationComposerDraft[];
 }
 
-export interface RenumberDraftResult {
+interface RenumberDraftResult {
   draft: ConversationComposerDraft;
   nextAttachmentId: number;
 }
@@ -110,6 +110,12 @@ function replaceAttachmentDisplayName(
   };
 }
 
+// O(1) whitespace check via charCode (avoids regex engine per character)
+function isWhitespace(ch: string): boolean {
+  const c = ch.charCodeAt(0);
+  return c === 32 || c === 9 || c === 10 || c === 13 || c === 12;
+}
+
 export function trimConversationDraftText(
   text: string,
   cursorOffset = text.length,
@@ -117,10 +123,10 @@ export function trimConversationDraftText(
   let start = 0;
   let end = text.length;
 
-  while (start < end && /\s/u.test(text[start])) {
+  while (start < end && isWhitespace(text[start])) {
     start += 1;
   }
-  while (end > start && /\s/u.test(text[end - 1])) {
+  while (end > start && isWhitespace(text[end - 1])) {
     end -= 1;
   }
 

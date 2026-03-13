@@ -27,8 +27,8 @@ import { getPermissionMode } from "../../../../common/config/selectors.ts";
 import {
   buildClaudeCodeCommand,
   captureSessionIdFromInitEvent,
-  isSessionMemoryEnabled,
   parseSessionMemoryMetadata,
+  resolveSessionMemoryEnabled,
 } from "./session-memory.ts";
 import type { ChatRequest } from "./chat-session.ts";
 import {
@@ -409,8 +409,9 @@ export async function handleClaudeCodeAgentMode(
   }
 
   const cfgSnapshot = config.snapshot;
-  const sessionMemoryEnabled = isSessionMemoryEnabled(
+  const sessionMemoryEnabled = resolveSessionMemoryEnabled(
     cfgSnapshot.sessionMemory,
+    body.disable_persistent_memory === true,
   );
 
   let claudeCodeSessionId: string | null = null;

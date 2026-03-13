@@ -343,8 +343,7 @@ export async function runAgentQuery(
     toolDenylist = [...DEFAULT_TOOL_DENYLIST],
     skipSessionHistory = false,
   } = options;
-  const disablePersistentMemory = options.disablePersistentMemory ??
-    skipSessionHistory;
+  const disablePersistentMemory = options.disablePersistentMemory === true;
   const permissionMode: AgentExecutionMode = options.permissionMode ??
     "default";
   let model = options.model ?? getConfiguredModel();

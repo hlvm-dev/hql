@@ -31,8 +31,6 @@ export type {
 export {
   refreshKeybindingLookup,
   inspectHandlerKeybinding,
-  matchCustomKeybinding,
-  isDefaultDisabled,
   normalizeKeyInput,
 } from "./keybinding-lookup.ts";
 

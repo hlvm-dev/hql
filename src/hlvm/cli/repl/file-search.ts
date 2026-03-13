@@ -32,7 +32,7 @@ export interface FileMatch {
   matchIndices: number[];
 }
 
-export interface FileIndex {
+interface FileIndex {
   files: string[];
   dirs: string[];
   timestamp: number;

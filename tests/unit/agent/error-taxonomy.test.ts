@@ -6,8 +6,10 @@ import {
   NoSuchModelError,
 } from "ai";
 import {
+  buildEditFileRecovery,
   classifyError,
   getRecoveryHint,
+  renderEditFileRecoveryPrompt,
 } from "../../../src/hlvm/agent/error-taxonomy.ts";
 import { TimeoutError } from "../../../src/common/timeout-utils.ts";
 
@@ -132,4 +134,43 @@ Deno.test("error taxonomy: recovery hints cover network, auth, schema, and user-
     "alternative approach",
   );
   assertEquals(getRecoveryHint("Some completely novel error"), null);
+});
+
+Deno.test("error taxonomy: buildEditFileRecovery produces a structured recovery payload for missing edit targets", () => {
+  const recovery = buildEditFileRecovery(
+    {
+      path: "src/app.ts",
+      find: "const oldValue = 1;",
+    },
+    "Pattern not found in file: const oldValue = 1;",
+    [
+      "export const newValue = 2;",
+      "function run() {",
+      "  return newValue;",
+      "}",
+    ].join("\n"),
+  );
+
+  assertEquals(recovery?.kind, "edit_file_target_not_found");
+  assertEquals(recovery?.path, "src/app.ts");
+  assertStringIncludes(recovery?.excerpt ?? "", "newValue");
+  assertEquals(recovery?.closestCurrentLine, "export const newValue = 2;");
+
+  const prompt = recovery ? renderEditFileRecoveryPrompt(recovery) : "";
+  assertStringIncludes(prompt, "could not find its target");
+  assertStringIncludes(prompt, "Closest current line in the file:");
+  assertStringIncludes(prompt, "exact line as your next find string");
+});
+
+Deno.test("error taxonomy: buildEditFileRecovery ignores unrelated edit errors", () => {
+  const recovery = buildEditFileRecovery(
+    {
+      path: "src/app.ts",
+      find: "const oldValue = 1;",
+    },
+    "Permission denied: src/app.ts",
+    "export const newValue = 2;",
+  );
+
+  assertEquals(recovery, null);
 });

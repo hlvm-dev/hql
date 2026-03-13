@@ -1,16 +1,16 @@
 import type { InteractionRequestEvent } from "../../../../agent/registry.ts";
 
-export const CONFIRMATION_DIALOG_MAX_ARG_LINES = 10;
+const CONFIRMATION_DIALOG_MAX_ARG_LINES = 10;
 export const QUESTION_DIALOG_HINT =
   "Answer at answer> below, then press Enter";
 
-export interface ConfirmationDialogDisplay {
+interface ConfirmationDialogDisplay {
   isPlanReview: boolean;
   visibleArgLines: string[];
   hiddenArgLines: number;
 }
 
-export function estimateWrappedTextRows(text: string, width: number): number {
+function estimateWrappedTextRows(text: string, width: number): number {
   if (!text) return 0;
   const usableWidth = Math.max(1, width);
   return text.split("\n").reduce((rows: number, line: string) => {
@@ -48,7 +48,7 @@ export function getConfirmationDialogDisplay(
   };
 }
 
-export function estimateConfirmationDialogRows(
+function estimateConfirmationDialogRows(
   toolName: string | undefined,
   toolArgs: string | undefined,
   width: number,
@@ -76,7 +76,7 @@ export function estimateConfirmationDialogRows(
   return rows + 2; // border + spacing
 }
 
-export function estimateQuestionDialogRows(
+function estimateQuestionDialogRows(
   question: string | undefined,
   width: number,
 ): number {
@@ -91,7 +91,7 @@ export function estimateQuestionDialogRows(
   return rows + 2; // border + spacing
 }
 
-export function estimateInteractionDialogRows(
+function estimateInteractionDialogRows(
   request: InteractionRequestEvent | undefined,
   width: number,
 ): number {

@@ -28,6 +28,7 @@ import {
   isInsideIIFE,
 } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { createEarlyReturnObject } from "../utils/return-helpers.ts";
+import { STATEMENT_TYPES } from "../constants/index.ts";
 import {
   containsNodeTypeInScope,
 } from "../utils/ir-tree-walker.ts";
@@ -46,18 +47,7 @@ const NON_VALUE_STATEMENT_TYPES = new Set([
   IR.IRNodeType.ForOfStatement,
 ]);
 
-const STATEMENT_TYPES = new Set([
-  IR.IRNodeType.ExpressionStatement,
-  IR.IRNodeType.VariableDeclaration,
-  IR.IRNodeType.ReturnStatement,
-  IR.IRNodeType.IfStatement,
-  IR.IRNodeType.WhileStatement,
-  IR.IRNodeType.ForStatement,
-  IR.IRNodeType.ForOfStatement,
-  IR.IRNodeType.ContinueStatement,
-  IR.IRNodeType.BreakStatement,
-  IR.IRNodeType.ThrowStatement,
-]);
+// STATEMENT_TYPES imported from ../constants/index.ts
 
 const CONTROL_FLOW_STATEMENT_TYPES = new Set([
   IR.IRNodeType.ReturnStatement,

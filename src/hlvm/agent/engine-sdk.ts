@@ -9,13 +9,22 @@
  *   - getClaudeCodeToken() from providers/claude-code/auth.ts (OAuth)
  */
 
-import { generateText, streamText } from "ai";
-import type { LanguageModel, ToolSet } from "ai";
+import {
+  generateText,
+  InvalidToolInputError,
+  NoSuchToolError,
+  streamText,
+  type ModelMessage,
+  type ToolCallRepairFunction,
+  type ToolSet,
+} from "ai";
+import type { LanguageModel } from "ai";
 import type { AgentEngine, AgentLLMConfig, ToolFilterState } from "./engine.ts";
 import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
 import type { LLMResponse, ToolCall } from "./tool-call.ts";
 import { buildToolDefinitions } from "./llm-integration.ts";
+import { canonicalizeForSignature } from "./orchestrator-tool-formatting.ts";
 import { getToolRegistryGeneration } from "./registry.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import { ValidationError } from "../../common/error.ts";
@@ -124,6 +133,217 @@ type ProviderOptionJson =
 
 /** Provider options value type — must be JSON-serializable for the SDK. */
 type ProviderOptionValue = { [key: string]: ProviderOptionJson };
+type ProviderOptionsMap = Record<string, ProviderOptionValue>;
+
+const ANTHROPIC_EPHEMERAL_CACHE: ProviderOptionsMap = {
+  anthropic: { cacheControl: { type: "ephemeral" } },
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function mergeProviderOptions(
+  base?: ProviderOptionsMap,
+  extra?: ProviderOptionsMap,
+): ProviderOptionsMap | undefined {
+  if (!base && !extra) return undefined;
+  const merged: ProviderOptionsMap = { ...(base ?? {}) };
+  for (const [provider, options] of Object.entries(extra ?? {})) {
+    const existing = isRecord(merged[provider]) ? merged[provider] : {};
+    merged[provider] = {
+      ...(existing as ProviderOptionValue),
+      ...options,
+    };
+  }
+  return merged;
+}
+
+function withProviderOptions<T extends object>(
+  value: T,
+  extra: ProviderOptionsMap,
+): T {
+  const record = value as Record<string, unknown>;
+  const existing = isRecord(record.providerOptions)
+    ? record.providerOptions as ProviderOptionsMap
+    : undefined;
+  return {
+    ...value,
+    providerOptions: mergeProviderOptions(existing, extra),
+  } as T;
+}
+
+function withAnthropicCacheBreakpoint(message: ModelMessage): ModelMessage {
+  if (message.role === "system") {
+    return withProviderOptions(message, ANTHROPIC_EPHEMERAL_CACHE);
+  }
+
+  if (typeof message.content === "string") {
+    return {
+      ...message,
+      content: [{
+        type: "text",
+        text: message.content,
+        providerOptions: ANTHROPIC_EPHEMERAL_CACHE,
+      }],
+    } as ModelMessage;
+  }
+
+  if (Array.isArray(message.content) && message.content.length > 0) {
+    const content = message.content.slice() as unknown[];
+    const lastPart = content[content.length - 1];
+    if (isRecord(lastPart)) {
+      const existing = isRecord(lastPart.providerOptions)
+        ? lastPart.providerOptions as ProviderOptionsMap
+        : undefined;
+      content[content.length - 1] = {
+        ...lastPart,
+        providerOptions: mergeProviderOptions(
+          existing,
+          ANTHROPIC_EPHEMERAL_CACHE,
+        ),
+      };
+      return {
+        ...message,
+        content: content as ModelMessage["content"],
+      } as ModelMessage;
+    }
+  }
+
+  return withProviderOptions(message, ANTHROPIC_EPHEMERAL_CACHE);
+}
+
+function stableHash(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+export function buildStableSignature(value: unknown): string {
+  return stableHash(JSON.stringify(canonicalizeForSignature(value)) ?? "null");
+}
+
+function buildOpenAIPromptCacheKey(
+  spec: ResolvedModelSpec,
+  systemPrompt: string,
+  toolSchemaSignature: string,
+  toolFilterSignature: string,
+): string {
+  return buildStableSignature([
+    spec.providerName,
+    spec.modelId,
+    systemPrompt,
+    toolSchemaSignature,
+    toolFilterSignature,
+  ]);
+}
+
+export function applyPromptCaching(
+  spec: ResolvedModelSpec,
+  messages: ModelMessage[],
+  tools: ToolSet,
+  providerOptions: ProviderOptionsMap | undefined,
+  toolSchemaSignature: string,
+  toolFilterSignature: string,
+): {
+  messages: ModelMessage[];
+  tools: ToolSet;
+  providerOptions?: ProviderOptionsMap;
+} {
+  let decoratedMessages = messages;
+  let decoratedTools = tools;
+  let decoratedProviderOptions = providerOptions;
+
+  if (spec.providerName === "anthropic" || spec.providerName === "claude-code") {
+    decoratedMessages = messages.slice();
+    if (decoratedMessages[0]?.role === "system") {
+      decoratedMessages[0] = withAnthropicCacheBreakpoint(decoratedMessages[0]);
+    }
+    if (decoratedMessages.length > 0) {
+      const lastIndex = decoratedMessages.length - 1;
+      decoratedMessages[lastIndex] = withAnthropicCacheBreakpoint(
+        decoratedMessages[lastIndex],
+      );
+    }
+
+    const toolNames = Object.keys(tools);
+    if (toolNames.length > 0) {
+      const lastToolName = toolNames[toolNames.length - 1];
+      decoratedTools = {
+        ...tools,
+        [lastToolName]: withProviderOptions(
+          tools[lastToolName],
+          ANTHROPIC_EPHEMERAL_CACHE,
+        ),
+      };
+    }
+  }
+
+  if (spec.providerName === "openai") {
+    const systemPrompt = decoratedMessages[0]?.role === "system" &&
+        typeof decoratedMessages[0].content === "string"
+      ? decoratedMessages[0].content
+      : "";
+    decoratedProviderOptions = mergeProviderOptions(decoratedProviderOptions, {
+      openai: {
+        promptCacheKey: buildOpenAIPromptCacheKey(
+          spec,
+          systemPrompt,
+          toolSchemaSignature,
+          toolFilterSignature,
+        ),
+      },
+    });
+  }
+
+  return {
+    messages: decoratedMessages,
+    tools: decoratedTools,
+    providerOptions: decoratedProviderOptions,
+  };
+}
+
+function tryParseJsonObject(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+export function repairMalformedToolCallInput(input: string): string | null {
+  let candidate: unknown = input;
+  for (let depth = 0; depth < 3 && typeof candidate === "string"; depth++) {
+    const parsed = tryParseJsonObject(candidate.trim());
+    if (parsed === candidate) break;
+    candidate = parsed;
+  }
+
+  const normalized = normalizeToolArgs(candidate);
+  return Object.keys(normalized).length > 0 ? JSON.stringify(normalized) : null;
+}
+
+export function buildToolCallRepairFunction(): ToolCallRepairFunction<ToolSet> {
+  return async ({ toolCall, error }) => {
+    if (NoSuchToolError.isInstance(error)) {
+      return null;
+    }
+    if (!InvalidToolInputError.isInstance(error)) {
+      return null;
+    }
+    const repairedInput = repairMalformedToolCallInput(toolCall.input);
+    if (!repairedInput || repairedInput === toolCall.input) {
+      return null;
+    }
+    return {
+      ...toolCall,
+      input: repairedInput,
+    };
+  };
+}
 
 /** Build provider-specific options (thinking, context budget, etc.) */
 export function buildProviderOptions(
@@ -214,11 +434,13 @@ export class SdkAgentEngine implements AgentEngine {
 
     // Provider options (thinking, context budget, etc.) — stable across calls
     const providerOptions = buildProviderOptions(spec, config);
+    const repairToolCall = buildToolCallRepairFunction();
 
     // Tool cache: rebuilt only when registry generation changes
     let cachedSdkTools: ToolSet = {};
     let lastToolGeneration = -1;
     let lastToolFilterSignature = "";
+    let lastToolSchemaSignature = "";
 
     const resolveToolFilters = (): ToolFilterState => {
       if (config.toolFilterState) return config.toolFilterState;
@@ -260,18 +482,35 @@ export class SdkAgentEngine implements AgentEngine {
           ownerId: config.toolOwnerId,
         });
         cachedSdkTools = convertToolDefinitionsToSdk(toolDefs) ?? {};
+        lastToolSchemaSignature = buildStableSignature(toolDefs.map((def) => ({
+          name: def.function.name,
+          description: def.function.description ?? "",
+          parameters: def.function.parameters,
+        })));
         lastToolGeneration = generation;
         lastToolFilterSignature = toolFilterSignature;
       }
 
+      const cacheDecorated = applyPromptCaching(
+        spec,
+        sdkMessages,
+        cachedSdkTools,
+        providerOptions,
+        lastToolSchemaSignature,
+        toolFilterSignature,
+      );
+
       const commonOpts = {
         model,
-        messages: sdkMessages,
-        tools: cachedSdkTools,
+        messages: cacheDecorated.messages,
+        tools: cacheDecorated.tools,
         temperature: config.options?.temperature ?? 0.0,
         maxTokens: config.options?.maxTokens,
         abortSignal: signal,
-        ...(providerOptions ? { providerOptions } : {}),
+        experimental_repairToolCall: repairToolCall,
+        ...(cacheDecorated.providerOptions
+          ? { providerOptions: cacheDecorated.providerOptions }
+          : {}),
       };
 
       try {

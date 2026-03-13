@@ -192,6 +192,10 @@ function isInTestsIntegrationDir(filePath: string): boolean {
   return filePath.startsWith("tests/integration/");
 }
 
+function isInTestsE2eDir(filePath: string): boolean {
+  return filePath.startsWith("tests/e2e/");
+}
+
 function isAllowedPath(filePath: string, rule: Rule): boolean {
   // Check if file is in allowed paths
   // Supports both exact file matches and directory prefixes (ending with /)
@@ -211,8 +215,8 @@ function isAllowedPath(filePath: string, rule: Rule): boolean {
     if (isInProviderPath(filePath) || isInStdlibJsPath(filePath)) {
       return true;
     }
-    // Integration tests make real HTTP requests to test servers
-    if (isInTestsIntegrationDir(filePath)) {
+    // Integration/e2e tests make real HTTP requests to test servers/APIs
+    if (isInTestsIntegrationDir(filePath) || isInTestsE2eDir(filePath)) {
       return true;
     }
   }

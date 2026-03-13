@@ -114,22 +114,16 @@ function createAgentSession(context: ContextManager): AgentSession {
   };
 }
 
-Deno.test("memory: memory_write stores durable facts and normalizes the legacy journal alias", async () => {
+Deno.test("memory: memory_write stores durable facts in canonical memory", async () => {
   await withTestEnv(async () => {
     const pref = await memoryWrite({
       content: "User prefers tabs over spaces and dark mode",
       target: "memory",
       section: "Preferences",
     }) as Record<string, unknown>;
-    const journal = await memoryWrite({
-      content: "Fixed critical auth bug by refreshing OAuth tokens on 401",
-      target: "journal",
-    }) as Record<string, unknown>;
 
     assertEquals(pref.written, true);
-    assertEquals(journal.written, true);
-    assertEquals(journal.target, "memory");
-    assertEquals(journal.requestedTarget, "journal");
+    assertEquals(pref.target, "memory");
     assert(
       getValidFacts().some((fact) => fact.content.includes("tabs over spaces")),
     );
@@ -142,12 +136,8 @@ Deno.test("memory: memory_write stores durable facts and normalizes the legacy j
       string,
       unknown
     >;
-    const journalSearch = await memorySearch({
-      query: "OAuth tokens",
-    }) as Record<string, unknown>;
 
     assert((prefSearch.count as number) > 0);
-    assert((journalSearch.count as number) > 0);
   });
 });
 
@@ -769,22 +759,6 @@ Deno.test("memory: getExplicitMemoryPath returns the MEMORY.md path", async () =
   await withTestEnv(async () => {
     const path = getExplicitMemoryPath();
     assertEquals(path, getMemoryMdPath());
-  });
-});
-
-Deno.test("memory: legacy journal alias no longer creates a Journal prompt section", async () => {
-  await withTestEnv(async () => {
-    await memoryWrite({
-      content: "Temporary-looking note that still becomes durable memory",
-      target: "journal",
-    });
-
-    const context = await loadMemoryContext(32_000);
-    assertStringIncludes(
-      context,
-      "Temporary-looking note that still becomes durable memory",
-    );
-    assertEquals(context.includes("## Journal"), false);
   });
 });
 

@@ -31,6 +31,7 @@ import {
   looksLikeToolCallJsonAnywhere,
   responseAsksQuestion,
 } from "./model-compat.ts";
+import { renderEditFileRecoveryPrompt } from "./error-taxonomy.ts";
 import {
   advancePlanState,
   extractStepDoneId,
@@ -620,6 +621,15 @@ export async function handlePostToolExecution(
       config.context,
     );
     return { action: "return", value: finalResponse.content ?? "" };
+  }
+
+  const editFileRecovery = result.results.find((toolResult) => toolResult.recovery)
+    ?.recovery;
+  if (editFileRecovery) {
+    addContextMessage(config, {
+      role: "system",
+      content: renderEditFileRecoveryPrompt(editFileRecovery),
+    });
   }
 
   // tool_search can narrow the runtime tool schema set for subsequent iterations.

@@ -25,6 +25,7 @@ export type AttachmentType =
   | "image"
   | "video"
   | "audio"
+  | "pdf"
   | "document"
   | "file"
   | "text";
@@ -120,13 +121,28 @@ const EXT_TO_MIME: Record<string, string> = {
   ".ppt": "application/vnd.ms-powerpoint",
   ".pptx":
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+
+  // Text documents
+  ".txt": "text/plain",
+  ".md": "text/markdown",
+  ".markdown": "text/markdown",
+  ".csv": "text/csv",
+  ".tsv": "text/tab-separated-values",
+  ".json": "application/json",
+  ".xml": "application/xml",
+  ".html": "text/html",
+  ".htm": "text/html",
+  ".yaml": "application/x-yaml",
+  ".yml": "application/x-yaml",
 };
 
 /** MIME type to attachment type mapping (derived from EXT_TO_MIME — single source of truth) */
 const MIME_TO_TYPE: Record<string, AttachmentType> = Object.fromEntries(
   Object.values(EXT_TO_MIME).map((mime) => {
     const prefix = mime.split("/")[0];
-    const type: AttachmentType = prefix === "image"
+    const type: AttachmentType = mime === "application/pdf"
+      ? "pdf"
+      : prefix === "image"
       ? "image"
       : prefix === "video"
       ? "video"
@@ -142,6 +158,7 @@ const SIZE_LIMITS: Record<AttachmentType, number> = {
   image: 20 * 1024 * 1024, // 20 MB
   video: 100 * 1024 * 1024, // 100 MB
   audio: 50 * 1024 * 1024, // 50 MB
+  pdf: 50 * 1024 * 1024, // 50 MB
   document: 50 * 1024 * 1024, // 50 MB
   file: 10 * 1024 * 1024, // 10 MB (generic)
   text: 1 * 1024 * 1024, // 1 MB (pasted text)
@@ -152,20 +169,39 @@ const TYPE_DISPLAY: Record<AttachmentType, string> = {
   image: "Image",
   video: "Video",
   audio: "Audio",
-  document: "PDF",
+  pdf: "PDF",
+  document: "Document",
   file: "File",
   text: "Pasted text",
 };
+
+export type ConversationAttachmentKind =
+  | "image"
+  | "video"
+  | "audio"
+  | "pdf"
+  | "text";
+
+const CONVERSATION_TEXT_MIME_TYPES = new Set([
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "text/tab-separated-values",
+  "application/json",
+  "application/xml",
+  "text/html",
+  "application/x-yaml",
+]);
 
 // ============================================================================
 // Text Paste Detection Constants
 // ============================================================================
 
 /** Minimum number of lines to trigger text collapse */
-export const TEXT_COLLAPSE_MIN_LINES = 5;
+const TEXT_COLLAPSE_MIN_LINES = 5;
 
 /** Minimum character count to trigger text collapse */
-export const TEXT_COLLAPSE_MIN_CHARS = 300;
+const TEXT_COLLAPSE_MIN_CHARS = 300;
 
 /** Supported media file extensions (for quick check) */
 const MEDIA_EXTENSIONS = new Set(Object.keys(EXT_TO_MIME));
@@ -177,7 +213,7 @@ const MEDIA_EXTENSIONS = new Set(Object.keys(EXT_TO_MIME));
 /**
  * Check if a file path is a supported media file
  */
-export function isSupportedMedia(path: string): boolean {
+function isSupportedMedia(path: string): boolean {
   const ext = getExtension(path);
   return MEDIA_EXTENSIONS.has(ext);
 }
@@ -187,11 +223,10 @@ export function isSupportedMedia(path: string): boolean {
  * Keep this as the SSOT for what HLVM can currently submit as multimodal input.
  */
 export function isSupportedConversationMedia(path: string): boolean {
-  const mimeType = detectMimeType(path);
-  return mimeType.startsWith("image/") ||
-    mimeType.startsWith("audio/") ||
-    mimeType.startsWith("video/") ||
-    mimeType === "application/pdf";
+  const kind = getConversationAttachmentKind(
+    getConversationAttachmentMimeType(path),
+  );
+  return kind !== null && kind !== "text";
 }
 
 /**
@@ -217,6 +252,28 @@ function getFileName(path: string): string {
 export function detectMimeType(path: string): string {
   const ext = getExtension(path);
   return EXT_TO_MIME[ext] || "application/octet-stream";
+}
+
+function normalizeConversationAttachmentMimeType(
+  mimeType: string,
+): string {
+  return CONVERSATION_TEXT_MIME_TYPES.has(mimeType) ? "text/plain" : mimeType;
+}
+
+export function getConversationAttachmentMimeType(path: string): string {
+  return normalizeConversationAttachmentMimeType(detectMimeType(path));
+}
+
+export function getConversationAttachmentKind(
+  mimeType: string,
+): ConversationAttachmentKind | null {
+  const normalizedMimeType = normalizeConversationAttachmentMimeType(mimeType);
+  if (normalizedMimeType.startsWith("image/")) return "image";
+  if (normalizedMimeType.startsWith("audio/")) return "audio";
+  if (normalizedMimeType.startsWith("video/")) return "video";
+  if (normalizedMimeType === "application/pdf") return "pdf";
+  if (normalizedMimeType === "text/plain") return "text";
+  return null;
 }
 
 /**

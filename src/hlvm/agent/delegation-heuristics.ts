@@ -19,7 +19,6 @@ const FILE_PATH_PATTERN = /(?:[\w\-./]+\.(?:ts|tsx|js|jsx|py|rs|go|java|rb|c|cpp
 
 export function evaluateDelegationSignal(
   request: string,
-  _availableTools?: string[],
 ): DelegationSignal {
   const trimmed = request.trim();
 

@@ -17,7 +17,7 @@ interface TextSegment {
   readonly highlighted: boolean;
 }
 
-export interface HighlightedTextProps {
+interface HighlightedTextProps {
   /** The text to display */
   readonly text: string;
   /** Indices of characters to highlight (from fuzzy match) */
@@ -49,24 +49,19 @@ function splitByIndices(text: string, indices: readonly number[]): TextSegment[]
 
   const segments: TextSegment[] = [];
   const indexSet = new Set(indices);
-  let current = "";
+  let segStart = 0;
   let currentHighlighted = indexSet.has(0);
 
-  for (let i = 0; i < text.length; i++) {
-    const isHighlighted = indexSet.has(i);
-    if (isHighlighted !== currentHighlighted) {
-      if (current) {
-        segments.push({ text: current, highlighted: currentHighlighted });
-      }
-      current = text[i];
+  for (let i = 1; i <= text.length; i++) {
+    const isHighlighted = i < text.length && indexSet.has(i);
+    if (i === text.length || isHighlighted !== currentHighlighted) {
+      segments.push({
+        text: text.slice(segStart, i),
+        highlighted: currentHighlighted,
+      });
+      segStart = i;
       currentHighlighted = isHighlighted;
-    } else {
-      current += text[i];
     }
-  }
-
-  if (current) {
-    segments.push({ text: current, highlighted: currentHighlighted });
   }
 
   return segments;

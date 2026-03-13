@@ -59,6 +59,24 @@ async function isAIRunning(): Promise<boolean> {
   }
 }
 
+/**
+ * Check if a candidate engine binary has the same size as the HLVM CLI itself.
+ * Same size means the binary was likely overwritten by the CLI → running it
+ * would cause recursive spawning.
+ */
+async function matchesSelfBinarySize(
+  candidatePath: string,
+  platform = getPlatform(),
+): Promise<boolean> {
+  const execPath = platform.process.execPath?.();
+  if (!execPath) return false;
+  const [candidateInfo, selfInfo] = await Promise.all([
+    platform.fs.stat(candidatePath).catch(() => null),
+    platform.fs.stat(execPath).catch(() => null),
+  ]);
+  return !!(candidateInfo && selfInfo && candidateInfo.size === selfInfo.size);
+}
+
 async function extractAIEngine(platform = getPlatform()): Promise<void> {
   const embeddedEnginePath = getEmbeddedEnginePath();
   if (await platform.fs.exists(embeddedEnginePath)) {
@@ -68,23 +86,9 @@ async function extractAIEngine(platform = getPlatform()): Promise<void> {
   try {
     const legacyEnginePath = await findLegacyRuntimeEngine();
     if (legacyEnginePath) {
-      // Validate that the legacy engine is NOT the HLVM CLI binary
-      // (same size = likely overwritten → copying would cause recursive spawn)
-      const execPath = platform.process.execPath?.();
-      if (execPath) {
-        const [legacyInfo, selfInfo] = await Promise.all([
-          platform.fs.stat(legacyEnginePath).catch(() => null),
-          platform.fs.stat(execPath).catch(() => null),
-        ]);
-        if (legacyInfo && selfInfo && legacyInfo.size === selfInfo.size) {
-          log.warn?.("Legacy engine binary matches HLVM CLI size — skipping copy");
-          // Fall through to embedded resource extraction below
-        } else {
-          await ensureRuntimeDir();
-          await platform.fs.copyFile(legacyEnginePath, embeddedEnginePath);
-          await platform.fs.chmod(embeddedEnginePath, 0o755);
-          return;
-        }
+      if (await matchesSelfBinarySize(legacyEnginePath, platform)) {
+        log.warn?.("Legacy engine binary matches HLVM CLI size — skipping copy");
+        // Fall through to embedded resource extraction below
       } else {
         await ensureRuntimeDir();
         await platform.fs.copyFile(legacyEnginePath, embeddedEnginePath);
@@ -124,23 +128,14 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
     ? embeddedEnginePath
     : SYSTEM_AI_ENGINE;
 
-  // Guard against recursive self-execution: if the engine binary is the same
-  // size as the HLVM CLI, it was likely overwritten by the CLI binary and
-  // running it would spawn another HLVM serve → infinite process multiplication.
+  // Guard against recursive self-execution
   if (enginePath !== SYSTEM_AI_ENGINE) {
     try {
-      const execPath = platform.process.execPath?.();
-      if (execPath) {
-        const [engineInfo, selfInfo] = await Promise.all([
-          platform.fs.stat(enginePath).catch(() => null),
-          platform.fs.stat(execPath).catch(() => null),
-        ]);
-        if (engineInfo && selfInfo && engineInfo.size === selfInfo.size) {
-          log.warn?.(
-            "AI engine binary appears to be the HLVM CLI itself — skipping to avoid recursive spawn",
-          );
-          return;
-        }
+      if (await matchesSelfBinarySize(enginePath, platform)) {
+        log.warn?.(
+          "AI engine binary appears to be the HLVM CLI itself — skipping to avoid recursive spawn",
+        );
+        return;
       }
     } catch {
       // Best-effort guard only

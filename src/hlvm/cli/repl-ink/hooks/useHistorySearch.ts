@@ -12,7 +12,7 @@ import { fuzzyMatch } from "../../repl/fuzzy.ts";
 // Types
 // ============================================================
 
-export interface HistoryMatch {
+interface HistoryMatch {
   /** The history entry text */
   readonly text: string;
   /** Index in the history array */
@@ -36,7 +36,7 @@ export interface HistorySearchState {
   readonly selectedMatch: HistoryMatch | null;
 }
 
-export interface HistorySearchActions {
+interface HistorySearchActions {
   /** Enter search mode */
   readonly startSearch: () => void;
   /** Exit search mode */

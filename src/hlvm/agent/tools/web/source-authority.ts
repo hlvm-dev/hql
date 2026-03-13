@@ -217,7 +217,7 @@ export function classifySearchResultSource(
   };
 }
 
-export function annotateSearchResultSource(
+function annotateSearchResultSource(
   result: SearchResult,
   allowedDomains?: string[],
 ): SearchResult {

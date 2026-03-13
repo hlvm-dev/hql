@@ -70,6 +70,12 @@ function findEnclosingClose(input: string, pos: number): number | null {
   return findMatchingParen(input, openPos);
 }
 
+// O(1) whitespace check via charCode (avoids regex engine per character)
+function isWs(ch: string): boolean {
+  const c = ch.charCodeAt(0);
+  return c === 32 || c === 9 || c === 10 || c === 13 || c === 12;
+}
+
 /**
  * Get the boundaries of the sexp at or starting from the cursor position.
  * Returns { start, end } where end is exclusive (position after last char).
@@ -79,7 +85,7 @@ function getSexpBoundaries(input: string, pos: number): SexpBounds | null {
 
   // Skip whitespace to find start of sexp
   let start = pos;
-  while (start < input.length && /\s/.test(input[start])) start++;
+  while (start < input.length && isWs(input[start])) start++;
   if (start >= input.length) return null;
 
   // Use forwardSexp to find the end
@@ -123,7 +129,7 @@ function getEnclosingSexp(input: string, pos: number): SexpBounds | null {
  * Skip whitespace forward from position.
  */
 function skipWhitespaceForward(input: string, pos: number): number {
-  while (pos < input.length && /\s/.test(input[pos])) pos++;
+  while (pos < input.length && isWs(input[pos])) pos++;
   return pos;
 }
 
@@ -131,7 +137,7 @@ function skipWhitespaceForward(input: string, pos: number): number {
  * Skip whitespace backward from position.
  */
 function skipWhitespaceBackward(input: string, pos: number): number {
-  while (pos > 0 && /\s/.test(input[pos - 1])) pos--;
+  while (pos > 0 && isWs(input[pos - 1])) pos--;
   return pos;
 }
 

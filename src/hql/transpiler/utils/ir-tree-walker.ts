@@ -222,7 +222,7 @@ export function containsNodeTypeInScope(
  * Check if an IR node tree contains any node matching a predicate,
  * but stop at function boundaries (scope-aware).
  */
-export function containsMatchInScope(
+function containsMatchInScope(
   node: IR.IRNode | null | undefined,
   predicate: (node: IR.IRNode) => boolean,
   options: ScopeWalkOptions = {},
@@ -286,7 +286,7 @@ export function forEachNodeInScope(
 /**
  * Collect all nodes matching a predicate within scope.
  */
-export function collectNodesInScope<T extends IR.IRNode>(
+function collectNodesInScope<T extends IR.IRNode>(
   node: IR.IRNode | null | undefined,
   predicate: (node: IR.IRNode) => node is T,
   options: ScopeWalkOptions = {},

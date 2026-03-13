@@ -1123,9 +1123,6 @@ export function processFnFunctionCall(
   }
 }
 
-// Note: legacy helpers (extractSourceLocation, getCallLocation, getExtraArgumentLocation)
-// were consolidated into extractMetaSourceLocation within source_location_utils.ts
-
 /**
  * Register an fn function in the registry for call site handling
  */

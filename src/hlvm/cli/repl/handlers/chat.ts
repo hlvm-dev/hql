@@ -85,10 +85,8 @@ import {
   shouldHonorRequestMessages,
   validateChatRequestMessages,
 } from "./chat-context.ts";
-import {
-  modelSupportsTools,
-  modelSupportsVision,
-} from "../../model-capabilities.ts";
+import { modelSupportsTools } from "../../model-capabilities.ts";
+import { checkModelAttachmentPaths } from "../../attachment-policy.ts";
 
 // ============================================================
 // Types (re-exported from chat-session.ts above)
@@ -102,6 +100,12 @@ function requestHasMediaAttachments(
   messages: ChatRequest["messages"],
 ): boolean {
   return messages.some((message) => (message.image_paths?.length ?? 0) > 0);
+}
+
+function getRequestAttachmentPaths(
+  messages: ChatRequest["messages"],
+): string[] {
+  return messages.flatMap((message) => message.image_paths ?? []);
 }
 
 // ============================================================
@@ -315,12 +319,13 @@ export async function handleChat(req: Request): Promise<Response> {
       );
     }
     if (hasMediaAttachments) {
-      const visionCheck = await modelSupportsVision(
+      const attachmentSupport = await checkModelAttachmentPaths(
         resolvedModel,
+        getRequestAttachmentPaths(body.messages),
         resolvedModelInfo,
       );
-      if (!visionCheck.supported) {
-        if (visionCheck.catalogFailed) {
+      if (!attachmentSupport.supported) {
+        if (attachmentSupport.catalogFailed) {
           return jsonError(
             "Could not verify model media-attachment support. Check provider connection and try again.",
             503,

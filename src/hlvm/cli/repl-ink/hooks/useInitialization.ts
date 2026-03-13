@@ -22,7 +22,7 @@ import {
   getConfiguredModelReadiness,
 } from "../../../runtime/configured-model-readiness.ts";
 
-export interface InitializationState {
+interface InitializationState {
   loading: boolean;
   ready: boolean;
   aiExports: string[];

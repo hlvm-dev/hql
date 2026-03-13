@@ -5,7 +5,7 @@
  * stay editable without duplicating width math.
  */
 
-export interface CursorWindowDisplay {
+interface CursorWindowDisplay {
   beforeCursor: string;
   cursorChar: string;
   afterCursor: string;

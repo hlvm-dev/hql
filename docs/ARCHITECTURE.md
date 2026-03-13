@@ -661,7 +661,7 @@ GUI                          Server                    Ollama
 | Ephemeral | Active requests (AbortControllers), SSE connections, cached sessions, LLM instances, MCP connections, module cache | Memory |
 | Persistent | Config | `~/.hlvm/config.json` |
 | Persistent | Sessions, messages, SSE events | `~/.hlvm/hlvm.db` (SQLite) |
-| Persistent | Memory, journal, FTS5 index | `~/.hlvm/memory/` |
+| Persistent | Memory, FTS5 index | `~/.hlvm/memory/` |
 | Persistent | MCP server configs | `~/.hlvm/mcp.json` |
 | Persistent | Security policy | `~/.hlvm/policy.json` |
 | Persistent | Project instructions | `.hlvm/prompt.md` |

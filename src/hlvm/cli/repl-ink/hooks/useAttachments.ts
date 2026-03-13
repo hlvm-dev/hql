@@ -21,7 +21,9 @@ import {
 // Re-export for consumers
 export type { AnyAttachment };
 
-export interface UseAttachmentsReturn {
+type AttachmentStatus = "loading" | "ready" | "error";
+
+interface UseAttachmentsReturn {
   /** Current list of attachments (media and text) */
   attachments: AnyAttachment[];
   /** Add a new attachment from file path */
@@ -43,6 +45,8 @@ export interface UseAttachmentsReturn {
   clearAttachments: () => void;
   /** Get combined display text for all attachments */
   getDisplayText: () => string;
+  /** Get status of an attachment by ID */
+  getAttachmentStatus: (id: number) => AttachmentStatus | undefined;
   /** Next ID to use */
   nextId: number;
   /** Last error if any */
@@ -61,6 +65,7 @@ export function useAttachments(): UseAttachmentsReturn {
   // Incremented on clear so stale in-flight results don't get appended later.
   const generationRef = useRef(0);
   const [lastError, setLastError] = useState<AttachmentError | null>(null);
+  const statusMapRef = useRef<Map<number, AttachmentStatus>>(new Map());
 
   /**
    * Reserve the next ID synchronously - for instant placeholder insertion
@@ -79,6 +84,7 @@ export function useAttachments(): UseAttachmentsReturn {
   const addAttachmentWithId = useCallback(
     async (path: string, id: number): Promise<Attachment | AttachmentError> => {
       setLastError(null);
+      statusMapRef.current.set(id, "loading");
       const generation = generationRef.current;
 
       const result = await createAttachment(path, id);
@@ -86,9 +92,20 @@ export function useAttachments(): UseAttachmentsReturn {
       if (isAttachment(result)) {
         // Ignore stale async completions from previous cleared sessions.
         if (generation === generationRef.current) {
-          setAttachments((prev: AnyAttachment[]) => [...prev, result]);
+          statusMapRef.current.set(id, "ready");
+          setAttachments((prev: AnyAttachment[]) => {
+            // Deduplicate: skip if a media attachment with the same path already exists
+            if (
+              "path" in result &&
+              prev.some((a) => "path" in a && a.path === result.path)
+            ) {
+              return prev;
+            }
+            return [...prev, result];
+          });
         }
       } else {
+        statusMapRef.current.set(id, "error");
         setLastError(result);
       }
 
@@ -149,8 +166,16 @@ export function useAttachments(): UseAttachmentsReturn {
     generationRef.current += 1;
     setAttachments([]);
     nextIdRef.current = 1; // Reset ID counter
+    statusMapRef.current.clear();
     setLastError(null);
   }, []);
+
+  const getAttachmentStatus = useCallback(
+    (id: number): AttachmentStatus | undefined => {
+      return statusMapRef.current.get(id);
+    },
+    [],
+  );
 
   /**
    * Get combined display text for all attachments
@@ -170,6 +195,7 @@ export function useAttachments(): UseAttachmentsReturn {
     replaceAttachments,
     clearAttachments,
     getDisplayText,
+    getAttachmentStatus,
     nextId: nextIdRef.current,
     lastError,
   };

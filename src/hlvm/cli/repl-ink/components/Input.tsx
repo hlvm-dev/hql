@@ -184,7 +184,7 @@ interface InputProps {
   // FRP: history, bindings, signatures, docstrings now come from ReplContext
 }
 
-export function shouldApplyRestoredDraft(
+function shouldApplyRestoredDraft(
   lastAppliedRevision: number | null,
   restoredDraftRevision?: number,
 ): restoredDraftRevision is number {
@@ -192,7 +192,7 @@ export function shouldApplyRestoredDraft(
     restoredDraftRevision !== lastAppliedRevision;
 }
 
-export function getInputPromptPrefix(
+function getInputPromptPrefix(
   promptLabel: string,
   lineIndex: number,
 ): string {

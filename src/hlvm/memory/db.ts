@@ -76,15 +76,6 @@ function migrateFactDb(db: Database): void {
 
   db.exec("BEGIN");
   try {
-    if (current < 3) {
-      // Legacy journal entries now behave as durable memory facts.
-      db.prepare(
-        "UPDATE facts SET category = 'General' WHERE source = 'journal' AND category = 'Journal'",
-      ).run();
-      db.prepare(
-        "UPDATE facts SET source = 'memory' WHERE source = 'journal'",
-      ).run();
-    }
     db.prepare(
       "INSERT OR REPLACE INTO schema_version(version) VALUES (?)",
     ).run(CURRENT_SCHEMA_VERSION);

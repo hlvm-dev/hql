@@ -30,19 +30,9 @@ import {
   collectJumpTargets,
   collectForOfStatementsInScope,
 } from "../utils/ir-tree-walker.ts";
+import { STATEMENT_TYPES } from "../constants/index.ts";
 
-/** IR node types that are already statements and don't need ExpressionStatement wrapping. */
-const STATEMENT_TYPES: ReadonlySet<IR.IRNodeType> = new Set([
-  IR.IRNodeType.ExpressionStatement,
-  IR.IRNodeType.VariableDeclaration,
-  IR.IRNodeType.ReturnStatement,
-  IR.IRNodeType.IfStatement,
-  IR.IRNodeType.WhileStatement,
-  IR.IRNodeType.ForStatement,
-  IR.IRNodeType.ForOfStatement,
-  IR.IRNodeType.ContinueStatement,
-  IR.IRNodeType.BreakStatement,
-]);
+// STATEMENT_TYPES imported from ../constants/index.ts
 
 /**
  * Encapsulates all mutable state for loop/recur compilation.

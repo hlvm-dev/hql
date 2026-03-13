@@ -16,7 +16,7 @@ import {
   UnsupportedFunctionalityError,
 } from "ai";
 import { TimeoutError } from "../../common/timeout-utils.ts";
-import { getErrorMessage } from "../../common/utils.ts";
+import { LINE_SPLIT_REGEX, getErrorMessage, truncate } from "../../common/utils.ts";
 
 /** Precise abort check for error taxonomy — only checks error.name, not message substring */
 function isAbortError(err: unknown): boolean {
@@ -36,6 +36,14 @@ interface ClassifiedError {
   class: ErrorClass;
   retryable: boolean;
   message: string;
+}
+
+export interface EditFileRecovery {
+  kind: "edit_file_target_not_found";
+  path: string;
+  requestedFind: string;
+  excerpt: string;
+  closestCurrentLine?: string;
 }
 
 function isTimeoutError(err: unknown, message: string): boolean {
@@ -71,6 +79,130 @@ function isContextOverflowError(message: string): boolean {
 
 function isPermanentError(message: string): boolean {
   return RE_PERMANENT.test(message);
+}
+
+const EDIT_FILE_TARGET_NOT_FOUND_PATTERNS = [
+  "pattern not found",
+  "search string not found",
+  "not found in file",
+];
+
+function isEditFileTargetMiss(errorMessage: string): boolean {
+  const lower = errorMessage.toLowerCase();
+  return EDIT_FILE_TARGET_NOT_FOUND_PATTERNS.some((pattern) =>
+    lower.includes(pattern)
+  );
+}
+
+function findBestExcerpt(content: string, requestedFind: string): string {
+  const compactContent = content.trim();
+  if (compactContent.length <= 900) return compactContent;
+
+  const candidates = requestedFind
+    .split(LINE_SPLIT_REGEX)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 8)
+    .sort((a, b) => b.length - a.length);
+
+  for (const candidate of candidates) {
+    const matchIndex = content.indexOf(candidate);
+    if (matchIndex >= 0) {
+      const start = Math.max(0, matchIndex - 350);
+      const end = Math.min(content.length, matchIndex + candidate.length + 350);
+      return `${start > 0 ? "...\n" : ""}${content.slice(start, end).trim()}${
+        end < content.length ? "\n..." : ""
+      }`;
+    }
+  }
+
+  const head = content.slice(0, 500).trim();
+  const tail = content.slice(-250).trim();
+  return `${head}\n...\n${tail}`;
+}
+
+function extractRecoveryTokens(text: string): Set<string> {
+  return new Set(
+    (text.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [])
+      .map((token) => token.toLowerCase())
+      .filter((token) => token.length >= 3),
+  );
+}
+
+function findClosestCurrentLine(
+  content: string,
+  requestedFind: string,
+): string | undefined {
+  const requestTokens = extractRecoveryTokens(requestedFind);
+  const requestHasAssignment = requestedFind.includes("=");
+  const requestHasExport = /\bexport\b/.test(requestedFind);
+  let bestLine: string | undefined;
+  let bestScore = 0;
+
+  for (const rawLine of content.split(LINE_SPLIT_REGEX)) {
+    const line = rawLine.trim();
+    if (line.length === 0) continue;
+
+    const lineTokens = extractRecoveryTokens(line);
+    let score = 0;
+    for (const token of lineTokens) {
+      if (requestTokens.has(token)) score += 3;
+    }
+    if (requestHasAssignment && line.includes("=")) score += 2;
+    if (requestHasExport && /\bexport\b/.test(line)) score += 2;
+    if (line.endsWith(";")) score += 1;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestLine = line;
+    }
+  }
+
+  return bestScore >= 3 ? bestLine : undefined;
+}
+
+export function buildEditFileRecovery(
+  args: { path?: string; find?: string },
+  errorMessage: string,
+  fileContent: string,
+): EditFileRecovery | null {
+  if (!isEditFileTargetMiss(errorMessage)) return null;
+  if (!args.path || !args.find) return null;
+
+  return {
+    kind: "edit_file_target_not_found",
+    path: args.path,
+    requestedFind: args.find,
+    excerpt: findBestExcerpt(fileContent, args.find),
+    closestCurrentLine: findClosestCurrentLine(fileContent, args.find),
+  };
+}
+
+export function renderEditFileRecoveryPrompt(
+  recovery: EditFileRecovery,
+): string {
+  const requestedFind = truncate(
+    recovery.requestedFind.replace(/\s+/g, " ").trim(),
+    240,
+  );
+  return [
+    `The previous edit_file call could not find its target in ${recovery.path}.`,
+    "The file likely changed or the prior edit target was wrong.",
+    `Requested find text: "${requestedFind}"`,
+    ...(recovery.closestCurrentLine
+      ? [
+        "Closest current line in the file:",
+        "```text",
+        recovery.closestCurrentLine,
+        "```",
+      ]
+      : []),
+    "Fresh file context:",
+    "```text",
+    recovery.excerpt,
+    "```",
+    "Use the fresh context above instead of guessing or repeating the same edit unchanged.",
+    "If the closest current line matches the code you intend to change, use that exact line as your next find string.",
+  ].join("\n");
 }
 
 export function classifyError(err: unknown): ClassifiedError {

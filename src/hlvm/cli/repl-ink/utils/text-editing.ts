@@ -45,7 +45,7 @@ export interface KeyInfo {
  * Normalize Ctrl+key input across terminals.
  * Some terminals set `key.ctrl=true`, others send bare ASCII control codes.
  */
-export function getNormalizedCtrlInput(
+function getNormalizedCtrlInput(
   input: string,
   key: KeyInfo,
 ): string | null {
@@ -71,12 +71,12 @@ export function isCtrlShortcut(
 // ============================================================
 
 /** Ctrl+A: Move cursor to start of line */
-export function handleCtrlA(value: string, _cursor: number): TextEditResult {
+function handleCtrlA(value: string, _cursor: number): TextEditResult {
   return { value, cursor: 0 };
 }
 
 /** Ctrl+E: Move cursor to end of line */
-export function handleCtrlE(value: string, _cursor: number): TextEditResult {
+function handleCtrlE(value: string, _cursor: number): TextEditResult {
   return { value, cursor: value.length };
 }
 
@@ -229,7 +229,7 @@ export function deleteWordPreservingDelimiters(
   return { value: newValue, cursor: deleteToPos };
 }
 
-export function handleCtrlW(value: string, cursor: number): TextEditResult {
+function handleCtrlW(value: string, cursor: number): TextEditResult {
   if (cursor <= 0) return { value, cursor };
 
   // Check if cursor is inside paired delimiters
@@ -246,17 +246,17 @@ export function handleCtrlW(value: string, cursor: number): TextEditResult {
 }
 
 /** Ctrl+U: Delete from cursor to start of line */
-export function handleCtrlU(value: string, cursor: number): TextEditResult {
+function handleCtrlU(value: string, cursor: number): TextEditResult {
   return { value: value.slice(cursor), cursor: 0 };
 }
 
 /** Ctrl+K: Delete from cursor to end of line */
-export function handleCtrlK(value: string, cursor: number): TextEditResult {
+function handleCtrlK(value: string, cursor: number): TextEditResult {
   return { value: value.slice(0, cursor), cursor };
 }
 
 /** Backspace: Delete character before cursor */
-export function handleBackspace(value: string, cursor: number): TextEditResult {
+function handleBackspace(value: string, cursor: number): TextEditResult {
   if (cursor <= 0) return { value, cursor };
   return {
     value: value.slice(0, cursor - 1) + value.slice(cursor),
@@ -269,12 +269,12 @@ export function handleBackspace(value: string, cursor: number): TextEditResult {
 // ============================================================
 
 /** Alt+B / Ctrl+Left: Move word backward */
-export function handleWordBack(value: string, cursor: number): TextEditResult {
+function handleWordBack(value: string, cursor: number): TextEditResult {
   return { value, cursor: calculateWordBackPosition(value, cursor) };
 }
 
 /** Alt+F / Ctrl+Right: Move word forward */
-export function handleWordForward(
+function handleWordForward(
   value: string,
   cursor: number,
 ): TextEditResult {
@@ -286,12 +286,12 @@ export function handleWordForward(
 // ============================================================
 
 /** Left Arrow: Move cursor left */
-export function handleLeftArrow(value: string, cursor: number): TextEditResult {
+function handleLeftArrow(value: string, cursor: number): TextEditResult {
   return { value, cursor: Math.max(0, cursor - 1) };
 }
 
 /** Right Arrow: Move cursor right */
-export function handleRightArrow(
+function handleRightArrow(
   value: string,
   cursor: number,
 ): TextEditResult {
@@ -303,7 +303,7 @@ export function handleRightArrow(
 // ============================================================
 
 /** Insert character(s) at cursor position */
-export function insertChar(
+function insertChar(
   value: string,
   cursor: number,
   char: string,

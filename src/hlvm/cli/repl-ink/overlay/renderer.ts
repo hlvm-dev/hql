@@ -57,7 +57,7 @@ export const ansi = {
 };
 
 /** Shared encoder for terminal output */
-export const overlayEncoder = new TextEncoder();
+const overlayEncoder = new TextEncoder();
 
 /** Region to clear on screen */
 export interface ClearRegion {

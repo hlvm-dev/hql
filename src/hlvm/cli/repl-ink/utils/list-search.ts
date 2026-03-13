@@ -7,7 +7,7 @@
 
 import type { KeyInfo } from "./text-editing.ts";
 
-export interface ListSearchSeedOptions {
+interface ListSearchSeedOptions {
   reservedSingleKeys?: Iterable<string>;
 }
 
@@ -38,9 +38,13 @@ export function getListSearchSeed(
     if (ch.charCodeAt(0) <= 31) return null;
   }
 
-  const reservedSingleKeys = new Set(options.reservedSingleKeys ?? []);
-  if (sanitized.length === 1 && reservedSingleKeys.has(sanitized)) {
-    return null;
+  if (sanitized.length === 1) {
+    const reserved = options.reservedSingleKeys;
+    if (reserved) {
+      for (const k of reserved) {
+        if (k === sanitized) return null;
+      }
+    }
   }
 
   return sanitized;

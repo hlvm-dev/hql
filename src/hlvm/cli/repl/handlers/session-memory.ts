@@ -11,7 +11,7 @@
 import { getPlatform } from "../../../../platform/platform.ts";
 import { parseSessionMetadata } from "../../../store/session-metadata.ts";
 
-export interface ParsedSessionMemoryMetadata {
+interface ParsedSessionMemoryMetadata {
   existingMeta: Record<string, unknown>;
   claudeCodeSessionId: string | null;
 }
@@ -21,6 +21,18 @@ export interface ParsedSessionMemoryMetadata {
  */
 export function isSessionMemoryEnabled(sessionMemory: boolean | undefined): boolean {
   return sessionMemory !== false;
+}
+
+/**
+ * Request-level disablePersistentMemory must win over Claude Code's
+ * config-backed session-memory default so the same flag behaves consistently
+ * across agent modes.
+ */
+export function resolveSessionMemoryEnabled(
+  sessionMemory: boolean | undefined,
+  disablePersistentMemory?: boolean,
+): boolean {
+  return disablePersistentMemory !== true && isSessionMemoryEnabled(sessionMemory);
 }
 
 /**
