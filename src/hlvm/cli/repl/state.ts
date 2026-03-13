@@ -109,7 +109,7 @@ export class ReplState {
   private _history: string[] = [];
   private _historyEntries: HistoryEntry[] = [];
   private _lineNumber = 0;
-  private _isLoadingMemory = false;
+  private _isLoadingBindings = false;
   private historyStorage: HistoryStorage | null = null;
   private _historyInitialized = false;
 
@@ -288,13 +288,13 @@ export class ReplState {
   }
 
   /** Check if currently loading from memory.hql */
-  get isLoadingMemory(): boolean {
-    return this._isLoadingMemory;
+  get isLoadingBindings(): boolean {
+    return this._isLoadingBindings;
   }
 
-  /** Set loading memory flag (prevents re-persisting loaded definitions) */
-  setLoadingMemory(loading: boolean): void {
-    this._isLoadingMemory = loading;
+  /** Set loading bindings flag (prevents re-persisting loaded definitions) */
+  setLoadingBindings(loading: boolean): void {
+    this._isLoadingBindings = loading;
   }
 
   /** Reset REPL state */

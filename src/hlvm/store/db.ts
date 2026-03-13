@@ -31,9 +31,17 @@ export function _setDbForTesting(db: Database): void {
   _db = db;
 }
 
+export function _clearDbForTesting(expected?: Database): void {
+  if (!expected || _db === expected) {
+    _db = null;
+  }
+}
+
 export function _resetDbForTesting(): void {
   if (_db) {
-    try { _db.close(); } catch { /* best-effort */ }
+    try {
+      _db.close();
+    } catch { /* best-effort */ }
   }
   _db = null;
 }

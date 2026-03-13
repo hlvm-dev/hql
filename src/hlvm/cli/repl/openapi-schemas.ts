@@ -186,7 +186,7 @@
  *         sessionMemory:
  *           type: boolean
  *           nullable: true
- *     MemoryFunction:
+ *     BindingFunction:
  *       type: object
  *       properties:
  *         name:

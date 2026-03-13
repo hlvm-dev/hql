@@ -11,7 +11,10 @@ import { log } from "../../../api/log.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
 import { CLI_CACHE_TTL_MS } from "../../repl-ink/ui-constants.ts";
-import { persistConversationFacts } from "../../../memory/mod.ts";
+import {
+  isPersistentMemoryEnabled,
+  persistConversationFacts,
+} from "../../../memory/mod.ts";
 import {
   findSnapshotBackedModel,
   listSnapshotBackedModels,
@@ -79,6 +82,7 @@ export async function handleChatMode(
     requestMessages: body.messages,
     storedMessages,
     assistantMessageId,
+    disablePersistentMemory: body.disable_persistent_memory === true,
     modelInfo,
     modelKey: resolvedModel,
   });
@@ -141,12 +145,14 @@ export async function handleChatMode(
     });
     pushSessionUpdatedEvent(sessionId);
 
-    // Persist baseline conversation facts through the shared memory pipeline.
-    const userContent = body.messages?.[body.messages.length - 1]?.content ??
-      "";
-    persistConversationFacts([{ role: "user", content: userContent }], {
-      source: "extracted",
-    });
+    if (isPersistentMemoryEnabled(body.disable_persistent_memory)) {
+      // Persist baseline conversation facts through the shared memory pipeline.
+      const userContent = body.messages?.[body.messages.length - 1]?.content ??
+        "";
+      persistConversationFacts([{ role: "user", content: userContent }], {
+        source: "extracted",
+      });
+    }
   }
 }
 
@@ -169,6 +175,7 @@ export async function streamDirectChatFallback(
     requestMessages,
     storedMessages,
     assistantMessageId,
+    disablePersistentMemory: body.disable_persistent_memory === true,
     modelInfo,
     modelKey: resolvedModel,
   });

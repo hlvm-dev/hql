@@ -28,18 +28,21 @@ function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
     throw new ValidationError("content is required", "memory_write");
   }
 
-  const target = typeof record.target === "string" ? record.target : "memory";
-  if (target !== "memory" && target !== "journal") {
+  const requestedTarget = typeof record.target === "string"
+    ? record.target
+    : "memory";
+  if (requestedTarget !== "memory" && requestedTarget !== "journal") {
     throw new ValidationError(
-      'target must be "memory" or "journal"',
+      'target must be "memory"',
       "memory_write",
     );
   }
+  const target = "memory";
 
   const section = typeof record.section === "string"
     ? record.section.trim()
     : "";
-  const category = section || (target === "journal" ? "Journal" : "General");
+  const category = section || "General";
   const { factId, linkedEntities, invalidated } = writeMemoryFact({
     content: content.trim(),
     category,
@@ -49,12 +52,13 @@ function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
   });
 
   return Promise.resolve({
-    written: true,
-    target,
-    section: section || undefined,
-    factId,
-    linkedEntities,
-    invalidated,
+      written: true,
+      target,
+      requestedTarget: requestedTarget === target ? undefined : requestedTarget,
+      section: section || undefined,
+      factId,
+      linkedEntities,
+      invalidated,
   });
 }
 
@@ -256,14 +260,13 @@ export const MEMORY_TOOLS: Record<string, ToolMetadata> = {
         'Good: "Auth uses JWT with 1h expiry — decided 2026-02-20 over session cookies for statelessness". ' +
         'Bad: "The user said they like Deno I think maybe". ' +
         'Bad: "We talked about some auth stuff today".',
-      target:
-        'string (optional) - "memory" for durable facts (default), "journal" for transient task context.',
       section:
         'string (optional) - Category for organizing memory (e.g., "Preferences", "Architecture Decisions").',
     },
     returns: {
       written: "boolean",
       target: "string",
+      requestedTarget: "string (legacy alias when normalized)",
       section: "string (if provided)",
       factId: "number",
       linkedEntities: "number",

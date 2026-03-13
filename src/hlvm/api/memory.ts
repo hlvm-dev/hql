@@ -1,176 +1,244 @@
 /**
  * Memory API Object
  *
- * Programmable access to HLVM persistent definitions (HQL def/defn).
+ * Programmable access to assistant-visible durable memory.
  * Usage in REPL:
- *   (memory.list)              // List all definition names
- *   (memory.get "myFn")        // Get source of a definition
- *   (memory.remove "myFn")     // Remove a definition
- *   (memory.clear)             // Clear all definitions
- *   (memory.stats)             // Get memory stats
- *   (memory.path)              // Get memory file path
+ *   (memory)                    // View explicit notes + durable facts
+ *   (memory.get)                // Same as (memory)
+ *   (memory.search "deno")      // Search memory
+ *   (memory.add "Use tabs" "Preferences")
+ *   (memory.appendNote "Personal note")
+ *   (memory.replace "old" "new")
+ *   (memory.clear true)         // Clear notes + facts
  */
 
+import { getMemoryDbPath, getMemoryMdPath } from "../../common/paths.ts";
+import { ValidationError } from "../../common/error.ts";
 import {
-  clearMemory,
-  compactMemory,
-  forgetFromMemory,
-  getDefinitionSource,
-  getMemoryFilePath,
-  getMemoryNames,
-  getMemoryStats,
-  loadMemory,
-} from "../cli/repl/memory.ts";
+  appendExplicitMemoryNote,
+  clearExplicitMemory,
+  getValidFacts,
+  insertFact,
+  replaceExplicitMemoryText,
+  replaceInFacts,
+  retrieveMemory,
+  type RetrievalResult,
+  readExplicitMemory,
+  invalidateAllFacts,
+} from "../memory/mod.ts";
 import { assertString } from "./validation.ts";
 
-interface MemorySummary {
-  count: number;
-  names: string[];
-  path: string;
-  size: number;
+export interface MemoryFactView {
+  id: number;
+  category: string;
+  content: string;
+  source: string;
+  validFrom: string;
+}
+
+export interface MemorySnapshot {
+  notesPath: string;
+  dbPath: string;
+  notes: string;
+  factCount: number;
+  facts: MemoryFactView[];
+}
+
+export interface MemorySearchResult extends RetrievalResult {
+  kind: "fact" | "note";
+  path?: string;
 }
 
 export interface MemoryApi {
-  load: (
-    evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>,
-  ) => Promise<{
-    docstrings: Map<string, string>;
-    errors: string[];
+  get: () => Promise<MemorySnapshot>;
+  search: (query: string, limit?: number) => Promise<MemorySearchResult[]>;
+  add: (text: string, category?: string) => Promise<{
+    factId: number;
+    category: string;
   }>;
-  compact: () => Promise<{ before: number; after: number }>;
-  list: () => Promise<string[]>;
-  get: (name: string) => Promise<string | null>;
-  remove: (name: string) => Promise<boolean>;
-  clear: () => Promise<void>;
-  stats: () => Promise<{ path: string; count: number; size: number } | null>;
-  readonly path: string;
-  has: (name: string) => Promise<boolean>;
-  count: () => Promise<number>;
+  appendNote: (text: string) => Promise<{ path: string }>;
+  replace: (findText: string, replaceWith: string) => Promise<{
+    noteReplacements: number;
+    factReplacements: number;
+  }>;
+  clear: (confirm?: boolean) => Promise<{
+    clearedNotes: boolean;
+    clearedFacts: number;
+  }>;
+  readonly notesPath: string;
+  readonly dbPath: string;
 }
 
-type MemoryCallable = MemoryApi & (() => Promise<MemorySummary>);
+type MemoryCallable = MemoryApi & (() => Promise<MemorySnapshot>);
 
-// ============================================================================
-// Memory API Object
-// ============================================================================
+function buildMemorySnapshot(
+  notes: string,
+): MemorySnapshot {
+  const facts = getValidFacts().map((fact) => ({
+    id: fact.id,
+    category: fact.category,
+    content: fact.content,
+    source: fact.source,
+    validFrom: fact.validFrom,
+  }));
+  return {
+    notesPath: getMemoryMdPath(),
+    dbPath: getMemoryDbPath(),
+    notes,
+    factCount: facts.length,
+    facts,
+  };
+}
 
-/**
- * Create the memory API object
- * Designed to be registered on globalThis for REPL access
- */
+function searchNotes(
+  notes: string,
+  query: string,
+  limit: number,
+): MemorySearchResult[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return [];
+
+  const hits: MemorySearchResult[] = [];
+  const lines = notes.split("\n").map((line) => line.trim()).filter(Boolean);
+  for (const line of lines) {
+    if (!line.toLowerCase().includes(normalizedQuery)) continue;
+    hits.push({
+      kind: "note",
+      text: line,
+      file: "memory/notes",
+      path: getMemoryMdPath(),
+      date: "",
+      score: 1,
+      source: "notes",
+    });
+    if (hits.length >= limit) break;
+  }
+  return hits;
+}
+
 function createMemoryApi(): MemoryCallable {
   const api: MemoryApi = {
-    /**
-     * Load memory definitions from file
-     * System-level API - normally called by REPL initialization
-     * @example (memory.load evaluator)
-     */
-    load: (
-      evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>,
-    ): Promise<{ docstrings: Map<string, string>; errors: string[] }> => {
-      return loadMemory(evaluator);
+    get: async (): Promise<MemorySnapshot> => {
+      return buildMemorySnapshot(await readExplicitMemory());
     },
 
-    /**
-     * Compact memory file (remove duplicates/overwritten definitions)
-     * System-level API - normally called by REPL initialization
-     * @example (memory.compact)
-     */
-    compact: (): Promise<{ before: number; after: number }> => {
-      return compactMemory();
+    search: async (
+      query: string,
+      limit = 5,
+    ): Promise<MemorySearchResult[]> => {
+      assertString(query, "memory.search", "memory.search requires a query string");
+      const trimmed = query.trim();
+      if (!trimmed) return [];
+      const maxResults = limit > 0 ? limit : 5;
+      const notes = await readExplicitMemory();
+      const noteHits = searchNotes(notes, trimmed, maxResults);
+      const factHits = retrieveMemory(trimmed, maxResults).map((result) => ({
+        ...result,
+        kind: "fact" as const,
+      }));
+      return [...noteHits, ...factHits].slice(0, maxResults);
     },
 
-    /**
-     * List all definition names in memory
-     * @example (memory.list)
-     */
-    list: (): Promise<string[]> => {
-      return getMemoryNames();
+    add: async (
+      text: string,
+      category?: string,
+    ): Promise<{ factId: number; category: string }> => {
+      if (typeof text !== "string") {
+        throw new ValidationError(
+          "memory.add requires a non-empty text string",
+          "memory.add",
+        );
+      }
+      const trimmed = text.trim();
+      if (!trimmed) {
+        throw new ValidationError(
+          "memory.add requires a non-empty text string",
+          "memory.add",
+        );
+      }
+      const normalizedCategory = category?.trim() || "General";
+      return {
+        factId: insertFact({
+          content: trimmed,
+          category: normalizedCategory,
+          source: "memory",
+        }),
+        category: normalizedCategory,
+      };
     },
 
-    /**
-     * Get the source code of a definition
-     * @example (memory.get "myFn")
-     */
-    get: (name: string): Promise<string | null> => {
-      assertString(name, "memory.get", "memory.get requires a name string");
-      return getDefinitionSource(name);
+    appendNote: async (text: string): Promise<{ path: string }> => {
+      if (typeof text !== "string") {
+        throw new ValidationError(
+          "memory.appendNote requires a non-empty text string",
+          "memory.appendNote",
+        );
+      }
+      const trimmed = text.trim();
+      if (!trimmed) {
+        throw new ValidationError(
+          "memory.appendNote requires a non-empty text string",
+          "memory.appendNote",
+        );
+      }
+      await appendExplicitMemoryNote(trimmed);
+      return { path: getMemoryMdPath() };
     },
 
-    /**
-     * Remove a definition from memory
-     * @example (memory.remove "myFn")
-     */
-    remove: (name: string): Promise<boolean> => {
+    replace: async (
+      findText: string,
+      replaceWith: string,
+    ): Promise<{ noteReplacements: number; factReplacements: number }> => {
       assertString(
-        name,
-        "memory.remove",
-        "memory.remove requires a name string",
+        findText,
+        "memory.replace",
+        "memory.replace requires a find string",
       );
-      return forgetFromMemory(name);
+      if (typeof replaceWith !== "string") {
+        throw new ValidationError(
+          "memory.replace requires a replacement string",
+          "memory.replace",
+        );
+      }
+      const [noteReplacements, factReplacements] = await Promise.all([
+        replaceExplicitMemoryText(findText, replaceWith),
+        Promise.resolve(replaceInFacts(findText, replaceWith)),
+      ]);
+      return { noteReplacements, factReplacements };
     },
 
-    /**
-     * Clear all definitions from memory
-     * @example (memory.clear)
-     */
-    clear: (): Promise<void> => {
-      return clearMemory();
+    clear: async (
+      confirm = false,
+    ): Promise<{ clearedNotes: boolean; clearedFacts: number }> => {
+      if (confirm !== true) {
+        throw new ValidationError(
+          "memory.clear requires confirm=true",
+          "memory.clear",
+        );
+      }
+      const clearedFacts = invalidateAllFacts();
+      await clearExplicitMemory();
+      return {
+        clearedNotes: true,
+        clearedFacts,
+      };
     },
 
-    /**
-     * Get memory statistics
-     * @example (memory.stats)
-     */
-    stats: (): Promise<
-      { path: string; count: number; size: number } | null
-    > => {
-      return getMemoryStats();
+    get notesPath(): string {
+      return getMemoryMdPath();
     },
 
-    /**
-     * Get memory file path
-     * @example (memory.path)
-     */
-    get path(): string {
-      return getMemoryFilePath();
-    },
-
-    /**
-     * Check if a definition exists
-     * @example (memory.has "myFn")
-     */
-    has: async (name: string): Promise<boolean> => {
-      assertString(name, "memory.has", "memory.has requires a name string");
-      const source = await getDefinitionSource(name);
-      return source !== null;
-    },
-
-    /**
-     * Get count of definitions
-     * @example (memory.count)
-     */
-    count: async (): Promise<number> => {
-      const names = await getMemoryNames();
-      return names.length;
+    get dbPath(): string {
+      return getMemoryDbPath();
     },
   };
 
-  const memoryFn = async (): Promise<MemorySummary> => {
-    const [stats, names] = await Promise.all([api.stats(), api.list()]);
-    return {
-      count: stats?.count ?? names.length,
-      names,
-      path: stats?.path ?? api.path,
-      size: stats?.size ?? 0,
-    };
+  const memoryFn = async (): Promise<MemorySnapshot> => {
+    return await api.get();
   };
 
   Object.defineProperties(memoryFn, Object.getOwnPropertyDescriptors(api));
   return memoryFn as MemoryCallable;
 }
 
-/**
- * Default memory API instance
- */
 export const memory = createMemoryApi();

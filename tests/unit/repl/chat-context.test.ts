@@ -1,4 +1,8 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
+import {
+  getMemoryMdPath,
+  resetHlvmDirCacheForTests,
+} from "../../../src/common/paths.ts";
 import type { MessageRow } from "../../../src/hlvm/store/types.ts";
 import {
   buildAgentHistoryMessages,
@@ -236,6 +240,51 @@ Deno.test("chat context: image attachments survive replay for chat and agent bui
     assertEquals(agentUser.images?.[0]?.mimeType, "image/png");
     assertEquals((agentUser.images?.[0]?.data.length ?? 0) > 0, true);
   } finally {
+    await platform.fs.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("chat context: disablePersistentMemory suppresses memory injection for plain chat", async () => {
+  const platform = getPlatform();
+  const tmpDir = await platform.fs.makeTempDir({ prefix: "chat-ctx-memory-" });
+  platform.env.set("HLVM_DIR", tmpDir);
+  resetHlvmDirCacheForTests();
+
+  try {
+    await platform.fs.mkdir(platform.path.dirname(getMemoryMdPath()), {
+      recursive: true,
+    });
+    await platform.fs.writeTextFile(getMemoryMdPath(), "Explicit note for chat");
+
+    const enabled = await buildChatProviderMessages({
+      requestMessages: [{ role: "user", content: "hello" }],
+      storedMessages: [],
+      modelKey: "test-chat/plain",
+    });
+    const disabled = await buildChatProviderMessages({
+      requestMessages: [{ role: "user", content: "hello" }],
+      storedMessages: [],
+      disablePersistentMemory: true,
+      modelKey: "test-chat/plain",
+    });
+
+    assertEquals(
+      enabled.messages.some((message) =>
+        message.role === "system" &&
+        message.content?.includes("# Your Memory")
+      ),
+      true,
+    );
+    assertEquals(
+      disabled.messages.some((message) =>
+        message.role === "system" &&
+        message.content?.includes("# Your Memory")
+      ),
+      false,
+    );
+  } finally {
+    platform.env.delete("HLVM_DIR");
+    resetHlvmDirCacheForTests();
     await platform.fs.remove(tmpDir, { recursive: true });
   }
 });

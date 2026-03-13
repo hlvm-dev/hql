@@ -10,7 +10,7 @@ import { isVectorImport, isNamespaceImport } from "../../../hql/transpiler/synta
 import { sanitizeIdentifier, ensureError } from "../../../common/utils.ts";
 import { DECLARATION_KEYWORDS, BINDING_KEYWORDS } from "../../../hql/transpiler/keyword/primitives.ts";
 import type { ReplState } from "./state.ts";
-import { appendToMemory } from "./memory.ts";
+import { appendToBindings } from "./bindings.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { extractFnParams, extractIdentifierName } from "./definition-utils.ts";
 
@@ -222,28 +222,28 @@ export async function evaluate(
 
         // FIRST: Persist all definitions to memory.hql
         // Must complete BEFORE state mutations to avoid race condition
-        // (state change triggers getMemoryNames() which must see the written file)
+        // (state change triggers getBindingNames() which must see the written file)
         for (const { name, operator } of bindingNames) {
-          if (operator === "def" && !state.isLoadingMemory) {
+          if (operator === "def" && !state.isLoadingBindings) {
             try {
               const value = (globalThis as Record<string, unknown>)[sanitizeIdentifier(name)];
-              await appendToMemory(name, "def", value, state.getDocstring(name));
+              await appendToBindings(name, "def", value, state.getDocstring(name));
             } catch (err) {
-              log.error(`[memory] Failed to persist def '${name}': ${err}`);
+              log.error(`[bindings] Failed to persist def '${name}': ${err}`);
             }
           }
         }
         for (const { name, operator, source } of declarationNames) {
-          if (operator === "defn" && !state.isLoadingMemory) {
+          if (operator === "defn" && !state.isLoadingBindings) {
             try {
-              await appendToMemory(name, "defn", source, state.getDocstring(name));
+              await appendToBindings(name, "defn", source, state.getDocstring(name));
             } catch (err) {
-              log.error(`[memory] Failed to persist defn '${name}': ${err}`);
+              log.error(`[bindings] Failed to persist defn '${name}': ${err}`);
             }
           }
         }
 
-        // THEN: Register all bindings with state (triggers notify → getMemoryNames)
+        // THEN: Register all bindings with state (triggers notify → getBindingNames)
         for (const { name } of bindingNames) {
           state.addBinding(name);
         }
@@ -386,16 +386,16 @@ async function handleBinding(_sourceCode: string, ast: SList, name: string, oper
     // Only if not currently loading from memory (prevents loop)
     // IMPORTANT: Must complete BEFORE state.addBinding() to avoid race condition
 
-    if (operator === "def" && !state.isLoadingMemory) {
+    if (operator === "def" && !state.isLoadingBindings) {
       try {
-        await appendToMemory(name, "def", result, state.getDocstring(name));
+        await appendToBindings(name, "def", result, state.getDocstring(name));
       } catch (err) {
-        log.error(`[memory] Failed to persist def '${name}': ${err}`);
+        log.error(`[bindings] Failed to persist def '${name}': ${err}`);
       }
     }
 
-    // Register binding - triggers notify() → React re-render → getMemoryNames()
-    // So appendToMemory() must complete BEFORE this line
+    // Register binding - triggers notify() → React re-render → getBindingNames()
+    // So appendToBindings() must complete BEFORE this line
     state.addBinding(name);
 
     return { success: true, value: result };
@@ -430,20 +430,20 @@ async function handleDeclaration(sourceCode: string, name: string, operator: str
     // Persist to memory.hql for "defn" ONLY (not fn/function)
     // Only if not currently loading from memory (prevents loop)
     // IMPORTANT: Must complete BEFORE state.addFunction() to avoid race condition
-    // (state change triggers getMemoryNames() which must see the written file)
-    if (operator === "defn" && !state.isLoadingMemory) {
+    // (state change triggers getBindingNames() which must see the written file)
+    if (operator === "defn" && !state.isLoadingBindings) {
       try {
         // For defn, store the original source code (not the evaluated function)
-        // state.getDocstring() is the single source of truth - appendToMemory strips any inline comments
-        await appendToMemory(name, "defn", sourceCode, state.getDocstring(name));
+        // state.getDocstring() is the single source of truth - appendToBindings strips any inline comments
+        await appendToBindings(name, "defn", sourceCode, state.getDocstring(name));
       } catch (err) {
-        log.error(`[memory] Failed to persist defn '${name}': ${err}`);
+        log.error(`[bindings] Failed to persist defn '${name}': ${err}`);
       }
     }
 
     // Register binding with params if it's a function
-    // IMPORTANT: This triggers notify() which causes React to re-render and call getMemoryNames()
-    // So appendToMemory() must complete BEFORE this line
+    // IMPORTANT: This triggers notify() which causes React to re-render and call getBindingNames()
+    // So appendToBindings() must complete BEFORE this line
     if (params && params.length > 0) {
       state.addFunction(name, params);
     } else {

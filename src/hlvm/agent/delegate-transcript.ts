@@ -4,6 +4,8 @@
  * Captures a compact, serializable view of a delegated child run for UI/debugging.
  */
 
+import { truncate } from "../../common/utils.ts";
+
 export type DelegateTranscriptEvent =
   | { type: "reasoning"; iteration: number; summary: string }
   | { type: "planning"; iteration: number; summary: string }
@@ -71,4 +73,66 @@ export function getDelegateTranscriptSnapshot(
 ): DelegateTranscriptSnapshot | undefined {
   if (!value || typeof value !== "object") return undefined;
   return (value as SnapshotCarrier)[DELEGATE_TRANSCRIPT_SNAPSHOT];
+}
+
+function formatDelegateDurationMs(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function summarizeDelegateToolContent(
+  name: string,
+  summary?: string,
+  content?: string,
+): string {
+  const candidate = summary?.trim();
+  if (candidate) return candidate;
+  const normalized = (content ?? "").trim();
+  if (!normalized) return `${name} completed`;
+  return normalized.split("\n").map((line) => line.trim()).find(Boolean) ??
+    normalized;
+}
+
+export function formatDelegateTranscriptEvent(
+  event: DelegateTranscriptEvent,
+): string {
+  switch (event.type) {
+    case "reasoning":
+      return `Reasoning: ${event.summary.trim()}`;
+    case "planning":
+      return `Planning: ${event.summary.trim()}`;
+    case "plan_created":
+      return `Plan created (${event.stepCount} steps)`;
+    case "plan_step":
+      return `Plan step ${event.index + 1} complete: ${event.stepId}`;
+    case "tool_start":
+      return `Tool ${event.name}: ${event.argsSummary}`;
+    case "tool_end": {
+      const summary = summarizeDelegateToolContent(
+        event.name,
+        event.summary,
+        event.content,
+      );
+      return event.success
+        ? `Tool ${event.name}: ${summary}`
+        : `Tool ${event.name} failed: ${summary}`;
+    }
+    case "turn_stats":
+      return `${event.toolCount} tool${event.toolCount === 1 ? "" : "s"} · ${
+        formatDelegateDurationMs(event.durationMs)
+      }`;
+  }
+}
+
+export function listDelegateTranscriptLines(
+  snapshot?: DelegateTranscriptSnapshot,
+): string[] {
+  if (!snapshot) return [];
+  const eventLines = snapshot.events
+    .map(formatDelegateTranscriptEvent)
+    .filter(Boolean);
+  const finalLine = snapshot.finalResponse?.trim()
+    ? `Final: ${truncate(snapshot.finalResponse.trim(), 120)}`
+    : undefined;
+  return finalLine ? [...eventLines, finalLine] : eventLines;
 }

@@ -12,8 +12,8 @@ import { ValidationError } from "../../../../common/error.ts";
  * Context value containing all reactive REPL state
  */
 export interface ReplContextValue extends ReplStateSnapshot {
-  /** Memory names (persisted definitions from ~/.hlvm/memory.hql) */
-  memoryNames: string[];
+  /** Binding names (persisted definitions from ~/.hlvm/memory.hql) */
+  bindingNames: string[];
 }
 
 const ReplContext = createContext<ReplContextValue | null>(null);
@@ -31,20 +31,20 @@ export function ReplProvider({ children, replState }: ReplProviderProps): React.
   // Bridge hook subscribes to ReplState and provides reactive values
   const bridgeState = useReplStateBridge(replState);
 
-  // Memory names from filesystem (separate from ReplState)
-  const [memoryNames, setMemoryNames] = useState<string[]>([]);
+  // Binding names from filesystem (separate from ReplState)
+  const [bindingNames, setBindingNames] = useState<string[]>([]);
 
-  // Auto-refresh memory names when state version changes
-  // This catches def/defn/forget operations AND initial mount (version starts at 0)
+  // Auto-refresh binding names when state version changes
+  // This catches def/defn/unbind operations AND initial mount (version starts at 0)
   // NOTE: Use version, not bindings - bindings is a mutable Set with same reference
       useEffect(() => {
-        // SSOT: Use memory API only
-        const memoryApi = (globalThis as Record<string, unknown>).memory as {
+        // SSOT: Use bindings API only
+        const bindingsApi = (globalThis as Record<string, unknown>).bindings as {
           list: () => Promise<string[]>;
         } | undefined;
-  
-        if (memoryApi?.list) {
-          memoryApi.list().then(setMemoryNames).catch(() => {
+
+        if (bindingsApi?.list) {
+          bindingsApi.list().then(setBindingNames).catch(() => {
             // Silently ignore errors (file may not exist yet)
           });
         }
@@ -53,9 +53,9 @@ export function ReplProvider({ children, replState }: ReplProviderProps): React.
   const value = useMemo(
     (): ReplContextValue => ({
       ...bridgeState,
-      memoryNames,
+      bindingNames,
     }),
-    [bridgeState, memoryNames]
+    [bridgeState, bindingNames]
   );
 
   return <ReplContext.Provider value={value}>{children}</ReplContext.Provider>;
@@ -102,10 +102,10 @@ export function useHistory(): readonly string[] {
 }
 
 /**
- * Hook to access only memory names
+ * Hook to access only binding names
  */
-export function useMemoryNames(): string[] {
-  return useReplContext().memoryNames;
+export function useBindingNames(): string[] {
+  return useReplContext().bindingNames;
 }
 
 /**

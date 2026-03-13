@@ -226,7 +226,7 @@ export function Input({
     signatures,
     docstrings,
     history,
-    memoryNames,
+    bindingNames,
   } = useReplContext();
   const [cursorPos, setCursorPos] = useState(value.length);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -238,16 +238,16 @@ export function Input({
   // Autosuggestion (ghost text - separate from completion)
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
 
-  // Memoize memoryNames Set to avoid recreation on every render
-  const memoryNamesSet = useMemo(() => new Set(memoryNames), [memoryNames]);
+  // Memoize bindingNames Set to avoid recreation on every render
+  const bindingNamesSet = useMemo(() => new Set(bindingNames), [bindingNames]);
 
   // Unified Completion System (replaces legacy completion + @mention state)
-  // Includes memoryNames for context-aware completions (e.g., forget only shows memory items)
+  // Includes bindingNames for context-aware completions (e.g., unbind only shows binding items)
   const completion = useCompletion({
     userBindings,
     signatures,
     docstrings,
-    memoryNames: memoryNamesSet,
+    bindingNames: bindingNamesSet,
     debounceMs: 50,
   });
 
@@ -485,7 +485,7 @@ export function Input({
       userBindings,
       signatures,
       docstrings,
-      memoryNamesSet,
+      bindingNamesSet,
     );
 
     // @mention auto-trigger uses provider SSOT trigger/query rules.
@@ -512,7 +512,7 @@ export function Input({
     userBindings,
     signatures,
     docstrings,
-    memoryNamesSet,
+    bindingNamesSet,
   ]);
 
   // Helper: check if in placeholder mode

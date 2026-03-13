@@ -8,15 +8,15 @@
 
 import {
   buildPromptBlocks,
-  type ChronologyGrouping,
   type ChronologyEntry,
+  type ChronologyGrouping,
   DAY_MS,
   DEFAULT_BLOCK_GAP_MS,
   getLocalDateKey,
   getLocalTimeLabel,
   getTimeZone,
-  isLowSignalPrompt,
   isGreetingOnlyPrompt,
+  isLowSignalPrompt,
   isRecallMetaPrompt,
   normalizePrompt,
   type PromptBlock,
@@ -149,9 +149,9 @@ async function recentActivity(
 
   const parsed = isToolArgsObject(args) ? args : {};
   const reference = (
-    typeof parsed.reference === "string" &&
-    VALID_REFERENCES.has(parsed.reference as ActivityReference)
-  )
+      typeof parsed.reference === "string" &&
+      VALID_REFERENCES.has(parsed.reference as ActivityReference)
+    )
     ? parsed.reference as ActivityReference
     : "recent";
   const offsetBlocks = typeof parsed.offset_blocks === "number"
@@ -162,9 +162,9 @@ async function recentActivity(
     : DEFAULT_LIMIT_BLOCKS;
   const dateArg = typeof parsed.date === "string" ? parsed.date : undefined;
   const subject = (
-    typeof parsed.subject === "string" &&
-    VALID_SUBJECTS.has(parsed.subject as ActivitySubject)
-  )
+      typeof parsed.subject === "string" &&
+      VALID_SUBJECTS.has(parsed.subject as ActivitySubject)
+    )
     ? parsed.subject as ActivitySubject
     : "activity";
 
@@ -319,7 +319,9 @@ async function recentActivity(
         offsetBlocks,
         offsetBlocks + limitBlocks,
       );
-      resolvedLabel = `${subject === "questions" ? "Questions" : "Activity"} today (${todayKey})`;
+      resolvedLabel = `${
+        subject === "questions" ? "Questions" : "Activity"
+      } today (${todayKey})`;
       break;
     }
     case "yesterday": {
@@ -330,7 +332,9 @@ async function recentActivity(
         offsetBlocks,
         offsetBlocks + limitBlocks,
       );
-      resolvedLabel = `${subject === "questions" ? "Questions" : "Activity"} yesterday (${yesterdayKey})`;
+      resolvedLabel = `${
+        subject === "questions" ? "Questions" : "Activity"
+      } yesterday (${yesterdayKey})`;
       break;
     }
     case "date": {
@@ -339,7 +343,9 @@ async function recentActivity(
         offsetBlocks,
         offsetBlocks + limitBlocks,
       );
-      resolvedLabel = `${subject === "questions" ? "Questions" : "Activity"} on ${dateArg!}`;
+      resolvedLabel = `${
+        subject === "questions" ? "Questions" : "Activity"
+      } on ${dateArg!}`;
       break;
     }
     case "recent":
@@ -359,7 +365,9 @@ async function recentActivity(
   // 8. Convert to output format
   const blocks: ActivityBlock[] = selectedBlocks.map((block) => ({
     date: block.dateKey,
-    time_range: `${getLocalTimeLabel(block.startTs, timeZone)} – ${getLocalTimeLabel(block.endTs, timeZone)}`,
+    time_range: `${getLocalTimeLabel(block.startTs, timeZone)} – ${
+      getLocalTimeLabel(block.endTs, timeZone)
+    }`,
     prompts: block.prompts,
     source: block.source,
     startTs: block.startTs,
@@ -392,17 +400,26 @@ function formatRecentActivityResult(
   if (!Array.isArray(data.blocks)) return null;
 
   if (data.blocks.length === 0) {
+    const resolvedLabel = data.resolved_label.trim();
+    const summary = resolvedLabel
+      ? /^no\b/i.test(resolvedLabel)
+        ? resolvedLabel
+        : `No ${
+          resolvedLabel.charAt(0).toLowerCase() + resolvedLabel.slice(1)
+        }`
+      : data.subject === "questions"
+      ? "No questions found"
+      : "No activity found";
     return {
-      summaryDisplay: data.subject === "questions"
-        ? "No questions found"
-        : "No activity found",
-      returnDisplay: safeStringify(result, 2),
+      summaryDisplay: summary,
+      returnDisplay: summary,
     };
   }
 
-  const noun = data.subject === "questions" ? "Questions" : "Activity";
   const lines: string[] = [
-    `${noun}: ${data.resolved_label} (${data.blocks.length} block${data.blocks.length > 1 ? "s" : ""})`,
+    `${data.resolved_label} (${data.blocks.length} block${
+      data.blocks.length > 1 ? "s" : ""
+    })`,
   ];
   for (const block of data.blocks) {
     lines.push(`  ${block.date} ${block.time_range} [${block.source}]`);
@@ -414,7 +431,9 @@ function formatRecentActivityResult(
     }
   }
   if (data.has_older) {
-    lines.push(`  (${data.total_blocks - data.blocks.length} older blocks available)`);
+    lines.push(
+      `  (${data.total_blocks - data.blocks.length} older blocks available)`,
+    );
   }
 
   return {
@@ -430,29 +449,25 @@ function formatRecentActivityResult(
 export const ACTIVITY_TOOLS: Record<string, ToolMetadata> = {
   recent_activity: {
     fn: recentActivity,
-    description:
-      "Retrieve recent user activity across sessions. " +
+    description: "Retrieve recent user activity across sessions. " +
       "Call this when the user asks about what they did previously, " +
       "last time, before that, recently, yesterday, today, or any " +
-      "chronology/recall question. Use subject=\"questions\" when the user " +
-      "is asking about what they asked/typed/said, and subject=\"activity\" " +
-      "when they are asking about what they worked on or did.",
+      'chronology/recall question. Use subject="questions" when the user ' +
+      'is asking about literal prior prompts/questions (excluding chronology-navigation prompts), ' +
+      'and subject="activity" when they are asking about what they worked on or did.',
     category: "meta",
     args: {
       reference:
         'string (optional) - "last_time" | "before_that" | "today" | "yesterday" | "recent" | "date". Default: "recent"',
       subject:
-        'string (optional) - "activity" | "questions". Use "questions" for literal past prompts. Default: "activity"',
+        'string (optional) - "activity" | "questions". Use "questions" for literal past prompts/questions, excluding chronology-navigation prompts. Default: "activity"',
       offset_blocks:
         "number (optional) - Skip N blocks from the most recent. Default: 0",
-      date:
-        'string (optional) - YYYY-MM-DD. Only when reference="date"',
-      limit_blocks:
-        "number (optional) - Max blocks to return. Default: 3",
+      date: 'string (optional) - YYYY-MM-DD. Only when reference="date"',
+      limit_blocks: "number (optional) - Max blocks to return. Default: 3",
     },
     returns: {
-      blocks:
-        "array - { date, time_range, prompts[], source, startTs, endTs }",
+      blocks: "array - { date, time_range, prompts[], source, startTs, endTs }",
       total_blocks: "number - Total blocks available",
       has_older: "boolean - Whether older blocks exist",
       current_date: "string - Today's date in local timezone",

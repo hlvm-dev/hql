@@ -5,29 +5,29 @@
 
 import type { RuntimeState } from "../../api/runtime.ts";
 import { registerApis } from "../../api/index.ts";
-import { memory, type MemoryApi } from "../../api/memory.ts";
+import { bindings, type BindingsApi } from "../../api/bindings.ts";
 import { evaluate } from "./evaluator.ts";
 import { registerReplHelpers } from "./helpers.ts";
 import { loadStdlibModules, type ModuleLoaderResult } from "./module-loader.ts";
 import { ReplState } from "./state.ts";
 
-type MemoryLoadResult = Awaited<ReturnType<MemoryApi["load"]>>;
+type BindingsLoadResult = Awaited<ReturnType<BindingsApi["load"]>>;
 
 export type HistoryInitMode = "await" | "defer" | "skip";
 
 export interface InitReplStateOptions {
   state?: ReplState;
   /** Whether to evaluate memory entries in JS mode */
-  memoryJsMode?: boolean;
+  bindingsJsMode?: boolean;
   /** History init mode; defaults to "await" */
   initHistory?: HistoryInitMode;
   /** Use an existing history init promise (e.g., started early) */
   historyInitPromise?: Promise<void>;
   onHistoryError?: (error: unknown) => void;
-  onMemoryError?: (error: unknown) => void;
+  onBindingsError?: (error: unknown) => void;
   runtime?: Pick<RuntimeState, "getMedia">;
   loadModules?: boolean;
-  loadMemory?: boolean;
+  loadBindings?: boolean;
   registerApis?: boolean;
   registerHelpers?: boolean;
   suppressModuleErrors?: boolean;
@@ -37,7 +37,7 @@ export interface InitReplStateResult {
   state: ReplState;
   historyInit?: Promise<void>;
   moduleResult?: ModuleLoaderResult;
-  memoryResult?: MemoryLoadResult;
+  bindingsResult?: BindingsLoadResult;
 }
 
 export function startReplHistoryInit(
@@ -56,14 +56,14 @@ export async function initReplState(
 ): Promise<InitReplStateResult> {
   const {
     state: providedState,
-    memoryJsMode = false,
+    bindingsJsMode = false,
     initHistory = "await",
     historyInitPromise,
     onHistoryError,
-    onMemoryError,
+    onBindingsError,
     runtime,
     loadModules = true,
-    loadMemory = true,
+    loadBindings: shouldLoadBindings = true,
     registerApis: shouldRegisterApis = true,
     registerHelpers: shouldRegisterHelpers = true,
     suppressModuleErrors = true,
@@ -108,24 +108,24 @@ export async function initReplState(
     });
   }
 
-  let memoryResult: MemoryLoadResult | undefined;
-  if (loadMemory) {
+  let bindingsResult: BindingsLoadResult | undefined;
+  if (shouldLoadBindings) {
     try {
-      await memory.compact();
-      state.setLoadingMemory(true);
-      const result = await memory.load(async (code: string) => {
-        const evalResult = await evaluate(code, state, memoryJsMode);
+      await bindings.compact();
+      state.setLoadingBindings(true);
+      const result = await bindings.load(async (code: string) => {
+        const evalResult = await evaluate(code, state, bindingsJsMode);
         return { success: evalResult.success, error: evalResult.error };
       });
-      state.setLoadingMemory(false);
+      state.setLoadingBindings(false);
       if (result.docstrings.size > 0) {
         state.addDocstrings(result.docstrings);
       }
-      memoryResult = result;
+      bindingsResult = result;
     } catch (error) {
-      state.setLoadingMemory(false);
-      if (onMemoryError) {
-        onMemoryError(error);
+      state.setLoadingBindings(false);
+      if (onBindingsError) {
+        onBindingsError(error);
       }
     }
   }
@@ -138,6 +138,6 @@ export async function initReplState(
     state,
     historyInit,
     moduleResult,
-    memoryResult,
+    bindingsResult,
   };
 }

@@ -183,7 +183,7 @@ async function withAiLoopEnhancementWorkspace(
 
 Deno.test({
   name:
-    "raw ./hlvm ask self-starts the local runtime host and renders system-managed delegation",
+    "local ask command self-starts the runtime host and renders system-managed delegation",
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {

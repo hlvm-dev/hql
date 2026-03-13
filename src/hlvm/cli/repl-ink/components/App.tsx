@@ -1514,7 +1514,7 @@ function AppContent(
             isCommandOutput: true,
           });
         }
-        // FRP: memoryNames auto-update via ReplContext when bindings change
+        // FRP: bindingNames auto-update via ReplContext when bindings change
         return;
       }
 
@@ -2219,14 +2219,14 @@ async function handleCommand(
     case "/reset": {
       repl.reset();
       resetContext();
-      // SSOT: Use memory API only
-      const memoryApi = (globalThis as Record<string, unknown>).memory as {
+      // SSOT: Use bindings API only
+      const bindingsApi = (globalThis as Record<string, unknown>).bindings as {
         clear: () => Promise<void>;
       } | undefined;
-      if (memoryApi?.clear) {
-        await memoryApi.clear();
+      if (bindingsApi?.clear) {
+        await bindingsApi.clear();
       }
-      return "REPL state reset. All bindings and memory cleared.";
+      return "REPL state reset. All bindings cleared.";
     }
   }
 

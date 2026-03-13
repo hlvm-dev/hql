@@ -134,7 +134,7 @@ function createSymbolApplyAction(
     // SELECT action: Smart completion (add parens, params, placeholder mode)
     // User explicitly chose "full form" by confirming selection.
 
-    // CONTEXT-AWARE FORMS (forget, inspect, describe): Skip placeholder mode!
+    // CONTEXT-AWARE FORMS (unbind, inspect, describe): Skip placeholder mode!
     // Just insert the function name - let the auto-completion dropdown show options
     if (isContextAwareForm) {
       const openParen = hasOpeningParen ? "" : "(";
@@ -264,7 +264,7 @@ export const SymbolProvider: CompletionProvider = {
     const contextFilter = enclosingForm ? CONTEXT_AWARE_FORMS[enclosingForm.name] : undefined;
 
     // Determine which names to show based on context
-    // - "memory": only show memoryNames (persistent definitions)
+    // - "persistent": only show bindingNames (persistent definitions)
     // - "bindings": only show userBindings (session definitions)
     // - "functions": only show things with signatures
     // - undefined: show all (normal completion)
@@ -272,8 +272,8 @@ export const SymbolProvider: CompletionProvider = {
       if (!contextFilter) return null; // No filter - show all
 
       switch (contextFilter) {
-        case "memory":
-          return new Set(context.memoryNames);
+        case "persistent":
+          return new Set(context.bindingNames);
         case "bindings":
           return new Set(context.userBindings);
         case "functions":
@@ -341,7 +341,7 @@ export const SymbolProvider: CompletionProvider = {
 
     // Add matching known identifiers (skip if user already defined it)
     // Skip this entire loop if we're in a context that only allows user-defined names
-    if (contextFilter !== "memory" && contextFilter !== "bindings") {
+    if (contextFilter !== "persistent" && contextFilter !== "bindings") {
       for (const id of allIdentifiers) {
         if (seen.has(id)) continue;
 

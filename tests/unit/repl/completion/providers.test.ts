@@ -59,12 +59,12 @@ Deno.test("Providers: getWordAtCursor respects token boundaries", () => {
 });
 
 Deno.test("Providers: buildContext derives current word, string state, and enclosing form", () => {
-  const symbolCtx = ctx("(forget mem", 11);
-  assertEquals(symbolCtx.textBeforeCursor, "(forget mem");
+  const symbolCtx = ctx("(unbind mem", 11);
+  assertEquals(symbolCtx.textBeforeCursor, "(unbind mem");
   assertEquals(symbolCtx.currentWord, "mem");
   assertEquals(symbolCtx.wordStart, 8);
   assertEquals(symbolCtx.isInsideString, false);
-  assertEquals(symbolCtx.enclosingForm, { name: "forget", argIndex: 0 });
+  assertEquals(symbolCtx.enclosingForm, { name: "unbind", argIndex: 0 });
 
   const stringCtx = ctx('(print "hel', 11);
   assertEquals(stringCtx.isInsideString, true);

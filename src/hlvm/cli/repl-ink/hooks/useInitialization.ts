@@ -33,7 +33,7 @@ export interface InitializationState {
   needsModelSetup: boolean;
   /** The model name that needs to be downloaded */
   modelToSetup: string;
-  // memoryNames and refreshMemoryNames removed - now handled by FRP via ReplContext
+  // bindingNames and refreshBindingNames removed - now handled by FRP via ReplContext
 }
 
 export function useInitialization(state: ReplState): InitializationState {
@@ -70,7 +70,7 @@ export function useInitialization(state: ReplState): InitializationState {
 
         const initResult = await initReplState({
           state,
-          memoryJsMode: true,
+          bindingsJsMode: true,
           initHistory: "defer",
           historyInitPromise: historyInit,
           runtime: { getMedia },
@@ -83,8 +83,8 @@ export function useInitialization(state: ReplState): InitializationState {
             loadErrors.push(...initResult.moduleResult.errors);
           }
         }
-        if (initResult.memoryResult?.errors.length) {
-          loadErrors.push(...initResult.memoryResult.errors);
+        if (initResult.bindingsResult?.errors.length) {
+          loadErrors.push(...initResult.bindingsResult.errors);
         }
 
         setErrors(loadErrors);
@@ -99,7 +99,7 @@ export function useInitialization(state: ReplState): InitializationState {
         for (
           const name of [
             "config",
-            "memory",
+            "bindings",
             "session",
             "history",
             "ai",

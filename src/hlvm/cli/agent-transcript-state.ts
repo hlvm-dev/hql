@@ -87,7 +87,7 @@ function findPendingAssistantIndex(items: ConversationItem[]): number {
   );
 }
 
-function findCurrentTurnStartIndex(items: ConversationItem[]): number {
+export function findCurrentTurnStartIndex(items: ConversationItem[]): number {
   return items.findLastIndex((item) => item.type === "user");
 }
 
@@ -233,8 +233,12 @@ function upsertThinkingItem(
   kind: ThinkingItem["kind"],
   summary: string,
 ): TranscriptState {
-  const idx = state.items.findIndex((item) =>
-    item.type === "thinking" && item.iteration === iteration
+  const turnStartIdx = findCurrentTurnStartIndex(state.items);
+  const idx = state.items.findLastIndex((item, itemIndex) =>
+    itemIndex > turnStartIdx &&
+    item.type === "thinking" &&
+    item.iteration === iteration &&
+    item.kind === kind
   );
   if (idx < 0) {
     const [nextState, id] = nextItemId(state);

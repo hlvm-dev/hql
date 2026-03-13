@@ -20,7 +20,7 @@ This prevents fragmentation, simplifies maintenance, and enables consistent beha
 | **AI Operations** | `globalThis.ai` | `src/hlvm/api/ai.ts` | None |
 | **Configuration** | `globalThis.config` | `src/hlvm/api/config.ts` | None |
 | **Sessions** | `globalThis.session` | `src/hlvm/api/session.ts` | None |
-| **Memory** | `globalThis.memory` | `src/hlvm/api/memory.ts` | None |
+| **Bindings** | `globalThis.bindings` | `src/hlvm/api/bindings.ts` | None |
 | **History** | `globalThis.history` | `src/hlvm/api/history.ts` | None |
 
 ## Forbidden Patterns
@@ -166,7 +166,7 @@ All REPL-accessible APIs are registered on `globalThis`:
 globalThis.ai       // AI operations (chat, complete, etc.)
 globalThis.config   // Configuration management
 globalThis.session  // Session management
-globalThis.memory   // Persistent memory
+globalThis.bindings // Persistent definitions
 globalThis.history  // Command history
 globalThis.log      // Logging API
 globalThis.errors   // Error factory
@@ -216,7 +216,7 @@ When adding a new domain:
 │                                ▼                                        │
 │  ╔═════════════════════════════════════════════════════════════════╗   │
 │  ║                    SSOT API LAYER (globalThis)                  ║   │
-│  ║  .ai      .config   .session  .memory  .history  .log  .errors  ║   │
+│  ║  .ai    .config  .session  .bindings  .history  .log  .errors  ║   │
 │  ╚═════════════════════════════════════════════════════════════════╝   │
 │                                │                                        │
 │           ┌────────────────────┼────────────────────┐                   │

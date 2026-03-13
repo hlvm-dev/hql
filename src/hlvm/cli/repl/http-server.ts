@@ -9,7 +9,7 @@ import { evaluate } from "./evaluator.ts";
 import { formatPlainValue } from "./formatter.ts";
 import { initReplState } from "./init-repl-state.ts";
 import { ReplState } from "./state.ts";
-import { listMemoryFunctions, type MemoryFunctionItem } from "./memory.ts";
+import { listBindingFunctions, type BindingFunctionItem } from "./bindings.ts";
 import { escapeString } from "./string-utils.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
@@ -135,16 +135,16 @@ interface CompletionRequest {
   cursor: number;
 }
 
-interface MemoryFunctionsResponse {
-  functions: MemoryFunctionItem[];
+interface BindingFunctionsResponse {
+  functions: BindingFunctionItem[];
 }
 
-interface MemoryExecuteRequest {
+interface BindingExecuteRequest {
   functionName: string;
   args?: string[];
 }
 
-interface MemoryExecuteResponse {
+interface BindingExecuteResponse {
   output: string;
   status: "success" | "error";
   error?: {
@@ -157,7 +157,7 @@ interface MemoryExecuteResponse {
 
 async function initState(): Promise<ReplState> {
   const initResult = await initReplState({
-    memoryJsMode: false,
+    bindingsJsMode: false,
   });
   const state = initResult.state;
   const moduleResult = initResult.moduleResult;
@@ -355,11 +355,11 @@ async function handleComplete(req: Request): Promise<Response> {
     }
 
     const safeCursor = Math.max(0, Math.min(cursor, text.length));
-    const memoryApi = (globalThis as Record<string, unknown>).memory as {
+    const bindingsApi = (globalThis as Record<string, unknown>).bindings as {
       list: () => Promise<string[]>;
     } | undefined;
-    const memoryNames: ReadonlySet<string> = memoryApi?.list
-      ? new Set(await memoryApi.list())
+    const bindingNames: ReadonlySet<string> = bindingsApi?.list
+      ? new Set(await bindingsApi.list())
       : new Set<string>();
 
     const context = buildContext(
@@ -368,7 +368,7 @@ async function handleComplete(req: Request): Promise<Response> {
       replState.getBindingsSet(),
       replState.getSignatures(),
       replState.getDocstrings(),
-      memoryNames,
+      bindingNames,
     );
 
     const provider = getActiveProvider(context);
@@ -528,7 +528,7 @@ function encodeHqlString(value: string): string {
 }
 
 function buildExecuteCode(
-  definition: MemoryFunctionItem,
+  definition: BindingFunctionItem,
   args: string[],
 ): string {
   if (definition.kind === "def") {
@@ -543,12 +543,12 @@ function buildExecuteCode(
  * @openapi
  * /api/memory/functions:
  *   get:
- *     tags: [Memory]
- *     summary: List available HQL memory functions
- *     operationId: listMemoryFunctions
+ *     tags: [Bindings]
+ *     summary: List available HQL binding functions
+ *     operationId: listBindingFunctions
  *     responses:
  *       '200':
- *         description: Array of memory functions.
+ *         description: Array of binding functions.
  *         content:
  *           application/json:
  *             schema:
@@ -557,7 +557,7 @@ function buildExecuteCode(
  *                 functions:
  *                   type: array
  *                   items:
- *                     $ref: '#/components/schemas/MemoryFunction'
+ *                     $ref: '#/components/schemas/BindingFunction'
  *       '500':
  *         description: Failed to list functions.
  *         content:
@@ -565,13 +565,13 @@ function buildExecuteCode(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-async function handleMemoryFunctions(): Promise<Response> {
+async function handleBindingFunctions(): Promise<Response> {
   try {
-    const functions = await listMemoryFunctions();
-    const payload: MemoryFunctionsResponse = { functions };
+    const functions = await listBindingFunctions();
+    const payload: BindingFunctionsResponse = { functions };
     return Response.json(payload);
   } catch (error) {
-    log.error("Memory functions list failed", error);
+    log.error("Binding functions list failed", error);
     return jsonError(getErrorMessage(error), 500);
   }
 }
@@ -582,7 +582,7 @@ function execError(message: string, code: string): Response {
       output: "",
       status: "error",
       error: { message, code },
-    } satisfies MemoryExecuteResponse,
+    } satisfies BindingExecuteResponse,
   );
 }
 
@@ -590,9 +590,9 @@ function execError(message: string, code: string): Response {
  * @openapi
  * /api/memory/functions/execute:
  *   post:
- *     tags: [Memory]
- *     summary: Execute an HQL memory function
- *     operationId: executeMemoryFunction
+ *     tags: [Bindings]
+ *     summary: Execute an HQL binding function
+ *     operationId: executeBindingFunction
  *     requestBody:
  *       required: true
  *       content:
@@ -642,9 +642,9 @@ function execError(message: string, code: string): Response {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-async function handleMemoryExecute(req: Request): Promise<Response> {
+async function handleBindingExecute(req: Request): Promise<Response> {
   try {
-    const parsed = await parseJsonBody<MemoryExecuteRequest>(req);
+    const parsed = await parseJsonBody<BindingExecuteRequest>(req);
     if (!parsed.ok) return parsed.response;
 
     const { functionName, args = [] } = parsed.value;
@@ -655,7 +655,7 @@ async function handleMemoryExecute(req: Request): Promise<Response> {
       return jsonError("args must be an array of strings", 400);
     }
 
-    const definitions = await listMemoryFunctions();
+    const definitions = await listBindingFunctions();
     const definition = definitions.find((def) => def.name === functionName);
     if (!definition) {
       return execError(
@@ -690,10 +690,10 @@ async function handleMemoryExecute(req: Request): Promise<Response> {
     const hasValue = Object.prototype.hasOwnProperty.call(result, "value");
     const output = hasValue ? formatPlainValue(result.value) : "";
     return Response.json(
-      { output, status: "success" } satisfies MemoryExecuteResponse,
+      { output, status: "success" } satisfies BindingExecuteResponse,
     );
   } catch (error) {
-    log.error("Memory execute failed", error);
+    log.error("Binding execute failed", error);
     return jsonError(getErrorMessage(error), 500);
   }
 }
@@ -874,13 +874,13 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   if (req.method === "GET" && url.pathname === "/api/memory/functions") {
-    return addCorsHeaders(await handleMemoryFunctions(), origin);
+    return addCorsHeaders(await handleBindingFunctions(), origin);
   }
 
   if (
     req.method === "POST" && url.pathname === "/api/memory/functions/execute"
   ) {
-    return addCorsHeaders(await handleMemoryExecute(req), origin);
+    return addCorsHeaders(await handleBindingExecute(req), origin);
   }
 
   const match = router.match(req.method, url.pathname);

@@ -36,6 +36,7 @@ export interface PromptBlock {
 
 export const DEFAULT_BLOCK_GAP_MS = 30 * 60 * 1000;
 export const DAY_MS = 24 * 60 * 60 * 1000;
+const QUESTION_DUP_WINDOW_MS = 2000;
 
 export const LOW_SIGNAL_PROMPTS = new Set([
   "y",
@@ -176,6 +177,35 @@ export function dedupePrompts(prompts: string[], limit: number): string[] {
   return unique;
 }
 
+function buildQuestionHistoryEntries(
+  entries: readonly ChronologyEntry[],
+): ChronologyEntry[] {
+  const questionEntries: ChronologyEntry[] = [];
+
+  for (const entry of entries) {
+    const cmd = normalizePrompt(entry.cmd);
+    if (!cmd || isRecallMetaPrompt(cmd)) continue;
+
+    const previous = questionEntries.at(-1);
+    if (
+      previous &&
+      previous.source === entry.source &&
+      normalizePrompt(previous.cmd).toLowerCase() === cmd.toLowerCase() &&
+      entry.ts - previous.ts <= QUESTION_DUP_WINDOW_MS
+    ) {
+      continue;
+    }
+
+    questionEntries.push({
+      ts: entry.ts,
+      cmd,
+      source: entry.source,
+    });
+  }
+
+  return questionEntries;
+}
+
 /**
  * Group chronology entries into prompt blocks by date + time gap.
  * Input MUST be sorted ascending by timestamp.
@@ -187,11 +217,8 @@ export function buildPromptBlocks(
   limitPromptsPerBlock: number,
   grouping: ChronologyGrouping = "activity",
 ): PromptBlock[] {
-  const meaningfulEntries = entries
-    .filter((entry) => entry.cmd && isMeaningfulPrompt(entry.cmd));
-
   if (grouping === "questions") {
-    return meaningfulEntries.map((entry) => ({
+    return buildQuestionHistoryEntries(entries).map((entry) => ({
       dateKey: getLocalDateKey(entry.ts, timeZone),
       startTs: entry.ts,
       endTs: entry.ts,
@@ -199,6 +226,9 @@ export function buildPromptBlocks(
       source: entry.source,
     }));
   }
+
+  const meaningfulEntries = entries
+    .filter((entry) => entry.cmd && isMeaningfulPrompt(entry.cmd));
 
   const blocks: PromptBlock[] = [];
   for (const entry of meaningfulEntries) {

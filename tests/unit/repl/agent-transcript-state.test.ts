@@ -281,6 +281,76 @@ Deno.test("agent transcript state records fallback planning separately from prov
   }
 });
 
+Deno.test("agent transcript state preserves reasoning and planning for the same iteration", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "agent_event",
+    event: {
+      type: "reasoning_update",
+      iteration: 3,
+      summary: "Inspect parser.ts before editing.",
+    },
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "planning_update",
+      iteration: 3,
+      summary: "Patch only the import path.",
+    },
+  });
+
+  assertEquals(
+    state.items.filter((item) => item.type === "thinking").map((item) =>
+      item.type === "thinking" ? `${item.kind}:${item.summary}` : ""
+    ),
+    [
+      "reasoning:Inspect parser.ts before editing.",
+      "planning:Patch only the import path.",
+    ],
+  );
+});
+
+Deno.test("agent transcript state preserves prior-turn reasoning when later turns reuse iteration numbers", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "user_message",
+    text: "first turn",
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "reasoning_update",
+      iteration: 1,
+      summary: "First-turn reasoning",
+    },
+  });
+
+  state = reduceTranscriptState(state, { type: "finalize" });
+  state = reduceTranscriptState(state, {
+    type: "user_message",
+    text: "second turn",
+  });
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "reasoning_update",
+      iteration: 1,
+      summary: "Second-turn reasoning",
+    },
+  });
+
+  assertEquals(
+    state.items.filter((item) => item.type === "thinking").map((item) =>
+      item.type === "thinking" ? item.summary : ""
+    ),
+    [
+      "First-turn reasoning",
+      "Second-turn reasoning",
+    ],
+  );
+});
+
 Deno.test("agent transcript state collapses repeated assistant blocks within one user turn", () => {
   const state = withItems([
     {

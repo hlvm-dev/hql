@@ -13,10 +13,11 @@ import { getCustomInstructionsPath } from "../../common/paths.ts";
 import { ValidationError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import {
-  buildMemorySystemMessage,
   closeFactDb,
   extractSessionFacts,
-  loadMemoryContext,
+  isPersistentMemoryEnabled,
+  isMemorySystemMessage,
+  loadMemorySystemMessage,
   MEMORY_TOOLS,
   persistConversationFacts,
   setMemoryModelTier,
@@ -174,25 +175,21 @@ export async function reuseSession(
 ): Promise<AgentSession> {
   const context = new ContextManager(session.context.getConfig());
   // Copy system messages from the reusable session, excluding stale memory.
-  // Memory messages are identified by the "# Your Memory" marker
   const systemMessages = session.context.getMessages().filter((m) =>
-    m.role === "system" && !m.content.startsWith("# Your Memory")
+    m.role === "system" && !isMemorySystemMessage(m.content)
   );
   for (const message of systemMessages) {
     context.addMessage({ role: "system", content: message.content });
   }
 
   // Inject FRESH memory context (replaces stale memory from cache)
-  if (!options?.disablePersistentMemory) {
+  if (isPersistentMemoryEnabled(options?.disablePersistentMemory)) {
     try {
-      const memoryContext = await loadMemoryContext(
+      const memoryMessage = await loadMemorySystemMessage(
         session.resolvedContextBudget.budget,
       );
-      if (memoryContext) {
-        context.addMessage({
-          role: "system",
-          content: buildMemorySystemMessage(memoryContext),
-        });
+      if (memoryMessage) {
+        context.addMessage(memoryMessage);
       }
     } catch {
       // Memory loading is best-effort — don't block session reuse
@@ -360,7 +357,10 @@ export async function runAgentQuery(
   }
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const profile = ENGINE_PROFILES.normal;
-  const effectiveToolDenylist = disablePersistentMemory
+  const persistentMemoryEnabled = isPersistentMemoryEnabled(
+    disablePersistentMemory,
+  );
+  const effectiveToolDenylist = !persistentMemoryEnabled
     ? [...new Set([...toolDenylist, ...Object.keys(MEMORY_TOOLS)])]
     : [...toolDenylist];
   const toolAllowlist = resolveQueryToolAllowlist(query, options.toolAllowlist);
@@ -376,7 +376,7 @@ export async function runAgentQuery(
     );
   } catch { /* file not found — skip */ }
 
-  const matchingReusableSession = !disablePersistentMemory &&
+  const matchingReusableSession = persistentMemoryEnabled &&
       options.reusableSession &&
       toolListsMatch(
         options.reusableSession.llmConfig?.toolAllowlist,
@@ -786,7 +786,7 @@ export async function runAgentQuery(
           sessionId: sessionKey ?? undefined,
           currentUserRequest: query,
           signal: options.signal,
-          autoMemoryRecall: !disablePersistentMemory,
+          autoMemoryRecall: persistentMemoryEnabled,
           usage: usageTracker,
           l1Confirmations: session.l1Confirmations,
           todoState: session.todoState,
@@ -829,7 +829,7 @@ export async function runAgentQuery(
       completePersistedAgentTurn(persistedTurn, model, text);
     }
 
-    if (!disablePersistentMemory) {
+    if (persistentMemoryEnabled) {
       try {
         persistConversationFacts([{ role: "user", content: query }], {
           source: "extracted",

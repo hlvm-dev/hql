@@ -1,14 +1,14 @@
 import { assert, assertEquals, assertExists } from "jsr:@std/assert";
 import {
-  appendToMemory,
-  compactMemory,
-  forgetFromMemory,
-  getMemoryFilePath,
-  getMemoryNames,
-  getMemoryStats,
-  loadMemory,
+  appendToBindings,
+  compactBindings,
+  removeBinding,
+  getBindingsFilePath,
+  getBindingNames,
+  getBindingStats,
+  loadBindings,
   serializeValue,
-} from "../../../src/hlvm/cli/repl/memory.ts";
+} from "../../../src/hlvm/cli/repl/bindings.ts";
 import { evaluate } from "../../../src/hlvm/cli/repl/evaluator.ts";
 import { ReplState } from "../../../src/hlvm/cli/repl/state.ts";
 import { initializeRuntime } from "../../../src/common/runtime-initializer.ts";
@@ -16,12 +16,12 @@ import { getPlatform } from "../../../src/platform/platform.ts";
 
 const fs = () => getPlatform().fs;
 const path = () => getPlatform().path;
-const getMemoryDir = () => path().dirname(getMemoryFilePath());
+const getMemoryDir = () => path().dirname(getBindingsFilePath());
 
 await initializeRuntime({ ai: false });
 
 async function cleanMemory(): Promise<void> {
-  const filePath = getMemoryFilePath();
+  const filePath = getBindingsFilePath();
   if (await fs().exists(filePath)) {
     await fs().remove(filePath);
   }
@@ -29,14 +29,14 @@ async function cleanMemory(): Promise<void> {
 
 async function createMemoryFile(content: string): Promise<void> {
   await fs().mkdir(getMemoryDir(), { recursive: true });
-  await fs().writeTextFile(getMemoryFilePath(), content);
+  await fs().writeTextFile(getBindingsFilePath(), content);
 }
 
 async function readMemoryFileIfExists(): Promise<string | null> {
-  if (!await fs().exists(getMemoryFilePath())) {
+  if (!await fs().exists(getBindingsFilePath())) {
     return null;
   }
-  return await fs().readTextFile(getMemoryFilePath());
+  return await fs().readTextFile(getBindingsFilePath());
 }
 
 async function evaluateWithState(code: string, state: ReplState): Promise<void> {
@@ -45,14 +45,14 @@ async function evaluateWithState(code: string, state: ReplState): Promise<void> 
 }
 
 async function loadInto(state: ReplState) {
-  state.setLoadingMemory(true);
+  state.setLoadingBindings(true);
   try {
-    return await loadMemory(async (code: string) => {
+    return await loadBindings(async (code: string) => {
       const result = await evaluate(code, state);
       return { success: result.success, error: result.error };
     });
   } finally {
-    state.setLoadingMemory(false);
+    state.setLoadingBindings(false);
   }
 }
 
@@ -68,15 +68,15 @@ Deno.test("memory: serializeValue covers primitives, nesting, and rejects unsupp
   assertEquals(serializeValue(circular), null);
 });
 
-Deno.test("memory: appendToMemory persists defs, defns, and skips unserializable values", async () => {
+Deno.test("memory: appendToBindings persists defs, defns, and skips unserializable values", async () => {
   await cleanMemory();
 
-  await appendToMemory("x", "def", 1);
-  await appendToMemory("x", "def", 2);
-  await appendToMemory("double", "defn", "(defn double [n] (* n 2))");
-  await appendToMemory("bad", "def", () => {});
+  await appendToBindings("x", "def", 1);
+  await appendToBindings("x", "def", 2);
+  await appendToBindings("double", "defn", "(defn double [n] (* n 2))");
+  await appendToBindings("bad", "def", () => {});
 
-  const content = await fs().readTextFile(getMemoryFilePath());
+  const content = await fs().readTextFile(getBindingsFilePath());
   assertEquals((content.match(/\(def x/g) ?? []).length, 1);
   assert(content.includes("(def x 2)"));
   assert(content.includes("(defn double [n] (* n 2))"));
@@ -94,9 +94,9 @@ Deno.test("memory: append fallback preserves malformed existing content", async 
 (defn existingFn [] 1)
 `);
 
-  await appendToMemory("newFn", "defn", "(defn newFn [] 2)");
+  await appendToBindings("newFn", "defn", "(defn newFn [] 2)");
 
-  const content = await fs().readTextFile(getMemoryFilePath());
+  const content = await fs().readTextFile(getBindingsFilePath());
   assert(content.includes("(defn existingFn [] 1)"));
   assert(content.includes("(defn newFn [] 2)"));
 });
@@ -111,24 +111,24 @@ Deno.test("memory: compact, forget, names, and stats share one canonical file vi
 (defn square [n] (* n n))
 `);
 
-  const compacted = await compactMemory();
+  const compacted = await compactBindings();
   assertEquals(compacted, { before: 4, after: 3 });
 
-  const removed = await forgetFromMemory("keep");
+  const removed = await removeBinding("keep");
   assertEquals(removed, true);
-  assertEquals(await forgetFromMemory("missing"), false);
+  assertEquals(await removeBinding("missing"), false);
 
-  const names = await getMemoryNames();
+  const names = await getBindingNames();
   assertEquals(names, ["x", "square"]);
 
-  const stats = await getMemoryStats();
+  const stats = await getBindingStats();
   assertExists(stats);
-  assertEquals(stats.path, getMemoryFilePath());
+  assertEquals(stats.path, getBindingsFilePath());
   assertEquals(stats.count, 2);
   assert(stats.size > 0);
 });
 
-Deno.test("memory: loadMemory skips malformed forms and reports evaluator failures", async () => {
+Deno.test("memory: loadBindings skips malformed forms and reports evaluator failures", async () => {
   await cleanMemory();
 
   await createMemoryFile(`; HLVM Memory
@@ -139,7 +139,7 @@ Deno.test("memory: loadMemory skips malformed forms and reports evaluator failur
 `);
 
   const loaded: string[] = [];
-  const result = await loadMemory(async (code: string) => {
+  const result = await loadBindings(async (code: string) => {
     loaded.push(code);
     if (code.includes("(def fail 0)")) {
       return { success: false, error: new Error("boom") };
@@ -162,7 +162,7 @@ Deno.test("memory: REPL persistence stores def values and defn source only", asy
   await evaluateWithState("(const localConst 2)", state);
   await evaluateWithState("(fn localFn [x] x)", state);
 
-  const content = await fs().readTextFile(getMemoryFilePath());
+  const content = await fs().readTextFile(getBindingsFilePath());
   assert(content.includes("(def persistedValue 42)"));
   assert(content.includes("(defn persistedFn [n] (* n 2))"));
   assert(!content.includes("(+ 10 32)"));
@@ -179,7 +179,7 @@ Deno.test("memory: round-trip reload keeps persisted definitions usable and non-
   await evaluateWithState('(def nestedData {"a": [1 2 {"b": 3}]})', initialState);
   await evaluateWithState('(defn triple [n] (* n 3))', initialState);
 
-  const before = await fs().stat(getMemoryFilePath());
+  const before = await fs().stat(getBindingsFilePath());
 
   const reloadedState = new ReplState();
   const result = await loadInto(reloadedState);
@@ -193,17 +193,17 @@ Deno.test("memory: round-trip reload keeps persisted definitions usable and non-
   assertEquals(nested.value, { a: [1, 2, { b: 3 }] });
   assertEquals(triple.value, 15);
 
-  const after = await fs().stat(getMemoryFilePath());
+  const after = await fs().stat(getBindingsFilePath());
   assertEquals(after.size, before.size);
 });
 
 Deno.test("memory: stats return empty shape when memory file is absent", async () => {
   await cleanMemory();
 
-  const stats = await getMemoryStats();
+  const stats = await getBindingStats();
   assertExists(stats);
   assertEquals(stats, {
-    path: getMemoryFilePath(),
+    path: getBindingsFilePath(),
     count: 0,
     size: 0,
   });

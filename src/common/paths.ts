@@ -122,6 +122,13 @@ export function getMemoryDbPath(): string {
 }
 
 /**
+ * Get the user-facing memory notes path (~/.hlvm/memory/MEMORY.md)
+ */
+export function getMemoryMdPath(): string {
+  return join(getMemoryDir(), "MEMORY.md");
+}
+
+/**
  * Ensure memory directory exists (~/.hlvm/memory/)
  * Sets owner-only permissions (0o700) for privacy.
  */

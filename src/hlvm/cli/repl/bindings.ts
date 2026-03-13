@@ -1,5 +1,5 @@
 /**
- * HLVM REPL Memory Persistence
+ * HLVM REPL Bindings Persistence
  * Auto-persists def/defn definitions to ~/.hlvm/memory.hql
  * Inspired by Smalltalk's "living system" - your REPL state persists across sessions
  */
@@ -30,22 +30,22 @@ const fs = () => getPlatform().fs;
 // Constants
 // ============================================================
 
-const MEMORY_HEADER =
-  "// HLVM Memory - auto-persisted definitions\n// Edit freely - compacted on REPL startup\n\n";
+const BINDINGS_HEADER =
+  "// HLVM Bindings - auto-persisted definitions\n// Edit freely - compacted on REPL startup\n\n";
 
-/** Get the memory file path: ~/.hlvm/memory.hql */
-export function getMemoryFilePath(): string {
+/** Get the bindings file path: ~/.hlvm/memory.hql */
+export function getBindingsFilePath(): string {
   return getMemoryPath();
 }
 
 let legacyMigrationChecked = false;
 
-async function ensureLegacyMemoryMigrated(): Promise<void> {
+async function ensureLegacyBindingsMigrated(): Promise<void> {
   if (legacyMigrationChecked) return;
   legacyMigrationChecked = true;
 
   const legacyPath = getLegacyMemoryPath();
-  const currentPath = getMemoryFilePath();
+  const currentPath = getBindingsFilePath();
 
   const legacyContent = await readFileIfExists(legacyPath);
   if (legacyContent === null) {
@@ -59,12 +59,12 @@ async function ensureLegacyMemoryMigrated(): Promise<void> {
     return;
   }
 
-  const legacyDefinitions = parseMemoryContent(legacyContent);
+  const legacyDefinitions = parseBindingsContent(legacyContent);
   if (legacyDefinitions.length === 0) {
     return;
   }
 
-  const currentDefinitions = parseMemoryContent(currentContent);
+  const currentDefinitions = parseBindingsContent(currentContent);
   const currentNames = new Set(currentDefinitions.map((def) => def.name));
   const missingDefinitions = legacyDefinitions.filter((def) =>
     !currentNames.has(def.name)
@@ -74,7 +74,7 @@ async function ensureLegacyMemoryMigrated(): Promise<void> {
     return;
   }
 
-  await writeMemoryFile([...currentDefinitions, ...missingDefinitions]);
+  await writeBindingsFile([...currentDefinitions, ...missingDefinitions]);
 }
 
 async function readFileIfExists(path: string): Promise<string | null> {
@@ -150,7 +150,7 @@ interface ParsedDefinition {
   docstring?: string;
 }
 
-export interface MemoryFunctionItem {
+export interface BindingFunctionItem {
   id: string;
   name: string;
   kind: "def" | "defn";
@@ -165,13 +165,13 @@ export interface MemoryFunctionItem {
 // File I/O helpers (DRY)
 // ============================================================
 
-/** Read and parse memory file, returns empty array if not found */
-async function readAndParseMemory(): Promise<ParsedDefinition[]> {
-  await ensureLegacyMemoryMigrated();
+/** Read and parse bindings file, returns empty array if not found */
+async function readAndParseBindings(): Promise<ParsedDefinition[]> {
+  await ensureLegacyBindingsMigrated();
   const platform = getPlatform();
   try {
-    const content = await platform.fs.readTextFile(getMemoryFilePath());
-    return parseMemoryContent(content);
+    const content = await platform.fs.readTextFile(getBindingsFilePath());
+    return parseBindingsContent(content);
   } catch (error) {
     if (isFileNotFoundError(error)) {
       return [];
@@ -186,12 +186,12 @@ function formatDefinition(def: ParsedDefinition): string {
   return `${block}\n${def.code}`;
 }
 
-function buildMemoryContent(definitions: ParsedDefinition[]): string {
+function buildBindingsContent(definitions: ParsedDefinition[]): string {
   if (definitions.length === 0) {
-    return MEMORY_HEADER;
+    return BINDINGS_HEADER;
   }
   const formatted = definitions.map((def) => formatDefinition(def));
-  return MEMORY_HEADER + formatted.join("\n\n") + "\n";
+  return BINDINGS_HEADER + formatted.join("\n\n") + "\n";
 }
 
 function appendDefinitionToContent(
@@ -199,7 +199,7 @@ function appendDefinitionToContent(
   def: ParsedDefinition,
 ): string {
   if (content.trim().length === 0) {
-    return buildMemoryContent([def]);
+    return buildBindingsContent([def]);
   }
   let output = content;
   if (!output.endsWith("\n")) {
@@ -211,11 +211,11 @@ function appendDefinitionToContent(
   return `${output}${formatDefinition(def)}\n`;
 }
 
-/** Write definitions to memory file with header */
-async function writeMemoryFile(definitions: ParsedDefinition[]): Promise<void> {
-  await ensureLegacyMemoryMigrated();
-  const content = buildMemoryContent(definitions);
-  await getPlatform().fs.writeTextFile(getMemoryFilePath(), content);
+/** Write definitions to bindings file with header */
+async function writeBindingsFile(definitions: ParsedDefinition[]): Promise<void> {
+  await ensureLegacyBindingsMigrated();
+  const content = buildBindingsContent(definitions);
+  await getPlatform().fs.writeTextFile(getBindingsFilePath(), content);
 }
 
 /**
@@ -232,7 +232,7 @@ function isDefinitionStart(trimmedLine: string): boolean {
  * Robust handling: if a new (def or (defn starts before current expression closes,
  * the current expression is malformed - skip it and continue with the new one.
  */
-function parseMemoryContent(content: string): ParsedDefinition[] {
+function parseBindingsContent(content: string): ParsedDefinition[] {
   const definitions: ParsedDefinition[] = [];
   const lines = content.split("\n");
 
@@ -369,13 +369,13 @@ function parseMemoryContent(content: string): ParsedDefinition[] {
 }
 
 /**
- * Compact memory.hql by removing duplicate definitions (keep latest)
+ * Compact bindings file by removing duplicate definitions (keep latest)
  * Called on REPL startup before loading
  */
-export async function compactMemory(): Promise<
+export async function compactBindings(): Promise<
   { before: number; after: number }
 > {
-  const definitions = await readAndParseMemory();
+  const definitions = await readAndParseBindings();
 
   if (definitions.length === 0) {
     return { before: 0, after: 0 };
@@ -391,22 +391,22 @@ export async function compactMemory(): Promise<
 
   // Only rewrite if we removed duplicates
   if (uniqueDefinitions.length < definitions.length) {
-    await writeMemoryFile(uniqueDefinitions);
+    await writeBindingsFile(uniqueDefinitions);
   }
 
   return { before: definitions.length, after: uniqueDefinitions.length };
 }
 
 /**
- * Load memory.hql on REPL startup
+ * Load bindings file on REPL startup
  * Returns the count of loaded definitions, any errors, and docstrings to register
  */
-export async function loadMemory(
+export async function loadBindings(
   evaluator: (code: string) => Promise<{ success: boolean; error?: Error }>,
 ): Promise<
   { count: number; errors: string[]; docstrings: Map<string, string> }
 > {
-  const definitions = await readAndParseMemory();
+  const definitions = await readAndParseBindings();
   const errors: string[] = [];
   const docstrings = new Map<string, string>();
   let successCount = 0;
@@ -441,8 +441,8 @@ function extractParamsFromDefnCode(code: string): string[] {
   }
 }
 
-export async function listMemoryFunctions(): Promise<MemoryFunctionItem[]> {
-  const definitions = await readAndParseMemory();
+export async function listBindingFunctions(): Promise<BindingFunctionItem[]> {
+  const definitions = await readAndParseBindings();
   return definitions.map((def) => {
     const params = def.kind === "defn"
       ? extractParamsFromDefnCode(def.code)
@@ -461,7 +461,7 @@ export async function listMemoryFunctions(): Promise<MemoryFunctionItem[]> {
 }
 
 /**
- * Save a definition to memory.hql (overwrites existing definition with same name)
+ * Save a definition to the bindings file (overwrites existing definition with same name)
  * For def: stores the serialized VALUE
  * For defn: stores the original source code (comments stripped, docstring from state used)
  *
@@ -470,7 +470,7 @@ export async function listMemoryFunctions(): Promise<MemoryFunctionItem[]> {
  *
  * @param docstring Optional JSDoc/TSDoc block to preserve (stored above definition)
  */
-export async function appendToMemory(
+export async function appendToBindings(
   name: string,
   kind: "def" | "defn",
   codeOrValue: string | unknown,
@@ -486,9 +486,9 @@ export async function appendToMemory(
     code = `(def ${name} ${serialized})`;
   }
 
-  const memPath = getMemoryFilePath();
-  const existingContent = await readFileIfExists(memPath);
-  const existing = existingContent ? parseMemoryContent(existingContent) : [];
+  const bindingsPath = getBindingsFilePath();
+  const existingContent = await readFileIfExists(bindingsPath);
+  const existing = existingContent ? parseBindingsContent(existingContent) : [];
   const newDef: ParsedDefinition = { kind, name, code, docstring };
 
   // Fallback: if parse returned 0 but file has def/defn content, append without rewrite
@@ -498,7 +498,7 @@ export async function appendToMemory(
   ) {
     await fs().ensureDir(getHlvmDir());
     await getPlatform().fs.writeTextFile(
-      memPath,
+      bindingsPath,
       appendDefinitionToContent(existingContent, newDef),
     );
     return;
@@ -507,37 +507,37 @@ export async function appendToMemory(
   const filtered = existing.filter((d) => d.name !== name);
   filtered.push(newDef);
   await fs().ensureDir(getHlvmDir());
-  await writeMemoryFile(filtered);
+  await writeBindingsFile(filtered);
 }
 
 /**
- * Remove a definition from memory.hql by name
+ * Remove a definition from the bindings file by name
  */
-export async function forgetFromMemory(name: string): Promise<boolean> {
-  const definitions = await readAndParseMemory();
+export async function removeBinding(name: string): Promise<boolean> {
+  const definitions = await readAndParseBindings();
   const filtered = definitions.filter((d) => d.name !== name);
 
   if (filtered.length === definitions.length) {
     return false; // Name not found
   }
 
-  await writeMemoryFile(filtered);
+  await writeBindingsFile(filtered);
   return true;
 }
 
 /**
- * Get memory file statistics
+ * Get bindings file statistics
  */
-export async function getMemoryStats(): Promise<
+export async function getBindingStats(): Promise<
   { path: string; count: number; size: number } | null
 > {
   const platform = getPlatform();
-  const path = getMemoryFilePath();
+  const path = getBindingsFilePath();
 
   try {
     const [stat, definitions] = await Promise.all([
       platform.fs.stat(path),
-      readAndParseMemory(),
+      readAndParseBindings(),
     ]);
     return { path, count: definitions.length, size: stat.size };
   } catch (error) {
@@ -549,10 +549,10 @@ export async function getMemoryStats(): Promise<
 }
 
 /**
- * Get all definition names from memory
+ * Get all definition names from bindings
  */
-export async function getMemoryNames(): Promise<string[]> {
-  const definitions = await readAndParseMemory();
+export async function getBindingNames(): Promise<string[]> {
+  const definitions = await readAndParseBindings();
   return definitions.map((d) => d.name);
 }
 
@@ -562,15 +562,15 @@ export async function getMemoryNames(): Promise<string[]> {
 export async function getDefinitionSource(
   name: string,
 ): Promise<string | null> {
-  const definitions = await readAndParseMemory();
+  const definitions = await readAndParseBindings();
   const def = definitions.find((d) => d.name === name);
   return def?.code ?? null;
 }
 
 /**
- * Clear all definitions from memory.hql (nuke memory)
+ * Clear all definitions from bindings file
  * Resets to empty state with just the header
  */
-export async function clearMemory(): Promise<void> {
-  await writeMemoryFile([]);
+export async function clearBindings(): Promise<void> {
+  await writeBindingsFile([]);
 }

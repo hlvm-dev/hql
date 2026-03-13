@@ -8,7 +8,7 @@ export {
   useSignatures,
   useDocstrings,
   useHistory,
-  useMemoryNames,
+  useBindingNames,
   useReplState,
   type ReplContextValue,
 } from "./ReplContext.tsx";

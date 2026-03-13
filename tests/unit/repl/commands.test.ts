@@ -28,8 +28,8 @@ Deno.test("commands registry - has expected commands", () => {
     "/clear",
     "/reset",
     "/exit",
-    "/memory",
-    "/forget",
+    "/bindings",
+    "/unbind",
     "/config",
   ];
 

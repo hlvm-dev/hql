@@ -24,8 +24,8 @@ import {
   type ResolvedBudget,
 } from "../../../agent/context-resolver.ts";
 import {
-  buildMemorySystemMessage,
-  loadMemoryContext,
+  isPersistentMemoryEnabled,
+  loadMemorySystemMessage,
 } from "../../../memory/mod.ts";
 import type {
   Message as ProviderMessage,
@@ -45,6 +45,7 @@ interface BuildReplayMessagesOptions {
 }
 
 interface BuildChatProviderMessagesOptions extends BuildReplayMessagesOptions {
+  disablePersistentMemory?: boolean;
   modelInfo?: ModelInfo | null;
   modelKey?: string;
 }
@@ -145,10 +146,14 @@ export async function buildChatProviderMessages(
     options.modelInfo,
     options.modelKey,
   );
-  const replayWithMemory = await injectMemoryReplayMessage(
-    replayMessages,
-    resolvedContextBudget.budget,
-  );
+  const replayWithMemory = isPersistentMemoryEnabled(
+      options.disablePersistentMemory,
+    )
+    ? await injectMemoryReplayMessage(
+      replayMessages,
+      resolvedContextBudget.budget,
+    )
+    : replayMessages;
   const trimmed = trimReplayMessages(
     replayWithMemory,
     resolvedContextBudget.budget,
@@ -616,12 +621,9 @@ async function injectMemoryReplayMessage(
 ): Promise<ReplayMessage[]> {
   const replayMessages = [...messages];
   try {
-    const memoryContext = await loadMemoryContext(budget);
-    if (memoryContext) {
-      replayMessages.unshift({
-        role: "system",
-        content: buildMemorySystemMessage(memoryContext),
-      });
+    const memoryMessage = await loadMemorySystemMessage(budget);
+    if (memoryMessage) {
+      replayMessages.unshift(memoryMessage);
     }
   } catch {
     log.debug("Failed to load memory context for chat mode");

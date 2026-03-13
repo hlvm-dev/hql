@@ -6,7 +6,8 @@
  *
  * Usage in HLVM REPL:
  *   (config.get "model")       // Configuration
- *   (memory.list)              // Persistent definitions
+ *   (bindings.list)             // Persistent definitions
+ *   (memory)                    // Assistant-visible durable memory
  *   (session.list)             // Chat sessions
  *   (history.list)             // Command history
  *   (ai.generate "prompt")     // AI capabilities
@@ -18,6 +19,7 @@
 // ============================================================================
 
 import { config } from "./config.ts";
+import { bindings } from "./bindings.ts";
 import { memory } from "./memory.ts";
 import { session } from "./session.ts";
 import { history, setReplState } from "./history.ts";
@@ -39,6 +41,7 @@ export {
   getAbortSignal,
   history,
   log,
+  bindings,
   memory,
   runtime,
   session,
@@ -78,6 +81,7 @@ export function registerApis(options?: RegisterApisOptions): void {
   // Register on globalThis
   const global = globalThis as Record<string, unknown>;
   global.config = config;
+  global.bindings = bindings;
   global.memory = memory;
   global.session = session;
   global.history = history;

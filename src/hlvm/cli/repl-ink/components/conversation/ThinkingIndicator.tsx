@@ -1,8 +1,7 @@
 /**
- * ThinkingIndicator Component
+ * Renders persisted reasoning/planning transcript entries.
  *
- * Shows a thinking/reasoning indicator with spinner.
- * Follows Gemini pattern: first line as subject, rest as body with left border.
+ * The active row may animate while the model is working; historical rows stay static.
  */
 
 import React from "react";
@@ -32,6 +31,7 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
 }: ThinkingIndicatorProps): React.ReactElement {
   const sc = useSemanticColors();
   const frame = useSpinnerFrame(isAnimating);
+  const marker = isAnimating ? BRAILLE_SPINNER_FRAMES[frame] : "·";
   const lines = summary ? summary.split("\n") : [];
   const maxBodyLines = expanded ? lines.length : 3;
   const visibleBodyLines = lines.slice(0, maxBodyLines);
@@ -45,11 +45,13 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
   return (
     <Box paddingLeft={1} flexDirection="column" marginBottom={1}>
       <Box>
-        <Text color={sc.status.warning}>{BRAILLE_SPINNER_FRAMES[frame]}</Text>
+        <Text color={sc.status.warning}>{`${marker} `}</Text>
         <Text color={sc.status.warning} bold>
           {title}
         </Text>
-        {iteration > 1 && <Text color={sc.text.muted}>({iteration})</Text>}
+        {iteration > 1 && (
+          <Text color={sc.text.muted}>{` (${iteration})`}</Text>
+        )}
       </Box>
       {body && (
         <Box

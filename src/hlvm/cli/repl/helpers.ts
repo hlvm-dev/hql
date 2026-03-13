@@ -1,48 +1,69 @@
 /**
  * HLVM REPL Helper Functions
- * Registers global helper functions for REPL commands like (memory) and (help).
+ * Registers global helper functions for REPL commands like (bindings) and (help).
  */
 
 import { ANSI_COLORS } from "../ansi.ts";
 import { runCommand } from "./commands.ts";
 import type { ReplState } from "./state.ts";
+import { bindings } from "../../api/bindings.ts";
 import { memory } from "../../api/memory.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { getGlobalRecord } from "./string-utils.ts";
+import { appendExplicitMemoryNote } from "../../memory/explicit.ts";
 
 const { GREEN, YELLOW, CYAN, DIM_GRAY, RESET } = ANSI_COLORS;
 
 export function registerReplHelpers(state: ReplState): void {
   const globalAny = getGlobalRecord();
 
+  if (!globalAny.bindings) {
+    globalAny.bindings = bindings;
+  }
   if (!globalAny.memory) {
     globalAny.memory = memory;
   }
 
-  globalAny.forget = async (name: string) => {
-    const memoryApi = globalAny.memory as { remove: (key: string) => Promise<boolean> } | undefined;
-    if (memoryApi?.remove) {
-      const removed = await memoryApi.remove(name);
+  globalAny.unbind = async (name: string) => {
+    const bindingsApi = globalAny.bindings as { remove: (key: string) => Promise<boolean> } | undefined;
+    if (bindingsApi?.remove) {
+      const removed = await bindingsApi.remove(name);
       if (removed) {
-        log.raw.log(`${GREEN}Removed '${name}' from memory.${RESET}`);
+        log.raw.log(`${GREEN}Removed '${name}' from bindings.${RESET}`);
+        log.raw.log(
+          `${DIM_GRAY}Note: The binding still exists in this session. Use /reset to clear live bindings.${RESET}`,
+        );
       } else {
-        log.raw.log(`${YELLOW}Binding '${name}' not found in memory.${RESET}`);
+        log.raw.log(`${YELLOW}Binding '${name}' not found.${RESET}`);
       }
     } else {
-      log.raw.log(`${YELLOW}Memory API not ready.${RESET}`);
+      log.raw.log(`${YELLOW}Bindings API not ready.${RESET}`);
+    }
+  };
+
+  globalAny.remember = async (text: string) => {
+    if (typeof text !== "string" || text.trim().length === 0) {
+      log.raw.log(`${YELLOW}Usage: (remember "some note to save")${RESET}`);
+      return;
+    }
+    try {
+      await appendExplicitMemoryNote(text.trim());
+      log.raw.log(`${GREEN}Saved to MEMORY.md.${RESET}`);
+    } catch (error) {
+      log.raw.log(`${YELLOW}Failed to save note: ${getErrorMessage(error)}${RESET}`);
     }
   };
 
   globalAny.inspect = async (value: unknown) => {
     const type = typeof value;
-    const memoryApi = globalAny.memory as { get: (name: string) => Promise<string | null> } | undefined;
+    const bindingsApi = globalAny.bindings as { get: (name: string) => Promise<string | null> } | undefined;
 
     if (type === "function") {
       const fn = value as ((...args: unknown[]) => unknown) & { name: string };
       const name = fn.name || "<anonymous>";
-      const source = memoryApi?.get ? await memoryApi.get(name) : null;
+      const source = bindingsApi?.get ? await bindingsApi.get(name) : null;
 
       log.raw.log(`${CYAN}${name}${RESET}: ${DIM_GRAY}function${RESET}`);
       if (source) {
@@ -52,7 +73,7 @@ export function registerReplHelpers(state: ReplState): void {
     }
 
     if (type === "string") {
-      const source = memoryApi?.get ? await memoryApi.get(value as string) : null;
+      const source = bindingsApi?.get ? await bindingsApi.get(value as string) : null;
       if (source) {
         log.raw.log(`${CYAN}${value}${RESET}:`);
         log.raw.log(`${DIM_GRAY}${source}${RESET}`);
@@ -141,7 +162,7 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
     return null;
   };
 
-  const helperNames = ["memory", "forget", "inspect", "describe", "help", "exit", "clear"];
+  const helperNames = ["bindings", "unbind", "remember", "memory", "inspect", "describe", "help", "exit", "clear"];
   for (const name of helperNames) {
     const fn = globalAny[name];
     if (typeof fn === "function") {

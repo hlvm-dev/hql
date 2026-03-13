@@ -1,4 +1,5 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
+import type { Database } from "@db/sqlite";
 import { appendJsonLines } from "../../../src/common/jsonl.ts";
 import {
   getHistoryPath,
@@ -15,13 +16,19 @@ import {
   createSession,
   insertMessage,
 } from "../../../src/hlvm/store/conversation-store.ts";
-import { _resetDbForTesting } from "../../../src/hlvm/store/db.ts";
+import {
+  _resetDbForTesting,
+  _setDbForTesting,
+} from "../../../src/hlvm/store/db.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { withGlobalTestLock } from "../_shared/global-test-lock.ts";
 import { setupStoreTestDb } from "../_shared/store-test-db.ts";
 
-const recentActivity = ACTIVITY_TOOLS.recent_activity.fn;
+const recentActivityTool = ACTIVITY_TOOLS.recent_activity.fn;
 const platform = getPlatform;
 const TIME_ZONE = getTimeZone();
+let currentTestDb: Database | null = null;
+let currentHlvmDir: string | null = null;
 
 interface ActivityBlock {
   date: string;
@@ -45,16 +52,20 @@ interface ActivityResult {
 
 async function setupTestEnv(): Promise<string> {
   _resetDbForTesting();
-  setupStoreTestDb();
+  currentTestDb = setupStoreTestDb();
   const tempDir = await platform().fs.makeTempDir({
     prefix: "hlvm-activity-test-",
   });
+  currentHlvmDir = tempDir;
   platform().env.set("HLVM_DIR", tempDir);
   resetHlvmDirCacheForTests();
   return tempDir;
 }
 
 async function teardownTestEnv(tempDir: string): Promise<void> {
+  currentTestDb?.close();
+  currentTestDb = null;
+  currentHlvmDir = null;
   _resetDbForTesting();
   platform().env.delete("HLVM_DIR");
   resetHlvmDirCacheForTests();
@@ -66,12 +77,31 @@ async function teardownTestEnv(tempDir: string): Promise<void> {
 }
 
 async function withTestEnv(fn: () => Promise<void>): Promise<void> {
-  const tempDir = await setupTestEnv();
-  try {
-    await fn();
-  } finally {
-    await teardownTestEnv(tempDir);
+  await withGlobalTestLock(async () => {
+    const tempDir = await setupTestEnv();
+    try {
+      await fn();
+    } finally {
+      await teardownTestEnv(tempDir);
+    }
+  });
+}
+
+async function recentActivity(
+  args: unknown,
+  options?: {
+    sessionId?: string;
+    currentUserRequest?: string;
+  },
+): Promise<ActivityResult> {
+  if (currentTestDb) {
+    _setDbForTesting(currentTestDb);
   }
+  if (currentHlvmDir) {
+    platform().env.set("HLVM_DIR", currentHlvmDir);
+    resetHlvmDirCacheForTests();
+  }
+  return await recentActivityTool(args, "/tmp", options) as ActivityResult;
 }
 
 function seedSession(
@@ -187,7 +217,6 @@ Deno.test({
 
       const result = await recentActivity(
         { reference: "recent", limit_blocks: 3 },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
 
@@ -250,7 +279,6 @@ Deno.test({
 
       const result = await recentActivity(
         { reference: "last_time" },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
 
@@ -304,7 +332,6 @@ Deno.test({
 
       const result = await recentActivity(
         { reference: "before_that" },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
 
@@ -362,7 +389,6 @@ Deno.test({
 
       const result = await recentActivity(
         { reference: "before_that", offset_blocks: 1 },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
 
@@ -411,7 +437,6 @@ Deno.test({
 
       const result = await recentActivity(
         { reference: "last_time", subject: "questions" },
-        "/tmp",
         { sessionId, currentUserRequest },
       ) as ActivityResult;
 
@@ -466,7 +491,6 @@ Deno.test({
 
       const result = await recentActivity(
         { reference: "before_that", subject: "questions" },
-        "/tmp",
         { sessionId, currentUserRequest },
       ) as ActivityResult;
 
@@ -479,6 +503,116 @@ Deno.test({
           oldestTs,
           oldestTs,
           ["review cache metrics"],
+          "current_session",
+        ),
+      ]);
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "recent_activity: question subject includes greetings and slash commands as literal prompts",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTestEnv(async () => {
+      const sessionId = "session-question-literal-1";
+      const greetingTs = Date.parse("2026-03-11T09:00:00Z");
+      const commandTs = Date.parse("2026-03-11T09:01:00Z");
+      const workTs = Date.parse("2026-03-11T09:02:00Z");
+
+      seedSession(sessionId, [
+        {
+          content: "hello",
+          created_at: new Date(greetingTs).toISOString(),
+        },
+        {
+          content: "/model claude-code/claude-opus-4-6",
+          created_at: new Date(commandTs).toISOString(),
+        },
+        {
+          content: "ship billing fix",
+          created_at: new Date(workTs).toISOString(),
+        },
+      ]);
+
+      const result = await recentActivity(
+        { reference: "recent", subject: "questions", limit_blocks: 10 },
+        { sessionId },
+      ) as ActivityResult;
+
+      assertEquals(result.reference, "recent");
+      assertEquals(result.subject, "questions");
+      assertEquals(viewBlocks(result), [
+        expectedBlock(
+          workTs,
+          workTs,
+          ["ship billing fix"],
+          "current_session",
+        ),
+        expectedBlock(
+          commandTs,
+          commandTs,
+          ["/model claude-code/claude-opus-4-6"],
+          "current_session",
+        ),
+        expectedBlock(
+          greetingTs,
+          greetingTs,
+          ["hello"],
+          "current_session",
+        ),
+      ]);
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "recent_activity: question subject deduplicates repeated user rows within the duplicate window",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTestEnv(async () => {
+      const sessionId = "session-question-dedup-1";
+      const firstTs = Date.parse("2026-03-11T09:00:00Z");
+      const duplicateTs = firstTs + 500;
+      const nextTs = Date.parse("2026-03-11T09:05:00Z");
+
+      seedSession(sessionId, [
+        {
+          content: "open desktop",
+          created_at: new Date(firstTs).toISOString(),
+        },
+        {
+          content: "open desktop",
+          created_at: new Date(duplicateTs).toISOString(),
+        },
+        {
+          content: "only one image",
+          created_at: new Date(nextTs).toISOString(),
+        },
+      ]);
+
+      const result = await recentActivity(
+        { reference: "recent", subject: "questions", limit_blocks: 10 },
+        { sessionId },
+      ) as ActivityResult;
+
+      assertEquals(result.reference, "recent");
+      assertEquals(result.subject, "questions");
+      assertEquals(viewBlocks(result), [
+        expectedBlock(
+          nextTs,
+          nextTs,
+          ["only one image"],
+          "current_session",
+        ),
+        expectedBlock(
+          firstTs,
+          firstTs,
+          ["open desktop"],
           "current_session",
         ),
       ]);
@@ -517,12 +651,10 @@ Deno.test({
 
       const firstPage = await recentActivity(
         { reference: "today", limit_blocks: 1 },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
       const secondPage = await recentActivity(
         { reference: "today", limit_blocks: 1, offset_blocks: 1 },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
 
@@ -592,7 +724,6 @@ Deno.test({
 
       const result = await recentActivity(
         { reference: "yesterday", limit_blocks: 10 },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
 
@@ -651,7 +782,6 @@ Deno.test({
 
       const firstPage = await recentActivity(
         { reference: "date", date: "2026-03-10", limit_blocks: 1 },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
       const secondPage = await recentActivity(
@@ -661,7 +791,6 @@ Deno.test({
           limit_blocks: 1,
           offset_blocks: 1,
         },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
 
@@ -718,7 +847,6 @@ Deno.test({
 
       const result = await recentActivity(
         { reference: "recent", limit_blocks: 10 },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
 
@@ -763,7 +891,6 @@ Deno.test({
 
       const result = await recentActivity(
         { reference: "recent", limit_blocks: 10 },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
 
@@ -812,7 +939,6 @@ Deno.test({
 
       const result = await recentActivity(
         { reference: "recent", limit_blocks: 10 },
-        "/tmp",
         { sessionId: currentSessionId },
       ) as ActivityResult;
 
@@ -868,7 +994,6 @@ Deno.test({
 
       const result = await recentActivity(
         { reference: "recent", limit_blocks: 10 },
-        "/tmp",
         {
           sessionId: currentSessionId,
           currentUserRequest,
@@ -910,12 +1035,10 @@ Deno.test({
 
       const firstPage = await recentActivity(
         { reference: "recent", limit_blocks: 2 },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
       const allBlocks = await recentActivity(
         { reference: "recent", limit_blocks: 20 },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
 
@@ -943,7 +1066,6 @@ Deno.test({
 
       const result = await recentActivity(
         { reference: "recent", limit_blocks: 10 },
-        "/tmp",
         {},
       ) as ActivityResult;
 
@@ -974,7 +1096,6 @@ Deno.test({
 
       const result = await recentActivity(
         { reference: "recent", limit_blocks: 10 },
-        "/tmp",
         { sessionId },
       ) as ActivityResult;
 
@@ -1018,8 +1139,9 @@ Deno.test({
     assertExists(result);
     assertExists(result!.summaryDisplay);
     assertExists(result!.returnDisplay);
-    assertEquals(result!.summaryDisplay!.includes("1 block"), true);
+    assertEquals(result!.summaryDisplay, "Recent activity (1 block)");
     assertEquals(result!.returnDisplay.includes("task alpha"), true);
+    assertEquals(result!.summaryDisplay.includes("Activity:"), false);
   },
 });
 
@@ -1031,7 +1153,7 @@ Deno.test({
     const result = format({
       reference: "yesterday",
       subject: "activity",
-      resolved_label: "Yesterday",
+      resolved_label: "Activity yesterday (2026-03-10)",
       blocks: [],
       total_blocks: 0,
       has_older: false,
@@ -1040,6 +1162,31 @@ Deno.test({
     });
 
     assertExists(result);
-    assertEquals(result!.summaryDisplay, "No activity found");
+    assertExists(result!.summaryDisplay);
+    assertExists(result!.returnDisplay);
+    assertEquals(result!.summaryDisplay, "No activity yesterday (2026-03-10)");
+    assertEquals(result!.returnDisplay, "No activity yesterday (2026-03-10)");
+  },
+});
+
+Deno.test({
+  name: "recent_activity: formatResult makes empty recent labels explicit",
+  fn() {
+    const format = ACTIVITY_TOOLS.recent_activity.formatResult!;
+
+    const result = format({
+      reference: "recent",
+      subject: "activity",
+      resolved_label: "Recent activity",
+      blocks: [],
+      total_blocks: 0,
+      has_older: false,
+      current_date: "2026-03-11",
+      timezone: "UTC",
+    });
+
+    assertExists(result);
+    assertEquals(result!.summaryDisplay, "No recent activity");
+    assertEquals(result!.returnDisplay, "No recent activity");
   },
 });

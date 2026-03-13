@@ -9,25 +9,35 @@ import {
   ensureMemoryDirs,
   ensureMemoryDirsSync,
   getMemoryDir,
+  getMemoryMdPath,
   resetHlvmDirCacheForTests,
 } from "../../../src/common/paths.ts";
 import {
-  buildMemorySystemMessage,
+  appendExplicitMemoryNote,
   closeFactDb,
   extractConversationFacts,
   extractSessionFacts,
+  getExplicitMemoryPath,
   getFactDb,
   getValidFacts,
   insertFact,
   invalidateFact,
+  isMemorySystemMessage,
   linkFactEntities,
-  loadMemoryContext,
+  loadMemorySystemMessage,
   MEMORY_TOOLS,
   parseLLMExtractionResponse,
   persistConversationFacts,
+  readExplicitMemory,
   searchFactsFts,
   touchFact,
+  writeExplicitMemory,
 } from "../../../src/hlvm/memory/mod.ts";
+import { memory as memoryApi } from "../../../src/hlvm/api/memory.ts";
+import {
+  buildMemorySystemMessage,
+  loadMemoryContext,
+} from "../../../src/hlvm/memory/manager.ts";
 import {
   accessBoost,
   retrieveMemory,
@@ -39,6 +49,7 @@ import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import type { AgentSession } from "../../../src/hlvm/agent/session.ts";
 import { ENGINE_PROFILES } from "../../../src/hlvm/agent/constants.ts";
 import { createTodoState } from "../../../src/hlvm/agent/todo-state.ts";
+import { withGlobalTestLock } from "../_shared/global-test-lock.ts";
 
 const platform = () => getPlatform();
 const memoryWrite = (args: unknown) =>
@@ -68,12 +79,14 @@ async function teardownTestEnv(tempDir: string): Promise<void> {
 }
 
 async function withTestEnv(fn: () => Promise<void>): Promise<void> {
-  const tempDir = await setupTestEnv();
-  try {
-    await fn();
-  } finally {
-    await teardownTestEnv(tempDir);
-  }
+  await withGlobalTestLock(async () => {
+    const tempDir = await setupTestEnv();
+    try {
+      await fn();
+    } finally {
+      await teardownTestEnv(tempDir);
+    }
+  });
 }
 
 function createAgentSession(context: ContextManager): AgentSession {
@@ -101,7 +114,7 @@ function createAgentSession(context: ContextManager): AgentSession {
   };
 }
 
-Deno.test("memory: memory_write and memory_search cover both memory and journal targets", async () => {
+Deno.test("memory: memory_write stores durable facts and normalizes the legacy journal alias", async () => {
   await withTestEnv(async () => {
     const pref = await memoryWrite({
       content: "User prefers tabs over spaces and dark mode",
@@ -115,9 +128,14 @@ Deno.test("memory: memory_write and memory_search cover both memory and journal 
 
     assertEquals(pref.written, true);
     assertEquals(journal.written, true);
-    assertEquals(journal.target, "journal");
+    assertEquals(journal.target, "memory");
+    assertEquals(journal.requestedTarget, "journal");
     assert(
       getValidFacts().some((fact) => fact.content.includes("tabs over spaces")),
+    );
+    assertEquals(
+      getValidFacts().every((fact) => fact.source === "memory"),
+      true,
     );
 
     const prefSearch = await memorySearch({ query: "tabs spaces" }) as Record<
@@ -426,7 +444,7 @@ Deno.test("memory: memory_edit clear_all requires confirm and wipes all facts", 
       section: "Alpha",
     });
     await memoryWrite({ content: "Fact B", target: "memory", section: "Beta" });
-    await memoryWrite({ content: "Fact C", target: "journal" });
+    await memoryWrite({ content: "Fact C", target: "memory" });
 
     assertEquals(getValidFacts().length, 3);
 
@@ -586,4 +604,218 @@ Deno.test("memory: parseLLMExtractionResponse caps at 10 entries", () => {
 
 Deno.test("memory: parseLLMExtractionResponse handles empty array", () => {
   assertEquals(parseLLMExtractionResponse("[]"), []);
+});
+
+// ── MEMORY.md tests ──────────────────────────────────────────────────────────
+
+Deno.test("memory: MEMORY.md content is loaded when file exists", async () => {
+  await withTestEnv(async () => {
+    await ensureMemoryDirs();
+    const mdPath = getMemoryMdPath();
+    await platform().fs.writeTextFile(mdPath, "User prefers dark mode.\nTimezone: Asia/Seoul.");
+
+    const context = await loadMemoryContext(32_000);
+    assertStringIncludes(context, "User prefers dark mode.");
+    assertStringIncludes(context, "Timezone: Asia/Seoul.");
+  });
+});
+
+Deno.test("memory: MEMORY.md is auto-created when missing", async () => {
+  await withTestEnv(async () => {
+    await ensureMemoryDirs();
+    const mdPath = getMemoryMdPath();
+
+    // File should not exist yet in fresh temp dir
+    const memoryMessage = await loadMemorySystemMessage(32_000);
+    assert(memoryMessage !== null);
+    assertStringIncludes(memoryMessage.content, "# My Notes");
+
+    // File should now exist on disk
+    const onDisk = await platform().fs.readTextFile(mdPath);
+    assertStringIncludes(onDisk, "# My Notes");
+  });
+});
+
+Deno.test("memory: loadMemorySystemMessage returns the canonical system wrapper", async () => {
+  await withTestEnv(async () => {
+    await ensureMemoryDirs();
+    await platform().fs.writeTextFile(
+      getMemoryMdPath(),
+      "My timezone is Asia/Seoul.",
+    );
+
+    const memoryMessage = await loadMemorySystemMessage(32_000);
+    assert(memoryMessage !== null);
+    assertEquals(memoryMessage.role, "system");
+    assertEquals(isMemorySystemMessage(memoryMessage.content), true);
+    assertStringIncludes(memoryMessage.content, "# Your Memory");
+    assertStringIncludes(memoryMessage.content, "My timezone is Asia/Seoul.");
+  });
+});
+
+Deno.test("memory: MEMORY.md has token priority over DB facts", async () => {
+  await withTestEnv(async () => {
+    await ensureMemoryDirs();
+    // Write a large MEMORY.md that will consume most of the tiny budget
+    const bigContent = "User note: " + "A".repeat(2000);
+    await platform().fs.writeTextFile(getMemoryMdPath(), bigContent);
+
+    // Also insert a DB fact
+    insertFact({ content: "DB-learned preference: functional style", category: "Preferences" });
+
+    // Use a very small context window so budget is tight (8000 * 0.15 = 1200 tokens)
+    const context = await loadMemoryContext(8_000);
+
+    // MEMORY.md content should be present (it's priority 1)
+    assertStringIncludes(context, "User note:");
+  });
+});
+
+Deno.test("memory: empty MEMORY.md is treated as no user notes (DB-only)", async () => {
+  await withTestEnv(async () => {
+    await ensureMemoryDirs();
+    await platform().fs.writeTextFile(getMemoryMdPath(), "   \n  \n  ");
+
+    insertFact({ content: "DB fact about testing", category: "Testing" });
+
+    const context = await loadMemoryContext(32_000);
+    // Should contain DB facts but no separator (no user notes section)
+    assertStringIncludes(context, "DB fact about testing");
+    assertEquals(context.includes("---"), false);
+  });
+});
+
+Deno.test("memory: MEMORY.md and DB facts are combined with --- separator", async () => {
+  await withTestEnv(async () => {
+    await ensureMemoryDirs();
+    await platform().fs.writeTextFile(getMemoryMdPath(), "Always use TypeScript.");
+
+    insertFact({ content: "Likes functional programming", category: "Preferences" });
+
+    const context = await loadMemoryContext(32_000);
+    assertStringIncludes(context, "Always use TypeScript.");
+    assertStringIncludes(context, "---");
+    assertStringIncludes(context, "Likes functional programming");
+
+    // Verify order: user notes before DB facts
+    const mdIndex = context.indexOf("Always use TypeScript.");
+    const separatorIndex = context.indexOf("---");
+    const dbIndex = context.indexOf("Likes functional programming");
+    assert(mdIndex < separatorIndex);
+    assert(separatorIndex < dbIndex);
+  });
+});
+
+// ── Explicit memory (MEMORY.md SSOT module) ─────────────────────────────────
+
+Deno.test("memory: readExplicitMemory creates default file when missing", async () => {
+  await withTestEnv(async () => {
+    const content = await readExplicitMemory();
+    assertStringIncludes(content, "# My Notes");
+
+    // File should exist on disk now
+    const onDisk = await platform().fs.readTextFile(getExplicitMemoryPath());
+    assertStringIncludes(onDisk, "# My Notes");
+  });
+});
+
+Deno.test("memory: readExplicitMemory returns trimmed content from existing file", async () => {
+  await withTestEnv(async () => {
+    await ensureMemoryDirs();
+    await platform().fs.writeTextFile(
+      getExplicitMemoryPath(),
+      "  My custom notes  \n\n",
+    );
+
+    const content = await readExplicitMemory();
+    assertEquals(content, "My custom notes");
+  });
+});
+
+Deno.test("memory: appendExplicitMemoryNote appends to existing file", async () => {
+  await withTestEnv(async () => {
+    await ensureMemoryDirs();
+    await platform().fs.writeTextFile(
+      getExplicitMemoryPath(),
+      "# My Notes\n",
+    );
+
+    await appendExplicitMemoryNote("First note");
+    await appendExplicitMemoryNote("Second note");
+
+    const content = await platform().fs.readTextFile(getExplicitMemoryPath());
+    assertStringIncludes(content, "# My Notes");
+    assertStringIncludes(content, "First note");
+    assertStringIncludes(content, "Second note");
+
+    // Verify order
+    const firstIndex = content.indexOf("First note");
+    const secondIndex = content.indexOf("Second note");
+    assert(firstIndex < secondIndex);
+  });
+});
+
+Deno.test("memory: appendExplicitMemoryNote creates file when missing", async () => {
+  await withTestEnv(async () => {
+    await appendExplicitMemoryNote("Created from scratch");
+
+    const content = await platform().fs.readTextFile(getExplicitMemoryPath());
+    assertStringIncludes(content, "# My Notes");
+    assertStringIncludes(content, "Created from scratch");
+  });
+});
+
+Deno.test("memory: getExplicitMemoryPath returns the MEMORY.md path", async () => {
+  await withTestEnv(async () => {
+    const path = getExplicitMemoryPath();
+    assertEquals(path, getMemoryMdPath());
+  });
+});
+
+Deno.test("memory: legacy journal alias no longer creates a Journal prompt section", async () => {
+  await withTestEnv(async () => {
+    await memoryWrite({
+      content: "Temporary-looking note that still becomes durable memory",
+      target: "journal",
+    });
+
+    const context = await loadMemoryContext(32_000);
+    assertStringIncludes(
+      context,
+      "Temporary-looking note that still becomes durable memory",
+    );
+    assertEquals(context.includes("## Journal"), false);
+  });
+});
+
+Deno.test("memory api: snapshot includes explicit notes and durable facts together", async () => {
+  await withTestEnv(async () => {
+    await writeExplicitMemory("Manual note");
+    insertFact({ content: "Durable fact", category: "Preferences" });
+
+    const snapshot = await memoryApi.get();
+    assertEquals(snapshot.notes, "Manual note");
+    assertEquals(snapshot.factCount, 1);
+    assertEquals(snapshot.facts[0]?.content, "Durable fact");
+    assertEquals(snapshot.notesPath, getMemoryMdPath());
+  });
+});
+
+Deno.test("memory api: replace updates notes and durable facts, clear wipes both", async () => {
+  await withTestEnv(async () => {
+    await writeExplicitMemory("replace me in notes");
+    insertFact({ content: "replace me in facts", category: "General" });
+
+    const replaced = await memoryApi.replace("replace me", "updated");
+    assertEquals(replaced.noteReplacements, 1);
+    assertEquals(replaced.factReplacements, 1);
+    assertEquals(await readExplicitMemory(), "updated in notes");
+    assertEquals(getValidFacts()[0]?.content, "updated in facts");
+
+    const cleared = await memoryApi.clear(true);
+    assertEquals(cleared.clearedNotes, true);
+    assertEquals(cleared.clearedFacts, 1);
+    assertEquals(await readExplicitMemory(), "");
+    assertEquals(getValidFacts().length, 0);
+  });
 });

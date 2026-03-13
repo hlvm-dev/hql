@@ -1,5 +1,5 @@
 /**
- * Tests for REPL memory functions: (memory), (forget), (inspect), (describe), (help), (exit), (clear)
+ * Tests for REPL memory functions: (memory), (unbind), (inspect), (describe), (help), (exit), (clear)
  *
  * These test the new Lisp-style REPL functions that provide a consistent interface
  * for memory management.
@@ -84,18 +84,17 @@ replMemoryTest("REPL startup shows function commands", async () => {
   const result = await runReplWithInput("(+ 1 1)");
   // Should show the function commands line
   assertStringIncludes(result.stdout, "(memory)");
-  assertStringIncludes(result.stdout, '(forget "x")');
+  assertStringIncludes(result.stdout, '(unbind "x")');
   assertStringIncludes(result.stdout, "(inspect x)");
   assertStringIncludes(result.stdout, "(describe x) AI");
   assertStringIncludes(result.stdout, "(help)");
 });
 
-replMemoryTest("REPL (memory) function returns definition info", async () => {
+replMemoryTest("REPL (memory) function returns assistant-visible memory info", async () => {
   const result = await runReplWithInput("(memory)");
-  // Should return an object with count, names, path (auto-awaited by REPL)
-  assertStringIncludes(result.stdout, "count");
-  assertStringIncludes(result.stdout, "names");
-  assertStringIncludes(result.stdout, "path");
+  assertStringIncludes(result.stdout, "notesPath");
+  assertStringIncludes(result.stdout, "dbPath");
+  assertStringIncludes(result.stdout, "factCount");
 });
 
 replMemoryTest("REPL (inspect) function shows source code", async () => {
@@ -110,7 +109,7 @@ replMemoryTest("REPL (inspect) function shows source code", async () => {
   assertStringIncludes(result.stdout, "(defn test_inspect_fn");
 
   // Cleanup
-  await runReplWithInput('(forget "test_inspect_fn")');
+  await runReplWithInput('(unbind "test_inspect_fn")');
 });
 
 replMemoryTest("REPL (help) function shows help text", async () => {
@@ -118,21 +117,21 @@ replMemoryTest("REPL (help) function shows help text", async () => {
   // Should show HLVM REPL Functions header and function list
   assertStringIncludes(result.stdout, "HLVM REPL Functions");
   assertStringIncludes(result.stdout, "(memory)");
-  assertStringIncludes(result.stdout, "(forget");
+  assertStringIncludes(result.stdout, "(unbind");
   assertStringIncludes(result.stdout, "(inspect");
   assertStringIncludes(result.stdout, "(describe");
 });
 
-replMemoryTest("REPL (forget) removes definition from memory", async () => {
+replMemoryTest("REPL (unbind) removes definition from persisted bindings", async () => {
   // Define something
   await runReplWithInput("(def test_forget_val 123)");
 
-  // Forget it (auto-awaited by REPL)
-  const result = await runReplWithInput('(forget "test_forget_val")');
+  // Unbind it (auto-awaited by REPL)
+  const result = await runReplWithInput('(unbind "test_forget_val")');
   assertStringIncludes(result.stdout, "Removed");
 
-  // Verify it's gone by trying to forget again
-  const result2 = await runReplWithInput('(forget "test_forget_val")');
+  // Verify it's gone by trying to unbind again
+  const result2 = await runReplWithInput('(unbind "test_forget_val")');
   assertStringIncludes(result2.stdout, "not found");
 });
 

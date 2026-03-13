@@ -147,10 +147,10 @@ export interface CompletionItem {
 
 /**
  * Represents the enclosing S-expression form at cursor position.
- * Used for context-aware completions (e.g., `forget` only shows memory names).
+ * Used for context-aware completions (e.g., `unbind` only shows binding names).
  */
 export interface EnclosingForm {
-  /** Name of the function/form (e.g., "forget", "inspect", "map") */
+  /** Name of the function/form (e.g., "unbind", "inspect", "map") */
   readonly name: string;
   /** Argument index within the form (0-based) */
   readonly argIndex: number;
@@ -160,9 +160,9 @@ export interface EnclosingForm {
  * Context-aware filtering modes for specific forms.
  * Maps form names to their expected argument types.
  */
-export const CONTEXT_AWARE_FORMS: Record<string, "memory" | "bindings" | "functions"> = {
-  // Memory operations - only show things in persistent memory
-  "forget": "memory",
+export const CONTEXT_AWARE_FORMS: Record<string, "persistent" | "bindings" | "functions"> = {
+  // Unbind operations - only show things in persistent bindings
+  "unbind": "persistent",
   // Inspection - show user bindings (defined in session)
   "inspect": "bindings",
   // Documentation - show functions (things with signatures)
@@ -204,8 +204,8 @@ export interface CompletionContext {
   // Context-Aware Fields (NEW)
   // ============================================================
 
-  /** Names of definitions stored in persistent memory */
-  readonly memoryNames: ReadonlySet<string>;
+  /** Names of definitions stored in persistent bindings */
+  readonly bindingNames: ReadonlySet<string>;
 
   /** Enclosing form at cursor (for context-aware filtering) */
   readonly enclosingForm?: EnclosingForm;

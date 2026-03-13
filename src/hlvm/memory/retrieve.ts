@@ -31,9 +31,7 @@ export interface RetrievalResult {
 
 function factToResult(fact: FactRecord, score: number, source: string): RetrievalResult {
   const date = fact.validFrom || new Date(fact.createdAt * 1000).toISOString().slice(0, 10);
-  const sourceFile = fact.source === "journal"
-    ? `journal/${date}`
-    : `memory/${fact.category || "General"}`;
+  const sourceFile = `memory/${fact.category || "General"}`;
 
   return {
     text: fact.content,

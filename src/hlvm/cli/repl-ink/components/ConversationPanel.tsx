@@ -23,6 +23,7 @@ import type {
   InteractionRequestEvent,
   InteractionResponse,
 } from "../../../agent/registry.ts";
+import { findCurrentTurnStartIndex } from "../../agent-transcript-state.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import {
   clampConversationScrollOffset,
@@ -130,10 +131,25 @@ function getLatestCitation(
   return undefined;
 }
 
+export function getActiveThinkingId(
+  items: ConversationItem[],
+  streamingState: StreamingState | undefined,
+): string | undefined {
+  if (streamingState !== ConversationStreamingState.Responding) {
+    return undefined;
+  }
+  const turnStartIdx = findCurrentTurnStartIndex(items);
+  for (let i = items.length - 1; i > turnStartIdx; i--) {
+    const item = items[i];
+    if (item?.type === "thinking") return item.id;
+  }
+  return undefined;
+}
+
 function renderItem(
   item: ConversationItem,
   width: number,
-  streamingState: StreamingState | undefined,
+  activeThinkingId: string | undefined,
   isToolExpanded: (toolId: string) => boolean,
   isThinkingExpanded: (thinkingId: string) => boolean,
   isDelegateExpanded: (delegateId: string) => boolean,
@@ -161,7 +177,7 @@ function renderItem(
           summary={item.summary}
           iteration={item.iteration}
           expanded={isThinkingExpanded(item.id)}
-          isAnimating={streamingState === ConversationStreamingState.Responding}
+          isAnimating={item.id === activeThinkingId}
         />
       );
     case "tool_group":
@@ -222,6 +238,7 @@ export function ConversationPanel({
   const [expandedDelegateIds, setExpandedDelegateIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const activeThinkingId = getActiveThinkingId(items, streamingState);
   const [scrollOffsetFromBottom, setScrollOffsetFromBottom] = useState(0);
   const displayItems = useMemo(
     () => items.filter(shouldRenderConversationItem),
@@ -527,7 +544,7 @@ export function ConversationPanel({
           {renderItem(
             item,
             width,
-            streamingState,
+            activeThinkingId,
             isToolExpanded,
             isThinkingExpanded,
             isDelegateExpanded,

@@ -66,10 +66,10 @@ export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
   [
     { name: "/help", description: "Show help message" },
     { name: "/clear", description: "Clear the screen" },
-    { name: "/reset", description: "Reset REPL state and clear memory" },
+    { name: "/reset", description: "Reset REPL state and clear bindings" },
     { name: "/exit", description: "Exit the REPL" },
-    { name: "/memory", description: "Show memory file location and stats" },
-    { name: "/forget", description: "Remove a definition from memory" },
+    { name: "/bindings", description: "Show saved definitions" },
+    { name: "/unbind", description: "Remove a definition" },
     { name: "/config", description: "View/set configuration" },
     { name: "/model", description: "Show or set current model" },
     { name: "/models", description: "Open model picker" },
@@ -91,15 +91,17 @@ function generateHelpText(): string {
   return `
 ${BOLD}HLVM REPL Functions:${RESET}
 
-  ${CYAN}(memory)${RESET}         List all saved definitions
-  ${CYAN}(forget "x")${RESET}     Remove definition from memory
-  ${CYAN}(inspect x)${RESET}      Show source code (fast, no AI)
-  ${CYAN}(describe x)${RESET}     Source + AI explanation & examples
-  ${CYAN}(help)${RESET}           Show this help
-  ${CYAN}(exit)${RESET}           Exit the REPL
-  ${CYAN}(clear)${RESET}          Clear the screen
+  ${CYAN}(bindings)${RESET}           List all saved definitions
+  ${CYAN}(unbind "x")${RESET}         Remove a definition
+  ${CYAN}(remember "text")${RESET}    Save a note to MEMORY.md
+  ${CYAN}(memory)${RESET}             Show all assistant-visible memory
+  ${CYAN}(inspect x)${RESET}          Show source code (fast, no AI)
+  ${CYAN}(describe x)${RESET}         Source + AI explanation & examples
+  ${CYAN}(help)${RESET}               Show this help
+  ${CYAN}(exit)${RESET}               Exit the REPL
+  ${CYAN}(clear)${RESET}              Clear the screen
 
-${BOLD}Memory (auto-persist def/defn):${RESET}
+${BOLD}Bindings (auto-persist def/defn):${RESET}
 
   Definitions are automatically saved to ~/.hlvm/memory.hql
   They persist across sessions. No explicit save needed.
@@ -143,18 +145,18 @@ export const commands: Record<string, Command> = {
   },
 
   "/reset": {
-    description: "Reset REPL state and clear memory",
+    description: "Reset REPL state and clear bindings",
     handler: async (state, _args, context) => {
       state.reset();
-      // Use memory API for single source of truth
-      const memoryApi = (globalThis as Record<string, unknown>).memory as {
+      // Use bindings API for single source of truth
+      const bindingsApi = (globalThis as Record<string, unknown>).bindings as {
         clear: () => Promise<void>;
       } | undefined;
-      if (memoryApi?.clear) {
-        await memoryApi.clear();
+      if (bindingsApi?.clear) {
+        await bindingsApi.clear();
       }
       context.output(
-        `${GREEN}REPL state reset. All bindings and memory cleared.${RESET}`,
+        `${GREEN}REPL state reset. All bindings cleared.${RESET}`,
       );
     },
   },
@@ -168,66 +170,66 @@ export const commands: Record<string, Command> = {
     },
   },
 
-  "/memory": {
-    description: "Show memory file location and stats",
+  "/bindings": {
+    description: "Show saved definitions",
     handler: async (_state, _args, context) => {
-      // Use memory API for single source of truth
-      const memoryApi = (globalThis as Record<string, unknown>).memory as {
+      // Use bindings API for single source of truth
+      const bindingsApi = (globalThis as Record<string, unknown>).bindings as {
         stats: () => Promise<
           { path: string; count: number; size: number } | null
         >;
         list: () => Promise<string[]>;
       } | undefined;
 
-      if (!memoryApi) {
-        context.output(`${YELLOW}Memory API not initialized.${RESET}`);
+      if (!bindingsApi) {
+        context.output(`${YELLOW}Bindings API not initialized.${RESET}`);
         return;
       }
 
-      const stats = await memoryApi.stats();
+      const stats = await bindingsApi.stats();
       if (stats) {
-        context.output(`${BOLD}Memory:${RESET}`);
+        context.output(`${BOLD}Bindings:${RESET}`);
         context.output(`  ${CYAN}Location:${RESET} ${stats.path}`);
         context.output(`  ${CYAN}Definitions:${RESET} ${stats.count}`);
         context.output(`  ${CYAN}Size:${RESET} ${stats.size} bytes`);
         if (stats.count > 0) {
-          const names = await memoryApi.list();
+          const names = await bindingsApi.list();
           context.output(`  ${CYAN}Names:${RESET} ${names.join(", ")}`);
         }
       } else {
-        context.output(`${YELLOW}Could not read memory file.${RESET}`);
+        context.output(`${YELLOW}Could not read bindings file.${RESET}`);
       }
     },
   },
 
-  "/forget": {
-    description: "Remove a definition from memory",
+  "/unbind": {
+    description: "Remove a definition",
     handler: async (_state, args, context) => {
       const name = args.trim();
       if (!name) {
-        context.output(`${YELLOW}Usage: /forget <name>${RESET}`);
-        context.output(`${DIM_GRAY}Example: /forget myFunction${RESET}`);
+        context.output(`${YELLOW}Usage: /unbind <name>${RESET}`);
+        context.output(`${DIM_GRAY}Example: /unbind myFunction${RESET}`);
         return;
       }
 
-      // Use memory API for single source of truth
-      const memoryApi = (globalThis as Record<string, unknown>).memory as {
+      // Use bindings API for single source of truth
+      const bindingsApi = (globalThis as Record<string, unknown>).bindings as {
         remove: (name: string) => Promise<boolean>;
       } | undefined;
 
-      if (!memoryApi) {
-        context.output(`${YELLOW}Memory API not initialized.${RESET}`);
+      if (!bindingsApi) {
+        context.output(`${YELLOW}Bindings API not initialized.${RESET}`);
         return;
       }
 
-      const removed = await memoryApi.remove(name);
+      const removed = await bindingsApi.remove(name);
       if (removed) {
-        context.output(`${GREEN}Removed '${name}' from memory.${RESET}`);
+        context.output(`${GREEN}Removed '${name}' from bindings.${RESET}`);
         context.output(
           `${DIM_GRAY}Note: The binding still exists in this session. Use /reset to clear all bindings.${RESET}`,
         );
       } else {
-        context.output(`${YELLOW}'${name}' not found in memory.${RESET}`);
+        context.output(`${YELLOW}'${name}' not found in bindings.${RESET}`);
       }
     },
   },

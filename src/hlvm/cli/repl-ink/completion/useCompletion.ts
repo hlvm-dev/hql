@@ -24,7 +24,7 @@ export interface UseCompletionOptions {
   /** Docstrings from comments (name -> description) */
   readonly docstrings?: ReadonlyMap<string, string>;
   /** Names of definitions in persistent memory (for context-aware completions) */
-  readonly memoryNames?: ReadonlySet<string>;
+  readonly bindingNames?: ReadonlySet<string>;
   /** Debounce delay for async providers (ms) */
   readonly debounceMs?: number;
   /** Whether completion is disabled */
@@ -141,7 +141,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
     userBindings,
     signatures,
     docstrings = new Map(),
-    memoryNames = new Set(),
+    bindingNames = new Set(),
     debounceMs = 150,
     disabled = false,
   } = options;
@@ -186,7 +186,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         userBindings,
         signatures,
         docstrings,
-        memoryNames
+        bindingNames
       );
 
       // Find active provider
@@ -250,7 +250,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         }
       }
     },
-    [clearDebounce, disabled, userBindings, signatures, docstrings, memoryNames, debounceMs, dropdown]
+    [clearDebounce, disabled, userBindings, signatures, docstrings, bindingNames, debounceMs, dropdown]
   );
 
   // ============================================================
@@ -312,7 +312,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         userBindings,
         signatures,
         docstrings,
-        memoryNames
+        bindingNames
       );
 
       // Find active provider (for Tab, use symbol provider)
@@ -336,7 +336,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       });
       return { text: applyResult.text, cursorPosition: applyResult.cursorPosition };
     },
-    [disabled, userBindings, signatures, docstrings, memoryNames, dropdown]
+    [disabled, userBindings, signatures, docstrings, bindingNames, dropdown]
   );
 
   // ============================================================

@@ -40,7 +40,10 @@ import {
   getAgentEngine,
   type ToolFilterState,
 } from "./engine.ts";
-import { buildMemorySystemMessage, loadMemoryContext } from "../memory/mod.ts";
+import {
+  isPersistentMemoryEnabled,
+  loadMemorySystemMessage,
+} from "../memory/mod.ts";
 
 interface AgentSessionOptions {
   workspace: string;
@@ -283,14 +286,11 @@ export async function createAgentSession(
 
   // Inject memory as a SEPARATE system message (not embedded in main prompt).
   // This allows reuseSession() to refresh memory without duplicating it.
-  if (!options.disablePersistentMemory) {
+  if (isPersistentMemoryEnabled(options.disablePersistentMemory)) {
     try {
-      const memoryContext = await loadMemoryContext(resolved.budget);
-      if (memoryContext) {
-        context.addMessage({
-          role: "system",
-          content: buildMemorySystemMessage(memoryContext),
-        });
+      const memoryMessage = await loadMemorySystemMessage(resolved.budget);
+      if (memoryMessage) {
+        context.addMessage(memoryMessage);
       }
     } catch {
       // Memory loading is best-effort — don't block session creation

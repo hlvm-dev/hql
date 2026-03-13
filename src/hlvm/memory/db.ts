@@ -61,6 +61,39 @@ const DDL = `
 `;
 
 let _db: Database | null = null;
+const CURRENT_SCHEMA_VERSION = 3;
+
+function getSchemaVersion(db: Database): number {
+  const row = db.prepare(
+    "SELECT MAX(version) AS version FROM schema_version",
+  ).get<{ version: number | null }>();
+  return row?.version ?? 0;
+}
+
+function migrateFactDb(db: Database): void {
+  const current = getSchemaVersion(db);
+  if (current >= CURRENT_SCHEMA_VERSION) return;
+
+  db.exec("BEGIN");
+  try {
+    if (current < 3) {
+      // Legacy journal entries now behave as durable memory facts.
+      db.prepare(
+        "UPDATE facts SET category = 'General' WHERE source = 'journal' AND category = 'Journal'",
+      ).run();
+      db.prepare(
+        "UPDATE facts SET source = 'memory' WHERE source = 'journal'",
+      ).run();
+    }
+    db.prepare(
+      "INSERT OR REPLACE INTO schema_version(version) VALUES (?)",
+    ).run(CURRENT_SCHEMA_VERSION);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
 
 export function getFactDb(): Database {
   if (!_db) {
@@ -69,7 +102,7 @@ export function getFactDb(): Database {
     _db.exec("PRAGMA journal_mode = WAL");
     _db.exec("PRAGMA busy_timeout = 5000");
     _db.exec(DDL);
-    _db.prepare("INSERT OR IGNORE INTO schema_version(version) VALUES (?)").run(2);
+    migrateFactDb(_db);
   }
   return _db;
 }

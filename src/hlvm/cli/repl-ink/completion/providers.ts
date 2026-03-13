@@ -49,7 +49,7 @@ export { getWordAtCursor };
  * Returns the form name and argument index for context-aware completions.
  *
  * Examples:
- *   (forget sq|)     → { name: "forget", argIndex: 0 }
+ *   (unbind sq|)     → { name: "unbind", argIndex: 0 }
  *   (map fn| coll)   → { name: "map", argIndex: 0 }
  *   (map fn coll|)   → { name: "map", argIndex: 1 }
  *   (let [x 1] |)    → { name: "let", argIndex: 1 }
@@ -160,7 +160,7 @@ export function buildContext(
   userBindings: ReadonlySet<string>,
   signatures: ReadonlyMap<string, readonly string[]>,
   docstrings: ReadonlyMap<string, string> = new Map(),
-  memoryNames: ReadonlySet<string> = new Set()
+  bindingNames: ReadonlySet<string> = new Set()
 ): CompletionContext {
   const { word, start } = getWordAtCursor(text, cursorPosition);
 
@@ -174,7 +174,7 @@ export function buildContext(
     signatures,
     docstrings,
     isInsideString: isInsideString(text, cursorPosition),
-    memoryNames,
+    bindingNames,
     enclosingForm: detectEnclosingForm(text, cursorPosition),
   };
 }
@@ -430,7 +430,7 @@ export function extractCommandQuery(context: CompletionContext): string | null {
  * - Cursor after whitespace (new token boundary, show all completions)
  * - There's a word to complete (e.g., "ad" -> complete "add")
  * - Cursor is after an opening paren/bracket (e.g., "(" -> show all functions)
- * - Cursor is inside a context-aware form (e.g., "(forget |)" -> show memory names)
+ * - Cursor is inside a context-aware form (e.g., "(unbind |)" -> show binding names)
  */
 export function shouldTriggerSymbol(context: CompletionContext): boolean {
   // Don't trigger inside string literals
@@ -473,7 +473,7 @@ export function shouldTriggerSymbol(context: CompletionContext): boolean {
     return true;
   }
 
-  // CONTEXT-AWARE: Auto-trigger inside forms like (forget |), (inspect |), (describe |)
+  // CONTEXT-AWARE: Auto-trigger inside forms like (unbind |), (inspect |), (describe |)
   // Even after whitespace, show available options for these special forms
   if (context.enclosingForm && CONTEXT_AWARE_FORMS[context.enclosingForm.name]) {
     return true;

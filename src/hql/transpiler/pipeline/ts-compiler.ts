@@ -492,8 +492,28 @@ declare function lowerCase(s: string): string;
 declare function blankQ(s: string | null | undefined): boolean;
 
 // REPL functions (available in REPL context)
-declare function memory(): Promise<{count: number, names: string[], path: string}>;
-declare function forget(name: string): Promise<boolean>;
+declare function bindings(): Promise<{count: number, names: string[], path: string}>;
+declare function unbind(name: string): Promise<boolean>;
+declare function remember(text: string): Promise<void>;
+interface ReplMemorySnapshot {
+  notesPath: string;
+  dbPath: string;
+  notes: string;
+  factCount: number;
+  facts: Array<{id: number, category: string, content: string, source: string, validFrom: string}>;
+}
+interface ReplMemoryApi {
+  (): Promise<ReplMemorySnapshot>;
+  get(): Promise<ReplMemorySnapshot>;
+  search(query: string, limit?: number): Promise<Array<{kind: string, text: string, file: string, path?: string, date: string, score: number, source?: string}>>;
+  add(text: string, category?: string): Promise<{factId: number, category: string}>;
+  appendNote(text: string): Promise<{path: string}>;
+  replace(findText: string, replaceWith: string): Promise<{noteReplacements: number, factReplacements: number}>;
+  clear(confirm?: boolean): Promise<{clearedNotes: boolean, clearedFacts: number}>;
+  notesPath: string;
+  dbPath: string;
+}
+declare const memory: ReplMemoryApi;
 declare function describe(name: string): {name: string, type: string, value: unknown} | null;
 declare function help(): null;
 declare function exit(): never;

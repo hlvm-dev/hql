@@ -35,9 +35,9 @@ import { runAgentQueryViaHost } from "../../runtime/host-client.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 import type {
-  DelegateTranscriptEvent,
   DelegateTranscriptSnapshot,
 } from "../../agent/delegate-transcript.ts";
+import { listDelegateTranscriptLines } from "../../agent/delegate-transcript.ts";
 import { formatPlanForContext } from "../../agent/planning.ts";
 import {
   createTranscriptState,
@@ -983,42 +983,8 @@ function formatDelegateSnapshotForVerboseMode(
 ): string {
   if (!snapshot) return "";
   const lines: string[] = ["  Child transcript:"];
-  for (const event of snapshot.events) {
-    const line = formatDelegateSnapshotEvent(event);
+  for (const line of listDelegateTranscriptLines(snapshot)) {
     if (line) lines.push(`    ${line}`);
   }
-  if (snapshot.finalResponse?.trim()) {
-    lines.push(`    Final: ${truncate(snapshot.finalResponse.trim(), 120)}`);
-  }
   return lines.join("\n");
-}
-
-function formatDelegateSnapshotEvent(
-  event: DelegateTranscriptEvent,
-): string {
-  switch (event.type) {
-    case "reasoning":
-      return `Reasoning: ${truncate(event.summary.trim(), 100)}`;
-    case "planning":
-      return `Planning: ${truncate(event.summary.trim(), 100)}`;
-    case "plan_created":
-      return `Plan created (${event.stepCount} steps)`;
-    case "plan_step":
-      return `Plan step ${event.index + 1} complete: ${event.stepId}`;
-    case "tool_start":
-      return `Tool ${event.name} ${truncate(event.argsSummary, 72)}`;
-    case "tool_end": {
-      const summary = summarizeToolEventForDefaultMode(
-        event.name,
-        event.summary,
-        event.content,
-      );
-      const prefix = event.success ? "Tool" : "Tool error";
-      return `${prefix} ${event.name} -> ${truncate(summary, 72)}`;
-    }
-    case "turn_stats":
-      return `${event.toolCount} tool${event.toolCount === 1 ? "" : "s"} in ${
-        (event.durationMs / 1000).toFixed(1)
-      }s`;
-  }
 }
