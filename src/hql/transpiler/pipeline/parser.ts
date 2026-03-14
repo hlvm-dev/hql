@@ -119,8 +119,6 @@ const TOKEN_PATTERNS = {
   SYMBOL: /[^\s\(\)\[\]\{\}"'`,;]+/y, // Allow : in symbols for named params (y:)
 };
 
-// Type tokenization functions are imported from ../tokenizer/type-tokenizer.ts:
-// countAngleBracketDepth, countBraceDepth
 
 /** Pre-compiled regex for BigInt literal detection (e.g., 123n, -456n) */
 const BIGINT_LITERAL_REGEX = /^-?\d+n$/;

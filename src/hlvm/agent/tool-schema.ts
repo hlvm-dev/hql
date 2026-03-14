@@ -200,7 +200,7 @@ function isTypeMatch(value: unknown, schema: JsonSchemaProperty): boolean {
 function coerceValue(value: unknown, schema: JsonSchemaProperty): unknown {
   if (!schema.type) return value; // no type constraint = no coercion needed
   if (schema.type === "array") {
-    // Fix 25: Coerce string-encoded arrays (e.g., "[1,2,3]" → [1,2,3])
+    // Coerce string-encoded arrays (e.g., "[1,2,3]" → [1,2,3])
     if (typeof value === "string") {
       try {
         const parsed = JSON.parse(value);

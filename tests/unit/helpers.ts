@@ -290,11 +290,3 @@ export async function captureConsole<T>(
   }
 }
 
-// ============================================================================
-// Network Helpers
-// ============================================================================
-
-/** Find a free port on localhost. Delegates to platform SSOT. */
-export async function findFreePort(): Promise<number> {
-  return await getPlatform().http.findFreePort();
-}

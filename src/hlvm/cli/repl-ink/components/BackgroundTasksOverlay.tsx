@@ -22,8 +22,14 @@ import React, {
 import { useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
-import type { EvalTask, DelegateTask, Task } from "../../repl/task-manager/types.ts";
-import { isEvalTask, isDelegateTask, isTaskActive } from "../../repl/task-manager/types.ts";
+import {
+  isDelegateTask,
+  isEvalTask,
+  isTaskActive,
+  type DelegateTask,
+  type EvalTask,
+  type Task,
+} from "../../repl/task-manager/types.ts";
 import { calculateScrollWindow } from "../completion/navigation.ts";
 import { formatEvalTaskResultLines } from "../utils/eval-task-results.ts";
 import {

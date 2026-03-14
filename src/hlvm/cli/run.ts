@@ -1,7 +1,7 @@
 #!/usr/bin/env deno run -A
 
 import { run as hqlRun, runFile } from "../../../mod.ts";
-import { transpileCLI } from "../../hql/bundler.ts"; // Import bundler for hybrid execution
+import { transpileCLI } from "../../hql/bundler.ts";
 import { globalLogger as logger, Logger } from "../../logger.ts";
 import { log } from "../api/log.ts";
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
@@ -12,14 +12,12 @@ import {
   parseCliOptions,
   parseLogNamespaces,
 } from "./utils/cli-options.ts";
-import { getPositionalArgs } from "./utils/common-helpers.ts";
+import { getPositionalArgs, hasHelpFlag } from "./utils/common-helpers.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import {
   exists as platformExists,
   platformGetArgs,
 } from "./utils/platform-helpers.ts";
-
-// Import the enhanced error handling system
 import {
   enrichErrorWithContext,
   initializeErrorSystem,
@@ -28,8 +26,6 @@ import {
   updateErrorConfig,
 } from "../../common/error-system.ts";
 import { RuntimeError } from "../../common/error.ts";
-
-import { hasHelpFlag } from "./utils/common-helpers.ts";
 
 // Constants
 const FILE_EXTENSIONS = [".hql", ".js", ".ts"] as const;

@@ -3,7 +3,7 @@
  *
  * Only three concerns remain after V2 (DB-as-SSOT):
  * 1. PII sanitization — used by facts.ts before DB insert
- * 2. Date helper — used by facts.ts, invalidate.ts
+ * 2. Date helper — used by facts.ts, entities.ts
  * 3. Logger helper — used by facts.ts, manager.ts
  */
 

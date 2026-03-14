@@ -375,7 +375,7 @@ export function getNetworkPolicyDeniedUrl(
 
 /** Cache compiled glob regexes — patterns come from a static policy file and never change */
 const _globRegexCache = new Map<string, RegExp | null>();
-/** Fix 24: Prevent unbounded cache growth in long-running server */
+/** Prevent unbounded cache growth in long-running server */
 const MAX_GLOB_CACHE_SIZE = 200;
 
 function getCompiledGlob(
@@ -384,7 +384,7 @@ function getCompiledGlob(
 ): RegExp | null {
   const key = `${pattern}\0${options.matchPath ? "p" : "s"}`;
   if (_globRegexCache.has(key)) return _globRegexCache.get(key)!;
-  // Fix 24: Clear cache if it gets too large
+  // Clear cache if it gets too large
   if (_globRegexCache.size >= MAX_GLOB_CACHE_SIZE) {
     _globRegexCache.clear();
   }

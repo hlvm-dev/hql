@@ -1,18 +1,14 @@
 /**
  * useStreaming Hook
  *
- * Manages streaming state for async iterators.
- * Uses high throttle and raw text during streaming for smooth output.
- * Markdown is only applied at the end (one visual change).
- *
- * Design decision: Progressive markdown causes visual jumps because
- * block structures change (borders appear, headers format). Claude Code CLI
- * achieves smoothness by writing directly to terminal, not through React.
- * With Ink/React, the smoothest approach is raw streaming + final format.
+ * Manages streaming state for async iterators with throttled display updates.
+ * Markdown rendering is progressive — `marked.lexer()` handles partial
+ * content gracefully (unclosed fences produce valid growing `code` tokens).
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { ensureError } from "../../../../common/utils.ts";
+import { useStateAndRef } from "./useStateAndRef.ts";
 
 interface UseStreamingOptions {
   /** Throttle interval for display updates in ms (default: 100) */
@@ -46,13 +42,13 @@ export function useStreaming(
 ): UseStreamingReturn {
   const { renderInterval = 100 } = options;
 
-  const [displayText, setDisplayText] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [isDone, setIsDone] = useState(false);
-  const [startTime, setStartTime] = useState(0);
-  const [error, setError] = useState<Error | null>(null);
+  const [displayText, displayTextRef, setDisplayText] = useStateAndRef("");
+  const [isStreaming, , setIsStreaming] = useStateAndRef(false);
+  const [isDone, , setIsDone] = useStateAndRef(false);
+  const [startTime, , setStartTime] = useStateAndRef(0);
+  const [error, , setError] = useStateAndRef<Error | null>(null);
 
-  // Use refs to avoid re-renders during streaming
+  // Buffer ref for accumulation without triggering re-renders per token
   const bufferRef = useRef("");
   const lastUpdateRef = useRef(0);
   const pendingUpdateRef = useRef<ReturnType<typeof setTimeout> | null>(null);

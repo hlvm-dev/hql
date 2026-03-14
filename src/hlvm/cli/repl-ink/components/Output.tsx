@@ -69,7 +69,7 @@ interface StreamingContentProps {
   taskStatus?: string;
 }
 
-function StreamingContent({
+const StreamingContent = React.memo(function StreamingContent({
   text,
   isStreaming,
   isDone,
@@ -90,7 +90,7 @@ function StreamingContent({
         />
       )}
       {showOutput && (
-        isDone && hasMarkdown(text)
+        hasMarkdown(text)
           ? <MarkdownDisplay text={text} width={width} />
           : <Text>{text}</Text>
       )}
@@ -103,13 +103,13 @@ function StreamingContent({
       )}
     </Box>
   );
-}
+});
 
 // ============================================================
 // Streaming Variants
 // ============================================================
 
-function StreamingTaskOutput({ taskId, width }: { taskId: string; width: number }): React.ReactElement | null {
+const StreamingTaskOutput = React.memo(function StreamingTaskOutput({ taskId, width }: { taskId: string; width: number }): React.ReactElement | null {
   const { tasks } = useTaskManager();
 
   const task = tasks.find((t) => t.id === taskId && t.type === "eval") as EvalTask | undefined;
@@ -131,9 +131,9 @@ function StreamingTaskOutput({ taskId, width }: { taskId: string; width: number 
       taskStatus={task.status}
     />
   );
-}
+});
 
-function StreamingOutput({ iterator, width }: { iterator: AsyncIterableIterator<string>; width: number }): React.ReactElement {
+const StreamingOutput = React.memo(function StreamingOutput({ iterator, width }: { iterator: AsyncIterableIterator<string>; width: number }): React.ReactElement {
   const { color } = useTheme();
   const { displayText, isDone, isStreaming, startTime, error } = useStreaming(iterator, { renderInterval: 100 });
 
@@ -156,4 +156,4 @@ function StreamingOutput({ iterator, width }: { iterator: AsyncIterableIterator<
       width={width}
     />
   );
-}
+});

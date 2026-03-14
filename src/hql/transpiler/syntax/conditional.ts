@@ -48,8 +48,6 @@ const NON_VALUE_STATEMENT_TYPES = new Set([
   IR.IRNodeType.ForOfStatement,
 ]);
 
-// STATEMENT_TYPES imported from ../constants/index.ts
-
 const CONTROL_FLOW_STATEMENT_TYPES = new Set([
   IR.IRNodeType.ReturnStatement,
   IR.IRNodeType.ThrowStatement,

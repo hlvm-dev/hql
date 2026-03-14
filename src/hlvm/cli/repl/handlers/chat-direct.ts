@@ -13,8 +13,7 @@ import {
   isPersistentMemoryEnabled,
   persistConversationFacts,
 } from "../../../memory/mod.ts";
-import type { ChatRequest } from "./chat-session.ts";
-import { pushSessionUpdatedEvent } from "./chat-session.ts";
+import { pushSessionUpdatedEvent, type ChatRequest } from "./chat-session.ts";
 import {
   buildChatProviderMessages,
   shouldHonorRequestMessages,

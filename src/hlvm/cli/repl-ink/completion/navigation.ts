@@ -5,8 +5,7 @@
  * No side effects - easily testable.
  */
 
-import type { NavigationResult, ScrollWindow } from "./types.ts";
-import { MAX_VISIBLE_ITEMS } from "./types.ts";
+import { MAX_VISIBLE_ITEMS, type NavigationResult, type ScrollWindow } from "./types.ts";
 
 // ============================================================
 // Keyboard Navigation

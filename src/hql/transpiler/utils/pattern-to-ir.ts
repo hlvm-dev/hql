@@ -17,13 +17,9 @@ import {
   type SkipPattern,
 } from "../../s-exp/types.ts";
 import { sanitizeIdentifier } from "../../../common/utils.ts";
-import type { HQLNode } from "../type/hql_ast.ts";
+import type { TransformNodeFn } from "../type/hql_ast.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { TransformError } from "../../../common/error.ts";
-
-// Type for the transformation function - accepts both HQLNode and SExp since they're structurally compatible
-// (SExp is used by pattern parser for default values, HQLNode is the main AST type)
-type TransformNodeFn = (node: HQLNode | SExp, dir: string) => IR.IRNode | null;
 
 /**
  * Convert a Pattern AST node to an IR node (identifier or destructuring pattern).

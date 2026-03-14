@@ -6,8 +6,14 @@
  */
 
 import { useReducer, useCallback, useMemo } from "react";
-import type { DropdownState, CompletionItem, ProviderId } from "./types.ts";
-import { INITIAL_DROPDOWN_STATE } from "./types.ts";
+import {
+  INITIAL_DROPDOWN_STATE,
+  type CompletionItem,
+  type DropdownState,
+  type NavigationResult,
+  type ProviderId,
+  type ScrollWindow,
+} from "./types.ts";
 import {
   dropdownReducer,
   getSelectedItem,
@@ -26,7 +32,6 @@ import {
   calculateScrollWindow,
   getRelativeIndex,
 } from "./navigation.ts";
-import type { NavigationResult, ScrollWindow } from "./types.ts";
 
 // ============================================================
 // Hook Return Type

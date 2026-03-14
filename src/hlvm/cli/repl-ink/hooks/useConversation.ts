@@ -2,8 +2,7 @@
  * useConversation — React wrapper over the shared agent transcript reducer.
  */
 
-import type { Dispatch, SetStateAction } from "react";
-import { useCallback, useMemo, useState } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useMemo, useState } from "react";
 import type { AgentUIEvent } from "../../../agent/orchestrator.ts";
 import {
   createTranscriptState,
@@ -16,7 +15,7 @@ import type {
   StreamingState,
 } from "../types.ts";
 
-interface UseConversationResult {
+export interface UseConversationResult {
   items: ConversationItem[];
   streamingState: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
@@ -37,6 +36,7 @@ interface UseConversationResult {
     isPending: boolean,
     citations?: AssistantCitation[],
   ) => void;
+  commitAssistantText: (committedText: string, remainderText: string) => void;
   addError: (text: string) => void;
   addInfo: (text: string, options?: { isTransient?: boolean }) => void;
   replaceItems: (items: ConversationItem[]) => void;
@@ -90,6 +90,17 @@ export function useConversation(): UseConversationResult {
     });
   }, []);
 
+  const commitAssistantText = useCallback((
+    committedText: string,
+    remainderText: string,
+  ) => {
+    updateState(setState, {
+      type: "commit_assistant_text",
+      committedText,
+      remainderText,
+    });
+  }, []);
+
   const addError = useCallback((text: string) => {
     updateState(setState, { type: "error", text });
   }, []);
@@ -135,6 +146,7 @@ export function useConversation(): UseConversationResult {
     addEvent,
     addUserMessage,
     addAssistantText,
+    commitAssistantText,
     addError,
     addInfo,
     replaceItems,
@@ -155,6 +167,7 @@ export function useConversation(): UseConversationResult {
     addEvent,
     addUserMessage,
     addAssistantText,
+    commitAssistantText,
     addError,
     addInfo,
     replaceItems,

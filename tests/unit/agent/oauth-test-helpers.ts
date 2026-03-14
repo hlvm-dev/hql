@@ -20,7 +20,7 @@ function isPermissionOrAddrInUseError(error: unknown): boolean {
   );
 }
 
-export function isPermissionDeniedError(error: unknown): boolean {
+function isPermissionDeniedError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const name = (error as { name?: string }).name ?? "";
   const code = (error as { code?: string }).code ?? "";

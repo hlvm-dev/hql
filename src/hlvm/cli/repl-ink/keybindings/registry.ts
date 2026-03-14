@@ -6,12 +6,13 @@
  */
 
 import { fuzzyFilter } from "../../repl/fuzzy.ts";
-import type {
-  Keybinding,
-  KeybindingMatch,
-  KeybindingCategory,
+import {
+  CATEGORY_ORDER,
+  getDisplay,
+  type Keybinding,
+  type KeybindingCategory,
+  type KeybindingMatch,
 } from "./types.ts";
-import { CATEGORY_ORDER, getDisplay } from "./types.ts";
 
 // ============================================================
 // Registry Class

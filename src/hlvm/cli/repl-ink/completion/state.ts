@@ -5,12 +5,12 @@
  * No side effects - easily testable.
  */
 
-import type {
-  DropdownState,
-  DropdownAction,
-  CompletionItem,
+import {
+  INITIAL_DROPDOWN_STATE,
+  type CompletionItem,
+  type DropdownAction,
+  type DropdownState,
 } from "./types.ts";
-import { INITIAL_DROPDOWN_STATE } from "./types.ts";
 
 // ============================================================
 // State Reducer

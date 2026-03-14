@@ -405,6 +405,7 @@ export interface OrchestratorConfig {
     executionAllowlist?: string[];
     executionDenylist?: string[];
     planningAllowlist?: string[];
+    directFileTargets?: string[];
   };
   delegate?: (
     args: unknown,
@@ -737,7 +738,10 @@ export async function runReActLoop(
   addContextMessage(config, { role: "user", content: userRequest, images });
   if (isPlanExecutionMode(config.permissionMode)) {
     const reminder = config.planModeState?.planningAllowlist?.length
-      ? buildPlanModeReminder(config.planModeState.planningAllowlist)
+      ? buildPlanModeReminder(
+        config.planModeState.planningAllowlist,
+        config.planModeState.directFileTargets,
+      )
       : "Plan mode is active. You may inspect, reason, search, and propose a plan, but do not make file edits or run other mutating actions. If implementation is needed, explain the plan and wait for the user to leave plan mode.";
     addContextMessage(config, {
       role: "user",

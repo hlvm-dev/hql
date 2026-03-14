@@ -136,7 +136,7 @@ export async function callLLMWithRetry(
       // Don't retry on last attempt
       if (attempt === config.maxRetries - 1) break;
 
-      // Fix 12: Honor Retry-After header from provider error messages
+      // Honor Retry-After header from provider error messages
       const retryAfterMatch = classified.message.match(/retry-after: (\d+)s/);
       const retryAfterMs = retryAfterMatch
         ? parseInt(retryAfterMatch[1]) * 1000

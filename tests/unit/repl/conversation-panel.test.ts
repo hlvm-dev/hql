@@ -1,5 +1,9 @@
 import { assertEquals } from "jsr:@std/assert";
-import { getActiveThinkingId } from "../../../src/hlvm/cli/repl-ink/components/ConversationPanel.tsx";
+import {
+  getActiveThinkingId,
+  getConversationDisplayItems,
+  getPlanFlowActivitySummary,
+} from "../../../src/hlvm/cli/repl-ink/components/ConversationPanel.tsx";
 import { StreamingState } from "../../../src/hlvm/cli/repl-ink/types.ts";
 import type { ConversationItem } from "../../../src/hlvm/cli/repl-ink/types.ts";
 
@@ -78,5 +82,99 @@ Deno.test("getActiveThinkingId does not re-animate prior-turn thinking before th
   assertEquals(
     getActiveThinkingId(nextTurnItems, StreamingState.Responding),
     undefined,
+  );
+});
+
+Deno.test("getConversationDisplayItems compacts plan-mode transcript noise by hiding thinking, turn stats, and successful tool groups", () => {
+  const compactItems = getConversationDisplayItems([
+    {
+      type: "thinking",
+      id: "thinking-1",
+      kind: "planning",
+      summary: "Inspect the named file first.",
+      iteration: 1,
+    },
+    {
+      type: "tool_group",
+      id: "tool-group-1",
+      ts: 1,
+      tools: [{
+        id: "tool-1",
+        name: "read_file",
+        argsSummary: "path=src/app.tsx",
+        status: "success",
+        resultSummaryText: "Read 120 lines",
+        resultText: "Read 120 lines",
+        toolIndex: 1,
+        toolTotal: 1,
+      }],
+    },
+    {
+      type: "turn_stats",
+      id: "stats-1",
+      toolCount: 1,
+      durationMs: 120,
+    },
+    {
+      type: "assistant",
+      id: "assistant-1",
+      text: "Plan ready.",
+      isPending: false,
+      ts: 2,
+    },
+  ], { compactPlanTranscript: true });
+
+  assertEquals(compactItems.map((item) => item.type), ["assistant"]);
+});
+
+Deno.test("getConversationDisplayItems keeps errored tool groups visible during compact plan mode", () => {
+  const compactItems = getConversationDisplayItems([
+    {
+      type: "tool_group",
+      id: "tool-group-1",
+      ts: 1,
+      tools: [{
+        id: "tool-1",
+        name: "read_file",
+        argsSummary: "path=src/app.tsx",
+        status: "error",
+        resultSummaryText: "File not found",
+        resultText: "File not found",
+        toolIndex: 1,
+        toolTotal: 1,
+      }],
+    },
+  ], { compactPlanTranscript: true });
+
+  assertEquals(compactItems.map((item) => item.type), ["tool_group"]);
+});
+
+Deno.test("getPlanFlowActivitySummary prefers the latest tool activity for compact plan headers", () => {
+  const summary = getPlanFlowActivitySummary([
+    {
+      type: "thinking",
+      id: "thinking-1",
+      kind: "planning",
+      summary: "Draft the smallest safe plan.",
+      iteration: 1,
+    },
+    {
+      type: "tool_group",
+      id: "tool-group-1",
+      ts: 1,
+      tools: [{
+        id: "tool-1",
+        name: "read_file",
+        argsSummary: "path=src/hlvm/cli/repl-ink/components/ConversationPanel.tsx",
+        status: "running",
+        toolIndex: 1,
+        toolTotal: 1,
+      }],
+    },
+  ]);
+
+  assertEquals(
+    summary,
+    "Reading path=src/hlvm/cli/repl-ink/components/ConversationPanel.tsx",
   );
 });

@@ -27,6 +27,7 @@ export function getAbortSignal(): AbortSignal | null {
 }
 
 function createRuntimeApi() {
+  const EMPTY_MAP = Object.freeze(new Map()) as ReadonlyMap<string, string & string[]>;
   return {
     get abortSignal(): AbortSignal | null {
       return abortSignal;
@@ -36,10 +37,10 @@ function createRuntimeApi() {
       return runtimeState.getMedia ? runtimeState.getMedia() : [];
     },
     get docstrings(): ReadonlyMap<string, string> {
-      return runtimeState.getDocstrings ? runtimeState.getDocstrings() : new Map();
+      return runtimeState.getDocstrings ? runtimeState.getDocstrings() : EMPTY_MAP;
     },
     get signatures(): ReadonlyMap<string, string[]> {
-      return runtimeState.getSignatures ? runtimeState.getSignatures() : new Map();
+      return runtimeState.getSignatures ? runtimeState.getSignatures() : EMPTY_MAP;
     },
   };
 }

@@ -24,9 +24,7 @@ import { ollamaCommand, showOllamaHelp } from "./commands/ollama.ts";
 import { serveCommand, showServeHelp } from "./commands/serve.ts";
 import { mcpCommand, showMcpHelp } from "./commands/mcp.ts";
 
-// Import run command from run.ts
 import { run as runCommand } from "./run.ts";
-// Import repl command from Ink REPL
 import { type InkReplOptions, startInkRepl } from "./repl-ink/index.tsx";
 import { parseSessionFlags } from "./repl/session/types.ts";
 import { VERSION } from "../../version.ts";

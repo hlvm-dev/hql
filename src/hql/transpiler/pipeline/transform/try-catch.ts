@@ -8,7 +8,7 @@
  */
 
 import * as IR from "../../type/hql_ir.ts";
-import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../../type/hql_ast.ts";
+import type { HQLNode, ListNode, LiteralNode, SymbolNode, TransformNodeFn } from "../../type/hql_ast.ts";
 import {
   ValidationError,
 } from "../../../../common/error.ts";
@@ -16,9 +16,6 @@ import { sanitizeIdentifier } from "../../../../common/utils.ts";
 import { containsAwait } from "./async-generators.ts";
 import { containsYieldExpression } from "../../utils/ir-tree-walker.ts";
 import { createBlock, createId, wrapIIFEResult } from "../../utils/ir-helpers.ts";
-
-// Type for transform node function passed from main module
-export type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 
 // Type for metadata
 type MetaData = {
@@ -263,7 +260,7 @@ export function transformTry(
  * @param transformNode - Node transformation function
  * @param ensureReturn - If true, wrap last expression in return statement
  */
-export function buildBlockFromExpressions(
+function buildBlockFromExpressions(
   expressions: HQLNode[],
   currentDir: string,
   transformNode: TransformNodeFn,

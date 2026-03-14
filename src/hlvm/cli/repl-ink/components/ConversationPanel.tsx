@@ -7,14 +7,16 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
-import type {
-  AssistantCitation,
-  ConversationItem,
-  StreamingState,
-} from "../types.ts";
+import { truncate } from "../../../../common/utils.ts";
 import {
   isStructuredTeamInfoItem,
+  type AssistantCitation,
+  type ConversationItem,
+  type StreamingState,
   StreamingState as ConversationStreamingState,
+  type ThinkingItem,
+  type ToolCallDisplay,
+  type ToolGroupItem,
 } from "../types.ts";
 import type { Plan, PlanningPhase } from "../../../agent/planning.ts";
 import type { TodoState } from "../../../agent/todo-state.ts";
@@ -51,6 +53,7 @@ import {
   UserMessage,
 } from "./conversation/index.ts";
 import { useSemanticColors } from "../../theme/index.ts";
+import { RenderErrorBoundary } from "./ErrorBoundary.tsx";
 
 const CONVERSATION_KEYBINDING_CATEGORIES = ["Conversation"] as const;
 
@@ -150,6 +153,87 @@ export function getActiveThinkingId(
   return undefined;
 }
 
+function shouldCompactPlanTranscript(
+  planningPhase: PlanningPhase | undefined,
+  activePlan: Plan | undefined,
+  pendingPlanReview: { plan: Plan } | undefined,
+): boolean {
+  return Boolean(planningPhase || activePlan || pendingPlanReview);
+}
+
+function hasToolGroupError(item: ToolGroupItem): boolean {
+  return item.tools.some((tool) => tool.status === "error");
+}
+
+export function getConversationDisplayItems(
+  items: ConversationItem[],
+  options?: {
+    compactPlanTranscript?: boolean;
+  },
+): ConversationItem[] {
+  return items.filter((item) => {
+    if (!shouldRenderConversationItem(item)) {
+      return false;
+    }
+    if (!options?.compactPlanTranscript) {
+      return true;
+    }
+    if (item.type === "thinking" || item.type === "turn_stats") {
+      return false;
+    }
+    if (item.type === "tool_group") {
+      return hasToolGroupError(item);
+    }
+    return true;
+  });
+}
+
+function summarizeThinkingActivity(item: ThinkingItem): string {
+  const firstLine = item.summary.split("\n").find((line) => line.trim().length > 0)
+    ?.trim() ?? "";
+  return truncate(firstLine, 84, "…");
+}
+
+function summarizeToolActivity(tool: ToolCallDisplay): string {
+  const args = truncate(tool.argsSummary.replace(/\s+/g, " ").trim(), 72, "…");
+  switch (tool.name) {
+    case "read_file":
+      return args ? `Reading ${args}` : "Reading the target file";
+    case "search_code":
+      return args ? `Searching ${args}` : "Searching the codebase";
+    case "list_files":
+      return args ? `Listing ${args}` : "Inspecting the target directory";
+    case "edit_file":
+      return args ? `Editing ${args}` : "Editing the target file";
+    case "todo_write":
+      return "Updating the checklist";
+    case "ask_user":
+      return "Waiting on a clarification";
+    default:
+      return args ? `${tool.name} ${args}` : tool.name;
+  }
+}
+
+export function getPlanFlowActivitySummary(
+  items: ConversationItem[],
+): string | undefined {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item?.type === "thinking") {
+      const summary = summarizeThinkingActivity(item);
+      if (summary.length > 0) return summary;
+      continue;
+    }
+    if (item?.type === "tool_group") {
+      const latestTool = [...item.tools].reverse().find((tool) =>
+        tool.status === "running"
+      ) ?? item.tools[item.tools.length - 1];
+      if (latestTool) return summarizeToolActivity(latestTool);
+    }
+  }
+  return undefined;
+}
+
 function getPlanningPhaseTitle(
   phase: PlanningPhase | undefined,
   hasPendingPlanReview: boolean,
@@ -161,7 +245,7 @@ function getPlanningPhaseTitle(
       return "Plan Mode · Drafting";
     case "reviewing":
       return hasPendingPlanReview
-        ? "Ready To Execute"
+        ? "Ready to Code"
         : "Plan Mode · Reviewing";
     case "executing":
       return "Executing Approved Plan";
@@ -178,13 +262,10 @@ function getPlanningPhaseSummary(
   hasPendingPlanReview: boolean,
 ): string | undefined {
   if (plan) {
-    const planSummary = `${plan.steps.length} step${
-      plan.steps.length === 1 ? "" : "s"
-    } · ${plan.goal}`;
     if (hasPendingPlanReview) {
-      return `${planSummary} · awaiting approval`;
+      return plan.goal;
     }
-    return planSummary;
+    return plan.goal;
   }
   switch (phase) {
     case "researching":
@@ -204,18 +285,17 @@ function estimateTodoRows(
 ): number {
   if (!todoState || todoState.items.length === 0) return 0;
   const contentWidth = Math.max(12, width);
-  const summary = `${
-    todoState.items.filter((item) => item.status === "completed").length
-  } done · ${
-    todoState.items.filter((item) => item.status === "in_progress").length
-  } in progress · ${
-    todoState.items.filter((item) => item.status === "pending").length
-  } pending`;
+  const completedCount = todoState.items.filter((item) =>
+    item.status === "completed"
+  ).length;
+  const summary = `${completedCount} of ${todoState.items.length} step${
+    todoState.items.length === 1 ? "" : "s"
+  } complete`;
   return 2 +
     estimateWrappedRows(summary, contentWidth) +
     todoState.items.reduce(
       (total: number, item: TodoState["items"][number]) =>
-        total + estimateWrappedRows(`• ${item.content}`, contentWidth),
+        total + estimateWrappedRows(`[ ] ${item.content}`, contentWidth),
       0,
     );
 }
@@ -326,9 +406,13 @@ export function ConversationPanel({
     [items, streamingState],
   );
   const [scrollOffsetFromBottom, setScrollOffsetFromBottom] = useState(0);
+  const compactPlanTranscript = useMemo(
+    () => shouldCompactPlanTranscript(planningPhase, activePlan, pendingPlanReview),
+    [activePlan, pendingPlanReview, planningPhase],
+  );
   const displayItems = useMemo(
-    () => items.filter(shouldRenderConversationItem),
-    [items],
+    () => getConversationDisplayItems(items, { compactPlanTranscript }),
+    [compactPlanTranscript, items],
   );
 
   useEffect(() => {
@@ -354,6 +438,16 @@ export function ConversationPanel({
     planSummary,
     Boolean(pendingPlanReview),
   );
+  const latestPlanActivity = useMemo(
+    () =>
+      compactPlanTranscript
+        ? getPlanFlowActivitySummary(items)
+        : undefined,
+    [compactPlanTranscript, items],
+  );
+  const activeTodoItem = compactPlanTranscript
+    ? todoState?.items.find((item) => item.status === "in_progress")
+    : undefined;
   const interactionRows = estimateInteractionDialogRows(
     interactionRequest,
     width,
@@ -365,9 +459,21 @@ export function ConversationPanel({
       if (phaseSummary) {
         total += estimateWrappedRows(phaseSummary, contentWidth);
       }
+      if (latestPlanActivity && planningPhase !== "reviewing" && planningPhase !== "done") {
+        total += estimateWrappedRows(
+          `Latest: ${latestPlanActivity}`,
+          contentWidth,
+        );
+      }
       total += 1;
     }
     total += estimateTodoRows(todoState, contentWidth);
+    if (activeTodoItem) {
+      total += estimateWrappedRows(
+        `Current: ${activeTodoItem.content}`,
+        contentWidth,
+      ) + 1;
+    }
     if (latestCheckpoint) {
       total += estimateWrappedRows(
         latestCheckpoint.restoredAt
@@ -381,7 +487,16 @@ export function ConversationPanel({
       ) + 1;
     }
     return total;
-  }, [phaseTitle, phaseSummary, todoState, latestCheckpoint, contentWidth]);
+  }, [
+    activeTodoItem,
+    contentWidth,
+    latestCheckpoint,
+    latestPlanActivity,
+    phaseSummary,
+    phaseTitle,
+    planningPhase,
+    todoState,
+  ]);
   const visibleCount = useMemo(
     () =>
       getConversationVisibleCount(terminalRows, {
@@ -563,6 +678,28 @@ export function ConversationPanel({
               {phaseSummary}
             </Text>
           )}
+          {latestPlanActivity &&
+            planningPhase !== "reviewing" &&
+            planningPhase !== "done" && (
+            <Text color={sc.text.muted}>
+              Latest: {latestPlanActivity}
+            </Text>
+          )}
+        </Box>
+      )}
+
+      {activeTodoItem && (
+        <Box
+          marginBottom={1}
+          paddingLeft={1}
+          borderLeft
+          borderColor={sc.border.active}
+          flexDirection="column"
+        >
+          <Text color={sc.border.active} bold>
+            Current Step
+          </Text>
+          <Text color={sc.text.primary}>{activeTodoItem.content}</Text>
         </Box>
       )}
 
@@ -575,24 +712,20 @@ export function ConversationPanel({
           flexDirection="column"
         >
           <Text color={sc.status.warning} bold>
-            Checklist
+            Progress
           </Text>
           <Text color={sc.text.secondary}>
             {todoState.items.filter((item) => item.status === "completed")
-              .length} done ·{" "}
-            {todoState.items.filter((item) => item.status === "in_progress")
-              .length} in progress ·{" "}
-            {todoState.items.filter((item) => item.status === "pending").length}
-            {" "}
-            pending
+              .length} of {todoState.items.length} step
+            {todoState.items.length === 1 ? "" : "s"} complete
           </Text>
           <Box paddingLeft={1} flexDirection="column">
             {todoState.items.map((item) => {
               const marker = item.status === "completed"
-                ? "✓"
+                ? "[✓]"
                 : item.status === "in_progress"
-                ? "~"
-                : "•";
+                ? "[~]"
+                : "[ ]";
               const markerColor = item.status === "completed"
                 ? sc.status.success
                 : item.status === "in_progress"
@@ -603,7 +736,7 @@ export function ConversationPanel({
                 : sc.text.primary;
               return (
                 <Box key={item.id}>
-                  <Text color={markerColor}>{marker}</Text>
+                  <Text color={markerColor}>{marker} </Text>
                   <Text color={textColor}>{item.content}</Text>
                 </Box>
               );
@@ -649,14 +782,16 @@ export function ConversationPanel({
 
       {visibleItems.map((item: ConversationItem) => (
         <Box key={item.id}>
-          {renderItem(
-            item,
-            width,
-            activeThinkingId,
-            isToolExpanded,
-            isThinkingExpanded,
-            isDelegateExpanded,
-          )}
+          <RenderErrorBoundary>
+            {renderItem(
+              item,
+              width,
+              activeThinkingId,
+              isToolExpanded,
+              isThinkingExpanded,
+              isDelegateExpanded,
+            )}
+          </RenderErrorBoundary>
         </Box>
       ))}
 

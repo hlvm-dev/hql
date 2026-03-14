@@ -2,7 +2,7 @@
 // Module for handling class declarations and related operations
 
 import * as IR from "../type/hql_ir.ts";
-import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
+import type { HQLNode, ListNode, LiteralNode, SymbolNode, TransformNodeFn } from "../type/hql_ast.ts";
 import {
   HQLError,
   TransformError,
@@ -34,13 +34,12 @@ interface MemberExpressionOptions {
   guard?: boolean;
 }
 
-
-type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
-
 // Pre-compiled regex patterns for hot paths (avoid compilation per call)
 /** Matches non-identifier characters that require computed property access */
 const SPECIAL_CHAR_REGEX = /[^a-zA-Z0-9_$]/;
-// GENERIC_NAME_REGEX imported from function.ts (single source of truth)
+
+/** Field-binding keywords used in class body declarations */
+const FIELD_KEYWORDS: ReadonlySet<string> = new Set(["var", "let", "const"]);
 
 /** Expression types that need ExpressionStatement wrapping in block bodies. */
 const EXPR_WRAPPER_TYPES = new Set([
@@ -185,7 +184,7 @@ export function transformClass(
           fields.push(field);
         }
       } // Process field declarations (var, let, and const)
-      else if (elementType === "var" || elementType === "let" || elementType === "const") {
+      else if (FIELD_KEYWORDS.has(elementType)) {
         const field = processClassField(
           elementList,
           currentDir,
@@ -235,7 +234,7 @@ export function transformClass(
 
         const innerType = (staticContent as SymbolNode).name;
 
-        if (innerType === "var" || innerType === "let" || innerType === "const") {
+        if (FIELD_KEYWORDS.has(innerType)) {
           // (static var/let/const name value)
           // Create a pseudo list without "static" for field processing
           const fieldList: ListNode = {

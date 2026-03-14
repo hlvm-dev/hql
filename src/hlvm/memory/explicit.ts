@@ -72,10 +72,11 @@ export async function replaceExplicitMemoryText(
   const fs = getPlatform().fs;
   const mdPath = getMemoryMdPath();
   const content = await readOrInitializeExplicitMemory();
-  const replacements = content.split(findText).length - 1;
+  const parts = content.split(findText);
+  const replacements = parts.length - 1;
   if (replacements <= 0) return 0;
 
-  await fs.writeTextFile(mdPath, content.split(findText).join(replaceWith));
+  await fs.writeTextFile(mdPath, parts.join(replaceWith));
   return replacements;
 }
 

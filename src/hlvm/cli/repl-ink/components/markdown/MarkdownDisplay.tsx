@@ -10,6 +10,7 @@ type Alignment = "left" | "center" | "right";
 interface MarkdownDisplayProps {
   text: string;
   width: number;
+  isPending?: boolean;
 }
 
 /**
@@ -169,13 +170,14 @@ function renderBlock(
   token: Token,
   width: number,
   sc: SemanticColors,
+  isPending?: boolean,
 ): React.ReactElement | null {
   switch (token.type) {
     case "code": {
       const t = token as Tokens.Code;
       return (
         <Box marginY={1}>
-          <CodeBlock code={t.text} language={t.lang} width={width} />
+          <CodeBlock code={t.text} language={t.lang} width={width} isPending={isPending} />
         </Box>
       );
     }
@@ -241,7 +243,7 @@ function renderBlock(
                             {subToken.type === "text" && "tokens" in subToken &&
                                 Array.isArray((subToken as Tokens.Text).tokens)
                               ? <InlineTokens tokens={(subToken as Tokens.Text).tokens!} />
-                              : renderBlock(subToken, width, sc)}
+                              : renderBlock(subToken, width, sc, isPending)}
                           </React.Fragment>
                         ))}
                     </Box>
@@ -281,7 +283,7 @@ function renderBlock(
               <Box key={i}>
                 <Text color={sc.text.secondary}>│ </Text>
                 <Box flexShrink={1}>
-                  {renderBlock(subToken, width - 2, sc)}
+                  {renderBlock(subToken, width - 2, sc, isPending)}
                 </Box>
               </Box>
             )];
@@ -309,7 +311,7 @@ function renderBlock(
 }
 
 export const MarkdownDisplay = memo(function MarkdownDisplay(
-  { text, width }: MarkdownDisplayProps,
+  { text, width, isPending }: MarkdownDisplayProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
   const tokens = useMemo(() => marked.lexer(text), [text]);
@@ -318,7 +320,7 @@ export const MarkdownDisplay = memo(function MarkdownDisplay(
     <Box flexDirection="column">
       {tokens.map((token: Token, index: number) => (
         <React.Fragment key={index}>
-          {renderBlock(token, width, sc)}
+          {renderBlock(token, width, sc, isPending)}
         </React.Fragment>
       ))}
     </Box>

@@ -47,7 +47,7 @@ export async function getRuntimeModelAvailability(
   modelId: string,
 ): Promise<ModelAvailabilitySnapshot> {
   return await getModelAvailability(modelId, {
-    listModels: (providerName?: string) => listRuntimeInstalledModels(providerName),
+    listModels: listRuntimeInstalledModels,
   });
 }
 
@@ -69,7 +69,7 @@ export async function ensureRuntimeModelAvailable(
   return await ensureModelAvailability(
     modelId,
     {
-      listModels: (providerName?: string) => listRuntimeInstalledModels(providerName),
+      listModels: listRuntimeInstalledModels,
       pullModel: (
         modelName: string,
         providerName?: string,

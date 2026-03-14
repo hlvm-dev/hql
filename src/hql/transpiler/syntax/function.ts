@@ -6,6 +6,7 @@ import {
   type ListNode,
   type LiteralNode,
   type SymbolNode,
+  type TransformNodeFn,
   isListNode,
   isSymbolNode,
 } from "../type/hql_ast.ts";
@@ -68,8 +69,6 @@ import {
 
 // LRU cache with size limit to prevent unbounded memory growth in long-running processes
 const fnFunctionRegistry = new LRUCache<string, IR.IRFnFunctionDeclaration>(5000);
-
-type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 
 // Pre-compiled regex for extracting generic type parameters from names
 // e.g., "identity<T>" -> name="identity", typeParameters=["T"]

@@ -16,8 +16,7 @@ import { extractFnParams, extractIdentifierName } from "./definition-utils.ts";
 
 import { evaluateJS, extractJSBindings } from "./js-eval.ts";
 import { addPaste, addAttachment, addConversationTurn } from "./context.ts";
-import type { AnyAttachment } from "./attachment.ts";
-import type { TextAttachment, Attachment } from "./attachment.ts";
+import type { AnyAttachment, TextAttachment, Attachment } from "./attachment.ts";
 import { extractDocstrings, stripLeadingComments } from "./docstring.ts";
 import { getAbortSignal, setAbortSignal } from "../../api/runtime.ts";
 import { log } from "../../api/log.ts";

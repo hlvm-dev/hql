@@ -32,8 +32,6 @@ import {
 } from "../utils/ir-tree-walker.ts";
 import { STATEMENT_TYPES } from "../constants/index.ts";
 
-// STATEMENT_TYPES imported from ../constants/index.ts
-
 /**
  * Encapsulates all mutable state for loop/recur compilation.
  * A fresh instance must be created per compilation unit to prevent

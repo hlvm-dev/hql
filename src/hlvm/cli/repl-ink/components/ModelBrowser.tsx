@@ -17,13 +17,11 @@ import { Box, Text, useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { formatBytes } from "../../../../common/limits.ts";
-import type {
-  ModelPullTask,
-  TaskEvent,
-} from "../../repl/task-manager/types.ts";
 import {
   isModelPullTask,
   isTaskActive,
+  type ModelPullTask,
+  type TaskEvent,
 } from "../../repl/task-manager/types.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { handleTextEditingKey, isCtrlShortcut } from "../utils/text-editing.ts";
@@ -35,8 +33,7 @@ import { getPlatform } from "../../../../platform/platform.ts";
 import { getErrorMessage, truncate } from "../../../../common/utils.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { isSelectedModelActive } from "../../../../common/config/model-selection.ts";
-import { capabilitiesToDisplayTags } from "../../../providers/types.ts";
-import type { ModelInfo } from "../../../providers/types.ts";
+import { capabilitiesToDisplayTags, type ModelInfo } from "../../../providers/types.ts";
 import { isOllamaCloudModel } from "../../../providers/ollama/cloud.ts";
 import {
   findProviderMetaKey,

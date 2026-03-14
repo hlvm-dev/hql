@@ -20,6 +20,8 @@ interface CodeBlockProps {
   language?: string;
   width: number;
   maxLines?: number;
+  isPending?: boolean;
+  availableHeight?: number;
 }
 
 function splitSegmentsByNewline(segments: StyledSegment[]): StyledLine[] {
@@ -86,32 +88,44 @@ function truncateLine(text: string, maxWidth: number): string {
 }
 
 export const CodeBlock = memo(function CodeBlock(
-  { code, language, width, maxLines = DEFAULT_MAX_LINES }: CodeBlockProps,
+  { code, language, width, maxLines = DEFAULT_MAX_LINES, isPending, availableHeight }: CodeBlockProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
 
   const normalizedCode = code.replace(/\t/g, "  ");
+
+  // Determine effective max lines: use availableHeight cap during streaming
+  const effectiveMaxLines = isPending && availableHeight
+    ? Math.min(maxLines, availableHeight)
+    : maxLines;
+
+  // Pre-slice optimization: split into raw lines first, slice to visible range,
+  // THEN highlight only visible lines (avoids highlighting invisible content).
+  const rawLines = normalizedCode.split("\n");
+  const totalLines = rawLines.length;
+  const needsTruncation = totalLines > effectiveMaxLines;
+  const visibleRawLines = needsTruncation
+    ? rawLines.slice(totalLines - effectiveMaxLines)
+    : rawLines;
+  const hiddenCount = totalLines - visibleRawLines.length;
+  const hasLineNumbers = totalLines >= 5;
+
+  const visibleCode = visibleRawLines.join("\n");
   const highlighted = (() => {
     try {
       if (language) {
-        return lowlight.highlight(language, normalizedCode);
+        return lowlight.highlight(language, visibleCode);
       }
-      return lowlight.highlightAuto(normalizedCode);
+      return lowlight.highlightAuto(visibleCode);
     } catch {
-      return lowlight.highlight("plaintext", normalizedCode);
+      return lowlight.highlight("plaintext", visibleCode);
     }
   })();
 
   const segments = collectSegments(highlighted);
-  const allLines = splitSegmentsByNewline(segments);
-  const hasLineNumbers = allLines.length >= 5;
+  const visibleLines = splitSegmentsByNewline(segments);
 
-  const visibleLines = allLines.length > maxLines
-    ? allLines.slice(allLines.length - maxLines)
-    : allLines;
-  const hiddenCount = allLines.length - visibleLines.length;
-
-  const lineDigits = String(allLines.length).length;
+  const lineDigits = String(totalLines).length;
   const gutterWidth = hasLineNumbers ? lineDigits + 3 : 0;
   const contentWidth = Math.max(10, width - gutterWidth - 4);
   const badge = language || "code";
@@ -120,10 +134,14 @@ export const CodeBlock = memo(function CodeBlock(
     <Box flexDirection="column" borderStyle="round" borderColor={sc.border.dim} paddingX={1}>
       <Text color={sc.text.muted}>{badge}</Text>
       {hiddenCount > 0 && (
-        <Text color={sc.text.muted}>… {hiddenCount} lines hidden above</Text>
+        <Text color={sc.text.muted}>
+          {isPending
+            ? `… generating ${hiddenCount} more lines …`
+            : `… ${hiddenCount} lines hidden above`}
+        </Text>
       )}
       {visibleLines.map((line: StyledLine, index: number) => {
-        const originalLineNumber = allLines.length - visibleLines.length + index + 1;
+        const originalLineNumber = totalLines - visibleLines.length + index + 1;
         const plain = line.segments.map((segment: StyledSegment) => segment.text).join("");
         const isTruncated = plain.length > contentWidth;
 

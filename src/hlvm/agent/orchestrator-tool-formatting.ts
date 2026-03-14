@@ -237,6 +237,23 @@ export function sanitizeArgs(
   return Object.fromEntries(entries);
 }
 
+/** Tool name → primary arg field for single-field summary */
+const SUMMARY_FIELD = new Map<string, string>([
+  ["read_file", "path"],
+  ["list_files", "path"],
+  ["get_structure", "path"],
+  ["edit_file", "path"],
+  ["write_file", "path"],
+  ["shell_exec", "command"],
+  ["compute", "expression"],
+  ["search_web", "query"],
+  ["memory_search", "query"],
+  ["web_fetch", "url"],
+  ["fetch_url", "url"],
+  ["memory_write", "content"],
+  ["memory_edit", "action"],
+]);
+
 /** Summarize tool args into a short human-readable string for UI display */
 export function generateArgsSummary(
   toolName: string,
@@ -244,12 +261,14 @@ export function generateArgsSummary(
 ): string {
   if (!args || typeof args !== "object") return "";
   const a = args as Record<string, unknown>;
+
+  // Data-driven: tools whose summary is just a single truncated field
+  const field = SUMMARY_FIELD.get(toolName);
+  if (field) {
+    return typeof a[field] === "string" ? truncate(a[field] as string, 80) : "";
+  }
+
   switch (toolName) {
-    case "read_file":
-    case "list_files":
-      return typeof a.path === "string" ? truncate(a.path, 80) : "";
-    case "shell_exec":
-      return typeof a.command === "string" ? truncate(a.command, 80) : "";
     case "search_code":
       return `'${truncate(String(a.pattern ?? a.query ?? ""), 40)}'${
         a.path ? ` in ${a.path}` : ""
@@ -258,24 +277,6 @@ export function generateArgsSummary(
       return `'${truncate(String(a.name ?? ""), 40)}'${
         a.path ? ` in ${a.path}` : ""
       }`;
-    case "get_structure":
-      return typeof a.path === "string" ? truncate(a.path, 80) : "";
-    case "edit_file":
-    case "write_file":
-      return typeof a.path === "string" ? truncate(a.path, 80) : "";
-    case "compute":
-      return typeof a.expression === "string" ? truncate(a.expression, 80) : "";
-    case "search_web":
-      return typeof a.query === "string" ? truncate(a.query, 80) : "";
-    case "web_fetch":
-    case "fetch_url":
-      return typeof a.url === "string" ? truncate(a.url, 80) : "";
-    case "memory_search":
-      return typeof a.query === "string" ? truncate(a.query, 80) : "";
-    case "memory_write":
-      return typeof a.content === "string" ? truncate(a.content, 80) : "";
-    case "memory_edit":
-      return typeof a.action === "string" ? truncate(a.action, 80) : "";
     case "todo_read":
       return "current session";
     case "todo_write": {
@@ -468,7 +469,7 @@ export function isRenderToolName(toolName: string): boolean {
   return toolName === "render_url" || toolName.endsWith("_render_url");
 }
 
-/** Fix 22: Case-insensitive loop detection for string values */
+/** Case-insensitive loop detection for string values */
 export function buildToolSignature(calls: ToolCall[]): string {
   if (calls.length === 0) return "";
   return calls

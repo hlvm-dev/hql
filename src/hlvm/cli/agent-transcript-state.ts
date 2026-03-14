@@ -7,23 +7,23 @@ import {
   summarizeTodoState,
   type TodoState,
 } from "../agent/todo-state.ts";
-import type {
-  AssistantCitation,
-  AssistantItem,
-  ConversationItem,
-  DelegateItem,
-  InfoItem,
-  StreamingState,
-  StructuredTeamInfoItem,
-  TeamMessageInfoItem,
-  TeamPlanReviewInfoItem,
-  TeamShutdownInfoItem,
-  TeamTaskInfoItem,
-  ThinkingItem,
-  ToolCallDisplay,
-  ToolGroupItem,
+import {
+  type AssistantCitation,
+  type AssistantItem,
+  type ConversationItem,
+  type DelegateItem,
+  type InfoItem,
+  type StreamingState,
+  StreamingState as ConversationStreamingState,
+  type StructuredTeamInfoItem,
+  type TeamMessageInfoItem,
+  type TeamPlanReviewInfoItem,
+  type TeamShutdownInfoItem,
+  type TeamTaskInfoItem,
+  type ThinkingItem,
+  type ToolCallDisplay,
+  type ToolGroupItem,
 } from "./repl-ink/types.ts";
-import { StreamingState as ConversationStreamingState } from "./repl-ink/types.ts";
 
 export interface TranscriptState {
   items: ConversationItem[];
@@ -56,6 +56,7 @@ export type TranscriptInput =
   | { type: "error"; text: string }
   | { type: "info"; text: string; isTransient?: boolean }
   | { type: "replace_items"; items: ConversationItem[] }
+  | { type: "commit_assistant_text"; committedText: string; remainderText: string }
   | { type: "reset_status" }
   | { type: "finalize" }
   | { type: "clear" };
@@ -970,6 +971,31 @@ export function reduceTranscriptState(
         latestCheckpoint: undefined,
         nextId: input.items.length,
       };
+    case "commit_assistant_text": {
+      // Commits the current pending assistant item's text (sets isPending=false),
+      // then creates a new pending assistant item with the remainder.
+      // This feeds the <Static> split naturally — committed items render once.
+      const pendingIdx = findPendingAssistantIndex(state.items);
+      if (pendingIdx < 0) return state;
+      const pending = state.items[pendingIdx];
+      if (pending.type !== "assistant") return state;
+      const nextItems = [...state.items];
+      nextItems[pendingIdx] = {
+        ...pending,
+        text: input.committedText,
+        isPending: false,
+      };
+      const [nextState, newId] = nextItemId({ ...state, items: nextItems });
+      const newPending: AssistantItem = {
+        type: "assistant",
+        id: newId,
+        text: input.remainderText,
+        citations: undefined,
+        isPending: true,
+        ts: Date.now(),
+      };
+      return { ...nextState, items: [...nextState.items, newPending] };
+    }
     case "reset_status":
       return {
         ...state,

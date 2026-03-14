@@ -19,11 +19,13 @@ import React, {
   useState,
 } from "react";
 import { useInput, useStdout } from "ink";
-import { CATEGORY_ORDER, getDisplay, registry } from "../keybindings/index.ts";
-import type {
-  KeybindingAction,
-  KeybindingCategory,
-  KeybindingMatch,
+import {
+  CATEGORY_ORDER,
+  getDisplay,
+  registry,
+  type KeybindingAction,
+  type KeybindingCategory,
+  type KeybindingMatch,
 } from "../keybindings/index.ts";
 import {
   ansi,

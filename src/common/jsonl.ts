@@ -6,7 +6,7 @@
  */
 
 import { getPlatform } from "../platform/platform.ts";
-import { isFileNotFoundError } from "./utils.ts";
+import { isFileNotFoundError, LINE_SPLIT_REGEX } from "./utils.ts";
 
 export type JsonlMapper<T> = (value: unknown) => T | undefined;
 
@@ -33,7 +33,7 @@ export function parseJsonLines<T>(
 ): T[] {
   if (!content.trim()) return [];
 
-  const lines = content.split(/\r?\n/);
+  const lines = content.split(LINE_SPLIT_REGEX);
   const records: T[] = [];
 
   for (const line of lines) {

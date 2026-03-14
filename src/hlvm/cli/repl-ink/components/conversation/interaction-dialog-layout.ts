@@ -10,6 +10,7 @@ export interface PlanReviewDialogDisplay {
   plan: Plan;
   visibleSteps: Plan["steps"];
   hiddenStepCount: number;
+  verificationLines: string[];
 }
 
 interface ConfirmationDialogDisplay {
@@ -81,6 +82,11 @@ export function getConfirmationDialogDisplay(
   const isPlanReview = toolName === "plan_review";
   const parsedPlanReview = parsePlanReview(toolName, toolArgs);
   if (parsedPlanReview) {
+    const verificationLines = [
+      ...new Set(
+        parsedPlanReview.steps.flatMap((step) => step.successCriteria ?? []),
+      ),
+    ].slice(0, 4);
     return {
       isPlanReview,
       planReview: {
@@ -90,6 +96,7 @@ export function getConfirmationDialogDisplay(
           0,
           parsedPlanReview.steps.length - PLAN_REVIEW_MAX_STEPS,
         ),
+        verificationLines,
       },
       visibleArgLines: [],
       hiddenArgLines: 0,
@@ -150,6 +157,15 @@ function estimateConfirmationDialogRows(
     );
     if (dialog.planReview.hiddenStepCount > 0) {
       rows += 1;
+    }
+    if (dialog.planReview.verificationLines.length > 0) {
+      rows += 1;
+      rows += dialog.planReview.verificationLines.reduce(
+        (total: number, line: string) =>
+          total +
+          estimateWrappedTextRows(line, Math.max(12, contentWidth - 2)),
+        0,
+      );
     }
     return rows + 2; // border + spacing
   }

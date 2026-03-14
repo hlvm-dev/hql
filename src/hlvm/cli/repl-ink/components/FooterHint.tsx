@@ -9,12 +9,10 @@
 import React from "react";
 import { Box, Text, useStdout } from "ink";
 import { useSemanticColors } from "../../theme/index.ts";
-import type { StreamingState } from "../types.ts";
-import { StreamingState as ConversationStreamingState } from "../types.ts";
-import { BRAILLE_SPINNER_FRAMES } from "../ui-constants.ts";
+import { type StreamingState, StreamingState as ConversationStreamingState } from "../types.ts";
+import { BRAILLE_SPINNER_FRAMES, DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 import { useSpinnerFrame } from "../hooks/useSpinnerFrame.ts";
 import { truncate } from "../../../../common/utils.ts";
-import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 
 export const FOOTER_SECTION_SEPARATOR = " · ";
 

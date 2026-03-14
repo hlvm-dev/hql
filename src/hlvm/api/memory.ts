@@ -99,6 +99,7 @@ function searchNotes(
   if (!normalizedQuery) return [];
 
   const hits: MemorySearchResult[] = [];
+  const notesPath = getMemoryMdPath();
   const lines = notes.split("\n").map((line) => line.trim()).filter(Boolean);
   for (const line of lines) {
     if (!line.toLowerCase().includes(normalizedQuery)) continue;
@@ -106,7 +107,7 @@ function searchNotes(
       kind: "note",
       text: line,
       file: "memory/notes",
-      path: getMemoryMdPath(),
+      path: notesPath,
       date: "",
       score: 1,
       source: "notes",

@@ -21,7 +21,7 @@ export async function createRuntimeHostHealthResponse(
   };
 }
 
-export async function readRuntimeHealth(
+async function readRuntimeHealth(
   baseUrl: string,
 ): Promise<HostHealthResponse | null> {
   try {

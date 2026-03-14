@@ -5,17 +5,19 @@
  * No side effects - easily testable.
  */
 
-import type {
-  CompletionItem,
-  CompletionType,
-  CompletionContext,
-  CompletionAction,
-  ApplyContext,
-  ApplyResult,
-  ItemRenderSpec,
-  EnclosingForm,
+import {
+  CONTEXT_AWARE_FORMS,
+  RENDER_MAX_WIDTH,
+  TYPE_ICONS,
+  type ApplyContext,
+  type ApplyResult,
+  type CompletionAction,
+  type CompletionContext,
+  type CompletionItem,
+  type CompletionType,
+  type EnclosingForm,
+  type ItemRenderSpec,
 } from "./types.ts";
-import { TYPE_ICONS, RENDER_MAX_WIDTH, CONTEXT_AWARE_FORMS } from "./types.ts";
 import { getWordAtCursor } from "../../repl/string-utils.ts";
 
 // ============================================================

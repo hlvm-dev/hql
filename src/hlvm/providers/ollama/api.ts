@@ -160,8 +160,8 @@ async function* streamRequest<T>(
 }
 
 /**
- * Make a non-streaming request to Ollama
- * Fix 9: Accept optional AbortSignal for cancellation
+ * Make a non-streaming request to Ollama.
+ * Accepts optional AbortSignal for cancellation.
  */
 async function jsonRequest<T>(
   endpoint: string,

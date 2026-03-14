@@ -40,10 +40,10 @@ import { runAgentQueryViaHost } from "../../runtime/host-client.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 import { checkModelAttachmentPaths } from "../attachment-policy.ts";
-import type {
-  DelegateTranscriptSnapshot,
+import {
+  type DelegateTranscriptSnapshot,
+  listDelegateTranscriptLines,
 } from "../../agent/delegate-transcript.ts";
-import { listDelegateTranscriptLines } from "../../agent/delegate-transcript.ts";
 import { formatPlanForContext } from "../../agent/planning.ts";
 import {
   createTranscriptState,

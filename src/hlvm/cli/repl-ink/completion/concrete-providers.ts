@@ -7,16 +7,6 @@
  * - CommandProvider: Slash commands
  */
 
-import type {
-  ApplyContext,
-  ApplyResult,
-  CompletionAction,
-  CompletionContext,
-  CompletionItem,
-  CompletionProvider,
-  CompletionResult,
-  ItemRenderSpec,
-} from "./types.ts";
 import {
   ATTACHMENT_PLACEHOLDER,
   COMPLETION_DEBOUNCE_MS,
@@ -27,6 +17,14 @@ import {
   STRING_PLACEHOLDER_FUNCTIONS,
   TYPE_ICONS,
   TYPE_LABELS,
+  type ApplyContext,
+  type ApplyResult,
+  type CompletionAction,
+  type CompletionContext,
+  type CompletionItem,
+  type CompletionProvider,
+  type CompletionResult,
+  type ItemRenderSpec,
 } from "./types.ts";
 import {
   extractCommandQuery,

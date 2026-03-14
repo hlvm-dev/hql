@@ -45,6 +45,11 @@ const TYPE_DELIMITER_REGEX = /[\s\)\]\}]/;
 /** Matches conditional type pattern (extends...?...:) */
 const CONDITIONAL_TYPE_REGEX = /\bextends\b[^?]*\?[^:]*:/;
 
+/** Characters that increase nesting depth in type expressions */
+const OPEN_BRACKETS: ReadonlySet<string> = new Set(["<", "(", "[", "{"]);
+/** Characters that decrease nesting depth in type expressions */
+const CLOSE_BRACKETS: ReadonlySet<string> = new Set([">", ")", "]", "}"]);
+
 // ============================================================================
 // BRACKET DEPTH COUNTING
 // ============================================================================
@@ -101,10 +106,10 @@ export function splitTypeParameters(typeParamString: string): string[] {
   let depth = 0;
 
   for (const char of typeParamString) {
-    if (char === "<" || char === "(" || char === "[" || char === "{") {
+    if (OPEN_BRACKETS.has(char)) {
       depth++;
       current += char;
-    } else if (char === ">" || char === ")" || char === "]" || char === "}") {
+    } else if (CLOSE_BRACKETS.has(char)) {
       depth--;
       current += char;
     } else if (char === "," && depth === 0) {
@@ -654,8 +659,8 @@ export function extractEffect(rawType: string): {
   let i = prefixLen;
   for (; i < trimmed.length && depth > 0; i++) {
     const ch = trimmed[i];
-    if (ch === "(" || ch === "[" || ch === "<" || ch === "{") depth++;
-    else if (ch === ")" || ch === "]" || ch === ">" || ch === "}") depth--;
+    if (OPEN_BRACKETS.has(ch)) depth++;
+    else if (CLOSE_BRACKETS.has(ch)) depth--;
   }
 
   if (depth !== 0) return { innerType: rawType }; // malformed, pass through
@@ -676,10 +681,10 @@ export function splitEffectTypeParams(inner: string): string[] {
   let depth = 0;
 
   for (const char of inner) {
-    if (char === "(" || char === "[" || char === "<" || char === "{") {
+    if (OPEN_BRACKETS.has(char)) {
       depth++;
       current += char;
-    } else if (char === ")" || char === "]" || char === ">" || char === "}") {
+    } else if (CLOSE_BRACKETS.has(char)) {
       depth--;
       current += char;
     } else if (/\s/.test(char) && depth === 0) {
@@ -742,9 +747,9 @@ function findDepthZeroDelimiter(type: string): number {
   let depth = 0;
   for (let i = 0; i < type.length; i++) {
     const c = type[i];
-    if (c === "<" || c === "(" || c === "[" || c === "{") {
+    if (OPEN_BRACKETS.has(c)) {
       depth++;
-    } else if (c === ">" || c === ")" || c === "]" || c === "}") {
+    } else if (CLOSE_BRACKETS.has(c)) {
       depth--;
     } else if ((c === "|" || c === "&") && depth === 0) {
       return i;
@@ -763,9 +768,9 @@ function findDepthZeroChar(type: string, charToFind: string): number {
   let depth = 0;
   for (let i = 0; i < type.length; i++) {
     const c = type[i];
-    if (c === "<" || c === "(" || c === "[" || c === "{") {
+    if (OPEN_BRACKETS.has(c)) {
       depth++;
-    } else if (c === ">" || c === ")" || c === "]" || c === "}") {
+    } else if (CLOSE_BRACKETS.has(c)) {
       depth--;
     } else if (c === charToFind && depth === 0) {
       return i;

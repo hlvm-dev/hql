@@ -20,7 +20,7 @@
  */
 
 import { transpile } from "../src/hql/transpiler/index.ts";
-import { resolve, dirname, fromFileUrl } from "https://deno.land/std@0.220.0/path/mod.ts";
+import { resolve, dirname, fromFileUrl } from "jsr:@std/path";
 import { getPlatform } from "../src/platform/platform.ts";
 
 const platform = getPlatform();

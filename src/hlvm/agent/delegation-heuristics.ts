@@ -1,3 +1,5 @@
+import { extractMentionedFilePaths } from "./request-paths.ts";
+
 export interface DelegationSignal {
   shouldDelegate: boolean;
   reason: string;
@@ -15,8 +17,6 @@ const BATCH_PATTERNS = [
   /\b(all files|each module|each component|all modules)\b/i,
 ];
 
-const FILE_PATH_PATTERN = /(?:[\w\-./]+\.(?:ts|tsx|js|jsx|py|rs|go|java|rb|c|cpp|h|md|json|yaml|yml|toml))/g;
-
 export function evaluateDelegationSignal(
   request: string,
 ): DelegationSignal {
@@ -28,7 +28,7 @@ export function evaluateDelegationSignal(
     // Check for explicit parallel cues even in short requests
     for (const pattern of FAN_OUT_PATTERNS) {
       if (pattern.test(trimmed)) {
-        const fileMatches = trimmed.match(FILE_PATH_PATTERN);
+        const fileMatches = extractMentionedFilePaths(trimmed);
         return {
           shouldDelegate: true,
           reason: "Explicit parallel work cue detected",
@@ -46,7 +46,7 @@ export function evaluateDelegationSignal(
   }
 
   // Multi-file: 3+ distinct file paths -> fan-out
-  const fileMatches = trimmed.match(FILE_PATH_PATTERN);
+  const fileMatches = extractMentionedFilePaths(trimmed);
   const uniqueFiles = fileMatches ? new Set(fileMatches) : new Set<string>();
   if (uniqueFiles.size >= 3) {
     return {

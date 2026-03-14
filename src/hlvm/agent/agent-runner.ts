@@ -44,6 +44,7 @@ import { createDelegateCoordinationBoard } from "./delegate-coordination.ts";
 import { restoreBatchSnapshots } from "./delegate-batches.ts";
 import { createTeamRuntime } from "./team-runtime.ts";
 import { loadAgentProfiles } from "./agent-registry.ts";
+import { resolveExistingMentionedFiles } from "./request-paths.ts";
 import { hasTool, resolveTools } from "./registry.ts";
 import {
   type AgentUIEvent,
@@ -130,9 +131,14 @@ function buildPlanModeAllowlist(options: {
   allowlist?: string[];
   denylist?: string[];
   ownerId?: string;
+  preferDirectFileWork?: boolean;
 }): string[] {
   const tools = resolveTools(options);
   return Object.keys(tools).filter((toolName) =>
+    !(
+      options.preferDirectFileWork &&
+      (toolName === "search_code" || toolName === "shell_exec")
+    ) &&
     toolName !== "complete_task" &&
     (!isMutatingTool(toolName, options.ownerId) || toolName === "shell_exec")
   );
@@ -552,11 +558,16 @@ export async function runAgentQuery(
     const baseExecutionDenylist = cloneToolAllowlist(
       session.toolFilterState?.denylist ?? session.llmConfig?.toolDenylist,
     );
+    const directFileTargets = permissionMode === "plan"
+      ? await resolveExistingMentionedFiles(query, workspace)
+      : [];
+    const preferDirectFileWork = directFileTargets.length === 1;
     const planningAllowlist = permissionMode === "plan"
       ? buildPlanModeAllowlist({
         allowlist: baseExecutionAllowlist,
         denylist: baseExecutionDenylist,
         ownerId: session.toolOwnerId,
+        preferDirectFileWork,
       })
       : undefined;
     const planModeState = permissionMode === "plan"
@@ -567,6 +578,7 @@ export async function runAgentQuery(
         executionAllowlist: cloneToolAllowlist(baseExecutionAllowlist),
         executionDenylist: cloneToolAllowlist(baseExecutionDenylist),
         planningAllowlist: cloneToolAllowlist(planningAllowlist),
+        directFileTargets,
       }
       : undefined;
     if (planModeState && session.toolFilterState) {

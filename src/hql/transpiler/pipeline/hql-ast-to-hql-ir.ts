@@ -3,7 +3,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 import * as IR from "../type/hql_ir.ts";
-import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
+import type { HQLNode, ListNode, LiteralNode, SymbolNode, TransformNodeFn } from "../type/hql_ast.ts";
 import type {
   ArrayPattern,
   IdentifierPattern,
@@ -87,8 +87,6 @@ type MetaData = {
 interface MetaCarrier {
   _meta?: MetaData;
 }
-
-type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 
 /**
  * Check if a node is a vector (list with first element being the "vector" symbol).
@@ -2291,8 +2289,6 @@ function createCallExpression(
     arguments: args,
   } as IR.IRCallExpression;
 }
-
-// FIRST_CLASS_OPERATORS imported from ../keyword/primitives.ts (single source of truth)
 
 /**
  * Parse optional chain segments from a symbol like "user?.name" or "data?.user?.address?.city"

@@ -180,6 +180,26 @@ Deno.test("handleFinalResponse promotes an approved plan-mode draft into executi
     context.getMessages()[0]?.content ?? "",
     "[step-1] Edit the UI",
   );
+  assertStringIncludes(
+    context.getMessages()[0]?.content ?? "",
+    "shell_exec with rg -n or sed -n",
+  );
+  assertStringIncludes(
+    context.getMessages()[0]?.content ?? "",
+    "shell_exec accepts one simple command only",
+  );
+  assertStringIncludes(
+    context.getMessages()[0]?.content ?? "",
+    "Do not use git stash, git reset",
+  );
+  assertStringIncludes(
+    context.getMessages()[0]?.content ?? "",
+    "Use git_diff/git_status for repo inspection",
+  );
+  assertStringIncludes(
+    context.getMessages()[0]?.content ?? "",
+    "skip extra search_code or whole-file shell_exec and move straight to edit_file",
+  );
 });
 
 Deno.test("handleFinalResponse narrows plan execution tools and restores the execution denylist", async () => {
@@ -238,6 +258,7 @@ Deno.test("handleFinalResponse narrows plan execution tools and restores the exe
     "list_files",
     "read_file",
     "search_code",
+    "shell_exec",
     "todo_read",
     "todo_write",
     "undo_edit",

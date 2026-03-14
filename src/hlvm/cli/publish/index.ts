@@ -18,7 +18,7 @@ import {
   detectMetadataFiles,
   getPlatformsFromArgs,
   type HqlPackageConfig,
-  readJSONFile, // Import readJSONFile
+  readJSONFile,
   writeJSONFile,
   type MetadataFileType,
   type MetadataStatus,

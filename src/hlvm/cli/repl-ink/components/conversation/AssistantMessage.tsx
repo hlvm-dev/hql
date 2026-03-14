@@ -12,6 +12,9 @@ import { MarkdownDisplay } from "../markdown/index.ts";
 import type { AssistantCitation } from "../../types.ts";
 import { BRAILLE_SPINNER_FRAMES, OPEN_LATEST_SOURCE_HINT } from "../../ui-constants.ts";
 import { useSpinnerFrame } from "../../hooks/useSpinnerFrame.ts";
+import { escapeAnsiCtrlCodes } from "../../utils/sanitize-ansi.ts";
+
+const MAX_DISPLAY_CHARS = 50_000;
 
 interface AssistantMessageProps {
   text: string;
@@ -136,7 +139,11 @@ export const AssistantMessage = React.memo(function AssistantMessage(
   const sc = useSemanticColors();
   const frame = useSpinnerFrame(isPending);
   const contentWidth = Math.max(10, width - 3);
-  const citationView = buildCitationRenderView(text, citations ?? []);
+  const sanitizedText = escapeAnsiCtrlCodes(text);
+  const displayText = sanitizedText.length > MAX_DISPLAY_CHARS
+    ? "..." + sanitizedText.slice(-MAX_DISPLAY_CHARS)
+    : sanitizedText;
+  const citationView = buildCitationRenderView(displayText, citations ?? []);
   const sources = citationView.sources.slice(0, 6);
   const sourceOverflow = Math.max(
     0,
@@ -165,9 +172,7 @@ export const AssistantMessage = React.memo(function AssistantMessage(
         borderColor={sc.border.default}
         paddingLeft={1}
       >
-        {isPending
-          ? <Text wrap="wrap">{citationView.text}</Text>
-          : <MarkdownDisplay text={citationView.text} width={contentWidth} />}
+        <MarkdownDisplay text={citationView.text} width={contentWidth} isPending={isPending} />
         {!isPending && sources.length > 0 && (
           <Box flexDirection="column" marginTop={1}>
             <Text color={sc.text.muted}>{sourcesLabel}</Text>

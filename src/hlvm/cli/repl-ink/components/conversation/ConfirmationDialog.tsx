@@ -27,29 +27,37 @@ export const ConfirmationDialog = React.memo(
     return (
       <Box
         borderStyle="round"
-        borderColor={sc.status.warning}
+        borderColor={isPlanReview ? sc.border.active : sc.status.warning}
         paddingX={1}
         paddingY={0}
         flexDirection="column"
       >
         <Box>
-          <Text color={sc.status.warning} bold>
-            {isPlanReview ? "⚠ Plan Review Required" : "⚠ Permission Required"}
+          <Text
+            color={isPlanReview ? sc.text.primary : sc.status.warning}
+            bold
+          >
+            {isPlanReview ? "Ready to Code?" : "Permission Required"}
           </Text>
         </Box>
+        {isPlanReview && (
+          <Text color={sc.text.secondary}>
+            Here is the proposed plan:
+          </Text>
+        )}
         {toolName && (
           <Box marginTop={0}>
             <Text color={sc.text.secondary}>
-              {isPlanReview ? "Review: " : "Tool: "}
+              {isPlanReview ? "Execution: " : "Tool: "}
             </Text>
             <Text color={sc.text.primary} bold>
-              {isPlanReview ? "execution plan" : toolName}
+              {isPlanReview ? "same session" : toolName}
             </Text>
           </Box>
         )}
         {dialog.planReview && (
           <Box flexDirection="column" marginTop={1}>
-            <Text color={sc.text.secondary}>Goal:</Text>
+            <Text color={sc.text.secondary}>Summary:</Text>
             <Box paddingLeft={1}>
               <Text color={sc.text.primary} wrap="wrap">
                 {dialog.planReview.plan.goal}
@@ -57,10 +65,10 @@ export const ConfirmationDialog = React.memo(
             </Box>
             <Text color={sc.text.secondary}>Steps:</Text>
             <Box paddingLeft={1} flexDirection="column">
-              {dialog.planReview.visibleSteps.map((step, index: number) => (
+              {dialog.planReview.visibleSteps.map((step) => (
                 <React.Fragment key={step.id}>
-                  <Text color={sc.text.muted} wrap="truncate-end">
-                    {index + 1}. {step.title}
+                  <Text color={sc.text.primary} wrap="truncate-end">
+                    [ ] {step.title}
                   </Text>
                 </React.Fragment>
               ))}
@@ -71,6 +79,20 @@ export const ConfirmationDialog = React.memo(
                 </Text>
               )}
             </Box>
+            {dialog.planReview.verificationLines.length > 0 && (
+              <>
+                <Text color={sc.text.secondary}>Verification:</Text>
+                <Box paddingLeft={1} flexDirection="column">
+                  {dialog.planReview.verificationLines.map((line) => (
+                    <React.Fragment key={line}>
+                      <Text color={sc.text.muted} wrap="truncate-end">
+                        • {line}
+                      </Text>
+                    </React.Fragment>
+                  ))}
+                </Box>
+              </>
+            )}
           </Box>
         )}
         {!dialog.planReview && visibleArgLines.length > 0 && (

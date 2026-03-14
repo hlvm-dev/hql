@@ -155,7 +155,7 @@ export interface ToolMetadata {
 }
 
 /** Condensed tool summary used by the tool_search meta tool. */
-export interface ToolSearchResult {
+interface ToolSearchResult {
   name: string;
   description: string;
   category?: ToolMetadata["category"];
@@ -192,7 +192,7 @@ interface ValidationResult {
 }
 
 /** Result of preparing tool args for execution (coercion + validation). */
-export interface ToolArgsPreparationResult {
+interface ToolArgsPreparationResult {
   coercedArgs: unknown;
   validation: ValidationResult;
 }
@@ -845,7 +845,7 @@ const VALID_TOOL_NAME = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
  * Throws if the tool name is invalid or collides with a built-in tool.
  */
 export function registerTool(name: string, tool: ToolMetadata): void {
-  // Fix 18: Validate tool name format
+  // Validate tool name format
   if (!VALID_TOOL_NAME.test(name)) {
     throw new ValidationError(
       `Invalid tool name '${name}': must match ${VALID_TOOL_NAME}`,

@@ -9,7 +9,7 @@
  */
 
 import * as IR from "../../type/hql_ir.ts";
-import type { HQLNode, ListNode, SymbolNode } from "../../type/hql_ast.ts";
+import type { HQLNode, ListNode, SymbolNode, TransformNodeFn } from "../../type/hql_ast.ts";
 import {
   ValidationError,
 } from "../../../../common/error.ts";
@@ -17,9 +17,6 @@ import { validateTransformed } from "../../utils/validation-helpers.ts";
 import * as functionModule from "../../syntax/function.ts";
 import { processFunctionBody } from "../../syntax/function.ts";
 import * as jsInteropModule from "../../syntax/js-interop.ts";
-
-// Type for transform node function passed from main module
-export type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
 
 // Type for metadata returned from extractMeta
 type MetaData = {

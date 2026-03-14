@@ -6,7 +6,7 @@ const ALPHANUMERIC_REGEX = /[a-zA-Z0-9_]/;
 
 import { HQLError, RuntimeError } from "./error.ts";
 import { globalLogger as logger } from "../logger.ts";
-import { getErrorMessage } from "./utils.ts";
+import { getErrorMessage, LINE_SPLIT_REGEX } from "./utils.ts";
 import {
   handleRuntimeError,
   initializeErrorHandling,
@@ -216,7 +216,7 @@ function inferErrorLocationFromMessage(
   error: HQLError,
   fileContent: string,
 ): HQLError {
-  const lines = fileContent.split("\n");
+  const lines = fileContent.split(LINE_SPLIT_REGEX);
   const errorMsg = error.message.toLowerCase();
 
   // Look for specific error patterns

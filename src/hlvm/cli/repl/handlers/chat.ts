@@ -54,6 +54,7 @@ export {
 
 import {
   activeRequests,
+  type CancelRequest,
   type ChatRequest,
   CLAUDE_CODE_AGENT_MODE,
   emitCancellation,
@@ -73,14 +74,6 @@ import {
 } from "./chat-context.ts";
 import { modelSupportsTools } from "../../model-capabilities.ts";
 import { checkModelAttachmentPaths } from "../../attachment-policy.ts";
-
-// ============================================================
-// Types (re-exported from chat-session.ts above)
-// ============================================================
-
-interface CancelRequest {
-  request_id: string;
-}
 
 function requestHasMediaAttachments(
   messages: ChatRequest["messages"],

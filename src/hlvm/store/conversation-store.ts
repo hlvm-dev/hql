@@ -115,25 +115,19 @@ function bumpSessionVersion(
   const db = getDb();
   const ts = now ?? new Date().toISOString();
 
-  if (messageCountDelta !== undefined) {
-    const countExpr = messageCountDelta >= 0
-      ? `message_count + ${messageCountDelta}`
-      : `MAX(message_count + ${messageCountDelta}, 0)`;
-    db.prepare(
-      `UPDATE sessions
-       SET session_version = session_version + 1,
-           message_count = ${countExpr},
-           updated_at = ?
-       WHERE id = ?`,
-    ).run(ts, sessionId);
-  } else {
-    db.prepare(
-      `UPDATE sessions
-       SET session_version = session_version + 1,
-           updated_at = ?
-       WHERE id = ?`,
-    ).run(ts, sessionId);
-  }
+  const countClause = messageCountDelta !== undefined
+    ? `, message_count = ${
+      messageCountDelta >= 0
+        ? `message_count + ${messageCountDelta}`
+        : `MAX(message_count + ${messageCountDelta}, 0)`
+    }`
+    : "";
+  db.prepare(
+    `UPDATE sessions
+     SET session_version = session_version + 1${countClause},
+         updated_at = ?
+     WHERE id = ?`,
+  ).run(ts, sessionId);
 }
 
 // MARK: - Message Operations

@@ -81,20 +81,29 @@ export function shouldPlanRequest(
 
 export function buildPlanModeReminder(
   availableTools?: readonly string[],
+  directFileTargets?: readonly string[],
 ): string {
   const toolLine = availableTools?.length
     ? `Planning tools: ${availableTools.join(", ")}`
     : "Planning tools are restricted to read-only and coordination actions.";
+  const directFileLine = directFileTargets?.length === 1
+    ? `The user already named the target file: ${directFileTargets[0]}. Read that file before any broader search.`
+    : undefined;
   return [
     "Plan mode is active.",
     "Stay in read-only planning until the user approves a plan.",
     "For a concrete task, start by writing a short checklist with todo_write so the user can see the plan taking shape.",
+    "When you call todo_write, only use these statuses: pending, in_progress, completed.",
     "Explore the workspace, inspect files, run safe read-only commands, ask clarifying questions with ask_user, and keep progress current with todo_write.",
     "Keep research tight. After 1-3 targeted inspections, stop researching and draft the plan unless the task is still ambiguous.",
+    "If the user already named an exact file path, read that file before calling search_code. Only search if read_file fails or the target is still unclear.",
+    "If the user named a directory, inspect that directory first instead of doing broad repo-wide searches.",
     "Prefer dedicated tools like read_file, search_code, list_files, and edit_file over shell_exec whenever possible.",
     "Do not answer general tutorial questions directly while planning.",
     "If the request is ambiguous or not concrete enough, ask one concise clarification with ask_user instead of writing a long conversational reply.",
+    "Keep clarifications task-oriented. Ask what concrete change, file, or goal the user wants planned. Do not switch into biographical, memory, or small-talk follow-ups.",
     "Do not call complete_task while planning.",
+    ...(directFileLine ? [directFileLine] : []),
     toolLine,
     "When the plan is ready, return ONLY a PLAN ... END_PLAN block with valid JSON matching the existing plan schema.",
     "If the user asks for revisions, keep planning in the same session and emit a replacement PLAN block.",
@@ -105,10 +114,14 @@ function buildPlanningPrompt(
   request: string,
   maxSteps?: number,
   availableAgents?: string[],
+  directFileTargets?: readonly string[],
 ): string {
   const cap = typeof maxSteps === "number" && maxSteps > 0 ? maxSteps : 6;
   const agentLine = availableAgents && availableAgents.length > 0
     ? `Available agents: ${availableAgents.join(", ")}`
+    : "";
+  const directFileLine = directFileTargets?.length === 1
+    ? `The user already named the exact target file: ${directFileTargets[0]}. Do not add repo-wide search steps unless that file read fails.`
     : "";
   return [
     "Create a concise execution plan for the user's request using the prior conversation and any research already gathered.",
@@ -121,9 +134,14 @@ function buildPlanningPrompt(
     "",
     `Constraints: ${cap} steps max.`,
     "Each step must have: id, title.",
+    "Write short, goal-oriented steps for the review card. The title must describe the user-visible action, not just a tool name. Put tool names in tools, not in title.",
+    "Do not mention omitted lines, truncation, byte limits, failed searches, or other temporary tool-output quirks.",
+    "For small single-file edits, prefer 2-3 concise steps: locate the target, make the edit, verify the result.",
+    "If the user already named the file, reference that file directly instead of adding repo-search steps.",
     "Include concrete tool names for each step whenever possible (e.g., search_code, read_file, list_files, edit_file).",
     "Optional: add 'agent' for delegation (e.g., web, code, file, shell, memory).",
     agentLine,
+    directFileLine,
     "",
     "User request:",
     request,
@@ -141,6 +159,7 @@ const PLAN_EXECUTION_BASELINE_TOOLS = [
   "list_files",
   "read_file",
   "search_code",
+  "shell_exec",
   "todo_read",
   "todo_write",
   "undo_edit",
@@ -150,7 +169,10 @@ const PLAN_EXECUTION_BASELINE_TOOLS = [
 export function derivePlanExecutionAllowlist(
   plan: Plan,
   baseAllowlist?: readonly string[],
+  options?: { directFileTargets?: readonly string[] },
 ): string[] | undefined {
+  const directFileTargets = options?.directFileTargets;
+  const preferDirectFileWork = directFileTargets?.length === 1;
   const planTools = plan.steps.flatMap((step) => step.tools ?? []);
   const requestedTools = [
     ...PLAN_EXECUTION_BASELINE_TOOLS,
@@ -159,7 +181,12 @@ export function derivePlanExecutionAllowlist(
       ? ["delegate_agent"]
       : []),
   ];
-  const dedupedTools = [...new Set(requestedTools)];
+  const dedupedTools = [...new Set(requestedTools)].filter((toolName) =>
+    !(
+      preferDirectFileWork &&
+      (toolName === "search_code" || toolName === "shell_exec")
+    )
+  );
 
   if (baseAllowlist && baseAllowlist.length > 0) {
     const allowed = new Set(baseAllowlist);
@@ -176,9 +203,15 @@ export async function requestPlan(
   request: string,
   config: PlanningConfig,
   availableAgents?: string[],
+  directFileTargets?: readonly string[],
   signal?: AbortSignal,
 ): Promise<Plan | null> {
-  const prompt = buildPlanningPrompt(request, config.maxSteps, availableAgents);
+  const prompt = buildPlanningPrompt(
+    request,
+    config.maxSteps,
+    availableAgents,
+    directFileTargets,
+  );
   const planningMessages: AgentMessage[] = [
     ...messages,
     { role: "system", content: prompt },
@@ -311,7 +344,7 @@ export function restorePlanState(
   };
 }
 
-/** Fix 23: Only advance if completedId matches the current step */
+/** Only advance if completedId matches the current step */
 export function advancePlanState(
   state: PlanState,
   completedId?: string | null,
@@ -399,13 +432,7 @@ function normalizePlan(input: unknown): Plan | null {
   const steps: PlanStep[] = rawSteps
     .map((entry, index) => {
       if (!isObjectValue(entry)) return null;
-      const title = firstNonEmptyString(
-        entry.title,
-        entry.description,
-        entry.detail,
-        entry.action,
-        entry.goal,
-      );
+      const title = derivePlanStepTitle(entry);
       if (!title) return null;
 
       const id = makeUniquePlanStepId(
@@ -454,6 +481,111 @@ function normalizePlan(input: unknown): Plan | null {
     .filter((step): step is PlanStep => step !== null);
 
   return steps.length > 0 ? { goal, steps } : null;
+}
+
+const RAW_PLAN_TOOL_TITLES = new Set([
+  "ask_user",
+  "complete_task",
+  "delegate_agent",
+  "edit_file",
+  "find_symbol",
+  "list_files",
+  "read_file",
+  "search_code",
+  "shell_exec",
+  "todo_read",
+  "todo_write",
+  "undo_edit",
+  "verify",
+  "write_file",
+]);
+
+function derivePlanStepTitle(entry: Record<string, unknown>): string {
+  const titleCandidate = firstNonEmptyString(
+    entry.title,
+    entry.description,
+    entry.detail,
+    entry.goal,
+    entry.summary,
+    entry.action,
+  );
+  if (titleCandidate && !isRawPlanToolTitle(titleCandidate)) {
+    return titleCandidate;
+  }
+
+  const toolName = firstNonEmptyString(entry.tool, entry.action);
+  const rawToolLikeTitle = titleCandidate && isRawPlanToolTitle(titleCandidate)
+    ? titleCandidate
+    : "";
+  const fileTarget = firstNonEmptyString(
+    entry.file,
+    entry.path,
+    entry.target,
+    entry.targetFile,
+  );
+  const detailCandidate = firstNonEmptyString(
+    entry.detail,
+    entry.description,
+    entry.goal,
+    entry.summary,
+  );
+
+  if (detailCandidate && !isRawPlanToolTitle(detailCandidate)) {
+    return detailCandidate;
+  }
+
+  return humanizePlanToolTitle(toolName || rawToolLikeTitle, fileTarget);
+}
+
+function isRawPlanToolTitle(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return RAW_PLAN_TOOL_TITLES.has(normalized);
+}
+
+function humanizePlanToolTitle(toolName: string, fileTarget?: string): string {
+  const targetLabel = fileTarget ? formatPlanTarget(fileTarget) : "the target";
+  switch (toolName.trim().toLowerCase()) {
+    case "read_file":
+      return `Inspect ${targetLabel}`;
+    case "edit_file":
+      return fileTarget
+        ? `Make the requested edit in ${formatPlanTarget(fileTarget)}`
+        : "Make the requested edit";
+    case "write_file":
+      return fileTarget
+        ? `Create ${formatPlanTarget(fileTarget)}`
+        : "Create the requested file";
+    case "search_code":
+      return "Find the relevant code section";
+    case "list_files":
+      return fileTarget
+        ? `Inspect ${formatPlanTarget(fileTarget)}`
+        : "Inspect the relevant directory";
+    case "find_symbol":
+      return "Locate the relevant symbol";
+    case "shell_exec":
+      return "Run the targeted verification command";
+    case "verify":
+      return "Verify the requested change";
+    case "todo_write":
+      return "Update the visible checklist";
+    case "ask_user":
+      return "Clarify the request";
+    case "delegate_agent":
+      return "Use a supporting specialist agent";
+    case "complete_task":
+      return "Summarize the completed work";
+    case "undo_edit":
+      return "Revert the last edit if needed";
+    case "todo_read":
+      return "Review the current checklist";
+    default:
+      return "Complete the next planned step";
+  }
+}
+
+function formatPlanTarget(target: string): string {
+  return target.replace(/^\.?\//, "").trim() || "the target file";
 }
 
 function firstNonEmptyString(...values: unknown[]): string {

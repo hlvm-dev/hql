@@ -12,7 +12,7 @@ import {
   resolveNextPublishVersion,
   updateSourceMetadataFiles,
   writeJSONFile,
-  type HqlPackageConfig, // Import HqlPackageConfig
+  type HqlPackageConfig,
 } from "./utils.ts";
 import {
   deriveModuleBaseName,

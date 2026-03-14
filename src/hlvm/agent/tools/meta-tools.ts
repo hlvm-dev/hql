@@ -18,7 +18,7 @@ import { TEXT_ENCODER } from "../../../common/utils.ts";
 import { safeStringify } from "../../../common/safe-stringify.ts";
 import { isToolArgsObject } from "../validation.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
-import { cloneTodoItems, type TodoItem, type TodoState, type TodoStatus } from "../todo-state.ts";
+import { cloneTodoItems, summarizeTodoState, type TodoItem, type TodoState, type TodoStatus } from "../todo-state.ts";
 
 // ============================================================
 // Tool 1: ask_user
@@ -206,23 +206,6 @@ const TODO_STATUSES = new Set<TodoStatus>([
   "completed",
 ]);
 
-function summarizeTodoState(items: TodoItem[]): string {
-  if (items.length === 0) return "0 todos";
-  const counts = {
-    pending: 0,
-    in_progress: 0,
-    completed: 0,
-  };
-  for (const item of items) {
-    counts[item.status] += 1;
-  }
-  const segments = [`${items.length} todo${items.length === 1 ? "" : "s"}`];
-  if (counts.in_progress > 0) segments.push(`${counts.in_progress} in progress`);
-  if (counts.pending > 0) segments.push(`${counts.pending} pending`);
-  if (counts.completed > 0) segments.push(`${counts.completed} completed`);
-  return segments.join(" · ");
-}
-
 function formatTodoResult(result: unknown): {
   summaryDisplay: string;
   returnDisplay: string;
@@ -232,7 +215,7 @@ function formatTodoResult(result: unknown): {
   }
   const items = (result as TodoState).items as TodoItem[];
   return {
-    summaryDisplay: summarizeTodoState(items),
+    summaryDisplay: summarizeTodoState({ items }),
     returnDisplay: safeStringify({ items: cloneTodoItems(items) }, 2),
   };
 }

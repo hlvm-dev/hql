@@ -64,13 +64,6 @@ function adaptSessionMeta(session: RuntimeSession): SessionMeta {
   };
 }
 
-function formatToolMessage(message: RuntimeSessionMessage): string {
-  const label = message.tool_name?.trim();
-  if (!label) return message.content;
-  if (!message.content.trim()) return `[tool:${label}]`;
-  return `[tool:${label}] ${message.content}`;
-}
-
 function parseImagePaths(value: string | null): string[] | undefined {
   if (!value) return undefined;
   try {
@@ -231,24 +224,10 @@ function formatSessionExport(session: Session): string {
     lines.push(`### ${role} (${time})`);
     lines.push("");
     lines.push(
-      message.role === "tool"
-        ? formatToolMessage({
-          id: 0,
-          session_id: session.meta.id,
-          order: 0,
-          role: "tool",
-          content: message.content,
-          client_turn_id: null,
-          request_id: null,
-          sender_type: "agent",
-          sender_detail: null,
-          image_paths: null,
-          tool_calls: null,
-          tool_name: message.toolName ?? null,
-          tool_call_id: null,
-          cancelled: 0,
-          created_at: new Date(message.ts).toISOString(),
-        })
+      message.role === "tool" && message.toolName
+        ? (message.content.trim()
+          ? `[tool:${message.toolName}] ${message.content}`
+          : `[tool:${message.toolName}]`)
         : message.content,
     );
     lines.push("");
@@ -446,9 +425,7 @@ function createSessionApi() {
       const summaries = loadPersistedAgentCheckpointSummaries(sessionId);
       const target = checkpointId
         ? summaries.find((summary) => summary.id === checkpointId)
-        : [...summaries]
-          .reverse()
-          .find((summary) => summary.restoredAt === undefined);
+        : summaries.findLast((summary) => summary.restoredAt === undefined);
       if (!target) {
         return { restored: false, restoredFileCount: 0 };
       }

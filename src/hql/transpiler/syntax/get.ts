@@ -48,7 +48,7 @@ export function transformGet(
  * Create a special node to represent a get operation
  * This will be transformed into appropriate JavaScript during code generation
  */
-export function createGetOperation(
+function createGetOperation(
   collection: IR.IRNode,
   key: IR.IRNode,
   defaultValue: IR.IRNode | null = null,

@@ -194,13 +194,12 @@ const HEX_TABLE: string[] = Array.from(
   { length: 256 },
   (_, i) => i.toString(16).padStart(2, "0"),
 );
-const textEncoder = TEXT_ENCODER;
 
 /**
  * Calculate hash for content
  */
 async function calculateHash(content: string): Promise<string> {
-  const data = textEncoder.encode(content);
+  const data = TEXT_ENCODER.encode(content);
   const hashBuffer = await crypto.subtle.digest("SHA-1", data);
   const bytes = new Uint8Array(hashBuffer);
   let hex = "";

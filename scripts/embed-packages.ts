@@ -5,8 +5,8 @@
  * Similar to HLVM's embed-stdlib.ts
  */
 
-import { relative, fromFileUrl } from "https://deno.land/std@0.220.0/path/mod.ts";
-import { walk } from "https://deno.land/std@0.220.0/fs/walk.ts";
+import { relative, fromFileUrl } from "jsr:@std/path";
+import { walk } from "jsr:@std/fs/walk";
 import { getPlatform } from "../src/platform/platform.ts";
 
 const platform = getPlatform();

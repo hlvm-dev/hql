@@ -11,6 +11,9 @@ import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import DiffRenderer from "./DiffRenderer.tsx";
 import { TOGGLE_LATEST_HINT } from "../../ui-constants.ts";
+import { escapeAnsiCtrlCodes } from "../../utils/sanitize-ansi.ts";
+
+const MAX_RESULT_CHARS = 20_000;
 
 interface ToolResultProps {
   text: string;
@@ -78,15 +81,19 @@ export function ToolResult({
   tone = "default",
 }: ToolResultProps): React.ReactElement {
   const sc = useSemanticColors();
-  const contentType = detectContentType(text);
+  const sanitized = escapeAnsiCtrlCodes(text);
+  const safeTruncated = sanitized.length > MAX_RESULT_CHARS
+    ? "..." + sanitized.slice(-MAX_RESULT_CHARS)
+    : sanitized;
+  const contentType = detectContentType(safeTruncated);
 
   // Route to DiffRenderer for diff content
   if (contentType === "diff") {
-    return <DiffRenderer content={text} width={width} maxLines={expanded ? undefined : maxLines} />;
+    return <DiffRenderer content={safeTruncated} width={width} maxLines={expanded ? undefined : maxLines} />;
   }
 
   // For JSON, try to format; fall back to raw text
-  const displayText = contentType === "json" ? (tryFormatJson(text) ?? text) : text;
+  const displayText = contentType === "json" ? (tryFormatJson(safeTruncated) ?? safeTruncated) : safeTruncated;
 
   const allLines = displayText.split("\n");
   const effectiveMaxLines = expanded ? Number.MAX_SAFE_INTEGER : maxLines;

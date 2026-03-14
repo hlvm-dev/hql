@@ -8,8 +8,7 @@
 import React, { useCallback, useEffect, useMemo } from "react";
 import { useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
-import { getDisplay, registry } from "../keybindings/index.ts";
-import type { Keybinding } from "../keybindings/index.ts";
+import { getDisplay, registry, type Keybinding } from "../keybindings/index.ts";
 import {
   ansi,
   bg,

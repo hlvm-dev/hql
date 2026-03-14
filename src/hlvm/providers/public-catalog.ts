@@ -161,16 +161,9 @@ export async function fetchPublicModelsForProvider(
   if (!prefix) return [];
 
   const all = await fetchPublicCatalog();
-  return all
-    .filter((m) =>
-      (m.metadata?.openRouterId as string | undefined)?.startsWith(prefix)
-    )
-    .map((m) => ({
-      ...m,
-      // Strip provider prefix: "anthropic/claude-sonnet-4.6" → "claude-sonnet-4.6"
-      // But keep the canonical model ID if available
-      name: m.name,
-    }));
+  return all.filter((m) =>
+    (m.metadata?.openRouterId as string | undefined)?.startsWith(prefix)
+  );
 }
 
 // ---------------------------------------------------------------------------

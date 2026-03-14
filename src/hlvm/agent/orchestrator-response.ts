@@ -370,13 +370,30 @@ function formatPlanPreview(
 
 function formatPlanForExecution(
   plan: import("./planning.ts").Plan,
+  directFileTargets?: readonly string[],
 ): string {
+  const directFileLine = directFileTargets?.length === 1
+    ? `The user explicitly named this target file: ${directFileTargets[0]}. Stay in that file unless you are blocked.`
+    : undefined;
   const lines = [
     "You are no longer planning. You are now executing the approved plan.",
     "Follow the approved plan in order and stay on the current step until it is complete or blocked.",
+    "Treat each step as a goal to accomplish, not a script to replay word-for-word. Translate away temporary research chatter like omitted lines, truncation, or repeated failed searches.",
     "Do not restate the plan, do not answer tutorial-style, and do not re-open broad research unless a step genuinely requires it.",
-    "Prefer dedicated tools over shell_exec: use read_file/list_files/search_code for inspection and edit_file/write_file for changes.",
+    ...(directFileLine ? [directFileLine] : []),
+    "If the user already named the file, work in that file directly instead of doing broad repo-wide searches.",
+    "Prefer dedicated tools first: use read_file/list_files/search_code for inspection and edit_file/write_file for changes.",
+    "Use git_diff/git_status for repo inspection instead of shell_exec git commands whenever those tools are available.",
+    "If read_file already gave you the needed context for the named file, skip extra search_code or whole-file shell_exec and move straight to edit_file.",
+    "If read_file is truncated or a search fails once, immediately switch to a more precise read-only inspection method such as shell_exec with rg -n or sed -n instead of repeating the same search.",
+    "shell_exec accepts one simple command only. Do not use &&, |, ;, subshells, or multi-command wrappers.",
+    "Do not use git stash, git reset, or other workspace-shaping commands unless the user explicitly asked for them.",
+    "Do not run heavyweight verification like deno check unless the approved step explicitly calls for it or the change is risky enough to justify it.",
+    "Once you have enough context to make the requested change, edit immediately. Do not keep searching for a perfect anchor.",
+    "Once the requested change is confirmed with a targeted read or diff, mark the step done instead of continuing with extra tool calls.",
     "Keep todo_write aligned with actual progress so the checklist stays accurate.",
+    "When you call todo_write, only use these statuses: pending, in_progress, completed.",
+    "Do not repeat edit_file on the same change unless the prior edit failed or a follow-up read proved the edit did not land correctly.",
     "Keep your progress aligned to these steps:",
     ...plan.steps.map((step, index) =>
       `${index + 1}. [${step.id}] ${step.title}`
@@ -449,6 +466,7 @@ async function handleDraftedPlan(
       const executionAllowlist = derivePlanExecutionAllowlist(
         plan,
         config.planModeState.executionAllowlist,
+        { directFileTargets: config.planModeState.directFileTargets },
       );
       config.planModeState.phase = "executing";
       config.planModeState.executionAllowlist = executionAllowlist;
@@ -478,7 +496,7 @@ async function handleDraftedPlan(
       role: "user",
       content: [
         "[System] The plan has been approved. Begin execution now.",
-        formatPlanForExecution(plan),
+        formatPlanForExecution(plan, config.planModeState?.directFileTargets),
       ].join("\n\n"),
     });
     return { action: "continue" };
@@ -550,6 +568,7 @@ async function maybeDraftPlanFromResearch(
           config.currentUserRequest ?? "",
           lc.planningConfig,
           agentNames,
+          config.planModeState?.directFileTargets,
           config.signal,
         ),
     );

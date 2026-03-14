@@ -59,7 +59,7 @@ export function normalizeToolArgs(
       return unwrapArgsObject(parsed);
     }
   }
-  // Fix 19: Warn for unexpected arg types (number, boolean, array, etc.)
+  // Warn for unexpected arg types (number, boolean, array, etc.)
   if (value !== null && value !== undefined) {
     getAgentLogger().debug(`normalizeToolArgs: unexpected type ${typeof value}, coercing to {}`);
   }

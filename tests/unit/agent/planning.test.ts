@@ -143,6 +143,36 @@ END_PLAN`;
 });
 
 Deno.test({
+  name: "Planning: humanizes raw tool-name step titles when the model emits weak steps",
+  fn() {
+    const response = `PLAN
+{
+  "goal": "Add a short comment to ConversationPanel",
+  "steps": [
+    {
+      "title": "read_file",
+      "file": "src/hlvm/cli/repl-ink/components/ConversationPanel.tsx"
+    },
+    {
+      "action": "edit_file",
+      "file": "src/hlvm/cli/repl-ink/components/ConversationPanel.tsx"
+    },
+    {
+      "title": "verify"
+    }
+  ]
+}
+END_PLAN`;
+    const parsed = parsePlanResponse(response);
+    assertEquals(parsed.plan?.steps.map((step) => step.title), [
+      "Inspect src/hlvm/cli/repl-ink/components/ConversationPanel.tsx",
+      "Make the requested edit in src/hlvm/cli/repl-ink/components/ConversationPanel.tsx",
+      "Verify the requested change",
+    ]);
+  },
+});
+
+Deno.test({
   name: "Planning: duplicate step ids are made unique",
   fn() {
     const response = `PLAN
@@ -210,6 +240,7 @@ Deno.test({
         "list_files",
         "read_file",
         "search_code",
+        "shell_exec",
         "todo_read",
         "todo_write",
         "undo_edit",
@@ -237,7 +268,45 @@ Deno.test({
         "shell_exec",
         "todo_write",
       ]),
-      ["read_file", "todo_write", "shell_exec"],
+      ["read_file", "shell_exec", "todo_write"],
+    );
+  },
+});
+
+Deno.test({
+  name: "Planning: derivePlanExecutionAllowlist drops broad code search when the user named one exact file",
+  fn() {
+    const plan: Plan = {
+      goal: "Add a comment to one file",
+      steps: [
+        {
+          id: "step-1",
+          title: "Read the named file",
+          tools: ["read_file"],
+        },
+        {
+          id: "step-2",
+          title: "Edit the named file",
+          tools: ["edit_file", "search_code"],
+        },
+      ],
+    };
+
+    assertEquals(
+      derivePlanExecutionAllowlist(plan, undefined, {
+        directFileTargets: ["src/hlvm/cli/repl-ink/components/ConversationPanel.tsx"],
+      }),
+      [
+        "ask_user",
+        "complete_task",
+        "edit_file",
+        "list_files",
+        "read_file",
+        "todo_read",
+        "todo_write",
+        "undo_edit",
+        "write_file",
+      ],
     );
   },
 });

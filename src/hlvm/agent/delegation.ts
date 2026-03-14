@@ -71,7 +71,7 @@ import {
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
 import { createDelegateTokenBudget } from "./delegate-token-budget.ts";
 import { createAbortError } from "../../common/timeout-utils.ts";
-import { getErrorMessage, truncate } from "../../common/utils.ts";
+import { getErrorMessage, TEXT_ENCODER, truncate } from "../../common/utils.ts";
 
 function queueBackgroundDelegateUpdate(
   config: OrchestratorConfig,
@@ -252,7 +252,7 @@ export async function generateChildDiff(
 
 /** SHA-256 hash a string for lightweight conflict detection (avoids storing full file contents). */
 export async function hashContent(content: string): Promise<string> {
-  const data = new TextEncoder().encode(content);
+  const data = TEXT_ENCODER.encode(content);
   const buf = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0"))
     .join("");
