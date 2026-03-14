@@ -293,11 +293,12 @@ async function requestRuntimeShutdown(
   }
 }
 
-function spawnRuntimeHost(authToken: string): void {
+function spawnRuntimeHost(authToken: string, buildId: string): void {
   const platform = getPlatform();
   const env = {
     ...platform.env.toObject(),
     HLVM_AUTH_TOKEN: authToken,
+    HLVM_RUNTIME_BUILD_ID: buildId,
     // Increase V8 heap limit for the runtime server.
     // Background delegates run in-process and each holds LLM context + tool
     // schemas, which can exceed the default ~1.7 GB heap with 2+ concurrent
@@ -446,7 +447,7 @@ async function ensureRuntimeHost(): Promise<{
     }
 
     const authToken = crypto.randomUUID();
-    spawnRuntimeHost(authToken);
+    spawnRuntimeHost(authToken, identity.buildId);
 
     const started = await waitForRuntimeHost(
       baseUrl,
@@ -1047,19 +1048,26 @@ export async function* pullRuntimeModelViaHost(
     await parseErrorResponse(response);
   }
 
-  const reader = response.body?.getReader();
+  const stream = response.body;
+  const reader = stream?.getReader();
   if (!reader) {
     throw createRuntimeHostError("Runtime host returned no model pull stream.");
   }
 
-  for await (
-    const event of readNdjsonStream<RuntimeModelPullStreamEvent>(reader)
-  ) {
-    if (event.event === "progress") {
-      const { event: _kind, ...progress } = event;
-      yield progress;
-    } else if (event.event === "error") {
-      throw createRuntimeHostError(event.message);
+  try {
+    for await (
+      const event of readNdjsonStream<RuntimeModelPullStreamEvent>(reader)
+    ) {
+      if (event.event === "progress") {
+        const { event: _kind, ...progress } = event;
+        yield progress;
+      } else if (event.event === "error") {
+        throw createRuntimeHostError(event.message);
+      }
+    }
+  } finally {
+    if (stream) {
+      await stream.cancel().catch(() => undefined);
     }
   }
 }

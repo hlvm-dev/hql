@@ -91,7 +91,7 @@ Deno.test("web ranking: scorePassage and extractRelevantPassages reward coverage
   assertEquals(passages.length, 3);
   assert(passages[0].includes("Deno"));
   assert(
-    passages.some((passage) => passage.length <= 280 && passage.endsWith("…")),
+    passages.some((passage) => passage.length <= 512 && passage.endsWith("…")),
   );
   assertEquals(
     extractRelevantPassages("quantum physics", "Cooking pasta only").length,

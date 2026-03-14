@@ -9,7 +9,6 @@ export {
   ansi,
   clearOverlay,
   getTerminalSize,
-  hexToRgb,
   type ClearRegion,
   type OverlayColors,
   type OverlayFrame,

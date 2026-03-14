@@ -158,9 +158,8 @@ export function findExternalModuleReferences(
   const moduleExternalCache = new Map<string, boolean>();
 
   const cacheModuleCheck = (moduleName: string): boolean => {
-    if (moduleExternalCache.has(moduleName)) {
-      return moduleExternalCache.get(moduleName)!;
-    }
+    const cached = moduleExternalCache.get(moduleName);
+    if (cached !== undefined) return cached;
 
     const result = isModuleExternal(moduleName, env, globalLogger);
     moduleExternalCache.set(moduleName, result);

@@ -47,6 +47,11 @@ import {
   normalizeProviderMetadata,
   type SdkModelSpec as SdkRuntimeModelSpec,
 } from "../providers/sdk-runtime.ts";
+import {
+  resolveThinkingProfile,
+  supportsNativeThinking,
+} from "./thinking-profile.ts";
+export { resolveThinkingProfile } from "./thinking-profile.ts";
 
 // ============================================================
 // Provider Model Factory
@@ -347,62 +352,6 @@ export function buildToolCallRepairFunction(): ToolCallRepairFunction<ToolSet> {
   };
 }
 
-/** Build provider-specific options (thinking, context budget, etc.) */
-interface ThinkingProfile {
-  anthropicBudgetTokens: number;
-  openaiReasoningEffort: "low" | "medium" | "high";
-  googleThinkingLevel: "low" | "medium" | "high";
-}
-
-function capThinkingBudget(
-  config: AgentLLMConfig,
-  targetBudget: number,
-): number {
-  const referenceBudget = config.thinkingState?.remainingContextBudget ??
-    config.contextBudget;
-  if (!referenceBudget || referenceBudget <= 0) {
-    return targetBudget;
-  }
-  const capped = Math.floor(referenceBudget * 0.25);
-  return Math.max(1024, Math.min(targetBudget, capped));
-}
-
-export function resolveThinkingProfile(
-  config: AgentLLMConfig,
-): ThinkingProfile {
-  const iteration = config.thinkingState?.iteration ?? 0;
-  const recentToolCalls = config.thinkingState?.recentToolCalls ?? 0;
-  const consecutiveFailures = config.thinkingState?.consecutiveFailures ?? 0;
-  const phase = config.thinkingState?.phase ?? "";
-
-  let complexityScore = 0;
-  if (iteration >= 3) complexityScore += 1;
-  if (iteration >= 8) complexityScore += 1;
-  if (recentToolCalls >= 2) complexityScore += 1;
-  if (consecutiveFailures > 0) complexityScore += 1;
-  if (phase === "editing" || phase === "verifying") complexityScore += 1;
-
-  if (complexityScore >= 4) {
-    return {
-      anthropicBudgetTokens: capThinkingBudget(config, 32000),
-      openaiReasoningEffort: "high",
-      googleThinkingLevel: "high",
-    };
-  }
-  if (complexityScore >= 2) {
-    return {
-      anthropicBudgetTokens: capThinkingBudget(config, 16000),
-      openaiReasoningEffort: "medium",
-      googleThinkingLevel: "medium",
-    };
-  }
-  return {
-    anthropicBudgetTokens: capThinkingBudget(config, 5000),
-    openaiReasoningEffort: "low",
-    googleThinkingLevel: "low",
-  };
-}
-
 export function buildProviderOptions(
   spec: ResolvedModelSpec,
   config: AgentLLMConfig,
@@ -420,7 +369,15 @@ export function buildProviderOptions(
 
   // Thinking — prefer explicit capability flags, then fall back to known
   // provider/model families until provider model catalogs expose this reliably.
-  if (shouldEnableNativeThinking(spec, config)) {
+  if (
+    supportsNativeThinking({
+      contextBudget: config.contextBudget,
+      modelId: spec.modelId,
+      providerName: spec.providerName,
+      thinkingCapable: config.thinkingCapable,
+      thinkingState: config.thinkingState,
+    })
+  ) {
     const thinkingProfile = resolveThinkingProfile(config);
     switch (spec.providerName) {
       case "anthropic":
@@ -449,26 +406,6 @@ export function buildProviderOptions(
   }
 
   return Object.keys(opts).length > 0 ? opts : undefined;
-}
-
-function shouldEnableNativeThinking(
-  spec: ResolvedModelSpec,
-  config: AgentLLMConfig,
-): boolean {
-  if (config.thinkingCapable) return true;
-
-  const modelId = spec.modelId.toLowerCase();
-  switch (spec.providerName) {
-    case "anthropic":
-    case "claude-code":
-      return modelId.startsWith("claude-");
-    case "openai":
-      return /^o[134]/.test(modelId) || modelId.startsWith("gpt-5");
-    case "google":
-      return modelId.startsWith("gemini-2.5");
-    default:
-      return false;
-  }
 }
 
 export function extractReasoningText(reasoning: unknown): string | undefined {

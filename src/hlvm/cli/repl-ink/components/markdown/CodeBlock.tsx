@@ -2,6 +2,7 @@ import React, { memo, useMemo } from "react";
 import { Box, Text } from "ink";
 import { common, createLowlight } from "lowlight";
 import { useSemanticColors } from "../../../theme/index.ts";
+import { truncateLine } from "../../utils/formatting.ts";
 
 const lowlight = createLowlight(common);
 const DEFAULT_MAX_LINES = 40;
@@ -79,12 +80,6 @@ function pickColorKey(classes: string[]): "keyword" | "string" | "number" | "com
   if (joined.includes("title") || joined.includes("function")) return "function";
   if (joined.includes("operator") || joined.includes("punctuation")) return "operator";
   return "default";
-}
-
-function truncateLine(text: string, maxWidth: number): string {
-  if (maxWidth < 4) return text;
-  if (text.length <= maxWidth) return text;
-  return `${text.slice(0, maxWidth - 1)}…`;
 }
 
 export const CodeBlock = memo(function CodeBlock(

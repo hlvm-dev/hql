@@ -117,7 +117,7 @@ Deno.test("TaskManager: state transitions allow only the defined lifecycle edges
   }
 });
 
-Deno.test("TaskManager: endpoint and empty query state are initialized predictably", () => {
+Deno.test("TaskManager: endpoint and empty query state are initialized predictably", async () => {
   resetTaskManager();
   const manager = new TaskManager();
   assertEquals(manager.getEndpoint(), DEFAULT_OLLAMA_ENDPOINT);
@@ -127,7 +127,7 @@ Deno.test("TaskManager: endpoint and empty query state are initialized predictab
 
   manager.setEndpoint("http://custom:1234");
   assertEquals(manager.getEndpoint(), "http://custom:1234");
-  manager.shutdown();
+  await manager.shutdown();
 });
 
 Deno.test({
@@ -157,7 +157,7 @@ Deno.test({
       );
       await waitFor(() => manager.getTask(taskId)?.status === "completed");
     } finally {
-      manager.shutdown();
+      await manager.shutdown();
     }
   });
   },
@@ -195,7 +195,7 @@ Deno.test({
         unsubscribe();
         unsubscribeEvent();
       } finally {
-        manager.shutdown();
+        await manager.shutdown();
       }
     });
   },
@@ -283,7 +283,7 @@ Deno.test({
         assertEquals(signinRequests, 0);
         assertEquals(verifyRequests, 0);
       } finally {
-        manager.shutdown();
+        await manager.shutdown();
       }
     });
   },
@@ -322,13 +322,13 @@ Deno.test({
         manager.completeEvalTask(evalId, "done");
         assertEquals(manager.removeTask(evalId), true);
       } finally {
-        manager.shutdown();
+        await manager.shutdown();
       }
     });
   },
 });
 
-Deno.test("TaskManager: shutdown runs cleanup and rejects new work while shutting down", () => {
+Deno.test("TaskManager: shutdown runs cleanup and rejects new work while shutting down", async () => {
   const manager = new TaskManager();
   let cleanedUp = false;
   manager.onCleanup(() => {
@@ -336,29 +336,34 @@ Deno.test("TaskManager: shutdown runs cleanup and rejects new work while shuttin
   });
 
   assertEquals(manager.isShuttingDown(), false);
-  manager.shutdown();
+  await manager.shutdown();
 
   assertEquals(cleanedUp, true);
   assertEquals(manager.isShuttingDown(), true);
   assertThrows(() => manager.pullModel("test-model"), Error, "shutting down");
 });
 
-Deno.test("TaskManager: friendlyError maps transport and abort failures to user-facing text", () => {
-  const cases = [
-    [new TypeError("fetch failed"), "Cannot connect to Ollama. Is it running?"],
-    [new DOMException("Request timed out", "TimeoutError"), "Request timed out. Try again."],
-    [new DOMException("Request aborted", "AbortError"), "Request was cancelled."],
-    [new Error("ECONNREFUSED"), "Cannot connect to Ollama. Is it running?"],
-    [new Error("Something went wrong"), "Something went wrong"],
-    ["plain text error", "plain text error"],
-  ] as const;
+Deno.test({
+  name: "TaskManager: friendlyError maps transport and abort failures to user-facing text",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn() {
+    const cases = [
+      [new TypeError("fetch failed"), "Cannot connect to Ollama. Is it running?"],
+      [new DOMException("Request timed out", "TimeoutError"), "Request timed out. Try again."],
+      [new DOMException("Request aborted", "AbortError"), "Request was cancelled."],
+      [new Error("ECONNREFUSED"), "Cannot connect to Ollama. Is it running?"],
+      [new Error("Something went wrong"), "Something went wrong"],
+      ["plain text error", "plain text error"],
+    ] as const;
 
-  for (const [error, expected] of cases) {
-    assertEquals(friendlyError(error), expected);
-  }
+    for (const [error, expected] of cases) {
+      assertEquals(friendlyError(error), expected);
+    }
+  },
 });
 
-Deno.test("TaskManager: eval tasks track output, completion, failure, and cancellation behavior", () => {
+Deno.test("TaskManager: eval tasks track output, completion, failure, and cancellation behavior", async () => {
   const manager = new TaskManager();
   try {
     const taskId = manager.createEvalTask('(ask "hello")');
@@ -400,6 +405,6 @@ Deno.test("TaskManager: eval tasks track output, completion, failure, and cancel
     assertEquals(controller.signal.aborted, true);
     assertEquals((manager.getTask(cancelledId) as EvalTask).status, "cancelled");
   } finally {
-    manager.shutdown();
+    await manager.shutdown();
   }
 });

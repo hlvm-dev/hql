@@ -21,7 +21,7 @@ import {
 import { copyPosition, copyEndPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { extractMetaSourceLocation } from "../utils/source_location_utils.ts";
 import { ARITHMETIC_OPS_SET } from "../keyword/primitives.ts";
-import { VECTOR_SYMBOL, EMPTY_ARRAY_SYMBOL } from "../../../common/runtime-helper-impl.ts";
+import { hasArrayLiteralPrefix } from "../../../common/sexp-utils.ts";
 import {
   containsAwaitExpression,
   containsYieldExpression,
@@ -106,13 +106,8 @@ export function transformLoop(
     let bindings = bindingsNode as ListNode;
 
     // Handle vector syntax: (loop [n 0 acc 1] ...) is parsed as (loop (vector n 0 acc 1) ...)
-    // Strip the "vector" prefix to normalize both () and [] syntax
-    if (
-      bindings.elements.length > 0 &&
-      bindings.elements[0].type === "symbol" &&
-      ((bindings.elements[0] as SymbolNode).name === VECTOR_SYMBOL ||
-       (bindings.elements[0] as SymbolNode).name === EMPTY_ARRAY_SYMBOL)
-    ) {
+    // Strip the "vector"/"empty-array" prefix to normalize both () and [] syntax
+    if (hasArrayLiteralPrefix(bindings)) {
       bindings = {
         ...bindings,
         elements: bindings.elements.slice(1),
@@ -1169,13 +1164,8 @@ export function transformForOf(
 
   let bindings = bindingsNode as ListNode;
 
-  // Handle vector syntax: strip "vector" prefix if present
-  if (
-    bindings.elements.length > 0 &&
-    bindings.elements[0].type === "symbol" &&
-    ((bindings.elements[0] as SymbolNode).name === VECTOR_SYMBOL ||
-     (bindings.elements[0] as SymbolNode).name === EMPTY_ARRAY_SYMBOL)
-  ) {
+  // Handle vector syntax: strip "vector"/"empty-array" prefix if present
+  if (hasArrayLiteralPrefix(bindings)) {
     bindings = {
       ...bindings,
       elements: bindings.elements.slice(1),

@@ -7,7 +7,10 @@ import {
   normalizeDomain,
   type SearchResult,
 } from "./search-provider.ts";
-import type { SearchQueryIntent } from "./query-strategy.ts";
+import {
+  prefersSingleHostSources,
+  type SearchQueryIntent,
+} from "./query-strategy.ts";
 import {
   tokenizeSearchText,
   tokenizeQuery,
@@ -772,11 +775,10 @@ function annotateFetchedResult(
 }
 
 function prefersSingleHostBias(input: DeterministicSearchSignalInput): boolean {
-  const explicitSingleHostQuery = /\b(official|reference|api|manual|spec)\b/i
-    .test(input.query);
-  return Boolean(
-    input.allowedDomains?.length ||
-      explicitSingleHostQuery,
+  return prefersSingleHostSources(
+    input.query,
+    input.intent,
+    input.allowedDomains,
   );
 }
 
@@ -903,6 +905,132 @@ export function rankFetchedEvidenceDeterministically(
     results: orderedIndices.map((index) => scored[index].annotated),
     confidence: deterministicConfidence(topScore),
     reason: "Deterministic post-fetch evidence ranking prioritized extracted evidence and direct query coverage.",
+  };
+}
+
+// ============================================================
+// LLM Evidence Reordering (Frontier only)
+// ============================================================
+
+export interface ReorderFetchedEvidenceInput extends RankFetchedEvidenceInput {
+  annotated: SearchResult[];
+  toolOptions?: ToolExecutionOptions;
+}
+
+const REORDER_EVIDENCE_TOOL: ToolDefinition = {
+  type: "function",
+  function: {
+    name: "reorder_evidence",
+    description:
+      "Reorder pre-annotated fetched search results by semantic relevance to the query.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        order: {
+          type: "array",
+          description:
+            "Zero-based indices of annotated results in best-to-worst order.",
+          items: { type: "integer", minimum: 0 },
+        },
+        confidence: {
+          type: "string",
+          enum: ["high", "medium", "low"],
+        },
+        reason: {
+          type: "string",
+          description: "One short sentence explaining the reordering rationale.",
+        },
+      },
+      required: ["order", "confidence", "reason"],
+    },
+  },
+};
+
+function buildReorderMessages(
+  input: ReorderFetchedEvidenceInput,
+): Message[] {
+  const candidates = input.annotated
+    .map((result, index) => {
+      const strength = result.evidenceStrength?.toUpperCase() ?? "UNKNOWN";
+      const passages = (result.passages ?? []).slice(0, 2).join(" | ").slice(0, 200);
+      const desc = result.pageDescription?.slice(0, 120) ?? "";
+      const snippet = result.snippet?.slice(0, 120) ?? "";
+      return `[${index}] ${result.title} | evidence: ${strength}\n  url: ${result.url ?? "unknown"}\n  passages: ${passages || "(none)"}\n  desc: ${desc || snippet}`;
+    })
+    .join("\n\n");
+
+  return [
+    {
+      role: "system",
+      content:
+        "You are reordering fetched web search results by semantic relevance. " +
+        "Each result already has evidence annotations. Your job is to reorder them so the most query-relevant result comes first. " +
+        "Return only the function call. Do not answer the user question.",
+    },
+    {
+      role: "user",
+      content:
+        `Query: ${input.query}\n` +
+        `Results to reorder (${input.annotated.length}):\n\n` +
+        candidates,
+    },
+  ];
+}
+
+export async function reorderFetchedEvidenceWithLlm(
+  input: ReorderFetchedEvidenceInput,
+): Promise<RankedFetchedEvidenceResult> {
+  if (input.annotated.length <= 1) {
+    return {
+      results: input.annotated,
+      confidence: input.annotated.length === 1 ? "medium" : "low",
+      reason: "Single or no results — no reordering needed.",
+    };
+  }
+
+  const response = await ai.chatStructured(
+    buildReorderMessages(input),
+    {
+      model: input.toolOptions?.modelId,
+      signal: input.toolOptions?.signal,
+      temperature: 0,
+      maxTokens: 200,
+      tools: [REORDER_EVIDENCE_TOOL],
+    },
+  );
+
+  const toolCall = response.toolCalls?.find((call) =>
+    call.function?.name === REORDER_EVIDENCE_TOOL.function.name
+  );
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  if (!args) {
+    throw new ValidationError(
+      "LLM reorder returned no structured response.",
+      "search_web",
+    );
+  }
+
+  const rawOrder = Array.isArray(args.picks) ? args.picks : (args as Record<string, unknown>).order;
+  const indices = sanitizePickedIndices(
+    rawOrder,
+    input.annotated.length,
+    input.annotated.length,
+  );
+  // Backfill any missing indices to preserve all results
+  const fullOrder = backfillIndices(indices, input.annotated.length, input.annotated.length);
+
+  const confidence = args.confidence === "high" || args.confidence === "medium" || args.confidence === "low"
+    ? args.confidence
+    : "medium";
+  const reason = typeof args.reason === "string" && args.reason.trim()
+    ? args.reason.trim()
+    : "LLM reordered fetched evidence by semantic relevance.";
+
+  return {
+    results: fullOrder.map((index) => input.annotated[index]),
+    confidence,
+    reason,
   };
 }
 

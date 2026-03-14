@@ -2,6 +2,7 @@ import { VERSION } from "../../version.ts";
 import { getPlatform } from "../../platform/platform.ts";
 
 const CLI_ENTRY_URL = new URL("../cli/cli.ts", import.meta.url);
+const RUNTIME_BUILD_ID_OVERRIDE_ENV = "HLVM_RUNTIME_BUILD_ID";
 
 export interface RuntimeHostIdentity {
   version: string;
@@ -103,6 +104,15 @@ export async function getRuntimeHostIdentity(): Promise<RuntimeHostIdentity> {
   if (!cachedRuntimeHostIdentity) {
     cachedRuntimeHostIdentity = (async () => {
       const platform = getPlatform();
+      const overriddenBuildId = platform.env.get(RUNTIME_BUILD_ID_OVERRIDE_ENV)
+        ?.trim();
+      if (overriddenBuildId) {
+        return {
+          version: VERSION,
+          buildId: overriddenBuildId,
+        };
+      }
+
       const artifactPath = resolveRuntimeHostArtifactPath();
       try {
         const info = await platform.fs.stat(artifactPath);

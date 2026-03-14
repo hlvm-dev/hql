@@ -47,6 +47,7 @@ import { listAgentProfiles } from "./agent-registry.ts";
 import { type OrchestratorConfig, WEB_TOOL_NAMES } from "./orchestrator.ts";
 import {
   checkToolResultBytesLimit,
+  cloneToolList,
   effectiveAllowlist,
   type LoopConfig,
   type LoopDirective,
@@ -404,10 +405,6 @@ function formatPlanForExecution(
     "If you are blocked by ambiguity, ask one concise clarification with ask_user instead of re-planning in prose.",
   ];
   return lines.join("\n");
-}
-
-function cloneToolList(list?: string[]): string[] | undefined {
-  return list?.length ? [...list] : undefined;
 }
 
 async function withDraftingToolLock<T>(

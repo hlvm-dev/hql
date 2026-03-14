@@ -50,12 +50,6 @@ export function getAgentExecutionModeChangeMessage(
   return `${EXECUTION_MODE_META[mode]?.label ?? mode} (shift+tab to cycle)`;
 }
 
-export function getAgentExecutionModeBadge(
-  mode: AgentExecutionMode,
-): string {
-  return EXECUTION_MODE_META[mode]?.label ?? mode;
-}
-
 export function getPlanningModeForExecutionMode(
   mode?: AgentExecutionMode,
 ): PlanningMode {

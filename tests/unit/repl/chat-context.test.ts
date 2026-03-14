@@ -14,6 +14,7 @@ import {
   validateChatRequestMessages,
 } from "../../../src/hlvm/cli/repl/handlers/chat-context.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { withGlobalTestLock } from "../_shared/global-test-lock.ts";
 
 function createStoredMessage(
   id: number,
@@ -254,51 +255,53 @@ Deno.test("chat context: mixed media attachments survive replay for chat and age
 });
 
 Deno.test("chat context: disablePersistentMemory suppresses memory injection for plain chat", async () => {
-  const platform = getPlatform();
-  const tmpDir = await platform.fs.makeTempDir({ prefix: "chat-ctx-memory-" });
-  platform.env.set("HLVM_DIR", tmpDir);
-  resetHlvmDirCacheForTests();
-
-  try {
-    await platform.fs.mkdir(platform.path.dirname(getMemoryMdPath()), {
-      recursive: true,
-    });
-    await platform.fs.writeTextFile(
-      getMemoryMdPath(),
-      "Explicit note for chat",
-    );
-
-    const enabled = await buildChatProviderMessages({
-      requestMessages: [{ role: "user", content: "hello" }],
-      storedMessages: [],
-      modelKey: "test-chat/plain",
-    });
-    const disabled = await buildChatProviderMessages({
-      requestMessages: [{ role: "user", content: "hello" }],
-      storedMessages: [],
-      disablePersistentMemory: true,
-      modelKey: "test-chat/plain",
-    });
-
-    assertEquals(
-      enabled.messages.some((message) =>
-        message.role === "system" &&
-        message.content?.includes("# Your Memory")
-      ),
-      true,
-    );
-    assertEquals(
-      disabled.messages.some((message) =>
-        message.role === "system" &&
-        message.content?.includes("# Your Memory")
-      ),
-      false,
-    );
-  } finally {
-    platform.env.delete("HLVM_DIR");
+  await withGlobalTestLock(async () => {
+    const platform = getPlatform();
+    const tmpDir = await platform.fs.makeTempDir({ prefix: "chat-ctx-memory-" });
+    platform.env.set("HLVM_DIR", tmpDir);
     resetHlvmDirCacheForTests();
-    await platform.fs.remove(tmpDir, { recursive: true });
-  }
+
+    try {
+      await platform.fs.mkdir(platform.path.dirname(getMemoryMdPath()), {
+        recursive: true,
+      });
+      await platform.fs.writeTextFile(
+        getMemoryMdPath(),
+        "Explicit note for chat",
+      );
+
+      const enabled = await buildChatProviderMessages({
+        requestMessages: [{ role: "user", content: "hello" }],
+        storedMessages: [],
+        modelKey: "test-chat/plain",
+      });
+      const disabled = await buildChatProviderMessages({
+        requestMessages: [{ role: "user", content: "hello" }],
+        storedMessages: [],
+        disablePersistentMemory: true,
+        modelKey: "test-chat/plain",
+      });
+
+      assertEquals(
+        enabled.messages.some((message) =>
+          message.role === "system" &&
+          message.content?.includes("# Your Memory")
+        ),
+        true,
+      );
+      assertEquals(
+        disabled.messages.some((message) =>
+          message.role === "system" &&
+          message.content?.includes("# Your Memory")
+        ),
+        false,
+      );
+    } finally {
+      platform.env.delete("HLVM_DIR");
+      resetHlvmDirCacheForTests();
+      await platform.fs.remove(tmpDir, { recursive: true });
+    }
+  });
 });
 
 Deno.test("chat context: agent replay reconstructs prior tool results and reorders them before the final assistant reply", async () => {

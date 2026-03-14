@@ -38,6 +38,7 @@ import {
   resetHlvmDirCacheForTests,
 } from "../../../src/common/paths.ts";
 import { closeFactDb } from "../../../src/hlvm/memory/mod.ts";
+import { withGlobalTestLock } from "../_shared/global-test-lock.ts";
 
 class PersistenceTestEngine implements AgentEngine {
   createLLM(config: AgentLLMConfig) {
@@ -488,51 +489,53 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const db = setupStoreTestDb();
-    setAgentEngine(new MemoryVisibilityEngine());
-    const platform = getPlatform();
-    const hlvmDir = await platform.fs.makeTempDir({
-      prefix: "hlvm-agent-memory-",
-    });
-    platform.env.set("HLVM_DIR", hlvmDir);
-    resetHlvmDirCacheForTests();
-
-    try {
-      await platform.fs.mkdir(platform.path.dirname(getMemoryMdPath()), {
-        recursive: true,
+    await withGlobalTestLock(async () => {
+      const db = setupStoreTestDb();
+      setAgentEngine(new MemoryVisibilityEngine());
+      const platform = getPlatform();
+      const hlvmDir = await platform.fs.makeTempDir({
+        prefix: "hlvm-agent-memory-",
       });
-      await platform.fs.writeTextFile(
-        getMemoryMdPath(),
-        "Durable preference from MEMORY.md",
-      );
-
-      await withWorkspace(async (workspace) => {
-        const model = "test-chat/plain";
-        const reusableSession = await createReusableSession(workspace, model, {
-          modelInfo: null,
-        });
-
-        const result = await runAgentQuery({
-          query: "fresh but keep durable memory",
-          model,
-          workspace,
-          sessionId: "agent-fresh-memory",
-          skipSessionHistory: true,
-          reusableSession,
-          callbacks: {},
-        });
-
-        assertEquals(result.text, "saw-memory");
-      });
-    } finally {
-      closeFactDb();
-      platform.env.delete("HLVM_DIR");
+      platform.env.set("HLVM_DIR", hlvmDir);
       resetHlvmDirCacheForTests();
-      resetAgentEngine();
-      await disposeAllSessions();
-      await platform.fs.remove(hlvmDir, { recursive: true });
-      db.close();
-    }
+
+      try {
+        await platform.fs.mkdir(platform.path.dirname(getMemoryMdPath()), {
+          recursive: true,
+        });
+        await platform.fs.writeTextFile(
+          getMemoryMdPath(),
+          "Durable preference from MEMORY.md",
+        );
+
+        await withWorkspace(async (workspace) => {
+          const model = "test-chat/plain";
+          const reusableSession = await createReusableSession(workspace, model, {
+            modelInfo: null,
+          });
+
+          const result = await runAgentQuery({
+            query: "fresh but keep durable memory",
+            model,
+            workspace,
+            sessionId: "agent-fresh-memory",
+            skipSessionHistory: true,
+            reusableSession,
+            callbacks: {},
+          });
+
+          assertEquals(result.text, "saw-memory");
+        });
+      } finally {
+        closeFactDb();
+        platform.env.delete("HLVM_DIR");
+        resetHlvmDirCacheForTests();
+        resetAgentEngine();
+        await disposeAllSessions();
+        await platform.fs.remove(hlvmDir, { recursive: true });
+        db.close();
+      }
+    });
   },
 });
 

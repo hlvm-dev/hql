@@ -3,9 +3,8 @@
 import {
   HASH_MAP_INTERNAL,
   HASH_MAP_USER,
-  VECTOR_SYMBOL,
-  EMPTY_ARRAY_SYMBOL,
 } from "../../common/runtime-helper-impl.ts";
+import { hasArrayLiteralPrefix } from "../../common/sexp-utils.ts";
 
 export type SExp = SSymbol | SList | SLiteral;
 
@@ -443,10 +442,7 @@ export function isSExpNamespaceImport(elements: SExp[]): boolean {
  * Check if an S-expression is a vector (list starting with 'vector' or 'empty-array' symbol)
  */
 export function isVector(exp: SExp): boolean {
-  return isList(exp) &&
-    exp.elements.length > 0 &&
-    isSymbol(exp.elements[0]) &&
-    (exp.elements[0].name === VECTOR_SYMBOL || exp.elements[0].name === EMPTY_ARRAY_SYMBOL);
+  return isList(exp) && hasArrayLiteralPrefix(exp);
 }
 
 /**

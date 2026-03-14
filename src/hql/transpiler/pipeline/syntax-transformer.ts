@@ -22,10 +22,7 @@ import type { SymbolNode } from "../type/hql_ast.ts";
 import { globalSymbolTable, type SymbolTable } from "../symbol_table.ts";
 import type { SymbolKind } from "../symbol_table.ts";
 import { getSymbolTable, type CompilerContext } from "../compiler-context.ts";
-import {
-  VECTOR_SYMBOL,
-  EMPTY_ARRAY_SYMBOL,
-} from "../../../common/runtime-helper-impl.ts";
+import { hasArrayLiteralPrefix, hasHashMapPrefix } from "../../../common/sexp-utils.ts";
 import { NUMERIC_PATTERN } from "../constants/index.ts";
 
 /**
@@ -282,10 +279,7 @@ function registerFunctionOrMacro(list: SList, head: string): void {
 function classifyBindingList(
   bindingList: SList,
 ): { strippedBindings: SList; hadVectorPrefix: boolean; hadHashMapPrefix: boolean; isPattern: boolean } {
-  const hadVectorPrefix = bindingList.elements.length > 0 &&
-    isSymbol(bindingList.elements[0]) &&
-    ((bindingList.elements[0] as SSymbol).name === VECTOR_SYMBOL ||
-      (bindingList.elements[0] as SSymbol).name === EMPTY_ARRAY_SYMBOL);
+  const hadVectorPrefix = hasArrayLiteralPrefix(bindingList);
   const hadHashMapPrefix = bindingList.elements.length > 0 &&
     isSymbol(bindingList.elements[0]) &&
     (bindingList.elements[0] as SSymbol).name === "hash-map";
@@ -349,11 +343,8 @@ function registerBinding(list: SList, bindingKeyword: string): void {
           } else if (i + 1 < bindings.elements.length) {
             // Check if this is a destructuring pattern (e.g., [a b] parses to (vector a b))
             const isDestructuringPattern = isList(nameNode) &&
-              (nameNode as SList).elements.length > 0 &&
-              isSymbol((nameNode as SList).elements[0]) &&
-              (((nameNode as SList).elements[0] as SSymbol).name === VECTOR_SYMBOL ||
-               ((nameNode as SList).elements[0] as SSymbol).name === EMPTY_ARRAY_SYMBOL ||
-               ((nameNode as SList).elements[0] as SSymbol).name === "hash-map");
+              (hasArrayLiteralPrefix(nameNode as SList) ||
+               hasHashMapPrefix(nameNode as SList));
 
             if (isDestructuringPattern) {
               // Skip registration for destructuring patterns
@@ -443,9 +434,7 @@ function inferDataType(node: SExp): string {
       const op = (list.elements[0] as SSymbol).name;
 
       // Check common data structure constructors
-      if (op === VECTOR_SYMBOL || op === EMPTY_ARRAY_SYMBOL) {
-        return "Array";
-      }
+      if (hasArrayLiteralPrefix(list)) return "Array";
       if (op === "hash-set" || op === "empty-set") {
         return "Set";
       }
@@ -696,25 +685,11 @@ function transformMacro(
   // Handle parameter list - strip vector notation if present
   if (isList(list.elements[2])) {
     let paramList = list.elements[2] as SList;
-    // If parsed as (vector x y z), strip the vector part
-    if (
-      paramList.elements.length > 0 &&
-      isSymbol(paramList.elements[0]) &&
-      (paramList.elements[0] as SSymbol).name === VECTOR_SYMBOL
-    ) {
+    // Strip array-literal prefix: (vector x y z) → (x y z), (empty-array) → ()
+    if (hasArrayLiteralPrefix(paramList)) {
       paramList = {
         ...paramList,
         elements: paramList.elements.slice(1),
-      } as SList;
-    } // Also handle empty-array case: [] is parsed as (empty-array)
-    else if (
-      paramList.elements.length === 1 &&
-      isSymbol(paramList.elements[0]) &&
-      (paramList.elements[0] as SSymbol).name === EMPTY_ARRAY_SYMBOL
-    ) {
-      paramList = {
-        ...paramList,
-        elements: [],
       } as SList;
     }
     transformedElements.push(paramList);
@@ -862,13 +837,9 @@ function transformBindingList(
 ): SList {
   const transformedBindings: SExp[] = [];
 
-  // Handle vector notation: skip "vector" symbol if present
+  // Handle vector notation: skip "vector"/"empty-array" symbol if present
   let elements = bindingList.elements;
-  if (
-    elements.length > 0 &&
-    isSymbol(elements[0]) &&
-    (elements[0] as SSymbol).name === VECTOR_SYMBOL
-  ) {
+  if (hasArrayLiteralPrefix(bindingList)) {
     elements = elements.slice(1);
   }
 

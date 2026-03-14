@@ -4,7 +4,7 @@
  * Displays an assistant response with markdown rendering and optional sources.
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import { truncate } from "../../../../../common/utils.ts";
 import { useSemanticColors } from "../../../theme/index.ts";
@@ -12,12 +12,8 @@ import { MarkdownDisplay } from "../markdown/index.ts";
 import type { AssistantCitation } from "../../types.ts";
 import { OPEN_LATEST_SOURCE_HINT } from "../../ui-constants.ts";
 
-import { escapeAnsiCtrlCodes } from "../../utils/sanitize-ansi.ts";
-
-function formatElapsed(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60}s`;
-}
+import { createIncrementalSanitizer } from "../../utils/sanitize-ansi.ts";
+import { formatElapsed } from "../../utils/formatting.ts";
 
 /** Shown while waiting for the first token from the model. */
 function WorkingIndicator({ width }: { width: number }): React.ReactElement {
@@ -162,17 +158,24 @@ export const AssistantMessage = React.memo(function AssistantMessage(
   const sc = useSemanticColors();
 
   const contentWidth = Math.max(10, width - 3);
-  const sanitizedText = escapeAnsiCtrlCodes(text);
-  const displayText = sanitizedText.length > MAX_DISPLAY_CHARS
-    ? "..." + sanitizedText.slice(-MAX_DISPLAY_CHARS)
-    : sanitizedText;
-  const citationView = buildCitationRenderView(displayText, citations ?? []);
-  const sources = citationView.sources.slice(0, 6);
-  const sourceOverflow = Math.max(
-    0,
-    citationView.sources.length - sources.length,
-  );
-  const sourcesLabel = resolveSourcesLabel(citations ?? []);
+  const sanitizeRef = useRef(createIncrementalSanitizer());
+
+  const citationMemo = useMemo<{
+    citationView: CitationRenderView;
+    sources: CitationSourceView[];
+    sourceOverflow: number;
+    sourcesLabel: string;
+  }>(() => {
+    const sanitizedText = sanitizeRef.current(text);
+    const displayText = sanitizedText.length > MAX_DISPLAY_CHARS
+      ? "..." + sanitizedText.slice(-MAX_DISPLAY_CHARS)
+      : sanitizedText;
+    const citationView = buildCitationRenderView(displayText, citations ?? []);
+    const sources = citationView.sources.slice(0, 6);
+    const sourceOverflow = Math.max(0, citationView.sources.length - sources.length);
+    const sourcesLabel = resolveSourcesLabel(citations ?? []);
+    return { citationView, sources, sourceOverflow, sourcesLabel };
+  }, [text, citations]);
 
   if (isPending && !text) {
     return <WorkingIndicator width={width} />;
@@ -191,11 +194,11 @@ export const AssistantMessage = React.memo(function AssistantMessage(
         borderColor={sc.border.default}
         paddingLeft={1}
       >
-        <MarkdownDisplay text={citationView.text} width={contentWidth} isPending={isPending} />
-        {!isPending && sources.length > 0 && (
+        <MarkdownDisplay text={citationMemo.citationView.text} width={contentWidth} isPending={isPending} />
+        {!isPending && citationMemo.sources.length > 0 && (
           <Box flexDirection="column" marginTop={1}>
-            <Text color={sc.text.muted}>{sourcesLabel}</Text>
-            {sources.map((source) => {
+            <Text color={sc.text.muted}>{citationMemo.sourcesLabel}</Text>
+            {citationMemo.sources.map((source: CitationSourceView) => {
               const lead = `[${source.index}] ${source.title}`;
               return (
                 <Box
@@ -212,9 +215,9 @@ export const AssistantMessage = React.memo(function AssistantMessage(
                 </Box>
               );
             })}
-            {sourceOverflow > 0 && (
+            {citationMemo.sourceOverflow > 0 && (
               <Text color={sc.text.muted}>
-                +{sourceOverflow} more sources
+                +{citationMemo.sourceOverflow} more sources
               </Text>
             )}
             <Text color={sc.text.muted}>{OPEN_LATEST_SOURCE_HINT}</Text>

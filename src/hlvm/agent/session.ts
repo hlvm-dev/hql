@@ -41,10 +41,12 @@ import {
   type ThinkingState,
   type ToolFilterState,
 } from "./engine.ts";
+import { supportsNativeThinking } from "./thinking-profile.ts";
 import {
   isPersistentMemoryEnabled,
   loadMemorySystemMessage,
 } from "../memory/mod.ts";
+import { cloneToolList } from "./orchestrator-state.ts";
 
 interface AgentSessionOptions {
   workspace: string;
@@ -95,6 +97,10 @@ export interface AgentSession {
     toolOwnerId?: string;
     temperature?: number;
   };
+  /** Mutable reasoning state shared with orchestrator/engine and tests. */
+  thinkingState?: ThinkingState;
+  /** Whether the active model supports provider-native reasoning/thinking. */
+  thinkingCapable?: boolean;
   /** The engine used for LLM creation (for rebuilding in reuseSession) */
   engine?: AgentEngine;
   /** Shared mutable tool filter state used by orchestrator + engine. */
@@ -125,10 +131,6 @@ async function tryGetModelInfo(
     // Provider not available — fall through to defaults
   }
   return null;
-}
-
-function cloneStringList(list?: string[]): string[] | undefined {
-  return list?.length ? [...list] : undefined;
 }
 
 function mergeMcpHandlers(
@@ -170,16 +172,16 @@ export async function createAgentSession(
     options.toolDenylist,
   );
   const baseToolFilter: ToolFilterState = {
-    allowlist: cloneStringList(tierFilter.allowlist),
-    denylist: cloneStringList(tierFilter.denylist),
+    allowlist: cloneToolList(tierFilter.allowlist),
+    denylist: cloneToolList(tierFilter.denylist),
   };
   const toolFilterState: ToolFilterState = {
-    allowlist: cloneStringList(baseToolFilter.allowlist),
-    denylist: cloneStringList(baseToolFilter.denylist),
+    allowlist: cloneToolList(baseToolFilter.allowlist),
+    denylist: cloneToolList(baseToolFilter.denylist),
   };
   const resetToolFilter = () => {
-    toolFilterState.allowlist = cloneStringList(baseToolFilter.allowlist);
-    toolFilterState.denylist = cloneStringList(baseToolFilter.denylist);
+    toolFilterState.allowlist = cloneToolList(baseToolFilter.allowlist);
+    toolFilterState.denylist = cloneToolList(baseToolFilter.denylist);
   };
   const thinkingState: ThinkingState = {};
 
@@ -300,6 +302,11 @@ export async function createAgentSession(
     }
   }
 
+  const thinkingCapable = supportsNativeThinking({
+    model: options.model,
+    thinkingCapable: modelInfo?.capabilities?.includes("thinking") ?? false,
+  });
+
   const llm = options.fixturePath
     ? createFixtureLLM(await loadLlmFixture(options.fixturePath))
     : engine.createLLM({
@@ -317,7 +324,7 @@ export async function createAgentSession(
       thinkingState,
       toolOwnerId,
       onToken: options.onToken,
-      thinkingCapable: modelInfo?.capabilities?.includes("thinking") ?? false,
+      thinkingCapable,
     });
 
   const llmConfig = options.fixturePath ? undefined : {
@@ -347,6 +354,8 @@ export async function createAgentSession(
     modelTier,
     resolvedContextBudget: resolved,
     llmConfig,
+    thinkingState,
+    thinkingCapable,
     engine,
     toolFilterState,
     resetToolFilter,

@@ -34,3 +34,25 @@ export function escapeAnsiCtrlCodes(text: string): string {
     .replace(APC_PM_SOS_RE, "")
     .replace(RAW_CTRL_RE, "");
 }
+
+/**
+ * Create an incremental sanitizer that caches the sanitized prefix.
+ * During streaming, text is append-only — only the new suffix gets regex'd.
+ * Falls back to full sanitization when the text doesn't start with the cached prefix.
+ */
+export function createIncrementalSanitizer(): (text: string) => string {
+  let lastInput = "";
+  let lastOutput = "";
+  return (text: string) => {
+    if (text === lastInput) return lastOutput;
+    if (text.startsWith(lastInput)) {
+      const sanitizedSuffix = escapeAnsiCtrlCodes(text.slice(lastInput.length));
+      lastInput = text;
+      lastOutput = lastOutput + sanitizedSuffix;
+      return lastOutput;
+    }
+    lastInput = text;
+    lastOutput = escapeAnsiCtrlCodes(text);
+    return lastOutput;
+  };
+}

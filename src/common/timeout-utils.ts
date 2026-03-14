@@ -169,54 +169,8 @@ export function combineSignals(...signals: AbortSignal[]): AbortSignal {
 }
 
 // ============================================================
-// Error Classification
+// Error Helpers
 // ============================================================
-
-/**
- * Check if error is abort-related
- *
- * Handles multiple abort error patterns:
- * - Standard AbortError (DOMException name="AbortError")
- * - TimeoutError (our custom error)
- * - Generic errors with "abort" in message
- *
- * Used to distinguish cancellation from actual failures.
- *
- * @param error Error to check
- * @returns True if error indicates operation was aborted
- *
- * @example
- * ```ts
- * try {
- *   await http.get(url, { signal });
- * } catch (error) {
- *   if (isAbortError(error)) {
- *     console.log("Request was cancelled");
- *   } else {
- *     console.error("Request failed:", error);
- *   }
- * }
- * ```
- */
-export function isAbortError(error: unknown): boolean {
-  if (error instanceof TimeoutError) {
-    return true;
-  }
-
-  if (error instanceof Error) {
-    // Standard AbortError
-    if (error.name === "AbortError") {
-      return true;
-    }
-
-    // Some APIs throw generic errors with abort message
-    if (error.message.toLowerCase().includes("abort")) {
-      return true;
-    }
-  }
-
-  return false;
-}
 
 /** Create an AbortError without throwing. */
 export function createAbortError(reason?: unknown): Error {

@@ -465,8 +465,8 @@ export function attributeCitationSpans(
           : minSharedTokens;
       const shared = intersectionCount(sentenceTokens, candidate.tokenSet);
       if (shared < sharedTokenThreshold) continue;
-      const unionSize =
-        new Set([...sentenceTokenSet, ...candidate.tokenSet]).size;
+      // |A union B| = |A| + |B| - |A intersect B| avoids allocating a new Set per candidate.
+      const unionSize = sentenceTokenSet.size + candidate.tokenSet.size - shared;
       if (unionSize === 0) continue;
       const jaccard = shared / unionSize;
       const coverage = shared / sentenceTokens.length;

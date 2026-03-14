@@ -488,21 +488,11 @@ export async function shellScript(
 }
 
 function extractUrlsFromArgs(args: string[]): string[] {
-  const urls: string[] = [];
-  for (const arg of args) {
-    urls.push(...extractUrlsFromText(arg));
-  }
-  return urls;
+  return args.flatMap(extractUrlsFromText);
 }
 
 function extractUrlsFromText(text: string): string[] {
-  const urls: string[] = [];
-  const regex = /https?:\/\/[^\s"'`]+/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(text)) !== null) {
-    urls.push(match[0]);
-  }
-  return urls;
+  return text.match(/https?:\/\/[^\s"'`]+/g) ?? [];
 }
 
 // Process stream and abort helpers: see common/stream-utils.ts (SSOT)

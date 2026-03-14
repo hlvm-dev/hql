@@ -30,13 +30,7 @@ function containsNodeType(
   node: IR.IRNode | null | undefined,
   targetType: IR.IRNodeType,
 ): boolean {
-  if (!node || typeof node !== "object") return false;
-
-  // Direct match
-  if (node.type === targetType) return true;
-
-  // Generic tree walk
-  return walkChildren(node, (child) => containsNodeType(child, targetType));
+  return containsMatch(node, (n) => n.type === targetType);
 }
 
 /**
@@ -194,28 +188,7 @@ export function containsNodeTypeInScope(
   targetType: IR.IRNodeType,
   options: ScopeWalkOptions = {},
 ): boolean {
-  if (!node || typeof node !== "object") return false;
-
-  // Direct match
-  if (node.type === targetType) return true;
-
-  // Stop at function boundaries (but optionally look inside IIFEs)
-  if (isFunctionBoundary(node)) {
-    return false;
-  }
-
-  // Special handling for IIFEs
-  if (isIIFE(node) && options.lookInsideIIFEs) {
-    const call = node as IR.IRCallExpression;
-    const funcExpr = call.callee as IR.IRFunctionExpression;
-    // Look inside the IIFE body
-    return containsNodeTypeInScope(funcExpr.body, targetType, options);
-  }
-
-  // Generic tree walk
-  return walkChildren(node, (child) =>
-    containsNodeTypeInScope(child, targetType, options)
-  );
+  return containsMatchInScope(node, (n) => n.type === targetType, options);
 }
 
 /**

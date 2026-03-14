@@ -12,9 +12,11 @@ import {
   readResponseBody,
 } from "./fetch-core.ts";
 import {
+  extractCodeBlocks,
   extractReadableContent,
   isHtmlLikeResponse,
   parseHtml,
+  restoreCodeBlocks,
 } from "./html-parser.ts";
 import {
   dedupeSearchResultsStable,
@@ -33,14 +35,18 @@ import {
 } from "./search-backend.ts";
 import {
   rankFetchedEvidenceDeterministically,
+  reorderFetchedEvidenceWithLlm,
   selectSearchResultsDeterministically,
   selectSearchResultsWithLlm,
 } from "./search-result-selector.ts";
 import {
   annotateSearchResultSources,
 } from "./source-authority.ts";
-import { detectSearchQueryIntent } from "./query-strategy.ts";
-import { hasStructuredEvidence } from "./web-utils.ts";
+import {
+  detectSearchQueryIntent,
+  prefersSingleHostSources,
+} from "./query-strategy.ts";
+import { hasStructuredEvidence, isAuthoritativeSourceClass, resultHost } from "./web-utils.ts";
 import { getAgentLogger } from "../../logger.ts";
 
 const DEFAULT_PREFETCH_TARGETS = 3;
@@ -48,7 +54,7 @@ const MAX_PREFETCH_TARGETS = 5;
 const PREFETCH_CANDIDATE_EXTRA_RESULTS = 5;
 const PREFETCH_CANDIDATE_MAX_RESULTS = 10;
 const PREFETCH_MAX_BYTES = 128_000;
-const PREFETCH_MAX_TEXT = 8_000;
+const PREFETCH_MAX_TEXT = 12_000;
 const PREFETCH_MAX_REDIRECTS = 2;
 const PREFETCH_TIMEOUT_MS = 5_000;
 const MAX_FOCUSED_CITATIONS = 3;
@@ -136,19 +142,13 @@ function annotateFetchedResults(
   );
 }
 
+/** Extract hostname from result URL, with empty-string fallback. */
 function getResultHost(result: SearchResult): string {
-  if (!result.url) return "";
-  try {
-    return new URL(result.url).hostname.toLowerCase();
-  } catch {
-    return "";
-  }
+  return resultHost(result.url) ?? "";
 }
 
 function isAuthoritativeResult(result: SearchResult): boolean {
-  return result.sourceClass === "official_docs" ||
-    result.sourceClass === "vendor_docs" ||
-    result.sourceClass === "repo_docs";
+  return isAuthoritativeSourceClass(result.sourceClass);
 }
 
 function toCitation(result: SearchResult, providerName: string, query?: string): Citation | null {
@@ -200,11 +200,7 @@ function appendCitationGroup(
 }
 
 function hasAuthoritativeCitation(citations: Citation[]): boolean {
-  return citations.some((citation) =>
-    citation.sourceClass === "official_docs" ||
-    citation.sourceClass === "vendor_docs" ||
-    citation.sourceClass === "repo_docs"
-  );
+  return citations.some((citation) => isAuthoritativeSourceClass(citation.sourceClass));
 }
 
 function buildSearchCitations(
@@ -365,7 +361,7 @@ export class DdgSearchBackend implements WebSearchBackend {
     let selectionStrategy: "deterministic" | "llm" = "deterministic";
     let selectionReason =
       "Deterministic fetch selection prioritized query overlap and host diversity.";
-    let evidenceStrategy: "deterministic" | "none" = "none";
+    let evidenceStrategy: "deterministic" | "llm" | "none" = "none";
     let evidenceConfidence: "high" | "medium" | "low" = "low";
     let evidenceReason =
       "No fetched results were available for deterministic evidence ranking.";
@@ -408,10 +404,13 @@ export class DdgSearchBackend implements WebSearchBackend {
         selectionStrategy = selection.strategy;
         selectionReason = selection.reason;
         const picksWithUrl = selection.picks.filter((entry) => entry.url);
-        // Skip host diversity enforcement for official-docs queries or explicit
-        // allowed-domain filters — these intentionally want multiple pages from
-        // the same authoritative host.
-        prefetchTargets = (intent.wantsOfficialDocs || allowedDomains?.length)
+        // Skip host diversity enforcement only when the query is clearly asking
+        // for a single authoritative host or the caller already constrained it.
+        prefetchTargets = prefersSingleHostSources(
+            query,
+            intent,
+            allowedDomains,
+          )
           ? picksWithUrl.slice(0, prefetchTargetCount)
           : ensureDistinctTopHosts(picksWithUrl, prefetchCandidates, prefetchTargetCount);
         if (prefetchTargets.length === 0) {
@@ -441,9 +440,13 @@ export class DdgSearchBackend implements WebSearchBackend {
             return { url: target.url!, passages: [] as string[] };
           }
 
-          const parsed = parseHtml(rawHtml, PREFETCH_MAX_TEXT, 3);
-          const readable = await extractReadableContent(rawHtml, finalUrl);
-          const extractionText = readable?.text || parsed.text;
+          const { cleaned: cleanedHtml, blocks: codeBlocks } = extractCodeBlocks(rawHtml);
+          const parsed = parseHtml(cleanedHtml, PREFETCH_MAX_TEXT, 3);
+          const readable = await extractReadableContent(cleanedHtml, finalUrl);
+          let extractionText = readable?.text || parsed.text;
+          if (codeBlocks.size > 0) {
+            extractionText = restoreCodeBlocks(extractionText, codeBlocks);
+          }
           let passages = extractRelevantPassages(query, extractionText);
           if (target.snippet) {
             passages = deduplicateSnippetPassages(target.snippet, passages);
@@ -517,10 +520,46 @@ export class DdgSearchBackend implements WebSearchBackend {
         intent,
         allowedDomains,
       });
+
+      // Frontier: LLM reorders already-annotated results by semantic relevance
+      if (options?.modelTier === "frontier" && rankedFetched.results.length > 1) {
+        try {
+          const reordered = await reorderFetchedEvidenceWithLlm({
+            query,
+            results: result.results.filter((entry) => entry.selectedForFetch === true),
+            intent,
+            allowedDomains,
+            annotated: rankedFetched.results,
+            toolOptions: options,
+          });
+          rankedFetched.results = reordered.results;
+          rankedFetched.confidence = reordered.confidence;
+          rankedFetched.reason = reordered.reason;
+          evidenceStrategy = "llm";
+        } catch (err) {
+          getAgentLogger().warn(
+            `LLM evidence reorder failed, keeping deterministic order: ${(err as Error).message}`,
+          );
+        }
+      }
+
       evidenceConfidence = rankedFetched.confidence;
       evidenceReason = rankedFetched.reason;
 
       if (rankedFetched.results.length > 0) {
+        if (
+          !prefersSingleHostSources(
+            query,
+            intent,
+            allowedDomains,
+          )
+        ) {
+          rankedFetched.results = ensureDistinctTopHosts(
+            rankedFetched.results,
+            rankedFetched.results,
+            rankedFetched.results.length,
+          );
+        }
         const supportingResults = result.results.filter((entry) =>
           entry.selectedForFetch !== true
         );
@@ -533,8 +572,18 @@ export class DdgSearchBackend implements WebSearchBackend {
       }
     }
 
-    result.results = annotateSearchResultSources(result.results, allowedDomains)
-      .slice(0, limit);
+    const annotatedResults = annotateSearchResultSources(
+      result.results,
+      allowedDomains,
+    );
+    result.results = prefersSingleHostSources(
+        query,
+        intent,
+        allowedDomains,
+      )
+      ? annotatedResults.slice(0, limit)
+      : ensureDistinctTopHosts(annotatedResults, annotatedResults, limit)
+        .slice(0, limit);
     result.count = result.results.length;
 
     const evidencePages = result.results.filter((entry) =>

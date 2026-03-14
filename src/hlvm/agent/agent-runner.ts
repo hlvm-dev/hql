@@ -106,6 +106,7 @@ import {
   isMutatingTool,
 } from "./security/safety.ts";
 import { createCheckpointRecorder } from "./checkpoints.ts";
+import { cloneToolList } from "./orchestrator-state.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
@@ -121,10 +122,6 @@ function resolveDefaultAgentRoots(): string[] {
   return DEFAULT_AGENT_PATH_ROOTS.map((root) =>
     `file://${root.startsWith("~") ? home + root.slice(1) : root}`
   );
-}
-
-function cloneToolAllowlist(list?: string[]): string[] | undefined {
-  return list?.length ? [...list] : undefined;
 }
 
 function buildPlanModeAllowlist(options: {
@@ -552,10 +549,10 @@ export async function runAgentQuery(
         restoredPlanOwnsTodoState
       ) ||
       session.todoState.items.length === 0;
-    const baseExecutionAllowlist = cloneToolAllowlist(
+    const baseExecutionAllowlist = cloneToolList(
       session.toolFilterState?.allowlist ?? session.llmConfig?.toolAllowlist,
     );
-    const baseExecutionDenylist = cloneToolAllowlist(
+    const baseExecutionDenylist = cloneToolList(
       session.toolFilterState?.denylist ?? session.llmConfig?.toolDenylist,
     );
     const directFileTargets = permissionMode === "plan"
@@ -575,18 +572,18 @@ export async function runAgentQuery(
         active: true,
         phase: "researching" as PlanningPhase,
         executionPermissionMode: "auto-edit" as const,
-        executionAllowlist: cloneToolAllowlist(baseExecutionAllowlist),
-        executionDenylist: cloneToolAllowlist(baseExecutionDenylist),
-        planningAllowlist: cloneToolAllowlist(planningAllowlist),
+        executionAllowlist: cloneToolList(baseExecutionAllowlist),
+        executionDenylist: cloneToolList(baseExecutionDenylist),
+        planningAllowlist: cloneToolList(planningAllowlist),
         directFileTargets,
       }
       : undefined;
     const runtimeToolFilterBaseline = {
-      allowlist: cloneToolAllowlist(baseExecutionAllowlist),
-      denylist: cloneToolAllowlist(baseExecutionDenylist),
+      allowlist: cloneToolList(baseExecutionAllowlist),
+      denylist: cloneToolList(baseExecutionDenylist),
     };
     if (planModeState && session.toolFilterState) {
-      session.toolFilterState.allowlist = cloneToolAllowlist(
+      session.toolFilterState.allowlist = cloneToolList(
         planModeState.planningAllowlist,
       );
     }
@@ -872,7 +869,8 @@ export async function runAgentQuery(
             session.llmConfig?.toolDenylist,
           toolFilterState: session.toolFilterState,
           toolFilterBaseline: runtimeToolFilterBaseline,
-          thinkingState: session.llmConfig?.thinkingState,
+          thinkingState: session.thinkingState,
+          thinkingCapable: session.thinkingCapable,
           planModeState,
           toolOwnerId: session.toolOwnerId,
           delegateOwnerId,
@@ -889,10 +887,10 @@ export async function runAgentQuery(
       throw error;
     } finally {
       if (planModeState && session.toolFilterState) {
-        session.toolFilterState.allowlist = cloneToolAllowlist(
+        session.toolFilterState.allowlist = cloneToolList(
           baseExecutionAllowlist,
         );
-        session.toolFilterState.denylist = cloneToolAllowlist(
+        session.toolFilterState.denylist = cloneToolList(
           baseExecutionDenylist,
         );
       }

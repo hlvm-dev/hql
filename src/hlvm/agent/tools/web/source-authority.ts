@@ -3,7 +3,7 @@ import {
   type SearchResult,
   type SearchResultSourceClass,
 } from "./search-provider.ts";
-import { analyzeResultUrl, type ResultUrlAnalysis } from "./web-utils.ts";
+import { analyzeResultUrl, isAuthoritativeSourceClass, type ResultUrlAnalysis } from "./web-utils.ts";
 
 export interface SearchSourceAuthority {
   sourceClass: SearchResultSourceClass;
@@ -157,9 +157,7 @@ export function classifySearchResultSource(
     return {
       sourceClass: result.sourceClass,
       authorityScore: scoreForSourceClass(result.sourceClass),
-      isAuthoritative: result.sourceClass === "official_docs" ||
-        result.sourceClass === "vendor_docs" ||
-        result.sourceClass === "repo_docs",
+      isAuthoritative: isAuthoritativeSourceClass(result.sourceClass),
       isCommunity: result.sourceClass === "technical_article" ||
         result.sourceClass === "forum",
     };
@@ -205,9 +203,7 @@ export function classifySearchResultSource(
   return {
     sourceClass,
     authorityScore: scoreForSourceClass(sourceClass),
-    isAuthoritative: sourceClass === "official_docs" ||
-      sourceClass === "vendor_docs" ||
-      sourceClass === "repo_docs",
+    isAuthoritative: isAuthoritativeSourceClass(sourceClass),
     isCommunity: sourceClass === "technical_article" || sourceClass === "forum",
   };
 }

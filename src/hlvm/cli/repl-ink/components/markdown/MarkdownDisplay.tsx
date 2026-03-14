@@ -4,7 +4,7 @@ import { marked, type Token, type Tokens } from "marked";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { CodeBlock } from "./CodeBlock.tsx";
 import { InlineTokens, InlineMarkdown } from "./InlineMarkdown.tsx";
-import { findLastStableBlockBoundary } from "../../utils/markdown-split.ts";
+import { scanBlockBoundaryIncremental, type BlockBoundaryScanState } from "../../utils/markdown-split.ts";
 
 type Alignment = "left" | "center" | "right";
 
@@ -322,11 +322,13 @@ export const MarkdownDisplay = memo(function MarkdownDisplay(
     finalizedTokens: [],
     lastStableOffset: 0,
   });
+  const scanStateRef = useRef<BlockBoundaryScanState | undefined>(undefined);
 
   const tokens = useMemo(() => {
     if (!isPending) {
       // Final render: parse everything fresh, clear cache
       blocksRef.current = { finalizedTokens: [], lastStableOffset: 0 };
+      scanStateRef.current = undefined;
       return marked.lexer(text);
     }
 
@@ -336,10 +338,15 @@ export const MarkdownDisplay = memo(function MarkdownDisplay(
     if (text.length < prev.lastStableOffset) {
       prev.finalizedTokens = [];
       prev.lastStableOffset = 0;
+      scanStateRef.current = undefined;
     }
 
-    // Find last stable block boundary
-    const stableEnd = findLastStableBlockBoundary(text);
+    // Find last stable block boundary (incremental: O(delta) per flush)
+    const { boundary: stableEnd, state: nextScanState } = scanBlockBoundaryIncremental(
+      text,
+      scanStateRef.current,
+    );
+    scanStateRef.current = nextScanState;
 
     if (stableEnd > prev.lastStableOffset) {
       // New stable content: parse only the new stable portion

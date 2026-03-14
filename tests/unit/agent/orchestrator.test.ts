@@ -2141,10 +2141,10 @@ Deno.test({
       message.content.includes("denied by user")
     );
     assertEquals(deniedMessage !== undefined, true);
-    const blockedMessage = context.getMessages().find((message) =>
-      message.content.includes("Tool not allowed by orchestrator: write_file")
+    const denialPivotMessage = context.getMessages().find((message) =>
+      message.content.includes("Maximum denials (2) reached for tool 'write_file'")
     );
-    assertEquals(blockedMessage !== undefined, true);
+    assertEquals(denialPivotMessage !== undefined, true);
   },
 });
 

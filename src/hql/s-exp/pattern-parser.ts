@@ -23,14 +23,13 @@ import {
   type SList,
 } from "./types.ts";
 import {
+  hasArrayLiteralPrefix,
   hasHashMapPrefix,
   isSymbolWithName,
 } from "../../common/sexp-utils.ts";
 import {
   HASH_MAP_INTERNAL,
   HASH_MAP_USER,
-  VECTOR_SYMBOL,
-  EMPTY_ARRAY_SYMBOL,
 } from "../../common/runtime-helper-impl.ts";
 import { ParseError } from "../../common/error.ts";
 import { getMeta } from "./types.ts";
@@ -104,11 +103,7 @@ export function parsePattern(exp: SExp): Pattern {
     // Array pattern: [x y z] which becomes (vector x y z)
     // Strip the "vector" or "empty-array" prefix before parsing
     let arrayExp = exp;
-    if (
-      exp.elements.length > 0 &&
-      (isSymbolWithName(exp.elements[0], VECTOR_SYMBOL) ||
-        isSymbolWithName(exp.elements[0], EMPTY_ARRAY_SYMBOL))
-    ) {
+    if (hasArrayLiteralPrefix(exp)) {
       arrayExp = { ...exp, elements: exp.elements.slice(1) };
     }
     return parseArrayPattern(arrayExp);

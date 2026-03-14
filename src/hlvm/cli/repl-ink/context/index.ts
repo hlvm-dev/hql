@@ -4,11 +4,5 @@
 export {
   ReplProvider,
   useReplContext,
-  useBindings,
-  useSignatures,
-  useDocstrings,
-  useHistory,
-  useBindingNames,
-  useReplState,
   type ReplContextValue,
 } from "./ReplContext.tsx";

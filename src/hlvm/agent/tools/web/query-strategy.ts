@@ -95,6 +95,19 @@ export function detectSearchQueryIntent(query: string): SearchQueryIntent {
   };
 }
 
+export function prefersSingleHostSources(
+  query: string,
+  intent?: SearchQueryIntent,
+  allowedDomains?: string[],
+): boolean {
+  const resolvedIntent = intent ?? detectSearchQueryIntent(query);
+  if ((allowedDomains?.length ?? 0) > 0) return true;
+  if (resolvedIntent.wantsReference || resolvedIntent.wantsVersionSpecific) {
+    return true;
+  }
+  return /\b(official|api|manual|spec)\b/i.test(query);
+}
+
 export function buildFollowupQueries(
   { userQuery, confidenceReason, currentResults: _currentResults, maxQueries }: FollowupQueryInput,
 ): string[] {

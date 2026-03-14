@@ -158,16 +158,14 @@ export async function readFile(
   }
 }
 
-async function fileExists(filePath: string): Promise<boolean> {
-  return getPlatform().fs.exists(filePath);
-}
-
 export async function findActualFilePath(
   filePath: string,
   logger?: { debug: (msg: string) => void; error: (msg: string) => void },
   alternativePaths: string[] = [],
 ): Promise<string> {
-  if (await fileExists(filePath)) {
+  const platform = getPlatform();
+
+  if (await platform.fs.exists(filePath)) {
     return filePath;
   }
 
@@ -176,17 +174,16 @@ export async function findActualFilePath(
   );
 
   for (const alternative of alternativePaths) {
-    if (await fileExists(alternative)) {
+    if (await platform.fs.exists(alternative)) {
       logger?.debug?.(`Found file at alternative location: ${alternative}`);
       return alternative;
     }
   }
 
-  const platform = getPlatform();
   const basename = platform.path.basename(filePath);
   const fallbackPath = platform.path.join(platform.process.cwd(), basename);
 
-  if (await fileExists(fallbackPath)) {
+  if (await platform.fs.exists(fallbackPath)) {
     logger?.debug?.(`Found file at fallback location: ${fallbackPath}`);
     return fallbackPath;
   }

@@ -45,11 +45,10 @@ import {
   wrapWithEarlyReturnHandler,
 } from "../utils/return-helpers.ts";
 import {
-  EMPTY_ARRAY_SYMBOL,
   HASH_MAP_INTERNAL,
   HASH_MAP_USER,
-  VECTOR_SYMBOL,
 } from "../../../common/runtime-helper-impl.ts";
+import { hasArrayLiteralPrefix } from "../../../common/sexp-utils.ts";
 import { patternToIR } from "../utils/pattern-to-ir.ts";
 import { parsePattern } from "../../s-exp/pattern-parser.ts";
 import { LRUCache } from "../../../common/lru-cache.ts";
@@ -290,12 +289,10 @@ function isMultiArityClause(node: HQLNode): boolean {
   if (firstElem.type !== "list") return false;
   const paramList = firstElem as ListNode;
   // Check if it's a vector: can be "vector", "empty-array", or "[]"
-  if (paramList.elements.length === 0) return false;
-  if (paramList.elements[0].type !== "symbol") return false;
-  const firstSym = paramList.elements[0] as SymbolNode;
-  return firstSym.name === VECTOR_SYMBOL ||
-         firstSym.name === EMPTY_ARRAY_SYMBOL ||
-         firstSym.name === "[]";
+  return hasArrayLiteralPrefix(paramList) ||
+    (paramList.elements.length > 0 &&
+     paramList.elements[0].type === "symbol" &&
+     (paramList.elements[0] as SymbolNode).name === "[]");
 }
 
 /**
@@ -723,9 +720,7 @@ function reconstructReturnTypeString(listNode: ListNode): string | null {
   const first = elems[0];
 
   // Vector: [Type] → parsed as (vector Type) or (vector Type1 : Type2) for dicts
-  if (first.type === "symbol" &&
-      ((first as SymbolNode).name === VECTOR_SYMBOL ||
-       (first as SymbolNode).name === EMPTY_ARRAY_SYMBOL)) {
+  if (hasArrayLiteralPrefix(listNode)) {
     const typeElems = elems.slice(1);
     if (typeElems.length === 0) return null;
     const names = typeElems.map(e => reconstructNodeAsTypeString(e));
@@ -1262,11 +1257,7 @@ function parseFunctionParameters(
     return { params, defaults, usesJsonMapParams: true };
   }
 
-  if (
-    paramList.elements.length > 0 &&
-    paramList.elements[0].type === "symbol" &&
-    (paramList.elements[0] as SymbolNode).name === VECTOR_SYMBOL
-  ) {
+  if (hasArrayLiteralPrefix(paramList)) {
     const vectorList = { ...paramList, elements: paramList.elements.slice(1) } as ListNode;
     const { params, defaults } = parseParametersWithDefaults(vectorList, currentDir, transformNode);
     return { params, defaults, usesJsonMapParams: false };

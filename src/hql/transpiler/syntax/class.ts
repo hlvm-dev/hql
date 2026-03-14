@@ -25,10 +25,7 @@ import {
   GENERIC_NAME_REGEX,
 } from "./function.ts";
 import { createBlock, createExprStmt, createId, createReturn, createStr } from "../utils/ir-helpers.ts";
-import {
-  VECTOR_SYMBOL,
-  EMPTY_ARRAY_SYMBOL,
-} from "../../../common/runtime-helper-impl.ts";
+import { hasArrayLiteralPrefix } from "../../../common/sexp-utils.ts";
 
 interface MemberExpressionOptions {
   guard?: boolean;
@@ -521,15 +518,6 @@ function parseClassMethodParameters(
 } {
   let paramsList = paramsNode;
 
-  // Check for empty-array (empty brackets [])
-  if (
-    paramsList.elements.length === 1 &&
-    paramsList.elements[0].type === "symbol" &&
-    (paramsList.elements[0] as SymbolNode).name === EMPTY_ARRAY_SYMBOL
-  ) {
-    return { params: [], defaults: new Map(), hasJsonParams: false };
-  }
-
   // Check for hash-map (JSON map parameters)
   if (isHashMapParams(paramsList)) {
     const { params, defaults } = parseJsonMapParameters(
@@ -540,11 +528,8 @@ function parseClassMethodParameters(
     return { params, defaults, hasJsonParams: true };
   }
 
-  if (
-    paramsList.elements.length > 0 &&
-    paramsList.elements[0].type === "symbol" &&
-    (paramsList.elements[0] as SymbolNode).name === VECTOR_SYMBOL
-  ) {
+  // Strip array-literal prefix: (vector x y) → (x y), (empty-array) → ()
+  if (hasArrayLiteralPrefix(paramsList)) {
     paramsList = {
       ...paramsList,
       elements: paramsList.elements.slice(1),
@@ -951,12 +936,8 @@ function processClassConstructor(
     // Extract parameter names
     let paramsList = paramsNode as ListNode;
     
-    // Handle vector literal syntax [x y] which parses as (vector x y)
-    if (
-      paramsList.elements.length > 0 &&
-      paramsList.elements[0].type === "symbol" &&
-      (paramsList.elements[0] as SymbolNode).name === VECTOR_SYMBOL
-    ) {
+    // Strip array-literal prefix: (vector x y) → (x y), (empty-array) → ()
+    if (hasArrayLiteralPrefix(paramsList)) {
       paramsList = {
         ...paramsList,
         elements: paramsList.elements.slice(1),

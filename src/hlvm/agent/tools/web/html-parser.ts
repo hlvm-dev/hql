@@ -63,6 +63,56 @@ export function parseAttributes(tag: string): Record<string, string> {
 }
 
 // ============================================================
+// Code Block Extraction
+// ============================================================
+
+/**
+ * Pre-process raw HTML to preserve `<pre><code>` blocks as fenced markdown.
+ * Replaces each code block with a unique text placeholder so that both
+ * parseHtml() and extractReadableContent() see it as plain text instead of
+ * stripping it to whitespace.
+ *
+ * Returns the cleaned HTML and a Map of placeholder → fenced markdown block.
+ */
+export function extractCodeBlocks(
+  html: string,
+): { cleaned: string; blocks: Map<string, string> } {
+  const blocks = new Map<string, string>();
+  let counter = 0;
+
+  // Match <pre> blocks containing <code> (with optional language class)
+  const preCodeRegex =
+    /<pre\b[^>]*>\s*<code\b([^>]*)>([\s\S]*?)<\/code>\s*<\/pre>/gi;
+
+  const cleaned = html.replace(preCodeRegex, (_match, attrs: string, body: string) => {
+    const langMatch = (attrs as string).match(/class\s*=\s*["'](?:language-|hljs\s+)([^"'\s]+)/i);
+    const lang = langMatch?.[1] ?? "";
+    const decoded = decodeHtmlEntities(
+      body.replace(/<[^>]+>/g, ""),  // Strip nested HTML tags (e.g., <span> from syntax highlighters)
+    );
+    const placeholder = `__CODE_BLOCK_${counter++}__`;
+    blocks.set(placeholder, `\n\`\`\`${lang}\n${decoded.trim()}\n\`\`\`\n`);
+    return placeholder;
+  });
+
+  return { cleaned, blocks };
+}
+
+/**
+ * Restore code block placeholders in extracted text with their fenced markdown.
+ */
+export function restoreCodeBlocks(
+  text: string,
+  blocks: Map<string, string>,
+): string {
+  let result = text;
+  for (const [placeholder, fenced] of blocks) {
+    result = result.replace(placeholder, fenced);
+  }
+  return result;
+}
+
+// ============================================================
 // Structure Extraction
 // ============================================================
 

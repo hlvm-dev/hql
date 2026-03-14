@@ -109,14 +109,16 @@ export function isRecallMetaPrompt(input: string): boolean {
 /**
  * Returns true for prompts worth including in activity blocks.
  * Filters: low-signal, greetings, slash commands, and recall-meta prompts.
+ *
+ * Normalizes once and tests inline to avoid 5x redundant normalizePrompt calls.
  */
 export function isMeaningfulPrompt(input: string): boolean {
   const normalized = normalizePrompt(input);
   if (!normalized) return false;
-  if (isLowSignalPrompt(input)) return false;
-  if (isGreetingOnlyPrompt(input)) return false;
-  if (isSlashCommandPrompt(input)) return false;
-  if (isRecallMetaPrompt(input)) return false;
+  if (LOW_SIGNAL_PROMPTS.has(normalized.toLowerCase())) return false;
+  if (GREETING_ONLY_PATTERN.test(normalized)) return false;
+  if (SLASH_COMMAND_PATTERN.test(normalized)) return false;
+  if (RECALL_META_PATTERNS.some((pattern) => pattern.test(normalized))) return false;
   return true;
 }
 

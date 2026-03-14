@@ -1220,6 +1220,51 @@ Deno.test("runtime host client exposes model discovery, installed models, get/de
   });
 });
 
+Deno.test("pullRuntimeModelViaHost cancels the response stream when the consumer stops early", async () => {
+  let streamCancelled = false;
+
+  await withRuntimeHostServer(async (req, authToken) => {
+    const url = new URL(req.url);
+    assertEquals(req.headers.get("Authorization"), `Bearer ${authToken}`);
+
+    if (url.pathname === "/api/models/pull") {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({
+                event: "progress",
+                status: "downloading",
+                completed: 1,
+                total: 2,
+              }) + "\n",
+            ),
+          );
+        },
+        cancel() {
+          streamCancelled = true;
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "application/x-ndjson" },
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, async () => {
+    for await (const _progress of pullRuntimeModelViaHost("llama3.2:latest")) {
+      break;
+    }
+
+    const deadline = Date.now() + 200;
+    while (!streamCancelled && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assertEquals(streamCancelled, true);
+  });
+});
+
 Deno.test("runtime host client exposes config get/patch/reset through the runtime boundary", async () => {
   const seenPatches: Array<Record<string, unknown>> = [];
 

@@ -1,5 +1,5 @@
 import { parse as parseDomain } from "tldts";
-import type { SearchResult } from "./search-provider.ts";
+import type { SearchResult, SearchResultSourceClass } from "./search-provider.ts";
 
 export interface ResultUrlAnalysis {
   host: string;
@@ -57,4 +57,11 @@ export function hasStructuredEvidence(result: SearchResult): boolean {
     (result.passages?.length ?? 0) > 0 ||
       result.pageDescription,
   );
+}
+
+/** SSOT predicate for authoritative source class checks. */
+export function isAuthoritativeSourceClass(sourceClass?: SearchResultSourceClass): boolean {
+  return sourceClass === "official_docs" ||
+    sourceClass === "vendor_docs" ||
+    sourceClass === "repo_docs";
 }

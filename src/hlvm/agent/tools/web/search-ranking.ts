@@ -389,9 +389,9 @@ export function filterSearchResultsForTimeRange(
 // Passage Extraction
 // ============================================================
 
-const PASSAGE_MAX_CHARS = 280;
+const PASSAGE_MAX_CHARS = 512;
 const PASSAGE_MIN_CHARS = 40;
-const PASSAGE_TOTAL_MAX_CHARS = 600;
+const PASSAGE_TOTAL_MAX_CHARS = 2000;
 
 /**
  * Score a lowercased paragraph against query tokens.
@@ -431,6 +431,36 @@ export function scorePassage(lower: string, tokens: string[]): number {
   return coverage * (tf + proximity);
 }
 
+/**
+ * Split text into passage candidates, treating fenced code blocks (``` ... ```)
+ * as atomic units that must not be split on newlines.
+ */
+function splitIntoPassageCandidates(text: string): string[] {
+  const candidates: string[] = [];
+  const fencedBlockRegex = /^```[^\n]*\n[\s\S]*?^```$/gm;
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(fencedBlockRegex)) {
+    // Add text segments before this code block as paragraph splits
+    const before = text.slice(lastIndex, match.index);
+    for (const p of before.split(/\n{2,}|\n/).map((s) => s.trim())) {
+      if (p.length >= PASSAGE_MIN_CHARS) candidates.push(p);
+    }
+    // Add the code block as one atomic candidate
+    const block = match[0].trim();
+    if (block.length >= PASSAGE_MIN_CHARS) candidates.push(block);
+    lastIndex = match.index! + match[0].length;
+  }
+
+  // Remaining text after last code block
+  const remaining = text.slice(lastIndex);
+  for (const p of remaining.split(/\n{2,}|\n/).map((s) => s.trim())) {
+    if (p.length >= PASSAGE_MIN_CHARS) candidates.push(p);
+  }
+
+  return candidates;
+}
+
 export function extractRelevantPassages(
   query: string,
   text: string,
@@ -441,12 +471,7 @@ export function extractRelevantPassages(
   const tokens = tokenizeQuery(query);
   if (tokens.length === 0) return [];
 
-  // Split into paragraphs at double-newline or single-newline boundaries
-  const paragraphs = text
-    .split(/\n{2,}|\n/)
-    .map((p) => p.trim())
-    .filter((p) => p.length >= PASSAGE_MIN_CHARS);
-
+  const paragraphs = splitIntoPassageCandidates(text);
   if (paragraphs.length === 0) return [];
 
   // Score each paragraph: coverage × (term-frequency + proximity bonus)

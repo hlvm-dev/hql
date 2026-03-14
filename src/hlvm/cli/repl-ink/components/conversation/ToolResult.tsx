@@ -12,6 +12,7 @@ import { useSemanticColors } from "../../../theme/index.ts";
 import DiffRenderer from "./DiffRenderer.tsx";
 import { TOGGLE_LATEST_HINT } from "../../ui-constants.ts";
 import { escapeAnsiCtrlCodes } from "../../utils/sanitize-ansi.ts";
+import { truncateLine } from "../../utils/formatting.ts";
 
 const MAX_RESULT_CHARS = 20_000;
 
@@ -26,14 +27,22 @@ interface ToolResultProps {
 type ContentType = "diff" | "json" | "plain";
 
 function isUnifiedDiffLike(text: string): boolean {
-  const lines = text.split("\n");
-  const hasGitHeader = lines.some((line: string) => line.startsWith("diff --git "));
-  const hasHunkHeader = lines.some((line: string) => line.startsWith("@@ "));
-  const hasOldFileHeader = lines.some((line: string) => line.startsWith("--- "));
-  const hasNewFileHeader = lines.some((line: string) => line.startsWith("+++ "));
-
-  if (hasGitHeader || hasHunkHeader) return true;
-  return hasOldFileHeader && hasNewFileHeader;
+  let hasOld = false;
+  let hasNew = false;
+  let start = 0;
+  while (start < text.length) {
+    let end = text.indexOf("\n", start);
+    if (end === -1) end = text.length;
+    // Check prefixes without allocating substrings for every line
+    const ch = text[start];
+    if (ch === "d" && text.startsWith("diff --git ", start)) return true;
+    if (ch === "@" && text.startsWith("@@ ", start)) return true;
+    if (ch === "-" && text.startsWith("--- ", start)) hasOld = true;
+    if (ch === "+" && text.startsWith("+++ ", start)) hasNew = true;
+    if (hasOld && hasNew) return true;
+    start = end + 1;
+  }
+  return false;
 }
 
 /** Detect content type from the text */
@@ -64,13 +73,6 @@ export function tryFormatJson(text: string): string | null {
   } catch {
     return null;
   }
-}
-
-/** Truncate a single line to fit width */
-function truncateLine(line: string, maxLen: number): string {
-  if (maxLen <= 0) return "";
-  if (line.length <= maxLen) return line;
-  return maxLen > 3 ? line.slice(0, maxLen - 1) + "…" : line.slice(0, maxLen);
 }
 
 export const ToolResult = memo(function ToolResult({

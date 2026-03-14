@@ -139,6 +139,11 @@ function createTraceCallback(
       case "llm_call":
         log.raw.log(`[TRACE] Calling LLM with ${event.messageCount} messages`);
         break;
+      case "thinking_profile":
+        log.raw.log(
+          `[TRACE] Thinking profile: iteration=${event.iteration} phase=${event.phase} openai=${event.openaiReasoningEffort} google=${event.googleThinkingLevel} anthropic=${event.anthropicBudgetTokens} recent_tools=${event.recentToolCalls} failures=${event.consecutiveFailures}`,
+        );
+        break;
       case "llm_response":
         log.raw.log(
           `[TRACE] LLM responded (${event.length} chars): "${event.truncated}..."`,
@@ -271,6 +276,28 @@ function summarizeToolEventForDefaultMode(
   }
   const formatted = formatToolOutputForDefaultMode(toolName, content ?? "");
   return formatted.text;
+}
+
+async function ensureModelAttachmentSupport(
+  modelName: string,
+  attachmentPaths: readonly string[],
+): Promise<void> {
+  const attachmentSupport = await checkModelAttachmentPaths(
+    modelName,
+    attachmentPaths,
+    null,
+  );
+  if (attachmentSupport.supported) return;
+  if (attachmentSupport.catalogFailed) {
+    throw new ValidationError(
+      "Could not verify model media-attachment support. Check provider connection and try again.",
+      "ask",
+    );
+  }
+  throw new ValidationError(
+    `Selected model does not support media attachments: ${modelName}`,
+    "ask",
+  );
 }
 
 export interface CloudAuthRecoveryState {
@@ -441,6 +468,11 @@ export async function askCommand(args: string[]): Promise<void> {
     freshSession = true;
   }
 
+  const attachmentPaths = await resolveAskAttachmentPaths(attachmentArgs);
+  if (!fixturePath && attachmentPaths?.length && modelOverride) {
+    await ensureModelAttachmentSupport(modelOverride, attachmentPaths);
+  }
+
   const runtimeConfig = await createRuntimeConfigManager();
 
   const forceSetup = getPlatform().env.get("HLVM_FORCE_SETUP") === "1";
@@ -474,26 +506,9 @@ export async function askCommand(args: string[]): Promise<void> {
 
   const model = modelOverride ?? undefined;
   const contextWindow = runtimeConfig.getContextWindow();
-  const attachmentPaths = await resolveAskAttachmentPaths(attachmentArgs);
 
   if (!fixturePath && attachmentPaths?.length) {
-    const attachmentSupport = await checkModelAttachmentPaths(
-      resolvedModel,
-      attachmentPaths,
-      null,
-    );
-    if (!attachmentSupport.supported) {
-      if (attachmentSupport.catalogFailed) {
-        throw new ValidationError(
-          "Could not verify model media-attachment support. Check provider connection and try again.",
-          "ask",
-        );
-      }
-      throw new ValidationError(
-        `Selected model does not support media attachments: ${resolvedModel}`,
-        "ask",
-      );
-    }
+    await ensureModelAttachmentSupport(resolvedModel, attachmentPaths);
   }
 
   // Paid provider consent gate

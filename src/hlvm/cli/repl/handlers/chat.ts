@@ -338,6 +338,7 @@ export async function handleChat(req: Request): Promise<Response> {
   }
 
   if (
+    !fixturePath &&
     resolvedModel &&
     evaluateProviderApproval(resolvedModel, config.snapshot.approvedProviders)
         .status === "approval_required"

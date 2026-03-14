@@ -124,6 +124,11 @@ export function createRateLimiter(
   return new SlidingWindowRateLimiter(config);
 }
 
+/** Clone a string list shallowly, returning undefined for empty/missing lists. */
+export function cloneToolList(list?: string[]): string[] | undefined {
+  return list?.length ? [...list] : undefined;
+}
+
 /** Create initial mutable loop state from config */
 export function initializeLoopState(config: OrchestratorConfig): LoopState {
   const usageTracker = config.usage ?? new UsageTracker();

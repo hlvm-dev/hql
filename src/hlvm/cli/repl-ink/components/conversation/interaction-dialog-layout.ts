@@ -146,7 +146,7 @@ function estimateConfirmationDialogRows(
     rows += estimateWrappedTextRows(dialog.planReview.plan.goal, contentWidth);
     rows += 1; // Steps label
     rows += dialog.planReview.visibleSteps.reduce(
-      (total: number, step, index: number) =>
+      (total: number, step) =>
         total +
         estimateWrappedTextRows(
           `[ ] ${step.title}`,

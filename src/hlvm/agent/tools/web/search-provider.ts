@@ -16,7 +16,7 @@ export interface SearchResult {
   snippet?: string;
   score?: number;
   publishedDate?: string;
-  passages?: string[];        // Prefetched relevant passages (max 3, max 280 chars each)
+  passages?: string[];        // Prefetched relevant passages (max 3, max 512 chars each)
   pageDescription?: string;   // Enriched description from prefetched page metadata
   relatedLinks?: string[];    // Cross-domain links extracted from prefetched page
   evidenceStrength?: "high" | "medium" | "low";

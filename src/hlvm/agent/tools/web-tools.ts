@@ -96,7 +96,7 @@ const DEFAULT_HTML_LINKS = 20;
 const MAX_WEB_CHARS = 200_000;
 const DEFAULT_SEARCH_DEPTH: SearchDepthProfile = "medium";
 const LOW_CONFIDENCE_RELATED_LINKS_LIMIT = 4;
-const MAX_LLM_EVIDENCE_CHARS = 320;
+const MAX_LLM_EVIDENCE_CHARS = 512;
 const MAX_LLM_SUPPORTING_RESULTS = 2;
 
 // ============================================================
@@ -968,7 +968,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
       results:
         "Array<{title, url?, snippet?, passages?, pageDescription?, relatedLinks?}>",
       "results[].passages":
-        "string[] (optional) - Relevant passages extracted from prefetched page content (max 3, max 280 chars each)",
+        "string[] (optional) - Relevant passages extracted from prefetched page content (max 3, max 512 chars each)",
       count: "number",
       provider: "string",
       citations: "Citation[] - Structured provenance for each result",

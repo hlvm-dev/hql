@@ -79,6 +79,7 @@ import type {
 } from "./checkpoints.ts";
 import type { DelegateTokenBudget } from "./delegate-token-budget.ts";
 import { recordBudgetUsage } from "./delegate-token-budget.ts";
+import { resolveThinkingProfile } from "./thinking-profile.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -107,6 +108,7 @@ export {
 
 import { callLLMWithRetry, type LLMFunction } from "./orchestrator-llm.ts";
 import {
+  cloneToolList,
   effectiveAllowlist,
   effectiveDenylist,
   initializeLoopState,
@@ -185,6 +187,17 @@ export type TraceEvent =
   | {
     type: "llm_usage";
     usage: TokenUsage;
+  }
+  | {
+    type: "thinking_profile";
+    iteration: number;
+    phase: string;
+    recentToolCalls: number;
+    consecutiveFailures: number;
+    remainingContextBudget: number;
+    anthropicBudgetTokens: number;
+    openaiReasoningEffort: "low" | "medium" | "high";
+    googleThinkingLevel: "low" | "medium" | "high";
   }
   | { type: "loop_detected"; signature: string; count: number }
   | {
@@ -427,6 +440,8 @@ export interface OrchestratorConfig {
   toolFilterBaseline?: ToolFilterState;
   /** Mutable reasoning state shared with the engine. */
   thinkingState?: ThinkingState;
+  /** Whether the active model can use provider-native reasoning/thinking. */
+  thinkingCapable?: boolean;
   l1Confirmations?: Map<string, boolean>;
   toolOwnerId?: string;
   /** Top-level delegate owner used to scope background agent control tools. */
@@ -500,6 +515,7 @@ const RESEARCH_PHASE_CATEGORIES = new Set([
   "git",
   "memory",
   "data",
+  "meta",
 ]);
 
 const EDIT_PHASE_CATEGORIES = new Set([
@@ -507,6 +523,7 @@ const EDIT_PHASE_CATEGORIES = new Set([
   "search",
   "write",
   "git",
+  "meta",
 ]);
 
 const VERIFY_PHASE_CATEGORIES = new Set([
@@ -514,6 +531,7 @@ const VERIFY_PHASE_CATEGORIES = new Set([
   "search",
   "shell",
   "git",
+  "meta",
 ]);
 
 const DELEGATE_PHASE_CATEGORIES = new Set([
@@ -528,10 +546,6 @@ const COMPLETE_PHASE_CATEGORIES = new Set([
   "memory",
   "meta",
 ]);
-
-function cloneToolList(list?: string[]): string[] | undefined {
-  return list?.length ? [...list] : undefined;
-}
 
 function uniqueToolList(items: string[]): string[] {
   return Array.from(new Set(items));
@@ -653,6 +667,10 @@ function applyAdaptiveToolPhase(
     return phase;
   }
 
+  if (!config.toolFilterState) {
+    return phase;
+  }
+
   const baselineAllowlist = config.toolFilterBaseline?.allowlist ??
     config.toolAllowlist;
   const baselineDenylist = config.toolFilterBaseline?.denylist ??
@@ -667,7 +685,7 @@ function applyAdaptiveToolPhase(
   if (!phaseAllowlist?.length) {
     const categories = getPhaseCategories(phase);
     const scoped = Object.entries(availableTools)
-      .filter(([, meta]) => meta.category && categories.has(meta.category))
+      .filter(([, meta]) => !meta.category || categories.has(meta.category))
       .map(([name]) => name);
     phaseAllowlist = uniqueToolList([
       ...ALWAYS_AVAILABLE_RUNTIME_TOOLS.filter((name) =>
@@ -700,12 +718,10 @@ function applyAdaptiveToolPhase(
     ...loopDenylist,
   ]);
 
-  if (config.toolFilterState) {
-    config.toolFilterState.allowlist = cloneToolList(nextAllowlist);
-    config.toolFilterState.denylist = nextDenylist.length > 0
-      ? nextDenylist
-      : undefined;
-  }
+  config.toolFilterState.allowlist = cloneToolList(nextAllowlist);
+  config.toolFilterState.denylist = nextDenylist.length > 0
+    ? nextDenylist
+    : undefined;
   config.toolAllowlist = cloneToolList(nextAllowlist);
   config.toolDenylist = nextDenylist.length > 0 ? nextDenylist : undefined;
   return phase;
@@ -1262,6 +1278,25 @@ export async function runReActLoop(
           0,
           context.getMaxTokens() - stats.estimatedTokens,
         );
+        if (config.thinkingCapable) {
+          const thinkingProfile = resolveThinkingProfile({
+            contextBudget: context.getMaxTokens(),
+            thinkingCapable: config.thinkingCapable,
+            thinkingState: config.thinkingState,
+          });
+          onTrace?.({
+            type: "thinking_profile",
+            iteration: config.thinkingState.iteration ?? 0,
+            phase: config.thinkingState.phase ?? "",
+            recentToolCalls: config.thinkingState.recentToolCalls ?? 0,
+            consecutiveFailures: config.thinkingState.consecutiveFailures ?? 0,
+            remainingContextBudget:
+              config.thinkingState.remainingContextBudget ?? 0,
+            anthropicBudgetTokens: thinkingProfile.anthropicBudgetTokens,
+            openaiReasoningEffort: thinkingProfile.openaiReasoningEffort,
+            googleThinkingLevel: thinkingProfile.googleThinkingLevel,
+          });
+        }
       }
       const messages = context.getMessages();
       onTrace?.({ type: "llm_call", messageCount: messages.length });

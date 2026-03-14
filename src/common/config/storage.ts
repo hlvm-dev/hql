@@ -163,18 +163,12 @@ function normalizeToolsConfig(value: unknown): ToolsConfig | undefined {
 
   if (raw.web && typeof raw.web === "object" && !Array.isArray(raw.web)) {
     const web = raw.web as Record<string, unknown>;
-    const search = normalizeWebSearchConfig(web.search);
-    const fetch = normalizeWebFetchConfig(web.fetch);
     tools.web = {
-      search: search ?? createDefaultWebSearchConfig(),
-      fetch: fetch ?? createDefaultWebFetchConfig(),
-    };
-  } else {
-    tools.web = {
-      search: createDefaultWebSearchConfig(),
-      fetch: createDefaultWebFetchConfig(),
+      search: normalizeWebSearchConfig(web.search) ?? createDefaultWebSearchConfig(),
+      fetch: normalizeWebFetchConfig(web.fetch) ?? createDefaultWebFetchConfig(),
     };
   }
+  // else: tools.web already has defaults from createDefaultToolsConfig()
 
   return tools;
 }

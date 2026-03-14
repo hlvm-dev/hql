@@ -328,6 +328,75 @@ Deno.test({
 });
 
 Deno.test({
+  name: "web tools: search_web keeps the top two fetched hosts diverse for generic docs tutorial queries",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withStubbedFetch(async () => {
+      return new Response(
+        "<html><head><meta name=\"description\" content=\"tutorial\" /></head><body><article><p>tutorial body</p></article></body></html>",
+        { status: 200, headers: { "Content-Type": "text/html" } },
+      );
+    }, async () => {
+      await withIsolatedSearchRegistry(async () => {
+        registerSearchProvider({
+          name: "duckduckgo",
+          displayName: "docs-diversity",
+          requiresApiKey: false,
+          search(query: string) {
+            return Promise.resolve({
+              query,
+              provider: "duckduckgo",
+              count: 4,
+              results: [
+                {
+                  title: "HLVM Docs A",
+                  url: "https://docs.example.com/a",
+                  snippet: "hlvm docs tutorial one",
+                },
+                {
+                  title: "HLVM Docs B",
+                  url: "https://docs.example.com/b",
+                  snippet: "hlvm docs tutorial two",
+                },
+                {
+                  title: "HLVM Community Tutorial",
+                  url: "https://community.example.org/hlvm",
+                  snippet: "hlvm docs community tutorial",
+                },
+                {
+                  title: "HLVM GitHub",
+                  url: "https://github.com/example/hlvm",
+                  snippet: "source repository",
+                },
+              ],
+            });
+          },
+        });
+
+        resetWebToolBudget();
+        const raw = await WEB_TOOLS.search_web.fn(
+          {
+            query: "hlvm docs tutorial",
+            maxResults: 5,
+            prefetch: true,
+            reformulate: false,
+          },
+          "/tmp",
+          { modelId: "test-model" },
+        ) as Record<string, unknown>;
+
+        const results = raw.results as Array<Record<string, unknown>>;
+        const topHosts = results.slice(0, 2).map((result) =>
+          new URL(String(result.url ?? "")).hostname
+        );
+        assertEquals(new Set(topHosts).size, 2);
+      });
+    });
+  },
+});
+
+Deno.test({
   name: "web tools: search_web applies release-note intent to prioritize canonical sources",
   sanitizeOps: false,
   sanitizeResources: false,

@@ -1,7 +1,7 @@
 // src/common/sexp-utils.ts
 // Shared helpers for working with S-expression style node arrays.
 
-import { HASH_MAP_INTERNAL, HASH_MAP_USER } from "./runtime-helper-impl.ts";
+import { EMPTY_ARRAY_SYMBOL, HASH_MAP_INTERNAL, HASH_MAP_USER, VECTOR_SYMBOL } from "./runtime-helper-impl.ts";
 
 interface BaseNode {
   type: string;
@@ -110,6 +110,25 @@ export function isSymbolWithName(node: unknown, name: string): boolean {
 export function hasVectorPrefix(list: ListLike): boolean {
   return list.elements.length > 0 &&
     isSymbolWithName(list.elements[0], "vector");
+}
+
+/**
+ * Check if a list has a "vector" or "empty-array" prefix.
+ * This is the canonical check for array-literal nodes in parsed HQL.
+ *
+ * @param list - A list-like node with elements array
+ * @returns true if the first element is "vector" or "empty-array"
+ *
+ * @example
+ * hasArrayLiteralPrefix({elements: [{type: "symbol", name: "vector"}, ...]})      // → true
+ * hasArrayLiteralPrefix({elements: [{type: "symbol", name: "empty-array"}]})      // → true
+ * hasArrayLiteralPrefix({elements: [{type: "symbol", name: "list"}, ...]})        // → false
+ */
+export function hasArrayLiteralPrefix(list: ListLike): boolean {
+  if (list.elements.length === 0) return false;
+  const first = list.elements[0];
+  return isSymbolWithName(first, VECTOR_SYMBOL) ||
+    isSymbolWithName(first, EMPTY_ARRAY_SYMBOL);
 }
 
 /**

@@ -8,6 +8,7 @@
 
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { shutdownRuntimeHostIfPresent } from "../../shared/runtime-host-test-helpers.ts";
 
 const platform = getPlatform();
 
@@ -29,6 +30,42 @@ export const BINARY_TEST_HLVM_DIR = await platform.fs.makeTempDir({ prefix: "hlv
 // Track compilation state with mutex to prevent race conditions
 let binaryCompiled = false;
 let compilationPromise: Promise<void> | null = null;
+let commandExecutionQueue: Promise<void> = Promise.resolve();
+let binaryTestExecutionQueue: Promise<void> = Promise.resolve();
+
+async function withSerializedCliExecution<T>(
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = commandExecutionQueue;
+  let release!: () => void;
+  commandExecutionQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
+async function withSerializedBinaryTestExecution<T>(
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = binaryTestExecutionQueue;
+  let release!: () => void;
+  binaryTestExecutionQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
 
 /**
  * Command execution result
@@ -142,7 +179,16 @@ export function assertSuccessWithOutputs(result: CommandResult, ...expected: str
  * Note: Deno.test is the test runner API — not a platform concern.
  */
 export function binaryTest(name: string, fn: () => void | Promise<void>): void {
-  Deno.test({ name, sanitizeResources: false, sanitizeOps: false, fn });
+  Deno.test({
+    name,
+    sanitizeResources: false,
+    sanitizeOps: false,
+    fn: async () => {
+      await withSerializedBinaryTestExecution(async () => {
+        await fn();
+      });
+    },
+  });
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -153,24 +199,33 @@ export function binaryTest(name: string, fn: () => void | Promise<void>): void {
 async function executeCLI(args: string[], options?: CommandOptions): Promise<CommandResult> {
   await ensureBinaryCompiled();
 
-  const cmd = USE_BINARY
-    ? [BINARY_PATH, ...args]
-    : ["deno", "run", "-A", CLI_PATH, ...args];
+  return await withSerializedCliExecution(async () => {
+    const cmd = USE_BINARY
+      ? [BINARY_PATH, ...args]
+      : ["deno", "run", "-A", CLI_PATH, ...args];
+    const runtimeBaseUrl = getBinaryRuntimeBaseUrl(options);
 
-  const output = await platform.command.output({
-    cmd,
-    cwd: options?.cwd,
-    env: getBinaryTestEnv(options?.env),
-    stdout: "piped",
-    stderr: "piped",
+    try {
+      const output = await platform.command.output({
+        cmd,
+        cwd: options?.cwd,
+        env: getBinaryTestEnv(options?.env),
+        stdout: "piped",
+        stderr: "piped",
+      });
+
+      return {
+        success: output.success,
+        code: output.code,
+        stdout: new TextDecoder().decode(output.stdout),
+        stderr: new TextDecoder().decode(output.stderr),
+      };
+    } finally {
+      if (runtimeBaseUrl) {
+        await shutdownRuntimeHostIfPresent(runtimeBaseUrl);
+      }
+    }
   });
-
-  return {
-    success: output.success,
-    code: output.code,
-    stdout: new TextDecoder().decode(output.stdout),
-    stderr: new TextDecoder().decode(output.stderr),
-  };
 }
 
 /**
@@ -291,6 +346,18 @@ export async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T
   } finally {
     await platform.fs.remove(dir, { recursive: true }).catch(() => {});
   }
+}
+
+function getBinaryRuntimeBaseUrl(options?: CommandOptions): string | null {
+  const portText = options?.env?.HLVM_REPL_PORT?.trim();
+  if (!portText) return null;
+
+  const port = Number.parseInt(portText, 10);
+  if (!Number.isInteger(port) || port <= 0) {
+    return null;
+  }
+
+  return `http://127.0.0.1:${port}`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

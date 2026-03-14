@@ -127,6 +127,7 @@ class ResourceRegistry {
 export class TaskManager {
   private tasks = new Map<string, Task>();
   private resources = new ResourceRegistry();
+  private inFlightPulls = new Set<Promise<void>>();
   private pendingDelegateLifecycle = new Map<
     string,
     {
@@ -145,6 +146,7 @@ export class TaskManager {
   private eventListeners = new Set<TaskEventListener>();
   private version = 0;
   private notifyPending = false;
+  private shutdownPromise: Promise<void> | null = null;
 
   // Configuration
   private endpoint: string;
@@ -385,8 +387,18 @@ export class TaskManager {
     this.notify();
     this.emit({ type: "task:created", task });
 
-    // Start download in background (non-blocking)
-    this.executePull(id, normalizedName, abortController.signal);
+    // Start download in background (non-blocking) and keep a handle so shutdown
+    // can wait for the aborted pull path to finish unwinding.
+    const pullPromise = this.executePull(id, normalizedName, abortController.signal)
+      .catch((error) => {
+        log.debug(
+          `[TaskManager] pullModel background task surfaced after local handling: ${ensureError(error).message}`,
+        );
+      })
+      .finally(() => {
+        this.inFlightPulls.delete(pullPromise);
+      });
+    this.inFlightPulls.add(pullPromise);
 
     return id;
   }
@@ -942,13 +954,27 @@ export class TaskManager {
   }
 
   /** Shutdown - cancel all and cleanup */
-  shutdown(): void {
-    // Use ResourceRegistry for proper cleanup
-    this.resources.shutdown();
-    this.tasks.clear();
-    this.pendingDelegateLifecycle.clear();
-    this.listeners.clear();
-    this.eventListeners.clear();
+  async shutdown(): Promise<void> {
+    if (this.shutdownPromise) {
+      await this.shutdownPromise;
+      return;
+    }
+
+    this.shutdownPromise = (async () => {
+      // Use ResourceRegistry for proper cleanup
+      this.resources.shutdown();
+      const pendingPulls = [...this.inFlightPulls];
+      if (pendingPulls.length > 0) {
+        await Promise.allSettled(pendingPulls);
+      }
+      this.tasks.clear();
+      this.pendingDelegateLifecycle.clear();
+      this.listeners.clear();
+      this.eventListeners.clear();
+      this.inFlightPulls.clear();
+    })();
+
+    await this.shutdownPromise;
   }
 
   /** Register a cleanup function to run on shutdown */
@@ -989,7 +1015,7 @@ export function getTaskManager(endpoint?: string): TaskManager {
  */
 export function resetTaskManager(): void {
   if (_instance) {
-    _instance.shutdown();
+    void _instance.shutdown();
     _instance = null;
   }
 }
@@ -1005,7 +1031,7 @@ function registerShutdownHandlers(): void {
   // Handle SIGINT (Ctrl+C)
   try {
     getPlatform().process.addSignalListener("SIGINT", () => {
-      if (_instance) _instance.shutdown();
+      if (_instance) void _instance.shutdown();
     });
   } catch {
     // Signal listeners may not be available in all environments
@@ -1014,7 +1040,7 @@ function registerShutdownHandlers(): void {
   // Handle SIGTERM
   try {
     getPlatform().process.addSignalListener("SIGTERM", () => {
-      if (_instance) _instance.shutdown();
+      if (_instance) void _instance.shutdown();
     });
   } catch {
     // Signal listeners may not be available in all environments
@@ -1023,10 +1049,10 @@ function registerShutdownHandlers(): void {
   // Handle process exit (beforeunload/unload)
   try {
     globalThis.addEventListener("beforeunload", () => {
-      if (_instance) _instance.shutdown();
+      if (_instance) void _instance.shutdown();
     });
     globalThis.addEventListener("unload", () => {
-      if (_instance) _instance.shutdown();
+      if (_instance) void _instance.shutdown();
     });
   } catch {
     // Event listeners may not be available in all environments

@@ -21,7 +21,6 @@ import {
   GET_NUMERIC_HELPER,
   GET_OP_HELPER,
   VECTOR_SYMBOL,
-  EMPTY_ARRAY_SYMBOL,
 } from "../../../common/runtime-helper-impl.ts";
 import { globalLogger as logger } from "../../../logger.ts";
 import {
@@ -49,6 +48,7 @@ import {
   setCurrentSymbolTable as setImportExportSymbolTable,
 } from "../syntax/import-export.ts";
 import { FIRST_CLASS_OPERATORS } from "../keyword/primitives.ts";
+import { hasArrayLiteralPrefix } from "../../../common/sexp-utils.ts";
 
 // Import syntax modules
 import * as bindingModule from "../syntax/binding.ts";
@@ -945,11 +945,8 @@ function initializeTransformFactory(): void {
         const elementsWithPrefix = paramsList.elements;
         let params = elementsWithPrefix;
 
-        if (elementsWithPrefix.length > 0 && elementsWithPrefix[0].type === "symbol") {
-          const head = (elementsWithPrefix[0] as SymbolNode).name;
-          if (head === VECTOR_SYMBOL || head === EMPTY_ARRAY_SYMBOL) {
-            params = elementsWithPrefix.slice(1);
-          }
+        if (hasArrayLiteralPrefix(paramsList)) {
+          params = elementsWithPrefix.slice(1);
         }
 
         return params.map((paramNode, index) => {

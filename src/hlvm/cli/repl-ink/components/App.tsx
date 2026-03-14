@@ -344,12 +344,42 @@ function AppContent(
     pendingInteraction,
     agentControllerRef,
     interactionResolversRef,
+    prepareConversationMediaPayload,
+    getConversationAttachmentLabels,
     runConversation,
     submitConversationDraft,
     handleInteractionResponse,
     closeConversationMode,
     handleForceInterrupt,
   } = agentRunner;
+
+  useEffect(() => {
+    if (activeOverlay !== "none") return;
+    if (agentExecutionMode === "plan") {
+      if (surfacePanel === "none") {
+        setSurfacePanel("conversation");
+      }
+      return;
+    }
+    if (
+      surfacePanel === "conversation" &&
+      conversation.items.length === 0 &&
+      !agentControllerRef.current &&
+      pendingConversationQueue.length === 0 &&
+      !pendingInteraction
+    ) {
+      setSurfacePanel("none");
+    }
+  }, [
+    activeOverlay,
+    agentExecutionMode,
+    surfacePanel,
+    conversation.items.length,
+    agentControllerRef,
+    pendingConversationQueue.length,
+    pendingInteraction,
+    setSurfacePanel,
+  ]);
 
   const suppressHistoryOutput = useCallback((historyId: number) => {
     setHistory((prev: HistoryEntry[]) =>
@@ -548,12 +578,8 @@ function AppContent(
   pendingInteractionRef.current = pendingInteraction;
   const pendingConversationQueueRef = useRef(pendingConversationQueue);
   pendingConversationQueueRef.current = pendingConversationQueue;
-  const runConversationRef = useRef(runConversation);
-  runConversationRef.current = runConversation;
   const closeConversationModeRef = useRef(closeConversationMode);
   closeConversationModeRef.current = closeConversationMode;
-  const submitConversationDraftRef = useRef(submitConversationDraft);
-  submitConversationDraftRef.current = submitConversationDraft;
   const handleInteractionResponseRef = useRef(handleInteractionResponse);
   handleInteractionResponseRef.current = handleInteractionResponse;
   const restoreComposerDraftRef = useRef(restoreComposerDraft);
@@ -777,7 +803,7 @@ function AppContent(
           setComposerAttachments([]);
           return;
         }
-        const result = submitConversationDraftRef.current(conversationDraft);
+        const result = submitConversationDraft(conversationDraft);
         if (!result.started) {
           restoreComposerDraftRef.current(conversationDraft);
           if (result.unsupportedMimeType) {
@@ -799,20 +825,16 @@ function AppContent(
 
       // Natural language → agent conversation mode
       const candidateConversationQuery = forceConversationPrompt ??
-        code.trim();
+        expandedCode.trim();
       if (
-        forceConversationPrompt || isNaturalLanguage(candidateConversationQuery)
+        forceConversationPrompt ||
+        agentExecutionMode === "plan" ||
+        isNaturalLanguage(candidateConversationQuery)
       ) {
         recordPromptHistory(replState, code, "conversation");
-        const conversationDraft = createConversationComposerDraft(
-          candidateConversationQuery,
-          attachments,
-        );
-        const result = submitConversationDraftRef.current(conversationDraft);
-        if (!result.started) {
-          restoreComposerDraftRef.current(conversationDraft);
-          const unsupportedMimeType = result.unsupportedMimeType;
-          if (!unsupportedMimeType) return;
+        const { images, unsupportedMimeType } =
+          prepareConversationMediaPayload(attachments);
+        if (unsupportedMimeType) {
           addHistoryEntry(code, {
             success: false,
             error: new Error(
@@ -821,6 +843,21 @@ function AppContent(
           });
           return;
         }
+        const imagePaths = images && images.length > 0 ? images : undefined;
+        const attachmentLabels = getConversationAttachmentLabels(attachments);
+        setSurfacePanel("conversation");
+        setFooterContextUsageLabel("");
+        conversation.addUserMessage(candidateConversationQuery, {
+          attachments: attachmentLabels,
+        });
+        conversation.addAssistantText("", true);
+        setIsEvaluating(true);
+        void runConversation(
+          candidateConversationQuery,
+          imagePaths,
+          attachmentLabels,
+          { skipTranscriptSeed: true },
+        );
         return;
       }
 
@@ -921,9 +958,16 @@ function AppContent(
       failEvalTask,
       suppressHistoryOutput,
       streamEvalToTask,
+      agentExecutionMode,
+      prepareConversationMediaPayload,
+      getConversationAttachmentLabels,
+      runConversation,
+      submitConversationDraft,
       isNaturalLanguage,
       hasConversationContext,
       replState,
+      conversation,
+      setFooterContextUsageLabel,
     ],
   );
 

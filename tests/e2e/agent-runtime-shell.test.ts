@@ -11,6 +11,62 @@ const CLI_PATH = platform.path.fromFileUrl(
   new URL("../../src/hlvm/cli/cli.ts", import.meta.url),
 );
 const LIVE_MODEL = platform.env.get("HLVM_LIVE_AGENT_MODEL")?.trim() || "";
+let localAskExecutionQueue: Promise<void> = Promise.resolve();
+let localAskTestExecutionQueue: Promise<void> = Promise.resolve();
+
+interface LocalAskTestDefinition {
+  name: string;
+  ignore?: boolean;
+  fn: () => void | Promise<void>;
+}
+
+async function withSerializedLocalAsk<T>(
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = localAskExecutionQueue;
+  let release!: () => void;
+  localAskExecutionQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
+async function withSerializedLocalAskTest<T>(
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = localAskTestExecutionQueue;
+  let release!: () => void;
+  localAskTestExecutionQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
+function localAskTest(definition: LocalAskTestDefinition): void {
+  Deno.test({
+    name: definition.name,
+    ignore: definition.ignore,
+    sanitizeOps: false,
+    sanitizeResources: false,
+    fn: async () => {
+      await withSerializedLocalAskTest(async () => {
+        await definition.fn();
+      });
+    },
+  });
+}
 
 function normalizeCliOutput(text: string): string {
   return text
@@ -25,24 +81,26 @@ async function runLocalAsk(
   env: Record<string, string>,
   cwd?: string,
 ): Promise<{ success: boolean; stdout: string; stderr: string; code: number }> {
-  const cmd = ["deno", "run", "-A", CLI_PATH, "ask", ...args];
-  const output = await platform.command.output({
-    cmd,
-    cwd,
-    env: {
-      ...platform.env.toObject(),
-      HLVM_REPL_PORT: String(port),
-      ...env,
-    },
-    stdout: "piped",
-    stderr: "piped",
+  return await withSerializedLocalAsk(async () => {
+    const cmd = ["deno", "run", "-A", CLI_PATH, "ask", ...args];
+    const output = await platform.command.output({
+      cmd,
+      cwd,
+      env: {
+        ...platform.env.toObject(),
+        HLVM_REPL_PORT: String(port),
+        ...env,
+      },
+      stdout: "piped",
+      stderr: "piped",
+    });
+    return {
+      success: output.success,
+      code: output.code,
+      stdout: new TextDecoder().decode(output.stdout),
+      stderr: new TextDecoder().decode(output.stderr),
+    };
   });
-  return {
-    success: output.success,
-    code: output.code,
-    stdout: new TextDecoder().decode(output.stdout),
-    stderr: new TextDecoder().decode(output.stderr),
-  };
 }
 
 function buildLargeFixtureFile(): string {
@@ -193,6 +251,29 @@ async function createAiLoopEnhancementFixture(
         ],
       },
       {
+        name: "adaptive-thinking",
+        match: { contains: ["fix adaptive thinking enhancement smoke"] },
+        steps: [
+          {
+            toolCalls: [
+              {
+                id: "read_1",
+                toolName: "read_file",
+                args: { path: "src.js" },
+              },
+              {
+                id: "search_1",
+                toolName: "search_code",
+                args: { pattern: "value" },
+              },
+            ],
+          },
+          {
+            response: "Adaptive thinking enhancement complete",
+          },
+        ],
+      },
+      {
         name: "loop-recovery",
         match: { contains: ["loop recovery enhancement smoke"] },
         steps: [
@@ -317,11 +398,9 @@ async function withAiLoopEnhancementWorkspace(
   }
 }
 
-Deno.test({
+localAskTest({
   name:
     "local ask command self-starts the runtime host and renders system-managed delegation",
-  sanitizeOps: false,
-  sanitizeResources: false,
   fn: async () => {
     const port = await findFreePort();
     const hlvmDir = await platform.fs.makeTempDir({
@@ -364,11 +443,9 @@ Deno.test({
   },
 });
 
-Deno.test({
+localAskTest({
   name:
     "local ask command forwards multimodal attachments through the runtime host",
-  sanitizeOps: false,
-  sanitizeResources: false,
   fn: async () => {
     const port = await findFreePort();
     const hlvmDir = await platform.fs.makeTempDir({
@@ -413,11 +490,9 @@ Deno.test({
   },
 });
 
-Deno.test({
+localAskTest({
   name:
     "delegation heuristic injects system hint for multi-file concurrent request",
-  sanitizeOps: false,
-  sanitizeResources: false,
   fn: async () => {
     const port = await findFreePort();
     const hlvmDir = await platform.fs.makeTempDir({
@@ -462,11 +537,9 @@ Deno.test({
   },
 });
 
-Deno.test({
+localAskTest({
   name:
     "raw ./hlvm ask verbose output surfaces provider reasoning distinctly from generic working state",
-  sanitizeOps: false,
-  sanitizeResources: false,
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-reasoning-",
@@ -499,11 +572,9 @@ Deno.test({
   },
 });
 
-Deno.test({
+localAskTest({
   name:
     "raw ./hlvm ask sends compressed read_file content back into the next LLM step",
-  sanitizeOps: false,
-  sanitizeResources: false,
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-compression-",
@@ -534,11 +605,9 @@ Deno.test({
   },
 });
 
-Deno.test({
+localAskTest({
   name:
     "raw ./hlvm ask shows syntax verification success to the user after write_file",
-  sanitizeOps: false,
-  sanitizeResources: false,
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-verify-pass-",
@@ -572,11 +641,9 @@ Deno.test({
   },
 });
 
-Deno.test({
+localAskTest({
   name:
     "raw ./hlvm ask shows syntax verification failure to the user after write_file",
-  sanitizeOps: false,
-  sanitizeResources: false,
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-verify-fail-",
@@ -610,11 +677,50 @@ Deno.test({
   },
 });
 
-Deno.test({
+localAskTest({
+  name: "raw ./hlvm ask shows adaptive thinking profile changing across turns",
+  fn: async () => {
+    await withAiLoopEnhancementWorkspace(
+      "hlvm-ai-loop-thinking-",
+      async ({ hlvmDir, port, fixturePath }) => {
+        const result = await runLocalAsk(
+          port,
+          [
+            "--fresh",
+            "--verbose",
+            "--model",
+            "openai/o3",
+            "fix adaptive thinking enhancement smoke",
+          ],
+          {
+            HLVM_DIR: hlvmDir,
+            HLVM_ASK_FIXTURE_PATH: fixturePath,
+          },
+          hlvmDir,
+        );
+
+        const output = normalizeCliOutput(result.stdout + result.stderr);
+        assertEquals(result.success, true, output);
+        assertStringIncludes(
+          output,
+          "[TRACE] Thinking profile: iteration=1 phase=editing openai=low",
+        );
+        assertStringIncludes(
+          output,
+          "[TRACE] Thinking profile: iteration=2 phase=editing openai=medium",
+        );
+        assertStringIncludes(
+          output,
+          "Result:\nAdaptive thinking enhancement complete",
+        );
+      },
+    );
+  },
+});
+
+localAskTest({
   name:
     "raw ./hlvm ask blocks irrelevant web search once phase pruning enters edit mode",
-  sanitizeOps: false,
-  sanitizeResources: false,
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-phase-pruning-",
@@ -651,10 +757,8 @@ Deno.test({
   },
 });
 
-Deno.test({
+localAskTest({
   name: "raw ./hlvm ask recovers from a repeated search loop before giving up",
-  sanitizeOps: false,
-  sanitizeResources: false,
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-recovery-",
@@ -686,12 +790,10 @@ Deno.test({
   },
 });
 
-Deno.test({
+localAskTest({
   name:
     "live local ask smoke test uses natural language to trigger delegation and team coordination",
   ignore: LIVE_MODEL.length === 0,
-  sanitizeOps: false,
-  sanitizeResources: false,
   fn: async () => {
     const port = await findFreePort();
     const hlvmDir = await platform.fs.makeTempDir({

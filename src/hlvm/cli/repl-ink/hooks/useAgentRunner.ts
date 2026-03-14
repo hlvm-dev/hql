@@ -97,6 +97,7 @@ export interface UseAgentRunnerResult {
     query: string,
     mediaPaths?: string[],
     attachmentLabels?: string[],
+    options?: { skipTranscriptSeed?: boolean },
   ) => Promise<void>;
   submitConversationDraft: (
     draft: ConversationComposerDraft,
@@ -219,6 +220,7 @@ export function useAgentRunner(
     query: string,
     mediaPaths?: string[],
     attachmentLabels?: string[],
+    options?: { skipTranscriptSeed?: boolean },
   ) => {
     // Guard: prevent double agent start — set ref atomically before any async work
     if (agentControllerRef.current) return;
@@ -230,9 +232,12 @@ export function useAgentRunner(
     setSurfacePanel("conversation");
     setFooterContextUsageLabel("");
 
-    // Show user message and pending indicator immediately — before expensive config/model init
-    conversation.addUserMessage(query, { attachments: attachmentLabels });
-    conversation.addAssistantText("", true);
+    // Show user message and pending indicator immediately — before expensive
+    // config/model init, unless the caller already seeded the transcript.
+    if (!options?.skipTranscriptSeed) {
+      conversation.addUserMessage(query, { attachments: attachmentLabels });
+      conversation.addAssistantText("", true);
+    }
 
     try {
       const currentModelSelection = await refreshRuntimeConfigState();

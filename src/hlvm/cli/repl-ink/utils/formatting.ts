@@ -16,3 +16,21 @@ export function formatDurationMs(ms: number): string {
   const secs = Math.round((ms % 60000) / 1000);
   return `${mins}m ${secs}s`;
 }
+
+/** Truncate a single line to fit within maxWidth, appending an ellipsis if truncated. */
+export function truncateLine(text: string, maxWidth: number): string {
+  if (maxWidth < 4) return text;
+  if (text.length <= maxWidth) return text;
+  return `${text.slice(0, maxWidth - 1)}\u2026`;
+}
+
+/** Format elapsed milliseconds to a compact human-readable duration (e.g. "3s", "2m 15s", "1h 5m"). */
+export function formatElapsed(ms: number): string {
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const remainSecs = secs % 60;
+  if (mins < 60) return `${mins}m ${remainSecs}s`;
+  const hours = Math.floor(mins / 60);
+  return `${hours}h ${mins % 60}m`;
+}

@@ -146,9 +146,10 @@ export async function ensureMemoryDirs(): Promise<void> {
 /** Synchronous version of ensureMemoryDirs — for use in sync-only contexts like SQLite init */
 export function ensureMemoryDirsSync(): void {
   const fs = getPlatform().fs;
-  fs.mkdirSync(getMemoryDir(), { recursive: true });
+  const memDir = getMemoryDir();
+  fs.mkdirSync(memDir, { recursive: true });
   try {
-    fs.chmodSync(getMemoryDir(), 0o700);
+    fs.chmodSync(memDir, 0o700);
   } catch {
     // chmod may not be supported on all platforms (e.g., Windows)
   }
