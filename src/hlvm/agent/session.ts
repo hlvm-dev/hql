@@ -38,6 +38,7 @@ import { createTodoState, type TodoState } from "./todo-state.ts";
 import {
   type AgentEngine,
   getAgentEngine,
+  type ThinkingState,
   type ToolFilterState,
 } from "./engine.ts";
 import {
@@ -90,6 +91,7 @@ export interface AgentSession {
     toolAllowlist?: string[];
     toolDenylist?: string[];
     toolFilterState?: ToolFilterState;
+    thinkingState?: ThinkingState;
     toolOwnerId?: string;
     temperature?: number;
   };
@@ -179,6 +181,7 @@ export async function createAgentSession(
     toolFilterState.allowlist = cloneStringList(baseToolFilter.allowlist);
     toolFilterState.denylist = cloneStringList(baseToolFilter.denylist);
   };
+  const thinkingState: ThinkingState = {};
 
   // Lazy MCP loading: defer connection/registration until first MCP use.
   let loadedMcp: Awaited<ReturnType<typeof loadMcpTools>> | null = null;
@@ -311,6 +314,7 @@ export async function createAgentSession(
       toolAllowlist: toolFilterState.allowlist,
       toolDenylist: toolFilterState.denylist,
       toolFilterState,
+      thinkingState,
       toolOwnerId,
       onToken: options.onToken,
       thinkingCapable: modelInfo?.capabilities?.includes("thinking") ?? false,
@@ -322,6 +326,7 @@ export async function createAgentSession(
     toolAllowlist: toolFilterState.allowlist,
     toolDenylist: toolFilterState.denylist,
     toolFilterState,
+    thinkingState,
     toolOwnerId,
     temperature: 0.0,
   };

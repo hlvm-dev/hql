@@ -464,6 +464,7 @@ async function handleDraftedPlan(
   const reviewDecision = await config.planReview.ensureApproved(plan);
   if (reviewDecision === "approved") {
     state.planState = createPlanState(plan);
+    state.toolSearchAllowlist = undefined;
     if (config.planModeState) {
       const executionAllowlist = derivePlanExecutionAllowlist(
         plan,
@@ -492,6 +493,14 @@ async function handleDraftedPlan(
       config.toolDenylist = config.planModeState.executionDenylist?.length
         ? [...config.planModeState.executionDenylist]
         : undefined;
+      config.toolFilterBaseline = {
+        allowlist: executionAllowlist
+          ? [...executionAllowlist]
+          : undefined,
+        denylist: config.planModeState.executionDenylist?.length
+          ? [...config.planModeState.executionDenylist]
+          : undefined,
+      };
     }
     lc.planningConfig.requireStepMarkers = true;
     addContextMessage(config, {
@@ -505,6 +514,7 @@ async function handleDraftedPlan(
   }
 
   if (reviewDecision === "revise") {
+    state.toolSearchAllowlist = undefined;
     if (config.planModeState) {
       config.planModeState.phase = "researching";
       config.onAgentEvent?.({
@@ -952,6 +962,7 @@ export async function handlePostToolExecution(
   }
 
   const executedCalls = result.toolCalls.slice(0, result.results.length);
+  state.lastToolNames = executedCalls.map((call) => call.toolName);
   const allToolsBlocked = executedCalls.length > 0 &&
     executedCalls.every((call) => {
       const count = state.denialCountByTool.get(call.toolName) || 0;
@@ -1017,6 +1028,7 @@ export async function handlePostToolExecution(
       config.toolFilterState.allowlist = nextAllowlist;
     }
     config.toolAllowlist = nextAllowlist;
+    state.toolSearchAllowlist = [...nextAllowlist];
 
     const preview = nextAllowlist.slice(0, 12).join(", ");
     const extra = nextAllowlist.length > 12
@@ -1082,6 +1094,43 @@ export async function handlePostToolExecution(
   }
 
   if (loopDetected) {
+    const repeatedTool = result.toolCalls[0]?.toolName;
+    if (state.loopRecoverySignature !== state.lastToolSignature) {
+      state.loopRecoverySignature = state.lastToolSignature;
+      state.loopRecoveryStep = 0;
+    }
+
+    if (state.loopRecoveryStep === 0) {
+      state.loopRecoveryStep = 1;
+      addContextMessage(config, {
+        role: "user",
+        content:
+          "You are repeating the same tool pattern without progress. Change approach now: inspect a different source, use tool_search, ask a concise clarification, or move to an edit/verification step. Do not repeat the same tool call batch.",
+      });
+      return { action: "continue" };
+    }
+
+    if (state.loopRecoveryStep === 1 && repeatedTool) {
+      state.loopRecoveryStep = 2;
+      state.temporaryToolDenylist.set(repeatedTool, 2);
+      addContextMessage(config, {
+        role: "user",
+        content:
+          `Loop recovery: '${repeatedTool}' is temporarily blocked for the next 2 turns. Use a different tool or ask_user instead of repeating it.`,
+      });
+      return { action: "continue" };
+    }
+
+    if (state.loopRecoveryStep === 2) {
+      state.loopRecoveryStep = 3;
+      addContextMessage(config, {
+        role: "user",
+        content:
+          "Loop recovery escalation: do not repeat the prior tool pattern. Prefer tool_search, ask_user, or a concise final answer if you already have enough information.",
+      });
+      return { action: "continue" };
+    }
+
     return {
       action: "return",
       value: [
@@ -1091,6 +1140,9 @@ export async function handlePostToolExecution(
       ].join("\n"),
     };
   }
+
+  state.loopRecoverySignature = undefined;
+  state.loopRecoveryStep = 0;
 
   // Build citation source index from raw web tool payloads (for span attribution).
   const citationSources = buildCitationSourceIndex(

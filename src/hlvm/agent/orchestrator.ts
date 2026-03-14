@@ -19,8 +19,9 @@ import {
   hasTool,
   type InteractionRequestEvent,
   type InteractionResponse,
+  resolveTools,
 } from "./registry.ts";
-import type { ToolFilterState } from "./engine.ts";
+import type { ThinkingState, ToolFilterState } from "./engine.ts";
 import { type ContextManager, ContextOverflowError } from "./context.ts";
 import type { GroundingMode, ModelTier } from "./constants.ts";
 import { getErrorMessage, truncate } from "../../common/utils.ts";
@@ -46,13 +47,13 @@ import {
   listAgentProfiles,
 } from "./agent-registry.ts";
 import {
+  buildPlanModeReminder,
   createPlanState,
   formatPlanForContext,
   type Plan,
   type PlanningConfig,
   type PlanningPhase,
   type PlanState,
-  buildPlanModeReminder,
   requestPlan,
   shouldPlanRequest,
 } from "./planning.ts";
@@ -235,6 +236,13 @@ export interface FinalResponseMeta {
   providerMetadata?: Record<string, unknown>;
 }
 
+export type RuntimeToolPhase =
+  | "researching"
+  | "editing"
+  | "verifying"
+  | "delegating"
+  | "completing";
+
 export type AgentUIEvent =
   | { type: "plan_phase_changed"; phase: PlanningPhase }
   | { type: "thinking"; iteration: number }
@@ -415,6 +423,10 @@ export interface OrchestratorConfig {
   toolDenylist?: string[];
   /** Shared mutable tool filters (updated by tool_search). */
   toolFilterState?: ToolFilterState;
+  /** Baseline tool filters before runtime narrowing/pruning. */
+  toolFilterBaseline?: ToolFilterState;
+  /** Mutable reasoning state shared with the engine. */
+  thinkingState?: ThinkingState;
   l1Confirmations?: Map<string, boolean>;
   toolOwnerId?: string;
   /** Top-level delegate owner used to scope background agent control tools. */
@@ -471,6 +483,232 @@ function memoryWriteAvailable(config: OrchestratorConfig): boolean {
   if (allowlist && !allowlist.includes("memory_write")) return false;
   if (effectiveDenylist(config)?.includes("memory_write")) return false;
   return hasTool("memory_write", config.toolOwnerId);
+}
+
+const ALWAYS_AVAILABLE_RUNTIME_TOOLS = [
+  "ask_user",
+  "complete_task",
+  "tool_search",
+  "todo_read",
+  "todo_write",
+];
+
+const RESEARCH_PHASE_CATEGORIES = new Set([
+  "read",
+  "search",
+  "web",
+  "git",
+  "memory",
+  "data",
+]);
+
+const EDIT_PHASE_CATEGORIES = new Set([
+  "read",
+  "search",
+  "write",
+  "git",
+]);
+
+const VERIFY_PHASE_CATEGORIES = new Set([
+  "read",
+  "search",
+  "shell",
+  "git",
+]);
+
+const DELEGATE_PHASE_CATEGORIES = new Set([
+  "read",
+  "search",
+  "meta",
+]);
+
+const COMPLETE_PHASE_CATEGORIES = new Set([
+  "read",
+  "git",
+  "memory",
+  "meta",
+]);
+
+function cloneToolList(list?: string[]): string[] | undefined {
+  return list?.length ? [...list] : undefined;
+}
+
+function uniqueToolList(items: string[]): string[] {
+  return Array.from(new Set(items));
+}
+
+function intersectToolLists(
+  left?: string[],
+  right?: string[],
+): string[] | undefined {
+  if (!left?.length) return cloneToolList(right);
+  if (!right?.length) return cloneToolList(left);
+  const rightSet = new Set(right);
+  const intersected = left.filter((item) => rightSet.has(item));
+  return intersected.length > 0 ? intersected : undefined;
+}
+
+function requestImpliesVerification(query: string): boolean {
+  return /\b(test|verify|validation|validate|check|build|compile|run)\b/i.test(
+    query,
+  );
+}
+
+function requestImpliesEditing(query: string): boolean {
+  return /\b(fix|edit|write|change|implement|refactor|rename|update|patch|add|remove)\b/i
+    .test(query);
+}
+
+function requestImpliesDelegation(query: string): boolean {
+  return /\b(delegate|delegation|multiple agents|spawn .*agent|parallel|concurrent|concurrently|team)\b/i
+    .test(query) || evaluateDelegationSignal(query).shouldDelegate;
+}
+
+function deriveRuntimePhase(
+  state: LoopState,
+  config: OrchestratorConfig,
+  userRequest: string,
+): RuntimeToolPhase {
+  if (config.planModeState?.phase === "executing" || state.planState) {
+    if (
+      state.lastToolNames.some((name) =>
+        name === "write_file" || name === "edit_file"
+      )
+    ) {
+      return "verifying";
+    }
+    return "editing";
+  }
+
+  if (
+    state.lastToolNames.some((name) =>
+      name === "write_file" || name === "edit_file"
+    )
+  ) {
+    return "verifying";
+  }
+  if (
+    state.lastToolNames.some((name) =>
+      name === "shell_exec" || name === "shell_script" || name === "git_diff" ||
+      name === "git_status"
+    )
+  ) {
+    return "completing";
+  }
+  if (
+    state.lastToolNames.some((name) =>
+      name === "delegate_agent" || name === "batch_delegate" ||
+      name.startsWith("team_")
+    )
+  ) {
+    return "delegating";
+  }
+  if (
+    state.lastToolNames.some((name) =>
+      name === "read_file" || name === "search_code" || name === "list_files" ||
+      name === "tool_search"
+    ) && requestImpliesEditing(userRequest)
+  ) {
+    return "editing";
+  }
+  if (requestImpliesDelegation(userRequest)) {
+    return "delegating";
+  }
+  if (requestImpliesEditing(userRequest)) {
+    return "editing";
+  }
+  if (requestImpliesVerification(userRequest)) {
+    return "verifying";
+  }
+  return "researching";
+}
+
+function getPhaseCategories(phase: RuntimeToolPhase): Set<string> {
+  switch (phase) {
+    case "editing":
+      return EDIT_PHASE_CATEGORIES;
+    case "verifying":
+      return VERIFY_PHASE_CATEGORIES;
+    case "delegating":
+      return DELEGATE_PHASE_CATEGORIES;
+    case "completing":
+      return COMPLETE_PHASE_CATEGORIES;
+    case "researching":
+    default:
+      return RESEARCH_PHASE_CATEGORIES;
+  }
+}
+
+function applyAdaptiveToolPhase(
+  state: LoopState,
+  config: OrchestratorConfig,
+  userRequest: string,
+): RuntimeToolPhase {
+  const phase = deriveRuntimePhase(state, config, userRequest);
+  state.runtimePhase = phase;
+
+  if (
+    config.planModeState?.active && config.planModeState.phase !== "executing"
+  ) {
+    return phase;
+  }
+
+  const baselineAllowlist = config.toolFilterBaseline?.allowlist ??
+    config.toolAllowlist;
+  const baselineDenylist = config.toolFilterBaseline?.denylist ??
+    config.toolDenylist;
+  const availableTools = resolveTools({
+    allowlist: baselineAllowlist,
+    denylist: baselineDenylist,
+    ownerId: config.toolOwnerId,
+  });
+
+  let phaseAllowlist = state.toolSearchAllowlist;
+  if (!phaseAllowlist?.length) {
+    const categories = getPhaseCategories(phase);
+    const scoped = Object.entries(availableTools)
+      .filter(([, meta]) => meta.category && categories.has(meta.category))
+      .map(([name]) => name);
+    phaseAllowlist = uniqueToolList([
+      ...ALWAYS_AVAILABLE_RUNTIME_TOOLS.filter((name) =>
+        name in availableTools
+      ),
+      ...scoped,
+    ]);
+  }
+  const nextAllowlist = intersectToolLists(
+    phaseAllowlist,
+    Object.keys(availableTools),
+  );
+
+  const loopDenylist: string[] = [];
+  for (const [toolName, remainingTurns] of state.temporaryToolDenylist) {
+    if (remainingTurns <= 0) {
+      state.temporaryToolDenylist.delete(toolName);
+      continue;
+    }
+    loopDenylist.push(toolName);
+    if (remainingTurns === 1) {
+      state.temporaryToolDenylist.delete(toolName);
+    } else {
+      state.temporaryToolDenylist.set(toolName, remainingTurns - 1);
+    }
+  }
+
+  const nextDenylist = uniqueToolList([
+    ...(baselineDenylist ?? []),
+    ...loopDenylist,
+  ]);
+
+  if (config.toolFilterState) {
+    config.toolFilterState.allowlist = cloneToolList(nextAllowlist);
+    config.toolFilterState.denylist = nextDenylist.length > 0
+      ? nextDenylist
+      : undefined;
+  }
+  config.toolAllowlist = cloneToolList(nextAllowlist);
+  config.toolDenylist = nextDenylist.length > 0 ? nextDenylist : undefined;
+  return phase;
 }
 
 // ============================================================
@@ -727,6 +965,19 @@ export async function runReActLoop(
 ): Promise<string> {
   if (!config.l1Confirmations) {
     config = { ...config, l1Confirmations: new Map<string, boolean>() };
+  }
+  if (!config.toolFilterBaseline) {
+    config = {
+      ...config,
+      toolFilterBaseline: {
+        allowlist: cloneToolList(
+          config.toolFilterState?.allowlist ?? config.toolAllowlist,
+        ),
+        denylist: cloneToolList(
+          config.toolFilterState?.denylist ?? config.toolDenylist,
+        ),
+      },
+    };
   }
   const { context, onTrace } = config;
 
@@ -998,6 +1249,19 @@ export async function runReActLoop(
         if (wasPending && !context.isPendingCompaction) {
           state.memoryFlushedThisCycle = false;
         }
+      }
+      const runtimePhase = applyAdaptiveToolPhase(state, config, userRequest);
+      if (config.thinkingState) {
+        const stats = context.getStats();
+        config.thinkingState.iteration = state.iterations;
+        config.thinkingState.recentToolCalls = state.lastToolNames.length;
+        config.thinkingState.consecutiveFailures =
+          state.consecutiveToolFailures;
+        config.thinkingState.phase = runtimePhase;
+        config.thinkingState.remainingContextBudget = Math.max(
+          0,
+          context.getMaxTokens() - stats.estimatedTokens,
+        );
       }
       const messages = context.getMessages();
       onTrace?.({ type: "llm_call", messageCount: messages.length });

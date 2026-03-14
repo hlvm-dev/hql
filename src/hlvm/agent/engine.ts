@@ -15,6 +15,15 @@ export interface ToolFilterState {
   denylist?: string[];
 }
 
+/** Mutable reasoning/tuning state updated by the orchestrator before each LLM call. */
+export interface ThinkingState {
+  iteration?: number;
+  recentToolCalls?: number;
+  consecutiveFailures?: number;
+  phase?: string;
+  remainingContextBudget?: number;
+}
+
 /** Configuration passed to AgentEngine.createLLM */
 export interface AgentLLMConfig {
   model?: string;
@@ -24,6 +33,8 @@ export interface AgentLLMConfig {
   toolDenylist?: string[];
   /** Runtime-overridable tool filters (e.g., tool_search narrowing). */
   toolFilterState?: ToolFilterState;
+  /** Runtime reasoning profile inputs (updated every turn by orchestrator). */
+  thinkingState?: ThinkingState;
   toolOwnerId?: string;
   onToken?: (text: string) => void;
   /** Whether the model supports thinking/reasoning. From ModelInfo.capabilities. */
@@ -33,7 +44,9 @@ export interface AgentLLMConfig {
 /** Abstract engine interface for creating LLM functions */
 export interface AgentEngine {
   createLLM(config: AgentLLMConfig): LLMFunction;
-  createSummarizer(model?: string): (messages: AgentMessage[]) => Promise<string>;
+  createSummarizer(
+    model?: string,
+  ): (messages: AgentMessage[]) => Promise<string>;
 }
 
 import { SdkAgentEngine } from "./engine-sdk.ts";

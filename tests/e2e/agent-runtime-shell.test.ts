@@ -56,12 +56,19 @@ async function createAiLoopEnhancementFixture(
   workspace: string,
 ): Promise<string> {
   const largeFilePath = platform.path.join(workspace, "large.txt");
+  const phaseFilePath = platform.path.join(workspace, "src.js");
+  const loopFilePath = platform.path.join(workspace, "loop.txt");
   const fixturePath = platform.path.join(
     workspace,
     "agent-ai-loop-enhancements-fixture.json",
   );
 
   await platform.fs.writeTextFile(largeFilePath, buildLargeFixtureFile());
+  await platform.fs.writeTextFile(
+    phaseFilePath,
+    "export const value = 1;\n",
+  );
+  await platform.fs.writeTextFile(loopFilePath, "loop target\n");
 
   const fixture = {
     version: 1,
@@ -109,7 +116,7 @@ async function createAiLoopEnhancementFixture(
       },
       {
         name: "verify-pass",
-        match: { contains: ["verify pass enhancement smoke"] },
+        match: { contains: ["write verify pass enhancement smoke"] },
         steps: [
           {
             toolCalls: [{
@@ -129,7 +136,7 @@ async function createAiLoopEnhancementFixture(
       },
       {
         name: "verify-fail",
-        match: { contains: ["verify fail enhancement smoke"] },
+        match: { contains: ["write verify fail enhancement smoke"] },
         steps: [
           {
             toolCalls: [{
@@ -144,6 +151,83 @@ async function createAiLoopEnhancementFixture(
           {
             expect: { contains: ["Syntax check failed."] },
             response: "Verify fail enhancement complete",
+          },
+        ],
+      },
+      {
+        name: "phase-pruning",
+        match: { contains: ["fix phase pruning enhancement smoke"] },
+        steps: [
+          {
+            toolCalls: [{
+              id: "read_1",
+              toolName: "read_file",
+              args: { path: "src.js" },
+            }],
+          },
+          {
+            toolCalls: [{
+              id: "web_1",
+              toolName: "search_web",
+              args: { query: "rename javascript const" },
+            }],
+          },
+          {
+            expect: {
+              contains: ["Tool not allowed by orchestrator: search_web"],
+            },
+            toolCalls: [{
+              id: "edit_1",
+              toolName: "edit_file",
+              args: {
+                path: "src.js",
+                find: "export const value = 1;",
+                replace: "export const nextValue = 1;",
+              },
+            }],
+          },
+          {
+            expect: { contains: ["Syntax check passed."] },
+            response: "Phase pruning enhancement complete",
+          },
+        ],
+      },
+      {
+        name: "loop-recovery",
+        match: { contains: ["loop recovery enhancement smoke"] },
+        steps: [
+          {
+            toolCalls: [{
+              id: "search_1",
+              toolName: "read_file",
+              args: { path: "loop.txt" },
+            }],
+          },
+          {
+            toolCalls: [{
+              id: "search_2",
+              toolName: "read_file",
+              args: { path: "loop.txt" },
+            }],
+          },
+          {
+            toolCalls: [{
+              id: "search_3",
+              toolName: "read_file",
+              args: { path: "loop.txt" },
+            }],
+          },
+          {
+            expect: { contains: ["Change approach now"] },
+            toolCalls: [{
+              id: "search_4",
+              toolName: "read_file",
+              args: { path: "loop.txt" },
+            }],
+          },
+          {
+            expect: { contains: ["temporarily blocked"] },
+            response: "Loop recovery enhancement complete",
           },
         ],
       },
@@ -467,7 +551,7 @@ Deno.test({
             "--verbose",
             "--model",
             "ollama/test-fixture",
-            "verify pass enhancement smoke",
+            "write verify pass enhancement smoke",
           ],
           {
             HLVM_DIR: hlvmDir,
@@ -505,7 +589,7 @@ Deno.test({
             "--verbose",
             "--model",
             "ollama/test-fixture",
-            "verify fail enhancement smoke",
+            "write verify fail enhancement smoke",
           ],
           {
             HLVM_DIR: hlvmDir,
@@ -520,6 +604,82 @@ Deno.test({
         assertStringIncludes(
           output,
           "Result:\nVerify fail enhancement complete",
+        );
+      },
+    );
+  },
+});
+
+Deno.test({
+  name:
+    "raw ./hlvm ask blocks irrelevant web search once phase pruning enters edit mode",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    await withAiLoopEnhancementWorkspace(
+      "hlvm-ai-loop-phase-pruning-",
+      async ({ hlvmDir, port, fixturePath }) => {
+        const result = await runLocalAsk(
+          port,
+          [
+            "--fresh",
+            "--auto-edit",
+            "--verbose",
+            "--model",
+            "ollama/test-fixture",
+            "fix phase pruning enhancement smoke",
+          ],
+          {
+            HLVM_DIR: hlvmDir,
+            HLVM_ASK_FIXTURE_PATH: fixturePath,
+          },
+          hlvmDir,
+        );
+
+        const output = normalizeCliOutput(result.stdout + result.stderr);
+        assertEquals(result.success, true, output);
+        assertStringIncludes(
+          output,
+          "Tool not allowed by orchestrator: search_web",
+        );
+        assertStringIncludes(
+          output,
+          "Result:\nPhase pruning enhancement complete",
+        );
+      },
+    );
+  },
+});
+
+Deno.test({
+  name: "raw ./hlvm ask recovers from a repeated search loop before giving up",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    await withAiLoopEnhancementWorkspace(
+      "hlvm-ai-loop-recovery-",
+      async ({ hlvmDir, port, fixturePath }) => {
+        const result = await runLocalAsk(
+          port,
+          [
+            "--fresh",
+            "--verbose",
+            "--model",
+            "ollama/test-fixture",
+            "loop recovery enhancement smoke",
+          ],
+          {
+            HLVM_DIR: hlvmDir,
+            HLVM_ASK_FIXTURE_PATH: fixturePath,
+          },
+          hlvmDir,
+        );
+
+        const output = normalizeCliOutput(result.stdout + result.stderr);
+        assertEquals(result.success, true, output);
+        assertStringIncludes(
+          output,
+          "Result:\nLoop recovery enhancement complete",
         );
       },
     );

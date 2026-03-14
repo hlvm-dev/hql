@@ -128,6 +128,7 @@ Deno.test("handleFinalResponse promotes an approved plan-mode draft into executi
     permissionMode: "plan",
     toolAllowlist: ["read_file"],
     toolFilterState: { allowlist: ["read_file"] },
+    toolFilterBaseline: { allowlist: ["read_file"] },
     planModeState: {
       active: true,
       phase: "researching",
@@ -169,6 +170,11 @@ Deno.test("handleFinalResponse promotes an approved plan-mode draft into executi
   assertEquals(config.permissionMode, "auto-edit");
   assertEquals(config.toolAllowlist, ["read_file", "write_file"]);
   assertEquals(config.toolFilterState?.allowlist, ["read_file", "write_file"]);
+  assertEquals(config.toolFilterBaseline?.allowlist, [
+    "read_file",
+    "write_file",
+  ]);
+  assertEquals(state.toolSearchAllowlist, undefined);
   assertEquals(lc.planningConfig.requireStepMarkers, true);
   assertEquals(state.planState?.plan.goal, "Implement plan mode");
   assertEquals(context.getMessages().length, 1);
@@ -211,6 +217,10 @@ Deno.test("handleFinalResponse narrows plan execution tools and restores the exe
     toolAllowlist: ["read_file"],
     toolDenylist: ["complete_task"],
     toolFilterState: { allowlist: ["read_file"], denylist: ["complete_task"] },
+    toolFilterBaseline: {
+      allowlist: ["read_file"],
+      denylist: ["complete_task"],
+    },
     planModeState: {
       active: true,
       phase: "researching",
@@ -251,7 +261,21 @@ Deno.test("handleFinalResponse narrows plan execution tools and restores the exe
   assertEquals(config.permissionMode, "auto-edit");
   assertEquals(config.toolDenylist, undefined);
   assertEquals(config.toolFilterState?.denylist, undefined);
+  assertEquals(config.toolFilterBaseline?.denylist, undefined);
   assertEquals(config.toolAllowlist, [
+    "ask_user",
+    "complete_task",
+    "edit_file",
+    "list_files",
+    "read_file",
+    "search_code",
+    "shell_exec",
+    "todo_read",
+    "todo_write",
+    "undo_edit",
+    "write_file",
+  ]);
+  assertEquals(config.toolFilterBaseline?.allowlist, [
     "ask_user",
     "complete_task",
     "edit_file",
@@ -347,6 +371,7 @@ Deno.test("handleFinalResponse returns to planning when plan review requests rev
   };
   const lc = resolveLoopConfig(config);
   const state = initializeLoopState(config);
+  state.toolSearchAllowlist = ["read_file", "tool_search"];
 
   const result = await handleFinalResponse(
     [
@@ -364,6 +389,7 @@ Deno.test("handleFinalResponse returns to planning when plan review requests rev
   assertEquals(state.planState, null);
   assertEquals(config.permissionMode, "plan");
   assertEquals(config.planModeState?.phase, "researching");
+  assertEquals(state.toolSearchAllowlist, undefined);
   assertEquals(phaseEvents, ["drafting", "reviewing", "researching"]);
   assertEquals(context.getMessages().length, 1);
   assertStringIncludes(

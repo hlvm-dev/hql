@@ -6,7 +6,7 @@
  * Props-only component — no contexts except semantic colors.
  */
 
-import React from "react";
+import React, { memo, useMemo } from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { TOGGLE_LATEST_HINT } from "../../ui-constants.ts";
@@ -272,13 +272,13 @@ function renderGapMarker(
 // Main Component
 // ============================================================
 
-export default function DiffRenderer({
+const DiffRenderer = memo(function DiffRenderer({
   content,
   width,
   maxLines,
 }: DiffRendererProps): React.ReactElement {
   const sc = useSemanticColors();
-  const lines = parseDiffLines(content);
+  const lines = useMemo(() => parseDiffLines(content), [content]);
 
   if (lines.length === 0) {
     return (
@@ -353,4 +353,6 @@ export default function DiffRenderer({
   }
 
   return <Box flexDirection="column">{elements}</Box>;
-}
+});
+
+export default DiffRenderer;

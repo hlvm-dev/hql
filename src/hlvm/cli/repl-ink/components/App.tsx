@@ -94,9 +94,6 @@ import {
 } from "../../../api/session.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
 import {
-  getAgentExecutionModeBadge,
-} from "../../../agent/execution-mode.ts";
-import {
   type ConversationComposerDraft,
   createConversationComposerDraft,
   enqueueConversationDraft,
@@ -1365,7 +1362,6 @@ function AppContent(
         (
           <FooterHint
             modelName={modelSelection.displayLabel}
-            modeLabel={getAgentExecutionModeBadge(agentExecutionMode)}
             statusMessage={footerStatusMessage}
             streamingState={hasConversationContext
               ? conversation.streamingState

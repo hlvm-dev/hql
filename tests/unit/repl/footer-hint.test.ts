@@ -108,26 +108,23 @@ Deno.test("buildFooterLeftState prefers queue/force hints over tool status when 
   assertEquals(state.text, "tab queue \u00B7 ctrl+enter force");
 });
 
-Deno.test("buildFooterRightState includes mode label and model metadata", () => {
+Deno.test("buildFooterRightState includes model metadata", () => {
   const state = buildFooterRightState({
-    modeLabel: "[auto]",
     contextUsageLabel: "12% ctx",
     checkpointLabel: "/undo ready",
     modelName: "claude-sonnet-4-6",
   });
 
-  assertEquals(state.modeLabel, "[auto]");
   assertEquals(
     state.infoText,
     "12% ctx \u00B7 /undo ready \u00B7 claude-sonnet-4-6",
   );
 });
 
-Deno.test("buildFooterRightState shows model name without mode label", () => {
+Deno.test("buildFooterRightState shows model name only when no metadata is present", () => {
   const state = buildFooterRightState({
     modelName: "llama3.2:1b",
   });
 
   assertEquals(state.infoText, "llama3.2:1b");
-  assertEquals(state.modeLabel, undefined);
 });

@@ -1,4 +1,4 @@
-import React, { memo } from "react";
+import React, { memo, useMemo } from "react";
 import { Box, Text } from "ink";
 import { common, createLowlight } from "lowlight";
 import { useSemanticColors } from "../../../theme/index.ts";
@@ -92,38 +92,38 @@ export const CodeBlock = memo(function CodeBlock(
 ): React.ReactElement {
   const sc = useSemanticColors();
 
-  const normalizedCode = code.replace(/\t/g, "  ");
+  const { visibleCode, totalLines, hiddenCount, needsTruncation } = useMemo(() => {
+    const normalizedCode = code.replace(/\t/g, "  ");
+    // Determine effective max lines: use availableHeight cap during streaming
+    const effectiveMaxLines = isPending && availableHeight
+      ? Math.min(maxLines, availableHeight)
+      : maxLines;
+    // Pre-slice optimization: split into raw lines first, slice to visible range,
+    // THEN highlight only visible lines (avoids highlighting invisible content).
+    const rawLines = normalizedCode.split("\n");
+    const totalLines = rawLines.length;
+    const needsTruncation = totalLines > effectiveMaxLines;
+    const visibleRawLines = needsTruncation
+      ? rawLines.slice(totalLines - effectiveMaxLines)
+      : rawLines;
+    const hiddenCount = totalLines - visibleRawLines.length;
+    const visibleCode = visibleRawLines.join("\n");
+    return { visibleCode, totalLines, hiddenCount, needsTruncation };
+  }, [code, maxLines, isPending, availableHeight]);
 
-  // Determine effective max lines: use availableHeight cap during streaming
-  const effectiveMaxLines = isPending && availableHeight
-    ? Math.min(maxLines, availableHeight)
-    : maxLines;
-
-  // Pre-slice optimization: split into raw lines first, slice to visible range,
-  // THEN highlight only visible lines (avoids highlighting invisible content).
-  const rawLines = normalizedCode.split("\n");
-  const totalLines = rawLines.length;
-  const needsTruncation = totalLines > effectiveMaxLines;
-  const visibleRawLines = needsTruncation
-    ? rawLines.slice(totalLines - effectiveMaxLines)
-    : rawLines;
-  const hiddenCount = totalLines - visibleRawLines.length;
   const hasLineNumbers = totalLines >= 5;
 
-  const visibleCode = visibleRawLines.join("\n");
-  const highlighted = (() => {
+  const highlighted = useMemo(() => {
     try {
-      if (language) {
-        return lowlight.highlight(language, visibleCode);
-      }
+      if (language) return lowlight.highlight(language, visibleCode);
       return lowlight.highlightAuto(visibleCode);
     } catch {
       return lowlight.highlight("plaintext", visibleCode);
     }
-  })();
+  }, [language, visibleCode]);
 
-  const segments = collectSegments(highlighted);
-  const visibleLines = splitSegmentsByNewline(segments);
+  const segments = useMemo(() => collectSegments(highlighted), [highlighted]);
+  const visibleLines = useMemo(() => splitSegmentsByNewline(segments), [segments]);
 
   const lineDigits = String(totalLines).length;
   const gutterWidth = hasLineNumbers ? lineDigits + 3 : 0;

@@ -12,9 +12,9 @@
 import {
   generateText,
   InvalidToolInputError,
+  type ModelMessage,
   NoSuchToolError,
   streamText,
-  type ModelMessage,
   type ToolCallRepairFunction,
   type ToolSet,
 } from "ai";
@@ -257,7 +257,9 @@ export function applyPromptCaching(
   let decoratedTools = tools;
   let decoratedProviderOptions = providerOptions;
 
-  if (spec.providerName === "anthropic" || spec.providerName === "claude-code") {
+  if (
+    spec.providerName === "anthropic" || spec.providerName === "claude-code"
+  ) {
     decoratedMessages = messages.slice();
     if (decoratedMessages[0]?.role === "system") {
       decoratedMessages[0] = withAnthropicCacheBreakpoint(decoratedMessages[0]);
@@ -346,6 +348,61 @@ export function buildToolCallRepairFunction(): ToolCallRepairFunction<ToolSet> {
 }
 
 /** Build provider-specific options (thinking, context budget, etc.) */
+interface ThinkingProfile {
+  anthropicBudgetTokens: number;
+  openaiReasoningEffort: "low" | "medium" | "high";
+  googleThinkingLevel: "low" | "medium" | "high";
+}
+
+function capThinkingBudget(
+  config: AgentLLMConfig,
+  targetBudget: number,
+): number {
+  const referenceBudget = config.thinkingState?.remainingContextBudget ??
+    config.contextBudget;
+  if (!referenceBudget || referenceBudget <= 0) {
+    return targetBudget;
+  }
+  const capped = Math.floor(referenceBudget * 0.25);
+  return Math.max(1024, Math.min(targetBudget, capped));
+}
+
+export function resolveThinkingProfile(
+  config: AgentLLMConfig,
+): ThinkingProfile {
+  const iteration = config.thinkingState?.iteration ?? 0;
+  const recentToolCalls = config.thinkingState?.recentToolCalls ?? 0;
+  const consecutiveFailures = config.thinkingState?.consecutiveFailures ?? 0;
+  const phase = config.thinkingState?.phase ?? "";
+
+  let complexityScore = 0;
+  if (iteration >= 3) complexityScore += 1;
+  if (iteration >= 8) complexityScore += 1;
+  if (recentToolCalls >= 2) complexityScore += 1;
+  if (consecutiveFailures > 0) complexityScore += 1;
+  if (phase === "editing" || phase === "verifying") complexityScore += 1;
+
+  if (complexityScore >= 4) {
+    return {
+      anthropicBudgetTokens: capThinkingBudget(config, 32000),
+      openaiReasoningEffort: "high",
+      googleThinkingLevel: "high",
+    };
+  }
+  if (complexityScore >= 2) {
+    return {
+      anthropicBudgetTokens: capThinkingBudget(config, 16000),
+      openaiReasoningEffort: "medium",
+      googleThinkingLevel: "medium",
+    };
+  }
+  return {
+    anthropicBudgetTokens: capThinkingBudget(config, 5000),
+    openaiReasoningEffort: "low",
+    googleThinkingLevel: "low",
+  };
+}
+
 export function buildProviderOptions(
   spec: ResolvedModelSpec,
   config: AgentLLMConfig,
@@ -364,16 +421,29 @@ export function buildProviderOptions(
   // Thinking — prefer explicit capability flags, then fall back to known
   // provider/model families until provider model catalogs expose this reliably.
   if (shouldEnableNativeThinking(spec, config)) {
+    const thinkingProfile = resolveThinkingProfile(config);
     switch (spec.providerName) {
       case "anthropic":
       case "claude-code":
-        opts.anthropic = { thinking: { type: "enabled", budgetTokens: 10000 } };
+        opts.anthropic = {
+          thinking: {
+            type: "enabled",
+            budgetTokens: thinkingProfile.anthropicBudgetTokens,
+          },
+        };
         break;
       case "openai":
-        opts.openai = { reasoningEffort: "high" };
+        opts.openai = {
+          reasoningEffort: thinkingProfile.openaiReasoningEffort,
+        };
         break;
       case "google":
-        opts.google = { thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } };
+        opts.google = {
+          thinkingConfig: {
+            includeThoughts: true,
+            thinkingLevel: thinkingProfile.googleThinkingLevel,
+          },
+        };
         break;
     }
   }
@@ -432,8 +502,6 @@ export class SdkAgentEngine implements AgentEngine {
     let cachedModel: LanguageModel | null = null;
     const shouldCacheModel = spec.providerName !== "claude-code";
 
-    // Provider options (thinking, context budget, etc.) — stable across calls
-    const providerOptions = buildProviderOptions(spec, config);
     const repairToolCall = buildToolCallRepairFunction();
 
     // Tool cache: rebuilt only when registry generation changes
@@ -495,7 +563,7 @@ export class SdkAgentEngine implements AgentEngine {
         spec,
         sdkMessages,
         cachedSdkTools,
-        providerOptions,
+        buildProviderOptions(spec, config),
         lastToolSchemaSignature,
         toolFilterSignature,
       );
@@ -527,7 +595,12 @@ export class SdkAgentEngine implements AgentEngine {
 
           // streamText properties are PromiseLike — await them
           const [
-            toolCalls, usage, text, sources, providerMetadata, reasoning,
+            toolCalls,
+            usage,
+            text,
+            sources,
+            providerMetadata,
+            reasoning,
             response,
           ] = await Promise.all([
             result.toolCalls,

@@ -6,7 +6,7 @@
  * Truncates to maxLines with a "more lines" indicator.
  */
 
-import React from "react";
+import React, { memo } from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import DiffRenderer from "./DiffRenderer.tsx";
@@ -73,7 +73,7 @@ function truncateLine(line: string, maxLen: number): string {
   return maxLen > 3 ? line.slice(0, maxLen - 1) + "…" : line.slice(0, maxLen);
 }
 
-export function ToolResult({
+export const ToolResult = memo(function ToolResult({
   text,
   width,
   maxLines = 10,
@@ -124,4 +124,4 @@ export function ToolResult({
       )}
     </Box>
   );
-}
+});

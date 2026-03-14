@@ -8,10 +8,7 @@
  * not just that the leaf functions produce correct output in isolation.
  */
 
-import {
-  assertEquals,
-  assertStringIncludes,
-} from "jsr:@std/assert";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
   buildToolResultOutputs,
   compressForLLM,
@@ -37,31 +34,52 @@ import type { OrchestratorConfig } from "../../../src/hlvm/agent/orchestrator.ts
 Deno.test("Item 1: buildProviderOptions enables native thinking for supported providers", () => {
   // Anthropic
   const anthropic = buildProviderOptions(
-    { providerName: "anthropic", modelId: "claude-sonnet-4-5-20250929", providerConfig: null },
+    {
+      providerName: "anthropic",
+      modelId: "claude-sonnet-4-5-20250929",
+      providerConfig: null,
+    },
     { thinkingCapable: true },
   );
-  assertEquals(anthropic?.anthropic?.thinking, { type: "enabled", budgetTokens: 10000 });
+  assertEquals(anthropic?.anthropic?.thinking, {
+    type: "enabled",
+    budgetTokens: 5000,
+  });
 
   // Claude Code uses Anthropic provider options under the hood
   const claudeCode = buildProviderOptions(
-    { providerName: "claude-code", modelId: "claude-sonnet-4-5-20250929", providerConfig: null },
+    {
+      providerName: "claude-code",
+      modelId: "claude-sonnet-4-5-20250929",
+      providerConfig: null,
+    },
     { thinkingCapable: false },
   );
-  assertEquals(claudeCode?.anthropic?.thinking, { type: "enabled", budgetTokens: 10000 });
+  assertEquals(claudeCode?.anthropic?.thinking, {
+    type: "enabled",
+    budgetTokens: 5000,
+  });
 
   // OpenAI
   const openai = buildProviderOptions(
     { providerName: "openai", modelId: "o3", providerConfig: null },
     { thinkingCapable: true },
   );
-  assertEquals(openai?.openai?.reasoningEffort, "high");
+  assertEquals(openai?.openai?.reasoningEffort, "low");
 
   // Google
   const google = buildProviderOptions(
-    { providerName: "google", modelId: "gemini-2.5-flash", providerConfig: null },
+    {
+      providerName: "google",
+      modelId: "gemini-2.5-flash",
+      providerConfig: null,
+    },
     { thinkingCapable: true },
   );
-  assertEquals(google?.google?.thinkingConfig, { includeThoughts: true, thinkingLevel: "low" });
+  assertEquals(google?.google?.thinkingConfig, {
+    includeThoughts: true,
+    thinkingLevel: "low",
+  });
 
   // Ollama (no thinking) — only num_ctx
   const ollama = buildProviderOptions(
@@ -106,7 +124,10 @@ Deno.test("Item 1: reasoning extraction logic handles SDK ReasoningPart[] format
   assertEquals(mixedResult, "visible thought more thought");
 
   // Case 5: string fallback
-  assertEquals(extractReasoningText("single reasoning string"), "single reasoning string");
+  assertEquals(
+    extractReasoningText("single reasoning string"),
+    "single reasoning string",
+  );
 });
 
 Deno.test("Item 1: LLMResponse reasoning field compiles and round-trips", () => {
@@ -118,10 +139,11 @@ Deno.test("Item 1: LLMResponse reasoning field compiles and round-trips", () => 
   assertEquals(response.reasoning, "I thought deeply about this");
 
   // Without reasoning — still valid
-  const response2: import("../../../src/hlvm/agent/tool-call.ts").LLMResponse = {
-    content: "hello",
-    toolCalls: [],
-  };
+  const response2: import("../../../src/hlvm/agent/tool-call.ts").LLMResponse =
+    {
+      content: "hello",
+      toolCalls: [],
+    };
   assertEquals(response2.reasoning, undefined);
 });
 
@@ -149,13 +171,17 @@ Deno.test("Item 2: buildToolResultOutputs compresses large read_file result befo
   const bigFileContent = lines.join("\n");
 
   // Call the real buildToolResultOutputs — this is the actual code path used by the orchestrator
-  const { llmContent } = buildToolResultOutputs("read_file", bigFileContent, mockConfig);
+  const { llmContent } = buildToolResultOutputs(
+    "read_file",
+    bigFileContent,
+    mockConfig,
+  );
 
   // The llmContent (what the LLM sees) should be compressed
-  assertStringIncludes(llmContent, "line 1 ");    // head preserved
-  assertStringIncludes(llmContent, "line 80 ");   // end of head
+  assertStringIncludes(llmContent, "line 1 "); // head preserved
+  assertStringIncludes(llmContent, "line 80 "); // end of head
   assertStringIncludes(llmContent, "lines omitted"); // omission marker
-  assertStringIncludes(llmContent, "line 200 ");  // tail preserved
+  assertStringIncludes(llmContent, "line 200 "); // tail preserved
   assertEquals(llmContent.includes("line 100 "), false); // middle dropped
 
   // Verify truncateResult received the already-compressed content
@@ -176,11 +202,15 @@ Deno.test("Item 2: buildToolResultOutputs compresses large shell_exec result", (
   for (let i = 0; i < 25; i++) lines.push(`tail ${i} ${pad}`);
   const bigOutput = lines.join("\n");
 
-  const { llmContent } = buildToolResultOutputs("shell_exec", bigOutput, mockConfig);
+  const { llmContent } = buildToolResultOutputs(
+    "shell_exec",
+    bigOutput,
+    mockConfig,
+  );
 
   assertStringIncludes(llmContent, "ERROR: critical failure"); // errors preserved
-  assertStringIncludes(llmContent, "$ cmd 0");                 // head preserved
-  assertStringIncludes(llmContent, "lines omitted");           // compression happened
+  assertStringIncludes(llmContent, "$ cmd 0"); // head preserved
+  assertStringIncludes(llmContent, "lines omitted"); // compression happened
   assertEquals(llmContent.length < bigOutput.length, true);
 });
 
@@ -217,7 +247,9 @@ Deno.test("Item 2: compressForLLM git_diff strips excess context", () => {
   // Must exceed BOTH: >4000 chars AND >80 lines to trigger compression
   const pad = "x".repeat(40);
   const lines: string[] = [
-    "diff --git a/foo.ts b/foo.ts", "--- a/foo.ts", "+++ b/foo.ts",
+    "diff --git a/foo.ts b/foo.ts",
+    "--- a/foo.ts",
+    "+++ b/foo.ts",
     "@@ -10,50 +10,50 @@ function hello() {",
   ];
   for (let i = 0; i < 40; i++) lines.push(`  unchanged ${i} ${pad}`);
@@ -227,15 +259,27 @@ Deno.test("Item 2: compressForLLM git_diff strips excess context", () => {
 
   const input = lines.join("\n");
   assertEquals(input.length > 4000, true, "must exceed 4000 chars");
-  assertEquals(lines.length > 80, true, `must exceed 80 lines, got ${lines.length}`);
+  assertEquals(
+    lines.length > 80,
+    true,
+    `must exceed 80 lines, got ${lines.length}`,
+  );
 
   const result = compressForLLM("git_diff", input);
   assertStringIncludes(result, "diff --git a/foo.ts");
   assertStringIncludes(result, "+  added");
   assertStringIncludes(result, "-  removed");
   const unchangedCount = (result.match(/unchanged/g) || []).length;
-  assertEquals(unchangedCount <= 2, true, `Expected <=2 context, got ${unchangedCount}`);
-  assertEquals(result.length < input.length, true, "should be smaller after compression");
+  assertEquals(
+    unchangedCount <= 2,
+    true,
+    `Expected <=2 context, got ${unchangedCount}`,
+  );
+  assertEquals(
+    result.length < input.length,
+    true,
+    "should be smaller after compression",
+  );
 });
 
 // ============================================================
@@ -261,7 +305,10 @@ Deno.test({
   async fn() {
     const tmpDir = await Deno.makeTempDir();
     const filePath = getPlatform().path.join(tmpDir, "valid.ts");
-    await Deno.writeTextFile(filePath, "const x: number = 42;\nexport { x };\n");
+    await Deno.writeTextFile(
+      filePath,
+      "const x: number = 42;\nexport { x };\n",
+    );
 
     try {
       const result = await maybeVerifySyntax(
@@ -277,7 +324,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Item 3: maybeVerifySyntax runs real deno check on INVALID .ts file — catches error",
+  name:
+    "Item 3: maybeVerifySyntax runs real deno check on INVALID .ts file — catches error",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -322,7 +370,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Item 3: maybeVerifySyntax runs real node --check on INVALID .js file — catches error",
+  name:
+    "Item 3: maybeVerifySyntax runs real node --check on INVALID .js file — catches error",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {

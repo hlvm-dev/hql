@@ -5,9 +5,9 @@
 
 import {
   DEFAULT_TIMEOUTS,
+  type GroundingMode,
   MAX_ITERATIONS,
   MAX_RETRIES,
-  type GroundingMode,
   type ModelTier,
   RATE_LIMITS,
   RESOURCE_LIMITS,
@@ -23,6 +23,7 @@ import { assertMaxBytes } from "../../common/limits.ts";
 import type { OrchestratorConfig } from "./orchestrator.ts";
 import type { CitationSourceEntry } from "./tools/web/citation-spans.ts";
 import type { EditFileRecovery } from "./error-taxonomy.ts";
+import type { RuntimeToolPhase } from "./orchestrator.ts";
 
 /** Result of tool execution */
 export interface ToolExecutionResult {
@@ -71,6 +72,18 @@ export interface LoopState {
   passageIndex?: CitationSourceEntry[];
   /** Counter for consecutive transient network retries at the loop level */
   consecutiveTransientRetries?: number;
+  /** Most recent tool names executed in the prior iteration. */
+  lastToolNames: string[];
+  /** Latest tool_search-derived allowlist override. */
+  toolSearchAllowlist?: string[];
+  /** Current adaptive execution phase. */
+  runtimePhase?: RuntimeToolPhase;
+  /** Loop recovery escalation level for the current repeated signature. */
+  loopRecoveryStep: number;
+  /** Signature currently being recovered from. */
+  loopRecoverySignature?: string;
+  /** Temporary per-tool denylist with remaining-turn TTLs. */
+  temporaryToolDenylist: Map<string, number>;
 }
 
 /** Resolved constants from OrchestratorConfig, computed once at loop start.
@@ -138,6 +151,9 @@ export function initializeLoopState(config: OrchestratorConfig): LoopState {
     lastTeamSummarySignature: "",
     delegationHintInjected: false,
     passageIndex: [],
+    lastToolNames: [],
+    loopRecoveryStep: 0,
+    temporaryToolDenylist: new Map(),
   };
 }
 
@@ -201,11 +217,15 @@ export function checkToolResultBytesLimit(
 }
 
 /** Resolve the effective tool allowlist from OrchestratorConfig. */
-export function effectiveAllowlist(config: OrchestratorConfig): string[] | undefined {
+export function effectiveAllowlist(
+  config: OrchestratorConfig,
+): string[] | undefined {
   return config.toolFilterState?.allowlist ?? config.toolAllowlist;
 }
 
 /** Resolve the effective tool denylist from OrchestratorConfig. */
-export function effectiveDenylist(config: OrchestratorConfig): string[] | undefined {
+export function effectiveDenylist(
+  config: OrchestratorConfig,
+): string[] | undefined {
   return config.toolFilterState?.denylist ?? config.toolDenylist;
 }

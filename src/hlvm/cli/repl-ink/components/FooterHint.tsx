@@ -23,7 +23,6 @@ interface FooterProps {
   streamingState?: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   modelName?: string;
-  modeLabel?: string;
   statusMessage?: string;
   contextUsageLabel?: string;
   checkpointLabel?: string;
@@ -124,23 +123,20 @@ export function buildFooterLeftState({
 
 interface FooterRightStateInput {
   modelName?: string;
-  modeLabel?: string;
   contextUsageLabel?: string;
   checkpointLabel?: string;
 }
 
 export function buildFooterRightState({
   modelName,
-  modeLabel,
   contextUsageLabel,
   checkpointLabel,
-}: FooterRightStateInput): { modeLabel?: string; infoText: string } {
+}: FooterRightStateInput): { infoText: string } {
   const infoParts: string[] = [];
   if (contextUsageLabel) infoParts.push(contextUsageLabel);
   if (checkpointLabel) infoParts.push(checkpointLabel);
   if (modelName) infoParts.push(modelName);
   return {
-    modeLabel,
     infoText: infoParts.join(FOOTER_SECTION_SEPARATOR),
   };
 }
@@ -149,7 +145,6 @@ export function FooterHint({
   streamingState,
   activeTool,
   modelName,
-  modeLabel,
   statusMessage,
   contextUsageLabel,
   checkpointLabel,
@@ -185,7 +180,6 @@ export function FooterHint({
 
   const right = buildFooterRightState({
     modelName: model,
-    modeLabel,
     contextUsageLabel,
     checkpointLabel,
   });
@@ -194,10 +188,7 @@ export function FooterHint({
   const contentWidth = Math.max(20, rawTerminalWidth - 2);
 
   // Single line: left status ... right model info
-  const rightParts: string[] = [];
-  if (right.modeLabel) rightParts.push(right.modeLabel);
-  if (right.infoText) rightParts.push(right.infoText);
-  const rightText = rightParts.join(FOOTER_SECTION_SEPARATOR);
+  const rightText = right.infoText;
 
   // Reserve space for right side, truncate left to fit
   const rightLen = rightText.length;

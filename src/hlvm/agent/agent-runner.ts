@@ -15,8 +15,8 @@ import { getErrorMessage } from "../../common/utils.ts";
 import {
   closeFactDb,
   extractSessionFacts,
-  isPersistentMemoryEnabled,
   isMemorySystemMessage,
+  isPersistentMemoryEnabled,
   loadMemorySystemMessage,
   MEMORY_TOOLS,
   persistConversationFacts,
@@ -97,8 +97,8 @@ import {
 } from "./todo-state.ts";
 import {
   formatPlanForContext,
-  type PlanningPhase,
   getPlanSignature,
+  type PlanningPhase,
   restorePlanState,
 } from "./planning.ts";
 import {
@@ -581,6 +581,10 @@ export async function runAgentQuery(
         directFileTargets,
       }
       : undefined;
+    const runtimeToolFilterBaseline = {
+      allowlist: cloneToolAllowlist(baseExecutionAllowlist),
+      denylist: cloneToolAllowlist(baseExecutionDenylist),
+    };
     if (planModeState && session.toolFilterState) {
       session.toolFilterState.allowlist = cloneToolAllowlist(
         planModeState.planningAllowlist,
@@ -867,6 +871,8 @@ export async function runAgentQuery(
           toolDenylist: session.toolFilterState?.denylist ??
             session.llmConfig?.toolDenylist,
           toolFilterState: session.toolFilterState,
+          toolFilterBaseline: runtimeToolFilterBaseline,
+          thinkingState: session.llmConfig?.thinkingState,
           planModeState,
           toolOwnerId: session.toolOwnerId,
           delegateOwnerId,

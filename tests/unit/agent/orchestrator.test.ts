@@ -122,6 +122,9 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     memoryFlushedThisCycle: false,
     memoryRecallInjected: false,
     lastTeamSummarySignature: "",
+    lastToolNames: [],
+    loopRecoveryStep: 0,
+    temporaryToolDenylist: new Map(),
     ...overrides,
   };
 }
@@ -2103,7 +2106,7 @@ Deno.test({
 
 Deno.test({
   name:
-    "Orchestrator: runReActLoop stops after repeated denials and suggests ask_user",
+    "Orchestrator: runReActLoop pivots toward ask_user after a denied write attempt",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -2134,11 +2137,14 @@ Deno.test({
 
     assertEquals(calls, 3);
     assertStringIncludes(result, "ask_user");
-    const maxDenialsMessage = context.getMessages().find((message) =>
-      message.content.includes("Maximum denials (2)")
+    const deniedMessage = context.getMessages().find((message) =>
+      message.content.includes("denied by user")
     );
-    assertEquals(maxDenialsMessage !== undefined, true);
-    assertStringIncludes(maxDenialsMessage?.content ?? "", "ask_user");
+    assertEquals(deniedMessage !== undefined, true);
+    const blockedMessage = context.getMessages().find((message) =>
+      message.content.includes("Tool not allowed by orchestrator: write_file")
+    );
+    assertEquals(blockedMessage !== undefined, true);
   },
 });
 
