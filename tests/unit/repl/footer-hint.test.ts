@@ -1,60 +1,68 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
-  buildFooterCenterState,
+  buildFooterLeftState,
   buildFooterRightState,
-  shouldUseCompactFooter,
 } from "../../../src/hlvm/cli/repl-ink/components/FooterHint.tsx";
 import { StreamingState } from "../../../src/hlvm/cli/repl-ink/types.ts";
 
-Deno.test("buildFooterCenterState shows force hint when responding without active tool", () => {
-  const state = buildFooterCenterState({
+Deno.test("buildFooterLeftState shows esc cancel when responding without draft", () => {
+  const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Responding,
     spinner: "x",
   });
 
-  assertEquals(state.text, "Esc cancel \u00B7 Ctrl+Enter force");
+  assertEquals(state.text, "esc cancel");
   assertEquals(state.tone, "muted");
 });
 
-Deno.test("buildFooterCenterState keeps running tool status in footer", () => {
-  const state = buildFooterCenterState({
+Deno.test("buildFooterLeftState shows tool status when responding with active tool", () => {
+  const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Responding,
     activeTool: { name: "search_web", toolIndex: 1, toolTotal: 2 },
     spinner: "x",
   });
 
-  assertEquals(state.text, "x Running search_web (1/2) \u00B7 Esc cancel");
+  assertEquals(state.text, "x search_web (1/2) \u00B7 esc cancel");
   assertEquals(state.tone, "warning");
 });
 
-Deno.test("buildFooterCenterState shows shortcuts hint when idle in conversation", () => {
-  const state = buildFooterCenterState({
+Deno.test("buildFooterLeftState shows Ready when idle in conversation", () => {
+  const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
     spinner: "x",
   });
 
-  assertEquals(
-    state.text,
-    "Ready \u00B7 PgUp/PgDn scroll \u00B7 /help shortcuts",
-  );
+  assertEquals(state.text, "Ready");
   assertEquals(state.tone, "muted");
 });
 
-Deno.test("buildFooterCenterState shows shortcuts hint outside conversation", () => {
-  const state = buildFooterCenterState({
+Deno.test("buildFooterLeftState shows plan review actions", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    hasPendingPermission: true,
+    hasPendingPlanReview: true,
+    spinner: "x",
+  });
+
+  assertEquals(state.text, "y run \u00B7 r revise \u00B7 n cancel");
+  assertEquals(state.tone, "warning");
+});
+
+Deno.test("buildFooterLeftState shows Ready outside conversation", () => {
+  const state = buildFooterLeftState({
     inConversation: false,
     spinner: "x",
   });
 
-  assertEquals(state.text, "/help shortcuts");
+  assertEquals(state.text, "Ready");
   assertEquals(state.tone, "muted");
 });
 
-Deno.test("buildFooterCenterState surfaces transient status messages when idle", () => {
-  const state = buildFooterCenterState({
+Deno.test("buildFooterLeftState surfaces transient status messages when idle", () => {
+  const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
     spinner: "x",
@@ -65,34 +73,31 @@ Deno.test("buildFooterCenterState surfaces transient status messages when idle",
   assertEquals(state.tone, "muted");
 });
 
-Deno.test("buildFooterCenterState shows tab queue hint when draft exists during response", () => {
-  const state = buildFooterCenterState({
+Deno.test("buildFooterLeftState shows queue/force hints when draft exists during response", () => {
+  const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Responding,
     hasDraftInput: true,
     spinner: "x",
   });
 
-  assertEquals(state.text, "Tab to queue message");
+  assertEquals(state.text, "tab queue \u00B7 ctrl+enter force");
   assertEquals(state.tone, "muted");
 });
 
-Deno.test("buildFooterCenterState includes queued interaction count in footer", () => {
-  const state = buildFooterCenterState({
+Deno.test("buildFooterLeftState includes queued interaction count", () => {
+  const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
     interactionQueueLength: 3,
     spinner: "x",
   });
 
-  assertEquals(
-    state.text,
-    "Ready \u00B7 PgUp/PgDn scroll \u00B7 /help shortcuts \u00B7 +2 queued",
-  );
+  assertEquals(state.text, "Ready \u00B7 +2 queued");
 });
 
-Deno.test("buildFooterCenterState prefers queue hint over running tool status when draft exists", () => {
-  const state = buildFooterCenterState({
+Deno.test("buildFooterLeftState prefers queue/force hints over tool status when draft exists", () => {
+  const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Responding,
     activeTool: { name: "search_web", toolIndex: 1, toolTotal: 2 },
@@ -100,7 +105,7 @@ Deno.test("buildFooterCenterState prefers queue hint over running tool status wh
     spinner: "x",
   });
 
-  assertEquals(state.text, "Tab to queue message");
+  assertEquals(state.text, "tab queue \u00B7 ctrl+enter force");
 });
 
 Deno.test("buildFooterRightState includes mode label and model metadata", () => {
@@ -125,9 +130,4 @@ Deno.test("buildFooterRightState shows model name without mode label", () => {
 
   assertEquals(state.infoText, "llama3.2:1b");
   assertEquals(state.modeLabel, undefined);
-});
-
-Deno.test("shouldUseCompactFooter hides side metadata on narrow terminals", () => {
-  assertEquals(shouldUseCompactFooter(75), true);
-  assertEquals(shouldUseCompactFooter(90), false);
 });

@@ -22,6 +22,10 @@ Deno.test("Safety: classifyTool covers representative metadata-backed tool famil
 Deno.test("Safety: classifyTool applies shell allowlists, trims whitespace, and rejects invalid shell args", () => {
   assertEquals(classifyTool("shell_exec", { command: "git status" }).level, "L0");
   assertEquals(classifyTool("shell_exec", { command: "  git status  " }).level, "L0");
+  assertEquals(
+    classifyTool("shell_exec", { command: "sed -n '340,370p' src/app.ts" }).level,
+    "L0",
+  );
   assertEquals(classifyTool("shell_exec", { command: "deno test --dry-run" }).level, "L1");
   assertEquals(classifyTool("shell_exec", { command: "git push" }).level, "L2");
   assertEquals(classifyTool("shell_exec", {}).level, "L2");

@@ -16,14 +16,12 @@ interface WritableStdout {
   isTTY?: boolean;
 }
 
-function asWritableStdout(value: unknown): WritableStdout | null {
+export function resolveWritableStdout(value: unknown): WritableStdout | null {
   if (!value || typeof value !== "object") return null;
-  const candidate = value as { write?: unknown; isTTY?: unknown };
+  const candidate = value as Partial<WritableStdout>;
   if (typeof candidate.write !== "function") return null;
-  return {
-    write: candidate.write as (chunk: string) => boolean,
-    isTTY: typeof candidate.isTTY === "boolean" ? candidate.isTTY : undefined,
-  };
+  // Preserve the original stream object so write() keeps its stream receiver.
+  return candidate as WritableStdout;
 }
 
 export function useAlternateBuffer(enabled: boolean): void {
@@ -31,7 +29,7 @@ export function useAlternateBuffer(enabled: boolean): void {
   const isActiveRef = useRef(false);
 
   useEffect(() => {
-    const stream = asWritableStdout(stdout);
+    const stream = resolveWritableStdout(stdout);
     if (!stream || stream.isTTY === false) return;
 
     if (enabled && !isActiveRef.current) {
@@ -48,7 +46,7 @@ export function useAlternateBuffer(enabled: boolean): void {
 
   useEffect(() => {
     return () => {
-      const stream = asWritableStdout(stdout);
+      const stream = resolveWritableStdout(stdout);
       if (!stream || stream.isTTY === false) return;
       if (!isActiveRef.current) return;
       stream.write(EXIT_ALT_BUFFER);

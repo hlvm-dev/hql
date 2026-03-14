@@ -3,7 +3,7 @@ import {
   type SearchResult,
   type SearchResultSourceClass,
 } from "./search-provider.ts";
-import { analyzeResultUrl } from "./web-utils.ts";
+import { analyzeResultUrl, type ResultUrlAnalysis } from "./web-utils.ts";
 
 export interface SearchSourceAuthority {
   sourceClass: SearchResultSourceClass;
@@ -59,12 +59,14 @@ const FORUM_PATH_SEGMENTS = new Set([
   "thread",
   "threads",
 ]);
+const FORUM_SUBDOMAIN_LABELS = new Set(["community", "discuss", "forum"]);
 const FORUM_HOST_SUFFIXES = [
   "reddit.com",
   "stackoverflow.com",
   "stackexchange.com",
   "superuser.com",
 ];
+const REPO_DOC_PATH_SEGMENTS = new Set(["blob", "docs", "readme", "tree", "wiki"]);
 const REPO_DOC_HOST_SUFFIXES = [
   "bitbucket.org",
   "github.com",
@@ -99,51 +101,32 @@ function hasAnySegment(segments: readonly string[], candidates: ReadonlySet<stri
   return segments.some((segment) => candidates.has(segment));
 }
 
-function hasDocLikeLocation(result: SearchResult): boolean {
-  const analysis = analyzeResultUrl(result.url);
-  if (!analysis) return false;
-  const signalText = normalizeSearchText(
-    [result.title, result.snippet, result.pageDescription].filter(Boolean).join(" "),
-  );
+function hasDocLikeLocation(analysis: ResultUrlAnalysis, signalText: string): boolean {
   return hasAnySegment(analysis.subdomainLabels, DOC_SUBDOMAIN_LABELS) ||
     hasAnySegment(analysis.pathSegments, DOC_PATH_SEGMENTS) ||
     /\b(?:api|docs|documentation|manual|reference)\b/.test(signalText);
 }
 
-function hasForumLikeLocation(result: SearchResult): boolean {
-  const analysis = analyzeResultUrl(result.url);
-  if (!analysis) return false;
+function hasForumLikeLocation(analysis: ResultUrlAnalysis): boolean {
   return hostMatchesSuffix(analysis.hostWithoutWww, FORUM_HOST_SUFFIXES) ||
-    hasAnySegment(analysis.subdomainLabels, new Set(["community", "discuss", "forum"])) ||
+    hasAnySegment(analysis.subdomainLabels, FORUM_SUBDOMAIN_LABELS) ||
     hasAnySegment(analysis.pathSegments, FORUM_PATH_SEGMENTS);
 }
 
-function hasRepoDocLocation(result: SearchResult): boolean {
-  const analysis = analyzeResultUrl(result.url);
-  if (!analysis) return false;
+function hasRepoDocLocation(analysis: ResultUrlAnalysis): boolean {
   if (!hostMatchesSuffix(analysis.hostWithoutWww, REPO_DOC_HOST_SUFFIXES)) return false;
   return analysis.hostWithoutWww.endsWith(".github.io") ||
-    hasAnySegment(analysis.pathSegments, new Set(["blob", "docs", "readme", "tree", "wiki"])) ||
+    hasAnySegment(analysis.pathSegments, REPO_DOC_PATH_SEGMENTS) ||
     analysis.pathSegments.length > 0;
 }
 
-function hasTechnicalArticleLocation(result: SearchResult): boolean {
-  const analysis = analyzeResultUrl(result.url);
-  if (!analysis) return false;
-  const signalText = normalizeSearchText(
-    [result.title, result.snippet, result.pageDescription].filter(Boolean).join(" "),
-  );
+function hasTechnicalArticleLocation(analysis: ResultUrlAnalysis, signalText: string): boolean {
   return hostMatchesSuffix(analysis.hostWithoutWww, TECHNICAL_ARTICLE_HOST_SUFFIXES) ||
     hasAnySegment(analysis.pathSegments, ARTICLE_PATH_SEGMENTS) ||
     ARTICLE_STYLE_SIGNAL_RE.test(signalText);
 }
 
-function hasVendorReleaseLocation(result: SearchResult): boolean {
-  const analysis = analyzeResultUrl(result.url);
-  if (!analysis) return false;
-  const signalText = normalizeSearchText(
-    [result.title, result.snippet, result.pageDescription].filter(Boolean).join(" "),
-  );
+function hasVendorReleaseLocation(analysis: ResultUrlAnalysis, signalText: string): boolean {
   return !hostMatchesSuffix(analysis.hostWithoutWww, TECHNICAL_ARTICLE_HOST_SUFFIXES) &&
     hasAnySegment(analysis.pathSegments, ARTICLE_PATH_SEGMENTS) &&
     VENDOR_RELEASE_SIGNAL_RE.test(signalText);
@@ -183,15 +166,27 @@ export function classifySearchResultSource(
   }
 
   const analysis = analyzeResultUrl(result.url);
-  const host = analysis?.hostWithoutWww;
-  const onAllowedDomain = host && allowedDomains?.length
+  if (!analysis) {
+    return {
+      sourceClass: "other",
+      authorityScore: scoreForSourceClass("other"),
+      isAuthoritative: false,
+      isCommunity: false,
+    };
+  }
+
+  const host = analysis.hostWithoutWww;
+  const onAllowedDomain = allowedDomains?.length
     ? isAllowedByDomainFilters(host, allowedDomains, undefined)
     : false;
-  const forumLike = hasForumLikeLocation(result);
-  const repoDocLike = hasRepoDocLocation(result);
-  const technicalArticleLike = hasTechnicalArticleLocation(result);
-  const vendorReleaseLike = hasVendorReleaseLocation(result);
-  const docLike = hasDocLikeLocation(result);
+  const signalText = normalizeSearchText(
+    [result.title, result.snippet, result.pageDescription].filter(Boolean).join(" "),
+  );
+  const forumLike = hasForumLikeLocation(analysis);
+  const repoDocLike = hasRepoDocLocation(analysis);
+  const technicalArticleLike = hasTechnicalArticleLocation(analysis, signalText);
+  const vendorReleaseLike = hasVendorReleaseLocation(analysis, signalText);
+  const docLike = hasDocLikeLocation(analysis, signalText);
 
   const sourceClass: SearchResultSourceClass = onAllowedDomain
     ? "official_docs"

@@ -15,7 +15,7 @@ import {
 import { sanitizeIdentifier } from "../../../../common/utils.ts";
 import { containsAwait } from "./async-generators.ts";
 import { containsYieldExpression } from "../../utils/ir-tree-walker.ts";
-import { createBlock, wrapIIFEResult } from "../../utils/ir-helpers.ts";
+import { createBlock, createId, wrapIIFEResult } from "../../utils/ir-helpers.ts";
 
 // Type for transform node function passed from main module
 export type TransformNodeFn = (node: HQLNode, dir: string) => IR.IRNode | null;
@@ -133,7 +133,7 @@ export function transformTry(
         const paramName = sanitizeIdentifier(
           (clause.elements[1] as SymbolNode).name,
         );
-        param = { type: IR.IRNodeType.Identifier, name: paramName };
+        param = createId(paramName);
         bodyStart = 2;
       } else if (
         clause.elements.length > 1 && clause.elements[1].type === "literal"
@@ -141,7 +141,7 @@ export function transformTry(
         const paramName = sanitizeIdentifier(
           String((clause.elements[1] as LiteralNode).value),
         );
-        param = { type: IR.IRNodeType.Identifier, name: paramName };
+        param = createId(paramName);
         bodyStart = 2;
       }
 

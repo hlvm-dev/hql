@@ -126,10 +126,6 @@ let replState: ReplState | null = null;
 
 // MARK: - Types
 
-interface EvalRequest {
-  code: string;
-}
-
 interface CompletionRequest {
   text: string;
   cursor: number;
@@ -175,94 +171,6 @@ async function initState(): Promise<ReplState> {
 
   log.info(`REPL state initialized: ${state.getDocstrings().size} definitions`);
   return state;
-}
-
-// MARK: - Legacy Handlers
-
-/**
- * @openapi
- * /eval:
- *   post:
- *     tags: [REPL]
- *     summary: Evaluate HQL code
- *     operationId: evalCode
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               code:
- *                 type: string
- *             required: [code]
- *     responses:
- *       '200':
- *         description: Evaluation result.
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 value:
- *                   type: string
- *                   nullable: true
- *                 logs:
- *                   type: array
- *                   items:
- *                     type: string
- *                 error:
- *                   type: object
- *                   nullable: true
- *                   properties:
- *                     name:
- *                       type: string
- *                     message:
- *                       type: string
- *       '400':
- *         description: Missing code.
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       '500':
- *         description: Evaluation error.
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
-async function handleEval(req: Request): Promise<Response> {
-  try {
-    const parsed = await parseJsonBody<EvalRequest>(req);
-    if (!parsed.ok) return parsed.response;
-
-    const { code } = parsed.value;
-    if (typeof code !== "string" || code.length === 0) {
-      return jsonError("Missing code", 400);
-    }
-
-    if (!replState) {
-      replState = await initState();
-    }
-
-    const result = await evaluate(code, replState, true);
-    const hasValue = Object.prototype.hasOwnProperty.call(result, "value");
-
-    return Response.json({
-      success: result.success,
-      value: hasValue ? formatPlainValue(result.value) : null,
-      logs: result.logs?.map((log) => log.trimEnd()) ?? [],
-      error: result.error
-        ? { name: result.error.name, message: result.error.message }
-        : null,
-    });
-  } catch (error) {
-    log.error("Eval failed", error);
-    return jsonError(getErrorMessage(error), 500);
-  }
 }
 
 /**
@@ -859,14 +767,6 @@ async function handleRequest(req: Request): Promise<Response> {
   const aiGateResponse = await maybeGateAiRoute(req.method, url.pathname);
   if (aiGateResponse) {
     return addCorsHeaders(aiGateResponse, origin);
-  }
-
-  if (req.method === "POST" && url.pathname === "/eval") {
-    return addCorsHeaders(await handleEval(req), origin);
-  }
-
-  if (req.method === "POST" && url.pathname === "/complete") {
-    return addCorsHeaders(await handleComplete(req), origin);
   }
 
   if (req.method === "POST" && url.pathname === "/api/runtime/shutdown") {

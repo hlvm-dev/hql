@@ -53,9 +53,24 @@ export const LINE_SPLIT_REGEX = /\r?\n|\r/;
 
 /**
  * Count the number of lines in text.
+ * Uses O(1) memory by counting newlines instead of splitting into an array.
  */
 export function countLines(text: string): number {
-  return text.split(LINE_SPLIT_REGEX).length;
+  if (text.length === 0) return 1;
+  let count = 1;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    if (ch === 10) {          // \n
+      count++;
+    } else if (ch === 13) {   // \r
+      count++;
+      // Skip \n in \r\n pair
+      if (i + 1 < text.length && text.charCodeAt(i + 1) === 10) {
+        i++;
+      }
+    }
+  }
+  return count;
 }
 
 /** Cached regex patterns for identifier sanitization (avoid compilation per call) */
@@ -144,12 +159,7 @@ export async function readFile(
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await getPlatform().fs.stat(filePath);
-    return true;
-  } catch {
-    return false;
-  }
+  return getPlatform().fs.exists(filePath);
 }
 
 export async function findActualFilePath(
@@ -210,18 +220,6 @@ export function truncate(text: string, maxLen: number, suffix = "..."): string {
 }
 
 /**
- * Truncate a string keeping both head and tail, eliding the middle.
- * Useful for tool results where error messages and summaries appear at the end.
- *
- * Strategy: keep first ~40% and last ~40% of maxLen, separated by a notice.
- * Falls back to simple prefix truncation for very short maxLen values.
- *
- * @param text - String to truncate
- * @param maxLen - Maximum total length of result
- * @param headRatio - Fraction of maxLen for head (default: 0.4)
- * @returns Head + separator + tail if truncated, original string otherwise
- */
-/**
  * Truncate text and report whether truncation occurred.
  * SSOT for truncate-with-flag pattern (used by web tools, etc.).
  */
@@ -235,6 +233,18 @@ export function truncateText(
   return { text: text.slice(0, maxChars), truncated: true };
 }
 
+/**
+ * Truncate a string keeping both head and tail, eliding the middle.
+ * Useful for tool results where error messages and summaries appear at the end.
+ *
+ * Strategy: keep first ~40% and last ~40% of maxLen, separated by a notice.
+ * Falls back to simple prefix truncation for very short maxLen values.
+ *
+ * @param text - String to truncate
+ * @param maxLen - Maximum total length of result
+ * @param headRatio - Fraction of maxLen for head (default: 0.4)
+ * @returns Head + separator + tail if truncated, original string otherwise
+ */
 export function truncateMiddle(
   text: string,
   maxLen: number,

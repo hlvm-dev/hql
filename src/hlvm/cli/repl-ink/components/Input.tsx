@@ -91,7 +91,6 @@ import {
   executeHandler,
   HandlerIds,
   inspectHandlerKeybinding,
-  normalizeKeyInput,
   registerHandler,
   unregisterHandler,
 } from "../keybindings/index.ts";
@@ -104,7 +103,6 @@ type PareditFn = (input: string, pos: number) => PareditResult | null;
 // Some terminals send Option/Alt chords as ESC-prefixed sequences (ESC + key).
 // Delay pure ESC handling briefly so modified chords (e.g., Option+Enter) are not swallowed.
 const ESC_SEQUENCE_TIMEOUT_MS = 120;
-const ESC_PREFIX_ENTER_GRACE_MS = 280;
 const INPUT_KEYBINDING_CATEGORIES = [
   "Editing",
   "Navigation",
@@ -126,8 +124,6 @@ const PASTE_CONTINUE_THRESHOLD_MS = 100; // Char-by-char paste arrives < 100ms a
 const PASTE_PROCESS_DELAY_MS = 300; // Wait 300ms for more chunks before processing (increased for slow terminals)
 const CTRL_ENTER_CSI_U_REGEX = new RegExp("^\u001b\\[13;(\\d+)u$");
 const CTRL_ENTER_LEGACY_REGEX = new RegExp("^\u001b\\[27;(\\d+);13~$");
-const MODIFIED_ENTER_CSI_U_REGEX = new RegExp("^\u001b\\[13;\\d+u$");
-const MODIFIED_ENTER_LEGACY_REGEX = new RegExp("^\u001b\\[27;\\d+;13~$");
 
 // ANSI Reset constant
 const { RESET } = ANSI_COLORS;
@@ -173,8 +169,6 @@ interface InputProps {
   restoredCursorOffset?: number;
   /** Monotonic token to apply restored draft state exactly once per restore */
   restoredDraftRevision?: number;
-  /** Report the composer row budget so the conversation viewport can reserve space accurately */
-  onLayoutRowsChange?: (rows: number) => void;
   onCycleMode?: () => void;
   disabled?: boolean;
   /** "chat" disables code token coloring for natural-language turns */
@@ -214,7 +208,6 @@ export function Input({
   restoredAttachments,
   restoredCursorOffset,
   restoredDraftRevision,
-  onLayoutRowsChange,
   onCycleMode,
   disabled = false,
   highlightMode = "code",
@@ -1368,11 +1361,6 @@ export function Input({
   useInput((input, key) => {
     // Use ref to avoid stale closure - disabled prop can change during evaluation
     if (disabledRef.current) return;
-    const nowMs = Date.now();
-    const hasPendingEsc = escSequenceTimerRef.current !== null;
-    const recentEscPrefix =
-      nowMs - lastEscPrefixAtRef.current < ESC_PREFIX_ENTER_GRACE_MS;
-    const isEscPrefixedEnterInput = input === "\x1b\r" || input === "\x1b\n";
     // CSI-u Ctrl+Enter: modifier 5/6/7 (Ctrl, Ctrl+Shift, Ctrl+Alt)
     const isCtrlEnterProtocol = (() => {
       if (!input) return false;
@@ -1381,9 +1369,6 @@ export function Input({
       const mod = parseInt(csiuMatch?.[1] ?? legacyMatch?.[1] ?? "0", 10);
       return mod === 5 || mod === 6 || mod === 7;
     })();
-    const isProtocolModifiedEnterInput = !isCtrlEnterProtocol &&
-      (MODIFIED_ENTER_CSI_U_REGEX.test(input ?? "") ||
-        MODIFIED_ENTER_LEGACY_REGEX.test(input ?? ""));
     const isPureEscPrefixEvent = key.escape &&
       !key.ctrl &&
       !key.meta &&
@@ -1401,31 +1386,12 @@ export function Input({
     const isTabKey = key.tab || input === "\t" || inputCharCode === 9 ||
       (key.ctrl && input === "i");
 
-    // Some terminals emit Option+Enter as one ESC-prefixed payload.
-    if (
-      (isEscPrefixedEnterInput || isProtocolModifiedEnterInput) && !key.ctrl
-    ) {
-      insertAt("\n");
+    // Ctrl+Enter: force-submit via CSI-u protocol only (kitty/WezTerm/Ghostty).
+    // Most terminals can't distinguish Ctrl+Enter from Ctrl+J, so we don't
+    // use Ctrl+J for force-submit — it's reserved for newline insertion.
+    if (onForceSubmit && (isCtrlEnterProtocol || (key.return && key.ctrl))) {
+      void executeHandler(HandlerIds.COMPOSER_FORCE_SUBMIT);
       return;
-    }
-
-    // Ctrl+Enter: force-submit (interrupt current agent and send immediately).
-    // Detection layers (most terminals lack CSI-u, so we need multiple checks):
-    //   1. CSI-u protocol: \x1b[13;5u (kitty, WezTerm, foot, ghostty)
-    //   2. key.return + key.ctrl (some terminals set both flags)
-    //   3. Raw Ctrl+J in chat mode — most terminals send Ctrl+Enter as Ctrl+J (\x0a).
-    //      Ink parses \x0a as name='enter' (not 'return'), so key.return=false and
-    //      input="\n". Regular Enter sends \r which sets key.return=true.
-    //      Detecting input==="\n" && !key.return reliably distinguishes Ctrl+J from Enter.
-    {
-      const isRawCtrlJ = input === "\n" && !key.return;
-      const isCtrlEnterLike = isCtrlEnterProtocol ||
-        (key.return && key.ctrl) ||
-        (highlightMode === "chat" && isRawCtrlJ);
-      if (onForceSubmit && isCtrlEnterLike) {
-        void executeHandler(HandlerIds.COMPOSER_FORCE_SUBMIT);
-        return;
-      }
     }
 
     if (
@@ -1534,33 +1500,14 @@ export function Input({
       return;
     }
 
-    // Unified newline chords via keybinding normalization (Gemini-like reliability):
-    // Alt/Opt+Enter, Cmd+Enter, Shift+Enter, Ctrl+J.
-    // In chat mode with force-submit available, Ctrl+J is repurposed (handled above).
-    const normalizedCombo = normalizeKeyInput(input, key);
-    const isCtrlJNewline = normalizedCombo === "ctrl+j" &&
-      !(highlightMode === "chat" && onForceSubmit);
-    if (
-      normalizedCombo === "alt+enter" ||
-      normalizedCombo === "cmd+enter" ||
-      normalizedCombo === "shift+enter" ||
-      isCtrlJNewline
-    ) {
+    // Ctrl+J (0x0A) inserts newline. Always distinct from Enter (0x0D).
+    // Works in ALL terminals including macOS Terminal.app.
+    if (input === "\n" && !key.return) {
       insertAt("\n");
       return;
     }
 
-    // Modified Enter always inserts newline (global multiline behavior),
-    // including when completion dropdown is open.
-    const isEnterLikeInput = key.return || input === "\r" || input === "\n";
-    if (
-      isEnterLikeInput &&
-      !key.ctrl &&
-      (key.shift || key.meta || key.escape || hasPendingEsc || recentEscPrefix)
-    ) {
-      insertAt("\n");
-      return;
-    }
+    const isEnterLikeInput = key.return || input === "\r";
 
     // ============================================================
     // CUSTOM KEYBINDING INTERCEPTION
@@ -1722,6 +1669,14 @@ export function Input({
           setCursorPos(result.newCursor);
         }
       };
+
+      // Option+Backspace: delete word backward (same as Ctrl+W)
+      if (key.backspace || key.delete) {
+        pushUndo();
+        const { v, c } = getCleanedValue();
+        deleteWord(v, c);
+        return;
+      }
 
       // Check for ESC/Option + arrow (word/sexp navigation)
       if (key.leftArrow) {
@@ -2035,10 +1990,8 @@ export function Input({
       return;
     }
 
-    // Enter - submit if balanced OR if it's an @mention query.
-    // Treat raw CR/LF as Enter too (some terminals/paste flows set key.return=false).
-    // Skip if Ctrl is pressed (Ctrl+J = ASCII 10 = newline, handled in Ctrl block).
-    if (isEnterLikeInput && !key.ctrl) {
+    // Enter (0x0D) - submit if balanced. Ctrl+J (0x0A) is newline, handled above.
+    if (isEnterLikeInput) {
       // Wait for async attachment resolution before submit so placeholders map to real attachments.
       if (pendingAttachmentOpsRef.current > 0) {
         return;
@@ -2083,24 +2036,55 @@ export function Input({
       return;
     }
 
-    // Arrow keys (when dropdown not visible) - Claude Code style navigation
-    // Priority: move cursor to edge first, then history at edges
+    // Arrow keys (when dropdown not visible)
+    // Multiline: move between lines. Single-line: jump to edge then history.
     if (key.upArrow) {
-      if (cursorPos > 0) {
-        // Cursor not at beginning: move to beginning first
+      const lines = value.split("\n");
+      if (lines.length > 1) {
+        // Find current line and column from cursor position
+        let pos = 0;
+        let lineIdx = 0;
+        for (let i = 0; i < lines.length; i++) {
+          if (pos + lines[i].length >= cursorPos) { lineIdx = i; break; }
+          pos += lines[i].length + 1; // +1 for \n
+        }
+        const col = cursorPos - pos;
+        if (lineIdx > 0) {
+          // Move to same column on previous line (clamped)
+          const prevLineStart = pos - lines[lineIdx - 1].length - 1;
+          setCursorPos(prevLineStart + Math.min(col, lines[lineIdx - 1].length));
+        } else {
+          // Already on first line: navigate history
+          navigateHistory(-1);
+        }
+      } else if (cursorPos > 0) {
         setCursorPos(0);
       } else {
-        // Cursor already at beginning: navigate to previous history
         navigateHistory(-1);
       }
       return;
     }
     if (key.downArrow) {
-      if (cursorPos < value.length) {
-        // Cursor not at end: move to end first
+      const lines = value.split("\n");
+      if (lines.length > 1) {
+        let pos = 0;
+        let lineIdx = 0;
+        for (let i = 0; i < lines.length; i++) {
+          if (pos + lines[i].length >= cursorPos) { lineIdx = i; break; }
+          pos += lines[i].length + 1;
+        }
+        const col = cursorPos - pos;
+        if (lineIdx < lines.length - 1) {
+          // Move to same column on next line (clamped)
+          const nextLineStart = pos + lines[lineIdx].length + 1;
+          setCursorPos(nextLineStart + Math.min(col, lines[lineIdx + 1].length));
+        } else {
+          // Already on last line: navigate history
+          navigateHistory(1);
+        }
+      } else if (cursorPos < value.length) {
         setCursorPos(value.length);
       } else {
-        // Cursor already at end: navigate to next history
         navigateHistory(1);
       }
       return;
@@ -2554,14 +2538,16 @@ export function Input({
     lineStartOffset: number,
   ): React.ReactNode => {
     const isCurrentLine = lineIndex === cursorLine;
-    const promptPrefix = getInputPromptPrefix(promptLabel, lineIndex);
+    const promptText = lineIndex === 0
+      ? promptLabel
+      : " ".repeat(promptLabel.length);
 
     if (!isCurrentLine) {
       // No cursor on this line
       return (
         <Box key={lineIndex}>
-          <Text color={color("primary")} bold>{promptPrefix}</Text>
-          <Text>{renderWithPlaceholders(line, lineStartOffset)}</Text>
+          <Text color={color("primary")} bold>{promptText}</Text>
+          <Text>{" "}{renderWithPlaceholders(line, lineStartOffset)}</Text>
         </Box>
       );
     }
@@ -2573,8 +2559,8 @@ export function Input({
 
     return (
       <Box key={lineIndex}>
-        <Text color={color("primary")} bold>{promptPrefix}</Text>
-        <Text>{renderWithPlaceholders(beforeCursor, lineStartOffset)}</Text>
+        <Text color={color("primary")} bold>{promptText}</Text>
+        <Text>{" "}{renderWithPlaceholders(beforeCursor, lineStartOffset)}</Text>
         <Text backgroundColor="white" color="black">{charAtCursor}</Text>
         <Text>
           {renderWithPlaceholders(afterCursor, lineStartOffset + cursorCol + 1)}
@@ -2622,10 +2608,6 @@ export function Input({
     (activeOverlay === "placeholder" ? 1 : 0) +
     (activeOverlay === "history" ? 2 : 0) +
     completionReservedRows;
-
-  useEffect(() => {
-    onLayoutRowsChange?.(layoutRows);
-  }, [layoutRows, onLayoutRowsChange]);
 
   return (
     <Box flexDirection="column">

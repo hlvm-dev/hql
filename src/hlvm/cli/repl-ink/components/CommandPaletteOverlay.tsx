@@ -30,11 +30,11 @@ import {
   bg,
   clearOverlay,
   fg,
-  hexToRgb,
   OVERLAY_BG_COLOR,
   type RGB,
   resolveOverlayFrame,
   shouldClearOverlay,
+  themeToOverlayColors,
   writeToTerminal,
 } from "../overlay/index.ts";
 import { useTheme } from "../../theme/index.ts";
@@ -205,13 +205,16 @@ export function CommandPaletteOverlay({
   const [rebindingId, setRebindingId] = useState<string | null>(null);
 
   // Theme colors (memoized)
-  const colors = useMemo(() => ({
-    highlight: hexToRgb(theme.warning) as RGB,
-    category: hexToRgb(theme.accent) as RGB,
-    primary: hexToRgb(theme.primary) as RGB,
-    muted: hexToRgb(theme.muted) as RGB,
-    bgStyle: bg(OVERLAY_BG_COLOR),
-  }), [theme]);
+  const colors = useMemo(() => {
+    const c = themeToOverlayColors(theme);
+    return {
+      highlight: c.warning,
+      category: c.accent,
+      primary: c.primary,
+      muted: c.muted,
+      bgStyle: bg(OVERLAY_BG_COLOR),
+    };
+  }, [theme]);
 
   // Search results and derived data
   const results = useMemo(() => registry.search(query), [query]);

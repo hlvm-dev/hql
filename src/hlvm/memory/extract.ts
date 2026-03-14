@@ -26,6 +26,13 @@ interface PersistedExtractionResult {
   factIds: number[];
 }
 
+const EMPTY_EXTRACTION: PersistedExtractionResult = {
+  factsExtracted: 0,
+  entitiesCreated: 0,
+  invalidated: 0,
+  factIds: [],
+};
+
 const NOT_NAMES = new Set([
   "thinking",
   "wondering",
@@ -115,7 +122,7 @@ function addUniqueFact(
   if (!fact) return;
   const content = normalizeExtractedContent(fact.content);
   if (!content) return;
-  const key = `${fact.category}\u0000${content.toLowerCase()}`;
+  const key = factKey(fact.category, content);
   if (seen.has(key)) return;
   seen.add(key);
   out.push({ category: fact.category, content });
@@ -166,14 +173,7 @@ function persistExtractedFacts(
     modelTier?: MemoryModelTier;
   },
 ): PersistedExtractionResult {
-  if (facts.length === 0) {
-    return {
-      factsExtracted: 0,
-      entitiesCreated: 0,
-      invalidated: 0,
-      factIds: [],
-    };
-  }
+  if (facts.length === 0) return EMPTY_EXTRACTION;
 
   const categories = [...new Set(facts.map((f) => f.category))];
   const placeholders = categories.map(() => "?").join(",");
@@ -190,14 +190,7 @@ function persistExtractedFacts(
     return true;
   });
 
-  if (freshFacts.length === 0) {
-    return {
-      factsExtracted: 0,
-      entitiesCreated: 0,
-      invalidated: 0,
-      factIds: [],
-    };
-  }
+  if (freshFacts.length === 0) return EMPTY_EXTRACTION;
 
   const entries: WriteMemoryFactOptions[] = freshFacts.map((fact) => ({
     content: fact.content,
@@ -379,23 +372,6 @@ export function extractConversationFacts(
   });
 }
 
-function extractAndPersistBaselineFactsFromMessages(
-  messages: SessionMessage[],
-  options?: {
-    source?: string;
-    invalidateConflicts?: boolean;
-    modelTier?: MemoryModelTier;
-    limit?: number;
-    minMessages?: number;
-    role?: string;
-  },
-): PersistedExtractionResult {
-  return persistExtractedFacts(
-    extractBaselineFactsFromMessages(messages, options),
-    options,
-  );
-}
-
 export function persistConversationFacts(
   messages: SessionMessage[],
   options?: {
@@ -435,13 +411,17 @@ export async function extractSessionFacts(
   }
 
   // Fallback to regex-based extraction
-  const result = extractAndPersistBaselineFactsFromMessages(messages, {
-    source: "extracted",
+  const fallbackOpts = {
+    source: "extracted" as const,
     modelTier,
     limit: 20,
     minMessages: 2,
     role: "user",
-  });
+  };
+  const result = persistExtractedFacts(
+    extractBaselineFactsFromMessages(messages, fallbackOpts),
+    fallbackOpts,
+  );
 
   return {
     factsExtracted: result.factsExtracted,

@@ -32,6 +32,7 @@ async function withWorkspace<T>(
 Deno.test("shell tools: classifyShellCommand maps representative commands to L0, L1, and L2", () => {
   assertEquals(classifyShellCommand("git status"), "L0");
   assertEquals(classifyShellCommand("echo hello"), "L0");
+  assertEquals(classifyShellCommand("sed -n '10,20p' src/main.ts"), "L0");
   assertEquals(classifyShellCommand("deno test --dry-run"), "L1");
   assertEquals(classifyShellCommand("deno test"), "L1");
   assertEquals(classifyShellCommand("git push"), "L2");

@@ -84,6 +84,7 @@ const SHELL_COMMAND_MANIFEST: readonly ShellCommandSpec[] = [
   { pattern: /^(ls|cat|head|tail|wc|file|stat|md5|md5sum|shasum|sha256sum)\s/, commands: ["ls", "cat", "head", "tail", "wc", "file", "stat", "md5", "md5sum", "shasum", "sha256sum"], tier: "L0" },
   { pattern: /^(ls|pwd)$/,             commands: ["ls", "pwd"],      tier: "L0" },
   { pattern: /^(readlink|realpath|basename|dirname)\s/, commands: ["readlink", "realpath", "basename", "dirname"], tier: "L0" },
+  { pattern: /^sed\s+-n\s+['"][0-9,\- $]+p['"]\s+.+$/, commands: ["sed -n"], tier: "L0" },
 
   // ── L0: Search ─────────────────────────────────────────────
   { pattern: /^(find|locate|mdfind)\s/, commands: ["find", "locate", "mdfind"], tier: "L0" },
@@ -450,18 +451,11 @@ export function classifyModelTier(
   return "mid"; // safe default
 }
 
-function resolveExecutionModelTier(
-  model?: string,
-  modelInfo?: { parameterSize?: string; contextWindow?: number } | null,
-): ModelTier {
-  return classifyModelTier(modelInfo, isFrontierProvider(model));
-}
-
 export function supportsAgentExecution(
   model?: string,
   modelInfo?: { parameterSize?: string; contextWindow?: number } | null,
 ): boolean {
-  return resolveExecutionModelTier(model, modelInfo) !== "weak";
+  return classifyModelTier(modelInfo, isFrontierProvider(model)) !== "weak";
 }
 
 // ============================================================

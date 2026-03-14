@@ -8,6 +8,7 @@ import { DEFAULT_MAX_TOOL_CALLS, TOOL_RESULT_LIMITS } from "./constants.ts";
 import { SlidingWindowRateLimiter } from "../../common/rate-limiter.ts";
 import {
   areListsEqual,
+  getErrorMessage,
   isObjectValue,
   TEXT_ENCODER,
 } from "../../common/utils.ts";
@@ -25,7 +26,7 @@ import {
   type LLMSource,
   type ToolCall,
 } from "./tool-call.ts";
-import { getTool, hasTool } from "./registry.ts";
+import { getTool, hasTool, resolveTools } from "./registry.ts";
 import {
   AGENT_ORCHESTRATOR_FAILURE_MESSAGES,
   looksLikeToolCallJsonAnywhere,
@@ -34,9 +35,15 @@ import {
 import { renderEditFileRecoveryPrompt } from "./error-taxonomy.ts";
 import {
   advancePlanState,
+  createPlanState,
+  derivePlanExecutionAllowlist,
   extractStepDoneId,
+  getPlanResearchIterationBudget,
+  parsePlanResponse,
+  requestPlan,
   stripStepMarkers,
 } from "./planning.ts";
+import { listAgentProfiles } from "./agent-registry.ts";
 import { type OrchestratorConfig, WEB_TOOL_NAMES } from "./orchestrator.ts";
 import {
   checkToolResultBytesLimit,
@@ -351,11 +358,257 @@ export function handleTextOnlyResponse(
   return { action: "proceed" };
 }
 
+function formatPlanPreview(
+  plan: import("./planning.ts").Plan,
+): string {
+  const lines = [
+    `Plan ready: ${plan.goal}`,
+    ...plan.steps.map((step, index) => `${index + 1}. ${step.title}`),
+  ];
+  return lines.join("\n");
+}
+
+function formatPlanForExecution(
+  plan: import("./planning.ts").Plan,
+): string {
+  const lines = [
+    "You are no longer planning. You are now executing the approved plan.",
+    "Follow the approved plan in order and stay on the current step until it is complete or blocked.",
+    "Do not restate the plan, do not answer tutorial-style, and do not re-open broad research unless a step genuinely requires it.",
+    "Prefer dedicated tools over shell_exec: use read_file/list_files/search_code for inspection and edit_file/write_file for changes.",
+    "Keep todo_write aligned with actual progress so the checklist stays accurate.",
+    "Keep your progress aligned to these steps:",
+    ...plan.steps.map((step, index) =>
+      `${index + 1}. [${step.id}] ${step.title}`
+    ),
+    'When you complete a step, end your response with: "STEP_DONE <id>".',
+    "If you are blocked by ambiguity, ask one concise clarification with ask_user instead of re-planning in prose.",
+  ];
+  return lines.join("\n");
+}
+
+function cloneToolList(list?: string[]): string[] | undefined {
+  return list?.length ? [...list] : undefined;
+}
+
+async function withDraftingToolLock<T>(
+  config: OrchestratorConfig,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!config.toolFilterState) {
+    return await fn();
+  }
+
+  const previousAllowlist = cloneToolList(config.toolFilterState.allowlist);
+  const previousDenylist = cloneToolList(config.toolFilterState.denylist);
+  const previousConfigAllowlist = cloneToolList(config.toolAllowlist);
+  const previousConfigDenylist = cloneToolList(config.toolDenylist);
+  const allToolNames = Object.keys(resolveTools({
+    ownerId: config.toolOwnerId,
+  }));
+
+  config.toolFilterState.allowlist = undefined;
+  config.toolFilterState.denylist = allToolNames;
+  config.toolAllowlist = undefined;
+  config.toolDenylist = allToolNames;
+
+  try {
+    return await fn();
+  } finally {
+    config.toolFilterState.allowlist = previousAllowlist;
+    config.toolFilterState.denylist = previousDenylist;
+    config.toolAllowlist = previousConfigAllowlist;
+    config.toolDenylist = previousConfigDenylist;
+  }
+}
+
+async function handleDraftedPlan(
+  plan: import("./planning.ts").Plan,
+  state: LoopState,
+  lc: LoopConfig,
+  config: OrchestratorConfig,
+): Promise<LoopDirective> {
+  config.onAgentEvent?.({ type: "plan_created", plan });
+  config.onTrace?.({ type: "plan_created", plan });
+  if (config.planModeState) {
+    config.planModeState.phase = "reviewing";
+    config.onAgentEvent?.({
+      type: "plan_phase_changed",
+      phase: config.planModeState.phase,
+    });
+  }
+
+  if (!config.planReview) {
+    return { action: "return", value: formatPlanPreview(plan) };
+  }
+
+  const reviewDecision = await config.planReview.ensureApproved(plan);
+  if (reviewDecision === "approved") {
+    state.planState = createPlanState(plan);
+    if (config.planModeState) {
+      const executionAllowlist = derivePlanExecutionAllowlist(
+        plan,
+        config.planModeState.executionAllowlist,
+      );
+      config.planModeState.phase = "executing";
+      config.planModeState.executionAllowlist = executionAllowlist;
+      config.onAgentEvent?.({
+        type: "plan_phase_changed",
+        phase: config.planModeState.phase,
+      });
+      config.permissionMode = config.planModeState.executionPermissionMode;
+      if (config.toolFilterState) {
+        config.toolFilterState.allowlist = executionAllowlist
+          ? [...executionAllowlist]
+          : undefined;
+        config.toolFilterState.denylist =
+          config.planModeState.executionDenylist?.length
+          ? [...config.planModeState.executionDenylist]
+          : undefined;
+      }
+      config.toolAllowlist = executionAllowlist
+        ? [...executionAllowlist]
+        : undefined;
+      config.toolDenylist = config.planModeState.executionDenylist?.length
+        ? [...config.planModeState.executionDenylist]
+        : undefined;
+    }
+    lc.planningConfig.requireStepMarkers = true;
+    addContextMessage(config, {
+      role: "user",
+      content: [
+        "[System] The plan has been approved. Begin execution now.",
+        formatPlanForExecution(plan),
+      ].join("\n\n"),
+    });
+    return { action: "continue" };
+  }
+
+  if (reviewDecision === "revise") {
+    if (config.planModeState) {
+      config.planModeState.phase = "researching";
+      config.onAgentEvent?.({
+        type: "plan_phase_changed",
+        phase: config.planModeState.phase,
+      });
+    }
+    addContextMessage(config, {
+      role: "user",
+      content:
+        "Revise the plan and emit a replacement PLAN block when ready. Stay in read-only planning mode.",
+    });
+    return { action: "continue" };
+  }
+
+  return {
+    action: "return",
+    value: "Plan review was cancelled. No changes were made.",
+  };
+}
+
+async function maybeDraftPlanFromResearch(
+  state: LoopState,
+  lc: LoopConfig,
+  config: OrchestratorConfig,
+  llmFunction: LLMFunction,
+): Promise<LoopDirective | null> {
+  if (
+    !config.planModeState?.active ||
+    config.planModeState.phase !== "researching"
+  ) {
+    return null;
+  }
+
+  const shouldDraft = state.toolUses.length > 0 &&
+    (
+      state.iterations >= getPlanResearchIterationBudget(lc.maxIterations) ||
+      state.repeatToolCount >= lc.maxRepeatToolCalls
+    );
+  if (!shouldDraft) return null;
+
+  config.planModeState.phase = "drafting";
+  config.onAgentEvent?.({
+    type: "plan_phase_changed",
+    phase: config.planModeState.phase,
+  });
+  config.onAgentEvent?.({
+    type: "planning_update",
+    iteration: state.iterations,
+    summary: "Drafting a structured plan from the gathered context.",
+  });
+
+  try {
+    const agentNames = listAgentProfiles(config.agentProfiles).map((agent) =>
+      agent.name
+    );
+    const plan = await withDraftingToolLock(
+      config,
+      () =>
+        requestPlan(
+          llmFunction,
+          config.context.getMessages(),
+          config.currentUserRequest ?? "",
+          lc.planningConfig,
+          agentNames,
+          config.signal,
+        ),
+    );
+    if (plan) {
+      return await handleDraftedPlan(plan, state, lc, config);
+    }
+  } catch (error) {
+    config.onAgentEvent?.({
+      type: "planning_update",
+      iteration: state.iterations,
+      summary: `Plan drafting retry needed: ${getErrorMessage(error)}`,
+    });
+  }
+
+  config.planModeState.phase = "researching";
+  config.onAgentEvent?.({
+    type: "plan_phase_changed",
+    phase: config.planModeState.phase,
+  });
+  addContextMessage(config, {
+    role: "user",
+    content:
+      "Research is sufficient. Stop exploring and return ONLY a PLAN ... END_PLAN block using the gathered context.",
+  });
+  return { action: "continue" };
+}
+
+function extractClarifyingQuestion(response: string): string | null {
+  if (!response.trim()) return null;
+  const withoutCodeBlocks = response.replace(/```[\s\S]*?```/g, " ")
+    .replace(/\s+/g, " ");
+  const segments = withoutCodeBlocks.split(/(?<=[.?!])\s+/);
+  for (let i = segments.length - 1; i >= 0; i--) {
+    const candidate = segments[i]?.replace(/^[\s>*-]+/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!candidate || !candidate.endsWith("?") || candidate.length > 220) {
+      continue;
+    }
+    if (
+      /\b(what|which|who|where|when|why|how|can|could|would|should|do|does|did|is|are|will)\b/i
+        .test(candidate)
+    ) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function responseNeedsConcreteTask(response: string): boolean {
+  return /\b(no specific task|no task to plan|nothing to plan|not a task i can act on|actual question or task|what would you like to (accomplish|work on|plan)|what can i help you with|could you tell me what you'd like)\b/i
+    .test(response);
+}
+
 /**
  * Handle the "no tool calls" branch: plan advancement, no-input guard,
  * grounding checks, and format cleanup.
  */
-export function handleFinalResponse(
+export async function handleFinalResponse(
   responseText: string,
   result: {
     toolCallsMade: number;
@@ -368,7 +621,7 @@ export function handleFinalResponse(
   state: LoopState,
   lc: LoopConfig,
   config: OrchestratorConfig,
-): LoopDirective {
+): Promise<LoopDirective> {
   const emitFinalResponseMeta = (citations: Citation[] = []): void => {
     config.onFinalResponseMeta?.({
       citationSpans: citations,
@@ -400,6 +653,75 @@ export function handleFinalResponse(
   let finalResponse = result.finalResponse ?? responseText;
 
   mergePassageIndex(state, result.latestCitationSourceIndex ?? []);
+
+  if (
+    config.planModeState?.active &&
+    config.planModeState.phase !== "executing" &&
+    config.planModeState.phase !== "done"
+  ) {
+    const parsedPlan = parsePlanResponse(finalResponse);
+    if (parsedPlan.plan) {
+      const directive = await handleDraftedPlan(
+        parsedPlan.plan,
+        state,
+        lc,
+        config,
+      );
+      if (directive.action === "return") {
+        emitFinalResponseMeta();
+      }
+      return directive;
+    }
+
+    const clarificationQuestion = extractClarifyingQuestion(finalResponse);
+    if (clarificationQuestion || responseNeedsConcreteTask(finalResponse)) {
+      const question = clarificationQuestion ??
+        "What concrete task do you want me to plan?";
+      if (config.onInteraction) {
+        const interaction = await config.onInteraction({
+          type: "interaction_request",
+          requestId: crypto.randomUUID(),
+          mode: "question",
+          question,
+        });
+        const answer = interaction.userInput?.trim();
+        if (answer) {
+          addContextMessage(config, {
+            role: "user",
+            content: `[Clarification] ${answer}`,
+          });
+          return { action: "continue" };
+        }
+      }
+      emitFinalResponseMeta();
+      return {
+        action: "return",
+        value:
+          "Plan mode needs a concrete task to plan. Describe what you want implemented, changed, or researched, or exit plan mode for general questions.",
+      };
+    }
+
+    if (finalResponse.trim() && state.finalResponseFormatRetries < 1) {
+      state.finalResponseFormatRetries++;
+      config.onAgentEvent?.({
+        type: "planning_update",
+        iteration: state.iterations,
+        summary: finalResponse.slice(0, 300),
+      });
+      addContextMessage(config, {
+        role: "user",
+        content:
+          "You are still in plan mode. Do not answer directly. Either ask one concise clarification with ask_user or return ONLY a PLAN ... END_PLAN block.",
+      });
+      return { action: "continue" };
+    }
+    emitFinalResponseMeta();
+    return {
+      action: "return",
+      value:
+        "Plan mode could not produce a structured plan. Restate the task more concretely, or exit plan mode for general questions.",
+    };
+  }
 
   // Plan state advancement
   if (state.planState) {
@@ -623,7 +945,9 @@ export async function handlePostToolExecution(
     return { action: "return", value: finalResponse.content ?? "" };
   }
 
-  const editFileRecovery = result.results.find((toolResult) => toolResult.recovery)
+  const editFileRecovery = result.results.find((toolResult) =>
+    toolResult.recovery
+  )
     ?.recovery;
   if (editFileRecovery) {
     addContextMessage(config, {
@@ -678,6 +1002,7 @@ export async function handlePostToolExecution(
   }
 
   // --- Loop detection (weak-model compensation) ---
+  let loopDetected = false;
   if (!lc.skipCompensation) {
     if (!anyDeniedThisTurn && result.toolCallsMade > 0) {
       const signature = buildToolSignature(result.toolCalls);
@@ -687,26 +1012,19 @@ export async function handlePostToolExecution(
         state.repeatToolCount = 1;
         state.lastToolSignature = signature;
       }
-
-      if (state.repeatToolCount >= lc.maxRepeatToolCalls) {
-        config.onTrace?.({
-          type: "loop_detected",
-          signature,
-          count: state.repeatToolCount,
-        });
-        return {
-          action: "return",
-          value: [
-            "Tool call loop detected.",
-            "The same tool calls were repeated multiple times without progress.",
-            "Please clarify the request or provide additional guidance.",
-          ].join("\n"),
-        };
-      }
     } else {
       state.lastToolSignature = "";
       state.repeatToolCount = 0;
     }
+  }
+
+  if (!lc.skipCompensation && state.repeatToolCount >= lc.maxRepeatToolCalls) {
+    loopDetected = true;
+    config.onTrace?.({
+      type: "loop_detected",
+      signature: state.lastToolSignature,
+      count: state.repeatToolCount,
+    });
   }
 
   // --- Tool uses accumulation ---
@@ -723,6 +1041,27 @@ export async function handlePostToolExecution(
   }
   if (result.toolCallsMade > 0) {
     state.groundingRetries = 0;
+  }
+
+  const planDraftDirective = await maybeDraftPlanFromResearch(
+    state,
+    lc,
+    config,
+    llmFunction,
+  );
+  if (planDraftDirective) {
+    return planDraftDirective;
+  }
+
+  if (loopDetected) {
+    return {
+      action: "return",
+      value: [
+        "Tool call loop detected.",
+        "The same tool calls were repeated multiple times without progress.",
+        "Please clarify the request or provide additional guidance.",
+      ].join("\n"),
+    };
   }
 
   // Build citation source index from raw web tool payloads (for span attribution).

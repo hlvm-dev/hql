@@ -53,11 +53,11 @@ import {
   bg,
   clearOverlay,
   fg,
-  hexToRgb,
   OVERLAY_BG_COLOR,
   type RGB,
   resolveOverlayFrame,
   shouldClearOverlay,
+  themeToOverlayColors,
   writeToTerminal,
 } from "../overlay/index.ts";
 import { CURSOR_BLINK_MS } from "../ui-constants.ts";
@@ -276,15 +276,18 @@ export function ConfigOverlay({
   );
 
   // Theme colors (memoized)
-  const colors = useMemo(() => ({
-    highlight: hexToRgb(theme.warning) as RGB,
-    accent: hexToRgb(theme.accent) as RGB,
-    primary: hexToRgb(theme.primary) as RGB,
-    muted: hexToRgb(theme.muted) as RGB,
-    error: hexToRgb(theme.error) as RGB,
-    bgStyle: bg(OVERLAY_BG_COLOR),
-    selectedBgStyle: bg(SELECTED_BG_COLOR),
-  }), [theme]);
+  const colors = useMemo(() => {
+    const c = themeToOverlayColors(theme);
+    return {
+      highlight: c.warning,
+      accent: c.accent,
+      primary: c.primary,
+      muted: c.muted,
+      error: c.error,
+      bgStyle: bg(OVERLAY_BG_COLOR),
+      selectedBgStyle: bg(SELECTED_BG_COLOR),
+    };
+  }, [theme]);
 
   // Current field info
   const selectedKey = OVERLAY_CONFIG_KEYS[selectedIndex];

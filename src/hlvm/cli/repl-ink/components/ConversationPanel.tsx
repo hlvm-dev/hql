@@ -5,7 +5,7 @@
  * message components. Used during agent mode in the REPL.
  */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 import type {
   AssistantCitation,
@@ -16,7 +16,7 @@ import {
   isStructuredTeamInfoItem,
   StreamingState as ConversationStreamingState,
 } from "../types.ts";
-import type { Plan } from "../../../agent/planning.ts";
+import type { Plan, PlanningPhase } from "../../../agent/planning.ts";
 import type { TodoState } from "../../../agent/todo-state.ts";
 import type { AgentCheckpointSummary } from "../../../agent/checkpoints.ts";
 import type {
@@ -25,6 +25,7 @@ import type {
 } from "../../../agent/registry.ts";
 import { findCurrentTurnStartIndex } from "../../agent-transcript-state.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
+import { estimateInteractionDialogRows } from "./conversation/interaction-dialog-layout.ts";
 import {
   clampConversationScrollOffset,
   computeConversationViewport,
@@ -58,6 +59,7 @@ interface ConversationPanelProps {
   width: number;
   streamingState?: StreamingState;
   activePlan?: Plan;
+  planningPhase?: PlanningPhase;
   todoState?: TodoState;
   pendingPlanReview?: { plan: Plan };
   latestCheckpoint?: AgentCheckpointSummary;
@@ -67,6 +69,8 @@ interface ConversationPanelProps {
   interactionRequest?: InteractionRequestEvent;
   /** Number of queued interactions (permission/question) */
   interactionQueueLength?: number;
+  /** Additional rows to reserve in viewport (e.g. queue preview bar) */
+  extraReservedRows?: number;
   /** Callback to respond to interaction request */
   onInteractionResponse?: (
     requestId: string,
@@ -144,6 +148,76 @@ export function getActiveThinkingId(
     if (item?.type === "thinking") return item.id;
   }
   return undefined;
+}
+
+function getPlanningPhaseTitle(
+  phase: PlanningPhase | undefined,
+  hasPendingPlanReview: boolean,
+): string | undefined {
+  switch (phase) {
+    case "researching":
+      return "Plan Mode · Researching";
+    case "drafting":
+      return "Plan Mode · Drafting";
+    case "reviewing":
+      return hasPendingPlanReview
+        ? "Ready To Execute"
+        : "Plan Mode · Reviewing";
+    case "executing":
+      return "Executing Approved Plan";
+    case "done":
+      return "Plan Complete";
+    default:
+      return undefined;
+  }
+}
+
+function getPlanningPhaseSummary(
+  phase: PlanningPhase | undefined,
+  plan: Plan | undefined,
+  hasPendingPlanReview: boolean,
+): string | undefined {
+  if (plan) {
+    const planSummary = `${plan.steps.length} step${
+      plan.steps.length === 1 ? "" : "s"
+    } · ${plan.goal}`;
+    if (hasPendingPlanReview) {
+      return `${planSummary} · awaiting approval`;
+    }
+    return planSummary;
+  }
+  switch (phase) {
+    case "researching":
+      return "Read-only planning is active";
+    case "drafting":
+      return "Shaping the execution plan";
+    case "reviewing":
+      return "Review the plan before execution";
+    default:
+      return undefined;
+  }
+}
+
+function estimateTodoRows(
+  todoState: TodoState | undefined,
+  width: number,
+): number {
+  if (!todoState || todoState.items.length === 0) return 0;
+  const contentWidth = Math.max(12, width);
+  const summary = `${
+    todoState.items.filter((item) => item.status === "completed").length
+  } done · ${
+    todoState.items.filter((item) => item.status === "in_progress").length
+  } in progress · ${
+    todoState.items.filter((item) => item.status === "pending").length
+  } pending`;
+  return 2 +
+    estimateWrappedRows(summary, contentWidth) +
+    todoState.items.reduce(
+      (total: number, item: TodoState["items"][number]) =>
+        total + estimateWrappedRows(`• ${item.content}`, contentWidth),
+      0,
+    );
 }
 
 function renderItem(
@@ -226,6 +300,7 @@ export function ConversationPanel({
   width,
   streamingState,
   activePlan,
+  planningPhase,
   todoState,
   pendingPlanReview,
   latestCheckpoint,
@@ -233,6 +308,7 @@ export function ConversationPanel({
   interactionRequest,
   interactionQueueLength = 0,
   onInteractionResponse,
+  extraReservedRows = 0,
 }: ConversationPanelProps): React.ReactElement {
   const sc = useSemanticColors();
   const { stdout } = useStdout();
@@ -245,7 +321,10 @@ export function ConversationPanel({
   const [expandedDelegateIds, setExpandedDelegateIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const activeThinkingId = getActiveThinkingId(items, streamingState);
+  const activeThinkingId = useMemo(
+    () => getActiveThinkingId(items, streamingState),
+    [items, streamingState],
+  );
   const [scrollOffsetFromBottom, setScrollOffsetFromBottom] = useState(0);
   const displayItems = useMemo(
     () => items.filter(shouldRenderConversationItem),
@@ -263,36 +342,32 @@ export function ConversationPanel({
 
   const terminalRows = stdout?.rows ?? 24;
   const contentWidth = Math.max(10, width - 6);
-  const headerRows = ((): number => {
+  // Derive plan checklist display state from active/pending plan and current planning phase
+  // Plan checklist: shows pending-review plan if present, otherwise the active plan
+  const planSummary = pendingPlanReview?.plan ?? activePlan;
+  const phaseTitle = getPlanningPhaseTitle(
+    planningPhase,
+    Boolean(pendingPlanReview),
+  );
+  const phaseSummary = getPlanningPhaseSummary(
+    planningPhase,
+    planSummary,
+    Boolean(pendingPlanReview),
+  );
+  const interactionRows = estimateInteractionDialogRows(
+    interactionRequest,
+    width,
+  );
+  const headerRows = useMemo(() => {
     let total = 0;
-    if (activePlan) {
-      total += estimateWrappedRows(
-        `Plan ${activePlan.steps.length} step${
-          activePlan.steps.length === 1 ? "" : "s"
-        } · ${activePlan.goal}`,
-        contentWidth,
-      ) + 1;
+    if (phaseTitle || phaseSummary) {
+      total += estimateWrappedRows(phaseTitle ?? "Plan Mode", contentWidth);
+      if (phaseSummary) {
+        total += estimateWrappedRows(phaseSummary, contentWidth);
+      }
+      total += 1;
     }
-    if (todoState && todoState.items.length > 0) {
-      total += estimateWrappedRows(
-        `Progress ${
-          todoState.items.filter((item) => item.status === "completed").length
-        } done · ${
-          todoState.items.filter((item) => item.status === "in_progress").length
-        } in progress · ${
-          todoState.items.filter((item) => item.status === "pending").length
-        } pending`,
-        contentWidth,
-      ) + 1;
-    }
-    if (pendingPlanReview) {
-      total += estimateWrappedRows(
-        `Plan review pending · ${pendingPlanReview.plan.steps.length} step${
-          pendingPlanReview.plan.steps.length === 1 ? "" : "s"
-        } awaiting approval`,
-        contentWidth,
-      ) + 1;
-    }
+    total += estimateTodoRows(todoState, contentWidth);
     if (latestCheckpoint) {
       total += estimateWrappedRows(
         latestCheckpoint.restoredAt
@@ -306,13 +381,14 @@ export function ConversationPanel({
       ) + 1;
     }
     return total;
-  })();
+  }, [phaseTitle, phaseSummary, todoState, latestCheckpoint, contentWidth]);
   const visibleCount = useMemo(
     () =>
       getConversationVisibleCount(terminalRows, {
-        reservedRows: (interactionRequest ? 12 : 8) + headerRows,
+        reservedRows: headerRows + extraReservedRows +
+          (interactionRequest ? interactionRows + 2 : 8),
       }),
-    [headerRows, interactionRequest, terminalRows],
+    [extraReservedRows, headerRows, interactionRows, interactionRequest, terminalRows],
   );
   const viewport = useMemo(
     () =>
@@ -329,9 +405,10 @@ export function ConversationPanel({
   );
 
   useEffect(() => {
-    setScrollOffsetFromBottom((prev: number) =>
-      clampConversationScrollOffset(prev, displayItems.length, visibleCount)
-    );
+    setScrollOffsetFromBottom((prev: number) => {
+      if (prev === 0) return 0; // At bottom (auto-follow) — nothing to clamp
+      return clampConversationScrollOffset(prev, displayItems.length, visibleCount);
+    });
   }, [displayItems.length, visibleCount]);
 
   // Toggle targets operate over the visible conversation so the latest
@@ -341,12 +418,18 @@ export function ConversationPanel({
     [visibleItems],
   );
 
-  const isToolExpanded = (toolId: string): boolean =>
-    expandedToolIds.has(toolId);
-  const isThinkingExpanded = (thinkingId: string): boolean =>
-    expandedThinkingIds.has(thinkingId);
-  const isDelegateExpanded = (delegateId: string): boolean =>
-    expandedDelegateIds.has(delegateId);
+  const isToolExpanded = useCallback(
+    (toolId: string): boolean => expandedToolIds.has(toolId),
+    [expandedToolIds],
+  );
+  const isThinkingExpanded = useCallback(
+    (thinkingId: string): boolean => expandedThinkingIds.has(thinkingId),
+    [expandedThinkingIds],
+  );
+  const isDelegateExpanded = useCallback(
+    (delegateId: string): boolean => expandedDelegateIds.has(delegateId),
+    [expandedDelegateIds],
+  );
 
   const toggleTarget = (target: ToggleTarget): void => {
     if (target.kind === "tool") {
@@ -451,21 +534,35 @@ export function ConversationPanel({
         <Text color={sc.text.muted}>Conversation starting...</Text>
       )}
 
-      {activePlan && (
+      {(phaseTitle || phaseSummary) && (
         <Box
           marginBottom={1}
           paddingLeft={1}
           borderLeft
-          borderColor={sc.border.active}
+          borderColor={planningPhase === "done"
+            ? sc.status.success
+            : planningPhase === "reviewing"
+            ? sc.status.warning
+            : planningPhase === "executing"
+            ? sc.border.active
+            : sc.border.active}
+          flexDirection="column"
         >
-          <Text color={sc.text.primary} bold>
-            Plan
+          <Text
+            color={planningPhase === "done"
+              ? sc.status.success
+              : planningPhase === "reviewing"
+              ? sc.status.warning
+              : sc.text.primary}
+            bold
+          >
+            {phaseTitle ?? "Plan Mode"}
           </Text>
-          <Text color={sc.text.secondary}>
-            {" "}
-            {activePlan.steps.length}{" "}
-            step{activePlan.steps.length === 1 ? "" : "s"} · {activePlan.goal}
-          </Text>
+          {phaseSummary && (
+            <Text color={sc.text.secondary}>
+              {phaseSummary}
+            </Text>
+          )}
         </Box>
       )}
 
@@ -475,12 +572,12 @@ export function ConversationPanel({
           paddingLeft={1}
           borderLeft
           borderColor={sc.status.warning}
+          flexDirection="column"
         >
           <Text color={sc.status.warning} bold>
-            Progress
+            Checklist
           </Text>
           <Text color={sc.text.secondary}>
-            {" "}
             {todoState.items.filter((item) => item.status === "completed")
               .length} done ·{" "}
             {todoState.items.filter((item) => item.status === "in_progress")
@@ -489,25 +586,29 @@ export function ConversationPanel({
             {" "}
             pending
           </Text>
-        </Box>
-      )}
-
-      {pendingPlanReview && (
-        <Box
-          marginBottom={1}
-          paddingLeft={1}
-          borderLeft
-          borderColor={sc.status.warning}
-        >
-          <Text color={sc.status.warning} bold>
-            Plan Review
-          </Text>
-          <Text color={sc.text.secondary}>
-            {" "}
-            {pendingPlanReview.plan.steps.length} step
-            {pendingPlanReview.plan.steps.length === 1 ? "" : "s"} awaiting{" "}
-            approval
-          </Text>
+          <Box paddingLeft={1} flexDirection="column">
+            {todoState.items.map((item) => {
+              const marker = item.status === "completed"
+                ? "✓"
+                : item.status === "in_progress"
+                ? "~"
+                : "•";
+              const markerColor = item.status === "completed"
+                ? sc.status.success
+                : item.status === "in_progress"
+                ? sc.status.warning
+                : sc.text.muted;
+              const textColor = item.status === "pending"
+                ? sc.text.muted
+                : sc.text.primary;
+              return (
+                <Box key={item.id}>
+                  <Text color={markerColor}>{marker}</Text>
+                  <Text color={textColor}>{item.content}</Text>
+                </Box>
+              );
+            })}
+          </Box>
         </Box>
       )}
 

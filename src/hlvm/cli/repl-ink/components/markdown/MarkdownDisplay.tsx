@@ -1,4 +1,4 @@
-import React, { memo } from "react";
+import React, { memo, useMemo } from "react";
 import { Box, Text } from "ink";
 import { marked, type Token, type Tokens } from "marked";
 import { useSemanticColors } from "../../../theme/index.ts";
@@ -10,7 +10,6 @@ type Alignment = "left" | "center" | "right";
 interface MarkdownDisplayProps {
   text: string;
   width: number;
-  isPending?: boolean;
 }
 
 /**
@@ -310,10 +309,10 @@ function renderBlock(
 }
 
 export const MarkdownDisplay = memo(function MarkdownDisplay(
-  { text, width, isPending: _isPending = false }: MarkdownDisplayProps,
+  { text, width }: MarkdownDisplayProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
-  const tokens = marked.lexer(text);
+  const tokens = useMemo(() => marked.lexer(text), [text]);
 
   return (
     <Box flexDirection="column">

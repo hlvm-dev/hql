@@ -3,7 +3,7 @@
  */
 
 import type { Dispatch, SetStateAction } from "react";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { AgentUIEvent } from "../../../agent/orchestrator.ts";
 import {
   createTranscriptState,
@@ -21,6 +21,7 @@ interface UseConversationResult {
   streamingState: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   activePlan?: TranscriptState["activePlan"];
+  planningPhase?: TranscriptState["planningPhase"];
   todoState?: TranscriptState["todoState"];
   planTodoState?: TranscriptState["planTodoState"];
   pendingPlanReview?: TranscriptState["pendingPlanReview"];
@@ -120,11 +121,12 @@ export function useConversation(): UseConversationResult {
     updateState(setState, { type: "clear" });
   }, []);
 
-  return {
+  return useMemo(() => ({
     items: state.items,
     streamingState: state.streamingState,
     activeTool: state.activeTool,
     activePlan: state.activePlan,
+    planningPhase: state.planningPhase,
     todoState: state.todoState,
     planTodoState: state.planTodoState,
     pendingPlanReview: state.pendingPlanReview,
@@ -139,5 +141,25 @@ export function useConversation(): UseConversationResult {
     resetStatus,
     finalize,
     clear,
-  };
+  }), [
+    state.items,
+    state.streamingState,
+    state.activeTool,
+    state.activePlan,
+    state.planningPhase,
+    state.todoState,
+    state.planTodoState,
+    state.pendingPlanReview,
+    state.latestCheckpoint,
+    hydrateState,
+    addEvent,
+    addUserMessage,
+    addAssistantText,
+    addError,
+    addInfo,
+    replaceItems,
+    resetStatus,
+    finalize,
+    clear,
+  ]);
 }

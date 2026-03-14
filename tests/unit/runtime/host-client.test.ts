@@ -162,6 +162,10 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
             },
           });
           emit({
+            event: "plan_phase_changed",
+            phase: "researching",
+          });
+          emit({
             event: "plan_created",
             plan: {
               goal: "Inspect docs",
@@ -282,6 +286,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       assert(uiEvents.includes("tool_end"));
       assert(uiEvents.includes("delegate_start"));
       assert(uiEvents.includes("delegate_end"));
+      assert(uiEvents.includes("plan_phase_changed"));
       assert(uiEvents.includes("plan_created"));
       assert(uiEvents.includes("plan_step"));
       assert(uiEvents.includes("plan_review_required"));

@@ -857,6 +857,14 @@ function initializeTransformFactory(): void {
    * - Mapped: (mapped K T ValueType) → { [K in T]: ValueType }
    * - Function: (-> [params] ReturnType) → (params) => ReturnType
    */
+
+  /** Convert a parseTypeExpression result (string | IRTypeExpression) to IRTypeExpression */
+  function toTypeRef(parsed: IR.IRTypeExpression | string): IR.IRTypeExpression {
+    return typeof parsed === "string"
+      ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
+      : parsed;
+  }
+
   function parseTypeExpression(node: HQLNode): IR.IRTypeExpression | string {
     const nodeMeta = extractMeta(node);
     // String literal - pass through
@@ -923,10 +931,7 @@ function initializeTransformFactory(): void {
           // Otherwise, it's a string literal type like "pending" or "active"
           return { type: IR.IRNodeType.LiteralType, value } as IR.IRLiteralType;
         }
-        const parsed = parseTypeExpression(el);
-        return typeof parsed === "string"
-          ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
-          : parsed;
+        return toTypeRef(parseTypeExpression(el));
       };
       const parseFunctionTypeParameters = (
         paramsNode: HQLNode,
@@ -1026,9 +1031,7 @@ function initializeTransformFactory(): void {
           const arg = parseTypeExpression(elements[1]);
           return {
             type: IR.IRNodeType.KeyofType,
-            argument: typeof arg === "string"
-              ? ({ type: IR.IRNodeType.TypeReference, name: arg } as IR.IRTypeReference)
-              : arg,
+            argument: toTypeRef(arg),
           } as IR.IRKeyofType;
         }
 
@@ -1049,16 +1052,11 @@ function initializeTransformFactory(): void {
               value: (idxElement as LiteralNode).value as string,
             } as IR.IRLiteralType;
           } else {
-            const idxType = parseTypeExpression(idxElement);
-            idxTypeResult = typeof idxType === "string"
-              ? ({ type: IR.IRNodeType.TypeReference, name: idxType } as IR.IRTypeReference)
-              : idxType;
+            idxTypeResult = toTypeRef(parseTypeExpression(idxElement));
           }
           return {
             type: IR.IRNodeType.IndexedAccessType,
-            objectType: typeof objType === "string"
-              ? ({ type: IR.IRNodeType.TypeReference, name: objType } as IR.IRTypeReference)
-              : objType,
+            objectType: toTypeRef(objType),
             indexType: idxTypeResult,
           } as IR.IRIndexedAccessType;
         }
@@ -1075,15 +1073,11 @@ function initializeTransformFactory(): void {
           // For check/extends types, use regular parsing (not literal detection)
           const checkType = parseTypeExpression(elements[1]);
           const extendsType = parseTypeExpression(elements[2]);
-          const wrapType = (t: IR.IRTypeExpression | string): IR.IRTypeExpression =>
-            typeof t === "string"
-              ? ({ type: IR.IRNodeType.TypeReference, name: t } as IR.IRTypeReference)
-              : t;
           // For true/false types, use toTypeExpr for proper string literal handling
           return {
             type: IR.IRNodeType.ConditionalType,
-            checkType: wrapType(checkType),
-            extendsType: wrapType(extendsType),
+            checkType: toTypeRef(checkType),
+            extendsType: toTypeRef(extendsType),
             trueType: toTypeExpr(elements[3]),
             falseType: toTypeExpr(elements[4]),
           } as IR.IRConditionalType;
@@ -1091,12 +1085,7 @@ function initializeTransformFactory(): void {
 
         case "tuple": {
           // Tuple: (tuple A B C) → [A, B, C]
-          const tupleElements = elements.slice(1).map((el) => {
-            const parsed = parseTypeExpression(el);
-            return typeof parsed === "string"
-              ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
-              : parsed;
-          });
+          const tupleElements = elements.slice(1).map((el) => toTypeRef(parseTypeExpression(el)));
           return {
             type: IR.IRNodeType.TupleType,
             elements: tupleElements,
@@ -1108,12 +1097,9 @@ function initializeTransformFactory(): void {
           if (elements.length < 2) {
             throw new TransformError("array requires an element type", nodeMeta);
           }
-          const elemType = parseTypeExpression(elements[1]);
           return {
             type: IR.IRNodeType.ArrayType,
-            elementType: typeof elemType === "string"
-              ? ({ type: IR.IRNodeType.TypeReference, name: elemType } as IR.IRTypeReference)
-              : elemType,
+            elementType: toTypeRef(parseTypeExpression(elements[1])),
           } as IR.IRArrayType;
         }
 
@@ -1122,12 +1108,9 @@ function initializeTransformFactory(): void {
           if (elements.length < 2) {
             throw new TransformError("readonly requires a type argument", nodeMeta);
           }
-          const arg = parseTypeExpression(elements[1]);
           return {
             type: IR.IRNodeType.ReadonlyType,
-            argument: typeof arg === "string"
-              ? ({ type: IR.IRNodeType.TypeReference, name: arg } as IR.IRTypeReference)
-              : arg,
+            argument: toTypeRef(parseTypeExpression(elements[1])),
           } as IR.IRReadonlyType;
         }
 
@@ -1178,17 +1161,11 @@ function initializeTransformFactory(): void {
           if (paramNode.type !== "symbol") {
             throw new TransformError("mapped type parameter must be a symbol", extractMeta(paramNode) ?? nodeMeta);
           }
-          const constraint = parseTypeExpression(elements[2]);
-          const valueType = parseTypeExpression(elements[3]);
           return {
             type: IR.IRNodeType.MappedType,
             typeParameter: (paramNode as SymbolNode).name,
-            constraint: typeof constraint === "string"
-              ? ({ type: IR.IRNodeType.TypeReference, name: constraint } as IR.IRTypeReference)
-              : constraint,
-            valueType: typeof valueType === "string"
-              ? ({ type: IR.IRNodeType.TypeReference, name: valueType } as IR.IRTypeReference)
-              : valueType,
+            constraint: toTypeRef(parseTypeExpression(elements[2])),
+            valueType: toTypeRef(parseTypeExpression(elements[3])),
           } as IR.IRMappedType;
         }
 
@@ -1206,9 +1183,7 @@ function initializeTransformFactory(): void {
           return {
             type: IR.IRNodeType.FunctionTypeExpr,
             parameters,
-            returnType: typeof returnType === "string"
-              ? ({ type: IR.IRNodeType.TypeReference, name: returnType } as IR.IRTypeReference)
-              : returnType,
+            returnType: toTypeRef(returnType),
           } as IR.IRFunctionTypeExpr;
         }
 
@@ -1218,24 +1193,16 @@ function initializeTransformFactory(): void {
           if (elements.length < 2) {
             throw new TransformError("rest type requires a type argument", nodeMeta);
           }
-          const arg = parseTypeExpression(elements[1]);
           return {
             type: IR.IRNodeType.RestType,
-            argument: typeof arg === "string"
-              ? ({ type: IR.IRNodeType.TypeReference, name: arg } as IR.IRTypeReference)
-              : arg,
+            argument: toTypeRef(parseTypeExpression(elements[1])),
           } as IR.IRRestType;
         }
 
         default: {
           // Unknown operator - treat as generic type reference
           // e.g., (Partial T) → Partial<T>
-          const typeArgs = elements.slice(1).map((el) => {
-            const parsed = parseTypeExpression(el);
-            return typeof parsed === "string"
-              ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
-              : parsed;
-          });
+          const typeArgs = elements.slice(1).map((el) => toTypeRef(parseTypeExpression(el)));
           return {
             type: IR.IRNodeType.TypeReference,
             name: opName,
@@ -1849,29 +1816,16 @@ function initializeTransformFactory(): void {
           methodSpec.type,
         );
       }
-      // If there are more elements, it's a method call with arguments
-      if (list.elements.length > 3) {
-        const args = transformElements(
-          list.elements.slice(3),
-          currentDir,
-          transformHQLNodeToIR,
-          "optional-js-method argument",
-          "Argument",
-        );
-        return {
-          type: IR.IRNodeType.OptionalCallExpression,
-          callee: {
-            type: IR.IRNodeType.OptionalMemberExpression,
-            object,
-            property: { type: IR.IRNodeType.Identifier, name: methodName } as IR.IRIdentifier,
-            computed: false,
-            optional: true,
-          } as IR.IROptionalMemberExpression,
-          arguments: args,
-          optional: false,
-        } as IR.IROptionalCallExpression;
-      }
-      // Otherwise, it's just property access (or zero-arg method call)
+      // Transform arguments if present, otherwise empty array
+      const args = list.elements.length > 3
+        ? transformElements(
+            list.elements.slice(3),
+            currentDir,
+            transformHQLNodeToIR,
+            "optional-js-method argument",
+            "Argument",
+          )
+        : [];
       return {
         type: IR.IRNodeType.OptionalCallExpression,
         callee: {
@@ -1881,7 +1835,7 @@ function initializeTransformFactory(): void {
           computed: false,
           optional: true,
         } as IR.IROptionalMemberExpression,
-        arguments: [],
+        arguments: args,
         optional: false,
       } as IR.IROptionalCallExpression;
     },

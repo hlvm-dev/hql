@@ -60,15 +60,25 @@ function parseBaseType(typeToken: string): JsonSchemaProperty["type"] | "any" {
   return "string";
 }
 
-function parseArgSpec(description: string): ParsedArgSpec {
+/** Extract the raw type token, array flag, and optional flag from an arg descriptor string. */
+function extractArgDescriptor(description: string): {
+  baseToken: string;
+  isArray: boolean;
+  optional: boolean;
+} {
   const left = description.split(" - ")[0]?.trim() ?? "";
   const optional = left.includes(OPTIONAL_MARKER);
   const cleaned = left.replace(OPTIONAL_MARKER, "").trim();
   const typeToken = cleaned.split(/\s+/)[0] ?? "string";
   const isArray = typeToken.endsWith("[]");
   const baseToken = isArray ? typeToken.slice(0, -2) : typeToken;
+  return { baseToken: baseToken || "string", isArray, optional };
+}
+
+function parseArgSpec(description: string): ParsedArgSpec {
+  const { baseToken, isArray, optional } = extractArgDescriptor(description);
   return {
-    type: parseBaseType(baseToken || "string"),
+    type: parseBaseType(baseToken),
     isArray,
     optional,
   };
@@ -114,13 +124,8 @@ export function buildToolJsonSchema(tool: ToolMetadata): JsonSchemaObject {
 export function validateToolSchema(name: string, tool: ToolMetadata): string[] {
   const warnings: string[] = [];
   for (const [argName, desc] of Object.entries(tool.args)) {
-    const left = desc.split(" - ")[0]?.trim() ?? "";
-    const cleaned = left.replace(OPTIONAL_MARKER, "").trim();
-    const typeToken = cleaned.split(/\s+/)[0] ?? "string";
-    const baseToken = typeToken.endsWith("[]")
-      ? typeToken.slice(0, -2)
-      : typeToken;
-    if (baseToken && !KNOWN_BASE_TYPES.has(baseToken.toLowerCase())) {
+    const { baseToken } = extractArgDescriptor(desc);
+    if (!KNOWN_BASE_TYPES.has(baseToken.toLowerCase())) {
       warnings.push(
         `Tool '${name}' arg '${argName}': unknown type '${baseToken}', treating as string`,
       );

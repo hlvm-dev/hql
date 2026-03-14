@@ -109,7 +109,7 @@ export function getMeta(node: unknown): SExpMeta | undefined {
  * Works with any object that has a _meta property (SExp, HQLNode, etc.)
  * Returns the target for chaining.
  */
-export function copyMeta<T>(source: unknown, target: T): T {
+function copyMeta<T>(source: unknown, target: T): T {
   const meta = getMeta(source);
   if (meta) {
     (target as { _meta?: SExpMeta })._meta = { ...meta };

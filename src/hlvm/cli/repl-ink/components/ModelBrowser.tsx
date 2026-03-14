@@ -16,7 +16,7 @@ import React, {
 import { Box, Text, useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
-import { formatBytes } from "./ProgressBar.tsx";
+import { formatBytes } from "../../../../common/limits.ts";
 import type {
   ModelPullTask,
   TaskEvent,
@@ -59,6 +59,13 @@ import {
   DEFAULT_TERMINAL_WIDTH,
   MODEL_BROWSER_MAX_WIDTH,
 } from "../ui-constants.ts";
+import {
+  getModelStatusLabel,
+  getStatusIndicator,
+  MODEL_BROWSER_FOCUSED_LABEL,
+  MODEL_BROWSER_SELECT_ACTION_LABEL,
+  type ModelStatusKind,
+} from "./model-browser-status.ts";
 
 const platform = getPlatform();
 const openUrl = (url: string) => platform.openUrl(url);
@@ -362,17 +369,6 @@ function getDisplayModelSearchText(model: DisplayModel): string {
   ].join("\n").toLowerCase();
 }
 
-type ModelStatusKind =
-  | "pending-delete"
-  | "active"
-  | "installed"
-  | "downloading"
-  | "cancelled"
-  | "failed"
-  | "needs-key"
-  | "cloud"
-  | "available";
-
 function isApiProviderCloudModel(model: DisplayModel): boolean {
   return Boolean(model.capabilities?.includes("cloud")) && !model.isLocal &&
     model.name.includes("/") && !model.name.startsWith("ollama/");
@@ -397,50 +393,6 @@ function getModelStatusKind(
   if (model.needsKey) return "needs-key";
   if (isApiProviderCloudModel(model)) return "cloud";
   return "available";
-}
-
-function getModelStatusLabel(kind: ModelStatusKind): string {
-  switch (kind) {
-    case "pending-delete":
-      return "pending delete";
-    case "active":
-      return "default";
-    case "installed":
-      return "installed";
-    case "downloading":
-      return "downloading";
-    case "cancelled":
-      return "cancelled";
-    case "failed":
-      return "failed";
-    case "needs-key":
-      return "needs key";
-    case "cloud":
-      return "cloud";
-    case "available":
-      return "not installed";
-  }
-}
-
-function getStatusIndicator(kind: ModelStatusKind): string {
-  switch (kind) {
-    case "pending-delete":
-      return "? ";
-    case "active":
-      return "* ";
-    case "installed":
-      return "✓ ";
-    case "downloading":
-      return "↓ ";
-    case "cancelled":
-      return "⊘ ";
-    case "failed":
-      return "✗ ";
-    case "needs-key":
-    case "cloud":
-    case "available":
-      return "☁ ";
-  }
 }
 
 function getModelMetadataText(model: DisplayModel): string {
@@ -720,7 +672,13 @@ export function ModelBrowser({
         }
       }
     },
-    [onClose, onModelSet, onSelectModel, selectionScopeLabel, selectionScopeTitle],
+    [
+      onClose,
+      onModelSet,
+      onSelectModel,
+      selectionScopeLabel,
+      selectionScopeTitle,
+    ],
   );
 
   const modelPullTasks = useMemo(() => {
@@ -1343,7 +1301,7 @@ export function ModelBrowser({
       </Box>
       <Box marginTop={1}>
         <Text wrap="truncate-end">
-          <Text dimColor>Selected:</Text> {selectedModel
+          <Text dimColor>{MODEL_BROWSER_FOCUSED_LABEL}:</Text> {selectedModel
             ? (
               (() => {
                 const isActive = isSelectedModelActive(
@@ -1468,7 +1426,8 @@ export function ModelBrowser({
           : (
             <>
               <Text dimColor wrap="truncate-end">
-                ↑↓ move · Tab → {nextFilter} · ↵ select · Esc back
+                ↑↓ move · Tab → {nextFilter} · ↵{" "}
+                {MODEL_BROWSER_SELECT_ACTION_LABEL} · Esc back
               </Text>
               <Text dimColor wrap="truncate-end">
                 Type to filter · Ctrl+O info · Ctrl+D delete · Ctrl+X cancel

@@ -1,6 +1,8 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import {
   buildSelectedModelConfigUpdates,
+  createModelSelectionState,
+  formatSelectedModelLabel,
   isSelectedModelActive,
   persistSelectedModelConfig,
   resolveAgentModeForModel,
@@ -50,11 +52,60 @@ Deno.test("buildSelectedModelConfigUpdates normalizes model and derives state", 
     },
   );
   assertEquals(
-    buildSelectedModelConfigUpdates("claude-code/claude-sonnet-4-5-20250929:agent"),
+    buildSelectedModelConfigUpdates(
+      "claude-code/claude-sonnet-4-5-20250929:agent",
+    ),
     {
       model: "claude-code/claude-sonnet-4-5-20250929:agent",
       modelConfigured: true,
       agentMode: "claude-code-agent",
+    },
+  );
+});
+
+Deno.test("formatSelectedModelLabel preserves the normalized provider/model id", () => {
+  assertEquals(
+    formatSelectedModelLabel("ollama/llama3.2:latest"),
+    "ollama/llama3.2:latest",
+  );
+  assertEquals(
+    formatSelectedModelLabel("claude-code/claude-sonnet-4-6"),
+    "claude-code/claude-sonnet-4-6",
+  );
+  assertEquals(
+    formatSelectedModelLabel("llama3.2:latest"),
+    "ollama/llama3.2:latest",
+  );
+  assertEquals(formatSelectedModelLabel(undefined), "");
+});
+
+Deno.test("createModelSelectionState keeps configured and active model ids in sync", () => {
+  assertEquals(
+    createModelSelectionState({
+      model: "claude-code/claude-sonnet-4-6",
+      modelConfigured: true,
+    }),
+    {
+      configuredModelId: "claude-code/claude-sonnet-4-6",
+      activeModelId: "claude-code/claude-sonnet-4-6",
+      displayLabel: "claude-code/claude-sonnet-4-6",
+      modelConfigured: true,
+    },
+  );
+
+  assertEquals(
+    createModelSelectionState(
+      {
+        model: "claude-code/claude-sonnet-4-6",
+        modelConfigured: true,
+      },
+      "ollama/llama3.2:3b",
+    ),
+    {
+      configuredModelId: "claude-code/claude-sonnet-4-6",
+      activeModelId: "ollama/llama3.2:3b",
+      displayLabel: "ollama/llama3.2:3b",
+      modelConfigured: true,
     },
   );
 });

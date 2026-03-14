@@ -128,6 +128,22 @@ function summarizeConnectError(error: unknown): string {
   return `${normalized.slice(0, MCP_CONNECT_WARNING_MAX_CHARS)}...`;
 }
 
+/** Emit a deduplicated warning (or debug) for an MCP server connect/register failure. */
+function warnMcpConnectSkip(serverName: string, error: unknown): void {
+  const summary = summarizeConnectError(error);
+  const warningKey = `${serverName}::${summary}`;
+  if (!seenMcpConnectWarnings.has(warningKey)) {
+    seenMcpConnectWarnings.add(warningKey);
+    getAgentLogger().warn(
+      `Skipping MCP server '${serverName}': ${summary}`,
+    );
+  } else {
+    getAgentLogger().debug(
+      `MCP server '${serverName}' skip repeated`,
+    );
+  }
+}
+
 // ============================================================
 // Tool Entry Builder
 // ============================================================
@@ -307,18 +323,7 @@ async function connectWithTimeout(
       // If connect eventually succeeds after timeout, close immediately.
       void connectPromise.then((client) => client.close()).catch(() => {});
     }
-    const summary = summarizeConnectError(error);
-    const warningKey = `${server.name}::${summary}`;
-    if (!seenMcpConnectWarnings.has(warningKey)) {
-      seenMcpConnectWarnings.add(warningKey);
-      getAgentLogger().warn(
-        `Skipping MCP server '${server.name}': ${summary}`,
-      );
-    } else {
-      getAgentLogger().debug(
-        `MCP server '${server.name}' skip repeated`,
-      );
-    }
+    warnMcpConnectSkip(server.name, error);
     return null;
   } finally {
     if (timer) clearTimeout(timer);
@@ -475,14 +480,7 @@ async function connectAndRegisterServer(
   } catch (error) {
     // Tool listing/registration failed after connect — clean up client
     await client.close().catch(() => {});
-    const summary = summarizeConnectError(error);
-    const warningKey = `${server.name}::${summary}`;
-    if (!seenMcpConnectWarnings.has(warningKey)) {
-      seenMcpConnectWarnings.add(warningKey);
-      getAgentLogger().warn(
-        `Skipping MCP server '${server.name}': ${summary}`,
-      );
-    }
+    warnMcpConnectSkip(server.name, error);
     return null;
   }
 }

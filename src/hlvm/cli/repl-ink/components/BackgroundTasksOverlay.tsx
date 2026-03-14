@@ -31,14 +31,15 @@ import {
   bg,
   clearOverlay,
   fg,
-  hexToRgb,
   OVERLAY_BG_COLOR,
   type RGB,
   resolveOverlayFrame,
   shouldClearOverlay,
+  themeToOverlayColors,
   writeToTerminal,
 } from "../overlay/index.ts";
 import { truncate } from "../../../../common/utils.ts";
+import { padTo } from "../utils/formatting.ts";
 
 // ============================================================
 // Types
@@ -61,17 +62,6 @@ const HEADER_ROWS = 3; // header + hint + empty
 const CONTENT_START = PADDING.top + HEADER_ROWS;
 const MIN_OVERLAY_WIDTH = 42;
 const MIN_OVERLAY_HEIGHT = 12;
-
-// ============================================================
-// Helpers
-// ============================================================
-
-/** Pad string to exact length */
-function padTo(str: string, len: number): string {
-  return str.length >= len
-    ? str.slice(0, len)
-    : str + " ".repeat(len - str.length);
-}
 
 // ============================================================
 // Component
@@ -110,12 +100,7 @@ export function BackgroundTasksOverlay({
 
   // Theme colors
   const colors = useMemo(() => ({
-    primary: hexToRgb(theme.primary) as RGB,
-    success: hexToRgb(theme.success) as RGB,
-    warning: hexToRgb(theme.warning) as RGB,
-    error: hexToRgb(theme.error) as RGB,
-    muted: hexToRgb(theme.muted) as RGB,
-    accent: hexToRgb(theme.accent) as RGB,
+    ...themeToOverlayColors(theme),
     bgStyle: bg(OVERLAY_BG_COLOR),
   }), [theme]);
 

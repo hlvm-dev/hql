@@ -301,7 +301,10 @@ Deno.test({
     const context = new ContextManager();
 
     await withWorkspace(async () => {
-      await writeWorkspaceFile("src/app.ts", "export const currentValue = 1;\n");
+      await writeWorkspaceFile(
+        "src/app.ts",
+        "export const currentValue = 1;\n",
+      );
 
       const result = await executeToolCall(
         {
@@ -1931,6 +1934,77 @@ Deno.test({
 
 Deno.test({
   name:
+    "Orchestrator: plan mode drafts a plan from gathered context before loop exhaustion",
+  async fn() {
+    resetApprovals();
+    await withWorkspace(async () => {
+      await writeWorkspaceFile(
+        "src/ConversationPanel.tsx",
+        "export const Checklist = () => null;\n",
+      );
+
+      const context = new ContextManager();
+      const phases: string[] = [];
+      let llmCalls = 0;
+
+      const result = await runReActLoop(
+        "Make a plan to add a visible checklist header to ConversationPanel using existing todo state.",
+        {
+          workspace: TEST_WORKSPACE,
+          context,
+          permissionMode: "plan",
+          maxIterations: 10,
+          planModeState: {
+            active: true,
+            phase: "researching",
+            executionPermissionMode: "auto-edit",
+            planningAllowlist: [
+              "search_code",
+              "read_file",
+              "ask_user",
+              "todo_write",
+            ],
+            executionAllowlist: ["search_code", "read_file", "write_file"],
+          },
+          onAgentEvent: (event) => {
+            if (event.type === "plan_phase_changed") {
+              phases.push(event.phase);
+            }
+          },
+        },
+        async (messages) => {
+          llmCalls += 1;
+          const lastMessage = messages[messages.length - 1];
+          if (
+            lastMessage?.role === "system" &&
+            lastMessage.content.includes("This is the drafting step.")
+          ) {
+            return makeResponse(
+              'PLAN\n{"goal":"Add checklist header","steps":[{"id":"step-1","title":"Inspect ConversationPanel"},{"id":"step-2","title":"Add checklist header UI"},{"id":"step-3","title":"Verify todo-state wiring"}]}\nEND_PLAN',
+            );
+          }
+
+          return makeResponse("Inspecting the current checklist rendering.", [{
+            toolName: "search_code",
+            args: {
+              pattern: "Checklist",
+              path: "src/ConversationPanel.tsx",
+            },
+          }]);
+        },
+      );
+
+      assertStringIncludes(result, "Plan ready: Add checklist header");
+      assertEquals(result.includes("Maximum iterations"), false);
+      assertEquals(result.includes("Tool call loop detected"), false);
+      assertEquals(phases, ["drafting", "reviewing"]);
+      assertEquals(llmCalls >= 4, true);
+    });
+  },
+});
+
+Deno.test({
+  name:
     "Orchestrator: buildToolSignature normalizes open intents across open_path and shell_exec",
   fn() {
     const viaOpenPath = buildToolSignature([{
@@ -2208,7 +2282,10 @@ Deno.test(
       },
       async (name) => {
         const context = new ContextManager({ maxResultLength: 8000 });
-        const config = { workspace: TEST_WORKSPACE, context } as OrchestratorConfig;
+        const config = {
+          workspace: TEST_WORKSPACE,
+          context,
+        } as OrchestratorConfig;
 
         const { llmContent, returnDisplay } = buildToolResultOutputs(
           name,
@@ -2217,8 +2294,11 @@ Deno.test(
         );
 
         // llmContent MUST be truncated to maxResultLength (8000 chars)
-        assertEquals(llmContent.length <= 8000, true,
-          `llmContent should be ≤8000 chars but was ${llmContent.length}`);
+        assertEquals(
+          llmContent.length <= 8000,
+          true,
+          `llmContent should be ≤8000 chars but was ${llmContent.length}`,
+        );
         // returnDisplay is preserved for UI (not sent to LLM)
         assertEquals(returnDisplay.length, 50_000);
       },
@@ -2246,9 +2326,14 @@ Deno.test(
       },
       async (name) => {
         const context = new ContextManager({ maxResultLength: 8000 });
-        const config = { workspace: TEST_WORKSPACE, context } as OrchestratorConfig;
+        const config = {
+          workspace: TEST_WORKSPACE,
+          context,
+        } as OrchestratorConfig;
 
-        const { llmContent } = buildToolResultOutputs(name, { text: smallContent }, config);
+        const { llmContent } = buildToolResultOutputs(name, {
+          text: smallContent,
+        }, config);
         assertEquals(llmContent, smallContent); // no truncation needed
       },
     );

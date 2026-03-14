@@ -13,7 +13,6 @@ import {
 import {
   type AgentProfile,
   getAgentProfile,
-  listAgentProfiles,
 } from "./agent-registry.ts";
 import {
   CHILD_WORKSPACE_PREFIX,
@@ -164,7 +163,7 @@ function validateDelegateArgs(
   if (!agent || !task) {
     throw new ValidationError(
       `delegate_agent requires { agent, task }. Available agents: ${
-        listAgentProfiles(agentProfiles).map((p) => p.name).join(", ")
+        (agentProfiles ?? []).map((p) => p.name).join(", ")
       }`,
       "delegate_agent",
     );
@@ -173,7 +172,7 @@ function validateDelegateArgs(
   if (!profile) {
     throw new ValidationError(
       `Unknown agent "${agent}". Available: ${
-        listAgentProfiles(agentProfiles).map((p) => p.name).join(", ")
+        (agentProfiles ?? []).map((p) => p.name).join(", ")
       }`,
       "delegate_agent",
     );

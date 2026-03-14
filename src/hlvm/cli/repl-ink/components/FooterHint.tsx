@@ -1,9 +1,9 @@
 /**
  * Footer Component
  *
- * Minimal footer:
- * - Center: streaming state / interaction hints
- * - Right: model + context usage
+ * Single-line Codex-style footer:
+ * - Left: context-aware status / action hints
+ * - Right: model name + optional context usage
  */
 
 import React from "react";
@@ -17,7 +17,6 @@ import { truncate } from "../../../../common/utils.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 
 export const FOOTER_SECTION_SEPARATOR = " · ";
-const COMPACT_FOOTER_WIDTH = 76;
 
 interface FooterProps {
   streamingState?: StreamingState;
@@ -31,18 +30,20 @@ interface FooterProps {
   hasDraftInput?: boolean;
   inConversation?: boolean;
   hasPendingPermission?: boolean;
+  hasPendingPlanReview?: boolean;
   hasPendingQuestion?: boolean;
   teamActive?: boolean;
   teamAttentionCount?: number;
 }
 
-interface FooterCenterStateInput {
+interface FooterLeftStateInput {
   inConversation?: boolean;
   streamingState?: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
   hasPendingPermission?: boolean;
+  hasPendingPlanReview?: boolean;
   hasPendingQuestion?: boolean;
   teamActive?: boolean;
   teamAttentionCount?: number;
@@ -50,60 +51,63 @@ interface FooterCenterStateInput {
   statusMessage?: string;
 }
 
-export function buildFooterCenterState({
+export function buildFooterLeftState({
   inConversation,
   streamingState,
   activeTool,
   interactionQueueLength = 0,
   hasDraftInput,
   hasPendingPermission,
+  hasPendingPlanReview,
   hasPendingQuestion,
   teamActive,
   teamAttentionCount,
   spinner,
   statusMessage,
-}: FooterCenterStateInput): { text: string; tone: "muted" | "warning" } {
+}: FooterLeftStateInput): { text: string; tone: "muted" | "warning" } {
   let text = "";
   let tone: "muted" | "warning" = "muted";
 
   if (!inConversation) {
-    const baseText = statusMessage || "/help shortcuts";
-    const teamHint = teamActive
-      ? teamAttentionCount && teamAttentionCount > 0
+    text = statusMessage || "Ready";
+    if (teamActive) {
+      text += teamAttentionCount && teamAttentionCount > 0
         ? ` · Ctrl+T team (${teamAttentionCount})`
-        : " · Ctrl+T team"
-      : "";
-    return { text: `${baseText}${teamHint}`, tone };
+        : "";
+    }
+    return { text, tone };
   }
 
-  if (hasPendingPermission) {
-    text = "⚠ Awaiting approval: y/Enter approve · n/Esc reject";
+  // Warning states — keep visible since they require user action
+  if (hasPendingPlanReview) {
+    text = "y run · r revise · n cancel";
+    tone = "warning";
+  } else if (hasPendingPermission) {
+    text = "y approve · n reject";
     tone = "warning";
   } else if (hasPendingQuestion) {
-    text = "? Awaiting answer: use answer> prompt + Enter · Esc reject";
+    text = "answer> then Enter · Esc reject";
     tone = "warning";
-  } else if (
-    streamingState === ConversationStreamingState.Responding &&
-    hasDraftInput
-  ) {
-    text = "Tab to queue message";
   } else if (
     streamingState === ConversationStreamingState.WaitingForConfirmation
   ) {
-    text = "⚠ Waiting for confirmation";
+    text = "Waiting for confirmation";
     tone = "warning";
   } else if (streamingState === ConversationStreamingState.Responding) {
-    if (activeTool) {
+    if (hasDraftInput) {
+      // Has text while responding — show queue/force hints
+      text = "tab queue · ctrl+enter force";
+    } else if (activeTool) {
       text =
-        `${spinner} Running ${activeTool.name} (${activeTool.toolIndex}/${activeTool.toolTotal}) · Esc cancel`;
+        `${spinner} ${activeTool.name} (${activeTool.toolIndex}/${activeTool.toolTotal}) · esc cancel`;
       tone = "warning";
     } else {
-      text = "Esc cancel · Ctrl+Enter force";
+      text = "esc cancel";
     }
   } else if (statusMessage) {
     text = statusMessage;
   } else {
-    text = "Ready · PgUp/PgDn scroll · /help shortcuts";
+    text = "Ready";
   }
 
   const queuedCount = Math.max(0, interactionQueueLength - 1);
@@ -113,8 +117,8 @@ export function buildFooterCenterState({
 
   if (teamActive) {
     text += teamAttentionCount && teamAttentionCount > 0
-      ? ` · Ctrl+T team (${teamAttentionCount})`
-      : " · Ctrl+T team";
+      ? ` · Ctrl+T (${teamAttentionCount})`
+      : "";
   }
 
   return { text, tone };
@@ -143,10 +147,6 @@ export function buildFooterRightState({
   };
 }
 
-export function shouldUseCompactFooter(width: number): boolean {
-  return width < COMPACT_FOOTER_WIDTH;
-}
-
 export function FooterHint({
   streamingState,
   activeTool,
@@ -159,6 +159,7 @@ export function FooterHint({
   hasDraftInput,
   inConversation,
   hasPendingPermission,
+  hasPendingPlanReview,
   hasPendingQuestion,
   teamActive,
   teamAttentionCount,
@@ -170,74 +171,52 @@ export function FooterHint({
     streamingState === ConversationStreamingState.Responding;
   const spinnerFrame = useSpinnerFrame(isResponding);
   const spinner = BRAILLE_SPINNER_FRAMES[spinnerFrame];
-  const center = buildFooterCenterState({
+
+  const left = buildFooterLeftState({
     inConversation,
     streamingState,
     activeTool,
     interactionQueueLength,
     hasDraftInput,
     hasPendingPermission,
+    hasPendingPlanReview,
     hasPendingQuestion,
     teamActive,
     teamAttentionCount,
     spinner,
     statusMessage,
   });
-  const centerColor = center.tone === "warning"
+  const leftColor = left.tone === "warning"
     ? sc.status.warning
     : sc.text.muted;
+
   const right = buildFooterRightState({
     modelName: model,
     modeLabel,
     contextUsageLabel,
     checkpointLabel,
   });
+
   const rawTerminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const contentWidth = Math.max(20, rawTerminalWidth - 2);
-  const compactFooter = shouldUseCompactFooter(contentWidth);
-  let sideWidth = compactFooter ? 0 : Math.min(
-    right.infoText.length +
-      (right.modeLabel ? right.modeLabel.length + 3 : 0),
-    Math.max(14, Math.floor(contentWidth * 0.32)),
-  );
-  sideWidth = compactFooter
-    ? 0
-    : Math.min(sideWidth, Math.max(0, Math.floor((contentWidth - 12) / 2)));
-  const centerWidth = compactFooter
-    ? contentWidth
-    : Math.max(12, contentWidth - sideWidth * 2);
-  const centerText = truncate(center.text, centerWidth);
-  const rightModeWidth = right.modeLabel
-    ? Math.min(right.modeLabel.length, sideWidth)
-    : 0;
-  const rightInfoWidth = Math.max(
-    0,
-    sideWidth - rightModeWidth - (right.modeLabel && right.infoText ? 3 : 0),
-  );
-  const truncatedModeLabel = right.modeLabel && rightModeWidth > 0
-    ? truncate(right.modeLabel, rightModeWidth)
-    : "";
-  const truncatedInfoText = rightInfoWidth > 0
-    ? truncate(right.infoText, rightInfoWidth)
-    : "";
+
+  // Single line: left status ... right model info
+  const rightParts: string[] = [];
+  if (right.modeLabel) rightParts.push(right.modeLabel);
+  if (right.infoText) rightParts.push(right.infoText);
+  const rightText = rightParts.join(FOOTER_SECTION_SEPARATOR);
+
+  // Reserve space for right side, truncate left to fit
+  const rightLen = rightText.length;
+  const gap = 2; // minimum gap between left and right
+  const leftMaxWidth = Math.max(8, contentWidth - rightLen - gap);
+  const leftText = truncate(left.text, leftMaxWidth);
 
   return (
-    <Box flexGrow={1} flexDirection="row">
-      {!compactFooter && <Box width={sideWidth} />}
-      <Box width={centerWidth} justifyContent="center">
-        <Text color={centerColor}>{centerText}</Text>
-      </Box>
-
-      {!compactFooter && (
-        <Box width={sideWidth} justifyContent="flex-end">
-          {truncatedModeLabel && (
-            <Text color={sc.border.active}>{truncatedModeLabel}</Text>
-          )}
-          {truncatedModeLabel && truncatedInfoText && (
-            <Text color={sc.text.muted}>{FOOTER_SECTION_SEPARATOR}</Text>
-          )}
-          <Text color={sc.text.muted}>{truncatedInfoText}</Text>
-        </Box>
+    <Box flexGrow={1} flexDirection="row" justifyContent="space-between" marginTop={1}>
+      <Text color={leftColor}>{leftText}</Text>
+      {rightText.length > 0 && (
+        <Text color={sc.text.muted}>{rightText}</Text>
       )}
     </Box>
   );

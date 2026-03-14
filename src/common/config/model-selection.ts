@@ -5,19 +5,47 @@ import {
   type HlvmConfig,
   normalizeModelId,
 } from "./types.ts";
+import { getConfiguredModel } from "./selectors.ts";
 import { AGENT_MODEL_SUFFIX } from "../../hlvm/providers/claude-code/provider.ts";
+import { isObjectValue } from "../utils.ts";
 
 interface ModelSelectionConfigApi {
   set?: (key: string, value: unknown) => Promise<unknown>;
   patch?: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<unknown>;
 }
 
-interface ModelSelectionUpdates extends Pick<HlvmConfig, "model" | "modelConfigured" | "agentMode"> {}
+interface ModelSelectionUpdates
+  extends Pick<HlvmConfig, "model" | "modelConfigured" | "agentMode"> {}
+
+export interface ModelSelectionState {
+  configuredModelId: string;
+  activeModelId: string;
+  displayLabel: string;
+  modelConfigured: boolean;
+}
 
 export function resolveAgentModeForModel(modelId: string): AgentMode {
-  return modelId.endsWith(AGENT_MODEL_SUFFIX)
-    ? "claude-code-agent"
-    : "hlvm";
+  return modelId.endsWith(AGENT_MODEL_SUFFIX) ? "claude-code-agent" : "hlvm";
+}
+
+export function formatSelectedModelLabel(modelId: string | undefined): string {
+  return normalizeModelId(modelId) ?? "";
+}
+
+export function createModelSelectionState(
+  config: unknown,
+  activeModelId?: string,
+): ModelSelectionState {
+  const configuredModelId = getConfiguredModel(config);
+  const normalizedActiveModelId = normalizeModelId(activeModelId) ??
+    configuredModelId;
+
+  return {
+    configuredModelId,
+    activeModelId: normalizedActiveModelId,
+    displayLabel: formatSelectedModelLabel(normalizedActiveModelId),
+    modelConfigured: isObjectValue(config) && config.modelConfigured === true,
+  };
 }
 
 export function isSelectedModelActive(

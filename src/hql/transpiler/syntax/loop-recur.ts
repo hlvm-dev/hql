@@ -186,44 +186,21 @@ export function transformLoop(
 
       // Special case: If there's only one expression in the body and it's an if/when
       // we'll transform it specially to ensure proper tail recursion
-      if (list.elements.length === 3 && list.elements[2].type === "list") {
-        const bodyExpr = list.elements[2] as ListNode;
-        if (
-          bodyExpr.elements.length > 0 && bodyExpr.elements[0].type === "symbol"
-        ) {
-          const op = (bodyExpr.elements[0] as SymbolNode).name;
+      const singleIfWhen = list.elements.length === 3 &&
+        list.elements[2].type === "list" &&
+        (list.elements[2] as ListNode).elements.length > 0 &&
+        (list.elements[2] as ListNode).elements[0].type === "symbol" &&
+        ((((list.elements[2] as ListNode).elements[0] as SymbolNode).name === "if") ||
+         (((list.elements[2] as ListNode).elements[0] as SymbolNode).name === "when"));
 
-          if (op === "if" || op === "when") {
-            // Ensure we add a return statement for the if/when result
-            // This is a critical fix to ensure the result is returned
-            const transformed = transformIfForLoop(
-              bodyExpr,
-              currentDir,
-              transformNode,
-            );
-            if (transformed) {
-              bodyBlock = createBlock([transformed]);
-            } else {
-              bodyBlock = createBlock([]);
-            }
-          } else {
-            // Regular case: transform all body expressions
-            bodyBlock = transformLoopBody(
-              list.elements.slice(2),
-              currentDir,
-              transformNode,
-            );
-          }
-        } else {
-          // Regular case: transform all body expressions
-          bodyBlock = transformLoopBody(
-            list.elements.slice(2),
-            currentDir,
-            transformNode,
-          );
-        }
+      if (singleIfWhen) {
+        const transformed = transformIfForLoop(
+          list.elements[2] as ListNode,
+          currentDir,
+          transformNode,
+        );
+        bodyBlock = createBlock(transformed ? [transformed] : []);
       } else {
-        // Regular case: transform all body expressions
         bodyBlock = transformLoopBody(
           list.elements.slice(2),
           currentDir,

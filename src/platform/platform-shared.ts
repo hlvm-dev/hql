@@ -19,14 +19,6 @@ export interface OpenCommand {
 }
 
 /**
- * Build the OS-specific command to open a URL or file path.
- * Single source of truth for all platform implementations.
- *
- * - macOS: NSWorkspace via JXA with `activates = true` (brings target app to front)
- * - Windows: cmd.exe /c start
- * - Linux: xdg-open
- */
-/**
  * Build the OS-specific commands to open a URL or file path.
  *
  * Returns an array because macOS requires two sequential steps:
@@ -65,4 +57,3 @@ export function buildOpenCommands(os: OperatingSystem, url: string): OpenCommand
       return [{ cmd: "xdg-open", args: [url] }];
   }
 }
-

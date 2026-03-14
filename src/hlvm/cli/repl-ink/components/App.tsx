@@ -10,7 +10,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";
@@ -44,7 +44,6 @@ import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
 import { useTeamState } from "../hooks/useTeamState.ts";
-import { useAlternateBuffer } from "../hooks/useAlternateBuffer.ts";
 import type { AssistantCitation, EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { clearTerminal, resetTerminalViewport } from "../../ansi.ts";
@@ -77,12 +76,13 @@ import {
   normalizeModelId,
 } from "../../../../common/config/types.ts";
 import {
-  getConfiguredModel,
   getContextWindow,
   getPermissionMode,
 } from "../../../../common/config/selectors.ts";
 import {
   buildSelectedModelConfigUpdates,
+  createModelSelectionState,
+  type ModelSelectionState,
   persistSelectedModelConfig,
 } from "../../../../common/config/model-selection.ts";
 import { ReplProvider } from "../context/index.ts";
@@ -110,7 +110,6 @@ import {
 import { resolveSessionStart } from "../../repl/session/start.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
 import { buildTranscriptStateFromSession } from "../conversation-history.ts";
-import type { ConfiguredModelReadinessState } from "../../../runtime/configured-model-readiness.ts";
 import {
   type AgentExecutionMode,
   cycleReplAgentExecutionMode,
@@ -143,14 +142,6 @@ interface CurrentEval {
   cancelled?: boolean;
   taskId?: string;
   historyId?: number;
-}
-
-interface BannerItem {
-  id: string;
-  aiExports: string[];
-  aiReadiness: ConfiguredModelReadinessState;
-  errors: string[];
-  modelName: string;
 }
 
 interface AppProps {
@@ -315,8 +306,6 @@ function AppContent(
   const [nextId, setNextId] = useState(1);
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
-  // Banner rendered once via Static to prevent double-render issues with Ink
-  const [bannerRendered, setBannerRendered] = useState(false);
 
   // Task manager for background evaluation
   const {
@@ -365,13 +354,6 @@ function AppContent(
   const [pendingResumeInput, setPendingResumeInput] = useState<string | null>(
     null,
   );
-
-  // Mark banner as rendered once when init completes (for Static component)
-  useEffect(() => {
-    if (init.ready && !bannerRendered) {
-      setBannerRendered(true);
-    }
-  }, [init.ready, bannerRendered]);
 
   // Command palette persistent state (survives open/close)
   const [paletteState, setPaletteState] = useState<PaletteState>({
@@ -477,16 +459,8 @@ function AppContent(
   const interactionResolversRef = useRef<
     Map<string, (response: InteractionResponse) => void>
   >(new Map());
-  const [configuredModelId, setConfiguredModelId] = useState<string>(
-    getConfiguredModel(initialConfig),
-  );
-  const [isConfiguredModelExplicit, setIsConfiguredModelExplicit] = useState(
-    initialConfig?.modelConfigured === true,
-  );
-  const [footerModelName, setFooterModelName] = useState<string>(
-    typeof initialConfig?.model === "string"
-      ? initialConfig.model.replace("ollama/", "")
-      : "",
+  const [modelSelection, setModelSelection] = useState<ModelSelectionState>(
+    () => createModelSelectionState(initialConfig),
   );
   const [configuredContextWindow, setConfiguredContextWindow] = useState<
     number | undefined
@@ -527,16 +501,16 @@ function AppContent(
       ).length,
     [pendingConversationQueue, queueEditBindingLabel],
   );
-  const shouldUseAlternateBuffer = hasConversationContext &&
-    conversation.items.length >= 80;
-  useAlternateBuffer(shouldUseAlternateBuffer);
+  const shouldUseAlternateBuffer = false;
 
   const previousOverlayRef = useRef<OverlayPanel>("none");
   useEffect(() => {
     if (previousOverlayRef.current === activeOverlay) return;
-    resetTerminalViewport();
+    if (!shouldUseAlternateBuffer) {
+      resetTerminalViewport();
+    }
     previousOverlayRef.current = activeOverlay;
-  }, [activeOverlay]);
+  }, [activeOverlay, shouldUseAlternateBuffer]);
 
   useEffect(() => {
     return () => {
@@ -558,15 +532,17 @@ function AppContent(
   }, []);
 
   const applyRuntimeConfigState = useCallback(
-    (cfg: Record<string, unknown>) => {
-      const modelId = getConfiguredModel(cfg);
-      setConfiguredModelId(modelId);
-      setIsConfiguredModelExplicit(cfg.modelConfigured === true);
-      setFooterModelName(modelId.replace("ollama/", ""));
+    (
+      cfg: Record<string, unknown>,
+      activeModelId?: string,
+    ): ModelSelectionState => {
+      const nextModelSelection = createModelSelectionState(cfg, activeModelId);
+      setModelSelection(nextModelSelection);
       setConfiguredContextWindow(getContextWindow(cfg));
       if (!replModeTouchedRef.current) {
         setAgentExecutionMode(toAgentExecutionMode(getPermissionMode(cfg)));
       }
+      return nextModelSelection;
     },
     [],
   );
@@ -578,11 +554,15 @@ function AppContent(
     flashFooterStatus(getAgentExecutionModeChangeMessage(nextMode));
   }, [agentExecutionMode, flashFooterStatus]);
 
-  const refreshRuntimeConfigState = useCallback(async () => {
+  const refreshRuntimeConfigState = useCallback(async (): Promise<
+    ModelSelectionState
+  > => {
     const runtimeConfig = await createRuntimeConfigManager();
-    const runtimeSnapshot = await runtimeConfig.sync();
-    applyRuntimeConfigState(
+    const ensuredModel = await runtimeConfig.ensureInitialModelConfigured();
+    const runtimeSnapshot = runtimeConfig.getConfig();
+    return applyRuntimeConfigState(
       runtimeSnapshot as unknown as Record<string, unknown>,
+      ensuredModel.model,
     );
   }, [applyRuntimeConfigState]);
 
@@ -814,19 +794,8 @@ function AppContent(
     conversation.addAssistantText("", true);
 
     try {
-      const runtimeConfig = await createRuntimeConfigManager();
-      const ensuredModel = await runtimeConfig
-        .ensureInitialModelConfigured();
-      const runtimeSnapshot = runtimeConfig.getConfig();
-      const model = ensuredModel.model || configuredModelId || undefined;
-      if (
-        runtimeSnapshot.model !== configuredModelId ||
-        (runtimeSnapshot.modelConfigured === true) !== isConfiguredModelExplicit
-      ) {
-        applyRuntimeConfigState(
-          runtimeSnapshot as unknown as Record<string, unknown>,
-        );
-      }
+      const currentModelSelection = await refreshRuntimeConfigState();
+      const model = currentModelSelection.activeModelId || undefined;
       if (!model) {
         throw new ConfigError(
           "No configured model available for conversation mode.",
@@ -854,9 +823,13 @@ function AppContent(
 
       let textBuffer = "";
       let finalCitations: AssistantCitation[] | undefined;
+      // Plan mode should feel status-driven, not like a streaming chat reply.
+      // Keep intermediate assistant tokens hidden and let events/tool progress
+      // drive the UI; the final response is still rendered after the run ends.
+      let suppressPlanningTokens = agentExecutionMode === "plan";
       // Throttle streaming renders to avoid Ink full-screen redraws on every token.
-      // Tokens arrive every ~10-30ms; batching to 80ms gives smooth output without flicker.
-      const STREAM_RENDER_INTERVAL = 80;
+      // Tokens arrive every ~10-30ms; batching to 120ms gives smooth output at ~8 FPS.
+      const STREAM_RENDER_INTERVAL = 120;
       let lastStreamRender = 0;
       let pendingStreamTimer: ReturnType<typeof setTimeout> | null = null;
       const flushStreamBuffer = () => {
@@ -879,11 +852,16 @@ function AppContent(
         permissionMode: agentExecutionMode,
         // REPL UX: avoid model-initiated ask_user detours for simple chat turns.
         // Keep direct conversational flow unless explicit permission prompts are needed.
-        toolDenylist: ["ask_user", "complete_task"],
+        toolDenylist: agentExecutionMode === "plan"
+          ? ["complete_task"]
+          : ["ask_user", "complete_task"],
         signal: controller.signal,
         callbacks: {
           onToken: (text: string) => {
             if (controller.signal.aborted || !isActiveConversationRun()) {
+              return;
+            }
+            if (suppressPlanningTokens) {
               return;
             }
             textBuffer += text;
@@ -904,6 +882,16 @@ function AppContent(
           onAgentEvent: (event) => {
             if (controller.signal.aborted || !isActiveConversationRun()) {
               return;
+            }
+            if (event.type === "plan_phase_changed") {
+              suppressPlanningTokens = event.phase !== "done";
+              if (suppressPlanningTokens) {
+                textBuffer = "";
+                if (pendingStreamTimer) {
+                  clearTimeout(pendingStreamTimer);
+                  pendingStreamTimer = null;
+                }
+              }
             }
             conversation.addEvent(event);
             // Wire background delegate lifecycle to TaskManager
@@ -1001,10 +989,29 @@ function AppContent(
       }
 
       // Finalize assistant message
-      if (textBuffer) {
-        conversation.addAssistantText(textBuffer, false, finalCitations);
-      } else if (result.text) {
-        conversation.addAssistantText(result.text, false, finalCitations);
+      const sanitizePlanModeFinalText = (text: string): string => {
+        let cleaned = text;
+        const lastPlanEnd = cleaned.lastIndexOf("END_PLAN");
+        if (lastPlanEnd >= 0) {
+          cleaned = cleaned.slice(lastPlanEnd + "END_PLAN".length);
+        }
+        cleaned = cleaned.replace(/STEP_DONE\s*[:\-]?\s*[a-z0-9_-]+/gi, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+        const paragraphs = cleaned.split(/\n{2,}/)
+          .map((part) => part.trim())
+          .filter((part) => part.length > 0);
+        return paragraphs.at(-1) ?? "";
+      };
+      const finalAssistantText = agentExecutionMode === "plan"
+        ? sanitizePlanModeFinalText(result.text ?? textBuffer)
+        : (textBuffer || result.text || "");
+      if (finalAssistantText) {
+        conversation.addAssistantText(
+          finalAssistantText,
+          false,
+          finalCitations,
+        );
       }
 
       // Footer context usage (Gemini-style compact indicator)
@@ -1054,10 +1061,10 @@ function AppContent(
     applyRuntimeConfigState,
     agentExecutionMode,
     configuredContextWindow,
-    isConfiguredModelExplicit,
-    configuredModelId,
+    modelSelection,
     conversation,
     currentSession,
+    refreshRuntimeConfigState,
   ]);
 
   const submitConversationDraft = useCallback((
@@ -1724,8 +1731,7 @@ function AppContent(
       closeConversationMode,
       pendingInteraction,
       handleInteractionResponse,
-      footerModelName,
-      configuredModelId,
+      modelSelection,
       configuredContextWindow,
       replState,
       applyRuntimeConfigState,
@@ -1814,12 +1820,24 @@ function AppContent(
     ) {
       return;
     }
+    const isEnterLikeInput = key.return || char === "\r" || char === "\n";
+
     // Interaction response keys (y/n/Enter) during conversation permission dialogs
     if (hasConversationContext && pendingInteraction) {
       if (pendingInteraction.mode === "permission") {
-        if (char === "y" || key.return) {
+        if (char === "y" || isEnterLikeInput) {
           handleInteractionResponse(pendingInteraction.requestId, {
             approved: true,
+          });
+          return;
+        }
+        if (
+          pendingInteraction.toolName === "plan_review" &&
+          char.toLowerCase() === "r"
+        ) {
+          handleInteractionResponse(pendingInteraction.requestId, {
+            approved: false,
+            userInput: "revise",
           });
           return;
         }
@@ -1882,18 +1900,6 @@ function AppContent(
     }
   });
 
-  // Prepare banner items for Static component (renders once, never re-renders)
-  const bannerItems: BannerItem[] =
-    showBanner && !hasBeenCleared && bannerRendered
-      ? [{
-        id: "banner",
-        aiExports: init.aiExports,
-        aiReadiness: init.aiReadiness,
-        errors: init.errors,
-        modelName: footerModelName,
-      }]
-      : [];
-
   const isOverlayOpen = isModalOverlayPanel(activeOverlay);
   const hasStandaloneSurface = usesStandaloneSurfacePanel(surfacePanel);
   const isConversationInputVisible = hasConversationContext && !isOverlayOpen;
@@ -1901,6 +1907,7 @@ function AppContent(
     (surfacePanel === "none" || isConversationInputVisible);
   const isInputDisabled = init.loading ||
     (hasConversationContext && pendingInteraction?.mode === "permission");
+
   // Keep Ctrl+O section toggles from conflicting with Input paredit Ctrl+O.
   // Safe contexts:
   // - conversation mode without input visible (Input hidden, no conflict)
@@ -1908,17 +1915,6 @@ function AppContent(
   // - empty prompt (paredit no-op)
   const allowConversationToggleHotkeys = !isInputVisible || isInputDisabled ||
     input.length === 0;
-  const renderBannerItem = (item: BannerItem): React.ReactElement => (
-    <Box key={item.id}>
-      <Banner
-        aiExports={item.aiExports}
-        aiReadiness={item.aiReadiness}
-        errors={item.errors}
-        modelName={item.modelName}
-      />
-    </Box>
-  );
-  const staticBannerProps = { items: bannerItems, children: renderBannerItem };
   // overlayScreen removed — overlays are inlined as flat conditional siblings in JSX
   const standaloneSurfaceScreen = (() => {
     switch (surfacePanel) {
@@ -1934,8 +1930,8 @@ function AppContent(
       case "models":
         return (
           <ModelBrowser
-            currentModel={configuredModelId}
-            isCurrentModelConfigured={isConfiguredModelExplicit}
+            currentModel={modelSelection.activeModelId}
+            isCurrentModelConfigured={modelSelection.modelConfigured}
             onClose={() => {
               setSurfacePanel(modelBrowserParentSurface);
               setActiveOverlay(modelBrowserParentOverlay);
@@ -1956,6 +1952,7 @@ function AppContent(
               await persistSelectedModelConfig(configApi, modelName);
               applyRuntimeConfigState(
                 updates as unknown as Record<string, unknown>,
+                updates.model,
               );
             }}
           />
@@ -2015,14 +2012,23 @@ function AppContent(
   return (
     <Box
       key={clearKey}
+      height={terminalHeight}
       flexDirection="column"
       paddingX={1}
     >
-      {/* Banner rendered via Static — MUST be unconditional direct child (Ink requirement) */}
-      {showBanner && !hasBeenCleared && !bannerRendered && (
-        <Text dimColor>Loading HLVM...</Text>
-      )}
-      <Static<BannerItem> {...staticBannerProps} />
+      {showBanner && !hasBeenCleared &&
+        (
+          init.ready
+            ? (
+              <Banner
+                aiExports={init.aiExports}
+                aiReadiness={init.aiReadiness}
+                errors={init.errors}
+                modelName={modelSelection.displayLabel}
+              />
+            )
+            : <Text dimColor>Loading HLVM...</Text>
+        )}
 
       {/* Overlays rendered as siblings (not ternary) to preserve Ink's live area tracking */}
       {activeOverlay === "palette" && (
@@ -2114,7 +2120,8 @@ function AppContent(
             width={Math.max(20, terminalWidth - 2)}
             streamingState={conversation.streamingState}
             activePlan={conversation.activePlan}
-            todoState={conversation.todoState ?? conversation.planTodoState}
+            planningPhase={conversation.planningPhase}
+            todoState={conversation.planTodoState ?? conversation.todoState}
             pendingPlanReview={conversation.pendingPlanReview}
             latestCheckpoint={conversation.latestCheckpoint}
             allowToggleHotkeys={surfacePanel === "conversation" &&
@@ -2122,6 +2129,7 @@ function AppContent(
             interactionRequest={pendingInteraction}
             interactionQueueLength={interactionQueue.length}
             onInteractionResponse={handleInteractionResponse}
+            extraReservedRows={queuePreviewRows}
           />
         </Box>
       )}
@@ -2137,7 +2145,6 @@ function AppContent(
         )}
 
       {/* Input line */}
-      {/* FRP: Input now gets history, bindings, signatures, docstrings from ReplContext */}
       {!isOverlayOpen && isInputVisible &&
         (
           <Input
@@ -2173,16 +2180,11 @@ function AppContent(
           />
         )}
 
-      {/* Keep the prompt attached to content while pinning the footer to the bottom in plain REPL mode */}
-      {!isOverlayOpen && !hasConversationContext && !hasStandaloneSurface && (
-        <Box flexGrow={1} />
-      )}
-
-      {/* Footer hint */}
+      {/* Footer hint (directly under input, no gap) */}
       {!isOverlayOpen && (isInputVisible || hasConversationContext) &&
         (
           <FooterHint
-            modelName={footerModelName}
+            modelName={modelSelection.displayLabel}
             modeLabel={getAgentExecutionModeBadge(agentExecutionMode)}
             statusMessage={footerStatusMessage}
             streamingState={hasConversationContext
@@ -2207,6 +2209,9 @@ function AppContent(
             inConversation={hasConversationContext}
             hasPendingPermission={hasConversationContext &&
               pendingInteraction?.mode === "permission"}
+            hasPendingPlanReview={hasConversationContext &&
+              pendingInteraction?.mode === "permission" &&
+              pendingInteraction.toolName === "plan_review"}
             hasPendingQuestion={hasConversationContext &&
               pendingInteraction?.mode === "question"}
             teamActive={teamState.active}

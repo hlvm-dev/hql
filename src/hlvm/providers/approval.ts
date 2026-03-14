@@ -57,10 +57,3 @@ export function evaluateProviderApproval(
     label: label ?? provider,
   };
 }
-
-/** Return the user-facing provider label for approval messaging. */
-function getProviderApprovalLabel(modelId: string): string | null {
-  const provider = extractProvider(modelId);
-  if (!provider) return null;
-  return PROVIDER_LABELS[provider] ?? provider;
-}

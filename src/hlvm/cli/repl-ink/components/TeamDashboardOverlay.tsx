@@ -22,14 +22,15 @@ import {
   bg,
   clearOverlay,
   fg,
-  hexToRgb,
   OVERLAY_BG_COLOR,
   type RGB,
   resolveOverlayFrame,
   shouldClearOverlay,
+  themeToOverlayColors,
   writeToTerminal,
 } from "../overlay/index.ts";
 import { useTheme } from "../../theme/index.ts";
+import { padTo } from "../utils/formatting.ts";
 
 interface TeamDashboardOverlayProps {
   onClose: () => void;
@@ -54,12 +55,6 @@ const HEADER_ROWS = 4;
 const CONTENT_START = PADDING.top + HEADER_ROWS;
 const MIN_OVERLAY_WIDTH = 48;
 const MIN_OVERLAY_HEIGHT = 14;
-
-function padTo(str: string, len: number): string {
-  return str.length >= len
-    ? str.slice(0, len)
-    : str + " ".repeat(len - str.length);
-}
 
 function workerStatusIcon(status: WorkerStatus["status"]): {
   icon: string;
@@ -240,12 +235,7 @@ export function TeamDashboardOverlay({
   const previousFrameRef = useRef<typeof overlayFrame | null>(null);
 
   const colors = useMemo(() => ({
-    primary: hexToRgb(theme.primary) as RGB,
-    success: hexToRgb(theme.success) as RGB,
-    warning: hexToRgb(theme.warning) as RGB,
-    error: hexToRgb(theme.error) as RGB,
-    muted: hexToRgb(theme.muted) as RGB,
-    accent: hexToRgb(theme.accent) as RGB,
+    ...themeToOverlayColors(theme),
     bgStyle: bg(OVERLAY_BG_COLOR),
   }), [theme]);
 

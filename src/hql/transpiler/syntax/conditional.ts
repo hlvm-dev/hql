@@ -20,6 +20,7 @@ import {
   createSwitchCase,
   createCall,
   createFnExpr,
+  wrapIIFEResult,
 } from "../utils/ir-helpers.ts";
 import { isExpressionResult, extractMeta, copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
@@ -849,27 +850,9 @@ export function transformSwitch(
     [],
   );
 
-  // For generator IIFEs, wrap in yield*; for async, wrap in await
-  if (hasYields) {
-    const result = {
-      type: IR.IRNodeType.YieldExpression,
-      argument: iife,
-      delegate: true,
-    } as IR.IRYieldExpression;
-    copyPosition(list, result);
-    return result;
-  }
-  if (hasAwaits) {
-    const result = {
-      type: IR.IRNodeType.AwaitExpression,
-      argument: iife,
-    } as IR.IRAwaitExpression;
-    copyPosition(list, result);
-    return result;
-  }
-
-  copyPosition(list, iife);
-  return iife;
+  const result = wrapIIFEResult(iife, hasYields, hasAwaits);
+  copyPosition(list, result);
+  return result;
 }
 
 /**

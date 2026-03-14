@@ -329,6 +329,58 @@ Deno.test("agent transcript state preserves reasoning and planning for the same 
   );
 });
 
+Deno.test("agent transcript state keeps only the latest reasoning and planning row per turn", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "user_message",
+    text: "plan this change",
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "reasoning_update",
+      iteration: 1,
+      summary: "Inspect the file.",
+    },
+  });
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "reasoning_update",
+      iteration: 2,
+      summary: "Found the target block.",
+    },
+  });
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "planning_update",
+      iteration: 2,
+      summary: "Draft the plan from the gathered context.",
+    },
+  });
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "planning_update",
+      iteration: 3,
+      summary: "Ready to show the review card.",
+    },
+  });
+
+  assertEquals(
+    state.items.filter((item) => item.type === "thinking").map((item) =>
+      item.type === "thinking"
+        ? `${item.kind}:${item.iteration}:${item.summary}`
+        : ""
+    ),
+    [
+      "reasoning:2:Found the target block.",
+      "planning:3:Ready to show the review card.",
+    ],
+  );
+});
+
 Deno.test("agent transcript state preserves prior-turn reasoning when later turns reuse iteration numbers", () => {
   let state = reduceTranscriptState(createTranscriptState(), {
     type: "user_message",
@@ -705,4 +757,100 @@ Deno.test("agent transcript state records batch progress updates as info items",
       "Batch batch-1: 2 running · 1 completed · 0 errored",
     );
   }
+});
+
+Deno.test("agent transcript state tracks planning phase and shows clarification prompts in the transcript", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "agent_event",
+    event: {
+      type: "plan_phase_changed",
+      phase: "researching",
+    },
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "interaction_request",
+      requestId: "req-1",
+      mode: "question",
+      question: "Which for-loop style do you want?",
+    },
+  });
+
+  assertEquals(state.planningPhase, "researching");
+  assertEquals(state.streamingState, "waiting_for_confirmation");
+  const latestItem = state.items.at(-1);
+  assertEquals(latestItem?.type, "info");
+  if (latestItem?.type === "info") {
+    assertEquals(
+      latestItem.text,
+      "Clarification needed: Which for-loop style do you want?",
+    );
+  }
+});
+
+Deno.test("agent transcript state hides planning and reasoning updates once plan execution has started", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "agent_event",
+    event: {
+      type: "plan_phase_changed",
+      phase: "executing",
+    },
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "reasoning_update",
+      iteration: 1,
+      summary: "Thinking through the next step.",
+    },
+  });
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "planning_update",
+      iteration: 1,
+      summary: "Read the file before editing.",
+    },
+  });
+
+  assertEquals(state.items.length, 0);
+});
+
+Deno.test("agent transcript state clears current-turn planning rows when execution begins", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "user_message",
+    text: "plan this edit",
+  });
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "planning_update",
+      iteration: 1,
+      summary: "Inspect the target file.",
+    },
+  });
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "reasoning_update",
+      iteration: 1,
+      summary: "Need one more read before editing.",
+    },
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "plan_phase_changed",
+      phase: "executing",
+    },
+  });
+
+  assertEquals(
+    state.items.some((item) => item.type === "thinking"),
+    false,
+  );
 });

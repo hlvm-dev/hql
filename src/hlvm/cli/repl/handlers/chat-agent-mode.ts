@@ -284,6 +284,12 @@ export async function handleAgentMode(
               snapshot: event.snapshot,
             });
             break;
+          case "plan_phase_changed":
+            emit({
+              event: "plan_phase_changed",
+              phase: event.phase,
+            });
+            break;
           case "plan_created":
             emit({
               event: "plan_created",

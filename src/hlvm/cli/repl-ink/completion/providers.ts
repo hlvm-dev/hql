@@ -52,7 +52,7 @@ export { getWordAtCursor };
  *   (let [x 1] |)    → { name: "let", argIndex: 1 }
  *   sq|              → undefined (no enclosing form)
  */
-export function detectEnclosingForm(text: string, cursorPosition: number): EnclosingForm | undefined {
+function detectEnclosingForm(text: string, cursorPosition: number): EnclosingForm | undefined {
   // Don't detect if inside a string
   if (isInsideString(text, cursorPosition)) {
     return undefined;

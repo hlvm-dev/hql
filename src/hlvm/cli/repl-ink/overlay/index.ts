@@ -11,6 +11,7 @@ export {
   getTerminalSize,
   hexToRgb,
   type ClearRegion,
+  type OverlayColors,
   type OverlayFrame,
   type RGB,
   OVERLAY_BG_COLOR,
@@ -20,5 +21,6 @@ export {
   fitOverlayRect,
   resolveOverlayFrame,
   shouldClearOverlay,
+  themeToOverlayColors,
   writeToTerminal,
 } from "./renderer.ts";

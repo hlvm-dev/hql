@@ -165,11 +165,9 @@ export const AssistantMessage = React.memo(function AssistantMessage(
         borderColor={sc.border.default}
         paddingLeft={1}
       >
-        <MarkdownDisplay
-          text={citationView.text}
-          width={contentWidth}
-          isPending={isPending}
-        />
+        {isPending
+          ? <Text wrap="wrap">{citationView.text}</Text>
+          : <MarkdownDisplay text={citationView.text} width={contentWidth} />}
         {!isPending && sources.length > 0 && (
           <Box flexDirection="column" marginTop={1}>
             <Text color={sc.text.muted}>{sourcesLabel}</Text>

@@ -1,5 +1,5 @@
 import type { AgentUIEvent } from "../agent/orchestrator.ts";
-import type { Plan } from "../agent/planning.ts";
+import type { Plan, PlanningPhase } from "../agent/planning.ts";
 import type { AgentCheckpointSummary } from "../agent/checkpoints.ts";
 import {
   cloneTodoState,
@@ -31,6 +31,7 @@ export interface TranscriptState {
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   nextId: number;
   activePlan?: Plan;
+  planningPhase?: PlanningPhase;
   completedPlanStepIds: string[];
   todoState?: TodoState;
   planTodoState?: TodoState;
@@ -71,7 +72,7 @@ export function createTranscriptState(): TranscriptState {
 export function getVisibleTodoState(
   state: TranscriptState,
 ): TodoState | undefined {
-  return state.todoState ?? state.planTodoState;
+  return state.planTodoState ?? state.todoState;
 }
 
 export function getVisibleTodoSummary(
@@ -113,6 +114,15 @@ function removeCurrentTurnTurnStats(
   const turnStartIdx = findCurrentTurnStartIndex(items);
   return items.filter((item, index) =>
     !(index > turnStartIdx && item.type === "turn_stats")
+  );
+}
+
+function removeCurrentTurnThinkingItems(
+  items: ConversationItem[],
+): ConversationItem[] {
+  const turnStartIdx = findCurrentTurnStartIndex(items);
+  return items.filter((item, index) =>
+    !(index > turnStartIdx && item.type === "thinking")
   );
 }
 
@@ -247,7 +257,6 @@ function upsertThinkingItem(
   const idx = state.items.findLastIndex((item, itemIndex) =>
     itemIndex > turnStartIdx &&
     item.type === "thinking" &&
-    item.iteration === iteration &&
     item.kind === kind
   );
   if (idx < 0) {
@@ -267,7 +276,7 @@ function upsertThinkingItem(
   const nextItems = [...state.items];
   const current = nextItems[idx];
   if (current?.type !== "thinking") return state;
-  nextItems[idx] = { ...current, kind, summary };
+  nextItems[idx] = { ...current, kind, summary, iteration };
   return { ...state, items: nextItems };
 }
 
@@ -393,6 +402,19 @@ function upsertAssistantTextItem(
   isPending: boolean,
   citations?: AssistantCitation[],
 ): TranscriptState {
+  // Fast path: streaming update to pending assistant (last item).
+  // During streaming, the last item is always the pending assistant and there
+  // are no transient info items or turn stats to clean — skip O(n) filters.
+  if (isPending && state.items.length > 0) {
+    const lastIdx = state.items.length - 1;
+    const last = state.items[lastIdx];
+    if (last.type === "assistant" && last.isPending) {
+      const nextItems = state.items.slice();
+      nextItems[lastIdx] = { ...last, text, citations };
+      return { ...state, items: nextItems };
+    }
+  }
+
   const cleanedItems = removeCurrentTurnTurnStats(
     removeTransientInfoItems(state.items),
   );
@@ -491,6 +513,20 @@ export function reduceTranscriptState(
     case "agent_event": {
       const event = input.event;
       switch (event.type) {
+        case "plan_phase_changed":
+          if (event.phase === "executing" || event.phase === "done") {
+            return {
+              ...state,
+              planningPhase: event.phase,
+              items: removeCurrentTurnThinkingItems(
+                removeTransientInfoItems(state.items),
+              ),
+            };
+          }
+          return {
+            ...state,
+            planningPhase: event.phase,
+          };
         case "thinking":
           return {
             ...state,
@@ -499,6 +535,12 @@ export function reduceTranscriptState(
             items: removeTransientInfoItems(state.items),
           };
         case "reasoning_update":
+          if (
+            state.planningPhase === "executing" ||
+            state.planningPhase === "done"
+          ) {
+            return state;
+          }
           return {
             ...upsertThinkingItem(
               {
@@ -513,6 +555,12 @@ export function reduceTranscriptState(
             ),
           };
         case "planning_update":
+          if (
+            state.planningPhase === "executing" ||
+            state.planningPhase === "done"
+          ) {
+            return state;
+          }
           return {
             ...upsertThinkingItem(
               {
@@ -738,6 +786,9 @@ export function reduceTranscriptState(
           return {
             ...state,
             activePlan: event.plan,
+            planningPhase: state.planningPhase === "reviewing"
+              ? state.planningPhase
+              : "reviewing",
             completedPlanStepIds: [],
             planTodoState: derivePlanTodoState(event.plan, []),
           };
@@ -749,6 +800,10 @@ export function reduceTranscriptState(
           return {
             ...state,
             completedPlanStepIds,
+            planningPhase: completedPlanStepIds.length >=
+                (state.activePlan?.steps.length ?? Number.POSITIVE_INFINITY)
+              ? "done"
+              : state.planningPhase,
             planTodoState: derivePlanTodoState(
               state.activePlan,
               completedPlanStepIds,
@@ -759,12 +814,14 @@ export function reduceTranscriptState(
           return {
             ...state,
             pendingPlanReview: { plan: event.plan },
+            planningPhase: "reviewing",
             streamingState: ConversationStreamingState.WaitingForConfirmation,
           };
         case "plan_review_resolved":
           return {
             ...state,
             pendingPlanReview: undefined,
+            planningPhase: event.approved ? "executing" : state.planningPhase,
             streamingState: ConversationStreamingState.Responding,
           };
         case "checkpoint_created":
@@ -804,10 +861,19 @@ export function reduceTranscriptState(
           };
         }
         case "interaction_request":
-          return {
-            ...state,
-            streamingState: ConversationStreamingState.WaitingForConfirmation,
-          };
+          return event.mode === "question" && event.question
+            ? appendInfoItem(
+              {
+                ...state,
+                streamingState:
+                  ConversationStreamingState.WaitingForConfirmation,
+              },
+              `Clarification needed: ${event.question}`,
+            )
+            : {
+              ...state,
+              streamingState: ConversationStreamingState.WaitingForConfirmation,
+            };
       }
       return state;
     }
@@ -896,6 +962,7 @@ export function reduceTranscriptState(
         streamingState: ConversationStreamingState.Idle,
         activeTool: undefined,
         activePlan: undefined,
+        planningPhase: undefined,
         completedPlanStepIds: [],
         todoState: undefined,
         planTodoState: undefined,

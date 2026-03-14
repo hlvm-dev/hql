@@ -621,6 +621,11 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         type: "batch_progress_updated",
         snapshot: event.snapshot,
       };
+    case "plan_phase_changed":
+      return {
+        type: "plan_phase_changed",
+        phase: event.phase,
+      };
     case "plan_created":
       return {
         type: "plan_created",

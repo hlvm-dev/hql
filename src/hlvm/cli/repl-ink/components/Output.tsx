@@ -55,18 +55,31 @@ export function Output({ result }: { result: EvalResult }): React.ReactElement |
   return <Text>{formatted}</Text>;
 }
 
-function StreamingTaskOutput({ taskId, width }: { taskId: string; width: number }): React.ReactElement | null {
+// ============================================================
+// Shared Streaming Content
+// ============================================================
+
+interface StreamingContentProps {
+  text: string;
+  isStreaming: boolean;
+  isDone: boolean;
+  startTime: number;
+  width: number;
+  error?: { message: string } | null;
+  taskStatus?: string;
+}
+
+function StreamingContent({
+  text,
+  isStreaming,
+  isDone,
+  startTime,
+  width,
+  error,
+  taskStatus,
+}: StreamingContentProps): React.ReactElement {
   const { color } = useTheme();
-  const { tasks } = useTaskManager();
-
-  const task = tasks.find((t) => t.id === taskId && t.type === "eval") as EvalTask | undefined;
-  if (!task) return null;
-
-  const output = task.output ?? (typeof task.result === "string" ? task.result : "");
-  const isStreaming = task.status === "running";
-  const isDone = task.status === "completed" || task.status === "failed" || task.status === "cancelled";
-  const startTime = task.progress?.startedAt ?? task.startedAt ?? Date.now();
-  const showOutput = output.length > 0;
+  const showOutput = text.length > 0;
 
   return (
     <Box flexDirection="column">
@@ -77,31 +90,51 @@ function StreamingTaskOutput({ taskId, width }: { taskId: string; width: number 
         />
       )}
       {showOutput && (
-        isDone && hasMarkdown(output)
-          ? <MarkdownDisplay text={output} width={width} />
-          : <Text>{output}</Text>
+        isDone && hasMarkdown(text)
+          ? <MarkdownDisplay text={text} width={width} />
+          : <Text>{text}</Text>
       )}
       {isStreaming && !showOutput && <Text color={color("muted")}>▋</Text>}
-      {task.status === "failed" && task.error && (
-        <Text color={color("error")}>Error: {task.error.message}</Text>
+      {error && (
+        <Text color={color("error")}>Error: {error.message}</Text>
       )}
-      {task.status === "cancelled" && (
+      {taskStatus === "cancelled" && (
         <Text color={color("muted")}>[Cancelled]</Text>
       )}
     </Box>
   );
 }
 
-interface StreamingOutputProps {
-  iterator: AsyncIterableIterator<string>;
-  width: number;
+// ============================================================
+// Streaming Variants
+// ============================================================
+
+function StreamingTaskOutput({ taskId, width }: { taskId: string; width: number }): React.ReactElement | null {
+  const { tasks } = useTaskManager();
+
+  const task = tasks.find((t) => t.id === taskId && t.type === "eval") as EvalTask | undefined;
+  if (!task) return null;
+
+  const output = task.output ?? (typeof task.result === "string" ? task.result : "");
+  const isStreaming = task.status === "running";
+  const isDone = task.status === "completed" || task.status === "failed" || task.status === "cancelled";
+  const startTime = task.progress?.startedAt ?? task.startedAt ?? Date.now();
+
+  return (
+    <StreamingContent
+      text={output}
+      isStreaming={isStreaming}
+      isDone={isDone}
+      startTime={startTime}
+      width={width}
+      error={task.status === "failed" ? task.error : null}
+      taskStatus={task.status}
+    />
+  );
 }
 
-function StreamingOutput({ iterator, width }: StreamingOutputProps): React.ReactElement {
+function StreamingOutput({ iterator, width }: { iterator: AsyncIterableIterator<string>; width: number }): React.ReactElement {
   const { color } = useTheme();
-
-  // Higher throttle (100ms) = fewer re-renders = smoother streaming
-  // Markdown is only applied at end to avoid structural jumps
   const { displayText, isDone, isStreaming, startTime, error } = useStreaming(iterator, { renderInterval: 100 });
 
   // Show error if streaming failed (but preserve any partial content)
@@ -115,19 +148,12 @@ function StreamingOutput({ iterator, width }: StreamingOutputProps): React.React
   }
 
   return (
-    <Box flexDirection="column">
-      {isStreaming && (
-        <StreamingStatus
-          isStreaming={isStreaming}
-          startTime={startTime}
-        />
-      )}
-      {displayText && (
-        isDone && hasMarkdown(displayText)
-          ? <MarkdownDisplay text={displayText} width={width} />
-          : <Text>{displayText}</Text>
-      )}
-      {isStreaming && !displayText && <Text color={color("muted")}>▋</Text>}
-    </Box>
+    <StreamingContent
+      text={displayText}
+      isStreaming={isStreaming}
+      isDone={isDone}
+      startTime={startTime}
+      width={width}
+    />
   );
 }

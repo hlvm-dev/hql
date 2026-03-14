@@ -454,12 +454,6 @@ export const AUTO_PAIR_CHARS: Readonly<Record<string, string>> = {
   '"': '"', "'": "'"
 };
 
-/** All opening delimiters as string for quick checks */
-export const OPEN_DELIMITERS = "([{";
-
-/** All closing delimiters as string for quick checks */
-export const CLOSE_DELIMITERS = ")]}";
-
 /** O(1) lookup sets for delimiter classification in hot paths */
 const OPEN_DELIMITER_SET: ReadonlySet<string> = new Set(["(", "[", "{"]);
 const CLOSE_DELIMITER_SET: ReadonlySet<string> = new Set([")", "]", "}"]);

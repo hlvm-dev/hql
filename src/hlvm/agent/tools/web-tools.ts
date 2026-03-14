@@ -351,13 +351,9 @@ function buildSupportingLines(results: SearchResult[]): string[] {
 
 function resolveSearchDepth(value: unknown): SearchDepthProfile {
   if (value === undefined) return DEFAULT_SEARCH_DEPTH;
-  if (typeof value !== "string") {
-    throw new ValidationError(
-      `searchDepth must be one of: ${SEARCH_DEPTH_PROFILES.join(", ")}`,
-      "search_web",
-    );
-  }
-  const normalized = value.trim().toLowerCase();
+  const normalized = typeof value === "string"
+    ? value.trim().toLowerCase()
+    : "";
   if (SEARCH_DEPTH_PROFILES.includes(normalized as SearchDepthProfile)) {
     return normalized as SearchDepthProfile;
   }
@@ -457,13 +453,9 @@ function formatWebFetchResult(
 
 function resolveSearchTimeRange(value: unknown): SearchTimeRange {
   if (value === undefined) return "all";
-  if (typeof value !== "string") {
-    throw new ValidationError(
-      `timeRange must be one of: ${SEARCH_TIME_RANGES.join(", ")}`,
-      "search_web",
-    );
-  }
-  const normalized = value.trim().toLowerCase();
+  const normalized = typeof value === "string"
+    ? value.trim().toLowerCase()
+    : "";
   if (SEARCH_TIME_RANGES.includes(normalized as SearchTimeRange)) {
     return normalized as SearchTimeRange;
   }

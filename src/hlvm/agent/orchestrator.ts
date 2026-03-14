@@ -50,7 +50,9 @@ import {
   formatPlanForContext,
   type Plan,
   type PlanningConfig,
+  type PlanningPhase,
   type PlanState,
+  buildPlanModeReminder,
   requestPlan,
   shouldPlanRequest,
 } from "./planning.ts";
@@ -234,6 +236,7 @@ export interface FinalResponseMeta {
 }
 
 export type AgentUIEvent =
+  | { type: "plan_phase_changed"; phase: PlanningPhase }
   | { type: "thinking"; iteration: number }
   | {
     type: "reasoning_update";
@@ -395,6 +398,14 @@ export interface OrchestratorConfig {
   playwrightInstallAttempted?: boolean;
   usage?: UsageTracker;
   planning?: PlanningConfig;
+  planModeState?: {
+    active: boolean;
+    phase: PlanningPhase;
+    executionPermissionMode: Exclude<AgentExecutionMode, "plan">;
+    executionAllowlist?: string[];
+    executionDenylist?: string[];
+    planningAllowlist?: string[];
+  };
   delegate?: (
     args: unknown,
     config: OrchestratorConfig,
@@ -431,7 +442,9 @@ export interface OrchestratorConfig {
   /** Optional plan review gate before mutating actions. */
   planReview?: {
     getCurrentPlan: () => Plan | undefined;
-    ensureApproved: (plan: Plan) => Promise<"approved" | "cancelled">;
+    ensureApproved: (
+      plan: Plan,
+    ) => Promise<"approved" | "cancelled" | "revise">;
     shouldGateMutatingTools: () => boolean;
   };
   /** Session-scoped automatic checkpoint recorder for supported file mutations. */
@@ -723,15 +736,18 @@ export async function runReActLoop(
 
   addContextMessage(config, { role: "user", content: userRequest, images });
   if (isPlanExecutionMode(config.permissionMode)) {
+    const reminder = config.planModeState?.planningAllowlist?.length
+      ? buildPlanModeReminder(config.planModeState.planningAllowlist)
+      : "Plan mode is active. You may inspect, reason, search, and propose a plan, but do not make file edits or run other mutating actions. If implementation is needed, explain the plan and wait for the user to leave plan mode.";
     addContextMessage(config, {
       role: "user",
-      content:
-        "[System Reminder] Plan mode is active. You may inspect, reason, search, and propose a plan, but do not make file edits or run other mutating actions. If implementation is needed, explain the plan and wait for the user to leave plan mode.",
+      content: `[System Reminder] ${reminder}`,
     });
   }
 
   // Planning (optional)
   if (
+    !config.planModeState?.active &&
     !state.planState &&
     lc.planningConfig.mode !== "off" &&
     shouldPlanRequest(userRequest, lc.planningConfig.mode!)
@@ -1051,7 +1067,8 @@ export async function runReActLoop(
       if (
         !agentResponse.reasoning &&
         (agentResponse.toolCalls?.length ?? 0) > 0 &&
-        responseText.trim()
+        responseText.trim() &&
+        config.planModeState?.phase !== "executing"
       ) {
         config.onAgentEvent?.({
           type: "planning_update",
@@ -1089,7 +1106,7 @@ export async function runReActLoop(
       }
 
       if (!result.shouldContinue) {
-        const final = handleFinalResponse(
+        const final = await handleFinalResponse(
           responseText,
           result,
           state,

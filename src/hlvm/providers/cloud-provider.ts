@@ -24,6 +24,7 @@ import {
   chatStructuredWithSdk,
   chatWithSdk,
   generateWithSdk,
+  type SdkModelSpec,
 } from "./sdk-runtime.ts";
 
 /** API surface each provider's api.ts must expose (adapted via createApi). */
@@ -108,6 +109,15 @@ export function createCloudProvider(
       return spec.transformModel ? spec.transformModel(model) : model;
     }
 
+    function buildSpec(modelId: string): SdkModelSpec {
+      return {
+        providerName: sdkProviderName,
+        modelId,
+        endpoint,
+        apiKey: apiKeyConfigured ? apiKey : undefined,
+      };
+    }
+
     return {
       name: spec.name,
       displayName: spec.displayName,
@@ -122,12 +132,7 @@ export function createCloudProvider(
       async *generate(prompt: string, options?: GenerateOptions) {
         const model = await getModel(options);
         yield* generateWithSdk(
-          {
-            providerName: sdkProviderName,
-            modelId: model,
-            endpoint,
-            apiKey: apiKeyConfigured ? apiKey : undefined,
-          },
+          buildSpec(model),
           prompt,
           options,
           extractSignal(options),
@@ -137,12 +142,7 @@ export function createCloudProvider(
       async *chat(messages: Message[], options?: ChatOptions) {
         const model = await getModel(options);
         yield* chatWithSdk(
-          {
-            providerName: sdkProviderName,
-            modelId: model,
-            endpoint,
-            apiKey: apiKeyConfigured ? apiKey : undefined,
-          },
+          buildSpec(model),
           messages,
           options,
           extractSignal(options),
@@ -152,12 +152,7 @@ export function createCloudProvider(
       async chatStructured(messages: Message[], options?: ChatOptions) {
         const model = await getModel(options);
         return chatStructuredWithSdk(
-          {
-            providerName: sdkProviderName,
-            modelId: model,
-            endpoint,
-            apiKey: apiKeyConfigured ? apiKey : undefined,
-          },
+          buildSpec(model),
           messages,
           options,
           extractSignal(options),

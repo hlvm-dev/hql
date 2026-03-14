@@ -20,9 +20,11 @@ import {
   cancelSessionRequests,
   handleChat,
   handleSessionCancel,
+} from "../../../src/hlvm/cli/repl/handlers/chat.ts";
+import {
   isAgentReady,
   markAgentReady,
-} from "../../../src/hlvm/cli/repl/handlers/chat.ts";
+} from "../../../src/hlvm/cli/repl/handlers/chat-session.ts";
 import { registerProvider } from "../../../src/hlvm/providers/registry.ts";
 import { setupStoreTestDb } from "../_shared/store-test-db.ts";
 

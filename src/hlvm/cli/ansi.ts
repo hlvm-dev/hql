@@ -49,3 +49,22 @@ export function clearTerminal(): void {
 export function resetTerminalViewport(): void {
   writeTerminalSequence(getTerminalClearSequence({ clearScrollback: false }));
 }
+
+/**
+ * Enable kitty keyboard protocol (progressive enhancement level 1).
+ * Tells the terminal to send CSI-u sequences for modified keys
+ * (e.g. Shift+Enter as \x1b[13;2u instead of plain \r).
+ * Supported by: iTerm2, Kitty, WezTerm, Ghostty, Alacritty, VS Code terminal, foot.
+ * Unsupported terminals silently ignore this sequence.
+ */
+export function enableKittyKeyboardProtocol(): void {
+  writeTerminalSequence("\x1b[>1u");
+}
+
+/**
+ * Disable/pop kitty keyboard protocol. Must be called on exit to restore
+ * the terminal to its default keyboard mode.
+ */
+export function disableKittyKeyboardProtocol(): void {
+  writeTerminalSequence("\x1b[<u");
+}

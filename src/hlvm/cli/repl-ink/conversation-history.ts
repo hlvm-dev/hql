@@ -191,6 +191,14 @@ export function buildTranscriptStateFromSession(
     items,
     nextId: items.length,
     activePlan: metadata.plan,
+    planningPhase: metadata.pendingPlanReview
+      ? "reviewing"
+      : metadata.plan
+      ? (metadata.completedPlanStepIds?.length ?? 0) >=
+          metadata.plan.steps.length
+        ? "done"
+        : "executing"
+      : undefined,
     completedPlanStepIds: [...(metadata.completedPlanStepIds ?? [])],
     todoState: metadata.todos
       ? { items: metadata.todos.map((item) => ({ ...item })) }

@@ -45,25 +45,11 @@ import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
 import { evaluateProviderApproval } from "../../../providers/approval.ts";
 import { supportsAgentExecution } from "../../../agent/constants.ts";
 
-// Re-exports from extracted modules (preserve external API)
+// Re-exports consumed by http-server.ts and sessions.ts
 export {
-  activeRequests,
-  AGENT_CONTEXT_HISTORY_LIMIT,
-  awaitInteractionResponse,
-  type CancelRequest,
   cancelSessionRequests,
-  CHAT_CONTEXT_HISTORY_LIMIT,
-  type ChatMode,
-  type ChatRequest,
-  CLAUDE_CODE_AGENT_MODE,
-  emitCancellation,
-  getLastUserMessage,
   handleChatInteraction,
   handleSessionCancel,
-  isAgentReady,
-  markAgentReady,
-  pushSessionUpdatedEvent,
-  TITLE_SEARCH_HISTORY_LIMIT,
 } from "./chat-session.ts";
 
 import {
@@ -272,12 +258,9 @@ export async function handleChat(req: Request): Promise<Response> {
     }
   }
 
-  let cfgSnapshot = config.snapshot;
   const resolvedModel = body.model ??
     (await ensureInitialModelConfigured()).model;
-  if (!body.model) {
-    cfgSnapshot = config.snapshot;
-  }
+  const cfgSnapshot = config.snapshot;
   const fixturePath = typeof body.fixture_path === "string" &&
       body.fixture_path.trim()
     ? body.fixture_path.trim()

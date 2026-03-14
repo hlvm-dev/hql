@@ -15,11 +15,12 @@ import {
   bg,
   fitOverlayRect,
   fg,
-  hexToRgb,
   OVERLAY_BG_COLOR,
   type RGB,
+  themeToOverlayColors,
   writeToTerminal,
 } from "../overlay/index.ts";
+import { padTo } from "../utils/formatting.ts";
 
 interface ShortcutsOverlayProps {
   onClose: () => void;
@@ -94,10 +95,6 @@ function fitShortcutSections(
   return fitted;
 }
 
-function padRight(value: string, width: number): string {
-  return value.length >= width ? value.slice(0, width) : value.padEnd(width, " ");
-}
-
 function getRegistryMap(): Map<string, Keybinding> {
   return new Map(registry.getAll().map((binding) => [binding.id, binding]));
 }
@@ -131,12 +128,15 @@ export function ShortcutsOverlay({
   const terminalColumns = stdout?.columns ?? 0;
   const terminalRows = stdout?.rows ?? 0;
 
-  const colors = useMemo(() => ({
-    primary: hexToRgb(theme.primary) as RGB,
-    accent: hexToRgb(theme.accent) as RGB,
-    muted: hexToRgb(theme.muted) as RGB,
-    bgStyle: bg(OVERLAY_BG_COLOR),
-  }), [theme]);
+  const colors = useMemo(() => {
+    const c = themeToOverlayColors(theme);
+    return {
+      primary: c.primary,
+      accent: c.accent,
+      muted: c.muted,
+      bgStyle: bg(OVERLAY_BG_COLOR),
+    };
+  }, [theme]);
 
   const sections = useMemo(() => buildShortcutSections(), []);
 
@@ -215,7 +215,7 @@ export function ShortcutsOverlay({
         drawRow(rowY, () => {
           const visibleLabel = row.label.slice(0, Math.max(0, contentWidth - displayWidth - 2));
           output += " ".repeat(PADDING.left);
-          output += fg(colors.primary) + padRight(row.display, displayWidth) + ansi.reset + bgStyle;
+          output += fg(colors.primary) + padTo(row.display, displayWidth) + ansi.reset + bgStyle;
           output += "  ";
           output += visibleLabel;
           return PADDING.left + displayWidth + 2 + visibleLabel.length;

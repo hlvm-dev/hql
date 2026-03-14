@@ -12,7 +12,7 @@ import { log } from "../../api/log.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { setCurrentThemeName } from "../theme/state.ts";
 import { setCustomKeybindingsSnapshot } from "./keybindings/custom-bindings.ts";
-import { resetTerminalViewport } from "../ansi.ts";
+import { disableKittyKeyboardProtocol, enableKittyKeyboardProtocol, resetTerminalViewport } from "../ansi.ts";
 
 export interface InkReplOptions {
   showBanner?: boolean;
@@ -32,17 +32,22 @@ export async function startInkRepl(options: InkReplOptions = {}): Promise<number
   const initialTheme = setCurrentThemeName(runtimeConfig.getTheme());
   setCustomKeybindingsSnapshot(runtimeSnapshot.keybindings);
   resetTerminalViewport();
-  const { waitUntilExit } = render(
-    <ThemeProvider initialTheme={initialTheme}>
-      <App
-        showBanner={showBanner}
-        sessionOptions={session}
-        initialConfig={runtimeSnapshot}
-      />
-    </ThemeProvider>
-  );
-  await waitUntilExit();
-  return 0;
+  enableKittyKeyboardProtocol();
+  try {
+    const { waitUntilExit } = render(
+      <ThemeProvider initialTheme={initialTheme}>
+        <App
+          showBanner={showBanner}
+          sessionOptions={session}
+          initialConfig={runtimeSnapshot}
+        />
+      </ThemeProvider>
+    );
+    await waitUntilExit();
+    return 0;
+  } finally {
+    disableKittyKeyboardProtocol();
+  }
 }
 
 if (import.meta.main) {

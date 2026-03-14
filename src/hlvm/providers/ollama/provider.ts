@@ -26,6 +26,7 @@ import {
   chatStructuredWithSdk,
   chatWithSdk,
   generateWithSdk,
+  type SdkModelSpec,
 } from "../sdk-runtime.ts";
 
 // ============================================================================
@@ -76,6 +77,10 @@ export class OllamaProvider implements AIProvider {
     return { ...this.defaults, ...options } as T;
   }
 
+  private buildSpec(modelId: string): SdkModelSpec {
+    return { providerName: "ollama", modelId, endpoint: this.endpoint };
+  }
+
   /**
    * Generate text from a prompt
    */
@@ -84,18 +89,11 @@ export class OllamaProvider implements AIProvider {
     options?: GenerateOptions
   ): AsyncGenerator<string, void, unknown> {
     const opts = this.mergeOptions(options);
-    const model = this.getModel(opts);
-    const signal = extractSignal(opts);
-
     yield* generateWithSdk(
-      {
-        providerName: "ollama",
-        modelId: model,
-        endpoint: this.endpoint,
-      },
+      this.buildSpec(this.getModel(opts)),
       prompt,
       opts,
-      signal,
+      extractSignal(opts),
     );
   }
 
@@ -107,18 +105,11 @@ export class OllamaProvider implements AIProvider {
     options?: ChatOptions
   ): AsyncGenerator<string, void, unknown> {
     const opts = this.mergeOptions(options);
-    const model = this.getModel(opts);
-    const signal = extractSignal(opts);
-
     yield* chatWithSdk(
-      {
-        providerName: "ollama",
-        modelId: model,
-        endpoint: this.endpoint,
-      },
+      this.buildSpec(this.getModel(opts)),
       messages,
       opts,
-      signal,
+      extractSignal(opts),
     );
   }
 
@@ -130,18 +121,11 @@ export class OllamaProvider implements AIProvider {
     options?: ChatOptions,
   ): Promise<ChatStructuredResponse> {
     const opts = this.mergeOptions(options);
-    const model = this.getModel(opts);
-    const signal = extractSignal(opts);
-
     return await chatStructuredWithSdk(
-      {
-        providerName: "ollama",
-        modelId: model,
-        endpoint: this.endpoint,
-      },
+      this.buildSpec(this.getModel(opts)),
       messages,
       opts,
-      signal,
+      extractSignal(opts),
     );
   }
 

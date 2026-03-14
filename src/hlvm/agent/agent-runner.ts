@@ -44,7 +44,7 @@ import { createDelegateCoordinationBoard } from "./delegate-coordination.ts";
 import { restoreBatchSnapshots } from "./delegate-batches.ts";
 import { createTeamRuntime } from "./team-runtime.ts";
 import { loadAgentProfiles } from "./agent-registry.ts";
-import { hasTool } from "./registry.ts";
+import { hasTool, resolveTools } from "./registry.ts";
 import {
   type AgentUIEvent,
   type FinalResponseMeta,
@@ -96,10 +96,14 @@ import {
 } from "./todo-state.ts";
 import {
   formatPlanForContext,
+  type PlanningPhase,
   getPlanSignature,
   restorePlanState,
 } from "./planning.ts";
-import { effectiveToolSurfaceIncludesMutation } from "./security/safety.ts";
+import {
+  effectiveToolSurfaceIncludesMutation,
+  isMutatingTool,
+} from "./security/safety.ts";
 import { createCheckpointRecorder } from "./checkpoints.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
@@ -115,6 +119,22 @@ function resolveDefaultAgentRoots(): string[] {
   const home = getPlatform().env.get("HOME") ?? "";
   return DEFAULT_AGENT_PATH_ROOTS.map((root) =>
     `file://${root.startsWith("~") ? home + root.slice(1) : root}`
+  );
+}
+
+function cloneToolAllowlist(list?: string[]): string[] | undefined {
+  return list?.length ? [...list] : undefined;
+}
+
+function buildPlanModeAllowlist(options: {
+  allowlist?: string[];
+  denylist?: string[];
+  ownerId?: string;
+}): string[] {
+  const tools = resolveTools(options);
+  return Object.keys(tools).filter((toolName) =>
+    toolName !== "complete_task" &&
+    (!isMutatingTool(toolName, options.ownerId) || toolName === "shell_exec")
   );
 }
 
@@ -526,7 +546,35 @@ export async function runAgentQuery(
         restoredPlanOwnsTodoState
       ) ||
       session.todoState.items.length === 0;
-    if (hasIncompleteRestoredPlan && activePlan) {
+    const baseExecutionAllowlist = cloneToolAllowlist(
+      session.toolFilterState?.allowlist ?? session.llmConfig?.toolAllowlist,
+    );
+    const baseExecutionDenylist = cloneToolAllowlist(
+      session.toolFilterState?.denylist ?? session.llmConfig?.toolDenylist,
+    );
+    const planningAllowlist = permissionMode === "plan"
+      ? buildPlanModeAllowlist({
+        allowlist: baseExecutionAllowlist,
+        denylist: baseExecutionDenylist,
+        ownerId: session.toolOwnerId,
+      })
+      : undefined;
+    const planModeState = permissionMode === "plan"
+      ? {
+        active: true,
+        phase: "researching" as PlanningPhase,
+        executionPermissionMode: "auto-edit" as const,
+        executionAllowlist: cloneToolAllowlist(baseExecutionAllowlist),
+        executionDenylist: cloneToolAllowlist(baseExecutionDenylist),
+        planningAllowlist: cloneToolAllowlist(planningAllowlist),
+      }
+      : undefined;
+    if (planModeState && session.toolFilterState) {
+      session.toolFilterState.allowlist = cloneToolAllowlist(
+        planModeState.planningAllowlist,
+      );
+    }
+    if (hasIncompleteRestoredPlan && activePlan && permissionMode !== "plan") {
       session.context.addMessage({
         role: "user",
         content: `[System Reminder] ${
@@ -593,7 +641,7 @@ export async function runAgentQuery(
         }),
       ensureApproved: async (
         plan: NonNullable<typeof activePlan>,
-      ): Promise<"approved" | "cancelled"> => {
+      ): Promise<"approved" | "cancelled" | "revise"> => {
         const signature = getPlanSignature(plan);
         if (approvedPlanSignature === signature) {
           return "approved";
@@ -622,12 +670,11 @@ export async function runAgentQuery(
             requestId,
             mode: "permission",
             toolName: "plan_review",
-            toolArgs: formatPlanForContext(plan, {
-              mode: "always",
-              requireStepMarkers: false,
-            }),
+            toolArgs: JSON.stringify(plan),
           });
-          const approved = response.approved === true;
+          const reviseRequested = response.userInput?.trim().toLowerCase() ===
+            "revise";
+          const approved = !reviseRequested && response.approved === true;
           resolvePendingPlanReview(sessionKey, {
             approved,
             planSignature: approved ? signature : undefined,
@@ -638,7 +685,8 @@ export async function runAgentQuery(
             plan,
             approved,
           });
-          return approved ? "approved" : "cancelled";
+          if (approved) return "approved";
+          return reviseRequested ? "revise" : "cancelled";
         } catch (error) {
           approvedPlanSignature = undefined;
           throw error;
@@ -686,6 +734,7 @@ export async function runAgentQuery(
         if (event.type === "plan_created") {
           activePlan = event.plan;
           completedPlanStepIds.clear();
+          planOwnsTodoState = true;
           if (sessionKey) {
             resetApprovedPlanSignature(sessionKey);
             persistAgentPlanState(sessionKey, activePlan, completedPlanStepIds);
@@ -719,6 +768,12 @@ export async function runAgentQuery(
         callbacks.onAgentEvent?.(event);
       };
     })();
+    if (planModeState) {
+      onAgentEvent?.({
+        type: "plan_phase_changed",
+        phase: planModeState.phase,
+      });
+    }
     let text: string;
     try {
       const delegateInbox = createDelegateInbox();
@@ -789,7 +844,8 @@ export async function runAgentQuery(
           usage: usageTracker,
           l1Confirmations: session.l1Confirmations,
           todoState: session.todoState,
-          initialPlanState: hasIncompleteRestoredPlan && activePlan
+          initialPlanState: permissionMode !== "plan" &&
+              hasIncompleteRestoredPlan && activePlan
             ? restorePlanState(activePlan, completedPlanStepIds)
             : null,
           planReview,
@@ -799,6 +855,7 @@ export async function runAgentQuery(
           toolDenylist: session.toolFilterState?.denylist ??
             session.llmConfig?.toolDenylist,
           toolFilterState: session.toolFilterState,
+          planModeState,
           toolOwnerId: session.toolOwnerId,
           delegateOwnerId,
           ensureMcpLoaded: session.ensureMcpLoaded,
@@ -813,6 +870,14 @@ export async function runAgentQuery(
       }
       throw error;
     } finally {
+      if (planModeState && session.toolFilterState) {
+        session.toolFilterState.allowlist = cloneToolAllowlist(
+          baseExecutionAllowlist,
+        );
+        session.toolFilterState.denylist = cloneToolAllowlist(
+          baseExecutionDenylist,
+        );
+      }
       // Cancel any still-active background delegates and wait for their promises
       // to settle so they don't emit on a closed stream controller. Scope this
       // to the current top-level run so concurrent requests do not cancel each

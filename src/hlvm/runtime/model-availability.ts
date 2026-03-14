@@ -55,6 +55,17 @@ export async function ensureRuntimeModelAvailable(
   modelId: string,
   options: RuntimeEnsureModelAvailableOptions = {},
 ): Promise<EnsureModelAvailabilityResult> {
+  const resolveCloudAccess = async (fullModelId: string) => {
+    const access = await ensureOllamaCloudAccess(fullModelId, {
+      onWaiting: options.onCloudWaiting,
+      onError: options.onCloudError,
+      onOutput: options.onCloudOutput,
+    });
+    return access.ok
+      ? { ok: true, status: access.status }
+      : createCloudAccessFailure(access.status);
+  };
+
   return await ensureModelAvailability(
     modelId,
     {
@@ -74,26 +85,10 @@ export async function ensureRuntimeModelAvailable(
         ) {
           return null;
         }
-        const access = await ensureOllamaCloudAccess(fullModelId, {
-          onWaiting: options.onCloudWaiting,
-          onError: options.onCloudError,
-          onOutput: options.onCloudOutput,
-        });
-        return access.ok
-          ? { ok: true, status: access.status }
-          : createCloudAccessFailure(access.status);
+        return await resolveCloudAccess(fullModelId);
       },
       ensureAccess: options.requireCloudAccess && isOllamaCloudModelId(modelId)
-        ? async (fullModelId: string) => {
-          const access = await ensureOllamaCloudAccess(fullModelId, {
-            onWaiting: options.onCloudWaiting,
-            onError: options.onCloudError,
-            onOutput: options.onCloudOutput,
-          });
-          return access.ok
-            ? { ok: true, status: access.status }
-            : createCloudAccessFailure(access.status);
-        }
+        ? resolveCloudAccess
         : undefined,
     },
     options,

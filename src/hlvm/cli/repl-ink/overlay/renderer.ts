@@ -241,3 +241,50 @@ export function shouldClearOverlay(
 export function writeToTerminal(output: string): void {
   getPlatform().terminal.stdout.writeSync(overlayEncoder.encode(output));
 }
+
+// ============================================================
+// Shared Theme-to-RGB Conversion (DRY across all overlay components)
+// ============================================================
+
+/**
+ * Pre-computed overlay RGB colors derived from the current theme palette.
+ * Each overlay component selects the subset of colors it needs.
+ */
+export interface OverlayColors {
+  primary: RGB;
+  secondary: RGB;
+  accent: RGB;
+  success: RGB;
+  warning: RGB;
+  error: RGB;
+  muted: RGB;
+}
+
+/**
+ * Convert a theme palette (hex strings) to overlay RGB tuples.
+ * Centralizes the `hexToRgb(theme.X) as RGB` pattern used by all overlay components.
+ *
+ * Usage:
+ * ```tsx
+ * const colors = useMemo(() => themeToOverlayColors(theme), [theme]);
+ * ```
+ */
+export function themeToOverlayColors(theme: {
+  primary: string;
+  secondary: string;
+  accent: string;
+  success: string;
+  warning: string;
+  error: string;
+  muted: string;
+}): OverlayColors {
+  return {
+    primary: hexToRgb(theme.primary) as RGB,
+    secondary: hexToRgb(theme.secondary) as RGB,
+    accent: hexToRgb(theme.accent) as RGB,
+    success: hexToRgb(theme.success) as RGB,
+    warning: hexToRgb(theme.warning) as RGB,
+    error: hexToRgb(theme.error) as RGB,
+    muted: hexToRgb(theme.muted) as RGB,
+  };
+}

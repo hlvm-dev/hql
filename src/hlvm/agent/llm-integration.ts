@@ -13,7 +13,7 @@ import {
   resolveTools,
   type ToolMetadata,
 } from "./registry.ts";
-import { type AgentProfile, listAgentProfiles } from "./agent-registry.ts";
+import type { AgentProfile } from "./agent-registry.ts";
 import { buildToolJsonSchema } from "./tool-schema.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { type ModelTier, tierMeetsMinimum } from "./constants.ts";
@@ -350,7 +350,7 @@ function renderDelegation(
   if (!("delegate_agent" in tools)) {
     return { id: "delegation", content: "", minTier: "weak" };
   }
-  const agents = listAgentProfiles(agentProfiles);
+  const agents = agentProfiles ?? [];
   const agentList = agents.map((a) => `- **${a.name}**: ${a.description}`)
     .join("\n");
 

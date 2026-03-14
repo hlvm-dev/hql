@@ -16,59 +16,101 @@ interface ConfirmationDialogProps {
   toolArgs?: string;
 }
 
-export const ConfirmationDialog = React.memo(function ConfirmationDialog({ toolName, toolArgs }: ConfirmationDialogProps): React.ReactElement {
-  const sc = useSemanticColors();
-  const { isPlanReview, visibleArgLines, hiddenArgLines } =
-    getConfirmationDialogDisplay(toolName, toolArgs);
+export const ConfirmationDialog = React.memo(
+  function ConfirmationDialog(
+    { toolName, toolArgs }: ConfirmationDialogProps,
+  ): React.ReactElement {
+    const sc = useSemanticColors();
+    const dialog = getConfirmationDialogDisplay(toolName, toolArgs);
+    const { isPlanReview, visibleArgLines, hiddenArgLines } = dialog;
 
-  return (
-    <Box
-      borderStyle="round"
-      borderColor={sc.status.warning}
-      paddingX={1}
-      paddingY={0}
-      flexDirection="column"
-    >
-      <Box>
-        <Text color={sc.status.warning} bold>
-          {isPlanReview ? "⚠ Plan Review Required" : "⚠ Permission Required"}
-        </Text>
-      </Box>
-      {toolName && (
-        <Box marginTop={0}>
-          <Text color={sc.text.secondary}>
-            {isPlanReview ? "Review: " : "Tool: "}
-          </Text>
-          <Text color={sc.text.primary} bold>
-            {isPlanReview ? "execution plan" : toolName}
+    return (
+      <Box
+        borderStyle="round"
+        borderColor={sc.status.warning}
+        paddingX={1}
+        paddingY={0}
+        flexDirection="column"
+      >
+        <Box>
+          <Text color={sc.status.warning} bold>
+            {isPlanReview ? "⚠ Plan Review Required" : "⚠ Permission Required"}
           </Text>
         </Box>
-      )}
-      {visibleArgLines.length > 0 && (
-        <Box flexDirection="column" marginTop={0}>
-          <Text color={sc.text.secondary}>{isPlanReview ? "Plan:" : "Args:"}</Text>
-          <Box paddingLeft={1} flexDirection="column">
-            {visibleArgLines.map((line: string, i: number) => (
-              <React.Fragment key={i}>
-                <Text color={sc.text.muted} wrap="truncate-end">{line}</Text>
-              </React.Fragment>
-            ))}
-            {hiddenArgLines > 0 && (
-              <Text color={sc.text.muted}>… {hiddenArgLines} more line{hiddenArgLines === 1 ? "" : "s"}</Text>
-            )}
+        {toolName && (
+          <Box marginTop={0}>
+            <Text color={sc.text.secondary}>
+              {isPlanReview ? "Review: " : "Tool: "}
+            </Text>
+            <Text color={sc.text.primary} bold>
+              {isPlanReview ? "execution plan" : toolName}
+            </Text>
           </Box>
+        )}
+        {dialog.planReview && (
+          <Box flexDirection="column" marginTop={1}>
+            <Text color={sc.text.secondary}>Goal:</Text>
+            <Box paddingLeft={1}>
+              <Text color={sc.text.primary} wrap="wrap">
+                {dialog.planReview.plan.goal}
+              </Text>
+            </Box>
+            <Text color={sc.text.secondary}>Steps:</Text>
+            <Box paddingLeft={1} flexDirection="column">
+              {dialog.planReview.visibleSteps.map((step, index: number) => (
+                <React.Fragment key={step.id}>
+                  <Text color={sc.text.muted} wrap="truncate-end">
+                    {index + 1}. {step.title}
+                  </Text>
+                </React.Fragment>
+              ))}
+              {dialog.planReview.hiddenStepCount > 0 && (
+                <Text color={sc.text.muted}>
+                  … {dialog.planReview.hiddenStepCount} more step
+                  {dialog.planReview.hiddenStepCount === 1 ? "" : "s"}
+                </Text>
+              )}
+            </Box>
+          </Box>
+        )}
+        {!dialog.planReview && visibleArgLines.length > 0 && (
+          <Box flexDirection="column" marginTop={0}>
+            <Text color={sc.text.secondary}>
+              {isPlanReview ? "Plan:" : "Args:"}
+            </Text>
+            <Box paddingLeft={1} flexDirection="column">
+              {visibleArgLines.map((line: string, i: number) => (
+                <React.Fragment key={i}>
+                  <Text color={sc.text.muted} wrap="truncate-end">{line}</Text>
+                </React.Fragment>
+              ))}
+              {hiddenArgLines > 0 && (
+                <Text color={sc.text.muted}>
+                  … {hiddenArgLines} more line{hiddenArgLines === 1 ? "" : "s"}
+                </Text>
+              )}
+            </Box>
+          </Box>
+        )}
+        <Box marginTop={1}>
+          <Text color={sc.status.success} bold>y</Text>
+          <Text color={sc.text.muted}>
+            /Enter {isPlanReview ? "run" : "approve"}
+          </Text>
+          {isPlanReview && (
+            <>
+              <Text color={sc.status.warning} bold>r</Text>
+              <Text color={sc.text.muted}>
+                revise
+              </Text>
+            </>
+          )}
+          <Text color={sc.status.error} bold>n</Text>
+          <Text color={sc.text.muted}>
+            /Esc {isPlanReview ? "cancel run" : "reject"}
+          </Text>
         </Box>
-      )}
-      <Box marginTop={1}>
-        <Text color={sc.status.success} bold> y </Text>
-        <Text color={sc.text.muted}>
-          /Enter {isPlanReview ? "approve plan" : "approve"}  
-        </Text>
-        <Text color={sc.status.error} bold> n </Text>
-        <Text color={sc.text.muted}>
-          /Esc {isPlanReview ? "cancel run" : "reject"}
-        </Text>
       </Box>
-    </Box>
-  );
-});
+    );
+  },
+);
