@@ -87,7 +87,9 @@ export function buildPlanModeReminder(
     ? `Planning tools: ${availableTools.join(", ")}`
     : "Planning tools are restricted to read-only and coordination actions.";
   const directFileLine = directFileTargets?.length === 1
-    ? `The user already named the target file: ${directFileTargets[0]}. Read that file before any broader search.`
+    ? `The user already named the target file: ${
+      directFileTargets[0]
+    }. Read that file before any broader search.`
     : undefined;
   return [
     "Plan mode is active.",
@@ -121,7 +123,9 @@ function buildPlanningPrompt(
     ? `Available agents: ${availableAgents.join(", ")}`
     : "";
   const directFileLine = directFileTargets?.length === 1
-    ? `The user already named the exact target file: ${directFileTargets[0]}. Do not add repo-wide search steps unless that file read fails.`
+    ? `The user already named the exact target file: ${
+      directFileTargets[0]
+    }. Do not add repo-wide search steps unless that file read fails.`
     : "";
   return [
     "Create a concise execution plan for the user's request using the prior conversation and any research already gathered.",
@@ -509,20 +513,20 @@ function derivePlanStepTitle(entry: Record<string, unknown>): string {
     entry.summary,
     entry.action,
   );
-  if (titleCandidate && !isRawPlanToolTitle(titleCandidate)) {
-    return titleCandidate;
-  }
-
-  const toolName = firstNonEmptyString(entry.tool, entry.action);
-  const rawToolLikeTitle = titleCandidate && isRawPlanToolTitle(titleCandidate)
-    ? titleCandidate
-    : "";
   const fileTarget = firstNonEmptyString(
     entry.file,
     entry.path,
     entry.target,
     entry.targetFile,
   );
+  if (titleCandidate && !isRawPlanToolTitle(titleCandidate)) {
+    return normalizePlanStepTitle(titleCandidate, fileTarget);
+  }
+
+  const toolName = firstNonEmptyString(entry.tool, entry.action);
+  const rawToolLikeTitle = titleCandidate && isRawPlanToolTitle(titleCandidate)
+    ? titleCandidate
+    : "";
   const detailCandidate = firstNonEmptyString(
     entry.detail,
     entry.description,
@@ -531,10 +535,29 @@ function derivePlanStepTitle(entry: Record<string, unknown>): string {
   );
 
   if (detailCandidate && !isRawPlanToolTitle(detailCandidate)) {
-    return detailCandidate;
+    return normalizePlanStepTitle(detailCandidate, fileTarget);
   }
 
   return humanizePlanToolTitle(toolName || rawToolLikeTitle, fileTarget);
+}
+
+function normalizePlanStepTitle(title: string, fileTarget?: string): string {
+  let cleaned = title.trim().replace(/\s+/g, " ");
+  if (fileTarget) {
+    cleaned = cleaned.replaceAll(fileTarget, formatPlanTarget(fileTarget));
+  }
+  cleaned = cleaned.replace(
+    /\.\s+(?:The|This|Resulting|After|Once|Then)\b[\s\S]*$/i,
+    "",
+  );
+  cleaned = cleaned.replace(
+    /\s+(?:using|via|with)\s+(?:the\s+)?(?:ask_user|complete_task|delegate_agent|edit_file|find_symbol|list_files|read_file|search_code|shell_exec|todo_read|todo_write|undo_edit|verify|write_file)\b.*$/i,
+    "",
+  );
+  cleaned = cleaned.replace(/\s+on line \d+\b.*$/i, "");
+  cleaned = cleaned.replace(/\s*\([^)]*\bline \d+[^)]*\)/gi, "");
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
+  return cleaned || humanizePlanToolTitle("", fileTarget);
 }
 
 function isRawPlanToolTitle(value: string): boolean {
@@ -585,7 +608,13 @@ function humanizePlanToolTitle(toolName: string, fileTarget?: string): string {
 }
 
 function formatPlanTarget(target: string): string {
-  return target.replace(/^\.?\//, "").trim() || "the target file";
+  const trimmed = target.replace(/^\.?\//, "").trim();
+  if (!trimmed) return "the target file";
+  if (trimmed.startsWith("/")) {
+    const segments = trimmed.split("/").filter(Boolean);
+    return segments[segments.length - 1] ?? "the target file";
+  }
+  return trimmed;
 }
 
 function firstNonEmptyString(...values: unknown[]): string {

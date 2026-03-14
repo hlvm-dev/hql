@@ -25,6 +25,7 @@ export interface UseConversationResult {
   planTodoState?: TranscriptState["planTodoState"];
   pendingPlanReview?: TranscriptState["pendingPlanReview"];
   latestCheckpoint?: TranscriptState["latestCheckpoint"];
+  clearCounter: number;
   hydrateState: (state: TranscriptState) => void;
   addEvent: (event: AgentUIEvent) => void;
   addUserMessage: (
@@ -132,16 +133,9 @@ export function useConversation(): UseConversationResult {
     updateState(setState, { type: "clear" });
   }, []);
 
-  return useMemo(() => ({
-    items: state.items,
-    streamingState: state.streamingState,
-    activeTool: state.activeTool,
-    activePlan: state.activePlan,
-    planningPhase: state.planningPhase,
-    todoState: state.todoState,
-    planTodoState: state.planTodoState,
-    pendingPlanReview: state.pendingPlanReview,
-    latestCheckpoint: state.latestCheckpoint,
+  // Split into stable actions (never recalculates) + reactive data (recalculates on state changes).
+  // All callbacks have [] deps so actionsMemo is referentially stable across all renders.
+  const actionsMemo = useMemo(() => ({
     hydrateState,
     addEvent,
     addUserMessage,
@@ -154,15 +148,6 @@ export function useConversation(): UseConversationResult {
     finalize,
     clear,
   }), [
-    state.items,
-    state.streamingState,
-    state.activeTool,
-    state.activePlan,
-    state.planningPhase,
-    state.todoState,
-    state.planTodoState,
-    state.pendingPlanReview,
-    state.latestCheckpoint,
     hydrateState,
     addEvent,
     addUserMessage,
@@ -175,4 +160,33 @@ export function useConversation(): UseConversationResult {
     finalize,
     clear,
   ]);
+
+  const dataMemo = useMemo(() => ({
+    items: state.items,
+    streamingState: state.streamingState,
+    activeTool: state.activeTool,
+    activePlan: state.activePlan,
+    planningPhase: state.planningPhase,
+    todoState: state.todoState,
+    planTodoState: state.planTodoState,
+    pendingPlanReview: state.pendingPlanReview,
+    latestCheckpoint: state.latestCheckpoint,
+    clearCounter: state.clearCounter,
+  }), [
+    state.items,
+    state.streamingState,
+    state.activeTool,
+    state.activePlan,
+    state.planningPhase,
+    state.todoState,
+    state.planTodoState,
+    state.pendingPlanReview,
+    state.latestCheckpoint,
+    state.clearCounter,
+  ]);
+
+  return useMemo(
+    () => ({ ...dataMemo, ...actionsMemo }),
+    [dataMemo, actionsMemo],
+  );
 }

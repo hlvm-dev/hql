@@ -1,18 +1,13 @@
 /**
  * StreamingStatus Component
  *
- * Claude Code CLI-style status line during AI streaming.
- * Pattern: ✳ Thinking… (esc to interrupt · 4m 35s)
+ * Clean status line during AI streaming.
+ * Pattern: Thinking... (5s • esc to interrupt)
  */
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "../../theme/index.ts";
-import { BRAILLE_SPINNER_FRAMES } from "../ui-constants.ts";
-import { useSpinnerFrame } from "../hooks/useSpinnerFrame.ts";
-
-// Claude-style status words
-const STATUS_WORDS = ["Thinking…", "Tinkering…", "Whisking…", "Pondering…"];
 
 interface StreamingStatusProps {
   isStreaming: boolean;
@@ -37,13 +32,7 @@ export function StreamingStatus({
   startTime,
 }: StreamingStatusProps): React.ReactElement | null {
   const { color } = useTheme();
-  const frame = useSpinnerFrame(isStreaming);
   const [elapsed, setElapsed] = useState(0);
-
-  // Pick a random status word once per streaming session
-  const statusWord = useMemo(() => {
-    return STATUS_WORDS[Math.floor(Math.random() * STATUS_WORDS.length)];
-  }, [startTime]);
 
   // Time update while streaming
   useEffect(() => {
@@ -58,14 +47,13 @@ export function StreamingStatus({
 
   if (!isStreaming) return null;
 
-  const spinner = BRAILLE_SPINNER_FRAMES[frame];
   const time = formatElapsed(elapsed);
 
   return (
     <Box>
-      <Text color={color("secondary")}>{spinner}</Text>
-      <Text color={color("warning")}> {statusWord} </Text>
-      <Text dimColor>(esc to interrupt · {time})</Text>
+      <Text color={color("muted")}>
+        Thinking... ({time} • esc to interrupt)
+      </Text>
     </Box>
   );
 }

@@ -26,9 +26,9 @@ export const ConfirmationDialog = React.memo(
 
     return (
       <Box
-        borderStyle="round"
-        borderColor={isPlanReview ? sc.border.active : sc.status.warning}
-        paddingX={1}
+        borderStyle={isPlanReview ? undefined : "round"}
+        borderColor={isPlanReview ? undefined : sc.status.warning}
+        paddingX={isPlanReview ? 0 : 1}
         paddingY={0}
         flexDirection="column"
       >
@@ -37,32 +37,27 @@ export const ConfirmationDialog = React.memo(
             color={isPlanReview ? sc.text.primary : sc.status.warning}
             bold
           >
-            {isPlanReview ? "Ready to Code?" : "Permission Required"}
+            {isPlanReview ? "Ready to code?" : "Permission required"}
           </Text>
         </Box>
         {isPlanReview && (
           <Text color={sc.text.secondary}>
-            Here is the proposed plan:
+            Here is the plan:
           </Text>
         )}
-        {toolName && (
+        {toolName && !isPlanReview && (
           <Box marginTop={0}>
-            <Text color={sc.text.secondary}>
-              {isPlanReview ? "Execution: " : "Tool: "}
-            </Text>
+            <Text color={sc.text.secondary}>Tool:</Text>
             <Text color={sc.text.primary} bold>
-              {isPlanReview ? "same session" : toolName}
+              {toolName}
             </Text>
           </Box>
         )}
         {dialog.planReview && (
           <Box flexDirection="column" marginTop={1}>
-            <Text color={sc.text.secondary}>Summary:</Text>
-            <Box paddingLeft={1}>
-              <Text color={sc.text.primary} wrap="wrap">
-                {dialog.planReview.plan.goal}
-              </Text>
-            </Box>
+            <Text color={sc.text.primary} wrap="wrap">
+              {dialog.planReview.plan.goal}
+            </Text>
             <Text color={sc.text.secondary}>Steps:</Text>
             <Box paddingLeft={1} flexDirection="column">
               {dialog.planReview.visibleSteps.map((step) => (
@@ -115,21 +110,25 @@ export const ConfirmationDialog = React.memo(
           </Box>
         )}
         <Box marginTop={1}>
-          <Text color={sc.status.success} bold>y</Text>
+          <Text color={sc.status.success} bold>Enter</Text>
           <Text color={sc.text.muted}>
-            /Enter {isPlanReview ? "run" : "approve"}
+            {" "}
+            {isPlanReview ? "run" : "approve"}
           </Text>
           {isPlanReview && (
             <>
+              <Text color={sc.text.muted}>·</Text>
               <Text color={sc.status.warning} bold>r</Text>
               <Text color={sc.text.muted}>
-                revise
+                {" "}revise
               </Text>
             </>
           )}
-          <Text color={sc.status.error} bold>n</Text>
+          <Text color={sc.text.muted}>·</Text>
+          <Text color={sc.status.error} bold>Esc</Text>
           <Text color={sc.text.muted}>
-            /Esc {isPlanReview ? "cancel run" : "reject"}
+            {" "}
+            {isPlanReview ? "cancel" : "reject"}
           </Text>
         </Box>
       </Box>

@@ -28,14 +28,14 @@ Deno.test("buildFooterLeftState shows tool status when responding with active to
   assertEquals(state.tone, "warning");
 });
 
-Deno.test("buildFooterLeftState shows Ready when idle in conversation", () => {
+Deno.test("buildFooterLeftState shows empty text when idle in conversation", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
     spinner: "x",
   });
 
-  assertEquals(state.text, "Ready");
+  assertEquals(state.text, "");
   assertEquals(state.tone, "muted");
 });
 
@@ -47,17 +47,17 @@ Deno.test("buildFooterLeftState shows plan review actions", () => {
     spinner: "x",
   });
 
-  assertEquals(state.text, "y run \u00B7 r revise \u00B7 n cancel");
+  assertEquals(state.text, "Enter run \u00B7 r revise \u00B7 Esc cancel");
   assertEquals(state.tone, "warning");
 });
 
-Deno.test("buildFooterLeftState shows Ready outside conversation", () => {
+Deno.test("buildFooterLeftState shows empty text outside conversation", () => {
   const state = buildFooterLeftState({
     inConversation: false,
     spinner: "x",
   });
 
-  assertEquals(state.text, "Ready");
+  assertEquals(state.text, "");
   assertEquals(state.tone, "muted");
 });
 
@@ -93,7 +93,7 @@ Deno.test("buildFooterLeftState includes queued interaction count", () => {
     spinner: "x",
   });
 
-  assertEquals(state.text, "Ready \u00B7 +2 queued");
+  assertEquals(state.text, "+2 queued");
 });
 
 Deno.test("buildFooterLeftState prefers queue/force hints over tool status when draft exists", () => {

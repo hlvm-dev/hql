@@ -119,6 +119,8 @@ interface HostBackedAgentQueryResult {
   stats: ChatResultStats;
 }
 
+const PLAN_MODE_STREAM_RETRY_LIMIT = 1;
+
 export interface RuntimeConfigApi {
   set: (key: string, value: unknown) => Promise<void>;
   patch: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<HlvmConfig>;
@@ -202,6 +204,20 @@ function createRuntimeHostError(
       : HQLErrorCode.RUNTIME_HOST_REQUEST_FAILED,
     originalError,
   });
+}
+
+function getHostClientErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isRetryableHostChatStreamError(error: unknown): boolean {
+  const message = getHostClientErrorMessage(error).toLowerCase();
+  return message.includes("error reading a body from connection") ||
+    message.includes("connection closed before message completed") ||
+    message.includes("connection reset") ||
+    message.includes("broken pipe") ||
+    message.includes("socket hang up") ||
+    message.includes("stream closed");
 }
 
 function matchesRuntimeHostIdentity(
@@ -1217,6 +1233,13 @@ export async function logoutRuntimeMcpServer(input: {
 export async function runChatViaHost(
   options: HostBackedChatOptions,
 ): Promise<HostBackedChatResult> {
+  return await runChatViaHostAttempt(options, 0);
+}
+
+async function runChatViaHostAttempt(
+  options: HostBackedChatOptions,
+  attempt: number,
+): Promise<HostBackedChatResult> {
   const callbacks = options.callbacks ?? {};
   const { baseUrl, authToken } = options.fixturePath
     ? await ensureRuntimeHost()
@@ -1241,16 +1264,33 @@ export async function runChatViaHost(
     trace: !!callbacks.onTrace,
   };
 
-  const response = await http.fetchRaw(`${baseUrl}/api/chat`, {
-    method: "POST",
-    timeout: STREAM_TIMEOUT_MS,
-    signal: options.signal,
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders(authToken),
-    },
-    body: JSON.stringify(request),
-  });
+  let response: Response;
+  try {
+    response = await http.fetchRaw(`${baseUrl}/api/chat`, {
+      method: "POST",
+      timeout: STREAM_TIMEOUT_MS,
+      signal: options.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(authToken),
+      },
+      body: JSON.stringify(request),
+    });
+  } catch (error) {
+    const shouldRetry = options.permissionMode === "plan" &&
+      attempt < PLAN_MODE_STREAM_RETRY_LIMIT &&
+      isRetryableHostChatStreamError(error);
+    if (shouldRetry) {
+      return await runChatViaHostAttempt(options, attempt + 1);
+    }
+    if (error instanceof RuntimeError) {
+      throw error;
+    }
+    throw createRuntimeHostError(
+      getHostClientErrorMessage(error),
+      error instanceof Error ? error : undefined,
+    );
+  }
 
   if (!response.ok) {
     await parseErrorResponse(response);
@@ -1287,60 +1327,92 @@ export async function runChatViaHost(
   let stats = defaultChatStats();
   let sessionVersion = 0;
   let duplicateMessage: unknown;
+  let sawPlanReview = false;
 
-  for await (const event of readNdjsonStream<ChatStreamEvent>(reader)) {
-    switch (event.event) {
-      case "token":
-        text += event.text;
-        callbacks.onToken?.(event.text);
-        break;
-      case "interaction_request": {
-        const interaction = options.onInteraction
-          ? await options.onInteraction({
-            requestId: event.request_id,
-            mode: event.mode,
-            toolName: event.tool_name,
-            toolArgs: event.tool_args,
-            question: event.question,
-          })
-          : { approved: false };
-        await respondToInteraction(baseUrl, authToken, {
-          request_id: event.request_id,
-          approved: interaction.approved,
-          remember_choice: interaction.rememberChoice,
-          user_input: interaction.userInput,
-        });
-        break;
-      }
-      case "trace":
-        callbacks.onTrace?.(event.trace);
-        break;
-      case "final_response_meta":
-        callbacks.onFinalResponseMeta?.(event.meta);
-        break;
-      case "result_stats":
-        stats = event.stats;
-        break;
-      case "duplicate":
-        duplicateMessage = event.message;
-        break;
-      case "complete":
-        sessionVersion = event.session_version;
-        break;
-      case "error":
-        throw createRuntimeHostError(event.message);
-      case "cancelled":
-        throw createRuntimeHostError("Runtime host request cancelled.");
-      case "start":
-      case "heartbeat":
-        break;
-      default: {
-        const uiEvent = toAgentUiEvent(event);
-        if (uiEvent) {
-          callbacks.onAgentEvent?.(uiEvent);
+  try {
+    for await (const event of readNdjsonStream<ChatStreamEvent>(reader)) {
+      switch (event.event) {
+        case "token":
+          text += event.text;
+          callbacks.onToken?.(event.text);
+          break;
+        case "interaction_request": {
+          if (event.tool_name === "plan_review") {
+            sawPlanReview = true;
+          }
+          const interaction = options.onInteraction
+            ? await options.onInteraction({
+              requestId: event.request_id,
+              mode: event.mode,
+              toolName: event.tool_name,
+              toolArgs: event.tool_args,
+              question: event.question,
+            })
+            : { approved: false };
+          await respondToInteraction(baseUrl, authToken, {
+            request_id: event.request_id,
+            approved: interaction.approved,
+            remember_choice: interaction.rememberChoice,
+            user_input: interaction.userInput,
+          });
+          break;
+        }
+        case "trace":
+          callbacks.onTrace?.(event.trace);
+          break;
+        case "final_response_meta":
+          callbacks.onFinalResponseMeta?.(event.meta);
+          break;
+        case "result_stats":
+          stats = event.stats;
+          break;
+        case "duplicate":
+          duplicateMessage = event.message;
+          break;
+        case "complete":
+          sessionVersion = event.session_version;
+          break;
+        case "error":
+          throw createRuntimeHostError(event.message);
+        case "cancelled":
+          throw createRuntimeHostError("Runtime host request cancelled.");
+        case "plan_review_required":
+        case "plan_review_resolved":
+          sawPlanReview = true;
+          {
+            const uiEvent = toAgentUiEvent(event);
+            if (uiEvent) {
+              callbacks.onAgentEvent?.(uiEvent);
+            }
+          }
+          break;
+        case "start":
+        case "heartbeat":
+          break;
+        default: {
+          const uiEvent = toAgentUiEvent(event);
+          if (uiEvent) {
+            callbacks.onAgentEvent?.(uiEvent);
+          }
         }
       }
     }
+  } catch (error) {
+    const shouldRetry = options.permissionMode === "plan" &&
+      attempt < PLAN_MODE_STREAM_RETRY_LIMIT &&
+      !sawPlanReview &&
+      isRetryableHostChatStreamError(error);
+    if (shouldRetry) {
+      await cancel();
+      return await runChatViaHostAttempt(options, attempt + 1);
+    }
+    if (error instanceof RuntimeError) {
+      throw error;
+    }
+    throw createRuntimeHostError(
+      getHostClientErrorMessage(error),
+      error instanceof Error ? error : undefined,
+    );
   }
 
   return { text, stats, sessionVersion, duplicateMessage };

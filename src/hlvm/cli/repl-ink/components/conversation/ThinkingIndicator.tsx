@@ -1,17 +1,12 @@
 /**
  * Renders persisted reasoning/planning transcript entries.
  *
- * The active row may animate while the model is working; historical rows stay static.
+ * The active row shows a clean text indicator; historical rows stay static.
  */
 
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
-import {
-  BRAILLE_SPINNER_FRAMES,
-  TOGGLE_LATEST_HINT,
-} from "../../ui-constants.ts";
-import { useSpinnerFrame } from "../../hooks/useSpinnerFrame.ts";
 
 interface ThinkingIndicatorProps {
   kind: "reasoning" | "planning";
@@ -30,8 +25,7 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
   isAnimating = true,
 }: ThinkingIndicatorProps): React.ReactElement {
   const sc = useSemanticColors();
-  const frame = useSpinnerFrame(isAnimating);
-  const marker = isAnimating ? BRAILLE_SPINNER_FRAMES[frame] : "·";
+  const marker = isAnimating ? "·" : "·";
   const lines = summary ? summary.split("\n") : [];
   const maxBodyLines = expanded ? lines.length : 0;
   const visibleBodyLines = lines.slice(0, maxBodyLines);
@@ -52,9 +46,6 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
         {iteration > 1 && (
           <Text color={sc.text.muted}>{` (${iteration})`}</Text>
         )}
-        {!expanded && lines.length > 0 && (
-          <Text color={sc.text.muted}>{`  (${TOGGLE_LATEST_HINT})`}</Text>
-        )}
       </Box>
       {body && (
         <Box
@@ -69,7 +60,7 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
       {expanded && hiddenBodyLineCount > 0 && (
         <Box marginLeft={3}>
           <Text color={sc.text.muted}>
-            … ({hiddenBodyLineCount} more lines)
+            ... ({hiddenBodyLineCount} more lines)
           </Text>
         </Box>
       )}

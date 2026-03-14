@@ -32,6 +32,10 @@ function resolveRuntimeHostArtifactPath(): string {
   return platform.path.fromFileUrl(CLI_ENTRY_URL);
 }
 
+function getSourceFingerprintRoot(): string {
+  return getPlatform().path.fromFileUrl(new URL("../../..", CLI_ENTRY_URL));
+}
+
 export function buildRuntimeServeCommand(): string[] {
   const platform = getPlatform();
   const execPath = platform.process.execPath();
@@ -86,10 +90,13 @@ export function areRuntimeHostBuildIdsCompatible(
   if (!expected || !actual) return false;
 
   // Accept equivalent compiled/source artifacts when the executable path differs
-  // but the shipped artifact kind and size still match this build.
+  // but the shipped artifact kind, size, and timestamp still match this build.
+  // This avoids silently attaching to stale runtime hosts after a rebuild that
+  // happens to keep the same file size.
   return expected.version === actual.version &&
     expected.kind === actual.kind &&
-    expected.size === actual.size;
+    expected.size === actual.size &&
+    expected.mtimeMs === actual.mtimeMs;
 }
 
 export async function getRuntimeHostIdentity(): Promise<RuntimeHostIdentity> {
@@ -99,12 +106,15 @@ export async function getRuntimeHostIdentity(): Promise<RuntimeHostIdentity> {
       const artifactPath = resolveRuntimeHostArtifactPath();
       try {
         const info = await platform.fs.stat(artifactPath);
+        const fingerprint = isDenoExecutable(platform.process.execPath())
+          ? await computeSourceTreeFingerprint()
+          : { size: info.size, mtimeMs: info.mtimeMs ?? 0 };
         return {
           version: VERSION,
           buildId: buildRuntimeHostFingerprint(
             artifactPath,
-            info.size,
-            info.mtimeMs ?? 0,
+            fingerprint.size,
+            fingerprint.mtimeMs,
           ),
         };
       } catch {
@@ -116,4 +126,31 @@ export async function getRuntimeHostIdentity(): Promise<RuntimeHostIdentity> {
     })();
   }
   return await cachedRuntimeHostIdentity;
+}
+
+async function computeSourceTreeFingerprint(): Promise<{
+  size: number;
+  mtimeMs: number;
+}> {
+  const platform = getPlatform();
+  const root = getSourceFingerprintRoot();
+  let totalSize = 0;
+  let latestMtimeMs = 0;
+
+  const walk = async (dir: string): Promise<void> => {
+    for await (const entry of platform.fs.readDir(dir)) {
+      const path = platform.path.join(dir, entry.name);
+      if (entry.isDirectory) {
+        await walk(path);
+        continue;
+      }
+      if (!entry.isFile) continue;
+      const info = await platform.fs.stat(path);
+      totalSize += info.size;
+      latestMtimeMs = Math.max(latestMtimeMs, info.mtimeMs ?? 0);
+    }
+  };
+
+  await walk(root);
+  return { size: totalSize, mtimeMs: latestMtimeMs };
 }

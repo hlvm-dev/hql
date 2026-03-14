@@ -240,17 +240,17 @@ function getPlanningPhaseTitle(
 ): string | undefined {
   switch (phase) {
     case "researching":
-      return "Plan Mode · Researching";
+      return "Researching";
     case "drafting":
-      return "Plan Mode · Drafting";
+      return "Drafting plan";
     case "reviewing":
       return hasPendingPlanReview
-        ? "Ready to Code"
-        : "Plan Mode · Reviewing";
+        ? "Ready to code"
+        : "Reviewing";
     case "executing":
-      return "Executing Approved Plan";
+      return "Executing";
     case "done":
-      return "Plan Complete";
+      return "Plan complete";
     default:
       return undefined;
   }
@@ -271,7 +271,7 @@ function getPlanningPhaseSummary(
     case "researching":
       return "Read-only planning is active";
     case "drafting":
-      return "Shaping the execution plan";
+      return "Turning research into a concrete plan";
     case "reviewing":
       return "Review the plan before execution";
     default:
@@ -285,14 +285,7 @@ function estimateTodoRows(
 ): number {
   if (!todoState || todoState.items.length === 0) return 0;
   const contentWidth = Math.max(12, width);
-  const completedCount = todoState.items.filter((item) =>
-    item.status === "completed"
-  ).length;
-  const summary = `${completedCount} of ${todoState.items.length} step${
-    todoState.items.length === 1 ? "" : "s"
-  } complete`;
-  return 2 +
-    estimateWrappedRows(summary, contentWidth) +
+  return 1 +
     todoState.items.reduce(
       (total: number, item: TodoState["items"][number]) =>
         total + estimateWrappedRows(`[ ] ${item.content}`, contentWidth),
@@ -448,6 +441,10 @@ export function ConversationPanel({
   const activeTodoItem = compactPlanTranscript
     ? todoState?.items.find((item) => item.status === "in_progress")
     : undefined;
+  const todoSectionTitle = planningPhase === "executing" ||
+      planningPhase === "done"
+    ? "Progress"
+    : "Plan";
   const interactionRows = estimateInteractionDialogRows(
     interactionRequest,
     width,
@@ -455,15 +452,12 @@ export function ConversationPanel({
   const headerRows = useMemo(() => {
     let total = 0;
     if (phaseTitle || phaseSummary) {
-      total += estimateWrappedRows(phaseTitle ?? "Plan Mode", contentWidth);
+      total += estimateWrappedRows(phaseTitle ?? "Researching", contentWidth);
       if (phaseSummary) {
         total += estimateWrappedRows(phaseSummary, contentWidth);
       }
       if (latestPlanActivity && planningPhase !== "reviewing" && planningPhase !== "done") {
-        total += estimateWrappedRows(
-          `Latest: ${latestPlanActivity}`,
-          contentWidth,
-        );
+        total += estimateWrappedRows(latestPlanActivity, contentWidth);
       }
       total += 1;
     }
@@ -546,7 +540,7 @@ export function ConversationPanel({
     [expandedDelegateIds],
   );
 
-  const toggleTarget = (target: ToggleTarget): void => {
+  const toggleTarget = useCallback((target: ToggleTarget): void => {
     if (target.kind === "tool") {
       setExpandedToolIds((prev: Set<string>) => {
         const next = new Set(prev);
@@ -571,7 +565,7 @@ export function ConversationPanel({
       else next.add(target.id);
       return next;
     });
-  };
+  }, []);
 
   useEffect(() => {
     registerHandler(
@@ -652,15 +646,6 @@ export function ConversationPanel({
       {(phaseTitle || phaseSummary) && (
         <Box
           marginBottom={1}
-          paddingLeft={1}
-          borderLeft
-          borderColor={planningPhase === "done"
-            ? sc.status.success
-            : planningPhase === "reviewing"
-            ? sc.status.warning
-            : planningPhase === "executing"
-            ? sc.border.active
-            : sc.border.active}
           flexDirection="column"
         >
           <Text
@@ -671,7 +656,7 @@ export function ConversationPanel({
               : sc.text.primary}
             bold
           >
-            {phaseTitle ?? "Plan Mode"}
+            {phaseTitle ?? "Researching"}
           </Text>
           {phaseSummary && (
             <Text color={sc.text.secondary}>
@@ -682,7 +667,7 @@ export function ConversationPanel({
             planningPhase !== "reviewing" &&
             planningPhase !== "done" && (
             <Text color={sc.text.muted}>
-              Latest: {latestPlanActivity}
+              {latestPlanActivity}
             </Text>
           )}
         </Box>
@@ -691,13 +676,10 @@ export function ConversationPanel({
       {activeTodoItem && (
         <Box
           marginBottom={1}
-          paddingLeft={1}
-          borderLeft
-          borderColor={sc.border.active}
           flexDirection="column"
         >
           <Text color={sc.border.active} bold>
-            Current Step
+            Current step
           </Text>
           <Text color={sc.text.primary}>{activeTodoItem.content}</Text>
         </Box>
@@ -706,20 +688,12 @@ export function ConversationPanel({
       {todoState && todoState.items.length > 0 && (
         <Box
           marginBottom={1}
-          paddingLeft={1}
-          borderLeft
-          borderColor={sc.status.warning}
           flexDirection="column"
         >
           <Text color={sc.status.warning} bold>
-            Progress
+            {todoSectionTitle}
           </Text>
-          <Text color={sc.text.secondary}>
-            {todoState.items.filter((item) => item.status === "completed")
-              .length} of {todoState.items.length} step
-            {todoState.items.length === 1 ? "" : "s"} complete
-          </Text>
-          <Box paddingLeft={1} flexDirection="column">
+          <Box flexDirection="column">
             {todoState.items.map((item) => {
               const marker = item.status === "completed"
                 ? "[✓]"
@@ -748,11 +722,7 @@ export function ConversationPanel({
       {latestCheckpoint && (
         <Box
           marginBottom={1}
-          paddingLeft={1}
-          borderLeft
-          borderColor={latestCheckpoint.restoredAt
-            ? sc.status.success
-            : sc.border.active}
+          flexDirection="column"
         >
           <Text
             color={latestCheckpoint.restoredAt

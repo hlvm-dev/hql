@@ -25,6 +25,8 @@ import {
   loadCheckpointManifest,
   restoreCheckpoint as restoreAgentCheckpoint,
 } from "../agent/checkpoints.ts";
+import { RuntimeError } from "../../common/error.ts";
+import { HQLErrorCode } from "../../common/error-codes.ts";
 import type {
   RuntimeSession,
   RuntimeSessionMessage,
@@ -249,6 +251,28 @@ async function refreshCurrentSession(
   return _currentSession;
 }
 
+async function refreshCurrentSessionIfActive(
+  sessionId: string,
+): Promise<void> {
+  if (_currentSession?.id !== sessionId) {
+    return;
+  }
+
+  try {
+    await refreshCurrentSession(sessionId);
+  } catch (error) {
+    // Checkpoint restore succeeds independently of the runtime host. Preserve
+    // the restored result and let callers resync session metadata explicitly.
+    if (
+      error instanceof RuntimeError &&
+      error.code === HQLErrorCode.RUNTIME_HOST_REQUEST_FAILED
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
 // ============================================================================
 // Internal Session State Helpers
 // ============================================================================
@@ -453,7 +477,7 @@ function createSessionApi() {
         persistAgentCheckpointSummary(sessionId, checkpointSummary);
       }
 
-      await refreshCurrentSession(sessionId);
+      await refreshCurrentSessionIfActive(sessionId);
       return {
         restored: true,
         restoredFileCount: result.restoredFileCount,

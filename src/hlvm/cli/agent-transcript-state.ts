@@ -37,6 +37,8 @@ export interface TranscriptState {
   planTodoState?: TodoState;
   pendingPlanReview?: { plan: Plan };
   latestCheckpoint?: AgentCheckpointSummary;
+  /** Monotonic counter incremented on clear() — used as React key to reset <Static> history */
+  clearCounter: number;
 }
 
 export type TranscriptInput =
@@ -67,6 +69,7 @@ export function createTranscriptState(): TranscriptState {
     streamingState: ConversationStreamingState.Idle,
     nextId: 0,
     completedPlanStepIds: [],
+    clearCounter: 0,
   };
 }
 
@@ -403,21 +406,27 @@ function upsertAssistantTextItem(
   isPending: boolean,
   citations?: AssistantCitation[],
 ): TranscriptState {
+  // When a pending assistant item is created or updated, ensure streamingState
+  // is Responding so the footer shows "Working · esc to interrupt" immediately.
+  const baseState = isPending
+    ? { ...state, streamingState: ConversationStreamingState.Responding }
+    : state;
+
   // Fast path: streaming update to pending assistant (last item).
   // During streaming, the last item is always the pending assistant and there
   // are no transient info items or turn stats to clean — skip O(n) filters.
-  if (isPending && state.items.length > 0) {
-    const lastIdx = state.items.length - 1;
-    const last = state.items[lastIdx];
+  if (isPending && baseState.items.length > 0) {
+    const lastIdx = baseState.items.length - 1;
+    const last = baseState.items[lastIdx];
     if (last.type === "assistant" && last.isPending) {
-      const nextItems = state.items.slice();
+      const nextItems = baseState.items.slice();
       nextItems[lastIdx] = { ...last, text, citations };
-      return { ...state, items: nextItems };
+      return { ...baseState, items: nextItems };
     }
   }
 
   const cleanedItems = removeCurrentTurnTurnStats(
-    removeTransientInfoItems(state.items),
+    removeTransientInfoItems(baseState.items),
   );
   let pendingIdx = -1;
   for (let i = cleanedItems.length - 1; i >= 0; i--) {
@@ -432,7 +441,7 @@ function upsertAssistantTextItem(
     const target = cleanedItems[pendingIdx] as AssistantItem;
     const nextItems = [...cleanedItems];
     nextItems[pendingIdx] = { ...target, text, isPending, citations };
-    return { ...state, items: nextItems };
+    return { ...baseState, items: nextItems };
   }
 
   const currentTurnAssistantIndices = findCurrentTurnAssistantIndices(
@@ -462,12 +471,12 @@ function upsertAssistantTextItem(
       } else {
         nextItems.push(updatedAssistant);
       }
-      return { ...state, items: nextItems };
+      return { ...baseState, items: nextItems };
     }
   }
 
   const [nextState, id] = nextItemId({
-    ...state,
+    ...baseState,
     items: cleanedItems,
   });
   const assistant: AssistantItem = {
@@ -1010,6 +1019,6 @@ export function reduceTranscriptState(
         items: cleanupTransientItems(state.items),
       };
     case "clear":
-      return createTranscriptState();
+      return { ...createTranscriptState(), clearCounter: state.clearCounter + 1 };
   }
 }

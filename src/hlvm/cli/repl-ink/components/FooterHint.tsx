@@ -9,9 +9,12 @@
 import React from "react";
 import { Box, Text, useStdout } from "ink";
 import { useSemanticColors } from "../../theme/index.ts";
-import { type StreamingState, StreamingState as ConversationStreamingState } from "../types.ts";
-import { BRAILLE_SPINNER_FRAMES, DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
-import { useSpinnerFrame } from "../hooks/useSpinnerFrame.ts";
+import {
+  type StreamingState,
+  StreamingState as ConversationStreamingState,
+} from "../types.ts";
+import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
+
 import { truncate } from "../../../../common/utils.ts";
 
 export const FOOTER_SECTION_SEPARATOR = " · ";
@@ -67,21 +70,19 @@ export function buildFooterLeftState({
   let tone: "muted" | "warning" = "muted";
 
   if (!inConversation) {
-    text = statusMessage || "Ready";
-    if (teamActive) {
-      text += teamAttentionCount && teamAttentionCount > 0
-        ? ` · Ctrl+T team (${teamAttentionCount})`
-        : "";
+    text = statusMessage || "";
+    if (teamActive && teamAttentionCount && teamAttentionCount > 0) {
+      text += `${text ? " · " : ""}Ctrl+T team (${teamAttentionCount})`;
     }
     return { text, tone };
   }
 
   // Warning states — keep visible since they require user action
   if (hasPendingPlanReview) {
-    text = "y run · r revise · n cancel";
+    text = "Enter run · r revise · Esc cancel";
     tone = "warning";
   } else if (hasPendingPermission) {
-    text = "y approve · n reject";
+    text = "Enter approve · Esc reject";
     tone = "warning";
   } else if (hasPendingQuestion) {
     text = "answer> then Enter · Esc reject";
@@ -93,7 +94,6 @@ export function buildFooterLeftState({
     tone = "warning";
   } else if (streamingState === ConversationStreamingState.Responding) {
     if (hasDraftInput) {
-      // Has text while responding — show queue/force hints
       text = "tab queue · ctrl+enter force";
     } else if (activeTool) {
       text =
@@ -105,17 +105,17 @@ export function buildFooterLeftState({
   } else if (statusMessage) {
     text = statusMessage;
   } else {
-    text = "Ready";
+    text = "";
   }
 
   const queuedCount = Math.max(0, interactionQueueLength - 1);
   if (queuedCount > 0) {
-    text += ` · +${queuedCount} queued`;
+    text += `${text ? " · " : ""}+${queuedCount} queued`;
   }
 
   if (teamActive) {
     text += teamAttentionCount && teamAttentionCount > 0
-      ? ` · Ctrl+T (${teamAttentionCount})`
+      ? `${text ? " · " : ""}Ctrl+T (${teamAttentionCount})`
       : "";
   }
 
@@ -165,10 +165,7 @@ export function FooterHint({
   const { stdout } = useStdout();
   const sc = useSemanticColors();
   const model = modelName ?? "";
-  const isResponding = inConversation &&
-    streamingState === ConversationStreamingState.Responding;
-  const spinnerFrame = useSpinnerFrame(isResponding);
-  const spinner = BRAILLE_SPINNER_FRAMES[spinnerFrame];
+  const spinner = "·";
 
   const left = buildFooterLeftState({
     inConversation,
@@ -184,9 +181,7 @@ export function FooterHint({
     spinner,
     statusMessage,
   });
-  const leftColor = left.tone === "warning"
-    ? sc.status.warning
-    : sc.text.muted;
+  const leftColor = left.tone === "warning" ? sc.status.warning : sc.text.muted;
 
   const right = buildFooterRightState({
     modelName: model,
@@ -211,11 +206,14 @@ export function FooterHint({
   const leftText = truncate(left.text, leftMaxWidth);
 
   return (
-    <Box flexGrow={1} flexDirection="row" justifyContent="space-between" marginTop={1}>
+    <Box
+      flexGrow={1}
+      flexDirection="row"
+      justifyContent="space-between"
+      marginTop={1}
+    >
       <Text color={leftColor}>{leftText}</Text>
-      {rightText.length > 0 && (
-        <Text color={sc.text.muted}>{rightText}</Text>
-      )}
+      {rightText.length > 0 && <Text color={sc.text.muted}>{rightText}</Text>}
     </Box>
   );
 }

@@ -373,7 +373,9 @@ function formatPlanForExecution(
   directFileTargets?: readonly string[],
 ): string {
   const directFileLine = directFileTargets?.length === 1
-    ? `The user explicitly named this target file: ${directFileTargets[0]}. Stay in that file unless you are blocked.`
+    ? `The user explicitly named this target file: ${
+      directFileTargets[0]
+    }. Stay in that file unless you are blocked.`
     : undefined;
   const lines = [
     "You are no longer planning. You are now executing the approved plan.",
@@ -481,8 +483,8 @@ async function handleDraftedPlan(
           : undefined;
         config.toolFilterState.denylist =
           config.planModeState.executionDenylist?.length
-          ? [...config.planModeState.executionDenylist]
-          : undefined;
+            ? [...config.planModeState.executionDenylist]
+            : undefined;
       }
       config.toolAllowlist = executionAllowlist
         ? [...executionAllowlist]
@@ -680,6 +682,13 @@ export async function handleFinalResponse(
   ) {
     const parsedPlan = parsePlanResponse(finalResponse);
     if (parsedPlan.plan) {
+      if (config.planModeState.phase === "researching") {
+        config.planModeState.phase = "drafting";
+        config.onAgentEvent?.({
+          type: "plan_phase_changed",
+          phase: config.planModeState.phase,
+        });
+      }
       const directive = await handleDraftedPlan(
         parsedPlan.plan,
         state,

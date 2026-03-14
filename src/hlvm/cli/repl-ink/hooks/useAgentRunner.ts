@@ -145,6 +145,15 @@ export function useAgentRunner(
   const interactionResolversRef = useRef<
     Map<string, (response: InteractionResponse) => void>
   >(new Map());
+  const pendingStreamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup orphaned stream timer on unmount
+  useEffect(() => () => {
+    if (pendingStreamTimerRef.current) {
+      clearTimeout(pendingStreamTimerRef.current);
+      pendingStreamTimerRef.current = null;
+    }
+  }, []);
 
   const prepareConversationMediaPayload = useCallback(
     (attachments?: AnyAttachment[]) => {
@@ -263,9 +272,8 @@ export function useAgentRunner(
       // Tokens arrive every ~10-30ms; batching to 120ms gives smooth output at ~8 FPS.
       const STREAM_RENDER_INTERVAL = 120;
       let lastStreamRender = 0;
-      let pendingStreamTimer: ReturnType<typeof setTimeout> | null = null;
       const flushStreamBuffer = () => {
-        pendingStreamTimer = null;
+        pendingStreamTimerRef.current = null;
         if (!controller.signal.aborted && isActiveConversationRun()) {
           conversation.addAssistantText(textBuffer, true);
           lastStreamRender = Date.now();
@@ -299,13 +307,13 @@ export function useAgentRunner(
             textBuffer += text;
             const now = Date.now();
             if (now - lastStreamRender >= STREAM_RENDER_INTERVAL) {
-              if (pendingStreamTimer) {
-                clearTimeout(pendingStreamTimer);
-                pendingStreamTimer = null;
+              if (pendingStreamTimerRef.current) {
+                clearTimeout(pendingStreamTimerRef.current);
+                pendingStreamTimerRef.current = null;
               }
               flushStreamBuffer();
-            } else if (!pendingStreamTimer) {
-              pendingStreamTimer = setTimeout(
+            } else if (!pendingStreamTimerRef.current) {
+              pendingStreamTimerRef.current = setTimeout(
                 flushStreamBuffer,
                 STREAM_RENDER_INTERVAL - (now - lastStreamRender),
               );
@@ -319,9 +327,9 @@ export function useAgentRunner(
               suppressPlanningTokens = event.phase !== "done";
               if (suppressPlanningTokens) {
                 textBuffer = "";
-                if (pendingStreamTimer) {
-                  clearTimeout(pendingStreamTimer);
-                  pendingStreamTimer = null;
+                if (pendingStreamTimerRef.current) {
+                  clearTimeout(pendingStreamTimerRef.current);
+                  pendingStreamTimerRef.current = null;
                 }
               }
             }
@@ -412,9 +420,9 @@ export function useAgentRunner(
         },
       });
       // Clear any pending streaming render timer
-      if (pendingStreamTimer) {
-        clearTimeout(pendingStreamTimer);
-        pendingStreamTimer = null;
+      if (pendingStreamTimerRef.current) {
+        clearTimeout(pendingStreamTimerRef.current);
+        pendingStreamTimerRef.current = null;
       }
       if (!isActiveConversationRun()) {
         return;

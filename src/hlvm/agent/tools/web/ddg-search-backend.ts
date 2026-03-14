@@ -34,12 +34,14 @@ import {
 import {
   rankFetchedEvidenceDeterministically,
   selectSearchResultsDeterministically,
+  selectSearchResultsWithLlm,
 } from "./search-result-selector.ts";
 import {
   annotateSearchResultSources,
 } from "./source-authority.ts";
 import { detectSearchQueryIntent } from "./query-strategy.ts";
 import { hasStructuredEvidence } from "./web-utils.ts";
+import { getAgentLogger } from "../../logger.ts";
 
 const DEFAULT_PREFETCH_TARGETS = 3;
 const MAX_PREFETCH_TARGETS = 5;
@@ -360,6 +362,7 @@ export class DdgSearchBackend implements WebSearchBackend {
     let prefetchCandidateCount = 0;
     let prefetchTargets: SearchResult[] = [];
     let selectionConfidence: "high" | "medium" | "low" = "low";
+    let selectionStrategy: "deterministic" | "llm" = "deterministic";
     let selectionReason =
       "Deterministic fetch selection prioritized query overlap and host diversity.";
     let evidenceStrategy: "deterministic" | "none" = "none";
@@ -380,15 +383,29 @@ export class DdgSearchBackend implements WebSearchBackend {
       );
 
       if (prefetchTargetCount > 0) {
-        const selection = selectSearchResultsDeterministically({
+        const selectorInput = {
           query,
           results: prefetchCandidates,
           maxPicks: prefetchTargetCount,
           intent,
           allowedDomains,
           toolOptions: options,
-        });
+        };
+        let selection;
+        if (options?.modelTier === "frontier") {
+          try {
+            selection = await selectSearchResultsWithLlm(selectorInput);
+          } catch (err) {
+            getAgentLogger().warn(
+              `LLM result selector failed, falling back to deterministic: ${(err as Error).message}`,
+            );
+            selection = selectSearchResultsDeterministically(selectorInput);
+          }
+        } else {
+          selection = selectSearchResultsDeterministically(selectorInput);
+        }
         selectionConfidence = selection.confidence;
+        selectionStrategy = selection.strategy;
         selectionReason = selection.reason;
         const picksWithUrl = selection.picks.filter((entry) => entry.url);
         // Skip host diversity enforcement for official-docs queries or explicit
@@ -552,7 +569,7 @@ export class DdgSearchBackend implements WebSearchBackend {
         candidateCount: prefetchCandidateCount,
         targetCount: prefetchTargets.length,
         targetUrls: prefetchTargets.map((entry) => entry.url).filter((url): url is string => Boolean(url)),
-        selectionStrategy: "deterministic",
+        selectionStrategy,
         selectionConfidence,
         selectionReason,
       },

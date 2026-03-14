@@ -12,7 +12,7 @@ import {
   isStructuredTeamInfoItem,
 } from "../types.ts";
 
-interface WorkerStatus {
+export interface WorkerStatus {
   id: string;
   nickname: string;
   agent: string;
@@ -22,7 +22,7 @@ interface WorkerStatus {
   threadId?: string;
 }
 
-interface AttentionItem {
+export interface AttentionItem {
   id: string;
   kind:
     | "worker_failed"
@@ -33,7 +33,7 @@ interface AttentionItem {
   timestamp: number;
 }
 
-interface TaskBoardItem {
+export interface TaskBoardItem {
   id: string;
   goal: string;
   status: string;
@@ -44,7 +44,7 @@ interface TaskBoardItem {
   delegateThreadId?: string;
 }
 
-interface TeamMemberItem {
+export interface TeamMemberItem {
   id: string;
   agent: string;
   role: "lead" | "worker";
@@ -53,7 +53,7 @@ interface TeamMemberItem {
   currentTaskGoal?: string;
 }
 
-interface PendingApprovalItem {
+export interface PendingApprovalItem {
   id: string;
   taskId: string;
   taskGoal?: string;
@@ -62,7 +62,7 @@ interface PendingApprovalItem {
   reviewedByMemberId?: string;
 }
 
-interface ShutdownItem {
+export interface ShutdownItem {
   id: string;
   memberId: string;
   requestedByMemberId: string;
@@ -296,7 +296,24 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
   return snapshot;
 }
 
+const EMPTY_TEAM_STATE: TeamDashboardState = Object.freeze({
+  active: false,
+  workers: [],
+  members: [],
+  taskBoard: [],
+  pendingApprovals: [],
+  shutdowns: [],
+  taskCounts: { pending: 0, claimed: 0, in_progress: 0, blocked: 0, completed: 0, cancelled: 0, errored: 0, running: 0 },
+  attentionItems: [],
+}) as TeamDashboardState;
+
 export function deriveTeamDashboardState(items: ConversationItem[]): TeamDashboardState {
+  // Fast path: no team-related items → return stable empty state (avoids all derivation work)
+  const hasTeamItems = items.some((i) =>
+    isStructuredTeamInfoItem(i) || i.type === "delegate"
+  );
+  if (!hasTeamItems) return EMPTY_TEAM_STATE;
+
   const workers: WorkerStatus[] = [];
   const attentionItems: AttentionItem[] = [];
   const snapshot = applyStructuredTeamItems(items);

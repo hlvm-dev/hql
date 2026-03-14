@@ -322,6 +322,84 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
   }
 });
 
+Deno.test("runAgentQueryViaHost retries an early transient plan-mode stream drop before plan review", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+  let chatRequestCount = 0;
+  const uiEvents: string[] = [];
+
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
+    }
+
+    if (url.pathname === "/api/chat") {
+      chatRequestCount += 1;
+      const stream = new ReadableStream({
+        start(controller) {
+          const emit = (obj: unknown) =>
+            controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+          emit({ event: "start", request_id: `req-${chatRequestCount}` });
+          emit({ event: "plan_phase_changed", phase: "researching" });
+          emit({ event: "thinking", iteration: 1 });
+          if (chatRequestCount === 1) {
+            controller.error(
+              new TypeError("error reading a body from connection"),
+            );
+            return;
+          }
+          emit({ event: "token", text: "Plan recovered." });
+          emit({
+            event: "complete",
+            request_id: `req-${chatRequestCount}`,
+            session_version: 1,
+          });
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/x-ndjson",
+          "X-Request-ID": `req-${chatRequestCount}`,
+        },
+      });
+    }
+
+    if (url.pathname === "/api/chat/cancel") {
+      return Response.json({ cancelled: true });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      const result = await runAgentQueryViaHost({
+        query: "Plan a small edit",
+        model: "claude-code/claude-opus-4-6",
+        permissionMode: "plan",
+        callbacks: {
+          onAgentEvent: (event) => uiEvents.push(event.type),
+        },
+      });
+
+      assertEquals(result.text, "Plan recovered.");
+      assertEquals(chatRequestCount, 2);
+      assertEquals(uiEvents.includes("plan_phase_changed"), true);
+    });
+  } finally {
+    await handle.shutdown();
+    await handle.finished;
+  }
+});
+
 Deno.test("runAgentQueryViaHost maps team and batch events through the host stream", async () => {
   const port = await findFreePort();
   const authToken = "test-auth-token";

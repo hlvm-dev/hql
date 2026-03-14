@@ -103,7 +103,8 @@ END_PLAN`;
 });
 
 Deno.test({
-  name: "Planning: normalize description/detail/action schema from live plan-mode output",
+  name:
+    "Planning: normalize description/detail/action schema from live plan-mode output",
   fn() {
     const response = `PLAN
 {
@@ -143,7 +144,8 @@ END_PLAN`;
 });
 
 Deno.test({
-  name: "Planning: humanizes raw tool-name step titles when the model emits weak steps",
+  name:
+    "Planning: humanizes raw tool-name step titles when the model emits weak steps",
   fn() {
     const response = `PLAN
 {
@@ -168,6 +170,50 @@ END_PLAN`;
       "Inspect src/hlvm/cli/repl-ink/components/ConversationPanel.tsx",
       "Make the requested edit in src/hlvm/cli/repl-ink/components/ConversationPanel.tsx",
       "Verify the requested change",
+    ]);
+  },
+});
+
+Deno.test({
+  name:
+    "Planning: strips tool chatter and absolute paths from review step titles",
+  fn() {
+    const response = `PLAN
+{
+  "goal": "Add a one-line comment above greet",
+  "steps": [
+    {
+      "description": "Insert a one-line code comment on line 1 (above the greet declaration) using edit_file. The existing line 1 shifts to line 2.",
+      "file": "/Users/seoksoonjang/Desktop/hlvm-plan-e2e-fixture.ts",
+      "tool": "edit_file"
+    }
+  ]
+}
+END_PLAN`;
+    const parsed = parsePlanResponse(response);
+    assertEquals(parsed.plan?.steps.map((step) => step.title), [
+      "Insert a one-line code comment",
+    ]);
+  },
+});
+
+Deno.test({
+  name: "Planning: keeps abbreviations like e.g. intact in review step titles",
+  fn() {
+    const response = `PLAN
+{
+  "goal": "Add a one-line comment above greet",
+  "steps": [
+    {
+      "description": "Insert a comment line (e.g. \`// Greets the given name\`) above line 1, before \`export function greet\`.",
+      "tool": "edit_file"
+    }
+  ]
+}
+END_PLAN`;
+    const parsed = parsePlanResponse(response);
+    assertEquals(parsed.plan?.steps.map((step) => step.title), [
+      "Insert a comment line (e.g. `// Greets the given name`) above line 1, before `export function greet`.",
     ]);
   },
 });
@@ -213,7 +259,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Planning: derivePlanExecutionAllowlist keeps execution focused on approved step tools",
+  name:
+    "Planning: derivePlanExecutionAllowlist keeps execution focused on approved step tools",
   fn() {
     const plan: Plan = {
       goal: "Add a small UI fix",
@@ -251,7 +298,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Planning: derivePlanExecutionAllowlist intersects with an existing execution allowlist",
+  name:
+    "Planning: derivePlanExecutionAllowlist intersects with an existing execution allowlist",
   fn() {
     const plan: Plan = {
       goal: "Run a targeted test",
@@ -274,7 +322,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Planning: derivePlanExecutionAllowlist drops broad code search when the user named one exact file",
+  name:
+    "Planning: derivePlanExecutionAllowlist drops broad code search when the user named one exact file",
   fn() {
     const plan: Plan = {
       goal: "Add a comment to one file",
@@ -294,7 +343,9 @@ Deno.test({
 
     assertEquals(
       derivePlanExecutionAllowlist(plan, undefined, {
-        directFileTargets: ["src/hlvm/cli/repl-ink/components/ConversationPanel.tsx"],
+        directFileTargets: [
+          "src/hlvm/cli/repl-ink/components/ConversationPanel.tsx",
+        ],
       }),
       [
         "ask_user",

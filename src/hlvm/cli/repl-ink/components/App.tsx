@@ -543,6 +543,25 @@ function AppContent(
     toggleTeamDashboard,
   ]);
 
+  // Refs for values only read inside handleSubmit — avoids re-creating the callback
+  // every time streaming tokens cause conversation/interaction/queue state to change.
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
+  const pendingInteractionRef = useRef(pendingInteraction);
+  pendingInteractionRef.current = pendingInteraction;
+  const pendingConversationQueueRef = useRef(pendingConversationQueue);
+  pendingConversationQueueRef.current = pendingConversationQueue;
+  const runConversationRef = useRef(runConversation);
+  runConversationRef.current = runConversation;
+  const closeConversationModeRef = useRef(closeConversationMode);
+  closeConversationModeRef.current = closeConversationMode;
+  const submitConversationDraftRef = useRef(submitConversationDraft);
+  submitConversationDraftRef.current = submitConversationDraft;
+  const handleInteractionResponseRef = useRef(handleInteractionResponse);
+  handleInteractionResponseRef.current = handleInteractionResponse;
+  const restoreComposerDraftRef = useRef(restoreComposerDraft);
+  restoreComposerDraftRef.current = restoreComposerDraft;
+
   const handleSubmit = useCallback(
     async (code: string, attachments?: AnyAttachment[]) => {
       if (!code.trim()) return;
@@ -582,12 +601,13 @@ function AppContent(
 
       // If there's a pending question interaction, route non-command input as the answer.
       // Commands must still work while a question prompt is active.
-      if (pendingInteraction?.mode === "question" && !isAnyCommand) {
+      const currentPendingInteraction = pendingInteractionRef.current;
+      if (currentPendingInteraction?.mode === "question" && !isAnyCommand) {
         recordPromptHistory(replState, code, "interaction");
-        conversation.addUserMessage(forceConversationPrompt ?? code.trim(), {
+        conversationRef.current.addUserMessage(forceConversationPrompt ?? code.trim(), {
           startTurn: false,
         });
-        handleInteractionResponse(pendingInteraction.requestId, {
+        handleInteractionResponseRef.current(currentPendingInteraction.requestId, {
           approved: true,
           userInput: forceConversationPrompt ?? code.trim(),
         });
@@ -682,12 +702,12 @@ function AppContent(
         }
 
         if (hasConversationContext) {
-          conversation.addEvent({
+          conversationRef.current.addEvent({
             type: "checkpoint_restored",
             checkpoint: restored.checkpoint,
             restoredFileCount: restored.restoredFileCount,
           });
-          conversation.addInfo(
+          conversationRef.current.addInfo(
             `Restored checkpoint (${restored.restoredFileCount} file${
               restored.restoredFileCount === 1 ? "" : "s"
             }).`,
@@ -760,11 +780,11 @@ function AppContent(
           setComposerAttachments([]);
           return;
         }
-        const result = submitConversationDraft(conversationDraft);
+        const result = submitConversationDraftRef.current(conversationDraft);
         if (!result.started) {
-          restoreComposerDraft(conversationDraft);
+          restoreComposerDraftRef.current(conversationDraft);
           if (result.unsupportedMimeType) {
-            conversation.addError(
+            conversationRef.current.addError(
               `Attachment unsupported: ${result.unsupportedMimeType}`,
             );
           }
@@ -791,9 +811,9 @@ function AppContent(
           candidateConversationQuery,
           attachments,
         );
-        const result = submitConversationDraft(conversationDraft);
+        const result = submitConversationDraftRef.current(conversationDraft);
         if (!result.started) {
-          restoreComposerDraft(conversationDraft);
+          restoreComposerDraftRef.current(conversationDraft);
           const unsupportedMimeType = result.unsupportedMimeType;
           if (!unsupportedMimeType) return;
           addHistoryEntry(code, {
@@ -905,18 +925,8 @@ function AppContent(
       suppressHistoryOutput,
       streamEvalToTask,
       isNaturalLanguage,
-      runConversation,
-      conversation,
-      pendingConversationQueue,
-      closeConversationMode,
-      pendingInteraction,
-      handleInteractionResponse,
-      modelSelection,
-      configuredContextWindow,
+      hasConversationContext,
       replState,
-      applyRuntimeConfigState,
-      restoreComposerDraft,
-      submitConversationDraft,
     ],
   );
 

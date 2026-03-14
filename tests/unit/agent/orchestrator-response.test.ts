@@ -164,7 +164,7 @@ Deno.test("handleFinalResponse promotes an approved plan-mode draft into executi
 
   assertEquals(result.action, "continue");
   assert(uiEvents.includes("plan_created"));
-  assertEquals(phaseEvents, ["reviewing", "executing"]);
+  assertEquals(phaseEvents, ["drafting", "reviewing", "executing"]);
   assertEquals(config.planModeState?.phase, "executing");
   assertEquals(config.permissionMode, "auto-edit");
   assertEquals(config.toolAllowlist, ["read_file", "write_file"]);
@@ -312,7 +312,7 @@ Deno.test("handleFinalResponse accepts a markdown PLAN block in plan mode", asyn
   );
 
   assertEquals(result.action, "continue");
-  assertEquals(phaseEvents, ["reviewing", "executing"]);
+  assertEquals(phaseEvents, ["drafting", "reviewing", "executing"]);
   assertEquals(state.planState?.plan.goal, "Implement plan mode review UI");
   assertEquals(state.planState?.plan.steps.map((step) => step.title), [
     "Read the current conversation panel",
@@ -364,7 +364,7 @@ Deno.test("handleFinalResponse returns to planning when plan review requests rev
   assertEquals(state.planState, null);
   assertEquals(config.permissionMode, "plan");
   assertEquals(config.planModeState?.phase, "researching");
-  assertEquals(phaseEvents, ["reviewing", "researching"]);
+  assertEquals(phaseEvents, ["drafting", "reviewing", "researching"]);
   assertEquals(context.getMessages().length, 1);
   assertStringIncludes(
     context.getMessages()[0]?.content ?? "",

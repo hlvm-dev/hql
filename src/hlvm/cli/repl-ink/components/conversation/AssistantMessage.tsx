@@ -4,15 +4,38 @@
  * Displays an assistant response with markdown rendering and optional sources.
  */
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { truncate } from "../../../../../common/utils.ts";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { MarkdownDisplay } from "../markdown/index.ts";
 import type { AssistantCitation } from "../../types.ts";
-import { BRAILLE_SPINNER_FRAMES, OPEN_LATEST_SOURCE_HINT } from "../../ui-constants.ts";
-import { useSpinnerFrame } from "../../hooks/useSpinnerFrame.ts";
+import { OPEN_LATEST_SOURCE_HINT } from "../../ui-constants.ts";
+
 import { escapeAnsiCtrlCodes } from "../../utils/sanitize-ansi.ts";
+
+function formatElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60}s`;
+}
+
+/** Shown while waiting for the first token from the model. */
+function WorkingIndicator({ width }: { width: number }): React.ReactElement {
+  const sc = useSemanticColors();
+  const [startTime] = useState(() => Date.now());
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setElapsed(Date.now() - startTime), 1000);
+    return () => clearInterval(id);
+  }, [startTime]);
+  return (
+    <Box width={width} marginBottom={1} marginTop={0} paddingLeft={1}>
+      <Text color={sc.text.muted}>
+        Thinking... ({formatElapsed(elapsed)} · esc to interrupt)
+      </Text>
+    </Box>
+  );
+}
 
 const MAX_DISPLAY_CHARS = 50_000;
 
@@ -137,7 +160,7 @@ export const AssistantMessage = React.memo(function AssistantMessage(
   { text, citations, isPending, width }: AssistantMessageProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
-  const frame = useSpinnerFrame(isPending);
+
   const contentWidth = Math.max(10, width - 3);
   const sanitizedText = escapeAnsiCtrlCodes(text);
   const displayText = sanitizedText.length > MAX_DISPLAY_CHARS
@@ -152,11 +175,7 @@ export const AssistantMessage = React.memo(function AssistantMessage(
   const sourcesLabel = resolveSourcesLabel(citations ?? []);
 
   if (isPending && !text) {
-    return (
-      <Box width={width} marginBottom={1} marginTop={0} paddingLeft={1}>
-        <Text color={sc.text.muted}>{BRAILLE_SPINNER_FRAMES[frame]} </Text>
-      </Box>
-    );
+    return <WorkingIndicator width={width} />;
   }
 
   return (

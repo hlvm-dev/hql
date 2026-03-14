@@ -94,7 +94,7 @@ const StreamingContent = React.memo(function StreamingContent({
           ? <MarkdownDisplay text={text} width={width} />
           : <Text>{text}</Text>
       )}
-      {isStreaming && !showOutput && <Text color={color("muted")}>▋</Text>}
+      {isStreaming && !showOutput && <Text color={color("muted")}>·</Text>}
       {error && (
         <Text color={color("error")}>Error: {error.message}</Text>
       )}

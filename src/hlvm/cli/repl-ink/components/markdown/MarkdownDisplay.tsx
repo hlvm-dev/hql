@@ -1,9 +1,10 @@
-import React, { memo, useMemo } from "react";
+import React, { memo, useMemo, useRef } from "react";
 import { Box, Text } from "ink";
 import { marked, type Token, type Tokens } from "marked";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { CodeBlock } from "./CodeBlock.tsx";
 import { InlineTokens, InlineMarkdown } from "./InlineMarkdown.tsx";
+import { findLastStableBlockBoundary } from "../../utils/markdown-split.ts";
 
 type Alignment = "left" | "center" | "right";
 
@@ -314,7 +315,46 @@ export const MarkdownDisplay = memo(function MarkdownDisplay(
   { text, width, isPending }: MarkdownDisplayProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
-  const tokens = useMemo(() => marked.lexer(text), [text]);
+
+  // Incremental block-level parsing: during streaming, only re-parse the unstable tail.
+  // Finalized blocks (before the last \n\n outside code fences) are cached across renders.
+  const blocksRef = useRef<{ finalizedTokens: Token[]; lastStableOffset: number }>({
+    finalizedTokens: [],
+    lastStableOffset: 0,
+  });
+
+  const tokens = useMemo(() => {
+    if (!isPending) {
+      // Final render: parse everything fresh, clear cache
+      blocksRef.current = { finalizedTokens: [], lastStableOffset: 0 };
+      return marked.lexer(text);
+    }
+
+    const prev = blocksRef.current;
+
+    // Detect text replacement (not append) — reset cache
+    if (text.length < prev.lastStableOffset) {
+      prev.finalizedTokens = [];
+      prev.lastStableOffset = 0;
+    }
+
+    // Find last stable block boundary
+    const stableEnd = findLastStableBlockBoundary(text);
+
+    if (stableEnd > prev.lastStableOffset) {
+      // New stable content: parse only the new stable portion
+      const newStableText = text.slice(prev.lastStableOffset, stableEnd);
+      const newTokens = marked.lexer(newStableText);
+      prev.finalizedTokens = [...prev.finalizedTokens, ...newTokens];
+      prev.lastStableOffset = stableEnd;
+    }
+
+    // Parse only the unstable tail
+    const tail = text.slice(stableEnd);
+    const tailTokens = tail ? marked.lexer(tail) : [];
+
+    return [...prev.finalizedTokens, ...tailTokens];
+  }, [text, isPending]);
 
   return (
     <Box flexDirection="column">
