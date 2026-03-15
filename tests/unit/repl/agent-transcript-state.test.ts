@@ -334,6 +334,32 @@ Deno.test("agent transcript state returns to researching when review requests re
   assertEquals(next.pendingPlanReview, undefined);
 });
 
+Deno.test("agent transcript state clears finished plan state when a new turn starts", () => {
+  const state = {
+    ...createTranscriptState(),
+    activePlan: samplePlan,
+    planningPhase: "done" as const,
+    completedPlanStepIds: ["step-1", "step-2"],
+    planTodoState: {
+      items: [
+        { id: "step-1", content: "Create the screenshots directory", status: "completed" as const },
+        { id: "step-2", content: "Move screenshot files", status: "completed" as const },
+      ],
+    },
+  };
+
+  const next = reduceTranscriptState(state, {
+    type: "user_message",
+    text: "hi man",
+  });
+
+  assertEquals(next.activePlan, undefined);
+  assertEquals(next.planningPhase, undefined);
+  assertEquals(next.completedPlanStepIds, []);
+  assertEquals(next.planTodoState, undefined);
+  assertEquals(next.items.at(-1)?.type, "assistant");
+});
+
 Deno.test("agent transcript state keeps provider reasoning summaries and drops generic working rows", () => {
   let state = reduceTranscriptState(createTranscriptState(), {
     type: "agent_event",
@@ -681,7 +707,7 @@ Deno.test("agent transcript state clears prior plan and todo state when hydratin
   assertEquals(replaced.completedPlanStepIds, []);
 });
 
-Deno.test("agent transcript state tracks plan review and checkpoint safety state", () => {
+Deno.test("agent transcript state tracks plan review resolution state", () => {
   const withReview = reduceTranscriptState(createTranscriptState(), {
     type: "agent_event",
     event: {
@@ -693,37 +719,7 @@ Deno.test("agent transcript state tracks plan review and checkpoint safety state
     },
   });
 
-  const withCheckpoint = reduceTranscriptState(withReview, {
-    type: "agent_event",
-    event: {
-      type: "checkpoint_created",
-      checkpoint: {
-        id: "cp-1",
-        requestId: "req-1",
-        createdAt: 1,
-        fileCount: 2,
-        reversible: true,
-      },
-    },
-  });
-
-  const restored = reduceTranscriptState(withCheckpoint, {
-    type: "agent_event",
-    event: {
-      type: "checkpoint_restored",
-      checkpoint: {
-        id: "cp-1",
-        requestId: "req-1",
-        createdAt: 1,
-        fileCount: 2,
-        reversible: true,
-        restoredAt: 2,
-      },
-      restoredFileCount: 2,
-    },
-  });
-
-  const resolved = reduceTranscriptState(restored, {
+  const resolved = reduceTranscriptState(withReview, {
     type: "agent_event",
     event: {
       type: "plan_review_resolved",
@@ -736,8 +732,6 @@ Deno.test("agent transcript state tracks plan review and checkpoint safety state
   });
 
   assertEquals(withReview.pendingPlanReview?.plan.goal, "Review file edits");
-  assertEquals(withCheckpoint.pendingPlanReview, withReview.pendingPlanReview);
-  assertEquals(restored.pendingPlanReview, withReview.pendingPlanReview);
   assertEquals(resolved.pendingPlanReview, undefined);
 });
 

@@ -224,6 +224,44 @@ Deno.test("getConversationDisplayItems hides the current-turn prompt and assista
   );
 });
 
+Deno.test("getConversationDisplayItems hides user and assistant transcript text during active compact plan flow", () => {
+  const compactItems = getConversationDisplayItems([
+    {
+      type: "user",
+      id: "user-1",
+      text: "make plan",
+      ts: 1,
+    },
+    {
+      type: "assistant",
+      id: "assistant-1",
+      text: "Direct prose that should not appear in the compact planning surface.",
+      isPending: false,
+      ts: 2,
+    },
+    {
+      type: "tool_group",
+      id: "tool-group-1",
+      ts: 3,
+      tools: [{
+        id: "tool-1",
+        name: "read_file",
+        argsSummary: "path=src/app.tsx",
+        status: "error",
+        resultSummaryText: "File not found",
+        resultText: "File not found",
+        toolIndex: 1,
+        toolTotal: 1,
+      }],
+    },
+  ], {
+    compactPlanTranscript: true,
+    hideConversationText: true,
+  });
+
+  assertEquals(compactItems.map((item) => item.type), ["tool_group"]);
+});
+
 Deno.test("getPlanFlowActivitySummary prefers the latest tool activity for compact plan headers", () => {
   const summary = getPlanFlowActivitySummary([
     {

@@ -1313,8 +1313,6 @@ function toDelegateTranscriptEvent(
     case "todo_updated":
     case "plan_review_required":
     case "plan_review_resolved":
-    case "checkpoint_created":
-    case "checkpoint_restored":
     case "interaction_request":
     case "team_task_updated":
     case "team_message":

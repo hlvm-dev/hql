@@ -6,9 +6,9 @@ const CONFIRMATION_DIALOG_MAX_ARG_LINES = 10;
 const PLAN_REVIEW_MAX_STEPS = 6;
 export const QUESTION_DIALOG_HINT = "Type your answer below, then press Enter";
 export const QUESTION_PICKER_HINT =
-  "Use arrows to choose · Tab add notes · Enter submit · Esc interrupt";
+  "Use arrows or 1-9 to choose · Tab add notes · Enter submit · Esc cancel";
 export const PLAN_REVIEW_PICKER_HINT =
-  "Use arrows to choose · Enter confirm · Esc cancel";
+  "Use arrows or 1-9 to choose · Enter confirm · Esc cancel";
 
 export interface PlanReviewDialogDisplay {
   plan: Plan;
@@ -44,7 +44,7 @@ function estimateWrappedTextRows(text: string, width: number): number {
   }, 0);
 }
 
-function parsePlanReview(
+export function parsePlanReviewToolArgs(
   toolName?: string,
   toolArgs?: string,
 ): Plan | undefined {
@@ -137,7 +137,7 @@ export function getConfirmationDialogDisplay(
   toolArgs?: string,
 ): ConfirmationDialogDisplay {
   const isPlanReview = toolName === "plan_review";
-  const parsedPlanReview = parsePlanReview(toolName, toolArgs);
+  const parsedPlanReview = parsePlanReviewToolArgs(toolName, toolArgs);
   if (parsedPlanReview) {
     const verificationLines = [
       ...new Set(

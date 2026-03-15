@@ -63,51 +63,107 @@ export function parseAttributes(tag: string): Record<string, string> {
 }
 
 // ============================================================
-// Code Block Extraction
+// Structured Block Extraction
 // ============================================================
 
+function normalizeCellText(input: string): string {
+  return decodeHtmlEntities(
+    input.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+  ).replace(/\|/g, "\\|");
+}
+
+function padTableRows(rows: string[][]): string[][] {
+  const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  return rows.map((row) => [...row, ...Array.from({ length: Math.max(0, width - row.length) }, () => "")]);
+}
+
+function tableToMarkdown(tableHtml: string): string | null {
+  const rows: Array<{ cells: string[]; header: boolean }> = [];
+  const rowRegex = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = rowRegex.exec(tableHtml)) !== null) {
+    const rowHtml = match[1] ?? "";
+    const cells: string[] = [];
+    const cellRegex = /<(t[hd])\b[^>]*>([\s\S]*?)<\/t[hd]>/gi;
+    let cellMatch: RegExpExecArray | null;
+    let header = false;
+    while ((cellMatch = cellRegex.exec(rowHtml)) !== null) {
+      const tag = (cellMatch[1] ?? "").toLowerCase();
+      header = header || tag === "th";
+      cells.push(normalizeCellText(cellMatch[2] ?? ""));
+    }
+    if (cells.length > 0) rows.push({ cells, header });
+  }
+
+  if (rows.length === 0) return null;
+
+  const headerRow = rows[0].cells;
+  const bodyRows = rows.length > 1 ? rows.slice(1).map((row) => row.cells) : [];
+  const normalizedRows = padTableRows([headerRow, ...bodyRows]);
+  const [header, ...body] = normalizedRows;
+  if (header.length === 0) return null;
+
+  const separator = header.map(() => "---");
+  const lines = [
+    `| ${header.join(" | ")} |`,
+    `| ${separator.join(" | ")} |`,
+    ...body.map((row) => `| ${row.join(" | ")} |`),
+  ];
+  return lines.join("\n");
+}
+
+function buildStructuredPlaceholder(counter: number): string {
+  return `__STRUCTURED_BLOCK_${counter}__`;
+}
+
 /**
- * Pre-process raw HTML to preserve `<pre><code>` blocks as fenced markdown.
- * Replaces each code block with a unique text placeholder so that both
- * parseHtml() and extractReadableContent() see it as plain text instead of
- * stripping it to whitespace.
- *
- * Returns the cleaned HTML and a Map of placeholder → fenced markdown block.
+ * Pre-process raw HTML to preserve `<pre><code>` and simple `<table>` blocks
+ * as text placeholders so both parseHtml() and extractReadableContent() retain
+ * their structure through downstream extraction.
  */
-export function extractCodeBlocks(
+export function extractStructuredBlocks(
   html: string,
 ): { cleaned: string; blocks: Map<string, string> } {
   const blocks = new Map<string, string>();
   let counter = 0;
 
-  // Match <pre> blocks containing <code> (with optional language class)
+  const replaceWithPlaceholder = (markdown: string): string => {
+    const placeholder = buildStructuredPlaceholder(counter++);
+    blocks.set(placeholder, `\n${markdown.trim()}\n`);
+    return placeholder;
+  };
+
   const preCodeRegex =
     /<pre\b[^>]*>\s*<code\b([^>]*)>([\s\S]*?)<\/code>\s*<\/pre>/gi;
 
-  const cleaned = html.replace(preCodeRegex, (_match, attrs: string, body: string) => {
-    const langMatch = (attrs as string).match(/class\s*=\s*["'](?:language-|hljs\s+)([^"'\s]+)/i);
+  let cleaned = html.replace(preCodeRegex, (_match, attrs: string, body: string) => {
+    const langMatch = attrs.match(/class\s*=\s*["'](?:language-|hljs\s+)([^"'\s]+)/i);
     const lang = langMatch?.[1] ?? "";
     const decoded = decodeHtmlEntities(
-      body.replace(/<[^>]+>/g, ""),  // Strip nested HTML tags (e.g., <span> from syntax highlighters)
+      body.replace(/<[^>]+>/g, ""),
     );
-    const placeholder = `__CODE_BLOCK_${counter++}__`;
-    blocks.set(placeholder, `\n\`\`\`${lang}\n${decoded.trim()}\n\`\`\`\n`);
-    return placeholder;
+    return replaceWithPlaceholder(`\`\`\`${lang}\n${decoded.trim()}\n\`\`\``);
+  });
+
+  const tableRegex = /<table\b[^>]*>[\s\S]*?<\/table>/gi;
+  cleaned = cleaned.replace(tableRegex, (match) => {
+    const markdown = tableToMarkdown(match);
+    return markdown ? replaceWithPlaceholder(markdown) : match;
   });
 
   return { cleaned, blocks };
 }
 
 /**
- * Restore code block placeholders in extracted text with their fenced markdown.
+ * Restore structured placeholders in extracted text with their markdown output.
  */
-export function restoreCodeBlocks(
+export function restoreStructuredBlocks(
   text: string,
   blocks: Map<string, string>,
 ): string {
   let result = text;
-  for (const [placeholder, fenced] of blocks) {
-    result = result.replace(placeholder, fenced);
+  for (const [placeholder, markdown] of blocks) {
+    result = result.replace(placeholder, markdown);
   }
   return result;
 }
@@ -242,6 +298,7 @@ function extractMetaDescription(html: string): string {
 }
 
 function extractLinks(html: string, maxLinks: number): string[] {
+  if (maxLinks <= 0) return [];
   const links: string[] = [];
   const seen = new Set<string>();
   const linkRegex = /<a\s+[^>]*>/gi;
@@ -265,6 +322,37 @@ function extractLinks(html: string, maxLinks: number): string[] {
     }
   }
   return links;
+}
+
+function extractInlineText(html: string): string {
+  return decodeHtmlEntities(
+    html
+      .replace(/<br\b[^>]*>/gi, "\n")
+      .replace(/<\/(?:p|div|li|tr|th|td)>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\r/g, ""),
+  )
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n")
+    .trim();
+}
+
+function replaceHeadingTagsWithMarkdown(html: string): string {
+  return html.replace(
+    /<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi,
+    (_match, level: string, body: string) => {
+      const text = extractInlineText(body);
+      if (!text) return "\n";
+      return `\n\n${"#".repeat(Number(level))} ${text}\n\n`;
+    },
+  );
+}
+
+function replaceTablesWithMarkdown(html: string): string {
+  return html.replace(/<table\b[^>]*>[\s\S]*?<\/table>/gi, (tableHtml) => {
+    const markdown = tableToMarkdown(tableHtml);
+    return markdown ? `\n\n${markdown}\n\n` : "\n";
+  });
 }
 
 function extractTextContent(
@@ -304,13 +392,18 @@ function extractTextContent(
     "gi",
   );
 
-  let text = html
+  let text = replaceTablesWithMarkdown(replaceHeadingTagsWithMarkdown(html))
     .replace(blockRegex, "\n")
     .replace(/<[^>]+>/g, " ")
     .replace(/\r/g, "");
 
   text = decodeHtmlEntities(text);
-  text = text.replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n\n").trim();
+  text = text
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n\n")
+    .trim();
 
   let truncated = false;
   if (text.length > maxTextLength) {
@@ -338,17 +431,19 @@ export function parseHtml(
   linkCount: number;
   publishedDate?: string;
 } {
-  const normalized = normalizeHtmlForExtraction(html);
+  const { cleaned, blocks } = extractStructuredBlocks(html);
+  const normalized = normalizeHtmlForExtraction(cleaned);
   const title = extractTitle(html);
   const description = extractMetaDescription(html);
   const { text, truncated } = extractTextContent(normalized, maxTextLength);
   const links = extractLinks(normalized, maxLinks);
   const publishedDate = extractPublicationDate(html);
+  const restoredText = blocks.size > 0 ? restoreStructuredBlocks(text, blocks) : text;
 
   return {
     title,
     description,
-    text,
+    text: restoredText,
     textTruncated: truncated,
     links,
     linkCount: links.length,

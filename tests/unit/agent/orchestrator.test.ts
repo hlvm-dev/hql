@@ -1316,6 +1316,37 @@ Deno.test({
 
 Deno.test({
   name:
+    "Orchestrator: approved plan execution rejects new ask_user clarifications",
+  async fn() {
+    resetApprovals();
+    const result = await executeToolCall(
+      {
+        toolName: "ask_user",
+        args: { question: "Which directory name should I use?" },
+      },
+      {
+        workspace: TEST_WORKSPACE,
+        context: new ContextManager(),
+        permissionMode: "yolo",
+        planModeState: {
+          active: true,
+          phase: "executing",
+          executionPermissionMode: "yolo",
+          directFileTargets: [],
+        },
+      },
+    );
+
+    assertEquals(result.success, false);
+    assertStringIncludes(
+      result.error ?? "",
+      "Approved plan execution should not ask new clarifying questions",
+    );
+  },
+});
+
+Deno.test({
+  name:
     "Orchestrator: executeToolCall shell_exec preflight blocks complex syntax but allows simple commands",
   async fn() {
     resetApprovals();

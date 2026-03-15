@@ -19,6 +19,11 @@ import {
   getAgentExecutionModeChangeMessage,
   toAgentExecutionMode,
 } from "../../../agent/execution-mode.ts";
+import {
+  isFrontierProvider,
+  supportsAgentExecution,
+} from "../../../agent/constants.ts";
+import { parseModelString } from "../../../providers/registry.ts";
 import { createRuntimeConfigManager } from "../../../runtime/model-config.ts";
 
 interface UseModelConfigInput {
@@ -30,6 +35,7 @@ export interface UseModelConfigResult {
   modelSelection: ModelSelectionState;
   configuredContextWindow: number | undefined;
   agentExecutionMode: AgentExecutionMode;
+  supportsAgent: boolean;
   footerStatusMessage: string;
   footerContextUsageLabel: string;
   setFooterContextUsageLabel: (label: string) => void;
@@ -59,6 +65,7 @@ export function useModelConfig(
   const [agentExecutionMode, setAgentExecutionMode] = useState<
     AgentExecutionMode
   >(() => toAgentExecutionMode(getPermissionMode(initialConfig)));
+  const [supportsAgent, setSupportsAgent] = useState(true);
   const [footerStatusMessage, setFooterStatusMessage] = useState("");
   const [footerContextUsageLabel, setFooterContextUsageLabel] = useState("");
 
@@ -94,6 +101,34 @@ export function useModelConfig(
           : nextModelSelection
       );
       setConfiguredContextWindow(getContextWindow(cfg));
+
+      const model = (activeModelId ?? cfg.model) as string | undefined;
+      if (model) {
+        if (isFrontierProvider(model)) {
+          setSupportsAgent(true);
+        } else {
+          setSupportsAgent(true);
+          void (async () => {
+            try {
+              const { ai } = await import("../../../api/ai.ts");
+              const [parsedProvider, parsedName] = parseModelString(model);
+              const modelInfo = await ai.models.get(
+                parsedName,
+                parsedProvider ?? undefined,
+              );
+              const supported = supportsAgentExecution(model, modelInfo);
+              setSupportsAgent(supported);
+              if (!supported) {
+                setAgentExecutionMode("default");
+                replModeTouchedRef.current = false;
+              }
+            } catch {
+              setSupportsAgent(true);
+            }
+          })();
+        }
+      }
+
       if (!replModeTouchedRef.current) {
         setAgentExecutionMode(toAgentExecutionMode(getPermissionMode(cfg)));
       }
@@ -103,11 +138,15 @@ export function useModelConfig(
   );
 
   const cycleAgentMode = useCallback(() => {
+    if (!supportsAgent) {
+      flashFooterStatus("Agent mode not supported for this model");
+      return;
+    }
     const nextMode = cycleReplAgentExecutionMode(agentExecutionMode);
     replModeTouchedRef.current = true;
     setAgentExecutionMode(nextMode);
     flashFooterStatus(getAgentExecutionModeChangeMessage(nextMode));
-  }, [agentExecutionMode, flashFooterStatus]);
+  }, [agentExecutionMode, flashFooterStatus, supportsAgent]);
 
   const refreshRuntimeConfigState = useCallback(async (): Promise<
     ModelSelectionState
@@ -145,6 +184,7 @@ export function useModelConfig(
     modelSelection,
     configuredContextWindow,
     agentExecutionMode,
+    supportsAgent,
     footerStatusMessage,
     footerContextUsageLabel,
     setFooterContextUsageLabel,

@@ -8,7 +8,6 @@ import {
   appendPersistedAgentToolResult,
   completePersistedAgentTurn,
   createPersistedAgentChildSession,
-  persistAgentCheckpointSummary,
   persistAgentPlanState,
   persistAgentTeamRuntime,
   persistAgentTodos,
@@ -308,13 +307,6 @@ Deno.test("buildTranscriptStateFromSession hydrates pending plan review metadata
     };
     persistAgentPlanState(sessionId, plan, []);
     persistPendingPlanReview(sessionId, "review-1", plan);
-    persistAgentCheckpointSummary(sessionId, {
-      id: "cp-1",
-      requestId: "req-1",
-      createdAt: 10,
-      fileCount: 1,
-      reversible: true,
-    });
 
     const session = getSession(sessionId);
     const state = buildTranscriptStateFromSession({

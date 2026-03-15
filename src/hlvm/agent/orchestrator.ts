@@ -73,10 +73,6 @@ import {
 import type { DelegateCoordinationBoard } from "./delegate-coordination.ts";
 import type { TeamRuntime, TeamSummary } from "./team-runtime.ts";
 import { cancelThread } from "./delegate-threads.ts";
-import type {
-  AgentCheckpointSummary,
-  CheckpointRecorder,
-} from "./checkpoints.ts";
 import type { DelegateTokenBudget } from "./delegate-token-budget.ts";
 import { recordBudgetUsage } from "./delegate-token-budget.ts";
 import { resolveThinkingProfile } from "./thinking-profile.ts";
@@ -383,15 +379,6 @@ export type AgentUIEvent =
     type: "batch_progress_updated";
     snapshot: import("./delegate-batches.ts").DelegateBatchSnapshot;
   }
-  | {
-    type: "checkpoint_created";
-    checkpoint: AgentCheckpointSummary;
-  }
-  | {
-    type: "checkpoint_restored";
-    checkpoint: AgentCheckpointSummary;
-    restoredFileCount: number;
-  }
   | InteractionRequestEvent;
 
 // Re-export from registry (SSOT)
@@ -486,8 +473,6 @@ export interface OrchestratorConfig {
     ) => Promise<"approved" | "cancelled" | "revise">;
     shouldGateMutatingTools: () => boolean;
   };
-  /** Session-scoped automatic checkpoint recorder for supported file mutations. */
-  checkpointRecorder?: CheckpointRecorder;
   /** Input queue for parent→child mid-task steering messages. */
   inputQueue?: string[];
   /** Shared supervisor-managed coordination state for delegated work. */
@@ -650,9 +635,7 @@ function applyAdaptiveToolPhase(
   const phase = deriveRuntimePhase(state, config, userRequest);
   state.runtimePhase = phase;
 
-  if (
-    config.planModeState?.active && config.planModeState.phase !== "executing"
-  ) {
+  if (config.planModeState?.active || state.planState) {
     return phase;
   }
 
@@ -669,7 +652,6 @@ function applyAdaptiveToolPhase(
     denylist: baselineDenylist,
     ownerId: config.toolOwnerId,
   });
-
   let phaseAllowlist = state.toolSearchAllowlist;
   if (!phaseAllowlist?.length) {
     const categories = getPhaseCategories(phase);

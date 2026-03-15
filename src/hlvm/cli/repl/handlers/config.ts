@@ -12,6 +12,21 @@ import { getErrorMessage } from "../../../../common/utils.ts";
 import { validateValue } from "../../../../common/config/types.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { debounce } from "@std/async";
+import { isFrontierProvider, supportsAgentExecution } from "../../../agent/constants.ts";
+import { parseModelString } from "../../../providers/registry.ts";
+
+async function computeSupportsAgent(model?: string): Promise<boolean> {
+  if (!model) return false;
+  if (isFrontierProvider(model)) return true;
+  try {
+    const { ai } = await import("../../../api/ai.ts");
+    const [parsedProvider, parsedName] = parseModelString(model);
+    const modelInfo = await ai.models.get(parsedName, parsedProvider ?? undefined);
+    return supportsAgentExecution(model, modelInfo);
+  } catch {
+    return true;
+  }
+}
 
 /**
  * @openapi
@@ -30,7 +45,8 @@ import { debounce } from "@std/async";
  */
 export async function handleGetConfig(): Promise<Response> {
   const cfg = await config.all;
-  return Response.json(cfg);
+  const supportsAgent = await computeSupportsAgent(cfg.model);
+  return Response.json({ ...cfg, supportsAgent });
 }
 
 /**
@@ -83,7 +99,8 @@ export async function handlePatchConfig(req: Request): Promise<Response> {
 
   try {
     const updated = await config.patch(updates);
-    return Response.json(updated);
+    const supportsAgent = await computeSupportsAgent(updated.model);
+    return Response.json({ ...updated, supportsAgent });
   } catch (error) {
     return jsonError(getErrorMessage(error), 500);
   }
@@ -100,7 +117,8 @@ export async function handlePatchConfig(req: Request): Promise<Response> {
 export async function handleResetConfig(): Promise<Response> {
   try {
     const updated = await config.reset();
-    return Response.json(updated);
+    const supportsAgent = await computeSupportsAgent(updated.model);
+    return Response.json({ ...updated, supportsAgent });
   } catch (error) {
     return jsonError(
       getErrorMessage(error),
@@ -120,7 +138,8 @@ export async function handleResetConfig(): Promise<Response> {
 export async function handleReloadConfig(): Promise<Response> {
   try {
     const updated = await config.reload();
-    return Response.json(updated);
+    const supportsAgent = await computeSupportsAgent(updated.model);
+    return Response.json({ ...updated, supportsAgent });
   } catch (error) {
     return jsonError(
       getErrorMessage(error),
@@ -158,7 +177,9 @@ export function handleConfigStream(req: Request): Response {
     };
 
     const unsubConfig = config.subscribe((nextConfig) => {
-      emitConfig(nextConfig);
+      void computeSupportsAgent(nextConfig.model).then((supportsAgent) => {
+        emitConfig({ ...nextConfig, supportsAgent });
+      });
     });
 
     void config.reload();

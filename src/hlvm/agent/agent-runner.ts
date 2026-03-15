@@ -82,7 +82,6 @@ import {
   loadPersistedAgentHistory,
   loadPersistedAgentSessionMetadata,
   loadPersistedAgentTodos,
-  persistAgentCheckpointSummary,
   persistAgentPlanState,
   persistAgentTeamRuntime,
   persistAgentTodos,
@@ -106,7 +105,6 @@ import {
   effectiveToolSurfaceIncludesMutation,
   isMutatingTool,
 } from "./security/safety.ts";
-import { createCheckpointRecorder } from "./checkpoints.ts";
 import { loadAgentHookRuntime, type AgentHookRuntime } from "./hooks.ts";
 import { cloneToolList } from "./orchestrator-state.ts";
 
@@ -572,6 +570,8 @@ export async function runAgentQuery(
       session.todoState.items = [];
     }
 
+    session.resetToolFilter?.();
+
     if (persistedTurnSessionId) {
       persistedTurn = startPersistedAgentTurn(persistedTurnSessionId, query);
     }
@@ -716,27 +716,6 @@ export async function runAgentQuery(
         source: "plan",
       });
     };
-    let latestCheckpointSignature = "";
-    const checkpointRecorder = sessionKey
-      ? createCheckpointRecorder({
-        sessionId: sessionKey,
-        requestId: persistedTurn?.requestId ?? crypto.randomUUID(),
-        onSummaryChanged: (summary) => {
-          persistAgentCheckpointSummary(sessionKey, summary);
-          const signature = `${summary.id}:${summary.fileCount}:${
-            summary.restoredAt ?? 0
-          }`;
-          if (signature === latestCheckpointSignature) {
-            return;
-          }
-          latestCheckpointSignature = signature;
-          callbacks.onAgentEvent?.({
-            type: "checkpoint_created",
-            checkpoint: { ...summary },
-          });
-        },
-      })
-      : undefined;
     const planReview = {
       getCurrentPlan: (): typeof activePlan => activePlan,
       shouldGateMutatingTools: (): boolean =>
@@ -785,13 +764,10 @@ export async function runAgentQuery(
           const choice = response.userInput?.trim().toLowerCase();
           const reviseRequested = choice === "revise";
           const autoApproved = choice === "approve:auto";
-          const manualApproved = choice === "approve:manual";
-          const approved = autoApproved || manualApproved ||
+          const approved = autoApproved ||
             (!reviseRequested && response.approved === true);
           if (planModeState && approved) {
-            planModeState.executionPermissionMode = autoApproved
-              ? "yolo"
-              : "default";
+            planModeState.executionPermissionMode = "yolo";
           }
           resolvePendingPlanReview(sessionKey, {
             approved,
@@ -978,7 +954,6 @@ export async function runAgentQuery(
             ? restorePlanState(activePlan, completedPlanStepIds)
             : null,
           planReview,
-          checkpointRecorder,
           toolAllowlist: session.toolFilterState?.allowlist ??
             session.llmConfig?.toolAllowlist,
           toolDenylist: session.toolFilterState?.denylist ??

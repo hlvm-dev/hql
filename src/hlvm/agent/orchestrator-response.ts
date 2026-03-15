@@ -395,10 +395,11 @@ function formatPlanForExecution(
     "Do not run heavyweight verification like deno check unless the approved step explicitly calls for it or the change is risky enough to justify it.",
     "Once you have enough context to make the requested change, edit immediately. Do not keep searching for a perfect anchor.",
     "Once the requested change is confirmed with a targeted read or diff, mark the step done instead of continuing with extra tool calls.",
+    "The planning phase should have already surfaced clarifications and operational constraints. Do not ask new clarifying questions during execution unless progress is genuinely impossible without one.",
     "Keep todo_write aligned with actual progress so the checklist stays accurate.",
     "When you call todo_write, only use these statuses: pending, in_progress, completed.",
     "Do not repeat edit_file on the same change unless the prior edit failed or a follow-up read proved the edit did not land correctly.",
-    "The approved execution mode is authoritative. Do not ask new permission-style clarification questions about shell/file-move access unless you hit a truly unexpected blocker that the plan could not have surfaced earlier.",
+    "The approved execution mode is authoritative. Treat expected file-move, mkdir, copy, rename, and delete work as part of execution instead of reopening plan-time clarification.",
     "Keep your progress aligned to these steps:",
     ...plan.steps.map((step, index) =>
       `${index + 1}. [${step.id}] ${step.title}`

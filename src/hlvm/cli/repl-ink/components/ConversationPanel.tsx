@@ -173,6 +173,7 @@ export function getConversationDisplayItems(
   options?: {
     compactPlanTranscript?: boolean;
     suppressCurrentTurnPrompt?: boolean;
+    hideConversationText?: boolean;
   },
 ): ConversationItem[] {
   const visibleTurnStartIndex = options?.compactPlanTranscript
@@ -194,6 +195,12 @@ export function getConversationDisplayItems(
     if (
       currentTurnStartIndex >= 0 &&
       itemIndex >= currentTurnStartIndex &&
+      (item.type === "user" || item.type === "assistant")
+    ) {
+      return false;
+    }
+    if (
+      options?.hideConversationText &&
       (item.type === "user" || item.type === "assistant")
     ) {
       return false;
@@ -449,13 +456,19 @@ export function ConversationPanel({
   );
   const hideTranscriptDuringPicker = compactPlanTranscript &&
     pickerInteractionActive;
+  const hidePlanChromeDuringReviewPicker = Boolean(
+    pendingPlanReview && pickerInteractionActive,
+  );
+  const hideConversationText = compactPlanTranscript &&
+    planningPhase !== "done";
   const displayItems = useMemo(
     () =>
       getConversationDisplayItems(items, {
         compactPlanTranscript,
         suppressCurrentTurnPrompt: Boolean(interactionRequest),
+        hideConversationText,
       }),
-    [compactPlanTranscript, interactionRequest, items],
+    [compactPlanTranscript, hideConversationText, interactionRequest, items],
   );
 
   useEffect(() => {
@@ -488,11 +501,13 @@ export function ConversationPanel({
         : undefined,
     [compactPlanTranscript, items],
   );
-  const activeTodoItem = compactPlanTranscript
+  const activeTodoItem = compactPlanTranscript &&
+      (planningPhase === "executing" || planningPhase === "done")
     ? todoState?.items.find((item) => item.status === "in_progress")
     : undefined;
-  const todoSectionTitle = planningPhase === "executing" ||
-      planningPhase === "done"
+  const todoSectionTitle = pendingPlanReview
+    ? "Plan"
+    : planningPhase === "executing" || planningPhase === "done"
     ? "Progress"
     : "Planning...";
   const interactionRows = estimateInteractionDialogRows(
@@ -501,7 +516,7 @@ export function ConversationPanel({
   );
   const headerRows = useMemo(() => {
     let total = 0;
-    if (phaseTitle || phaseSummary) {
+    if (!hidePlanChromeDuringReviewPicker && (phaseTitle || phaseSummary)) {
       total += estimateWrappedRows(phaseTitle ?? "Researching", contentWidth);
       if (phaseSummary) {
         total += estimateWrappedRows(phaseSummary, contentWidth);
@@ -511,8 +526,10 @@ export function ConversationPanel({
       }
       total += 1;
     }
-    total += estimateTodoRows(todoState, contentWidth);
-    if (activeTodoItem) {
+    if (!hidePlanChromeDuringReviewPicker) {
+      total += estimateTodoRows(todoState, contentWidth);
+    }
+    if (!hidePlanChromeDuringReviewPicker && activeTodoItem) {
       total += estimateWrappedRows(
         `Current: ${activeTodoItem.content}`,
         contentWidth,
@@ -523,6 +540,7 @@ export function ConversationPanel({
     activeTodoItem,
     contentWidth,
     latestPlanActivity,
+    hidePlanChromeDuringReviewPicker,
     phaseSummary,
     phaseTitle,
     planningPhase,
@@ -691,7 +709,7 @@ export function ConversationPanel({
         <Text color={sc.text.muted}>Conversation starting...</Text>
       )}
 
-      {(phaseTitle || phaseSummary) && (
+      {!hidePlanChromeDuringReviewPicker && (phaseTitle || phaseSummary) && (
         <Box
           marginBottom={1}
           flexDirection="column"
@@ -721,7 +739,7 @@ export function ConversationPanel({
         </Box>
       )}
 
-      {activeTodoItem && (
+      {!hidePlanChromeDuringReviewPicker && activeTodoItem && (
         <Box
           marginBottom={1}
           flexDirection="column"
@@ -733,7 +751,8 @@ export function ConversationPanel({
         </Box>
       )}
 
-      {todoState && todoState.items.length > 0 && (
+      {!hidePlanChromeDuringReviewPicker && todoState &&
+        todoState.items.length > 0 && (
         <Box
           marginBottom={1}
           flexDirection="column"

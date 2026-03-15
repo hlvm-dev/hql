@@ -14,6 +14,7 @@ import {
   parseBingSearchResults,
   parseDuckDuckGoSearchResults,
 } from "../../../src/hlvm/agent/tools/web/duckduckgo.ts";
+import { resetHlvmDirCacheForTests } from "../../../src/common/paths.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import type { AgentPolicy } from "../../../src/hlvm/agent/policy.ts";
 import {
@@ -32,6 +33,13 @@ import { __testOnlyResetWebCache } from "../../../src/hlvm/agent/web-cache.ts";
 async function withIsolatedSearchRegistry(
   fn: () => Promise<void>,
 ): Promise<void> {
+  const originalHlvmDir = Deno.env.get("HLVM_DIR");
+  const tempHlvmDir = await Deno.makeTempDir({
+    dir: "/tmp",
+    prefix: "hlvm-web-tools-",
+  });
+  Deno.env.set("HLVM_DIR", tempHlvmDir);
+  resetHlvmDirCacheForTests();
   await __testOnlyResetWebCache();
   resetSearchProviderBootstrap();
   resetSearchProviders();
@@ -43,6 +51,14 @@ async function withIsolatedSearchRegistry(
     resetSearchProviderBootstrap();
     resetSearchProviders();
     initSearchProviders();
+    resetHlvmDirCacheForTests();
+    if (originalHlvmDir) {
+      Deno.env.set("HLVM_DIR", originalHlvmDir);
+    } else {
+      Deno.env.delete("HLVM_DIR");
+    }
+    resetHlvmDirCacheForTests();
+    await Deno.remove(tempHlvmDir, { recursive: true }).catch(() => undefined);
   }
 }
 
@@ -61,13 +77,15 @@ async function withStubbedFetch(
 }
 
 Deno.test("web tools: input validation and network policy denial are enforced", async () => {
-  const denyAll: AgentPolicy = { version: 1, networkRules: { deny: ["*"] } };
+  await withIsolatedSearchRegistry(async () => {
+    const denyAll: AgentPolicy = { version: 1, networkRules: { deny: ["*"] } };
 
-  await assertRejects(() => WEB_TOOLS.search_web.fn({} as Record<string, unknown>, "/tmp"), ValidationError);
-  await assertRejects(() => WEB_TOOLS.fetch_url.fn({} as Record<string, unknown>, "/tmp"), ValidationError);
-  await assertRejects(() => WEB_TOOLS.web_fetch.fn({} as Record<string, unknown>, "/tmp"), ValidationError);
-  await assertRejects(() => WEB_TOOLS.search_web.fn({ query: "hlvm" }, "/tmp", { policy: denyAll }), ValidationError);
-  await assertRejects(() => WEB_TOOLS.fetch_url.fn({ url: "https://example.com" }, "/tmp", { policy: denyAll }), ValidationError);
+    await assertRejects(() => WEB_TOOLS.search_web.fn({} as Record<string, unknown>, "/tmp"), ValidationError);
+    await assertRejects(() => WEB_TOOLS.fetch_url.fn({} as Record<string, unknown>, "/tmp"), ValidationError);
+    await assertRejects(() => WEB_TOOLS.web_fetch.fn({} as Record<string, unknown>, "/tmp"), ValidationError);
+    await assertRejects(() => WEB_TOOLS.search_web.fn({ query: "hlvm" }, "/tmp", { policy: denyAll }), ValidationError);
+    await assertRejects(() => WEB_TOOLS.fetch_url.fn({ url: "https://example.com" }, "/tmp", { policy: denyAll }), ValidationError);
+  });
 });
 
 Deno.test("web tools: search_web recovers nested JSON args embedded in query", async () => {
@@ -227,6 +245,152 @@ Deno.test("web tools: formatting surfaces fetched evidence without deterministic
   assert(lowConfidence !== null);
   assert(lowConfidence!.summaryDisplay.includes("Evidence is weak."));
   assert(lowConfidence!.llmContent.includes("Related links to check:"));
+});
+
+Deno.test({
+  name: "web tools: search_web retries DuckDuckGo page 2 when first-pass confidence is low",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withIsolatedSearchRegistry(async () => {
+      const offsets: number[] = [];
+
+      await withStubbedFetch(async (input) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (!url.startsWith("https://html.duckduckgo.com/html/?")) {
+          throw new Error(`Unexpected fetch: ${url}`);
+        }
+
+        const parsed = new URL(url);
+        const offset = Number(parsed.searchParams.get("s") ?? "0");
+        offsets.push(offset);
+
+        if (offset === 0) {
+          return new Response(
+            `<html><body>
+              <a class="result__a" href="/l/?uddg=https%3A%2F%2Fgeneric.example.com%2Fhome">Generic home page</a>
+              <a class="result__snippet">Welcome portal for general browsing.</a>
+            </body></html>`,
+            { status: 200, headers: { "Content-Type": "text/html" } },
+          );
+        }
+
+        return new Response(
+          `<html><body>
+            <a class="result__a" href="/l/?uddg=https%3A%2F%2Freact.dev%2Freference%2Freact%2FuseEffect">useEffect - React</a>
+            <a class="result__snippet">Official React reference for useEffect cleanup and effect reruns.</a>
+          </body></html>`,
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        );
+      }, async () => {
+        resetWebToolBudget();
+        const raw = await WEB_TOOLS.search_web.fn(
+          {
+            query: "official react useeffect cleanup",
+            maxResults: 3,
+            prefetch: false,
+            reformulate: false,
+          },
+          "/tmp",
+        ) as Record<string, unknown>;
+
+        const diagnostics = raw.diagnostics as Record<string, unknown>;
+        const provider = diagnostics.provider as Record<string, unknown>;
+        const secondPage = provider.secondPage as Record<string, unknown>;
+        const results = raw.results as Array<Record<string, unknown>>;
+
+        assertEquals(offsets, [0, 30]);
+        assertEquals(secondPage.attempted, true);
+        assertEquals(secondPage.fetched, true);
+        assertEquals(secondPage.initialLowConfidence, true);
+        assertEquals(secondPage.mergedFilteredCount, 2);
+        assertEquals(
+          results.some((result) => result.url === "https://react.dev/reference/react/useEffect"),
+          true,
+        );
+      });
+    });
+  },
+});
+
+Deno.test({
+  name: "web tools: search_web preserves table evidence as markdown in extracted passages and llm content",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withIsolatedSearchRegistry(async () => {
+      registerSearchProvider({
+        name: "duckduckgo",
+        displayName: "table-preservation",
+        requiresApiKey: false,
+        search(query: string, opts: SearchCallOptions) {
+          return Promise.resolve({
+            query,
+            provider: "duckduckgo",
+            count: 1,
+            results: [{
+              title: "Runtime support matrix",
+              url: "https://docs.example.com/runtime-matrix",
+              snippet: "Runtime support matrix for Deno and Node.",
+            }],
+            diagnostics: { limit: opts.limit },
+          });
+        },
+      });
+
+      await withStubbedFetch(async (input) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url !== "https://docs.example.com/runtime-matrix") {
+          return new Response("not found", { status: 404, headers: { "Content-Type": "text/plain" } });
+        }
+        return new Response(
+          `<html><body><article>
+            <h2>Runtime support</h2>
+            <table>
+              <thead>
+                <tr><th>Runtime</th><th>Support</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Deno</td><td>Full</td></tr>
+                <tr><td>Node</td><td>Partial</td></tr>
+              </tbody>
+            </table>
+            <p>Deno has full support for the web search pipeline.</p>
+          </article></body></html>`,
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        );
+      }, async () => {
+        resetWebToolBudget();
+        const raw = await WEB_TOOLS.search_web.fn(
+          {
+            query: "runtime support deno node",
+            maxResults: 1,
+            prefetch: true,
+            reformulate: false,
+          },
+          "/tmp",
+          { modelId: "test-model" },
+        ) as Record<string, unknown>;
+
+        const results = raw.results as Array<Record<string, unknown>>;
+        const passages = results[0]?.passages as string[] | undefined;
+        assertEquals(
+          passages?.some((passage) =>
+            passage.includes("| Runtime | Support |") &&
+            passage.includes("| Deno | Full |") &&
+            passage.includes("| Node | Partial |")
+          ),
+          true,
+        );
+
+        const formatted = __testOnlyFormatSearchWebResult(raw);
+        assert(formatted !== null);
+        assertEquals(formatted!.llmContent.includes("| Runtime | Support |"), true);
+        assertEquals(formatted!.llmContent.includes("| Deno | Full |"), true);
+        assertEquals(formatted!.llmContent.includes("| Node | Partial |"), true);
+      });
+    });
+  },
 });
 
 Deno.test({
@@ -495,7 +659,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "web tools: search_web stays single-pass and omits deep query diagnostics",
+  name: "web tools: custom provider path stays single-pass and omits deep query diagnostics",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {

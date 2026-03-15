@@ -330,11 +330,6 @@ export async function writeFile(
     );
     assertMaxBytes("write_file size", byteLength, maxBytes);
 
-    const existed = await platform.fs.exists(validPath);
-    await options?.checkpointRecorder?.captureFileMutation(validPath, {
-      status: existed ? "modified" : "created",
-    });
-
     // Write file
     await platform.fs.writeTextFile(validPath, args.content);
 
@@ -445,10 +440,6 @@ export async function editFile(
       RESOURCE_LIMITS.maxWriteBytes,
     );
     assertMaxBytes("edit_file write size", byteLength, maxWriteBytes);
-
-    await options?.checkpointRecorder?.captureFileMutation(validPath, {
-      status: "modified",
-    });
 
     // Write updated content
     await platform.fs.writeTextFile(validPath, newContent);
@@ -815,11 +806,6 @@ export async function archiveFiles(
         `Archive already exists at ${args.outputPath}. Set overwrite: true to replace it.`,
       );
     }
-
-    const outputExists = await platform.fs.exists(outputPath);
-    await options?.checkpointRecorder?.captureFileMutation(outputPath, {
-      status: outputExists ? "modified" : "created",
-    });
 
     for (const inputPath of inputPaths) {
       const stat = await platform.fs.stat(inputPath);

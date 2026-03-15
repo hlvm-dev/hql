@@ -9,6 +9,15 @@ export interface InteractionPickerOption {
   recommended?: boolean;
 }
 
+export function resolvePickerDigitSelection(
+  input: string,
+  optionCount: number,
+): number | undefined {
+  if (!/^[1-9]$/.test(input)) return undefined;
+  const index = Number(input) - 1;
+  return index >= 0 && index < optionCount ? index : undefined;
+}
+
 interface InteractionPickerProps {
   title: string;
   subtitle?: string;
@@ -78,7 +87,7 @@ export const InteractionPicker = React.memo(function InteractionPicker(
   );
   const trimmedNotes = notes.trim();
   const displayedHint = notesMode
-    ? "Type notes · Tab return to choices · Enter submit · Esc interrupt"
+    ? "Type notes · Tab return to choices · Enter submit · Esc cancel"
     : hint;
 
   useInput((input, key) => {
@@ -105,6 +114,17 @@ export const InteractionPicker = React.memo(function InteractionPicker(
       if (!key.ctrl && !key.meta && input.length > 0 && input !== "\r" && input !== "\n") {
         setNotes((current: string) => current + input);
       }
+      return;
+    }
+    const digitSelection = resolvePickerDigitSelection(input, options.length);
+    if (digitSelection !== undefined) {
+      const option = options[digitSelection];
+      setSelectedIndex(digitSelection);
+      if (allowNotes && optionNeedsNotes(option) && trimmedNotes.length === 0) {
+        setNotesMode(true);
+        return;
+      }
+      onSubmit(option, trimmedNotes);
       return;
     }
     if (key.upArrow || key.leftArrow || input === "k" || input === "h") {

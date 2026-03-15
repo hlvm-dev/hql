@@ -1,9 +1,9 @@
 /**
- * DdgSearchBackend - Thin single-pass web retrieval.
+ * DdgSearchBackend - Thin bounded web retrieval.
  *
  * Strong models own routing, iteration, and final synthesis.
  * This backend only does:
- *   search -> deterministic fetch selection -> fetch/enrich -> evidence annotation
+ *   search -> optional low-confidence recovery -> fetch/enrich -> evidence annotation
  */
 
 import type { Citation, SearchResult } from "./search-provider.ts";
@@ -12,11 +12,11 @@ import {
   readResponseBody,
 } from "./fetch-core.ts";
 import {
-  extractCodeBlocks,
+  extractStructuredBlocks,
   extractReadableContent,
   isHtmlLikeResponse,
   parseHtml,
-  restoreCodeBlocks,
+  restoreStructuredBlocks,
 } from "./html-parser.ts";
 import {
   dedupeSearchResultsStable,
@@ -440,12 +440,15 @@ export class DdgSearchBackend implements WebSearchBackend {
             return { url: target.url!, passages: [] as string[] };
           }
 
-          const { cleaned: cleanedHtml, blocks: codeBlocks } = extractCodeBlocks(rawHtml);
+          const { cleaned: cleanedHtml, blocks: structuredBlocks } = extractStructuredBlocks(rawHtml);
           const parsed = parseHtml(cleanedHtml, PREFETCH_MAX_TEXT, 3);
           const readable = await extractReadableContent(cleanedHtml, finalUrl);
-          let extractionText = readable?.text || parsed.text;
-          if (codeBlocks.size > 0) {
-            extractionText = restoreCodeBlocks(extractionText, codeBlocks);
+          const readableStructured = readable?.content
+            ? parseHtml(readable.content, PREFETCH_MAX_TEXT, 1)
+            : null;
+          let extractionText = readableStructured?.text || readable?.text || parsed.text;
+          if (structuredBlocks.size > 0) {
+            extractionText = restoreStructuredBlocks(extractionText, structuredBlocks);
           }
           let passages = extractRelevantPassages(query, extractionText);
           if (target.snippet) {

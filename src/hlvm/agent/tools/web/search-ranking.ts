@@ -432,31 +432,115 @@ export function scorePassage(lower: string, tokens: string[]): number {
 }
 
 /**
- * Split text into passage candidates, treating fenced code blocks (``` ... ```)
- * as atomic units that must not be split on newlines.
+ * Split text into structural blocks while keeping fenced code blocks atomic.
+ * Tables survive as a single block because they are emitted as contiguous
+ * markdown lines separated by blank lines upstream.
+ */
+function splitIntoStructuralBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  const lines = text.split("\n");
+  const current: string[] = [];
+  let inCodeBlock = false;
+
+  const flush = () => {
+    const block = current.join("\n").trim();
+    if (block) blocks.push(block);
+    current.length = 0;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\r/g, "");
+    const trimmed = line.trim();
+    const isFence = trimmed.startsWith("```");
+
+    if (isFence) {
+      current.push(line);
+      inCodeBlock = !inCodeBlock;
+      if (!inCodeBlock) flush();
+      continue;
+    }
+
+    if (inCodeBlock) {
+      current.push(line);
+      continue;
+    }
+
+    if (!trimmed) {
+      flush();
+      continue;
+    }
+
+    current.push(line);
+  }
+
+  flush();
+  return blocks;
+}
+
+function isHeadingLikeBlock(block: string): boolean {
+  const trimmed = block.trim();
+  if (!trimmed || trimmed.startsWith("```") || trimmed.startsWith("|")) return false;
+  if (/^#{1,6}\s+\S/.test(trimmed)) return true;
+  if (/^(npm|pnpm|yarn|bun|npx|pip|cargo|go|deno)\b/i.test(trimmed)) return false;
+  if (/[{}()[\]=;]/.test(trimmed)) return false;
+  if (trimmed.includes("\n")) return false;
+  if (trimmed.length > 100) return false;
+  if (/[.!?;]$/.test(trimmed)) return false;
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 10) return false;
+  const alphaCount = (trimmed.match(/[a-z]/gi) ?? []).length;
+  if (alphaCount === 0) return false;
+  return true;
+}
+
+/**
+ * Build coherent passage candidates by attaching heading-like blocks to the
+ * body content that follows them. Heading-less documents fall back to
+ * paragraph/code/table blocks.
  */
 function splitIntoPassageCandidates(text: string): string[] {
   const candidates: string[] = [];
-  const fencedBlockRegex = /^```[^\n]*\n[\s\S]*?^```$/gm;
-  let lastIndex = 0;
+  const blocks = splitIntoStructuralBlocks(text);
+  let pendingHeading: string | null = null;
+  let sectionBlocks: string[] = [];
 
-  for (const match of text.matchAll(fencedBlockRegex)) {
-    // Add text segments before this code block as paragraph splits
-    const before = text.slice(lastIndex, match.index);
-    for (const p of before.split(/\n{2,}|\n/).map((s) => s.trim())) {
-      if (p.length >= PASSAGE_MIN_CHARS) candidates.push(p);
+  const flushSection = (): void => {
+    if (!pendingHeading) return;
+    const combined = [pendingHeading, ...sectionBlocks].join("\n\n").trim();
+    if (combined.length >= PASSAGE_MIN_CHARS) {
+      candidates.push(combined);
     }
-    // Add the code block as one atomic candidate
-    const block = match[0].trim();
-    if (block.length >= PASSAGE_MIN_CHARS) candidates.push(block);
-    lastIndex = match.index! + match[0].length;
+    pendingHeading = null;
+    sectionBlocks = [];
+  };
+
+  for (let index = 0; index < blocks.length; index++) {
+    const block = blocks[index];
+    const next = blocks[index + 1];
+
+    if (isHeadingLikeBlock(block) && next && !isHeadingLikeBlock(next)) {
+      flushSection();
+      pendingHeading = block.trim();
+      continue;
+    }
+
+    if (isHeadingLikeBlock(block)) {
+      flushSection();
+      pendingHeading = block.trim();
+      continue;
+    }
+
+    if (pendingHeading) {
+      sectionBlocks.push(block);
+      continue;
+    }
+
+    if (block.length >= PASSAGE_MIN_CHARS) {
+      candidates.push(block);
+    }
   }
 
-  // Remaining text after last code block
-  const remaining = text.slice(lastIndex);
-  for (const p of remaining.split(/\n{2,}|\n/).map((s) => s.trim())) {
-    if (p.length >= PASSAGE_MIN_CHARS) candidates.push(p);
-  }
+  flushSection();
 
   return candidates;
 }

@@ -208,7 +208,6 @@ async function executeToolWithTimeout(
   toolOwnerId?: string,
   ensureMcpLoaded?: () => Promise<void>,
   todoState?: OrchestratorConfig["todoState"],
-  checkpointRecorder?: OrchestratorConfig["checkpointRecorder"],
   modelId?: string,
   modelTier?: ModelTier,
   parentSignal?: AbortSignal,
@@ -231,7 +230,6 @@ async function executeToolWithTimeout(
         delegateOwnerId,
         ensureMcpLoaded,
         todoState,
-        checkpointRecorder,
         searchTools: (query, options) =>
           searchTools(query, {
             ...options,
@@ -419,6 +417,20 @@ export async function executeToolCall(
       return buildToolErrorResult(
         toolCall.toolName,
         `Invalid arguments for ${toolCall.toolName}: ${details}`,
+        startedAt,
+        config,
+        toolCall.id,
+      );
+    }
+
+    if (
+      toolCall.toolName === "ask_user" &&
+      config.planModeState?.active &&
+      config.planModeState.phase === "executing"
+    ) {
+      return buildToolErrorResult(
+        toolCall.toolName,
+        "Approved plan execution should not ask new clarifying questions. Continue with best effort, or finish with a concise blocker summary instead.",
         startedAt,
         config,
         toolCall.id,
@@ -936,7 +948,6 @@ export async function executeToolCall(
         config.toolOwnerId,
         config.ensureMcpLoaded,
         config.todoState,
-        config.checkpointRecorder,
         config.modelId,
         config.modelTier,
         config.signal,

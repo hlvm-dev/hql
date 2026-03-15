@@ -17,7 +17,6 @@ import { buildStoredAgentHistoryMessages } from "../cli/repl/handlers/chat-conte
 import type { TodoItem } from "./todo-state.ts";
 import type { DelegateTranscriptSnapshot } from "./delegate-transcript.ts";
 import type { Plan } from "./planning.ts";
-import type { AgentCheckpointSummary } from "./checkpoints.ts";
 import {
   cloneTeamRuntimeSnapshot,
   type TeamRuntimeSnapshot,
@@ -52,7 +51,6 @@ export interface PersistedAgentSessionMetadata {
     requestedAt: number;
   };
   approvedPlanSignature?: string;
-  checkpoints?: AgentCheckpointSummary[];
   teamRuntime?: TeamRuntimeSnapshot;
   delegateBatches?: DelegateBatchSnapshot[];
 }
@@ -194,9 +192,6 @@ export function parsePersistedAgentSessionMetadata(
         requestedAt: agentRecord.pendingPlanReview.requestedAt,
       }
       : undefined;
-  const checkpoints = Array.isArray(agentRecord.checkpoints)
-    ? agentRecord.checkpoints.filter(isCheckpointSummaryRecord)
-    : undefined;
   const teamRuntime = isTeamRuntimeSnapshotRecord(agentRecord.teamRuntime)
     ? cloneTeamRuntimeSnapshot(agentRecord.teamRuntime)
     : undefined;
@@ -229,7 +224,6 @@ export function parsePersistedAgentSessionMetadata(
     approvedPlanSignature: typeof agentRecord.approvedPlanSignature === "string"
       ? agentRecord.approvedPlanSignature
       : undefined,
-    checkpoints: checkpoints?.map((checkpoint) => ({ ...checkpoint })),
     teamRuntime,
     delegateBatches,
   };
@@ -264,19 +258,6 @@ function isPendingPlanReviewRecord(
   return typeof record.requestId === "string" &&
     typeof record.requestedAt === "number" &&
     isPlanRecord(record.plan);
-}
-
-function isCheckpointSummaryRecord(value: unknown): value is AgentCheckpointSummary {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return typeof record.id === "string" &&
-    typeof record.requestId === "string" &&
-    typeof record.createdAt === "number" &&
-    typeof record.fileCount === "number" &&
-    typeof record.reversible === "boolean" &&
-    (
-      record.restoredAt === undefined || typeof record.restoredAt === "number"
-    );
 }
 
 function isTeamRuntimeSnapshotRecord(value: unknown): value is TeamRuntimeSnapshot {
@@ -422,21 +403,6 @@ export function clearPersistedAgentPlanningState(sessionId: string): void {
   });
 }
 
-export function persistAgentCheckpointSummary(
-  sessionId: string,
-  summary: AgentCheckpointSummary,
-): void {
-  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
-    const next = new Map(
-      (metadata.checkpoints ?? []).map((checkpoint) => [checkpoint.id, checkpoint]),
-    );
-    next.set(summary.id, { ...summary });
-    metadata.checkpoints = [...next.values()].sort((a, b) =>
-      a.createdAt - b.createdAt
-    );
-  });
-}
-
 export function persistAgentTeamRuntime(
   sessionId: string,
   snapshot: TeamRuntimeSnapshot,
@@ -453,14 +419,6 @@ export function persistAgentDelegateBatches(
   updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
     metadata.delegateBatches = snapshots.map(cloneDelegateBatchSnapshot);
   });
-}
-
-export function loadPersistedAgentCheckpointSummaries(
-  sessionId: string,
-): AgentCheckpointSummary[] {
-  const session = getSession(sessionId);
-  const metadata = parsePersistedAgentSessionMetadata(session?.metadata);
-  return (metadata.checkpoints ?? []).map((checkpoint) => ({ ...checkpoint }));
 }
 
 export function createPersistedAgentChildSession(

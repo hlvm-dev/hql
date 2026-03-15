@@ -47,11 +47,6 @@ export const ConfirmationDialog = React.memo(
               recommended: true,
             },
             {
-              label: "Yes, manually approve actions",
-              value: "approve:manual",
-              detail: "Switch to Default and confirm risky actions as they happen.",
-            },
-            {
               label: "Revise this plan",
               value: "revise",
               detail: "Stay in Plan mode and continue planning with the model.",
@@ -64,10 +59,7 @@ export const ConfirmationDialog = React.memo(
           ]}
           hint={PLAN_REVIEW_PICKER_HINT}
           onSubmit={(option: InteractionPickerOption) => {
-            if (
-              option.value === "approve:auto" ||
-              option.value === "approve:manual"
-            ) {
+            if (option.value === "approve:auto") {
               onResolve(requestId, {
                 approved: true,
                 userInput: option.value,

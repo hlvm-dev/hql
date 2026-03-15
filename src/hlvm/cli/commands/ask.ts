@@ -692,22 +692,6 @@ export async function askCommand(args: string[]): Promise<void> {
             }\n`,
           );
           break;
-        case "checkpoint_created":
-          flushStream();
-          log.raw.log(
-            `\n[Checkpoint] ${event.checkpoint.fileCount} file${
-              event.checkpoint.fileCount === 1 ? "" : "s"
-            } protected\n`,
-          );
-          break;
-        case "checkpoint_restored":
-          flushStream();
-          log.raw.log(
-            `\n[Checkpoint Restored] ${event.restoredFileCount} file${
-              event.restoredFileCount === 1 ? "" : "s"
-            }\n`,
-          );
-          break;
       }
       return;
     }
@@ -814,8 +798,6 @@ export async function askCommand(args: string[]): Promise<void> {
       case "plan_step":
       case "plan_review_required":
       case "plan_review_resolved":
-      case "checkpoint_created":
-      case "checkpoint_restored":
         break;
       case "turn_stats": {
         const dur = event.durationMs

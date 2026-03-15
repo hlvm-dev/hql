@@ -30,7 +30,10 @@ import { FooterHint } from "./FooterHint.tsx";
 import { QueuePreview } from "./QueuePreview.tsx";
 import { ConversationPanel } from "./ConversationPanel.tsx";
 import { RenderErrorBoundary } from "./ErrorBoundary.tsx";
-import { isPickerInteractionRequest } from "./conversation/interaction-dialog-layout.ts";
+import {
+  isPickerInteractionRequest,
+  parsePlanReviewToolArgs,
+} from "./conversation/interaction-dialog-layout.ts";
 import {
   executeHandler,
   inspectHandlerKeybinding,
@@ -47,7 +50,11 @@ import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
 import { useTeamState } from "../hooks/useTeamState.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
-import { useOverlayPanel } from "../hooks/useOverlayPanel.ts";
+import {
+  useOverlayPanel,
+  type OverlayPanel,
+  type SurfacePanel,
+} from "../hooks/useOverlayPanel.ts";
 import { useSessionPicker } from "../hooks/useSessionPicker.ts";
 import { useConversationComposer } from "../hooks/useConversationComposer.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
@@ -96,6 +103,7 @@ import {
   enqueueConversationDraft,
 } from "../utils/conversation-queue.ts";
 import { resolveCtrlCAction } from "../ctrl-c-behavior.ts";
+import type { InteractionResponse } from "../../../agent/registry.ts";
 
 interface HistoryEntry {
   id: number;
@@ -129,6 +137,38 @@ function isAsyncIterable(
 ): value is AsyncIterableIterator<string> {
   return !!value && typeof value === "object" &&
     Symbol.asyncIterator in (value as object);
+}
+
+export function shouldAutoCloseConversationSurface(options: {
+  activeOverlay: OverlayPanel;
+  surfacePanel: SurfacePanel;
+  itemCount: number;
+  hasActiveRun: boolean;
+  queuedDraftCount: number;
+  hasPendingInteraction: boolean;
+  hasPlanState: boolean;
+}): boolean {
+  return options.activeOverlay === "none" &&
+    options.surfacePanel === "conversation" &&
+    options.itemCount === 0 &&
+    !options.hasActiveRun &&
+    options.queuedDraftCount === 0 &&
+    !options.hasPendingInteraction &&
+    !options.hasPlanState;
+}
+
+export function shouldRenderMainBanner(options: {
+  showBanner: boolean;
+  hasBeenCleared: boolean;
+  isOverlayOpen: boolean;
+  hasStandaloneSurface: boolean;
+  hasActivePlanningState: boolean;
+}): boolean {
+  return options.showBanner &&
+    !options.hasBeenCleared &&
+    !options.isOverlayOpen &&
+    !options.hasStandaloneSurface &&
+    !options.hasActivePlanningState;
 }
 
 /**
@@ -375,14 +415,53 @@ function AppContent(
     interruptConversationRun,
     handleForceInterrupt,
   } = agentRunner;
-  useEffect(() => {
-    if (activeOverlay !== "none") return;
+  const handleConversationInteractionResponse = useCallback((
+    requestId: string,
+    response: InteractionResponse,
+  ) => {
+    const interaction = pendingInteraction;
     if (
-      surfacePanel === "conversation" &&
-      conversation.items.length === 0 &&
-      !agentControllerRef.current &&
-      pendingConversationQueue.length === 0 &&
-      !pendingInteraction
+      interaction?.mode === "permission" &&
+      interaction.requestId === requestId &&
+      interaction.toolName === "plan_review"
+    ) {
+      const plan = conversation.pendingPlanReview?.plan ??
+        parsePlanReviewToolArgs(interaction.toolName, interaction.toolArgs);
+      if (plan) {
+        const choice = response.userInput?.trim().toLowerCase();
+        const reviseRequested = choice === "revise";
+        const autoApproved = choice === "approve:auto";
+        const approved = autoApproved ||
+          (!reviseRequested && response.approved === true);
+        conversation.addEvent({
+          type: "plan_review_resolved",
+          plan,
+          approved,
+          decision: approved
+            ? "approved"
+            : reviseRequested
+            ? "revise"
+            : "cancelled",
+        });
+      }
+    }
+    handleInteractionResponse(requestId, response);
+  }, [
+    conversation,
+    handleInteractionResponse,
+    pendingInteraction,
+  ]);
+  useEffect(() => {
+    if (
+      shouldAutoCloseConversationSurface({
+        activeOverlay,
+        surfacePanel,
+        itemCount: conversation.items.length,
+        hasActiveRun: isEvaluating || agentControllerRef.current !== null,
+        queuedDraftCount: pendingConversationQueue.length,
+        hasPendingInteraction: Boolean(pendingInteraction),
+        hasPlanState: hasActivePlanningState,
+      })
     ) {
       setSurfacePanel("none");
     }
@@ -392,8 +471,10 @@ function AppContent(
     surfacePanel,
     conversation.items.length,
     agentControllerRef,
+    isEvaluating,
     pendingConversationQueue.length,
     pendingInteraction,
+    hasActivePlanningState,
     setSurfacePanel,
   ]);
 
@@ -1248,7 +1329,13 @@ function AppContent(
       flexDirection="column"
       paddingX={1}
     >
-      {showBanner && !hasBeenCleared && !hasConversationContext &&
+      {shouldRenderMainBanner({
+        showBanner,
+        hasBeenCleared,
+        isOverlayOpen,
+        hasStandaloneSurface,
+        hasActivePlanningState,
+      }) &&
         (
           init.ready
             ? (
@@ -1360,7 +1447,7 @@ function AppContent(
                 allowConversationToggleHotkeys}
               interactionRequest={pendingInteraction}
               interactionQueueLength={interactionQueue.length}
-              onInteractionResponse={handleInteractionResponse}
+              onInteractionResponse={handleConversationInteractionResponse}
               onQuestionInterrupt={pendingInteraction?.mode === "question"
                 ? () =>
                   interruptConversationRun({

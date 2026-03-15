@@ -318,19 +318,6 @@ export async function handleAgentMode(
               decision: event.decision,
             });
             break;
-          case "checkpoint_created":
-            emit({
-              event: "checkpoint_created",
-              checkpoint: event.checkpoint,
-            });
-            break;
-          case "checkpoint_restored":
-            emit({
-              event: "checkpoint_restored",
-              checkpoint: event.checkpoint,
-              restored_file_count: event.restoredFileCount,
-            });
-            break;
           case "turn_stats":
             emit({
               event: "turn_stats",

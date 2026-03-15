@@ -15,7 +15,6 @@ import {
   loadPersistedAgentSessionMetadata,
   loadPersistedAgentTodos,
   parsePersistedAgentSessionMetadata,
-  persistAgentCheckpointSummary,
   persistAgentPlanState,
   persistPendingPlanReview,
   persistAgentTeamRuntime,
@@ -213,7 +212,7 @@ Deno.test("persisted transcript: child sessions link back to parent metadata", (
   }
 });
 
-Deno.test("persisted transcript: pending plan review and checkpoint summaries persist in session metadata", () => {
+Deno.test("persisted transcript: pending plan review persists in session metadata", () => {
   const db = setupStoreTestDb();
   try {
     const sessionId = getPersistedAgentSessionId();
@@ -224,18 +223,10 @@ Deno.test("persisted transcript: pending plan review and checkpoint summaries pe
     };
 
     persistPendingPlanReview(sessionId, "review-1", plan);
-    persistAgentCheckpointSummary(sessionId, {
-      id: "cp-1",
-      requestId: "req-1",
-      createdAt: 1,
-      fileCount: 1,
-      reversible: true,
-    });
 
     const metadata = loadPersistedAgentSessionMetadata(sessionId);
     assertEquals(metadata.pendingPlanReview?.requestId, "review-1");
     assertEquals(metadata.pendingPlanReview?.plan.goal, "Edit config safely");
-    assertEquals(metadata.checkpoints?.[0]?.id, "cp-1");
   } finally {
     db.close();
   }

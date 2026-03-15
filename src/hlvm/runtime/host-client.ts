@@ -669,17 +669,6 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         approved: event.approved,
         decision: event.decision,
       };
-    case "checkpoint_created":
-      return {
-        type: "checkpoint_created",
-        checkpoint: event.checkpoint,
-      };
-    case "checkpoint_restored":
-      return {
-        type: "checkpoint_restored",
-        checkpoint: event.checkpoint,
-        restoredFileCount: event.restored_file_count,
-      };
     case "turn_stats":
       return {
         type: "turn_stats",

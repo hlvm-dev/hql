@@ -99,6 +99,43 @@ Deno.test("web ranking: scorePassage and extractRelevantPassages reward coverage
   );
 });
 
+Deno.test("web ranking: heading-aware chunking keeps headings attached to body content and preserves atomic code blocks", () => {
+  const text = [
+    "Installation",
+    "",
+    "npm install @hlvm/search-web --save-dev",
+    "",
+    "Usage",
+    "",
+    "```ts",
+    "const runtime = searchWeb({ query: \"react cleanup\" });",
+    "const formatted = formatResult(runtime);",
+    "```",
+    "",
+    "The usage section shows how to keep fetched passages attached to their section heading.",
+  ].join("\n");
+
+  const installationPassages = extractRelevantPassages(
+    "installation npm install",
+    text,
+  );
+  assertEquals(
+    installationPassages[0],
+    "Installation\n\nnpm install @hlvm/search-web --save-dev",
+  );
+
+  const usagePassages = extractRelevantPassages(
+    "usage formatResult fetched passages section heading",
+    text,
+  );
+  assertEquals(
+    usagePassages.some((passage) =>
+      passage.includes("Usage\n\n```ts\nconst runtime = searchWeb({ query: \"react cleanup\" });\nconst formatted = formatResult(runtime);\n```")
+    ),
+    true,
+  );
+});
+
 Deno.test("web ranking: generateQueryVariants preserves caps and important numeric tokens", () => {
   const variants = generateQueryVariants(
     "tensorflow 2025 2.2 tutorial updates",

@@ -191,40 +191,6 @@ export function getConversationsDbPath(): string {
 }
 
 /**
- * Get the root directory for automatic agent checkpoints (~/.hlvm/checkpoints)
- */
-function getCheckpointsRootDir(): string {
-  return join(getHlvmDir(), "checkpoints");
-}
-
-/**
- * Get the checkpoint directory for a specific session (~/.hlvm/checkpoints/<session-id>)
- */
-export function getSessionCheckpointsDir(sessionId: string): string {
-  return join(getCheckpointsRootDir(), sessionId);
-}
-
-/**
- * Get the directory for a specific checkpoint (~/.hlvm/checkpoints/<session-id>/<checkpoint-id>)
- */
-export function getCheckpointDir(
-  sessionId: string,
-  checkpointId: string,
-): string {
-  return join(getSessionCheckpointsDir(sessionId), checkpointId);
-}
-
-/**
- * Get the manifest path for a specific checkpoint.
- */
-export function getCheckpointManifestPath(
-  sessionId: string,
-  checkpointId: string,
-): string {
-  return join(getCheckpointDir(sessionId, checkpointId), "manifest.json");
-}
-
-/**
  * Get the runtime directory (~/.hlvm/.runtime)
  * Used for embedded binaries and runtime state.
  */

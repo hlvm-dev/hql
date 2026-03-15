@@ -825,8 +825,6 @@ export function reduceTranscriptState(
               : state.planningPhase,
             streamingState: ConversationStreamingState.Responding,
           };
-        case "checkpoint_created":
-        case "checkpoint_restored":
           return state;
         case "turn_stats": {
           const cleaned = removeCurrentTurnTurnStats(
@@ -873,9 +871,19 @@ export function reduceTranscriptState(
     }
     case "user_message": {
       const startTurn = input.startTurn !== false;
-      let nextState = {
+      const clearFinishedPlanState = startTurn && state.planningPhase === "done";
+      let nextState: TranscriptState = {
         ...state,
         items: startTurn ? cleanupTransientItems(state.items) : state.items,
+        activePlan: clearFinishedPlanState ? undefined : state.activePlan,
+        planningPhase: clearFinishedPlanState ? undefined : state.planningPhase,
+        completedPlanStepIds: clearFinishedPlanState
+          ? []
+          : state.completedPlanStepIds,
+        planTodoState: clearFinishedPlanState ? undefined : state.planTodoState,
+        pendingPlanReview: clearFinishedPlanState
+          ? undefined
+          : state.pendingPlanReview,
       };
       let id: string;
       [nextState, id] = nextItemId(nextState);
@@ -898,7 +906,7 @@ export function reduceTranscriptState(
       [nextState, assistantId] = nextItemId({
         ...nextState,
         items: [...nextState.items, userItem],
-      });
+      } satisfies TranscriptState);
       const pendingAssistant: AssistantItem = {
         type: "assistant",
         id: assistantId,

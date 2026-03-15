@@ -194,28 +194,6 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
             approved: true,
           });
           emit({
-            event: "checkpoint_created",
-            checkpoint: {
-              id: "cp-1",
-              requestId: "req-1",
-              createdAt: 1,
-              fileCount: 2,
-              reversible: true,
-            },
-          });
-          emit({
-            event: "checkpoint_restored",
-            checkpoint: {
-              id: "cp-1",
-              requestId: "req-1",
-              createdAt: 1,
-              fileCount: 2,
-              reversible: true,
-              restoredAt: 2,
-            },
-            restored_file_count: 2,
-          });
-          emit({
             event: "result_stats",
             stats: {
               messageCount: 4,
@@ -291,8 +269,6 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       assert(uiEvents.includes("plan_step"));
       assert(uiEvents.includes("plan_review_required"));
       assert(uiEvents.includes("plan_review_resolved"));
-      assert(uiEvents.includes("checkpoint_created"));
-      assert(uiEvents.includes("checkpoint_restored"));
       assertEquals(traces, ["iteration"]);
       assertEquals(metaEvents, [1]);
       assertEquals(result.text, "Let me fetch that first. done");

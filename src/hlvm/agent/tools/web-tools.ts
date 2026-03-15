@@ -294,8 +294,11 @@ function resultEvidenceSummary(
 }
 
 function compactEvidenceText(text: string): string {
+  const trimmed = text.trim();
+  const preservesStructure = trimmed.startsWith("```") ||
+    /\|[^\n]+\|\n\|(?:\s*:?-+:?\s*\|)+/.test(trimmed);
   return truncateText(
-    text.replace(/\s+/g, " ").trim(),
+    preservesStructure ? trimmed : text.replace(/\s+/g, " ").trim(),
     MAX_LLM_EVIDENCE_CHARS,
   ).text;
 }

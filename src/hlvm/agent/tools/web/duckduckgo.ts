@@ -12,7 +12,9 @@ import { assertUrlAllowed, isTransientHttpError } from "./fetch-core.ts";
 import { decodeHtmlEntities, parseAttributes } from "./html-parser.ts";
 import {
   dedupeSearchResultsStable,
+  filterSearchResultsForTimeRange,
 } from "./search-ranking.ts";
+import { assessToolSearchConfidence } from "./search-backend.ts";
 import {
   filterSearchResultsByDomain,
   type SearchTimeRange,
@@ -34,6 +36,7 @@ interface SearchResult {
 
 /** DuckDuckGo server-side date filter values */
 const DDG_DF_PARAM: Partial<Record<SearchTimeRange, string>> = { day: "d", week: "w", month: "m", year: "y" };
+const DDG_PAGE_SIZE_OFFSET = 30;
 
 // ============================================================
 // HTML Tag Helpers
@@ -380,6 +383,19 @@ async function fetchBingPage(
   return parseBingSearchResults(html, Math.max(30, 20));
 }
 
+function applySearchFilters(
+  results: SearchResult[],
+  timeRange: SearchTimeRange,
+  allowedDomains?: string[],
+  blockedDomains?: string[],
+): SearchResult[] {
+  const deduped = dedupeSearchResultsStable(results);
+  const domainFiltered = (allowedDomains?.length || blockedDomains?.length)
+    ? filterSearchResultsByDomain(deduped, allowedDomains, blockedDomains)
+    : deduped;
+  return filterSearchResultsForTimeRange(domainFiltered, timeRange);
+}
+
 async function duckDuckGoSearch(
   query: string,
   limit: number,
@@ -395,6 +411,12 @@ async function duckDuckGoSearch(
   let provider = "duckduckgo";
   let fallbackProvider: string | undefined;
   let anomalyBlocked = false;
+  let page2: SearchResult[] = [];
+  let page2Fetched = false;
+  let page2RetryTriggered = false;
+  let initialLowConfidence = false;
+  let initialConfidenceReason: string | undefined;
+  let page2Error: string | undefined;
   try {
     page1 = await fetchDdgPage(query, timeRange, locale, timeoutMs, options);
   } catch (error) {
@@ -411,17 +433,72 @@ async function duckDuckGoSearch(
     }
   }
 
-  const deduped = dedupeSearchResultsStable(page1);
-  const filtered = (allowedDomains?.length || blockedDomains?.length)
-    ? filterSearchResultsByDomain(deduped, allowedDomains, blockedDomains)
-    : deduped;
+  const filteredPage1 = applySearchFilters(
+    page1,
+    timeRange,
+    allowedDomains,
+    blockedDomains,
+  );
+  const firstPassResults = filteredPage1.slice(0, limit);
+  const firstPassConfidence = assessToolSearchConfidence(query, firstPassResults);
+  initialLowConfidence = firstPassConfidence.lowConfidence;
+  initialConfidenceReason = firstPassConfidence.reason;
+
+  if (!anomalyBlocked && provider === "duckduckgo" && firstPassConfidence.lowConfidence) {
+    page2RetryTriggered = true;
+    try {
+      page2 = await fetchDdgPage(
+        query,
+        timeRange,
+        locale,
+        timeoutMs,
+        options,
+        DDG_PAGE_SIZE_OFFSET,
+      );
+      page2Fetched = true;
+    } catch (error) {
+      page2Error = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  const mergedResults = [...page1, ...page2];
+  const deduped = dedupeSearchResultsStable(mergedResults);
+  const filtered = applySearchFilters(
+    mergedResults,
+    timeRange,
+    allowedDomains,
+    blockedDomains,
+  );
   const topResults = filtered.slice(0, limit);
+  const mergedConfidence = assessToolSearchConfidence(query, topResults);
   const diagnostics: Record<string, unknown> = {
     rawProviderOrder: true,
     anomalyBlocked,
-    parsedCount: page1.length,
+    parsedCount: mergedResults.length,
+    page1ParsedCount: page1.length,
+    page2ParsedCount: page2.length,
     dedupedCount: deduped.length,
     filteredCount: filtered.length,
+    page1FilteredCount: filteredPage1.length,
+    page2RetryTriggered,
+    page2Fetched,
+    page2Error,
+    initialLowConfidence,
+    initialConfidenceReason,
+    mergedLowConfidence: mergedConfidence.lowConfidence,
+    mergedConfidenceReason: mergedConfidence.reason,
+    secondPage: {
+      attempted: page2RetryTriggered,
+      fetched: page2Fetched,
+      offset: DDG_PAGE_SIZE_OFFSET,
+      error: page2Error,
+      initialLowConfidence,
+      initialConfidenceReason,
+      mergedLowConfidence: mergedConfidence.lowConfidence,
+      mergedConfidenceReason: mergedConfidence.reason,
+      page1FilteredCount: filteredPage1.length,
+      mergedFilteredCount: filtered.length,
+    },
     fallbackProvider,
   };
 

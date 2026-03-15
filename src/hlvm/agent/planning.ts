@@ -103,6 +103,7 @@ export function buildPlanModeReminder(
     "Prefer dedicated tools like read_file, search_code, list_files, and edit_file over shell_exec whenever possible.",
     "If the task depends on moving, renaming, deleting, or reorganizing files or folders, surface that during planning instead of discovering it mid-execution.",
     "For directory management, file moves, or binary file handling, make the plan explicitly include shell_exec in the relevant step tools when no dedicated file tool can perform the action.",
+    "Surface operational blockers and user choices during planning, not after approval. If shell access, binary-safe moves, rename strategy, or folder naming could matter, inspect that now and ask now.",
     "Do not answer general tutorial questions directly while planning.",
     "If the request is ambiguous or not concrete enough, ask one concise clarification with ask_user instead of writing a long conversational reply.",
     "When the clarification can be expressed as 2-4 concrete choices, call ask_user with options so the REPL can show a picker instead of a free-text prompt.",
@@ -111,6 +112,7 @@ export function buildPlanModeReminder(
     ...(directFileLine ? [directFileLine] : []),
     toolLine,
     "When the plan is ready, return ONLY a PLAN ... END_PLAN block with valid JSON matching the existing plan schema.",
+    "Once the plan is approved, execution should proceed without reopening clarification unless an unexpected blocker makes progress impossible.",
     "If the user asks for revisions, keep planning in the same session and emit a replacement PLAN block.",
   ].join("\n");
 }
