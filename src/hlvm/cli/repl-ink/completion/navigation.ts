@@ -116,20 +116,6 @@ export function calculateScrollWindow(
   return { start, end };
 }
 
-/**
- * Check if there are items above the visible window.
- */
-export function hasItemsAbove(window: ScrollWindow): boolean {
-  return window.start > 0;
-}
-
-/**
- * Check if there are items below the visible window.
- */
-export function hasItemsBelow(window: ScrollWindow, totalCount: number): boolean {
-  return window.end < totalCount;
-}
-
 // ============================================================
 // Selection Helpers
 // ============================================================

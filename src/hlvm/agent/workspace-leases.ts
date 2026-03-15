@@ -1,9 +1,9 @@
 import { getPlatform } from "../../platform/platform.ts";
-import { readProcessStream } from "../../common/stream-utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { copyDirectoryRecursive } from "../../common/fs-copy.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import { CHILD_WORKSPACE_PREFIX } from "./constants.ts";
+import { runGit as runGitRaw } from "./tools/git-tools.ts";
 
 const UUID_SHORT_LENGTH = 8;
 
@@ -23,28 +23,13 @@ function isNotFoundError(error: unknown): boolean {
     (error.name === "NotFound" || error.name === "NotFoundError");
 }
 
+/** Thin wrapper that trims stdout/stderr for workspace-lease callers. */
 async function runGit(
   args: string[],
   cwd: string,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
-  const platform = getPlatform();
-  const process = platform.command.run({
-    cmd: ["git", ...args],
-    cwd,
-    stdin: "null",
-    stdout: "piped",
-    stderr: "piped",
-  });
-  const [stdoutBytes, stderrBytes, status] = await Promise.all([
-    readProcessStream(process.stdout),
-    readProcessStream(process.stderr),
-    process.status,
-  ]);
-  return {
-    code: status.code,
-    stdout: new TextDecoder().decode(stdoutBytes).trim(),
-    stderr: new TextDecoder().decode(stderrBytes).trim(),
-  };
+  const r = await runGitRaw(args, cwd);
+  return { code: r.code, stdout: r.stdout.trim(), stderr: r.stderr.trim() };
 }
 
 async function resolveGitWorkspace(

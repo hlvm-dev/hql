@@ -10,7 +10,7 @@ This document is the migration source of truth for Gemini-inspired REPL UI behav
 | Static history + pending turn split | `src/hlvm/cli/repl-ink/components/ConversationPanel.tsx` | Implemented |
 | React markdown block + inline renderer | `src/hlvm/cli/repl-ink/components/markdown/*` + `AssistantMessage.tsx` | Implemented |
 | 3-section footer (workspace/state/model) | `src/hlvm/cli/repl-ink/components/FooterHint.tsx` | Implemented |
-| Prompt-first startup IA | `Banner.tsx` + `/quickstart` + `/warnings` | Implemented |
+| Prompt-first startup IA | `Banner.tsx` + `/help` | Implemented |
 | Deterministic Tab toggle completion | `Input.tsx` + completion navigation/lookup modules | Implemented |
 | Mention + attachment end-to-end payload wiring | `Input.tsx` + `App.tsx` + `agent/*` + `providers/sdk-runtime.ts` | Implemented |
 

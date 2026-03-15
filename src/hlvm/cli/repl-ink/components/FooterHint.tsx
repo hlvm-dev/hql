@@ -25,7 +25,6 @@ interface FooterProps {
   modelName?: string;
   statusMessage?: string;
   contextUsageLabel?: string;
-  checkpointLabel?: string;
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
   inConversation?: boolean;
@@ -129,17 +128,14 @@ export function buildFooterLeftState({
 interface FooterRightStateInput {
   modelName?: string;
   contextUsageLabel?: string;
-  checkpointLabel?: string;
 }
 
 export function buildFooterRightState({
   modelName,
   contextUsageLabel,
-  checkpointLabel,
 }: FooterRightStateInput): { infoText: string } {
   const infoParts: string[] = [];
   if (contextUsageLabel) infoParts.push(contextUsageLabel);
-  if (checkpointLabel) infoParts.push(checkpointLabel);
   if (modelName) infoParts.push(modelName);
   return {
     infoText: infoParts.join(FOOTER_SECTION_SEPARATOR),
@@ -152,7 +148,6 @@ export function FooterHint({
   modelName,
   statusMessage,
   contextUsageLabel,
-  checkpointLabel,
   interactionQueueLength = 0,
   hasDraftInput,
   inConversation,
@@ -188,7 +183,6 @@ export function FooterHint({
   const right = buildFooterRightState({
     modelName: model,
     contextUsageLabel,
-    checkpointLabel,
   });
 
   const rawTerminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;

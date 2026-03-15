@@ -7,7 +7,7 @@ import { isCommand, commands } from "../../../src/hlvm/cli/repl/commands.ts";
 
 Deno.test("isCommand - slash prefix", () => {
   assertEquals(isCommand("/help"), true);
-  assertEquals(isCommand("/clear"), true);
+  assertEquals(isCommand("/new"), true);
   assertEquals(isCommand("/unknown"), true);
   assertEquals(isCommand("  /help  "), true); // With whitespace
 });
@@ -25,12 +25,13 @@ Deno.test("isCommand - not a command", () => {
 Deno.test("commands registry - has expected commands", () => {
   const expectedCommands = [
     "/help",
-    "/clear",
-    "/reset",
+    "/new",
+    "/flush",
     "/exit",
-    "/bindings",
-    "/unbind",
     "/config",
+    "/model",
+    "/status",
+    "/mcp",
   ];
 
   for (const cmd of expectedCommands) {
@@ -38,3 +39,20 @@ Deno.test("commands registry - has expected commands", () => {
   }
 });
 
+Deno.test("commands registry - omits removed commands", () => {
+  const removedCommands = [
+    "/clear",
+    "/reset",
+    "/bindings",
+    "/unbind",
+    "/models",
+    "/undo",
+    "/clear-history",
+    "/quickstart",
+    "/warnings",
+  ];
+
+  for (const cmd of removedCommands) {
+    assertEquals(cmd in commands, false, `Unexpected command: ${cmd}`);
+  }
+});

@@ -57,13 +57,9 @@ function mergeCapabilities(
   if (!primary?.length) return secondary;
   if (!secondary?.length) return primary;
 
-  const merged = [...primary];
-  for (const capability of secondary) {
-    if (!merged.includes(capability)) {
-      merged.push(capability);
-    }
-  }
-  return merged;
+  const merged = new Set(primary);
+  for (const capability of secondary) merged.add(capability);
+  return [...merged];
 }
 
 function mergeMetadata(
@@ -107,12 +103,12 @@ export function dedupeModelList(models: ModelInfo[]): ModelInfo[] {
 
   const deduped: ModelInfo[] = [];
   for (const groupedModels of byName.values()) {
-    const preferredModels = groupedModels.some((model) =>
-        model.metadata?.apiKeyConfigured === true
-      )
-      ? groupedModels.filter((model) =>
-        model.metadata?.apiKeyConfigured !== false
-      )
+    // Single pass: partition into models with API key vs. rest
+    const withApiKey = groupedModels.filter((m) =>
+      m.metadata?.apiKeyConfigured === true
+    );
+    const preferredModels = withApiKey.length > 0
+      ? withApiKey
       : groupedModels;
     deduped.push(preferredModels.reduce(mergeModelInfo));
   }

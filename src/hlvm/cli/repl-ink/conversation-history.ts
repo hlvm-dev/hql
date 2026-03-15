@@ -140,40 +140,47 @@ function getItemTimestamp(item: ConversationItem): number {
   }
 }
 
+function resolvePlanningPhase(
+  metadata: ReturnType<typeof parsePersistedAgentSessionMetadata>,
+): "reviewing" | "executing" | "done" | undefined {
+  if (metadata.pendingPlanReview) return "reviewing";
+  if (!metadata.plan) return undefined;
+  const completedCount = metadata.completedPlanStepIds?.length ?? 0;
+  return completedCount >= metadata.plan.steps.length ? "done" : "executing";
+}
+
 export function buildTranscriptStateFromSession(
   session: Session,
 ): TranscriptState {
   const baseItems = buildConversationItemsFromSessionMessages(session.messages);
   const delegateItems = buildDelegateItemsFromSession(session);
   const metadata = parsePersistedAgentSessionMetadata(session.meta.metadata);
-  const teamSnapshotItem: TeamRuntimeSnapshotInfoItem | undefined =
-    metadata.teamRuntime
-      ? (() => {
-        const snapshot = cloneTeamRuntimeSnapshot(metadata.teamRuntime);
-        const activeMembers = snapshot.members.filter((member) =>
-          member.status === "active" ||
-          member.status === "shutdown_requested" ||
-          member.status === "shutting_down"
-        ).length;
-        const pendingApprovals = snapshot.approvals.filter((approval) =>
-          approval.status === "pending"
-        ).length;
-        const unreadMessages = snapshot.messages.filter((message) =>
-          (!message.toMemberId ||
-            message.toMemberId === snapshot.leadMemberId) &&
-          !message.readBy.includes(snapshot.leadMemberId)
-        ).length;
-        return {
-          type: "info",
-          id: "session-team-runtime",
-          teamEventType: "team_runtime_snapshot",
-          text:
-            `Restored team state: ${activeMembers}/${snapshot.members.length} active · ${snapshot.tasks.length} tasks · ${pendingApprovals} pending reviews · ${unreadMessages} unread`,
-          snapshot,
-          ts: session.meta.updatedAt,
-        };
-      })()
-      : undefined;
+  let teamSnapshotItem: TeamRuntimeSnapshotInfoItem | undefined;
+  if (metadata.teamRuntime) {
+    const snapshot = cloneTeamRuntimeSnapshot(metadata.teamRuntime);
+    const activeMembers = snapshot.members.filter((member) =>
+      member.status === "active" ||
+      member.status === "shutdown_requested" ||
+      member.status === "shutting_down"
+    ).length;
+    const pendingApprovals = snapshot.approvals.filter((approval) =>
+      approval.status === "pending"
+    ).length;
+    const unreadMessages = snapshot.messages.filter((message) =>
+      (!message.toMemberId ||
+        message.toMemberId === snapshot.leadMemberId) &&
+      !message.readBy.includes(snapshot.leadMemberId)
+    ).length;
+    teamSnapshotItem = {
+      type: "info",
+      id: "session-team-runtime",
+      teamEventType: "team_runtime_snapshot",
+      text:
+        `Restored team state: ${activeMembers}/${snapshot.members.length} active · ${snapshot.tasks.length} tasks · ${pendingApprovals} pending reviews · ${unreadMessages} unread`,
+      snapshot,
+      ts: session.meta.updatedAt,
+    };
+  }
   const items = [
     ...baseItems,
     ...delegateItems,
@@ -191,14 +198,7 @@ export function buildTranscriptStateFromSession(
     items,
     nextId: items.length,
     activePlan: metadata.plan,
-    planningPhase: metadata.pendingPlanReview
-      ? "reviewing"
-      : metadata.plan
-      ? (metadata.completedPlanStepIds?.length ?? 0) >=
-          metadata.plan.steps.length
-        ? "done"
-        : "executing"
-      : undefined,
+    planningPhase: resolvePlanningPhase(metadata),
     completedPlanStepIds: [...(metadata.completedPlanStepIds ?? [])],
     todoState: metadata.todos
       ? { items: metadata.todos.map((item) => ({ ...item })) }
@@ -222,9 +222,6 @@ export function buildTranscriptStateFromSession(
           })),
         },
       }
-      : undefined,
-    latestCheckpoint: metadata.checkpoints?.length
-      ? { ...metadata.checkpoints[metadata.checkpoints.length - 1]! }
       : undefined,
   };
 }

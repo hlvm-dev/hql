@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import {
   buildSelectedModelConfigUpdates,
+  buildSelectedModelConfigUpdatesPreservingAgentMode,
   createModelSelectionState,
   formatSelectedModelLabel,
   isModelSelectionStateEqual,
@@ -60,6 +61,18 @@ Deno.test("buildSelectedModelConfigUpdates normalizes model and derives state", 
       model: "claude-code/claude-sonnet-4-5-20250929:agent",
       modelConfigured: true,
       agentMode: "claude-code-agent",
+    },
+  );
+});
+
+Deno.test("buildSelectedModelConfigUpdatesPreservingAgentMode omits agent mode while normalizing model", () => {
+  assertEquals(
+    buildSelectedModelConfigUpdatesPreservingAgentMode(
+      "claude-code/claude-sonnet-4-5-20250929",
+    ),
+    {
+      model: "claude-code/claude-sonnet-4-5-20250929",
+      modelConfigured: true,
     },
   );
 });

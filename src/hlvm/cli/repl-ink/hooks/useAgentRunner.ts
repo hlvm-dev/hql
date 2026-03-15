@@ -109,6 +109,14 @@ export interface UseAgentRunnerResult {
   closeConversationMode: (
     options?: { clearConversation?: boolean },
   ) => void;
+  interruptConversationRun: (
+    options?: {
+      requestId?: string;
+      clearPlanning?: boolean;
+      restoreDraft?: boolean;
+      addCancelledInfo?: boolean;
+    },
+  ) => void;
   handleForceInterrupt: (
     code: string,
     attachments?: AnyAttachment[],
@@ -588,6 +596,61 @@ export function useAgentRunner(
     [conversation, interactionQueue],
   );
 
+  const interruptConversationRun = useCallback((
+    options?: {
+      requestId?: string;
+      clearPlanning?: boolean;
+      restoreDraft?: boolean;
+      addCancelledInfo?: boolean;
+    },
+  ) => {
+    if (options?.requestId) {
+      handleInteractionResponse(options.requestId, {
+        approved: false,
+      });
+    }
+    if (options?.clearPlanning) {
+      conversation.cancelPlanning();
+    }
+
+    const controller = agentControllerRef.current;
+    if (!controller || controller.signal.aborted) {
+      return;
+    }
+
+    const restoredDraft = options?.restoreDraft === false
+      ? null
+      : mergeConversationDraftsForInterrupt(
+        pendingConversationQueue,
+        currentComposerDraft,
+      );
+
+    if (pendingStreamTimerRef.current) {
+      clearTimeout(pendingStreamTimerRef.current);
+      pendingStreamTimerRef.current = null;
+    }
+
+    agentControllerRef.current = null;
+    controller.abort();
+    interactionResolversRef.current.clear();
+    setInteractionQueue([]);
+    setIsEvaluating(false);
+    setPendingConversationQueue([]);
+    setFooterContextUsageLabel("");
+    restoreComposerDraft(restoredDraft);
+    if (options?.addCancelledInfo !== false) {
+      conversation.addInfo("Cancelled");
+    }
+    conversation.finalize();
+  }, [
+    conversation,
+    currentComposerDraft,
+    handleInteractionResponse,
+    pendingConversationQueue,
+    restoreComposerDraft,
+    setFooterContextUsageLabel,
+  ]);
+
   const handleForceInterrupt = useCallback(
     (code: string, attachments?: AnyAttachment[]) => {
       if (!code.trim()) return;
@@ -595,16 +658,10 @@ export function useAgentRunner(
       restoreComposerDraft(null);
       const draft = createConversationComposerDraft(code.trim(), attachments);
 
-      // Abort current agent if running
-      if (agentControllerRef.current) {
-        agentControllerRef.current.abort();
-        agentControllerRef.current = null;
-      }
-      interactionResolversRef.current.clear();
-      setInteractionQueue([]);
-      setIsEvaluating(false);
-      setPendingConversationQueue([]);
-      conversation.finalize();
+      interruptConversationRun({
+        restoreDraft: false,
+        addCancelledInfo: false,
+      });
 
       // Send immediately (bypass queue)
       const result = submitConversationDraft(draft);
@@ -618,7 +675,7 @@ export function useAgentRunner(
       }
     },
     [
-      conversation,
+      interruptConversationRun,
       replState,
       restoreComposerDraft,
       submitConversationDraft,
@@ -671,6 +728,7 @@ export function useAgentRunner(
     submitConversationDraft,
     handleInteractionResponse,
     closeConversationMode,
+    interruptConversationRun,
     handleForceInterrupt,
   };
 }

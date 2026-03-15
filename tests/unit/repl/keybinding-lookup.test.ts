@@ -6,6 +6,10 @@ import {
   refreshKeybindingLookup,
 } from "../../../src/hlvm/cli/repl-ink/keybindings/index.ts";
 import {
+  isPureEscKeyEvent,
+  shouldInterruptConversationOnEsc,
+} from "../../../src/hlvm/cli/repl-ink/components/Input.tsx";
+import {
   getCustomKeybindingsSnapshot,
   setCustomKeybindingsSnapshot,
 } from "../../../src/hlvm/cli/repl-ink/keybindings/custom-bindings.ts";
@@ -37,6 +41,36 @@ Deno.test("normalizeKeyInput: plain enter, tab, and escape keep their canonical 
   assertEquals(normalizeKeyInput("\t", makeKey()), "tab");
   assertEquals(normalizeKeyInput("\n", makeKey({ return: true })), "enter");
   assertEquals(normalizeKeyInput("\x1b", makeKey({ escape: true })), "esc");
+});
+
+Deno.test("input escape helpers distinguish pure escape from alt-prefixed sequences", () => {
+  assertEquals(isPureEscKeyEvent("\x1b", makeKey({ escape: true })), true);
+  assertEquals(isPureEscKeyEvent("", makeKey({ escape: true })), true);
+  assertEquals(isPureEscKeyEvent("z", makeKey({ escape: true })), false);
+  assertEquals(
+    shouldInterruptConversationOnEsc("\x1b", makeKey({ escape: true }), {
+      highlightMode: "chat",
+      isConversationTaskRunning: true,
+      hasInterruptHandler: true,
+    }),
+    true,
+  );
+  assertEquals(
+    shouldInterruptConversationOnEsc("z", makeKey({ escape: true }), {
+      highlightMode: "chat",
+      isConversationTaskRunning: true,
+      hasInterruptHandler: true,
+    }),
+    false,
+  );
+  assertEquals(
+    shouldInterruptConversationOnEsc("\x1b", makeKey({ escape: true }), {
+      highlightMode: "code",
+      isConversationTaskRunning: true,
+      hasInterruptHandler: true,
+    }),
+    false,
+  );
 });
 
 Deno.test("normalizeKeyInput: ctrl-modified enter and tab keep control-specific identities", () => {

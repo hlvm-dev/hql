@@ -297,7 +297,7 @@ Deno.test("buildTranscriptStateFromSession restores child snapshot tool failures
   }
 });
 
-Deno.test("buildTranscriptStateFromSession hydrates pending plan review and latest checkpoint metadata", () => {
+Deno.test("buildTranscriptStateFromSession hydrates pending plan review metadata", () => {
   const db = setupStoreTestDb();
   try {
     const sessionId = getPersistedAgentSessionId();
@@ -334,8 +334,7 @@ Deno.test("buildTranscriptStateFromSession hydrates pending plan review and late
     });
 
     assertEquals(state.pendingPlanReview?.plan.goal, "Edit config safely");
-    assertEquals(state.latestCheckpoint?.id, "cp-1");
-    assertEquals(state.latestCheckpoint?.fileCount, 1);
+    assertEquals(state.pendingPlanReview?.plan.steps.length, 1);
   } finally {
     db.close();
   }

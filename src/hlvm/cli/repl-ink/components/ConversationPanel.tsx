@@ -20,7 +20,6 @@ import {
 } from "../types.ts";
 import type { Plan, PlanningPhase } from "../../../agent/planning.ts";
 import type { TodoState } from "../../../agent/todo-state.ts";
-import type { AgentCheckpointSummary } from "../../../agent/checkpoints.ts";
 import type {
   InteractionRequestEvent,
   InteractionResponse,
@@ -68,7 +67,6 @@ interface ConversationPanelProps {
   planningPhase?: PlanningPhase;
   todoState?: TodoState;
   pendingPlanReview?: { plan: Plan };
-  latestCheckpoint?: AgentCheckpointSummary;
   /** Whether section toggle hotkeys should be active (avoid conflicts with input editing) */
   allowToggleHotkeys?: boolean;
   /** Pending interaction request (permission or question) */
@@ -221,6 +219,9 @@ function summarizeThinkingActivity(item: ThinkingItem): string {
 
 function summarizeToolActivity(tool: ToolCallDisplay): string {
   const args = truncate(tool.argsSummary.replace(/\s+/g, " ").trim(), 72, "…");
+  const shellCommand = tool.name === "shell_exec"
+    ? tool.argsSummary.replace(/\s+/g, " ").trim()
+    : "";
   switch (tool.name) {
     case "read_file":
       return args ? `Reading ${args}` : "Reading the target file";
@@ -234,6 +235,20 @@ function summarizeToolActivity(tool: ToolCallDisplay): string {
       return "Updating the checklist";
     case "ask_user":
       return "Waiting on a clarification";
+    case "shell_exec":
+      if (/^mkdir\b/i.test(shellCommand)) {
+        return args ? `Creating directories: ${args}` : "Creating directories";
+      }
+      if (/^mv\b/i.test(shellCommand)) {
+        return args ? `Moving files: ${args}` : "Moving files";
+      }
+      if (/^cp\b/i.test(shellCommand)) {
+        return args ? `Copying files: ${args}` : "Copying files";
+      }
+      if (/^rm\b/i.test(shellCommand)) {
+        return args ? `Removing files: ${args}` : "Removing files";
+      }
+      return args ? `Running ${args}` : "Running a shell command";
     default:
       return args ? `${tool.name} ${args}` : tool.name;
   }
@@ -401,7 +416,6 @@ export function ConversationPanel({
   planningPhase,
   todoState,
   pendingPlanReview,
-  latestCheckpoint,
   allowToggleHotkeys = true,
   interactionRequest,
   interactionQueueLength = 0,
@@ -504,23 +518,10 @@ export function ConversationPanel({
         contentWidth,
       ) + 1;
     }
-    if (latestCheckpoint) {
-      total += estimateWrappedRows(
-        latestCheckpoint.restoredAt
-          ? `Checkpoint restored · ${latestCheckpoint.fileCount} file${
-            latestCheckpoint.fileCount === 1 ? "" : "s"
-          }`
-          : `Checkpoint ready · ${latestCheckpoint.fileCount} file${
-            latestCheckpoint.fileCount === 1 ? "" : "s"
-          } protected · /undo available`,
-        contentWidth,
-      ) + 1;
-    }
     return total;
   }, [
     activeTodoItem,
     contentWidth,
-    latestCheckpoint,
     latestPlanActivity,
     phaseSummary,
     phaseTitle,
@@ -763,30 +764,6 @@ export function ConversationPanel({
               );
             })}
           </Box>
-        </Box>
-      )}
-
-      {latestCheckpoint && (
-        <Box
-          marginBottom={1}
-          flexDirection="column"
-        >
-          <Text
-            color={latestCheckpoint.restoredAt
-              ? sc.status.success
-              : sc.border.active}
-            bold
-          >
-            {latestCheckpoint.restoredAt ? "Checkpoint Restored" : "Checkpoint"}
-          </Text>
-          <Text color={sc.text.secondary}>
-            {" "}
-            {latestCheckpoint.fileCount} file
-            {latestCheckpoint.fileCount === 1 ? "" : "s"}
-            {latestCheckpoint.restoredAt
-              ? " reverted"
-              : " protected · /undo available"}
-          </Text>
         </Box>
       )}
 

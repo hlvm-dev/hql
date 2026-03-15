@@ -8,7 +8,6 @@
 export {
   ansi,
   clearOverlay,
-  getTerminalSize,
   type ClearRegion,
   type OverlayColors,
   type OverlayFrame,
@@ -16,7 +15,6 @@ export {
   OVERLAY_BG_COLOR,
   fg,
   bg,
-  calcOverlayPosition,
   fitOverlayRect,
   resolveOverlayFrame,
   shouldClearOverlay,

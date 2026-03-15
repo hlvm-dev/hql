@@ -14,8 +14,14 @@ interface ModelSelectionConfigApi {
   patch?: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<unknown>;
 }
 
+interface BaseModelSelectionUpdates
+  extends Pick<HlvmConfig, "model" | "modelConfigured"> {}
+
 interface ModelSelectionUpdates
-  extends Pick<HlvmConfig, "model" | "modelConfigured" | "agentMode"> {}
+  extends BaseModelSelectionUpdates, Pick<HlvmConfig, "agentMode"> {}
+
+interface PreservedAgentModeModelSelectionUpdates
+  extends BaseModelSelectionUpdates {}
 
 export interface ModelSelectionState {
   configuredModelId: string;
@@ -127,6 +133,20 @@ export function buildSelectedModelConfigUpdates(
     model: normalizedModel,
     modelConfigured: true,
     agentMode: resolveAgentModeForModel(normalizedModel),
+  };
+}
+
+export function buildSelectedModelConfigUpdatesPreservingAgentMode(
+  modelName: string,
+): PreservedAgentModeModelSelectionUpdates {
+  const normalizedModel = normalizeSelectedModelId(modelName);
+  if (!normalizedModel) {
+    throw new ConfigError("Invalid model ID");
+  }
+
+  return {
+    model: normalizedModel,
+    modelConfigured: true,
   };
 }
 

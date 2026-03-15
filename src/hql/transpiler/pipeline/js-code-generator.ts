@@ -276,6 +276,3 @@ export async function generateJavaScript(
     success: compileResult.success,
   };
 }
-
-// Re-export types for convenience
-export type { TypeDiagnostic } from "./ts-compiler.ts";

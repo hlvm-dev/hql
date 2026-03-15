@@ -95,6 +95,17 @@ export async function findFreePort(): Promise<number> {
   return await getPlatform().http.findFreePort();
 }
 
+/**
+ * Strip ANSI escape codes, carriage returns, and trailing whitespace from CLI output.
+ * Shared across binary and e2e tests to normalize subprocess output for assertions.
+ */
+export function normalizeCliOutput(text: string): string {
+  return text
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n");
+}
+
 export async function withCapturedOutput(
   fn: (output: () => string) => Promise<void>,
 ): Promise<void> {

@@ -1,6 +1,6 @@
 /**
  * HLVM REPL Commands
- * Handles slash-prefixed commands like /help, /clear, /reset
+ * Handles slash-prefixed commands like /help, /new, and /flush.
  */
 
 import { ANSI_COLORS } from "../ansi.ts";
@@ -9,9 +9,7 @@ import { handleConfigCommand } from "./config/index.ts";
 import { registry } from "../repl-ink/keybindings/index.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
-import { session as sessionApi } from "../../api/session.ts";
-import { listSessions } from "../../store/conversation-store.ts";
-import { handleDeleteAllSessions } from "./handlers/sessions.ts";
+import { clearCurrentSession } from "../../api/session.ts";
 import { normalizeModelId } from "../../../common/config/types.ts";
 import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
 import { listRuntimeMcpServers } from "../../runtime/host-client.ts";
@@ -20,17 +18,6 @@ const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
 // Pre-compiled whitespace pattern for command parsing
 const WHITESPACE_SPLIT_REGEX = /\s+/;
-
-interface BindingsApi {
-  clear: () => Promise<void>;
-  stats: () => Promise<{ path: string; count: number; size: number } | null>;
-  list: () => Promise<string[]>;
-  remove: (name: string) => Promise<boolean>;
-}
-
-function getBindingsApi(): BindingsApi | undefined {
-  return (globalThis as Record<string, unknown>).bindings as BindingsApi | undefined;
-}
 
 function getStartupWarnings(): string[] {
   const warnings = (globalThis as Record<string, unknown>).__hlvmStartupWarnings;
@@ -82,27 +69,12 @@ function createOutputWriter(
   };
 }
 
-export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
-  [
-    { name: "/help", description: "Show help message" },
-    { name: "/clear", description: "Clear the screen" },
-    { name: "/reset", description: "Reset REPL state and clear bindings" },
-    { name: "/exit", description: "Exit the REPL" },
-    { name: "/bindings", description: "Show saved definitions" },
-    { name: "/unbind", description: "Remove a definition" },
-    { name: "/config", description: "View/set configuration" },
-    { name: "/model", description: "Show or set current model" },
-    { name: "/models", description: "Open model picker" },
-    { name: "/status", description: "Show runtime status" },
-    { name: "/tasks", description: "View background tasks" },
-    { name: "/bg", description: "Push current eval to background" },
-    { name: "/resume", description: "Switch to another session" },
-    { name: "/undo", description: "Restore the latest checkpoint" },
-    { name: "/clear-history", description: "Delete all chat history" },
-    { name: "/mcp", description: "List configured MCP servers" },
-    { name: "/quickstart", description: "Show getting-started examples" },
-    { name: "/warnings", description: "Show startup warnings" },
-  ];
+// Commands handled by App.tsx (not in the `commands` record below)
+const APP_HANDLED_COMMANDS: readonly { name: string; description: string }[] = [
+  { name: "/resume", description: "Switch to another session" },
+  { name: "/tasks", description: "View background tasks" },
+  { name: "/bg", description: "Push current eval to background" },
+];
 
 /** Generate help text dynamically using keybinding registry */
 function generateHelpText(): string {
@@ -119,7 +91,6 @@ ${BOLD}HLVM REPL Functions:${RESET}
   ${CYAN}(describe x)${RESET}         Source + AI explanation & examples
   ${CYAN}(help)${RESET}               Show this help
   ${CYAN}(exit)${RESET}               Exit the REPL
-  ${CYAN}(clear)${RESET}              Clear the screen
 
 ${BOLD}Bindings (auto-persist def/defn):${RESET}
 
@@ -157,24 +128,18 @@ export const commands: Record<string, Command> = {
     },
   },
 
-  "/clear": {
-    description: "Clear the screen",
+  "/new": {
+    description: "Start a fresh conversation session",
     handler: () => {
+      clearCurrentSession();
       log.raw.clear();
     },
   },
 
-  "/reset": {
-    description: "Reset REPL state and clear bindings",
-    handler: async (state, _args, context) => {
-      state.reset();
-      const bindingsApi = getBindingsApi();
-      if (bindingsApi?.clear) {
-        await bindingsApi.clear();
-      }
-      context.output(
-        `${GREEN}REPL state reset. All bindings cleared.${RESET}`,
-      );
+  "/flush": {
+    description: "Clear visible screen output",
+    handler: () => {
+      log.raw.clear();
     },
   },
 
@@ -184,82 +149,6 @@ export const commands: Record<string, Command> = {
       context.output("\nGoodbye!");
       await state.flushHistory();
       getPlatform().process.exit(0);
-    },
-  },
-
-  "/bindings": {
-    description: "Show saved definitions",
-    handler: async (_state, _args, context) => {
-      const bindingsApi = getBindingsApi();
-      if (!bindingsApi) {
-        context.output(`${YELLOW}Bindings API not initialized.${RESET}`);
-        return;
-      }
-
-      const stats = await bindingsApi.stats();
-      if (stats) {
-        context.output(`${BOLD}Bindings:${RESET}`);
-        context.output(`  ${CYAN}Location:${RESET} ${stats.path}`);
-        context.output(`  ${CYAN}Definitions:${RESET} ${stats.count}`);
-        context.output(`  ${CYAN}Size:${RESET} ${stats.size} bytes`);
-        if (stats.count > 0) {
-          const names = await bindingsApi.list();
-          context.output(`  ${CYAN}Names:${RESET} ${names.join(", ")}`);
-        }
-      } else {
-        context.output(`${YELLOW}Could not read bindings file.${RESET}`);
-      }
-    },
-  },
-
-  "/unbind": {
-    description: "Remove a definition",
-    handler: async (_state, args, context) => {
-      const name = args.trim();
-      if (!name) {
-        context.output(`${YELLOW}Usage: /unbind <name>${RESET}`);
-        context.output(`${DIM_GRAY}Example: /unbind myFunction${RESET}`);
-        return;
-      }
-
-      const bindingsApi = getBindingsApi();
-      if (!bindingsApi) {
-        context.output(`${YELLOW}Bindings API not initialized.${RESET}`);
-        return;
-      }
-
-      const removed = await bindingsApi.remove(name);
-      if (removed) {
-        context.output(`${GREEN}Removed '${name}' from bindings.${RESET}`);
-        context.output(
-          `${DIM_GRAY}Note: The binding still exists in this session. Use /reset to clear all bindings.${RESET}`,
-        );
-      } else {
-        context.output(`${YELLOW}'${name}' not found in bindings.${RESET}`);
-      }
-    },
-  },
-
-  "/undo": {
-    description: "Restore the latest checkpoint",
-    handler: async (_state, _args, context) => {
-      const current = sessionApi.current();
-      if (!current) {
-        context.output(`${YELLOW}No current session to undo.${RESET}`);
-        return;
-      }
-
-      const result = await sessionApi.restoreCheckpoint(current.id);
-      if (!result.restored) {
-        context.output(`${YELLOW}No checkpoint available to restore.${RESET}`);
-        return;
-      }
-
-      context.output(
-        `${GREEN}Restored checkpoint ${result.checkpointId?.slice(0, 8) ?? ""} (${result.restoredFileCount} file${
-          result.restoredFileCount === 1 ? "" : "s"
-        }).${RESET}`,
-      );
     },
   },
 
@@ -295,7 +184,7 @@ export const commands: Record<string, Command> = {
           : "not configured";
         context.output(`${BOLD}Current model:${RESET} ${current}`);
         context.output(
-          `${DIM_GRAY}Tip: /model <provider/model> to set (or /models to browse).${RESET}`,
+          `${DIM_GRAY}Tip: /model opens the picker; /model <provider/model> sets it.${RESET}`,
         );
         return;
       }
@@ -316,15 +205,6 @@ export const commands: Record<string, Command> = {
 
       const normalized = await persistSelectedModelConfig(configApi, modelArg);
       context.output(`${GREEN}Default model set to ${normalized}.${RESET}`);
-    },
-  },
-
-  "/models": {
-    description: "Open model picker",
-    handler: (_state, _args, context) => {
-      context.output(
-        `${DIM_GRAY}Use /models in the interactive REPL to open the model picker.${RESET}`,
-      );
     },
   },
 
@@ -351,23 +231,6 @@ export const commands: Record<string, Command> = {
       context.output(`  ${CYAN}Startup warnings:${RESET} ${warningCount}`);
     },
   },
-
-  "/clear-history": {
-    description: "Delete all chat history",
-    handler: async (_state, _args, context) => {
-      const sessions = listSessions();
-      if (sessions.length === 0) {
-        context.output(`${YELLOW}No conversations to delete.${RESET}`);
-        return;
-      }
-      const response = handleDeleteAllSessions();
-      const payload = await response.json() as { count?: number };
-      const count = typeof payload.count === "number"
-        ? payload.count
-        : sessions.length;
-      context.output(`${GREEN}Deleted ${count} conversation(s).${RESET}`);
-    },
-  },
   "/mcp": {
     description: "List configured MCP servers",
     handler: async (_state, _args, context) => {
@@ -388,49 +251,18 @@ export const commands: Record<string, Command> = {
       }
     },
   },
-  "/quickstart": {
-    description: "Show getting-started examples",
-    handler: (_state, _args, context) => {
-      context.output(`
-${BOLD}Polyglot Mode${RESET}  ${DIM_GRAY}(expr) → HQL  |  expr → JS${RESET}
-
-  ${GREEN}let x = 10${RESET}                ${DIM_GRAY}→ JS variable${RESET}
-  ${GREEN}(+ x 5)${RESET}                   ${DIM_GRAY}→ HQL with JS${RESET}
-  ${GREEN}const f = (a,b) => a+b${RESET}    ${DIM_GRAY}→ JS function${RESET}
-  ${GREEN}(f 3 4)${RESET}                   ${DIM_GRAY}→ Call from HQL${RESET}
-
-${BOLD}Quick Start${RESET}
-
-  ${GREEN}(+ 1 2)${RESET}                   ${DIM_GRAY}→ Simple math${RESET}
-  ${GREEN}(fn add [x y] (+ x y))${RESET}   ${DIM_GRAY}→ Define function${RESET}
-  ${GREEN}(add 10 20)${RESET}               ${DIM_GRAY}→ Call function${RESET}
-
-${BOLD}AI${RESET}  ${DIM_GRAY}(import [ask] from "@hlvm/ai")${RESET}
-
-  ${GREEN}(await (ask "Hello"))${RESET}     ${DIM_GRAY}→ AI response${RESET}
-
-${DIM_GRAY}Tip: Type /help for all commands and keybindings.${RESET}`);
-    },
-  },
-
-  "/warnings": {
-    description: "Show startup warnings",
-    handler: (_state, _args, context) => {
-      const lines = getStartupWarnings();
-      if (lines.length === 0) {
-        context.output(`${DIM_GRAY}No startup warnings.${RESET}`);
-        return;
-      }
-
-      context.output(`${BOLD}Startup warnings:${RESET}`);
-      for (const warning of lines) {
-        context.output(`${YELLOW}•${RESET} ${warning}`);
-      }
-    },
-  },
   // NOTE: /tasks is handled by App.tsx to open BackgroundTasksOverlay
-  // Do not add /tasks handler here - it would conflict
+  // /bg, /resume, and /tasks are handled by App.tsx to manage interactive UI state.
 };
+
+/** Unified catalog of all slash commands (derived from `commands` + App-handled commands). */
+export const COMMAND_CATALOG: readonly { name: string; description: string }[] = [
+  ...Object.entries(commands).map(([name, cmd]) => ({
+    name,
+    description: cmd.description,
+  })),
+  ...APP_HANDLED_COMMANDS,
+];
 
 /** Check if input is a slash command */
 export function isCommand(input: string): boolean {

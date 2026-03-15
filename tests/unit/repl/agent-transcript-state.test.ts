@@ -286,6 +286,31 @@ Deno.test("agent transcript state clears the plan dashboard when review is cance
   assertEquals(next.planTodoState, undefined);
 });
 
+Deno.test("agent transcript state cancel_planning clears plan-owned todos too", () => {
+  const state = {
+    ...createTranscriptState(),
+    activePlan: samplePlan,
+    planningPhase: "executing" as const,
+    todoState: {
+      items: [
+        { id: "step-1", content: "Create the screenshots directory", status: "in_progress" as const },
+      ],
+    },
+    planTodoState: {
+      items: [
+        { id: "step-1", content: "Create the screenshots directory", status: "in_progress" as const },
+      ],
+    },
+  };
+
+  const next = reduceTranscriptState(state, { type: "cancel_planning" });
+
+  assertEquals(next.activePlan, undefined);
+  assertEquals(next.planningPhase, undefined);
+  assertEquals(next.todoState, undefined);
+  assertEquals(next.planTodoState, undefined);
+});
+
 Deno.test("agent transcript state returns to researching when review requests revision", () => {
   const state = {
     ...createTranscriptState(),
@@ -711,8 +736,8 @@ Deno.test("agent transcript state tracks plan review and checkpoint safety state
   });
 
   assertEquals(withReview.pendingPlanReview?.plan.goal, "Review file edits");
-  assertEquals(withCheckpoint.latestCheckpoint?.fileCount, 2);
-  assertEquals(restored.latestCheckpoint?.restoredAt, 2);
+  assertEquals(withCheckpoint.pendingPlanReview, withReview.pendingPlanReview);
+  assertEquals(restored.pendingPlanReview, withReview.pendingPlanReview);
   assertEquals(resolved.pendingPlanReview, undefined);
 });
 

@@ -43,6 +43,10 @@ import {
 } from "./engine.ts";
 import { supportsNativeThinking } from "./thinking-profile.ts";
 import {
+  createLspDiagnosticsRuntime,
+  type LspDiagnosticsRuntime,
+} from "./lsp-diagnostics.ts";
+import {
   isPersistentMemoryEnabled,
   loadMemorySystemMessage,
 } from "../memory/mod.ts";
@@ -115,6 +119,8 @@ export interface AgentSession {
   mcpSetSignal?: (signal: AbortSignal) => void;
   /** Session-scoped todo state used by todo tools. */
   todoState: TodoState;
+  /** Session-scoped LSP diagnostics runtime for post-write verification. */
+  lspDiagnostics?: LspDiagnosticsRuntime;
 }
 
 /** Try to get ModelInfo from the provider (best-effort, non-blocking) */
@@ -184,6 +190,9 @@ export async function createAgentSession(
     toolFilterState.denylist = cloneToolList(baseToolFilter.denylist);
   };
   const thinkingState: ThinkingState = {};
+  const lspDiagnostics = createLspDiagnosticsRuntime({
+    workspace: options.workspace,
+  });
 
   // Lazy MCP loading: defer connection/registration until first MCP use.
   let loadedMcp: Awaited<ReturnType<typeof loadMcpTools>> | null = null;
@@ -345,9 +354,14 @@ export async function createAgentSession(
     l1Confirmations: new Map<string, boolean>(),
     toolOwnerId,
     dispose: async () => {
-      if (!loadingMcp) return;
-      const mcp = await loadingMcp;
-      await mcp.dispose();
+      await Promise.allSettled([
+        (async () => {
+          if (!loadingMcp) return;
+          const mcp = await loadingMcp;
+          await mcp.dispose();
+        })(),
+        lspDiagnostics.dispose(),
+      ]);
     },
     profile,
     isFrontierModel: isFrontier,
@@ -363,5 +377,6 @@ export async function createAgentSession(
     mcpSetHandlers,
     mcpSetSignal,
     todoState: createTodoState(),
+    lspDiagnostics,
   };
 }

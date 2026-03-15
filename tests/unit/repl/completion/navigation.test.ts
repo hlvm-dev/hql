@@ -3,8 +3,6 @@ import {
   calculateScrollWindow,
   getRelativeIndex,
   handleNavigationKey,
-  hasItemsAbove,
-  hasItemsBelow,
   isNavigationKey,
   shouldCloseOnInput,
 } from "../../../../src/hlvm/cli/repl-ink/completion/navigation.ts";
@@ -59,16 +57,6 @@ Deno.test("completion navigation: scroll windows fit, center, and clamp correctl
   assertEquals(calculateScrollWindow(18, 20, 8), { start: 12, end: 20 });
 });
 
-Deno.test("completion navigation: above and below markers reflect window bounds", () => {
-  const middle: ScrollWindow = { start: 5, end: 13 };
-  const top: ScrollWindow = { start: 0, end: 8 };
-  const bottom: ScrollWindow = { start: 12, end: 20 };
-
-  assert(hasItemsAbove(middle));
-  assert(hasItemsBelow(top, 20));
-  assert(!hasItemsAbove(top));
-  assert(!hasItemsBelow(bottom, 20));
-});
 
 Deno.test("completion navigation: relative indices are computed only for visible items", () => {
   const window: ScrollWindow = { start: 5, end: 13 };

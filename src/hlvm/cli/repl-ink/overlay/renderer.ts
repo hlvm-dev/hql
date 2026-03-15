@@ -102,7 +102,7 @@ export function clearOverlay(region: ClearRegion): void {
 /**
  * Get terminal dimensions
  */
-export function getTerminalSize(): { columns: number; rows: number } {
+function getTerminalSize(): { columns: number; rows: number } {
   try {
     const size = getPlatform().terminal.consoleSize();
     return {
@@ -119,7 +119,7 @@ export function getTerminalSize(): { columns: number; rows: number } {
  * @param hex - Color in hex format (e.g., "#ff6600" or "ff6600")
  * @returns RGB tuple [r, g, b]
  */
-export function hexToRgb(hex: string): [number, number, number] {
+function hexToRgb(hex: string): [number, number, number] {
   const clean = hex.replace(/^#/, "");
   const r = parseInt(clean.slice(0, 2), 16) || 0;
   const g = parseInt(clean.slice(2, 4), 16) || 0;
@@ -148,7 +148,7 @@ export function bg(rgb: RGB): string {
 }
 
 /** Calculate centered overlay position */
-export function calcOverlayPosition(width: number, height: number): { x: number; y: number } {
+function calcOverlayPosition(width: number, height: number): { x: number; y: number } {
   const rect = fitOverlayRect(width, height);
   return {
     x: rect.x,

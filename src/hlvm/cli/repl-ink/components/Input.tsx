@@ -196,6 +196,36 @@ function getInputPromptPrefix(
   return `${prompt} `;
 }
 
+export interface EscapeKeyInfo {
+  escape?: boolean;
+  ctrl?: boolean;
+  meta?: boolean;
+  return?: boolean;
+}
+
+export function isPureEscKeyEvent(input: string, key: EscapeKeyInfo): boolean {
+  return !!key.escape &&
+    !key.ctrl &&
+    !key.meta &&
+    !key.return &&
+    (!input || input.length === 0 || input === "\x1b");
+}
+
+export function shouldInterruptConversationOnEsc(
+  input: string,
+  key: EscapeKeyInfo,
+  options: {
+    highlightMode: "code" | "chat";
+    isConversationTaskRunning: boolean;
+    hasInterruptHandler: boolean;
+  },
+): boolean {
+  return options.highlightMode === "chat" &&
+    options.isConversationTaskRunning &&
+    options.hasInterruptHandler &&
+    isPureEscKeyEvent(input, key);
+}
+
 export function Input({
   value,
   onChange,
@@ -1394,6 +1424,21 @@ export function Input({
 
   // Main input handler
   useInput((input, key) => {
+    const isPureEscPrefixEvent = isPureEscKeyEvent(input, key);
+
+    if (
+      shouldInterruptConversationOnEsc(input, key, {
+        highlightMode,
+        isConversationTaskRunning,
+        hasInterruptHandler: typeof onInterruptRunningTask === "function",
+      })
+    ) {
+      cancelPendingEsc();
+      lastEscPrefixAtRef.current = 0;
+      onInterruptRunningTask?.();
+      return;
+    }
+
     // Use ref to avoid stale closure - disabled prop can change during evaluation
     if (disabledRef.current) return;
     // CSI-u Ctrl+Enter: modifier 5/6/7 (Ctrl, Ctrl+Shift, Ctrl+Alt)
@@ -1404,11 +1449,6 @@ export function Input({
       const mod = parseInt(csiuMatch?.[1] ?? legacyMatch?.[1] ?? "0", 10);
       return mod === 5 || mod === 6 || mod === 7;
     })();
-    const isPureEscPrefixEvent = key.escape &&
-      !key.ctrl &&
-      !key.meta &&
-      !key.return &&
-      (!input || input.length === 0 || input === "\x1b");
 
     // Any non-pure-ESC event means previous ESC was a prefix (Alt/Option sequence), not a standalone ESC press.
     if (!isPureEscPrefixEvent) {

@@ -5,20 +5,6 @@
 /** Cursor blink interval in ms (macOS standard) */
 export const CURSOR_BLINK_MS = 530;
 
-/** Standard braille spinner sequence for REPL/TUI activity indicators. */
-export const BRAILLE_SPINNER_FRAMES = [
-  "⠋",
-  "⠙",
-  "⠹",
-  "⠸",
-  "⠼",
-  "⠴",
-  "⠦",
-  "⠧",
-  "⠇",
-  "⠏",
-] as const;
-
 
 /** Shared helper hint for expanding/collapsing latest tool/thinking section. */
 export const TOGGLE_LATEST_HINT = "Ctrl+O toggles latest section";

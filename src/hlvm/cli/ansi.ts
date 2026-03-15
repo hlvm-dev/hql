@@ -5,7 +5,6 @@ import { getPlatform } from "../../platform/platform.ts";
  * Legacy constants - prefer using themed colors from theme system
  */
 export const ANSI_COLORS = {
-  SICP_PURPLE: "\x1b[38;2;102;51;153m",  // #663399 - SICP book cover purple
   BLUE: "\x1b[34m",
   CYAN: "\x1b[36m",
   GREEN: "\x1b[32m",

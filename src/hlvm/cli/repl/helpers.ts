@@ -40,7 +40,7 @@ export function registerReplHelpers(state: ReplState): void {
       if (removed) {
         log.raw.log(`${GREEN}Removed '${name}' from bindings.${RESET}`);
         log.raw.log(
-          `${DIM_GRAY}Note: The binding still exists in this session. Use /reset to clear live bindings.${RESET}`,
+          `${DIM_GRAY}Note: The binding still exists in this process until the REPL restarts.${RESET}`,
         );
       } else {
         log.raw.log(`${YELLOW}Binding '${name}' not found.${RESET}`);
@@ -164,12 +164,7 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
     getPlatform().process.exit(0);
   };
 
-  globalAny.clear = () => {
-    log.raw.clear();
-    return null;
-  };
-
-  const helperNames = ["bindings", "unbind", "remember", "memory", "inspect", "describe", "help", "exit", "clear"];
+  const helperNames = ["bindings", "unbind", "remember", "memory", "inspect", "describe", "help", "exit"];
   for (const name of helperNames) {
     const fn = globalAny[name];
     if (typeof fn === "function") {

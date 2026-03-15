@@ -126,7 +126,7 @@ export function Banner(
           {truncate(
             `⚠ ${errors.length} warning${
               errors.length > 1 ? "s" : ""
-            } (run /warnings for details)`,
+            }`,
             contentWidth,
             "…",
           )}

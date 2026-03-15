@@ -1,6 +1,5 @@
 import type { AgentUIEvent } from "../agent/orchestrator.ts";
 import type { Plan, PlanningPhase } from "../agent/planning.ts";
-import type { AgentCheckpointSummary } from "../agent/checkpoints.ts";
 import {
   cloneTodoState,
   createTodoStateFromPlan,
@@ -36,9 +35,6 @@ export interface TranscriptState {
   todoState?: TodoState;
   planTodoState?: TodoState;
   pendingPlanReview?: { plan: Plan };
-  latestCheckpoint?: AgentCheckpointSummary;
-  /** Monotonic counter incremented on clear() — used as React key to reset <Static> history */
-  clearCounter: number;
 }
 
 export type TranscriptInput =
@@ -69,7 +65,6 @@ export function createTranscriptState(): TranscriptState {
     streamingState: ConversationStreamingState.Idle,
     nextId: 0,
     completedPlanStepIds: [],
-    clearCounter: 0,
   };
 }
 
@@ -307,7 +302,6 @@ function findMatchingRunningDelegateIndex(
   threadId?: string,
 ): number {
   // Single reverse pass: track best match at 3 precision levels
-  let byThread = -1;
   let byExact = -1;
   let byAgent = -1;
   for (let i = items.length - 1; i >= 0; i--) {
@@ -325,7 +319,7 @@ function findMatchingRunningDelegateIndex(
     // Early exit: all levels found
     if (byExact >= 0 && byAgent >= 0) break;
   }
-  return byThread >= 0 ? byThread : byExact >= 0 ? byExact : byAgent;
+  return byExact >= 0 ? byExact : byAgent;
 }
 
 function appendDelegateItem(
@@ -545,45 +539,27 @@ export function reduceTranscriptState(
             items: removeTransientInfoItems(state.items),
           };
         case "reasoning_update":
+        case "planning_update": {
           if (
             state.planningPhase === "executing" ||
             state.planningPhase === "done"
           ) {
             return state;
           }
-          return {
-            ...upsertThinkingItem(
-              {
-                ...state,
-                streamingState: ConversationStreamingState.Responding,
-                activeTool: undefined,
-                items: removeTransientInfoItems(state.items),
-              },
-              event.iteration,
-              "reasoning",
-              event.summary,
-            ),
-          };
-        case "planning_update":
-          if (
-            state.planningPhase === "executing" ||
-            state.planningPhase === "done"
-          ) {
-            return state;
-          }
-          return {
-            ...upsertThinkingItem(
-              {
-                ...state,
-                streamingState: ConversationStreamingState.Responding,
-                activeTool: undefined,
-                items: removeTransientInfoItems(state.items),
-              },
-              event.iteration,
-              "planning",
-              event.summary,
-            ),
-          };
+          const thinkingKind: ThinkingItem["kind"] =
+            event.type === "reasoning_update" ? "reasoning" : "planning";
+          return upsertThinkingItem(
+            {
+              ...state,
+              streamingState: ConversationStreamingState.Responding,
+              activeTool: undefined,
+              items: removeTransientInfoItems(state.items),
+            },
+            event.iteration,
+            thinkingKind,
+            event.summary,
+          );
+        }
         case "tool_start": {
           if (event.name === "delegate_agent") return state;
           const tool: ToolCallDisplay = {
@@ -850,15 +826,8 @@ export function reduceTranscriptState(
             streamingState: ConversationStreamingState.Responding,
           };
         case "checkpoint_created":
-          return {
-            ...state,
-            latestCheckpoint: { ...event.checkpoint },
-          };
         case "checkpoint_restored":
-          return {
-            ...state,
-            latestCheckpoint: { ...event.checkpoint },
-          };
+          return state;
         case "turn_stats": {
           const cleaned = removeCurrentTurnTurnStats(
             cleanupTransientItems(state.items),
@@ -992,7 +961,6 @@ export function reduceTranscriptState(
         todoState: undefined,
         planTodoState: undefined,
         pendingPlanReview: undefined,
-        latestCheckpoint: undefined,
         nextId: input.items.length,
       };
     case "reset_status":
@@ -1009,6 +977,7 @@ export function reduceTranscriptState(
         activePlan: undefined,
         planningPhase: undefined,
         completedPlanStepIds: [],
+        todoState: undefined,
         planTodoState: undefined,
         pendingPlanReview: undefined,
       };
@@ -1020,6 +989,6 @@ export function reduceTranscriptState(
         items: cleanupTransientItems(state.items),
       };
     case "clear":
-      return { ...createTranscriptState(), clearCounter: state.clearCounter + 1 };
+      return createTranscriptState();
   }
 }

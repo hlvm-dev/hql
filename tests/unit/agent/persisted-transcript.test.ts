@@ -7,6 +7,7 @@ import {
 } from "../../../src/hlvm/agent/agent-runner.ts";
 import {
   appendPersistedAgentToolResult,
+  clearPersistedAgentPlanningState,
   completePersistedAgentTurn,
   createPersistedAgentChildSession,
   getPersistedAgentSessionId,
@@ -263,6 +264,48 @@ Deno.test("persisted transcript: team runtime snapshot persists in session metad
   } finally {
     db.close();
   }
+});
+
+Deno.test({
+  name: "persisted transcript: clearPersistedAgentPlanningState removes plan-owned planning metadata",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const db = setupStoreTestDb();
+
+    try {
+      const sessionId = getPersistedAgentSessionId();
+      persistAgentPlanState(sessionId, {
+        goal: "Organize Desktop",
+        steps: [
+          { id: "step-1", title: "Create screenshots directory" },
+        ],
+      }, ["step-1"]);
+      persistPendingPlanReview(sessionId, "request-1", {
+        goal: "Organize Desktop",
+        steps: [
+          { id: "step-1", title: "Create screenshots directory" },
+        ],
+      });
+      persistAgentTodos(sessionId, [{
+        id: "step-1",
+        content: "Create screenshots directory",
+        status: "in_progress",
+      }], "plan");
+
+      clearPersistedAgentPlanningState(sessionId);
+
+      const metadata = loadPersistedAgentSessionMetadata(sessionId);
+      assertEquals(metadata.plan, undefined);
+      assertEquals(metadata.completedPlanStepIds, undefined);
+      assertEquals(metadata.pendingPlanReview, undefined);
+      assertEquals(metadata.approvedPlanSignature, undefined);
+      assertEquals(metadata.todos, undefined);
+      assertEquals(metadata.todoSource, undefined);
+    } finally {
+      db.close();
+    }
+  },
 });
 
 Deno.test({

@@ -112,13 +112,12 @@ Deno.test("buildFooterLeftState prefers queue/force hints over tool status when 
 Deno.test("buildFooterRightState includes model metadata", () => {
   const state = buildFooterRightState({
     contextUsageLabel: "12% ctx",
-    checkpointLabel: "/undo ready",
     modelName: "claude-sonnet-4-6",
   });
 
   assertEquals(
     state.infoText,
-    "12% ctx \u00B7 /undo ready \u00B7 claude-sonnet-4-6",
+    "12% ctx \u00B7 claude-sonnet-4-6",
   );
 });
 

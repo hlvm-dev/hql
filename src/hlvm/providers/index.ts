@@ -23,14 +23,11 @@ export type {
   ModelInfo,
   ProviderCapability,
   ProviderConfig,
-  ProviderFactory,
   ProviderMessage,
   ProviderStatus,
   ProviderToolCall,
   PullProgress,
-  RegisteredProvider,
   ToolDefinition,
-  ToolFunctionDefinition,
 } from "./types.ts";
 
 // Capability helpers

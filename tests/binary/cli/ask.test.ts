@@ -1,19 +1,12 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { getPlatform } from "../../../src/platform/platform.ts";
-import { findFreePort } from "../../shared/light-helpers.ts";
+import { findFreePort, normalizeCliOutput } from "../../shared/light-helpers.ts";
 import { binaryTest, runCLI, withTempDir } from "../_shared/binary-helpers.ts";
 
 const platform = getPlatform();
 const FIXTURE_PATH = platform.path.fromFileUrl(
   new URL("../../fixtures/ask/agent-transcript-fixture.json", import.meta.url),
 );
-
-function normalizeCliOutput(text: string): string {
-  return text
-    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
-    .replace(/\r/g, "")
-    .replace(/[ \t]+\n/g, "\n");
-}
 
 function assertOrderedSubstrings(output: string, parts: string[]): void {
   let cursor = 0;

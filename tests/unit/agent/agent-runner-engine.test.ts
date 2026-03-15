@@ -3,6 +3,7 @@ import {
   createReusableSession,
   disposeAllSessions,
   runAgentQuery,
+  shouldReuseAgentSession,
 } from "../../../src/hlvm/agent/agent-runner.ts";
 import { SdkAgentEngine } from "../../../src/hlvm/agent/engine-sdk.ts";
 import {
@@ -168,6 +169,58 @@ Deno.test({
       assertEquals(withContext === withAllowlist, false);
       assertEquals(withContext === withDenylist, false);
       assertEquals(withAllowlist === withDenylist, false);
+    } finally {
+      await disposeAllSessions();
+      await platform.fs.remove(workspace, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "agent-runner: reusable sessions are not reused across model or denylist changes",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const platform = getPlatform();
+    const workspace = platform.path.join(
+      platform.process.cwd(),
+      ".tmp",
+      `hlvm-agent-cache-model-${generateUUID()}`,
+    );
+    await platform.fs.mkdir(workspace, { recursive: true });
+
+    try {
+      const session = await createReusableSession(
+        workspace,
+        "claude-code/claude-opus-4-6",
+        {
+          toolDenylist: ["complete_task"],
+          modelInfo: null,
+        },
+      );
+
+      assertEquals(
+        shouldReuseAgentSession(session, {
+          model: "claude-code/claude-opus-4-6",
+          toolDenylist: ["complete_task"],
+        }),
+        true,
+      );
+      assertEquals(
+        shouldReuseAgentSession(session, {
+          model: "ollama/llama3.2:3b",
+          toolDenylist: ["complete_task"],
+        }),
+        false,
+      );
+      assertEquals(
+        shouldReuseAgentSession(session, {
+          model: "claude-code/claude-opus-4-6",
+          toolDenylist: ["ask_user", "complete_task"],
+        }),
+        false,
+      );
     } finally {
       await disposeAllSessions();
       await platform.fs.remove(workspace, { recursive: true });

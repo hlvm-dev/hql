@@ -68,6 +68,7 @@ import {
 } from "../../common/stream-utils.ts";
 import { parse as parseCsv } from "jsr:@std/csv/parse";
 import { emitDelegateBatchProgress } from "./delegate-batch-progress.ts";
+import type { WriteVerificationResult } from "./lsp-diagnostics.ts";
 
 const CHECKPOINT_SUPPORTED_MUTATION_TOOLS = new Set([
   "write_file",
@@ -357,6 +358,16 @@ export async function executeToolCall(
   }
   const toolExists = preparedArgs !== undefined;
   const coercedArgs = preparedArgs?.coercedArgs ?? normalizedArgs;
+  await config.hookRuntime?.dispatch("pre_tool", {
+    toolName: toolCall.toolName,
+    toolCallId: toolCall.id,
+    modelId: config.modelId,
+    sessionId: config.sessionId,
+    args: coercedArgs,
+    argsSummary: generateArgsSummary(toolCall.toolName, coercedArgs),
+    toolIndex,
+    toolTotal,
+  });
   // Emit trace event: tool call
   config.onTrace?.({
     type: "tool_call",
@@ -975,9 +986,21 @@ export async function executeToolCall(
     }
 
     if (isFileWriteTool(toolCall.toolName) && isSuccessfulToolPayload(result)) {
-      const verification = await maybeVerifySyntax(toolCall, config);
+      const verification = await maybeVerifyWrite(toolCall, config);
       if (verification) {
-        result = attachSyntaxVerification(result, verification);
+        await config.hookRuntime?.dispatch("write_verified", {
+          toolName: toolCall.toolName,
+          toolCallId: toolCall.id,
+          modelId: config.modelId,
+          sessionId: config.sessionId,
+          path: typeof toolCall.args?.path === "string" ? toolCall.args.path : undefined,
+          ok: verification.ok,
+          source: verification.source,
+          verifier: verification.verifier,
+          summary: verification.summary,
+          diagnostics: verification.diagnostics,
+        });
+        result = attachWriteVerification(result, verification);
       }
     }
 
@@ -1274,7 +1297,8 @@ const SYNTAX_CHECKER_TIMEOUT = 5000; // 5s — syntax checks should be fast
 
 interface SyntaxVerificationResult {
   ok: boolean;
-  command: string;
+  source: "syntax";
+  verifier: string;
   summary: string;
   diagnostics?: string;
 }
@@ -1291,9 +1315,9 @@ function appendSentence(base: string, sentence: string): string {
     : `${normalized}. ${sentence}`;
 }
 
-function attachSyntaxVerification(
+function attachWriteVerification(
   result: unknown,
-  verification: SyntaxVerificationResult,
+  verification: WriteVerificationResult,
 ): unknown {
   if (!isObjectValue(result) || result.success !== true) return result;
 
@@ -1303,11 +1327,21 @@ function attachSyntaxVerification(
   return {
     ...result,
     message: appendSentence(message, verification.summary),
-    syntaxCheck: {
+    verification: {
       ok: verification.ok,
-      command: verification.command,
+      source: verification.source,
+      verifier: verification.verifier,
       diagnostics: verification.diagnostics,
     },
+    ...(verification.source === "syntax"
+      ? {
+        syntaxCheck: {
+          ok: verification.ok,
+          command: verification.verifier,
+          diagnostics: verification.diagnostics,
+        },
+      }
+      : {}),
   };
 }
 
@@ -1335,6 +1369,20 @@ async function resolveSyntaxCheckCommand(
   return null;
 }
 
+function describeSyntaxVerifier(cmd: string[]): string {
+  if (cmd[0] === "deno" && cmd[1] === "check") return "deno check";
+  if (cmd[0] === "tsc" && cmd.includes("--noEmit")) return "tsc --noEmit";
+  if (cmd[0] === "node" && cmd[1] === "--check") return "node --check";
+  if (
+    cmd[0] === "python3" &&
+    cmd[1] === "-m" &&
+    cmd[2] === "py_compile"
+  ) {
+    return "python3 -m py_compile";
+  }
+  return cmd.join(" ");
+}
+
 /** Run a quick syntax check after a file write. Returns diagnostic info or null. */
 export async function maybeVerifySyntax(
   toolCall: ToolCall,
@@ -1348,8 +1396,8 @@ export async function maybeVerifySyntax(
   const cmd = await resolveSyntaxCheckCommand(filePath, workspace);
   if (!cmd) return null;
 
-  const commandText = cmd.join(" ");
-  if (classifyShellCommand(commandText).level === "L2") {
+  const verifier = describeSyntaxVerifier(cmd);
+  if (classifyShellCommand(verifier).level === "L2") {
     return null;
   }
 
@@ -1398,16 +1446,18 @@ export async function maybeVerifySyntax(
           .trim();
         return {
           ok: false,
-          command: commandText,
-          summary: "Syntax check failed.",
+          source: "syntax",
+          verifier,
+          summary: `Syntax check failed via ${verifier}.`,
           diagnostics: truncate(diag, 500),
         };
       }
 
       return {
         ok: true,
-        command: commandText,
-        summary: "Syntax check passed.",
+        source: "syntax",
+        verifier,
+        summary: `Syntax check passed via ${verifier}.`,
       };
     } finally {
       clearTimeout(timeoutId);
@@ -1419,6 +1469,23 @@ export async function maybeVerifySyntax(
   } catch {
     return null; // checker not available or timed out — don't block
   }
+}
+
+/** Try LSP diagnostics first, then fall back to one-shot syntax verification. */
+export async function maybeVerifyWrite(
+  toolCall: ToolCall,
+  config: OrchestratorConfig,
+): Promise<WriteVerificationResult | null> {
+  const filePath = toolCall.args?.path;
+  if (typeof filePath !== "string") return null;
+
+  const lspVerification = await config.lspDiagnostics?.verifyFile(
+    filePath,
+    config.signal,
+  );
+  if (lspVerification) return lspVerification;
+
+  return await maybeVerifySyntax(toolCall, config);
 }
 
 /**

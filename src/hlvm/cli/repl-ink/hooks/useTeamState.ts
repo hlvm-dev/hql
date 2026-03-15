@@ -171,7 +171,8 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
 
     switch (item.teamEventType) {
       case "team_task_updated": {
-        const existing = snapshot.tasks.find((task) => task.id === item.taskId);
+        const existingIndex = snapshot.tasks.findIndex((task) => task.id === item.taskId);
+        const existing = existingIndex >= 0 ? snapshot.tasks[existingIndex] : undefined;
         if (item.assigneeMemberId) {
           ensureMember(snapshot, item.assigneeMemberId, ts);
         }
@@ -196,9 +197,8 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
             createdAt: ts,
             updatedAt: ts,
           };
-        if (existing) {
-          const index = snapshot.tasks.findIndex((task) => task.id === item.taskId);
-          snapshot.tasks[index] = nextTask;
+        if (existingIndex >= 0) {
+          snapshot.tasks[existingIndex] = nextTask;
         } else {
           snapshot.tasks.push(nextTask);
         }
@@ -226,7 +226,8 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
         if (item.reviewedByMemberId) {
           ensureMember(snapshot, item.reviewedByMemberId, ts);
         }
-        const existing = snapshot.approvals.find((approval) => approval.id === item.approvalId);
+        const existingIndex = snapshot.approvals.findIndex((approval) => approval.id === item.approvalId);
+        const existing = existingIndex >= 0 ? snapshot.approvals[existingIndex] : undefined;
         const nextApproval = existing
           ? {
             ...existing,
@@ -244,9 +245,8 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
             updatedAt: ts,
             reviewedByMemberId: item.reviewedByMemberId,
           };
-        if (existing) {
-          const index = snapshot.approvals.findIndex((approval) => approval.id === item.approvalId);
-          snapshot.approvals[index] = nextApproval;
+        if (existingIndex >= 0) {
+          snapshot.approvals[existingIndex] = nextApproval;
         } else {
           snapshot.approvals.push(nextApproval);
         }
@@ -255,7 +255,8 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
       case "team_shutdown": {
         ensureMember(snapshot, item.memberId, ts);
         ensureMember(snapshot, item.requestedByMemberId, ts);
-        const existing = snapshot.shutdowns.find((shutdown) => shutdown.id === item.requestId);
+        const existingIndex = snapshot.shutdowns.findIndex((shutdown) => shutdown.id === item.requestId);
+        const existing = existingIndex >= 0 ? snapshot.shutdowns[existingIndex] : undefined;
         const nextShutdown = existing
           ? {
             ...existing,
@@ -272,9 +273,8 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
             createdAt: ts,
             updatedAt: ts,
           };
-        if (existing) {
-          const index = snapshot.shutdowns.findIndex((shutdown) => shutdown.id === item.requestId);
-          snapshot.shutdowns[index] = nextShutdown;
+        if (existingIndex >= 0) {
+          snapshot.shutdowns[existingIndex] = nextShutdown;
         } else {
           snapshot.shutdowns.push(nextShutdown);
         }

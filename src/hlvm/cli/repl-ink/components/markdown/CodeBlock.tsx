@@ -1,4 +1,4 @@
-import React, { memo, useMemo } from "react";
+import React, { memo, useMemo, useRef } from "react";
 import { Box, Text } from "ink";
 import { common, createLowlight } from "lowlight";
 import { useSemanticColors } from "../../../theme/index.ts";
@@ -23,6 +23,56 @@ interface CodeBlockProps {
   maxLines?: number;
   isPending?: boolean;
   availableHeight?: number;
+}
+
+export interface StreamingAutoHighlightCache {
+  language: string;
+  visibleCode: string;
+  completeLineCount: number;
+}
+
+export type CodeHighlightStrategy =
+  | { kind: "explicit"; language: string }
+  | { kind: "auto" }
+  | { kind: "cached-auto"; language: string };
+
+function countCompleteLineBreaks(code: string): number {
+  let count = 0;
+  for (let i = 0; i < code.length; i++) {
+    if (code[i] === "\n") count += 1;
+  }
+  return count;
+}
+
+export function resolveCodeHighlightStrategy(
+  visibleCode: string,
+  options: {
+    language?: string;
+    isPending?: boolean;
+    cache?: StreamingAutoHighlightCache;
+  },
+): CodeHighlightStrategy {
+  if (options.language) {
+    return { kind: "explicit", language: options.language };
+  }
+
+  if (
+    options.isPending &&
+    options.cache &&
+    countCompleteLineBreaks(visibleCode) === options.cache.completeLineCount &&
+    visibleCode.startsWith(options.cache.visibleCode)
+  ) {
+    return { kind: "cached-auto", language: options.cache.language };
+  }
+
+  return { kind: "auto" };
+}
+
+function getDetectedLanguage(node: unknown): string | undefined {
+  const record = node as { data?: { language?: unknown } };
+  return typeof record.data?.language === "string"
+    ? record.data.language
+    : undefined;
 }
 
 function splitSegmentsByNewline(segments: StyledSegment[]): StyledLine[] {
@@ -86,6 +136,9 @@ export const CodeBlock = memo(function CodeBlock(
   { code, language, width, maxLines = DEFAULT_MAX_LINES, isPending, availableHeight }: CodeBlockProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
+  const streamingAutoHighlightRef = useRef<
+    StreamingAutoHighlightCache | undefined
+  >(undefined);
 
   const { visibleCode, totalLines, hiddenCount, needsTruncation } = useMemo(() => {
     const normalizedCode = code.replace(/\t/g, "  ");
@@ -110,9 +163,35 @@ export const CodeBlock = memo(function CodeBlock(
 
   const highlighted = useMemo(() => {
     try {
-      if (language) return lowlight.highlight(language, visibleCode);
-      return lowlight.highlightAuto(visibleCode);
+      const strategy = resolveCodeHighlightStrategy(visibleCode, {
+        language,
+        isPending,
+        cache: streamingAutoHighlightRef.current,
+      });
+      if (strategy.kind === "explicit") {
+        streamingAutoHighlightRef.current = undefined;
+        return lowlight.highlight(strategy.language, visibleCode);
+      }
+      if (strategy.kind === "cached-auto") {
+        return lowlight.highlight(strategy.language, visibleCode);
+      }
+
+      const autoHighlighted = lowlight.highlightAuto(visibleCode);
+      if (isPending) {
+        const detectedLanguage = getDetectedLanguage(autoHighlighted);
+        streamingAutoHighlightRef.current = detectedLanguage
+          ? {
+            language: detectedLanguage,
+            visibleCode,
+            completeLineCount: countCompleteLineBreaks(visibleCode),
+          }
+          : undefined;
+      } else {
+        streamingAutoHighlightRef.current = undefined;
+      }
+      return autoHighlighted;
     } catch {
+      streamingAutoHighlightRef.current = undefined;
       return lowlight.highlight("plaintext", visibleCode);
     }
   }, [language, visibleCode]);

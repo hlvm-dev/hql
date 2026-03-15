@@ -100,7 +100,7 @@ Deno.test("Providers: file mention trigger and query extraction distinguish path
 Deno.test("Providers: slash commands only trigger at the beginning of trimmed input", () => {
   const cases = [
     [ctx("/help"), true, "help"],
-    [ctx("  /clear"), true, "clear"],
+    [ctx("  /flush"), true, "flush"],
     [ctx("hello /cmd"), false, null],
     [ctx("/cmd arg"), false, "cmd arg"],
     [ctx("help"), false, null],

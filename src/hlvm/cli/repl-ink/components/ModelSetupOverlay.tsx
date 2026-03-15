@@ -158,7 +158,7 @@ export function ModelSetupOverlay({
       {isDownloading && (
         <Box flexDirection="column">
           <Box>
-            <ProgressBar percent={percent} width={progressWidth} showPercent />
+            <ProgressBar current={percent} total={100} width={progressWidth} />
           </Box>
           {total > 0 && (
             <Box marginTop={0}>

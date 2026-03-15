@@ -5,8 +5,9 @@
  * JavaScript stack traces to show original HQL file:line:column positions.
  *
  * Key Functions:
- * - loadSourceMap: Load and cache source maps for transpiled files
+ * - preloadSourceMap: Preload a source map into the cache after transpilation
  * - mapPositionSync: Convert JS position to HQL position using source map
+ * - invalidateSourceMapCache: Clear cached source maps when files are recompiled
  * - installSourceMapSupport: Hook into Error.prepareStackTrace
  *
  * @module source-map-support
@@ -241,8 +242,6 @@ async function loadSourceMap(
 function loadSourceMapSync(
   jsFilePath: string,
 ): SourceMapConsumer | null {
-  const DEBUG = false;
-
   // Normalize file path - convert file:// URLs to regular paths
   let normalizedPath = jsFilePath;
   if (jsFilePath.startsWith("file://")) {
@@ -255,16 +254,9 @@ function loadSourceMapSync(
     }
   }
 
-  if (DEBUG) {
-    logger.debug(`[loadSourceMapSync] Normalized path: ${normalizedPath}`);
-  }
-
   // Check cache - this is now the ONLY source of data (no file I/O)
   if (sourceMapCache.has(normalizedPath)) {
     logger.debug(`Source map cache hit (sync): ${normalizedPath}`);
-    if (DEBUG) {
-      logger.debug("[loadSourceMapSync] Cache hit!");
-    }
     return sourceMapCache.get(normalizedPath)!;
   }
 
@@ -276,9 +268,6 @@ function loadSourceMapSync(
       `Source map cache miss for ${normalizedPath}. ` +
       `Call preloadSourceMap() after transpilation to enable source mapping for errors.`
     );
-    if (DEBUG) {
-      logger.debug(`[loadSourceMapSync] Cache miss! Source map not preloaded for: ${normalizedPath}`);
-    }
   }
 
   return null;
@@ -306,22 +295,10 @@ export function mapPositionSync(
   line: number,
   column: number,
 ): Position | null {
-  const DEBUG = false;
-  if (DEBUG) {
-    logger.debug(`[mapPositionSync] Looking up: ${jsFilePath} ${line} ${column}`);
-  }
-
   const consumer = loadSourceMapSync(jsFilePath);
 
   if (!consumer) {
-    if (DEBUG) {
-      logger.debug(`[mapPositionSync] No consumer found for: ${jsFilePath}`);
-    }
     return null;
-  }
-
-  if (DEBUG) {
-    logger.debug("[mapPositionSync] Consumer found, looking up position...");
   }
 
   try {
@@ -332,9 +309,6 @@ export function mapPositionSync(
     });
 
     if (original.source && original.line !== null) {
-      if (DEBUG) {
-        logger.debug(`[mapPositionSync] Direct mapping found: ${JSON.stringify(original)}`);
-      }
       return {
         source: original.source,
         line: original.line,
@@ -347,18 +321,12 @@ export function mapPositionSync(
     // It transforms the line number using the source map but keeps the original filename.
     // In this case, the line number we receive is already the source line number,
     // so we need to look up in the source file's source map instead.
-    if (DEBUG) {
-      logger.debug("[mapPositionSync] No direct mapping, checking source map chain...");
-    }
 
     // Get the sources from this source map
     const sources = (consumer as unknown as { sources: string[] }).sources;
     if (sources && sources.length > 0) {
       // The source file might have its own source map
       const sourceFile = sources[0];
-      if (DEBUG) {
-        logger.debug(`[mapPositionSync] Source file from map: ${sourceFile}`);
-      }
 
       // Resolve the source file path relative to the JS file
       const jsDir = jsFilePath.substring(0, jsFilePath.lastIndexOf('/'));
@@ -366,18 +334,10 @@ export function mapPositionSync(
         ? sourceFile
         : jsDir + '/' + sourceFile;
 
-      if (DEBUG) {
-        logger.debug(`[mapPositionSync] Resolved source path: ${resolvedSource}`);
-      }
-
       // Try to load the source file's source map
       // The source file should have a .map file with the same name
       const sourceConsumer = loadSourceMapSync(resolvedSource);
       if (sourceConsumer) {
-        if (DEBUG) {
-          logger.debug(`[mapPositionSync] Found source map for: ${resolvedSource}`);
-        }
-
         // Look up in the source file's source map using the line/column we received
         // (which is already the source line number due to V8's partial source map application)
         const chained = sourceConsumer.originalPositionFor({
@@ -387,9 +347,6 @@ export function mapPositionSync(
         });
 
         if (chained.source && chained.line !== null) {
-          if (DEBUG) {
-            logger.debug(`[mapPositionSync] Chained mapping found: ${JSON.stringify(chained)}`);
-          }
           return {
             source: chained.source,
             line: chained.line,
@@ -400,9 +357,6 @@ export function mapPositionSync(
       }
     }
 
-    if (DEBUG) {
-      logger.debug("[mapPositionSync] No mapping found after chain lookup");
-    }
     return null;
   } catch (error) {
     logger.warn(

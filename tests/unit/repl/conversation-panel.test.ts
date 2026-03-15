@@ -253,3 +253,26 @@ Deno.test("getPlanFlowActivitySummary prefers the latest tool activity for compa
     "Reading path=src/hlvm/cli/repl-ink/components/ConversationPanel.tsx",
   );
 });
+
+Deno.test("getPlanFlowActivitySummary humanizes shell_exec filesystem activity", () => {
+  const summary = getPlanFlowActivitySummary([
+    {
+      type: "tool_group",
+      id: "tool-group-1",
+      ts: 1,
+      tools: [{
+        id: "tool-1",
+        name: "shell_exec",
+        argsSummary: "mkdir -p ~/Desktop/screenshots",
+        status: "running",
+        toolIndex: 1,
+        toolTotal: 1,
+      }],
+    },
+  ]);
+
+  assertEquals(
+    summary,
+    "Creating directories: mkdir -p ~/Desktop/screenshots",
+  );
+});

@@ -83,7 +83,8 @@ const PORCELAIN_STATUS: Record<string, string> = {
   "U": "unmerged",
 };
 
-async function runGit(
+/** Run a git command and return stdout, stderr, and exit code. */
+export async function runGit(
   args: string[],
   cwd: string,
   signal?: AbortSignal,

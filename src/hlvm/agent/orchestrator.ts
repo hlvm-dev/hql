@@ -80,6 +80,8 @@ import type {
 import type { DelegateTokenBudget } from "./delegate-token-budget.ts";
 import { recordBudgetUsage } from "./delegate-token-budget.ts";
 import { resolveThinkingProfile } from "./thinking-profile.ts";
+import type { AgentHookRuntime } from "./hooks.ts";
+import type { LspDiagnosticsRuntime } from "./lsp-diagnostics.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -470,6 +472,10 @@ export interface OrchestratorConfig {
   autoMemoryRecall?: boolean;
   /** Session-scoped todo state used by todo_read/todo_write. */
   todoState?: TodoState;
+  /** Session-scoped LSP diagnostics runtime for post-write verification. */
+  lspDiagnostics?: LspDiagnosticsRuntime;
+  /** Optional lifecycle hook runtime loaded from .hlvm/hooks.json. */
+  hookRuntime?: AgentHookRuntime;
   /** Optional restored plan state for continued multi-step runs. */
   initialPlanState?: PlanState | null;
   /** Optional plan review gate before mutating actions. */
@@ -1282,6 +1288,13 @@ export async function runReActLoop(
         }
       }
       const messages = context.getMessages();
+      await config.hookRuntime?.dispatch("pre_llm", {
+        iteration: state.iterations,
+        modelId: config.modelId,
+        sessionId: config.sessionId,
+        phase: runtimePhase,
+        messageCount: messages.length,
+      });
       onTrace?.({ type: "llm_call", messageCount: messages.length });
 
       const agentResponse = await callLLMWithRetry(
@@ -1338,6 +1351,15 @@ export async function runReActLoop(
         length: responseText.length,
         truncated: truncate(responseText, 200),
         content: responseText,
+        toolCalls: agentResponse.toolCalls?.length ?? 0,
+      });
+      await config.hookRuntime?.dispatch("post_llm", {
+        iteration: state.iterations,
+        modelId: config.modelId,
+        sessionId: config.sessionId,
+        phase: runtimePhase,
+        content: responseText,
+        reasoning: agentResponse.reasoning,
         toolCalls: agentResponse.toolCalls?.length ?? 0,
       });
 

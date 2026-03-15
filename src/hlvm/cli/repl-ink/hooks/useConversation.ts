@@ -24,8 +24,6 @@ export interface UseConversationResult {
   todoState?: TranscriptState["todoState"];
   planTodoState?: TranscriptState["planTodoState"];
   pendingPlanReview?: TranscriptState["pendingPlanReview"];
-  latestCheckpoint?: TranscriptState["latestCheckpoint"];
-  clearCounter: number;
   hydrateState: (state: TranscriptState) => void;
   addEvent: (event: AgentUIEvent) => void;
   addUserMessage: (
@@ -165,8 +163,6 @@ export function useConversation(): UseConversationResult {
     todoState: state.todoState,
     planTodoState: state.planTodoState,
     pendingPlanReview: state.pendingPlanReview,
-    latestCheckpoint: state.latestCheckpoint,
-    clearCounter: state.clearCounter,
   }), [
     state.items,
     state.streamingState,
@@ -176,8 +172,6 @@ export function useConversation(): UseConversationResult {
     state.todoState,
     state.planTodoState,
     state.pendingPlanReview,
-    state.latestCheckpoint,
-    state.clearCounter,
   ]);
 
   return useMemo(

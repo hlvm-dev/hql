@@ -7,6 +7,7 @@
  */
 
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
+import { log } from "../../../src/hlvm/api/log.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { shutdownRuntimeHostIfPresent } from "../../shared/runtime-host-test-helpers.ts";
 
@@ -117,7 +118,7 @@ export async function ensureBinaryCompiled(): Promise<void> {
       try {
         if (!(await platform.fs.exists(BINARY_PATH))) {
           // Progress logging for rare USE_BINARY=1 compilation
-          console.log("Compiling HLVM binary for genuine binary testing...");
+          log.info("Compiling HLVM binary for genuine binary testing...");
           const { success, stderr } = await platform.command.output({
             cmd: ["deno", "compile", "-A", "--no-check", "--output", BINARY_PATH, CLI_PATH],
             stdout: "piped",
@@ -127,7 +128,7 @@ export async function ensureBinaryCompiled(): Promise<void> {
           if (!success) {
             throw new Error(`Failed to compile binary: ${new TextDecoder().decode(stderr)}`);
           }
-          console.log("Binary compiled: " + BINARY_PATH);
+          log.info("Binary compiled: " + BINARY_PATH);
         }
       } finally {
         await removeIfExists(COMPILE_LOCK_PATH);
@@ -148,12 +149,12 @@ export async function ensureBinaryCompiled(): Promise<void> {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /** Assert command succeeded */
-export function assertSuccess(result: CommandResult, message?: string): void {
+function assertSuccess(result: CommandResult, message?: string): void {
   assertEquals(result.success, true, message || result.stderr);
 }
 
 /** Assert output contains expected string */
-export function assertOutput(result: CommandResult, expected: string): void {
+function assertOutput(result: CommandResult, expected: string): void {
   assertStringIncludes(result.stdout, expected);
 }
 

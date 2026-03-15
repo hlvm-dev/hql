@@ -58,7 +58,7 @@ interface ProcessOptions {
 /**
  * Result type for transpileToJavascriptWithIR
  */
-export interface TranspileWithIRResult extends TranspileResult {
+interface TranspileWithIRResult extends TranspileResult {
   ir: IRProgram;
 }
 

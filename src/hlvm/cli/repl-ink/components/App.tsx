@@ -61,7 +61,6 @@ import {
 } from "../../repl/syntax.ts";
 import { useTheme } from "../../theme/index.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
-import { resetContext } from "../../repl/context.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 import { isCommand, runCommand } from "../../repl/commands.ts";
 import type { SessionInitOptions } from "../../repl/session/types.ts";
@@ -89,14 +88,12 @@ import {
 import {
   clearCurrentSession,
   session as sessionApi,
-  syncCurrentSession,
 } from "../../../api/session.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
 import {
   type ConversationComposerDraft,
   createConversationComposerDraft,
   enqueueConversationDraft,
-  mergeConversationDraftsForInterrupt,
 } from "../utils/conversation-queue.ts";
 import { resolveCtrlCAction } from "../ctrl-c-behavior.ts";
 
@@ -247,6 +244,12 @@ function AppContent(
   const conversation = useConversation();
   const teamState = useTeamState(conversation.items);
   const hasConversationContext = usesConversationContext(surfacePanel);
+  const hasActivePlanningState = Boolean(
+    conversation.activePlan ||
+      conversation.planningPhase ||
+      conversation.pendingPlanReview ||
+      conversation.planTodoState?.items.length,
+  );
   // Model config: selection, execution mode, footer status
   const modelConfig = useModelConfig({
     initialConfig,
@@ -369,9 +372,9 @@ function AppContent(
     submitConversationDraft,
     handleInteractionResponse,
     closeConversationMode,
+    interruptConversationRun,
     handleForceInterrupt,
   } = agentRunner;
-
   useEffect(() => {
     if (activeOverlay !== "none") return;
     if (
@@ -505,29 +508,39 @@ function AppContent(
   // (runConversation, submitConversationDraft, handleInteractionResponse,
   //  closeConversationMode, handleForceInterrupt, queue drain effect
   //  all moved to useAgentRunner)
-  const clearReplSurface = useCallback(() => {
+  const flushReplOutput = useCallback(() => {
     clearTerminal();
     setHistory([]);
     setNextId(1);
     setHasBeenCleared(true);
     setClearKey((k: number) => k + 1);
+    if (hasConversationContext) {
+      conversation.clear();
+    }
+  }, [
+    conversation,
+    hasConversationContext,
+  ]);
+
+  const startNewConversationSession = useCallback(() => {
+    flushReplOutput();
     restoreComposerDraft(null);
     clearCurrentSession();
     setCurrentSession(null);
+    if (hasConversationContext) {
+      closeConversationMode({ clearConversation: true });
+      return;
+    }
     interactionResolversRef.current.clear();
     setInteractionQueue([]);
-    conversation.clear();
     setFooterContextUsageLabel("");
     setActiveOverlay("none");
     setSurfacePanel("none");
-    if (hasConversationContext) {
-      closeConversationMode({ clearConversation: true });
-    }
   }, [
-    restoreComposerDraft,
     closeConversationMode,
-    conversation,
+    flushReplOutput,
     hasConversationContext,
+    restoreComposerDraft,
   ]);
 
   const handleAppExit = useCallback(() => {
@@ -568,7 +581,7 @@ function AppContent(
     );
     registerHandler(
       HandlerIds.APP_CLEAR,
-      clearReplSurface,
+      flushReplOutput,
       "App",
     );
     registerHandler(
@@ -595,7 +608,7 @@ function AppContent(
       unregisterHandler(HandlerIds.APP_TEAM_DASHBOARD);
     };
   }, [
-    clearReplSurface,
+    flushReplOutput,
     handleCtrlC,
     toggleShortcutsOverlay,
     togglePalette,
@@ -647,12 +660,13 @@ function AppContent(
       const [rawCommand = "", ...argTokens] = normalizedInput.split(/\s+/);
       const commandName = rawCommand.toLowerCase();
       const commandArgs = argTokens.join(" ").trim();
-      const opensModelPicker = commandName === "/models" ||
-        (commandName === "/model" && commandArgs.length === 0);
+      const opensModelPicker = commandName === "/model" &&
+        commandArgs.length === 0;
       const isPanelCommand = commandName === "/help" ||
         commandName === "/config" || commandName === "/tasks" ||
         commandName === "/bg" || commandName === "/resume" ||
-        commandName === "/clear" || opensModelPicker;
+        commandName === "/new" || commandName === "/flush" ||
+        opensModelPicker;
       const isAnyCommand = isPanelCommand || isCommand(code);
 
       // If there's a pending question interaction, route non-command input as the answer.
@@ -743,55 +757,7 @@ function AppContent(
         return;
       }
 
-      // Handle /undo command
-      if (commandName === "/undo") {
-        const sessionId = sessionApi.current()?.id ?? currentSession?.id;
-        if (!sessionId) {
-          addHistoryEntry(code, {
-            success: false,
-            error: new Error("No current session to undo."),
-          });
-          return;
-        }
-
-        const restored = await sessionApi.restoreCheckpoint(sessionId);
-        if (!restored.restored || !restored.checkpoint) {
-          addHistoryEntry(code, {
-            success: false,
-            error: new Error("No checkpoint available to restore."),
-          });
-          return;
-        }
-
-        if (hasConversationContext) {
-          conversationRef.current.addEvent({
-            type: "checkpoint_restored",
-            checkpoint: restored.checkpoint,
-            restoredFileCount: restored.restoredFileCount,
-          });
-          conversationRef.current.addInfo(
-            `Restored checkpoint (${restored.restoredFileCount} file${
-              restored.restoredFileCount === 1 ? "" : "s"
-            }).`,
-          );
-        } else {
-          addHistoryEntry(code, {
-            success: true,
-            value: `Restored checkpoint (${restored.restoredFileCount} file${
-              restored.restoredFileCount === 1 ? "" : "s"
-            }).`,
-            isCommandOutput: true,
-          });
-        }
-
-        const refreshed = await syncCurrentSession(sessionId);
-        if (refreshed) {
-          setCurrentSession(refreshed);
-        }
-        return;
-      }
-
-      // Handle /model and /models commands - open model picker
+      // Handle /model command - open model picker
       if (opensModelPicker) {
         setModelBrowserParentSurface(surfacePanel);
         setModelBrowserParentOverlay("none");
@@ -799,16 +765,22 @@ function AppContent(
         return;
       }
 
-      // Handle /clear command - clear screen and history (fallback for Cmd+K)
-      if (commandName === "/clear") {
-        clearReplSurface();
+      // Handle /new command - start a fresh session without deleting saved history
+      if (commandName === "/new") {
+        startNewConversationSession();
+        return;
+      }
+
+      // Handle /flush command - clear visible output only
+      if (commandName === "/flush") {
+        flushReplOutput();
         return;
       }
 
       // Commands (supports both /command and .command)
       if (isAnyCommand) {
         recordPromptHistory(replState, code, "command");
-        const output = await handleCommand(code, repl, exit, replState);
+        const output = await handleCommand(code, exit, replState);
         if (output !== null) {
           addHistoryEntry(code, {
             success: true,
@@ -1120,7 +1092,7 @@ function AppContent(
       if (pendingInteraction.mode === "question" && key.escape) {
         interruptConversationRun({
           requestId: pendingInteraction.requestId,
-          clearPlanning: agentExecutionMode === "plan",
+          clearPlanning: hasActivePlanningState,
         });
         return;
       }
@@ -1130,15 +1102,10 @@ function AppContent(
     // - running: cancel in-place and restore queued drafts into composer
     // - idle: exit conversation mode
     if (key.escape && surfacePanel === "conversation") {
-      if (agentControllerRef.current) {
-        const restoredDraft = mergeConversationDraftsForInterrupt(
-          pendingConversationQueue,
-          currentComposerDraft,
-        );
-        agentControllerRef.current.abort();
-        setIsEvaluating(false);
-        setPendingConversationQueue([]);
-        restoreComposerDraft(restoredDraft);
+      if (isConversationTaskRunning) {
+        interruptConversationRun({
+          clearPlanning: hasActivePlanningState,
+        });
       } else {
         closeConversationMode();
       }
@@ -1178,6 +1145,8 @@ function AppContent(
     (surfacePanel === "none" || isConversationInputVisible);
   const isInputDisabled = init.loading ||
     (hasConversationContext && pendingInteraction?.mode === "permission");
+  const isConversationTaskRunning = hasConversationContext &&
+    (isEvaluating || agentControllerRef.current !== null);
 
   // Keep Ctrl+O section toggles from conflicting with Input paredit Ctrl+O.
   // Safe contexts:
@@ -1186,37 +1155,6 @@ function AppContent(
   // - empty prompt (paredit no-op)
   const allowConversationToggleHotkeys = !isInputVisible || isInputDisabled ||
     input.length === 0;
-  const interruptConversationRun = useCallback((
-    options?: { requestId?: string; clearPlanning?: boolean },
-  ) => {
-    if (options?.requestId) {
-      handleInteractionResponse(options.requestId, {
-        approved: false,
-      });
-    }
-    if (options?.clearPlanning) {
-      conversation.cancelPlanning();
-    }
-    if (agentControllerRef.current && !agentControllerRef.current.signal.aborted) {
-      const restoredDraft = mergeConversationDraftsForInterrupt(
-        pendingConversationQueue,
-        currentComposerDraft,
-      );
-      agentControllerRef.current.abort();
-      setIsEvaluating(false);
-      setPendingConversationQueue([]);
-      restoreComposerDraft(restoredDraft);
-    }
-  }, [
-    agentControllerRef,
-    conversation,
-    currentComposerDraft,
-    handleInteractionResponse,
-    pendingConversationQueue,
-    restoreComposerDraft,
-    setIsEvaluating,
-    setPendingConversationQueue,
-  ]);
   // overlayScreen removed — overlays are inlined as flat conditional siblings in JSX
   const standaloneSurfaceScreen = (() => {
     switch (surfacePanel) {
@@ -1310,7 +1248,7 @@ function AppContent(
       flexDirection="column"
       paddingX={1}
     >
-      {showBanner && !hasBeenCleared &&
+      {showBanner && !hasBeenCleared && !hasConversationContext &&
         (
           init.ready
             ? (
@@ -1418,7 +1356,6 @@ function AppContent(
               planningPhase={conversation.planningPhase}
               todoState={conversation.planTodoState ?? conversation.todoState}
               pendingPlanReview={conversation.pendingPlanReview}
-              latestCheckpoint={conversation.latestCheckpoint}
               allowToggleHotkeys={surfacePanel === "conversation" &&
                 allowConversationToggleHotkeys}
               interactionRequest={pendingInteraction}
@@ -1428,7 +1365,7 @@ function AppContent(
                 ? () =>
                   interruptConversationRun({
                     requestId: pendingInteraction.requestId,
-                    clearPlanning: agentExecutionMode === "plan",
+                    clearPlanning: hasActivePlanningState,
                   })
                 : undefined}
               extraReservedRows={queuePreviewRows}
@@ -1457,11 +1394,10 @@ function AppContent(
             onForceSubmit={hasConversationContext
               ? handleForceInterrupt
               : undefined}
-            onInterruptRunningTask={hasConversationContext &&
-                agentControllerRef.current
+            onInterruptRunningTask={hasConversationContext
               ? () =>
                 interruptConversationRun({
-                  clearPlanning: agentExecutionMode === "plan",
+                  clearPlanning: hasActivePlanningState,
                 })
               : undefined}
             onQueueDraft={hasConversationContext && agentControllerRef.current
@@ -1474,8 +1410,7 @@ function AppContent(
             queueEditBinding={queueEditBinding}
             canEditQueuedDraft={hasConversationContext &&
               pendingConversationQueue.length > 0}
-            isConversationTaskRunning={hasConversationContext &&
-              agentControllerRef.current !== null}
+            isConversationTaskRunning={isConversationTaskRunning}
             onAttachmentsChange={setComposerAttachments}
             restoredAttachments={composerAttachments}
             restoredCursorOffset={restoredComposerCursorOffset}
@@ -1506,11 +1441,6 @@ function AppContent(
             contextUsageLabel={hasConversationContext
               ? footerContextUsageLabel
               : ""}
-            checkpointLabel={hasConversationContext &&
-                conversation.latestCheckpoint &&
-                !conversation.latestCheckpoint.restoredAt
-              ? "/undo ready"
-              : ""}
             interactionQueueLength={hasConversationContext
               ? interactionQueue.length
               : 0}
@@ -1540,7 +1470,6 @@ function AppContent(
 
 async function handleCommand(
   cmd: string,
-  repl: ReturnType<typeof useRepl>,
   exit: () => void,
   state: ReplState,
 ): Promise<string | null> {
@@ -1555,26 +1484,14 @@ async function handleCommand(
       return "Polyglot mode is always on (HQL + JavaScript).";
     case "/hql":
       return "Polyglot mode is always on (HQL + JavaScript).";
-    case "/clear":
-      return null; // Clear is handled by returning null
+    case "/new":
+    case "/flush":
+      return null; // Screen/session resets are handled by App.tsx
     case "/exit":
-    case "/quit":
       await state.flushHistory();
       state.flushHistorySync();
       exit();
       return null;
-    case "/reset": {
-      repl.reset();
-      resetContext();
-      // SSOT: Use bindings API only
-      const bindingsApi = (globalThis as Record<string, unknown>).bindings as {
-        clear: () => Promise<void>;
-      } | undefined;
-      if (bindingsApi?.clear) {
-        await bindingsApi.clear();
-      }
-      return "REPL state reset. All bindings cleared.";
-    }
   }
 
   // Delegate to centralized command handler and capture user-facing command output

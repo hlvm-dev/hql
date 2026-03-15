@@ -81,7 +81,7 @@ export type CompletionType =
   | "operator"   // Primitive operators: +, -, *, /
   | "file"       // Regular files
   | "directory"  // Directories
-  | "command";   // Slash commands: /help, /clear
+  | "command";   // Slash commands: /help, /new, /flush
 
 /** Provider identifier */
 export type ProviderId = "symbol" | "file" | "command";
@@ -425,16 +425,4 @@ export const TYPE_LABELS: Record<CompletionType, string> = {
   file: "file",
   directory: "dir",
   command: "cmd",
-};
-
-/** Type priority for sorting (lower = higher priority) */
-export const TYPE_PRIORITY: Record<CompletionType, number> = {
-  keyword: 1,
-  macro: 2,
-  function: 3,
-  operator: 4,
-  variable: 5,
-  command: 6,
-  directory: 7,
-  file: 8,
 };

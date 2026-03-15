@@ -4,7 +4,7 @@ import { truncate } from "../../../../common/utils.ts";
 import { useTheme } from "../../theme/index.ts";
 import { buildCursorWindowDisplay } from "../utils/cursor-window.ts";
 
-export interface SearchFieldDisplay {
+interface SearchFieldDisplay {
   beforeCursor: string;
   cursorChar: string;
   afterCursor: string;
@@ -20,7 +20,7 @@ export interface ListSearchFieldProps {
 /**
  * Keep the cursor visible inside a fixed-width search field.
  */
-export function buildSearchFieldDisplay(
+function buildSearchFieldDisplay(
   value: string,
   cursor: number,
   maxChars: number,

@@ -409,6 +409,19 @@ export function resetApprovedPlanSignature(sessionId: string): void {
   });
 }
 
+export function clearPersistedAgentPlanningState(sessionId: string): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    metadata.plan = undefined;
+    metadata.completedPlanStepIds = undefined;
+    metadata.pendingPlanReview = undefined;
+    metadata.approvedPlanSignature = undefined;
+    if (metadata.todoSource === "plan") {
+      metadata.todos = undefined;
+      metadata.todoSource = undefined;
+    }
+  });
+}
+
 export function persistAgentCheckpointSummary(
   sessionId: string,
   summary: AgentCheckpointSummary,

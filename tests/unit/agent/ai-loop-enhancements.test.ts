@@ -299,7 +299,7 @@ Deno.test("Item 3: isFileWriteTool identifies correct tools", () => {
 });
 
 Deno.test({
-  name: "Item 3: maybeVerifySyntax runs real deno check on valid .ts file",
+  name: "Item 3: maybeVerifySyntax runs real tsc --noEmit on valid .ts file",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -316,7 +316,7 @@ Deno.test({
         { workspace: tmpDir } as Parameters<typeof maybeVerifySyntax>[1],
       );
       assertEquals(result?.ok, true);
-      assertEquals(result?.summary, "Syntax check passed.");
+      assertEquals(result?.summary, "Syntax check passed via tsc --noEmit.");
     } finally {
       await Deno.remove(tmpDir, { recursive: true });
     }
@@ -325,7 +325,7 @@ Deno.test({
 
 Deno.test({
   name:
-    "Item 3: maybeVerifySyntax runs real deno check on INVALID .ts file — catches error",
+    "Item 3: maybeVerifySyntax runs real tsc --noEmit on INVALID .ts file — catches error",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -339,7 +339,7 @@ Deno.test({
         { workspace: tmpDir } as Parameters<typeof maybeVerifySyntax>[1],
       );
       assertEquals(result?.ok, false);
-      assertEquals(result?.summary, "Syntax check failed.");
+      assertEquals(result?.summary, "Syntax check failed via tsc --noEmit.");
       assertStringIncludes(result?.diagnostics ?? "", "error");
     } finally {
       await Deno.remove(tmpDir, { recursive: true });
@@ -362,7 +362,7 @@ Deno.test({
         { workspace: tmpDir } as Parameters<typeof maybeVerifySyntax>[1],
       );
       assertEquals(result?.ok, true);
-      assertEquals(result?.summary, "Syntax check passed.");
+      assertEquals(result?.summary, "Syntax check passed via node --check.");
     } finally {
       await Deno.remove(tmpDir, { recursive: true });
     }
@@ -385,7 +385,7 @@ Deno.test({
         { workspace: tmpDir } as Parameters<typeof maybeVerifySyntax>[1],
       );
       assertEquals(result?.ok, false);
-      assertEquals(result?.summary, "Syntax check failed.");
+      assertEquals(result?.summary, "Syntax check failed via node --check.");
     } finally {
       await Deno.remove(tmpDir, { recursive: true });
     }

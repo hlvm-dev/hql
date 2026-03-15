@@ -12,7 +12,10 @@ import {
   DEFAULT_MODEL_ID,
   type HlvmConfig,
 } from "./config/types.ts";
-import { buildSelectedModelConfigUpdates } from "./config/model-selection.ts";
+import {
+  buildSelectedModelConfigUpdates,
+  buildSelectedModelConfigUpdatesPreservingAgentMode,
+} from "./config/model-selection.ts";
 import { ensureModelAvailability } from "./model-availability.ts";
 import { getPlatform } from "../platform/platform.ts";
 import { RuntimeError } from "./error.ts";
@@ -280,7 +283,11 @@ export async function autoConfigureInitialClaudeCodeModel(
   if (!preferred) return null;
 
   const selectedModelId = `${CLAUDE_CODE_PROVIDER}/${preferred}`;
-  await deps.patchConfig(buildSelectedModelConfigUpdates(selectedModelId));
+  await deps.patchConfig(
+    snapshot.agentMode
+      ? buildSelectedModelConfigUpdatesPreservingAgentMode(selectedModelId)
+      : buildSelectedModelConfigUpdates(selectedModelId),
+  );
   claudeBootstrapProbeResult = selectedModelId;
   return selectedModelId;
 }

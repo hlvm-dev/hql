@@ -77,6 +77,7 @@ import {
 } from "./model-compat.ts";
 import {
   appendPersistedAgentToolResult,
+  clearPersistedAgentPlanningState,
   completePersistedAgentTurn,
   loadPersistedAgentHistory,
   loadPersistedAgentSessionMetadata,
@@ -106,6 +107,7 @@ import {
   isMutatingTool,
 } from "./security/safety.ts";
 import { createCheckpointRecorder } from "./checkpoints.ts";
+import { loadAgentHookRuntime, type AgentHookRuntime } from "./hooks.ts";
 import { cloneToolList } from "./orchestrator-state.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
@@ -116,6 +118,12 @@ const DEFAULT_AGENT_PATH_ROOTS = [
 ];
 
 const reusableSessions = new Set<AgentSession>();
+
+function isAbortLikeError(error: unknown, signal?: AbortSignal): boolean {
+  return signal?.aborted === true ||
+    (error instanceof Error && error.name === "AbortError") ||
+    getErrorMessage(error).toLowerCase().includes("aborted");
+}
 
 function resolveDefaultAgentRoots(): string[] {
   const home = getPlatform().env.get("HOME") ?? "";
@@ -157,6 +165,9 @@ export async function createReusableSession(
   const agentProfiles = await loadAgentProfiles(workspace, {
     toolValidator: hasTool,
   });
+  const toolDenylist = opts?.toolDenylist
+    ? [...opts.toolDenylist]
+    : [...DEFAULT_TOOL_DENYLIST];
   const session = await createAgentSession({
     workspace,
     model,
@@ -164,7 +175,7 @@ export async function createReusableSession(
     engineProfile: "normal",
     failOnContextOverflow: false,
     toolAllowlist: opts?.toolAllowlist,
-    toolDenylist: opts?.toolDenylist,
+    toolDenylist,
     onToken: opts?.onToken,
     modelInfo: opts?.modelInfo,
     engine,
@@ -264,6 +275,87 @@ function toolListsMatch(a?: string[], b?: string[]): boolean {
   const right = normalizeToolList(b);
   if (left.length !== right.length) return false;
   return left.every((value, index) => value === right[index]);
+}
+
+export function shouldReuseAgentSession(
+  session: AgentSession | undefined,
+  options: {
+    model?: string;
+    toolAllowlist?: string[];
+    toolDenylist?: string[];
+  },
+): boolean {
+  if (!session) return false;
+  if ((session.llmConfig?.model ?? "") !== (options.model ?? "")) {
+    return false;
+  }
+  return toolListsMatch(
+      session.llmConfig?.toolAllowlist,
+      options.toolAllowlist,
+    ) &&
+    toolListsMatch(
+      session.llmConfig?.toolDenylist,
+      options.toolDenylist,
+    );
+}
+
+function dispatchLifecycleHookForEvent(
+  hookRuntime: AgentHookRuntime | null,
+  event: AgentUIEvent,
+  context: {
+    modelId: string;
+    sessionId?: string;
+  },
+): void {
+  if (!hookRuntime) return;
+  switch (event.type) {
+    case "tool_end":
+      hookRuntime.dispatchDetached("post_tool", {
+        modelId: context.modelId,
+        sessionId: context.sessionId,
+        toolName: event.name,
+        success: event.success,
+        summary: event.summary,
+        content: event.content,
+        durationMs: event.durationMs,
+        argsSummary: event.argsSummary,
+      });
+      return;
+    case "plan_created":
+      hookRuntime.dispatchDetached("plan_created", {
+        modelId: context.modelId,
+        sessionId: context.sessionId,
+        plan: event.plan,
+      });
+      return;
+    case "delegate_start":
+      hookRuntime.dispatchDetached("delegate_start", {
+        modelId: context.modelId,
+        sessionId: context.sessionId,
+        agent: event.agent,
+        task: event.task,
+        childSessionId: event.childSessionId,
+        threadId: event.threadId,
+        nickname: event.nickname,
+      });
+      return;
+    case "delegate_end":
+      hookRuntime.dispatchDetached("delegate_end", {
+        modelId: context.modelId,
+        sessionId: context.sessionId,
+        agent: event.agent,
+        task: event.task,
+        success: event.success,
+        summary: event.summary,
+        error: event.error,
+        durationMs: event.durationMs,
+        childSessionId: event.childSessionId,
+        threadId: event.threadId,
+      });
+      return;
+    default:
+      return;
+  }
 }
 
 interface AgentRunnerCallbacks {
@@ -378,6 +470,7 @@ export async function runAgentQuery(
     );
   }
   const workspace = options.workspace ?? getPlatform().process.cwd();
+  const hookRuntime = await loadAgentHookRuntime(workspace);
   const profile = ENGINE_PROFILES.normal;
   const persistentMemoryEnabled = isPersistentMemoryEnabled(
     disablePersistentMemory,
@@ -399,11 +492,11 @@ export async function runAgentQuery(
   } catch { /* file not found — skip */ }
 
   const matchingReusableSession = persistentMemoryEnabled &&
-      options.reusableSession &&
-      toolListsMatch(
-        options.reusableSession.llmConfig?.toolAllowlist,
+      shouldReuseAgentSession(options.reusableSession, {
+        model,
         toolAllowlist,
-      )
+        toolDenylist: effectiveToolDenylist,
+      })
     ? options.reusableSession
     : undefined;
   const isReusableSession = !!matchingReusableSession;
@@ -571,7 +664,10 @@ export async function runAgentQuery(
       ? {
         active: true,
         phase: "researching" as PlanningPhase,
-        executionPermissionMode: "auto-edit" as const,
+        executionPermissionMode: "auto-edit" as Exclude<
+          AgentExecutionMode,
+          "plan"
+        >,
         executionAllowlist: cloneToolList(baseExecutionAllowlist),
         executionDenylist: cloneToolList(baseExecutionDenylist),
         planningAllowlist: cloneToolList(planningAllowlist),
@@ -686,9 +782,17 @@ export async function runAgentQuery(
             toolName: "plan_review",
             toolArgs: JSON.stringify(plan),
           });
-          const reviseRequested = response.userInput?.trim().toLowerCase() ===
-            "revise";
-          const approved = !reviseRequested && response.approved === true;
+          const choice = response.userInput?.trim().toLowerCase();
+          const reviseRequested = choice === "revise";
+          const autoApproved = choice === "approve:auto";
+          const manualApproved = choice === "approve:manual";
+          const approved = autoApproved || manualApproved ||
+            (!reviseRequested && response.approved === true);
+          if (planModeState && approved) {
+            planModeState.executionPermissionMode = autoApproved
+              ? "yolo"
+              : "default";
+          }
           resolvePendingPlanReview(sessionKey, {
             approved,
             planSignature: approved ? signature : undefined,
@@ -716,7 +820,7 @@ export async function runAgentQuery(
     >;
     let teamRuntime: ReturnType<typeof createTeamRuntime> | undefined;
     const onAgentEvent = (() => {
-      if (!persistedTurn && !sessionKey) return callbacks.onAgentEvent;
+      if (!persistedTurn && !sessionKey && !hookRuntime) return callbacks.onAgentEvent;
       const activePersistedTurn = persistedTurn;
       const syncTeamTodoState = (): void => {
         if (!teamRuntime) return;
@@ -737,6 +841,10 @@ export async function runAgentQuery(
         });
       };
       return (event: AgentUIEvent) => {
+        dispatchLifecycleHookForEvent(hookRuntime, event, {
+          modelId: model,
+          sessionId: sessionKey ?? undefined,
+        });
         if (event.type === "tool_end") {
           if (activePersistedTurn) {
             appendPersistedAgentToolResult(
@@ -863,6 +971,8 @@ export async function runAgentQuery(
           usage: usageTracker,
           l1Confirmations: session.l1Confirmations,
           todoState: session.todoState,
+          lspDiagnostics: session.lspDiagnostics,
+          hookRuntime: hookRuntime ?? undefined,
           initialPlanState: permissionMode !== "plan" &&
               hasIncompleteRestoredPlan && activePlan
             ? restorePlanState(activePlan, completedPlanStepIds)
@@ -886,6 +996,14 @@ export async function runAgentQuery(
         options.images,
       );
     } catch (error) {
+      if (sessionKey && isAbortLikeError(error, options.signal)) {
+        clearPersistedAgentPlanningState(sessionKey);
+        activePlan = undefined;
+        approvedPlanSignature = undefined;
+        completedPlanStepIds.clear();
+        planOwnsTodoState = false;
+        session.todoState.items = [];
+      }
       if (persistedTurn) {
         const message = getErrorMessage(error);
         completePersistedAgentTurn(persistedTurn, model, `Error: ${message}`);
@@ -909,7 +1027,16 @@ export async function runAgentQuery(
         cancelThreadsForOwner(delegateOwnerId);
         await Promise.allSettled(active.map((t) => t.promise));
       }
+      await hookRuntime?.waitForIdle();
     }
+
+    await hookRuntime?.dispatch("final_response", {
+      modelId: model,
+      sessionId: sessionKey ?? undefined,
+      text,
+      meta: finalResponseMeta,
+    });
+    await hookRuntime?.waitForIdle();
 
     if (persistedTurn) {
       completePersistedAgentTurn(persistedTurn, model, text);
