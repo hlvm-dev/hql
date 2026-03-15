@@ -196,6 +196,76 @@ function getInputPromptPrefix(
   return `${prompt} `;
 }
 
+// ── Visual row navigation for wrapped text ──────────────────────────
+// Maps cursor position to visual (row, col) accounting for terminal wrapping.
+
+/** Convert a cursor position to its visual row and column on screen. */
+function cursorToVisualPosition(
+  cursorPos: number,
+  value: string,
+  prefixWidth: number,
+  terminalWidth: number,
+): { visualRow: number; visualCol: number } {
+  const lines = value.split("\n");
+  let charsSoFar = 0;
+  let totalVisualRows = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const lineLen = lines[i].length;
+    if (cursorPos <= charsSoFar + lineLen) {
+      const posInLine = cursorPos - charsSoFar;
+      const visualOffset = prefixWidth + posInLine;
+      return {
+        visualRow: totalVisualRows + Math.floor(visualOffset / terminalWidth),
+        visualCol: visualOffset % terminalWidth,
+      };
+    }
+    const totalChars = prefixWidth + lineLen;
+    totalVisualRows += Math.max(1, Math.ceil((totalChars + 1) / terminalWidth));
+    charsSoFar += lineLen + 1;
+  }
+  return { visualRow: totalVisualRows, visualCol: 0 };
+}
+
+/** Convert a visual (row, col) back to a cursor position in the value. */
+function visualPositionToCursor(
+  targetRow: number,
+  targetCol: number,
+  value: string,
+  prefixWidth: number,
+  terminalWidth: number,
+): number {
+  const lines = value.split("\n");
+  let charsSoFar = 0;
+  let totalVisualRows = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const lineLen = lines[i].length;
+    const totalChars = prefixWidth + lineLen;
+    const rowsForLine = Math.max(1, Math.ceil((totalChars + 1) / terminalWidth));
+    if (targetRow < totalVisualRows + rowsForLine) {
+      const rowInLine = targetRow - totalVisualRows;
+      const visualOffset = rowInLine * terminalWidth + targetCol;
+      const posInLine = Math.max(0, Math.min(visualOffset - prefixWidth, lineLen));
+      return charsSoFar + posInLine;
+    }
+    totalVisualRows += rowsForLine;
+    charsSoFar += lineLen + 1;
+  }
+  return value.length;
+}
+
+/** Count total visual rows for the given value. */
+function getTotalVisualRows(
+  value: string,
+  prefixWidth: number,
+  terminalWidth: number,
+): number {
+  let total = 0;
+  for (const line of value.split("\n")) {
+    total += Math.max(1, Math.ceil((prefixWidth + line.length + 1) / terminalWidth));
+  }
+  return total;
+}
+
 export interface EscapeKeyInfo {
   escape?: boolean;
   ctrl?: boolean;
@@ -2121,63 +2191,25 @@ export function Input({
     }
 
     // Arrow keys (when dropdown not visible)
-    // Multiline: move between lines. Single-line: jump to edge then history.
+    // Navigate by visual rows (handles both logical newlines AND terminal wrapping).
     if (key.upArrow) {
-      const lines = value.split("\n");
-      if (lines.length > 1) {
-        // Find current line and column from cursor position
-        let pos = 0;
-        let lineIdx = 0;
-        for (let i = 0; i < lines.length; i++) {
-          if (pos + lines[i].length >= cursorPos) {
-            lineIdx = i;
-            break;
-          }
-          pos += lines[i].length + 1; // +1 for \n
-        }
-        const col = cursorPos - pos;
-        if (lineIdx > 0) {
-          // Move to same column on previous line (clamped)
-          const prevLineStart = pos - lines[lineIdx - 1].length - 1;
-          setCursorPos(
-            prevLineStart + Math.min(col, lines[lineIdx - 1].length),
-          );
-        } else {
-          // Already on first line: navigate history
-          navigateHistory(-1);
-        }
-      } else if (cursorPos > 0) {
-        setCursorPos(0);
+      const tw = stdout?.columns ?? 80;
+      const pw = promptLabel.length + 1;
+      const { visualRow, visualCol } = cursorToVisualPosition(cursorPos, value, pw, tw);
+      if (visualRow > 0) {
+        setCursorPos(visualPositionToCursor(visualRow - 1, visualCol, value, pw, tw));
       } else {
         navigateHistory(-1);
       }
       return;
     }
     if (key.downArrow) {
-      const lines = value.split("\n");
-      if (lines.length > 1) {
-        let pos = 0;
-        let lineIdx = 0;
-        for (let i = 0; i < lines.length; i++) {
-          if (pos + lines[i].length >= cursorPos) {
-            lineIdx = i;
-            break;
-          }
-          pos += lines[i].length + 1;
-        }
-        const col = cursorPos - pos;
-        if (lineIdx < lines.length - 1) {
-          // Move to same column on next line (clamped)
-          const nextLineStart = pos + lines[lineIdx].length + 1;
-          setCursorPos(
-            nextLineStart + Math.min(col, lines[lineIdx + 1].length),
-          );
-        } else {
-          // Already on last line: navigate history
-          navigateHistory(1);
-        }
-      } else if (cursorPos < value.length) {
-        setCursorPos(value.length);
+      const tw = stdout?.columns ?? 80;
+      const pw = promptLabel.length + 1;
+      const { visualRow, visualCol } = cursorToVisualPosition(cursorPos, value, pw, tw);
+      const totalRows = getTotalVisualRows(value, pw, tw);
+      if (visualRow < totalRows - 1) {
+        setCursorPos(visualPositionToCursor(visualRow + 1, visualCol, value, pw, tw));
       } else {
         navigateHistory(1);
       }
@@ -2638,34 +2670,36 @@ export function Input({
       : " ".repeat(promptLabel.length);
 
     if (!isCurrentLine) {
-      // No cursor on this line
+      // No cursor on this line — single Text for correct wrapping
       return (
         <Box key={lineIndex}>
-          <Text color={color("primary")} bold>{promptText}</Text>
-          <Text>{" "}{renderWithPlaceholders(line, lineStartOffset)}</Text>
+          <Text>
+            <Text color={color("primary")} bold>{promptText}</Text>
+            {" "}{renderWithPlaceholders(line, lineStartOffset)}
+          </Text>
         </Box>
       );
     }
 
-    // This line has the cursor
+    // This line has the cursor — all inline within a single Text for
+    // correct terminal wrapping (multiple top-level Text elements in a
+    // Box are separate flex items and wrap independently).
     const beforeCursor = line.slice(0, cursorCol);
     const charAtCursor = line[cursorCol] || " ";
     const afterCursor = line.slice(cursorCol + 1);
 
     return (
       <Box key={lineIndex}>
-        <Text color={color("primary")} bold>{promptText}</Text>
         <Text>
+          <Text color={color("primary")} bold>{promptText}</Text>
           {" "}
           {renderWithPlaceholders(beforeCursor, lineStartOffset)}
-        </Text>
-        <Text backgroundColor="white" color="black">{charAtCursor}</Text>
-        <Text>
+          <Text backgroundColor="white" color="black">{charAtCursor}</Text>
           {renderWithPlaceholders(afterCursor, lineStartOffset + cursorCol + 1)}
+          {lineIndex === lines.length - 1 && ghostText && (
+            <Text dimColor>{ghostText}</Text>
+          )}
         </Text>
-        {lineIndex === lines.length - 1 && ghostText && (
-          <Text dimColor>{ghostText}</Text>
-        )}
       </Box>
     );
   };
