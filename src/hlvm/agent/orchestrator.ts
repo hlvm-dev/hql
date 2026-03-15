@@ -504,7 +504,8 @@ const ALWAYS_AVAILABLE_RUNTIME_TOOLS = [
   "todo_write",
 ];
 
-const RESEARCH_PHASE_CATEGORIES = new Set([
+/** @internal Exported for unit testing only. */
+export const RESEARCH_PHASE_CATEGORIES = new Set([
   "read",
   "search",
   "web",
@@ -514,17 +515,21 @@ const RESEARCH_PHASE_CATEGORIES = new Set([
   "meta",
 ]);
 
-const EDIT_PHASE_CATEGORIES = new Set([
+/** @internal Exported for unit testing only. */
+export const EDIT_PHASE_CATEGORIES = new Set([
   "read",
   "search",
   "write",
+  "shell",
   "git",
   "meta",
 ]);
 
-const VERIFY_PHASE_CATEGORIES = new Set([
+/** @internal Exported for unit testing only. */
+export const VERIFY_PHASE_CATEGORIES = new Set([
   "read",
   "search",
+  "write",
   "shell",
   "git",
   "meta",
@@ -536,8 +541,10 @@ const DELEGATE_PHASE_CATEGORIES = new Set([
   "meta",
 ]);
 
-const COMPLETE_PHASE_CATEGORIES = new Set([
+/** @internal Exported for unit testing only. */
+export const COMPLETE_PHASE_CATEGORIES = new Set([
   "read",
+  "shell",
   "git",
   "memory",
   "meta",
@@ -627,7 +634,8 @@ function getPhaseCategories(phase: RuntimeToolPhase): Set<string> {
   }
 }
 
-function applyAdaptiveToolPhase(
+/** @internal Exported for unit testing only. */
+export function applyAdaptiveToolPhase(
   state: LoopState,
   config: OrchestratorConfig,
   userRequest: string,
@@ -636,6 +644,11 @@ function applyAdaptiveToolPhase(
   state.runtimePhase = phase;
 
   if (config.planModeState?.active || state.planState) {
+    return phase;
+  }
+
+  // Non-weak models handle tool selection well on their own; skip phase filtering.
+  if ((config.modelTier ?? "mid") !== "weak") {
     return phase;
   }
 
@@ -652,19 +665,16 @@ function applyAdaptiveToolPhase(
     denylist: baselineDenylist,
     ownerId: config.toolOwnerId,
   });
-  let phaseAllowlist = state.toolSearchAllowlist;
-  if (!phaseAllowlist?.length) {
-    const categories = getPhaseCategories(phase);
-    const scoped = Object.entries(availableTools)
-      .filter(([, meta]) => !meta.category || categories.has(meta.category))
-      .map(([name]) => name);
-    phaseAllowlist = uniqueToolList([
-      ...ALWAYS_AVAILABLE_RUNTIME_TOOLS.filter((name) =>
-        name in availableTools
-      ),
-      ...scoped,
-    ]);
-  }
+  const categories = getPhaseCategories(phase);
+  const scoped = Object.entries(availableTools)
+    .filter(([, meta]) => !meta.category || categories.has(meta.category))
+    .map(([name]) => name);
+  const phaseAllowlist = uniqueToolList([
+    ...ALWAYS_AVAILABLE_RUNTIME_TOOLS.filter((name) =>
+      name in availableTools
+    ),
+    ...scoped,
+  ]);
   const nextAllowlist = intersectToolLists(
     phaseAllowlist,
     Object.keys(availableTools),

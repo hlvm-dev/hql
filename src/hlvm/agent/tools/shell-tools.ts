@@ -16,7 +16,6 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { createAbortError } from "../../../common/timeout-utils.ts";
 import { resolveToolPath } from "../path-utils.ts";
 import {
-  getUnsafeReason,
   isSafeCommand,
   parseShellCommand,
 } from "../../../common/shell-parser.ts";
@@ -214,22 +213,13 @@ export async function shellExec(
       });
     }
 
-    // Reject unsafe operators for shell_exec (use shell_script instead)
-    if (!isSafeCommand(parsedCommand)) {
-      const unsafeReason = getUnsafeReason(parsedCommand);
-      return failTool(
-        `Unsafe shell command for shell_exec: ${unsafeReason}. Use shell_script for complex commands.`,
-        {
-          stdout: "",
-          stderr: unsafeReason,
-          exitCode: 1,
-          safetyLevel,
-        },
-      );
-    }
-
-    // isSafeCommand() above guarantees no pipes/chaining — safe for direct exec on all platforms
-    const cmdArgs = [parsedCommand.program, ...parsedCommand.args];
+    // When pipes/redirects are present, run through shell interpreter instead of rejecting
+    const useShellInterpreter = !isSafeCommand(parsedCommand);
+    const cmdArgs = useShellInterpreter
+      ? (platform.build.os === "windows"
+        ? ["cmd.exe", "/c", args.command]
+        : ["sh", "-c", args.command])
+      : [parsedCommand.program, ...parsedCommand.args];
     const detach = args.detach === true ||
       shouldAutoDetachShellCommand(args.command, platform.build.os);
 

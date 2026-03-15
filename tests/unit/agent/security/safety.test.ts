@@ -8,6 +8,7 @@ import {
   hasL1Confirmation,
   setL1Confirmation,
 } from "../../../../src/hlvm/agent/security/safety.ts";
+import { classifyShellPipeline } from "../../../../src/hlvm/agent/security/shell-classifier.ts";
 import type { AgentPolicy } from "../../../../src/hlvm/agent/policy.ts";
 
 Deno.test("Safety: classifyTool covers representative metadata-backed tool families", () => {
@@ -155,4 +156,26 @@ Deno.test("Safety: default-mode L2 always prompts and never persists confirmatio
   );
   assertEquals(prompts, 2);
   assertEquals(getAllL1Confirmations(store).size, 0);
+});
+
+// ---------------------------------------------------------------------------
+// classifyShellPipeline: pipeline-aware classification
+// ---------------------------------------------------------------------------
+
+Deno.test("Safety: classifyShellPipeline classifies read-only pipelines as L0", () => {
+  assertEquals(classifyShellPipeline("du -sh /tmp | sort -r").level, "L0");
+  assertEquals(classifyShellPipeline("cat file 2>/dev/null | grep err").level, "L0");
+});
+
+Deno.test("Safety: classifyShellPipeline classifies file redirects as L2", () => {
+  assertEquals(classifyShellPipeline("ls > output.txt").level, "L2");
+});
+
+Deno.test("Safety: classifyShellPipeline classifies chaining operators as L2", () => {
+  assertEquals(classifyShellPipeline("echo hello && rm file").level, "L2");
+});
+
+Deno.test("Safety: classifyShellPipeline falls back to simple classification for non-metachar commands", () => {
+  assertEquals(classifyShellPipeline("git status").level, "L0");
+  assertEquals(classifyShellPipeline("git push").level, "L2");
 });

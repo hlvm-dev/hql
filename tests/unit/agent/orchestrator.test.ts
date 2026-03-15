@@ -1347,37 +1347,23 @@ Deno.test({
 
 Deno.test({
   name:
-    "Orchestrator: executeToolCall shell_exec preflight blocks complex syntax but allows simple commands",
+    "Orchestrator: executeToolCall shell_exec runs piped commands via shell interpreter",
   async fn() {
     resetApprovals();
-    const rejects = [
-      "ls | grep foo",
-      "echo hi && rm -rf /",
-      "echo hello > file.txt",
-      "cat < input.txt",
-      "echo line >> log.txt",
-      "cmd 2>&1",
-      "cat << EOF",
-    ];
 
-    for (const command of rejects) {
-      const result = await executeToolCall(
-        { toolName: "shell_exec", args: { command } },
-        {
-          workspace: TEST_WORKSPACE,
-          context: new ContextManager(),
-          permissionMode: "yolo",
-        },
-      );
+    // Piped commands now run through sh -c instead of being rejected
+    const piped = await executeToolCall(
+      { toolName: "shell_exec", args: { command: "echo hello | cat" } },
+      {
+        workspace: TEST_WORKSPACE,
+        context: new ContextManager(),
+        permissionMode: "yolo",
+      },
+    );
+    assertEquals(piped.success, true);
 
-      assertEquals(result.success, false);
-      assertStringIncludes(
-        result.error ?? result.llmContent ?? "",
-        "shell_exec does not support",
-      );
-    }
-
-    const allowed = await executeToolCall(
+    // Simple commands still work via direct exec
+    const simple = await executeToolCall(
       { toolName: "shell_exec", args: { command: "echo hello world" } },
       {
         workspace: TEST_WORKSPACE,
@@ -1385,8 +1371,7 @@ Deno.test({
         permissionMode: "yolo",
       },
     );
-
-    assertEquals(allowed.success, true);
+    assertEquals(simple.success, true);
   },
 });
 

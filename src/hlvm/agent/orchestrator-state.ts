@@ -74,8 +74,6 @@ export interface LoopState {
   consecutiveTransientRetries?: number;
   /** Most recent tool names executed in the prior iteration. */
   lastToolNames: string[];
-  /** Latest tool_search-derived allowlist override. */
-  toolSearchAllowlist?: string[];
   /** Current adaptive execution phase. */
   runtimePhase?: RuntimeToolPhase;
   /** Loop recovery escalation level for the current repeated signature. */

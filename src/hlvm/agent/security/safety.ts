@@ -27,7 +27,7 @@ import {
   truncate,
 } from "../../../common/utils.ts";
 import { isToolArgsObject } from "../validation.ts";
-import { classifyShellCommand } from "./shell-classifier.ts";
+import { classifyShellCommand, classifyShellPipeline } from "./shell-classifier.ts";
 import { canonicalizeForSignature } from "../orchestrator-tool-formatting.ts";
 import type { PermissionMode } from "../../../common/config/types.ts";
 
@@ -202,13 +202,21 @@ function getDeclaredSafetyClassification(
 function isDeclaredMutatingTool(
   toolName: string,
   ownerId?: string,
+  args?: Record<string, unknown>,
 ): boolean {
   try {
     const tool = getTool(toolName, ownerId);
-    return tool.category === "write" ||
-      toolName === "shell_exec" ||
-      toolName === "shell_script" ||
-      toolName === "git_commit";
+    if (tool.category === "write" || toolName === "git_commit") return true;
+    if (toolName === "shell_exec" || toolName === "shell_script") {
+      const cmd = toolName === "shell_exec"
+        ? args?.command
+        : (args?.script ?? args?.command);
+      if (cmd && typeof cmd === "string") {
+        return classifyShellPipeline(cmd).level !== "L0";
+      }
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }
@@ -261,8 +269,9 @@ export function classifyTool(
 export function isMutatingTool(
   toolName: string,
   ownerId?: string,
+  args?: Record<string, unknown>,
 ): boolean {
-  return isDeclaredMutatingTool(toolName, ownerId);
+  return isDeclaredMutatingTool(toolName, ownerId, args);
 }
 
 export function effectiveToolSurfaceIncludesMutation(options?: {

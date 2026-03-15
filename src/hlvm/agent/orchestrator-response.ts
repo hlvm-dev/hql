@@ -465,7 +465,6 @@ async function handleDraftedPlan(
   const reviewDecision = await config.planReview.ensureApproved(plan);
   if (reviewDecision === "approved") {
     state.planState = createPlanState(plan);
-    state.toolSearchAllowlist = undefined;
     if (config.planModeState) {
       const executionAllowlist = derivePlanExecutionAllowlist(
         plan,
@@ -515,7 +514,6 @@ async function handleDraftedPlan(
   }
 
   if (reviewDecision === "revise") {
-    state.toolSearchAllowlist = undefined;
     if (config.planModeState) {
       config.planModeState.phase = "researching";
       config.onAgentEvent?.({
@@ -1077,7 +1075,8 @@ export async function handlePostToolExecution(
     const rawAllowlist = parseToolSearchAllowlist(toolResult.result);
     if (rawAllowlist.length === 0) continue;
 
-    const currentAllowlist = effectiveAllowlist(config);
+    const currentAllowlist = config.toolFilterBaseline?.allowlist ??
+      effectiveAllowlist(config);
     const allowedUniverse = currentAllowlist?.length
       ? new Set(currentAllowlist)
       : null;
@@ -1101,7 +1100,6 @@ export async function handlePostToolExecution(
       config.toolFilterState.allowlist = nextAllowlist;
     }
     config.toolAllowlist = nextAllowlist;
-    state.toolSearchAllowlist = [...nextAllowlist];
 
     const preview = nextAllowlist.slice(0, 12).join(", ");
     const extra = nextAllowlist.length > 12

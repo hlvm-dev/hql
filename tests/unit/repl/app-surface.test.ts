@@ -85,7 +85,7 @@ Deno.test("shouldRenderMainBanner hides the banner for overlays and standalone s
   );
 });
 
-Deno.test("shouldRenderMainBanner keeps the banner visible while active plan flow owns the screen", () => {
+Deno.test("shouldRenderMainBanner keeps the banner visible during active plan flow", () => {
   assertEquals(
     shouldRenderMainBanner({
       showBanner: true,

@@ -20,11 +20,6 @@ import { withTimeout } from "../../common/timeout-utils.ts";
 import { SlidingWindowRateLimiter } from "../../common/rate-limiter.ts";
 import { getErrorMessage, isObjectValue, truncate } from "../../common/utils.ts";
 import { RuntimeError } from "../../common/error.ts";
-import {
-  getUnsafeReason,
-  isSafeCommand,
-  parseShellCommand,
-} from "../../common/shell-parser.ts";
 import { getAgentLogger } from "./logger.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { isPlanExecutionMode } from "./execution-mode.ts";
@@ -447,26 +442,7 @@ export async function executeToolCall(
       );
     }
 
-    // Preflight: reject shell_exec commands that executor will refuse
-    if (toolCall.toolName === "shell_exec") {
-      const cmd = (coercedArgs as Record<string, unknown>)?.command;
-      if (typeof cmd === "string") {
-        try {
-          const parsed = parseShellCommand(cmd);
-          if (!isSafeCommand(parsed)) {
-            return buildToolErrorResult(
-              toolCall.toolName,
-              `shell_exec does not support ${getUnsafeReason(parsed)}. Use shell_script for complex commands.`,
-              startedAt,
-              config,
-              toolCall.id,
-            );
-          }
-        } catch { /* parse errors handled later by executor */ }
-      }
-    }
-
-    const mutatingTool = isMutatingTool(toolCall.toolName, config.toolOwnerId);
+    const mutatingTool = isMutatingTool(toolCall.toolName, config.toolOwnerId, toolCall.args);
     if (mutatingTool && isPlanExecutionMode(config.permissionMode)) {
       return buildToolErrorResult(
         toolCall.toolName,

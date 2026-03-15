@@ -528,15 +528,8 @@ export function reduceTranscriptState(
       const event = input.event;
       switch (event.type) {
         case "plan_phase_changed":
-          if (event.phase === "executing" || event.phase === "done") {
-            return {
-              ...state,
-              planningPhase: event.phase,
-              items: removeCurrentTurnThinkingItems(
-                removeTransientInfoItems(state.items),
-              ),
-            };
-          }
+          // Only update the phase — never remove items (thinking, transient
+          // info, etc.) to avoid visible screen flush during transitions.
           return {
             ...state,
             planningPhase: event.phase,
@@ -895,6 +888,7 @@ export function reduceTranscriptState(
         completedPlanStepIds: clearFinishedPlanState
           ? []
           : state.completedPlanStepIds,
+        todoState: clearFinishedPlanState ? undefined : state.todoState,
         planTodoState: clearFinishedPlanState ? undefined : state.planTodoState,
         pendingPlanReview: clearFinishedPlanState
           ? undefined

@@ -174,7 +174,6 @@ Deno.test("handleFinalResponse promotes an approved plan-mode draft into executi
     "read_file",
     "write_file",
   ]);
-  assertEquals(state.toolSearchAllowlist, undefined);
   assertEquals(lc.planningConfig.requireStepMarkers, true);
   assertEquals(state.planState?.plan.goal, "Implement plan mode");
   assertEquals(context.getMessages().length, 1);
@@ -463,7 +462,6 @@ Deno.test("handleFinalResponse returns to planning when plan review requests rev
   };
   const lc = resolveLoopConfig(config);
   const state = initializeLoopState(config);
-  state.toolSearchAllowlist = ["read_file", "tool_search"];
 
   const result = await handleFinalResponse(
     [
@@ -481,7 +479,6 @@ Deno.test("handleFinalResponse returns to planning when plan review requests rev
   assertEquals(state.planState, null);
   assertEquals(config.permissionMode, "plan");
   assertEquals(config.planModeState?.phase, "researching");
-  assertEquals(state.toolSearchAllowlist, undefined);
   assertEquals(phaseEvents, ["drafting", "reviewing", "researching"]);
   assertEquals(context.getMessages().length, 1);
   assertStringIncludes(

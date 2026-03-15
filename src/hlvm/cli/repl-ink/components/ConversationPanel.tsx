@@ -157,11 +157,13 @@ export function getActiveThinkingId(
 }
 
 function shouldCompactPlanTranscript(
-  planningPhase: PlanningPhase | undefined,
-  activePlan: Plan | undefined,
-  pendingPlanReview: { plan: Plan } | undefined,
+  _planningPhase: PlanningPhase | undefined,
+  _activePlan: Plan | undefined,
+  _pendingPlanReview: { plan: Plan } | undefined,
 ): boolean {
-  return Boolean(planningPhase || activePlan || pendingPlanReview);
+  // Disabled: compact mode hid conversation history and flushed the screen.
+  // All items now render normally during plan mode.
+  return false;
 }
 
 export function shouldHideConversationTextInCompactPlanFlow(
@@ -188,9 +190,7 @@ export function getConversationDisplayItems(
     hideConversationText?: boolean;
   },
 ): ConversationItem[] {
-  const visibleTurnStartIndex = options?.compactPlanTranscript
-    ? findCurrentTurnStartIndex(items)
-    : -1;
+  // Only compute turn index for picker suppression, NOT for history hiding
   const currentTurnStartIndex =
     options?.compactPlanTranscript && options?.suppressCurrentTurnPrompt
     ? findCurrentTurnStartIndex(items)
@@ -199,12 +199,7 @@ export function getConversationDisplayItems(
     if (!shouldRenderConversationItem(item)) {
       return false;
     }
-    if (
-      visibleTurnStartIndex >= 0 &&
-      itemIndex < visibleTurnStartIndex
-    ) {
-      return false;
-    }
+    // Picker prompt suppression (unchanged)
     if (
       currentTurnStartIndex >= 0 &&
       itemIndex >= currentTurnStartIndex &&
@@ -212,6 +207,7 @@ export function getConversationDisplayItems(
     ) {
       return false;
     }
+    // Hide conversation text during active compact plan flow (unchanged)
     if (
       options?.hideConversationText &&
       (item.type === "user" || item.type === "assistant")
@@ -221,11 +217,9 @@ export function getConversationDisplayItems(
     if (!options?.compactPlanTranscript) {
       return true;
     }
+    // During plan mode: hide thinking and stats (noise), SHOW everything else
     if (item.type === "thinking" || item.type === "turn_stats") {
       return false;
-    }
-    if (item.type === "tool_group") {
-      return hasToolGroupError(item);
     }
     return true;
   });
@@ -491,26 +485,20 @@ export function ConversationPanel({
     () => isPickerInteractionRequest(interactionRequest),
     [interactionRequest],
   );
-  const hideTranscriptDuringPicker = compactPlanTranscript &&
-    pickerInteractionActive;
+  const hideTranscriptDuringPicker = false;
   const hidePlanChromeDuringReviewPicker = Boolean(
     pendingPlanReview && pickerInteractionActive,
   );
-  const hideConversationText = shouldHideConversationTextInCompactPlanFlow(
-    compactPlanTranscript,
-    planningPhase,
-    streamingState,
-    Boolean(interactionRequest),
-  );
+  const hideConversationText = false;
   const displayItems = useMemo(
     () =>
       getConversationDisplayItems(items, {
         compactPlanTranscript,
         suppressCurrentTurnPrompt: compactPlanTranscript &&
-          Boolean(interactionRequest),
+          pickerInteractionActive,
         hideConversationText,
       }),
-    [compactPlanTranscript, hideConversationText, interactionRequest, items],
+    [compactPlanTranscript, hideConversationText, pickerInteractionActive, items],
   );
 
   useEffect(() => {
@@ -777,9 +765,38 @@ export function ConversationPanel({
         <Text color={sc.text.muted}>Conversation starting...</Text>
       )}
 
+      {!hideTranscriptDuringPicker && viewport.hiddenAbove > 0 && (
+        <Text color={sc.text.muted}>
+          ↑ {viewport.hiddenAbove}{" "}
+          earlier item{viewport.hiddenAbove === 1 ? "" : "s"}
+        </Text>
+      )}
+
+      {visibleItems.map((item: ConversationItem) => (
+        <Box key={item.id}>
+          <RenderErrorBoundary>
+            {renderItem(
+              item,
+              width,
+              activeThinkingId,
+              isToolExpanded,
+              isThinkingExpanded,
+              isDelegateExpanded,
+            )}
+          </RenderErrorBoundary>
+        </Box>
+      ))}
+
+      {!hideTranscriptDuringPicker && viewport.hiddenBelow > 0 && (
+        <Text color={sc.text.muted}>
+          ↓ {viewport.hiddenBelow}{" "}
+          newer item{viewport.hiddenBelow === 1 ? "" : "s"}
+        </Text>
+      )}
+
       {!hidePlanChromeDuringReviewPicker && (phaseTitle || phaseSummary) && (
         <Box
-          marginBottom={1}
+          marginTop={1}
           flexDirection="column"
         >
           <Text
@@ -826,7 +843,7 @@ export function ConversationPanel({
 
       {!hidePlanChromeDuringReviewPicker && activeTodoItem && (
         <Box
-          marginBottom={1}
+          marginTop={1}
           flexDirection="column"
         >
           <Text color={sc.border.active} bold>
@@ -839,7 +856,7 @@ export function ConversationPanel({
       {!hidePlanChromeDuringReviewPicker && todoState &&
         todoState.items.length > 0 && (
         <Box
-          marginBottom={1}
+          marginTop={1}
           flexDirection="column"
         >
           <Text color={sc.status.warning} bold>
@@ -871,65 +888,7 @@ export function ConversationPanel({
         </Box>
       )}
 
-      {!hideTranscriptDuringPicker && viewport.hiddenAbove > 0 && (
-        <Text color={sc.text.muted}>
-          ↑ {viewport.hiddenAbove}{" "}
-          earlier item{viewport.hiddenAbove === 1 ? "" : "s"}
-        </Text>
-      )}
-
-      {interactionRequest && onInteractionResponse && pickerInteractionActive && (
-        <Box flexDirection="column" marginBottom={1}>
-          {interactionQueueLength > 1 && (
-            <Text color={sc.status.warning}>
-              {interactionQueueLength - 1}{" "}
-              more interaction{interactionQueueLength - 1 === 1 ? "" : "s"}{" "}
-              queued
-            </Text>
-          )}
-          {interactionRequest.mode === "permission" && (
-            <ConfirmationDialog
-              requestId={interactionRequest.requestId}
-              toolName={interactionRequest.toolName}
-              toolArgs={interactionRequest.toolArgs}
-              onResolve={onInteractionResponse}
-            />
-          )}
-          {interactionRequest.mode === "question" && (
-            <QuestionDialog
-              requestId={interactionRequest.requestId}
-              question={interactionRequest.question}
-              options={interactionRequest.options}
-              onResolve={onInteractionResponse}
-              onInterrupt={onQuestionInterrupt}
-            />
-          )}
-        </Box>
-      )}
-
-      {visibleItems.map((item: ConversationItem) => (
-        <Box key={item.id}>
-          <RenderErrorBoundary>
-            {renderItem(
-              item,
-              width,
-              activeThinkingId,
-              isToolExpanded,
-              isThinkingExpanded,
-              isDelegateExpanded,
-            )}
-          </RenderErrorBoundary>
-        </Box>
-      ))}
-
-      {!hideTranscriptDuringPicker && viewport.hiddenBelow > 0 && (
-        <Text color={sc.text.muted}>
-          ↓ {viewport.hiddenBelow}{" "}
-          newer item{viewport.hiddenBelow === 1 ? "" : "s"}
-        </Text>
-      )}
-
-      {interactionRequest && onInteractionResponse && !pickerInteractionActive && (
+      {interactionRequest && onInteractionResponse && (
         <Box flexDirection="column" marginTop={1}>
           {interactionQueueLength > 1 && (
             <Text color={sc.status.warning}>

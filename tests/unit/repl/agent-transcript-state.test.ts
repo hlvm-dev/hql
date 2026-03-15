@@ -955,7 +955,7 @@ Deno.test("agent transcript state hides planning and reasoning updates once plan
   assertEquals(state.items.length, 0);
 });
 
-Deno.test("agent transcript state clears current-turn planning rows when execution begins", () => {
+Deno.test("agent transcript state preserves items during plan phase transitions", () => {
   let state = reduceTranscriptState(createTranscriptState(), {
     type: "user_message",
     text: "plan this edit",
@@ -977,6 +977,7 @@ Deno.test("agent transcript state clears current-turn planning rows when executi
     },
   });
 
+  const itemCountBefore = state.items.length;
   state = reduceTranscriptState(state, {
     type: "agent_event",
     event: {
@@ -985,8 +986,7 @@ Deno.test("agent transcript state clears current-turn planning rows when executi
     },
   });
 
-  assertEquals(
-    state.items.some((item) => item.type === "thinking"),
-    false,
-  );
+  // Items are preserved — no screen flush on phase transition
+  assertEquals(state.items.length, itemCountBefore);
+  assertEquals(state.planningPhase, "executing");
 });

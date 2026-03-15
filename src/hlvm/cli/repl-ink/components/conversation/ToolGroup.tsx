@@ -22,13 +22,15 @@ interface ToolGroupProps {
 /** Determine aggregate status for border coloring */
 function aggregateStatus(
   tools: ToolCallDisplay[],
-): "pending" | "running" | "success" | "error" {
-  const hasError = tools.some((t) => t.status === "error");
-  if (hasError) return "error";
+): "pending" | "running" | "success" | "error" | "partial" {
   const hasRunning = tools.some((t) => t.status === "running");
   if (hasRunning) return "running";
+  const hasError = tools.some((t) => t.status === "error");
   const allSuccess = tools.every((t) => t.status === "success");
   if (allSuccess) return "success";
+  const allError = tools.every((t) => t.status === "error");
+  if (allError) return "error";
+  if (hasError) return "partial";
   return "pending";
 }
 
@@ -59,6 +61,9 @@ export const ToolGroup = React.memo(function ToolGroup({
     case "error":
       borderColor = sc.tool.error;
       break;
+    case "partial":
+      borderColor = sc.status.warning;
+      break;
     default:
       borderColor = sc.border.dim;
   }
@@ -68,8 +73,10 @@ export const ToolGroup = React.memo(function ToolGroup({
   const showProgressBar = !isAllDone && innerWidth >= 28;
   const statusLabel = status === "running"
     ? "running"
-    : hasError
+    : status === "error"
     ? "failed"
+    : status === "partial"
+    ? "partial"
     : isAllDone
     ? "complete"
     : "pending";

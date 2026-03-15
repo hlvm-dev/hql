@@ -357,13 +357,9 @@ export function useAgentRunner(
             }
             if (event.type === "plan_phase_changed") {
               suppressPlanningTokens = event.phase !== "done";
-              if (suppressPlanningTokens) {
-                textBuffer = "";
-                if (pendingStreamTimerRef.current) {
-                  clearTimeout(pendingStreamTimerRef.current);
-                  pendingStreamTimerRef.current = null;
-                }
-              }
+              // Don't clear textBuffer or cancel timers — let any
+              // partially-streamed text flush naturally to avoid
+              // visible screen flicker during plan phase transitions.
             }
             conversation.addEvent(event);
             // Wire background delegate lifecycle to TaskManager

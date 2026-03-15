@@ -87,7 +87,7 @@ Deno.test("getActiveThinkingId does not re-animate prior-turn thinking before th
   );
 });
 
-Deno.test("getConversationDisplayItems compacts plan-mode transcript noise by hiding thinking, turn stats, and successful tool groups", () => {
+Deno.test("getConversationDisplayItems compacts plan-mode transcript noise by hiding thinking and turn stats but keeping tool groups visible", () => {
   const compactItems = getConversationDisplayItems([
     {
       type: "thinking",
@@ -126,10 +126,10 @@ Deno.test("getConversationDisplayItems compacts plan-mode transcript noise by hi
     },
   ], { compactPlanTranscript: true });
 
-  assertEquals(compactItems.map((item) => item.type), ["assistant"]);
+  assertEquals(compactItems.map((item) => item.type), ["tool_group", "assistant"]);
 });
 
-Deno.test("getConversationDisplayItems shows only the current turn while compact plan mode is active", () => {
+Deno.test("getConversationDisplayItems preserves previous conversation history during compact plan mode", () => {
   const compactItems = getConversationDisplayItems([
     {
       type: "user",
@@ -161,7 +161,7 @@ Deno.test("getConversationDisplayItems shows only the current turn while compact
 
   assertEquals(
     compactItems.map((item) => `${item.type}:${"text" in item ? item.text : item.id}`),
-    ["user:new request", "assistant:Current answer"],
+    ["user:old request", "assistant:Old answer", "user:new request", "assistant:Current answer"],
   );
 });
 
@@ -187,7 +187,7 @@ Deno.test("getConversationDisplayItems keeps errored tool groups visible during 
   assertEquals(compactItems.map((item) => item.type), ["tool_group"]);
 });
 
-Deno.test("getConversationDisplayItems hides the current-turn prompt and assistant text while a picker interaction is active", () => {
+Deno.test("getConversationDisplayItems hides the current-turn prompt and assistant text while a picker interaction is active but preserves prior history", () => {
   const compactItems = getConversationDisplayItems([
     {
       type: "user",
@@ -220,9 +220,10 @@ Deno.test("getConversationDisplayItems hides the current-turn prompt and assista
     suppressCurrentTurnPrompt: true,
   });
 
+  // Previous history is preserved; only current-turn user/assistant suppressed
   assertEquals(
     compactItems.map((item) => `${item.type}:${"text" in item ? item.text : item.id}`),
-    [],
+    ["user:old prompt", "assistant:Older answer"],
   );
 });
 
@@ -255,7 +256,7 @@ Deno.test("getConversationDisplayItems keeps the current-turn prompt visible for
   );
 });
 
-Deno.test("getConversationDisplayItems hides user and assistant transcript text during active compact plan flow", () => {
+Deno.test("getConversationDisplayItems hides user and assistant transcript text during active compact plan flow but keeps tool groups", () => {
   const compactItems = getConversationDisplayItems([
     {
       type: "user",
@@ -269,6 +270,21 @@ Deno.test("getConversationDisplayItems hides user and assistant transcript text 
       text: "Direct prose that should not appear in the compact planning surface.",
       isPending: false,
       ts: 2,
+    },
+    {
+      type: "tool_group",
+      id: "tool-group-success",
+      ts: 2.5,
+      tools: [{
+        id: "tool-success",
+        name: "list_files",
+        argsSummary: "~/Desktop",
+        status: "success",
+        resultSummaryText: "Listed 5 files",
+        resultText: "Listed 5 files",
+        toolIndex: 1,
+        toolTotal: 1,
+      }],
     },
     {
       type: "tool_group",
@@ -290,7 +306,8 @@ Deno.test("getConversationDisplayItems hides user and assistant transcript text 
     hideConversationText: true,
   });
 
-  assertEquals(compactItems.map((item) => item.type), ["tool_group"]);
+  // Both successful AND errored tool groups are visible (progress visibility)
+  assertEquals(compactItems.map((item) => item.type), ["tool_group", "tool_group"]);
 });
 
 Deno.test("shouldHideConversationTextInCompactPlanFlow keeps final assistant text visible once execution is idle", () => {
@@ -373,6 +390,38 @@ Deno.test("getPlanFlowActivitySummary humanizes shell_exec filesystem activity",
   assertEquals(
     summary,
     "Creating directories: mkdir -p ~/Desktop/screenshots",
+  );
+});
+
+Deno.test("getConversationDisplayItems preserves prompt during non-picker interactions in plan flow", () => {
+  // Non-picker interactions (e.g., question mode without options) should NOT
+  // suppress the current-turn prompt — only picker-style interactions should.
+  const displayItems = getConversationDisplayItems([
+    {
+      type: "user",
+      id: "user-1",
+      text: "implement the feature",
+      ts: 1,
+    },
+    {
+      type: "assistant",
+      id: "assistant-1",
+      text: "I have a question about the approach.",
+      isPending: false,
+      ts: 2,
+    },
+  ], {
+    compactPlanTranscript: true,
+    // suppressCurrentTurnPrompt should be false for non-picker interactions
+    suppressCurrentTurnPrompt: false,
+  });
+
+  assertEquals(
+    displayItems.map((item) => `${item.type}:${"text" in item ? item.text : item.id}`),
+    [
+      "user:implement the feature",
+      "assistant:I have a question about the approach.",
+    ],
   );
 });
 

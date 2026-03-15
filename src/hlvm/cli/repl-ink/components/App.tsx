@@ -1473,6 +1473,7 @@ function AppContent(
       {/* Input line */}
       {!isOverlayOpen && isInputVisible &&
         (
+          <Box marginTop={hasConversationContext ? 1 : 0} flexDirection="column">
           <Input
             value={input}
             onChange={setInput}
@@ -1510,6 +1511,7 @@ function AppContent(
               ? "answer>"
               : "hlvm>"}
           />
+          </Box>
         )}
 
       {/* Footer hint (directly under input, no gap) */}

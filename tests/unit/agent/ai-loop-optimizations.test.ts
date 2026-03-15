@@ -12,6 +12,7 @@ import {
 } from "../../../src/hlvm/agent/orchestrator-state.ts";
 import type { LLMResponse } from "../../../src/hlvm/agent/tool-call.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { isMutatingTool } from "../../../src/hlvm/agent/security/safety.ts";
 
 function makeResponse(
   content: string,
@@ -129,6 +130,7 @@ Deno.test({
           permissionMode: "yolo",
           toolFilterState,
           toolFilterBaseline: {},
+          modelTier: "weak",
         },
         async () => {
           llmCalls += 1;
@@ -231,5 +233,59 @@ Deno.test("handlePostToolExecution escalates loop recovery before hard stop", as
   assertStringIncludes(
     fourth.action === "return" ? fourth.value : "",
     "Tool call loop detected.",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// isMutatingTool: L0 shell commands are non-mutating
+// ---------------------------------------------------------------------------
+
+Deno.test("isMutatingTool treats L0 shell_exec as non-mutating", () => {
+  assertEquals(
+    isMutatingTool("shell_exec", undefined, { command: "du -sh /tmp" }),
+    false,
+  );
+});
+
+Deno.test("isMutatingTool treats destructive shell_exec as mutating", () => {
+  assertEquals(
+    isMutatingTool("shell_exec", undefined, { command: "rm -rf /tmp/foo" }),
+    true,
+  );
+});
+
+Deno.test("isMutatingTool defaults shell_exec to mutating without args", () => {
+  assertEquals(isMutatingTool("shell_exec"), true);
+});
+
+// ---------------------------------------------------------------------------
+// isMutatingTool: pipeline-aware classification
+// ---------------------------------------------------------------------------
+
+Deno.test("isMutatingTool treats L0 piped shell_exec as non-mutating", () => {
+  assertEquals(
+    isMutatingTool("shell_exec", undefined, { command: "du -sh /tmp | sort" }),
+    false,
+  );
+});
+
+Deno.test("isMutatingTool treats file-redirect shell_exec as mutating", () => {
+  assertEquals(
+    isMutatingTool("shell_exec", undefined, { command: "ls /tmp > output.txt" }),
+    true,
+  );
+});
+
+Deno.test("isMutatingTool treats read-only pipeline chain as non-mutating", () => {
+  assertEquals(
+    isMutatingTool("shell_exec", undefined, { command: "cat file | grep pattern | wc -l" }),
+    false,
+  );
+});
+
+Deno.test("isMutatingTool treats pipeline containing destructive command as mutating", () => {
+  assertEquals(
+    isMutatingTool("shell_exec", undefined, { command: "find . -name '*.ts' | xargs rm" }),
+    true,
   );
 });
