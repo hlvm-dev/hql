@@ -62,6 +62,9 @@ export class CodeBuffer {
   private readonly sourceFilePath: string;
   /** Whether debug comments are enabled (superiority feature) */
   readonly debug: boolean;
+  /** Cached indentation string for current level (avoids repeat() per call) */
+  private cachedIndent: string = "";
+  private cachedIndentLevel: number = 0;
 
   constructor(options: CodeBufferOptions = {}) {
     this.sourceFilePath = options.sourceFilePath || "input.hql";
@@ -120,9 +123,15 @@ export class CodeBuffer {
 
   /**
    * Write the current indentation.
+   * Uses a cached string to avoid repeat() on every call.
    */
   writeIndent(): void {
-    this.write(this.indentStr.repeat(this.indentLevel));
+    if (this.indentLevel === 0) return;
+    if (this.cachedIndentLevel !== this.indentLevel) {
+      this.cachedIndent = this.indentStr.repeat(this.indentLevel);
+      this.cachedIndentLevel = this.indentLevel;
+    }
+    this.write(this.cachedIndent);
   }
 
   /**

@@ -403,6 +403,7 @@ function formatPlanForExecution(
     ),
     'When you complete a step, end your response with: "STEP_DONE <id>".',
     "If you are blocked by ambiguity, ask one concise clarification with ask_user instead of re-planning in prose.",
+    "When the ambiguity can be reduced to a short set of concrete choices, include 2-4 ask_user options so the REPL can render a picker.",
   ];
   return lines.join("\n");
 }
@@ -928,14 +929,17 @@ export async function handlePostToolExecution(
     };
   }
 
-  // --- Denial tracking (per-tool) ---
+  // --- Denial tracking (single pass over results) ---
   let anyDeniedThisTurn = false;
+  const executedNames: string[] = [];
+  let allToolsBlocked = result.results.length > 0;
 
   for (let i = 0; i < result.results.length; i++) {
     const toolCall = result.toolCalls[i];
     if (!toolCall) break;
     const toolName = toolCall.toolName;
     const toolResult = result.results[i];
+    executedNames.push(toolName);
 
     if (!toolResult.success && toolResult.error?.includes("denied")) {
       anyDeniedThisTurn = true;
@@ -956,15 +960,17 @@ export async function handlePostToolExecution(
     for (const call of result.toolCalls) {
       state.denialCountByTool.delete(call.toolName);
     }
+    allToolsBlocked = false;
+  } else if (allToolsBlocked) {
+    for (const name of executedNames) {
+      if ((state.denialCountByTool.get(name) || 0) < lc.maxDenials) {
+        allToolsBlocked = false;
+        break;
+      }
+    }
   }
 
-  const executedCalls = result.toolCalls.slice(0, result.results.length);
-  state.lastToolNames = executedCalls.map((call) => call.toolName);
-  const allToolsBlocked = executedCalls.length > 0 &&
-    executedCalls.every((call) => {
-      const count = state.denialCountByTool.get(call.toolName) || 0;
-      return count >= lc.maxDenials;
-    });
+  state.lastToolNames = executedNames;
 
   if (anyDeniedThisTurn && allToolsBlocked && result.toolCalls.length > 0) {
     const finalResponse = await callLLMWithRetry(

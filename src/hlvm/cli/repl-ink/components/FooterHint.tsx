@@ -32,6 +32,7 @@ interface FooterProps {
   hasPendingPermission?: boolean;
   hasPendingPlanReview?: boolean;
   hasPendingQuestion?: boolean;
+  suppressInteractionHints?: boolean;
   teamActive?: boolean;
   teamAttentionCount?: number;
 }
@@ -45,6 +46,7 @@ interface FooterLeftStateInput {
   hasPendingPermission?: boolean;
   hasPendingPlanReview?: boolean;
   hasPendingQuestion?: boolean;
+  suppressInteractionHints?: boolean;
   teamActive?: boolean;
   teamAttentionCount?: number;
   spinner: string;
@@ -60,6 +62,7 @@ export function buildFooterLeftState({
   hasPendingPermission,
   hasPendingPlanReview,
   hasPendingQuestion,
+  suppressInteractionHints,
   teamActive,
   teamAttentionCount,
   spinner,
@@ -77,7 +80,9 @@ export function buildFooterLeftState({
   }
 
   // Warning states — keep visible since they require user action
-  if (hasPendingPlanReview) {
+  if (suppressInteractionHints && (hasPendingPlanReview || hasPendingQuestion)) {
+    text = "";
+  } else if (hasPendingPlanReview) {
     text = "Enter run · r revise · Esc cancel";
     tone = "warning";
   } else if (hasPendingPermission) {
@@ -154,6 +159,7 @@ export function FooterHint({
   hasPendingPermission,
   hasPendingPlanReview,
   hasPendingQuestion,
+  suppressInteractionHints,
   teamActive,
   teamAttentionCount,
 }: FooterProps): React.ReactElement {
@@ -171,6 +177,7 @@ export function FooterHint({
     hasPendingPermission,
     hasPendingPlanReview,
     hasPendingQuestion,
+    suppressInteractionHints,
     teamActive,
     teamAttentionCount,
     spinner,

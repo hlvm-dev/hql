@@ -127,6 +127,42 @@ Deno.test("getConversationDisplayItems compacts plan-mode transcript noise by hi
   assertEquals(compactItems.map((item) => item.type), ["assistant"]);
 });
 
+Deno.test("getConversationDisplayItems shows only the current turn while compact plan mode is active", () => {
+  const compactItems = getConversationDisplayItems([
+    {
+      type: "user",
+      id: "user-1",
+      text: "old request",
+      ts: 1,
+    },
+    {
+      type: "assistant",
+      id: "assistant-1",
+      text: "Old answer",
+      isPending: false,
+      ts: 2,
+    },
+    {
+      type: "user",
+      id: "user-2",
+      text: "new request",
+      ts: 3,
+    },
+    {
+      type: "assistant",
+      id: "assistant-2",
+      text: "Current answer",
+      isPending: false,
+      ts: 4,
+    },
+  ], { compactPlanTranscript: true });
+
+  assertEquals(
+    compactItems.map((item) => `${item.type}:${"text" in item ? item.text : item.id}`),
+    ["user:new request", "assistant:Current answer"],
+  );
+});
+
 Deno.test("getConversationDisplayItems keeps errored tool groups visible during compact plan mode", () => {
   const compactItems = getConversationDisplayItems([
     {
@@ -147,6 +183,45 @@ Deno.test("getConversationDisplayItems keeps errored tool groups visible during 
   ], { compactPlanTranscript: true });
 
   assertEquals(compactItems.map((item) => item.type), ["tool_group"]);
+});
+
+Deno.test("getConversationDisplayItems hides the current-turn prompt and assistant text while a picker interaction is active", () => {
+  const compactItems = getConversationDisplayItems([
+    {
+      type: "user",
+      id: "user-1",
+      text: "old prompt",
+      ts: 1,
+    },
+    {
+      type: "assistant",
+      id: "assistant-1",
+      text: "Older answer",
+      isPending: false,
+      ts: 2,
+    },
+    {
+      type: "user",
+      id: "user-2",
+      text: "make plan",
+      ts: 3,
+    },
+    {
+      type: "assistant",
+      id: "assistant-2",
+      text: "Plan ready.",
+      isPending: false,
+      ts: 4,
+    },
+  ], {
+    compactPlanTranscript: true,
+    suppressCurrentTurnPrompt: true,
+  });
+
+  assertEquals(
+    compactItems.map((item) => `${item.type}:${"text" in item ? item.text : item.id}`),
+    [],
+  );
 });
 
 Deno.test("getPlanFlowActivitySummary prefers the latest tool activity for compact plan headers", () => {

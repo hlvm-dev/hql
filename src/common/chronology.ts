@@ -58,23 +58,9 @@ const GREETING_ONLY_PATTERN =
   /^(?:hi|hello|hey)(?:\s+(?:man|there|hlvm|bot|assistant))?[!.?]*$/i;
 const SLASH_COMMAND_PATTERN = /^[/.][a-z][\w-]*(?:\s|$)/i;
 
-const RECALL_META_PATTERNS = [
-  /\blast time\b/i,
-  /\bmost recent\b/i,
-  /\bprevious\b/i,
-  /\blast command\b/i,
-  /\bwhat did i do\b/i,
-  /\bwhat did i ask\b/i,
-  /\bwhat was the last\b/i,
-  /\brecently\b/i,
-  /\bbefore that\b/i,
-  /\bbefore then\b/i,
-  /\bearlier than that\b/i,
-  /\bfurther back\b/i,
-  /\bfarther back\b/i,
-  /\byesterday\b/i,
-  /\btoday\b/i,
-];
+/** Single pre-compiled alternation regex — replaces 15 separate .some() tests with 1 regex exec. */
+const RECALL_META_RE =
+  /\b(?:last time|most recent|previous|last command|what did i do|what did i ask|what was the last|recently|before that|before then|earlier than that|further back|farther back|yesterday|today)\b/i;
 
 // ============================================================
 // Normalization
@@ -96,14 +82,9 @@ export function isGreetingOnlyPrompt(input: string): boolean {
   return GREETING_ONLY_PATTERN.test(normalizePrompt(input));
 }
 
-function isSlashCommandPrompt(input: string): boolean {
-  return SLASH_COMMAND_PATTERN.test(normalizePrompt(input));
-}
-
 /** Does the input match chronology/recall patterns (last time, yesterday, etc.)? */
 export function isRecallMetaPrompt(input: string): boolean {
-  const normalized = normalizePrompt(input);
-  return RECALL_META_PATTERNS.some((pattern) => pattern.test(normalized));
+  return RECALL_META_RE.test(normalizePrompt(input));
 }
 
 /**
@@ -112,13 +93,13 @@ export function isRecallMetaPrompt(input: string): boolean {
  *
  * Normalizes once and tests inline to avoid 5x redundant normalizePrompt calls.
  */
-export function isMeaningfulPrompt(input: string): boolean {
+function isMeaningfulPrompt(input: string): boolean {
   const normalized = normalizePrompt(input);
   if (!normalized) return false;
   if (LOW_SIGNAL_PROMPTS.has(normalized.toLowerCase())) return false;
   if (GREETING_ONLY_PATTERN.test(normalized)) return false;
   if (SLASH_COMMAND_PATTERN.test(normalized)) return false;
-  if (RECALL_META_PATTERNS.some((pattern) => pattern.test(normalized))) return false;
+  if (RECALL_META_RE.test(normalized)) return false;
   return true;
 }
 
@@ -167,7 +148,7 @@ export function getTimeZone(): string {
 // Block building
 // ============================================================
 
-export function dedupePrompts(prompts: string[], limit: number): string[] {
+function dedupePrompts(prompts: string[], limit: number): string[] {
   const unique: string[] = [];
   const seen = new Set<string>();
   for (const prompt of prompts) {

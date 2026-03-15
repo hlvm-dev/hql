@@ -10,6 +10,7 @@ import {
 } from "../../../../common/config/selectors.ts";
 import {
   createModelSelectionState,
+  isModelSelectionStateEqual,
   type ModelSelectionState,
 } from "../../../../common/config/model-selection.ts";
 import {
@@ -87,7 +88,11 @@ export function useModelConfig(
       activeModelId?: string,
     ): ModelSelectionState => {
       const nextModelSelection = createModelSelectionState(cfg, activeModelId);
-      setModelSelection(nextModelSelection);
+      setModelSelection((currentModelSelection: ModelSelectionState) =>
+        isModelSelectionStateEqual(currentModelSelection, nextModelSelection)
+          ? currentModelSelection
+          : nextModelSelection
+      );
       setConfiguredContextWindow(getContextWindow(cfg));
       if (!replModeTouchedRef.current) {
         setAgentExecutionMode(toAgentExecutionMode(getPermissionMode(cfg)));

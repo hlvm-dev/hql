@@ -81,10 +81,6 @@ export interface CompilerContext {
    */
   symbolTable?: SymbolTable;
 
-  /**
-   * For future expansion - additional runtime features
-   */
-  extensions?: Record<string, unknown>;
 }
 
 /**

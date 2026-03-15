@@ -227,7 +227,7 @@ function stableHash(input: string): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-export function buildStableSignature(value: unknown): string {
+function buildStableSignature(value: unknown): string {
   return stableHash(JSON.stringify(canonicalizeForSignature(value)) ?? "null");
 }
 

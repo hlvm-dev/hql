@@ -12,6 +12,7 @@ import { transformToIR } from "../../src/hql/transpiler/pipeline/hql-ast-to-hql-
 import { parse } from "../../src/hql/transpiler/pipeline/parser.ts";
 import { initializeRuntimeHelpers } from "../../src/common/runtime-helpers.ts";
 import { RuntimeError } from "../../src/common/error.ts";
+import { withGlobalTestLock } from "./_shared/global-test-lock.ts";
 
 const path = () => getPlatform().path;
 const fs = () => getPlatform().fs;
@@ -178,34 +179,36 @@ export async function withTempDir<T>(
 export async function withTempHlvmDir(
   fn: () => Promise<void>,
 ): Promise<void> {
-  const { resetHlvmDirCacheForTests } = await import(
-    "../../src/common/paths.ts"
-  );
-  const platform = getPlatform();
-  const previousHlvmDir = platform.env.get("HLVM_DIR");
-  const tempDir = await platform.fs.makeTempDir({
-    prefix: "hlvm-test-hlvmdir-",
-  });
+  await withGlobalTestLock(async () => {
+    const { resetHlvmDirCacheForTests } = await import(
+      "../../src/common/paths.ts"
+    );
+    const platform = getPlatform();
+    const previousHlvmDir = platform.env.get("HLVM_DIR");
+    const tempDir = await platform.fs.makeTempDir({
+      prefix: "hlvm-test-hlvmdir-",
+    });
 
-  platform.env.set("HLVM_DIR", tempDir);
-  resetHlvmDirCacheForTests();
-
-  try {
-    await fn();
-  } finally {
-    if (previousHlvmDir === undefined) {
-      platform.env.delete("HLVM_DIR");
-    } else {
-      platform.env.set("HLVM_DIR", previousHlvmDir);
-    }
+    platform.env.set("HLVM_DIR", tempDir);
     resetHlvmDirCacheForTests();
 
     try {
-      await platform.fs.remove(tempDir, { recursive: true });
-    } catch {
-      // Best-effort cleanup for temp test directory.
+      await fn();
+    } finally {
+      if (previousHlvmDir === undefined) {
+        platform.env.delete("HLVM_DIR");
+      } else {
+        platform.env.set("HLVM_DIR", previousHlvmDir);
+      }
+      resetHlvmDirCacheForTests();
+
+      try {
+        await platform.fs.remove(tempDir, { recursive: true });
+      } catch {
+        // Best-effort cleanup for temp test directory.
+      }
     }
-  }
+  });
 }
 
 /**
@@ -289,4 +292,3 @@ export async function captureConsole<T>(
     console.warn = originalWarn;
   }
 }
-

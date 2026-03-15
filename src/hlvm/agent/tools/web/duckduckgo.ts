@@ -380,7 +380,7 @@ async function fetchBingPage(
   return parseBingSearchResults(html, Math.max(30, 20));
 }
 
-export async function duckDuckGoSearch(
+async function duckDuckGoSearch(
   query: string,
   limit: number,
   timeoutMs: number | undefined,

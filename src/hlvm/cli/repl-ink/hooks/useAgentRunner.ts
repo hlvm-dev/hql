@@ -376,6 +376,7 @@ export function useAgentRunner(
             toolName: event.toolName,
             toolArgs: event.toolArgs,
             question: event.question,
+            options: event.options,
           };
           setInteractionQueue((prev: InteractionRequestEvent[]) => {
             if (
@@ -532,10 +533,15 @@ export function useAgentRunner(
     }
     const imagePaths = images && images.length > 0 ? images : undefined;
     const attachmentLabels = getConversationAttachmentLabels(draft.attachments);
+    conversation.addUserMessage(expandedText, { attachments: attachmentLabels });
+    conversation.addAssistantText("", true);
     setIsEvaluating(true);
-    void runConversation(expandedText, imagePaths, attachmentLabels);
+    void runConversation(expandedText, imagePaths, attachmentLabels, {
+      skipTranscriptSeed: true,
+    });
     return { started: true };
   }, [
+    conversation,
     expandConversationDraftText,
     getConversationAttachmentLabels,
     prepareConversationMediaPayload,

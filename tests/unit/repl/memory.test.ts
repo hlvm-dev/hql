@@ -12,13 +12,52 @@ import {
 import { evaluate } from "../../../src/hlvm/cli/repl/evaluator.ts";
 import { ReplState } from "../../../src/hlvm/cli/repl/state.ts";
 import { initializeRuntime } from "../../../src/common/runtime-initializer.ts";
+import { resetHlvmDirCacheForTests } from "../../../src/common/paths.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { withGlobalTestLock } from "../_shared/global-test-lock.ts";
 
 const fs = () => getPlatform().fs;
 const path = () => getPlatform().path;
 const getMemoryDir = () => path().dirname(getBindingsFilePath());
 
 await initializeRuntime({ ai: false });
+
+async function withIsolatedMemoryDir<T>(fn: () => Promise<T>): Promise<T> {
+  return await withGlobalTestLock(async () => {
+    const platform = getPlatform();
+    const priorHlvmDir = platform.env.get("HLVM_DIR");
+    const tempHlvmDir = await platform.fs.makeTempDir({
+      prefix: "hlvm-memory-test-",
+    });
+    platform.env.set("HLVM_DIR", tempHlvmDir);
+    resetHlvmDirCacheForTests();
+
+    try {
+      return await fn();
+    } finally {
+      if (priorHlvmDir === undefined) {
+        platform.env.delete("HLVM_DIR");
+      } else {
+        platform.env.set("HLVM_DIR", priorHlvmDir);
+      }
+      resetHlvmDirCacheForTests();
+      await platform.fs.remove(tempHlvmDir, { recursive: true }).catch(() =>
+        undefined
+      );
+    }
+  });
+}
+
+function memoryTest(
+  name: string,
+  fn: () => void | Promise<void>,
+): void {
+  Deno.test(name, async () => {
+    await withIsolatedMemoryDir(async () => {
+      await fn();
+    });
+  });
+}
 
 async function cleanMemory(): Promise<void> {
   const filePath = getBindingsFilePath();
@@ -56,7 +95,7 @@ async function loadInto(state: ReplState) {
   }
 }
 
-Deno.test("memory: serializeValue covers primitives, nesting, and rejects unsupported values", () => {
+memoryTest("memory: serializeValue covers primitives, nesting, and rejects unsupported values", () => {
   const circular: Record<string, unknown> = { ok: true };
   circular["self"] = circular;
 
@@ -68,7 +107,7 @@ Deno.test("memory: serializeValue covers primitives, nesting, and rejects unsupp
   assertEquals(serializeValue(circular), null);
 });
 
-Deno.test("memory: appendToBindings persists defs, defns, and skips unserializable values", async () => {
+memoryTest("memory: appendToBindings persists defs, defns, and skips unserializable values", async () => {
   await cleanMemory();
 
   await appendToBindings("x", "def", 1);
@@ -83,7 +122,7 @@ Deno.test("memory: appendToBindings persists defs, defns, and skips unserializab
   assert(!content.includes("bad"));
 });
 
-Deno.test("memory: append fallback preserves malformed existing content", async () => {
+memoryTest("memory: append fallback preserves malformed existing content", async () => {
   await cleanMemory();
 
   await createMemoryFile(`// HLVM Memory - auto-persisted definitions
@@ -101,7 +140,7 @@ Deno.test("memory: append fallback preserves malformed existing content", async 
   assert(content.includes("(defn newFn [] 2)"));
 });
 
-Deno.test("memory: compact, forget, names, and stats share one canonical file view", async () => {
+memoryTest("memory: compact, forget, names, and stats share one canonical file view", async () => {
   await cleanMemory();
 
   await createMemoryFile(`; HLVM Memory
@@ -128,7 +167,7 @@ Deno.test("memory: compact, forget, names, and stats share one canonical file vi
   assert(stats.size > 0);
 });
 
-Deno.test("memory: loadBindings skips malformed forms and reports evaluator failures", async () => {
+memoryTest("memory: loadBindings skips malformed forms and reports evaluator failures", async () => {
   await cleanMemory();
 
   await createMemoryFile(`; HLVM Memory
@@ -152,7 +191,7 @@ Deno.test("memory: loadBindings skips malformed forms and reports evaluator fail
   assertEquals(result.errors, ["fail: boom"]);
 });
 
-Deno.test("memory: REPL persistence stores def values and defn source only", async () => {
+memoryTest("memory: REPL persistence stores def values and defn source only", async () => {
   await cleanMemory();
 
   const state = new ReplState();
@@ -171,7 +210,7 @@ Deno.test("memory: REPL persistence stores def values and defn source only", asy
   assert(!content.includes("localFn"));
 });
 
-Deno.test("memory: round-trip reload keeps persisted definitions usable and non-duplicated", async () => {
+memoryTest("memory: round-trip reload keeps persisted definitions usable and non-duplicated", async () => {
   await cleanMemory();
 
   const initialState = new ReplState();
@@ -197,7 +236,7 @@ Deno.test("memory: round-trip reload keeps persisted definitions usable and non-
   assertEquals(after.size, before.size);
 });
 
-Deno.test("memory: stats return empty shape when memory file is absent", async () => {
+memoryTest("memory: stats return empty shape when memory file is absent", async () => {
   await cleanMemory();
 
   const stats = await getBindingStats();

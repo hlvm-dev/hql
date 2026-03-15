@@ -9,6 +9,7 @@ import {
   updateMessage,
 } from "../../../store/conversation-store.ts";
 import type { InteractionResponse } from "../../../agent/orchestrator.ts";
+import type { InteractionOption } from "../../../agent/registry.ts";
 import { jsonError, parseJsonBody } from "../http-utils.ts";
 export {
   type CancelRequest,
@@ -179,6 +180,7 @@ export function awaitInteractionResponse(
     toolName?: string;
     toolArgs?: string;
     question?: string;
+    options?: InteractionOption[];
   },
   signal: AbortSignal,
   emit: (obj: unknown) => void,
@@ -190,6 +192,7 @@ export function awaitInteractionResponse(
     tool_name: event.toolName,
     tool_args: event.toolArgs,
     question: event.question,
+    options: event.options,
   });
 
   return new Promise<InteractionResponse>((resolve) => {

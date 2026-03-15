@@ -58,8 +58,8 @@ export type TranscriptInput =
   | { type: "error"; text: string }
   | { type: "info"; text: string; isTransient?: boolean }
   | { type: "replace_items"; items: ConversationItem[] }
-  | { type: "commit_assistant_text"; committedText: string; remainderText: string }
   | { type: "reset_status" }
+  | { type: "cancel_planning" }
   | { type: "finalize" }
   | { type: "clear" };
 
@@ -306,27 +306,26 @@ function findMatchingRunningDelegateIndex(
   task: string,
   threadId?: string,
 ): number {
-  // Match by threadId first (most precise for concurrent delegates)
-  if (threadId) {
-    const byThread = items.findLastIndex((item) =>
-      item.type === "delegate" &&
-      (item.status === "running" || item.status === "queued") &&
-      item.threadId === threadId
-    );
-    if (byThread >= 0) return byThread;
+  // Single reverse pass: track best match at 3 precision levels
+  let byThread = -1;
+  let byExact = -1;
+  let byAgent = -1;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (
+      item.type !== "delegate" ||
+      (item.status !== "running" && item.status !== "queued")
+    ) continue;
+    // Most precise: threadId match (return immediately — findLast semantics)
+    if (threadId && item.threadId === threadId) return i;
+    // Exact agent+task match
+    if (byExact < 0 && item.agent === agent && item.task === task) byExact = i;
+    // Loose agent-only match
+    if (byAgent < 0 && item.agent === agent) byAgent = i;
+    // Early exit: all levels found
+    if (byExact >= 0 && byAgent >= 0) break;
   }
-  const exactIdx = items.findLastIndex((item) =>
-    item.type === "delegate" &&
-    (item.status === "running" || item.status === "queued") &&
-    item.agent === agent &&
-    item.task === task
-  );
-  if (exactIdx >= 0) return exactIdx;
-  return items.findLastIndex((item) =>
-    item.type === "delegate" &&
-    (item.status === "running" || item.status === "queued") &&
-    item.agent === agent
-  );
+  return byThread >= 0 ? byThread : byExact >= 0 ? byExact : byAgent;
 }
 
 function appendDelegateItem(
@@ -452,8 +451,9 @@ function upsertAssistantTextItem(
       currentTurnAssistantIndices[currentTurnAssistantIndices.length - 1]
     ];
     if (lastAssistant?.type === "assistant") {
-      const nextItems = cleanedItems.filter((item, index) =>
-        !currentTurnAssistantIndices.includes(index)
+      const indexSet = new Set(currentTurnAssistantIndices);
+      const nextItems = cleanedItems.filter((_item, index) =>
+        !indexSet.has(index)
       );
       const updatedAssistant: AssistantItem = {
         ...lastAssistant,
@@ -828,10 +828,25 @@ export function reduceTranscriptState(
             streamingState: ConversationStreamingState.WaitingForConfirmation,
           };
         case "plan_review_resolved":
+          if (event.decision === "cancelled") {
+            return {
+              ...state,
+              pendingPlanReview: undefined,
+              activePlan: undefined,
+              planningPhase: undefined,
+              completedPlanStepIds: [],
+              planTodoState: undefined,
+              streamingState: ConversationStreamingState.Responding,
+            };
+          }
           return {
             ...state,
             pendingPlanReview: undefined,
-            planningPhase: event.approved ? "executing" : state.planningPhase,
+            planningPhase: event.approved
+              ? "executing"
+              : event.decision === "revise"
+              ? "researching"
+              : state.planningPhase,
             streamingState: ConversationStreamingState.Responding,
           };
         case "checkpoint_created":
@@ -980,36 +995,22 @@ export function reduceTranscriptState(
         latestCheckpoint: undefined,
         nextId: input.items.length,
       };
-    case "commit_assistant_text": {
-      // Commits the current pending assistant item's text (sets isPending=false),
-      // then creates a new pending assistant item with the remainder.
-      // This feeds the <Static> split naturally — committed items render once.
-      const pendingIdx = findPendingAssistantIndex(state.items);
-      if (pendingIdx < 0) return state;
-      const pending = state.items[pendingIdx];
-      if (pending.type !== "assistant") return state;
-      const nextItems = [...state.items];
-      nextItems[pendingIdx] = {
-        ...pending,
-        text: input.committedText,
-        isPending: false,
-      };
-      const [nextState, newId] = nextItemId({ ...state, items: nextItems });
-      const newPending: AssistantItem = {
-        type: "assistant",
-        id: newId,
-        text: input.remainderText,
-        citations: undefined,
-        isPending: true,
-        ts: Date.now(),
-      };
-      return { ...nextState, items: [...nextState.items, newPending] };
-    }
     case "reset_status":
       return {
         ...state,
         streamingState: ConversationStreamingState.Idle,
         activeTool: undefined,
+      };
+    case "cancel_planning":
+      return {
+        ...state,
+        streamingState: ConversationStreamingState.Idle,
+        activeTool: undefined,
+        activePlan: undefined,
+        planningPhase: undefined,
+        completedPlanStepIds: [],
+        planTodoState: undefined,
+        pendingPlanReview: undefined,
       };
     case "finalize":
       return {

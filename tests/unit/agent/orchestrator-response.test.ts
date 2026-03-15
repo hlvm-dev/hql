@@ -398,6 +398,50 @@ Deno.test("handleFinalResponse returns to planning when plan review requests rev
   );
 });
 
+Deno.test("handleFinalResponse returns a cancellation message when plan review is cancelled", async () => {
+  const context = new ContextManager();
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context,
+    permissionMode: "plan",
+    planModeState: {
+      active: true,
+      phase: "researching",
+      executionPermissionMode: "auto-edit",
+      executionAllowlist: ["read_file", "write_file"],
+      planningAllowlist: ["read_file"],
+    },
+    planReview: {
+      getCurrentPlan: () => undefined,
+      shouldGateMutatingTools: () => false,
+      ensureApproved: async () => "cancelled",
+    },
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+
+  const result = await handleFinalResponse(
+    [
+      "PLAN",
+      '{"goal":"Implement plan mode","steps":[{"id":"step-1","title":"Edit the UI"}]}',
+      "END_PLAN",
+    ].join("\n"),
+    { toolCallsMade: 0 },
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "return");
+  assertStringIncludes(
+    result.action === "return" ? result.value : "",
+    "Plan review was cancelled. No changes were made.",
+  );
+  assertEquals(state.planState, null);
+  assertEquals(config.permissionMode, "plan");
+  assertEquals(context.getMessages().length, 0);
+});
+
 Deno.test("handleFinalResponse turns plain-text planning questions into clarification requests", async () => {
   const context = new ContextManager();
   let askedQuestion = "";

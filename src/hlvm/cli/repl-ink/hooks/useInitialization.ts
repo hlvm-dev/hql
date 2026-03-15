@@ -3,7 +3,7 @@
  * Handles runtime initialization, AI import, memory loading
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { initializeRuntime } from "../../../../common/runtime-initializer.ts";
 import { getFileIndex } from "../../repl/file-search.ts";
 import { ReplState } from "../../repl/state.ts";
@@ -18,8 +18,10 @@ import { log } from "../../../api/log.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { createRuntimeConfigManager } from "../../../runtime/model-config.ts";
 import {
+  type ConfiguredModelReadiness,
   type ConfiguredModelReadinessState,
   getConfiguredModelReadiness,
+  getModelReadiness,
 } from "../../../runtime/configured-model-readiness.ts";
 
 interface InitializationState {
@@ -33,7 +35,29 @@ interface InitializationState {
   needsModelSetup: boolean;
   /** The model name that needs to be downloaded */
   modelToSetup: string;
+  refreshAiReadiness: (
+    modelId?: string,
+    options?: { force?: boolean },
+  ) => Promise<void>;
   // bindingNames and refreshBindingNames removed - now handled by FRP via ReplContext
+}
+
+export interface InitializationReadinessState {
+  aiReadiness: ConfiguredModelReadinessState;
+  needsModelSetup: boolean;
+  modelToSetup: string;
+}
+
+export function resolveInitializationReadinessState(
+  readiness: ConfiguredModelReadiness,
+  aiHelpersLoaded: boolean,
+): InitializationReadinessState {
+  const needsModelSetup = readiness.state === "setup_required";
+  return {
+    aiReadiness: aiHelpersLoaded ? readiness.state : "unavailable",
+    needsModelSetup,
+    modelToSetup: needsModelSetup ? readiness.modelName : "",
+  };
 }
 
 export function useInitialization(state: ReplState): InitializationState {
@@ -48,6 +72,53 @@ export function useInitialization(state: ReplState): InitializationState {
   const [needsModelSetup, setNeedsModelSetup] = useState(false);
   const [modelToSetup, setModelToSetup] = useState("");
   const initialized = useRef(false);
+  const aiHelpersLoadedRef = useRef(false);
+  const lastReadinessModelIdRef = useRef<string | null>(null);
+
+  const applyModelReadinessState = useCallback(
+    (
+      readiness: ConfiguredModelReadiness,
+      aiHelpersLoaded: boolean,
+    ): void => {
+      const nextState = resolveInitializationReadinessState(
+        readiness,
+        aiHelpersLoaded,
+      );
+
+      setAiReadiness((current: ConfiguredModelReadinessState) =>
+        current === nextState.aiReadiness ? current : nextState.aiReadiness
+      );
+      setNeedsModelSetup((current: boolean) =>
+        current === nextState.needsModelSetup
+          ? current
+          : nextState.needsModelSetup
+      );
+      setModelToSetup((current: string) =>
+        current === nextState.modelToSetup ? current : nextState.modelToSetup
+      );
+    },
+    [],
+  );
+
+  const refreshAiReadiness = useCallback(
+    async (modelId?: string, options?: { force?: boolean }): Promise<void> => {
+      const normalizedModelId = modelId?.trim() || undefined;
+      if (
+        !options?.force &&
+        normalizedModelId &&
+        lastReadinessModelIdRef.current === normalizedModelId
+      ) {
+        return;
+      }
+
+      const readiness = normalizedModelId
+        ? await getModelReadiness(normalizedModelId)
+        : await getConfiguredModelReadiness();
+      lastReadinessModelIdRef.current = readiness.modelId;
+      applyModelReadinessState(readiness, aiHelpersLoadedRef.current);
+    },
+    [applyModelReadinessState],
+  );
 
   useEffect(() => {
     if (initialized.current) return;
@@ -79,6 +150,9 @@ export function useInitialization(state: ReplState): InitializationState {
         const loadErrors: string[] = [];
         if (initResult.moduleResult) {
           setAiExports(initResult.moduleResult.aiExports);
+          aiHelpersLoadedRef.current =
+            initResult.moduleResult.aiExports.length >
+              0;
           if (initResult.moduleResult.errors.length > 0) {
             loadErrors.push(...initResult.moduleResult.errors);
           }
@@ -111,16 +185,7 @@ export function useInitialization(state: ReplState): InitializationState {
 
         await historyInit;
 
-        const modelReadiness = await getConfiguredModelReadiness();
-        setAiReadiness(
-          initResult.moduleResult?.aiExports.length
-            ? modelReadiness.state
-            : "unavailable",
-        );
-        if (modelReadiness.state === "setup_required") {
-          setNeedsModelSetup(true);
-          setModelToSetup(modelReadiness.modelName);
-        }
+        await refreshAiReadiness(undefined, { force: true });
 
         setReadyTime(Date.now() - startTime);
         setLoading(false);
@@ -133,7 +198,7 @@ export function useInitialization(state: ReplState): InitializationState {
         setLoading(false);
       }
     })();
-  }, [state]);
+  }, [refreshAiReadiness, state]);
 
   return {
     loading,
@@ -144,5 +209,6 @@ export function useInitialization(state: ReplState): InitializationState {
     aiReadiness,
     needsModelSetup,
     modelToSetup,
+    refreshAiReadiness,
   };
 }

@@ -17,7 +17,11 @@ import { createAbortError, throwIfAborted } from "../../../common/timeout-utils.
 import { TEXT_ENCODER } from "../../../common/utils.ts";
 import { safeStringify } from "../../../common/safe-stringify.ts";
 import { isToolArgsObject } from "../validation.ts";
-import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
+import type {
+  InteractionOption,
+  ToolExecutionOptions,
+  ToolMetadata,
+} from "../registry.ts";
 import { cloneTodoItems, summarizeTodoState, type TodoItem, type TodoState, type TodoStatus } from "../todo-state.ts";
 
 // ============================================================
@@ -65,16 +69,7 @@ async function askUser(
   }
 
   // Validate options if provided
-  if (choices !== undefined) {
-    if (!Array.isArray(choices)) {
-      throw new ValidationError("options must be an array", "ask_user");
-    }
-    for (const opt of choices) {
-      if (typeof opt !== "string") {
-        throw new ValidationError("all options must be strings", "ask_user");
-      }
-    }
-  }
+  const normalizedChoices = normalizeAskUserChoices(choices);
 
   // GUI mode: emit interaction request and await response
   if (options?.onInteraction) {
@@ -84,6 +79,7 @@ async function askUser(
       requestId,
       mode: "question",
       question: question as string,
+      options: normalizedChoices.length > 0 ? normalizedChoices : undefined,
     });
     return response.userInput ?? "";
   }
@@ -95,11 +91,17 @@ async function askUser(
   await platform.terminal.stdout.write(TEXT_ENCODER.encode(`\n${question}\n`));
 
   // Display options if provided
-  if (choices && Array.isArray(choices)) {
-    for (let i = 0; i < choices.length; i++) {
+  if (normalizedChoices.length > 0) {
+    for (let i = 0; i < normalizedChoices.length; i++) {
+      const choice = normalizedChoices[i];
       await platform.terminal.stdout.write(
-        TEXT_ENCODER.encode(`  ${i + 1}. ${choices[i]}\n`),
+        TEXT_ENCODER.encode(`  ${i + 1}. ${choice.label}\n`),
       );
+      if (choice.detail?.trim()) {
+        await platform.terminal.stdout.write(
+          TEXT_ENCODER.encode(`     ${choice.detail.trim()}\n`),
+        );
+      }
     }
   }
 
@@ -113,6 +115,56 @@ async function askUser(
   );
 
   return new TextDecoder().decode(buffer.subarray(0, n || 0)).trim();
+}
+
+function normalizeAskUserChoices(
+  choices: unknown,
+): InteractionOption[] {
+  if (choices === undefined) return [];
+  if (!Array.isArray(choices)) {
+    throw new ValidationError("options must be an array", "ask_user");
+  }
+  return choices.map((choice, index) => {
+    if (typeof choice === "string") {
+      const trimmed = choice.trim();
+      if (!trimmed) {
+        throw new ValidationError(
+          `options[${index}] must be a non-empty string`,
+          "ask_user",
+        );
+      }
+      return {
+        label: trimmed,
+        value: trimmed,
+      };
+    }
+    if (
+      choice && typeof choice === "object" &&
+      "label" in choice && typeof choice.label === "string" &&
+      choice.label.trim().length > 0
+    ) {
+      const record = choice as {
+        label: string;
+        value?: unknown;
+        detail?: unknown;
+        recommended?: unknown;
+      };
+      return {
+        label: record.label.trim(),
+        value: typeof record.value === "string" && record.value.trim().length > 0
+          ? record.value.trim()
+          : record.label.trim(),
+        detail: typeof record.detail === "string" && record.detail.trim().length > 0
+          ? record.detail.trim()
+          : undefined,
+        recommended: record.recommended === true,
+      };
+    }
+    throw new ValidationError(
+      `options[${index}] must be a string or { label, ... } object`,
+      "ask_user",
+    );
+  });
 }
 
 async function readStdinWithAbort(

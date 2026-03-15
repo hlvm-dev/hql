@@ -387,7 +387,7 @@ export const ENGINE_PROFILES = {
 export const MAX_SESSION_HISTORY = 10;
 
 /** Cloud/frontier provider prefixes (SSOT for detectFrontierModel + isLocalModel) */
-const FRONTIER_PROVIDER_PREFIXES = ["anthropic", "openai", "google", "claude-code"] as const;
+const FRONTIER_PROVIDER_PREFIXES = new Set(["anthropic", "openai", "google", "claude-code"]);
 
 /** Extract provider prefix from "provider/model" string */
 export function extractProviderName(model?: string): string {
@@ -406,7 +406,7 @@ export function extractModelSuffix(model?: string): string {
 export function isFrontierProvider(model?: string): boolean {
   if (!model) return false;
   const prefix = extractProviderName(model);
-  return (FRONTIER_PROVIDER_PREFIXES as readonly string[]).includes(prefix);
+  return FRONTIER_PROVIDER_PREFIXES.has(prefix);
 }
 
 // ============================================================

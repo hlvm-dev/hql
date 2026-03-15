@@ -9,7 +9,8 @@ export const globalKeybindings: Keybinding[] = [
   {
     id: "ctrl+c",
     display: "Ctrl+C",
-    label: "Exit",
+    label: "Clear input / Exit",
+    description: "Clear the current draft, or exit when the composer is empty",
     category: "Global",
     action: { type: "HANDLER", id: HandlerIds.APP_EXIT },
   },

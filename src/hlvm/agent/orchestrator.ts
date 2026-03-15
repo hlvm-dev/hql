@@ -289,7 +289,12 @@ export type AgentUIEvent =
   | { type: "plan_created"; plan: Plan }
   | { type: "plan_step"; stepId: string; index: number; completed: boolean }
   | { type: "plan_review_required"; plan: Plan }
-  | { type: "plan_review_resolved"; plan: Plan; approved: boolean }
+  | {
+    type: "plan_review_resolved";
+    plan: Plan;
+    approved: boolean;
+    decision?: "approved" | "revise" | "cancelled";
+  }
   | {
     type: "turn_stats";
     iteration: number;
@@ -578,62 +583,40 @@ function requestImpliesDelegation(query: string): boolean {
     .test(query) || evaluateDelegationSignal(query).shouldDelegate;
 }
 
+// Pre-defined tool name sets for O(1) phase classification
+const WRITE_TOOLS = new Set(["write_file", "edit_file"]);
+const COMPLETE_TOOLS = new Set(["shell_exec", "shell_script", "git_diff", "git_status"]);
+const DELEGATE_TOOLS = new Set(["delegate_agent", "batch_delegate"]);
+const READ_TOOLS = new Set(["read_file", "search_code", "list_files", "tool_search"]);
+
 function deriveRuntimePhase(
   state: LoopState,
   config: OrchestratorConfig,
   userRequest: string,
 ): RuntimeToolPhase {
-  if (config.planModeState?.phase === "executing" || state.planState) {
-    if (
-      state.lastToolNames.some((name) =>
-        name === "write_file" || name === "edit_file"
-      )
-    ) {
-      return "verifying";
-    }
-    return "editing";
+  // Single pass: classify last tool names into categories
+  let hasWrite = false;
+  let hasComplete = false;
+  let hasDelegate = false;
+  let hasRead = false;
+  for (const name of state.lastToolNames) {
+    if (WRITE_TOOLS.has(name)) hasWrite = true;
+    else if (COMPLETE_TOOLS.has(name)) hasComplete = true;
+    else if (DELEGATE_TOOLS.has(name) || name.startsWith("team_")) hasDelegate = true;
+    else if (READ_TOOLS.has(name)) hasRead = true;
   }
 
-  if (
-    state.lastToolNames.some((name) =>
-      name === "write_file" || name === "edit_file"
-    )
-  ) {
-    return "verifying";
+  if (config.planModeState?.phase === "executing" || state.planState) {
+    return hasWrite ? "verifying" : "editing";
   }
-  if (
-    state.lastToolNames.some((name) =>
-      name === "shell_exec" || name === "shell_script" || name === "git_diff" ||
-      name === "git_status"
-    )
-  ) {
-    return "completing";
-  }
-  if (
-    state.lastToolNames.some((name) =>
-      name === "delegate_agent" || name === "batch_delegate" ||
-      name.startsWith("team_")
-    )
-  ) {
-    return "delegating";
-  }
-  if (
-    state.lastToolNames.some((name) =>
-      name === "read_file" || name === "search_code" || name === "list_files" ||
-      name === "tool_search"
-    ) && requestImpliesEditing(userRequest)
-  ) {
-    return "editing";
-  }
-  if (requestImpliesDelegation(userRequest)) {
-    return "delegating";
-  }
-  if (requestImpliesEditing(userRequest)) {
-    return "editing";
-  }
-  if (requestImpliesVerification(userRequest)) {
-    return "verifying";
-  }
+
+  if (hasWrite) return "verifying";
+  if (hasComplete) return "completing";
+  if (hasDelegate) return "delegating";
+  if (hasRead && requestImpliesEditing(userRequest)) return "editing";
+  if (requestImpliesDelegation(userRequest)) return "delegating";
+  if (requestImpliesEditing(userRequest)) return "editing";
+  if (requestImpliesVerification(userRequest)) return "verifying";
   return "researching";
 }
 
@@ -778,7 +761,7 @@ function maybeInjectMemoryRecall(
     const results = retrieveMemory(query, MEMORY_RECALL_RESULT_LIMIT);
     if (results.length === 0) return;
     addContextMessage(config, {
-      role: "user",
+      role: "system",
       content: formatMemoryRecall(results),
     });
   } catch {

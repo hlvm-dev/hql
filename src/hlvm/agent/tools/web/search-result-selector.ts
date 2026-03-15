@@ -782,7 +782,7 @@ function prefersSingleHostBias(input: DeterministicSearchSignalInput): boolean {
   );
 }
 
-export function buildDeterministicSearchResultScorer(
+function buildDeterministicSearchResultScorer(
   input: DeterministicSearchSignalInput,
 ): (result: SearchResult) => number {
   const queryTokens = selectorTokens(input.query, input.allowedDomains, input.intent);

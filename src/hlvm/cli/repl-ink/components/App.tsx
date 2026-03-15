@@ -30,11 +30,12 @@ import { FooterHint } from "./FooterHint.tsx";
 import { QueuePreview } from "./QueuePreview.tsx";
 import { ConversationPanel } from "./ConversationPanel.tsx";
 import { RenderErrorBoundary } from "./ErrorBoundary.tsx";
+import { isPickerInteractionRequest } from "./conversation/interaction-dialog-layout.ts";
 import {
   executeHandler,
   inspectHandlerKeybinding,
-  refreshKeybindingLookup,
   type KeybindingAction,
+  refreshKeybindingLookup,
 } from "../keybindings/index.ts";
 import {
   HandlerIds,
@@ -63,9 +64,7 @@ import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { resetContext } from "../../repl/context.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 import { isCommand, runCommand } from "../../repl/commands.ts";
-import type {
-  SessionInitOptions,
-} from "../../repl/session/types.ts";
+import type { SessionInitOptions } from "../../repl/session/types.ts";
 import { ensureError, truncate } from "../../../../common/utils.ts";
 import {
   type HlvmConfig,
@@ -99,6 +98,7 @@ import {
   enqueueConversationDraft,
   mergeConversationDraftsForInterrupt,
 } from "../utils/conversation-queue.ts";
+import { resolveCtrlCAction } from "../ctrl-c-behavior.ts";
 
 interface HistoryEntry {
   id: number;
@@ -126,7 +126,6 @@ const GLOBAL_KEYBINDING_CATEGORIES = ["Global"] as const;
 function usesConversationContext(surfacePanel: string): boolean {
   return surfacePanel === "conversation";
 }
-
 
 function isAsyncIterable(
   value: unknown,
@@ -183,7 +182,7 @@ function AppContent(
 
   // Initialize: runtime, memory, AI
   const init = useInitialization(replState);
-
+  const { refreshAiReadiness } = init;
 
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -265,6 +264,26 @@ function AppContent(
     cycleAgentMode,
     flashFooterStatus,
   } = modelConfig;
+
+  useEffect(() => {
+    if (!init.ready) return;
+    if (!modelSelection.activeModelId) return;
+    refreshAiReadiness(modelSelection.activeModelId)
+      .catch(() => {});
+  }, [init.ready, modelSelection.activeModelId, refreshAiReadiness]);
+
+  const handleModelSelectionChange = useCallback(async (modelName: string) => {
+    const updates = buildSelectedModelConfigUpdates(modelName);
+    const configApi = getRuntimeConfigApi();
+    const normalizedModel = await persistSelectedModelConfig(
+      configApi,
+      modelName,
+    );
+    applyRuntimeConfigState(
+      updates as unknown as Record<string, unknown>,
+      normalizedModel,
+    );
+  }, [applyRuntimeConfigState]);
 
   // Conversation composer: attachments, queue, drafts
   const composer = useConversationComposer({ input, setInput, replState });
@@ -355,12 +374,6 @@ function AppContent(
 
   useEffect(() => {
     if (activeOverlay !== "none") return;
-    if (agentExecutionMode === "plan") {
-      if (surfacePanel === "none") {
-        setSurfacePanel("conversation");
-      }
-      return;
-    }
     if (
       surfacePanel === "conversation" &&
       conversation.items.length === 0 &&
@@ -522,10 +535,30 @@ function AppContent(
     exit();
   }, [exit, replState]);
 
+  const handleCtrlC = useCallback(async () => {
+    const action = resolveCtrlCAction({
+      draftText: input,
+      attachmentCount: composerAttachments.length,
+    });
+    if (action === "clear-draft") {
+      const handled = await executeHandler(HandlerIds.COMPOSER_CLEAR);
+      if (!handled) {
+        restoreComposerDraft(null);
+      }
+      return;
+    }
+    handleAppExit();
+  }, [
+    composerAttachments.length,
+    handleAppExit,
+    input,
+    restoreComposerDraft,
+  ]);
+
   useEffect(() => {
     registerHandler(
       HandlerIds.APP_EXIT,
-      handleAppExit,
+      handleCtrlC,
       "App",
     );
     registerHandler(
@@ -563,7 +596,7 @@ function AppContent(
     };
   }, [
     clearReplSurface,
-    handleAppExit,
+    handleCtrlC,
     toggleShortcutsOverlay,
     togglePalette,
     toggleTasksOverlay,
@@ -627,13 +660,19 @@ function AppContent(
       const currentPendingInteraction = pendingInteractionRef.current;
       if (currentPendingInteraction?.mode === "question" && !isAnyCommand) {
         recordPromptHistory(replState, code, "interaction");
-        conversationRef.current.addUserMessage(forceConversationPrompt ?? code.trim(), {
-          startTurn: false,
-        });
-        handleInteractionResponseRef.current(currentPendingInteraction.requestId, {
-          approved: true,
-          userInput: forceConversationPrompt ?? code.trim(),
-        });
+        conversationRef.current.addUserMessage(
+          forceConversationPrompt ?? code.trim(),
+          {
+            startTurn: false,
+          },
+        );
+        handleInteractionResponseRef.current(
+          currentPendingInteraction.requestId,
+          {
+            approved: true,
+            userInput: forceConversationPrompt ?? code.trim(),
+          },
+        );
         return;
       }
 
@@ -832,8 +871,9 @@ function AppContent(
         isNaturalLanguage(candidateConversationQuery)
       ) {
         recordPromptHistory(replState, code, "conversation");
-        const { images, unsupportedMimeType } =
-          prepareConversationMediaPayload(attachments);
+        const { images, unsupportedMimeType } = prepareConversationMediaPayload(
+          attachments,
+        );
         if (unsupportedMimeType) {
           addHistoryEntry(code, {
             success: false,
@@ -846,17 +886,11 @@ function AppContent(
         const imagePaths = images && images.length > 0 ? images : undefined;
         const attachmentLabels = getConversationAttachmentLabels(attachments);
         setSurfacePanel("conversation");
-        setFooterContextUsageLabel("");
-        conversation.addUserMessage(candidateConversationQuery, {
-          attachments: attachmentLabels,
-        });
-        conversation.addAssistantText("", true);
         setIsEvaluating(true);
         void runConversation(
           candidateConversationQuery,
           imagePaths,
           attachmentLabels,
-          { skipTranscriptSeed: true },
         );
         return;
       }
@@ -1050,9 +1084,14 @@ function AppContent(
     ) {
       return;
     }
+    const pickerInteractionActive = hasConversationContext &&
+      isPickerInteractionRequest(pendingInteraction);
     const isEnterLikeInput = key.return || char === "\r" || char === "\n";
 
     // Interaction response keys (y/n/Enter) during conversation permission dialogs
+    if (pickerInteractionActive) {
+      return;
+    }
     if (hasConversationContext && pendingInteraction) {
       if (pendingInteraction.mode === "permission") {
         if (char === "y" || isEnterLikeInput) {
@@ -1079,8 +1118,9 @@ function AppContent(
         }
       }
       if (pendingInteraction.mode === "question" && key.escape) {
-        handleInteractionResponse(pendingInteraction.requestId, {
-          approved: false,
+        interruptConversationRun({
+          requestId: pendingInteraction.requestId,
+          clearPlanning: agentExecutionMode === "plan",
         });
         return;
       }
@@ -1130,7 +1170,10 @@ function AppContent(
     }
   });
 
-  const isConversationInputVisible = hasConversationContext && !isOverlayOpen;
+  const pickerInteractionActive = hasConversationContext &&
+    isPickerInteractionRequest(pendingInteraction);
+  const isConversationInputVisible = hasConversationContext && !isOverlayOpen &&
+    !pickerInteractionActive;
   const isInputVisible = !isOverlayOpen &&
     (surfacePanel === "none" || isConversationInputVisible);
   const isInputDisabled = init.loading ||
@@ -1143,6 +1186,37 @@ function AppContent(
   // - empty prompt (paredit no-op)
   const allowConversationToggleHotkeys = !isInputVisible || isInputDisabled ||
     input.length === 0;
+  const interruptConversationRun = useCallback((
+    options?: { requestId?: string; clearPlanning?: boolean },
+  ) => {
+    if (options?.requestId) {
+      handleInteractionResponse(options.requestId, {
+        approved: false,
+      });
+    }
+    if (options?.clearPlanning) {
+      conversation.cancelPlanning();
+    }
+    if (agentControllerRef.current && !agentControllerRef.current.signal.aborted) {
+      const restoredDraft = mergeConversationDraftsForInterrupt(
+        pendingConversationQueue,
+        currentComposerDraft,
+      );
+      agentControllerRef.current.abort();
+      setIsEvaluating(false);
+      setPendingConversationQueue([]);
+      restoreComposerDraft(restoredDraft);
+    }
+  }, [
+    agentControllerRef,
+    conversation,
+    currentComposerDraft,
+    handleInteractionResponse,
+    pendingConversationQueue,
+    restoreComposerDraft,
+    setIsEvaluating,
+    setPendingConversationQueue,
+  ]);
   // overlayScreen removed — overlays are inlined as flat conditional siblings in JSX
   const standaloneSurfaceScreen = (() => {
     switch (surfacePanel) {
@@ -1174,15 +1248,7 @@ function AppContent(
                 isCommandOutput: true,
               });
             }}
-            onSelectModel={async (modelName: string) => {
-              const updates = buildSelectedModelConfigUpdates(modelName);
-              const configApi = getRuntimeConfigApi();
-              await persistSelectedModelConfig(configApi, modelName);
-              applyRuntimeConfigState(
-                updates as unknown as Record<string, unknown>,
-                updates.model,
-              );
-            }}
+            onSelectModel={handleModelSelectionChange}
           />
         );
       case "model-setup":
@@ -1191,6 +1257,9 @@ function AppContent(
             <ModelSetupOverlay
               modelName={init.modelToSetup}
               onComplete={() => {
+                refreshAiReadiness(modelSelection.activeModelId, {
+                  force: true,
+                }).catch(() => {});
                 setModelSetupHandled(true);
                 setSurfacePanel("none");
                 addHistoryEntry("", {
@@ -1223,8 +1292,14 @@ function AppContent(
     const m = color("muted");
     const w = color("warning");
     const map: Record<string, string | undefined> = {
-      string: s, number: a, keyword: p, macro: p,
-      comment: m, whitespace: m, boolean: w, operator: a,
+      string: s,
+      number: a,
+      keyword: p,
+      macro: p,
+      comment: m,
+      whitespace: m,
+      boolean: w,
+      operator: a,
     };
     return (type: TokenType): string | undefined => map[type];
   }, [color]);
@@ -1335,22 +1410,29 @@ function AppContent(
       {!isOverlayOpen && hasConversationContext && (
         <Box flexDirection="column">
           <RenderErrorBoundary>
-          <ConversationPanel
-            items={conversation.items}
-            width={Math.max(20, terminalWidth - 2)}
-            streamingState={conversation.streamingState}
-            activePlan={conversation.activePlan}
-            planningPhase={conversation.planningPhase}
-            todoState={conversation.planTodoState ?? conversation.todoState}
-            pendingPlanReview={conversation.pendingPlanReview}
-            latestCheckpoint={conversation.latestCheckpoint}
-            allowToggleHotkeys={surfacePanel === "conversation" &&
-              allowConversationToggleHotkeys}
-            interactionRequest={pendingInteraction}
-            interactionQueueLength={interactionQueue.length}
-            onInteractionResponse={handleInteractionResponse}
-            extraReservedRows={queuePreviewRows}
-          />
+            <ConversationPanel
+              items={conversation.items}
+              width={Math.max(20, terminalWidth - 2)}
+              streamingState={conversation.streamingState}
+              activePlan={conversation.activePlan}
+              planningPhase={conversation.planningPhase}
+              todoState={conversation.planTodoState ?? conversation.todoState}
+              pendingPlanReview={conversation.pendingPlanReview}
+              latestCheckpoint={conversation.latestCheckpoint}
+              allowToggleHotkeys={surfacePanel === "conversation" &&
+                allowConversationToggleHotkeys}
+              interactionRequest={pendingInteraction}
+              interactionQueueLength={interactionQueue.length}
+              onInteractionResponse={handleInteractionResponse}
+              onQuestionInterrupt={pendingInteraction?.mode === "question"
+                ? () =>
+                  interruptConversationRun({
+                    requestId: pendingInteraction.requestId,
+                    clearPlanning: agentExecutionMode === "plan",
+                  })
+                : undefined}
+              extraReservedRows={queuePreviewRows}
+            />
           </RenderErrorBoundary>
         </Box>
       )}
@@ -1375,6 +1457,13 @@ function AppContent(
             onForceSubmit={hasConversationContext
               ? handleForceInterrupt
               : undefined}
+            onInterruptRunningTask={hasConversationContext &&
+                agentControllerRef.current
+              ? () =>
+                interruptConversationRun({
+                  clearPlanning: agentExecutionMode === "plan",
+                })
+              : undefined}
             onQueueDraft={hasConversationContext && agentControllerRef.current
               ? handleQueueDraft
               : undefined}
@@ -1395,7 +1484,8 @@ function AppContent(
             disabled={isInputDisabled}
             highlightMode={hasConversationContext ? "chat" : "code"}
             promptLabel={hasConversationContext &&
-                pendingInteraction?.mode === "question"
+                pendingInteraction?.mode === "question" &&
+                !pickerInteractionActive
               ? "answer>"
               : "hlvm>"}
           />
@@ -1434,6 +1524,8 @@ function AppContent(
               pendingInteraction.toolName === "plan_review"}
             hasPendingQuestion={hasConversationContext &&
               pendingInteraction?.mode === "question"}
+            suppressInteractionHints={hasConversationContext &&
+              pickerInteractionActive}
             teamActive={teamState.active}
             teamAttentionCount={teamState.attentionItems.length}
           />

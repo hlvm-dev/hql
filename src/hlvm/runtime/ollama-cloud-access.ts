@@ -9,15 +9,15 @@ import {
 const DEFAULT_WAIT_TIMEOUT_MS = 120_000;
 const DEFAULT_WAIT_INTERVAL_MS = 2_000;
 
-export interface RunOllamaCloudSigninOptions {
+interface RunOllamaCloudSigninOptions {
   onOutput?: (line: string) => void;
 }
 
-export interface VerifyOllamaCloudAccessOptions {
+interface VerifyOllamaCloudAccessOptions {
   onError?: (message: string) => void;
 }
 
-export interface EnsureOllamaCloudAccessOptions {
+interface EnsureOllamaCloudAccessOptions {
   onOutput?: (line: string) => void;
   onError?: (message: string) => void;
   onWaiting?: () => void;
@@ -28,7 +28,7 @@ export interface EnsureOllamaCloudAccessOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
-export interface EnsureOllamaCloudAccessResult {
+interface EnsureOllamaCloudAccessResult {
   ok: boolean;
   status: "available" | "ready" | "signin_failed" | "verification_failed";
 }

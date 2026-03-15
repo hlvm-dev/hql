@@ -687,7 +687,8 @@ export async function askCommand(args: string[]): Promise<void> {
           flushStream();
           log.raw.log(
             `\n[Plan Review Result] ${
-              event.approved ? "approved" : "cancelled"
+              event.decision ??
+                (event.approved ? "approved" : "cancelled")
             }\n`,
           );
           break;

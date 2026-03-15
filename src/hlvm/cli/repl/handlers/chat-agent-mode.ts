@@ -315,6 +315,7 @@ export async function handleAgentMode(
               event: "plan_review_resolved",
               plan: event.plan,
               approved: event.approved,
+              decision: event.decision,
             });
             break;
           case "checkpoint_created":

@@ -102,7 +102,6 @@ type EditableConfigKey =
   | "temperature"
   | "maxTokens"
   | "theme"
-  | "agentMode"
   | "sessionMemory"
   | "permissionMode";
 
@@ -120,7 +119,6 @@ const OVERLAY_CONFIG_KEYS: readonly EditableConfigKey[] = [
   "temperature",
   "maxTokens",
   "theme",
-  "agentMode",
   "sessionMemory",
   "permissionMode",
 ];
@@ -159,12 +157,6 @@ const FIELD_META: Record<EditableConfigKey, FieldMeta> = {
     type: "select",
     options: THEME_NAMES,
   },
-  agentMode: {
-    label: "Agent Mode",
-    description: "HLVM / Claude",
-    type: "select",
-    options: ["hlvm", "claude-code-agent"],
-  },
   sessionMemory: {
     label: "Session Mem",
     description: "Remember context",
@@ -185,7 +177,6 @@ const OVERLAY_FALLBACK_VALUES: Record<EditableConfigKey, string> = {
   temperature: String(DEFAULT_CONFIG.temperature),
   maxTokens: String(DEFAULT_CONFIG.maxTokens),
   theme: DEFAULT_CONFIG.theme,
-  agentMode: "hlvm",
   sessionMemory: "true",
   permissionMode: "default",
 };

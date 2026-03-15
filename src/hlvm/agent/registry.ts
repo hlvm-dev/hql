@@ -52,6 +52,14 @@ export interface InteractionResponse {
   userInput?: string;
 }
 
+/** Structured choice shown for plan review / clarification pickers. */
+export interface InteractionOption {
+  label: string;
+  value?: string;
+  detail?: string;
+  recommended?: boolean;
+}
+
 /** Interaction request event emitted to GUI/CLI */
 export interface InteractionRequestEvent {
   type: "interaction_request";
@@ -60,6 +68,7 @@ export interface InteractionRequestEvent {
   toolName?: string;
   toolArgs?: string;
   question?: string;
+  options?: InteractionOption[];
   /** Optional JSON Schema for MCP elicitation form inputs */
   schema?: Record<string, unknown>;
 }

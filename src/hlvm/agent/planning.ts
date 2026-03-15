@@ -103,6 +103,7 @@ export function buildPlanModeReminder(
     "Prefer dedicated tools like read_file, search_code, list_files, and edit_file over shell_exec whenever possible.",
     "Do not answer general tutorial questions directly while planning.",
     "If the request is ambiguous or not concrete enough, ask one concise clarification with ask_user instead of writing a long conversational reply.",
+    "When the clarification can be expressed as 2-4 concrete choices, call ask_user with options so the REPL can show a picker instead of a free-text prompt.",
     "Keep clarifications task-oriented. Ask what concrete change, file, or goal the user wants planned. Do not switch into biographical, memory, or small-talk follow-ups.",
     "Do not call complete_task while planning.",
     ...(directFileLine ? [directFileLine] : []),

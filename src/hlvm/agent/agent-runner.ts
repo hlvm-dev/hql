@@ -670,6 +670,7 @@ export async function runAgentQuery(
             type: "plan_review_resolved",
             plan,
             approved: false,
+            decision: "cancelled",
           });
           return "cancelled";
         }
@@ -697,6 +698,11 @@ export async function runAgentQuery(
             type: "plan_review_resolved",
             plan,
             approved,
+            decision: approved
+              ? "approved"
+              : reviseRequested
+              ? "revise"
+              : "cancelled",
           });
           if (approved) return "approved";
           return reviseRequested ? "revise" : "cancelled";

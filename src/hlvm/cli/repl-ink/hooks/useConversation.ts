@@ -37,11 +37,11 @@ export interface UseConversationResult {
     isPending: boolean,
     citations?: AssistantCitation[],
   ) => void;
-  commitAssistantText: (committedText: string, remainderText: string) => void;
   addError: (text: string) => void;
   addInfo: (text: string, options?: { isTransient?: boolean }) => void;
   replaceItems: (items: ConversationItem[]) => void;
   resetStatus: () => void;
+  cancelPlanning: () => void;
   finalize: () => void;
   clear: () => void;
 }
@@ -91,17 +91,6 @@ export function useConversation(): UseConversationResult {
     });
   }, []);
 
-  const commitAssistantText = useCallback((
-    committedText: string,
-    remainderText: string,
-  ) => {
-    updateState(setState, {
-      type: "commit_assistant_text",
-      committedText,
-      remainderText,
-    });
-  }, []);
-
   const addError = useCallback((text: string) => {
     updateState(setState, { type: "error", text });
   }, []);
@@ -125,6 +114,10 @@ export function useConversation(): UseConversationResult {
     updateState(setState, { type: "reset_status" });
   }, []);
 
+  const cancelPlanning = useCallback(() => {
+    updateState(setState, { type: "cancel_planning" });
+  }, []);
+
   const finalize = useCallback(() => {
     updateState(setState, { type: "finalize" });
   }, []);
@@ -140,11 +133,12 @@ export function useConversation(): UseConversationResult {
     addEvent,
     addUserMessage,
     addAssistantText,
-    commitAssistantText,
+
     addError,
     addInfo,
     replaceItems,
     resetStatus,
+    cancelPlanning,
     finalize,
     clear,
   }), [
@@ -152,11 +146,12 @@ export function useConversation(): UseConversationResult {
     addEvent,
     addUserMessage,
     addAssistantText,
-    commitAssistantText,
+
     addError,
     addInfo,
     replaceItems,
     resetStatus,
+    cancelPlanning,
     finalize,
     clear,
   ]);

@@ -151,6 +151,8 @@ interface InputProps {
   onSubmit: (value: string, attachments?: AnyAttachment[]) => void;
   /** Force-submit: abort current agent and send immediately (Ctrl+Enter) */
   onForceSubmit?: (value: string, attachments?: AnyAttachment[]) => void;
+  /** Interrupt the currently running chat task (Esc) */
+  onInterruptRunningTask?: () => void;
   /** Queue the current chat draft without sending it immediately */
   onQueueDraft?: (draft: ConversationComposerDraft) => void;
   /** Restore the most recently queued draft into the composer */
@@ -199,6 +201,7 @@ export function Input({
   onChange,
   onSubmit,
   onForceSubmit,
+  onInterruptRunningTask,
   onQueueDraft,
   onEditLastQueuedDraft,
   queueEditBinding = "alt-up",
@@ -982,6 +985,31 @@ export function Input({
     }, ESC_SEQUENCE_TIMEOUT_MS);
   }, [cancelPendingEsc]);
 
+  const clearCurrentDraft = useCallback(() => {
+    pendingAttachmentOpsRef.current = 0;
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    clearPasteBuffer();
+    cancelPendingEsc();
+    completion.close();
+    historySearch.actions.cancelSearch();
+    exitPlaceholderMode();
+    setSuggestion(null);
+    setHistoryIndex(-1);
+    setTempInput("");
+    onChange("");
+    setCursorPos(0);
+    clearAttachments();
+  }, [
+    cancelPendingEsc,
+    clearAttachments,
+    clearPasteBuffer,
+    completion,
+    exitPlaceholderMode,
+    historySearch.actions,
+    onChange,
+  ]);
+
   // Helper: accept and apply suggestion (DRY helper)
   const acceptAndApplySuggestion = useCallback(() => {
     if (!suggestion) return false;
@@ -1242,6 +1270,11 @@ export function Input({
       "Input",
     );
     registerHandler(
+      HandlerIds.COMPOSER_CLEAR,
+      clearCurrentDraft,
+      "Input",
+    );
+    registerHandler(
       HandlerIds.COMPOSER_FORCE_SUBMIT,
       forceSubmitCurrentDraft,
       "Input",
@@ -1320,6 +1353,7 @@ export function Input({
       unregisterHandler(HandlerIds.HISTORY_SEARCH);
       // Composer
       unregisterHandler(HandlerIds.COMPOSER_CYCLE_MODE);
+      unregisterHandler(HandlerIds.COMPOSER_CLEAR);
       unregisterHandler(HandlerIds.COMPOSER_FORCE_SUBMIT);
       // Paredit
       unregisterHandler(HandlerIds.PAREDIT_SLURP_FORWARD);
@@ -1347,6 +1381,7 @@ export function Input({
     historySearch.actions,
     exitPlaceholderMode,
     cycleComposerMode,
+    clearCurrentDraft,
     forceSubmitCurrentDraft,
     getCleanedValue,
     insertAt,
@@ -1500,14 +1535,15 @@ export function Input({
       return;
     }
 
-    // Ctrl+J (0x0A) inserts newline. Always distinct from Enter (0x0D).
-    // Works in ALL terminals including macOS Terminal.app.
-    if (input === "\n" && !key.return) {
+    // Preserve explicit Ctrl+J newline insertion, but allow bare \n to behave
+    // like Enter for terminals/automation layers that normalize Return to LF.
+    if (input === "\n" && !key.return && key.ctrl) {
       insertAt("\n");
       return;
     }
 
-    const isEnterLikeInput = key.return || input === "\r";
+    const isEnterLikeInput = key.return || input === "\r" ||
+      (input === "\n" && !key.ctrl);
 
     // ============================================================
     // CUSTOM KEYBINDING INTERCEPTION
@@ -1775,7 +1811,15 @@ export function Input({
       if (isPureEscPrefixEvent) {
         lastEscPrefixAtRef.current = Date.now();
         schedulePureEscAction(() => {
-          lastEscPrefixAtRef.current = 0;
+        lastEscPrefixAtRef.current = 0;
+          if (
+            highlightMode === "chat" &&
+            isConversationTaskRunning &&
+            onInterruptRunningTask
+          ) {
+            onInterruptRunningTask();
+            return;
+          }
           // Pure ESC key: close dropdown first (do not clear input).
           if (completion.isVisible) {
             completion.close();
@@ -2045,14 +2089,19 @@ export function Input({
         let pos = 0;
         let lineIdx = 0;
         for (let i = 0; i < lines.length; i++) {
-          if (pos + lines[i].length >= cursorPos) { lineIdx = i; break; }
+          if (pos + lines[i].length >= cursorPos) {
+            lineIdx = i;
+            break;
+          }
           pos += lines[i].length + 1; // +1 for \n
         }
         const col = cursorPos - pos;
         if (lineIdx > 0) {
           // Move to same column on previous line (clamped)
           const prevLineStart = pos - lines[lineIdx - 1].length - 1;
-          setCursorPos(prevLineStart + Math.min(col, lines[lineIdx - 1].length));
+          setCursorPos(
+            prevLineStart + Math.min(col, lines[lineIdx - 1].length),
+          );
         } else {
           // Already on first line: navigate history
           navigateHistory(-1);
@@ -2070,14 +2119,19 @@ export function Input({
         let pos = 0;
         let lineIdx = 0;
         for (let i = 0; i < lines.length; i++) {
-          if (pos + lines[i].length >= cursorPos) { lineIdx = i; break; }
+          if (pos + lines[i].length >= cursorPos) {
+            lineIdx = i;
+            break;
+          }
           pos += lines[i].length + 1;
         }
         const col = cursorPos - pos;
         if (lineIdx < lines.length - 1) {
           // Move to same column on next line (clamped)
           const nextLineStart = pos + lines[lineIdx].length + 1;
-          setCursorPos(nextLineStart + Math.min(col, lines[lineIdx + 1].length));
+          setCursorPos(
+            nextLineStart + Math.min(col, lines[lineIdx + 1].length),
+          );
         } else {
           // Already on last line: navigate history
           navigateHistory(1);
@@ -2371,7 +2425,8 @@ export function Input({
     const termCols = stdout?.columns ?? 80;
     const valueLines = value.split("\n");
     const lastLine = valueLines[valueLines.length - 1] ?? "";
-    const promptLen = getInputPromptPrefix(promptLabel, valueLines.length - 1).length;
+    const promptLen =
+      getInputPromptPrefix(promptLabel, valueLines.length - 1).length;
     const usedCols = promptLen + lastLine.length;
     const available = Math.max(0, termCols - usedCols - 1);
     return rawGhostText.length <= available
@@ -2560,7 +2615,10 @@ export function Input({
     return (
       <Box key={lineIndex}>
         <Text color={color("primary")} bold>{promptText}</Text>
-        <Text>{" "}{renderWithPlaceholders(beforeCursor, lineStartOffset)}</Text>
+        <Text>
+          {" "}
+          {renderWithPlaceholders(beforeCursor, lineStartOffset)}
+        </Text>
         <Text backgroundColor="white" color="black">{charAtCursor}</Text>
         <Text>
           {renderWithPlaceholders(afterCursor, lineStartOffset + cursorCol + 1)}

@@ -499,7 +499,9 @@ export async function handleChat(req: Request): Promise<Response> {
 
         const isAgentModel = resolvedModel?.endsWith(AGENT_MODEL_SUFFIX) ??
           false;
-        const configAgentMode = cfgSnapshot.agentMode;
+        const configUsesAgentModel = cfgSnapshot.model.endsWith(
+          AGENT_MODEL_SUFFIX,
+        );
         const requestHasExplicitModel = typeof body.model === "string" &&
           body.model.length > 0;
         const effectiveMode = body.mode === CLAUDE_CODE_AGENT_MODE
@@ -508,7 +510,7 @@ export async function handleChat(req: Request): Promise<Response> {
               (
                 isAgentModel ||
                 (!requestHasExplicitModel &&
-                  configAgentMode === "claude-code-agent")
+                  configUsesAgentModel)
               ))
           ? CLAUDE_CODE_AGENT_MODE
           : body.mode;

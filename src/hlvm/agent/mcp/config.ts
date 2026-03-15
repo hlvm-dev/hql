@@ -199,7 +199,7 @@ export function parseClaudeCodeMcpJson(
  * Each subdirectory may contain a `.mcp.json` file.
  * Returns empty array if the directory doesn't exist or is unreadable.
  */
-export async function loadClaudeCodeMcpServers(): Promise<McpServerConfig[]> {
+async function loadClaudeCodeMcpServers(): Promise<McpServerConfig[]> {
   const platform = getPlatform();
   const pluginsDir = getClaudeCodeMcpDir();
 

@@ -26,3 +26,4 @@ export { default as DiffRenderer } from "./DiffRenderer.tsx";
 // Dialog components
 export { ConfirmationDialog } from "./ConfirmationDialog.tsx";
 export { QuestionDialog } from "./QuestionDialog.tsx";
+export { InteractionPicker } from "./InteractionPicker.tsx";

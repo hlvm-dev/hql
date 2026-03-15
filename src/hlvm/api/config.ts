@@ -28,6 +28,7 @@ import {
   parseValue,
   validateValue,
 } from "../../common/config/types.ts";
+import { normalizeModelSelectionConfig } from "../../common/config/model-selection.ts";
 import { syncProvidersFromConfig } from "../../common/config/provider-sync.ts";
 import { log } from "./log.ts";
 import { ValidationError } from "../../common/error.ts";
@@ -97,6 +98,33 @@ function createConfigApi() {
     return parsed;
   }
 
+  function buildValidatedConfigUpdates(
+    updates: Partial<Record<ConfigKey, unknown>>,
+  ): Partial<Record<ConfigKey, unknown>> {
+    const next: Partial<Record<ConfigKey, unknown>> = {};
+
+    for (const [key, value] of Object.entries(updates)) {
+      assertConfigKeyOrThrow(key, "config.set");
+      next[key] = parseAndValidateConfigValue(key, value);
+    }
+
+    return next;
+  }
+
+  function mergeConfigUpdates(
+    config: HlvmConfig,
+    updates: Partial<Record<ConfigKey, unknown>>,
+  ): HlvmConfig {
+    const next = { ...config, ...updates } as HlvmConfig;
+    if ("model" in updates || "agentMode" in updates) {
+      return {
+        ...normalizeModelSelectionConfig(next),
+        modelConfigured: true,
+      };
+    }
+    return next;
+  }
+
   function updateCachedConfig(
     nextConfig: HlvmConfig,
     syncProviders = false,
@@ -132,7 +160,7 @@ function createConfigApi() {
           DEFAULT_CONFIG[key as keyof HlvmConfig];
       }
     }
-    return next;
+    return normalizeModelSelectionConfig(next);
   }
 
   return {
@@ -151,10 +179,9 @@ function createConfigApi() {
      * @example (config.set "model" "ollama/llama3.2")
      */
     set: async (key: string, value: unknown): Promise<void> => {
-      assertConfigKeyOrThrow(key, "config.set");
-      const parsedValue = parseAndValidateConfigValue(key, value);
+      const updates = buildValidatedConfigUpdates({ [key]: value });
       const cfg = await ensureConfig();
-      const newConfig = { ...cfg, [key]: parsedValue };
+      const newConfig = mergeConfigUpdates(cfg, updates);
       await saveConfig(newConfig);
       updateCachedConfig(newConfig, true);
     },
@@ -163,12 +190,8 @@ function createConfigApi() {
       updates: Partial<Record<ConfigKey, unknown>>,
     ): Promise<HlvmConfig> => {
       const cfg = await ensureConfig();
-      const next = { ...cfg };
-
-      for (const [key, value] of Object.entries(updates)) {
-        assertConfigKeyOrThrow(key, "config.set");
-        (next as Record<string, unknown>)[key] = parseAndValidateConfigValue(key, value);
-      }
+      const normalizedUpdates = buildValidatedConfigUpdates(updates);
+      const next = mergeConfigUpdates(cfg, normalizedUpdates);
 
       await saveConfig(next);
       return updateCachedConfig(next, true);
@@ -179,7 +202,7 @@ function createConfigApi() {
      * @example (config.reset)
      */
     reset: async (): Promise<HlvmConfig> => {
-      return updateCachedConfig(await resetConfig(), true);
+      return updateCachedConfig(normalizeConfig(await resetConfig()), true);
     },
 
     /**

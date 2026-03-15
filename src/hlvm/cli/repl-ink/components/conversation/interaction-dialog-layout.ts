@@ -4,13 +4,28 @@ import { isObjectValue } from "../../../../../common/utils.ts";
 
 const CONFIRMATION_DIALOG_MAX_ARG_LINES = 10;
 const PLAN_REVIEW_MAX_STEPS = 6;
-export const QUESTION_DIALOG_HINT = "Answer at answer> below, then press Enter";
+export const QUESTION_DIALOG_HINT = "Type your answer below, then press Enter";
+export const QUESTION_PICKER_HINT =
+  "Use arrows to choose · Tab add notes · Enter submit · Esc interrupt";
+export const PLAN_REVIEW_PICKER_HINT =
+  "Use arrows to choose · Enter confirm · Esc cancel";
 
 export interface PlanReviewDialogDisplay {
   plan: Plan;
   visibleSteps: Plan["steps"];
   hiddenStepCount: number;
   verificationLines: string[];
+}
+
+export interface QuestionDialogDisplay {
+  question?: string;
+  options: {
+    label: string;
+    value: string;
+    detail?: string;
+    recommended?: boolean;
+  }[];
+  usesPicker: boolean;
 }
 
 interface ConfirmationDialogDisplay {
@@ -73,6 +88,48 @@ function parsePlanReview(
     goal: parsed.goal,
     steps,
   };
+}
+
+function normalizeQuestionOptions(
+  options: InteractionRequestEvent["options"],
+): QuestionDialogDisplay["options"] {
+  return (options ?? []).flatMap((option) => {
+    if (!option || typeof option.label !== "string") return [];
+    const label = option.label.trim();
+    if (!label) return [];
+    return [{
+      label,
+      value: typeof option.value === "string" && option.value.trim().length > 0
+        ? option.value.trim()
+        : label,
+      detail: typeof option.detail === "string" && option.detail.trim().length > 0
+        ? option.detail.trim()
+        : undefined,
+      recommended: option.recommended === true,
+    }];
+  });
+}
+
+export function getQuestionDialogDisplay(
+  question?: string,
+  options?: InteractionRequestEvent["options"],
+): QuestionDialogDisplay {
+  const normalizedOptions = normalizeQuestionOptions(options);
+  return {
+    question,
+    options: normalizedOptions,
+    usesPicker: normalizedOptions.length > 0,
+  };
+}
+
+export function isPickerInteractionRequest(
+  request: InteractionRequestEvent | undefined,
+): boolean {
+  if (!request) return false;
+  if (request.mode === "permission") {
+    return request.toolName === "plan_review";
+  }
+  return getQuestionDialogDisplay(request.question, request.options).usesPicker;
 }
 
 export function getConfirmationDialogDisplay(
@@ -184,18 +241,41 @@ function estimateConfirmationDialogRows(
   return rows + 2; // border + spacing
 }
 
+function estimatePickerOptionRows(
+  option: QuestionDialogDisplay["options"][number],
+  width: number,
+): number {
+  const line = `${option.label}${option.recommended ? " (Recommended)" : ""}`;
+  let rows = estimateWrappedTextRows(line, width);
+  if (option.detail) {
+    rows += estimateWrappedTextRows(option.detail, width);
+  }
+  return rows;
+}
+
 function estimateQuestionDialogRows(
   question: string | undefined,
+  options: InteractionRequestEvent["options"],
   width: number,
 ): number {
   const contentWidth = Math.max(18, width - 6);
+  const display = getQuestionDialogDisplay(question, options);
   let rows = 2; // header + hint
 
   if (question) {
     rows += estimateWrappedTextRows(question, contentWidth);
   }
 
-  rows += estimateWrappedTextRows(QUESTION_DIALOG_HINT, contentWidth);
+  if (display.usesPicker) {
+    rows += display.options.reduce(
+      (total: number, option) =>
+        total + estimatePickerOptionRows(option, Math.max(12, contentWidth - 4)),
+      0,
+    );
+    rows += estimateWrappedTextRows(QUESTION_PICKER_HINT, contentWidth);
+  } else {
+    rows += estimateWrappedTextRows(QUESTION_DIALOG_HINT, contentWidth);
+  }
   return rows + 2; // border + spacing
 }
 
@@ -205,7 +285,7 @@ export function estimateInteractionDialogRows(
 ): number {
   if (!request) return 0;
   if (request.mode === "question") {
-    return estimateQuestionDialogRows(request.question, width);
+    return estimateQuestionDialogRows(request.question, request.options, width);
   }
   return estimateConfirmationDialogRows(
     request.toolName,

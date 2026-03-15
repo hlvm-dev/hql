@@ -9,20 +9,113 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
-import { getConfirmationDialogDisplay } from "./interaction-dialog-layout.ts";
+import {
+  getConfirmationDialogDisplay,
+  PLAN_REVIEW_PICKER_HINT,
+} from "./interaction-dialog-layout.ts";
+import {
+  InteractionPicker,
+  type InteractionPickerOption,
+} from "./InteractionPicker.tsx";
+import type { InteractionResponse } from "../../../../agent/registry.ts";
 
 interface ConfirmationDialogProps {
+  requestId?: string;
   toolName?: string;
   toolArgs?: string;
+  onResolve?: (requestId: string, response: InteractionResponse) => void;
 }
 
 export const ConfirmationDialog = React.memo(
   function ConfirmationDialog(
-    { toolName, toolArgs }: ConfirmationDialogProps,
+    { requestId, toolName, toolArgs, onResolve }: ConfirmationDialogProps,
   ): React.ReactElement {
     const sc = useSemanticColors();
     const dialog = getConfirmationDialogDisplay(toolName, toolArgs);
     const { isPlanReview, visibleArgLines, hiddenArgLines } = dialog;
+
+    if (isPlanReview && dialog.planReview && requestId && onResolve) {
+      return (
+        <InteractionPicker
+          title="Implement this plan?"
+          options={[
+            {
+              label: "Yes, implement this plan",
+              value: "approve",
+              detail: "Switch to Default and start coding.",
+              recommended: true,
+            },
+            {
+              label: "Revise this plan",
+              value: "revise",
+              detail: "Stay in Plan mode and continue planning with the model.",
+            },
+            {
+              label: "Cancel",
+              value: "cancel",
+              detail: "Stop here without implementing or continuing planning.",
+            },
+          ]}
+          hint={PLAN_REVIEW_PICKER_HINT}
+          onSubmit={(option: InteractionPickerOption) => {
+            if (option.value === "approve") {
+              onResolve(requestId, { approved: true });
+              return;
+            }
+            if (option.value === "revise") {
+              onResolve(requestId, {
+                approved: false,
+                userInput: "revise",
+              });
+              return;
+            }
+            onResolve(requestId, { approved: false });
+          }}
+          onCancel={() => onResolve(requestId, { approved: false })}
+        >
+          <Box flexDirection="column">
+            <Text color={sc.text.secondary}>
+              Here is the plan:
+            </Text>
+            <Box marginTop={1} flexDirection="column">
+              <Text color={sc.text.primary} wrap="wrap">
+                {dialog.planReview.plan.goal}
+              </Text>
+              <Text color={sc.text.secondary}>Steps:</Text>
+              <Box paddingLeft={1} flexDirection="column">
+                {dialog.planReview.visibleSteps.map((step) => (
+                  <React.Fragment key={step.id}>
+                    <Text color={sc.text.primary} wrap="truncate-end">
+                      [ ] {step.title}
+                    </Text>
+                  </React.Fragment>
+                ))}
+                {dialog.planReview.hiddenStepCount > 0 && (
+                  <Text color={sc.text.muted}>
+                    ... {dialog.planReview.hiddenStepCount} more step
+                    {dialog.planReview.hiddenStepCount === 1 ? "" : "s"}
+                  </Text>
+                )}
+              </Box>
+              {dialog.planReview.verificationLines.length > 0 && (
+                <>
+                  <Text color={sc.text.secondary}>Verification:</Text>
+                  <Box paddingLeft={1} flexDirection="column">
+                    {dialog.planReview.verificationLines.map((line) => (
+                      <React.Fragment key={line}>
+                        <Text color={sc.text.muted} wrap="truncate-end">
+                          • {line}
+                        </Text>
+                      </React.Fragment>
+                    ))}
+                  </Box>
+                </>
+              )}
+            </Box>
+          </Box>
+        </InteractionPicker>
+      );
+    }
 
     return (
       <Box

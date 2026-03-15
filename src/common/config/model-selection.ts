@@ -2,10 +2,10 @@ import {
   type AgentMode,
   ConfigError,
   type ConfigKey,
+  DEFAULT_MODEL_ID,
   type HlvmConfig,
   normalizeModelId,
 } from "./types.ts";
-import { getConfiguredModel } from "./selectors.ts";
 import { AGENT_MODEL_SUFFIX } from "../../hlvm/providers/claude-code/provider.ts";
 import { isObjectValue } from "../utils.ts";
 
@@ -24,8 +24,54 @@ export interface ModelSelectionState {
   modelConfigured: boolean;
 }
 
+export function isModelSelectionStateEqual(
+  left: ModelSelectionState,
+  right: ModelSelectionState,
+): boolean {
+  return left.configuredModelId === right.configuredModelId &&
+    left.activeModelId === right.activeModelId &&
+    left.displayLabel === right.displayLabel &&
+    left.modelConfigured === right.modelConfigured;
+}
+
 export function resolveAgentModeForModel(modelId: string): AgentMode {
   return modelId.endsWith(AGENT_MODEL_SUFFIX) ? "claude-code-agent" : "hlvm";
+}
+
+export function normalizeSelectedModelId(
+  modelId: unknown,
+  agentMode?: AgentMode,
+): string | undefined {
+  const normalizedModel = normalizeModelId(modelId);
+  if (!normalizedModel) {
+    return undefined;
+  }
+  if (normalizedModel.endsWith(AGENT_MODEL_SUFFIX)) {
+    return normalizedModel;
+  }
+  if (
+    agentMode === "claude-code-agent" &&
+    normalizedModel.startsWith("claude-code/")
+  ) {
+    return `${normalizedModel}${AGENT_MODEL_SUFFIX}`;
+  }
+  return normalizedModel;
+}
+
+export function normalizeModelSelectionConfig(config: HlvmConfig): HlvmConfig {
+  const normalizedModel = normalizeSelectedModelId(config.model, config.agentMode);
+  if (!normalizedModel) {
+    return config;
+  }
+  const agentMode = resolveAgentModeForModel(normalizedModel);
+  if (normalizedModel === config.model && agentMode === config.agentMode) {
+    return config;
+  }
+  return {
+    ...config,
+    model: normalizedModel,
+    agentMode,
+  };
 }
 
 export function formatSelectedModelLabel(modelId: string | undefined): string {
@@ -36,8 +82,18 @@ export function createModelSelectionState(
   config: unknown,
   activeModelId?: string,
 ): ModelSelectionState {
-  const configuredModelId = getConfiguredModel(config);
-  const normalizedActiveModelId = normalizeModelId(activeModelId) ??
+  const configAgentMode = isObjectValue(config) &&
+      (config.agentMode === "hlvm" || config.agentMode === "claude-code-agent")
+    ? config.agentMode
+    : undefined;
+  const configuredModelId = normalizeSelectedModelId(
+      isObjectValue(config) ? config.model : undefined,
+      configAgentMode,
+    ) ?? DEFAULT_MODEL_ID;
+  const normalizedActiveModelId = normalizeSelectedModelId(
+      activeModelId,
+      configAgentMode,
+    ) ??
     configuredModelId;
 
   return {
@@ -52,8 +108,8 @@ export function isSelectedModelActive(
   modelName: string | undefined,
   currentModelId: string | undefined,
 ): boolean {
-  const normalizedModel = normalizeModelId(modelName);
-  const normalizedCurrentModel = normalizeModelId(currentModelId);
+  const normalizedModel = normalizeSelectedModelId(modelName);
+  const normalizedCurrentModel = normalizeSelectedModelId(currentModelId);
   return !!normalizedModel &&
     !!normalizedCurrentModel &&
     normalizedModel === normalizedCurrentModel;
@@ -62,7 +118,7 @@ export function isSelectedModelActive(
 export function buildSelectedModelConfigUpdates(
   modelName: string,
 ): ModelSelectionUpdates {
-  const normalizedModel = normalizeModelId(modelName);
+  const normalizedModel = normalizeSelectedModelId(modelName);
   if (!normalizedModel) {
     throw new ConfigError("Invalid model ID");
   }

@@ -64,12 +64,15 @@ function deleteFtsRow(rowId: number, content: string): void {
   ).run(rowId, content);
 }
 
+const FTS_SPECIAL_CHARS_RE = /['"*():^{}|]/g;
+const FTS_RESERVED_WORDS_RE = /^(AND|OR|NOT|NEAR)$/i;
+
 function queryWords(query: string): string[] {
   return query
-    .replace(/['"*():^{}|]/g, " ")
+    .replace(FTS_SPECIAL_CHARS_RE, " ")
     .split(/\s+/)
     .map((w) => w.trim())
-    .filter((w) => w && w.length <= 100 && !/^(AND|OR|NOT|NEAR)$/i.test(w));
+    .filter((w) => w && w.length <= 100 && !FTS_RESERVED_WORDS_RE.test(w));
 }
 
 function parseFactRow(row: RawFactRow): FactRecord {
@@ -266,8 +269,9 @@ export function searchFactsFts(
   const words = queryWords(query.trim());
   if (words.length === 0) return [];
 
-  const andExpr = words.map((w) => `"${w}"`).join(" ");
-  const orExpr = words.map((w) => `"${w}"`).join(" OR ");
+  const escaped = words.map((w) => `"${w}"`);
+  const andExpr = escaped.join(" ");
+  const orExpr = escaped.join(" OR ");
 
   const stmt = db.prepare(
     `SELECT f.id, f.content, f.category, f.source, f.valid_from, f.valid_until,
@@ -288,8 +292,8 @@ export function searchFactsFts(
     rows = stmt.all(orExpr, limit * 4) as FtsRow[];
   }
 
-  return rows.map((row) => ({
+  return rows.slice(0, limit).map((row) => ({
     ...parseFactRow(row),
     bm25Score: row.bm25_score,
-  })).slice(0, limit);
+  }));
 }

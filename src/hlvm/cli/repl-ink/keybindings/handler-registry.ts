@@ -21,9 +21,9 @@ import { log } from "../../../api/log.ts";
 // Types
 // ============================================================
 
-export type HandlerFn = () => void | Promise<void>;
+type HandlerFn = () => void | Promise<void>;
 
-export interface HandlerInfo {
+interface HandlerInfo {
   id: string;
   handler: HandlerFn;
   /** Component that registered this handler */
@@ -44,7 +44,11 @@ const handlers = new Map<string, HandlerInfo>();
  * Register a handler function for a keybinding action ID.
  * If a handler with the same ID exists, it will be replaced.
  */
-export function registerHandler(id: string, handler: HandlerFn, source?: string): void {
+export function registerHandler(
+  id: string,
+  handler: HandlerFn,
+  source?: string,
+): void {
   handlers.set(id, { id, handler, source });
 }
 
@@ -94,6 +98,7 @@ export const HandlerIds = {
   CONVERSATION_TOGGLE_LATEST: "conversation.toggle-latest",
   CONVERSATION_OPEN_LATEST_SOURCE: "conversation.open-latest-source",
   COMPOSER_CYCLE_MODE: "composer.cycle-mode",
+  COMPOSER_CLEAR: "composer.clear",
   COMPOSER_FORCE_SUBMIT: "composer.force-submit",
 
   // Editing

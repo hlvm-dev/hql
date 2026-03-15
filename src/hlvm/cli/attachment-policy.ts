@@ -134,7 +134,7 @@ export function describeAttachmentFailure(
   return `${modelName} does not support this attachment type.`;
 }
 
-export function describeAttachmentKind(
+function describeAttachmentKind(
   kind: ConversationAttachmentKind | undefined,
 ): string {
   switch (kind) {

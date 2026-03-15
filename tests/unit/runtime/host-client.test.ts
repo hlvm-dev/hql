@@ -322,6 +322,92 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
   }
 });
 
+Deno.test("runAgentQueryViaHost forwards structured interaction options", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
+    }
+
+    if (url.pathname === "/api/chat/interaction") {
+      return Response.json({ ok: true });
+    }
+
+    if (url.pathname === "/api/chat") {
+      const stream = new ReadableStream({
+        start(controller) {
+          const emit = (obj: unknown) =>
+            controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+          emit({ event: "start", request_id: "req-2" });
+          emit({
+            event: "interaction_request",
+            request_id: "interaction-2",
+            mode: "question",
+            question: "Which approach should I use?",
+            options: [
+              {
+                label: "Keep signposts",
+                value: "keep_signposts",
+                detail: "Remove logs only.",
+                recommended: true,
+              },
+              {
+                label: "Remove all perf instrumentation",
+                value: "remove_all",
+                detail: "Remove logs and signposts.",
+              },
+            ],
+          });
+          emit({ event: "complete", request_id: "req-2", session_version: 1 });
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/x-ndjson",
+          "X-Request-ID": "req-2",
+        },
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      let capturedSelection = "";
+      await runAgentQueryViaHost({
+        query: "plan it",
+        model: "ollama/llama3.1:8b",
+        permissionMode: "plan",
+        onInteraction: async (event) => {
+          assertEquals(event.mode, "question");
+          assertEquals(event.question, "Which approach should I use?");
+          assertEquals(event.options?.[0]?.value, "keep_signposts");
+          assertEquals(event.options?.[0]?.recommended, true);
+          capturedSelection = event.options?.[0]?.value ?? "";
+          return {
+            approved: true,
+            userInput: capturedSelection,
+          };
+        },
+      });
+      assertEquals(capturedSelection, "keep_signposts");
+    });
+  } finally {
+    await handle.shutdown();
+  }
+});
+
 Deno.test("runAgentQueryViaHost retries an early transient plan-mode stream drop before plan review", async () => {
   const port = await findFreePort();
   const authToken = "test-auth-token";

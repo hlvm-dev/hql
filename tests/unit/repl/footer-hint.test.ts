@@ -39,16 +39,17 @@ Deno.test("buildFooterLeftState shows empty text when idle in conversation", () 
   assertEquals(state.tone, "muted");
 });
 
-Deno.test("buildFooterLeftState shows plan review actions", () => {
+Deno.test("buildFooterLeftState suppresses duplicated plan review actions when picker owns focus", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     hasPendingPermission: true,
     hasPendingPlanReview: true,
+    suppressInteractionHints: true,
     spinner: "x",
   });
 
-  assertEquals(state.text, "Enter run \u00B7 r revise \u00B7 Esc cancel");
-  assertEquals(state.tone, "warning");
+  assertEquals(state.text, "");
+  assertEquals(state.tone, "muted");
 });
 
 Deno.test("buildFooterLeftState shows empty text outside conversation", () => {

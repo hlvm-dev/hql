@@ -57,28 +57,30 @@ const PROVIDER_META: Record<string, ProviderMeta> = {
   },
 };
 
+const NON_ALPHANUM_RE = /[^a-z0-9]+/g;
+
 function normalizeProviderLookup(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return value.toLowerCase().replace(NON_ALPHANUM_RE, "");
 }
+
+/** Pre-computed reverse lookup: normalized term → provider key. O(1) per call. */
+const PROVIDER_LOOKUP: Map<string, string> = (() => {
+  const map = new Map<string, string>();
+  for (const [key, meta] of Object.entries(PROVIDER_META)) {
+    map.set(normalizeProviderLookup(key), key);
+    for (const term of meta.searchTerms ?? []) {
+      const normalized = normalizeProviderLookup(term);
+      // First registration wins (earlier keys have priority)
+      if (!map.has(normalized)) map.set(normalized, key);
+    }
+  }
+  return map;
+})();
 
 export function findProviderMetaKey(name?: string | null): string | null {
   const normalized = name ? normalizeProviderLookup(name) : "";
   if (!normalized) return null;
-
-  for (const [key, meta] of Object.entries(PROVIDER_META)) {
-    if (normalizeProviderLookup(key) === normalized) {
-      return key;
-    }
-    if (
-      meta.searchTerms?.some((term) =>
-        normalizeProviderLookup(term) === normalized
-      )
-    ) {
-      return key;
-    }
-  }
-
-  return null;
+  return PROVIDER_LOOKUP.get(normalized) ?? null;
 }
 
 export function getProviderMeta(name?: string | null): ProviderMeta | null {

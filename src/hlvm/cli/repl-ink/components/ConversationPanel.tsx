@@ -27,7 +27,10 @@ import type {
 } from "../../../agent/registry.ts";
 import { findCurrentTurnStartIndex } from "../../agent-transcript-state.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
-import { estimateInteractionDialogRows } from "./conversation/interaction-dialog-layout.ts";
+import {
+  estimateInteractionDialogRows,
+  isPickerInteractionRequest,
+} from "./conversation/interaction-dialog-layout.ts";
 import {
   clampConversationScrollOffset,
   computeConversationViewport,
@@ -79,6 +82,8 @@ interface ConversationPanelProps {
     requestId: string,
     response: InteractionResponse,
   ) => void;
+  /** Interrupt the current question flow entirely (Esc on clarification picker) */
+  onQuestionInterrupt?: () => void;
 }
 
 type ToggleTarget =
@@ -169,10 +174,30 @@ export function getConversationDisplayItems(
   items: ConversationItem[],
   options?: {
     compactPlanTranscript?: boolean;
+    suppressCurrentTurnPrompt?: boolean;
   },
 ): ConversationItem[] {
-  return items.filter((item) => {
+  const visibleTurnStartIndex = options?.compactPlanTranscript
+    ? findCurrentTurnStartIndex(items)
+    : -1;
+  const currentTurnStartIndex = options?.suppressCurrentTurnPrompt
+    ? findCurrentTurnStartIndex(items)
+    : -1;
+  return items.filter((item, itemIndex) => {
     if (!shouldRenderConversationItem(item)) {
+      return false;
+    }
+    if (
+      visibleTurnStartIndex >= 0 &&
+      itemIndex < visibleTurnStartIndex
+    ) {
+      return false;
+    }
+    if (
+      currentTurnStartIndex >= 0 &&
+      itemIndex >= currentTurnStartIndex &&
+      (item.type === "user" || item.type === "assistant")
+    ) {
       return false;
     }
     if (!options?.compactPlanTranscript) {
@@ -381,6 +406,7 @@ export function ConversationPanel({
   interactionRequest,
   interactionQueueLength = 0,
   onInteractionResponse,
+  onQuestionInterrupt,
   extraReservedRows = 0,
 }: ConversationPanelProps): React.ReactElement {
   const sc = useSemanticColors();
@@ -403,9 +429,19 @@ export function ConversationPanel({
     () => shouldCompactPlanTranscript(planningPhase, activePlan, pendingPlanReview),
     [activePlan, pendingPlanReview, planningPhase],
   );
+  const pickerInteractionActive = useMemo(
+    () => isPickerInteractionRequest(interactionRequest),
+    [interactionRequest],
+  );
+  const hideTranscriptDuringPicker = compactPlanTranscript &&
+    pickerInteractionActive;
   const displayItems = useMemo(
-    () => getConversationDisplayItems(items, { compactPlanTranscript }),
-    [compactPlanTranscript, items],
+    () =>
+      getConversationDisplayItems(items, {
+        compactPlanTranscript,
+        suppressCurrentTurnPrompt: Boolean(interactionRequest),
+      }),
+    [compactPlanTranscript, interactionRequest, items],
   );
 
   useEffect(() => {
@@ -444,7 +480,7 @@ export function ConversationPanel({
   const todoSectionTitle = planningPhase === "executing" ||
       planningPhase === "done"
     ? "Progress"
-    : "Plan";
+    : "Planning...";
   const interactionRows = estimateInteractionDialogRows(
     interactionRequest,
     width,
@@ -499,26 +535,31 @@ export function ConversationPanel({
       }),
     [extraReservedRows, headerRows, interactionRows, interactionRequest, terminalRows],
   );
+  const renderableDisplayItems = hideTranscriptDuringPicker ? [] : displayItems;
   const viewport = useMemo(
     () =>
       computeConversationViewport(
-        displayItems.length,
+        renderableDisplayItems.length,
         visibleCount,
         scrollOffsetFromBottom,
       ),
-    [displayItems.length, scrollOffsetFromBottom, visibleCount],
+    [renderableDisplayItems.length, scrollOffsetFromBottom, visibleCount],
   );
   const visibleItems = useMemo(
-    () => displayItems.slice(viewport.start, viewport.end),
-    [displayItems, viewport.end, viewport.start],
+    () => renderableDisplayItems.slice(viewport.start, viewport.end),
+    [renderableDisplayItems, viewport.end, viewport.start],
   );
 
   useEffect(() => {
     setScrollOffsetFromBottom((prev: number) => {
       if (prev === 0) return 0; // At bottom (auto-follow) — nothing to clamp
-      return clampConversationScrollOffset(prev, displayItems.length, visibleCount);
+      return clampConversationScrollOffset(
+        prev,
+        renderableDisplayItems.length,
+        visibleCount,
+      );
     });
-  }, [displayItems.length, visibleCount]);
+  }, [renderableDisplayItems.length, visibleCount]);
 
   // Toggle targets operate over the visible conversation so the latest
   // tool/thinking block can always be expanded without duplicating turns.
@@ -595,6 +636,7 @@ export function ConversationPanel({
   }, [items, toggleTargets]);
 
   useInput((char, key) => {
+    if (pickerInteractionActive) return;
     if (!displayItems.length) return;
 
     if (key.pageUp) {
@@ -639,7 +681,12 @@ export function ConversationPanel({
 
   return (
     <Box flexDirection="column" width={width}>
-      {displayItems.length === 0 && streamingState && (
+      {displayItems.length === 0 &&
+        streamingState !== ConversationStreamingState.Idle &&
+        !phaseTitle &&
+        !phaseSummary &&
+        !todoState?.items.length &&
+        !interactionRequest && (
         <Text color={sc.text.muted}>Conversation starting...</Text>
       )}
 
@@ -743,11 +790,40 @@ export function ConversationPanel({
         </Box>
       )}
 
-      {viewport.hiddenAbove > 0 && (
+      {!hideTranscriptDuringPicker && viewport.hiddenAbove > 0 && (
         <Text color={sc.text.muted}>
           ↑ {viewport.hiddenAbove}{" "}
           earlier item{viewport.hiddenAbove === 1 ? "" : "s"}
         </Text>
+      )}
+
+      {interactionRequest && onInteractionResponse && pickerInteractionActive && (
+        <Box flexDirection="column" marginBottom={1}>
+          {interactionQueueLength > 1 && (
+            <Text color={sc.status.warning}>
+              {interactionQueueLength - 1}{" "}
+              more interaction{interactionQueueLength - 1 === 1 ? "" : "s"}{" "}
+              queued
+            </Text>
+          )}
+          {interactionRequest.mode === "permission" && (
+            <ConfirmationDialog
+              requestId={interactionRequest.requestId}
+              toolName={interactionRequest.toolName}
+              toolArgs={interactionRequest.toolArgs}
+              onResolve={onInteractionResponse}
+            />
+          )}
+          {interactionRequest.mode === "question" && (
+            <QuestionDialog
+              requestId={interactionRequest.requestId}
+              question={interactionRequest.question}
+              options={interactionRequest.options}
+              onResolve={onInteractionResponse}
+              onInterrupt={onQuestionInterrupt}
+            />
+          )}
+        </Box>
       )}
 
       {visibleItems.map((item: ConversationItem) => (
@@ -765,14 +841,14 @@ export function ConversationPanel({
         </Box>
       ))}
 
-      {viewport.hiddenBelow > 0 && (
+      {!hideTranscriptDuringPicker && viewport.hiddenBelow > 0 && (
         <Text color={sc.text.muted}>
           ↓ {viewport.hiddenBelow}{" "}
           newer item{viewport.hiddenBelow === 1 ? "" : "s"}
         </Text>
       )}
 
-      {interactionRequest && onInteractionResponse && (
+      {interactionRequest && onInteractionResponse && !pickerInteractionActive && (
         <Box flexDirection="column" marginTop={1}>
           {interactionQueueLength > 1 && (
             <Text color={sc.status.warning}>
@@ -783,12 +859,20 @@ export function ConversationPanel({
           )}
           {interactionRequest.mode === "permission" && (
             <ConfirmationDialog
+              requestId={interactionRequest.requestId}
               toolName={interactionRequest.toolName}
               toolArgs={interactionRequest.toolArgs}
+              onResolve={onInteractionResponse}
             />
           )}
           {interactionRequest.mode === "question" && (
-            <QuestionDialog question={interactionRequest.question} />
+            <QuestionDialog
+              requestId={interactionRequest.requestId}
+              question={interactionRequest.question}
+              options={interactionRequest.options}
+              onResolve={onInteractionResponse}
+              onInterrupt={onQuestionInterrupt}
+            />
           )}
         </Box>
       )}

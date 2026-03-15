@@ -3,6 +3,7 @@ import {
   buildSelectedModelConfigUpdates,
   createModelSelectionState,
   formatSelectedModelLabel,
+  isModelSelectionStateEqual,
   isSelectedModelActive,
   persistSelectedModelConfig,
   resolveAgentModeForModel,
@@ -107,6 +108,37 @@ Deno.test("createModelSelectionState keeps configured and active model ids in sy
       displayLabel: "ollama/llama3.2:3b",
       modelConfigured: true,
     },
+  );
+});
+
+Deno.test("isModelSelectionStateEqual detects meaningful model banner changes", () => {
+  const baseline = createModelSelectionState({
+    model: "claude-code/claude-sonnet-4-6",
+    modelConfigured: true,
+  });
+
+  assertEquals(
+    isModelSelectionStateEqual(
+      baseline,
+      createModelSelectionState({
+        model: "claude-code/claude-sonnet-4-6",
+        modelConfigured: true,
+      }),
+    ),
+    true,
+  );
+  assertEquals(
+    isModelSelectionStateEqual(
+      baseline,
+      createModelSelectionState(
+        {
+          model: "claude-code/claude-sonnet-4-6",
+          modelConfigured: true,
+        },
+        "ollama/llama3.2:3b",
+      ),
+    ),
+    false,
   );
 });
 

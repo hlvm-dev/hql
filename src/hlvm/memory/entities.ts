@@ -46,6 +46,12 @@ function upsertEntity(name: string, type: string): number {
   return row?.[0] ?? 0;
 }
 
+const FILE_EXT_RE =
+  /\b[\w./-]+\.(?:ts|tsx|js|jsx|json|md|yaml|yml|sql|sh)\b/g;
+const WORD_RE = /\b[A-Za-z][\w-]{2,}\b/g;
+const PASCAL_CASE_RE = /^[A-Z][A-Za-z0-9_]+$/;
+const CAMEL_CASE_RE = /^[a-z]+[A-Z][A-Za-z0-9_]*$/;
+
 export function extractEntitiesFromText(text: string): ExtractedEntity[] {
   const out = new Map<string, ExtractedEntity>();
   const add = (name: string, type: string) => {
@@ -55,12 +61,10 @@ export function extractEntitiesFromText(text: string): ExtractedEntity[] {
     if (!out.has(key)) out.set(key, { name: cleaned, type });
   };
 
-  const fileMatches =
-    text.match(/\b[\w./-]+\.(?:ts|tsx|js|jsx|json|md|yaml|yml|sql|sh)\b/g) ??
-      [];
+  const fileMatches = text.match(FILE_EXT_RE) ?? [];
   for (const match of fileMatches) add(match, "file");
 
-  const wordMatches = text.match(/\b[A-Za-z][\w-]{2,}\b/g) ?? [];
+  const wordMatches = text.match(WORD_RE) ?? [];
   for (const word of wordMatches) {
     const lower = word.toLowerCase();
     if (RUNTIMES.has(lower)) {
@@ -71,10 +75,7 @@ export function extractEntitiesFromText(text: string): ExtractedEntity[] {
       add(word, "tool");
       continue;
     }
-    if (
-      /^[A-Z][A-Za-z0-9_]+$/.test(word) ||
-      /^[a-z]+[A-Z][A-Za-z0-9_]*$/.test(word)
-    ) {
+    if (PASCAL_CASE_RE.test(word) || CAMEL_CASE_RE.test(word)) {
       add(word, "concept");
     }
   }

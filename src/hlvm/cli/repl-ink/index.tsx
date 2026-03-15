@@ -6,13 +6,21 @@ import React from "react";
 import { render } from "ink";
 import { App } from "./components/App.tsx";
 import { ThemeProvider } from "../theme/index.ts";
-import { parseSessionFlags, type SessionInitOptions } from "../repl/session/types.ts";
+import {
+  parseSessionFlags,
+  type SessionInitOptions,
+} from "../repl/session/types.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { setCurrentThemeName } from "../theme/state.ts";
 import { setCustomKeybindingsSnapshot } from "./keybindings/custom-bindings.ts";
-import { disableKittyKeyboardProtocol, enableKittyKeyboardProtocol, resetTerminalViewport } from "../ansi.ts";
+import {
+  disableKittyKeyboardProtocol,
+  enableKittyKeyboardProtocol,
+  resetTerminalViewport,
+} from "../ansi.ts";
+import { REPL_RENDER_OPTIONS } from "./render-options.ts";
 
 export interface InkReplOptions {
   showBanner?: boolean;
@@ -20,7 +28,9 @@ export interface InkReplOptions {
   session?: SessionInitOptions;
 }
 
-export async function startInkRepl(options: InkReplOptions = {}): Promise<number> {
+export async function startInkRepl(
+  options: InkReplOptions = {},
+): Promise<number> {
   if (!getPlatform().terminal.stdin.isTerminal()) {
     log.raw.error("Error: Requires interactive terminal.");
     return 1;
@@ -41,7 +51,8 @@ export async function startInkRepl(options: InkReplOptions = {}): Promise<number
           sessionOptions={session}
           initialConfig={runtimeSnapshot}
         />
-      </ThemeProvider>
+      </ThemeProvider>,
+      REPL_RENDER_OPTIONS,
     );
     await waitUntilExit();
     return 0;

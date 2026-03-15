@@ -3,6 +3,7 @@ import {
   createTranscriptState,
   reduceTranscriptState,
 } from "../../../src/hlvm/cli/agent-transcript-state.ts";
+import type { Plan } from "../../../src/hlvm/agent/planning.ts";
 import {
   type ConversationItem,
   isStructuredTeamInfoItem,
@@ -15,6 +16,14 @@ function withItems(items: ConversationItem[]) {
     nextId: items.length,
   };
 }
+
+const samplePlan: Plan = {
+  goal: "Organize the desktop",
+  steps: [
+    { id: "step-1", title: "Create the screenshots directory" },
+    { id: "step-2", title: "Move screenshot files" },
+  ],
+};
 
 Deno.test("agent transcript state drops stale turn stats when assistant text continues the same turn", () => {
   const state = withItems([
@@ -243,6 +252,61 @@ Deno.test("agent transcript state finalization removes transient rows and empty 
     assertEquals(next.items[1].text, "partial answer");
     assertEquals(next.items[1].isPending, false);
   }
+});
+
+Deno.test("agent transcript state clears the plan dashboard when review is cancelled", () => {
+  const state = {
+    ...createTranscriptState(),
+    activePlan: samplePlan,
+    planningPhase: "reviewing" as const,
+    pendingPlanReview: { plan: samplePlan },
+    completedPlanStepIds: ["step-1"],
+    planTodoState: {
+      items: [
+        { id: "step-1", content: "Create the screenshots directory", status: "completed" as const },
+        { id: "step-2", content: "Move screenshot files", status: "pending" as const },
+      ],
+    },
+  };
+
+  const next = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "plan_review_resolved",
+      plan: samplePlan,
+      approved: false,
+      decision: "cancelled",
+    },
+  });
+
+  assertEquals(next.activePlan, undefined);
+  assertEquals(next.planningPhase, undefined);
+  assertEquals(next.pendingPlanReview, undefined);
+  assertEquals(next.completedPlanStepIds, []);
+  assertEquals(next.planTodoState, undefined);
+});
+
+Deno.test("agent transcript state returns to researching when review requests revision", () => {
+  const state = {
+    ...createTranscriptState(),
+    activePlan: samplePlan,
+    planningPhase: "reviewing" as const,
+    pendingPlanReview: { plan: samplePlan },
+  };
+
+  const next = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "plan_review_resolved",
+      plan: samplePlan,
+      approved: false,
+      decision: "revise",
+    },
+  });
+
+  assertEquals(next.activePlan, samplePlan);
+  assertEquals(next.planningPhase, "researching");
+  assertEquals(next.pendingPlanReview, undefined);
 });
 
 Deno.test("agent transcript state keeps provider reasoning summaries and drops generic working rows", () => {

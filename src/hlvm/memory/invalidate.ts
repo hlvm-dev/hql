@@ -13,10 +13,12 @@ interface ConflictCandidate {
   score: number;
 }
 
+const NON_ALPHANUMERIC_RE = /[^a-z0-9\s]/g;
+
 function tokenize(text: string): Set<string> {
   return new Set(
     text.toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(NON_ALPHANUMERIC_RE, " ")
       .split(/\s+/)
       .filter((w) => w.length > 2),
   );

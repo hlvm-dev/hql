@@ -11,11 +11,18 @@ import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { getPlatform } from "../../src/platform/platform.ts";
 
 const p = getPlatform();
+const CLI_PATH = p.path.fromFileUrl(
+  new URL("../../src/hlvm/cli/cli.ts", import.meta.url),
+);
 
 // Test helper to capture command output
-async function runHqlCompile(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+async function runHqlCompile(
+  args: string[],
+  options: { cwd?: string } = {},
+): Promise<{ code: number; stdout: string; stderr: string }> {
   const result = await p.command.output({
-    cmd: [p.process.execPath(), "run", "-A", "src/hlvm/cli/cli.ts", "hql", "compile", ...args],
+    cmd: [p.process.execPath(), "run", "-A", CLI_PATH, "hql", "compile", ...args],
+    cwd: options.cwd,
     stdout: "piped",
     stderr: "piped",
   });
@@ -82,12 +89,12 @@ Deno.test("compile to JavaScript (default)", async () => {
     (print (greet "World"))
   `);
 
-  // Output file will be created in current working directory
+  const tempDir = p.path.dirname(tempFile);
   const baseName = tempFile.split("/").pop()!.replace(".hql", ".js");
-  const outputFile = `${p.process.cwd()}/${baseName}`;
+  const outputFile = p.path.join(tempDir, baseName);
 
   try {
-    const result = await runHqlCompile([tempFile]);
+    const result = await runHqlCompile([tempFile], { cwd: tempDir });
 
     assertEquals(result.code, 0, `Compile failed: ${result.stderr}`);
     assertStringIncludes(result.stdout, "Compiling");
@@ -107,7 +114,6 @@ Deno.test("compile to JavaScript (default)", async () => {
     const runOutput = new TextDecoder().decode(runResult.stdout);
     assertStringIncludes(runOutput, "Hello, World!");
   } finally {
-    const tempDir = p.path.dirname(tempFile);
     await p.fs.remove(tempDir, { recursive: true });
     try {
       await p.fs.remove(outputFile);
@@ -152,12 +158,12 @@ Deno.test("compile complex HQL with TCO", async () => {
     (print "factorial 10:" (factorial 10 1))
   `);
 
-  // Output file will be created in current working directory
+  const tempDir = p.path.dirname(tempFile);
   const baseName = tempFile.split("/").pop()!.replace(".hql", ".js");
-  const outputFile = `${p.process.cwd()}/${baseName}`;
+  const outputFile = p.path.join(tempDir, baseName);
 
   try {
-    const result = await runHqlCompile([tempFile]);
+    const result = await runHqlCompile([tempFile], { cwd: tempDir });
 
     assertEquals(result.code, 0, `Compile failed: ${result.stderr}`);
 
@@ -172,7 +178,6 @@ Deno.test("compile complex HQL with TCO", async () => {
     assertStringIncludes(runOutput, "factorial 10:");
     assertStringIncludes(runOutput, "3628800");
   } finally {
-    const tempDir = p.path.dirname(tempFile);
     await p.fs.remove(tempDir, { recursive: true });
     try {
       await p.fs.remove(outputFile);

@@ -1,11 +1,14 @@
 import { DEFAULT_CONFIG, DEFAULT_MODEL_ID, type PermissionMode } from "./types.ts";
+import { normalizeSelectedModelId } from "./model-selection.ts";
 import { isObjectValue } from "../utils.ts";
 
 export function getConfiguredModel(config: unknown): string {
   const rawModel = isObjectValue(config) ? config.model : undefined;
-  return typeof rawModel === "string" && rawModel.length > 0
-    ? rawModel
-    : DEFAULT_MODEL_ID;
+  const rawAgentMode = isObjectValue(config) &&
+      (config.agentMode === "hlvm" || config.agentMode === "claude-code-agent")
+    ? config.agentMode
+    : undefined;
+  return normalizeSelectedModelId(rawModel, rawAgentMode) ?? DEFAULT_MODEL_ID;
 }
 
 export function getContextWindow(config: unknown): number | undefined {

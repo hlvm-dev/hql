@@ -273,7 +273,7 @@ export function enqueueThreadCompletion(threadId: string): void {
   completedQueueSet.add(threadId);
 }
 
-export function takeQueuedCompletedThread(): DelegateThread | undefined {
+function takeQueuedCompletedThread(): DelegateThread | undefined {
   while (completedQueue.length > 0) {
     const threadId = completedQueue.shift()!;
     completedQueueSet.delete(threadId);

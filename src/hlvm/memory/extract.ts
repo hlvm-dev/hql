@@ -88,18 +88,25 @@ const BUG_PATTERNS = [
   /\bbug\b([^.!?\n]{4,120})/i,
 ];
 
+const CODE_FENCE_RE = /^```/;
+const COLLAPSE_WHITESPACE_RE = /\s+/g;
+const TRAILING_PUNCTUATION_RE = /[.!?,;:]+$/g;
+const CODE_FENCE_OPEN_RE = /^```(?:json)?\s*\n?/m;
+const CODE_FENCE_CLOSE_RE = /\n?```\s*$/m;
+const SENTENCE_SPLIT_RE = /[^.!?\n]+[.!?]?/g;
+
 function shouldSkipText(content: string): boolean {
   const trimmed = content.trim();
   if (!trimmed) return true;
   if (trimmed.length < 8) return true;
-  if (/^```/.test(trimmed)) return true;
+  if (CODE_FENCE_RE.test(trimmed)) return true;
   return false;
 }
 
 function normalizeExtractedContent(content: string): string {
   return content
-    .replace(/\s+/g, " ")
-    .replace(/[.!?,;:]+$/g, "")
+    .replace(COLLAPSE_WHITESPACE_RE, " ")
+    .replace(TRAILING_PUNCTUATION_RE, "")
     .trim();
 }
 
@@ -109,7 +116,7 @@ function sentenceCase(content: string): string {
 }
 
 function splitIntoExtractionUnits(text: string): string[] {
-  return (text.match(/[^.!?\n]+[.!?]?/g) ?? [])
+  return (text.match(SENTENCE_SPLIT_RE) ?? [])
     .map((unit) => unit.trim())
     .filter(Boolean);
 }
@@ -305,8 +312,8 @@ export function parseLLMExtractionResponse(
   text: string,
 ): ExtractedMemoryFact[] {
   try {
-    const cleaned = text.replace(/^```(?:json)?\s*\n?/m, "").replace(
-      /\n?```\s*$/m,
+    const cleaned = text.replace(CODE_FENCE_OPEN_RE, "").replace(
+      CODE_FENCE_CLOSE_RE,
       "",
     ).trim();
     const parsed = JSON.parse(cleaned);

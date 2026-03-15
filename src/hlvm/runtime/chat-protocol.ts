@@ -1,6 +1,7 @@
 import type { AgentExecutionMode } from "../agent/execution-mode.ts";
 import type { FinalResponseMeta, TraceEvent } from "../agent/orchestrator.ts";
 import type { Plan, PlanningPhase } from "../agent/planning.ts";
+import type { InteractionOption } from "../agent/registry.ts";
 import type { DelegateTranscriptSnapshot } from "../agent/delegate-transcript.ts";
 import type { DelegateBatchSnapshot } from "../agent/delegate-batches.ts";
 import type { TodoState } from "../agent/todo-state.ts";
@@ -176,7 +177,12 @@ export type ChatStreamEvent =
   | { event: "plan_created"; plan: Plan }
   | { event: "plan_step"; step_id: string; index: number; completed: boolean }
   | { event: "plan_review_required"; plan: Plan }
-  | { event: "plan_review_resolved"; plan: Plan; approved: boolean }
+  | {
+    event: "plan_review_resolved";
+    plan: Plan;
+    approved: boolean;
+    decision?: "approved" | "revise" | "cancelled";
+  }
   | { event: "checkpoint_created"; checkpoint: AgentCheckpointSummary }
   | {
     event: "checkpoint_restored";
@@ -190,6 +196,7 @@ export type ChatStreamEvent =
     tool_name?: string;
     tool_args?: string;
     question?: string;
+    options?: InteractionOption[];
   }
   | {
     event: "turn_stats";

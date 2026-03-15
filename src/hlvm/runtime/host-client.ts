@@ -10,6 +10,7 @@ import type {
   TraceEvent,
 } from "../agent/orchestrator.ts";
 import type { AgentExecutionMode } from "../agent/execution-mode.ts";
+import type { InteractionOption } from "../agent/registry.ts";
 import {
   getHlvmRuntimeBaseUrl,
   resolveHlvmRuntimePort,
@@ -99,6 +100,7 @@ interface RuntimeInteractionRequest {
   toolName?: string;
   toolArgs?: string;
   question?: string;
+  options?: InteractionOption[];
 }
 
 interface RuntimeInteractionResponse {
@@ -665,6 +667,7 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         type: "plan_review_resolved",
         plan: event.plan,
         approved: event.approved,
+        decision: event.decision,
       };
     case "checkpoint_created":
       return {
@@ -1355,6 +1358,7 @@ async function runChatViaHostAttempt(
               toolName: event.tool_name,
               toolArgs: event.tool_args,
               question: event.question,
+              options: event.options,
             })
             : { approved: false };
           await respondToInteraction(baseUrl, authToken, {

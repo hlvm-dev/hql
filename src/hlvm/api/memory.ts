@@ -28,7 +28,7 @@ import {
 } from "../memory/mod.ts";
 import { assertString } from "./validation.ts";
 
-export interface MemoryFactView {
+interface MemoryFactView {
   id: number;
   category: string;
   content: string;
@@ -36,7 +36,7 @@ export interface MemoryFactView {
   validFrom: string;
 }
 
-export interface MemorySnapshot {
+interface MemorySnapshot {
   notesPath: string;
   dbPath: string;
   notes: string;
@@ -44,12 +44,12 @@ export interface MemorySnapshot {
   facts: MemoryFactView[];
 }
 
-export interface MemorySearchResult extends RetrievalResult {
+interface MemorySearchResult extends RetrievalResult {
   kind: "fact" | "note";
   path?: string;
 }
 
-export interface MemoryApi {
+interface MemoryApi {
   get: () => Promise<MemorySnapshot>;
   search: (query: string, limit?: number) => Promise<MemorySearchResult[]>;
   add: (text: string, category?: string) => Promise<{

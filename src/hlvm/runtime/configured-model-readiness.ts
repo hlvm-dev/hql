@@ -23,7 +23,7 @@ export interface ConfiguredModelReadiness {
   error?: string;
 }
 
-async function getModelReadiness(
+export async function getModelReadiness(
   modelId: string,
 ): Promise<ConfiguredModelReadiness> {
   const target = resolveModelAvailabilityTarget(modelId);

@@ -33,7 +33,7 @@ export const COMPARISON_TERMS = [
   "difference",
   "differences",
 ] as const;
-export const RECENCY_TERMS = [
+const RECENCY_TERMS = [
   "latest",
   "recent",
   "today",
@@ -43,13 +43,6 @@ export const RECENCY_TERMS = [
   "update",
   "change",
   "changes",
-] as const;
-export const RELEASE_NOTES_TERMS = [
-  "changelog",
-  "release note",
-  "release notes",
-  "what's new",
-  "what is new",
 ] as const;
 export const REFERENCE_TERMS = [
   "reference",
@@ -67,4 +60,3 @@ export const RELEASE_NOTES_RE = /\b(changelog|release notes?|what(?:'s| is) new)
 export const REFERENCE_RE = buildWordRegex(REFERENCE_TERMS);
 export const VERSION_RE = /\bv?\d+(?:\.\d+){1,3}\b/;
 export const YEAR_RE = /\b(?:19|20)\d{2}\b/;
-export const QUOTED_PHRASE_RE = /"[^"]+"/g;
