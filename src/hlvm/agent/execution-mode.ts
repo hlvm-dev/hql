@@ -50,10 +50,16 @@ export function getAgentExecutionModeChangeMessage(
   return `${EXECUTION_MODE_META[mode]?.label ?? mode} (shift+tab to cycle)`;
 }
 
+export function getPersistentAgentExecutionModeLabel(
+  mode: AgentExecutionMode,
+): string {
+  return `${EXECUTION_MODE_META[mode]?.label ?? mode} (shift+tab to cycle)`;
+}
+
 export function getPlanningModeForExecutionMode(
   mode?: AgentExecutionMode,
 ): PlanningMode {
-  return mode === "plan" ? "always" : "auto";
+  return mode === "plan" ? "always" : "off";
 }
 
 export function isPlanExecutionMode(

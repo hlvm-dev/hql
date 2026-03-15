@@ -2,7 +2,9 @@ import { assertEquals } from "jsr:@std/assert";
 import {
   getActiveThinkingId,
   getConversationDisplayItems,
+  getRecentPlanFlowActivitySummaries,
   getPlanFlowActivitySummary,
+  shouldHideConversationTextInCompactPlanFlow,
 } from "../../../src/hlvm/cli/repl-ink/components/ConversationPanel.tsx";
 import { StreamingState } from "../../../src/hlvm/cli/repl-ink/types.ts";
 import type { ConversationItem } from "../../../src/hlvm/cli/repl-ink/types.ts";
@@ -224,6 +226,35 @@ Deno.test("getConversationDisplayItems hides the current-turn prompt and assista
   );
 });
 
+Deno.test("getConversationDisplayItems keeps the current-turn prompt visible for non-plan picker flows", () => {
+  const displayItems = getConversationDisplayItems([
+    {
+      type: "user",
+      id: "user-1",
+      text: "remove firefox app",
+      ts: 1,
+    },
+    {
+      type: "assistant",
+      id: "assistant-1",
+      text: "Would you like me to open Terminal for you?",
+      isPending: false,
+      ts: 2,
+    },
+  ], {
+    compactPlanTranscript: false,
+    suppressCurrentTurnPrompt: true,
+  });
+
+  assertEquals(
+    displayItems.map((item) => `${item.type}:${"text" in item ? item.text : item.id}`),
+    [
+      "user:remove firefox app",
+      "assistant:Would you like me to open Terminal for you?",
+    ],
+  );
+});
+
 Deno.test("getConversationDisplayItems hides user and assistant transcript text during active compact plan flow", () => {
   const compactItems = getConversationDisplayItems([
     {
@@ -260,6 +291,36 @@ Deno.test("getConversationDisplayItems hides user and assistant transcript text 
   });
 
   assertEquals(compactItems.map((item) => item.type), ["tool_group"]);
+});
+
+Deno.test("shouldHideConversationTextInCompactPlanFlow keeps final assistant text visible once execution is idle", () => {
+  assertEquals(
+    shouldHideConversationTextInCompactPlanFlow(
+      true,
+      "executing",
+      StreamingState.Idle,
+      false,
+    ),
+    false,
+  );
+  assertEquals(
+    shouldHideConversationTextInCompactPlanFlow(
+      true,
+      "executing",
+      StreamingState.Responding,
+      false,
+    ),
+    true,
+  );
+  assertEquals(
+    shouldHideConversationTextInCompactPlanFlow(
+      true,
+      "executing",
+      StreamingState.Idle,
+      true,
+    ),
+    true,
+  );
 });
 
 Deno.test("getPlanFlowActivitySummary prefers the latest tool activity for compact plan headers", () => {
@@ -313,4 +374,48 @@ Deno.test("getPlanFlowActivitySummary humanizes shell_exec filesystem activity",
     summary,
     "Creating directories: mkdir -p ~/Desktop/screenshots",
   );
+});
+
+Deno.test("getRecentPlanFlowActivitySummaries returns the latest distinct tool activity trail", () => {
+  const summaries = getRecentPlanFlowActivitySummaries([
+    {
+      type: "tool_group",
+      id: "tool-group-1",
+      ts: 1,
+      tools: [{
+        id: "tool-1",
+        name: "list_files",
+        argsSummary: "~/Desktop",
+        status: "success",
+        toolIndex: 1,
+        toolTotal: 2,
+      }, {
+        id: "tool-2",
+        name: "read_file",
+        argsSummary: "src/app.tsx",
+        status: "success",
+        toolIndex: 2,
+        toolTotal: 2,
+      }],
+    },
+    {
+      type: "tool_group",
+      id: "tool-group-2",
+      ts: 2,
+      tools: [{
+        id: "tool-3",
+        name: "shell_exec",
+        argsSummary: "mv ~/Desktop/a ~/Desktop/screenshots/",
+        status: "running",
+        toolIndex: 1,
+        toolTotal: 1,
+      }],
+    },
+  ]);
+
+  assertEquals(summaries, [
+    "Moving files: mv ~/Desktop/a ~/Desktop/screenshots/",
+    "Reading src/app.tsx",
+    "Listing ~/Desktop",
+  ]);
 });

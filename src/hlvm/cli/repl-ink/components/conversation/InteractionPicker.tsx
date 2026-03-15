@@ -118,13 +118,7 @@ export const InteractionPicker = React.memo(function InteractionPicker(
     }
     const digitSelection = resolvePickerDigitSelection(input, options.length);
     if (digitSelection !== undefined) {
-      const option = options[digitSelection];
       setSelectedIndex(digitSelection);
-      if (allowNotes && optionNeedsNotes(option) && trimmedNotes.length === 0) {
-        setNotesMode(true);
-        return;
-      }
-      onSubmit(option, trimmedNotes);
       return;
     }
     if (key.upArrow || key.leftArrow || input === "k" || input === "h") {

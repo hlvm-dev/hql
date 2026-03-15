@@ -39,6 +39,18 @@ Deno.test("buildFooterLeftState shows empty text when idle in conversation", () 
   assertEquals(state.tone, "muted");
 });
 
+Deno.test("buildFooterLeftState shows the persistent mode label when idle in conversation", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    modeLabel: "Plan mode (shift+tab to cycle)",
+    spinner: "x",
+  });
+
+  assertEquals(state.text, "Plan mode (shift+tab to cycle)");
+  assertEquals(state.tone, "muted");
+});
+
 Deno.test("buildFooterLeftState suppresses duplicated plan review actions when picker owns focus", () => {
   const state = buildFooterLeftState({
     inConversation: true,
@@ -59,6 +71,17 @@ Deno.test("buildFooterLeftState shows empty text outside conversation", () => {
   });
 
   assertEquals(state.text, "");
+  assertEquals(state.tone, "muted");
+});
+
+Deno.test("buildFooterLeftState shows persistent mode label outside conversation", () => {
+  const state = buildFooterLeftState({
+    inConversation: false,
+    modeLabel: "Accept edits (shift+tab to cycle)",
+    spinner: "x",
+  });
+
+  assertEquals(state.text, "Accept edits (shift+tab to cycle)");
   assertEquals(state.tone, "muted");
 });
 

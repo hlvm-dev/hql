@@ -281,7 +281,6 @@ Deno.test({
     assertEquals(
       derivePlanExecutionAllowlist(plan),
       [
-        "ask_user",
         "complete_task",
         "edit_file",
         "list_files",
@@ -348,7 +347,6 @@ Deno.test({
         ],
       }),
       [
-        "ask_user",
         "complete_task",
         "edit_file",
         "list_files",

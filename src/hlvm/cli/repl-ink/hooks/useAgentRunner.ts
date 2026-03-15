@@ -46,6 +46,27 @@ import type { ReplState } from "../../repl/state.ts";
 import type { SessionMeta } from "../../repl/session/types.ts";
 import type { OverlayPanel } from "./useOverlayPanel.ts";
 
+const CONVERSATION_DELEGATE_TOOL_DENYLIST = [
+  "delegate_agent",
+  "batch_delegate",
+  "wait_agent",
+  "list_agents",
+  "close_agent",
+  "apply_agent_changes",
+  "discard_agent_changes",
+  "send_input",
+  "interrupt_agent",
+  "resume_agent",
+] as const;
+
+export function getConversationToolDenylist(
+  agentExecutionMode: AgentExecutionMode,
+): string[] {
+  return agentExecutionMode === "plan"
+    ? ["complete_task"]
+    : ["complete_task", ...CONVERSATION_DELEGATE_TOOL_DENYLIST];
+}
+
 interface UseAgentRunnerInput {
   conversation: UseConversationResult;
   agentExecutionMode: AgentExecutionMode;
@@ -303,11 +324,9 @@ export function useAgentRunner(
         }],
         model,
         permissionMode: agentExecutionMode,
-        // REPL UX: avoid model-initiated ask_user detours for simple chat turns.
-        // Keep direct conversational flow unless explicit permission prompts are needed.
-        toolDenylist: agentExecutionMode === "plan"
-          ? ["complete_task"]
-          : ["ask_user", "complete_task"],
+        // Allow structured follow-up questions in normal conversation too so
+        // the REPL can render pickers instead of dead-end prose.
+        toolDenylist: getConversationToolDenylist(agentExecutionMode),
         signal: controller.signal,
         callbacks: {
           onToken: (text: string) => {

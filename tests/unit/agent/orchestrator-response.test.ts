@@ -263,7 +263,6 @@ Deno.test("handleFinalResponse narrows plan execution tools and restores the exe
   assertEquals(config.toolFilterState?.denylist, undefined);
   assertEquals(config.toolFilterBaseline?.denylist, undefined);
   assertEquals(config.toolAllowlist, [
-    "ask_user",
     "complete_task",
     "edit_file",
     "list_files",
@@ -276,7 +275,6 @@ Deno.test("handleFinalResponse narrows plan execution tools and restores the exe
     "write_file",
   ]);
   assertEquals(config.toolFilterBaseline?.allowlist, [
-    "ask_user",
     "complete_task",
     "edit_file",
     "list_files",
@@ -342,6 +340,100 @@ Deno.test("handleFinalResponse accepts a markdown PLAN block in plan mode", asyn
     "Read the current conversation panel",
     "Render a structured plan review card",
   ]);
+});
+
+Deno.test("handleFinalResponse converts plain-text default follow-up questions into an interaction", async () => {
+  const context = new ContextManager();
+  let capturedQuestion = "";
+  let capturedOptionsLength = 0;
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context,
+    onInteraction: async (event) => {
+      capturedQuestion = event.question ?? "";
+      capturedOptionsLength = event.options?.length ?? 0;
+      return { approved: true, userInput: "yes" };
+    },
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.toolUses = [{ toolName: "list_files", result: "{ found: true }" }];
+
+  const result = await handleFinalResponse(
+    [
+      "I found Firefox in /Applications, but I need approval to continue.",
+      "Would you like me to try to get shell access to automate this for you instead?",
+    ].join(" "),
+    { toolCallsMade: 0 },
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "continue");
+  assertEquals(
+    capturedQuestion,
+    "Would you like me to try to get shell access to automate this for you instead?",
+  );
+  assertEquals(capturedOptionsLength, 2);
+  assertEquals(context.getMessages().length, 1);
+  assertEquals(context.getMessages()[0]?.role, "user");
+  assertStringIncludes(
+    context.getMessages()[0]?.content ?? "",
+    "[Follow-up answer] yes",
+  );
+});
+
+Deno.test("handleFinalResponse returns plain-text default follow-up unchanged when the interaction is cancelled", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    onInteraction: async () => ({ approved: false }),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.toolUses = [{ toolName: "list_files", result: "{ found: true }" }];
+
+  const response =
+    "I can open Terminal for you. Would you like me to open it now?";
+  const result = await handleFinalResponse(
+    response,
+    { toolCallsMade: 0 },
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "return");
+  assertEquals(result.action === "return" ? result.value : "", response);
+});
+
+Deno.test("handleFinalResponse does not convert generic wrap-up questions into interactions", async () => {
+  let interactionCalled = false;
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    onInteraction: async () => {
+      interactionCalled = true;
+      return { approved: true, userInput: "yes" };
+    },
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.toolUses = [{ toolName: "list_files", result: "{ found: true }" }];
+
+  const response = "Would you like me to help with anything else?";
+  const result = await handleFinalResponse(
+    response,
+    { toolCallsMade: 0 },
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(interactionCalled, false);
+  assertEquals(result.action, "return");
+  assertEquals(result.action === "return" ? result.value : "", response);
 });
 
 Deno.test("handleFinalResponse returns to planning when plan review requests revision", async () => {

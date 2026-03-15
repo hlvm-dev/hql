@@ -196,6 +196,8 @@ function renderInstructions(tier: ModelTier): PromptSection {
     "- Final answers must not include workflow filler such as 'Let me check', 'I will fetch', or similar internal action narration.",
     "- Trust tool results over your own knowledge when tools are needed",
     "- Never fabricate tool results",
+    "- If the next step would naturally trigger a permission prompt, call the tool directly instead of asking in plain text whether the user wants to continue.",
+    "- Do not delegate routine local tasks unless the user explicitly asks for multi-agent or parallel work.",
   ];
   if (tierMeetsMinimum(tier, "mid")) {
     base.push(

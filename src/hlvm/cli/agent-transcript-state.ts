@@ -125,6 +125,16 @@ function removeCurrentTurnThinkingItems(
   );
 }
 
+function keepOnlyCurrentTurnPrompt(
+  items: ConversationItem[],
+): ConversationItem[] {
+  const turnStartIdx = findCurrentTurnStartIndex(items);
+  if (turnStartIdx < 0) {
+    return cleanupTransientItems(items);
+  }
+  return cleanupTransientItems(items.slice(0, turnStartIdx + 1));
+}
+
 function insertBeforePendingAssistant(
   items: ConversationItem[],
   nextItem: ConversationItem,
@@ -546,8 +556,13 @@ export function reduceTranscriptState(
           ) {
             return state;
           }
+          const inExplicitPlanFlow = Boolean(
+            state.planningPhase || state.activePlan || state.pendingPlanReview,
+          );
           const thinkingKind: ThinkingItem["kind"] =
-            event.type === "reasoning_update" ? "reasoning" : "planning";
+            event.type === "reasoning_update" || !inExplicitPlanFlow
+              ? "reasoning"
+              : "planning";
           return upsertThinkingItem(
             {
               ...state,
@@ -982,6 +997,7 @@ export function reduceTranscriptState(
         ...state,
         streamingState: ConversationStreamingState.Idle,
         activeTool: undefined,
+        items: keepOnlyCurrentTurnPrompt(state.items),
         activePlan: undefined,
         planningPhase: undefined,
         completedPlanStepIds: [],

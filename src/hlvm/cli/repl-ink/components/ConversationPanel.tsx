@@ -164,6 +164,18 @@ function shouldCompactPlanTranscript(
   return Boolean(planningPhase || activePlan || pendingPlanReview);
 }
 
+export function shouldHideConversationTextInCompactPlanFlow(
+  compactPlanTranscript: boolean,
+  planningPhase: PlanningPhase | undefined,
+  streamingState: StreamingState | undefined,
+  hasInteractionRequest: boolean,
+): boolean {
+  if (!compactPlanTranscript) return false;
+  if (planningPhase === "done") return false;
+  return streamingState !== ConversationStreamingState.Idle ||
+    hasInteractionRequest;
+}
+
 function hasToolGroupError(item: ToolGroupItem): boolean {
   return item.tools.some((tool) => tool.status === "error");
 }
@@ -179,7 +191,8 @@ export function getConversationDisplayItems(
   const visibleTurnStartIndex = options?.compactPlanTranscript
     ? findCurrentTurnStartIndex(items)
     : -1;
-  const currentTurnStartIndex = options?.suppressCurrentTurnPrompt
+  const currentTurnStartIndex =
+    options?.compactPlanTranscript && options?.suppressCurrentTurnPrompt
     ? findCurrentTurnStartIndex(items)
     : -1;
   return items.filter((item, itemIndex) => {
@@ -279,6 +292,28 @@ export function getPlanFlowActivitySummary(
     }
   }
   return undefined;
+}
+
+export function getRecentPlanFlowActivitySummaries(
+  items: ConversationItem[],
+  limit = 3,
+): string[] {
+  const summaries: string[] = [];
+  const seen = new Set<string>();
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item?.type !== "tool_group") continue;
+    for (const tool of [...item.tools].reverse()) {
+      const summary = summarizeToolActivity(tool).trim();
+      if (!summary || seen.has(summary)) continue;
+      seen.add(summary);
+      summaries.push(summary);
+      if (summaries.length >= limit) {
+        return summaries;
+      }
+    }
+  }
+  return summaries;
 }
 
 function getPlanningPhaseTitle(
@@ -450,6 +485,8 @@ export function ConversationPanel({
     () => shouldCompactPlanTranscript(planningPhase, activePlan, pendingPlanReview),
     [activePlan, pendingPlanReview, planningPhase],
   );
+  const planFlowActive = streamingState !== ConversationStreamingState.Idle ||
+    Boolean(interactionRequest);
   const pickerInteractionActive = useMemo(
     () => isPickerInteractionRequest(interactionRequest),
     [interactionRequest],
@@ -459,13 +496,18 @@ export function ConversationPanel({
   const hidePlanChromeDuringReviewPicker = Boolean(
     pendingPlanReview && pickerInteractionActive,
   );
-  const hideConversationText = compactPlanTranscript &&
-    planningPhase !== "done";
+  const hideConversationText = shouldHideConversationTextInCompactPlanFlow(
+    compactPlanTranscript,
+    planningPhase,
+    streamingState,
+    Boolean(interactionRequest),
+  );
   const displayItems = useMemo(
     () =>
       getConversationDisplayItems(items, {
         compactPlanTranscript,
-        suppressCurrentTurnPrompt: Boolean(interactionRequest),
+        suppressCurrentTurnPrompt: compactPlanTranscript &&
+          Boolean(interactionRequest),
         hideConversationText,
       }),
     [compactPlanTranscript, hideConversationText, interactionRequest, items],
@@ -501,6 +543,13 @@ export function ConversationPanel({
         : undefined,
     [compactPlanTranscript, items],
   );
+  const recentPlanActivities = useMemo(
+    () =>
+      compactPlanTranscript
+        ? getRecentPlanFlowActivitySummaries(items, 3)
+        : [],
+    [compactPlanTranscript, items],
+  );
   const activeTodoItem = compactPlanTranscript &&
       (planningPhase === "executing" || planningPhase === "done")
     ? todoState?.items.find((item) => item.status === "in_progress")
@@ -521,7 +570,24 @@ export function ConversationPanel({
       if (phaseSummary) {
         total += estimateWrappedRows(phaseSummary, contentWidth);
       }
-      if (latestPlanActivity && planningPhase !== "reviewing" && planningPhase !== "done") {
+      if (
+        recentPlanActivities.length > 0 &&
+        planFlowActive &&
+        planningPhase !== "reviewing" &&
+        planningPhase !== "done"
+      ) {
+        total += 1;
+        total += recentPlanActivities.reduce(
+          (rows: number, summary: string) =>
+            rows + estimateWrappedRows(`• ${summary}`, contentWidth),
+          0,
+        );
+      } else if (
+        latestPlanActivity &&
+        planFlowActive &&
+        planningPhase !== "reviewing" &&
+        planningPhase !== "done"
+      ) {
         total += estimateWrappedRows(latestPlanActivity, contentWidth);
       }
       total += 1;
@@ -540,6 +606,8 @@ export function ConversationPanel({
     activeTodoItem,
     contentWidth,
     latestPlanActivity,
+    planFlowActive,
+    recentPlanActivities,
     hidePlanChromeDuringReviewPicker,
     phaseSummary,
     phaseTitle,
@@ -729,7 +797,24 @@ export function ConversationPanel({
               {phaseSummary}
             </Text>
           )}
-          {latestPlanActivity &&
+          {recentPlanActivities.length > 0 &&
+            planFlowActive &&
+            planningPhase !== "reviewing" &&
+            planningPhase !== "done" && (
+            <Box marginTop={1} flexDirection="column">
+              <Text color={sc.text.muted}>Activity</Text>
+              {recentPlanActivities.map((summary: string) => (
+                <Box key={summary}>
+                  <Text color={sc.text.muted}>
+                    • {summary}
+                  </Text>
+                </Box>
+              ))}
+            </Box>
+          )}
+          {recentPlanActivities.length === 0 &&
+            latestPlanActivity &&
+            planFlowActive &&
             planningPhase !== "reviewing" &&
             planningPhase !== "done" && (
             <Text color={sc.text.muted}>

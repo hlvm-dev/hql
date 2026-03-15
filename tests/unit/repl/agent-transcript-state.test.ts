@@ -311,6 +311,61 @@ Deno.test("agent transcript state cancel_planning clears plan-owned todos too", 
   assertEquals(next.planTodoState, undefined);
 });
 
+Deno.test("agent transcript state cancel_planning drops current-turn planning artifacts", () => {
+  const state = {
+    ...createTranscriptState(),
+    items: [
+      {
+        type: "user" as const,
+        id: "u1",
+        text: "make a plan",
+        ts: 1,
+      },
+      {
+        type: "tool_group" as const,
+        id: "tg1",
+        ts: 2,
+        tools: [{
+          id: "tool-1",
+          name: "list_files",
+          argsSummary: "~/Desktop",
+          status: "success" as const,
+          toolIndex: 1,
+          toolTotal: 1,
+          resultSummaryText: "found files",
+        }],
+      },
+      {
+        type: "assistant" as const,
+        id: "a1",
+        text: "Pending plan response",
+        isPending: true,
+        ts: 3,
+      },
+    ],
+    activePlan: samplePlan,
+    planningPhase: "researching" as const,
+    todoState: {
+      items: [
+        { id: "step-1", content: "Inspect Desktop", status: "in_progress" as const },
+      ],
+    },
+    planTodoState: {
+      items: [
+        { id: "step-1", content: "Inspect Desktop", status: "in_progress" as const },
+      ],
+    },
+  };
+
+  const next = reduceTranscriptState(state, { type: "cancel_planning" });
+
+  assertEquals(next.items.map((item) => item.type), ["user"]);
+  assertEquals(next.activePlan, undefined);
+  assertEquals(next.planningPhase, undefined);
+  assertEquals(next.todoState, undefined);
+  assertEquals(next.planTodoState, undefined);
+});
+
 Deno.test("agent transcript state returns to researching when review requests revision", () => {
   const state = {
     ...createTranscriptState(),
@@ -393,7 +448,7 @@ Deno.test("agent transcript state keeps provider reasoning summaries and drops g
   }
 });
 
-Deno.test("agent transcript state records fallback planning separately from provider reasoning", () => {
+Deno.test("agent transcript state records planning updates as reasoning outside explicit plan flow", () => {
   const next = reduceTranscriptState(createTranscriptState(), {
     type: "agent_event",
     event: {
@@ -406,7 +461,7 @@ Deno.test("agent transcript state records fallback planning separately from prov
   assertEquals(next.items.length, 1);
   assertEquals(next.items[0]?.type, "thinking");
   if (next.items[0]?.type === "thinking") {
-    assertEquals(next.items[0].kind, "planning");
+    assertEquals(next.items[0].kind, "reasoning");
     assertEquals(
       next.items[0].summary,
       "Read config.ts and then update the import path.",
@@ -438,8 +493,7 @@ Deno.test("agent transcript state preserves reasoning and planning for the same 
       item.type === "thinking" ? `${item.kind}:${item.summary}` : ""
     ),
     [
-      "reasoning:Inspect parser.ts before editing.",
-      "planning:Patch only the import path.",
+      "reasoning:Patch only the import path.",
     ],
   );
 });
@@ -490,8 +544,7 @@ Deno.test("agent transcript state keeps only the latest reasoning and planning r
         : ""
     ),
     [
-      "reasoning:2:Found the target block.",
-      "planning:3:Ready to show the review card.",
+      "reasoning:3:Ready to show the review card.",
     ],
   );
 });

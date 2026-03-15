@@ -97,6 +97,16 @@ function buildPlanReviewCancelledResult(
   return result;
 }
 
+export function getToolTimeoutMs(
+  toolName: string,
+  configuredTimeout?: number,
+): number {
+  if (toolName === "ask_user") {
+    return DEFAULT_TIMEOUTS.userInput;
+  }
+  return configuredTimeout ?? DEFAULT_TIMEOUTS.tool;
+}
+
 function emitTeamTaskUpdated(
   config: OrchestratorConfig,
   task: {
@@ -936,7 +946,7 @@ export async function executeToolCall(
 
     // Execute tool (with timeout)
     const tool = getTool(toolCall.toolName, config.toolOwnerId);
-    const toolTimeout = config.toolTimeout ?? DEFAULT_TIMEOUTS.tool;
+    const toolTimeout = getToolTimeoutMs(toolCall.toolName, config.toolTimeout);
     const runTool = (args: unknown = coercedArgs) =>
       executeToolWithTimeout(
         tool.fn,

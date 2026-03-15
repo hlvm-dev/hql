@@ -14,9 +14,11 @@ import {
   compressForLLM,
 } from "../../../src/hlvm/agent/orchestrator-tool-formatting.ts";
 import {
+  getToolTimeoutMs,
   isFileWriteTool,
   maybeVerifySyntax,
 } from "../../../src/hlvm/agent/orchestrator-tool-execution.ts";
+import { DEFAULT_TIMEOUTS } from "../../../src/hlvm/agent/constants.ts";
 import {
   buildProviderOptions,
   extractReasoningText,
@@ -128,6 +130,12 @@ Deno.test("Item 1: reasoning extraction logic handles SDK ReasoningPart[] format
     extractReasoningText("single reasoning string"),
     "single reasoning string",
   );
+});
+
+Deno.test("Item 2: ask_user uses the user-input timeout instead of the generic tool timeout", () => {
+  assertEquals(getToolTimeoutMs("ask_user"), DEFAULT_TIMEOUTS.userInput);
+  assertEquals(getToolTimeoutMs("read_file"), DEFAULT_TIMEOUTS.tool);
+  assertEquals(getToolTimeoutMs("read_file", 12_345), 12_345);
 });
 
 Deno.test("Item 1: LLMResponse reasoning field compiles and round-trips", () => {

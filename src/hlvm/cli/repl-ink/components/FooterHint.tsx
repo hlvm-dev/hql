@@ -25,6 +25,7 @@ interface FooterProps {
   modelName?: string;
   statusMessage?: string;
   contextUsageLabel?: string;
+  modeLabel?: string;
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
   inConversation?: boolean;
@@ -40,6 +41,7 @@ interface FooterLeftStateInput {
   inConversation?: boolean;
   streamingState?: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
+  modeLabel?: string;
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
   hasPendingPermission?: boolean;
@@ -56,6 +58,7 @@ export function buildFooterLeftState({
   inConversation,
   streamingState,
   activeTool,
+  modeLabel,
   interactionQueueLength = 0,
   hasDraftInput,
   hasPendingPermission,
@@ -71,7 +74,7 @@ export function buildFooterLeftState({
   let tone: "muted" | "warning" = "muted";
 
   if (!inConversation) {
-    text = statusMessage || "";
+    text = statusMessage || modeLabel || "";
     if (teamActive && teamAttentionCount && teamAttentionCount > 0) {
       text += `${text ? " · " : ""}Ctrl+T team (${teamAttentionCount})`;
     }
@@ -82,13 +85,13 @@ export function buildFooterLeftState({
   if (suppressInteractionHints && (hasPendingPlanReview || hasPendingQuestion)) {
     text = "";
   } else if (hasPendingPlanReview) {
-    text = "Enter run · r revise · Esc cancel";
+    text = "Use arrows or 1-3 · Enter confirm · Esc cancel";
     tone = "warning";
   } else if (hasPendingPermission) {
-    text = "Enter approve · Esc reject";
+    text = "Enter approve · Esc cancel";
     tone = "warning";
   } else if (hasPendingQuestion) {
-    text = "answer> then Enter · Esc reject";
+    text = "Enter submit · Tab notes · Esc cancel";
     tone = "warning";
   } else if (
     streamingState === ConversationStreamingState.WaitingForConfirmation
@@ -107,6 +110,8 @@ export function buildFooterLeftState({
     }
   } else if (statusMessage) {
     text = statusMessage;
+  } else if (modeLabel) {
+    text = modeLabel;
   } else {
     text = "";
   }
@@ -148,6 +153,7 @@ export function FooterHint({
   modelName,
   statusMessage,
   contextUsageLabel,
+  modeLabel,
   interactionQueueLength = 0,
   hasDraftInput,
   inConversation,
@@ -167,6 +173,7 @@ export function FooterHint({
     inConversation,
     streamingState,
     activeTool,
+    modeLabel,
     interactionQueueLength,
     hasDraftInput,
     hasPendingPermission,

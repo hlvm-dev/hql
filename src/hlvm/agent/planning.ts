@@ -163,7 +163,6 @@ export function getPlanResearchIterationBudget(maxIterations: number): number {
 }
 
 const PLAN_EXECUTION_BASELINE_TOOLS = [
-  "ask_user",
   "complete_task",
   "edit_file",
   "list_files",

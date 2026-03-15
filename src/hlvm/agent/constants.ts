@@ -203,8 +203,8 @@ export const DEFAULT_TIMEOUTS = {
   /** Tool execution timeout (default: 60000ms = 60 seconds) */
   tool: 60000,
 
-  /** User input/confirmation timeout (default: 60000ms = 60 seconds) */
-  userInput: 60000,
+  /** User input/confirmation timeout (default: 300000ms = 5 minutes) */
+  userInput: 300000,
 
   /** Total agent loop timeout (default: 300000ms = 5 minutes) */
   total: 300000,

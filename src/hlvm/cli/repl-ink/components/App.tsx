@@ -60,6 +60,7 @@ import { useConversationComposer } from "../hooks/useConversationComposer.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
 import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
+import { getPersistentAgentExecutionModeLabel } from "../../../agent/execution-mode.ts";
 import { clearTerminal } from "../../ansi.ts";
 import {
   getUnclosedDepth,
@@ -167,8 +168,7 @@ export function shouldRenderMainBanner(options: {
   return options.showBanner &&
     !options.hasBeenCleared &&
     !options.isOverlayOpen &&
-    !options.hasStandaloneSurface &&
-    !options.hasActivePlanningState;
+    !options.hasStandaloneSurface;
 }
 
 /**
@@ -300,7 +300,6 @@ function AppContent(
     configuredContextWindow,
     agentExecutionMode,
     footerStatusMessage,
-    footerContextUsageLabel,
     setFooterContextUsageLabel,
     applyRuntimeConfigState,
     refreshRuntimeConfigState,
@@ -1519,15 +1518,14 @@ function AppContent(
           <FooterHint
             modelName={modelSelection.displayLabel}
             statusMessage={footerStatusMessage}
+            modeLabel={getPersistentAgentExecutionModeLabel(agentExecutionMode)}
             streamingState={hasConversationContext
               ? conversation.streamingState
               : undefined}
             activeTool={hasConversationContext
               ? conversation.activeTool
               : undefined}
-            contextUsageLabel={hasConversationContext
-              ? footerContextUsageLabel
-              : ""}
+            contextUsageLabel=""
             interactionQueueLength={hasConversationContext
               ? interactionQueue.length
               : 0}

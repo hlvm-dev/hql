@@ -27,6 +27,7 @@ import {
   type ToolCall,
 } from "./tool-call.ts";
 import { getTool, hasTool, resolveTools } from "./registry.ts";
+import type { InteractionOption } from "./registry.ts";
 import {
   AGENT_ORCHESTRATOR_FAILURE_MESSAGES,
   looksLikeToolCallJsonAnywhere,
@@ -395,7 +396,7 @@ function formatPlanForExecution(
     "Do not run heavyweight verification like deno check unless the approved step explicitly calls for it or the change is risky enough to justify it.",
     "Once you have enough context to make the requested change, edit immediately. Do not keep searching for a perfect anchor.",
     "Once the requested change is confirmed with a targeted read or diff, mark the step done instead of continuing with extra tool calls.",
-    "The planning phase should have already surfaced clarifications and operational constraints. Do not ask new clarifying questions during execution unless progress is genuinely impossible without one.",
+    "The planning phase should have already surfaced clarifications and operational constraints. Do not ask new clarifying questions during execution.",
     "Keep todo_write aligned with actual progress so the checklist stays accurate.",
     "When you call todo_write, only use these statuses: pending, in_progress, completed.",
     "Do not repeat edit_file on the same change unless the prior edit failed or a follow-up read proved the edit did not land correctly.",
@@ -405,8 +406,7 @@ function formatPlanForExecution(
       `${index + 1}. [${step.id}] ${step.title}`
     ),
     'When you complete a step, end your response with: "STEP_DONE <id>".',
-    "If you are blocked by ambiguity, ask one concise clarification with ask_user instead of re-planning in prose.",
-    "When the ambiguity can be reduced to a short set of concrete choices, include 2-4 ask_user options so the REPL can render a picker.",
+    "If execution becomes genuinely impossible, stop and finish with a concise blocker summary instead of asking a new clarification.",
   ];
   return lines.join("\n");
 }
@@ -636,6 +636,53 @@ function responseNeedsConcreteTask(response: string): boolean {
     .test(response);
 }
 
+function isBinaryFollowUpQuestion(question: string): boolean {
+  return /\b(would you like|do you want|want me to|should i|can i|may i)\b/i
+    .test(question);
+}
+
+function isGenericConversationalFollowUp(question: string): boolean {
+  return /\b(help with anything else|anything else i can help with|anything else|anything more|something else i can help with|do anything else for you)\b/i
+    .test(question);
+}
+
+function buildDefaultFollowUpOptions(
+  question: string,
+): InteractionOption[] | undefined {
+  if (!isBinaryFollowUpQuestion(question)) {
+    return undefined;
+  }
+  return [
+    {
+      label: "Yes",
+      value: "yes",
+      detail: "Proceed with the assistant's proposed next action.",
+      recommended: true,
+    },
+    {
+      label: "No",
+      value: "no",
+      detail: "Stop here and do not continue with that action.",
+    },
+  ];
+}
+
+function shouldConvertDefaultFollowUpToInteraction(
+  response: string,
+  state: LoopState,
+  config: OrchestratorConfig,
+): boolean {
+  if (!config.onInteraction) return false;
+  if (config.planModeState?.active) return false;
+  if (state.planState) return false;
+  if (state.toolUses.length === 0) return false;
+  if (!responseAsksQuestion(response)) return false;
+  if (isGenericConversationalFollowUp(response)) return false;
+  return isBinaryFollowUpQuestion(response) ||
+    /\b(how would you like|which option|which would you prefer|what should i do next)\b/i
+      .test(response);
+}
+
 /**
  * Handle the "no tool calls" branch: plan advancement, no-input guard,
  * grounding checks, and format cleanup.
@@ -760,6 +807,26 @@ export async function handleFinalResponse(
       value:
         "Plan mode could not produce a structured plan. Restate the task more concretely, or exit plan mode for general questions.",
     };
+  }
+
+  if (shouldConvertDefaultFollowUpToInteraction(finalResponse, state, config)) {
+    const question = extractClarifyingQuestion(finalResponse) ??
+      "How would you like to proceed?";
+    const interaction = await config.onInteraction!({
+      type: "interaction_request",
+      requestId: crypto.randomUUID(),
+      mode: "question",
+      question,
+      options: buildDefaultFollowUpOptions(question),
+    });
+    const answer = interaction.userInput?.trim();
+    if (answer) {
+      addContextMessage(config, {
+        role: "user",
+        content: `[Follow-up answer] ${answer}`,
+      });
+      return { action: "continue" };
+    }
   }
 
   // Plan state advancement
