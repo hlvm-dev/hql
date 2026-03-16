@@ -131,6 +131,19 @@ const RULES: Rule[] = [
     message: "Consider using typed errors from src/common/error.ts",
     severity: "warn",
   },
+  {
+    name: "raw-error-code-prefix",
+    pattern: /\b(HQL|HLVM|PRV)\d{4}\b/g,
+    allowedPaths: [],
+    excludePatterns: [
+      /^\s*\/\//, // Single-line comments
+      /^\s*\*/, // JSDoc / block comment lines
+      /\/\*.*\b(HQL|HLVM|PRV)\d{4}\b.*\*\//, // Inline block comments
+    ],
+    message:
+      "Use error enums + formatErrorCode()/typed errors instead of hardcoded error-code literals",
+    severity: "error",
+  },
 ];
 
 // ============================================================================
@@ -238,6 +251,14 @@ function isAllowedPath(filePath: string, rule: Rule): boolean {
 
   // raw-error warnings are not enforced in scripts or tests
   if (rule.name === "raw-error" && (isInScriptsDir(filePath) || isInTestsDir(filePath))) {
+    return true;
+  }
+
+  // Tests and scripts may assert or document specific emitted codes directly.
+  if (
+    rule.name === "raw-error-code-prefix" &&
+    (isInScriptsDir(filePath) || isInTestsDir(filePath))
+  ) {
     return true;
   }
 

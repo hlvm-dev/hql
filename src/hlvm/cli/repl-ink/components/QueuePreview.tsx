@@ -5,7 +5,7 @@
  * Codex's queued follow-up preview.
  */
 
-import React from "react";
+import React, { useMemo } from "react";
 import { Box, Text, useStdout } from "ink";
 import { truncate } from "../../../../common/utils.ts";
 import { useSemanticColors } from "../../theme/index.ts";
@@ -64,13 +64,16 @@ export function buildQueuePreviewLines(
   return lines;
 }
 
-export function QueuePreview({
+export const QueuePreview = React.memo(function QueuePreview({
   items,
   editBindingLabel,
 }: QueuePreviewProps): React.ReactElement | null {
   const { stdout } = useStdout();
   const sc = useSemanticColors();
-  const lines = buildQueuePreviewLines(items, editBindingLabel);
+  const lines = useMemo(
+    () => buildQueuePreviewLines(items, editBindingLabel),
+    [items, editBindingLabel],
+  );
   const maxWidth = Math.max(
     20,
     (stdout?.columns ?? DEFAULT_TERMINAL_WIDTH) - 4,
@@ -80,7 +83,7 @@ export function QueuePreview({
 
   return (
     <Box flexDirection="column">
-      {lines.map((line, index) => {
+      {lines.map((line: QueuePreviewLine, index: number) => {
         const color = line.kind === "header" ? sc.text.primary : sc.text.muted;
         const dimColor = line.kind !== "header";
         return (
@@ -93,4 +96,4 @@ export function QueuePreview({
       })}
     </Box>
   );
-}
+});

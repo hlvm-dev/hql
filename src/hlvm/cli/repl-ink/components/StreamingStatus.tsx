@@ -5,7 +5,7 @@
  * Pattern: Thinking... (5s • esc to interrupt)
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { formatElapsed } from "../utils/formatting.ts";
@@ -21,17 +21,19 @@ export function StreamingStatus({
 }: StreamingStatusProps): React.ReactElement | null {
   const { color } = useTheme();
   const [elapsed, setElapsed] = useState(0);
+  const startTimeRef = useRef(startTime);
+  startTimeRef.current = startTime;
 
-  // Time update while streaming
+  // Time update while streaming — ref avoids interval restart on startTime change
   useEffect(() => {
     if (!isStreaming) return;
 
     const interval = setInterval(() => {
-      setElapsed(Date.now() - startTime);
+      setElapsed(Date.now() - startTimeRef.current);
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isStreaming, startTime]);
+  }, [isStreaming]);
 
   if (!isStreaming) return null;
 

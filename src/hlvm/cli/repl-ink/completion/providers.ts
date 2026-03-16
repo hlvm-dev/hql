@@ -6,17 +6,17 @@
  */
 
 import {
-  CONTEXT_AWARE_FORMS,
-  RENDER_MAX_WIDTH,
-  TYPE_ICONS,
   type ApplyContext,
   type ApplyResult,
   type CompletionAction,
   type CompletionContext,
   type CompletionItem,
   type CompletionType,
+  CONTEXT_AWARE_FORMS,
   type EnclosingForm,
   type ItemRenderSpec,
+  RENDER_MAX_WIDTH,
+  TYPE_ICONS,
 } from "./types.ts";
 import { getWordAtCursor } from "../../repl/string-utils.ts";
 
@@ -54,7 +54,10 @@ export { getWordAtCursor };
  *   (let [x 1] |)    → { name: "let", argIndex: 1 }
  *   sq|              → undefined (no enclosing form)
  */
-function detectEnclosingForm(text: string, cursorPosition: number): EnclosingForm | undefined {
+function detectEnclosingForm(
+  text: string,
+  cursorPosition: number,
+): EnclosingForm | undefined {
   // Don't detect if inside a string
   if (isInsideString(text, cursorPosition)) {
     return undefined;
@@ -68,9 +71,9 @@ function detectEnclosingForm(text: string, cursorPosition: number): EnclosingFor
 
   for (let i = textBefore.length - 1; i >= 0; i--) {
     const ch = textBefore[i];
-    if (ch === ')' || ch === ']' || ch === '}') {
+    if (ch === ")" || ch === "]" || ch === "}") {
       depth++;
-    } else if (ch === '(' || ch === '[' || ch === '{') {
+    } else if (ch === "(" || ch === "[" || ch === "{") {
       if (depth === 0) {
         // Found the unclosed opening paren
         openParenPos = i;
@@ -86,7 +89,7 @@ function detectEnclosingForm(text: string, cursorPosition: number): EnclosingFor
   }
 
   // Only consider ( forms, not [ or { (those are data structures)
-  if (textBefore[openParenPos] !== '(') {
+  if (textBefore[openParenPos] !== "(") {
     return undefined;
   }
 
@@ -111,7 +114,7 @@ function detectEnclosingForm(text: string, cursorPosition: number): EnclosingFor
 
   for (let i = 0; i < argsSection.length; i++) {
     const ch = argsSection[i];
-    const isWhitespace = ch === ' ' || ch === '\t' || ch === '\n';
+    const isWhitespace = ch === " " || ch === "\t" || ch === "\n";
 
     if (isWhitespace) {
       if (inWord) {
@@ -119,15 +122,15 @@ function detectEnclosingForm(text: string, cursorPosition: number): EnclosingFor
         argIndex++;
         inWord = false;
       }
-    } else if (ch === '(' || ch === '[' || ch === '{') {
+    } else if (ch === "(" || ch === "[" || ch === "{") {
       // Skip nested structures (count them as single argument)
       if (!inWord) inWord = true;
       let nestedDepth = 1;
       i++;
       while (i < argsSection.length && nestedDepth > 0) {
         const nch = argsSection[i];
-        if (nch === '(' || nch === '[' || nch === '{') nestedDepth++;
-        if (nch === ')' || nch === ']' || nch === '}') nestedDepth--;
+        if (nch === "(" || nch === "[" || nch === "{") nestedDepth++;
+        if (nch === ")" || nch === "]" || nch === "}") nestedDepth--;
         i++;
       }
       i--; // Back to correct position for loop
@@ -136,7 +139,7 @@ function detectEnclosingForm(text: string, cursorPosition: number): EnclosingFor
       if (!inWord) inWord = true;
       i++;
       while (i < argsSection.length && argsSection[i] !== '"') {
-        if (argsSection[i] === '\\') i++; // Skip escaped chars
+        if (argsSection[i] === "\\") i++; // Skip escaped chars
         i++;
       }
     } else {
@@ -212,7 +215,10 @@ interface CreateItemOptions {
   readonly addTrailingSpace?: boolean;
   // Action semantics
   readonly availableActions?: readonly CompletionAction[];
-  readonly applyAction?: (action: CompletionAction, context: ApplyContext) => ApplyResult;
+  readonly applyAction?: (
+    action: CompletionAction,
+    context: ApplyContext,
+  ) => ApplyResult;
   readonly getRenderSpec?: () => ItemRenderSpec;
   // Optional overrides for getRenderSpec
   readonly truncate?: "start" | "end" | "none";
@@ -226,13 +232,14 @@ interface CreateItemOptions {
 function createDefaultApplyAction(
   label: string,
   insertText: string | undefined,
-  addTrailingSpace: boolean
+  addTrailingSpace: boolean,
 ): (action: CompletionAction, context: ApplyContext) => ApplyResult {
   return (_action: CompletionAction, ctx: ApplyContext): ApplyResult => {
     const text = insertText ?? label;
     const suffix = addTrailingSpace ? " " : "";
     return {
-      text: ctx.text.slice(0, ctx.anchorPosition) + text + suffix + ctx.text.slice(ctx.cursorPosition),
+      text: ctx.text.slice(0, ctx.anchorPosition) + text + suffix +
+        ctx.text.slice(ctx.cursorPosition),
       cursorPosition: ctx.anchorPosition + text.length + suffix.length,
       closeDropdown: true,
     };
@@ -248,7 +255,7 @@ function createDefaultRenderSpec(
   description: string | undefined,
   truncate: "start" | "end" | "none" = "end",
   maxWidth: number = RENDER_MAX_WIDTH.DEFAULT,
-  typeLabel?: string
+  typeLabel?: string,
 ): () => ItemRenderSpec {
   return (): ItemRenderSpec => ({
     icon: TYPE_ICONS[type],
@@ -267,7 +274,7 @@ function createDefaultRenderSpec(
 export function createCompletionItem(
   label: string,
   type: CompletionType,
-  options: CreateItemOptions = {}
+  options: CreateItemOptions = {},
 ): CompletionItem {
   const addTrailingSpace = options.addTrailingSpace ?? true;
 
@@ -281,14 +288,15 @@ export function createCompletionItem(
     metadata: options.metadata,
     // Action semantics with defaults
     availableActions: options.availableActions ?? ["SELECT"],
-    applyAction: options.applyAction ?? createDefaultApplyAction(label, options.insertText, addTrailingSpace),
+    applyAction: options.applyAction ??
+      createDefaultApplyAction(label, options.insertText, addTrailingSpace),
     getRenderSpec: options.getRenderSpec ?? createDefaultRenderSpec(
       label,
       type,
       options.description,
       options.truncate,
       options.maxWidth,
-      options.typeLabel
+      options.typeLabel,
     ),
   };
 }
@@ -328,13 +336,17 @@ export function shouldTriggerFileMention(context: CompletionContext): boolean {
   }
 
   const charBefore = textBeforeCursor[lastAt - 1];
-  if (charBefore === " " || charBefore === "\t" || charBefore === "\n" || charBefore === "\r" || charBefore === "(" || charBefore === "[") {
+  if (
+    charBefore === " " || charBefore === "\t" || charBefore === "\n" ||
+    charBefore === "\r" || charBefore === "(" || charBefore === "["
+  ) {
     return true;
   }
 
   // Allow inline explicit path mentions (e.g., t@~/desk) without enabling email-like mid-word mentions.
   const firstCharAfterAt = textBeforeCursor[lastAt + 1] ?? "";
-  return firstCharAfterAt === "/" || firstCharAfterAt === "~" || firstCharAfterAt === ".";
+  return firstCharAfterAt === "/" || firstCharAfterAt === "~" ||
+    firstCharAfterAt === ".";
 }
 
 /**
@@ -363,6 +375,22 @@ export function extractMentionQuery(context: CompletionContext): string | null {
   }
 
   return query;
+}
+
+/**
+ * Find the end of the active @mention token, even when the cursor sits in the
+ * middle of the token. This keeps mention rewrites from leaving stale suffixes.
+ */
+export function findMentionTokenEnd(text: string, fromIndex: number): number {
+  let mentionEnd = Math.max(0, fromIndex);
+  while (mentionEnd < text.length) {
+    const ch = text[mentionEnd];
+    if (/\s/.test(ch) || ch === ")" || ch === "]" || ch === "}") {
+      break;
+    }
+    mentionEnd++;
+  }
+  return mentionEnd;
 }
 
 /**
@@ -446,7 +474,9 @@ export function shouldTriggerSymbol(context: CompletionContext): boolean {
 
   // CONTEXT-AWARE: Auto-trigger inside forms like (unbind |), (inspect |), (describe |)
   // Even after whitespace, show available options for these special forms
-  if (context.enclosingForm && CONTEXT_AWARE_FORMS[context.enclosingForm.name]) {
+  if (
+    context.enclosingForm && CONTEXT_AWARE_FORMS[context.enclosingForm.name]
+  ) {
     return true;
   }
 

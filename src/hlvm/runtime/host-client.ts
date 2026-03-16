@@ -3,8 +3,8 @@ import { http } from "../../common/http-client.ts";
 import { RuntimeError } from "../../common/error.ts";
 import {
   HLVMErrorCode,
-  isHLVMErrorCode,
   parseErrorCodeFromMessage,
+  type UnifiedErrorCode,
 } from "../../common/error-codes.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import type { ConfigKey, HlvmConfig } from "../../common/config/types.ts";
@@ -220,11 +220,10 @@ function authHeaders(authToken: string): Record<string, string> {
 function createRuntimeHostError(
   message: string,
   originalError?: Error,
-  overrideCode?: HLVMErrorCode,
+  overrideCode?: UnifiedErrorCode,
 ): RuntimeError {
   const parsed = parseErrorCodeFromMessage(message);
-  const fallbackCode = overrideCode ??
-    (parsed && isHLVMErrorCode(parsed) ? parsed : HLVMErrorCode.REQUEST_FAILED);
+  const fallbackCode = overrideCode ?? parsed ?? HLVMErrorCode.REQUEST_FAILED;
   return new RuntimeError(message, {
     code: fallbackCode,
     originalError,
@@ -234,19 +233,9 @@ function createRuntimeHostError(
 function getHostErrorCodeFromStatus(
   status: number,
   fallbackMessage: string,
-  parsedCode?: number | null,
 ): HLVMErrorCode {
-  if (parsedCode && isHLVMErrorCode(parsedCode)) {
-    return parsedCode;
-  }
   if (status === 413) {
     return HLVMErrorCode.REQUEST_TOO_LARGE;
-  }
-  if (status >= 400 && status < 500) {
-    return HLVMErrorCode.REQUEST_REJECTED;
-  }
-  if (status >= 500) {
-    return HLVMErrorCode.REQUEST_FAILED;
   }
   if (
     status === 408 ||
@@ -254,11 +243,25 @@ function getHostErrorCodeFromStatus(
   ) {
     return HLVMErrorCode.TRANSPORT_ERROR;
   }
+  if (status >= 400 && status < 500) {
+    return HLVMErrorCode.REQUEST_REJECTED;
+  }
+  if (status >= 500) {
+    return HLVMErrorCode.REQUEST_FAILED;
+  }
   return HLVMErrorCode.REQUEST_FAILED;
 }
 
 function getHostClientErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // Best-effort cleanup only.
+  }
 }
 
 function isRetryableHostChatStreamError(error: unknown): boolean {
@@ -769,16 +772,29 @@ async function respondToInteraction(
 async function parseErrorResponse(response: Response): Promise<never> {
   let message = `Runtime host request failed with HTTP ${response.status}`;
   try {
-    const json = await response.json() as { error?: string };
-    if (json.error) message = String(json.error);
+    const body = (await response.text()).trim();
+    if (body.length > 0) {
+      try {
+        const json = JSON.parse(body) as { error?: unknown; message?: unknown };
+        if (typeof json.error === "string") {
+          message = json.error;
+        } else if (typeof json.message === "string") {
+          message = json.message;
+        } else {
+          message = body;
+        }
+      } catch {
+        message = body;
+      }
+    }
   } catch {
-    // Ignore invalid JSON bodies; use the default message.
+    // Ignore unreadable bodies; use the default message.
   }
   const parsedCode = parseErrorCodeFromMessage(message);
   throw createRuntimeHostError(
     message,
     undefined,
-    getHostErrorCodeFromStatus(response.status, message, parsedCode),
+    parsedCode ?? getHostErrorCodeFromStatus(response.status, message),
   );
 }
 
@@ -1416,6 +1432,7 @@ async function runChatViaHostAttempt(
       }
     }
   } catch (error) {
+    await cancelResponseBody(response);
     const shouldRetry = options.permissionMode === "plan" &&
       attempt < PLAN_MODE_STREAM_RETRY_LIMIT &&
       !sawPlanReview &&

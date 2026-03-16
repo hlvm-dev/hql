@@ -18,6 +18,7 @@ import { createTeamRuntime } from "../../../src/hlvm/agent/team-runtime.ts";
 import { getPersistedAgentSessionId } from "../../../src/hlvm/agent/persisted-transcript.ts";
 import { getSession } from "../../../src/hlvm/store/conversation-store.ts";
 import {
+  createConversationAttachmentRefs,
   isStructuredTeamInfoItem,
 } from "../../../src/hlvm/cli/repl-ink/types.ts";
 import { deriveTeamDashboardState } from "../../../src/hlvm/cli/repl-ink/hooks/useTeamState.ts";
@@ -61,7 +62,10 @@ Deno.test("buildConversationItemsFromSessionMessages exposes attachment labels f
   assertEquals(items[0]?.type, "user");
   if (items[0]?.type === "user") {
     assertEquals(items[0].text, "describe this issue");
-    assertEquals(items[0].attachments, ["[Image #1]", "[PDF #2]"]);
+    assertEquals(
+      items[0].attachments,
+      createConversationAttachmentRefs(["[Image #1]", "[PDF #2]"]),
+    );
   }
 });
 

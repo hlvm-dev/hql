@@ -36,9 +36,9 @@
 
 export { useCompletion } from "./useCompletion.ts";
 export type {
+  DropdownRenderProps,
   UseCompletionOptions,
   UseCompletionReturn,
-  DropdownRenderProps,
 } from "./useCompletion.ts";
 
 // ============================================================
@@ -52,9 +52,9 @@ export { Dropdown } from "./Dropdown.tsx";
 // ============================================================
 
 export type {
-  CompletionItem,
-  CompletionAction,
   ApplyContext,
+  CompletionAction,
+  CompletionItem,
   ProviderId,
 } from "./types.ts";
 
@@ -63,9 +63,9 @@ export type {
 // ============================================================
 
 export {
-  TYPE_ICONS,
   ATTACHMENT_PLACEHOLDER,
   STRING_PLACEHOLDER_FUNCTIONS,
+  TYPE_ICONS,
 } from "./types.ts";
 
 // ============================================================
@@ -73,9 +73,10 @@ export {
 // ============================================================
 
 export {
-  getWordAtCursor,
   buildContext,
-  shouldTriggerFileMention,
   extractMentionQuery,
+  findMentionTokenEnd,
+  getWordAtCursor,
   shouldTriggerCommand,
+  shouldTriggerFileMention,
 } from "./providers.ts";

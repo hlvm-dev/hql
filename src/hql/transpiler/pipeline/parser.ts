@@ -869,9 +869,12 @@ function parseList(state: ParserState, listStartPos: SourcePosition): SList {
         // Reject any other x: syntax at call sites
         const paramName = tokenValue.slice(0, -1);
         throw new ParseError(
-          `[HQL1001] Named-arg sugar \`${paramName}:\` is not supported. ` +
-          `Call with a JSON map, e.g. (fn-call {"${paramName}": value})`,
-          state.tokens[state.currentPos].position,
+          `Named-arg sugar \`${paramName}:\` is not supported. ` +
+            `Call with a JSON map, e.g. (fn-call {"${paramName}": value})`,
+          {
+            ...state.tokens[state.currentPos].position,
+            code: HQLErrorCode.INVALID_SYNTAX,
+          },
         );
       }
     }

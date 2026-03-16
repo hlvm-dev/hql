@@ -4,6 +4,7 @@ import {
   createCompletionItem,
   extractCommandQuery,
   extractMentionQuery,
+  findMentionTokenEnd,
   generateItemId,
   getWordAtCursor,
   resetItemIdCounter,
@@ -13,7 +14,12 @@ import {
 } from "../../../../src/hlvm/cli/repl-ink/completion/providers.ts";
 
 function ctx(text: string, cursorPosition = text.length) {
-  return buildContext(text, cursorPosition, new Set(["localFn"]), new Map([["map", ["fn", "coll"]]]));
+  return buildContext(
+    text,
+    cursorPosition,
+    new Set(["localFn"]),
+    new Map([["map", ["fn", "coll"]]]),
+  );
 }
 
 Deno.test("Providers: getWordAtCursor respects token boundaries", () => {
@@ -58,13 +64,21 @@ Deno.test("Providers: item factories generate stable ids and default/custom appl
   });
 
   assertEquals(
-    defaultItem.applyAction("SELECT", { text: "ma", cursorPosition: 2, anchorPosition: 0 }),
+    defaultItem.applyAction("SELECT", {
+      text: "ma",
+      cursorPosition: 2,
+      anchorPosition: 0,
+    }),
     { text: "map ", cursorPosition: 4, closeDropdown: true },
   );
   assertEquals(customItem.score, 50);
   assertEquals(customItem.description, "template");
   assertEquals(
-    customItem.applyAction("SELECT", { text: "(d", cursorPosition: 2, anchorPosition: 1 }),
+    customItem.applyAction("SELECT", {
+      text: "(d",
+      cursorPosition: 2,
+      anchorPosition: 1,
+    }),
     { text: "((defn [] )", cursorPosition: 11, closeDropdown: true },
   );
 });
@@ -86,7 +100,10 @@ Deno.test("Providers: file mention trigger and query extraction distinguish path
   const queryCases = [
     [ctx("@src/file"), "src/file"],
     [ctx("@"), ""],
-    [ctx("@/Users/test/My Documents/file.ts"), "/Users/test/My Documents/file.ts"],
+    [
+      ctx("@/Users/test/My Documents/file.ts"),
+      "/Users/test/My Documents/file.ts",
+    ],
     [ctx("(@file)", 7), null],
     [ctx('@file"', 6), null],
     [ctx("@src/file and more", 13), null],
@@ -95,6 +112,23 @@ Deno.test("Providers: file mention trigger and query extraction distinguish path
   for (const [context, expected] of queryCases) {
     assertEquals(extractMentionQuery(context), expected, context.text);
   }
+});
+
+Deno.test("Providers: findMentionTokenEnd spans the full mention token from a mid-token cursor", () => {
+  const text = "open @docs/features/01-binding/spec.md now";
+  const mentionStart = text.lastIndexOf("@") + 1;
+  const mentionEnd = findMentionTokenEnd(text, text.indexOf("features"));
+
+  assertEquals(
+    text.slice(mentionStart, mentionEnd),
+    "docs/features/01-binding/spec.md",
+  );
+
+  const multiline = "@docs/api\nnext line";
+  assertEquals(
+    multiline.slice(1, findMentionTokenEnd(multiline, 3)),
+    "docs/api",
+  );
 });
 
 Deno.test("Providers: slash commands only trigger at the beginning of trimmed input", () => {

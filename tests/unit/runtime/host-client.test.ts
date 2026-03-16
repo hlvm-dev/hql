@@ -4,7 +4,11 @@ import {
   assertRejects,
   assertStringIncludes,
 } from "jsr:@std/assert";
-import { HLVMErrorCode } from "../../../src/common/error-codes.ts";
+import {
+  HLVMErrorCode,
+  HQLErrorCode,
+  ProviderErrorCode,
+} from "../../../src/common/error-codes.ts";
 import { RuntimeError } from "../../../src/common/error.ts";
 import {
   __testOnlyGetRuntimeStartLockPath,
@@ -52,11 +56,11 @@ const encoder = new TextEncoder();
 Deno.test("runtime host start lock path is scoped by runtime port", async () => {
   const first = await withRuntimePortOverrideForTests(
     19143,
-    async () => __testOnlyGetRuntimeStartLockPath(),
+    async () => await Promise.resolve(__testOnlyGetRuntimeStartLockPath()),
   );
   const second = await withRuntimePortOverrideForTests(
     19144,
-    async () => __testOnlyGetRuntimeStartLockPath(),
+    async () => await Promise.resolve(__testOnlyGetRuntimeStartLockPath()),
   );
 
   assert(first !== second);
@@ -256,7 +260,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
         onInteraction: async (event) => {
           assertEquals(event.mode, "permission");
           assertEquals(event.toolName, "write_file");
-          return { approved: true };
+          return await Promise.resolve({ approved: true });
         },
       });
 
@@ -375,10 +379,10 @@ Deno.test("runAgentQueryViaHost forwards structured interaction options", async 
           assertEquals(event.options?.[0]?.value, "keep_signposts");
           assertEquals(event.options?.[0]?.recommended, true);
           capturedSelection = event.options?.[0]?.value ?? "";
-          return {
+          return await Promise.resolve({
             approved: true,
             userInput: capturedSelection,
-          };
+          });
         },
       });
       assertEquals(capturedSelection, "keep_signposts");
@@ -962,6 +966,92 @@ Deno.test("runAgentQueryViaHost maps payload-too-large responses to a dedicated 
   }
 });
 
+Deno.test("runAgentQueryViaHost preserves provider codes returned by the runtime host", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
+    }
+
+    if (url.pathname === "/api/chat") {
+      return Response.json({
+        error: "[PRV9004] Provider API key is invalid",
+      }, { status: 502 });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      const error = await assertRejects(
+        () =>
+          runAgentQueryViaHost({
+            query: "call provider with bad auth",
+            model: "ollama/llama3.2:3b",
+            callbacks: {},
+          }),
+        RuntimeError,
+      );
+      assertEquals(error.code, ProviderErrorCode.AUTH_FAILED);
+      assertStringIncludes(error.message, "[PRV9004]");
+    });
+  } finally {
+    await handle.shutdown();
+    await handle.finished;
+  }
+});
+
+Deno.test("runAgentQueryViaHost maps generic host timeouts to transport errors", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
+    }
+
+    if (url.pathname === "/api/chat") {
+      return Response.json({
+        error: "Runtime host request timed out while waiting for worker",
+      }, { status: 408 });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      const error = await assertRejects(
+        () =>
+          runAgentQueryViaHost({
+            query: "hit a timeout",
+            model: "ollama/llama3.2:3b",
+            callbacks: {},
+          }),
+        RuntimeError,
+      );
+      assertEquals(error.code, HLVMErrorCode.TRANSPORT_ERROR);
+      assertStringIncludes(error.message, "timed out");
+    });
+  } finally {
+    await handle.shutdown();
+    await handle.finished;
+  }
+});
+
 Deno.test("runAgentQueryViaHost maps malformed runtime streams to stream protocol error", async () => {
   const port = await findFreePort();
   const authToken = "test-auth-token";
@@ -1008,6 +1098,61 @@ Deno.test("runAgentQueryViaHost maps malformed runtime streams to stream protoco
         error.message,
         "Failed to parse runtime host stream event",
       );
+    });
+  } finally {
+    await handle.shutdown();
+    await handle.finished;
+  }
+});
+
+Deno.test("runAgentQueryViaHost preserves structured HQL codes from streamed host errors", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
+    }
+
+    if (url.pathname === "/api/chat") {
+      return new Response(
+        encoder.encode(
+          `${JSON.stringify({
+            event: "error",
+            message: "[HQL5001] variable foo is not defined",
+          })}\n`,
+        ),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson",
+            "X-Request-ID": "req-structured-error",
+          },
+        },
+      );
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      const error = await assertRejects(
+        () =>
+          runAgentQueryViaHost({
+            query: "trigger hql runtime failure",
+            model: "ollama/llama3.2:3b",
+            callbacks: {},
+          }),
+        RuntimeError,
+      );
+      assertEquals(error.code, HQLErrorCode.UNDEFINED_VARIABLE);
+      assertStringIncludes(error.message, "[HQL5001]");
     });
   } finally {
     await handle.shutdown();
@@ -1157,7 +1302,7 @@ Deno.test("runAgentQueryViaHost takes over runtime startup after an abandoned st
   const originalPlatform = getPlatform();
   const lockPath = await withRuntimePortOverrideForTests(
     port,
-    async () => __testOnlyGetRuntimeStartLockPath(),
+    async () => await Promise.resolve(__testOnlyGetRuntimeStartLockPath()),
   );
   const serverHandleRef: { current: PlatformHttpServerHandle | null } = {
     current: null,
@@ -1456,7 +1601,7 @@ Deno.test("runtime host client exposes model discovery, installed models, get/de
 Deno.test("pullRuntimeModelViaHost cancels the response stream when the consumer stops early", async () => {
   let streamCancelled = false;
 
-  await withRuntimeHostServer(async (req, authToken) => {
+  await withRuntimeHostServer((req, authToken) => {
     const url = new URL(req.url);
     assertEquals(req.headers.get("Authorization"), `Bearer ${authToken}`);
 

@@ -17,12 +17,13 @@ import type {
   ToolCallDisplay,
   ToolGroupItem,
 } from "./types.ts";
+import { createConversationAttachmentRefs } from "./types.ts";
 
 function formatAttachmentRefs(
   attachments?: readonly string[],
 ): ConversationAttachmentRef[] | undefined {
   return attachments?.length
-    ? attachments.map((label) => ({ label }))
+    ? createConversationAttachmentRefs(attachments)
     : undefined;
 }
 

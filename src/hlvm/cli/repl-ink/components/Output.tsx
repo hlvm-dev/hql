@@ -17,7 +17,7 @@ import type { EvalTask } from "../../repl/task-manager/types.ts";
 import { MarkdownDisplay } from "./markdown/index.ts";
 import { DEFAULT_TERMINAL_WIDTH, PANEL_PADDING } from "../ui-constants.ts";
 
-export function Output({ result }: { result: EvalResult }): React.ReactElement | null {
+export const Output = React.memo(function Output({ result }: { result: EvalResult }): React.ReactElement | null {
   const { color } = useTheme();
   const { stdout } = useStdout();
   const markdownWidth = Math.max(20, (stdout?.columns ?? DEFAULT_TERMINAL_WIDTH) - PANEL_PADDING);
@@ -53,7 +53,7 @@ export function Output({ result }: { result: EvalResult }): React.ReactElement |
   }
 
   return <Text>{formatted}</Text>;
-}
+});
 
 // ============================================================
 // Shared Streaming Content

@@ -70,6 +70,7 @@ import {
   createConversationComposerDraft,
   trimConversationDraftText,
 } from "../utils/conversation-queue.ts";
+import { normalizeComparableFilePath } from "../../repl/file-search.ts";
 
 // Unified Completion System
 import {
@@ -79,13 +80,12 @@ import {
   type CompletionItem,
   Dropdown,
   extractMentionQuery,
+  findMentionTokenEnd,
   getWordAtCursor,
   shouldTriggerCommand,
   shouldTriggerFileMention,
   useCompletion,
 } from "../completion/index.ts";
-import { MAX_VISIBLE_ITEMS } from "../completion/types.ts";
-
 // FRP Context - reactive state
 import { useReplContext } from "../context/index.ts";
 import { deleteWordPreservingDelimiters } from "../utils/text-editing.ts";
@@ -250,14 +250,6 @@ function shouldApplyRestoredDraft(
     restoredDraftRevision !== lastAppliedRevision;
 }
 
-function getInputPromptPrefix(
-  promptLabel: string,
-  lineIndex: number,
-): string {
-  const prompt = lineIndex === 0 ? promptLabel : " ".repeat(promptLabel.length);
-  return `${prompt} `;
-}
-
 export interface EscapeKeyInfo {
   escape?: boolean;
   ctrl?: boolean;
@@ -346,7 +338,9 @@ export function Input({
   const attachedPathsSet = useMemo(() => {
     const paths = new Set<string>();
     for (const a of attachments) {
-      if ("path" in a) paths.add(a.path);
+      if ("path" in a) {
+        paths.add(normalizeComparableFilePath(a.path));
+      }
     }
     return paths;
   }, [attachments]);
@@ -2174,7 +2168,11 @@ export function Input({
           const textBefore = value.slice(0, cursorPos);
           const atIdx = textBefore.lastIndexOf("@");
           if (atIdx >= 0) {
-            const mentionPath = textBefore.slice(atIdx + 1);
+            const mentionEnd = findMentionTokenEnd(
+              value,
+              Math.max(cursorPos, atIdx + 1),
+            );
+            const mentionPath = value.slice(atIdx + 1, mentionEnd);
             // Strip trailing slash, then find parent
             const trimmed = mentionPath.endsWith("/")
               ? mentionPath.slice(0, -1)
@@ -2183,9 +2181,11 @@ export function Input({
             if (lastSlash >= 0) {
               // Go to parent: @docs/features/01-binding/ → @docs/features/
               const parentPath = "@" + trimmed.slice(0, lastSlash + 1);
-              const after = value.slice(cursorPos);
+              const after = value.slice(mentionEnd);
+              const nextValue = value.slice(0, atIdx) + parentPath + after;
               pushUndo();
-              onChange(value.slice(0, atIdx) + parentPath + after);
+              pendingValueRef.current = nextValue;
+              onChange(nextValue);
               setCursorPos(atIdx + parentPath.length);
               return;
             }
@@ -2962,15 +2962,6 @@ export function Input({
       completion.renderProps,
     ],
   );
-
-  const completionReservedRows = activeOverlay === "completion" &&
-      completion.renderProps
-    ? MAX_VISIBLE_ITEMS + 3 + (completion.renderProps.showDocPanel ? 14 : 0)
-    : 0;
-  const layoutRows = lineElements.length + (attachmentError ? 1 : 0) +
-    (activeOverlay === "placeholder" ? 1 : 0) +
-    (activeOverlay === "history" ? 2 : 0) +
-    completionReservedRows;
 
   return (
     <Box flexDirection="column">

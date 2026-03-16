@@ -19,6 +19,7 @@ import type {
   InteractionResponse,
 } from "../../../agent/registry.ts";
 import type { AssistantCitation, ConversationAttachmentRef } from "../types.ts";
+import { createConversationAttachmentRef } from "../types.ts";
 import type { UseConversationResult } from "./useConversation.ts";
 import type { SurfacePanel } from "./useOverlayPanel.ts";
 import {
@@ -211,10 +212,12 @@ export function useAgentRunner(
       }
 
       return {
-        attachments: mediaAttachments.map((attachment) => ({
-          attachmentId: attachment.attachmentId,
-          label: attachment.displayName,
-        })),
+        attachments: mediaAttachments.map((attachment) =>
+          createConversationAttachmentRef(
+            attachment.displayName,
+            attachment.attachmentId,
+          )
+        ),
         unsupportedMimeType: undefined,
       };
     },

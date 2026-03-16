@@ -268,46 +268,51 @@ function summarizeToolActivity(tool: ToolCallDisplay): string {
   }
 }
 
-export function getPlanFlowActivitySummary(
+export function getPlanFlowActivities(
   items: ConversationItem[],
-): string | undefined {
+  mode: "latest" | "recent",
+  limit = 3,
+): string[] {
+  const results: string[] = [];
+  const seen = new Set<string>();
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
-    if (item?.type === "thinking") {
+    if (mode === "latest" && item?.type === "thinking") {
       const summary = summarizeThinkingActivity(item);
-      if (summary.length > 0) return summary;
+      if (summary.length > 0) return [summary];
       continue;
     }
     if (item?.type === "tool_group") {
-      const latestTool = [...item.tools].reverse().find((tool) =>
-        tool.status === "running"
-      ) ?? item.tools[item.tools.length - 1];
-      if (latestTool) return summarizeToolActivity(latestTool);
+      if (mode === "latest") {
+        const latestTool = [...item.tools].reverse().find((tool) =>
+          tool.status === "running"
+        ) ?? item.tools[item.tools.length - 1];
+        if (latestTool) return [summarizeToolActivity(latestTool)];
+      } else {
+        for (const tool of [...item.tools].reverse()) {
+          const summary = summarizeToolActivity(tool).trim();
+          if (!summary || seen.has(summary)) continue;
+          seen.add(summary);
+          results.push(summary);
+          if (results.length >= limit) return results;
+        }
+      }
     }
   }
-  return undefined;
+  return results;
+}
+
+export function getPlanFlowActivitySummary(
+  items: ConversationItem[],
+): string | undefined {
+  return getPlanFlowActivities(items, "latest")[0];
 }
 
 export function getRecentPlanFlowActivitySummaries(
   items: ConversationItem[],
   limit = 3,
 ): string[] {
-  const summaries: string[] = [];
-  const seen = new Set<string>();
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i];
-    if (item?.type !== "tool_group") continue;
-    for (const tool of [...item.tools].reverse()) {
-      const summary = summarizeToolActivity(tool).trim();
-      if (!summary || seen.has(summary)) continue;
-      seen.add(summary);
-      summaries.push(summary);
-      if (summaries.length >= limit) {
-        return summaries;
-      }
-    }
-  }
-  return summaries;
+  return getPlanFlowActivities(items, "recent", limit);
 }
 
 function getPlanningPhaseTitle(
@@ -657,30 +662,17 @@ export function ConversationPanel({
   );
 
   const toggleTarget = useCallback((target: ToggleTarget): void => {
-    if (target.kind === "tool") {
-      setExpandedToolIds((prev: Set<string>) => {
+    const toggle = (setter: React.Dispatch<React.SetStateAction<Set<string>>>) => {
+      setter((prev: Set<string>) => {
         const next = new Set(prev);
         if (next.has(target.id)) next.delete(target.id);
         else next.add(target.id);
         return next;
       });
-      return;
-    }
-    if (target.kind === "delegate") {
-      setExpandedDelegateIds((prev: Set<string>) => {
-        const next = new Set(prev);
-        if (next.has(target.id)) next.delete(target.id);
-        else next.add(target.id);
-        return next;
-      });
-      return;
-    }
-    setExpandedThinkingIds((prev: Set<string>) => {
-      const next = new Set(prev);
-      if (next.has(target.id)) next.delete(target.id);
-      else next.add(target.id);
-      return next;
-    });
+    };
+    if (target.kind === "tool") return toggle(setExpandedToolIds);
+    if (target.kind === "delegate") return toggle(setExpandedDelegateIds);
+    toggle(setExpandedThinkingIds);
   }, []);
 
   useEffect(() => {

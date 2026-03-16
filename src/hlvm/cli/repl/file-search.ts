@@ -152,6 +152,22 @@ export function unescapeShellPath(path: string): string {
 }
 
 /**
+ * Normalize a mention path into a canonical absolute path so picker filtering
+ * can compare search results against stored attachment source paths reliably.
+ */
+export function normalizeComparableFilePath(path: string): string {
+  const platform = getPlatform();
+  const cleanPath = unescapeShellPath(path);
+  const expandedPath = cleanPath.startsWith("~")
+    ? (() => {
+      const homeDir = platform.env.get("HOME");
+      return homeDir ? cleanPath.replace(/^~/, homeDir) : cleanPath;
+    })()
+    : cleanPath;
+  return platform.path.resolve(expandedPath);
+}
+
+/**
  * Check if a path exists and return its info
  */
 async function checkAbsolutePath(path: string): Promise<FileMatch | null> {

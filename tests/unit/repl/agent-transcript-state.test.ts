@@ -6,6 +6,7 @@ import {
 import type { Plan } from "../../../src/hlvm/agent/planning.ts";
 import {
   type ConversationItem,
+  createConversationAttachmentRefs,
   isStructuredTeamInfoItem,
 } from "../../../src/hlvm/cli/repl-ink/types.ts";
 
@@ -159,13 +160,16 @@ Deno.test("agent transcript state preserves user attachment labels for the activ
   const next = reduceTranscriptState(createTranscriptState(), {
     type: "user_message",
     text: "describe this UI regression",
-    attachments: ["[Image #1]", "[PDF #2]"],
+    attachments: createConversationAttachmentRefs(["[Image #1]", "[PDF #2]"]),
   });
 
   assertEquals(next.items.length, 2);
   assertEquals(next.items[0]?.type, "user");
   if (next.items[0]?.type === "user") {
-    assertEquals(next.items[0].attachments, ["[Image #1]", "[PDF #2]"]);
+    assertEquals(
+      next.items[0].attachments,
+      createConversationAttachmentRefs(["[Image #1]", "[PDF #2]"]),
+    );
   }
   assertEquals(next.items[1]?.type, "assistant");
   if (next.items[1]?.type === "assistant") {
@@ -263,8 +267,16 @@ Deno.test("agent transcript state clears the plan dashboard when review is cance
     completedPlanStepIds: ["step-1"],
     planTodoState: {
       items: [
-        { id: "step-1", content: "Create the screenshots directory", status: "completed" as const },
-        { id: "step-2", content: "Move screenshot files", status: "pending" as const },
+        {
+          id: "step-1",
+          content: "Create the screenshots directory",
+          status: "completed" as const,
+        },
+        {
+          id: "step-2",
+          content: "Move screenshot files",
+          status: "pending" as const,
+        },
       ],
     },
   };
@@ -293,12 +305,20 @@ Deno.test("agent transcript state cancel_planning clears plan-owned todos too", 
     planningPhase: "executing" as const,
     todoState: {
       items: [
-        { id: "step-1", content: "Create the screenshots directory", status: "in_progress" as const },
+        {
+          id: "step-1",
+          content: "Create the screenshots directory",
+          status: "in_progress" as const,
+        },
       ],
     },
     planTodoState: {
       items: [
-        { id: "step-1", content: "Create the screenshots directory", status: "in_progress" as const },
+        {
+          id: "step-1",
+          content: "Create the screenshots directory",
+          status: "in_progress" as const,
+        },
       ],
     },
   };
@@ -347,12 +367,20 @@ Deno.test("agent transcript state cancel_planning drops current-turn planning ar
     planningPhase: "researching" as const,
     todoState: {
       items: [
-        { id: "step-1", content: "Inspect Desktop", status: "in_progress" as const },
+        {
+          id: "step-1",
+          content: "Inspect Desktop",
+          status: "in_progress" as const,
+        },
       ],
     },
     planTodoState: {
       items: [
-        { id: "step-1", content: "Inspect Desktop", status: "in_progress" as const },
+        {
+          id: "step-1",
+          content: "Inspect Desktop",
+          status: "in_progress" as const,
+        },
       ],
     },
   };
@@ -397,8 +425,16 @@ Deno.test("agent transcript state clears finished plan state when a new turn sta
     completedPlanStepIds: ["step-1", "step-2"],
     planTodoState: {
       items: [
-        { id: "step-1", content: "Create the screenshots directory", status: "completed" as const },
-        { id: "step-2", content: "Move screenshot files", status: "completed" as const },
+        {
+          id: "step-1",
+          content: "Create the screenshots directory",
+          status: "completed" as const,
+        },
+        {
+          id: "step-2",
+          content: "Move screenshot files",
+          status: "completed" as const,
+        },
       ],
     },
   };

@@ -9,7 +9,7 @@ import { evaluate } from "./evaluator.ts";
 import { formatPlainValue } from "./formatter.ts";
 import { initReplState } from "./init-repl-state.ts";
 import { ReplState } from "./state.ts";
-import { listBindingFunctions, type BindingFunctionItem } from "./bindings.ts";
+import { type BindingFunctionItem, listBindingFunctions } from "./bindings.ts";
 import { escapeString } from "./string-utils.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
@@ -73,6 +73,7 @@ import {
   handleRegisterAttachment,
   handleUploadAttachment,
 } from "./handlers/attachments.ts";
+import { getAttachmentRecords } from "../../attachments/service.ts";
 import {
   handleAddMcpServer,
   handleListMcpServers,
@@ -93,6 +94,7 @@ import {
   resolveHlvmRuntimePort,
 } from "../../runtime/host-config.ts";
 import { getRuntimeHostIdentity } from "../../runtime/host-identity.ts";
+import { normalizeComparableFilePath } from "./file-search.ts";
 
 /**
  * REPL HTTP Server Port
@@ -134,6 +136,8 @@ let replState: ReplState | null = null;
 interface CompletionRequest {
   text: string;
   cursor: number;
+  attachment_ids?: string[];
+  attachment_paths?: string[];
 }
 
 interface BindingFunctionsResponse {
@@ -196,6 +200,14 @@ async function initState(): Promise<ReplState> {
  *                 type: string
  *               cursor:
  *                 type: integer
+ *               attachment_ids:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               attachment_paths:
+ *                 type: array
+ *                 items:
+ *                   type: string
  *             required: [text, cursor]
  *     responses:
  *       '200':
@@ -250,7 +262,33 @@ async function initState(): Promise<ReplState> {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-async function handleComplete(req: Request): Promise<Response> {
+async function resolveCompletionAttachedPaths(
+  request: CompletionRequest,
+): Promise<ReadonlySet<string> | undefined> {
+  const attachedPaths = new Set<string>();
+
+  for (const path of request.attachment_paths ?? []) {
+    if (typeof path === "string" && path.trim().length > 0) {
+      attachedPaths.add(normalizeComparableFilePath(path));
+    }
+  }
+
+  const attachmentIds = (request.attachment_ids ?? []).filter((id) =>
+    typeof id === "string" && id.trim().length > 0
+  );
+  if (attachmentIds.length > 0) {
+    const records = await getAttachmentRecords(attachmentIds);
+    for (const record of records) {
+      if (record.sourcePath) {
+        attachedPaths.add(normalizeComparableFilePath(record.sourcePath));
+      }
+    }
+  }
+
+  return attachedPaths.size > 0 ? attachedPaths : undefined;
+}
+
+export async function handleComplete(req: Request): Promise<Response> {
   try {
     const parsed = await parseJsonBody<CompletionRequest>(req);
     if (!parsed.ok) return parsed.response;
@@ -274,6 +312,7 @@ async function handleComplete(req: Request): Promise<Response> {
     const bindingNames: ReadonlySet<string> = bindingsApi?.list
       ? new Set(await bindingsApi.list())
       : new Set<string>();
+    const attachedPaths = await resolveCompletionAttachedPaths(parsed.value);
 
     const context = buildContext(
       text,
@@ -282,6 +321,7 @@ async function handleComplete(req: Request): Promise<Response> {
       replState.getSignatures(),
       replState.getDocstrings(),
       bindingNames,
+      attachedPaths,
     );
 
     const provider = getActiveProvider(context);
@@ -376,7 +416,7 @@ function scheduleServerShutdown(): void {
   }, 0);
 }
 
-async function handleRuntimeShutdown(): Promise<Response> {
+function handleRuntimeShutdown(): Response {
   scheduleServerShutdown();
   return Response.json({ ok: true, shutting_down: true });
 }
@@ -622,14 +662,20 @@ router.add(
   "/api/chat/interaction",
   (req) => handleChatInteraction(req),
 );
-router.add("POST", "/api/attachments/register", (req) =>
-  handleRegisterAttachment(req)
+router.add(
+  "POST",
+  "/api/attachments/register",
+  (req) => handleRegisterAttachment(req),
 );
-router.add("POST", "/api/attachments/upload", (req) =>
-  handleUploadAttachment(req)
+router.add(
+  "POST",
+  "/api/attachments/upload",
+  (req) => handleUploadAttachment(req),
 );
-router.add("GET", "/api/attachments/:id", (req, p) =>
-  handleGetAttachment(req, p)
+router.add(
+  "GET",
+  "/api/attachments/:id",
+  (req, p) => handleGetAttachment(req, p),
 );
 
 router.add("GET", "/api/sessions", () => handleListSessions());

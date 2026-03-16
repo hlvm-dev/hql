@@ -8,27 +8,28 @@
  */
 
 import {
+  type ApplyContext,
+  type ApplyResult,
   ATTACHMENT_PLACEHOLDER,
   COMPLETION_DEBOUNCE_MS,
   COMPLETION_SCORES,
-  CONTEXT_AWARE_FORMS,
-  PROVIDER_HELP_TEXT,
-  RENDER_MAX_WIDTH,
-  STRING_PLACEHOLDER_FUNCTIONS,
-  TYPE_ICONS,
-  TYPE_LABELS,
-  type ApplyContext,
-  type ApplyResult,
   type CompletionAction,
   type CompletionContext,
   type CompletionItem,
   type CompletionProvider,
   type CompletionResult,
+  CONTEXT_AWARE_FORMS,
   type ItemRenderSpec,
+  PROVIDER_HELP_TEXT,
+  RENDER_MAX_WIDTH,
+  STRING_PLACEHOLDER_FUNCTIONS,
+  TYPE_ICONS,
+  TYPE_LABELS,
 } from "./types.ts";
 import {
   extractCommandQuery,
   extractMentionQuery,
+  findMentionTokenEnd,
   generateItemId,
   resetItemIdCounter,
   shouldTriggerCommand,
@@ -397,6 +398,7 @@ export const SymbolProvider: CompletionProvider = {
 
 import {
   type FileMatch,
+  normalizeComparableFilePath,
   searchFiles,
   unescapeShellPath,
 } from "../../repl/file-search.ts";
@@ -418,12 +420,10 @@ function createFileApplyAction(
     const before = ctx.text.slice(0, ctx.anchorPosition);
     // Replace the FULL current mention token (not just up to cursor).
     // This prevents tail duplication when cursor is in the middle of an @path.
-    let mentionEnd = Math.max(ctx.cursorPosition, ctx.anchorPosition);
-    while (mentionEnd < ctx.text.length) {
-      const ch = ctx.text[mentionEnd];
-      if (/\s/.test(ch) || ch === ")" || ch === "]" || ch === "}") break;
-      mentionEnd++;
-    }
+    const mentionEnd = findMentionTokenEnd(
+      ctx.text,
+      Math.max(ctx.cursorPosition, ctx.anchorPosition + 1),
+    );
     const after = ctx.text.slice(mentionEnd);
 
     // DRILL on directory: drill in, keep dropdown open for further navigation
@@ -519,7 +519,10 @@ export const FileProvider: CompletionProvider = {
     // Filter out already-attached files so users can't accidentally attach duplicates
     const attached = context.attachedPaths;
     const filtered = attached?.size
-      ? matches.filter((m) => m.isDirectory || !attached.has(m.path))
+      ? matches.filter((m) =>
+        m.isDirectory ||
+        !attached.has(normalizeComparableFilePath(m.path))
+      )
       : matches;
 
     const items: CompletionItem[] = filtered.map((match: FileMatch) => {

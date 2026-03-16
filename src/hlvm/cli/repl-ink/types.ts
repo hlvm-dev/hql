@@ -45,6 +45,20 @@ export interface ConversationAttachmentRef {
   label: string;
 }
 
+export function createConversationAttachmentRef(
+  label: string,
+  attachmentId?: string,
+): ConversationAttachmentRef {
+  const trimmedId = attachmentId?.trim();
+  return trimmedId ? { attachmentId: trimmedId, label } : { label };
+}
+
+export function createConversationAttachmentRefs(
+  labels: readonly string[],
+): ConversationAttachmentRef[] {
+  return labels.map((label) => createConversationAttachmentRef(label));
+}
+
 /** User message in the conversation */
 export interface UserItem {
   type: "user";
