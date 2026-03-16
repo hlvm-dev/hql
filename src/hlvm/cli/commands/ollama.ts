@@ -39,7 +39,7 @@ export async function ollamaCommand(args: string[]): Promise<number> {
 /**
  * Find system Ollama installation
  */
-export async function findSystemOllama(): Promise<string | null> {
+async function findSystemOllama(): Promise<string | null> {
   const locations = [
     "/usr/local/bin/ollama",
     "/opt/homebrew/bin/ollama",

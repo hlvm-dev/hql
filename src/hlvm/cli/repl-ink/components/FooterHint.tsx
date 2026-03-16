@@ -17,7 +17,7 @@ import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 
 import { truncate } from "../../../../common/utils.ts";
 
-export const FOOTER_SECTION_SEPARATOR = " · ";
+const FOOTER_SECTION_SEPARATOR = " · ";
 
 interface FooterProps {
   streamingState?: StreamingState;

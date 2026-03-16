@@ -14,7 +14,7 @@ import {
   ensureHlvmDir,
   getOllamaCatalogCachePath,
 } from "../../../common/paths.ts";
-import { isFileNotFoundError, isObjectValue } from "../../../common/utils.ts";
+import { isObjectValue } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 
 // ---------------------------------------------------------------------------
@@ -72,9 +72,8 @@ function isLiveCacheValid(): boolean {
 }
 
 async function readDiskCatalogCache(): Promise<CatalogCacheRecord | null> {
-  const platform = getPlatform();
   try {
-    const raw = await platform.fs.readTextFile(getOllamaCatalogCachePath());
+    const raw = await getPlatform().fs.readTextFile(getOllamaCatalogCachePath());
     const parsed = JSON.parse(raw) as unknown;
     if (!isObjectValue(parsed)) return null;
     const data = isObjectValue(parsed.data) ? parsed.data : null;
@@ -84,8 +83,7 @@ async function readDiskCatalogCache(): Promise<CatalogCacheRecord | null> {
       timestamp: parsed.timestamp,
       data: { models: models as ScrapedModel[] },
     };
-  } catch (error) {
-    if (isFileNotFoundError(error)) return null;
+  } catch {
     return null;
   }
 }

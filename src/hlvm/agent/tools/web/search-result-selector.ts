@@ -257,10 +257,6 @@ function extractCompoundTerms(text: string): string[] {
   return normalized;
 }
 
-function extractCompoundQueryTerms(query: string): string[] {
-  return extractCompoundTerms(query);
-}
-
 function compoundComponentNoiseTokens(query: string): Set<string> {
   const noise = new Set<string>();
   const matches = query.match(COMPOUND_TERM_RE) ?? [];
@@ -495,7 +491,7 @@ function deterministicBaseScore(
   const title = normalizeMatchText(result.title);
   const snippet = normalizeMatchText(result.snippet);
   const phrase = normalizeMatchText(input.query).trim();
-  const compoundTerms = extractCompoundQueryTerms(input.query);
+  const compoundTerms = extractCompoundTerms(input.query);
   const titleTokens = new Set(tokenizeSearchText(result.title ?? ""));
   const snippetTokens = new Set(tokenizeSearchText(result.snippet ?? ""));
   const urlTokens = new Set(tokenizeSearchText(result.url ?? ""));
@@ -688,7 +684,7 @@ function fetchedEvidenceScore(
   const pageDescription = normalizeMatchText(result.pageDescription);
   const passagesText = normalizeMatchText((result.passages ?? []).join(" "));
   const phrase = normalizeMatchText(input.query).trim();
-  const compoundTerms = extractCompoundQueryTerms(input.query);
+  const compoundTerms = extractCompoundTerms(input.query);
   const titleTokens = new Set(tokenizeSearchText(result.title ?? ""));
   const snippetTokens = new Set(tokenizeSearchText(result.snippet ?? ""));
   const urlTokens = new Set(tokenizeSearchText(result.url ?? ""));

@@ -10,7 +10,7 @@ interface SearchFieldDisplay {
   afterCursor: string;
 }
 
-export interface ListSearchFieldProps {
+interface ListSearchFieldProps {
   query: string;
   cursor: number;
   width: number;

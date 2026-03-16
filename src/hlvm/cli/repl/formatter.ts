@@ -35,6 +35,29 @@ function realizeSeqForDisplay(value: unknown, maxItems = 100): unknown[] | null 
 }
 
 /**
+ * Format a collection of items with truncation for large collections.
+ * Shared by Array and Seq display to avoid repeated truncation logic.
+ */
+function formatCollectionItems(
+  items: readonly unknown[],
+  open: string,
+  close: string,
+  depth: number,
+  useColor: boolean,
+  dimGray: string,
+  reset: string,
+): string {
+  if (items.length === 0) return `${open}${close}`;
+  if (items.length > 20) {
+    const first10 = items.slice(0, 10).map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
+    const last3 = items.slice(-3).map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
+    return `${open}${first10} ${dimGray}... ${items.length - 13} more ...${reset} ${last3}${close}`;
+  }
+  const formatted = items.map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
+  return `${open}${formatted}${close}`;
+}
+
+/**
  * No-color constants for plain text output (HTTP clients, logs, etc.)
  */
 const NO_COLOR = {
@@ -105,14 +128,7 @@ function formatValueInternal(value: unknown, depth = 0, useColor = true): string
 
   if (Array.isArray(value)) {
     if (depth > 3) return `${DIM_GRAY}[...]${RESET}`;
-    if (value.length === 0) return "[]";
-    if (value.length > 20) {
-      const first10 = value.slice(0, 10).map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
-      const last3 = value.slice(-3).map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
-      return `[${first10} ${DIM_GRAY}... ${value.length - 13} more ...${RESET} ${last3}]`;
-    }
-    const items = value.map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
-    return `[${items}]`;
+    return formatCollectionItems(value, "[", "]", depth, useColor, DIM_GRAY, RESET);
   }
 
   // Handle SEQ protocol types: LazySeq, Cons, ArraySeq, NumericRange, ChunkedCons, etc.
@@ -123,14 +139,7 @@ function formatValueInternal(value: unknown, depth = 0, useColor = true): string
     if (realized === null) {
       return `${DIM_GRAY}#<Seq: error realizing>${RESET}`;
     }
-    if (realized.length === 0) return "()";
-    if (realized.length > 20) {
-      const first10 = realized.slice(0, 10).map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
-      const last3 = realized.slice(-3).map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
-      return `(${first10} ${DIM_GRAY}... ${realized.length - 13} more ...${RESET} ${last3})`;
-    }
-    const items = realized.map(v => formatValueInternal(v, depth + 1, useColor)).join(" ");
-    return `(${items})`;
+    return formatCollectionItems(realized, "(", ")", depth, useColor, DIM_GRAY, RESET);
   }
 
   if (typeof value === "object" && value !== null) {

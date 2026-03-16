@@ -128,13 +128,9 @@ const CTRL_ENTER_LEGACY_REGEX = new RegExp("^\u001b\\[27;(\\d+);13~$");
 // ANSI Reset constant
 const { RESET } = ANSI_COLORS;
 
-// Fast newline check - avoids regex compilation on every keystroke
+/** Fast newline check without regex overhead. */
 function hasNewlineChars(str: string): boolean {
-  for (let i = 0; i < str.length; i++) {
-    const ch = str.charCodeAt(i);
-    if (ch === 10 || ch === 13) return true; // \n or \r
-  }
-  return false;
+  return str.includes("\n") || str.includes("\r");
 }
 
 // Placeholder for function parameter completion
@@ -194,76 +190,6 @@ function getInputPromptPrefix(
 ): string {
   const prompt = lineIndex === 0 ? promptLabel : " ".repeat(promptLabel.length);
   return `${prompt} `;
-}
-
-// ── Visual row navigation for wrapped text ──────────────────────────
-// Maps cursor position to visual (row, col) accounting for terminal wrapping.
-
-/** Convert a cursor position to its visual row and column on screen. */
-function cursorToVisualPosition(
-  cursorPos: number,
-  value: string,
-  prefixWidth: number,
-  terminalWidth: number,
-): { visualRow: number; visualCol: number } {
-  const lines = value.split("\n");
-  let charsSoFar = 0;
-  let totalVisualRows = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const lineLen = lines[i].length;
-    if (cursorPos <= charsSoFar + lineLen) {
-      const posInLine = cursorPos - charsSoFar;
-      const visualOffset = prefixWidth + posInLine;
-      return {
-        visualRow: totalVisualRows + Math.floor(visualOffset / terminalWidth),
-        visualCol: visualOffset % terminalWidth,
-      };
-    }
-    const totalChars = prefixWidth + lineLen;
-    totalVisualRows += Math.max(1, Math.ceil((totalChars + 1) / terminalWidth));
-    charsSoFar += lineLen + 1;
-  }
-  return { visualRow: totalVisualRows, visualCol: 0 };
-}
-
-/** Convert a visual (row, col) back to a cursor position in the value. */
-function visualPositionToCursor(
-  targetRow: number,
-  targetCol: number,
-  value: string,
-  prefixWidth: number,
-  terminalWidth: number,
-): number {
-  const lines = value.split("\n");
-  let charsSoFar = 0;
-  let totalVisualRows = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const lineLen = lines[i].length;
-    const totalChars = prefixWidth + lineLen;
-    const rowsForLine = Math.max(1, Math.ceil((totalChars + 1) / terminalWidth));
-    if (targetRow < totalVisualRows + rowsForLine) {
-      const rowInLine = targetRow - totalVisualRows;
-      const visualOffset = rowInLine * terminalWidth + targetCol;
-      const posInLine = Math.max(0, Math.min(visualOffset - prefixWidth, lineLen));
-      return charsSoFar + posInLine;
-    }
-    totalVisualRows += rowsForLine;
-    charsSoFar += lineLen + 1;
-  }
-  return value.length;
-}
-
-/** Count total visual rows for the given value. */
-function getTotalVisualRows(
-  value: string,
-  prefixWidth: number,
-  terminalWidth: number,
-): number {
-  let total = 0;
-  for (const line of value.split("\n")) {
-    total += Math.max(1, Math.ceil((prefixWidth + line.length + 1) / terminalWidth));
-  }
-  return total;
 }
 
 export interface EscapeKeyInfo {
@@ -1511,13 +1437,13 @@ export function Input({
 
     // Use ref to avoid stale closure - disabled prop can change during evaluation
     if (disabledRef.current) return;
-    // CSI-u Ctrl+Enter: modifier 5/6/7 (Ctrl, Ctrl+Shift, Ctrl+Alt)
-    const isCtrlEnterProtocol = (() => {
-      if (!input) return false;
+    // CSI-u modified Enter: Kitty/WezTerm/Ghostty send \x1b[13;{mod}u
+    // Modifier bits: 2=Shift, 3=Alt, 5=Ctrl, 6=Ctrl+Shift, 7=Ctrl+Alt
+    const csiuEnterMod = (() => {
+      if (!input) return 0;
       const csiuMatch = input.match(CTRL_ENTER_CSI_U_REGEX);
       const legacyMatch = input.match(CTRL_ENTER_LEGACY_REGEX);
-      const mod = parseInt(csiuMatch?.[1] ?? legacyMatch?.[1] ?? "0", 10);
-      return mod === 5 || mod === 6 || mod === 7;
+      return parseInt(csiuMatch?.[1] ?? legacyMatch?.[1] ?? "0", 10);
     })();
 
     // Any non-pure-ESC event means previous ESC was a prefix (Alt/Option sequence), not a standalone ESC press.
@@ -1534,8 +1460,17 @@ export function Input({
     // Ctrl+Enter: force-submit via CSI-u protocol only (kitty/WezTerm/Ghostty).
     // Most terminals can't distinguish Ctrl+Enter from Ctrl+J, so we don't
     // use Ctrl+J for force-submit — it's reserved for newline insertion.
+    const isCtrlEnterProtocol = csiuEnterMod === 5 || csiuEnterMod === 6 ||
+      csiuEnterMod === 7;
     if (onForceSubmit && (isCtrlEnterProtocol || (key.return && key.ctrl))) {
       void executeHandler(HandlerIds.COMPOSER_FORCE_SUBMIT);
+      return;
+    }
+
+    // CSI-u Shift+Enter / Alt+Enter (mod 2/3): insert newline.
+    // Kitty-protocol terminals send these as \x1b[13;2u / \x1b[13;3u.
+    if (csiuEnterMod === 2 || csiuEnterMod === 3) {
+      insertAt("\n");
       return;
     }
 
@@ -1645,15 +1580,21 @@ export function Input({
       return;
     }
 
-    // Preserve explicit Ctrl+J newline insertion, but allow bare \n to behave
-    // like Enter for terminals/automation layers that normalize Return to LF.
-    if (input === "\n" && !key.return && key.ctrl) {
+    // Option+Enter and Ctrl+J both insert newlines.
+    //
+    // Ink's parseKeypress doesn't recognise ESC+CR (\x1b\r, sent by macOS
+    // terminals for Option+Enter). It strips the ESC prefix, leaving
+    // input="\r" with ALL key flags false. Regular Enter sets key.return=true
+    // and input="". So `!key.return` reliably distinguishes both:
+    //   Option+Enter: input="\r", key.return=false
+    //   Ctrl+J:       input="\n", key.return=false
+    //   Enter:        input="",   key.return=true
+    if (!key.return && (input === "\n" || input === "\r")) {
       insertAt("\n");
       return;
     }
 
-    const isEnterLikeInput = key.return || input === "\r" ||
-      (input === "\n" && !key.ctrl);
+    const isEnterLikeInput = key.return;
 
     // ============================================================
     // CUSTOM KEYBINDING INTERCEPTION
@@ -2191,25 +2132,64 @@ export function Input({
     }
 
     // Arrow keys (when dropdown not visible)
-    // Navigate by visual rows (handles both logical newlines AND terminal wrapping).
+    // All visual rows have the same contentWidth (manual wrapping with
+    // uniform prefix), so up/down is simply ±contentWidth within the
+    // current logical line, with cross-line handling at boundaries.
     if (key.upArrow) {
-      const tw = stdout?.columns ?? 80;
       const pw = promptLabel.length + 1;
-      const { visualRow, visualCol } = cursorToVisualPosition(cursorPos, value, pw, tw);
-      if (visualRow > 0) {
-        setCursorPos(visualPositionToCursor(visualRow - 1, visualCol, value, pw, tw));
+      const cw = Math.max(1, (stdout?.columns ?? 80) - pw);
+      const lines = value.split("\n");
+      let acc = 0;
+      let logIdx = 0;
+      for (let i = 0; i < lines.length; i++) {
+        if (acc + lines[i].length >= cursorPos) { logIdx = i; break; }
+        acc += lines[i].length + 1;
+      }
+      const posInLine = cursorPos - acc;
+      if (posInLine >= cw) {
+        // Move up within this logical line
+        setCursorPos(cursorPos - cw);
+      } else if (logIdx > 0) {
+        // Cross to last visual row of previous logical line
+        const prevLine = lines[logIdx - 1];
+        const prevStart = acc - prevLine.length - 1;
+        const lastChunkStart = Math.floor(prevLine.length / cw) * cw;
+        setCursorPos(
+          prevStart + lastChunkStart +
+            Math.min(posInLine, prevLine.length - lastChunkStart),
+        );
       } else {
         navigateHistory(-1);
       }
       return;
     }
     if (key.downArrow) {
-      const tw = stdout?.columns ?? 80;
       const pw = promptLabel.length + 1;
-      const { visualRow, visualCol } = cursorToVisualPosition(cursorPos, value, pw, tw);
-      const totalRows = getTotalVisualRows(value, pw, tw);
-      if (visualRow < totalRows - 1) {
-        setCursorPos(visualPositionToCursor(visualRow + 1, visualCol, value, pw, tw));
+      const cw = Math.max(1, (stdout?.columns ?? 80) - pw);
+      const lines = value.split("\n");
+      let acc = 0;
+      let logIdx = 0;
+      for (let i = 0; i < lines.length; i++) {
+        if (acc + lines[i].length >= cursorPos) { logIdx = i; break; }
+        acc += lines[i].length + 1;
+      }
+      const posInLine = cursorPos - acc;
+      const line = lines[logIdx];
+      const currentChunk = Math.floor(posInLine / cw);
+      const totalChunks = line.length === 0 ? 1 : Math.ceil(line.length / cw);
+      if (currentChunk < totalChunks - 1) {
+        // Move down within this logical line (to next visual chunk)
+        const col = posInLine % cw;
+        const nextChunkStart = (currentChunk + 1) * cw;
+        const nextChunkLen = line.length - nextChunkStart;
+        setCursorPos(acc + nextChunkStart + Math.min(col, nextChunkLen));
+      } else if (logIdx < lines.length - 1) {
+        // Cross to first visual row of next logical line
+        const col = posInLine % cw;
+        const nextStart = acc + line.length + 1;
+        setCursorPos(nextStart + Math.min(col, lines[logIdx + 1].length));
+      } else if (cursorPos < value.length) {
+        setCursorPos(value.length);
       } else {
         navigateHistory(1);
       }
@@ -2495,12 +2475,15 @@ export function Input({
   const ghostText = useMemo(() => {
     if (!rawGhostText) return "";
     const termCols = stdout?.columns ?? 80;
+    const prefixWidth = promptLabel.length + 1;
+    const contentWidth = Math.max(1, termCols - prefixWidth);
     const valueLines = value.split("\n");
     const lastLine = valueLines[valueLines.length - 1] ?? "";
-    const promptLen =
-      getInputPromptPrefix(promptLabel, valueLines.length - 1).length;
-    const usedCols = promptLen + lastLine.length;
-    const available = Math.max(0, termCols - usedCols - 1);
+    // With manual visual chunking, available space is on the last visual chunk
+    const lastChunkLen = lastLine.length === 0
+      ? 0
+      : (lastLine.length % contentWidth || contentWidth);
+    const available = Math.max(0, contentWidth - lastChunkLen - 1);
     return rawGhostText.length <= available
       ? rawGhostText
       : rawGhostText.slice(0, Math.max(0, available - 1)) + "…";
@@ -2641,75 +2624,87 @@ export function Input({
     return result;
   };
 
-  // Multi-line support: split value by newlines
-  const lines = value.split("\n");
+  // Manual visual wrapping: break text into visual rows of uniform
+  // contentWidth so every row (including the first) has the same content
+  // area.  Row 0 shows "hlvm>", continuation rows show spaces of equal
+  // width.  This makes up/down cursor navigation trivially ±contentWidth.
+  const logicalLines = value.split("\n");
+  const prefixWidth = promptLabel.length + 1; // "hlvm> " = 6
+  const termWidth = stdout?.columns ?? 80;
+  const contentWidth = Math.max(1, termWidth - prefixWidth);
 
-  // Calculate cursor line and column
-  let cursorLine = 0;
-  let cursorCol = cursorPos;
-  let charCount = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const lineLen = lines[i].length;
-    if (charCount + lineLen >= cursorPos) {
-      cursorLine = i;
-      cursorCol = cursorPos - charCount;
-      break;
+  // Locate cursor within logical lines
+  let cursorLogLine = 0;
+  let cursorPosInLine = cursorPos;
+  {
+    let acc = 0;
+    for (let i = 0; i < logicalLines.length; i++) {
+      if (acc + logicalLines[i].length >= cursorPos) {
+        cursorLogLine = i;
+        cursorPosInLine = cursorPos - acc;
+        break;
+      }
+      acc += logicalLines[i].length + 1;
     }
-    charCount += lineLen + 1; // +1 for newline
   }
+  const cursorChunkIdx = Math.floor(cursorPosInLine / contentWidth);
+  const cursorColInChunk = cursorPosInLine % contentWidth;
 
-  // Render a single line with cursor if applicable
-  const renderLine = (
-    line: string,
-    lineIndex: number,
-    lineStartOffset: number,
-  ): React.ReactNode => {
-    const isCurrentLine = lineIndex === cursorLine;
-    const promptText = lineIndex === 0
-      ? promptLabel
-      : " ".repeat(promptLabel.length);
-
-    if (!isCurrentLine) {
-      // No cursor on this line — single Text for correct wrapping
-      return (
-        <Box key={lineIndex}>
-          <Text>
-            <Text color={color("primary")} bold>{promptText}</Text>
-            {" "}{renderWithPlaceholders(line, lineStartOffset)}
-          </Text>
-        </Box>
-      );
-    }
-
-    // This line has the cursor — all inline within a single Text for
-    // correct terminal wrapping (multiple top-level Text elements in a
-    // Box are separate flex items and wrap independently).
-    const beforeCursor = line.slice(0, cursorCol);
-    const charAtCursor = line[cursorCol] || " ";
-    const afterCursor = line.slice(cursorCol + 1);
-
-    return (
-      <Box key={lineIndex}>
-        <Text>
-          <Text color={color("primary")} bold>{promptText}</Text>
-          {" "}
-          {renderWithPlaceholders(beforeCursor, lineStartOffset)}
-          <Text backgroundColor="white" color="black">{charAtCursor}</Text>
-          {renderWithPlaceholders(afterCursor, lineStartOffset + cursorCol + 1)}
-          {lineIndex === lines.length - 1 && ghostText && (
-            <Text dimColor>{ghostText}</Text>
-          )}
-        </Text>
-      </Box>
-    );
-  };
-
-  // Calculate line start offsets
-  let offset = 0;
   const lineElements: React.ReactNode[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    lineElements.push(renderLine(lines[i], i, offset));
-    offset += lines[i].length + 1; // +1 for newline
+  let isFirstVisual = true;
+  let globalOffset = 0;
+  const lastLogIdx = logicalLines.length - 1;
+
+  for (let logIdx = 0; logIdx <= lastLogIdx; logIdx++) {
+    const line = logicalLines[logIdx];
+    const numChunks = line.length === 0
+      ? 1
+      : Math.ceil(line.length / contentWidth);
+
+    for (let ci = 0; ci < numChunks; ci++) {
+      const chunkStart = ci * contentWidth;
+      const chunkText = line.slice(chunkStart, chunkStart + contentWidth);
+      const prompt = isFirstVisual
+        ? promptLabel
+        : " ".repeat(promptLabel.length);
+      const chunkGlobalOff = globalOffset + chunkStart;
+      const isCursorChunk = logIdx === cursorLogLine && ci === cursorChunkIdx;
+      const isLastVisual = logIdx === lastLogIdx && ci === numChunks - 1;
+
+      if (!isCursorChunk) {
+        lineElements.push(
+          <Box key={`${logIdx}-${ci}`}>
+            <Text>
+              <Text color={color("primary")} bold>{prompt}</Text>
+              {" "}{renderWithPlaceholders(chunkText, chunkGlobalOff)}
+            </Text>
+          </Box>,
+        );
+      } else {
+        const before = chunkText.slice(0, cursorColInChunk);
+        const charAt = chunkText[cursorColInChunk] || " ";
+        const after = chunkText.slice(cursorColInChunk + 1);
+        lineElements.push(
+          <Box key={`${logIdx}-${ci}`}>
+            <Text>
+              <Text color={color("primary")} bold>{prompt}</Text>
+              {" "}
+              {renderWithPlaceholders(before, chunkGlobalOff)}
+              <Text backgroundColor="white" color="black">{charAt}</Text>
+              {renderWithPlaceholders(
+                after,
+                chunkGlobalOff + cursorColInChunk + 1,
+              )}
+              {isLastVisual && ghostText && (
+                <Text dimColor>{ghostText}</Text>
+              )}
+            </Text>
+          </Box>,
+        );
+      }
+      isFirstVisual = false;
+    }
+    globalOffset += line.length + 1;
   }
 
   // ============================================================

@@ -291,8 +291,8 @@ export function __hql_deepFreeze<T>(obj: T, visited?: WeakSet<object>): T {
   // Freeze the object itself
   Object.freeze(obj);
 
-  // Recursively freeze all property values
-  Object.getOwnPropertyNames(obj).forEach((prop) => {
+  // Recursively freeze all property values (for-of avoids closure allocation per call)
+  for (const prop of Object.getOwnPropertyNames(obj)) {
     const value = (obj as Record<string, unknown>)[prop];
     if (
       value !== null &&
@@ -300,10 +300,10 @@ export function __hql_deepFreeze<T>(obj: T, visited?: WeakSet<object>): T {
     ) {
       __hql_deepFreeze(value, seen);
     }
-  });
+  }
 
   // Also freeze symbol properties
-  Object.getOwnPropertySymbols(obj).forEach((sym) => {
+  for (const sym of Object.getOwnPropertySymbols(obj)) {
     const value = (obj as Record<symbol, unknown>)[sym];
     if (
       value !== null &&
@@ -311,7 +311,7 @@ export function __hql_deepFreeze<T>(obj: T, visited?: WeakSet<object>): T {
     ) {
       __hql_deepFreeze(value, seen);
     }
-  });
+  }
 
   return obj;
 }

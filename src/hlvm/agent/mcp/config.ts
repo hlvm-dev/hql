@@ -317,12 +317,9 @@ export function formatServerEntry(s: McpServerWithScope): {
 export function isMcpServerConfig(value: unknown): value is McpServerConfig {
   if (!isObjectValue(value)) return false;
   if (typeof value.name !== "string") return false;
-  // Stdio transport: requires command array
+  // Stdio transport: requires command array of strings
   if (Array.isArray(value.command) && value.command.length > 0) {
-    if (!value.command.every((c: unknown) => typeof c === "string")) {
-      return false;
-    }
-    return true;
+    return value.command.every((c: unknown) => typeof c === "string");
   }
   // HTTP transport: requires url
   if (typeof value.url === "string" && value.url.length > 0) return true;

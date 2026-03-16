@@ -199,7 +199,7 @@ export function resetItemIdCounter(): void {
 }
 
 /** Options for creating completion items */
-export interface CreateItemOptions {
+interface CreateItemOptions {
   readonly score?: number;
   readonly description?: string;
   readonly matchIndices?: readonly number[];

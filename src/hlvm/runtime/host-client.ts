@@ -695,16 +695,13 @@ async function respondToInteraction(
     },
     body: JSON.stringify(response),
   });
-  try {
-    if (!result.ok) {
-      throw createRuntimeHostError(
-        "Failed to submit interaction response to runtime host.",
-      );
-    }
-    await result.text();
-  } finally {
-    // Fully consume the response to avoid dangling local test-server bodies.
+  if (!result.ok) {
+    throw createRuntimeHostError(
+      "Failed to submit interaction response to runtime host.",
+    );
   }
+  // Fully consume the response to avoid dangling local test-server bodies.
+  await result.text();
 }
 
 async function parseErrorResponse(response: Response): Promise<never> {

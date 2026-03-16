@@ -16,7 +16,7 @@ import * as AiModule from "../../../hql/lib/stdlib/js/ai.js";
 const STDLIB_IMPORT_PATH = "embedded:stdlib/index.js";
 const AI_IMPORT_PATH = "embedded:stdlib/ai.js";
 
-export interface ModuleLoaderOptions {
+interface ModuleLoaderOptions {
   state: ReplState;
   suppressErrors?: boolean;
 }

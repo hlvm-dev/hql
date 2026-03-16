@@ -39,7 +39,7 @@ export type KeybindingAction =
 // ============================================================
 
 /** Platform for display variants */
-export type Platform = "darwin" | "linux" | "win32";
+type Platform = "darwin" | "linux" | "win32";
 
 // ============================================================
 // Keybinding Definition

@@ -28,7 +28,7 @@ function getStartupWarnings(): string[] {
     : [];
 }
 
-export interface Command {
+interface Command {
   description: string;
   handler: (
     state: ReplState,
@@ -41,7 +41,7 @@ interface CommandContext {
   output: (...args: unknown[]) => void;
 }
 
-export interface RunCommandOptions {
+interface RunCommandOptions {
   onOutput?: (line: string) => void;
 }
 

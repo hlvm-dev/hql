@@ -203,20 +203,9 @@ const TEXT_COLLAPSE_MIN_LINES = 5;
 /** Minimum character count to trigger text collapse */
 const TEXT_COLLAPSE_MIN_CHARS = 300;
 
-/** Supported media file extensions (for quick check) */
-const MEDIA_EXTENSIONS = new Set(Object.keys(EXT_TO_MIME));
-
 // ============================================================================
 // Functions
 // ============================================================================
-
-/**
- * Check if a file path is a supported media file
- */
-function isSupportedMedia(path: string): boolean {
-  const ext = getExtension(path);
-  return MEDIA_EXTENSIONS.has(ext);
-}
 
 /**
  * Conversation/agent media support is narrower than generic file-type detection.

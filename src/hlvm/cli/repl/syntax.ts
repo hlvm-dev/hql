@@ -443,7 +443,7 @@ export function highlight(input: string, bracketPositions: number | number[] | n
 // ============================================================
 
 /** Maps closing delimiters to their opening counterparts */
-export const CLOSE_TO_OPEN: Readonly<Record<string, string>> = { ")": "(", "]": "[", "}": "{" };
+const CLOSE_TO_OPEN: Readonly<Record<string, string>> = { ")": "(", "]": "[", "}": "{" };
 
 /** Maps opening delimiters to their closing counterparts (also used for auto-close) */
 export const OPEN_TO_CLOSE: Readonly<Record<string, string>> = { "(": ")", "[": "]", "{": "}" };
@@ -470,7 +470,7 @@ const CLOSE_DELIMITER_SET: ReadonlySet<string> = new Set([")", "]", "}"]);
  * @param cursorPos - Cursor position
  * @returns Object with match info, or null if not inside empty pair
  */
-export function isInsideEmptyPair(
+function isInsideEmptyPair(
   value: string,
   cursorPos: number
 ): { open: string; close: string } | null {

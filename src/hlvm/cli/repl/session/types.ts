@@ -81,10 +81,3 @@ export function parseSessionFlags(args: string[]): SessionInitOptions {
   return { continue: continueSession, resumeId, forceNew, openPicker };
 }
 
-/** Options for listing global conversation sessions */
-export interface ListSessionsOptions {
-  /** Maximum number of sessions to return */
-  readonly limit?: number;
-  /** Sort order */
-  readonly sortOrder?: "recent" | "oldest" | "alpha";
-}

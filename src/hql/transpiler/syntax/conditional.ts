@@ -620,10 +620,10 @@ function partitionSwitchCases(
   let defaultCase: IR.IRSwitchCase | undefined;
   const regularCases: IR.IRSwitchCase[] = [];
   for (const c of cases) {
-    if ((c as IR.IRSwitchCase).test === null) {
-      defaultCase = c as IR.IRSwitchCase;
+    if (c.test === null) {
+      defaultCase = c;
     } else {
-      regularCases.push(c as IR.IRSwitchCase);
+      regularCases.push(c);
     }
   }
   return { defaultCase: defaultCase!, regularCases };

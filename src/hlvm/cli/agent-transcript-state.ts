@@ -68,7 +68,7 @@ export function createTranscriptState(): TranscriptState {
   };
 }
 
-export function getVisibleTodoState(
+function getVisibleTodoState(
   state: TranscriptState,
 ): TodoState | undefined {
   return state.planTodoState ?? state.todoState;
@@ -403,6 +403,28 @@ function findTrailingToolGroupIndex(items: ConversationItem[]): number {
   return -1;
 }
 
+/**
+ * Append an item to the list, inserting it before a trailing turn_stats
+ * item when the item is finalized (not pending).
+ */
+function appendBeforeTrailingTurnStats(
+  items: ConversationItem[],
+  item: ConversationItem,
+  isPending: boolean,
+): ConversationItem[] {
+  const nextItems = [...items];
+  if (
+    !isPending &&
+    nextItems.length > 0 &&
+    nextItems[nextItems.length - 1]?.type === "turn_stats"
+  ) {
+    nextItems.splice(nextItems.length - 1, 0, item);
+  } else {
+    nextItems.push(item);
+  }
+  return nextItems;
+}
+
 function upsertAssistantTextItem(
   state: TranscriptState,
   text: string,
@@ -465,17 +487,10 @@ function upsertAssistantTextItem(
         citations,
         isPending,
       };
-      const trailingTurnStatsIdx = !isPending &&
-          nextItems.length > 0 &&
-          nextItems[nextItems.length - 1]?.type === "turn_stats"
-        ? nextItems.length - 1
-        : -1;
-      if (trailingTurnStatsIdx >= 0) {
-        nextItems.splice(trailingTurnStatsIdx, 0, updatedAssistant);
-      } else {
-        nextItems.push(updatedAssistant);
-      }
-      return { ...baseState, items: nextItems };
+      return {
+        ...baseState,
+        items: appendBeforeTrailingTurnStats(nextItems, updatedAssistant, isPending),
+      };
     }
   }
 
@@ -491,17 +506,10 @@ function upsertAssistantTextItem(
     isPending,
     ts: Date.now(),
   };
-  const trailingTurnStatsIdx = !isPending &&
-      cleanedItems.length > 0 &&
-      cleanedItems[cleanedItems.length - 1]?.type === "turn_stats"
-    ? cleanedItems.length - 1
-    : -1;
-  if (trailingTurnStatsIdx >= 0) {
-    const nextItems = [...cleanedItems];
-    nextItems.splice(trailingTurnStatsIdx, 0, assistant);
-    return { ...nextState, items: nextItems };
-  }
-  return { ...nextState, items: [...cleanedItems, assistant] };
+  return {
+    ...nextState,
+    items: appendBeforeTrailingTurnStats(cleanedItems, assistant, isPending),
+  };
 }
 
 function derivePlanTodoState(
@@ -833,7 +841,6 @@ export function reduceTranscriptState(
               : state.planningPhase,
             streamingState: ConversationStreamingState.Responding,
           };
-          return state;
         case "turn_stats": {
           const cleaned = removeCurrentTurnTurnStats(
             cleanupTransientItems(state.items),

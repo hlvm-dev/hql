@@ -26,7 +26,7 @@ export interface ApplyContext {
 }
 
 /** Side effects that can be triggered by completion */
-export type CompletionSideEffect =
+type CompletionSideEffect =
   | { type: "ADD_ATTACHMENT"; path: string }
   | { type: "ENTER_PLACEHOLDER_MODE"; params: string[]; startPos: number }
   | { type: "EXECUTE" }  // Execute command immediately (for slash commands)

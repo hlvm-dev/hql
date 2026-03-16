@@ -19,8 +19,8 @@ import {
   getErrorFixes,
   HQLErrorCode,
 } from "./error-codes.ts";
-import { getErrorMessage, isObjectValue, LINE_SPLIT_REGEX } from "./utils.ts";
-import { extractContextLinesFromSource } from "./context-helpers.ts";
+import { getErrorMessage, isObjectValue } from "./utils.ts";
+import { extractContextLinesFromFile, extractContextLinesFromSource } from "./context-helpers.ts";
 
 // -----------------------------------------------------------------------------
 // Pre-compiled Regex Patterns
@@ -407,60 +407,20 @@ export async function formatHQLError(
     );
     output.push(...formattedLines);
   } else if (error.sourceLocation?.filePath && error.sourceLocation.line) {
-    // Try to load context lines from file
-    try {
-      const filepath = error.sourceLocation.filePath;
-      const line = error.sourceLocation.line;
-      const column = error.sourceLocation.column || 1;
-
-      const fileContent = await getPlatform().fs.readTextFile(filepath);
-      const fileLines = fileContent.split(LINE_SPLIT_REGEX);
-      const errorIdx = line - 1;
-
-      if (errorIdx >= 0 && errorIdx < fileLines.length) {
-        const contextLines: Array<
-          { line: number; content: string; isError: boolean; column?: number }
-        > = [];
-
-        // 2 lines before
-        for (let i = Math.max(0, errorIdx - 2); i < errorIdx; i++) {
-          contextLines.push({
-            line: i + 1,
-            content: fileLines[i],
-            isError: false,
-          });
-        }
-
-        // Error line
-        contextLines.push({
-          line: line,
-          content: fileLines[errorIdx],
-          isError: true,
-          column: column > 0 ? column : undefined,
-        });
-
-        // 2 lines after
-        for (
-          let i = errorIdx + 1;
-          i <= Math.min(fileLines.length - 1, errorIdx + 2);
-          i++
-        ) {
-          contextLines.push({
-            line: i + 1,
-            content: fileLines[i],
-            isError: false,
-          });
-        }
-
-        const formattedLines = formatContextLines(
-          contextLines,
-          colors,
-          error.message,
-        );
-        output.push(...formattedLines);
-      }
-    } catch {
-      // Silently skip context if file can't be read
+    // Load context lines from file using shared helper (avoids inline duplication)
+    const fileContextLines = await extractContextLinesFromFile(
+      error.sourceLocation.filePath,
+      error.sourceLocation.line,
+      error.sourceLocation.column || 1,
+      2,
+    );
+    if (fileContextLines && fileContextLines.length > 0) {
+      const formattedLines = formatContextLines(
+        fileContextLines,
+        colors,
+        error.message,
+      );
+      output.push(...formattedLines);
     }
   }
 

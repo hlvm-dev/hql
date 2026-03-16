@@ -72,14 +72,8 @@ function countDepth(text: string, open: string, close: string): number {
 
 /** Count angle bracket depth: positive if more '<' than '>' */
 export const countAngleBracketDepth = (text: string): number => countDepth(text, "<", ">");
-
-/** Count brace depth: positive if more '{' than '}' */
 export const countBraceDepth = (text: string): number => countDepth(text, "{", "}");
-
-/** Count bracket depth: positive if more '[' than ']' */
 export const countBracketDepth = (text: string): number => countDepth(text, "[", "]");
-
-/** Count parenthesis depth: positive if more '(' than ')' */
 export const countParenDepth = (text: string): number => countDepth(text, "(", ")");
 
 // ============================================================================

@@ -193,15 +193,13 @@ export async function transformAST(
       }
     }
 
-    const javascript = result;
-
     timer.phase("JS code generation");
 
     timer.breakdown();
 
     return {
-      code: javascript.code,
-      sourceMap: javascript.sourceMap,
+      code: result.code,
+      sourceMap: result.sourceMap,
       ir: ir,
     };
   } catch (error) {

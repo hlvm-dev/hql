@@ -21,7 +21,6 @@ import type {
 import * as api from "./api.ts";
 import { getOllamaCatalogAsync } from "./catalog.ts";
 import { DEFAULT_MODEL_NAME, DEFAULT_OLLAMA_ENDPOINT } from "../../../common/config/types.ts";
-import { extractSignal } from "../common.ts";
 import {
   chatStructuredWithSdk,
   chatWithSdk,
@@ -93,7 +92,7 @@ export class OllamaProvider implements AIProvider {
       this.buildSpec(this.getModel(opts)),
       prompt,
       opts,
-      extractSignal(opts),
+      opts?.signal,
     );
   }
 
@@ -109,7 +108,7 @@ export class OllamaProvider implements AIProvider {
       this.buildSpec(this.getModel(opts)),
       messages,
       opts,
-      extractSignal(opts),
+      opts?.signal,
     );
   }
 
@@ -125,7 +124,7 @@ export class OllamaProvider implements AIProvider {
       this.buildSpec(this.getModel(opts)),
       messages,
       opts,
-      extractSignal(opts),
+      opts?.signal,
     );
   }
 

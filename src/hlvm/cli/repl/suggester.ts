@@ -63,7 +63,7 @@ export interface Suggestion {
   readonly ghost: string;
 }
 
-export type SuggestionIntent = "accept" | "submit";
+type SuggestionIntent = "accept" | "submit";
 
 /**
  * Find autosuggestion for current input from history AND bindings.

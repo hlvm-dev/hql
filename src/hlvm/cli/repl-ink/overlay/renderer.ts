@@ -68,7 +68,7 @@ export interface ClearRegion {
 }
 
 /** Fitted overlay rectangle within the current terminal viewport. */
-export interface OverlayRect {
+interface OverlayRect {
   x: number;
   y: number;
   width: number;

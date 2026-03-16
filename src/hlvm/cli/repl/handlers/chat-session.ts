@@ -22,7 +22,6 @@ import {
   type ChatRequest,
 } from "../../../runtime/chat-protocol.ts";
 
-export const CHAT_CONTEXT_HISTORY_LIMIT = 80;
 export const TITLE_SEARCH_HISTORY_LIMIT = 40;
 export const AGENT_CONTEXT_HISTORY_LIMIT = 20;
 const INTERACTION_TIMEOUT_MS = 300_000;

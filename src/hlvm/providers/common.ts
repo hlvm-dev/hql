@@ -81,16 +81,3 @@ export async function throwOnHttpError(
   );
 }
 
-// =============================================================================
-// Signal Extraction
-// =============================================================================
-
-/**
- * Extract AbortSignal from provider options.
- * SSOT: All providers use the typed `options.signal` field.
- */
-export function extractSignal(
-  options?: { signal?: AbortSignal },
-): AbortSignal | undefined {
-  return options?.signal;
-}

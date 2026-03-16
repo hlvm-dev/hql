@@ -91,8 +91,7 @@ export async function createRuntimeConfigManager(): Promise<
     ensureInitialModelConfigured: async (options = {}) => {
       return await ensureInitialModelConfiguredCommon(options, {
         getSnapshot: () => runtimeConfig,
-        getStatus: (providerName?: string) =>
-          getRuntimeProviderStatus(providerName),
+        getStatus: getRuntimeProviderStatus,
         listModels: listRuntimeInstalledModels,
         listCatalogModels: async () => {
           const snapshot = await getRuntimeModelDiscovery();
@@ -105,8 +104,7 @@ export async function createRuntimeConfigManager(): Promise<
     autoConfigureInitialClaudeCodeModel: async () => {
       return await autoConfigureInitialClaudeCodeModel({
         getSnapshot: () => runtimeConfig,
-        getStatus: (providerName?: string) =>
-          getRuntimeProviderStatus(providerName),
+        getStatus: getRuntimeProviderStatus,
         listModels: listRuntimeInstalledModels,
         patchConfig,
       });

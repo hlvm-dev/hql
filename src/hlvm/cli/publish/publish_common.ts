@@ -96,7 +96,7 @@ export async function findMetadataSourcePath(
 /**
  * Produces a normalized module name based on the entry file location.
  */
-export function sanitizeModuleName(
+function sanitizeModuleName(
   rawName: string,
   fallback = "module",
 ): string {

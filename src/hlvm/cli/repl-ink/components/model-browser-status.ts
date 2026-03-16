@@ -12,46 +12,34 @@ export type ModelStatusKind =
 export const MODEL_BROWSER_FOCUSED_LABEL = "Focused";
 export const MODEL_BROWSER_SELECT_ACTION_LABEL = "make default";
 
+const MODEL_STATUS_LABELS: Record<ModelStatusKind, string> = {
+  "pending-delete": "pending delete",
+  active: "default",
+  installed: "installed",
+  downloading: "downloading",
+  cancelled: "cancelled",
+  failed: "failed",
+  "needs-key": "needs key",
+  cloud: "cloud",
+  available: "not installed",
+};
+
 export function getModelStatusLabel(kind: ModelStatusKind): string {
-  switch (kind) {
-    case "pending-delete":
-      return "pending delete";
-    case "active":
-      return "default";
-    case "installed":
-      return "installed";
-    case "downloading":
-      return "downloading";
-    case "cancelled":
-      return "cancelled";
-    case "failed":
-      return "failed";
-    case "needs-key":
-      return "needs key";
-    case "cloud":
-      return "cloud";
-    case "available":
-      return "not installed";
-  }
+  return MODEL_STATUS_LABELS[kind];
 }
 
+const STATUS_INDICATORS: Record<ModelStatusKind, string> = {
+  "pending-delete": "? ",
+  active: "* ",
+  installed: "○ ",
+  downloading: "↓ ",
+  cancelled: "⊘ ",
+  failed: "✗ ",
+  "needs-key": "☁ ",
+  cloud: "☁ ",
+  available: "☁ ",
+};
+
 export function getStatusIndicator(kind: ModelStatusKind): string {
-  switch (kind) {
-    case "pending-delete":
-      return "? ";
-    case "active":
-      return "* ";
-    case "installed":
-      return "○ ";
-    case "downloading":
-      return "↓ ";
-    case "cancelled":
-      return "⊘ ";
-    case "failed":
-      return "✗ ";
-    case "needs-key":
-    case "cloud":
-    case "available":
-      return "☁ ";
-  }
+  return STATUS_INDICATORS[kind];
 }

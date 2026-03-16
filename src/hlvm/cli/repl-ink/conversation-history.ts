@@ -128,16 +128,9 @@ function buildDelegateItemsFromSession(
 }
 
 function getItemTimestamp(item: ConversationItem): number {
-  switch (item.type) {
-    case "user":
-    case "assistant":
-    case "tool_group":
-    case "delegate":
-    case "info":
-      return item.ts ?? Number.MAX_SAFE_INTEGER;
-    default:
-      return Number.MAX_SAFE_INTEGER;
-  }
+  return "ts" in item && typeof item.ts === "number"
+    ? item.ts
+    : Number.MAX_SAFE_INTEGER;
 }
 
 function resolvePlanningPhase(

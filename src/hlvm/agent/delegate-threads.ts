@@ -114,6 +114,15 @@ const threads = new Map<string, DelegateThread>();
 const completedQueue: string[] = [];
 const completedQueueSet = new Set<string>();
 
+/** DRY helper: look up a thread and apply a mutation if it exists. */
+function withThread(
+  threadId: string,
+  mutate: (thread: DelegateThread) => void,
+): void {
+  const thread = threads.get(threadId);
+  if (thread) mutate(thread);
+}
+
 export function registerThread(thread: DelegateThread): void {
   threads.set(thread.threadId, thread);
 }
@@ -160,43 +169,33 @@ export function updateThreadStatus(
   threadId: string,
   status: DelegateThreadStatus,
 ): void {
-  const thread = threads.get(threadId);
-  if (thread) {
+  withThread(threadId, (thread) => {
     thread.status = status;
     if (TERMINAL_STATUSES.has(status)) {
       thread.completedAt = Date.now();
     }
-  }
+  });
 }
 
 export function updateThreadSnapshot(
   threadId: string,
   snapshot: DelegateTranscriptSnapshot,
 ): void {
-  const thread = threads.get(threadId);
-  if (thread) {
-    thread.snapshot = snapshot;
-  }
+  withThread(threadId, (thread) => { thread.snapshot = snapshot; });
 }
 
 export function updateThreadResult(
   threadId: string,
   result: DelegateThreadResult,
 ): void {
-  const thread = threads.get(threadId);
-  if (thread) {
-    thread.terminalResult = result;
-  }
+  withThread(threadId, (thread) => { thread.terminalResult = result; });
 }
 
 export function updateThreadChildSession(
   threadId: string,
   childSessionId: string,
 ): void {
-  const thread = threads.get(threadId);
-  if (thread) {
-    thread.childSessionId = childSessionId;
-  }
+  withThread(threadId, (thread) => { thread.childSessionId = childSessionId; });
 }
 
 export function updateThreadWorkspace(
@@ -206,13 +205,12 @@ export function updateThreadWorkspace(
   sandboxCapability: SandboxCapability,
   cleanup: () => Promise<void>,
 ): void {
-  const thread = threads.get(threadId);
-  if (thread) {
+  withThread(threadId, (thread) => {
     thread.workspacePath = workspacePath;
     thread.workspaceKind = workspaceKind;
     thread.sandboxCapability = sandboxCapability;
     thread.workspaceCleanup = cleanup;
-  }
+  });
 }
 
 export function updateThreadDiff(
@@ -220,34 +218,25 @@ export function updateThreadDiff(
   diff: string,
   filesModified: string[],
 ): void {
-  const thread = threads.get(threadId);
-  if (thread) {
+  withThread(threadId, (thread) => {
     thread.resultDiff = diff;
     thread.filesModified = filesModified;
-    thread.mergeState = filesModified.length > 0
-      ? "pending"
-      : thread.mergeState;
-  }
+    if (filesModified.length > 0) thread.mergeState = "pending";
+  });
 }
 
 export function updateThreadParentSnapshots(
   threadId: string,
   snapshots: Map<string, string>,
 ): void {
-  const thread = threads.get(threadId);
-  if (thread) {
-    thread.parentSnapshots = snapshots;
-  }
+  withThread(threadId, (thread) => { thread.parentSnapshots = snapshots; });
 }
 
 export function updateThreadBatchId(
   threadId: string,
   batchId: string,
 ): void {
-  const thread = threads.get(threadId);
-  if (thread) {
-    thread.batchId = batchId;
-  }
+  withThread(threadId, (thread) => { thread.batchId = batchId; });
 }
 
 export function updateThreadMerge(
@@ -255,12 +244,10 @@ export function updateThreadMerge(
   mergeState: DelegateMergeState,
   mergeResult?: DelegateMergeResult,
 ): void {
-  const thread = threads.get(threadId);
-  if (!thread) return;
-  thread.mergeState = mergeState;
-  if (mergeResult) {
-    thread.mergeResult = mergeResult;
-  }
+  withThread(threadId, (thread) => {
+    thread.mergeState = mergeState;
+    if (mergeResult) thread.mergeResult = mergeResult;
+  });
 }
 
 export function enqueueThreadCompletion(threadId: string): void {

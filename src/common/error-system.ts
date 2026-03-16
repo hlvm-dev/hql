@@ -2,7 +2,6 @@
 
 // Pre-compiled patterns for error location inference
 const TYPO_FOM_REGEX = /\bfom\b/;
-const ALPHANUMERIC_REGEX = /[a-zA-Z0-9_]/;
 
 import { HQLError, RuntimeError } from "./error.ts";
 import { globalLogger as logger } from "../logger.ts";
@@ -98,7 +97,7 @@ export async function enrichErrorWithContext(
 ): Promise<Error | HQLError> {
   let workingError: Error | HQLError = error;
 
-  // If it's already an HQLError with context, don't modify it
+  // Early return: already has context lines
   if (
     workingError instanceof HQLError &&
     workingError.contextLines &&
@@ -107,6 +106,7 @@ export async function enrichErrorWithContext(
     return workingError;
   }
 
+  // Attempt to resolve source-map location from runtime stack
   const runtimeCandidate = workingError instanceof HQLError
     ? workingError.originalError
     : workingError;
@@ -119,15 +119,12 @@ export async function enrichErrorWithContext(
       mappedLocation = await resolveRuntimeLocation(runtimeCandidate);
     } catch (mappingError) {
       logger.debug(
-        `Failed to resolve runtime location: ${
-          mappingError instanceof Error
-            ? mappingError.message
-            : String(mappingError)
-        }`,
+        `Failed to resolve runtime location: ${getErrorMessage(mappingError)}`,
       );
     }
   }
 
+  // Apply mapped location to the error
   if (mappedLocation) {
     const resolvedFile = mappedLocation.filePath ?? filePath;
 
@@ -155,50 +152,41 @@ export async function enrichErrorWithContext(
     }
   }
 
-  // If it's an HQLError but missing source location info, try to add it
-  if (workingError instanceof HQLError) {
-    if (!workingError.sourceLocation.filePath && filePath) {
-      workingError.sourceLocation.filePath = filePath;
-    }
+  // Backfill filePath on HQLError if still missing
+  if (workingError instanceof HQLError && !workingError.sourceLocation.filePath && filePath) {
+    workingError.sourceLocation.filePath = filePath;
   }
 
-  // Extract the source file path from the error or use provided filePath
+  // Determine source path for context extraction
   const sourcePath = workingError instanceof HQLError
     ? workingError.sourceLocation.filePath || filePath
     : filePath;
 
-  // Can't add context without a source file
-  if (!sourcePath) {
-    return workingError;
-  }
+  // Early return: no source file to read
+  if (!sourcePath) return workingError;
 
   try {
-    // Try to read the source file
     const content = await getPlatform().fs.readTextFile(sourcePath);
 
-    if (workingError instanceof HQLError) {
-      // If we have line info, use it
-      if (workingError.sourceLocation.line) {
-        // Use unified context extraction helper
-        workingError.contextLines = extractContextLinesFromSource(
-          content,
-          workingError.sourceLocation.line,
-          workingError.sourceLocation.column,
-          2,
-        );
-      } else {
-        // If we don't have line info, try to infer from error message
-        workingError = inferErrorLocationFromMessage(workingError, content);
-      }
-    } else {
+    if (!(workingError instanceof HQLError)) {
+      // Wrap plain Error as HQLError and infer location
       const hqlError = new HQLError(workingError.message, {
         errorType: "Error",
         originalError: workingError,
         sourceLocation: { filePath: sourcePath },
       });
+      return inferErrorLocationFromMessage(hqlError, content);
+    }
 
-      const enhancedError = inferErrorLocationFromMessage(hqlError, content);
-      return enhancedError;
+    if (workingError.sourceLocation.line) {
+      workingError.contextLines = extractContextLinesFromSource(
+        content,
+        workingError.sourceLocation.line,
+        workingError.sourceLocation.column,
+        2,
+      );
+    } else {
+      workingError = inferErrorLocationFromMessage(workingError, content);
     }
   } catch (readError) {
     logger.debug(
@@ -286,7 +274,11 @@ function inferErrorLocationFromMessage(
  * Check if a character is alphanumeric or underscore
  */
 function isAlphaNumeric(char: string): boolean {
-  return ALPHANUMERIC_REGEX.test(char);
+  const c = char.charCodeAt(0);
+  return (c >= 48 && c <= 57) ||  // 0-9
+         (c >= 65 && c <= 90) ||  // A-Z
+         (c >= 97 && c <= 122) || // a-z
+         c === 95;                // _
 }
 
 // Re-export setRuntimeContext as setErrorContext for cleaner API

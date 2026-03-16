@@ -238,6 +238,21 @@ function cloneDelegateBatchSnapshot(
   };
 }
 
+/** DRY helper: clone a Plan for safe persistence (deep-copy arrays). */
+function clonePlanForPersistence(plan: Plan): Plan {
+  return {
+    goal: plan.goal,
+    steps: plan.steps.map((step) => ({
+      id: step.id,
+      title: step.title,
+      ...(step.goal ? { goal: step.goal } : {}),
+      ...(step.tools ? { tools: [...step.tools] } : {}),
+      ...(step.successCriteria ? { successCriteria: [...step.successCriteria] } : {}),
+      ...(step.agent ? { agent: step.agent } : {}),
+    })),
+  };
+}
+
 function isPlanRecord(value: unknown): value is Plan {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
@@ -263,18 +278,13 @@ function isPendingPlanReviewRecord(
 function isTeamRuntimeSnapshotRecord(value: unknown): value is TeamRuntimeSnapshot {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
-  if (
-    typeof record.teamId !== "string" ||
-    typeof record.leadMemberId !== "string" ||
-    !Array.isArray(record.members) ||
-    !Array.isArray(record.tasks) ||
-    !Array.isArray(record.messages) ||
-    !Array.isArray(record.approvals) ||
-    !Array.isArray(record.shutdowns)
-  ) {
-    return false;
-  }
-  return true;
+  return typeof record.teamId === "string" &&
+    typeof record.leadMemberId === "string" &&
+    Array.isArray(record.members) &&
+    Array.isArray(record.tasks) &&
+    Array.isArray(record.messages) &&
+    Array.isArray(record.approvals) &&
+    Array.isArray(record.shutdowns);
 }
 
 function isDelegateBatchSnapshotRecord(
@@ -328,19 +338,7 @@ export function persistAgentPlanState(
   completedPlanStepIds: Iterable<string>,
 ): void {
   updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
-    metadata.plan = plan
-      ? {
-        goal: plan.goal,
-        steps: plan.steps.map((step) => ({
-          id: step.id,
-          title: step.title,
-          ...(step.goal ? { goal: step.goal } : {}),
-          ...(step.tools ? { tools: [...step.tools] } : {}),
-          ...(step.successCriteria ? { successCriteria: [...step.successCriteria] } : {}),
-          ...(step.agent ? { agent: step.agent } : {}),
-        })),
-      }
-      : undefined;
+    metadata.plan = plan ? clonePlanForPersistence(plan) : undefined;
     metadata.completedPlanStepIds = plan
       ? [...new Set([...completedPlanStepIds])]
       : undefined;
@@ -356,17 +354,7 @@ export function persistPendingPlanReview(
     metadata.pendingPlanReview = {
       requestId,
       requestedAt: Date.now(),
-      plan: {
-        goal: plan.goal,
-        steps: plan.steps.map((step) => ({
-          id: step.id,
-          title: step.title,
-          ...(step.goal ? { goal: step.goal } : {}),
-          ...(step.tools ? { tools: [...step.tools] } : {}),
-          ...(step.successCriteria ? { successCriteria: [...step.successCriteria] } : {}),
-          ...(step.agent ? { agent: step.agent } : {}),
-        })),
-      },
+      plan: clonePlanForPersistence(plan),
     };
   });
 }

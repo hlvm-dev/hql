@@ -451,11 +451,6 @@ function inferDataType(node: SExp): string {
         if (className === "Map") return "Map";
         if (className.includes("Array")) return "Array";
 
-        const classInfo = currentSymbolTable.get(className);
-        if (classInfo?.kind === "class") {
-          return className;
-        }
-
         return className;
       }
 

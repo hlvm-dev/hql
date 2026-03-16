@@ -97,10 +97,7 @@ const SENTENCE_SPLIT_RE = /[^.!?\n]+[.!?]?/g;
 
 function shouldSkipText(content: string): boolean {
   const trimmed = content.trim();
-  if (!trimmed) return true;
-  if (trimmed.length < 8) return true;
-  if (CODE_FENCE_RE.test(trimmed)) return true;
-  return false;
+  return !trimmed || trimmed.length < 8 || CODE_FENCE_RE.test(trimmed);
 }
 
 function normalizeExtractedContent(content: string): string {
@@ -403,35 +400,24 @@ export async function extractSessionFacts(
     return { factsExtracted: 0, entitiesCreated: 0 };
   }
 
+  const pick = (r: PersistedExtractionResult) => ({
+    factsExtracted: r.factsExtracted,
+    entitiesCreated: r.entitiesCreated,
+  });
+
   // Try LLM extraction first, fall back to regex
   const llmFacts = await extractFactsWithLLM(messages, model);
   if (llmFacts.length > 0) {
-    const result = persistExtractedFacts(llmFacts, {
+    return pick(persistExtractedFacts(llmFacts, {
       source: "extracted",
       invalidateConflicts: false,
       modelTier,
-    });
-    return {
-      factsExtracted: result.factsExtracted,
-      entitiesCreated: result.entitiesCreated,
-    };
+    }));
   }
 
   // Fallback to regex-based extraction
-  const fallbackOpts = {
-    source: "extracted" as const,
-    modelTier,
-    limit: 20,
-    minMessages: 2,
-    role: "user",
-  };
-  const result = persistExtractedFacts(
-    extractBaselineFactsFromMessages(messages, fallbackOpts),
-    fallbackOpts,
-  );
-
-  return {
-    factsExtracted: result.factsExtracted,
-    entitiesCreated: result.entitiesCreated,
-  };
+  return pick(persistExtractedFacts(
+    extractBaselineFactsFromMessages(messages, { limit: 20, minMessages: 2, role: "user" }),
+    { source: "extracted", modelTier },
+  ));
 }

@@ -309,71 +309,38 @@ function ensureHelpers(): void {
     }
   };
 
-  if (typeof globalAny.__hql_range !== "function") {
-    globalAny.__hql_range = __hql_range;
+  // Register runtime helper functions on global scope.
+  // Each entry: guard (typeof !== "function") then assign.
+  // Includes: range, sequence conversions, iteration, hash-map, match-obj, throw,
+  // deepFreeze (REPL/transpiled parity), trampolines (mutual recursion TCO),
+  // first-class operators, lazy-seq/delay (stdlib foundation).
+  const functionHelpers: [string, unknown][] = [
+    ["__hql_range", __hql_range],
+    ["__hql_toSequence", __hql_toSequence],
+    ["__hql_toIterable", __hql_toIterable],
+    ["__hql_for_each", __hql_for_each],
+    ["__hql_hash_map", __hql_hash_map],
+    ["__hql_match_obj", __hql_match_obj],
+    ["__hql_throw", __hql_throw],
+    ["__hql_deepFreeze", __hql_deepFreeze],
+    ["__hql_trampoline", __hql_trampoline],
+    ["__hql_trampoline_gen", __hql_trampoline_gen],
+    ["__hql_get_op", __hql_get_op],
+    ["__hql_lazy_seq", __hql_lazy_seq],
+    ["__hql_delay", __hql_delay],
+  ];
+  const globalRecord = globalAny as unknown as Record<string, unknown>;
+  for (const [name, impl] of functionHelpers) {
+    if (typeof globalRecord[name] !== "function") {
+      globalRecord[name] = impl;
+    }
   }
 
-  if (typeof globalAny.__hql_toSequence !== "function") {
-    globalAny.__hql_toSequence = __hql_toSequence;
-  }
-
-  if (typeof globalAny.__hql_toIterable !== "function") {
-    globalAny.__hql_toIterable = __hql_toIterable;
-  }
-
-  if (typeof globalAny.__hql_for_each !== "function") {
-    globalAny.__hql_for_each = __hql_for_each;
-  }
-
-  if (typeof globalAny.__hql_hash_map !== "function") {
-    globalAny.__hql_hash_map = __hql_hash_map;
-  }
-
-  if (typeof globalAny.__hql_match_obj !== "function") {
-    globalAny.__hql_match_obj = __hql_match_obj;
-  }
-
-  if (typeof globalAny.__hql_throw !== "function") {
-    globalAny.__hql_throw = __hql_throw;
-  }
-
-  // Use the shared __hql_deepFreeze implementation from runtime-helper-impl.ts
-  // This ensures REPL and transpiled code have identical behavior
-  if (typeof globalAny.__hql_deepFreeze !== "function") {
-    globalAny.__hql_deepFreeze = __hql_deepFreeze;
-  }
-
-  // Trampoline for mutual recursion TCO
-  if (typeof globalAny.__hql_trampoline !== "function") {
-    globalAny.__hql_trampoline = __hql_trampoline;
-  }
-
-  // Generator trampoline for mutual recursion TCO
-  if (typeof globalAny.__hql_trampoline_gen !== "function") {
-    globalAny.__hql_trampoline_gen = __hql_trampoline_gen;
-  }
-
-  // Generator thunk symbol for tagged thunks
+  // Generator thunk symbol for tagged thunks (truthy check, not typeof function)
   if (!globalAny.__hql_gen_thunk_symbol) {
     globalAny.__hql_gen_thunk_symbol = GEN_THUNK_SYMBOL;
   }
 
-  // First-class operators: allows (reduce + 0 nums) by converting operator symbols to functions
-  if (typeof globalAny.__hql_get_op !== "function") {
-    globalAny.__hql_get_op = __hql_get_op;
-  }
-
-  // Self-hosted stdlib foundation: lazy-seq bridge function
-  if (typeof globalAny.__hql_lazy_seq !== "function") {
-    globalAny.__hql_lazy_seq = __hql_lazy_seq;
-  }
-
-  // Self-hosted stdlib foundation: delay bridge function (explicit laziness)
-  if (typeof globalAny.__hql_delay !== "function") {
-    globalAny.__hql_delay = __hql_delay;
-  }
-
-  // Add gensym for hygienic macros
   // Runtime gensym returns string (the generated symbol name)
   // Macro-time gensym (in environment.ts) returns GensymSymbol for proper unquoting
   if (typeof globalAny.gensym !== "function") {

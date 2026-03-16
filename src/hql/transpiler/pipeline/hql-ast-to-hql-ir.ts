@@ -115,85 +115,6 @@ function parseGenericName(fullName: string): { name: string; typeParameters: str
   return { name: fullName, typeParameters: undefined };
 }
 
-/**
- * Check if an IR node is an expression (not a statement/declaration)
- * Expressions need to be wrapped in ExpressionStatement at the top level
- */
-function isExpression(node: IR.IRNode): boolean {
-  switch (node.type) {
-    // Literals
-    case IR.IRNodeType.StringLiteral:
-    case IR.IRNodeType.NumericLiteral:
-    case IR.IRNodeType.BooleanLiteral:
-    case IR.IRNodeType.NullLiteral:
-    case IR.IRNodeType.Identifier:
-
-    // Expressions
-    case IR.IRNodeType.CallExpression:
-    case IR.IRNodeType.MemberExpression:
-    case IR.IRNodeType.CallMemberExpression:
-    case IR.IRNodeType.NewExpression:
-    case IR.IRNodeType.BinaryExpression:
-    case IR.IRNodeType.UnaryExpression:
-    case IR.IRNodeType.ConditionalExpression:
-    case IR.IRNodeType.ArrayExpression:
-    case IR.IRNodeType.FunctionExpression:
-    case IR.IRNodeType.ObjectExpression:
-    case IR.IRNodeType.AssignmentExpression:
-    case IR.IRNodeType.InteropIIFE:
-    case IR.IRNodeType.JsMethodAccess:
-    case IR.IRNodeType.AwaitExpression:
-      return true;
-
-    // Statements and declarations - don't wrap
-    case IR.IRNodeType.VariableDeclaration:
-    case IR.IRNodeType.FunctionDeclaration:
-    case IR.IRNodeType.FnFunctionDeclaration:
-    case IR.IRNodeType.ClassDeclaration:
-    case IR.IRNodeType.EnumDeclaration:
-    case IR.IRNodeType.ReturnStatement:
-    case IR.IRNodeType.BlockStatement:
-    case IR.IRNodeType.ExpressionStatement:
-    case IR.IRNodeType.IfStatement:
-    case IR.IRNodeType.ThrowStatement:
-    case IR.IRNodeType.TryStatement:
-    case IR.IRNodeType.ImportDeclaration:
-    case IR.IRNodeType.ExportNamedDeclaration:
-    case IR.IRNodeType.ExportVariableDeclaration:
-    case IR.IRNodeType.ExportDefaultDeclaration:
-    case IR.IRNodeType.TypeAliasDeclaration:
-    case IR.IRNodeType.InterfaceDeclaration:
-    case IR.IRNodeType.AbstractClassDeclaration:
-    case IR.IRNodeType.AbstractMethod:
-    case IR.IRNodeType.DeclareStatement:
-    case IR.IRNodeType.NamespaceDeclaration:
-    case IR.IRNodeType.ConstEnumDeclaration:
-    case IR.IRNodeType.FunctionOverload:
-    // Native type expressions (should not be wrapped)
-    case IR.IRNodeType.TypeReference:
-    case IR.IRNodeType.KeyofType:
-    case IR.IRNodeType.IndexedAccessType:
-    case IR.IRNodeType.ConditionalType:
-    case IR.IRNodeType.MappedType:
-    case IR.IRNodeType.UnionType:
-    case IR.IRNodeType.IntersectionType:
-    case IR.IRNodeType.TupleType:
-    case IR.IRNodeType.ArrayType:
-    case IR.IRNodeType.FunctionTypeExpr:
-    case IR.IRNodeType.InferType:
-    case IR.IRNodeType.ReadonlyType:
-    case IR.IRNodeType.TypeofType:
-    case IR.IRNodeType.LiteralType:
-    case IR.IRNodeType.RestType:
-    case IR.IRNodeType.OptionalType:
-      return false;
-
-    default:
-      // Unknown types - be conservative and wrap them
-      return true;
-  }
-}
-
 export function extractMeta(
   source:
     | HQLNode
@@ -390,7 +311,7 @@ export function transformToIR(
     if (ir) {
       // Wrap expressions in ExpressionStatement when at top level
       // Statements can be added directly
-      if (isExpression(ir)) {
+      if (isExpressionResult(ir)) {
         body.push({
           type: IR.IRNodeType.ExpressionStatement,
           expression: ir,
@@ -1846,6 +1767,7 @@ export function isExpressionResult(node: IR.IRNode): boolean {
     case IR.IRNodeType.CallMemberExpression:
     case IR.IRNodeType.NewExpression:
     case IR.IRNodeType.BinaryExpression:
+    case IR.IRNodeType.LogicalExpression:
     case IR.IRNodeType.UnaryExpression:
     case IR.IRNodeType.ConditionalExpression:
     case IR.IRNodeType.ArrayExpression:
@@ -2122,9 +2044,6 @@ function isBuiltInOperator(op: string): boolean {
  * For example, (myFunction arg) is a function call, while (myArray 0) is a collection access.
  * This function makes the determination based on structural analysis rather than naming patterns.
  */
-/**
- * Determines if a list represents a function call or a collection access.
- */
 function determineCallOrAccess(
   list: ListNode,
   currentDir: string,
@@ -2150,18 +2069,17 @@ function determineCallOrAccess(
         },
         arguments: [],
       } as IR.IRCallExpression;
-    } else {
-      // Otherwise, just transform the single element (for e.g., nested list)
-      const singleElement = transformHQLNodeToIR(only, currentDir);
-      if (!singleElement) {
-        throw new TransformError(
-          "Single element transformed to null",
-          JSON.stringify(list),
-          "Single element transformation",
-        );
-      }
-      return singleElement;
     }
+    // Otherwise, just transform the single element (for e.g., nested list)
+    const singleElement = transformHQLNodeToIR(only, currentDir);
+    if (!singleElement) {
+      throw new TransformError(
+        "Single element transformed to null",
+        JSON.stringify(list),
+        "Single element transformation",
+      );
+    }
+    return singleElement;
   }
 
   // Transform the first element
@@ -2282,7 +2200,7 @@ function createCallExpression(
 
   return {
     type: IR.IRNodeType.CallExpression,
-    callee: callee,
+    callee,
     arguments: args,
   } as IR.IRCallExpression;
 }
@@ -2292,54 +2210,24 @@ function createCallExpression(
  * Returns array of segments: [{name: "user", optional: false}, {name: "name", optional: true}]
  */
 function parseOptionalChainSegments(name: string): { name: string; optional: boolean }[] {
+  // Split on `?.` or `.` while preserving the delimiter type.
+  // The regex captures the delimiter so we can tell optional from regular access.
+  // E.g. "obj?.a.b?.c" -> ["obj", "?.", "a", ".", "b", "?.", "c"]
+  const parts = name.split(/(\?\.|\.)/).filter(Boolean);
   const segments: { name: string; optional: boolean }[] = [];
 
-  // Split by both ?. and . while preserving which type of access it was
-  // E.g., "obj?.a.b?.c" -> ["obj", "?.a", ".b", "?.c"]
-  let current = "";
-  let i = 0;
-
-  while (i < name.length) {
-    if (name[i] === "?" && name[i + 1] === ".") {
-      // Found optional access
-      if (current) {
-        segments.push({ name: current, optional: false });
-      }
-      current = "";
-      i += 2; // Skip ?.
-      // Parse the property name
-      while (i < name.length && name[i] !== "?" && name[i] !== ".") {
-        current += name[i];
-        i++;
-      }
-      if (current) {
-        segments.push({ name: current, optional: true });
-        current = "";
-      }
-    } else if (name[i] === ".") {
-      // Found regular access
-      if (current) {
-        segments.push({ name: current, optional: false });
-      }
-      current = "";
-      i++; // Skip .
-      // Parse the property name
-      while (i < name.length && name[i] !== "?" && name[i] !== ".") {
-        current += name[i];
-        i++;
-      }
-      if (current) {
-        segments.push({ name: current, optional: false });
-        current = "";
-      }
-    } else {
-      current += name[i];
-      i++;
-    }
+  // First token is always the base object (non-optional)
+  if (parts.length > 0 && parts[0] !== "?." && parts[0] !== ".") {
+    segments.push({ name: parts[0], optional: false });
   }
 
-  if (current) {
-    segments.push({ name: current, optional: false });
+  // Process remaining delimiter+name pairs
+  for (let i = 1; i < parts.length; i += 2) {
+    const delimiter = parts[i];
+    const prop = parts[i + 1];
+    if (prop) {
+      segments.push({ name: prop, optional: delimiter === "?." });
+    }
   }
 
   return segments;
@@ -2485,11 +2373,7 @@ function transformSymbol(sym: SymbolNode): IR.IRNode {
     isJS = true;
   }
 
-  if (!isJS) {
-    name = sanitizeIdentifier(name);
-  } else {
-    name = hyphenToUnderscore(name);
-  }
+  name = isJS ? hyphenToUnderscore(name) : sanitizeIdentifier(name);
 
   return { type: IR.IRNodeType.Identifier, name, isJS } as IR.IRIdentifier;
 }
@@ -2504,66 +2388,65 @@ function transformNestedList(list: ListNode, currentDir: string): IR.IRNode {
     "Inner list",
   );
 
-  if (list.elements.length > 1) {
-    const second = list.elements[1];
-
-    // Handle method call notation (list).method(args)
-    if (
-      second.type === "symbol" &&
-      (second as SymbolNode).name.startsWith(".")
-    ) {
-      return transformNestedMethodCall(list, innerExpr, currentDir);
-    } // IIFE: If inner expr is a function, treat subsequent elements as arguments, not property access
-    // This fixes ((fn [x] x) arg) -> function call, not property access
-    else if (innerExpr.type === IR.IRNodeType.FunctionExpression) {
-      const args = transformElements(
-        list.elements.slice(1),
-        currentDir,
-        transformHQLNodeToIR,
-        "function argument",
-        "Argument",
-      );
-      return {
-        type: IR.IRNodeType.CallExpression,
-        callee: innerExpr,
-        arguments: args,
-      } as IR.IRCallExpression;
-    } // Handle property access (list).property - but only for non-function inner expressions
-    else if (second.type === "symbol") {
-      return {
-        type: IR.IRNodeType.MemberExpression,
-        object: innerExpr,
-        property: {
-          type: IR.IRNodeType.Identifier,
-          name: sanitizeIdentifier((second as SymbolNode).name),
-        } as IR.IRIdentifier,
-        computed: false,
-      } as IR.IRMemberExpression;
-    } // Function call with the nested list as the callee
-    else {
-      const args = transformElements(
-        list.elements.slice(1),
-        currentDir,
-        transformHQLNodeToIR,
-        "function argument",
-        "Argument",
-      );
-
-      return {
-        type: IR.IRNodeType.CallExpression,
-        callee: innerExpr,
-        arguments: args,
-      } as IR.IRCallExpression;
-    }
+  // A single-element nested list ((expr)) means: evaluate expr and call the result
+  // In Lisp/Clojure semantics, wrapping in extra parens = call the result
+  if (list.elements.length <= 1) {
+    return {
+      type: IR.IRNodeType.CallExpression,
+      callee: innerExpr as unknown as IR.IRFunctionExpression,
+      arguments: [],
+    } as IR.IRCallExpression;
   }
 
-  // A single-element nested list ((expr)) means: evaluate expr and call the result
-  // This handles both ((fn [] 42)) and ((outer)) where outer returns a function
-  // In Lisp/Clojure semantics, wrapping in extra parens = call the result
+  const second = list.elements[1];
+
+  // Handle method call notation (list).method(args)
+  if (second.type === "symbol" && (second as SymbolNode).name.startsWith(".")) {
+    return transformNestedMethodCall(list, innerExpr, currentDir);
+  }
+
+  // IIFE: If inner expr is a function, treat subsequent elements as arguments, not property access
+  // This fixes ((fn [x] x) arg) -> function call, not property access
+  if (innerExpr.type === IR.IRNodeType.FunctionExpression) {
+    const args = transformElements(
+      list.elements.slice(1),
+      currentDir,
+      transformHQLNodeToIR,
+      "function argument",
+      "Argument",
+    );
+    return {
+      type: IR.IRNodeType.CallExpression,
+      callee: innerExpr,
+      arguments: args,
+    } as IR.IRCallExpression;
+  }
+
+  // Handle property access (list).property - but only for non-function inner expressions
+  if (second.type === "symbol") {
+    return {
+      type: IR.IRNodeType.MemberExpression,
+      object: innerExpr,
+      property: {
+        type: IR.IRNodeType.Identifier,
+        name: sanitizeIdentifier((second as SymbolNode).name),
+      } as IR.IRIdentifier,
+      computed: false,
+    } as IR.IRMemberExpression;
+  }
+
+  // Function call with the nested list as the callee
+  const args = transformElements(
+    list.elements.slice(1),
+    currentDir,
+    transformHQLNodeToIR,
+    "function argument",
+    "Argument",
+  );
   return {
     type: IR.IRNodeType.CallExpression,
-    callee: innerExpr as unknown as IR.IRFunctionExpression,
-    arguments: [],
+    callee: innerExpr,
+    arguments: args,
   } as IR.IRCallExpression;
 }
 

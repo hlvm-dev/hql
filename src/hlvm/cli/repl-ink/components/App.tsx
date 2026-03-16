@@ -1138,7 +1138,9 @@ function AppContent(
     }
     const pickerInteractionActive = hasConversationContext &&
       isPickerInteractionRequest(pendingInteraction);
-    const isEnterLikeInput = key.return || char === "\r" || char === "\n";
+    // Only real Enter key — Option+Enter (\r without key.return) and
+    // Ctrl+J (\n without key.return) are newline insertion, not Enter.
+    const isEnterLikeInput = key.return;
 
     // Interaction response keys (y/n/Enter) during conversation permission dialogs
     if (pickerInteractionActive) {

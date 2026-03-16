@@ -1,6 +1,6 @@
 import type { ReplState } from "./state.ts";
 
-export type PromptHistorySource =
+type PromptHistorySource =
   | "evaluate"
   | "command"
   | "conversation"

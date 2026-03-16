@@ -98,7 +98,7 @@ function getRegistryMap(): Map<string, Keybinding> {
   return new Map(registry.getAll().map((binding) => [binding.id, binding]));
 }
 
-export function buildShortcutSections(): ShortcutSection[] {
+function buildShortcutSections(): ShortcutSection[] {
   const byId = getRegistryMap();
   const sections: ShortcutSection[] = [];
 

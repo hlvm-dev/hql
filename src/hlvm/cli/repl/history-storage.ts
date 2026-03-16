@@ -42,7 +42,7 @@ export interface HistoryEntry {
 }
 
 /** Configuration for history storage */
-export interface HistoryStorageConfig {
+interface HistoryStorageConfig {
   maxEntries: number; // Max entries to keep (default: 1000)
   saveDebounceMs: number; // Debounce time before save (default: 500)
 }

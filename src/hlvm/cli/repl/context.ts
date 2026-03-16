@@ -46,7 +46,7 @@ export interface MediaAttachment {
 /**
  * Media object used by AI helpers (derived from attachments)
  */
-export interface HlvmMedia {
+interface HlvmMedia {
   readonly type: string;
   readonly mimeType: string;
   readonly data: string;
@@ -166,14 +166,14 @@ export function addPaste(content: string, lang?: string): Paste {
 /**
  * Get all pastes
  */
-export function getPastes(): readonly Paste[] {
+function getPastes(): readonly Paste[] {
   return pastes;
 }
 
 /**
  * Get paste by ID
  */
-export function getPaste(id: number): Paste | undefined {
+function getPaste(id: number): Paste | undefined {
   return getBySequentialId(pastes, id);
 }
 
@@ -211,14 +211,14 @@ export function addAttachment(
 /**
  * Get all attachments
  */
-export function getAttachments(): readonly MediaAttachment[] {
+function getAttachments(): readonly MediaAttachment[] {
   return attachments;
 }
 
 /**
  * Get attachment by ID
  */
-export function getAttachment(id: number): MediaAttachment | undefined {
+function getAttachment(id: number): MediaAttachment | undefined {
   return getBySequentialId(attachments, id);
 }
 
@@ -272,7 +272,7 @@ export function getConversation(): readonly ConversationTurn[] {
 /**
  * Reset all context (for testing or REPL reset)
  */
-export function resetContext(): void {
+function resetContext(): void {
   pastes = [];
   attachments = [];
   conversation = [];

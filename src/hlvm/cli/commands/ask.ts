@@ -347,18 +347,11 @@ export async function attemptCloudAuthRecovery(
   let { executionError, streamedTokens } = state;
   const { resolvedModel } = state;
 
-  if (!(executionError instanceof Error)) {
-    return { handled: false, recovered: false, executionError, streamedTokens };
-  }
-  if (!deps.isCloudModelId(resolvedModel)) {
-    return { handled: false, recovered: false, executionError, streamedTokens };
-  }
-  if (!deps.isInteractiveTerminal()) {
-    return { handled: false, recovered: false, executionError, streamedTokens };
-  }
-  if (!deps.isAuthErrorMessage(executionError.message)) {
-    return { handled: false, recovered: false, executionError, streamedTokens };
-  }
+  const notHandled = { handled: false, recovered: false, executionError, streamedTokens } as const;
+  if (!(executionError instanceof Error)) return notHandled;
+  if (!deps.isCloudModelId(resolvedModel)) return notHandled;
+  if (!deps.isInteractiveTerminal()) return notHandled;
+  if (!deps.isAuthErrorMessage(executionError.message)) return notHandled;
 
   if (streamedTokens) {
     deps.writeRaw("\n");

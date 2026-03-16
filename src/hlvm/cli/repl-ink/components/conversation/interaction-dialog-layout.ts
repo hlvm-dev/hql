@@ -10,14 +10,14 @@ export const QUESTION_PICKER_HINT =
 export const PLAN_REVIEW_PICKER_HINT =
   "Use arrows or 1-9 to choose · Enter confirm · Esc cancel";
 
-export interface PlanReviewDialogDisplay {
+interface PlanReviewDialogDisplay {
   plan: Plan;
   visibleSteps: Plan["steps"];
   hiddenStepCount: number;
   verificationLines: string[];
 }
 
-export interface QuestionDialogDisplay {
+interface QuestionDialogDisplay {
   question?: string;
   options: {
     label: string;

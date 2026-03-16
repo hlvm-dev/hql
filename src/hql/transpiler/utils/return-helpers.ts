@@ -79,7 +79,7 @@ export function createEarlyReturnObject(
       {
         type: IR.IRNodeType.ObjectProperty,
         key: createId("value"),
-        value: value,
+        value,
         shorthand: false,
         computed: false,
       } as IR.IRObjectProperty,

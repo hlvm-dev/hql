@@ -191,7 +191,5 @@ export function throwIfAborted(
   signal?: AbortSignal,
   message = "Operation aborted",
 ): void {
-  if (!signal) return;
-  if (!signal.aborted) return;
-  throw createAbortError(message);
+  if (signal?.aborted) throw createAbortError(message);
 }

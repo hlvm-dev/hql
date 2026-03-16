@@ -504,8 +504,7 @@ const ALWAYS_AVAILABLE_RUNTIME_TOOLS = [
   "todo_write",
 ];
 
-/** @internal Exported for unit testing only. */
-export const RESEARCH_PHASE_CATEGORIES = new Set([
+const RESEARCH_PHASE_CATEGORIES = new Set([
   "read",
   "search",
   "web",

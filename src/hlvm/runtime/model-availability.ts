@@ -70,11 +70,7 @@ export async function ensureRuntimeModelAvailable(
     modelId,
     {
       listModels: listRuntimeInstalledModels,
-      pullModel: (
-        modelName: string,
-        providerName?: string,
-        signal?: AbortSignal,
-      ) => pullRuntimeModelViaHost(modelName, providerName, signal),
+      pullModel: pullRuntimeModelViaHost,
       handlePullAuthError: async (
         fullModelId: string,
         errorMessage: string,

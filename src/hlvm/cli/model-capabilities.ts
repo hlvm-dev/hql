@@ -11,7 +11,7 @@ let catalogCache: {
   expiry: number;
 } | null = null;
 
-export async function modelSupportsCapability(
+async function modelSupportsCapability(
   modelName: string,
   capability: ProviderCapability,
   modelInfo: ModelInfo | null,

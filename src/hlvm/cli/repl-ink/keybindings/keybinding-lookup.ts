@@ -168,7 +168,7 @@ export function refreshKeybindingLookup(): void {
  * Match a key input to a custom binding.
  * @returns handler ID if custom binding exists, null otherwise
  */
-export function matchCustomKeybinding(input: string, key: Key): string | null {
+function matchCustomKeybinding(input: string, key: Key): string | null {
   const combo = normalizeKeyInput(input, key);
   if (!combo) return null;
   return customMap.get(combo) ?? null;
@@ -178,7 +178,7 @@ export function matchCustomKeybinding(input: string, key: Key): string | null {
  * Check if a default keybinding has been disabled (rebound to something else).
  * When user rebinds Ctrl+G to Ctrl+J, Ctrl+G becomes disabled.
  */
-export function isDefaultDisabled(input: string, key: Key): boolean {
+function isDefaultDisabled(input: string, key: Key): boolean {
   const combo = normalizeKeyInput(input, key);
   if (!combo) return false;
   return disabledDefaults.has(combo);

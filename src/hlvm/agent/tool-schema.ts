@@ -36,26 +36,20 @@ interface ParsedArgSpec {
 
 const OPTIONAL_MARKER = "(optional)";
 
-const KNOWN_BASE_TYPES = new Set([
-  "string",
-  "number",
-  "boolean",
-  "integer",
-  "int",
-  "object",
-  "null",
-  "any",
+const BASE_TYPE_MAP = new Map<string, JsonSchemaProperty["type"] | "any">([
+  ["string", "string"],
+  ["number", "number"],
+  ["boolean", "boolean"],
+  ["integer", "integer"],
+  ["int", "integer"],
+  ["object", "object"],
+  ["null", "null"],
+  ["any", "any"], // handled specially in schema builder — omits `type` field
 ]);
 
 function parseBaseType(typeToken: string): JsonSchemaProperty["type"] | "any" {
-  const lower = typeToken.toLowerCase();
-  if (lower === "string") return "string";
-  if (lower === "number") return "number";
-  if (lower === "boolean") return "boolean";
-  if (lower === "integer" || lower === "int") return "integer";
-  if (lower === "object") return "object";
-  if (lower === "null") return "null";
-  if (lower === "any") return "any"; // handled specially in schema builder — omits `type` field
+  const resolved = BASE_TYPE_MAP.get(typeToken.toLowerCase());
+  if (resolved !== undefined) return resolved;
   getAgentLogger().warn(`Unknown arg type '${typeToken}', treating as string`);
   return "string";
 }
@@ -125,7 +119,7 @@ export function validateToolSchema(name: string, tool: ToolMetadata): string[] {
   const warnings: string[] = [];
   for (const [argName, desc] of Object.entries(tool.args)) {
     const { baseToken } = extractArgDescriptor(desc);
-    if (!KNOWN_BASE_TYPES.has(baseToken.toLowerCase())) {
+    if (!BASE_TYPE_MAP.has(baseToken.toLowerCase())) {
       warnings.push(
         `Tool '${name}' arg '${argName}': unknown type '${baseToken}', treating as string`,
       );

@@ -17,7 +17,6 @@ import type {
 } from "./types.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { RuntimeError } from "../../common/error.ts";
-import { extractSignal } from "./common.ts";
 import { fetchPublicModelsForProvider } from "./public-catalog.ts";
 import {
   assertSupportedSdkProvider,
@@ -135,7 +134,7 @@ export function createCloudProvider(
           buildSpec(model),
           prompt,
           options,
-          extractSignal(options),
+          options?.signal,
         );
       },
 
@@ -145,7 +144,7 @@ export function createCloudProvider(
           buildSpec(model),
           messages,
           options,
-          extractSignal(options),
+          options?.signal,
         );
       },
 
@@ -155,7 +154,7 @@ export function createCloudProvider(
           buildSpec(model),
           messages,
           options,
-          extractSignal(options),
+          options?.signal,
         );
       },
 

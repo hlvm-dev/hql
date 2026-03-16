@@ -215,6 +215,9 @@ export function buildPromptBlocks(
     .filter((entry) => entry.cmd && isMeaningfulPrompt(entry.cmd));
 
   const blocks: PromptBlock[] = [];
+  // Track seen prompts per block to avoid O(n^2) re-deduplication
+  const blockSeenSets: Set<string>[] = [];
+
   for (const entry of meaningfulEntries) {
     const dateKey = getLocalDateKey(entry.ts, timeZone);
     const previous = blocks.at(-1);
@@ -224,6 +227,10 @@ export function buildPromptBlocks(
       entry.ts - previous.endTs > blockGapMs ||
       previous.source !== entry.source
     ) {
+      const normalized = normalizePrompt(entry.cmd).toLowerCase();
+      const seen = new Set<string>();
+      if (normalized) seen.add(normalized);
+      blockSeenSets.push(seen);
       blocks.push({
         dateKey,
         startTs: entry.ts,
@@ -235,10 +242,15 @@ export function buildPromptBlocks(
     }
 
     previous.endTs = entry.ts;
-    previous.prompts = dedupePrompts(
-      [...previous.prompts, entry.cmd],
-      limitPromptsPerBlock,
-    );
+
+    // O(1) dedup check instead of rebuilding from scratch
+    if (previous.prompts.length >= limitPromptsPerBlock) continue;
+    const normalized = normalizePrompt(entry.cmd).toLowerCase();
+    if (!normalized) continue;
+    const seen = blockSeenSets[blockSeenSets.length - 1];
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    previous.prompts.push(entry.cmd);
   }
   return blocks;
 }

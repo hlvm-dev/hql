@@ -291,5 +291,3 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
 // Exports
 // ============================================================
 
-export { GenericItem };
-export type { DropdownProps, GenericItemProps };

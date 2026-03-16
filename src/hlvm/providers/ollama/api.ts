@@ -239,23 +239,18 @@ async function getLoadedModelContext(
     const models = result.models ?? [];
     const target = normalizeModelName(modelName);
 
-    const exact = models.find((m) => {
-      const candidates = [m.model, m.name]
-        .filter((value): value is string => typeof value === "string");
-      return candidates.some((candidate) =>
-        normalizeModelName(candidate) === target
-      );
-    });
+    const candidateNames = (m: OllamaRunningModel) =>
+      [m.model, m.name].filter((v): v is string => typeof v === "string");
 
-    const byBase = exact ?? models.find((m) => {
-      const candidates = [m.model, m.name]
-        .filter((value): value is string => typeof value === "string");
-      return candidates.some((candidate) =>
-        modelBaseName(normalizeModelName(candidate)) === modelBaseName(target)
-      );
-    });
+    const match = models.find((m) =>
+      candidateNames(m).some((c) => normalizeModelName(c) === target)
+    ) ?? models.find((m) =>
+      candidateNames(m).some((c) =>
+        modelBaseName(normalizeModelName(c)) === modelBaseName(target)
+      )
+    );
 
-    const contextLength = byBase?.context_length;
+    const contextLength = match?.context_length;
     return typeof contextLength === "number" && contextLength > 0
       ? contextLength
       : null;

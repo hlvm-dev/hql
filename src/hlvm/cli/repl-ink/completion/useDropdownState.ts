@@ -37,7 +37,7 @@ import {
 // Hook Return Type
 // ============================================================
 
-export interface UseDropdownStateReturn {
+interface UseDropdownStateReturn {
   /** Current dropdown state */
   readonly state: DropdownState;
 

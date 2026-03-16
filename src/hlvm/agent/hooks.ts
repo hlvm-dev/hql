@@ -21,7 +21,7 @@ export type AgentHookName =
   | "delegate_end"
   | "final_response";
 
-const HOOK_NAMES: readonly AgentHookName[] = [
+const HOOK_NAMES: ReadonlySet<AgentHookName> = new Set([
   "pre_llm",
   "post_llm",
   "pre_tool",
@@ -31,7 +31,7 @@ const HOOK_NAMES: readonly AgentHookName[] = [
   "delegate_start",
   "delegate_end",
   "final_response",
-];
+]);
 
 export interface AgentHookHandler {
   command: string[];
@@ -52,7 +52,7 @@ function getHooksConfigPath(workspace: string): string {
 }
 
 function isHookName(value: string): value is AgentHookName {
-  return HOOK_NAMES.includes(value as AgentHookName);
+  return HOOK_NAMES.has(value as AgentHookName);
 }
 
 function normalizeHookHandler(input: unknown): AgentHookHandler | null {

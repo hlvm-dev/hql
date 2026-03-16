@@ -86,7 +86,7 @@ export function getGlobalRecord(): Record<string, unknown> {
  * This is the most comprehensive boundary definition - used for tokenization
  * and completion where we need exact symbol boundaries.
  */
-export const WORD_BOUNDARY_CHARS: ReadonlySet<string> = new Set([
+const WORD_BOUNDARY_CHARS: ReadonlySet<string> = new Set([
   " ", "\t", "\n", "\r",      // Whitespace
   "(", ")", "[", "]", "{", "}", // Delimiters
   '"', "'",                     // Quote boundaries

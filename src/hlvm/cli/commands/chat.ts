@@ -104,7 +104,7 @@ export function parseChatArgs(args: string[]): ParsedChatArgs {
   };
 }
 
-export async function resolveChatSessionId(
+async function resolveChatSessionId(
   session: SessionInitOptions,
 ): Promise<string> {
   const resolution = await resolveSessionStart(session, {
