@@ -19,8 +19,10 @@ import type {
 import { normalizeToolArgs } from "../agent/validation.ts";
 import { generateToolCallId } from "../agent/tool-call.ts";
 import { getPlatform } from "../../platform/platform.ts";
-import { ValidationError } from "../../common/error.ts";
-import { isObjectValue } from "../../common/utils.ts";
+import { RuntimeError, ValidationError } from "../../common/error.ts";
+import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
+import { classifyProviderErrorCode } from "./common.ts";
+import { isProviderErrorCode as isProviderErrorFromDomain, ProviderErrorCode } from "../../common/error-codes.ts";
 
 export type SdkProviderName =
   | "openai"
@@ -111,6 +113,68 @@ function extractStatusCode(error: unknown): number | null {
     if (typeof nested.statusCode === "number") return nested.statusCode;
   }
   return null;
+}
+
+function isNetworkFailure(message: string, error?: unknown): boolean {
+  if (error instanceof Error && error.name === "AbortError") {
+    return false;
+  }
+  return message.includes("failed to fetch") ||
+    message.includes("network") ||
+    message.includes("dns") ||
+    message.includes("econn") ||
+    message.includes("enotfound") ||
+    message.includes("econnreset") ||
+    message.includes("fetch failed");
+}
+
+function classifyProviderError(
+  error: unknown,
+  providerName: string,
+): ProviderErrorCode {
+  if (error instanceof RuntimeError && error.code && isProviderErrorFromDomain(error.code)) {
+    return error.code;
+  }
+
+  const status = extractStatusCode(error);
+  const message = getErrorMessage(error);
+  const lowerMessage = message.toLowerCase();
+
+  if (isNetworkFailure(lowerMessage, error)) {
+    return ProviderErrorCode.NETWORK_ERROR;
+  }
+
+  if (lowerMessage.includes("invalid json") ||
+    lowerMessage.includes("unexpected token")) {
+    return ProviderErrorCode.STREAM_ERROR;
+  }
+
+  if (lowerMessage.includes("no output generated")) {
+    return ProviderErrorCode.REQUEST_FAILED;
+  }
+
+  if (providerName === "claude-code" &&
+    lowerMessage.includes("invalid tool") &&
+    lowerMessage.includes("not supported")) {
+    return ProviderErrorCode.REQUEST_REJECTED;
+  }
+
+  const httpStatus = status ?? 0;
+  return classifyProviderErrorCode(httpStatus, message);
+}
+
+function wrapProviderSdkError(
+  error: unknown,
+  providerName: string,
+): never {
+  const message = getErrorMessage(error);
+  throw new RuntimeError(
+    `${providerName} request failed: ${message}`,
+    {
+      code: classifyProviderError(error, providerName),
+      originalError: error instanceof Error ? error : undefined,
+    },
+  );
 }
 
 export async function maybeHandleSdkAuthError(
@@ -574,7 +638,7 @@ export async function* chatWithSdk(
     // "No output generated" retry is handled by the agent engine layer
     // (engine-sdk.ts) which has richer recovery (tool calls, usage tracking).
     // Re-throwing here avoids a double retry that wastes latency.
-    throw error;
+    wrapProviderSdkError(error, spec.providerName);
   }
 }
 
@@ -631,6 +695,6 @@ export async function chatStructuredWithSdk(
     };
   } catch (error) {
     await maybeHandleSdkAuthError(spec.providerName, error);
-    throw error;
+    wrapProviderSdkError(error, spec.providerName);
   }
 }

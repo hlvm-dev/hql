@@ -66,10 +66,10 @@
  *         sender_detail:
  *           type: string
  *           nullable: true
- *         image_paths:
+ *         attachment_ids:
  *           type: string
  *           nullable: true
- *           description: JSON array of image file paths.
+ *           description: JSON array of attachment IDs.
  *         tool_calls:
  *           type: string
  *           nullable: true
@@ -126,7 +126,7 @@
  *                 enum: [system, user, assistant, tool]
  *               content:
  *                 type: string
- *               image_paths:
+ *               attachment_ids:
  *                 type: array
  *                 items:
  *                   type: string

@@ -4,6 +4,7 @@ import {
   resetHlvmDirCacheForTests,
 } from "../../../src/common/paths.ts";
 import type { MessageRow } from "../../../src/hlvm/store/types.ts";
+import { registerAttachmentFromPath } from "../../../src/hlvm/attachments/service.ts";
 import {
   buildAgentHistoryMessages,
   buildChatProviderMessages,
@@ -30,7 +31,7 @@ function createStoredMessage(
     request_id: `request-${Math.ceil(id / 2)}`,
     sender_type: "user",
     sender_detail: null,
-    image_paths: null,
+    attachment_ids: null,
     tool_calls: null,
     tool_name: null,
     tool_call_id: null,
@@ -217,13 +218,15 @@ Deno.test("chat context: mixed media attachments survive replay for chat and age
   );
 
   try {
+    const imageAttachment = await registerAttachmentFromPath(imagePath);
+    const pdfAttachment = await registerAttachmentFromPath(pdfPath);
     const requestMessages = [{
       role: "system" as const,
       content: "retain explicit history",
     }, {
       role: "user" as const,
       content: "see image",
-      image_paths: [imagePath, pdfPath],
+      attachment_ids: [imageAttachment.id, pdfAttachment.id],
     }];
 
     const chat = await buildChatProviderMessages({

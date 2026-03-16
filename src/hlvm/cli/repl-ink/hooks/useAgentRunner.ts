@@ -18,7 +18,7 @@ import type {
   InteractionRequestEvent,
   InteractionResponse,
 } from "../../../agent/registry.ts";
-import type { AssistantCitation } from "../types.ts";
+import type { AssistantCitation, ConversationAttachmentRef } from "../types.ts";
 import type { UseConversationResult } from "./useConversation.ts";
 import type { SurfacePanel } from "./useOverlayPanel.ts";
 import {
@@ -29,16 +29,22 @@ import {
 } from "../utils/conversation-queue.ts";
 import { ensureError } from "../../../../common/utils.ts";
 
-import {
-  ConfigError,
-} from "../../../../common/config/types.ts";
+import { ConfigError } from "../../../../common/config/types.ts";
 import type { ModelSelectionState } from "../../../../common/config/model-selection.ts";
 import {
   ensureCurrentSession,
   session as sessionApi,
   syncCurrentSession,
 } from "../../../api/session.ts";
-import { modelSupportsVision } from "../../model-capabilities.ts";
+import {
+  checkModelAttachmentIds,
+  describeAttachmentFailure,
+  describeConversationAttachmentMimeTypeError,
+} from "../../attachment-policy.ts";
+import {
+  expandTextAttachments,
+  isSupportedConversationAttachmentMimeType,
+} from "../../repl/attachment.ts";
 import { runChatViaHost } from "../../../runtime/host-client.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
@@ -104,21 +110,19 @@ export interface UseAgentRunnerResult {
     Map<string, (response: InteractionResponse) => void>
   >;
   prepareConversationMediaPayload: (attachments?: AnyAttachment[]) => {
-    images: string[] | undefined;
+    attachments: ConversationAttachmentRef[] | undefined;
     unsupportedMimeType: string | undefined;
   };
   expandConversationDraftText: (
     text: string,
     attachments?: AnyAttachment[],
   ) => string;
-  getConversationAttachmentLabels: (
-    attachments?: AnyAttachment[],
-  ) => string[] | undefined;
   runConversation: (
     query: string,
-    mediaPaths?: string[],
-    attachmentLabels?: string[],
-    options?: { skipTranscriptSeed?: boolean },
+    attachments?: ConversationAttachmentRef[],
+    options?: {
+      skipTranscriptSeed?: boolean;
+    },
   ) => Promise<void>;
   submitConversationDraft: (
     draft: ConversationComposerDraft,
@@ -175,7 +179,9 @@ export function useAgentRunner(
   const interactionResolversRef = useRef<
     Map<string, (response: InteractionResponse) => void>
   >(new Map());
-  const pendingStreamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingStreamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // Cleanup orphaned stream timer on unmount
   useEffect(() => () => {
@@ -189,27 +195,26 @@ export function useAgentRunner(
     (attachments?: AnyAttachment[]) => {
       const mediaAttachments = attachments
         ?.filter((a): a is import("../../repl/attachment.ts").Attachment =>
-          "base64Data" in a && a.type !== "text"
+          "attachmentId" in a
         ) ??
         [];
 
-      const unsupported = mediaAttachments.filter((a) => {
-        if (a.mimeType.startsWith("image/")) return false;
-        if (a.mimeType.startsWith("audio/")) return false;
-        if (a.mimeType.startsWith("video/")) return false;
-        if (a.mimeType === "application/pdf") return false;
-        return true;
-      });
+      const unsupported = mediaAttachments.filter((a) =>
+        !isSupportedConversationAttachmentMimeType(a.mimeType)
+      );
 
       if (unsupported.length > 0) {
         return {
-          images: undefined,
+          attachments: undefined,
           unsupportedMimeType: unsupported[0].mimeType,
         };
       }
 
       return {
-        images: mediaAttachments.map((a) => a.path),
+        attachments: mediaAttachments.map((attachment) => ({
+          attachmentId: attachment.attachmentId,
+          label: attachment.displayName,
+        })),
         unsupportedMimeType: undefined,
       };
     },
@@ -219,37 +224,14 @@ export function useAgentRunner(
   const expandConversationDraftText = useCallback((
     text: string,
     attachments?: AnyAttachment[],
-  ): string => {
-    let expandedText = text;
-    for (const attachment of attachments ?? []) {
-      if ("content" in attachment) {
-        expandedText = expandedText.replace(
-          attachment.displayName,
-          attachment.content,
-        );
-      }
-    }
-    return expandedText;
-  }, []);
-
-  const getConversationAttachmentLabels = useCallback((
-    attachments?: AnyAttachment[],
-  ): string[] | undefined => {
-    const labels = attachments
-      ?.filter((
-        attachment,
-      ): attachment is import("../../repl/attachment.ts").Attachment =>
-        "base64Data" in attachment && attachment.type !== "text"
-      )
-      .map((attachment) => attachment.displayName) ?? [];
-    return labels.length > 0 ? labels : undefined;
-  }, []);
+  ): string => expandTextAttachments(text, attachments), []);
 
   const runConversation = useCallback(async (
     query: string,
-    mediaPaths?: string[],
-    attachmentLabels?: string[],
-    options?: { skipTranscriptSeed?: boolean },
+    attachments?: ConversationAttachmentRef[],
+    options?: {
+      skipTranscriptSeed?: boolean;
+    },
   ) => {
     // Guard: prevent double agent start — set ref atomically before any async work
     if (agentControllerRef.current) return;
@@ -264,11 +246,15 @@ export function useAgentRunner(
     // Show user message and pending indicator immediately — before expensive
     // config/model init, unless the caller already seeded the transcript.
     if (!options?.skipTranscriptSeed) {
-      conversation.addUserMessage(query, { attachments: attachmentLabels });
+      conversation.addUserMessage(query, { attachments });
       conversation.addAssistantText("", true);
     }
 
     try {
+      const attachmentIds = attachments
+        ?.flatMap((attachment) =>
+          attachment.attachmentId ? [attachment.attachmentId] : []
+        );
       const currentModelSelection = await refreshRuntimeConfigState();
       const model = currentModelSelection.activeModelId || undefined;
       if (!model) {
@@ -276,16 +262,21 @@ export function useAgentRunner(
           "No configured model available for conversation mode.",
         );
       }
-      if (mediaPaths?.length) {
-        const visionCheck = await modelSupportsVision(model, null);
-        if (!visionCheck.supported) {
-          if (visionCheck.catalogFailed) {
+      if (attachmentIds?.length) {
+        const attachmentSupport = await checkModelAttachmentIds(
+          model,
+          attachmentIds,
+          null,
+        );
+        if (!attachmentSupport.supported) {
+          if (attachmentSupport.catalogFailed) {
             throw new ConfigError(
               "Could not verify model media-attachment support. Check provider connection and try again.",
             );
           }
           throw new ConfigError(
-            `Selected model does not support media attachments: ${model}`,
+            describeAttachmentFailure(attachmentSupport, model) ||
+              `Selected model does not support media attachments: ${model}`,
           );
         }
       }
@@ -319,7 +310,7 @@ export function useAgentRunner(
         messages: [{
           role: "user",
           content: query,
-          image_paths: mediaPaths,
+          attachment_ids: attachmentIds,
           client_turn_id: crypto.randomUUID(),
         }],
         model,
@@ -548,25 +539,21 @@ export function useAgentRunner(
       draft.text,
       draft.attachments,
     );
-    const { images, unsupportedMimeType } = prepareConversationMediaPayload(
-      draft.attachments,
-    );
+    const { attachments, unsupportedMimeType } =
+      prepareConversationMediaPayload(draft.attachments);
     if (unsupportedMimeType) {
       return { started: false, unsupportedMimeType };
     }
-    const imagePaths = images && images.length > 0 ? images : undefined;
-    const attachmentLabels = getConversationAttachmentLabels(draft.attachments);
-    conversation.addUserMessage(expandedText, { attachments: attachmentLabels });
+    conversation.addUserMessage(expandedText, { attachments });
     conversation.addAssistantText("", true);
     setIsEvaluating(true);
-    void runConversation(expandedText, imagePaths, attachmentLabels, {
+    void runConversation(expandedText, attachments, {
       skipTranscriptSeed: true,
     });
     return { started: true };
   }, [
     conversation,
     expandConversationDraftText,
-    getConversationAttachmentLabels,
     prepareConversationMediaPayload,
     runConversation,
   ]);
@@ -684,7 +671,9 @@ export function useAgentRunner(
         restoreComposerDraft(draft);
         if (result.unsupportedMimeType) {
           conversation.addError(
-            `Attachment unsupported: ${result.unsupportedMimeType}`,
+            describeConversationAttachmentMimeTypeError(
+              result.unsupportedMimeType,
+            ),
           );
         }
       }
@@ -718,7 +707,9 @@ export function useAgentRunner(
     );
     if (result.unsupportedMimeType) {
       conversation.addError(
-        `Attachment unsupported: ${result.unsupportedMimeType}`,
+        describeConversationAttachmentMimeTypeError(
+          result.unsupportedMimeType,
+        ),
       );
     }
   }, [
@@ -738,7 +729,6 @@ export function useAgentRunner(
     interactionResolversRef,
     prepareConversationMediaPayload,
     expandConversationDraftText,
-    getConversationAttachmentLabels,
     runConversation,
     submitConversationDraft,
     handleInteractionResponse,

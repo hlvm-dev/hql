@@ -159,7 +159,8 @@ export function buildContext(
   userBindings: ReadonlySet<string>,
   signatures: ReadonlyMap<string, readonly string[]>,
   docstrings: ReadonlyMap<string, string> = new Map(),
-  bindingNames: ReadonlySet<string> = new Set()
+  bindingNames: ReadonlySet<string> = new Set(),
+  attachedPaths?: ReadonlySet<string>,
 ): CompletionContext {
   const { word, start } = getWordAtCursor(text, cursorPosition);
 
@@ -175,6 +176,7 @@ export function buildContext(
     isInsideString: isInsideString(text, cursorPosition),
     bindingNames,
     enclosingForm: detectEnclosingForm(text, cursorPosition),
+    attachedPaths,
   };
 }
 
@@ -315,13 +317,18 @@ export function shouldTriggerFileMention(context: CompletionContext): boolean {
     return false;
   }
 
+  // Newline between @ and cursor means the mention ended on a previous line
+  if (textBeforeCursor.indexOf("\n", lastAt) !== -1) {
+    return false;
+  }
+
   // Check what's before the @
   if (lastAt === 0) {
     return true; // @ at start
   }
 
   const charBefore = textBeforeCursor[lastAt - 1];
-  if (charBefore === " " || charBefore === "\t" || charBefore === "(" || charBefore === "[") {
+  if (charBefore === " " || charBefore === "\t" || charBefore === "\n" || charBefore === "\r" || charBefore === "(" || charBefore === "[") {
     return true;
   }
 
@@ -344,8 +351,8 @@ export function extractMentionQuery(context: CompletionContext): string | null {
   // Get text between @ and cursor
   const query = text.slice(lastAt + 1, cursorPosition);
 
-  // Exit if query contains ) or " (code expression boundaries)
-  if (query.includes(")") || query.includes('"')) {
+  // Exit if query contains newline, ) or " (expression/line boundaries)
+  if (query.includes("\n") || query.includes(")") || query.includes('"')) {
     return null;
   }
 

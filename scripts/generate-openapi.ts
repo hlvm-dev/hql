@@ -31,11 +31,12 @@ const definition: swaggerJsdoc.Options["definition"] = {
     { name: "Models", description: "AI model management" },
     { name: "Config", description: "Runtime configuration" },
     { name: "REPL", description: "Eval, completions, and health check" },
-    { name: "Memory", description: "HQL memory functions" },
+    { name: "Bindings", description: "HQL binding function endpoints" },
   ],
 };
 
 const apis = [
+  `${ROOT}src/hlvm/cli/repl/openapi-schemas.ts`,
   `${ROOT}src/hlvm/cli/repl/handlers/chat.ts`,
   `${ROOT}src/hlvm/cli/repl/handlers/sessions.ts`,
   `${ROOT}src/hlvm/cli/repl/handlers/messages.ts`,

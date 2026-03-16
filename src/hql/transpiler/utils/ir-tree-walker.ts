@@ -16,6 +16,8 @@ export const IR_SKIP_KEYS = new Set([
   "operator", "computed", "optional", "name", "kind",
   "async", "generator", "prefix", "delegate", "shorthand",
   "isStatic", "isPrivate", "mutable", "typeAnnotation",
+  "originalName", "isJS", "effectAnnotation", "usesThis",
+  "fallthrough", "await", "typeParameters",
 ]);
 
 /**

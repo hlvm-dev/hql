@@ -2,8 +2,14 @@
  * useConversationComposer — Manages composer attachments, draft queue, and restore.
  */
 
-import { type Dispatch, type SetStateAction, useCallback, useMemo, useState } from "react";
-import type { AnyAttachment } from "./useAttachments.ts";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
+import { useAttachments, type UseAttachmentsReturn } from "./useAttachments.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import {
   type ConversationComposerDraft,
@@ -25,8 +31,7 @@ interface UseConversationComposerInput {
 }
 
 export interface UseConversationComposerResult {
-  composerAttachments: AnyAttachment[];
-  setComposerAttachments: Dispatch<SetStateAction<AnyAttachment[]>>;
+  attachmentState: UseAttachmentsReturn;
   restoredComposerDraftRevision: number;
   restoredComposerCursorOffset: number;
   pendingConversationQueue: ConversationComposerDraft[];
@@ -45,9 +50,7 @@ export interface UseConversationComposerResult {
 export function useConversationComposer(
   { input, setInput, replState }: UseConversationComposerInput,
 ): UseConversationComposerResult {
-  const [composerAttachments, setComposerAttachments] = useState<
-    AnyAttachment[]
-  >([]);
+  const attachmentState = useAttachments();
   const [
     restoredComposerDraftRevision,
     setRestoredComposerDraftRevision,
@@ -81,22 +84,22 @@ export function useConversationComposer(
     (draft: ConversationComposerDraft | null) => {
       if (!draft) {
         setInput("");
-        setComposerAttachments([]);
+        attachmentState.clearAttachments();
         setRestoredComposerCursorOffset(0);
         setRestoredComposerDraftRevision((prev: number) => prev + 1);
         return;
       }
       setInput(draft.text);
-      setComposerAttachments(draft.attachments);
+      attachmentState.replaceAttachments(draft.attachments);
       setRestoredComposerCursorOffset(draft.cursorOffset);
       setRestoredComposerDraftRevision((prev: number) => prev + 1);
     },
-    [setInput],
+    [attachmentState, setInput],
   );
 
   const currentComposerDraft = useMemo(
-    () => createConversationComposerDraft(input, composerAttachments),
-    [composerAttachments, input],
+    () => createConversationComposerDraft(input, attachmentState.attachments),
+    [attachmentState.attachments, input],
   );
 
   const handleQueueDraft = useCallback((draft: ConversationComposerDraft) => {
@@ -104,8 +107,8 @@ export function useConversationComposer(
     setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
       enqueueConversationDraft(prev, draft)
     );
-    setComposerAttachments([]);
-  }, [replState]);
+    attachmentState.clearAttachments();
+  }, [attachmentState, replState]);
 
   const handleEditLastQueuedDraft = useCallback(() => {
     const { draft, remaining } = popLastQueuedConversationDraft(
@@ -117,8 +120,7 @@ export function useConversationComposer(
   }, [pendingConversationQueue, restoreComposerDraft]);
 
   return {
-    composerAttachments,
-    setComposerAttachments,
+    attachmentState,
     restoredComposerDraftRevision,
     restoredComposerCursorOffset,
     pendingConversationQueue,

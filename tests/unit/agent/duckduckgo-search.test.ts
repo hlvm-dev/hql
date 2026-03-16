@@ -128,6 +128,9 @@ Deno.test("duckduckgo search: high-confidence first page stays single page", asy
       assertEquals(seenOffsets, [null]);
       assertEquals((response.diagnostics?.page2RetryTriggered as boolean) ?? true, false);
       assertEquals((response.diagnostics?.page2Fetched as boolean) ?? true, false);
+      // Follow-up queries should also be skipped on high confidence
+      assertEquals((response.diagnostics?.followupQueries as string[])?.length ?? 0, 0);
+      assertEquals(response.diagnostics?.followupFetched ?? false, false);
     });
   });
 });
@@ -169,6 +172,53 @@ Deno.test("duckduckgo search: bing fallback does not attempt page 2 recovery", a
       assertEquals(response.provider, "bing-html");
       assertEquals((response.diagnostics?.page2RetryTriggered as boolean) ?? true, false);
       assertEquals(seenUrls.some((url) => url.includes("html.duckduckgo.com") && url.includes("s=30")), false);
+      // Follow-up queries should also be skipped on bing fallback (anomalyBlocked guard)
+      assertEquals((response.diagnostics?.followupQueries as string[])?.length ?? 0, 0);
+      assertEquals(response.diagnostics?.followupFetched ?? false, false);
     });
   });
 });
+
+// ============================================================
+// Follow-up Query Tests
+// ============================================================
+
+Deno.test("duckduckgo search: follow-up queries trigger on merged low confidence after page-2", async () => {
+  const seenQueries: string[] = [];
+
+  await withStubbedFetch(async (input) => {
+    const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const url = new URL(rawUrl);
+    if (url.hostname !== "html.duckduckgo.com") {
+      throw new Error(`Unexpected URL: ${rawUrl}`);
+    }
+    seenQueries.push(url.searchParams.get("q") ?? "");
+
+    // Return a single low-quality result for ALL queries (page 1, page 2, and follow-ups)
+    // so that confidence stays low after page-2 and follow-ups get triggered.
+    return new Response(ddgHtml([
+      {
+        title: "Unrelated blog post",
+        url: `https://blog.example.com/post-${seenQueries.length}`,
+        snippet: "This is a generic blog about random topics.",
+      },
+    ]), { status: 200, headers: { "content-type": "text/html" } });
+  }, async () => {
+    await withDuckDuckGoProvider(async (search) => {
+      const response = await search("react useeffect cleanup best practices", {
+        limit: 5,
+        timeRange: "all",
+      }) as { diagnostics?: Record<string, unknown> };
+
+      // Should have more than 2 queries (page 1 + page 2 + at least 1 follow-up)
+      assert(seenQueries.length > 2, `Expected >2 queries, got ${seenQueries.length}: ${JSON.stringify(seenQueries)}`);
+      const followupQueriesDiag = response.diagnostics?.followupQueries as string[] | undefined;
+      assert(
+        followupQueriesDiag && followupQueriesDiag.length > 0,
+        `Expected follow-up queries in diagnostics, got: ${JSON.stringify(followupQueriesDiag)}`,
+      );
+      assertEquals(response.diagnostics?.followupFetched, true);
+    });
+  });
+});
+

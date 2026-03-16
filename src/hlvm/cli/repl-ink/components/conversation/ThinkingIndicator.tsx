@@ -25,7 +25,7 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
   isAnimating = true,
 }: ThinkingIndicatorProps): React.ReactElement {
   const sc = useSemanticColors();
-  const marker = isAnimating ? "·" : "·";
+  const marker = isAnimating ? "●" : "○";
   const lines = summary ? summary.split("\n") : [];
   const maxBodyLines = expanded ? lines.length : 0;
   const visibleBodyLines = lines.slice(0, maxBodyLines);

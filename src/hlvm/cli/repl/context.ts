@@ -3,7 +3,7 @@
  *
  * Provides three vectors accessible as programming data:
  * - pastes: vector of {id: ..., content: ..., lang: ..., lines: ..., chars: ..., time: ...}
- * - attachments: vector of {id: ..., type: ..., name: ..., path: ..., mime: ..., size: ..., time: ...}
+ * - attachments: vector of {id: ..., attachmentId: ..., type: ..., name: ..., path: ..., mime: ..., size: ..., metadata?: ..., time: ...}
  * - conversation: vector of {role: ..., content: ..., time: ...}
  *
  * All vectors are accessible via globalThis and can be manipulated
@@ -11,6 +11,12 @@
  */
 
 import { countLines } from "../../../common/utils.ts";
+import type {
+  AttachmentKind,
+  AttachmentMetadata,
+  AttachmentRecord,
+  PreparedAttachment,
+} from "../../attachments/types.ts";
 import { getGlobalRecord } from "./string-utils.ts";
 
 // ============================================================================
@@ -30,17 +36,18 @@ export interface Paste {
 }
 
 /**
- * Media attachment entry - binary file metadata with optional base64 data
+ * Media attachment entry - attachment metadata exposed in REPL context
  */
 export interface MediaAttachment {
   readonly id: number;
-  readonly type: string; // "image" | "video" | "audio" | "document" | "file"
+  readonly attachmentId: string;
+  readonly type: AttachmentKind;
   readonly name: string;
   readonly path: string;
   readonly mime: string;
   readonly size: number;
+  readonly metadata?: AttachmentMetadata;
   readonly time: number;
-  readonly base64Data?: string; // Base64-encoded content for AI functions
 }
 
 /**
@@ -70,14 +77,7 @@ export interface ConversationTurn {
 let pastes: Paste[] = [];
 let attachments: MediaAttachment[] = [];
 let conversation: ConversationTurn[] = [];
-
-function getBySequentialId<T extends { readonly id: number }>(
-  items: readonly T[],
-  id: number,
-): T | undefined {
-  const item = items[id];
-  return item?.id === id ? item : undefined;
-}
+const attachmentMedia = new Map<number, HlvmMedia>();
 
 // ============================================================================
 // Language Detection (Simple heuristic)
@@ -163,63 +163,43 @@ export function addPaste(content: string, lang?: string): Paste {
   return paste;
 }
 
-/**
- * Get all pastes
- */
-function getPastes(): readonly Paste[] {
-  return pastes;
-}
-
-/**
- * Get paste by ID
- */
-function getPaste(id: number): Paste | undefined {
-  return getBySequentialId(pastes, id);
-}
-
 // ============================================================================
 // Attachment Operations
 // ============================================================================
 
 /**
- * Add a media attachment and return the created entry
- * @param base64Data - Optional base64-encoded content for AI vision support
+ * Add an attachment metadata snapshot and optional prepared runtime media
  */
 export function addAttachment(
-  type: string,
-  name: string,
-  path: string,
-  mime: string,
-  size: number,
-  base64Data?: string,
+  record: AttachmentRecord,
+  prepared?: PreparedAttachment,
 ): MediaAttachment {
   const attachment: MediaAttachment = {
     id: attachments.length,
-    type,
-    name,
-    path,
-    mime,
-    size,
+    attachmentId: record.id,
+    type: record.kind,
+    name: record.fileName,
+    path: record.sourcePath ?? record.fileName,
+    mime: record.mimeType,
+    size: record.size,
+    ...(record.metadata ? { metadata: record.metadata } : {}),
     time: Date.now(),
-    base64Data,
   };
   attachments.push(attachment);
+  if (prepared) {
+    const mediaType = toRuntimeMediaType(record.kind);
+    if (mediaType) {
+      attachmentMedia.set(attachment.id, {
+        type: mediaType,
+        mimeType: prepared.mimeType,
+        data: prepared.data,
+        source: record.sourcePath ?? record.fileName,
+        __hlvm_media__: true,
+      });
+    }
+  }
   syncToGlobal();
   return attachment;
-}
-
-/**
- * Get all attachments
- */
-function getAttachments(): readonly MediaAttachment[] {
-  return attachments;
-}
-
-/**
- * Get attachment by ID
- */
-function getAttachment(id: number): MediaAttachment | undefined {
-  return getBySequentialId(attachments, id);
 }
 
 /**
@@ -227,14 +207,8 @@ function getAttachment(id: number): MediaAttachment | undefined {
  */
 export function getMedia(): readonly HlvmMedia[] {
   return attachments
-    .filter((a) => a.base64Data)
-    .map((a) => ({
-      type: a.type,
-      mimeType: a.mime,
-      data: a.base64Data as string,
-      source: a.path,
-      __hlvm_media__: true,
-    }));
+    .map((attachment) => attachmentMedia.get(attachment.id))
+    .filter((media): media is HlvmMedia => media !== undefined);
 }
 
 // ============================================================================
@@ -270,16 +244,6 @@ export function getConversation(): readonly ConversationTurn[] {
 // ============================================================================
 
 /**
- * Reset all context (for testing or REPL reset)
- */
-function resetContext(): void {
-  pastes = [];
-  attachments = [];
-  conversation = [];
-  syncToGlobal();
-}
-
-/**
  * Sync arrays to globalThis for HQL access
  */
 function syncToGlobal(): void {
@@ -295,4 +259,20 @@ function syncToGlobal(): void {
  */
 export function initContext(): void {
   syncToGlobal();
+}
+
+function toRuntimeMediaType(
+  kind: AttachmentKind,
+): HlvmMedia["type"] | null {
+  switch (kind) {
+    case "image":
+    case "audio":
+    case "video":
+      return kind;
+    case "pdf":
+    case "document":
+      return "document";
+    default:
+      return null;
+  }
 }

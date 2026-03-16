@@ -69,6 +69,11 @@ import {
   handleResetConfig,
 } from "./handlers/config.ts";
 import {
+  handleGetAttachment,
+  handleRegisterAttachment,
+  handleUploadAttachment,
+} from "./handlers/attachments.ts";
+import {
   handleAddMcpServer,
   handleListMcpServers,
   handleLoginMcpServer,
@@ -616,6 +621,15 @@ router.add(
   "POST",
   "/api/chat/interaction",
   (req) => handleChatInteraction(req),
+);
+router.add("POST", "/api/attachments/register", (req) =>
+  handleRegisterAttachment(req)
+);
+router.add("POST", "/api/attachments/upload", (req) =>
+  handleUploadAttachment(req)
+);
+router.add("GET", "/api/attachments/:id", (req, p) =>
+  handleGetAttachment(req, p)
 );
 
 router.add("GET", "/api/sessions", () => handleListSessions());

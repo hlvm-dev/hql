@@ -32,7 +32,12 @@ import type {
   ModelInfo,
   ProviderToolCall,
 } from "../../../providers/types.ts";
+import {
+  parseLegacyImagePaths,
+  parseStoredStringArray,
+} from "../../../store/message-utils.ts";
 import type { MessageRow } from "../../../store/types.ts";
+import { materializeAttachments } from "../../../attachments/service.ts";
 import { detectMimeType } from "../attachment.ts";
 import type { ChatRequest } from "./chat-session.ts";
 
@@ -70,7 +75,8 @@ interface BuildChatProviderMessagesResult {
 interface PersistableRequestMessage {
   role: "system" | "user" | "assistant";
   content: string;
-  imagePaths?: string[];
+  attachmentIds?: string[];
+  legacyPaths?: string[];
   clientTurnId?: string;
   senderType: "system" | "user" | "llm";
 }
@@ -236,7 +242,7 @@ async function normalizeRequestMessages(
     const replayMessage = await createReplayMessage({
       role: message.role,
       content: message.content,
-      imagePaths: message.image_paths,
+      attachmentIds: message.attachment_ids,
     });
     if (isReplayableReplayMessage(replayMessage)) {
       replayMessages.push(replayMessage);
@@ -258,7 +264,8 @@ async function normalizeStoredMessages(
     const replayMessage = await createReplayMessage({
       role: message.role,
       content: message.content,
-      imagePaths: parseImagePaths(message.image_paths),
+      attachmentIds: parseAttachmentIds(message.attachment_ids),
+      legacyPaths: getLegacyAttachmentPaths(message),
       toolCalls: parseToolCalls(message.tool_calls),
       toolName: message.tool_name ?? undefined,
       toolCallId: message.tool_call_id ?? undefined,
@@ -347,7 +354,12 @@ function shouldIncludeStoredMessage(
     return message.content.length > 0 || !!message.tool_name;
   }
   if (message.tool_calls) return true;
-  if (message.image_paths) return true;
+  if (
+    message.attachment_ids ||
+    getLegacyAttachmentPaths(message)
+  ) {
+    return true;
+  }
   return message.content.length > 0;
 }
 
@@ -364,7 +376,8 @@ function normalizeCurrentUserMessage(
   return {
     role: "user",
     content: message.content,
-    imagePaths: sanitizeImagePaths(message.image_paths),
+    attachmentIds: sanitizeAttachmentIds(message.attachment_ids),
+    legacyPaths: undefined,
     clientTurnId: message.client_turn_id ?? fallbackClientTurnId,
     senderType: "user",
   };
@@ -381,15 +394,16 @@ function normalizeRequestMessagesForPersistence(
     const message = messages[index];
     if (message.role === "tool") continue;
 
-    const imagePaths = sanitizeImagePaths(message.image_paths);
-    if (message.content.length === 0 && imagePaths === undefined) {
+    const attachmentIds = sanitizeAttachmentIds(message.attachment_ids);
+    if (message.content.length === 0 && attachmentIds === undefined) {
       continue;
     }
 
     persistable.push({
       role: message.role,
       content: message.content,
-      imagePaths,
+      attachmentIds,
+      legacyPaths: undefined,
       clientTurnId: message.client_turn_id ??
         (message.role === "user" && index === lastIndex
           ? fallbackClientTurnId
@@ -442,15 +456,20 @@ function appendStoredMessageForPersistence(
   if (message.cancelled) return;
   if (message.role === "tool") return;
 
-  const imagePaths = sanitizeImagePaths(parseImagePaths(message.image_paths));
+  const attachmentIds = sanitizeAttachmentIds(
+    parseAttachmentIds(message.attachment_ids),
+  );
+  const legacyPaths = getLegacyAttachmentPaths(message);
   const hasVisibleContent = message.content.length > 0 ||
-    imagePaths !== undefined;
+    attachmentIds !== undefined ||
+    legacyPaths !== undefined;
   if (!hasVisibleContent) return;
 
   persistable.push({
     role: message.role,
     content: message.content,
-    imagePaths,
+    attachmentIds,
+    legacyPaths,
     clientTurnId: message.client_turn_id ?? undefined,
     senderType: getPersistedSenderType(message.role),
   });
@@ -463,11 +482,11 @@ function getPersistedSenderType(
   return role;
 }
 
-function sanitizeImagePaths(
-  imagePaths?: string[],
+function sanitizeAttachmentIds(
+  attachmentIds?: string[],
 ): string[] | undefined {
-  if (!imagePaths?.length) return undefined;
-  return [...imagePaths];
+  if (!attachmentIds?.length) return undefined;
+  return [...attachmentIds];
 }
 
 function findTranscriptOverlap(
@@ -504,10 +523,11 @@ function persistableMessagesEqual(
   }
 
   return left.content === right.content &&
-    imagePathListsEqual(left.imagePaths, right.imagePaths);
+    attachmentIdListsEqual(left.attachmentIds, right.attachmentIds) &&
+    attachmentIdListsEqual(left.legacyPaths, right.legacyPaths);
 }
 
-function imagePathListsEqual(
+function attachmentIdListsEqual(
   left?: string[],
   right?: string[],
 ): boolean {
@@ -524,7 +544,8 @@ async function createReplayMessage(
   options: {
     role: ReplayMessage["role"];
     content: string;
-    imagePaths?: string[];
+    attachmentIds?: string[];
+    legacyPaths?: string[];
     toolCalls?: ProviderToolCall[];
     toolName?: string;
     toolCallId?: string;
@@ -534,7 +555,10 @@ async function createReplayMessage(
     role: options.role,
     content: options.content,
   };
-  const images = await resolveImages(options.imagePaths);
+  const images = await resolveAttachments(
+    options.attachmentIds,
+    options.legacyPaths,
+  );
   if (images.length > 0) {
     replayMessage.images = images;
   }
@@ -550,17 +574,14 @@ async function createReplayMessage(
   return replayMessage;
 }
 
-function parseImagePaths(imagePathsJson: string | null): string[] {
-  if (!imagePathsJson) return [];
-  try {
-    const parsed = JSON.parse(imagePathsJson);
-    return Array.isArray(parsed)
-      ? parsed.filter((value): value is string => typeof value === "string")
-      : [];
-  } catch (error) {
-    log.warn("Failed to parse stored image paths", error);
-    return [];
-  }
+function parseAttachmentIds(attachmentIdsJson: string | null): string[] {
+  return parseStoredStringArray(attachmentIdsJson) ?? [];
+}
+
+function getLegacyAttachmentPaths(message: MessageRow): string[] | undefined {
+  return parseLegacyImagePaths(
+    message as MessageRow & { image_paths?: string | null },
+  );
 }
 
 function parseToolCalls(
@@ -581,38 +602,19 @@ function parseToolCalls(
   }
 }
 
-async function readImageAsBase64(filePath: string): Promise<string | null> {
-  try {
-    const data = await getPlatform().fs.readFile(filePath);
-    const chunks: string[] = [];
-    for (let i = 0; i < data.length; i += 8192) {
-      chunks.push(
-        String.fromCharCode(
-          ...data.subarray(i, Math.min(i + 8192, data.length)),
-        ),
-      );
-    }
-    return btoa(chunks.join(""));
-  } catch (error) {
-    log.warn(`Failed to read image: ${filePath}`, error);
-    return null;
-  }
-}
-
-export async function resolveImages(
-  imagePaths?: string[],
+export async function resolveAttachments(
+  attachmentIds?: string[],
+  legacyPaths?: string[],
 ): Promise<Array<{ data: string; mimeType: string }>> {
-  if (!imagePaths?.length) return [];
-  const images: Array<{ data: string; mimeType: string }> = [];
-  for (const imagePath of imagePaths) {
-    const data = await readImageAsBase64(imagePath);
-    if (!data) continue;
-    images.push({
-      data,
-      mimeType: detectMimeType(imagePath),
-    });
+  if (attachmentIds?.length) {
+    const materialized = await materializeAttachments(attachmentIds, "default");
+    return materialized.map(({ prepared }) => ({
+      data: prepared.data,
+      mimeType: prepared.mimeType,
+    }));
   }
-  return images;
+  if (!legacyPaths?.length) return [];
+  return await resolveLegacyAttachments(legacyPaths);
 }
 
 async function injectMemoryReplayMessage(
@@ -657,11 +659,47 @@ function toProviderReplayMessages(
       content: message.content,
     };
     if (message.images?.length) {
-      providerMessage.images = message.images.map((image) => image.data);
+      providerMessage.images = message.images.map((image) => ({
+        data: image.data,
+        mimeType: image.mimeType,
+      }));
     }
     providerMessages.push(providerMessage);
   }
   return providerMessages.filter(isReplayableProviderMessage);
+}
+
+async function readFileAsBase64(filePath: string): Promise<string | null> {
+  try {
+    const data = await getPlatform().fs.readFile(filePath);
+    const chunks: string[] = [];
+    for (let i = 0; i < data.length; i += 8192) {
+      chunks.push(
+        String.fromCharCode(
+          ...data.subarray(i, Math.min(i + 8192, data.length)),
+        ),
+      );
+    }
+    return btoa(chunks.join(""));
+  } catch (error) {
+    log.warn(`Failed to read legacy attachment: ${filePath}`, error);
+    return null;
+  }
+}
+
+async function resolveLegacyAttachments(
+  legacyPaths: readonly string[],
+): Promise<Array<{ data: string; mimeType: string }>> {
+  const attachments: Array<{ data: string; mimeType: string }> = [];
+  for (const legacyPath of legacyPaths) {
+    const data = await readFileAsBase64(legacyPath);
+    if (!data) continue;
+    attachments.push({
+      data,
+      mimeType: detectMimeType(legacyPath),
+    });
+  }
+  return attachments;
 }
 
 function normalizeReplayMessagesForAgent(

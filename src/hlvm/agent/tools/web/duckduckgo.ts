@@ -22,6 +22,8 @@ import {
   type SearchCallOptions,
   type SearchResult as ProviderSearchResult,
 } from "./search-provider.ts";
+import { buildFollowupQueries } from "./query-strategy.ts";
+import type { SearchConfidenceReason } from "./search-ranking.ts";
 
 // ============================================================
 // Types
@@ -417,6 +419,9 @@ async function duckDuckGoSearch(
   let initialLowConfidence = false;
   let initialConfidenceReason: string | undefined;
   let page2Error: string | undefined;
+  let followupQueries: string[] = [];
+  let followupResultCount = 0;
+  let followupFetched = false;
   try {
     page1 = await fetchDdgPage(query, timeRange, locale, timeoutMs, options);
   } catch (error) {
@@ -461,16 +466,48 @@ async function duckDuckGoSearch(
     }
   }
 
-  const mergedResults = [...page1, ...page2];
-  const deduped = dedupeSearchResultsStable(mergedResults);
-  const filtered = applySearchFilters(
+  let mergedResults = [...page1, ...page2];
+  let deduped = dedupeSearchResultsStable(mergedResults);
+  let filtered = applySearchFilters(
     mergedResults,
     timeRange,
     allowedDomains,
     blockedDomains,
   );
-  const topResults = filtered.slice(0, limit);
-  const mergedConfidence = assessToolSearchConfidence(query, topResults);
+  let topResults = filtered.slice(0, limit);
+  let mergedConfidence = assessToolSearchConfidence(query, topResults);
+
+  // Follow-up queries: reformulated searches when still low confidence after page-2 merge.
+  // Complementary to page-2 retry (page-2 = more of same query, follow-up = different query).
+  if (!anomalyBlocked && provider === "duckduckgo" && mergedConfidence.lowConfidence) {
+    followupQueries = buildFollowupQueries({
+      userQuery: query,
+      confidenceReason: mergedConfidence.reason as SearchConfidenceReason,
+      currentResults: topResults as unknown as ProviderSearchResult[],
+      maxQueries: 2,
+    });
+    if (followupQueries.length > 0) {
+      const followupResults: SearchResult[] = [];
+      for (const fq of followupQueries) {
+        try {
+          const results = await fetchDdgPage(fq, timeRange, locale, timeoutMs, options);
+          followupResults.push(...results);
+        } catch {
+          // Best-effort: skip failed follow-up queries.
+        }
+      }
+      if (followupResults.length > 0) {
+        followupFetched = true;
+        followupResultCount = followupResults.length;
+        mergedResults = [...mergedResults, ...followupResults];
+        deduped = dedupeSearchResultsStable(mergedResults);
+        filtered = applySearchFilters(mergedResults, timeRange, allowedDomains, blockedDomains);
+        topResults = filtered.slice(0, limit);
+        mergedConfidence = assessToolSearchConfidence(query, topResults);
+      }
+    }
+  }
+
   const diagnostics: Record<string, unknown> = {
     rawProviderOrder: true,
     anomalyBlocked,
@@ -487,6 +524,9 @@ async function duckDuckGoSearch(
     initialConfidenceReason,
     mergedLowConfidence: mergedConfidence.lowConfidence,
     mergedConfidenceReason: mergedConfidence.reason,
+    followupQueries,
+    followupResultCount,
+    followupFetched,
     secondPage: {
       attempted: page2RetryTriggered,
       fetched: page2Fetched,

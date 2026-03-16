@@ -1828,7 +1828,7 @@ User presses Ctrl+3
     │     │       { role: "system", content: "You are...", client_turn_id: nil },   │
     │     │       { role: "user",   content: "fix the auth bug",                    │
     │     │                         client_turn_id: "turn-789",                     │
-    │     │                         image_paths: nil }                              │
+    │     │                         attachment_ids: nil }                           │
     │     │     ],                                                                  │
     │     │     model: nil,           // use server default                         │
     │     │     temperature: nil,     // use server default                         │

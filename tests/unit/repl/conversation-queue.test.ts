@@ -14,12 +14,12 @@ import {
 function imageAttachment(id: number) {
   return {
     id,
+    attachmentId: `att_image_${id}`,
     type: "image" as const,
     displayName: `[Image #${id}]`,
     path: `/tmp/image-${id}.png`,
     fileName: `image-${id}.png`,
     mimeType: "image/png",
-    base64Data: "Zm9v",
     size: 3,
   };
 }

@@ -6,6 +6,7 @@
  */
 
 import { RuntimeError } from "../../common/error.ts";
+import { ProviderErrorCode } from "../../common/error-codes.ts";
 
 // =============================================================================
 // Constants
@@ -60,6 +61,38 @@ function extractErrorMessage(text: string): string | null {
   return null;
 }
 
+export function classifyProviderErrorCode(
+  status: number,
+  message: string,
+): ProviderErrorCode {
+  const lower = message.toLowerCase();
+  if (status === 401 || status === 403) {
+    return ProviderErrorCode.AUTH_FAILED;
+  }
+  if (lower.includes("rate limit")) {
+    return ProviderErrorCode.RATE_LIMITED;
+  }
+  if (lower.includes("payload too large") || lower.includes("request too large")) {
+    return ProviderErrorCode.REQUEST_TOO_LARGE;
+  }
+  if (status === 413) {
+    return ProviderErrorCode.REQUEST_TOO_LARGE;
+  }
+  if (status === 408 || lower.includes("timeout")) {
+    return ProviderErrorCode.REQUEST_TIMEOUT;
+  }
+  if (status === 429) {
+    return ProviderErrorCode.RATE_LIMITED;
+  }
+  if (status >= 500) {
+    return ProviderErrorCode.SERVICE_UNAVAILABLE;
+  }
+  if (status >= 400) {
+    return ProviderErrorCode.REQUEST_REJECTED;
+  }
+  return ProviderErrorCode.REQUEST_FAILED;
+}
+
 /**
  * Throw a RuntimeError for a failed HTTP response.
  * Parses the response body to extract the provider's human-readable error message.
@@ -76,8 +109,12 @@ export async function throwOnHttpError(
   const retryAfter = response.headers.get("retry-after");
   const retryHint = retryAfter ? ` (retry-after: ${retryAfter}s)` : "";
   const body = extracted ?? text.slice(0, 500);
+  const code = classifyProviderErrorCode(
+    response.status,
+    body,
+  );
   throw new RuntimeError(
     `${providerName} HTTP ${response.status}${retryHint}: ${body}`,
+    { code },
   );
 }
-

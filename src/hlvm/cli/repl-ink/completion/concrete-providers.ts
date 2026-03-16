@@ -516,8 +516,13 @@ export const FileProvider: CompletionProvider = {
 
     // Use existing file search
     const matches = await searchFiles(query);
+    // Filter out already-attached files so users can't accidentally attach duplicates
+    const attached = context.attachedPaths;
+    const filtered = attached?.size
+      ? matches.filter((m) => m.isDirectory || !attached.has(m.path))
+      : matches;
 
-    const items: CompletionItem[] = matches.map((match: FileMatch) => {
+    const items: CompletionItem[] = filtered.map((match: FileMatch) => {
       const isDir = match.isDirectory;
       const cleanPath = unescapeShellPath(match.path);
       const isMedia = !isDir && isSupportedConversationMedia(cleanPath);

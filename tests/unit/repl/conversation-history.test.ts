@@ -53,7 +53,7 @@ Deno.test("buildConversationItemsFromSessionMessages exposes attachment labels f
     {
       role: "user",
       content: "describe this issue",
-      attachments: ["/tmp/screenshot.png", "/tmp/spec.pdf"],
+      attachments: ["[Image #1]", "[PDF #2]"],
       ts: 1,
     },
   ]);

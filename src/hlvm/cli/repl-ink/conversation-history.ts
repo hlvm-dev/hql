@@ -2,11 +2,6 @@ import {
   createTranscriptState,
   type TranscriptState,
 } from "../agent-transcript-state.ts";
-import {
-  detectMimeType,
-  getAttachmentType,
-  getDisplayName,
-} from "../repl/attachment.ts";
 import { createTodoStateFromPlan } from "../../agent/todo-state.ts";
 import {
   loadPersistedAgentChildSessionSummaries,
@@ -15,6 +10,7 @@ import {
 import { cloneTeamRuntimeSnapshot } from "../../agent/team-runtime.ts";
 import type { Session, SessionMessage } from "../repl/session/types.ts";
 import type {
+  ConversationAttachmentRef,
   ConversationItem,
   DelegateItem,
   TeamRuntimeSnapshotInfoItem,
@@ -22,13 +18,12 @@ import type {
   ToolGroupItem,
 } from "./types.ts";
 
-function formatAttachmentLabels(
+function formatAttachmentRefs(
   attachments?: readonly string[],
-): string[] | undefined {
-  if (!attachments?.length) return undefined;
-  return attachments.map((path, index) =>
-    getDisplayName(getAttachmentType(detectMimeType(path)), index + 1)
-  );
+): ConversationAttachmentRef[] | undefined {
+  return attachments?.length
+    ? attachments.map((label) => ({ label }))
+    : undefined;
 }
 
 function buildToolGroup(
@@ -89,7 +84,7 @@ export function buildConversationItemsFromSessionMessages(
         type: "user",
         id: `session-user-${index}`,
         text: message.content,
-        attachments: formatAttachmentLabels(message.attachments),
+        attachments: formatAttachmentRefs(message.attachments),
         ts: message.ts,
       });
       continue;

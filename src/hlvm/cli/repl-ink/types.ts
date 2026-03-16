@@ -40,12 +40,17 @@ export type AssistantCitation = Citation;
 // Conversation Items
 // ============================================================
 
+export interface ConversationAttachmentRef {
+  attachmentId?: string;
+  label: string;
+}
+
 /** User message in the conversation */
 export interface UserItem {
   type: "user";
   id: string;
   text: string;
-  attachments?: string[];
+  attachments?: ConversationAttachmentRef[];
   ts: number;
 }
 

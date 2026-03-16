@@ -355,6 +355,83 @@ function replaceTablesWithMarkdown(html: string): string {
   });
 }
 
+/**
+ * Convert `<ul>/<ol>/<li>` into markdown bullets/numbers.
+ * Processes innermost lists first (up to 6 iterations) for nesting.
+ */
+function replaceListsWithMarkdown(html: string): string {
+  // Innermost-first: regex matches lists with no nested <ul>/<ol> inside.
+  const innerListRegex =
+    /<(ul|ol)\b[^>]*>((?:(?!<\/?(?:ul|ol)\b)[\s\S])*?)<\/\1>/gi;
+  let result = html;
+  for (let i = 0; i < 6; i++) {
+    const prev = result;
+    result = result.replace(innerListRegex, (_match, tag: string, body: string) => {
+      const isOrdered = tag.toLowerCase() === "ol";
+      const itemRegex = /<li\b[^>]*>([\s\S]*?)<\/li>/gi;
+      const items: string[] = [];
+      let itemMatch: RegExpExecArray | null;
+      let index = 1;
+      while ((itemMatch = itemRegex.exec(body)) !== null) {
+        const text = extractInlineText(itemMatch[1] ?? "");
+        if (!text) continue;
+        const prefix = isOrdered ? `${index++}.` : "-";
+        items.push(`${prefix} ${text}`);
+      }
+      return items.length > 0 ? `\n${items.join("\n")}\n` : "\n";
+    });
+    if (result === prev) break;
+  }
+  return result;
+}
+
+/**
+ * Convert `<blockquote>` into markdown `>` prefix.
+ * Processes innermost first (up to 4 iterations) for nesting.
+ */
+function replaceBlockquotesWithMarkdown(html: string): string {
+  const innerBqRegex =
+    /<blockquote\b[^>]*>((?:(?!<\/?blockquote\b)[\s\S])*?)<\/blockquote>/gi;
+  let result = html;
+  for (let i = 0; i < 4; i++) {
+    const prev = result;
+    result = result.replace(innerBqRegex, (_match, body: string) => {
+      const text = extractInlineText(body);
+      if (!text) return "\n";
+      const lines = text.split("\n").map((line) => `> ${line}`);
+      return `\n${lines.join("\n")}\n`;
+    });
+    if (result === prev) break;
+  }
+  return result;
+}
+
+/**
+ * Convert `<dl>/<dt>/<dd>` into markdown definition format:
+ * `**term**\n: definition`
+ */
+function replaceDefinitionListsWithMarkdown(html: string): string {
+  return html.replace(
+    /<dl\b[^>]*>([\s\S]*?)<\/dl>/gi,
+    (_match, body: string) => {
+      const entries: string[] = [];
+      const termRegex = /<dt\b[^>]*>([\s\S]*?)<\/dt>/gi;
+      const defRegex = /<dd\b[^>]*>([\s\S]*?)<\/dd>/gi;
+      let termMatch: RegExpExecArray | null;
+      while ((termMatch = termRegex.exec(body)) !== null) {
+        const term = extractInlineText(termMatch[1] ?? "");
+        if (!term) continue;
+        // Find the next <dd> after this <dt>
+        defRegex.lastIndex = termMatch.index + termMatch[0].length;
+        const defMatch = defRegex.exec(body);
+        const definition = defMatch ? extractInlineText(defMatch[1] ?? "") : "";
+        entries.push(definition ? `**${term}**\n: ${definition}` : `**${term}**`);
+      }
+      return entries.length > 0 ? `\n${entries.join("\n")}\n` : "\n";
+    },
+  );
+}
+
 function extractTextContent(
   html: string,
   maxTextLength: number,
@@ -386,13 +463,26 @@ function extractTextContent(
     "thead",
     "tfoot",
     "hr",
+    "blockquote",
+    "dl",
+    "dt",
+    "dd",
   ];
   const blockRegex = new RegExp(
     `<\\/?(?:${blockTags.join("|")})\\b[^>]*>`,
     "gi",
   );
 
-  let text = replaceTablesWithMarkdown(replaceHeadingTagsWithMarkdown(html))
+  // Pipeline: headings → definition lists → blockquotes → lists → tables → blockRegex fallback
+  let text = replaceTablesWithMarkdown(
+    replaceListsWithMarkdown(
+      replaceBlockquotesWithMarkdown(
+        replaceDefinitionListsWithMarkdown(
+          replaceHeadingTagsWithMarkdown(html),
+        ),
+      ),
+    ),
+  )
     .replace(blockRegex, "\n")
     .replace(/<[^>]+>/g, " ")
     .replace(/\r/g, "");

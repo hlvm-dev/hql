@@ -160,7 +160,7 @@ export function insertMessage(opts: InsertMessageOpts): MessageRow {
     db.prepare(
       `INSERT INTO messages
          (session_id, "order", role, content, client_turn_id, request_id,
-          sender_type, sender_detail, image_paths, tool_calls, tool_name,
+          sender_type, sender_detail, attachment_ids, tool_calls, tool_name,
           tool_call_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
@@ -172,7 +172,7 @@ export function insertMessage(opts: InsertMessageOpts): MessageRow {
       opts.request_id ?? null,
       opts.sender_type ?? "user",
       opts.sender_detail ?? null,
-      opts.image_paths ? JSON.stringify(opts.image_paths) : null,
+      opts.attachment_ids ? JSON.stringify(opts.attachment_ids) : null,
       opts.tool_calls ? JSON.stringify(opts.tool_calls) : null,
       opts.tool_name ?? null,
       opts.tool_call_id ?? null,

@@ -25,7 +25,7 @@ export interface MessageRow {
   request_id: string | null;
   sender_type: string;
   sender_detail: string | null;
-  image_paths: string | null;
+  attachment_ids: string | null;
   tool_calls: string | null;
   tool_name: string | null;
   tool_call_id: string | null;
@@ -41,7 +41,7 @@ export interface InsertMessageOpts {
   request_id?: string;
   sender_type?: string;
   sender_detail?: string;
-  image_paths?: string[];
+  attachment_ids?: string[];
   tool_calls?: unknown[];
   tool_name?: string;
   tool_call_id?: string;

@@ -11,6 +11,7 @@ import {
 } from "../../agent-transcript-state.ts";
 import type {
   AssistantCitation,
+  ConversationAttachmentRef,
   ConversationItem,
   StreamingState,
 } from "../types.ts";
@@ -28,7 +29,7 @@ export interface UseConversationResult {
   addEvent: (event: AgentUIEvent) => void;
   addUserMessage: (
     text: string,
-    options?: { attachments?: string[]; startTurn?: boolean },
+    options?: { attachments?: ConversationAttachmentRef[]; startTurn?: boolean },
   ) => void;
   addAssistantText: (
     text: string,
@@ -66,7 +67,7 @@ export function useConversation(): UseConversationResult {
 
   const addUserMessage = useCallback((
     text: string,
-    options?: { attachments?: string[]; startTurn?: boolean },
+    options?: { attachments?: ConversationAttachmentRef[]; startTurn?: boolean },
   ) => {
     updateState(setState, {
       type: "user_message",

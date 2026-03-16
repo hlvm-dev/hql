@@ -17,6 +17,10 @@ import {
   ERROR_REPORTED_SYMBOL,
   formatErrorCode,
   getErrorFixes,
+  parseErrorCodeFromMessage,
+  isHQLErrorCode,
+  stripErrorCodeFromMessage,
+  type UnifiedErrorCode,
   HQLErrorCode,
 } from "./error-codes.ts";
 import { getErrorMessage, isObjectValue } from "./utils.ts";
@@ -26,8 +30,6 @@ import { extractContextLinesFromFile, extractContextLinesFromSource } from "./co
 // Pre-compiled Regex Patterns
 // -----------------------------------------------------------------------------
 
-/** Matches HQL error code prefix [HQLxxxx] at start of message */
-const ERROR_CODE_PREFIX_REGEX = /^\[HQL\d{4}\]\s*/;
 // Message cleanup patterns (used in formatHQLError)
 const STACK_TRACE_AT_REGEX = /\s+at\s+\S+:\d+:\d+$/;
 const STACK_TRACE_PAREN_REGEX = /\s+\(\S+:\d+:\d+\)$/;
@@ -62,33 +64,6 @@ const COLORS = {
 // Simple helpers
 // -----------------------------------------------------------------------------
 
-
-/**
- * Extract an existing HQL error code from a message string.
- * Returns the error code if found, or null if not present.
- *
- * Matches patterns like: [HQL1001], [HQL3008], etc.
- */
-function extractExistingErrorCode(msg: string): HQLErrorCode | null {
-  const match = msg.match(/\[HQL(\d{4})\]/);
-  if (match && match[1]) {
-    const code = parseInt(match[1], 10);
-    // Validate that the code is in a valid range (1000-7999)
-    if (code >= 1000 && code <= 7999) {
-      return code as HQLErrorCode;
-    }
-  }
-  return null;
-}
-
-/**
- * Strip existing HQL error code prefix from a message.
- * Returns the message without the [HQLxxxx] prefix.
- */
-function stripErrorCodeFromMessage(msg: string): string {
-  return msg.replace(ERROR_CODE_PREFIX_REGEX, "");
-}
-
 /**
  * Enhance error message with error code and location
  *
@@ -101,7 +76,7 @@ function stripErrorCodeFromMessage(msg: string): string {
  */
 function enhanceErrorMessage(
   msg: string,
-  errorCode: HQLErrorCode,
+  errorCode: UnifiedErrorCode,
 ): string {
   const codeStr = formatErrorCode(errorCode);
 
@@ -363,7 +338,7 @@ export async function formatHQLError(
   // Clean up redundant location references (we show them better in the --> line)
   message = message.replace(STACK_TRACE_AT_REGEX, "");
   message = message.replace(STACK_TRACE_PAREN_REGEX, "");
-  message = message.replace(ERROR_CODE_PREFIX_REGEX, "");
+  message = stripErrorCodeFromMessage(message);
   // Remove location info from message (we show it separately in --> line)
   // Note: These patterns have 'g' flag, so we need to reset lastIndex before each use
   LOCATION_STARTING_REGEX.lastIndex = 0;
@@ -562,7 +537,7 @@ enum ErrorType {
 
 export class HQLError extends Error {
   readonly errorType: string;
-  code?: HQLErrorCode; // Not readonly - child classes need to set this
+  code?: UnifiedErrorCode; // Not readonly - child classes need to set this
   sourceLocation: SourceLocationInfo;
   readonly originalError?: Error;
   contextLines: {
@@ -923,14 +898,14 @@ function inferValidationErrorCode(msg: string, context: string): HQLErrorCode {
 
 /**
  * Infer error code from runtime error message.
- * First checks if an existing HQL error code is embedded in the message.
+ * First checks if an existing code is embedded in the message.
  * Then tries to match against known error patterns.
  */
 function inferRuntimeErrorCode(msg: string): HQLErrorCode {
-  // FIRST: Check if message already contains an HQL error code
+  // FIRST: Check if message already contains a recognized HQL error code
   // This handles cases where errors bubble up and get re-wrapped
-  const existingCode = extractExistingErrorCode(msg);
-  if (existingCode !== null) {
+  const existingCode = parseErrorCodeFromMessage(msg);
+  if (existingCode !== null && isHQLErrorCode(existingCode)) {
     return existingCode;
   }
 
@@ -1467,7 +1442,7 @@ export class RuntimeError extends HQLError {
       column?: number;
       source?: string;
       originalError?: Error;
-      code?: HQLErrorCode;
+      code?: UnifiedErrorCode;
     } = {},
   ) {
     // Determine error code with priority:

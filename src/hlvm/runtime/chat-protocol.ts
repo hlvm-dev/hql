@@ -13,7 +13,7 @@ export type ChatMode = "chat" | "agent" | typeof CLAUDE_CODE_AGENT_MODE;
 export interface ChatRequestMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
-  image_paths?: string[];
+  attachment_ids?: string[];
   client_turn_id?: string;
 }
 

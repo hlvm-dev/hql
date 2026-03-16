@@ -9,6 +9,7 @@ import {
 import {
   type AssistantCitation,
   type AssistantItem,
+  type ConversationAttachmentRef,
   type ConversationItem,
   type DelegateItem,
   type InfoItem,
@@ -42,7 +43,7 @@ export type TranscriptInput =
   | {
     type: "user_message";
     text: string;
-    attachments?: string[];
+    attachments?: ConversationAttachmentRef[];
     startTurn?: boolean;
   }
   | {

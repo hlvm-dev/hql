@@ -1,7 +1,42 @@
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
+import {
+  assertEquals,
+  assertRejects,
+  assertStringIncludes,
+} from "jsr:@std/assert";
+import { registerAttachmentFromPath } from "../../../src/hlvm/attachments/service.ts";
 import { clearCurrentSession, session } from "../../../src/hlvm/api/session.ts";
+import { ValidationError } from "../../../src/common/error.ts";
 import type { MessageRow } from "../../../src/hlvm/store/types.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
+import { withTempDir, withTempHlvmDir } from "../helpers.ts";
 import { withRuntimeHostServer } from "../../shared/light-helpers.ts";
+
+const ONE_BY_ONE_PNG_PREFIX = Uint8Array.from([
+  0x89,
+  0x50,
+  0x4e,
+  0x47,
+  0x0d,
+  0x0a,
+  0x1a,
+  0x0a,
+  0x00,
+  0x00,
+  0x00,
+  0x0d,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+]);
 
 Deno.test("session API lists, loads, resumes, exports, and counts runtime conversation sessions", async () => {
   const runtimeSession = {
@@ -24,7 +59,7 @@ Deno.test("session API lists, loads, resumes, exports, and counts runtime conver
       request_id: null,
       sender_type: "user",
       sender_detail: null,
-      image_paths: null,
+      attachment_ids: null,
       tool_calls: null,
       tool_name: null,
       tool_call_id: null,
@@ -41,7 +76,7 @@ Deno.test("session API lists, loads, resumes, exports, and counts runtime conver
       request_id: null,
       sender_type: "assistant",
       sender_detail: null,
-      image_paths: null,
+      attachment_ids: null,
       tool_calls: null,
       tool_name: null,
       tool_call_id: null,
@@ -58,7 +93,7 @@ Deno.test("session API lists, loads, resumes, exports, and counts runtime conver
       request_id: null,
       sender_type: "agent",
       sender_detail: null,
-      image_paths: null,
+      attachment_ids: null,
       tool_calls: JSON.stringify([{
         argsSummary: "README.md",
         success: true,
@@ -139,79 +174,124 @@ Deno.test("session API records into runtime conversation sessions and clears cur
 
   clearCurrentSession();
 
-  await withRuntimeHostServer(async (req) => {
-    const url = new URL(req.url);
+  await withTempHlvmDir(async () => {
+    await withTempDir(async (tempDir) => {
+      const platform = getPlatform();
+      const imagePath = platform.path.join(tempDir, "pixel.png");
+      await platform.fs.writeFile(imagePath, ONE_BY_ONE_PNG_PREFIX);
+      const attachment = await registerAttachmentFromPath(imagePath);
 
-    if (url.pathname === "/api/sessions" && req.method === "POST") {
-      await req.json();
-      return Response.json({
-        id: "created-1",
-        title: "",
-        created_at: "2026-03-07T00:10:00.000Z",
-        updated_at: "2026-03-07T00:10:00.000Z",
-        message_count: createdMessageCount,
-        session_version: 1,
-        metadata: null,
-      }, { status: 201 });
-    }
+      await withRuntimeHostServer(async (req) => {
+        const url = new URL(req.url);
 
-    if (
-      url.pathname === "/api/sessions/created-1/messages" &&
-      req.method === "POST"
-    ) {
-      const body = await req.json() as Record<string, unknown>;
-      recordedMessages.push(body);
-      createdMessageCount += 1;
-      return Response.json({
-        id: createdMessageCount,
-        session_id: "created-1",
-        order: createdMessageCount,
-        role: body.role,
-        content: body.content,
-        client_turn_id: null,
-        request_id: null,
-        sender_type: body.sender_type,
-        sender_detail: null,
-        image_paths: body.image_paths ? JSON.stringify(body.image_paths) : null,
-        tool_calls: null,
-        tool_name: null,
-        tool_call_id: null,
-        cancelled: 0,
-        created_at: `2026-03-07T00:10:0${createdMessageCount}.000Z`,
-      }, { status: 201 });
-    }
+        if (url.pathname === "/api/sessions" && req.method === "POST") {
+          await req.json();
+          return Response.json({
+            id: "created-1",
+            title: "",
+            created_at: "2026-03-07T00:10:00.000Z",
+            updated_at: "2026-03-07T00:10:00.000Z",
+            message_count: createdMessageCount,
+            session_version: 1,
+            metadata: null,
+          }, { status: 201 });
+        }
 
-    if (url.pathname === "/api/sessions/created-1") {
-      if (req.method === "DELETE") {
-        return Response.json({ deleted: true });
-      }
-      return Response.json({
-        id: "created-1",
-        title: "",
-        created_at: "2026-03-07T00:10:00.000Z",
-        updated_at: "2026-03-07T00:10:05.000Z",
-        message_count: createdMessageCount,
-        session_version: createdMessageCount + 1,
-        metadata: null,
+        if (
+          url.pathname === "/api/sessions/created-1/messages" &&
+          req.method === "POST"
+        ) {
+          const body = await req.json() as Record<string, unknown>;
+          recordedMessages.push(body);
+          createdMessageCount += 1;
+          return Response.json({
+            id: createdMessageCount,
+            session_id: "created-1",
+            order: createdMessageCount,
+            role: body.role,
+            content: body.content,
+            client_turn_id: null,
+            request_id: null,
+            sender_type: body.sender_type,
+            sender_detail: null,
+            attachment_ids: body.attachment_ids
+              ? JSON.stringify(body.attachment_ids as string[])
+              : null,
+            tool_calls: null,
+            tool_name: null,
+            tool_call_id: null,
+            cancelled: 0,
+            created_at: `2026-03-07T00:10:0${createdMessageCount}.000Z`,
+          }, { status: 201 });
+        }
+
+        if (url.pathname === "/api/sessions/created-1") {
+          if (req.method === "DELETE") {
+            return Response.json({ deleted: true });
+          }
+          return Response.json({
+            id: "created-1",
+            title: "",
+            created_at: "2026-03-07T00:10:00.000Z",
+            updated_at: "2026-03-07T00:10:05.000Z",
+            message_count: createdMessageCount,
+            session_version: createdMessageCount + 1,
+            metadata: null,
+          });
+        }
+
+        return new Response("Not found", { status: 404 });
+      }, async () => {
+        await session.record("user", "hello", [attachment.id]);
+        await session.record("assistant", "hi");
+
+        assertEquals(recordedMessages.length, 2);
+        assertEquals(recordedMessages[0]?.role, "user");
+        assertEquals(recordedMessages[0]?.attachment_ids, [attachment.id]);
+        assertEquals(recordedMessages[1]?.role, "assistant");
+        assertEquals(recordedMessages[1]?.sender_type, "assistant");
+        assertEquals(session.current()?.id, "created-1");
+        assertEquals(session.current()?.messageCount, 2);
+
+        const removed = await session.remove("created-1");
+        assertEquals(removed, true);
+        assertEquals(session.current(), null);
       });
-    }
+    });
+  });
 
-    return new Response("Not found", { status: 404 });
-  }, async () => {
-    await session.record("user", "hello", ["image.png"]);
-    await session.record("assistant", "hi");
+  clearCurrentSession();
+});
 
-    assertEquals(recordedMessages.length, 2);
-    assertEquals(recordedMessages[0]?.role, "user");
-    assertEquals(recordedMessages[0]?.image_paths, ["image.png"]);
-    assertEquals(recordedMessages[1]?.role, "assistant");
-    assertEquals(recordedMessages[1]?.sender_type, "assistant");
-    assertEquals(session.current()?.id, "created-1");
-    assertEquals(session.current()?.messageCount, 2);
+Deno.test("session API rejects unknown attachment ids before creating a session", async () => {
+  let createdSessions = 0;
+  clearCurrentSession();
 
-    const removed = await session.remove("created-1");
-    assertEquals(removed, true);
-    assertEquals(session.current(), null);
+  await withTempHlvmDir(async () => {
+    await withRuntimeHostServer(async (req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/sessions" && req.method === "POST") {
+        createdSessions += 1;
+        return Response.json({
+          id: "created-1",
+          title: "",
+          created_at: "2026-03-07T00:10:00.000Z",
+          updated_at: "2026-03-07T00:10:00.000Z",
+          message_count: 0,
+          session_version: 1,
+          metadata: null,
+        }, { status: 201 });
+      }
+      return new Response("Not found", { status: 404 });
+    }, async () => {
+      await assertRejects(
+        () => session.record("user", "hello", ["att_missing"]),
+        ValidationError,
+        "Unknown attachment ID: att_missing",
+      );
+      assertEquals(createdSessions, 0);
+      assertEquals(session.current(), null);
+    });
   });
 
   clearCurrentSession();
@@ -238,7 +318,7 @@ Deno.test("session API hides cancelled transcript rows on resume and export", as
       request_id: "req-1",
       sender_type: "user",
       sender_detail: null,
-      image_paths: null,
+      attachment_ids: null,
       tool_calls: null,
       tool_name: null,
       tool_call_id: null,
@@ -255,7 +335,7 @@ Deno.test("session API hides cancelled transcript rows on resume and export", as
       request_id: "req-1",
       sender_type: "assistant",
       sender_detail: null,
-      image_paths: null,
+      attachment_ids: null,
       tool_calls: null,
       tool_name: null,
       tool_call_id: null,
@@ -272,7 +352,7 @@ Deno.test("session API hides cancelled transcript rows on resume and export", as
       request_id: "req-2",
       sender_type: "user",
       sender_detail: null,
-      image_paths: null,
+      attachment_ids: null,
       tool_calls: null,
       tool_name: null,
       tool_call_id: null,
@@ -289,7 +369,7 @@ Deno.test("session API hides cancelled transcript rows on resume and export", as
       request_id: "req-2",
       sender_type: "assistant",
       sender_detail: null,
-      image_paths: null,
+      attachment_ids: null,
       tool_calls: null,
       tool_name: null,
       tool_call_id: null,
@@ -333,4 +413,67 @@ Deno.test("session API hides cancelled transcript rows on resume and export", as
   });
 
   clearCurrentSession();
+});
+
+Deno.test("session API resolves attachment labels from stored attachment ids", async () => {
+  await withTempHlvmDir(async () => {
+    await withTempDir(async (tempDir) => {
+      const platform = getPlatform();
+      const imagePath = platform.path.join(tempDir, "pixel.png");
+      await platform.fs.writeFile(
+        imagePath,
+        ONE_BY_ONE_PNG_PREFIX,
+      );
+      const attachment = await registerAttachmentFromPath(imagePath);
+      const runtimeSession = {
+        id: "sess-attach",
+        title: "Attachments",
+        created_at: "2026-03-07T00:00:00.000Z",
+        updated_at: "2026-03-07T00:05:00.000Z",
+        message_count: 1,
+        session_version: 1,
+        metadata: null,
+      };
+      const messages: MessageRow[] = [{
+        id: 1,
+        session_id: "sess-attach",
+        order: 1,
+        role: "user",
+        content: "see this",
+        client_turn_id: "turn-1",
+        request_id: null,
+        sender_type: "user",
+        sender_detail: null,
+        attachment_ids: JSON.stringify([attachment.id]),
+        tool_calls: null,
+        tool_name: null,
+        tool_call_id: null,
+        cancelled: 0,
+        created_at: "2026-03-07T00:00:00.000Z",
+      }];
+
+      clearCurrentSession();
+
+      await withRuntimeHostServer(async (req) => {
+        const url = new URL(req.url);
+        if (url.pathname === "/api/sessions/sess-attach/messages") {
+          return Response.json({
+            messages,
+            total: messages.length,
+            has_more: false,
+            session_version: 1,
+          });
+        }
+        if (url.pathname === "/api/sessions/sess-attach") {
+          return Response.json(runtimeSession);
+        }
+        return new Response("Not found", { status: 404 });
+      }, async () => {
+        const loaded = await session.get("sess-attach");
+        assertEquals(loaded?.messages[0]?.attachments, ["[Image #1]"]);
+      });
+
+      clearCurrentSession();
+    });
+  });
 });

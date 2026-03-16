@@ -1383,17 +1383,15 @@ export async function runReActLoop(
         lc.toolRateLimiter,
       );
 
-      if (result.toolCallsMade > 0) {
-        config.onAgentEvent?.({
-          type: "turn_stats",
-          iteration: state.iterations,
-          toolCount: result.toolCallsMade,
-          durationMs: Date.now() - iterationStart,
-          inputTokens: usage.promptTokens || undefined,
-          outputTokens: usage.completionTokens || undefined,
-          modelId: config.modelId,
-        });
-      }
+      config.onAgentEvent?.({
+        type: "turn_stats",
+        iteration: state.iterations,
+        toolCount: result.toolCallsMade,
+        durationMs: Date.now() - iterationStart,
+        inputTokens: usage.promptTokens || undefined,
+        outputTokens: usage.completionTokens || undefined,
+        modelId: config.modelId,
+      });
 
       if (!result.shouldContinue) {
         const final = await handleFinalResponse(

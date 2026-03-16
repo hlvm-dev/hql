@@ -15,9 +15,11 @@ import {
   extractStructuredBlocks,
   extractReadableContent,
   isHtmlLikeResponse,
+  MAIN_CONTENT_MIN_CHARS,
   parseHtml,
   restoreStructuredBlocks,
 } from "./html-parser.ts";
+import { renderWithChrome } from "./headless-chrome.ts";
 import {
   dedupeSearchResultsStable,
   deduplicateSnippetPassages,
@@ -59,6 +61,7 @@ const PREFETCH_MAX_REDIRECTS = 2;
 const PREFETCH_TIMEOUT_MS = 5_000;
 const MAX_FOCUSED_CITATIONS = 3;
 const MAX_BROAD_CITATIONS = 4;
+const CHROME_ESCALATION_TIMEOUT_MS = 15_000;
 
 function resolvePrefetchTargetCount(
   baseTargetCount: number,
@@ -366,6 +369,9 @@ export class DdgSearchBackend implements WebSearchBackend {
     let evidenceReason =
       "No fetched results were available for deterministic evidence ranking.";
     const fetchedUrls: string[] = [];
+    let chromeEscalated = false;
+    let chromeUrl: string | undefined;
+    let chromeAccepted = false;
 
     if (shouldPrefetch) {
       const prefetchCandidates = result.results.filter((entry) => entry.url);
@@ -516,6 +522,52 @@ export class DdgSearchBackend implements WebSearchBackend {
         }
       }
 
+      // Chrome escalation: if top-1 prefetch target yielded no usable passages, re-render
+      // with headless Chrome (SPA / JS-gated content). Only top-1, never multiple (singleton).
+      if (prefetchTargets.length > 0) {
+        const top1Url = prefetchTargets[0].url;
+        if (top1Url) {
+          const top1Result = result.results.find((entry) => entry.url === top1Url);
+          const hasNoPassages = !top1Result?.passages || top1Result.passages.length === 0;
+          if (hasNoPassages) {
+            chromeEscalated = true;
+            chromeUrl = top1Url;
+            try {
+              const rendered = await renderWithChrome(top1Url, CHROME_ESCALATION_TIMEOUT_MS);
+              if (rendered) {
+                const { cleaned: cleanedChrome, blocks: chromeBlocks } = extractStructuredBlocks(rendered);
+                const chromeParsed = parseHtml(cleanedChrome, PREFETCH_MAX_TEXT, 3);
+                const chromeReadable = await extractReadableContent(cleanedChrome, top1Url);
+                let chromeText = chromeReadable?.text || chromeParsed.text;
+                if (chromeBlocks.size > 0) {
+                  chromeText = restoreStructuredBlocks(chromeText, chromeBlocks);
+                }
+                if (chromeText.length >= MAIN_CONTENT_MIN_CHARS && top1Result) {
+                  chromeAccepted = true;
+                  const chromePassages = extractRelevantPassages(query, chromeText);
+                  if (chromePassages.length > 0) {
+                    top1Result.passages = chromePassages;
+                  }
+                  if (chromeParsed.description?.trim()) {
+                    top1Result.pageDescription = chromeParsed.description;
+                  }
+                  if (chromeReadable?.title || chromeParsed.title) {
+                    const isGenericTitle = !top1Result.title ||
+                      top1Result.title.length < 5 ||
+                      /^(untitled|home|index|page)$/i.test(top1Result.title.trim());
+                    if (isGenericTitle) {
+                      top1Result.title = chromeReadable?.title || chromeParsed.title;
+                    }
+                  }
+                }
+              }
+            } catch {
+              // Graceful: if Chrome fails, keep original content.
+            }
+          }
+        }
+      }
+
       result.results = orderFetchedFirst(result.results, selectedUrls);
       const rankedFetched = rankFetchedEvidenceDeterministically({
         query,
@@ -633,6 +685,9 @@ export class DdgSearchBackend implements WebSearchBackend {
         evidenceConfidence,
         evidenceReason,
         weakEvidence: confidenceFinal.lowConfidence,
+        chromeEscalated,
+        chromeUrl,
+        chromeAccepted,
       },
       provider: providerDiagnostics ?? undefined,
     };

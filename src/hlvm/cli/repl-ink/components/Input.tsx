@@ -54,7 +54,10 @@ import {
   isSupportedConversationMedia,
   shouldCollapseText,
 } from "../../repl/attachment.ts";
-import { type AnyAttachment, useAttachments } from "../hooks/useAttachments.ts";
+import {
+  type AnyAttachment,
+  type UseAttachmentsReturn,
+} from "../hooks/useAttachments.ts";
 import { useHistorySearch } from "../hooks/useHistorySearch.ts";
 import { HistorySearchPrompt } from "./HistorySearchPrompt.tsx";
 import { ANSI_COLORS, getThemedAnsi } from "../../ansi.ts";
@@ -174,6 +177,22 @@ function findChunkIndex(offsets: number[], posInLine: number): number {
   return 0;
 }
 
+/**
+ * Find the start and end offsets of the logical line containing `pos`.
+ * A "logical line" is text between two `\n` delimiters (or start/end of string).
+ * Returns { lineStart, lineEnd } as absolute positions in `text`.
+ */
+function logicalLineBounds(
+  text: string,
+  pos: number,
+): { lineStart: number; lineEnd: number } {
+  let lineStart = text.lastIndexOf("\n", pos - 1);
+  lineStart = lineStart === -1 ? 0 : lineStart + 1;
+  let lineEnd = text.indexOf("\n", pos);
+  if (lineEnd === -1) lineEnd = text.length;
+  return { lineStart, lineEnd };
+}
+
 /** Lazy Intl.Segmenter singleton for grapheme-aware cursor movement. */
 let _segmenter: Intl.Segmenter | undefined;
 function getGraphemeSegmenter(): Intl.Segmenter {
@@ -208,11 +227,9 @@ interface InputProps {
   canEditQueuedDraft?: boolean;
   /** Whether the conversation task is currently running */
   isConversationTaskRunning?: boolean;
-  /** Notify parent when attachment state changes */
-  onAttachmentsChange?: (attachments: AnyAttachment[]) => void;
-  /** Restore attachment state from an external draft snapshot */
-  restoredAttachments?: AnyAttachment[];
-  /** Cursor position to restore alongside restoredAttachments */
+  /** Parent-owned attachment controller for the composer */
+  attachmentState: UseAttachmentsReturn;
+  /** Cursor position to restore alongside parent-owned attachments */
   restoredCursorOffset?: number;
   /** Monotonic token to apply restored draft state exactly once per restore */
   restoredDraftRevision?: number;
@@ -282,8 +299,7 @@ export function Input({
   queueEditBinding = "alt-up",
   canEditQueuedDraft = false,
   isConversationTaskRunning = false,
-  onAttachmentsChange,
-  restoredAttachments,
+  attachmentState,
   restoredCursorOffset,
   restoredDraftRevision,
   onCycleMode,
@@ -313,16 +329,6 @@ export function Input({
   // Memoize bindingNames Set to avoid recreation on every render
   const bindingNamesSet = useMemo(() => new Set(bindingNames), [bindingNames]);
 
-  // Unified Completion System (replaces legacy completion + @mention state)
-  // Includes bindingNames for context-aware completions (e.g., unbind only shows binding items)
-  const completion = useCompletion({
-    userBindings,
-    signatures,
-    docstrings,
-    bindingNames: bindingNamesSet,
-    debounceMs: 50,
-  });
-
   // Ctrl+R History Search
   const historySearch = useHistorySearch(history);
 
@@ -331,11 +337,28 @@ export function Input({
     attachments,
     addAttachmentWithId,
     addTextAttachment,
-    replaceAttachments,
     reserveNextId,
     clearAttachments,
     lastError: attachmentError,
-  } = useAttachments();
+  } = attachmentState;
+
+  // Memoize attached file paths so @ picker filters already-attached files
+  const attachedPathsSet = useMemo(() => {
+    const paths = new Set<string>();
+    for (const a of attachments) {
+      if ("path" in a) paths.add(a.path);
+    }
+    return paths;
+  }, [attachments]);
+
+  const completion = useCompletion({
+    userBindings,
+    signatures,
+    docstrings,
+    bindingNames: bindingNamesSet,
+    attachedPaths: attachedPathsSet,
+    debounceMs: 50,
+  });
 
   // Placeholder mode state for function parameter completion
   const [placeholders, setPlaceholders] = useState<Placeholder[]>([]);
@@ -364,6 +387,13 @@ export function Input({
   // When cycling, we don't want to re-filter the dropdown
   const textChangeFromCyclingRef = useRef(false);
 
+  // Track the last value we sent via onChange to prevent cursor-clamping race.
+  // When insertAt/onChange is called, cursorPos updates immediately (local state)
+  // but the value prop update is deferred (requires parent re-render). Without
+  // this guard, the clamping useEffect sees cursorPos > stale value.length and
+  // clips the cursor back, breaking multiline navigation.
+  const pendingValueRef = useRef<string | null>(null);
+
   // Ref for disabled prop to avoid stale closure in useInput
   const disabledRef = useRef(disabled);
 
@@ -371,10 +401,6 @@ export function Input({
   useEffect(() => {
     disabledRef.current = disabled;
   }, [disabled]);
-
-  useEffect(() => {
-    onAttachmentsChange?.(attachments);
-  }, [attachments, onAttachmentsChange]);
 
   useEffect(() => {
     if (
@@ -387,7 +413,6 @@ export function Input({
     }
     appliedRestoreRevisionRef.current = restoredDraftRevision;
     pendingAttachmentOpsRef.current = 0;
-    replaceAttachments(restoredAttachments ?? []);
     setCursorPos(
       Math.max(
         0,
@@ -395,15 +420,28 @@ export function Input({
       ),
     );
   }, [
-    replaceAttachments,
-    restoredAttachments,
     restoredCursorOffset,
     restoredDraftRevision,
     value.length,
   ]);
 
-  // Update cursor pos when value changes externally
+  // Update cursor pos when value changes externally.
+  // When we call onChange(newValue) + setCursorPos(pos), the cursorPos state
+  // updates immediately but the value prop is stale until the parent re-renders.
+  // Without this guard, cursorPos > stale_value.length would wrongly clip the
+  // cursor, breaking multiline editing (cursor snaps back to before the newline).
   useEffect(() => {
+    if (pendingValueRef.current !== null) {
+      // A pending internal edit — clamp against the PENDING value, not stale prop
+      if (cursorPos > pendingValueRef.current.length) {
+        setCursorPos(pendingValueRef.current.length);
+      }
+      // Clear once the prop catches up
+      if (value === pendingValueRef.current) {
+        pendingValueRef.current = null;
+      }
+      return;
+    }
     if (cursorPos > value.length) {
       setCursorPos(value.length);
     }
@@ -532,8 +570,9 @@ export function Input({
     const { word } = getWordAtCursor(textBefore, cursorPos);
     const trimmedBefore = textBefore.trimStart();
     const lastAt = textBefore.lastIndexOf("@");
+    const afterAt = lastAt >= 0 ? textBefore.slice(lastAt + 1) : "";
     const isInMention = lastAt >= 0 &&
-      !textBefore.slice(lastAt + 1).includes(" ");
+      !afterAt.includes(" ") && !afterAt.includes("\n");
     const isInCommand = trimmedBefore.startsWith("/") &&
       !trimmedBefore.includes(" ");
 
@@ -692,6 +731,7 @@ export function Input({
     if (stack.length === 0) return;
     const entry = stack.pop()!;
     redoStackRef.current.push({ value, cursorPos });
+    pendingValueRef.current = entry.value;
     onChange(entry.value);
     setCursorPos(entry.cursorPos);
   }, [value, cursorPos, onChange]);
@@ -702,9 +742,49 @@ export function Input({
     if (stack.length === 0) return;
     const entry = stack.pop()!;
     undoStackRef.current.push({ value, cursorPos });
+    pendingValueRef.current = entry.value;
     onChange(entry.value);
     setCursorPos(entry.cursorPos);
   }, [value, cursorPos, onChange]);
+
+  const removeFailedAttachmentDisplayName = useCallback(
+    (displayName: string) => {
+      const liveText = latestValueRef.current;
+      const labelWithSpace = `${displayName} `;
+      const labelIndex = liveText.lastIndexOf(labelWithSpace);
+      const nextText = labelIndex !== -1
+        ? liveText.slice(0, labelIndex) +
+          liveText.slice(labelIndex + labelWithSpace.length)
+        : (() => {
+          const bareIndex = liveText.lastIndexOf(displayName);
+          if (bareIndex === -1) return null;
+          return liveText.slice(0, bareIndex) +
+            liveText.slice(bareIndex + displayName.length);
+        })();
+      if (nextText === null) return;
+      pendingValueRef.current = nextText;
+      onChange(nextText);
+    },
+    [onChange],
+  );
+
+  const attachPathWithCleanup = useCallback(
+    (filePath: string, id: number, displayName: string) => {
+      pendingAttachmentOpsRef.current += 1;
+      void addAttachmentWithId(filePath, id).then((attachment) => {
+        if (attachment === null) return;
+        if (!isAttachment(attachment)) {
+          removeFailedAttachmentDisplayName(displayName);
+        }
+      }).finally(() => {
+        pendingAttachmentOpsRef.current = Math.max(
+          0,
+          pendingAttachmentOpsRef.current - 1,
+        );
+      });
+    },
+    [addAttachmentWithId, removeFailedAttachmentDisplayName],
+  );
 
   // Helper: execute completion action (GENERIC - uses item.applyAction)
   // This replaces the old applyCompletionSelection with provider-defined behavior
@@ -721,7 +801,6 @@ export function Input({
       // Handle side effects from providers
       if (result.sideEffect?.type === "ADD_ATTACHMENT") {
         // Media file attachment
-        pendingAttachmentOpsRef.current += 1;
         const id = reserveNextId();
         const mimeType = detectMimeType(result.sideEffect.path);
         const type = getAttachmentType(mimeType);
@@ -731,33 +810,13 @@ export function Input({
           ATTACHMENT_PLACEHOLDER,
           displayName,
         );
+        pendingValueRef.current = finalText;
         onChange(finalText);
         const placeholderLen = ATTACHMENT_PLACEHOLDER.length;
         setCursorPos(
           result.cursorPosition - placeholderLen + displayName.length,
         );
-        // Async file read: on failure remove the orphaned display name from text.
-        void addAttachmentWithId(result.sideEffect.path, id).then((att) => {
-          if (!isAttachment(att)) {
-            // Read the live value via ref (avoids stale closure)
-            const liveText = latestValueRef.current;
-            const label = displayName + " ";
-            const idx = liveText.indexOf(label);
-            if (idx !== -1) {
-              onChange(liveText.slice(0, idx) + liveText.slice(idx + label.length));
-            } else {
-              const idx2 = liveText.indexOf(displayName);
-              if (idx2 !== -1) {
-                onChange(liveText.slice(0, idx2) + liveText.slice(idx2 + displayName.length));
-              }
-            }
-          }
-        }).finally(() => {
-          pendingAttachmentOpsRef.current = Math.max(
-            0,
-            pendingAttachmentOpsRef.current - 1,
-          );
-        });
+        attachPathWithCleanup(result.sideEffect.path, id, displayName);
       } else if (result.sideEffect?.type === "ENTER_PLACEHOLDER_MODE") {
         // Function param completion
         onChange(result.text);
@@ -779,6 +838,7 @@ export function Input({
         return; // Early return - already closed dropdown
       } else {
         // Normal completion
+        pendingValueRef.current = result.text;
         onChange(result.text);
         setCursorPos(result.cursorPosition);
       }
@@ -794,7 +854,7 @@ export function Input({
       onSubmit,
       attachments,
       reserveNextId,
-      addAttachmentWithId,
+      attachPathWithCleanup,
       enterPlaceholderMode,
       pushUndo,
       clearAttachments,
@@ -987,6 +1047,7 @@ export function Input({
   const insertAt = useCallback((text: string) => {
     pushUndo();
     const newValue = value.slice(0, cursorPos) + text + value.slice(cursorPos);
+    pendingValueRef.current = newValue; // Guard against cursor-clamping race
     onChange(newValue);
     setCursorPos(cursorPos + text.length);
   }, [value, cursorPos, onChange, pushUndo]);
@@ -1119,7 +1180,8 @@ export function Input({
   // For Ctrl+W, we exclude quotes/comma/semicolon so strings and data structures
   // are treated as atomic units. See string-utils.ts header for full explanation.
   const isWordBoundaryChar = (ch: string): boolean => {
-    return ch === " " || ch === "\t" || ch === "(" || ch === ")" ||
+    return ch === " " || ch === "\t" || ch === "\n" || ch === "(" ||
+      ch === ")" ||
       ch === "[" || ch === "]" || ch === "{" || ch === "}";
   };
 
@@ -1135,6 +1197,7 @@ export function Input({
     pushUndo();
     const newValue = value.slice(0, cursorPos) + openChar + closeChar +
       value.slice(cursorPos);
+    pendingValueRef.current = newValue;
     onChange(newValue);
     setCursorPos(cursorPos + 1); // Cursor between the pair
   }, [value, cursorPos, onChange, insertAt, pushUndo]);
@@ -1227,26 +1290,33 @@ export function Input({
       // Up arrow - go back in history
       if (historyIndex === -1) {
         // FIX H5: Save current input value directly (captured at call time)
+        const entry = history[history.length - 1];
         setTempInput(value);
         setHistoryIndex(history.length - 1);
-        onChange(history[history.length - 1]);
-        setCursorPos(history[history.length - 1].length);
+        pendingValueRef.current = entry;
+        onChange(entry);
+        setCursorPos(entry.length);
       } else if (historyIndex > 0) {
+        const entry = history[historyIndex - 1];
         setHistoryIndex(historyIndex - 1);
-        onChange(history[historyIndex - 1]);
-        setCursorPos(history[historyIndex - 1].length);
+        pendingValueRef.current = entry;
+        onChange(entry);
+        setCursorPos(entry.length);
       }
     } else {
       // Down arrow - go forward in history
       if (historyIndex === -1) return;
 
       if (historyIndex < history.length - 1) {
+        const entry = history[historyIndex + 1];
         setHistoryIndex(historyIndex + 1);
-        onChange(history[historyIndex + 1]);
-        setCursorPos(history[historyIndex + 1].length);
+        pendingValueRef.current = entry;
+        onChange(entry);
+        setCursorPos(entry.length);
       } else {
         // Restore temp input
         setHistoryIndex(-1);
+        pendingValueRef.current = tempInput;
         onChange(tempInput);
         setCursorPos(tempInput.length);
       }
@@ -1283,25 +1353,31 @@ export function Input({
       }
     };
 
-    // Editing handlers
-    registerHandler(HandlerIds.EDIT_JUMP_START, () => setCursorPos(0), "Input");
+    // Editing handlers (multiline-aware: operate on current logical line)
+    registerHandler(HandlerIds.EDIT_JUMP_START, () => {
+      const { lineStart } = logicalLineBounds(value, cursorPos);
+      setCursorPos(lineStart);
+    }, "Input");
     registerHandler(HandlerIds.EDIT_JUMP_END, () => {
       if (suggestion && cursorPos === value.length) {
         acceptAndApplySuggestion();
       } else {
-        setCursorPos(value.length);
+        const { lineEnd } = logicalLineBounds(value, cursorPos);
+        setCursorPos(lineEnd);
       }
     }, "Input");
     registerHandler(HandlerIds.EDIT_DELETE_TO_START, () => {
       pushUndo();
       const { v, c } = getCleanedValue();
-      onChange(v.slice(c));
-      setCursorPos(0);
+      const { lineStart: ls } = logicalLineBounds(v, c);
+      onChange(v.slice(0, ls) + v.slice(c));
+      setCursorPos(ls);
     }, "Input");
     registerHandler(HandlerIds.EDIT_DELETE_TO_END, () => {
       pushUndo();
       const { v, c } = getCleanedValue();
-      onChange(v.slice(0, c));
+      const { lineEnd: le } = logicalLineBounds(v, c);
+      onChange(v.slice(0, c) + v.slice(le));
     }, "Input");
     registerHandler(HandlerIds.EDIT_DELETE_WORD_BACK, () => {
       pushUndo();
@@ -1923,7 +1999,7 @@ export function Input({
       if (isPureEscPrefixEvent) {
         lastEscPrefixAtRef.current = Date.now();
         schedulePureEscAction(() => {
-        lastEscPrefixAtRef.current = 0;
+          lastEscPrefixAtRef.current = 0;
           if (
             highlightMode === "chat" &&
             isConversationTaskRunning &&
@@ -2093,11 +2169,43 @@ export function Input({
         return;
       }
       if (key.leftArrow) {
+        // File provider: Left Arrow goes up one directory level
+        if (completion.activeProviderId === "file") {
+          const textBefore = value.slice(0, cursorPos);
+          const atIdx = textBefore.lastIndexOf("@");
+          if (atIdx >= 0) {
+            const mentionPath = textBefore.slice(atIdx + 1);
+            // Strip trailing slash, then find parent
+            const trimmed = mentionPath.endsWith("/")
+              ? mentionPath.slice(0, -1)
+              : mentionPath;
+            const lastSlash = trimmed.lastIndexOf("/");
+            if (lastSlash >= 0) {
+              // Go to parent: @docs/features/01-binding/ → @docs/features/
+              const parentPath = "@" + trimmed.slice(0, lastSlash + 1);
+              const after = value.slice(cursorPos);
+              pushUndo();
+              onChange(value.slice(0, atIdx) + parentPath + after);
+              setCursorPos(atIdx + parentPath.length);
+              return;
+            }
+          }
+        }
         completion.close();
         if (cursorPos > 0) setCursorPos(cursorPos - 1);
         return;
       }
       if (key.rightArrow) {
+        // File provider: Right Arrow drills into directory or selects file
+        if (completion.activeProviderId === "file" && selectedItem) {
+          if (selectedItem.availableActions.includes("DRILL")) {
+            executeCompletionAction(selectedItem, "DRILL");
+          } else {
+            // Terminal item (file): Right Arrow selects it (same as Enter)
+            executeCompletionAction(selectedItem, "SELECT");
+          }
+          return;
+        }
         completion.close();
         if (cursorPos < value.length) {
           setCursorPos(cursorPos + 1);
@@ -2209,7 +2317,10 @@ export function Input({
       let acc = 0;
       let logIdx = 0;
       for (let i = 0; i < lines.length; i++) {
-        if (acc + lines[i].length >= cursorPos) { logIdx = i; break; }
+        if (acc + lines[i].length >= cursorPos) {
+          logIdx = i;
+          break;
+        }
         acc += lines[i].length + 1;
       }
       const posInLine = cursorPos - acc;
@@ -2220,7 +2331,9 @@ export function Input({
         const colInChunk = posInLine - wrap.offsets[chunkIdx];
         const prevOff = wrap.offsets[chunkIdx - 1];
         const prevLen = wrap.chunks[chunkIdx - 1].length;
-        setCursorPos(acc + prevOff + Math.min(colInChunk, prevLen - 1));
+        setCursorPos(
+          acc + prevOff + Math.min(colInChunk, Math.max(0, prevLen - 1)),
+        );
       } else if (logIdx > 0) {
         // Cross to last visual row of previous logical line
         const colInChunk = posInLine - wrap.offsets[0];
@@ -2230,10 +2343,15 @@ export function Input({
         const lastOff = prevWrap.offsets[prevWrap.offsets.length - 1];
         const lastLen = prevWrap.chunks[prevWrap.chunks.length - 1].length;
         setCursorPos(
-          prevStart + lastOff + Math.min(colInChunk, lastLen - 1),
+          prevStart + lastOff + Math.min(colInChunk, Math.max(0, lastLen - 1)),
         );
-      } else {
+      } else if (!value.includes("\n") || cursorPos === 0) {
+        // Single-line: always navigate history
+        // Multiline at pos 0: navigate history
         navigateHistory(-1);
+      } else {
+        // Multiline, top line, cursor not at 0: move to start first
+        setCursorPos(0);
       }
       return;
     }
@@ -2244,7 +2362,10 @@ export function Input({
       let acc = 0;
       let logIdx = 0;
       for (let i = 0; i < lines.length; i++) {
-        if (acc + lines[i].length >= cursorPos) { logIdx = i; break; }
+        if (acc + lines[i].length >= cursorPos) {
+          logIdx = i;
+          break;
+        }
         acc += lines[i].length + 1;
       }
       const posInLine = cursorPos - acc;
@@ -2256,7 +2377,9 @@ export function Input({
         const colInChunk = posInLine - wrap.offsets[chunkIdx];
         const nextOff = wrap.offsets[chunkIdx + 1];
         const nextLen = wrap.chunks[chunkIdx + 1].length;
-        setCursorPos(acc + nextOff + Math.min(colInChunk, nextLen - 1));
+        setCursorPos(
+          acc + nextOff + Math.min(colInChunk, Math.max(0, nextLen - 1)),
+        );
       } else if (logIdx < lines.length - 1) {
         // Cross to first visual row of next logical line
         const colInChunk = posInLine - wrap.offsets[chunkIdx];
@@ -2264,11 +2387,15 @@ export function Input({
         const nextLine = lines[logIdx + 1];
         const nextWrap = wrapLine(nextLine, cw);
         setCursorPos(
-          nextStart + Math.min(colInChunk, nextWrap.chunks[0].length - 1),
+          nextStart +
+            Math.min(colInChunk, Math.max(0, nextWrap.chunks[0].length - 1)),
         );
       } else if (cursorPos < value.length) {
         setCursorPos(value.length);
       } else {
+        // Cursor already at end — navigate to next history entry.
+        // (For multiline, the "move to end" branch above acts as a buffer:
+        //  first Down press jumps to end, second press navigates history.)
         navigateHistory(1);
       }
       return;
@@ -2292,6 +2419,21 @@ export function Input({
       } else if (suggestion) {
         // At end with suggestion: accept ghost text
         acceptAndApplySuggestion();
+      }
+      return;
+    }
+
+    // Home/End keys — map to Ctrl+A/E behavior
+    // Terminals send: Home → \x1b[H or \x1bOH, End → \x1b[F or \x1bOF
+    if (input === "\x1b[H" || input === "\x1bOH") {
+      setCursorPos(0);
+      return;
+    }
+    if (input === "\x1b[F" || input === "\x1bOF") {
+      if (suggestion && cursorPos === value.length) {
+        acceptAndApplySuggestion();
+      } else {
+        setCursorPos(value.length);
       }
       return;
     }
@@ -2320,14 +2462,17 @@ export function Input({
         : input?.toLowerCase() ?? "";
 
       switch (normalizedInput) {
-        case "a": // Ctrl+A = Start of line
-          setCursorPos(0);
+        case "a": { // Ctrl+A = Start of current logical line
+          const { lineStart } = logicalLineBounds(value, cursorPos);
+          setCursorPos(lineStart);
           return;
-        case "e": // Ctrl+E = End of line (also accept suggestion)
+        }
+        case "e": // Ctrl+E = End of current logical line (also accept suggestion)
           if (suggestion && cursorPos === value.length) {
             acceptAndApplySuggestion();
           } else {
-            setCursorPos(value.length);
+            const { lineEnd } = logicalLineBounds(value, cursorPos);
+            setCursorPos(lineEnd);
           }
           return;
         case "w": { // Ctrl+W = Delete word backward
@@ -2335,17 +2480,19 @@ export function Input({
           deleteWord(v, c);
           return;
         }
-        case "u": { // Ctrl+U = Delete to start of line
+        case "u": { // Ctrl+U = Delete to start of current logical line
           pushUndo();
           const { v, c } = getCleanedValue();
-          onChange(v.slice(c));
-          setCursorPos(0);
+          const { lineStart: ls } = logicalLineBounds(v, c);
+          onChange(v.slice(0, ls) + v.slice(c));
+          setCursorPos(ls);
           return;
         }
-        case "k": { // Ctrl+K = Delete to end of line
+        case "k": { // Ctrl+K = Delete to end of current logical line
           pushUndo();
           const { v, c } = getCleanedValue();
-          onChange(v.slice(0, c));
+          const { lineEnd: le } = logicalLineBounds(v, c);
+          onChange(v.slice(0, c) + v.slice(le));
           return;
         }
 
@@ -2387,12 +2534,13 @@ export function Input({
           return; // Ctrl+L = Raise
         case "o":
           applyParedit(killSexp);
-          return; // Ctrl+O = Kill
+          return;
 
           // Note: Ctrl+P = Command Palette (handled in App.tsx)
           // Note: Ctrl+D = EOF (handled in App.tsx)
           // Note: Ctrl+B = Tasks Panel (handled in App.tsx)
           // Note: Ctrl+R = History Search (handled above)
+          // Ctrl+O = Kill
       }
       return;
     }
@@ -2452,7 +2600,7 @@ export function Input({
           const type = getAttachmentType(mimeType);
           const displayName = getDisplayName(type, id);
           insertAt(displayName + " ");
-          addAttachmentWithId(cleanText, id);
+          attachPathWithCleanup(cleanText, id, displayName);
           return;
         }
 
@@ -2760,8 +2908,8 @@ export function Input({
         lineElements.push(
           <Box key={`${logIdx}-${ci}`}>
             <Text>
-              <Text color={color("primary")} bold>{prompt}</Text>
-              {" "}{renderWithPlaceholders(chunkText, chunkGlobalOff)}
+              <Text color={color("primary")} bold>{prompt}</Text>{" "}
+              {renderWithPlaceholders(chunkText, chunkGlobalOff)}
             </Text>
           </Box>,
         );
@@ -2778,17 +2926,14 @@ export function Input({
         lineElements.push(
           <Box key={`${logIdx}-${ci}`}>
             <Text>
-              <Text color={color("primary")} bold>{prompt}</Text>
-              {" "}
+              <Text color={color("primary")} bold>{prompt}</Text>{" "}
               {renderWithPlaceholders(before, chunkGlobalOff)}
               <Text backgroundColor="white" color="black">{charAt}</Text>
               {renderWithPlaceholders(
                 after,
                 chunkGlobalOff + cursorColInChunk + charLen,
               )}
-              {isLastVisual && ghostText && (
-                <Text dimColor>{ghostText}</Text>
-              )}
+              {isLastVisual && ghostText && <Text dimColor>{ghostText}</Text>}
             </Text>
           </Box>,
         );

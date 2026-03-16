@@ -1,7 +1,12 @@
 /**
- * Standardized Error Codes for HQL
+ * Standardized Error Codes for HQL and runtime-platform integration.
  *
- * Error codes follow the pattern: HQL<category><number>
+ * Error codes follow domain-aware prefixes:
+ * - HQL<category><number>: HQL language and compiler/runtime errors
+ * - HLVM<category><number>: HLVM host transport/protocol errors
+ * - PRV<category><number>: Provider/API integration errors
+ *
+ * HQL language errors keep the historical category ranges:
  * - 1000-1999: Parse errors
  * - 2000-2999: Import errors
  * - 3000-3999: Validation errors
@@ -9,6 +14,10 @@
  * - 5000-5999: Runtime errors
  * - 6000-6999: Code generation errors
  * - 7000-7999: Macro errors
+ *
+ * Non-HQL domains use dedicated non-overlapping spaces:
+ * - HLVM5006-5099: HLVM runtime host transport/protocol errors
+ * - PRV9001-9099: External provider/API integration errors
  *
  * This enables:
  * - Searchable error codes in documentation
@@ -134,9 +143,6 @@ export enum HQLErrorCode {
   /** Function not found */
   FUNCTION_NOT_FOUND = 5005,
 
-  /** Runtime host request or lifecycle failure */
-  RUNTIME_HOST_REQUEST_FAILED = 5006,
-
   // ============================================================================
   // Code Generation Errors (6000-6999)
   // ============================================================================
@@ -168,6 +174,103 @@ export enum HQLErrorCode {
 
   /** Recursive macro expansion limit exceeded */
   MACRO_RECURSION_LIMIT = 7005,
+}
+
+export enum HLVMErrorCode {
+  /** Runtime host request or lifecycle failure */
+  REQUEST_FAILED = 5006,
+  /** Runtime host request was rejected by the local host */
+  REQUEST_REJECTED = 5007,
+  /** Runtime host payload is too large for a request */
+  REQUEST_TOO_LARGE = 5008,
+  /** Runtime host transport/network error */
+  TRANSPORT_ERROR = 5009,
+  /** Runtime host stream read or parser error */
+  STREAM_ERROR = 5010,
+}
+
+export enum ProviderErrorCode {
+  /** Provider returned a generic request failure */
+  REQUEST_FAILED = 9001,
+  /** Provider rejected the request payload or capabilities */
+  REQUEST_REJECTED = 9002,
+  /** Provider rejected due to payload size */
+  REQUEST_TOO_LARGE = 9003,
+  /** Provider rejected due to authentication/authorization */
+  AUTH_FAILED = 9004,
+  /** Provider reported rate limiting */
+  RATE_LIMITED = 9005,
+  /** Provider is unavailable or returning 5xx errors */
+  SERVICE_UNAVAILABLE = 9006,
+  /** Transport or DNS/network failure during provider request */
+  NETWORK_ERROR = 9007,
+  /** Provider request timed out */
+  REQUEST_TIMEOUT = 9008,
+  /** Provider stream or protocol-level parse failure */
+  STREAM_ERROR = 9009,
+}
+
+type ErrorCodeByDomain = HQLErrorCode | HLVMErrorCode | ProviderErrorCode;
+export type UnifiedErrorCode = ErrorCodeByDomain;
+
+const HQLErrorCodeSet = new Set(
+  (Object.values(HQLErrorCode) as number[]).filter((value) =>
+    Number.isInteger(value),
+  ),
+);
+const HLVMErrorCodeSet = new Set(
+  (Object.values(HLVMErrorCode) as number[]).filter((value) =>
+    Number.isInteger(value),
+  ),
+);
+const ProviderErrorCodeSet = new Set(
+  (Object.values(ProviderErrorCode) as number[]).filter((value) =>
+    Number.isInteger(value),
+  ),
+);
+
+const ERROR_CODE_PREFIX_REGEX = /^\[(HQL|HLVM|PRV)(\d{4})\]\s*/;
+
+/** Returns whether the code belongs to the HQL code domain. */
+export function isHQLErrorCode(code: UnifiedErrorCode): code is HQLErrorCode {
+  return HQLErrorCodeSet.has(code);
+}
+
+/** Returns whether the code belongs to the HLVM code domain. */
+export function isHLVMErrorCode(code: UnifiedErrorCode): code is HLVMErrorCode {
+  return HLVMErrorCodeSet.has(code);
+}
+
+/** Returns whether the code belongs to the provider code domain. */
+export function isProviderErrorCode(
+  code: UnifiedErrorCode,
+): code is ProviderErrorCode {
+  return ProviderErrorCodeSet.has(code);
+}
+
+/** Parses a structured error code prefix from an error message. */
+export function parseErrorCodeFromMessage(
+  message: string,
+): UnifiedErrorCode | null {
+  const match = message.match(ERROR_CODE_PREFIX_REGEX);
+  if (!match) return null;
+  const rawCode = Number(match[2]);
+  if (Number.isNaN(rawCode)) return null;
+  if (match[1] === "HQL" && isHQLErrorCode(rawCode as UnifiedErrorCode)) {
+    return rawCode as HQLErrorCode;
+  }
+  if (match[1] === "HLVM" && isHLVMErrorCode(rawCode as UnifiedErrorCode)) {
+    return rawCode as HLVMErrorCode;
+  }
+  if (match[1] === "PRV" && isProviderErrorCode(rawCode as UnifiedErrorCode)) {
+    return rawCode as ProviderErrorCode;
+  }
+  return null;
+}
+
+/** Removes leading error-code prefix for readable messages. */
+export function stripErrorCodeFromMessage(message: string): string {
+  return message.replace(ERROR_CODE_PREFIX_REGEX, "");
 }
 
 /**
@@ -595,20 +698,6 @@ const ERROR_INFO: Record<HQLErrorCode, ErrorInfo> = {
       "Use correct method call syntax",
     ],
   },
-  [HQLErrorCode.RUNTIME_HOST_REQUEST_FAILED]: {
-    description: "A request to the local HLVM runtime host failed.",
-    causes: [
-      "Runtime host returned an error response",
-      "Runtime host build did not match the current client",
-      "Runtime host could not start, stop, or stream a response",
-    ],
-    fixes: [
-      "Restart HLVM so the client and runtime host use the same build",
-      "Check provider or model availability if the host rejected the request",
-      "Retry after the local runtime host finishes initializing",
-    ],
-  },
-
   // ============================================================================
   // Code Generation Errors (6000-6999)
   // ============================================================================
@@ -722,6 +811,201 @@ const ERROR_INFO: Record<HQLErrorCode, ErrorInfo> = {
   },
 };
 
+const HLVM_ERROR_INFO: Record<HLVMErrorCode, ErrorInfo> = {
+  [HLVMErrorCode.REQUEST_FAILED]: {
+    description: "A request to the local HLVM runtime host failed.",
+    causes: [
+      "Runtime host returned an error response",
+      "Runtime host build did not match the current client",
+      "Runtime host could not start, stop, or stream a response",
+    ],
+    fixes: [
+      "Restart HLVM so the client and runtime host use the same build",
+      "Check provider or model availability if the host rejected the request",
+      "Retry after the local runtime host finishes initializing",
+    ],
+  },
+  [HLVMErrorCode.REQUEST_REJECTED]: {
+    description:
+      "The local HLVM runtime host rejected the request before streaming a response.",
+    causes: [
+      "Invalid request payload or missing required fields",
+      "Model does not support requested capability (tools, attachments, etc.)",
+      "Provider is not available or lacks approval for the selected model",
+    ],
+    fixes: [
+      "Review the request body and required parameters for /api/chat requests",
+      "Retry with a supported model for the requested operation",
+      "If approval is required, authorize the provider first",
+    ],
+  },
+  [HLVMErrorCode.REQUEST_TOO_LARGE]: {
+    description:
+      "The local HLVM runtime host rejected a request payload that exceeded limits.",
+    causes: [
+      "Request body exceeded the local runtime host JSON body limit",
+      "Inlined images or large prompt content inflated the payload",
+      "Very large `content` or attachment metadata in one request",
+    ],
+    fixes: [
+      "Reduce prompt size or split context into smaller turns",
+      "Avoid attaching very large images in the same request",
+      "Use a model/provider path that accepts smaller per-turn payloads",
+    ],
+  },
+  [HLVMErrorCode.TRANSPORT_ERROR]: {
+    description:
+      "The local HLVM runtime request failed before a structured response was returned.",
+    causes: [
+      "Local host process was unavailable or unreachable",
+      "Connection-level failure while opening or reading the HTTP session",
+      "Transient network or runtime startup problem",
+    ],
+    fixes: [
+      "Verify the local HLVM host is running on the expected port",
+      "Retry if the host was restarting or temporarily unavailable",
+      "Check runtime logs for repeated startup failures",
+    ],
+  },
+  [HLVMErrorCode.STREAM_ERROR]: {
+    description:
+      "The streaming response from the local HLVM runtime host was malformed or could not be parsed.",
+    causes: [
+      "Host returned non-NDJSON event data",
+      "Corrupted JSON in a stream event",
+      "Unexpected stream protocol output from a handler bug",
+    ],
+    fixes: [
+      "Retry the request to confirm whether the issue is transient",
+      "Collect host logs for the failing request and event stream",
+      "Report if malformed stream responses recur",
+    ],
+  },
+};
+
+const PROVIDER_ERROR_INFO: Record<ProviderErrorCode, ErrorInfo> = {
+  [ProviderErrorCode.REQUEST_FAILED]: {
+    description: "Provider request failed before a response was successfully produced.",
+    causes: [
+      "Provider endpoint returned an unexpected error",
+      "Network-level interruption in the provider call",
+      "Transient provider outage",
+    ],
+    fixes: [
+      "Retry the request after a short delay",
+      "Check provider status before retrying",
+      "Switch to an alternate provider if available",
+    ],
+  },
+  [ProviderErrorCode.REQUEST_REJECTED]: {
+    description:
+      "Provider rejected the request payload, capability, or runtime context.",
+    causes: [
+      "Payload format is invalid for the selected provider model",
+      "Required capability (tools, files, vision) is not supported",
+      "Model is not available in the current provider region or tier",
+    ],
+    fixes: [
+      "Validate prompt, attachments, and tool usage against provider limits",
+      "Retry with a supported model or lower-complexity request",
+      "Upgrade the provider account or select supported features",
+    ],
+  },
+  [ProviderErrorCode.REQUEST_TOO_LARGE]: {
+    description:
+      "Provider rejected the request because payload size exceeded limits.",
+    causes: [
+      "Prompt or attachment metadata exceeded provider limits",
+      "Image/text payload too large for request",
+      "Exceeded rate limits with large batch or context size",
+    ],
+    fixes: [
+      "Reduce prompt size before sending",
+      "Split large attachments across separate turns",
+      "Compress or shrink attached binary content",
+    ],
+  },
+  [ProviderErrorCode.AUTH_FAILED]: {
+    description:
+      "Provider authentication or authorization failed for the request.",
+    causes: [
+      "Missing or invalid API key",
+      "OAuth token expired or revoked",
+      "Account lacks required model access",
+    ],
+    fixes: [
+      "Verify API key / token configuration",
+      "Re-authenticate with the provider",
+      "Check provider billing and model access permissions",
+    ],
+  },
+  [ProviderErrorCode.RATE_LIMITED]: {
+    description: "Provider returned a rate limit or quota error.",
+    causes: [
+      "Requests exceeded provider rate limit",
+      "Quota is exhausted for the current billing period",
+      "Burst traffic exceeded request cap",
+    ],
+    fixes: [
+      "Retry after the provider's rate-limit window",
+      "Reduce request volume",
+      "Add backoff and request deduplication in retry logic",
+    ],
+  },
+  [ProviderErrorCode.SERVICE_UNAVAILABLE]: {
+    description: "Provider endpoint is temporarily unavailable.",
+    causes: [
+      "Provider returned 5xx",
+      "Maintenance or regional instability",
+      "Temporary internal error",
+    ],
+    fixes: [
+      "Retry with exponential backoff",
+      "Check provider status page",
+      "Switch to another model/provider for continuity",
+    ],
+  },
+  [ProviderErrorCode.NETWORK_ERROR]: {
+    description: "Provider call failed due to network transport issues.",
+    causes: [
+      "DNS/connection failure",
+      "TLS or proxy network interruption",
+      "Firewall blocked outbound provider traffic",
+    ],
+    fixes: [
+      "Retry from a stable network",
+      "Check proxy/firewall configuration",
+      "Try again after a short delay",
+    ],
+  },
+  [ProviderErrorCode.REQUEST_TIMEOUT]: {
+    description: "Provider request timed out before completion.",
+    causes: [
+      "Provider latency spike",
+      "Large payload/model inference time",
+      "Network timeout threshold too low",
+    ],
+    fixes: [
+      "Retry with a larger timeout if configured",
+      "Split work into smaller requests",
+      "Use shorter prompts or smaller context windows",
+    ],
+  },
+  [ProviderErrorCode.STREAM_ERROR]: {
+    description: "Provider stream or protocol output could not be parsed.",
+    causes: [
+      "Unexpected streaming payload format",
+      "Provider SDK protocol mismatch",
+      "Interrupted stream connection",
+    ],
+    fixes: [
+      "Retry the request",
+      "Switch to non-streaming mode if supported",
+      "Report if stream errors continue for the same provider/model",
+    ],
+  },
+};
+
 /**
  * Format error code for display
  *
@@ -730,9 +1014,20 @@ const ERROR_INFO: Record<HQLErrorCode, ErrorInfo> = {
  *
  * @example
  * formatErrorCode(HQLErrorCode.UNCLOSED_LIST) // "HQL1001"
+ * formatErrorCode(HLVMErrorCode.REQUEST_REJECTED) // "HLVM5007"
+ * formatErrorCode(ProviderErrorCode.AUTH_FAILED) // "PRV9004"
  */
-export function formatErrorCode(code: HQLErrorCode): string {
-  return `HQL${code}`;
+export function formatErrorCode(code: UnifiedErrorCode): string {
+  if (isHQLErrorCode(code)) {
+    return `HQL${code}`;
+  }
+  if (isHLVMErrorCode(code)) {
+    return `HLVM${code}`;
+  }
+  if (isProviderErrorCode(code)) {
+    return `PRV${code}`;
+  }
+  return `UNK${code}`;
 }
 
 /**
@@ -741,6 +1036,9 @@ export function formatErrorCode(code: HQLErrorCode): string {
  * @param code - The error code enum value
  * @returns Array of potential fixes
  */
-export function getErrorFixes(code: HQLErrorCode): string[] {
-  return ERROR_INFO[code]?.fixes ?? [];
+export function getErrorFixes(code: UnifiedErrorCode): string[] {
+  if (isHQLErrorCode(code)) return ERROR_INFO[code]?.fixes ?? [];
+  if (isHLVMErrorCode(code)) return HLVM_ERROR_INFO[code]?.fixes ?? [];
+  if (isProviderErrorCode(code)) return PROVIDER_ERROR_INFO[code]?.fixes ?? [];
+  return [];
 }

@@ -7,14 +7,13 @@
 
 import type { Database } from "@db/sqlite";
 
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 // Per-version migrations. Keys are the version being migrated TO.
 // Each migration assumes the previous version's schema is in place.
 // For fresh installs, DDL (CREATE TABLE IF NOT EXISTS) handles everything.
 const MIGRATIONS: Record<number, string[]> = {
-  // Example for future version 2:
-  // 2: ["ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"],
+  2: ["ALTER TABLE messages ADD COLUMN attachment_ids TEXT"],
 };
 
 const DDL = `
@@ -43,7 +42,7 @@ const DDL = `
     request_id TEXT,
     sender_type TEXT NOT NULL DEFAULT 'user',
     sender_detail TEXT,
-    image_paths TEXT,
+    attachment_ids TEXT,
     tool_calls TEXT,
     tool_name TEXT,
     tool_call_id TEXT,

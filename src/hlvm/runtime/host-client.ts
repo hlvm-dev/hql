@@ -1,7 +1,11 @@
 import { delay } from "@std/async";
 import { http } from "../../common/http-client.ts";
 import { RuntimeError } from "../../common/error.ts";
-import { HQLErrorCode } from "../../common/error-codes.ts";
+import {
+  HLVMErrorCode,
+  isHLVMErrorCode,
+  parseErrorCodeFromMessage,
+} from "../../common/error-codes.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import type { ConfigKey, HlvmConfig } from "../../common/config/types.ts";
 import type {
@@ -46,6 +50,7 @@ import type {
   RuntimeMcpServerInput,
 } from "./mcp-protocol.ts";
 import type { RuntimeOllamaSigninResponse } from "./provider-protocol.ts";
+import type { AttachmentRecord } from "../attachments/types.ts";
 import {
   areRuntimeHostBuildIdsCompatible,
   buildRuntimeServeCommand,
@@ -79,7 +84,15 @@ async function* readNdjsonStream<T>(
         const line = pending.slice(0, newlineIndex).trim();
         pending = pending.slice(newlineIndex + 1);
         if (line.length > 0) {
-          yield JSON.parse(line) as T;
+          try {
+            yield JSON.parse(line) as T;
+          } catch (error) {
+            throw createRuntimeHostError(
+              "Failed to parse runtime host stream event",
+              error instanceof Error ? error : undefined,
+              HLVMErrorCode.STREAM_ERROR,
+            );
+          }
         }
         newlineIndex = pending.indexOf("\n");
       }
@@ -87,7 +100,15 @@ async function* readNdjsonStream<T>(
 
     const trailing = pending.trim();
     if (trailing.length > 0) {
-      yield JSON.parse(trailing) as T;
+      try {
+        yield JSON.parse(trailing) as T;
+      } catch (error) {
+        throw createRuntimeHostError(
+          "Failed to parse runtime host stream event",
+          error instanceof Error ? error : undefined,
+          HLVMErrorCode.STREAM_ERROR,
+        );
+      }
     }
   } finally {
     reader.releaseLock();
@@ -161,7 +182,7 @@ interface HostBackedAgentQueryOptions {
   query: string;
   model: string;
   fixturePath?: string;
-  imagePaths?: string[];
+  attachmentIds?: string[];
   contextWindow?: number;
   skipSessionHistory?: boolean;
   disablePersistentMemory?: boolean;
@@ -178,7 +199,7 @@ interface HostBackedDirectChatOptions {
   query: string;
   sessionId: string;
   model?: string;
-  imagePaths?: string[];
+  attachmentIds?: string[];
   expectedVersion?: number;
   signal?: AbortSignal;
   callbacks: Pick<HostBackedChatCallbacks, "onToken">;
@@ -199,13 +220,41 @@ function authHeaders(authToken: string): Record<string, string> {
 function createRuntimeHostError(
   message: string,
   originalError?: Error,
+  overrideCode?: HLVMErrorCode,
 ): RuntimeError {
+  const parsed = parseErrorCodeFromMessage(message);
+  const fallbackCode = overrideCode ??
+    (parsed && isHLVMErrorCode(parsed) ? parsed : HLVMErrorCode.REQUEST_FAILED);
   return new RuntimeError(message, {
-    code: /\[HQL\d{4}\]/.test(message)
-      ? undefined
-      : HQLErrorCode.RUNTIME_HOST_REQUEST_FAILED,
+    code: fallbackCode,
     originalError,
   });
+}
+
+function getHostErrorCodeFromStatus(
+  status: number,
+  fallbackMessage: string,
+  parsedCode?: number | null,
+): HLVMErrorCode {
+  if (parsedCode && isHLVMErrorCode(parsedCode)) {
+    return parsedCode;
+  }
+  if (status === 413) {
+    return HLVMErrorCode.REQUEST_TOO_LARGE;
+  }
+  if (status >= 400 && status < 500) {
+    return HLVMErrorCode.REQUEST_REJECTED;
+  }
+  if (status >= 500) {
+    return HLVMErrorCode.REQUEST_FAILED;
+  }
+  if (
+    status === 408 ||
+    fallbackMessage.toLowerCase().includes("timeout")
+  ) {
+    return HLVMErrorCode.TRANSPORT_ERROR;
+  }
+  return HLVMErrorCode.REQUEST_FAILED;
 }
 
 function getHostClientErrorMessage(error: unknown): string {
@@ -220,6 +269,19 @@ function isRetryableHostChatStreamError(error: unknown): boolean {
     message.includes("broken pipe") ||
     message.includes("socket hang up") ||
     message.includes("stream closed");
+}
+
+function isHostTransportError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === "AbortError") return true;
+  const message = error.message.toLowerCase();
+  return message.includes("failed to fetch") ||
+    message.includes("network") ||
+    message.includes("connection") ||
+    message.includes("econnrefused") ||
+    message.includes("enotfound") ||
+    message.includes("eai_again") ||
+    message.includes("dns");
 }
 
 function matchesRuntimeHostIdentity(
@@ -708,11 +770,16 @@ async function parseErrorResponse(response: Response): Promise<never> {
   let message = `Runtime host request failed with HTTP ${response.status}`;
   try {
     const json = await response.json() as { error?: string };
-    if (json.error) message = json.error;
+    if (json.error) message = String(json.error);
   } catch {
     // Ignore invalid JSON bodies; use the default message.
   }
-  throw createRuntimeHostError(message);
+  const parsedCode = parseErrorCodeFromMessage(message);
+  throw createRuntimeHostError(
+    message,
+    undefined,
+    getHostErrorCodeFromStatus(response.status, message, parsedCode),
+  );
 }
 
 async function fetchRuntimeJson<T>(
@@ -990,6 +1057,47 @@ export async function deleteRuntimeModel(
   return result.deleted === true;
 }
 
+export async function registerRuntimeAttachmentPath(
+  filePath: string,
+): Promise<AttachmentRecord> {
+  return await postRuntimeJson<AttachmentRecord>("/api/attachments/register", {
+    path: filePath,
+  });
+}
+
+export async function uploadRuntimeAttachment(
+  fileName: string,
+  bytes: Uint8Array,
+  options?: {
+    mimeType?: string;
+    sourcePath?: string;
+  },
+): Promise<AttachmentRecord> {
+  const file = new File([bytes], fileName, {
+    type: options?.mimeType ?? "application/octet-stream",
+  });
+  const form = new FormData();
+  form.append("file", file);
+  if (options?.sourcePath) {
+    form.append("source_path", options.sourcePath);
+  }
+
+  const response = await fetchRuntimeChecked("/api/attachments/upload", {
+    method: "POST",
+    body: form,
+  });
+  return await response.json() as AttachmentRecord;
+}
+
+export async function getRuntimeAttachment(
+  attachmentId: string,
+): Promise<AttachmentRecord> {
+  const response = await fetchRuntimeChecked(
+    `/api/attachments/${encodeURIComponent(attachmentId)}`,
+  );
+  return await response.json() as AttachmentRecord;
+}
+
 export async function* pullRuntimeModelViaHost(
   name: string,
   provider?: string,
@@ -1195,6 +1303,9 @@ async function runChatViaHostAttempt(
     throw createRuntimeHostError(
       getHostClientErrorMessage(error),
       error instanceof Error ? error : undefined,
+      isHostTransportError(error)
+        ? HLVMErrorCode.TRANSPORT_ERROR
+        : undefined,
     );
   }
 
@@ -1319,6 +1430,9 @@ async function runChatViaHostAttempt(
     throw createRuntimeHostError(
       getHostClientErrorMessage(error),
       error instanceof Error ? error : undefined,
+      isHostTransportError(error)
+        ? HLVMErrorCode.TRANSPORT_ERROR
+        : undefined,
     );
   }
 
@@ -1334,7 +1448,7 @@ export async function runAgentQueryViaHost(
     messages: [{
       role: "user",
       content: options.query,
-      image_paths: options.imagePaths,
+      attachment_ids: options.attachmentIds,
       client_turn_id: crypto.randomUUID(),
     }],
     model: options.model,
@@ -1364,7 +1478,7 @@ export async function runDirectChatViaHost(
     messages: [{
       role: "user",
       content: options.query,
-      image_paths: options.imagePaths,
+      attachment_ids: options.attachmentIds,
       client_turn_id: crypto.randomUUID(),
     }],
     model: options.model,

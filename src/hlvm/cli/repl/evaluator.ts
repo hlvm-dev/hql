@@ -5,21 +5,38 @@
 
 import { run } from "../../../../mod.ts";
 import { parse } from "../../../hql/transpiler/pipeline/parser.ts";
-import { isList, isSymbol, sexpToString, type SList, type SSymbol } from "../../../hql/s-exp/types.ts";
-import { isVectorImport, isNamespaceImport } from "../../../hql/transpiler/syntax/import-export.ts";
-import { sanitizeIdentifier, ensureError } from "../../../common/utils.ts";
-import { DECLARATION_KEYWORDS, BINDING_KEYWORDS } from "../../../hql/transpiler/keyword/primitives.ts";
+import {
+  isList,
+  isSymbol,
+  sexpToString,
+  type SList,
+  type SSymbol,
+} from "../../../hql/s-exp/types.ts";
+import {
+  isNamespaceImport,
+  isVectorImport,
+} from "../../../hql/transpiler/syntax/import-export.ts";
+import { ensureError, sanitizeIdentifier } from "../../../common/utils.ts";
+import {
+  BINDING_KEYWORDS,
+  DECLARATION_KEYWORDS,
+} from "../../../hql/transpiler/keyword/primitives.ts";
 import type { ReplState } from "./state.ts";
 import { appendToBindings } from "./bindings.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { extractFnParams, extractIdentifierName } from "./definition-utils.ts";
 
 import { evaluateJS, extractJSBindings } from "./js-eval.ts";
-import { addPaste, addAttachment, addConversationTurn } from "./context.ts";
-import type { AnyAttachment, TextAttachment, Attachment } from "./attachment.ts";
+import { addAttachment, addConversationTurn, addPaste } from "./context.ts";
+import type {
+  AnyAttachment,
+  Attachment,
+  TextAttachment,
+} from "./attachment.ts";
 import { extractDocstrings, stripLeadingComments } from "./docstring.ts";
 import { getAbortSignal, setAbortSignal } from "../../api/runtime.ts";
 import { log } from "../../api/log.ts";
+import { materializeAttachment } from "../../attachments/service.ts";
 
 // Constants
 const DECLARATION_OPS: Set<string> = new Set(DECLARATION_KEYWORDS);
@@ -27,8 +44,8 @@ const BINDING_OPS: Set<string> = new Set(BINDING_KEYWORDS);
 const REPL_RUN_OPTIONS = {
   baseDir: getPlatform().process.cwd(),
   currentFile: "<repl>",
-  suppressUnknownNameErrors: true,  // REPL bindings are on globalThis, not known to TypeScript
-  preserveMacroState: true,         // REPL should preserve macro-time helpers between inputs
+  suppressUnknownNameErrors: true, // REPL bindings are on globalThis, not known to TypeScript
+  preserveMacroState: true, // REPL should preserve macro-time helpers between inputs
 } as const;
 
 export interface EvalResult {
@@ -69,7 +86,9 @@ function analyzeExpression(ast: SList): ExpressionType {
         // For (async fn name ...) or (async fn* name ...), name is at elements[2]
         const nameEl = ast.elements[2];
         // Extract just the identifier name, stripping type annotations and generics
-        const name = nameEl && isSymbol(nameEl) ? extractIdentifierName(nameEl.name) : undefined;
+        const name = nameEl && isSymbol(nameEl)
+          ? extractIdentifierName(nameEl.name)
+          : undefined;
         return { kind: "declaration", name, operator: "async " + targetName };
       }
     }
@@ -79,8 +98,12 @@ function analyzeExpression(ast: SList): ExpressionType {
   // Extract just the identifier name, stripping type annotations and generics
   const name = el && isSymbol(el) ? extractIdentifierName(el.name) : undefined;
 
-  if (DECLARATION_OPS.has(op)) return { kind: "declaration", name, operator: op };
-  if (BINDING_OPS.has(op) && ast.elements.length >= 3) return { kind: "binding", name, operator: op };
+  if (DECLARATION_OPS.has(op)) {
+    return { kind: "declaration", name, operator: op };
+  }
+  if (BINDING_OPS.has(op) && ast.elements.length >= 3) {
+    return { kind: "binding", name, operator: op };
+  }
   return { kind: "expression" };
 }
 
@@ -100,7 +123,7 @@ export async function evaluate(
   state: ReplState,
   jsMode: boolean = false,
   attachments?: AnyAttachment[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<EvalResult> {
   const trimmed = sourceCode.trim();
   if (!trimmed) {
@@ -118,178 +141,213 @@ export async function evaluate(
   setAbortSignal(signal);
 
   try {
-  // Register attachments to context vectors
-  if (attachments && attachments.length > 0) {
-    for (const att of attachments) {
-      if (att.type === "text" && "content" in att) {
-        const textAtt = att as TextAttachment;
-        addPaste(textAtt.content);
-      } else if ("base64Data" in att) {
-        const mediaAtt = att as Attachment;
-        addAttachment(
-          mediaAtt.type,
-          mediaAtt.displayName,
-          mediaAtt.path,
-          mediaAtt.mimeType,
-          mediaAtt.size,
-          mediaAtt.base64Data // Pass base64 data for vision model support
-        );
+    // Register attachments to context vectors
+    if (attachments && attachments.length > 0) {
+      for (const att of attachments) {
+        if (att.type === "text" && "content" in att) {
+          const textAtt = att as TextAttachment;
+          addPaste(textAtt.content);
+        } else if ("attachmentId" in att) {
+          const mediaAtt = att as Attachment;
+          const materialized = await materializeAttachment(
+            mediaAtt.attachmentId,
+            "repl",
+          );
+          addAttachment(materialized.record, materialized.prepared);
+        }
       }
     }
-  }
 
-  // Record user input to conversation
-  addConversationTurn("user", trimmed);
+    // Record user input to conversation
+    addConversationTurn("user", trimmed);
 
-  const modeTrimmed = stripLeadingComments(trimmed).trim();
-  if (!modeTrimmed) {
-    return { success: true, suppressOutput: true };
-  }
-
-  // JavaScript mode: if input doesn't start with '(', evaluate as JavaScript
-  if (jsMode && !modeTrimmed.startsWith("(")) {
-    try {
-      // Extract bindings for state tracking
-      const bindings = extractJSBindings(trimmed);
-
-      // Evaluate JavaScript (transforms to persist to globalThis)
-      const { value, logs } = evaluateJS(trimmed);
-
-      // Track bindings in REPL state for autocompletion
-      for (const name of bindings) {
-        state.addBinding(name);
-      }
-
-      return { success: true, value, logs };
-    } catch (error) {
-      return { success: false, error: ensureError(error) };
-    }
-  }
-
-  // HQL evaluation
-  try {
-    const ast = parse(trimmed, "<repl>");
-    if (ast.length === 0) {
+    const modeTrimmed = stripLeadingComments(trimmed).trim();
+    if (!modeTrimmed) {
       return { success: true, suppressOutput: true };
     }
 
-    // Extract docstrings from comments and store in state
-    const docstrings = extractDocstrings(trimmed);
-    if (docstrings.size > 0) {
-      state.addDocstrings(docstrings);
-    }
-
-    // Handle multiple expressions: build code that evaluates all and returns last
-    if (ast.length > 1) {
-      // Collect metadata and build transformed code
-      const codeParts: string[] = [];
-      const bindingNames: Array<{ name: string; operator: string }> = [];
-      const declarationNames: Array<{ name: string; operator: string; params?: string[]; source: string }> = [];
-
-      for (const expr of ast as SList[]) {
-        const exprType = analyzeExpression(expr);
-        const exprCode = sexpToString(expr);
-
-        if (exprType.kind === "import") {
-          // Handle imports separately first - they must run before other code
-          const importResult = await handleImport(expr, state);
-          if (!importResult.success) return importResult;
-        } else if (exprType.kind === "binding" && exprType.name) {
-          // Convert def/let/var to let and persist to globalThis
-          const valueExpr = expr.elements.length >= 3 ? sexpToString(expr.elements[2]) : "nil";
-          const jsName = sanitizeIdentifier(exprType.name);
-          codeParts.push(`(let ${jsName} ${valueExpr})`);
-          codeParts.push(`(js-set globalThis "${jsName}" ${jsName})`);
-          bindingNames.push({ name: exprType.name, operator: exprType.operator || "let" });
-        } else if (exprType.kind === "declaration" && exprType.name) {
-          const op = exprType.operator || "fn";
-          const params = extractFnParams(expr, op);
-          const jsName = sanitizeIdentifier(exprType.name);
-          codeParts.push(exprCode);
-          codeParts.push(`(js-set globalThis "${jsName}" ${jsName})`);
-          declarationNames.push({ name: exprType.name, operator: op, params, source: exprCode });
-        } else {
-          // Regular expression - just add it
-          codeParts.push(exprCode);
-        }
-      }
-
-      const wrappedCode = codeParts.join("\n");
-
+    // JavaScript mode: if input doesn't start with '(', evaluate as JavaScript
+    if (jsMode && !modeTrimmed.startsWith("(")) {
       try {
-        const result = await run(wrappedCode, REPL_RUN_OPTIONS);
+        // Extract bindings for state tracking
+        const bindings = extractJSBindings(trimmed);
 
-        // FIRST: Persist all definitions to memory.hql
-        // Must complete BEFORE state mutations to avoid race condition
-        // (state change triggers getBindingNames() which must see the written file)
-        for (const { name, operator } of bindingNames) {
-          if (operator === "def" && !state.isLoadingBindings) {
-            try {
-              const value = (globalThis as Record<string, unknown>)[sanitizeIdentifier(name)];
-              await appendToBindings(name, "def", value, state.getDocstring(name));
-            } catch (err) {
-              log.error(`[bindings] Failed to persist def '${name}': ${err}`);
-            }
-          }
-        }
-        for (const { name, operator, source } of declarationNames) {
-          if (operator === "defn" && !state.isLoadingBindings) {
-            try {
-              await appendToBindings(name, "defn", source, state.getDocstring(name));
-            } catch (err) {
-              log.error(`[bindings] Failed to persist defn '${name}': ${err}`);
-            }
-          }
-        }
+        // Evaluate JavaScript (transforms to persist to globalThis)
+        const { value, logs } = evaluateJS(trimmed);
 
-        // THEN: Register all bindings with state (triggers notify → getBindingNames)
-        for (const { name } of bindingNames) {
+        // Track bindings in REPL state for autocompletion
+        for (const name of bindings) {
           state.addBinding(name);
         }
-        for (const { name, params } of declarationNames) {
-          if (params) {
-            state.addFunction(name, params);
-          } else {
-            state.addBinding(name);
-          }
-        }
 
-        return { success: true, value: result };
+        return { success: true, value, logs };
       } catch (error) {
         return { success: false, error: ensureError(error) };
       }
     }
 
-    // Single expression handling (unchanged)
-    const firstExpr = ast[0] as SList;
-    const exprType = analyzeExpression(firstExpr);
+    // HQL evaluation
+    try {
+      const ast = parse(trimmed, "<repl>");
+      if (ast.length === 0) {
+        return { success: true, suppressOutput: true };
+      }
 
-    // Handle imports using run() which handles EMBEDDED_PACKAGES
-    if (exprType.kind === "import") {
-      return await handleImport(firstExpr, state);
+      // Extract docstrings from comments and store in state
+      const docstrings = extractDocstrings(trimmed);
+      if (docstrings.size > 0) {
+        state.addDocstrings(docstrings);
+      }
+
+      // Handle multiple expressions: build code that evaluates all and returns last
+      if (ast.length > 1) {
+        // Collect metadata and build transformed code
+        const codeParts: string[] = [];
+        const bindingNames: Array<{ name: string; operator: string }> = [];
+        const declarationNames: Array<
+          { name: string; operator: string; params?: string[]; source: string }
+        > = [];
+
+        for (const expr of ast as SList[]) {
+          const exprType = analyzeExpression(expr);
+          const exprCode = sexpToString(expr);
+
+          if (exprType.kind === "import") {
+            // Handle imports separately first - they must run before other code
+            const importResult = await handleImport(expr, state);
+            if (!importResult.success) return importResult;
+          } else if (exprType.kind === "binding" && exprType.name) {
+            // Convert def/let/var to let and persist to globalThis
+            const valueExpr = expr.elements.length >= 3
+              ? sexpToString(expr.elements[2])
+              : "nil";
+            const jsName = sanitizeIdentifier(exprType.name);
+            codeParts.push(`(let ${jsName} ${valueExpr})`);
+            codeParts.push(`(js-set globalThis "${jsName}" ${jsName})`);
+            bindingNames.push({
+              name: exprType.name,
+              operator: exprType.operator || "let",
+            });
+          } else if (exprType.kind === "declaration" && exprType.name) {
+            const op = exprType.operator || "fn";
+            const params = extractFnParams(expr, op);
+            const jsName = sanitizeIdentifier(exprType.name);
+            codeParts.push(exprCode);
+            codeParts.push(`(js-set globalThis "${jsName}" ${jsName})`);
+            declarationNames.push({
+              name: exprType.name,
+              operator: op,
+              params,
+              source: exprCode,
+            });
+          } else {
+            // Regular expression - just add it
+            codeParts.push(exprCode);
+          }
+        }
+
+        const wrappedCode = codeParts.join("\n");
+
+        try {
+          const result = await run(wrappedCode, REPL_RUN_OPTIONS);
+
+          // FIRST: Persist all definitions to memory.hql
+          // Must complete BEFORE state mutations to avoid race condition
+          // (state change triggers getBindingNames() which must see the written file)
+          for (const { name, operator } of bindingNames) {
+            if (operator === "def" && !state.isLoadingBindings) {
+              try {
+                const value = (globalThis as Record<string, unknown>)[
+                  sanitizeIdentifier(name)
+                ];
+                await appendToBindings(
+                  name,
+                  "def",
+                  value,
+                  state.getDocstring(name),
+                );
+              } catch (err) {
+                log.error(`[bindings] Failed to persist def '${name}': ${err}`);
+              }
+            }
+          }
+          for (const { name, operator, source } of declarationNames) {
+            if (operator === "defn" && !state.isLoadingBindings) {
+              try {
+                await appendToBindings(
+                  name,
+                  "defn",
+                  source,
+                  state.getDocstring(name),
+                );
+              } catch (err) {
+                log.error(
+                  `[bindings] Failed to persist defn '${name}': ${err}`,
+                );
+              }
+            }
+          }
+
+          // THEN: Register all bindings with state (triggers notify → getBindingNames)
+          for (const { name } of bindingNames) {
+            state.addBinding(name);
+          }
+          for (const { name, params } of declarationNames) {
+            if (params) {
+              state.addFunction(name, params);
+            } else {
+              state.addBinding(name);
+            }
+          }
+
+          return { success: true, value: result };
+        } catch (error) {
+          return { success: false, error: ensureError(error) };
+        }
+      }
+
+      // Single expression handling (unchanged)
+      const firstExpr = ast[0] as SList;
+      const exprType = analyzeExpression(firstExpr);
+
+      // Handle imports using run() which handles EMBEDDED_PACKAGES
+      if (exprType.kind === "import") {
+        return await handleImport(firstExpr, state);
+      }
+
+      // Handle bindings (let/var/def) - need to persist to globalThis
+      // Pass AST to avoid re-parsing
+      if (exprType.kind === "binding" && exprType.name) {
+        return await handleBinding(
+          sourceCode,
+          firstExpr,
+          exprType.name,
+          exprType.operator || "let",
+          state,
+        );
+      }
+
+      // Handle declarations (fn/defn/class) - persist to globalThis
+      if (exprType.kind === "declaration" && exprType.name) {
+        const op = exprType.operator || "fn";
+        const params = extractFnParams(firstExpr, op);
+        return await handleDeclaration(
+          sourceCode,
+          exprType.name,
+          op,
+          state,
+          params,
+        );
+      }
+
+      // Regular expression - evaluate and return result
+      return await handleExpression(sourceCode);
+    } catch (error) {
+      return {
+        success: false,
+        error: ensureError(error),
+      };
     }
-
-    // Handle bindings (let/var/def) - need to persist to globalThis
-    // Pass AST to avoid re-parsing
-    if (exprType.kind === "binding" && exprType.name) {
-      return await handleBinding(sourceCode, firstExpr, exprType.name, exprType.operator || "let", state);
-    }
-
-    // Handle declarations (fn/defn/class) - persist to globalThis
-    if (exprType.kind === "declaration" && exprType.name) {
-      const op = exprType.operator || "fn";
-      const params = extractFnParams(firstExpr, op);
-      return await handleDeclaration(sourceCode, exprType.name, op, state, params);
-    }
-
-    // Regular expression - evaluate and return result
-    return await handleExpression(sourceCode);
-  } catch (error) {
-    return {
-      success: false,
-      error: ensureError(error),
-    };
-  }
   } finally {
     // Restore previous signal
     setAbortSignal(previousSignal);
@@ -300,7 +358,10 @@ export async function evaluate(
  * Handle import statements
  * Uses run() which properly handles EMBEDDED_PACKAGES resolution
  */
-async function handleImport(list: SList, state: ReplState): Promise<EvalResult> {
+async function handleImport(
+  list: SList,
+  state: ReplState,
+): Promise<EvalResult> {
   try {
     const sourceCode = sexpToString(list);
     const names: string[] = [];
@@ -311,9 +372,12 @@ async function handleImport(list: SList, state: ReplState): Promise<EvalResult> 
       const vectorList = list.elements[1] as SList;
       // Skip the "vector" or "empty-array" keyword at index 0
       const startIdx = (vectorList.elements.length > 0 &&
-                       isSymbol(vectorList.elements[0]) &&
-                       ["vector", "empty-array"].includes((vectorList.elements[0] as SSymbol).name))
-                       ? 1 : 0;
+          isSymbol(vectorList.elements[0]) &&
+          ["vector", "empty-array"].includes(
+            (vectorList.elements[0] as SSymbol).name,
+          ))
+        ? 1
+        : 0;
 
       for (let i = startIdx; i < vectorList.elements.length; i++) {
         const elem = vectorList.elements[i] as SSymbol;
@@ -321,8 +385,12 @@ async function handleImport(list: SList, state: ReplState): Promise<EvalResult> 
 
         let localName = elem.name;
         // Check for alias: name as alias
-        if (i + 2 < vectorList.elements.length && isSymbol(vectorList.elements[i + 1]) &&
-            (vectorList.elements[i + 1] as SSymbol).name === "as" && isSymbol(vectorList.elements[i + 2])) {
+        if (
+          i + 2 < vectorList.elements.length &&
+          isSymbol(vectorList.elements[i + 1]) &&
+          (vectorList.elements[i + 1] as SSymbol).name === "as" &&
+          isSymbol(vectorList.elements[i + 2])
+        ) {
           localName = (vectorList.elements[i + 2] as SSymbol).name;
           i += 2;
         }
@@ -336,7 +404,9 @@ async function handleImport(list: SList, state: ReplState): Promise<EvalResult> 
     // Execute the import AND persist imported values to globalThis
     // This ensures imported symbols are available in subsequent REPL evaluations
     // Each run() creates an isolated module scope, so we must explicitly persist
-    const persistStatements = names.map(name => `(js-set globalThis "${name}" ${name})`).join("\n");
+    const persistStatements = names.map((name) =>
+      `(js-set globalThis "${name}" ${name})`
+    ).join("\n");
     const wrappedHql = persistStatements
       ? `${sourceCode}\n${persistStatements}`
       : sourceCode;
@@ -365,7 +435,13 @@ async function handleImport(list: SList, state: ReplState): Promise<EvalResult> 
  * Handle binding (let/var/def) statements
  * For "def" operator: also persist evaluated value to memory.hql
  */
-async function handleBinding(_sourceCode: string, ast: SList, name: string, operator: string, state: ReplState): Promise<EvalResult> {
+async function handleBinding(
+  _sourceCode: string,
+  ast: SList,
+  name: string,
+  operator: string,
+  state: ReplState,
+): Promise<EvalResult> {
   try {
     // Extract value expression from already-parsed AST (no re-parsing!)
     const valueExpr = sexpToString(ast.elements[2]);
@@ -411,7 +487,13 @@ async function handleBinding(_sourceCode: string, ast: SList, name: string, oper
  * Uses run() with globalThis assignment for REPL persistence
  * For "defn" operator: also persist source code to memory.hql
  */
-async function handleDeclaration(sourceCode: string, name: string, operator: string, state: ReplState, params?: string[]): Promise<EvalResult> {
+async function handleDeclaration(
+  sourceCode: string,
+  name: string,
+  operator: string,
+  state: ReplState,
+  params?: string[],
+): Promise<EvalResult> {
   try {
     // Run the declaration, then assign to globalThis and return the value
     // Use js-set to assign to globalThis for REPL persistence
@@ -434,7 +516,12 @@ async function handleDeclaration(sourceCode: string, name: string, operator: str
       try {
         // For defn, store the original source code (not the evaluated function)
         // state.getDocstring() is the single source of truth - appendToBindings strips any inline comments
-        await appendToBindings(name, "defn", sourceCode, state.getDocstring(name));
+        await appendToBindings(
+          name,
+          "defn",
+          sourceCode,
+          state.getDocstring(name),
+        );
       } catch (err) {
         log.error(`[bindings] Failed to persist defn '${name}': ${err}`);
       }

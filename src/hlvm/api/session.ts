@@ -17,8 +17,11 @@ import {
   listRuntimeSessionMessages,
   listRuntimeSessions,
 } from "../runtime/host-client.ts";
-import { RuntimeError } from "../../common/error.ts";
-import { HQLErrorCode } from "../../common/error-codes.ts";
+import { getAttachmentDisplayName } from "../attachments/metadata.ts";
+import { getAttachmentRecords } from "../attachments/service.ts";
+import type { AttachmentKind } from "../attachments/types.ts";
+import { parseStoredStringArray } from "../store/message-utils.ts";
+import { ValidationError } from "../../common/error.ts";
 import type {
   RuntimeSession,
   RuntimeSessionMessage,
@@ -58,16 +61,94 @@ function adaptSessionMeta(session: RuntimeSession): SessionMeta {
   };
 }
 
-function parseImagePaths(value: string | null): string[] | undefined {
-  if (!value) return undefined;
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string")
-      : undefined;
-  } catch {
-    return undefined;
+function getLegacyAttachmentPaths(
+  message: RuntimeSessionMessage,
+): string[] | undefined {
+  return message.legacy_image_paths;
+}
+
+function normalizeAttachmentIds(attachmentIds: unknown): string[] {
+  if (!attachmentIds) return [];
+  if (Array.isArray(attachmentIds)) {
+    return attachmentIds.filter((id) => typeof id === "string");
   }
+
+  if (typeof attachmentIds === "string") {
+    const parsed = parseStoredStringArray(attachmentIds);
+    if (parsed) return parsed;
+    return [attachmentIds];
+  }
+
+  return [];
+}
+
+async function validateAttachmentIdsForRecord(
+  attachmentIds: string[] | undefined,
+): Promise<string[] | undefined> {
+  if (!attachmentIds || attachmentIds.length === 0) return undefined;
+
+  const records = await getAttachmentRecords(attachmentIds);
+  if (records.length !== attachmentIds.length) {
+    const known = new Set(records.map((record) => record.id));
+    const missing = attachmentIds.filter((id) => !known.has(id));
+    if (missing.length === 1) {
+      throw new ValidationError(
+        `Unknown attachment ID: ${missing[0]}`,
+        "session.record",
+      );
+    }
+    throw new ValidationError(
+      `Unknown attachment IDs: ${missing.join(", ")}`,
+      "session.record",
+    );
+  }
+
+  return attachmentIds;
+}
+
+function createAttachmentLabelResolver() {
+  const kindByAttachmentId = new Map<string, AttachmentKind>();
+
+  return async (
+    attachmentIds: readonly string[],
+  ): Promise<string[] | undefined> => {
+    if (attachmentIds.length === 0) return undefined;
+
+    const missingIds = attachmentIds.filter((attachmentId) =>
+      !kindByAttachmentId.has(attachmentId)
+    );
+    if (missingIds.length > 0) {
+      const records = await getAttachmentRecords(missingIds);
+      for (const record of records) {
+        kindByAttachmentId.set(record.id, record.kind);
+      }
+    }
+
+    return attachmentIds.map((attachmentId, index) =>
+      getAttachmentDisplayName(
+        kindByAttachmentId.get(attachmentId) ?? "file",
+        index + 1,
+      )
+    );
+  };
+}
+
+function formatSessionMessageBody(message: SessionMessage): string {
+  const lines: string[] = [];
+  if (message.attachments?.length) {
+    lines.push(message.attachments.join(" "));
+  }
+
+  const content = message.role === "tool" && message.toolName
+    ? (message.content.trim()
+      ? `[tool:${message.toolName}] ${message.content}`
+      : `[tool:${message.toolName}]`)
+    : message.content;
+  if (content.length > 0) {
+    lines.push(content);
+  }
+
+  return lines.join("\n");
 }
 
 function parseToolMessageMetadata(
@@ -92,9 +173,12 @@ function parseToolMessageMetadata(
   }
 }
 
-function adaptSessionMessage(
+async function adaptSessionMessage(
   message: RuntimeSessionMessage,
-): SessionMessage | null {
+  resolveAttachmentLabels: (
+    attachmentIds: readonly string[],
+  ) => Promise<string[] | undefined>,
+): Promise<SessionMessage | null> {
   if (message.role === "system" || message.cancelled) return null;
 
   const role = message.role === "tool"
@@ -102,7 +186,10 @@ function adaptSessionMessage(
     : message.role === "user"
     ? "user"
     : "assistant";
-  const attachments = parseImagePaths(message.image_paths);
+  const attachmentIds = normalizeAttachmentIds(message.attachment_ids);
+  const attachments = attachmentIds.length > 0
+    ? await resolveAttachmentLabels(attachmentIds)
+    : getLegacyAttachmentPaths(message);
   const toolMeta = message.role === "tool"
     ? parseToolMessageMetadata(message.tool_calls)
     : {};
@@ -186,14 +273,17 @@ async function loadSessionById(sessionId: string): Promise<Session | null> {
   const runtimeSession = await getRuntimeSession(sessionId);
   if (!runtimeSession) return null;
 
-  const messages = filterCancelledRequestGroups(
-    await listRuntimeSessionMessages(sessionId),
+  const resolveAttachmentLabels = createAttachmentLabelResolver();
+  const messages = await Promise.all(
+    filterCancelledRequestGroups(
+      await listRuntimeSessionMessages(sessionId),
+    ).map((message) => adaptSessionMessage(message, resolveAttachmentLabels)),
   );
   return {
     meta: adaptSessionMeta(runtimeSession),
-    messages: messages
-      .map((message) => adaptSessionMessage(message))
-      .filter((message): message is SessionMessage => message !== null),
+    messages: messages.filter((message): message is SessionMessage =>
+      message !== null
+    ),
   };
 }
 
@@ -217,13 +307,7 @@ function formatSessionExport(session: Session): string {
     const time = new Date(message.ts).toLocaleTimeString();
     lines.push(`### ${role} (${time})`);
     lines.push("");
-    lines.push(
-      message.role === "tool" && message.toolName
-        ? (message.content.trim()
-          ? `[tool:${message.toolName}] ${message.content}`
-          : `[tool:${message.toolName}]`)
-        : message.content,
-    );
+    lines.push(formatSessionMessageBody(message));
     lines.push("");
   }
 
@@ -241,28 +325,6 @@ async function refreshCurrentSession(
 
   _currentSession = adaptSessionMeta(session);
   return _currentSession;
-}
-
-async function refreshCurrentSessionIfActive(
-  sessionId: string,
-): Promise<void> {
-  if (_currentSession?.id !== sessionId) {
-    return;
-  }
-
-  try {
-    await refreshCurrentSession(sessionId);
-  } catch (error) {
-    // Checkpoint restore succeeds independently of the runtime host. Preserve
-    // the restored result and let callers resync session metadata explicitly.
-    if (
-      error instanceof RuntimeError &&
-      error.code === HQLErrorCode.RUNTIME_HOST_REQUEST_FAILED
-    ) {
-      return;
-    }
-    throw error;
-  }
 }
 
 // ============================================================================
@@ -360,13 +422,16 @@ function createSessionApi() {
       content: string,
       attachments?: string[],
     ): Promise<void> => {
+      const normalizedAttachmentIds = await validateAttachmentIdsForRecord(
+        attachments,
+      );
       const current = await ensureCurrentSession();
 
       await addRuntimeSessionMessage(current.id, {
         role,
         content,
         sender_type: role === "user" ? "user" : "assistant",
-        image_paths: attachments,
+        attachment_ids: normalizedAttachmentIds,
       });
 
       await refreshCurrentSession(current.id);

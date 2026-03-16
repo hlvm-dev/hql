@@ -73,18 +73,18 @@ import {
   validateChatRequestMessages,
 } from "./chat-context.ts";
 import { modelSupportsTools } from "../../model-capabilities.ts";
-import { checkModelAttachmentPaths } from "../../attachment-policy.ts";
+import { checkModelAttachmentIds } from "../../attachment-policy.ts";
 
 function requestHasMediaAttachments(
   messages: ChatRequest["messages"],
 ): boolean {
-  return messages.some((message) => (message.image_paths?.length ?? 0) > 0);
+  return messages.some((message) => (message.attachment_ids?.length ?? 0) > 0);
 }
 
-function getRequestAttachmentPaths(
+function getRequestAttachmentIds(
   messages: ChatRequest["messages"],
 ): string[] {
-  return messages.flatMap((message) => message.image_paths ?? []);
+  return messages.flatMap((message) => message.attachment_ids ?? []);
 }
 
 // ============================================================
@@ -295,9 +295,9 @@ export async function handleChat(req: Request): Promise<Response> {
       );
     }
     if (hasMediaAttachments) {
-      const attachmentSupport = await checkModelAttachmentPaths(
+      const attachmentSupport = await checkModelAttachmentIds(
         resolvedModel,
-        getRequestAttachmentPaths(body.messages),
+        getRequestAttachmentIds(body.messages),
         resolvedModelInfo,
       );
       if (!attachmentSupport.supported) {
@@ -376,7 +376,7 @@ export async function handleChat(req: Request): Promise<Response> {
       client_turn_id: message.clientTurnId,
       request_id: requestId,
       sender_type: message.senderType,
-      image_paths: message.imagePaths,
+      attachment_ids: message.attachmentIds,
     });
     pushSSEEvent(session.id, "message_added", { message: inserted });
     pushSessionUpdatedEvent(session.id);

@@ -14,6 +14,10 @@ import {
   deleteMessage,
 } from "../../../store/conversation-store.ts";
 import { pushSSEEvent, SESSIONS_CHANNEL } from "../../../store/sse-store.ts";
+import {
+  toRuntimeSessionMessage,
+  toRuntimeSessionMessagesResponse,
+} from "../../../runtime/session-protocol.ts";
 import type { RouteParams } from "../http-router.ts";
 import { parseJsonBody, jsonError } from "../http-utils.ts";
 
@@ -120,7 +124,7 @@ export function handleGetMessages(
     after_order: afterOrder !== undefined && !isNaN(afterOrder) ? afterOrder : undefined,
   });
 
-  return Response.json(result);
+  return Response.json(toRuntimeSessionMessagesResponse(result));
 }
 
 /**
@@ -173,7 +177,7 @@ export function handleGetMessage(
   const msg = requireMessage(params, session.sessionId);
   if (msg instanceof Response) return msg;
 
-  return Response.json(getMessage(msg.messageId));
+  return Response.json(toRuntimeSessionMessage(getMessage(msg.messageId)!));
 }
 
 /**
@@ -206,7 +210,7 @@ export function handleGetMessage(
  *                 type: string
  *               sender_type:
  *                 type: string
- *               image_paths:
+ *               attachment_ids:
  *                 type: array
  *                 items:
  *                   type: string
@@ -243,11 +247,12 @@ export async function handleAddMessage(
     content: string;
     client_turn_id?: string;
     sender_type?: string;
-    image_paths?: string[];
+    attachment_ids?: string[];
   }>(req);
   if (!parsed.ok) return parsed.response;
 
-  const { role, content, client_turn_id, sender_type, image_paths } = parsed.value;
+  const { role, content, client_turn_id, sender_type, attachment_ids } =
+    parsed.value;
   if (!role || content === undefined) {
     return jsonError("role and content are required", 400);
   }
@@ -258,12 +263,12 @@ export async function handleAddMessage(
     content,
     client_turn_id,
     sender_type,
-    image_paths,
+    attachment_ids,
   });
 
   pushSSEEvent(session.sessionId, "message_added", { id: row.id });
   pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: session.sessionId });
-  return Response.json(row, { status: 201 });
+  return Response.json(toRuntimeSessionMessage(row), { status: 201 });
 }
 
 /**
@@ -345,7 +350,7 @@ export async function handleUpdateMessage(
   pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: session.sessionId });
 
   const updated = getMessage(msg.messageId);
-  return Response.json(updated);
+  return Response.json(updated ? toRuntimeSessionMessage(updated) : null);
 }
 
 /**

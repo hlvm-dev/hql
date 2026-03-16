@@ -51,9 +51,9 @@ import { useConversation } from "../hooks/useConversation.ts";
 import { useTeamState } from "../hooks/useTeamState.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
 import {
-  useOverlayPanel,
   type OverlayPanel,
   type SurfacePanel,
+  useOverlayPanel,
 } from "../hooks/useOverlayPanel.ts";
 import { useSessionPicker } from "../hooks/useSessionPicker.ts";
 import { useConversationComposer } from "../hooks/useConversationComposer.ts";
@@ -85,6 +85,7 @@ import { ReplProvider } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { log } from "../../../api/log.ts";
 import { looksLikeNaturalLanguage } from "../../repl/input-routing.ts";
+import { expandTextAttachments } from "../../repl/attachment.ts";
 import {
   getRuntimeConfigApi,
   patchRuntimeConfig,
@@ -98,6 +99,7 @@ import {
   session as sessionApi,
 } from "../../../api/session.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
+import { describeConversationAttachmentMimeTypeError } from "../../attachment-policy.ts";
 import {
   type ConversationComposerDraft,
   createConversationComposerDraft,
@@ -330,8 +332,7 @@ function AppContent(
   // Conversation composer: attachments, queue, drafts
   const composer = useConversationComposer({ input, setInput, replState });
   const {
-    composerAttachments,
-    setComposerAttachments,
+    attachmentState: composerAttachmentState,
     restoredComposerDraftRevision,
     restoredComposerCursorOffset,
     pendingConversationQueue,
@@ -406,7 +407,6 @@ function AppContent(
     agentControllerRef,
     interactionResolversRef,
     prepareConversationMediaPayload,
-    getConversationAttachmentLabels,
     runConversation,
     submitConversationDraft,
     handleInteractionResponse,
@@ -631,7 +631,7 @@ function AppContent(
   const handleCtrlC = useCallback(async () => {
     const action = resolveCtrlCAction({
       draftText: input,
-      attachmentCount: composerAttachments.length,
+      attachmentCount: composerAttachmentState.attachments.length,
     });
     if (action === "clear-draft") {
       const handled = await executeHandler(HandlerIds.COMPOSER_CLEAR);
@@ -642,7 +642,7 @@ function AppContent(
     }
     handleAppExit();
   }, [
-    composerAttachments.length,
+    composerAttachmentState.attachments.length,
     handleAppExit,
     input,
     restoreComposerDraft,
@@ -716,17 +716,7 @@ function AppContent(
       if (!code.trim()) return;
       setInput("");
 
-      // Expand text attachments: replace [Pasted text #N ...] with actual content
-      // This allows pasted HQL code to be executed even when collapsed
-      let expandedCode = code;
-      if (attachments) {
-        for (const att of attachments) {
-          // TextAttachment has 'content', regular Attachment has 'base64Data'
-          if ("content" in att) {
-            expandedCode = expandedCode.replace(att.displayName, att.content);
-          }
-        }
-      }
+      const expandedCode = expandTextAttachments(code, attachments);
 
       // Handle commands that need React state (pickers/panels)
       const trimmedInput = code.trim();
@@ -891,7 +881,7 @@ function AppContent(
           setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
             enqueueConversationDraft(prev, conversationDraft)
           );
-          setComposerAttachments([]);
+          composerAttachmentState.clearAttachments();
           return;
         }
         const result = submitConversationDraft(conversationDraft);
@@ -899,7 +889,9 @@ function AppContent(
           restoreComposerDraftRef.current(conversationDraft);
           if (result.unsupportedMimeType) {
             conversationRef.current.addError(
-              `Attachment unsupported: ${result.unsupportedMimeType}`,
+              describeConversationAttachmentMimeTypeError(
+                result.unsupportedMimeType,
+              ),
             );
           }
         }
@@ -923,26 +915,25 @@ function AppContent(
         isNaturalLanguage(candidateConversationQuery)
       ) {
         recordPromptHistory(replState, code, "conversation");
-        const { images, unsupportedMimeType } = prepareConversationMediaPayload(
-          attachments,
-        );
+        const { attachments: conversationAttachments, unsupportedMimeType } =
+          prepareConversationMediaPayload(attachments);
         if (unsupportedMimeType) {
           addHistoryEntry(code, {
             success: false,
             error: new Error(
-              `Attachment unsupported: ${unsupportedMimeType}. Supported inputs are images, audio, video, and PDF files.`,
+              describeConversationAttachmentMimeTypeError(
+                unsupportedMimeType,
+              ),
             ),
           });
           return;
         }
-        const imagePaths = images && images.length > 0 ? images : undefined;
-        const attachmentLabels = getConversationAttachmentLabels(attachments);
         setSurfacePanel("conversation");
         setIsEvaluating(true);
         void runConversation(
           candidateConversationQuery,
-          imagePaths,
-          attachmentLabels,
+          conversationAttachments,
+          {},
         );
         return;
       }
@@ -1046,7 +1037,6 @@ function AppContent(
       streamEvalToTask,
       agentExecutionMode,
       prepareConversationMediaPayload,
-      getConversationAttachmentLabels,
       runConversation,
       submitConversationDraft,
       isNaturalLanguage,
@@ -1474,44 +1464,46 @@ function AppContent(
       {/* Input line */}
       {!isOverlayOpen && isInputVisible &&
         (
-          <Box marginTop={hasConversationContext ? 1 : 0} flexDirection="column">
-          <Input
-            value={input}
-            onChange={setInput}
-            onSubmit={handleSubmit}
-            onForceSubmit={hasConversationContext
-              ? handleForceInterrupt
-              : undefined}
-            onInterruptRunningTask={hasConversationContext
-              ? () =>
-                interruptConversationRun({
-                  clearPlanning: hasActivePlanningState,
-                })
-              : undefined}
-            onQueueDraft={hasConversationContext && agentControllerRef.current
-              ? handleQueueDraft
-              : undefined}
-            onEditLastQueuedDraft={hasConversationContext &&
-                pendingConversationQueue.length > 0
-              ? handleEditLastQueuedDraft
-              : undefined}
-            queueEditBinding={queueEditBinding}
-            canEditQueuedDraft={hasConversationContext &&
-              pendingConversationQueue.length > 0}
-            isConversationTaskRunning={isConversationTaskRunning}
-            onAttachmentsChange={setComposerAttachments}
-            restoredAttachments={composerAttachments}
-            restoredCursorOffset={restoredComposerCursorOffset}
-            restoredDraftRevision={restoredComposerDraftRevision}
-            onCycleMode={cycleAgentMode}
-            disabled={isInputDisabled}
-            highlightMode={hasConversationContext ? "chat" : "code"}
-            promptLabel={hasConversationContext &&
-                pendingInteraction?.mode === "question" &&
-                !pickerInteractionActive
-              ? "answer>"
-              : "hlvm>"}
-          />
+          <Box
+            marginTop={hasConversationContext ? 1 : 0}
+            flexDirection="column"
+          >
+            <Input
+              value={input}
+              onChange={setInput}
+              onSubmit={handleSubmit}
+              onForceSubmit={hasConversationContext
+                ? handleForceInterrupt
+                : undefined}
+              onInterruptRunningTask={hasConversationContext
+                ? () =>
+                  interruptConversationRun({
+                    clearPlanning: hasActivePlanningState,
+                  })
+                : undefined}
+              onQueueDraft={hasConversationContext && agentControllerRef.current
+                ? handleQueueDraft
+                : undefined}
+              onEditLastQueuedDraft={hasConversationContext &&
+                  pendingConversationQueue.length > 0
+                ? handleEditLastQueuedDraft
+                : undefined}
+              queueEditBinding={queueEditBinding}
+              canEditQueuedDraft={hasConversationContext &&
+                pendingConversationQueue.length > 0}
+              isConversationTaskRunning={isConversationTaskRunning}
+              attachmentState={composerAttachmentState}
+              restoredCursorOffset={restoredComposerCursorOffset}
+              restoredDraftRevision={restoredComposerDraftRevision}
+              onCycleMode={cycleAgentMode}
+              disabled={isInputDisabled}
+              highlightMode={hasConversationContext ? "chat" : "code"}
+              promptLabel={hasConversationContext &&
+                  pendingInteraction?.mode === "question" &&
+                  !pickerInteractionActive
+                ? "answer>"
+                : "hlvm>"}
+            />
           </Box>
         )}
 
@@ -1533,7 +1525,7 @@ function AppContent(
               ? interactionQueue.length
               : 0}
             hasDraftInput={input.trim().length > 0 ||
-              composerAttachments.length > 0}
+              composerAttachmentState.attachments.length > 0}
             inConversation={hasConversationContext}
             hasPendingPermission={hasConversationContext &&
               pendingInteraction?.mode === "permission"}

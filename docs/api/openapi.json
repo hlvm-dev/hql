@@ -42,8 +42,8 @@
       "description": "Eval, completions, and health check"
     },
     {
-      "name": "Memory",
-      "description": "HQL memory functions"
+      "name": "Bindings",
+      "description": "HQL binding function endpoints"
     }
   ],
   "paths": {
@@ -691,7 +691,7 @@
                   "sender_type": {
                     "type": "string"
                   },
-                  "image_paths": {
+                  "attachment_ids": {
                     "type": "array",
                     "items": {
                       "type": "string"
@@ -1469,92 +1469,6 @@
         }
       }
     },
-    "/eval": {
-      "post": {
-        "tags": [
-          "REPL"
-        ],
-        "summary": "Evaluate HQL code",
-        "operationId": "evalCode",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "code"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Evaluation result.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "value": {
-                      "type": "string",
-                      "nullable": true
-                    },
-                    "logs": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "error": {
-                      "type": "object",
-                      "nullable": true,
-                      "properties": {
-                        "name": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Missing code.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Evaluation error.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/completions": {
       "post": {
         "tags": [
@@ -1697,6 +1611,12 @@
                     "aiReady": {
                       "type": "boolean"
                     },
+                    "version": {
+                      "type": "string"
+                    },
+                    "buildId": {
+                      "type": "string"
+                    },
                     "authToken": {
                       "type": "string",
                       "description": "Bearer token the server uses for authenticated endpoints"
@@ -1712,13 +1632,13 @@
     "/api/memory/functions": {
       "get": {
         "tags": [
-          "Memory"
+          "Bindings"
         ],
-        "summary": "List available HQL memory functions",
-        "operationId": "listMemoryFunctions",
+        "summary": "List available HQL binding functions",
+        "operationId": "listBindingFunctions",
         "responses": {
           "200": {
-            "description": "Array of memory functions.",
+            "description": "Array of binding functions.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1727,7 +1647,7 @@
                     "functions": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/MemoryFunction"
+                        "$ref": "#/components/schemas/BindingFunction"
                       }
                     }
                   }
@@ -1751,10 +1671,10 @@
     "/api/memory/functions/execute": {
       "post": {
         "tags": [
-          "Memory"
+          "Bindings"
         ],
-        "summary": "Execute an HQL memory function",
-        "operationId": "executeMemoryFunction",
+        "summary": "Execute an HQL binding function",
+        "operationId": "executeBindingFunction",
         "requestBody": {
           "required": true,
           "content": {
@@ -1934,10 +1854,10 @@
             "type": "string",
             "nullable": true
           },
-          "image_paths": {
+          "attachment_ids": {
             "type": "string",
             "nullable": true,
-            "description": "JSON array of image file paths."
+            "description": "JSON array of attachment IDs."
           },
           "tool_calls": {
             "type": "string",
@@ -2032,7 +1952,7 @@
                 "content": {
                   "type": "string"
                 },
-                "image_paths": {
+                "attachment_ids": {
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -2135,7 +2055,7 @@
           }
         }
       },
-      "MemoryFunction": {
+      "BindingFunction": {
         "type": "object",
         "properties": {
           "name": {

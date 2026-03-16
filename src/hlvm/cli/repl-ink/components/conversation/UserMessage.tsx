@@ -8,10 +8,11 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
+import type { ConversationAttachmentRef } from "../../types.ts";
 
 interface UserMessageProps {
   text: string;
-  attachments?: string[];
+  attachments?: ConversationAttachmentRef[];
   width: number;
 }
 
@@ -20,7 +21,7 @@ export const UserMessage = React.memo(function UserMessage(
 ): React.ReactElement {
   const sc = useSemanticColors();
   const attachmentText = attachments && attachments.length > 0
-    ? attachments.join(" ")
+    ? attachments.map((attachment) => attachment.label).join(" ")
     : "";
 
   return (

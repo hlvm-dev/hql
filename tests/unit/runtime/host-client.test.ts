@@ -4,7 +4,7 @@ import {
   assertRejects,
   assertStringIncludes,
 } from "jsr:@std/assert";
-import { HQLErrorCode } from "../../../src/common/error-codes.ts";
+import { HLVMErrorCode } from "../../../src/common/error-codes.ts";
 import { RuntimeError } from "../../../src/common/error.ts";
 import {
   __testOnlyGetRuntimeStartLockPath,
@@ -13,6 +13,7 @@ import {
   createRuntimeSession,
   deleteRuntimeModel,
   deleteRuntimeSession,
+  getRuntimeAttachment,
   getRuntimeConfig,
   getRuntimeConfigApi,
   getRuntimeModel,
@@ -26,11 +27,14 @@ import {
   loginRuntimeMcpServer,
   logoutRuntimeMcpServer,
   pullRuntimeModelViaHost,
+  registerRuntimeAttachmentPath,
   removeRuntimeMcpServer,
   runAgentQueryViaHost,
   runDirectChatViaHost,
   runRuntimeOllamaSignin,
+  uploadRuntimeAttachment,
 } from "../../../src/hlvm/runtime/host-client.ts";
+import type { AttachmentRecord } from "../../../src/hlvm/attachments/types.ts";
 import { withRuntimePortOverrideForTests } from "../../../src/hlvm/runtime/host-config.ts";
 import type { RuntimeSessionMessage } from "../../../src/hlvm/runtime/session-protocol.ts";
 import { deriveDefaultSessionKey } from "../../../src/hlvm/runtime/session-key.ts";
@@ -238,7 +242,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
 
       const result = await runAgentQueryViaHost({
         query: "fix it",
-        imagePaths: ["/tmp/example.png", "/tmp/example.pdf"],
+        attachmentIds: ["att_example_png", "att_example_pdf"],
         model: "ollama/llama3.1:8b",
         permissionMode: "auto-edit",
         contextWindow: 4096,
@@ -286,8 +290,8 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       assertEquals(capturedChatBody?.trace, true);
       assertEquals(
         (capturedChatBody?.messages as Array<Record<string, unknown>>)[0]
-          ?.image_paths,
-        ["/tmp/example.png", "/tmp/example.pdf"],
+          ?.attachment_ids,
+        ["att_example_png", "att_example_pdf"],
       );
       assertEquals(capturedInteractionBody?.request_id, "interaction-1");
       assertEquals(capturedInteractionBody?.approved, true);
@@ -650,7 +654,7 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
     request_id: null,
     sender_type: "user",
     sender_detail: null,
-    image_paths: null,
+    attachment_ids: undefined,
     tool_calls: null,
     tool_name: null,
     tool_call_id: null,
@@ -775,7 +779,12 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
       assertEquals(createdSessionBody?.title, "Created");
       assertEquals(found, sessions[0]);
       assertEquals(missing, null);
-      assertEquals(listedMessages, messages);
+      assertEquals(listedMessages.length, 1);
+      assertEquals(listedMessages[0]!.id, messages[0]!.id);
+      assertEquals(listedMessages[0]!.content, messages[0]!.content);
+      assertEquals(listedMessages[0]!.sender_type, messages[0]!.sender_type);
+      assertEquals(listedMessages[0]!.role, messages[0]!.role);
+      assertEquals(listedMessages[0]!.created_at, messages[0]!.created_at);
       assertEquals(added.id, 1);
       assertEquals(appendedMessageBody?.content, "reply");
       assertEquals(deleted, true);
@@ -798,7 +807,73 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
   }
 });
 
-Deno.test("runAgentQueryViaHost labels host rejections as runtime-host failures", async () => {
+Deno.test("runtime host client registers, uploads, and fetches attachments", async () => {
+  const attachmentRecord: AttachmentRecord = {
+    id: "att_example_png",
+    blobSha256: "a".repeat(64),
+    fileName: "pixel.png",
+    mimeType: "image/png",
+    kind: "image",
+    size: 3,
+    createdAt: "2026-03-17T00:00:00.000Z",
+    updatedAt: "2026-03-17T00:00:00.000Z",
+    lastAccessedAt: "2026-03-17T00:00:00.000Z",
+  };
+  let registerBody: Record<string, unknown> | null = null;
+  let uploadedFile: File | null = null;
+  let uploadedSourcePath: string | null = null;
+  let requestedAttachmentId: string | null = null;
+
+  await withRuntimeHostServer(async (req, authToken) => {
+    const url = new URL(req.url);
+    assertEquals(req.headers.get("Authorization"), `Bearer ${authToken}`);
+
+    if (url.pathname === "/api/attachments/register") {
+      registerBody = await req.json();
+      return Response.json(attachmentRecord, { status: 201 });
+    }
+
+    if (url.pathname === "/api/attachments/upload") {
+      const form = await req.formData();
+      const file = form.get("file");
+      assert(file instanceof File);
+      uploadedFile = file;
+      const sourcePath = form.get("source_path");
+      uploadedSourcePath = typeof sourcePath === "string" ? sourcePath : null;
+      return Response.json(attachmentRecord, { status: 201 });
+    }
+
+    if (url.pathname === "/api/attachments/att_example_png") {
+      requestedAttachmentId = "att_example_png";
+      return Response.json(attachmentRecord);
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, async () => {
+    const registered = await registerRuntimeAttachmentPath("/tmp/pixel.png");
+    const uploaded = await uploadRuntimeAttachment(
+      "pixel.png",
+      new Uint8Array([1, 2, 3]),
+      { mimeType: "image/png", sourcePath: "/tmp/pixel.png" },
+    );
+    const fetched = await getRuntimeAttachment("att_example_png");
+
+    assertEquals(registered, attachmentRecord);
+    assertEquals(uploaded, attachmentRecord);
+    assertEquals(fetched, attachmentRecord);
+    assertEquals(registerBody, { path: "/tmp/pixel.png" });
+    assertEquals(uploadedFile?.name, "pixel.png");
+    assertEquals(uploadedFile?.type, "image/png");
+    assertEquals(
+      Array.from(new Uint8Array(await uploadedFile!.arrayBuffer())),
+      [1, 2, 3],
+    );
+    assertEquals(uploadedSourcePath, "/tmp/pixel.png");
+    assertEquals(requestedAttachmentId, "att_example_png");
+  });
+});
+
+Deno.test("runAgentQueryViaHost labels host request rejections as runtime-host request rejected", async () => {
   const port = await findFreePort();
   const authToken = "test-auth-token";
 
@@ -832,10 +907,106 @@ Deno.test("runAgentQueryViaHost labels host rejections as runtime-host failures"
           }),
         RuntimeError,
       );
-      assertEquals(error.code, HQLErrorCode.RUNTIME_HOST_REQUEST_FAILED);
+      assertEquals(error.code, HLVMErrorCode.REQUEST_REJECTED);
       assertStringIncludes(
         error.message,
         "Selected model does not support tool calling",
+      );
+    });
+  } finally {
+    await handle.shutdown();
+    await handle.finished;
+  }
+});
+
+Deno.test("runAgentQueryViaHost maps payload-too-large responses to a dedicated host code", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
+    }
+
+    if (url.pathname === "/api/chat") {
+      return Response.json({
+        error: "Request too large",
+      }, { status: 413 });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      const error = await assertRejects(
+        () =>
+          runAgentQueryViaHost({
+            query: "send a big request",
+            model: "ollama/llama3.2:3b",
+            callbacks: {},
+          }),
+        RuntimeError,
+      );
+      assertEquals(error.code, HLVMErrorCode.REQUEST_TOO_LARGE);
+      assertStringIncludes(error.message, "Request too large");
+    });
+  } finally {
+    await handle.shutdown();
+    await handle.finished;
+  }
+});
+
+Deno.test("runAgentQueryViaHost maps malformed runtime streams to stream protocol error", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
+    }
+
+    if (url.pathname === "/api/chat") {
+      return new Response(
+        "this-is-not-json",
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson",
+            "X-Request-ID": "req-invalid-stream",
+          },
+        },
+      );
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      const error = await assertRejects(
+        () =>
+          runAgentQueryViaHost({
+            query: "this stream is bad",
+            model: "ollama/llama3.2:3b",
+            callbacks: {},
+          }),
+        RuntimeError,
+      );
+      assertEquals(error.code, HLVMErrorCode.STREAM_ERROR);
+      assertStringIncludes(
+        error.message,
+        "Failed to parse runtime host stream event",
       );
     });
   } finally {

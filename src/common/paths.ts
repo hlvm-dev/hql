@@ -191,6 +191,44 @@ export function getConversationsDbPath(): string {
 }
 
 /**
+ * Get the attachments root directory (~/.hlvm/attachments)
+ */
+export function getAttachmentsDir(): string {
+  return join(getHlvmDir(), "attachments");
+}
+
+/**
+ * Get the attachment metadata directory (~/.hlvm/attachments/records)
+ */
+export function getAttachmentRecordsDir(): string {
+  return join(getAttachmentsDir(), "records");
+}
+
+/**
+ * Get the attachment blob store directory (~/.hlvm/attachments/blobs)
+ */
+export function getAttachmentBlobsDir(): string {
+  return join(getAttachmentsDir(), "blobs");
+}
+
+/**
+ * Get the prepared-attachment cache directory (~/.hlvm/attachments/prepared)
+ */
+export function getAttachmentPreparedDir(): string {
+  return join(getAttachmentsDir(), "prepared");
+}
+
+/**
+ * Ensure attachment storage directories exist.
+ */
+export async function ensureAttachmentDirs(): Promise<void> {
+  const fs = getPlatform().fs;
+  await fs.mkdir(getAttachmentRecordsDir(), { recursive: true });
+  await fs.mkdir(getAttachmentBlobsDir(), { recursive: true });
+  await fs.mkdir(getAttachmentPreparedDir(), { recursive: true });
+}
+
+/**
  * Get the runtime directory (~/.hlvm/.runtime)
  * Used for embedded binaries and runtime state.
  */

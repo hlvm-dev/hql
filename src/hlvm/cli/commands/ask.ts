@@ -39,7 +39,7 @@ import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 import { runAgentQueryViaHost } from "../../runtime/host-client.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
-import { checkModelAttachmentPaths } from "../attachment-policy.ts";
+import { checkModelAttachmentIds } from "../attachment-policy.ts";
 import {
   type DelegateTranscriptSnapshot,
   listDelegateTranscriptLines,
@@ -280,11 +280,11 @@ function summarizeToolEventForDefaultMode(
 
 async function ensureModelAttachmentSupport(
   modelName: string,
-  attachmentPaths: readonly string[],
+  attachmentIds: readonly string[],
 ): Promise<void> {
-  const attachmentSupport = await checkModelAttachmentPaths(
+  const attachmentSupport = await checkModelAttachmentIds(
     modelName,
-    attachmentPaths,
+    attachmentIds,
     null,
   );
   if (attachmentSupport.supported) return;
@@ -461,9 +461,9 @@ export async function askCommand(args: string[]): Promise<void> {
     freshSession = true;
   }
 
-  const attachmentPaths = await resolveAskAttachmentPaths(attachmentArgs);
-  if (!fixturePath && attachmentPaths?.length && modelOverride) {
-    await ensureModelAttachmentSupport(modelOverride, attachmentPaths);
+  const attachmentIds = await resolveAskAttachmentIds(attachmentArgs);
+  if (!fixturePath && attachmentIds?.length && modelOverride) {
+    await ensureModelAttachmentSupport(modelOverride, attachmentIds);
   }
 
   const runtimeConfig = await createRuntimeConfigManager();
@@ -500,8 +500,8 @@ export async function askCommand(args: string[]): Promise<void> {
   const model = modelOverride ?? undefined;
   const contextWindow = runtimeConfig.getContextWindow();
 
-  if (!fixturePath && attachmentPaths?.length) {
-    await ensureModelAttachmentSupport(resolvedModel, attachmentPaths);
+  if (!fixturePath && attachmentIds?.length) {
+    await ensureModelAttachmentSupport(resolvedModel, attachmentIds);
   }
 
   // Paid provider consent gate
@@ -818,7 +818,7 @@ export async function askCommand(args: string[]): Promise<void> {
   const executeQuery = async () => {
     const result = await runAgentQueryViaHost({
       query,
-      imagePaths: attachmentPaths,
+      attachmentIds,
       model: resolvedModel,
       fixturePath,
       contextWindow,
@@ -950,13 +950,13 @@ function formatDelegateSnapshotForVerboseMode(
   return lines.join("\n");
 }
 
-async function resolveAskAttachmentPaths(
+async function resolveAskAttachmentIds(
   attachmentArgs: readonly string[],
 ): Promise<string[] | undefined> {
   if (attachmentArgs.length === 0) return undefined;
 
   const platform = getPlatform();
-  const resolvedPaths: string[] = [];
+  const resolvedIds: string[] = [];
 
   for (let i = 0; i < attachmentArgs.length; i++) {
     const rawPath = attachmentArgs[i]?.trim();
@@ -986,8 +986,8 @@ async function resolveAskAttachmentPaths(
       );
     }
 
-    resolvedPaths.push(absolutePath);
+    resolvedIds.push(attachment.attachmentId);
   }
 
-  return resolvedPaths;
+  return resolvedIds;
 }

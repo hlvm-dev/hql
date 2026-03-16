@@ -26,6 +26,8 @@ import * as IR from "../type/hql_ir.ts";
  * const wrapped = ensureReturnStatement(expr);
  * // → { type: IRNodeType.ReturnStatement, argument: expr }
  */
+import { STATEMENT_TYPES } from "../constants/index.ts";
+
 export function ensureReturnStatement(node: IR.IRNode): IR.IRNode {
   if (node.type === IR.IRNodeType.ReturnStatement) {
     return node;
@@ -94,6 +96,10 @@ export function createNull(): IR.IRNullLiteral {
 
 export function createExprStmt(expr: IR.IRNode): IR.IRExpressionStatement {
   return { type: IR.IRNodeType.ExpressionStatement, expression: expr };
+}
+
+export function ensureStatement(node: IR.IRNode): IR.IRNode {
+  return STATEMENT_TYPES.has(node.type) ? node : createExprStmt(node);
 }
 
 export function createFnExpr(

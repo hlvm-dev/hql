@@ -3,8 +3,8 @@ import { parseModelString } from "../providers/registry.ts";
 import {
   type ConversationAttachmentKind,
   getConversationAttachmentKind,
-  getConversationAttachmentMimeType,
 } from "./repl/attachment.ts";
+import { getAttachmentRecords } from "../attachments/service.ts";
 import { modelSupportsVision } from "./model-capabilities.ts";
 
 const DEFAULT_MODEL_ATTACHMENT_KINDS: readonly ConversationAttachmentKind[] = [
@@ -29,7 +29,34 @@ export interface AttachmentSupportCheck {
   supportedKinds: readonly ConversationAttachmentKind[];
   unsupportedKind?: ConversationAttachmentKind;
   unsupportedMimeType?: string;
+  missingAttachmentId?: string;
   catalogFailed?: boolean;
+}
+
+function describeAttachmentKindForInput(
+  kind: ConversationAttachmentKind,
+): string {
+  switch (kind) {
+    case "image":
+      return "images";
+    case "pdf":
+      return "PDF files";
+    case "audio":
+      return "audio files";
+    case "video":
+      return "video files";
+    case "text":
+      return "text attachments";
+    default:
+      return "attachments";
+  }
+}
+
+function formatList(items: readonly string[]): string {
+  if (items.length === 0) return "attachments";
+  if (items.length === 1) return items[0]!;
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
 }
 
 function resolveModelProviderName(
@@ -51,6 +78,18 @@ export function getSupportedAttachmentKindsForModel(
     ? PROVIDER_ATTACHMENT_KINDS[providerName] ??
       DEFAULT_MODEL_ATTACHMENT_KINDS
     : DEFAULT_MODEL_ATTACHMENT_KINDS;
+}
+
+export function describeSupportedAttachmentInputs(
+  kinds: readonly ConversationAttachmentKind[] = DEFAULT_MODEL_ATTACHMENT_KINDS,
+): string {
+  return formatList(kinds.map(describeAttachmentKindForInput));
+}
+
+export function describeConversationAttachmentMimeTypeError(
+  mimeType: string,
+): string {
+  return `Attachment unsupported: ${mimeType}. Supported inputs are ${describeSupportedAttachmentInputs()}.`;
 }
 
 export async function checkModelAttachmentMimeTypes(
@@ -96,14 +135,28 @@ export async function checkModelAttachmentMimeTypes(
   return { supported: true, supportedKinds };
 }
 
-export async function checkModelAttachmentPaths(
+export async function checkModelAttachmentIds(
   modelName: string,
-  attachmentPaths: readonly string[],
+  attachmentIds: readonly string[],
   modelInfo: ModelInfo | null,
 ): Promise<AttachmentSupportCheck> {
+  const supportedKinds = getSupportedAttachmentKindsForModel(
+    modelName,
+    modelInfo,
+  );
+  const records = await getAttachmentRecords(attachmentIds);
+  if (records.length !== attachmentIds.length) {
+    const knownIds = new Set(records.map((record) => record.id));
+    const missingAttachmentId = attachmentIds.find((id) => !knownIds.has(id));
+    return {
+      supported: false,
+      supportedKinds,
+      missingAttachmentId,
+    };
+  }
   return await checkModelAttachmentMimeTypes(
     modelName,
-    attachmentPaths.map(getConversationAttachmentMimeType),
+    records.map((record) => record.mimeType),
     modelInfo,
   );
 }
@@ -117,6 +170,10 @@ export function describeAttachmentFailure(
 
   if (check.catalogFailed) {
     return `Could not verify if ${modelName} supports this type. Try proceeding anyway.`;
+  }
+
+  if (check.missingAttachmentId) {
+    return `Attachment not found: ${check.missingAttachmentId}`;
   }
 
   if (check.unsupportedKind) {

@@ -496,6 +496,14 @@ All HQL errors follow a consistent format:
 | Suggestion | How to fix the problem |
 | Documentation | Link to detailed explanation |
 
+### Error Domains
+
+The code prefix indicates the owning runtime boundary:
+
+- `HQL` errors come from language parsing, compilation, and runtime semantics.
+- `HLVM` errors come from the local HLVM runtime host (HTTP protocol, sessions, tool events, lifecycle).
+- `PRV` errors come from external provider calls (OpenAI, Anthropic, Gemini, Ollama, etc.).
+
 ---
 
 ## Error Codes Reference
@@ -540,10 +548,34 @@ All HQL errors follow a consistent format:
 | Code | Description |
 |------|-------------|
 | HQL5001 | Variable not defined |
-| HQL5002 | Module not found |
-| HQL5003 | Import failed |
-| HQL5004 | Type error (runtime) |
-| HQL5005 | Not a function |
+| HQL5002 | Type mismatch at runtime |
+| HQL5003 | Division by zero |
+| HQL5004 | Null or undefined dereference |
+| HQL5005 | Function not found |
+
+### HLVM Host Errors (HLVM5xxx)
+
+| Code | Description |
+|------|-------------|
+| HLVM5006 | Runtime host request or lifecycle failure |
+| HLVM5007 | Runtime host request rejected |
+| HLVM5008 | Runtime host request payload too large |
+| HLVM5009 | Runtime host transport failure |
+| HLVM5010 | Runtime host stream parsing failure |
+
+### Provider Errors (PRV9xxx)
+
+| Code | Description |
+|------|-------------|
+| PRV9001 | Provider request failed |
+| PRV9002 | Provider request rejected |
+| PRV9003 | Provider request payload too large |
+| PRV9004 | Provider authentication/authorization failed |
+| PRV9005 | Provider rate limit hit |
+| PRV9006 | Provider unavailable |
+| PRV9007 | Provider network failure |
+| PRV9008 | Provider request timeout |
+| PRV9009 | Provider stream protocol parse error |
 
 ### Type Errors (TSxxxx)
 

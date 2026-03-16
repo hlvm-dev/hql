@@ -25,6 +25,8 @@ export interface UseCompletionOptions {
   readonly docstrings?: ReadonlyMap<string, string>;
   /** Names of definitions in persistent memory (for context-aware completions) */
   readonly bindingNames?: ReadonlySet<string>;
+  /** Paths of files already attached (to filter from @ picker) */
+  readonly attachedPaths?: ReadonlySet<string>;
   /** Debounce delay for async providers (ms) */
   readonly debounceMs?: number;
   /** Whether completion is disabled */
@@ -142,6 +144,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
     signatures,
     docstrings = new Map(),
     bindingNames = new Set(),
+    attachedPaths,
     debounceMs = 150,
     disabled = false,
   } = options;
@@ -186,7 +189,8 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         userBindings,
         signatures,
         docstrings,
-        bindingNames
+        bindingNames,
+        attachedPaths,
       );
 
       // Find active provider
@@ -312,7 +316,8 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         userBindings,
         signatures,
         docstrings,
-        bindingNames
+        bindingNames,
+        attachedPaths,
       );
 
       // Find active provider (for Tab, use symbol provider)

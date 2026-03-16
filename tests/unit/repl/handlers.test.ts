@@ -383,7 +383,7 @@ Deno.test("handlers: chat rejects media attachments for agent models without vis
       messages: [{
         role: "user",
         content: "describe this screenshot",
-        image_paths: ["/tmp/example.png"],
+        attachment_ids: ["att_example_png"],
       }],
     }));
 

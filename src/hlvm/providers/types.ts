@@ -29,12 +29,17 @@ export type ProviderCapability =
 import type { MessageRole } from "../agent/context.ts";
 export type { MessageRole };
 
+export interface ProviderAttachment {
+  data: string;
+  mimeType: string;
+}
+
 /** A provider-level chat message (snake_case fields for wire format) */
 export interface ProviderMessage {
   role: MessageRole;
   content: string;
-  /** Optional images for vision models (base64 or URLs) */
-  images?: string[];
+  /** Optional prepared attachments (base64 or provider-native URL strings). */
+  images?: Array<string | ProviderAttachment>;
   /** Tool calls made by the assistant (for native tool calling conversation flow) */
   tool_calls?: ProviderToolCall[];
   /** Name of the tool that produced this result (for role: "tool") */
@@ -112,8 +117,8 @@ export interface GenerateOptions {
   format?: "json" | string;
   /** Stream output token by token */
   stream?: boolean;
-  /** Images for vision models */
-  images?: string[];
+  /** Prepared multimodal attachments for the provider boundary. */
+  images?: Array<string | ProviderAttachment>;
   /** Provider-specific options */
   raw?: Record<string, unknown>;
   /** Abort signal for cancellation */
