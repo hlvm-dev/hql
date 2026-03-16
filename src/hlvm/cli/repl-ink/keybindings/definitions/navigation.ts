@@ -59,21 +59,13 @@ export const navigationKeybindings: Keybinding[] = [
     action: { type: "HANDLER", id: HandlerIds.NAV_SEXP_FORWARD },
   },
 
-  // Multi-line
+  // Multi-line (Option+Enter — industry standard: Claude Code, Codex)
   {
     id: "alt+enter",
     display: "Alt+Enter",
     displayByPlatform: { darwin: "Opt+Enter" },
     label: "Insert newline",
     description: "For multi-line input",
-    category: "Navigation",
-    action: { type: "HANDLER", id: HandlerIds.NAV_INSERT_NEWLINE },
-  },
-  {
-    id: "ctrl+j",
-    display: "Ctrl+J",
-    label: "Insert newline",
-    description: "Universal terminal newline shortcut",
     category: "Navigation",
     action: { type: "HANDLER", id: HandlerIds.NAV_INSERT_NEWLINE },
   },

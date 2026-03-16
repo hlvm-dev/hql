@@ -26,7 +26,7 @@ export function getPermissionMode(config: unknown): PermissionMode | undefined {
     ? config.permissionMode
     : undefined;
   return rawPermissionMode === "default" || rawPermissionMode === "auto-edit" ||
-      rawPermissionMode === "yolo"
+      rawPermissionMode === "plan" || rawPermissionMode === "yolo"
     ? rawPermissionMode
     : undefined;
 }

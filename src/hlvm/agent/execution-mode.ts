@@ -1,20 +1,10 @@
-import type { PermissionMode } from "../../common/config/types.ts";
+import {
+  PERMISSION_MODES,
+  type PermissionMode,
+} from "../../common/config/types.ts";
 import type { PlanningMode } from "./planning.ts";
 
-export type AgentExecutionMode = PermissionMode | "plan";
-
-type ReplAgentExecutionMode =
-  | "default"
-  | "auto-edit"
-  | "plan"
-  | "yolo";
-
-const REPL_AGENT_EXECUTION_MODES: readonly ReplAgentExecutionMode[] = [
-  "default",
-  "auto-edit",
-  "plan",
-  "yolo",
-];
+export type AgentExecutionMode = PermissionMode;
 
 const EXECUTION_MODE_META: Record<AgentExecutionMode, { label: string }> = {
   "default": { label: "Default mode" },
@@ -31,14 +21,10 @@ export function toAgentExecutionMode(
 
 export function cycleReplAgentExecutionMode(
   current: AgentExecutionMode,
-): ReplAgentExecutionMode {
-  const currentIndex = REPL_AGENT_EXECUTION_MODES.indexOf(
-    current as ReplAgentExecutionMode,
-  );
+): PermissionMode {
+  const currentIndex = PERMISSION_MODES.indexOf(current);
   const safeIndex = currentIndex >= 0 ? currentIndex : 0;
-  return REPL_AGENT_EXECUTION_MODES[
-    (safeIndex + 1) % REPL_AGENT_EXECUTION_MODES.length
-  ];
+  return PERMISSION_MODES[(safeIndex + 1) % PERMISSION_MODES.length];
 }
 
 export function getAgentExecutionModeChangeMessage(

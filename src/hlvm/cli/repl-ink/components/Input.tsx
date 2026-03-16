@@ -133,6 +133,54 @@ function hasNewlineChars(str: string): boolean {
   return str.includes("\n") || str.includes("\r");
 }
 
+/** Greedy word-boundary wrapping: break `line` into visual chunks of at most `width` chars,
+ *  preferring to break at spaces. A space stays at the end of the current chunk (trailing). */
+function wrapLine(
+  line: string,
+  width: number,
+): { chunks: string[]; offsets: number[] } {
+  if (line.length === 0) return { chunks: [""], offsets: [0] };
+  if (line.length <= width) return { chunks: [line], offsets: [0] };
+  const chunks: string[] = [], offsets: number[] = [];
+  let pos = 0;
+  while (pos < line.length) {
+    if (line.length - pos <= width) {
+      chunks.push(line.slice(pos));
+      offsets.push(pos);
+      break;
+    }
+    let breakAt = -1;
+    for (let i = pos; i < pos + width; i++) if (line[i] === " ") breakAt = i;
+    if (breakAt <= pos) {
+      // No space or space only at start — hard-break at width
+      chunks.push(line.slice(pos, pos + width));
+      offsets.push(pos);
+      pos += width;
+    } else {
+      chunks.push(line.slice(pos, breakAt + 1));
+      offsets.push(pos);
+      pos = breakAt + 1;
+    }
+  }
+  return { chunks, offsets };
+}
+
+/** Find which chunk index contains position `posInLine` within a wrapLine result. */
+function findChunkIndex(offsets: number[], posInLine: number): number {
+  for (let i = offsets.length - 1; i >= 0; i--) {
+    if (posInLine >= offsets[i]) return i;
+  }
+  return 0;
+}
+
+/** Lazy Intl.Segmenter singleton for grapheme-aware cursor movement. */
+let _segmenter: Intl.Segmenter | undefined;
+function getGraphemeSegmenter(): Intl.Segmenter {
+  return (_segmenter ??= new Intl.Segmenter(undefined, {
+    granularity: "grapheme",
+  }));
+}
+
 // Placeholder for function parameter completion
 interface Placeholder {
   start: number; // Position in value string
@@ -1458,8 +1506,8 @@ export function Input({
       (key.ctrl && input === "i");
 
     // Ctrl+Enter: force-submit via CSI-u protocol only (kitty/WezTerm/Ghostty).
-    // Most terminals can't distinguish Ctrl+Enter from Ctrl+J, so we don't
-    // use Ctrl+J for force-submit — it's reserved for newline insertion.
+    // Most terminals can't distinguish Ctrl+Enter from plain Enter, so
+    // force-submit only works via CSI-u protocol or key.return+key.ctrl.
     const isCtrlEnterProtocol = csiuEnterMod === 5 || csiuEnterMod === 6 ||
       csiuEnterMod === 7;
     if (onForceSubmit && (isCtrlEnterProtocol || (key.return && key.ctrl))) {
@@ -1467,9 +1515,8 @@ export function Input({
       return;
     }
 
-    // CSI-u Shift+Enter / Alt+Enter (mod 2/3): insert newline.
-    // Kitty-protocol terminals send these as \x1b[13;2u / \x1b[13;3u.
-    if (csiuEnterMod === 2 || csiuEnterMod === 3) {
+    // CSI-u Alt+Enter (mod 3): insert newline on Kitty-protocol terminals.
+    if (csiuEnterMod === 3) {
       insertAt("\n");
       return;
     }
@@ -1580,16 +1627,15 @@ export function Input({
       return;
     }
 
-    // Option+Enter and Ctrl+J both insert newlines.
+    // Option+Enter inserts a newline (industry standard: Claude Code, Codex).
     //
     // Ink's parseKeypress doesn't recognise ESC+CR (\x1b\r, sent by macOS
     // terminals for Option+Enter). It strips the ESC prefix, leaving
     // input="\r" with ALL key flags false. Regular Enter sets key.return=true
-    // and input="". So `!key.return` reliably distinguishes both:
-    //   Option+Enter: input="\r", key.return=false
-    //   Ctrl+J:       input="\n", key.return=false
-    //   Enter:        input="",   key.return=true
-    if (!key.return && (input === "\n" || input === "\r")) {
+    // and input="". So `!key.return` reliably distinguishes them:
+    //   Option+Enter: input="\r", key.return=false  → newline
+    //   Enter:        input="",   key.return=true    → submit
+    if (input === "\r" && !key.return) {
       insertAt("\n");
       return;
     }
@@ -1794,12 +1840,7 @@ export function Input({
         return;
       }
 
-      // Check for ESC/Option + Enter (insert newline).
-      // Some terminals send raw \r/\n here without key.return=true.
-      if (key.return || input === "\r" || input === "\n") {
-        insertAt("\n");
-        return;
-      }
+      // Option+Enter: handled earlier (line ~1592) before isEnterLikeInput.
 
       // Handle ESC/Option + letter
       switch (input) {
@@ -2085,7 +2126,7 @@ export function Input({
       return;
     }
 
-    // Enter (0x0D) - submit if balanced. Ctrl+J (0x0A) is newline, handled above.
+    // Enter (0x0D) - submit if balanced. Option+Enter is newline, handled above.
     if (isEnterLikeInput) {
       // Wait for async attachment resolution before submit so placeholders map to real attachments.
       if (pendingAttachmentOpsRef.current > 0) {
@@ -2146,17 +2187,24 @@ export function Input({
         acc += lines[i].length + 1;
       }
       const posInLine = cursorPos - acc;
-      if (posInLine >= cw) {
-        // Move up within this logical line
-        setCursorPos(cursorPos - cw);
+      const wrap = wrapLine(lines[logIdx], cw);
+      const chunkIdx = findChunkIndex(wrap.offsets, posInLine);
+      if (chunkIdx > 0) {
+        // Move up within this logical line (to previous visual chunk)
+        const colInChunk = posInLine - wrap.offsets[chunkIdx];
+        const prevOff = wrap.offsets[chunkIdx - 1];
+        const prevLen = wrap.chunks[chunkIdx - 1].length;
+        setCursorPos(acc + prevOff + Math.min(colInChunk, prevLen - 1));
       } else if (logIdx > 0) {
         // Cross to last visual row of previous logical line
+        const colInChunk = posInLine - wrap.offsets[0];
         const prevLine = lines[logIdx - 1];
         const prevStart = acc - prevLine.length - 1;
-        const lastChunkStart = Math.floor(prevLine.length / cw) * cw;
+        const prevWrap = wrapLine(prevLine, cw);
+        const lastOff = prevWrap.offsets[prevWrap.offsets.length - 1];
+        const lastLen = prevWrap.chunks[prevWrap.chunks.length - 1].length;
         setCursorPos(
-          prevStart + lastChunkStart +
-            Math.min(posInLine, prevLine.length - lastChunkStart),
+          prevStart + lastOff + Math.min(colInChunk, lastLen - 1),
         );
       } else {
         navigateHistory(-1);
@@ -2175,19 +2223,23 @@ export function Input({
       }
       const posInLine = cursorPos - acc;
       const line = lines[logIdx];
-      const currentChunk = Math.floor(posInLine / cw);
-      const totalChunks = line.length === 0 ? 1 : Math.ceil(line.length / cw);
-      if (currentChunk < totalChunks - 1) {
+      const wrap = wrapLine(line, cw);
+      const chunkIdx = findChunkIndex(wrap.offsets, posInLine);
+      if (chunkIdx < wrap.chunks.length - 1) {
         // Move down within this logical line (to next visual chunk)
-        const col = posInLine % cw;
-        const nextChunkStart = (currentChunk + 1) * cw;
-        const nextChunkLen = line.length - nextChunkStart;
-        setCursorPos(acc + nextChunkStart + Math.min(col, nextChunkLen));
+        const colInChunk = posInLine - wrap.offsets[chunkIdx];
+        const nextOff = wrap.offsets[chunkIdx + 1];
+        const nextLen = wrap.chunks[chunkIdx + 1].length;
+        setCursorPos(acc + nextOff + Math.min(colInChunk, nextLen - 1));
       } else if (logIdx < lines.length - 1) {
         // Cross to first visual row of next logical line
-        const col = posInLine % cw;
+        const colInChunk = posInLine - wrap.offsets[chunkIdx];
         const nextStart = acc + line.length + 1;
-        setCursorPos(nextStart + Math.min(col, lines[logIdx + 1].length));
+        const nextLine = lines[logIdx + 1];
+        const nextWrap = wrapLine(nextLine, cw);
+        setCursorPos(
+          nextStart + Math.min(colInChunk, nextWrap.chunks[0].length - 1),
+        );
       } else if (cursorPos < value.length) {
         setCursorPos(value.length);
       } else {
@@ -2195,14 +2247,22 @@ export function Input({
       }
       return;
     }
-    // Left/Right arrows (simple movement - modifiers handled earlier)
+    // Left/Right arrows — grapheme-aware movement
     if (key.leftArrow) {
-      if (cursorPos > 0) setCursorPos(cursorPos - 1);
+      if (cursorPos > 0) {
+        const seg = getGraphemeSegmenter().segment(value).containing(
+          cursorPos - 1,
+        );
+        setCursorPos(seg ? seg.index : cursorPos - 1);
+      }
       return;
     }
     if (key.rightArrow) {
       if (cursorPos < value.length) {
-        setCursorPos(cursorPos + 1);
+        const seg = getGraphemeSegmenter().segment(value).containing(
+          cursorPos,
+        );
+        setCursorPos(cursorPos + (seg?.segment.length ?? 1));
       } else if (suggestion) {
         // At end with suggestion: accept ghost text
         acceptAndApplySuggestion();
@@ -2302,10 +2362,6 @@ export function Input({
         case "o":
           applyParedit(killSexp);
           return; // Ctrl+O = Kill
-
-        case "j": // Ctrl+J = insert newline (universal terminal convention)
-          insertAt("\n");
-          return;
 
           // Note: Ctrl+P = Command Palette (handled in App.tsx)
           // Note: Ctrl+D = EOF (handled in App.tsx)
@@ -2479,10 +2535,9 @@ export function Input({
     const contentWidth = Math.max(1, termCols - prefixWidth);
     const valueLines = value.split("\n");
     const lastLine = valueLines[valueLines.length - 1] ?? "";
-    // With manual visual chunking, available space is on the last visual chunk
-    const lastChunkLen = lastLine.length === 0
-      ? 0
-      : (lastLine.length % contentWidth || contentWidth);
+    // With word-boundary wrapping, available space is on the last visual chunk
+    const lastWrap = wrapLine(lastLine, contentWidth);
+    const lastChunkLen = lastWrap.chunks[lastWrap.chunks.length - 1].length;
     const available = Math.max(0, contentWidth - lastChunkLen - 1);
     return rawGhostText.length <= available
       ? rawGhostText
@@ -2624,10 +2679,9 @@ export function Input({
     return result;
   };
 
-  // Manual visual wrapping: break text into visual rows of uniform
-  // contentWidth so every row (including the first) has the same content
-  // area.  Row 0 shows "hlvm>", continuation rows show spaces of equal
-  // width.  This makes up/down cursor navigation trivially ±contentWidth.
+  // Word-boundary visual wrapping: break text into visual rows preferring
+  // spaces as break points. Row 0 shows "hlvm>", continuation rows show
+  // spaces of equal width.
   const logicalLines = value.split("\n");
   const prefixWidth = promptLabel.length + 1; // "hlvm> " = 6
   const termWidth = stdout?.columns ?? 80;
@@ -2647,8 +2701,6 @@ export function Input({
       acc += logicalLines[i].length + 1;
     }
   }
-  const cursorChunkIdx = Math.floor(cursorPosInLine / contentWidth);
-  const cursorColInChunk = cursorPosInLine % contentWidth;
 
   const lineElements: React.ReactNode[] = [];
   let isFirstVisual = true;
@@ -2657,19 +2709,26 @@ export function Input({
 
   for (let logIdx = 0; logIdx <= lastLogIdx; logIdx++) {
     const line = logicalLines[logIdx];
-    const numChunks = line.length === 0
-      ? 1
-      : Math.ceil(line.length / contentWidth);
+    const wrap = wrapLine(line, contentWidth);
 
-    for (let ci = 0; ci < numChunks; ci++) {
-      const chunkStart = ci * contentWidth;
-      const chunkText = line.slice(chunkStart, chunkStart + contentWidth);
+    // Find cursor chunk for this logical line
+    let cursorChunkIdx = -1;
+    let cursorColInChunk = 0;
+    if (logIdx === cursorLogLine) {
+      cursorChunkIdx = findChunkIndex(wrap.offsets, cursorPosInLine);
+      cursorColInChunk = cursorPosInLine - wrap.offsets[cursorChunkIdx];
+    }
+
+    for (let ci = 0; ci < wrap.chunks.length; ci++) {
+      const chunkText = wrap.chunks[ci];
+      const chunkOff = wrap.offsets[ci];
       const prompt = isFirstVisual
         ? promptLabel
         : " ".repeat(promptLabel.length);
-      const chunkGlobalOff = globalOffset + chunkStart;
-      const isCursorChunk = logIdx === cursorLogLine && ci === cursorChunkIdx;
-      const isLastVisual = logIdx === lastLogIdx && ci === numChunks - 1;
+      const chunkGlobalOff = globalOffset + chunkOff;
+      const isCursorChunk = ci === cursorChunkIdx;
+      const isLastVisual = logIdx === lastLogIdx &&
+        ci === wrap.chunks.length - 1;
 
       if (!isCursorChunk) {
         lineElements.push(
@@ -2682,8 +2741,14 @@ export function Input({
         );
       } else {
         const before = chunkText.slice(0, cursorColInChunk);
-        const charAt = chunkText[cursorColInChunk] || " ";
-        const after = chunkText.slice(cursorColInChunk + 1);
+        // Grapheme-aware cursor block
+        const seg = getGraphemeSegmenter().segment(chunkText).containing(
+          cursorColInChunk,
+        );
+        const charLen = seg?.segment.length ?? 1;
+        const charAt =
+          chunkText.slice(cursorColInChunk, cursorColInChunk + charLen) || " ";
+        const after = chunkText.slice(cursorColInChunk + charLen);
         lineElements.push(
           <Box key={`${logIdx}-${ci}`}>
             <Text>
@@ -2693,7 +2758,7 @@ export function Input({
               <Text backgroundColor="white" color="black">{charAt}</Text>
               {renderWithPlaceholders(
                 after,
-                chunkGlobalOff + cursorColInChunk + 1,
+                chunkGlobalOff + cursorColInChunk + charLen,
               )}
               {isLastVisual && ghostText && (
                 <Text dimColor>{ghostText}</Text>

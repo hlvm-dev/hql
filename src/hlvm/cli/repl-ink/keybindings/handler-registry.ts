@@ -113,8 +113,6 @@ export const HandlerIds = {
   // Navigation
   NAV_WORD_BACK: "nav.word-back",
   NAV_WORD_FORWARD: "nav.word-forward",
-  NAV_CHAR_BACK: "nav.char-back",
-  NAV_CHAR_FORWARD: "nav.char-forward",
   NAV_SEXP_BACK: "nav.sexp-back",
   NAV_SEXP_FORWARD: "nav.sexp-forward",
   NAV_SEXP_UP: "nav.sexp-up",
@@ -123,17 +121,11 @@ export const HandlerIds = {
 
   // Completion
   COMPLETION_ACCEPT: "completion.accept",
-  COMPLETION_NEXT: "completion.next",
-  COMPLETION_PREV: "completion.prev",
   COMPLETION_CANCEL: "completion.cancel",
   COMPLETION_TOGGLE_DOCS: "completion.toggle-docs",
 
   // History
   HISTORY_SEARCH: "history.search",
-  HISTORY_NEXT_MATCH: "history.next-match",
-  HISTORY_PREV_MATCH: "history.prev-match",
-  HISTORY_CONFIRM: "history.confirm",
-  HISTORY_CANCEL: "history.cancel",
 
   // Paredit
   PAREDIT_SLURP_FORWARD: "paredit.slurp-forward",
