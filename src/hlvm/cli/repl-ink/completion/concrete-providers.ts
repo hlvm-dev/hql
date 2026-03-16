@@ -437,13 +437,15 @@ function createFileApplyAction(
       };
     }
 
-    // SELECT on directory: insert directory path for continued navigation/reference
+    // SELECT on directory: commit directory reference and close dropdown.
+    // Use Shift+Tab (DRILL) to keep browsing inside the directory.
     if (isDir && action === "SELECT") {
-      const insertPath = "@" + cleanPath + (cleanPath.endsWith("/") ? "" : "/");
+      const dirPath = cleanPath + (cleanPath.endsWith("/") ? "" : "/");
+      const insertPath = "@" + dirPath + " ";
       return {
         text: before + insertPath + after,
         cursorPosition: ctx.anchorPosition + insertPath.length,
-        closeDropdown: false, // keep open so user can continue drilling/selecting nested items
+        closeDropdown: true,
       };
     }
 

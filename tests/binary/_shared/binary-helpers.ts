@@ -9,6 +9,7 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { log } from "../../../src/hlvm/api/log.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { createSerializedQueue } from "../../shared/light-helpers.ts";
 import { shutdownRuntimeHostIfPresent } from "../../shared/runtime-host-test-helpers.ts";
 
 const platform = getPlatform();
@@ -31,42 +32,8 @@ export const BINARY_TEST_HLVM_DIR = await platform.fs.makeTempDir({ prefix: "hlv
 // Track compilation state with mutex to prevent race conditions
 let binaryCompiled = false;
 let compilationPromise: Promise<void> | null = null;
-let commandExecutionQueue: Promise<void> = Promise.resolve();
-let binaryTestExecutionQueue: Promise<void> = Promise.resolve();
-
-async function withSerializedCliExecution<T>(
-  fn: () => Promise<T>,
-): Promise<T> {
-  const previous = commandExecutionQueue;
-  let release!: () => void;
-  commandExecutionQueue = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-
-  await previous.catch(() => undefined);
-  try {
-    return await fn();
-  } finally {
-    release();
-  }
-}
-
-async function withSerializedBinaryTestExecution<T>(
-  fn: () => Promise<T>,
-): Promise<T> {
-  const previous = binaryTestExecutionQueue;
-  let release!: () => void;
-  binaryTestExecutionQueue = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-
-  await previous.catch(() => undefined);
-  try {
-    return await fn();
-  } finally {
-    release();
-  }
-}
+const withSerializedCliExecution = createSerializedQueue();
+const withSerializedBinaryTestExecution = createSerializedQueue();
 
 /**
  * Command execution result

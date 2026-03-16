@@ -150,6 +150,23 @@ function findUtcTimestampForLocal(
   );
 }
 
+async function withRecentActivityTest(
+  fn: (context: { controller: AbortController }) => Promise<void>,
+): Promise<void> {
+  const db = setupStoreTestDb();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  try {
+    await fn({ controller });
+  } finally {
+    clearTimeout(timeout);
+    _resetDbForTesting();
+    await disposeAllSessions();
+    db.close();
+  }
+}
+
 // ============================================================
 // Test 1: Real LLM semantically routes a natural recent-activity question
 // ============================================================
@@ -159,13 +176,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const db = setupStoreTestDb();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-    try {
-      // Seed data in a separate session so the LLM can't see it in conversation
-      // history — it MUST use the tool to discover it.
+    await withRecentActivityTest(async ({ controller }) => {
       const testSessionId = "e2e-current-session";
       const olderSessionId = "e2e-older-session";
 
@@ -193,7 +204,6 @@ Deno.test({
           },
         });
 
-        // 1. The LLM must have called recent_activity
         const toolStarts = events.filter((event) =>
           event.type === "tool_start" && event.name === "recent_activity"
         );
@@ -207,7 +217,6 @@ Deno.test({
           }`,
         );
 
-        // 2. Tool must succeed
         const toolEnds = events.filter(
           (e): e is Extract<AgentUIEvent, { type: "tool_end" }> =>
             e.type === "tool_end" && e.name === "recent_activity",
@@ -215,7 +224,6 @@ Deno.test({
         assertEquals(toolEnds.length >= 1, true, "tool_end must fire");
         assertEquals(toolEnds[0].success, true, "tool must succeed");
 
-        // 3. Tool result must contain seeded data from the OTHER session
         assertStringIncludes(
           toolEnds[0].content,
           "deploy to staging",
@@ -227,19 +235,13 @@ Deno.test({
           "other session data must be labeled as other_session",
         );
 
-        // 4. Final response must be non-empty
         assertEquals(
           result.text.length > 10,
           true,
           `LLM must produce a meaningful response (got: "${result.text.slice(0, 100)}")`,
         );
       });
-    } finally {
-      clearTimeout(timeout);
-      _resetDbForTesting();
-      await disposeAllSessions();
-      db.close();
-    }
+    });
   },
 });
 
@@ -252,11 +254,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const db = setupStoreTestDb();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-    try {
+    await withRecentActivityTest(async ({ controller }) => {
       const sessionId = "e2e-question-last";
       seedSession(sessionId, [
         { content: "review cache metrics", created_at: "2026-03-11T09:00:00Z" },
@@ -306,12 +304,7 @@ Deno.test({
           `assistant must answer from the literal question history (got: ${result.text.slice(0, 200)})`,
         );
       });
-    } finally {
-      clearTimeout(timeout);
-      _resetDbForTesting();
-      await disposeAllSessions();
-      db.close();
-    }
+    });
   },
 });
 
@@ -324,11 +317,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const db = setupStoreTestDb();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-    try {
+    await withRecentActivityTest(async ({ controller }) => {
       const currentId = "e2e-current-2";
       const otherId = "e2e-other-2";
 
@@ -371,12 +360,7 @@ Deno.test({
         assertStringIncludes(toolEnd!.content, "current_session");
         assertStringIncludes(toolEnd!.content, "other_session");
       });
-    } finally {
-      clearTimeout(timeout);
-      _resetDbForTesting();
-      await disposeAllSessions();
-      db.close();
-    }
+    });
   },
 });
 
@@ -389,11 +373,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const db = setupStoreTestDb();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-    try {
+    await withRecentActivityTest(async ({ controller }) => {
       const sessionId = "e2e-yesterday";
       const todayKey = getLocalDateKey(Date.now(), TIME_ZONE);
       const yesterdayKey = getLocalDateKey(Date.now() - DAY_MS, TIME_ZONE);
@@ -438,12 +418,7 @@ Deno.test({
           "yesterday lookup must exclude today's block",
         );
       });
-    } finally {
-      clearTimeout(timeout);
-      _resetDbForTesting();
-      await disposeAllSessions();
-      db.close();
-    }
+    });
   },
 });
 
@@ -456,11 +431,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const db = setupStoreTestDb();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-    try {
+    await withRecentActivityTest(async ({ controller }) => {
       const sessionId = "e2e-before-that";
       // Only seed meaningful prompts — recall-meta prompts are provided
       // via messageHistory for the LLM's multi-turn context. Seeding them
@@ -532,11 +503,6 @@ Deno.test({
           "before_that must skip past the most recent block",
         );
       });
-    } finally {
-      clearTimeout(timeout);
-      _resetDbForTesting();
-      await disposeAllSessions();
-      db.close();
-    }
+    });
   },
 });

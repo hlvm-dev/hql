@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { getPlatform } from "../../src/platform/platform.ts";
-import { findFreePort, normalizeCliOutput } from "../shared/light-helpers.ts";
+import { createSerializedQueue, findFreePort, normalizeCliOutput } from "../shared/light-helpers.ts";
 import { shutdownRuntimeHostIfPresent } from "../shared/runtime-host-test-helpers.ts";
 
 const platform = getPlatform();
@@ -14,47 +14,13 @@ const HOOK_RECORDER_PATH = platform.path.fromFileUrl(
   new URL("../fixtures/agent-hook-recorder.ts", import.meta.url),
 );
 const LIVE_MODEL = platform.env.get("HLVM_LIVE_AGENT_MODEL")?.trim() || "";
-let localAskExecutionQueue: Promise<void> = Promise.resolve();
-let localAskTestExecutionQueue: Promise<void> = Promise.resolve();
+const withSerializedLocalAsk = createSerializedQueue();
+const withSerializedLocalAskTest = createSerializedQueue();
 
 interface LocalAskTestDefinition {
   name: string;
   ignore?: boolean;
   fn: () => void | Promise<void>;
-}
-
-async function withSerializedLocalAsk<T>(
-  fn: () => Promise<T>,
-): Promise<T> {
-  const previous = localAskExecutionQueue;
-  let release!: () => void;
-  localAskExecutionQueue = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-
-  await previous.catch(() => undefined);
-  try {
-    return await fn();
-  } finally {
-    release();
-  }
-}
-
-async function withSerializedLocalAskTest<T>(
-  fn: () => Promise<T>,
-): Promise<T> {
-  const previous = localAskTestExecutionQueue;
-  let release!: () => void;
-  localAskTestExecutionQueue = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-
-  await previous.catch(() => undefined);
-  try {
-    return await fn();
-  } finally {
-    release();
-  }
 }
 
 function localAskTest(definition: LocalAskTestDefinition): void {

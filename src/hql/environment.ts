@@ -65,7 +65,7 @@ export class Environment {
   private lookupCache = new LRUCache<string, Value>(500);
   private macroRegistry: MacroRegistry;
   private currentFilePath: string | null = null;
-  private currentMacroContext: string | null = null;
+  
   private variableVersion = 0;
   public logger: Logger;
 
@@ -115,7 +115,7 @@ export class Environment {
     cloned.macroRegistry = this.macroRegistry;
 
     // Fresh state for per-compilation data
-    // lookupCache, importedMacros, currentFilePath, currentMacroContext are fresh
+    // lookupCache, importedMacros, currentFilePath are fresh
 
     return cloned;
   }
@@ -1106,9 +1106,7 @@ export class Environment {
     return this.currentFilePath ?? "";
   }
 
-  setCurrentMacroContext(context: string | null): void {
-    this.currentMacroContext = context;
-  }
+  
 
   extend(): Environment {
     return new Environment(this, this.logger);

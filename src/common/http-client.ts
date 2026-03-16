@@ -59,34 +59,6 @@ class HttpClient {
   }
 
   /**
-   * Perform a POST request with JSON body
-   */
-  post<T>(url: string, body: unknown, options?: HttpOptions): Promise<T> {
-    return this.bodyRequest<T>("POST", url, body, options);
-  }
-
-  /**
-   * Perform a PUT request with JSON body
-   */
-  put<T>(url: string, body: unknown, options?: HttpOptions): Promise<T> {
-    return this.bodyRequest<T>("PUT", url, body, options);
-  }
-
-  /**
-   * Perform a DELETE request
-   */
-  delete<T>(url: string, options?: HttpOptions): Promise<T> {
-    return this.request<T>(url, { method: "DELETE", ...options });
-  }
-
-  /**
-   * Fetch JSON from a URL (alias for get, kept for backward compatibility)
-   */
-  fetchJson<T>(url: string, options?: HttpOptions): Promise<T> {
-    return this.get<T>(url, options);
-  }
-
-  /**
    * Fetch raw response (for non-JSON responses)
    */
   async fetchRaw(
@@ -107,24 +79,6 @@ class HttpClient {
     } finally {
       clearTimeout(timeoutId);
     }
-  }
-
-  /**
-   * Shared implementation for POST/PUT with JSON body (DRY)
-   */
-  private bodyRequest<T>(
-    method: string,
-    url: string,
-    body: unknown,
-    options?: HttpOptions,
-  ): Promise<T> {
-    const { headers: optHeaders, ...restOptions } = options ?? {};
-    return this.request<T>(url, {
-      method,
-      body: JSON.stringify(body),
-      headers: { "Content-Type": "application/json", ...optHeaders },
-      ...restOptions,
-    });
   }
 
   /**
@@ -186,17 +140,7 @@ class HttpClient {
   }
 }
 
-/**
- * Singleton HTTP client instance
- *
- * Usage:
- * ```typescript
- * import { http } from "../common/http-client.ts";
- *
- * const data = await http.get<MyType>("https://api.example.com/data");
- * await http.post("https://api.example.com/submit", { value: 123 });
- * ```
- */
+/** Singleton HTTP client instance */
 export const http = new HttpClient();
 
 export default http;

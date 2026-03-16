@@ -93,16 +93,7 @@ export function useAttachments(): UseAttachmentsReturn {
         // Ignore stale async completions from previous cleared sessions.
         if (generation === generationRef.current) {
           statusMapRef.current.set(id, "ready");
-          setAttachments((prev: AnyAttachment[]) => {
-            // Deduplicate: skip if a media attachment with the same path already exists
-            if (
-              "path" in result &&
-              prev.some((a) => "path" in a && a.path === result.path)
-            ) {
-              return prev;
-            }
-            return [...prev, result];
-          });
+          setAttachments((prev: AnyAttachment[]) => [...prev, result]);
         }
       } else {
         statusMapRef.current.set(id, "error");

@@ -1603,13 +1603,11 @@ function createMacroFunction(
 ): MacroFn {
   const macroFn = (args: SExp[], callEnv: Environment): SExp => {
     logger.debug(`Expanding macro ${macroName} with ${args.length} args`);
-    callEnv.setCurrentMacroContext(`macro_${macroName}`);
     const macroEnv = createMacroEnv(callEnv, params, restParam, args, logger);
     let result: SExp = createNilLiteral();
     for (const expr of body) {
       result = evaluateForMacro(expr, macroEnv, logger);
     }
-    callEnv.setCurrentMacroContext(null);
     logger.debug(`Macro ${macroName} expanded to: ${sexpToString(result)}`);
     return result;
   };

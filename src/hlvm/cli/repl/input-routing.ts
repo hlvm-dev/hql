@@ -51,7 +51,7 @@ export function looksLikeNaturalLanguage(
     return !hasBinding(trimmed);
   }
 
-  if (ASSIGNMENT_PREFIX_REGEX.test(trimmed) || /^(const|let|var)\s/.test(trimmed)) {
+  if (ASSIGNMENT_PREFIX_REGEX.test(trimmed)) {
     return false;
   }
 

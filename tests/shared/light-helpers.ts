@@ -3,28 +3,44 @@ import { getPlatform } from "../../src/platform/platform.ts";
 import { getRuntimeHostIdentity } from "../../src/hlvm/runtime/host-identity.ts";
 import { withRuntimePortOverrideForTests } from "../../src/hlvm/runtime/host-config.ts";
 
-const envLocks = new Map<string, Promise<void>>();
+/**
+ * Create a serialized execution queue. Returned function ensures
+ * only one task runs at a time -- subsequent callers wait for the
+ * previous task to finish before starting.
+ */
+export function createSerializedQueue(): <T>(fn: () => Promise<T>) => Promise<T> {
+  let queue: Promise<void> = Promise.resolve();
+  return async <T>(fn: () => Promise<T>): Promise<T> => {
+    const previous = queue;
+    let release!: () => void;
+    queue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous.catch(() => undefined);
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  };
+}
 
-async function withSerializedEnvKey<T>(
+const envLockQueues = new Map<string, <T>(fn: () => Promise<T>) => Promise<T>>();
+
+function getEnvKeyQueue(key: string): <T>(fn: () => Promise<T>) => Promise<T> {
+  let q = envLockQueues.get(key);
+  if (!q) {
+    q = createSerializedQueue();
+    envLockQueues.set(key, q);
+  }
+  return q;
+}
+
+function withSerializedEnvKey<T>(
   key: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const previous = envLocks.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  envLocks.set(key, current);
-
-  await previous;
-  try {
-    return await fn();
-  } finally {
-    if (envLocks.get(key) === current) {
-      envLocks.delete(key);
-    }
-    release();
-  }
+  return getEnvKeyQueue(key)(fn);
 }
 
 export function withEnv<T>(

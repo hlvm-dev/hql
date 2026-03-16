@@ -752,6 +752,33 @@ async function fetchRuntimeRaw(
   });
 }
 
+async function fetchRuntimeChecked(
+  path: string,
+  options?: RequestInit & {
+    timeout?: number;
+    signal?: AbortSignal;
+    requireAiReady?: boolean;
+  },
+): Promise<Response> {
+  const response = await fetchRuntimeRaw(path, options);
+  if (!response.ok) await parseErrorResponse(response);
+  return response;
+}
+
+async function postRuntimeJson<T>(
+  path: string,
+  body: unknown,
+  options?: { requireAiReady?: boolean; timeout?: number },
+): Promise<T> {
+  const response = await fetchRuntimeChecked(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    ...options,
+  });
+  return await response.json() as T;
+}
+
 function cloneMessagesWithCurrentTurn(
   messages: ChatRequestMessage[],
 ): {
@@ -794,31 +821,14 @@ export async function listRuntimeSessions(): Promise<RuntimeSession[]> {
 export async function createRuntimeSession(
   input: { id?: string; title?: string } = {},
 ): Promise<RuntimeSession> {
-  const response = await fetchRuntimeRaw("/api/sessions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(input),
-  });
-
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
-
-  return await response.json() as RuntimeSession;
+  return await postRuntimeJson<RuntimeSession>("/api/sessions", input);
 }
 
 export async function getRuntimeSession(
   sessionId: string,
 ): Promise<RuntimeSession | null> {
-  const { baseUrl, authToken } = await ensureRuntimeHost();
-  const response = await http.fetchRaw(
-    `${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`,
-    {
-      timeout: 5_000,
-      headers: authHeaders(authToken),
-    },
+  const response = await fetchRuntimeRaw(
+    `/api/sessions/${encodeURIComponent(sessionId)}`,
   );
 
   if (response.status === 404) {
@@ -826,9 +836,7 @@ export async function getRuntimeSession(
     return null;
   }
 
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
+  if (!response.ok) await parseErrorResponse(response);
 
   return await response.json() as RuntimeSession;
 }
@@ -838,9 +846,7 @@ export async function deleteRuntimeSession(
 ): Promise<boolean> {
   const response = await fetchRuntimeRaw(
     `/api/sessions/${encodeURIComponent(sessionId)}`,
-    {
-      method: "DELETE",
-    },
+    { method: "DELETE" },
   );
 
   if (response.status === 404) {
@@ -848,9 +854,7 @@ export async function deleteRuntimeSession(
     return false;
   }
 
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
+  if (!response.ok) await parseErrorResponse(response);
 
   const result = await response.json() as { deleted?: boolean };
   return result.deleted === true;
@@ -860,22 +864,10 @@ export async function addRuntimeSessionMessage(
   sessionId: string,
   input: RuntimeSessionMessageInput,
 ): Promise<RuntimeSessionMessage> {
-  const response = await fetchRuntimeRaw(
+  return await postRuntimeJson<RuntimeSessionMessage>(
     `/api/sessions/${encodeURIComponent(sessionId)}/messages`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(input),
-    },
+    input,
   );
-
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
-
-  return await response.json() as RuntimeSessionMessage;
 }
 
 export async function listRuntimeSessionMessages(
@@ -897,9 +889,7 @@ export async function listRuntimeSessionMessages(
       return [];
     }
 
-    if (!response.ok) {
-      await parseErrorResponse(response);
-    }
+    if (!response.ok) await parseErrorResponse(response);
 
     const page = await response.json() as RuntimeSessionMessagesResponse;
     messages.push(...page.messages);
@@ -913,21 +903,11 @@ export async function listRuntimeSessionMessages(
 export async function verifyRuntimeModelAccess(
   modelId: string,
 ): Promise<boolean> {
-  const response = await fetchRuntimeRaw("/api/models/verify-access", {
-    method: "POST",
-    requireAiReady: true,
-    timeout: 10_000,
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ model: modelId }),
-  });
-
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
-
-  const result = await response.json() as { available?: boolean };
+  const result = await postRuntimeJson<{ available?: boolean }>(
+    "/api/models/verify-access",
+    { model: modelId },
+    { requireAiReady: true, timeout: 10_000 },
+  );
   return result.available === true;
 }
 
@@ -985,9 +965,7 @@ export async function getRuntimeModel(
     return null;
   }
 
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
+  if (!response.ok) await parseErrorResponse(response);
 
   return await response.json() as ModelInfo;
 }
@@ -998,10 +976,7 @@ export async function deleteRuntimeModel(
 ): Promise<boolean> {
   const response = await fetchRuntimeRaw(
     `/api/models/${encodeURIComponent(provider)}/${encodeURIComponent(name)}`,
-    {
-      method: "DELETE",
-      requireAiReady: true,
-    },
+    { method: "DELETE", requireAiReady: true },
   );
 
   if (response.status === 404) {
@@ -1009,9 +984,7 @@ export async function deleteRuntimeModel(
     return false;
   }
 
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
+  if (!response.ok) await parseErrorResponse(response);
 
   const result = await response.json() as { deleted?: boolean };
   return result.deleted === true;
@@ -1022,20 +995,14 @@ export async function* pullRuntimeModelViaHost(
   provider?: string,
   signal?: AbortSignal,
 ): AsyncGenerator<PullProgress, void, unknown> {
-  const response = await fetchRuntimeRaw("/api/models/pull", {
+  const response = await fetchRuntimeChecked("/api/models/pull", {
     method: "POST",
     requireAiReady: true,
     timeout: STREAM_TIMEOUT_MS,
     signal,
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, provider }),
   });
-
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
 
   const stream = response.body;
   const reader = stream?.getReader();
@@ -1068,18 +1035,11 @@ export async function getRuntimeConfig(): Promise<HlvmConfig> {
 export async function patchRuntimeConfig(
   updates: Partial<Record<ConfigKey, unknown>>,
 ): Promise<HlvmConfig> {
-  const response = await fetchRuntimeRaw("/api/config", {
+  const response = await fetchRuntimeChecked("/api/config", {
     method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(updates),
   });
-
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
-
   return await response.json() as HlvmConfig;
 }
 
@@ -1091,26 +1051,16 @@ export async function setRuntimeConfigKey(
 }
 
 export async function resetRuntimeConfig(): Promise<HlvmConfig> {
-  const response = await fetchRuntimeRaw("/api/config/reset", {
+  const response = await fetchRuntimeChecked("/api/config/reset", {
     method: "POST",
   });
-
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
-
   return await response.json() as HlvmConfig;
 }
 
 export async function reloadRuntimeConfig(): Promise<HlvmConfig> {
-  const response = await fetchRuntimeRaw("/api/config/reload", {
+  const response = await fetchRuntimeChecked("/api/config/reload", {
     method: "POST",
   });
-
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
-
   return await response.json() as HlvmConfig;
 }
 
@@ -1129,20 +1079,11 @@ export function getRuntimeConfigApi(): RuntimeConfigApi {
 export async function runRuntimeOllamaSignin(): Promise<
   RuntimeOllamaSigninResponse
 > {
-  const response = await fetchRuntimeRaw("/api/providers/ollama/signin", {
-    method: "POST",
-    timeout: 120_000,
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ openBrowser: true }),
-  });
-
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
-
-  return await response.json() as RuntimeOllamaSigninResponse;
+  return await postRuntimeJson<RuntimeOllamaSigninResponse>(
+    "/api/providers/ollama/signin",
+    { openBrowser: true },
+    { timeout: 120_000 },
+  );
 }
 
 export async function listRuntimeMcpServers(): Promise<
@@ -1157,74 +1098,42 @@ export async function listRuntimeMcpServers(): Promise<
 export async function addRuntimeMcpServer(input: {
   server: RuntimeMcpServerInput;
 }): Promise<void> {
-  const response = await fetchRuntimeRaw("/api/mcp/servers", {
+  const response = await fetchRuntimeChecked("/api/mcp/servers", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
-
   await response.text();
 }
 
 export async function removeRuntimeMcpServer(input: {
   name: string;
 }): Promise<RuntimeMcpRemoveResponse> {
-  const response = await fetchRuntimeRaw("/api/mcp/servers", {
+  const response = await fetchRuntimeChecked("/api/mcp/servers", {
     method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
-
   return await response.json() as RuntimeMcpRemoveResponse;
 }
 
 export async function loginRuntimeMcpServer(input: {
   name: string;
 }): Promise<RuntimeMcpOauthResponse> {
-  const response = await fetchRuntimeRaw("/api/mcp/oauth/login", {
-    method: "POST",
-    timeout: 135_000,
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(input),
-  });
-
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
-
-  return await response.json() as RuntimeMcpOauthResponse;
+  return await postRuntimeJson<RuntimeMcpOauthResponse>(
+    "/api/mcp/oauth/login",
+    input,
+    { timeout: 135_000 },
+  );
 }
 
 export async function logoutRuntimeMcpServer(input: {
   name: string;
 }): Promise<RuntimeMcpOauthResponse> {
-  const response = await fetchRuntimeRaw("/api/mcp/oauth/logout", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(input),
-  });
-
-  if (!response.ok) {
-    await parseErrorResponse(response);
-  }
-
-  return await response.json() as RuntimeMcpOauthResponse;
+  return await postRuntimeJson<RuntimeMcpOauthResponse>(
+    "/api/mcp/oauth/logout",
+    input,
+  );
 }
 
 export async function runChatViaHost(

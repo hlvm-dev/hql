@@ -50,6 +50,7 @@ import {
   detectMimeType,
   getAttachmentType,
   getDisplayName,
+  isAttachment,
   isSupportedConversationMedia,
   shouldCollapseText,
 } from "../../repl/attachment.ts";
@@ -350,6 +351,9 @@ export function Input({
   const redoStackRef = useRef<Array<{ value: string; cursorPos: number }>>([]);
   // Async operation guards
   const pendingAttachmentOpsRef = useRef(0);
+  // Track latest value for async callbacks (avoids stale closures)
+  const latestValueRef = useRef(value);
+  latestValueRef.current = value;
   const escSequenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -732,7 +736,23 @@ export function Input({
         setCursorPos(
           result.cursorPosition - placeholderLen + displayName.length,
         );
-        void addAttachmentWithId(result.sideEffect.path, id).finally(() => {
+        // Async file read: on failure remove the orphaned display name from text.
+        void addAttachmentWithId(result.sideEffect.path, id).then((att) => {
+          if (!isAttachment(att)) {
+            // Read the live value via ref (avoids stale closure)
+            const liveText = latestValueRef.current;
+            const label = displayName + " ";
+            const idx = liveText.indexOf(label);
+            if (idx !== -1) {
+              onChange(liveText.slice(0, idx) + liveText.slice(idx + label.length));
+            } else {
+              const idx2 = liveText.indexOf(displayName);
+              if (idx2 !== -1) {
+                onChange(liveText.slice(0, idx2) + liveText.slice(idx2 + displayName.length));
+              }
+            }
+          }
+        }).finally(() => {
           pendingAttachmentOpsRef.current = Math.max(
             0,
             pendingAttachmentOpsRef.current - 1,
@@ -2106,8 +2126,14 @@ export function Input({
 
       // Enter confirms selection (SELECT).
       // Modified enter (Shift/Alt/Cmd+Enter) is handled earlier as newline.
-      if ((key.return || input === "\r" || input === "\n") && selectedItem) {
-        executeCompletionAction(selectedItem, "SELECT");
+      if (key.return || input === "\r" || input === "\n") {
+        if (selectedItem) {
+          executeCompletionAction(selectedItem, "SELECT");
+        }
+        // Always consume Enter when dropdown is visible — never fall through
+        // to the submit handler. This prevents accidental prompt submission
+        // while browsing completions (e.g., during async loading or when
+        // attachments are present and hasAttachments would bypass balance check).
         return;
       }
     }

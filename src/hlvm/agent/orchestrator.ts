@@ -525,14 +525,7 @@ export const EDIT_PHASE_CATEGORIES = new Set([
 ]);
 
 /** @internal Exported for unit testing only. */
-export const VERIFY_PHASE_CATEGORIES = new Set([
-  "read",
-  "search",
-  "write",
-  "shell",
-  "git",
-  "meta",
-]);
+export const VERIFY_PHASE_CATEGORIES = EDIT_PHASE_CATEGORIES;
 
 const DELEGATE_PHASE_CATEGORIES = new Set([
   "read",
@@ -750,9 +743,7 @@ function maybeInjectMemoryRecall(
   const trimmed = userRequest.trim();
   if (!trimmed) return;
 
-  const query = trimmed.length > MEMORY_RECALL_MAX_QUERY_CHARS
-    ? trimmed.slice(0, MEMORY_RECALL_MAX_QUERY_CHARS)
-    : trimmed;
+  const query = trimmed.slice(0, MEMORY_RECALL_MAX_QUERY_CHARS);
 
   try {
     const results = retrieveMemory(query, MEMORY_RECALL_RESULT_LIMIT);

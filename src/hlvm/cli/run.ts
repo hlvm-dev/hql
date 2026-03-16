@@ -244,6 +244,8 @@ export async function run(args: string[] = platformGetArgs()): Promise<number> {
     verboseErrors: cliOptions.verbose,
   });
 
+  const positional = getPositionalArgs(args);
+
   // Run the main function with enhanced error handling
   return await runWithErrorHandling(async () => {
     if (hasHelpFlag(args)) {
@@ -258,7 +260,6 @@ export async function run(args: string[] = platformGetArgs()): Promise<number> {
       log.raw.log(`Logging restricted to namespaces: ${namespaces.join(", ")}`);
     }
 
-    const positional = getPositionalArgs(args);
     if (!positional.length) {
       printHelp();
       return 1;
@@ -266,9 +267,8 @@ export async function run(args: string[] = platformGetArgs()): Promise<number> {
 
     applyCliOptions(cliOptions);
 
-    // Update error config based on debug flag
-    if (args.includes("--debug")) {
-      cliOptions.debug = true;
+    // Update error config based on debug flag (already parsed by parseCliOptions)
+    if (cliOptions.debug) {
       updateErrorConfig({ debug: true, showInternalErrors: true });
       log.raw.log("Debug mode enabled - showing extended error information");
     }
@@ -302,7 +302,7 @@ export async function run(args: string[] = platformGetArgs()): Promise<number> {
   }, {
     debug: cliOptions.debug,
     exitOnError: true,
-    currentFile: getPositionalArgs(args)[0], // Pass the current file for context
+    currentFile: positional[0],
   });
 }
 
