@@ -68,7 +68,7 @@ async function validateAttachmentRegistration(
   }
 
   const extractedText = await extractAttachmentText(record, bytes, {
-    extractionProfile: "ingest",
+    providerProfile: "ingest",
   });
 
   if (record.kind === "pdf") {
@@ -84,7 +84,7 @@ async function validateAttachmentRegistration(
   throw createUnsupportedAttachmentError(record);
 }
 
-async function prepareConversationAttachment(
+export async function materializeConversationAttachment(
   attachmentId: string,
   options?: string | ConversationAttachmentMaterializationOptions,
 ): Promise<ConversationAttachmentPayload> {
@@ -491,22 +491,6 @@ async function prepareAttachmentForProfile(
   return prepared;
 }
 
-export async function prepareAttachment(
-  attachmentId: string,
-  providerProfile = "default",
-): Promise<PreparedAttachment> {
-  return (await materializeAttachment(attachmentId, providerProfile)).prepared;
-}
-
-export async function prepareAttachments(
-  attachmentIds: readonly string[],
-  providerProfile = "default",
-): Promise<PreparedAttachment[]> {
-  return (await materializeAttachments(attachmentIds, providerProfile)).map((
-    attachment,
-  ) => attachment.prepared);
-}
-
 export async function materializeAttachment(
   attachmentId: string,
   providerProfile = "default",
@@ -520,31 +504,6 @@ export async function materializeAttachment(
   return { record: touchedRecord, prepared };
 }
 
-export async function materializeAttachments(
-  attachmentIds: readonly string[],
-  providerProfile = "default",
-): Promise<MaterializedAttachment[]> {
-  if (attachmentIds.length === 0) return [];
-  const records = await getRequiredAttachmentRecords(attachmentIds);
-  const touchedRecords = await Promise.all(records.map(touchAttachmentRecord));
-  const prepared = await Promise.all(
-    touchedRecords.map((record) =>
-      prepareAttachmentForProfile(record, providerProfile)
-    ),
-  );
-  return touchedRecords.map((record, index) => ({
-    record,
-    prepared: prepared[index],
-  }));
-}
-
-export async function materializeConversationAttachment(
-  attachmentId: string,
-  options?: string | ConversationAttachmentMaterializationOptions,
-): Promise<ConversationAttachmentPayload> {
-  return await prepareConversationAttachment(attachmentId, options);
-}
-
 export async function materializeConversationAttachments(
   attachmentIds: readonly string[],
   options?: string | ConversationAttachmentMaterializationOptions,
@@ -552,7 +511,7 @@ export async function materializeConversationAttachments(
   if (attachmentIds.length === 0) return [];
   return await Promise.all(
     attachmentIds.map((attachmentId) =>
-      prepareConversationAttachment(attachmentId, options)
+      materializeConversationAttachment(attachmentId, options)
     ),
   );
 }

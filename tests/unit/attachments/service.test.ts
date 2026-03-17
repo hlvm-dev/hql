@@ -6,9 +6,9 @@ import {
 } from "../../../src/common/paths.ts";
 import {
   getAttachmentRecord,
+  materializeAttachment,
   materializeConversationAttachment,
   materializeConversationAttachments,
-  prepareAttachment,
   readAttachmentContent,
   registerAttachmentFromPath,
   registerTextAttachment,
@@ -168,7 +168,7 @@ Deno.test("attachment service uploads documents, extracts metadata, and caches p
       sourcePath: "/tmp/doc.pdf",
     });
 
-    const prepared = await prepareAttachment(record.id, "anthropic");
+    const materialized = await materializeAttachment(record.id, "anthropic");
     const loaded = await getAttachmentRecord(record.id);
 
     assertEquals(record.mimeType, "application/pdf");
@@ -176,8 +176,8 @@ Deno.test("attachment service uploads documents, extracts metadata, and caches p
     assertEquals(record.metadata, { pages: 1 });
     assertExists(loaded);
     assertEquals(loaded.metadata, { pages: 1 });
-    assert(prepared.data.length > 0);
-    assertEquals(prepared.mimeType, "application/pdf");
+    assert(materialized.prepared.data.length > 0);
+    assertEquals(materialized.prepared.mimeType, "application/pdf");
 
     const preparedPath = platform.path.join(
       getAttachmentPreparedDir(),
@@ -240,7 +240,7 @@ Deno.test("attachment service refreshes stale prepared payload metadata after a 
       fileName: "attachment.bin",
       bytes,
     });
-    const firstPrepared = await prepareAttachment(first.id, "default");
+    const firstMaterialized = await materializeAttachment(first.id, "default");
 
     const recordPath = platform.path.join(
       getAttachmentRecordsDir(),
@@ -256,15 +256,15 @@ Deno.test("attachment service refreshes stale prepared payload metadata after a 
       fileName: "notes.txt",
       bytes,
     });
-    const refreshedPrepared = await prepareAttachment(promoted.id, "default");
+    const refreshedMaterialized = await materializeAttachment(promoted.id, "default");
     const loaded = await getAttachmentRecord(promoted.id);
 
-    assertEquals(firstPrepared.fileName, "attachment.bin");
-    assertEquals(firstPrepared.mimeType, "application/octet-stream");
-    assertEquals(firstPrepared.kind, "file");
-    assertEquals(refreshedPrepared.fileName, "notes.txt");
-    assertEquals(refreshedPrepared.mimeType, "text/plain");
-    assertEquals(refreshedPrepared.kind, "text");
+    assertEquals(firstMaterialized.prepared.fileName, "attachment.bin");
+    assertEquals(firstMaterialized.prepared.mimeType, "application/octet-stream");
+    assertEquals(firstMaterialized.prepared.kind, "file");
+    assertEquals(refreshedMaterialized.prepared.fileName, "notes.txt");
+    assertEquals(refreshedMaterialized.prepared.mimeType, "text/plain");
+    assertEquals(refreshedMaterialized.prepared.kind, "text");
     assertExists(loaded?.lastAccessedAt);
     assert(loaded.lastAccessedAt !== "2000-01-01T00:00:00.000Z");
   });

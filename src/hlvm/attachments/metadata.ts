@@ -53,7 +53,7 @@ export const ATTACHMENT_EXT_TO_MIME: Record<string, string> = {
   ".yml": "application/x-yaml",
 };
 
-const TEXT_ATTACHMENT_MIME_TYPES = new Set([
+export const TEXT_ATTACHMENT_MIME_TYPES = new Set([
   "text/plain",
   "text/markdown",
   "text/csv",
@@ -102,7 +102,7 @@ const DISPLAY_LABELS: Record<AttachmentKind, string> = {
   file: "File",
 };
 
-function getFileExtension(path: string): string {
+export function getFileExtension(path: string): string {
   const lastDot = path.lastIndexOf(".");
   return lastDot >= 0 ? path.slice(lastDot).toLowerCase() : "";
 }
@@ -267,7 +267,7 @@ function extractPdfMetadata(
   return pages > 0 ? { pages } : undefined;
 }
 
-export function sniffAttachmentMimeType(
+function sniffAttachmentMimeType(
   bytes: Uint8Array,
 ): string | undefined {
   if (

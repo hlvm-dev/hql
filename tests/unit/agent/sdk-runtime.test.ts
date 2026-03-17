@@ -351,3 +351,46 @@ Deno.test("sdk runtime: _sdkResponseMessages text-only assistant (no tool calls)
   assertEquals(content[0].type, "reasoning");
   assertEquals(content[1].type, "text");
 });
+
+Deno.test("sdk runtime: audio and video attachments produce file parts with correct mediaType", () => {
+  const result = convertToSdkMessages([
+    {
+      role: "user",
+      content: "Listen to this",
+      attachments: [
+        {
+          mode: "binary",
+          attachmentId: "att_audio",
+          fileName: "song.mp3",
+          mimeType: "audio/mpeg",
+          kind: "audio",
+          conversationKind: "audio",
+          size: 1000,
+          data: "base64-audio",
+        },
+        {
+          mode: "binary",
+          attachmentId: "att_video",
+          fileName: "clip.mp4",
+          mimeType: "video/mp4",
+          kind: "video",
+          conversationKind: "video",
+          size: 2000,
+          data: "base64-video",
+        },
+      ],
+    },
+  ]);
+
+  assertEquals(result.length, 1);
+  assertEquals(result[0].role, "user");
+  const content = result[0].content as Array<Record<string, unknown>>;
+  assertEquals(content[0].type, "text");
+  assertEquals(content[0].text, "Listen to this");
+  assertEquals(content[1].type, "file");
+  assertEquals(content[1].data, "base64-audio");
+  assertEquals(content[1].mediaType, "audio/mpeg");
+  assertEquals(content[2].type, "file");
+  assertEquals(content[2].data, "base64-video");
+  assertEquals(content[2].mediaType, "video/mp4");
+});

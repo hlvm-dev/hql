@@ -8,19 +8,13 @@ import type {
   AttachmentRecord,
   ConversationAttachmentMaterializationOptions,
 } from "./types.ts";
+import {
+  getFileExtension,
+  TEXT_ATTACHMENT_MIME_TYPES,
+} from "./metadata.ts";
 
 const EXTRACTOR_VERSION = "broad-v1";
 const TEXT_ATTACHMENT_PREVIEW_MAX_BYTES = 512 * 1024;
-const DIRECT_TEXT_MIME_TYPES = new Set([
-  "text/plain",
-  "text/markdown",
-  "text/csv",
-  "text/tab-separated-values",
-  "application/json",
-  "application/xml",
-  "text/html",
-  "application/x-yaml",
-]);
 const OFFICEPARSER_EXTENSIONS = new Set([
   ".pdf",
   ".docx",
@@ -71,10 +65,6 @@ function safeFileName(fileName: string): string {
   return basename.replace(/[\\/]/g, "_") || "attachment";
 }
 
-function getFileExtension(fileName: string): string {
-  return path().extname(fileName).toLowerCase();
-}
-
 function sanitizeExtractedText(text: string): string {
   return text.replace(/\u0000/g, "").replace(/\r\n/g, "\n").trim();
 }
@@ -118,7 +108,7 @@ function getDirectText(
   record: AttachmentRecord,
   bytes: Uint8Array,
 ): string | null {
-  if (record.kind === "text" || DIRECT_TEXT_MIME_TYPES.has(record.mimeType)) {
+  if (record.kind === "text" || TEXT_ATTACHMENT_MIME_TYPES.has(record.mimeType)) {
     return tryDecodeUtf8Text(bytes, { allowHeuristic: false });
   }
   if (record.kind === "document" || record.kind === "file") {
@@ -131,11 +121,8 @@ export function normalizeConversationMaterializationOptions(
   options?: ConversationAttachmentMaterializationOptions,
 ): Required<ConversationAttachmentMaterializationOptions> {
   const providerProfile = options?.providerProfile?.trim() || "default";
-  const extractionProfile = options?.extractionProfile?.trim() ||
-    providerProfile;
   return {
     providerProfile,
-    extractionProfile,
     preferTextKinds: options?.preferTextKinds ?? [],
   };
 }
@@ -389,10 +376,10 @@ export async function extractAttachmentText(
     return null;
   }
 
-  const { extractionProfile } = normalizeConversationMaterializationOptions(
+  const { providerProfile } = normalizeConversationMaterializationOptions(
     materializationOptions,
   );
-  const cached = await readExtractedTextCache(record, extractionProfile);
+  const cached = await readExtractedTextCache(record, providerProfile);
   if (cached) {
     return cached;
   }
@@ -406,6 +393,6 @@ export async function extractAttachmentText(
   if (!sanitized) {
     return null;
   }
-  await writeExtractedTextCache(record, extractionProfile, sanitized);
+  await writeExtractedTextCache(record, providerProfile, sanitized);
   return sanitized;
 }

@@ -43,7 +43,6 @@ export type ConversationAttachmentPayload =
 export interface ConversationAttachmentMaterializationOptions {
   providerProfile?: string;
   preferTextKinds?: readonly Exclude<ConversationAttachmentKind, "text">[];
-  extractionProfile?: string;
 }
 
 export interface AttachmentMetadata {

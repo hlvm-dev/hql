@@ -184,9 +184,33 @@ export async function maybeHandleSdkAuthError(
 ): Promise<void> {
   if (providerName !== "claude-code") return;
   const status = extractStatusCode(error);
-  if (status !== 401 && status !== 403) return;
-  const { clearTokenCache } = await import("./claude-code/auth.ts");
-  clearTokenCache();
+  const message = getErrorMessage(error);
+
+  // Token invalid / expired → clear cache so next attempt re-reads keychain
+  if (status === 401 || status === 403) {
+    const { clearTokenCache } = await import("./claude-code/auth.ts");
+    clearTokenCache();
+    return;
+  }
+
+  // Anthropic returns 400 with a generic "Error" message when an OAuth token
+  // is not allowed to access a specific model (e.g. Sonnet/Opus blocked,
+  // only Haiku permitted).  Surface a clear message instead of the silent
+  // "I couldn't generate a response" fallback.
+  if (
+    status === 400 &&
+    message.toLowerCase() === "error" &&
+    (error as Record<string, unknown>)?.responseBody
+  ) {
+    const body = String((error as Record<string, unknown>).responseBody);
+    if (body.includes("invalid_request_error")) {
+      throw new RuntimeError(
+        "Claude Code OAuth: this model is not available with your current subscription. " +
+          "Try a different model (e.g. claude-haiku-4-5-20251001) or use a console API key.",
+        { code: ProviderErrorCode.AUTH_FAILED },
+      );
+    }
+  }
 }
 
 export async function createSdkLanguageModel(
