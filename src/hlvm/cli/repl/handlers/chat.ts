@@ -21,6 +21,7 @@ import {
   updateSession,
   validateExpectedVersion,
 } from "../../../store/conversation-store.ts";
+import { resolveConversationSessionId } from "../../../store/active-conversation.ts";
 import { pushSSEEvent, SESSIONS_CHANNEL } from "../../../store/sse-store.ts";
 import {
   ensureInitialModelConfigured,
@@ -209,9 +210,10 @@ export async function handleChat(req: Request): Promise<Response> {
   if (!parsed.ok) return parsed.response;
 
   const body = parsed.value;
-  if (!body.session_id || !body.messages?.length) {
-    return jsonError("Missing session_id or messages", 400);
+  if (!body.messages?.length) {
+    return jsonError("Missing messages", 400);
   }
+  body.session_id = resolveConversationSessionId(body.session_id);
 
   const requestValidationError = validateChatRequestMessages(body.messages);
   if (requestValidationError) {

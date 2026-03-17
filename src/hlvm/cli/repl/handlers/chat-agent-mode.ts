@@ -116,6 +116,7 @@ export async function handleAgentMode(
     query,
     model: resolvedModel,
     sessionId: body.session_id,
+    transcriptPersistenceMode: "caller",
     permissionMode: body.permission_mode ??
       getPermissionMode(config.snapshot) ??
       "default",

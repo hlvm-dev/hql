@@ -27,7 +27,10 @@ import {
   resetAgentEngine,
   setAgentEngine,
 } from "../../../src/hlvm/agent/engine.ts";
-import { getSession } from "../../../src/hlvm/store/conversation-store.ts";
+import {
+  getSession,
+  insertMessage,
+} from "../../../src/hlvm/store/conversation-store.ts";
 import { loadAllMessages } from "../../../src/hlvm/store/message-utils.ts";
 import { setupStoreTestDb } from "../_shared/store-test-db.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
@@ -470,6 +473,69 @@ Deno.test({
         assertEquals(messages[0]?.content, "with external history");
         assertEquals(messages[1]?.role, "assistant");
         assertEquals(typeof messages[1]?.content, "string");
+      });
+    } finally {
+      resetAgentEngine();
+      await disposeAllSessions();
+      db.close();
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "agent-runner: caller-owned transcript persistence does not append a duplicate top-level turn",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const db = setupStoreTestDb();
+    setAgentEngine(new PersistenceTestEngine());
+
+    try {
+      await withWorkspace(async (workspace) => {
+        const model = "test-chat/plain";
+        const sessionId = getPersistedAgentSessionId();
+        const query = "caller-owned turn";
+
+        insertMessage({
+          session_id: sessionId,
+          role: "user",
+          content: query,
+          sender_type: "user",
+          request_id: "http-user-turn",
+        });
+        insertMessage({
+          session_id: sessionId,
+          role: "assistant",
+          content: "",
+          sender_type: "agent",
+          request_id: "http-assistant-placeholder",
+        });
+
+        const reusableSession = await createReusableSession(workspace, model, {
+          modelInfo: null,
+        });
+        const result = await runAgentQuery({
+          query,
+          model,
+          workspace,
+          sessionId,
+          reusableSession,
+          transcriptPersistenceMode: "caller",
+          callbacks: {},
+        });
+
+        assertEquals(result.text, "persisted:caller-owned turn");
+        assertEquals(
+          loadAllMessages(sessionId).map((message) => [
+            message.role,
+            message.content,
+          ]),
+          [
+            ["user", query],
+            ["assistant", ""],
+          ],
+        );
       });
     } finally {
       resetAgentEngine();

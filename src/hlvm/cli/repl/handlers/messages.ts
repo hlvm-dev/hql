@@ -13,6 +13,7 @@ import {
   updateMessage,
   deleteMessage,
 } from "../../../store/conversation-store.ts";
+import { getActiveConversationSessionId } from "../../../store/active-conversation.ts";
 import { pushSSEEvent, SESSIONS_CHANNEL } from "../../../store/sse-store.ts";
 import {
   toRuntimeSessionMessage,
@@ -123,7 +124,6 @@ export async function handleGetMessages(
     sort,
     after_order: afterOrder !== undefined && !isNaN(afterOrder) ? afterOrder : undefined,
   });
-
   return Response.json(await toRuntimeSessionMessagesResponse(result));
 }
 
@@ -422,4 +422,50 @@ export function handleDeleteMessage(
   pushSSEEvent(session.sessionId, "message_deleted", { id: msg.messageId });
   pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: session.sessionId });
   return Response.json({ deleted: true, id: msg.messageId });
+}
+
+export function handleGetActiveMessages(
+  req: Request,
+): Promise<Response> {
+  return handleGetMessages(req, {
+    id: getActiveConversationSessionId(),
+  });
+}
+
+export function handleGetActiveMessage(
+  req: Request,
+  params: RouteParams,
+): Promise<Response> {
+  return handleGetMessage(req, {
+    id: getActiveConversationSessionId(),
+    messageId: params.messageId,
+  });
+}
+
+export function handleAddActiveMessage(
+  req: Request,
+): Promise<Response> {
+  return handleAddMessage(req, {
+    id: getActiveConversationSessionId(),
+  });
+}
+
+export function handleUpdateActiveMessage(
+  req: Request,
+  params: RouteParams,
+): Promise<Response> {
+  return handleUpdateMessage(req, {
+    id: getActiveConversationSessionId(),
+    messageId: params.messageId,
+  });
+}
+
+export function handleDeleteActiveMessage(
+  req: Request,
+  params: RouteParams,
+): Response {
+  return handleDeleteMessage(req, {
+    id: getActiveConversationSessionId(),
+    messageId: params.messageId,
+  });
 }

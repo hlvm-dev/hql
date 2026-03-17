@@ -161,7 +161,7 @@ interface HostBackedChatCallbacks {
 
 interface HostBackedChatOptions {
   mode: ChatMode;
-  sessionId: string;
+  sessionId?: string;
   messages: ChatRequestMessage[];
   model?: string;
   fixturePath?: string;
@@ -197,7 +197,7 @@ interface HostBackedAgentQueryOptions {
 
 interface HostBackedDirectChatOptions {
   query: string;
-  sessionId: string;
+  sessionId?: string;
   model?: string;
   attachmentIds?: string[];
   expectedVersion?: number;

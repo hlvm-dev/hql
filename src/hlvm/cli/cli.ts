@@ -26,7 +26,6 @@ import { mcpCommand, showMcpHelp } from "./commands/mcp.ts";
 
 import { run as runCommand } from "./run.ts";
 import { type InkReplOptions, startInkRepl } from "./repl-ink/index.tsx";
-import { parseSessionFlags } from "./repl/session/types.ts";
 import { VERSION } from "../../version.ts";
 
 /**
@@ -47,25 +46,13 @@ OPTIONS:
   --help, -h        Show this help
   --version         Show version
 
-SESSION OPTIONS:
-  --continue, -c    Continue the latest session
-  --resume, -r [id] Resume specific session (or open picker if no id)
-  --new             Force new session
-
-SESSIONS:
-  Conversations are global and persist automatically.
-  Use /resume in the REPL to switch sessions.
-
 POLYGLOT MODE (always on):
   Input starting with ( is evaluated as HQL.
   All other input is evaluated as JavaScript.
   Both languages share variables via globalThis.
 
 EXAMPLES:
-  hlvm repl              Start REPL with a fresh session
-  hlvm repl --continue   Continue latest session
-  hlvm repl -c           Continue latest session (short form)
-  hlvm repl --resume     Open session picker
+  hlvm repl              Start REPL
 `);
     return 0;
   }
@@ -76,13 +63,11 @@ EXAMPLES:
     return 0;
   }
 
-  const sessionOptions = parseSessionFlags(args);
-
   const showBanner = !args.includes("--no-banner");
 
   const replOptions: InkReplOptions = {
     showBanner,
-    session: sessionOptions,
+    session: {},
   };
 
   return await startInkRepl(replOptions);

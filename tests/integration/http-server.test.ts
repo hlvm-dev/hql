@@ -231,6 +231,25 @@ async function postChatNdjson(body: unknown): Promise<{
   };
 }
 
+async function fetchActiveChatMessages(): Promise<Array<{
+  role: string;
+  content: string;
+}>> {
+  const { baseUrl, authToken } = await ensureServerRunning();
+  const response = await fetch(
+    `${baseUrl}/api/chat/messages?limit=50&offset=0&sort=asc`,
+    {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    },
+  );
+  const body = await response.json() as {
+    messages: Array<{ role: string; content: string }>;
+  };
+  return body.messages;
+}
+
 async function evalCode(code: string): Promise<{
   success: boolean;
   value?: string;
@@ -535,6 +554,52 @@ Deno.test({
 
       assertEquals(second.status, 200);
       assertStringIncludes(tokenText, "integration-agent-saw-tool");
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: agent chat persists exactly one top-level user and assistant row per turn",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const first = await postChatNdjson({
+        mode: "agent",
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: "hello" }],
+      });
+      assertEquals(first.status, 200);
+      assertEquals(
+        (await fetchActiveChatMessages()).map((message) => [
+          message.role,
+          message.content,
+        ]),
+        [
+          ["user", "hello"],
+          ["assistant", "integration-agent:hello"],
+        ],
+      );
+
+      const second = await postChatNdjson({
+        mode: "agent",
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: "again" }],
+      });
+      assertEquals(second.status, 200);
+      assertEquals(
+        (await fetchActiveChatMessages()).map((message) => [
+          message.role,
+          message.content,
+        ]),
+        [
+          ["user", "hello"],
+          ["assistant", "integration-agent:hello"],
+          ["user", "again"],
+          ["assistant", "integration-agent:again"],
+        ],
+      );
     });
   },
 });

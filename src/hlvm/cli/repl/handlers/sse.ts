@@ -6,6 +6,7 @@
  */
 
 import { getSession } from "../../../store/conversation-store.ts";
+import { getActiveConversationSessionId } from "../../../store/active-conversation.ts";
 import { subscribe, replayAfter, nextSSEEventId } from "../../../store/sse-store.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { RouteParams } from "../http-router.ts";
@@ -84,5 +85,11 @@ export function handleSSEStream(
       emit(formatSSE(event));
     });
     return unsubscribe;
+  });
+}
+
+export function handleActiveConversationStream(req: Request): Response {
+  return handleSSEStream(req, {
+    id: getActiveConversationSessionId(),
   });
 }

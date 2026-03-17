@@ -371,6 +371,7 @@ interface AgentRunnerOptions {
   query: string;
   model?: string;
   sessionId?: string | null;
+  transcriptPersistenceMode?: "runner" | "caller";
   fixturePath?: string;
   /** Optional context window override (in tokens). */
   contextWindow?: number;
@@ -456,6 +457,7 @@ export async function runAgentQuery(
     noInput = false,
     toolDenylist = [...DEFAULT_TOOL_DENYLIST],
     skipSessionHistory = false,
+    transcriptPersistenceMode = "runner",
   } = options;
   const disablePersistentMemory = options.disablePersistentMemory === true;
   const permissionMode: AgentExecutionMode = options.permissionMode ??
@@ -528,7 +530,9 @@ export async function runAgentQuery(
     : null;
   const delegateOwnerId = crypto.randomUUID();
   const shouldRestorePersistedTodos = !!sessionKey;
-  const persistedTurnSessionId = sessionKey;
+  const persistedTurnSessionId = transcriptPersistenceMode === "runner"
+    ? sessionKey
+    : null;
   let persistedTurn: PersistedAgentTurn | null = null;
 
   try {

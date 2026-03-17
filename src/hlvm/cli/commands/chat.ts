@@ -5,24 +5,16 @@
  */
 
 import { ValidationError } from "../../../common/error.ts";
-import { generateUUID } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
-import { session as sessionApi } from "../../api/session.ts";
 import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
-import {
-  parseSessionFlags,
-  type SessionInitOptions,
-} from "../repl/session/types.ts";
-import { resolveSessionStart } from "../repl/session/start.ts";
 import { runDirectChatViaHost } from "../../runtime/host-client.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 
 interface ParsedChatArgs {
   modelOverride?: string;
   query: string;
-  session: SessionInitOptions;
 }
 
 export function showChatHelp(): void {
@@ -36,15 +28,10 @@ USAGE:
 OPTIONS:
   --help, -h                   Show this help message
   --model <provider/model>     Use a specific AI model
-  --continue, -c               Explicitly reuse the latest chat session
-  --resume, -r <id>            Resume a specific session by id
-  --new                        Force a fresh chat session
 
 EXAMPLES:
   hlvm chat "hello"
   hlvm chat --model openai/gpt-4o "summarize this repo"
-  hlvm chat --new "start over"
-  hlvm chat --resume 123e4567-e89b-12d3-a456-426614174000 "continue"
 `);
 }
 
@@ -65,16 +52,6 @@ export function parseChatArgs(args: string[]): ParsedChatArgs {
       modelOverride = args[i];
       continue;
     }
-    if (arg === "--continue" || arg === "-c" || arg === "--new") {
-      continue;
-    }
-    if (arg === "--resume" || arg === "-r") {
-      const nextArg = args[i + 1];
-      if (nextArg && !nextArg.startsWith("-")) {
-        i++;
-      }
-      continue;
-    }
     if (arg.startsWith("-")) {
       throw new ValidationError(`Unknown option: ${arg}`, "chat");
     }
@@ -89,47 +66,10 @@ export function parseChatArgs(args: string[]): ParsedChatArgs {
     );
   }
 
-  const session = parseSessionFlags(args);
-  if (session.openPicker) {
-    throw new ValidationError(
-      "--resume requires a session id for `hlvm chat`",
-      "chat",
-    );
-  }
-
   return {
     modelOverride,
     query,
-    session,
   };
-}
-
-async function resolveChatSessionId(
-  session: SessionInitOptions,
-): Promise<string> {
-  const resolution = await resolveSessionStart(session, {
-    listSessions: (options) => sessionApi.list(options),
-    hasSession: (sessionId) => sessionApi.has(sessionId),
-  });
-
-  switch (resolution.kind) {
-    case "missing":
-      throw new ValidationError(
-        `Session not found: ${resolution.sessionId}`,
-        "chat",
-      );
-    case "new":
-      return generateUUID();
-    case "resume":
-      return resolution.sessionId;
-    case "latest":
-      return resolution.sessionId ?? generateUUID();
-    case "picker":
-      throw new ValidationError(
-        "--resume requires a session id for `hlvm chat`",
-        "chat",
-      );
-  }
 }
 
 export async function chatCommand(args: string[]): Promise<void> {
@@ -168,13 +108,10 @@ export async function chatCommand(args: string[]): Promise<void> {
     }
   }
 
-  const sessionId = await resolveChatSessionId(parsedArgs.session);
-
   let wroteOutput = false;
   const result = await runDirectChatViaHost({
     query: parsedArgs.query,
     model: resolvedModel,
-    sessionId,
     callbacks: {
       onToken: (text) => {
         wroteOutput = true;

@@ -7,14 +7,7 @@ import type {
   SessionInitOptions,
   SessionMeta,
 } from "../../repl/session/types.ts";
-import { resolveSessionStart } from "../../repl/session/start.ts";
-import {
-  clearCurrentSession,
-  session as sessionApi,
-  syncCurrentSession,
-} from "../../../api/session.ts";
-import { buildTranscriptStateFromSession } from "../conversation-history.ts";
-import { log } from "../../../api/log.ts";
+import { clearCurrentSession } from "../../../api/session.ts";
 import type { UseConversationResult } from "./useConversation.ts";
 import type { EvalResult } from "../types.ts";
 import type { Dispatch, SetStateAction } from "react";
@@ -54,6 +47,8 @@ export function useSessionPicker(
     setFooterContextUsageLabel,
   }: UseSessionPickerInput,
 ): UseSessionPickerResult {
+  void conversation;
+  void addHistoryEntry;
   const [currentSession, setCurrentSession] = useState<SessionMeta | null>(
     null,
   );
@@ -156,7 +151,7 @@ export function useSessionPicker(
     setFooterContextUsageLabel("");
     setSurfacePanel("conversation");
     return true;
-  }, [addHistoryEntry, conversation, setSurfacePanel, setFooterContextUsageLabel]);
+  }, [setSurfacePanel, setFooterContextUsageLabel]);
 
   const handlePickerSelect = useCallback(async (session: SessionMeta) => {
     await resumeConversationSession(
@@ -176,7 +171,7 @@ export function useSessionPicker(
       setPendingResumeInput(null);
     }
     setSurfacePanel("none");
-  }, [pendingResumeInput, addHistoryEntry, setSurfacePanel]);
+  }, [pendingResumeInput, setSurfacePanel]);
 
   return {
     currentSession,

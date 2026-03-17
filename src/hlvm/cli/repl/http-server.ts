@@ -24,7 +24,6 @@ import {
   handleChat,
   handleChatCancel,
   handleChatInteraction,
-  handleSessionCancel,
 } from "./handlers/chat.ts";
 import {
   getRuntimeReady,
@@ -33,20 +32,11 @@ import {
   runtimeReadyState,
 } from "../commands/serve.ts";
 import {
-  handleCreateSession,
-  handleDeleteAllSessions,
-  handleDeleteSession,
-  handleGetSession,
-  handleListSessions,
-  handleSessionsStream,
-  handleUpdateSession,
-} from "./handlers/sessions.ts";
-import {
-  handleAddMessage,
-  handleDeleteMessage,
-  handleGetMessage,
-  handleGetMessages,
-  handleUpdateMessage,
+  handleAddActiveMessage,
+  handleDeleteActiveMessage,
+  handleGetActiveMessage,
+  handleGetActiveMessages,
+  handleUpdateActiveMessage,
 } from "./handlers/messages.ts";
 import {
   handleDeleteModel,
@@ -60,7 +50,7 @@ import {
   handlePullModel,
   handleVerifyModelAccess,
 } from "./handlers/models.ts";
-import { handleSSEStream } from "./handlers/sse.ts";
+import { handleActiveConversationStream } from "./handlers/sse.ts";
 import {
   handleConfigStream,
   handleGetConfig,
@@ -684,56 +674,23 @@ router.add(
   (req, p) => handleGetAttachmentContent(req, p),
 );
 
-router.add("GET", "/api/sessions", () => handleListSessions());
-router.add("POST", "/api/sessions", (req) => handleCreateSession(req));
-router.add("DELETE", "/api/sessions", () => handleDeleteAllSessions());
-router.add("GET", "/api/sessions/stream", (req) => handleSessionsStream(req));
-router.add("GET", "/api/sessions/:id", (req, p) => handleGetSession(req, p));
-router.add(
-  "PATCH",
-  "/api/sessions/:id",
-  (req, p) => handleUpdateSession(req, p),
-);
-router.add(
-  "DELETE",
-  "/api/sessions/:id",
-  (req, p) => handleDeleteSession(req, p),
-);
-router.add(
-  "POST",
-  "/api/sessions/:id/cancel",
-  (_req, p) => handleSessionCancel(p.id),
-);
-
+router.add("GET", "/api/chat/stream", (req) => handleActiveConversationStream(req));
+router.add("GET", "/api/chat/messages", (req) => handleGetActiveMessages(req));
+router.add("POST", "/api/chat/messages", (req) => handleAddActiveMessage(req));
 router.add(
   "GET",
-  "/api/sessions/:id/messages",
-  (req, p) => handleGetMessages(req, p),
-);
-router.add(
-  "POST",
-  "/api/sessions/:id/messages",
-  (req, p) => handleAddMessage(req, p),
-);
-router.add(
-  "GET",
-  "/api/sessions/:id/messages/:messageId",
-  (req, p) => handleGetMessage(req, p),
+  "/api/chat/messages/:messageId",
+  (req, p) => handleGetActiveMessage(req, p),
 );
 router.add(
   "PATCH",
-  "/api/sessions/:id/messages/:messageId",
-  (req, p) => handleUpdateMessage(req, p),
+  "/api/chat/messages/:messageId",
+  (req, p) => handleUpdateActiveMessage(req, p),
 );
 router.add(
   "DELETE",
-  "/api/sessions/:id/messages/:messageId",
-  (req, p) => handleDeleteMessage(req, p),
-);
-router.add(
-  "GET",
-  "/api/sessions/:id/stream",
-  (req, p) => handleSSEStream(req, p),
+  "/api/chat/messages/:messageId",
+  (req, p) => handleDeleteActiveMessage(req, p),
 );
 
 router.add("GET", "/api/models", () => handleListModels());

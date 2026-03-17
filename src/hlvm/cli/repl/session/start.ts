@@ -40,39 +40,8 @@ export async function resolveSessionStart(
   deps: SessionStartResolverDeps,
   options?: SessionStartResolverOptions,
 ): Promise<SessionStartResolution> {
-  if (session?.forceNew) {
-    return { kind: "new" };
-  }
-
-  if (session?.openPicker) {
-    return {
-      kind: "picker",
-      sessions: await deps.listSessions({ limit: SESSION_PICKER_LIMIT }),
-    };
-  }
-
-  if (session?.resumeId) {
-    const exists = await deps.hasSession(session.resumeId);
-    return exists
-      ? { kind: "resume", sessionId: session.resumeId }
-      : { kind: "missing", sessionId: session.resumeId };
-  }
-
-  if (session?.continue) {
-    const latest = (await deps.listSessions({ limit: 1 }))[0] ?? null;
-    return {
-      kind: "latest",
-      sessionId: latest?.id ?? null,
-    };
-  }
-
-  if (options?.defaultBehavior === "new") {
-    return { kind: "new" };
-  }
-
-  const latest = (await deps.listSessions({ limit: 1 }))[0] ?? null;
-  return {
-    kind: "latest",
-    sessionId: latest?.id ?? null,
-  };
+  void session;
+  void deps;
+  void options;
+  return { kind: "new" };
 }
