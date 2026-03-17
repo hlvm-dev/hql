@@ -60,8 +60,8 @@ export interface SearchDepthDefaults {
 /** SSOT defaults used by searchDepth profile resolution. */
 export const SEARCH_DEPTH_DEFAULTS: Record<SearchDepthProfile, SearchDepthDefaults> = {
   low: { maxResults: 3, prefetch: false, reformulate: false, prefetchTargets: 0 },
-  medium: { maxResults: 5, prefetch: true, reformulate: false, prefetchTargets: 3 },
-  high: { maxResults: 8, prefetch: true, reformulate: false, prefetchTargets: 4 },
+  medium: { maxResults: 5, prefetch: true, reformulate: true, prefetchTargets: 3 },
+  high: { maxResults: 8, prefetch: true, reformulate: true, prefetchTargets: 4 },
 };
 
 export interface SearchCallOptions {

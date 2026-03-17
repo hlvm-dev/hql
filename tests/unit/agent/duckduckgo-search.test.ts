@@ -135,8 +135,9 @@ Deno.test("duckduckgo search: high-confidence first page stays single page", asy
   });
 });
 
-Deno.test("duckduckgo search: bing fallback does not attempt page 2 recovery", async () => {
+Deno.test("duckduckgo search: bing fallback uses follow-up recovery without attempting page 2", async () => {
   const seenUrls: string[] = [];
+  const bingQueries: string[] = [];
 
   await withStubbedFetch(async (input) => {
     const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -149,6 +150,34 @@ Deno.test("duckduckgo search: bing fallback does not attempt page 2 recovery", a
       );
     }
     if (url.hostname === "www.bing.com") {
+      const query = url.searchParams.get("q") ?? "";
+      bingQueries.push(query);
+      if (/^bun sqlite windows path issue$/i.test(query)) {
+        return new Response(
+          `
+            <html><body>
+              <li class="b_algo">
+                <h2><a href="https://bun.sh/docs/api/sqlite">Bun SQLite docs</a></h2>
+                <div class="b_caption"><p>Official Bun SQLite documentation for Windows path handling.</p></div>
+              </li>
+            </body></html>
+          `,
+          { status: 200, headers: { "content-type": "text/html" } },
+        );
+      }
+      if (/^deno sqlite windows path issue$/i.test(query)) {
+        return new Response(
+          `
+            <html><body>
+              <li class="b_algo">
+                <h2><a href="https://docs.deno.com/runtime/reference/sqlite">Deno SQLite reference</a></h2>
+                <div class="b_caption"><p>Deno SQLite reference covering Windows path behavior.</p></div>
+              </li>
+            </body></html>
+          `,
+          { status: 200, headers: { "content-type": "text/html" } },
+        );
+      }
       return new Response(
         `
           <html><body>
@@ -164,7 +193,7 @@ Deno.test("duckduckgo search: bing fallback does not attempt page 2 recovery", a
     throw new Error(`Unexpected URL: ${rawUrl}`);
   }, async () => {
     await withDuckDuckGoProvider(async (search) => {
-      const response = await search("react useeffect cleanup", {
+      const response = await search("bun vs deno sqlite windows path issue", {
         limit: 3,
         timeRange: "all",
       }) as { provider: string; diagnostics?: Record<string, unknown> };
@@ -172,9 +201,13 @@ Deno.test("duckduckgo search: bing fallback does not attempt page 2 recovery", a
       assertEquals(response.provider, "bing-html");
       assertEquals((response.diagnostics?.page2RetryTriggered as boolean) ?? true, false);
       assertEquals(seenUrls.some((url) => url.includes("html.duckduckgo.com") && url.includes("s=30")), false);
-      // Follow-up queries should also be skipped on bing fallback (anomalyBlocked guard)
-      assertEquals((response.diagnostics?.followupQueries as string[])?.length ?? 0, 0);
-      assertEquals(response.diagnostics?.followupFetched ?? false, false);
+      assertEquals(response.diagnostics?.followupQueries, [
+        "bun sqlite windows path issue",
+        "deno sqlite windows path issue",
+      ]);
+      assertEquals(response.diagnostics?.followupFetched ?? false, true);
+      assertEquals(response.diagnostics?.followupProvider, "bing-html");
+      assertEquals(bingQueries.length >= 3, true);
     });
   });
 });
@@ -222,3 +255,35 @@ Deno.test("duckduckgo search: follow-up queries trigger on merged low confidence
   });
 });
 
+Deno.test("duckduckgo search: reformulate false suppresses follow-up queries after page-2", async () => {
+  const seenQueries: string[] = [];
+
+  await withStubbedFetch(async (input) => {
+    const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const url = new URL(rawUrl);
+    if (url.hostname !== "html.duckduckgo.com") {
+      throw new Error(`Unexpected URL: ${rawUrl}`);
+    }
+    seenQueries.push(url.searchParams.get("q") ?? "");
+
+    return new Response(ddgHtml([
+      {
+        title: "Unrelated blog post",
+        url: `https://blog.example.com/post-${seenQueries.length}`,
+        snippet: "This is a generic blog about random topics.",
+      },
+    ]), { status: 200, headers: { "content-type": "text/html" } });
+  }, async () => {
+    await withDuckDuckGoProvider(async (search) => {
+      const response = await search("react useeffect cleanup best practices", {
+        limit: 5,
+        timeRange: "all",
+        reformulate: false,
+      }) as { diagnostics?: Record<string, unknown> };
+
+      assertEquals(seenQueries.length, 2);
+      assertEquals((response.diagnostics?.followupQueries as string[])?.length ?? 0, 0);
+      assertEquals(response.diagnostics?.followupFetched, false);
+    });
+  });
+});

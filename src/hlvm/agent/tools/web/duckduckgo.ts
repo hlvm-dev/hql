@@ -24,6 +24,7 @@ import {
 } from "./search-provider.ts";
 import { buildFollowupQueries } from "./query-strategy.ts";
 import type { SearchConfidenceReason } from "./search-ranking.ts";
+export { generateQueryVariants } from "./query-strategy.ts";
 
 // ============================================================
 // Types
@@ -228,87 +229,6 @@ export function parseBingSearchResults(
 }
 
 // ============================================================
-// Query Reformulation
-// ============================================================
-
-/** Generate query variants for wider recall (pure string, no LLM). */
-export function generateQueryVariants(query: string, maxVariants = 2): string[] {
-  const words = query.trim().split(/\s+/).filter((w) => w.length > 0);
-  if (words.length < 2) return [];
-
-  const variants: string[] = [];
-  const limit = Math.min(Math.max(0, maxVariants), 2);
-  const normalizedWords = words.map((w) =>
-    w.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9.]+$/gi, "")
-  );
-
-  // Reorder: swap first and last significant words
-  if (words.length >= 2 && variants.length < limit) {
-    const reordered = [...words];
-    [reordered[0], reordered[reordered.length - 1]] = [reordered[reordered.length - 1], reordered[0]];
-    const v = reordered.join(" ");
-    if (v !== query.trim()) variants.push(v);
-  }
-
-  // Drop qualifier: avoid dropping version/year tokens (e.g., 2.2, 2025).
-  if (words.length >= 3 && variants.length < limit) {
-    const dropQualifierWords = new Set([
-      "change",
-      "changes",
-      "docs",
-      "documentation",
-      "guide",
-      "intro",
-      "latest",
-      "new",
-      "note",
-      "notes",
-      "release",
-      "tutorial",
-      "update",
-      "updates",
-    ]);
-    const isVersionToken = (token: string): boolean => /\d/.test(token);
-    let dropIndex = -1;
-
-    for (let i = 0; i < normalizedWords.length; i++) {
-      const token = normalizedWords[i];
-      if (!token || isVersionToken(token)) continue;
-      if (!dropQualifierWords.has(token)) continue;
-      if (dropIndex === -1 || token.length < normalizedWords[dropIndex].length) {
-        dropIndex = i;
-      }
-    }
-
-    if (dropIndex === -1) {
-      for (let i = 0; i < normalizedWords.length; i++) {
-        const token = normalizedWords[i];
-        if (!token || isVersionToken(token)) continue;
-        if (token.length > 4) continue;
-        if (dropIndex === -1 || token.length < normalizedWords[dropIndex].length) {
-          dropIndex = i;
-        }
-      }
-    }
-
-    if (dropIndex >= 0) {
-      const dropped = words.filter((_w, idx) => idx !== dropIndex).join(" ");
-      if (dropped.split(/\s+/).length >= 2 && dropped !== query.trim()) {
-        variants.push(dropped);
-      }
-    }
-  }
-
-  // Add context for how-to/what-is queries
-  const lower = query.trim().toLowerCase();
-  if (variants.length < limit && (lower.startsWith("how to") || lower.startsWith("what is"))) {
-    variants.push(`${query.trim()} guide`);
-  }
-
-  return variants.slice(0, limit);
-}
-
-// ============================================================
 // Search Implementation
 // ============================================================
 
@@ -385,6 +305,27 @@ async function fetchBingPage(
   return parseBingSearchResults(html, Math.max(30, 20));
 }
 
+async function fetchSearchPageForProvider(
+  provider: string,
+  query: string,
+  timeRange: SearchTimeRange,
+  locale: string | undefined,
+  timeoutMs: number | undefined,
+  options: ToolExecutionOptions | undefined,
+  offset?: number,
+): Promise<SearchResult[]> {
+  if (provider === "duckduckgo") {
+    return await fetchDdgPage(query, timeRange, locale, timeoutMs, options, offset);
+  }
+  if (provider === "bing-html") {
+    return await fetchBingPage(query, timeoutMs, options);
+  }
+  throw new ValidationError(
+    `Unsupported search provider for recovery: ${provider}`,
+    "search_web",
+  );
+}
+
 function applySearchFilters(
   results: SearchResult[],
   timeRange: SearchTimeRange,
@@ -407,7 +348,7 @@ async function duckDuckGoSearch(
   locale?: string,
   allowedDomains?: string[],
   blockedDomains?: string[],
-  _reformulate = true,
+  reformulate = true,
 ): Promise<Record<string, unknown>> {
   let page1: SearchResult[];
   let provider = "duckduckgo";
@@ -479,7 +420,7 @@ async function duckDuckGoSearch(
 
   // Follow-up queries: reformulated searches when still low confidence after page-2 merge.
   // Complementary to page-2 retry (page-2 = more of same query, follow-up = different query).
-  if (!anomalyBlocked && provider === "duckduckgo" && mergedConfidence.lowConfidence) {
+  if (reformulate && mergedConfidence.lowConfidence) {
     followupQueries = buildFollowupQueries({
       userQuery: query,
       confidenceReason: mergedConfidence.reason as SearchConfidenceReason,
@@ -490,7 +431,14 @@ async function duckDuckGoSearch(
       const followupResults: SearchResult[] = [];
       for (const fq of followupQueries) {
         try {
-          const results = await fetchDdgPage(fq, timeRange, locale, timeoutMs, options);
+          const results = await fetchSearchPageForProvider(
+            provider,
+            fq,
+            timeRange,
+            locale,
+            timeoutMs,
+            options,
+          );
           followupResults.push(...results);
         } catch {
           // Best-effort: skip failed follow-up queries.
@@ -527,6 +475,7 @@ async function duckDuckGoSearch(
     followupQueries,
     followupResultCount,
     followupFetched,
+    followupProvider: followupQueries.length > 0 ? provider : undefined,
     secondPage: {
       attempted: page2RetryTriggered,
       fetched: page2Fetched,

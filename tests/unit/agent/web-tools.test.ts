@@ -163,6 +163,48 @@ Deno.test("web tools: cache keys stay order-invariant and ignore model-specific 
   assertNotEquals(base, noPrefetch);
 });
 
+Deno.test("web tools: search_web enables reformulation by default for medium depth", async () => {
+  await withIsolatedSearchRegistry(async () => {
+    const seenReformulate: boolean[] = [];
+
+    registerSearchProvider({
+      name: "duckduckgo",
+      displayName: "reformulate-defaults",
+      requiresApiKey: false,
+      search(query: string, opts: SearchCallOptions) {
+        seenReformulate.push(Boolean(opts.reformulate));
+        return Promise.resolve({
+          query,
+          provider: "duckduckgo",
+          count: 1,
+          results: [{
+            title: "Reformulation defaults",
+            url: "https://example.com/reformulate",
+            snippet: "Default reformulation wiring",
+          }],
+        });
+      },
+    });
+
+    resetWebToolBudget();
+    const raw = await WEB_TOOLS.search_web.fn(
+      {
+        query: "react useeffect cleanup",
+        maxResults: 1,
+        prefetch: false,
+      },
+      "/tmp",
+    ) as Record<string, unknown>;
+
+    const diagnostics = raw.diagnostics as Record<string, unknown>;
+    const profile = diagnostics.profile as Record<string, unknown>;
+    const resolvedOptions = profile.resolvedOptions as Record<string, unknown>;
+
+    assertEquals(seenReformulate, [true]);
+    assertEquals(resolvedOptions.reformulate, true);
+  });
+});
+
 Deno.test("web tools: domain filters keep relevant domains only", () => {
   assertEquals(isAllowedByDomainFilters("api.github.com", ["github.com"]), true);
   assertEquals(isAllowedByDomainFilters("docs.python.org", ["python.org"]), true);

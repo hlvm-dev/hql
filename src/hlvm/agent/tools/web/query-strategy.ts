@@ -1,6 +1,5 @@
 import type { SearchResult } from "./search-provider.ts";
 import type { SearchConfidenceReason } from "./search-ranking.ts";
-import { generateQueryVariants } from "./duckduckgo.ts";
 import {
   COMPARISON_RE,
   OFFICIAL_DOCS_RE,
@@ -31,6 +30,25 @@ interface FollowupQueryInput {
   maxQueries: number;
 }
 
+const DROP_QUALIFIER_WORDS = new Set([
+  "change",
+  "changes",
+  "docs",
+  "documentation",
+  "guide",
+  "intro",
+  "latest",
+  "new",
+  "note",
+  "notes",
+  "release",
+  "tutorial",
+  "update",
+  "updates",
+]);
+const COMPARISON_LEAD_IN_RE = /^(?:compare|comparison|differences?|difference between|between)\b[\s:,-]*/i;
+const COMPARISON_FILLER_RE = /^(?:official|docs?|documentation|reference|guide|latest|recent|current)\b[\s:,-]*/i;
+
 function normalizeSearchQueryCandidate(query: string): string {
   return query.trim().replace(/\s+/g, " ");
 }
@@ -57,6 +75,197 @@ function appendQueryQualifier(query: string, qualifier: string): string {
     return trimmed;
   }
   return `${trimmed} ${qualifier}`.trim();
+}
+
+function stripOuterPunctuation(value: string): string {
+  return value.replace(/^[^a-z0-9"'`]+|[^a-z0-9"'`.]+$/gi, "").trim();
+}
+
+function extractQuotedEntity(
+  value: string,
+  pick: "first" | "last",
+): string | undefined {
+  const matches = [...value.matchAll(/"([^"]+)"|'([^']+)'/g)];
+  if (matches.length === 0) return undefined;
+  const match = pick === "first" ? matches[0] : matches[matches.length - 1];
+  return stripOuterPunctuation((match[1] ?? match[2] ?? "").trim()) || undefined;
+}
+
+function cleanComparisonSide(value: string): string {
+  let cleaned = value.trim();
+  let previous = "";
+  while (cleaned !== previous) {
+    previous = cleaned;
+    cleaned = cleaned.replace(COMPARISON_LEAD_IN_RE, "").trim();
+    cleaned = cleaned.replace(COMPARISON_FILLER_RE, "").trim();
+  }
+  return cleaned;
+}
+
+function tokenizeComparisonSide(value: string): string[] {
+  return value
+    .split(/\s+/)
+    .map((token) => stripOuterPunctuation(token))
+    .filter((token) => token.length > 0);
+}
+
+function buildComparisonEntity(
+  side: string,
+  pick: "leading" | "trailing",
+  desiredTokenCount?: number,
+): { entity?: string; tokenCount: number; remainingTokens: string[] } {
+  const quoted = extractQuotedEntity(side, pick === "leading" ? "first" : "last");
+  if (quoted) {
+    const stripped = side.replace(quoted, " ");
+    return {
+      entity: quoted,
+      tokenCount: tokenizeComparisonSide(quoted).length,
+      remainingTokens: tokenizeComparisonSide(cleanComparisonSide(stripped)),
+    };
+  }
+
+  const cleaned = cleanComparisonSide(side);
+  const tokens = tokenizeComparisonSide(cleaned);
+  if (tokens.length === 0) {
+    return { entity: undefined, tokenCount: 0, remainingTokens: [] };
+  }
+
+  const boundedDesired = desiredTokenCount && desiredTokenCount > 0
+    ? Math.min(desiredTokenCount, 3, tokens.length)
+    : Math.min(tokens.length, 3);
+  const entityTokens = pick === "leading"
+    ? tokens.slice(0, boundedDesired)
+    : tokens.slice(-boundedDesired);
+  const remainingTokens = pick === "leading"
+    ? tokens.slice(boundedDesired)
+    : tokens.slice(0, Math.max(0, tokens.length - boundedDesired));
+  return {
+    entity: entityTokens.join(" "),
+    tokenCount: entityTokens.length,
+    remainingTokens,
+  };
+}
+
+function splitComparisonQuery(query: string): { left: string; right: string } | undefined {
+  const vsMatch = query.match(/^(.*?)\s+(?:vs\.?|versus)\s+(.+)$/i);
+  if (vsMatch) {
+    return { left: vsMatch[1] ?? "", right: vsMatch[2] ?? "" };
+  }
+
+  const compareBody = query.replace(COMPARISON_LEAD_IN_RE, "").trim();
+  if (!compareBody || compareBody === query.trim()) return undefined;
+  const joined = compareBody.match(/^(.*?)\s+(?:and|with|to)\s+(.+)$/i);
+  if (joined) {
+    return { left: joined[1] ?? "", right: joined[2] ?? "" };
+  }
+
+  return undefined;
+}
+
+function buildComparisonDecompositionQueries(
+  query: string,
+  maxQueries: number,
+): string[] {
+  if (maxQueries <= 0 || !COMPARISON_RE.test(query)) return [];
+
+  const sides = splitComparisonQuery(query);
+  if (!sides) return [];
+
+  const leftSide = cleanComparisonSide(sides.left);
+  const rightSide = cleanComparisonSide(sides.right);
+  if (!leftSide || !rightSide) return [];
+
+  const leftTokens = tokenizeComparisonSide(leftSide);
+  if (leftTokens.length === 0 || leftTokens.length > 3) return [];
+
+  const leftEntity = buildComparisonEntity(leftSide, "trailing");
+  const rightEntity = buildComparisonEntity(
+    rightSide,
+    "leading",
+    leftEntity.tokenCount || 1,
+  );
+  if (!leftEntity.entity || !rightEntity.entity) return [];
+  if (leftEntity.entity.toLowerCase() === rightEntity.entity.toLowerCase()) return [];
+
+  const sharedContext = [
+    ...leftEntity.remainingTokens,
+    ...rightEntity.remainingTokens,
+  ]
+    .join(" ")
+    .trim();
+  const queries: string[] = [];
+  const seen = new Set<string>();
+  addUniqueSearchQuery(
+    queries,
+    seen,
+    [leftEntity.entity, sharedContext].filter(Boolean).join(" "),
+    maxQueries,
+  );
+  addUniqueSearchQuery(
+    queries,
+    seen,
+    [rightEntity.entity, sharedContext].filter(Boolean).join(" "),
+    maxQueries,
+  );
+  return queries;
+}
+
+/** Generate query variants for wider recall (pure string, no LLM). */
+export function generateQueryVariants(query: string, maxVariants = 2): string[] {
+  const words = query.trim().split(/\s+/).filter((w) => w.length > 0);
+  if (words.length < 2) return [];
+
+  const variants: string[] = [];
+  const limit = Math.min(Math.max(0, maxVariants), 2);
+  const normalizedWords = words.map((w) =>
+    w.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9.]+$/gi, "")
+  );
+
+  if (words.length >= 2 && variants.length < limit) {
+    const reordered = [...words];
+    [reordered[0], reordered[reordered.length - 1]] = [reordered[reordered.length - 1], reordered[0]];
+    const variant = reordered.join(" ");
+    if (variant !== query.trim()) variants.push(variant);
+  }
+
+  if (words.length >= 3 && variants.length < limit) {
+    const isVersionToken = (token: string): boolean => /\d/.test(token);
+    let dropIndex = -1;
+
+    for (let i = 0; i < normalizedWords.length; i++) {
+      const token = normalizedWords[i];
+      if (!token || isVersionToken(token)) continue;
+      if (!DROP_QUALIFIER_WORDS.has(token)) continue;
+      if (dropIndex === -1 || token.length < normalizedWords[dropIndex].length) {
+        dropIndex = i;
+      }
+    }
+
+    if (dropIndex === -1) {
+      for (let i = 0; i < normalizedWords.length; i++) {
+        const token = normalizedWords[i];
+        if (!token || isVersionToken(token)) continue;
+        if (token.length > 4) continue;
+        if (dropIndex === -1 || token.length < normalizedWords[dropIndex].length) {
+          dropIndex = i;
+        }
+      }
+    }
+
+    if (dropIndex >= 0) {
+      const dropped = words.filter((_word, index) => index !== dropIndex).join(" ");
+      if (dropped.split(/\s+/).length >= 2 && dropped !== query.trim()) {
+        variants.push(dropped);
+      }
+    }
+  }
+
+  const lower = query.trim().toLowerCase();
+  if (variants.length < limit && (lower.startsWith("how to") || lower.startsWith("what is"))) {
+    variants.push(`${query.trim()} guide`);
+  }
+
+  return variants.slice(0, limit);
 }
 
 /**
@@ -117,6 +326,19 @@ export function buildFollowupQueries(
   const intent = detectSearchQueryIntent(trimmed);
   const seen = new Set<string>([trimmed.toLowerCase()]);
   const queries: string[] = [];
+
+  if (
+    queries.length < maxQueries &&
+    (intent.wantsQueryDecomposition || intent.wantsComparison)
+  ) {
+    const decomposed = buildComparisonDecompositionQueries(
+      trimmed,
+      maxQueries - queries.length,
+    );
+    for (const candidate of decomposed) {
+      addUniqueSearchQuery(queries, seen, candidate, maxQueries);
+    }
+  }
 
   const variant = generateQueryVariants(trimmed, 1)[0];
   if (

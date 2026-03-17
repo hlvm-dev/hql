@@ -71,6 +71,10 @@ import {
   trimConversationDraftText,
 } from "../utils/conversation-queue.ts";
 import { normalizeComparableFilePath } from "../../repl/file-search.ts";
+import {
+  shouldOpenMentionPickerOnTypedChar,
+  shouldProcessComposerAutoTrigger,
+} from "../input-auto-trigger.ts";
 
 // Unified Completion System
 import {
@@ -79,11 +83,9 @@ import {
   type CompletionAction,
   type CompletionItem,
   Dropdown,
-  extractMentionQuery,
   findMentionTokenEnd,
   getWordAtCursor,
   shouldTriggerCommand,
-  shouldTriggerFileMention,
   useCompletion,
 } from "../completion/index.ts";
 // FRP Context - reactive state
@@ -387,6 +389,7 @@ export function Input({
   // this guard, the clamping useEffect sees cursorPos > stale value.length and
   // clips the cursor back, breaking multiline navigation.
   const pendingValueRef = useRef<string | null>(null);
+  const previousAutoTriggerValueRef = useRef<string | null>(value);
 
   // Ref for disabled prop to avoid stale closure in useInput
   const disabledRef = useRef(disabled);
@@ -529,13 +532,18 @@ export function Input({
   // NOTE: Placeholder validation is handled by explicit exit paths (Escape, backspace, character input)
   // which now cleanup untouched placeholders. No need for useEffect validation.
 
-  // Auto-trigger completion for @mention and /command
-  // KEY FIX: Skip during active session to allow Tab cycling without interference
+  // Completion auto-processing:
+  // - keep visible picker sessions live while the draft changes
+  // - allow slash commands to auto-open on typed input
+  // - file @mentions only open from explicit "@" typing or explicit Tab
   // NOTE: We use refs/stable callbacks to avoid infinite loops from state changes
   const triggerCompletionRef = useRef(completion.triggerCompletion);
   triggerCompletionRef.current = completion.triggerCompletion;
 
   useEffect(() => {
+    const previousValue = previousAutoTriggerValueRef.current;
+    previousAutoTriggerValueRef.current = value;
+
     // FIX H3: Don't trigger completion during history search
     if (historySearch.state.isSearching) return;
 
@@ -570,6 +578,16 @@ export function Input({
     const isInCommand = trimmedBefore.startsWith("/") &&
       !trimmedBefore.includes(" ");
 
+    if (
+      !shouldProcessComposerAutoTrigger(
+        previousValue,
+        value,
+        completion.isVisible,
+      )
+    ) {
+      return;
+    }
+
     // GENERIC: Re-trigger for ANY provider when dropdown is already open (live filtering).
     // IMPORTANT: symbol provider intentionally supports empty/whitespace contexts on explicit Tab.
     // Do not auto-close symbol dropdown when word.length === 0.
@@ -595,15 +613,6 @@ export function Input({
       docstrings,
       bindingNamesSet,
     );
-
-    // @mention auto-trigger uses provider SSOT trigger/query rules.
-    if (
-      shouldTriggerFileMention(completionContext) &&
-      extractMentionQuery(completionContext) !== null
-    ) {
-      triggerCompletionRef.current(value, cursorPos);
-      return;
-    }
 
     // /command auto-trigger uses provider SSOT trigger rules.
     if (shouldTriggerCommand(completionContext)) {
@@ -1037,14 +1046,53 @@ export function Input({
     return true;
   }, [placeholders, placeholderIndex, value, cursorPos, onChange]);
 
-  // Helper: insert text at cursor
-  const insertAt = useCallback((text: string) => {
+  const applyInsertedText = useCallback((text: string) => {
     pushUndo();
     const newValue = value.slice(0, cursorPos) + text + value.slice(cursorPos);
     pendingValueRef.current = newValue; // Guard against cursor-clamping race
     onChange(newValue);
-    setCursorPos(cursorPos + text.length);
+    const nextCursorPos = cursorPos + text.length;
+    setCursorPos(nextCursorPos);
+    return { nextCursorPos, newValue };
   }, [value, cursorPos, onChange, pushUndo]);
+
+  // Helper: insert text at cursor
+  const insertAt = useCallback((text: string) => {
+    applyInsertedText(text);
+  }, [applyInsertedText]);
+
+  const insertAtAndOpenMentionPicker = useCallback((text: string) => {
+    const { newValue: nextValue, nextCursorPos } = applyInsertedText(text);
+
+    const completionContext = buildCompletionContext(
+      nextValue,
+      nextCursorPos,
+      userBindings,
+      signatures,
+      docstrings,
+      bindingNamesSet,
+    );
+    if (
+      shouldOpenMentionPickerOnTypedChar(
+        text,
+        completion.isVisible,
+        isInsideString(value, cursorPos, '"') ||
+          isInsideString(value, cursorPos, "'"),
+        completionContext,
+      )
+    ) {
+      void triggerCompletionRef.current(nextValue, nextCursorPos);
+    }
+  }, [
+    applyInsertedText,
+    bindingNamesSet,
+    completion.isVisible,
+    cursorPos,
+    docstrings,
+    signatures,
+    userBindings,
+    value,
+  ]);
 
   // Note: deleteBack was removed - now using deleteBackWithPairSupport() from syntax.ts
 
@@ -1832,6 +1880,28 @@ export function Input({
       if (input in OPEN_TO_CLOSE) {
         lastInputTimeRef.current = Date.now();
         insertAutoClosePair(input);
+        return;
+      }
+      const currentInputIsInsideString = isInsideString(value, cursorPos, '"') ||
+        isInsideString(value, cursorPos, "'");
+      const mentionContext = buildCompletionContext(
+        value.slice(0, cursorPos) + input + value.slice(cursorPos),
+        cursorPos + input.length,
+        userBindings,
+        signatures,
+        docstrings,
+        bindingNamesSet,
+      );
+      if (
+        shouldOpenMentionPickerOnTypedChar(
+          input,
+          completion.isVisible,
+          currentInputIsInsideString,
+          mentionContext,
+        )
+      ) {
+        lastInputTimeRef.current = Date.now();
+        insertAtAndOpenMentionPicker(input);
         return;
       }
       // Normal typing: direct insert, no paste detection needed

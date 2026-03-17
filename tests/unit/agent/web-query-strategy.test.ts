@@ -63,3 +63,17 @@ Deno.test("web query strategy keeps generic weak queries neutral by default", ()
   assertEquals(followups.some((query) => /official docs|official reference/i.test(query)), false);
   assert(followups.some((query) => /overview guide/i.test(query)));
 });
+
+Deno.test("web query strategy decomposes simple comparison queries into per-entity followups", () => {
+  const followups = buildFollowupQueries({
+    userQuery: "bun vs deno sqlite windows path issue",
+    confidenceReason: "low_coverage",
+    currentResults: [],
+    maxQueries: 2,
+  });
+
+  assertEquals(followups, [
+    "bun sqlite windows path issue",
+    "deno sqlite windows path issue",
+  ]);
+});
