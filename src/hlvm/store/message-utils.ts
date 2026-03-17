@@ -26,12 +26,6 @@ export function parseStoredStringArray(
   }
 }
 
-export function parseLegacyImagePaths(
-  message: { image_paths?: string | null },
-): string[] | undefined {
-  return parseStoredStringArray(message.image_paths);
-}
-
 export function loadAllMessages(sessionId: string): MessageRow[] {
   const allMessages: MessageRow[] = [];
   let offset = 0;

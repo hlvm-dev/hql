@@ -71,6 +71,7 @@ import {
 import { UsageTracker } from "./usage.ts";
 import { ContextManager, takeLastMessageGroups } from "./context.ts";
 import type { ModelInfo } from "../providers/types.ts";
+import type { ConversationAttachmentPayload } from "../attachments/types.ts";
 import {
   type AgentOrchestratorFailureCode,
   classifyAgentFinalResponse,
@@ -382,8 +383,8 @@ interface AgentRunnerOptions {
   skipSessionHistory?: boolean;
   signal?: AbortSignal;
   messageHistory?: import("./context.ts").Message[];
-  /** Image/media attachments for vision-capable models */
-  images?: Array<{ data: string; mimeType: string }>;
+  /** Runtime-materialized attachments for the initial user turn. */
+  attachments?: ConversationAttachmentPayload[];
   /** Pre-fetched model info to avoid duplicate provider API calls */
   modelInfo?: ModelInfo | null;
   /** Reuse an existing session (skips policy/MCP/LLM setup) */
@@ -968,7 +969,7 @@ export async function runAgentQuery(
           ensureMcpLoaded: session.ensureMcpLoaded,
         },
         session.llm,
-        options.images,
+        options.attachments,
       );
     } catch (error) {
       if (sessionKey && isAbortLikeError(error, options.signal)) {

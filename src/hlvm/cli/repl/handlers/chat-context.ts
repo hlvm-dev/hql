@@ -4,14 +4,13 @@
  * SSOT for:
  * - deciding when request messages override stored session history
  * - normalizing stored/request messages into replayable context
- * - preserving images across chat and agent replay
+ * - preserving attachments across chat and agent replay
  * - injecting memory + model-aware trimming for plain chat
  * - reconstructing prior tool observations for HTTP agent follow-up turns
  */
 
 import { getContextWindow } from "../../../../common/config/selectors.ts";
 import { isObjectValue } from "../../../../common/utils.ts";
-import { getPlatform } from "../../../../platform/platform.ts";
 import { config } from "../../../api/config.ts";
 import { log } from "../../../api/log.ts";
 import {
@@ -33,12 +32,17 @@ import type {
   ProviderToolCall,
 } from "../../../providers/types.ts";
 import {
-  parseLegacyImagePaths,
   parseStoredStringArray,
 } from "../../../store/message-utils.ts";
 import type { MessageRow } from "../../../store/types.ts";
-import { materializeAttachments } from "../../../attachments/service.ts";
-import { detectMimeType } from "../attachment.ts";
+import { materializeConversationAttachments } from "../../../attachments/service.ts";
+import type {
+  ConversationAttachmentMaterializationOptions,
+  ConversationAttachmentPayload,
+} from "../../../attachments/types.ts";
+import {
+  getConversationMaterializationOptionsForModel,
+} from "../../attachment-policy.ts";
 import type { ChatRequest } from "./chat-session.ts";
 
 type ReplayMessage = AgentMessage;
@@ -47,6 +51,7 @@ interface BuildReplayMessagesOptions {
   requestMessages: ChatRequest["messages"];
   storedMessages: MessageRow[];
   assistantMessageId?: number;
+  attachmentMaterializationOptions?: ConversationAttachmentMaterializationOptions;
 }
 
 interface BuildChatProviderMessagesOptions extends BuildReplayMessagesOptions {
@@ -58,6 +63,7 @@ interface BuildChatProviderMessagesOptions extends BuildReplayMessagesOptions {
 interface BuildAgentHistoryOptions extends BuildReplayMessagesOptions {
   maxGroups: number;
   modelKey?: string;
+  modelInfo?: ModelInfo | null;
 }
 
 interface BuildStoredAgentHistoryOptions {
@@ -65,6 +71,7 @@ interface BuildStoredAgentHistoryOptions {
   assistantMessageId?: number;
   maxGroups: number;
   modelKey?: string;
+  modelInfo?: ModelInfo | null;
 }
 
 interface BuildChatProviderMessagesResult {
@@ -76,7 +83,6 @@ interface PersistableRequestMessage {
   role: "system" | "user" | "assistant";
   content: string;
   attachmentIds?: string[];
-  legacyPaths?: string[];
   clientTurnId?: string;
   senderType: "system" | "user" | "llm";
 }
@@ -94,11 +100,15 @@ export async function buildReplayMessages(
   options: BuildReplayMessagesOptions,
 ): Promise<ReplayMessage[]> {
   if (shouldHonorRequestMessages(options.requestMessages)) {
-    return await normalizeRequestMessages(options.requestMessages);
+    return await normalizeRequestMessages(
+      options.requestMessages,
+      options.attachmentMaterializationOptions,
+    );
   }
   return await normalizeStoredMessages(
     options.storedMessages,
     options.assistantMessageId,
+    options.attachmentMaterializationOptions,
   );
 }
 
@@ -147,7 +157,15 @@ export function buildRequestMessagesToPersist(
 export async function buildChatProviderMessages(
   options: BuildChatProviderMessagesOptions,
 ): Promise<BuildChatProviderMessagesResult> {
-  const replayMessages = await buildReplayMessages(options);
+  const attachmentMaterializationOptions =
+    getConversationMaterializationOptionsForModel(
+      options.modelKey ?? "",
+      options.modelInfo ?? null,
+    );
+  const replayMessages = await buildReplayMessages({
+    ...options,
+    attachmentMaterializationOptions,
+  });
   const resolvedContextBudget = resolveChatContextBudget(
     options.modelInfo,
     options.modelKey,
@@ -174,7 +192,15 @@ export async function buildChatProviderMessages(
 export async function buildAgentHistoryMessages(
   options: BuildAgentHistoryOptions,
 ): Promise<AgentMessage[]> {
-  const replayMessages = await buildReplayMessages(options);
+  const attachmentMaterializationOptions =
+    getConversationMaterializationOptionsForModel(
+      options.modelKey ?? "",
+      options.modelInfo ?? null,
+    );
+  const replayMessages = await buildReplayMessages({
+    ...options,
+    attachmentMaterializationOptions,
+  });
   return buildAgentHistoryFromReplayMessages(
     replayMessages,
     options.maxGroups,
@@ -188,6 +214,10 @@ export async function buildStoredAgentHistoryMessages(
   const replayMessages = await normalizeStoredMessages(
     options.storedMessages,
     options.assistantMessageId,
+    getConversationMaterializationOptionsForModel(
+      options.modelKey ?? "",
+      options.modelInfo ?? null,
+    ),
   );
   return buildAgentHistoryFromReplayMessages(
     replayMessages,
@@ -236,6 +266,7 @@ export function trimReplayMessages(
 
 async function normalizeRequestMessages(
   messages: ChatRequest["messages"],
+  attachmentMaterializationOptions?: ConversationAttachmentMaterializationOptions,
 ): Promise<ReplayMessage[]> {
   const replayMessages: ReplayMessage[] = [];
   for (const message of messages) {
@@ -243,6 +274,7 @@ async function normalizeRequestMessages(
       role: message.role,
       content: message.content,
       attachmentIds: message.attachment_ids,
+      attachmentMaterializationOptions,
     });
     if (isReplayableReplayMessage(replayMessage)) {
       replayMessages.push(replayMessage);
@@ -254,6 +286,7 @@ async function normalizeRequestMessages(
 async function normalizeStoredMessages(
   storedMessages: MessageRow[],
   assistantMessageId?: number,
+  attachmentMaterializationOptions?: ConversationAttachmentMaterializationOptions,
 ): Promise<ReplayMessage[]> {
   const orderedMessages = reorderStoredMessages(
     storedMessages,
@@ -265,10 +298,10 @@ async function normalizeStoredMessages(
       role: message.role,
       content: message.content,
       attachmentIds: parseAttachmentIds(message.attachment_ids),
-      legacyPaths: getLegacyAttachmentPaths(message),
       toolCalls: parseToolCalls(message.tool_calls),
       toolName: message.tool_name ?? undefined,
       toolCallId: message.tool_call_id ?? undefined,
+      attachmentMaterializationOptions,
     });
     if (isReplayableReplayMessage(replayMessage)) {
       replayMessages.push(replayMessage);
@@ -355,8 +388,7 @@ function shouldIncludeStoredMessage(
   }
   if (message.tool_calls) return true;
   if (
-    message.attachment_ids ||
-    getLegacyAttachmentPaths(message)
+    message.attachment_ids
   ) {
     return true;
   }
@@ -377,7 +409,6 @@ function normalizeCurrentUserMessage(
     role: "user",
     content: message.content,
     attachmentIds: sanitizeAttachmentIds(message.attachment_ids),
-    legacyPaths: undefined,
     clientTurnId: message.client_turn_id ?? fallbackClientTurnId,
     senderType: "user",
   };
@@ -403,7 +434,6 @@ function normalizeRequestMessagesForPersistence(
       role: message.role,
       content: message.content,
       attachmentIds,
-      legacyPaths: undefined,
       clientTurnId: message.client_turn_id ??
         (message.role === "user" && index === lastIndex
           ? fallbackClientTurnId
@@ -459,17 +489,14 @@ function appendStoredMessageForPersistence(
   const attachmentIds = sanitizeAttachmentIds(
     parseAttachmentIds(message.attachment_ids),
   );
-  const legacyPaths = getLegacyAttachmentPaths(message);
   const hasVisibleContent = message.content.length > 0 ||
-    attachmentIds !== undefined ||
-    legacyPaths !== undefined;
+    attachmentIds !== undefined;
   if (!hasVisibleContent) return;
 
   persistable.push({
     role: message.role,
     content: message.content,
     attachmentIds,
-    legacyPaths,
     clientTurnId: message.client_turn_id ?? undefined,
     senderType: getPersistedSenderType(message.role),
   });
@@ -523,8 +550,7 @@ function persistableMessagesEqual(
   }
 
   return left.content === right.content &&
-    attachmentIdListsEqual(left.attachmentIds, right.attachmentIds) &&
-    attachmentIdListsEqual(left.legacyPaths, right.legacyPaths);
+    attachmentIdListsEqual(left.attachmentIds, right.attachmentIds);
 }
 
 function attachmentIdListsEqual(
@@ -545,7 +571,7 @@ async function createReplayMessage(
     role: ReplayMessage["role"];
     content: string;
     attachmentIds?: string[];
-    legacyPaths?: string[];
+    attachmentMaterializationOptions?: ConversationAttachmentMaterializationOptions;
     toolCalls?: ProviderToolCall[];
     toolName?: string;
     toolCallId?: string;
@@ -555,12 +581,12 @@ async function createReplayMessage(
     role: options.role,
     content: options.content,
   };
-  const images = await resolveAttachments(
+  const attachments = await resolveAttachments(
     options.attachmentIds,
-    options.legacyPaths,
+    options.attachmentMaterializationOptions,
   );
-  if (images.length > 0) {
-    replayMessage.images = images;
+  if (attachments.length > 0) {
+    replayMessage.attachments = attachments;
   }
   if (options.toolCalls?.length) {
     replayMessage.toolCalls = options.toolCalls;
@@ -576,12 +602,6 @@ async function createReplayMessage(
 
 function parseAttachmentIds(attachmentIdsJson: string | null): string[] {
   return parseStoredStringArray(attachmentIdsJson) ?? [];
-}
-
-function getLegacyAttachmentPaths(message: MessageRow): string[] | undefined {
-  return parseLegacyImagePaths(
-    message as MessageRow & { image_paths?: string | null },
-  );
 }
 
 function parseToolCalls(
@@ -604,17 +624,10 @@ function parseToolCalls(
 
 export async function resolveAttachments(
   attachmentIds?: string[],
-  legacyPaths?: string[],
-): Promise<Array<{ data: string; mimeType: string }>> {
-  if (attachmentIds?.length) {
-    const materialized = await materializeAttachments(attachmentIds, "default");
-    return materialized.map(({ prepared }) => ({
-      data: prepared.data,
-      mimeType: prepared.mimeType,
-    }));
-  }
-  if (!legacyPaths?.length) return [];
-  return await resolveLegacyAttachments(legacyPaths);
+  options?: ConversationAttachmentMaterializationOptions,
+): Promise<ConversationAttachmentPayload[]> {
+  if (!attachmentIds?.length) return [];
+  return await materializeConversationAttachments(attachmentIds, options);
 }
 
 async function injectMemoryReplayMessage(
@@ -649,7 +662,7 @@ function toProviderReplayMessages(
     if (
       message.role === "assistant" &&
       !message.content &&
-      !message.images?.length
+      !message.attachments?.length
     ) {
       continue;
     }
@@ -658,48 +671,14 @@ function toProviderReplayMessages(
       role: message.role,
       content: message.content,
     };
-    if (message.images?.length) {
-      providerMessage.images = message.images.map((image) => ({
-        data: image.data,
-        mimeType: image.mimeType,
+    if (message.attachments?.length) {
+      providerMessage.attachments = message.attachments.map((attachment) => ({
+        ...attachment,
       }));
     }
     providerMessages.push(providerMessage);
   }
   return providerMessages.filter(isReplayableProviderMessage);
-}
-
-async function readFileAsBase64(filePath: string): Promise<string | null> {
-  try {
-    const data = await getPlatform().fs.readFile(filePath);
-    const chunks: string[] = [];
-    for (let i = 0; i < data.length; i += 8192) {
-      chunks.push(
-        String.fromCharCode(
-          ...data.subarray(i, Math.min(i + 8192, data.length)),
-        ),
-      );
-    }
-    return btoa(chunks.join(""));
-  } catch (error) {
-    log.warn(`Failed to read legacy attachment: ${filePath}`, error);
-    return null;
-  }
-}
-
-async function resolveLegacyAttachments(
-  legacyPaths: readonly string[],
-): Promise<Array<{ data: string; mimeType: string }>> {
-  const attachments: Array<{ data: string; mimeType: string }> = [];
-  for (const legacyPath of legacyPaths) {
-    const data = await readFileAsBase64(legacyPath);
-    if (!data) continue;
-    attachments.push({
-      data,
-      mimeType: detectMimeType(legacyPath),
-    });
-  }
-  return attachments;
 }
 
 function normalizeReplayMessagesForAgent(
@@ -713,7 +692,7 @@ function normalizeReplayMessagesForAgent(
       if (
         message.role === "assistant" &&
         !message.content &&
-        !message.images?.length &&
+        !message.attachments?.length &&
         !(message.toolCalls?.length)
       ) {
         continue;
@@ -765,18 +744,18 @@ function formatHistoricalToolReplay(message: ReplayMessage): string {
 
 function isReplayableReplayMessage(message: ReplayMessage): boolean {
   return message.content.length > 0 ||
-    (message.images?.length ?? 0) > 0 ||
+    (message.attachments?.length ?? 0) > 0 ||
     (message.toolCalls?.length ?? 0) > 0 ||
     message.role === "tool";
 }
 
 function isReplayableAgentMessage(message: AgentMessage): boolean {
   return message.content.length > 0 ||
-    (message.images?.length ?? 0) > 0 ||
+    (message.attachments?.length ?? 0) > 0 ||
     (message.toolCalls?.length ?? 0) > 0 ||
     message.role === "tool";
 }
 
 function isReplayableProviderMessage(message: ProviderMessage): boolean {
-  return message.content.length > 0 || (message.images?.length ?? 0) > 0;
+  return message.content.length > 0 || (message.attachments?.length ?? 0) > 0;
 }

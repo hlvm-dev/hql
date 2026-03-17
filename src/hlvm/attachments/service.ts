@@ -13,11 +13,18 @@ import {
   getAttachmentFileName,
   getAttachmentKind,
   getAttachmentSizeLimit,
+  getConversationAttachmentKind,
 } from "./metadata.ts";
+import {
+  extractAttachmentText,
+  normalizeConversationMaterializationOptions,
+} from "./extractors.ts";
 import {
   type AttachmentRecord,
   type AttachmentRegistrationInput,
   AttachmentServiceError,
+  type ConversationAttachmentMaterializationOptions,
+  type ConversationAttachmentPayload,
   type MaterializedAttachment,
   type PreparedAttachment,
 } from "./types.ts";
@@ -37,6 +44,97 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((value) => value.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function createUnsupportedAttachmentError(
+  record: AttachmentRecord,
+): AttachmentServiceError {
+  return new AttachmentServiceError(
+    "unsupported_type",
+    `Attachment cannot be sent to the model: ${record.fileName} (${record.mimeType}). The runtime cannot extract readable text from this file type.`,
+    { path: record.sourcePath },
+  );
+}
+
+async function validateAttachmentRegistration(
+  record: AttachmentRecord,
+  bytes: Uint8Array,
+): Promise<void> {
+  if (
+    record.kind === "image" || record.kind === "audio" ||
+    record.kind === "video"
+  ) {
+    return;
+  }
+
+  const extractedText = await extractAttachmentText(record, bytes, {
+    extractionProfile: "ingest",
+  });
+
+  if (record.kind === "pdf") {
+    // PDF stays ingestible as a native binary input even when text fallback
+    // cannot be extracted for all models.
+    return;
+  }
+
+  if (extractedText !== null) {
+    return;
+  }
+
+  throw createUnsupportedAttachmentError(record);
+}
+
+async function prepareConversationAttachment(
+  attachmentId: string,
+  options?: string | ConversationAttachmentMaterializationOptions,
+): Promise<ConversationAttachmentPayload> {
+  const materializationOptions = typeof options === "string"
+    ? normalizeConversationMaterializationOptions({ providerProfile: options })
+    : normalizeConversationMaterializationOptions(options);
+  const materialized = await materializeAttachment(
+    attachmentId,
+    materializationOptions.providerProfile,
+  );
+  const conversationKind = getConversationAttachmentKind(
+    materialized.record.mimeType,
+  );
+  const shouldUseBinary = conversationKind &&
+    conversationKind !== "text" &&
+    !materializationOptions.preferTextKinds.includes(conversationKind);
+
+  if (shouldUseBinary) {
+    return {
+      mode: "binary",
+      attachmentId: materialized.record.id,
+      fileName: materialized.record.fileName,
+      mimeType: materialized.record.mimeType,
+      kind: materialized.record.kind,
+      conversationKind,
+      size: materialized.record.size,
+      data: materialized.prepared.data,
+    };
+  }
+
+  const { bytes } = await readAttachmentContent(materialized.record.id);
+  const extractedText = await extractAttachmentText(
+    materialized.record,
+    bytes,
+    materializationOptions,
+  );
+  if (extractedText !== null) {
+    return {
+      mode: "text",
+      attachmentId: materialized.record.id,
+      fileName: materialized.record.fileName,
+      mimeType: materialized.record.mimeType,
+      kind: materialized.record.kind,
+      conversationKind: "text",
+      size: materialized.record.size,
+      text: extractedText,
+    };
+  }
+
+  throw createUnsupportedAttachmentError(materialized.record);
 }
 
 function getAttachmentId(blobSha256: string): string {
@@ -166,12 +264,26 @@ async function registerAttachmentBytes(
   const blobSha256 = await sha256Hex(input.bytes);
   const attachmentId = getAttachmentId(blobSha256);
   const recordPath = getRecordPath(attachmentId);
-  const existing = await readRecord(recordPath);
   const metadata = extractAttachmentMetadata(mimeType, input.bytes);
+  const now = new Date().toISOString();
+  const candidateRecord: AttachmentRecord = {
+    id: attachmentId,
+    blobSha256,
+    fileName,
+    mimeType,
+    kind,
+    size: input.bytes.length,
+    ...(metadata ? { metadata } : {}),
+    ...(input.sourcePath ? { sourcePath: input.sourcePath } : {}),
+    createdAt: now,
+    updatedAt: now,
+    lastAccessedAt: now,
+  };
+  await validateAttachmentRegistration(candidateRecord, input.bytes);
+  const existing = await readRecord(recordPath);
   if (existing) {
     await writeBlobIfMissing(blobSha256, input.bytes);
 
-    const now = new Date().toISOString();
     const promotedMimeType = existing.mimeType === "application/octet-stream" &&
         mimeType !== existing.mimeType
       ? mimeType
@@ -198,20 +310,7 @@ async function registerAttachmentBytes(
   }
 
   await writeBlobIfMissing(blobSha256, input.bytes);
-  const now = new Date().toISOString();
-  const record: AttachmentRecord = {
-    id: attachmentId,
-    blobSha256,
-    fileName,
-    mimeType,
-    kind,
-    size: input.bytes.length,
-    ...(metadata ? { metadata } : {}),
-    ...(input.sourcePath ? { sourcePath: input.sourcePath } : {}),
-    createdAt: now,
-    updatedAt: now,
-    lastAccessedAt: now,
-  };
+  const record: AttachmentRecord = candidateRecord;
   await writeRecord(record);
   return record;
 }
@@ -305,6 +404,31 @@ export async function getAttachmentRecords(
   return resolved.filter((record): record is AttachmentRecord =>
     record !== null
   );
+}
+
+export async function readAttachmentContent(
+  attachmentId: string,
+): Promise<{ record: AttachmentRecord; bytes: Uint8Array }> {
+  const [record] = await getRequiredAttachmentRecords([attachmentId]);
+  const blobPath = getBlobPath(record.blobSha256);
+  if (!await fs().exists(blobPath)) {
+    throw new AttachmentServiceError(
+      "not_found",
+      `Attachment blob missing for ${attachmentId}.`,
+    );
+  }
+
+  try {
+    const bytes = await fs().readFile(blobPath);
+    const touched = await touchAttachmentRecord(record);
+    return { record: touched, bytes };
+  } catch (error) {
+    throw new AttachmentServiceError(
+      "read_error",
+      `Failed to read attachment content: ${getErrorMessage(error)}`,
+      { path: blobPath },
+    );
+  }
 }
 
 async function getRequiredAttachmentRecords(
@@ -412,4 +536,23 @@ export async function materializeAttachments(
     record,
     prepared: prepared[index],
   }));
+}
+
+export async function materializeConversationAttachment(
+  attachmentId: string,
+  options?: string | ConversationAttachmentMaterializationOptions,
+): Promise<ConversationAttachmentPayload> {
+  return await prepareConversationAttachment(attachmentId, options);
+}
+
+export async function materializeConversationAttachments(
+  attachmentIds: readonly string[],
+  options?: string | ConversationAttachmentMaterializationOptions,
+): Promise<ConversationAttachmentPayload[]> {
+  if (attachmentIds.length === 0) return [];
+  return await Promise.all(
+    attachmentIds.map((attachmentId) =>
+      prepareConversationAttachment(attachmentId, options)
+    ),
+  );
 }

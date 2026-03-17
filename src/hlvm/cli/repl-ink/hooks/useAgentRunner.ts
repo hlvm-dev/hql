@@ -42,10 +42,6 @@ import {
   describeAttachmentFailure,
   describeConversationAttachmentMimeTypeError,
 } from "../../attachment-policy.ts";
-import {
-  expandTextAttachments,
-  isSupportedConversationAttachmentMimeType,
-} from "../../repl/attachment.ts";
 import { runChatViaHost } from "../../../runtime/host-client.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
@@ -110,7 +106,7 @@ export interface UseAgentRunnerResult {
   interactionResolversRef: MutableRefObject<
     Map<string, (response: InteractionResponse) => void>
   >;
-  prepareConversationMediaPayload: (attachments?: AnyAttachment[]) => {
+  prepareConversationAttachmentPayload: (attachments?: AnyAttachment[]) => {
     attachments: ConversationAttachmentRef[] | undefined;
     unsupportedMimeType: string | undefined;
   };
@@ -192,27 +188,16 @@ export function useAgentRunner(
     }
   }, []);
 
-  const prepareConversationMediaPayload = useCallback(
+  const prepareConversationAttachmentPayload = useCallback(
     (attachments?: AnyAttachment[]) => {
-      const mediaAttachments = attachments
+      const runtimeAttachments = attachments
         ?.filter((a): a is import("../../repl/attachment.ts").Attachment =>
           "attachmentId" in a
         ) ??
         [];
 
-      const unsupported = mediaAttachments.filter((a) =>
-        !isSupportedConversationAttachmentMimeType(a.mimeType)
-      );
-
-      if (unsupported.length > 0) {
-        return {
-          attachments: undefined,
-          unsupportedMimeType: unsupported[0].mimeType,
-        };
-      }
-
       return {
-        attachments: mediaAttachments.map((attachment) =>
+        attachments: runtimeAttachments.map((attachment) =>
           createConversationAttachmentRef(
             attachment.displayName,
             attachment.attachmentId,
@@ -227,7 +212,7 @@ export function useAgentRunner(
   const expandConversationDraftText = useCallback((
     text: string,
     attachments?: AnyAttachment[],
-  ): string => expandTextAttachments(text, attachments), []);
+  ): string => text, []);
 
   const runConversation = useCallback(async (
     query: string,
@@ -274,12 +259,12 @@ export function useAgentRunner(
         if (!attachmentSupport.supported) {
           if (attachmentSupport.catalogFailed) {
             throw new ConfigError(
-              "Could not verify model media-attachment support. Check provider connection and try again.",
+              "Could not verify model attachment support. Check provider connection and try again.",
             );
           }
           throw new ConfigError(
             describeAttachmentFailure(attachmentSupport, model) ||
-              `Selected model does not support media attachments: ${model}`,
+              `Selected model does not support these attachments: ${model}`,
           );
         }
       }
@@ -543,7 +528,7 @@ export function useAgentRunner(
       draft.attachments,
     );
     const { attachments, unsupportedMimeType } =
-      prepareConversationMediaPayload(draft.attachments);
+      prepareConversationAttachmentPayload(draft.attachments);
     if (unsupportedMimeType) {
       return { started: false, unsupportedMimeType };
     }
@@ -557,7 +542,7 @@ export function useAgentRunner(
   }, [
     conversation,
     expandConversationDraftText,
-    prepareConversationMediaPayload,
+    prepareConversationAttachmentPayload,
     runConversation,
   ]);
 
@@ -730,7 +715,7 @@ export function useAgentRunner(
     pendingInteraction,
     agentControllerRef,
     interactionResolversRef,
-    prepareConversationMediaPayload,
+    prepareConversationAttachmentPayload,
     expandConversationDraftText,
     runConversation,
     submitConversationDraft,

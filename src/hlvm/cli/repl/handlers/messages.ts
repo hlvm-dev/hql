@@ -95,7 +95,7 @@ function requireMessage(params: RouteParams, sessionId: string): { messageId: nu
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/PagedMessages'
+ *               $ref: '#/components/schemas/RuntimeSessionMessagesResponse'
  *       '404':
  *         description: Session not found.
  *         content:
@@ -103,10 +103,10 @@ function requireMessage(params: RouteParams, sessionId: string): { messageId: nu
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-export function handleGetMessages(
+export async function handleGetMessages(
   req: Request,
   params: RouteParams,
-): Response {
+): Promise<Response> {
   const session = requireSession(params);
   if (session instanceof Response) return session;
 
@@ -124,7 +124,7 @@ export function handleGetMessages(
     after_order: afterOrder !== undefined && !isNaN(afterOrder) ? afterOrder : undefined,
   });
 
-  return Response.json(toRuntimeSessionMessagesResponse(result));
+  return Response.json(await toRuntimeSessionMessagesResponse(result));
 }
 
 /**
@@ -153,7 +153,7 @@ export function handleGetMessages(
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/MessageRow'
+ *               $ref: '#/components/schemas/RuntimeSessionMessage'
  *       '400':
  *         description: Invalid messageId.
  *         content:
@@ -167,17 +167,17 @@ export function handleGetMessages(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-export function handleGetMessage(
+export async function handleGetMessage(
   _req: Request,
   params: RouteParams,
-): Response {
+): Promise<Response> {
   const session = requireSession(params);
   if (session instanceof Response) return session;
 
   const msg = requireMessage(params, session.sessionId);
   if (msg instanceof Response) return msg;
 
-  return Response.json(toRuntimeSessionMessage(getMessage(msg.messageId)!));
+  return Response.json(await toRuntimeSessionMessage(getMessage(msg.messageId)!));
 }
 
 /**
@@ -221,7 +221,7 @@ export function handleGetMessage(
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/MessageRow'
+ *               $ref: '#/components/schemas/RuntimeSessionMessage'
  *       '400':
  *         description: Missing role or content.
  *         content:
@@ -268,7 +268,7 @@ export async function handleAddMessage(
 
   pushSSEEvent(session.sessionId, "message_added", { id: row.id });
   pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: session.sessionId });
-  return Response.json(toRuntimeSessionMessage(row), { status: 201 });
+  return Response.json(await toRuntimeSessionMessage(row), { status: 201 });
 }
 
 /**
@@ -308,7 +308,7 @@ export async function handleAddMessage(
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/MessageRow'
+ *               $ref: '#/components/schemas/RuntimeSessionMessage'
  *       '400':
  *         description: No fields to update or invalid messageId.
  *         content:
@@ -350,7 +350,9 @@ export async function handleUpdateMessage(
   pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: session.sessionId });
 
   const updated = getMessage(msg.messageId);
-  return Response.json(updated ? toRuntimeSessionMessage(updated) : null);
+  return Response.json(
+    updated ? await toRuntimeSessionMessage(updated) : null,
+  );
 }
 
 /**

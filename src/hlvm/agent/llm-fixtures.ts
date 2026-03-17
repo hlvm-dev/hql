@@ -312,7 +312,7 @@ function assertStepExpect(
   const lastUser = [...messages].reverse().find((message) =>
     message.role === "user"
   );
-  const attachments = lastUser?.images ?? [];
+  const attachments = lastUser?.attachments ?? [];
 
   if (
     expect.lastUserAttachmentCount !== undefined &&

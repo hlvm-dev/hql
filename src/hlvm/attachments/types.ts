@@ -14,6 +14,38 @@ export type ConversationAttachmentKind =
   | "pdf"
   | "text";
 
+export interface BinaryConversationAttachmentPayload {
+  mode: "binary";
+  attachmentId: string;
+  fileName: string;
+  mimeType: string;
+  kind: AttachmentKind;
+  conversationKind: Exclude<ConversationAttachmentKind, "text">;
+  size: number;
+  data: string;
+}
+
+export interface TextConversationAttachmentPayload {
+  mode: "text";
+  attachmentId: string;
+  fileName: string;
+  mimeType: string;
+  kind: AttachmentKind;
+  conversationKind: "text";
+  size: number;
+  text: string;
+}
+
+export type ConversationAttachmentPayload =
+  | BinaryConversationAttachmentPayload
+  | TextConversationAttachmentPayload;
+
+export interface ConversationAttachmentMaterializationOptions {
+  providerProfile?: string;
+  preferTextKinds?: readonly Exclude<ConversationAttachmentKind, "text">[];
+  extractionProfile?: string;
+}
+
 export interface AttachmentMetadata {
   width?: number;
   height?: number;

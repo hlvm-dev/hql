@@ -70,6 +70,7 @@ import {
 } from "./handlers/config.ts";
 import {
   handleGetAttachment,
+  handleGetAttachmentContent,
   handleRegisterAttachment,
   handleUploadAttachment,
 } from "./handlers/attachments.ts";
@@ -676,6 +677,11 @@ router.add(
   "GET",
   "/api/attachments/:id",
   (req, p) => handleGetAttachment(req, p),
+);
+router.add(
+  "GET",
+  "/api/attachments/:id/content",
+  (req, p) => handleGetAttachmentContent(req, p),
 );
 
 router.add("GET", "/api/sessions", () => handleListSessions());

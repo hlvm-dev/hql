@@ -73,7 +73,10 @@ import {
   validateChatRequestMessages,
 } from "./chat-context.ts";
 import { modelSupportsTools } from "../../model-capabilities.ts";
-import { checkModelAttachmentIds } from "../../attachment-policy.ts";
+import {
+  checkModelAttachmentIds,
+  describeAttachmentFailure,
+} from "../../attachment-policy.ts";
 
 function requestHasMediaAttachments(
   messages: ChatRequest["messages"],
@@ -300,20 +303,21 @@ export async function handleChat(req: Request): Promise<Response> {
         getRequestAttachmentIds(body.messages),
         resolvedModelInfo,
       );
-      if (!attachmentSupport.supported) {
-        if (attachmentSupport.catalogFailed) {
+        if (!attachmentSupport.supported) {
+          if (attachmentSupport.catalogFailed) {
+            return jsonError(
+              "Could not verify model attachment support. Check provider connection and try again.",
+              503,
+            );
+          }
           return jsonError(
-            "Could not verify model media-attachment support. Check provider connection and try again.",
-            503,
+            describeAttachmentFailure(attachmentSupport, resolvedModel) ||
+              (body.model
+                ? "Selected model does not support these attachments"
+                : "Default model does not support these attachments"),
+            400,
           );
         }
-        return jsonError(
-          body.model
-            ? "Selected model does not support media attachments"
-            : "Default model does not support media attachments",
-          400,
-        );
-      }
     }
     if (body.mode === "agent") {
       const toolCheck = await modelSupportsTools(

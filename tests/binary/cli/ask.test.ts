@@ -260,7 +260,7 @@ binaryTest(
 );
 
 binaryTest(
-  "CLI ask: --attach rejects models without media-attachment support",
+  "CLI ask: --attach rejects models without attachment support",
   async () => {
     await withTempDir(async (dir) => {
       const imagePath = platform.path.join(dir, "sample.png");
@@ -290,7 +290,7 @@ binaryTest(
       assertEquals(result.success, false, output);
       assertStringIncludes(
         output,
-        "Selected model does not support media attachments",
+        "does not support this attachment type",
       );
     });
   },

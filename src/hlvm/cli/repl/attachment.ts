@@ -19,6 +19,7 @@ import {
 } from "../../attachments/metadata.ts";
 import {
   registerAttachmentFromPath,
+  registerTextAttachment,
 } from "../../attachments/service.ts";
 import type {
   AttachmentKind as AttachmentType,
@@ -44,11 +45,14 @@ export interface Attachment {
 
 export interface TextAttachment {
   id: number;
+  attachmentId: string;
   type: "text";
   displayName: string;
   content: string;
   lineCount: number;
   size: number;
+  fileName: string;
+  mimeType: string;
 }
 
 export type AnyAttachment = Attachment | TextAttachment;
@@ -67,6 +71,10 @@ export function isSupportedConversationMedia(path: string): boolean {
     getConversationAttachmentMimeType(path),
   ) && getConversationAttachmentKind(getConversationAttachmentMimeType(path)) !==
     "text";
+}
+
+export function isSupportedConversationAttachmentPath(_path: string): boolean {
+  return true;
 }
 
 export function detectMimeType(path: string): string {
@@ -164,34 +172,32 @@ export function getTextDisplayName(id: number, lineCount: number): string {
   return getTextAttachmentDisplayName(id, lineCount);
 }
 
-export function createTextAttachment(
+export async function createTextAttachment(
   content: string,
   id: number,
-): TextAttachment {
+): Promise<TextAttachment | AttachmentError> {
   const lineCount = countLines(content);
-  const size = new TextEncoder().encode(content).length;
-  return {
-    id,
-    type: "text",
-    displayName: getTextDisplayName(id, lineCount),
-    content,
-    lineCount,
-    size,
-  };
-}
-
-export function expandTextAttachments(
-  text: string,
-  attachments?: readonly AnyAttachment[],
-): string {
-  let expandedText = text;
-  for (const attachment of attachments ?? []) {
-    if ("content" in attachment) {
-      expandedText = expandedText.replaceAll(
-        attachment.displayName,
-        attachment.content,
-      );
+  try {
+    const record = await registerTextAttachment(content, `pasted-text-${id}.txt`);
+    return {
+      id,
+      attachmentId: record.id,
+      type: "text",
+      displayName: getTextDisplayName(id, lineCount),
+      content,
+      lineCount,
+      size: record.size,
+      fileName: record.fileName,
+      mimeType: record.mimeType,
+    };
+  } catch (error) {
+    if (error instanceof AttachmentServiceError) {
+      return formatAttachmentError(error, "[pasted text]");
     }
+    return {
+      type: "read_error",
+      message: error instanceof Error ? error.message : "Failed to register pasted text",
+      path: "[pasted text]",
+    };
   }
-  return expandedText;
 }

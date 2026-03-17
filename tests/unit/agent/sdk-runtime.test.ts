@@ -154,14 +154,42 @@ Deno.test("sdk runtime: orphaned tool results are dropped and missing ids are re
   assertEquals(orphan[0].role, "user");
 });
 
-Deno.test("sdk runtime: user multimodal content supports text, images, and files", () => {
+Deno.test("sdk runtime: user multimodal content supports text attachments, images, and files", () => {
   const result = convertToSdkMessages([
     {
       role: "user",
       content: "Analyze these attachments",
-      images: [
-        { data: "base64-image", mimeType: "image/png" },
-        { data: "base64-pdf", mimeType: "application/pdf" },
+      attachments: [
+        {
+          mode: "text",
+          attachmentId: "att_text",
+          fileName: "notes.txt",
+          mimeType: "text/plain",
+          kind: "text",
+          conversationKind: "text",
+          size: 12,
+          text: "alpha\nbeta",
+        },
+        {
+          mode: "binary",
+          attachmentId: "att_image",
+          fileName: "image.png",
+          mimeType: "image/png",
+          kind: "image",
+          conversationKind: "image",
+          size: 3,
+          data: "base64-image",
+        },
+        {
+          mode: "binary",
+          attachmentId: "att_pdf",
+          fileName: "report.pdf",
+          mimeType: "application/pdf",
+          kind: "pdf",
+          conversationKind: "pdf",
+          size: 3,
+          data: "base64-pdf",
+        },
       ],
     },
   ]);
@@ -170,11 +198,16 @@ Deno.test("sdk runtime: user multimodal content supports text, images, and files
   assertEquals(result.length, 1);
   assertEquals(result[0].role, "user");
   assertEquals(content[0].type, "text");
-  assertEquals(content[1].type, "image");
-  assertEquals(content[1].image, "base64-image");
-  assertEquals(content[2].type, "file");
-  assertEquals(content[2].data, "base64-pdf");
-  assertEquals(content[2].mediaType, "application/pdf");
+  assertEquals(content[1].type, "text");
+  assertEquals(
+    content[1].text,
+    "Attached file (notes.txt, text/plain):\nalpha\nbeta",
+  );
+  assertEquals(content[2].type, "image");
+  assertEquals(content[2].image, "base64-image");
+  assertEquals(content[3].type, "file");
+  assertEquals(content[3].data, "base64-pdf");
+  assertEquals(content[3].mediaType, "application/pdf");
 });
 
 Deno.test("sdk runtime: usage mapping preserves values and defaults missing tokens to zero", () => {

@@ -21,6 +21,7 @@ import {
 // Re-export for consumers
 export type { AnyAttachment };
 export type AttachmentAddResult = Attachment | AttachmentError | null;
+export type TextAttachmentAddResult = TextAttachment | AttachmentError | null;
 
 export interface UseAttachmentsReturn {
   /** Current list of attachments (media and text) */
@@ -31,7 +32,10 @@ export interface UseAttachmentsReturn {
     id: number,
   ) => Promise<AttachmentAddResult>;
   /** Add a text attachment (for large pasted text) */
-  addTextAttachment: (content: string) => TextAttachment;
+  addTextAttachmentWithId: (
+    content: string,
+    id: number,
+  ) => Promise<TextAttachmentAddResult>;
   /** Reserve the next ID synchronously (for instant placeholder insertion) */
   reserveNextId: () => number;
   /** Replace all attachments while keeping attachment labels monotonic */
@@ -95,12 +99,27 @@ export function useAttachments(): UseAttachmentsReturn {
   /**
    * Add a text attachment for large pasted text (synchronous for instant UI)
    */
-  const addTextAttachment = useCallback((content: string): TextAttachment => {
-    const id = reserveNextId();
-    const textAttachment = createTextAttachment(content, id);
-    setAttachments((prev: AnyAttachment[]) => [...prev, textAttachment]);
-    return textAttachment;
-  }, [reserveNextId]);
+  const addTextAttachmentWithId = useCallback(
+    async (content: string, id: number): Promise<TextAttachmentAddResult> => {
+      setLastError(null);
+      const generation = generationRef.current;
+
+      const result = await createTextAttachment(content, id);
+
+      if (generation !== generationRef.current) {
+        return null;
+      }
+
+      if ("attachmentId" in result) {
+        setAttachments((prev: AnyAttachment[]) => [...prev, result]);
+      } else {
+        setLastError(result);
+      }
+
+      return result;
+    },
+    [],
+  );
 
   /**
    * Replace all attachments with a restored draft snapshot.
@@ -132,7 +151,7 @@ export function useAttachments(): UseAttachmentsReturn {
   return {
     attachments,
     addAttachmentWithId,
-    addTextAttachment,
+    addTextAttachmentWithId,
     reserveNextId,
     replaceAttachments,
     clearAttachments,

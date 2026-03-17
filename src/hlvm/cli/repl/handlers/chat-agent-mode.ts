@@ -45,6 +45,9 @@ import {
   resolveAttachments,
   shouldHonorRequestMessages,
 } from "./chat-context.ts";
+import {
+  getConversationMaterializationOptionsForModel,
+} from "../../attachment-policy.ts";
 import type { ChatResultStats } from "../../../runtime/chat-protocol.ts";
 
 export async function handleAgentMode(
@@ -83,7 +86,15 @@ export async function handleAgentMode(
   const workingDirectory = getPlatform().process.cwd();
   const lastUserMessage = getLastUserMessage(body.messages);
   const query = lastUserMessage?.content ?? "";
-  const images = await resolveAttachments(lastUserMessage?.attachment_ids);
+  const attachmentMaterializationOptions =
+    getConversationMaterializationOptionsForModel(
+      resolvedModel,
+      modelInfo ?? null,
+    );
+  const attachments = await resolveAttachments(
+    lastUserMessage?.attachment_ids,
+    attachmentMaterializationOptions,
+  );
   const toolAllowlist = resolveQueryToolAllowlist();
 
   const history = await buildAgentHistoryMessages({
@@ -94,6 +105,7 @@ export async function handleAgentMode(
     assistantMessageId,
     maxGroups: AGENT_CONTEXT_HISTORY_LIMIT,
     modelKey: resolvedModel,
+    modelInfo,
   });
 
   let streamedFinalText = false;
@@ -117,7 +129,7 @@ export async function handleAgentMode(
     skipSessionHistory: body.skip_session_history === true,
     disablePersistentMemory: body.disable_persistent_memory === true,
     messageHistory: history,
-    images: images.length > 0 ? images : undefined,
+    attachments: attachments.length > 0 ? attachments : undefined,
     modelInfo,
     callbacks: {
       onToken: (text: string) => {

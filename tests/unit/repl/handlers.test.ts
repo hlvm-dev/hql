@@ -3,6 +3,7 @@ import {
   createSession,
   insertMessage,
 } from "../../../src/hlvm/store/conversation-store.ts";
+import { registerUploadedAttachment } from "../../../src/hlvm/attachments/service.ts";
 import {
   handleCreateSession,
   handleDeleteSession,
@@ -27,6 +28,7 @@ import {
 } from "../../../src/hlvm/cli/repl/handlers/chat-session.ts";
 import { registerProvider } from "../../../src/hlvm/providers/registry.ts";
 import { setupStoreTestDb } from "../_shared/store-test-db.ts";
+import { withTempHlvmDir } from "../helpers.ts";
 
 function jsonRequest(body: unknown): Request {
   return new Request("http://localhost/test", {
@@ -117,9 +119,9 @@ Deno.test("handlers: sessions update, delete, cascade messages, and 404 when mis
       404,
     );
     assertEquals(
-      handleGetMessages(getRequest(`/api/sessions/${session.id}/messages`), {
+      (await handleGetMessages(getRequest(`/api/sessions/${session.id}/messages`), {
         id: session.id,
-      }).status,
+      })).status,
       404,
     );
     assertEquals(
@@ -147,32 +149,32 @@ Deno.test("handlers: message listing supports pagination and cursor order in bot
       });
     }
 
-    const asc = await handleGetMessages(
+    const asc = await (await handleGetMessages(
       getRequest(`/api/sessions/${session.id}/messages?limit=2&sort=asc`),
       { id: session.id },
-    ).json();
+    )).json();
     assertEquals(asc.messages.length, 2);
     assertEquals(asc.has_more, true);
     assertEquals(asc.total, 5);
 
-    const afterAsc = await handleGetMessages(
+    const afterAsc = await (await handleGetMessages(
       getRequest(
         `/api/sessions/${session.id}/messages?after_order=2&limit=10&sort=asc`,
       ),
       { id: session.id },
-    ).json();
+    )).json();
     assertEquals(afterAsc.messages.map((m: { order: number }) => m.order), [
       3,
       4,
       5,
     ]);
 
-    const afterDesc = await handleGetMessages(
+    const afterDesc = await (await handleGetMessages(
       getRequest(
         `/api/sessions/${session.id}/messages?after_order=4&limit=10&sort=desc`,
       ),
       { id: session.id },
-    ).json();
+    )).json();
     assertEquals(afterDesc.messages.map((m: { order: number }) => m.order), [
       3,
       2,
@@ -196,14 +198,14 @@ Deno.test("handlers: get message resolves numeric ids and client turn ids", asyn
       client_turn_id: "turn-123",
     });
 
-    const numericResp = handleGetMessage(
+    const numericResp = await handleGetMessage(
       getRequest(`/api/sessions/${session.id}/messages/${numeric.id}`),
       { id: session.id, messageId: String(numeric.id) },
     );
     assertEquals(numericResp.status, 200);
     assertEquals((await numericResp.json()).content, "Find me");
 
-    const turnResp = handleGetMessage(
+    const turnResp = await handleGetMessage(
       getRequest(`/api/sessions/${session.id}/messages/turn-123`),
       { id: session.id, messageId: "turn-123" },
     );
@@ -225,23 +227,23 @@ Deno.test("handlers: get message rejects invalid ids and wrong-session access", 
     });
 
     assertEquals(
-      handleGetMessage(
+      (await handleGetMessage(
         getRequest(`/api/sessions/${owner.id}/messages/not-a-number`),
         {
           id: owner.id,
           messageId: "not-a-number",
         },
-      ).status,
+      )).status,
       400,
     );
     assertEquals(
-      handleGetMessage(
+      (await handleGetMessage(
         getRequest(`/api/sessions/${other.id}/messages/${msg.id}`),
         {
           id: other.id,
           messageId: String(msg.id),
         },
-      ).status,
+      )).status,
       404,
     );
   });
@@ -313,13 +315,13 @@ Deno.test("handlers: delete message removes the row and updates session counts",
     assertEquals((await deletedResp.json()).deleted, true);
 
     assertEquals(
-      handleGetMessage(
+      (await handleGetMessage(
         getRequest(`/api/sessions/${owner.id}/messages/${msg.id}`),
         {
           id: owner.id,
           messageId: String(msg.id),
         },
-      ).status,
+      )).status,
       404,
     );
     assertEquals(
@@ -341,57 +343,65 @@ Deno.test("handlers: delete message removes the row and updates session counts",
   });
 });
 
-Deno.test("handlers: chat rejects media attachments for agent models without vision support", async () => {
-  await withDb(async () => {
-    registerProvider("multimodal-test", () => ({
-      name: "multimodal-test",
-      displayName: "Multimodal Test",
-      capabilities: ["chat" as const, "tools" as const, "models.list" as const],
-      async *generate() {
-        yield "";
-      },
-      async *chat() {
-        yield "";
-      },
-      status() {
-        return Promise.resolve({ available: true });
-      },
-      models: {
-        list: () =>
-          Promise.resolve([{
-            name: "tools-only",
-            displayName: "Tools Only",
-            capabilities: ["chat", "tools"],
-          }]),
-        get: (name: string) =>
-          Promise.resolve(
-            name === "tools-only"
-              ? {
-                name,
-                displayName: "Tools Only",
-                capabilities: ["chat", "tools"],
-              }
-              : null,
-          ),
-      },
-    }));
+Deno.test("handlers: chat rejects attachments for agent models without vision support", async () => {
+  await withTempHlvmDir(async () => {
+    await withDb(async () => {
+      registerProvider("multimodal-test", () => ({
+        name: "multimodal-test",
+        displayName: "Multimodal Test",
+        capabilities: ["chat" as const, "tools" as const, "models.list" as const],
+        async *generate() {
+          yield "";
+        },
+        async *chat() {
+          yield "";
+        },
+        status() {
+          return Promise.resolve({ available: true });
+        },
+        models: {
+          list: () =>
+            Promise.resolve([{
+              name: "tools-only",
+              displayName: "Tools Only",
+              capabilities: ["chat", "tools"],
+            }]),
+          get: (name: string) =>
+            Promise.resolve(
+              name === "tools-only"
+                ? {
+                  name,
+                  displayName: "Tools Only",
+                  capabilities: ["chat", "tools"],
+                }
+                : null,
+            ),
+        },
+      }));
 
-    const response = await handleChat(jsonRequest({
-      mode: "agent",
-      session_id: "session-vision-gate",
-      model: "multimodal-test/tools-only",
-      messages: [{
-        role: "user",
-        content: "describe this screenshot",
-        attachment_ids: ["att_example_png"],
-      }],
-    }));
+      const attachment = await registerUploadedAttachment({
+        fileName: "sample.png",
+        mimeType: "image/png",
+        bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      });
 
-    assertEquals(response.status, 400);
-    assertEquals(
-      (await response.json()).error,
-      "Selected model does not support media attachments",
-    );
+      const response = await handleChat(jsonRequest({
+        mode: "agent",
+        session_id: "session-vision-gate",
+        model: "multimodal-test/tools-only",
+        messages: [{
+          role: "user",
+          content: "describe this screenshot",
+          attachment_ids: [attachment.id],
+        }],
+      }));
+
+      assertEquals(response.status, 400);
+      assertEquals(
+        (await response.json()).error,
+        "multimodal-test/tools-only does not support this attachment type.",
+      );
+    });
   });
 });
 

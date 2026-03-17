@@ -11,11 +11,12 @@ import type { LanguageModel, ModelMessage, ToolCallPart } from "ai";
 import type {
   ChatOptions,
   ChatStructuredResponse,
-  GenerateOptions,
   Message,
+  GenerateOptions,
   ProviderToolCall,
   ToolDefinition,
 } from "./types.ts";
+import type { ConversationAttachmentPayload } from "../attachments/types.ts";
 import { normalizeToolArgs } from "../agent/validation.ts";
 import { generateToolCallId } from "../agent/tool-call.ts";
 import { getPlatform } from "../../platform/platform.ts";
@@ -299,8 +300,8 @@ type SdkAssistantPart = SdkTextPart | ToolCallPart;
 export interface SdkConvertibleMessage {
   role: string;
   content: string;
-  /** Image/media attachments: structured {data, mimeType} or plain base64 strings */
-  images?: Array<string | { data: string; mimeType: string }>;
+  /** Prepared attachments already normalized by the runtime attachment service. */
+  attachments?: ConversationAttachmentPayload[];
   // AgentMessage convention (camelCase)
   toolCalls?: Array<
     { id?: string; function: { name: string; arguments: unknown } }
@@ -346,7 +347,7 @@ export function convertToSdkMessages(
   for (const msg of nonSystemMessages) {
     if (msg.role === "user") {
       pendingToolCalls = [];
-      if (!msg.images?.length) {
+      if (!msg.attachments?.length) {
         result.push({ role: "user", content: msg.content });
         continue;
       }
@@ -354,18 +355,21 @@ export function convertToSdkMessages(
       if (msg.content) {
         content.push({ type: "text", text: msg.content });
       }
-      for (const img of msg.images) {
-        if (typeof img === "string") {
-          // Legacy: plain base64 string → image part
-          content.push({ type: "image", image: img });
-        } else if (img.mimeType.startsWith("image/")) {
-          content.push({ type: "image", image: img.data });
+      for (const attachment of msg.attachments) {
+        if (attachment.mode === "text") {
+          content.push({
+            type: "text",
+            text:
+              `Attached file (${attachment.fileName}, ${attachment.mimeType}):\n${attachment.text}`,
+          });
+        } else if (attachment.mimeType.startsWith("image/")) {
+          content.push({ type: "image", image: attachment.data });
         } else {
-          // PDF, audio, video → file part
+          // PDF, audio, and video are represented as binary file parts.
           content.push({
             type: "file",
-            data: img.data,
-            mediaType: img.mimeType,
+            data: attachment.data,
+            mediaType: attachment.mimeType,
           });
         }
       }
@@ -601,7 +605,7 @@ export async function* generateWithSdk(
   messages.push({
     role: "user",
     content: prompt,
-    ...(options?.images?.length ? { images: options.images } : {}),
+    ...(options?.attachments?.length ? { attachments: options.attachments } : {}),
   });
   yield* chatWithSdk(
     spec,

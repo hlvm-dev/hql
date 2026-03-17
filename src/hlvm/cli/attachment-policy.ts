@@ -4,7 +4,14 @@ import {
   type ConversationAttachmentKind,
   getConversationAttachmentKind,
 } from "./repl/attachment.ts";
-import { getAttachmentRecords } from "../attachments/service.ts";
+import {
+  getAttachmentRecords,
+  materializeConversationAttachment,
+} from "../attachments/service.ts";
+import {
+  AttachmentServiceError,
+  type ConversationAttachmentMaterializationOptions,
+} from "../attachments/types.ts";
 import { modelSupportsVision } from "./model-capabilities.ts";
 
 const DEFAULT_MODEL_ATTACHMENT_KINDS: readonly ConversationAttachmentKind[] = [
@@ -12,16 +19,18 @@ const DEFAULT_MODEL_ATTACHMENT_KINDS: readonly ConversationAttachmentKind[] = [
   "pdf",
   "audio",
   "video",
+  "text",
 ];
 
 const PROVIDER_ATTACHMENT_KINDS: Record<
   string,
   readonly ConversationAttachmentKind[]
 > = {
-  anthropic: ["image", "pdf"],
-  "claude-code": ["image", "pdf"],
-  google: ["image", "pdf", "audio", "video"],
-  openai: ["image", "pdf"],
+  anthropic: ["image", "pdf", "text"],
+  "claude-code": ["image", "pdf", "text"],
+  google: ["image", "pdf", "audio", "video", "text"],
+  ollama: ["image", "text"],
+  openai: ["image", "pdf", "text"],
 };
 
 export interface AttachmentSupportCheck {
@@ -31,6 +40,7 @@ export interface AttachmentSupportCheck {
   unsupportedMimeType?: string;
   missingAttachmentId?: string;
   catalogFailed?: boolean;
+  validationError?: string;
 }
 
 function describeAttachmentKindForInput(
@@ -46,7 +56,7 @@ function describeAttachmentKindForInput(
     case "video":
       return "video files";
     case "text":
-      return "text attachments";
+      return "text files";
     default:
       return "attachments";
   }
@@ -90,6 +100,22 @@ export function describeConversationAttachmentMimeTypeError(
   mimeType: string,
 ): string {
   return `Attachment unsupported: ${mimeType}. Supported inputs are ${describeSupportedAttachmentInputs()}.`;
+}
+
+export function getConversationMaterializationOptionsForModel(
+  modelName: string,
+  modelInfo: ModelInfo | null,
+): ConversationAttachmentMaterializationOptions {
+  const supportedKinds = getSupportedAttachmentKindsForModel(
+    modelName,
+    modelInfo,
+  );
+  const preferTextKinds: Array<Exclude<ConversationAttachmentKind, "text">> =
+    [];
+  if (!supportedKinds.includes("pdf") && supportedKinds.includes("text")) {
+    preferTextKinds.push("pdf");
+  }
+  return preferTextKinds.length > 0 ? { preferTextKinds } : {};
 }
 
 export async function checkModelAttachmentMimeTypes(
@@ -154,9 +180,38 @@ export async function checkModelAttachmentIds(
       missingAttachmentId,
     };
   }
+  const resolvedMimeTypes: string[] = [];
+  const materializationOptions = getConversationMaterializationOptionsForModel(
+    modelName,
+    modelInfo,
+  );
+  for (const record of records) {
+    try {
+      const materialized = await materializeConversationAttachment(
+        record.id,
+        materializationOptions,
+      );
+      resolvedMimeTypes.push(
+        materialized.mode === "text" ? "text/plain" : materialized.mimeType,
+      );
+    } catch (error) {
+      if (
+        error instanceof AttachmentServiceError &&
+        error.code === "unsupported_type"
+      ) {
+        return {
+          supported: false,
+          supportedKinds,
+          unsupportedMimeType: record.mimeType,
+          validationError: error.message,
+        };
+      }
+      throw error;
+    }
+  }
   return await checkModelAttachmentMimeTypes(
     modelName,
-    records.map((record) => record.mimeType),
+    resolvedMimeTypes,
     modelInfo,
   );
 }
@@ -170,6 +225,10 @@ export function describeAttachmentFailure(
 
   if (check.catalogFailed) {
     return `Could not verify if ${modelName} supports this type. Try proceeding anyway.`;
+  }
+
+  if (check.validationError) {
+    return check.validationError;
   }
 
   if (check.missingAttachmentId) {

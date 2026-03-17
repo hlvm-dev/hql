@@ -61,12 +61,6 @@ function adaptSessionMeta(session: RuntimeSession): SessionMeta {
   };
 }
 
-function getLegacyAttachmentPaths(
-  message: RuntimeSessionMessage,
-): string[] | undefined {
-  return message.legacy_image_paths;
-}
-
 function normalizeAttachmentIds(attachmentIds: unknown): string[] {
   if (!attachmentIds) return [];
   if (Array.isArray(attachmentIds)) {
@@ -189,7 +183,7 @@ async function adaptSessionMessage(
   const attachmentIds = normalizeAttachmentIds(message.attachment_ids);
   const attachments = attachmentIds.length > 0
     ? await resolveAttachmentLabels(attachmentIds)
-    : getLegacyAttachmentPaths(message);
+    : undefined;
   const toolMeta = message.role === "tool"
     ? parseToolMessageMetadata(message.tool_calls)
     : {};

@@ -26,20 +26,16 @@ export type ProviderCapability =
 // Message Types (Common across providers)
 // ============================================================================
 
+import type { ConversationAttachmentPayload } from "../attachments/types.ts";
 import type { MessageRole } from "../agent/context.ts";
 export type { MessageRole };
-
-export interface ProviderAttachment {
-  data: string;
-  mimeType: string;
-}
 
 /** A provider-level chat message (snake_case fields for wire format) */
 export interface ProviderMessage {
   role: MessageRole;
   content: string;
-  /** Optional prepared attachments (base64 or provider-native URL strings). */
-  images?: Array<string | ProviderAttachment>;
+  /** Optional prepared attachments normalized by the runtime attachment service. */
+  attachments?: ConversationAttachmentPayload[];
   /** Tool calls made by the assistant (for native tool calling conversation flow) */
   tool_calls?: ProviderToolCall[];
   /** Name of the tool that produced this result (for role: "tool") */
@@ -117,8 +113,8 @@ export interface GenerateOptions {
   format?: "json" | string;
   /** Stream output token by token */
   stream?: boolean;
-  /** Prepared multimodal attachments for the provider boundary. */
-  images?: Array<string | ProviderAttachment>;
+  /** Prepared attachments for the provider boundary. */
+  attachments?: ConversationAttachmentPayload[];
   /** Provider-specific options */
   raw?: Record<string, unknown>;
   /** Abort signal for cancellation */

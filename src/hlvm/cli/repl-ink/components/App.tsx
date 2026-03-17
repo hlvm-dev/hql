@@ -85,7 +85,6 @@ import { ReplProvider } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { log } from "../../../api/log.ts";
 import { looksLikeNaturalLanguage } from "../../repl/input-routing.ts";
-import { expandTextAttachments } from "../../repl/attachment.ts";
 import {
   getRuntimeConfigApi,
   patchRuntimeConfig,
@@ -406,7 +405,7 @@ function AppContent(
     pendingInteraction,
     agentControllerRef,
     interactionResolversRef,
-    prepareConversationMediaPayload,
+    prepareConversationAttachmentPayload,
     runConversation,
     submitConversationDraft,
     handleInteractionResponse,
@@ -716,8 +715,6 @@ function AppContent(
       if (!code.trim()) return;
       setInput("");
 
-      const expandedCode = expandTextAttachments(code, attachments);
-
       // Handle commands that need React state (pickers/panels)
       const trimmedInput = code.trim();
       const forceConversationPrompt = (() => {
@@ -908,7 +905,7 @@ function AppContent(
 
       // Natural language → agent conversation mode
       const candidateConversationQuery = forceConversationPrompt ??
-        expandedCode.trim();
+        code.trim();
       if (
         forceConversationPrompt ||
         agentExecutionMode === "plan" ||
@@ -916,7 +913,7 @@ function AppContent(
       ) {
         recordPromptHistory(replState, code, "conversation");
         const { attachments: conversationAttachments, unsupportedMimeType } =
-          prepareConversationMediaPayload(attachments);
+          prepareConversationAttachmentPayload(attachments);
         if (unsupportedMimeType) {
           addHistoryEntry(code, {
             success: false,
@@ -941,10 +938,9 @@ function AppContent(
       setIsEvaluating(true);
 
       // Evaluate (with optional attachments)
-      // Use expandedCode which has text attachment placeholders replaced with actual content
       // Create AbortController for true cancellation support
       const controller = new AbortController();
-      const evalPromise = repl.evaluate(expandedCode, {
+      const evalPromise = repl.evaluate(code, {
         attachments,
         signal: controller.signal,
       });
@@ -1036,7 +1032,7 @@ function AppContent(
       suppressHistoryOutput,
       streamEvalToTask,
       agentExecutionMode,
-      prepareConversationMediaPayload,
+      prepareConversationAttachmentPayload,
       runConversation,
       submitConversationDraft,
       isNaturalLanguage,

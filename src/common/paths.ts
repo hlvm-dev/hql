@@ -219,6 +219,13 @@ export function getAttachmentPreparedDir(): string {
 }
 
 /**
+ * Get the extracted-text cache directory (~/.hlvm/attachments/extracted)
+ */
+export function getAttachmentExtractedDir(): string {
+  return join(getAttachmentsDir(), "extracted");
+}
+
+/**
  * Ensure attachment storage directories exist.
  */
 export async function ensureAttachmentDirs(): Promise<void> {
@@ -226,6 +233,7 @@ export async function ensureAttachmentDirs(): Promise<void> {
   await fs.mkdir(getAttachmentRecordsDir(), { recursive: true });
   await fs.mkdir(getAttachmentBlobsDir(), { recursive: true });
   await fs.mkdir(getAttachmentPreparedDir(), { recursive: true });
+  await fs.mkdir(getAttachmentExtractedDir(), { recursive: true });
 }
 
 /**

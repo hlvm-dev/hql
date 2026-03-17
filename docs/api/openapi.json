@@ -632,7 +632,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PagedMessages"
+                  "$ref": "#/components/schemas/RuntimeSessionMessagesResponse"
                 }
               }
             }
@@ -712,7 +712,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MessageRow"
+                  "$ref": "#/components/schemas/RuntimeSessionMessage"
                 }
               }
             }
@@ -773,7 +773,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MessageRow"
+                  "$ref": "#/components/schemas/RuntimeSessionMessage"
                 }
               }
             }
@@ -850,7 +850,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MessageRow"
+                  "$ref": "#/components/schemas/RuntimeSessionMessage"
                 }
               }
             }
@@ -1488,6 +1488,18 @@
                   },
                   "cursor": {
                     "type": "integer"
+                  },
+                  "attachment_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "attachment_paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 },
                 "required": [
@@ -1897,6 +1909,267 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/MessageRow"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "session_version": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "integer",
+            "nullable": true
+          }
+        },
+        "required": [
+          "messages",
+          "total",
+          "has_more",
+          "session_version"
+        ]
+      },
+      "AttachmentMetadata": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "integer",
+            "nullable": true
+          },
+          "height": {
+            "type": "integer",
+            "nullable": true
+          },
+          "duration": {
+            "type": "number",
+            "nullable": true
+          },
+          "pages": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
+      "AttachmentRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "blobSha256": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "audio",
+              "video",
+              "pdf",
+              "text",
+              "document",
+              "file"
+            ]
+          },
+          "size": {
+            "type": "integer"
+          },
+          "sourcePath": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AttachmentMetadata"
+              }
+            ],
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastAccessedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "blobSha256",
+          "fileName",
+          "mimeType",
+          "kind",
+          "size",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "RuntimeMessageAttachment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "audio",
+              "video",
+              "pdf",
+              "text",
+              "document",
+              "file"
+            ]
+          },
+          "size": {
+            "type": "integer"
+          },
+          "source_path": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AttachmentMetadata"
+              }
+            ],
+            "nullable": true
+          },
+          "content_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "file_name",
+          "mime_type",
+          "kind",
+          "size",
+          "content_url"
+        ]
+      },
+      "RuntimeSessionMessage": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "order": {
+            "type": "integer",
+            "description": "Monotonic order within the session."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "system",
+              "user",
+              "assistant",
+              "tool"
+            ]
+          },
+          "content": {
+            "type": "string"
+          },
+          "client_turn_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "request_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "sender_type": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "user",
+              "llm",
+              "agent",
+              "system"
+            ]
+          },
+          "sender_detail": {
+            "type": "string",
+            "nullable": true
+          },
+          "attachment_ids": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "attachments": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "$ref": "#/components/schemas/RuntimeMessageAttachment"
+            }
+          },
+          "tool_calls": {
+            "type": "string",
+            "nullable": true
+          },
+          "tool_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "tool_call_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelled": {
+            "type": "integer",
+            "description": "0 or 1 (SQLite boolean)."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "order",
+          "role",
+          "content",
+          "created_at"
+        ]
+      },
+      "RuntimeSessionMessagesResponse": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuntimeSessionMessage"
             }
           },
           "total": {

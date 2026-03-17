@@ -1,8 +1,22 @@
-import {
-  parseLegacyImagePaths,
-  parseStoredStringArray,
-} from "../store/message-utils.ts";
+import { getAttachmentRecords } from "../attachments/service.ts";
+import { parseStoredStringArray } from "../store/message-utils.ts";
 import type { MessageRow, PagedMessages } from "../store/types.ts";
+
+export interface RuntimeMessageAttachment {
+  id: string;
+  file_name: string;
+  mime_type: string;
+  kind: string;
+  size: number;
+  source_path?: string;
+  metadata?: {
+    width?: number;
+    height?: number;
+    duration?: number;
+    pages?: number;
+  };
+  content_url: string;
+}
 
 export interface RuntimeSession {
   id: string;
@@ -21,7 +35,7 @@ export interface RuntimeSessionsResponse {
 export interface RuntimeSessionMessage
   extends Omit<MessageRow, "attachment_ids"> {
   attachment_ids?: string[];
-  legacy_image_paths?: string[];
+  attachments?: RuntimeMessageAttachment[];
 }
 
 export interface RuntimeSessionMessagesResponse
@@ -37,28 +51,49 @@ export interface RuntimeSessionMessageInput {
   attachment_ids?: string[];
 }
 
-export function toRuntimeSessionMessage(
+async function resolveRuntimeMessageAttachments(
+  attachmentIds: readonly string[] | undefined,
+): Promise<RuntimeMessageAttachment[] | undefined> {
+  if (!attachmentIds || attachmentIds.length === 0) return undefined;
+  const records = await getAttachmentRecords(attachmentIds);
+  if (records.length === 0) return undefined;
+
+  const recordById = new Map(records.map((record) => [record.id, record]));
+  const attachments = attachmentIds.flatMap((attachmentId) => {
+    const record = recordById.get(attachmentId);
+    if (!record) return [];
+    return [{
+      id: record.id,
+      file_name: record.fileName,
+      mime_type: record.mimeType,
+      kind: record.kind,
+      size: record.size,
+      ...(record.sourcePath ? { source_path: record.sourcePath } : {}),
+      ...(record.metadata ? { metadata: record.metadata } : {}),
+      content_url: `/api/attachments/${record.id}/content`,
+    }];
+  });
+
+  return attachments.length > 0 ? attachments : undefined;
+}
+
+export async function toRuntimeSessionMessage(
   message: MessageRow,
-): RuntimeSessionMessage {
-  const {
-    attachment_ids,
-    image_paths: _legacyImagePaths,
-    ...rest
-  } = message as MessageRow & { image_paths?: string | null };
+) : Promise<RuntimeSessionMessage> {
+  const normalizedAttachmentIds = parseStoredStringArray(message.attachment_ids);
+  const { attachment_ids: _rawAttachmentIds, ...rest } = message;
   return {
     ...rest,
-    attachment_ids: parseStoredStringArray(attachment_ids),
-    legacy_image_paths: parseLegacyImagePaths(
-      message as MessageRow & { image_paths?: string | null },
-    ),
+    attachment_ids: normalizedAttachmentIds,
+    attachments: await resolveRuntimeMessageAttachments(normalizedAttachmentIds),
   };
 }
 
-export function toRuntimeSessionMessagesResponse(
+export async function toRuntimeSessionMessagesResponse(
   response: PagedMessages,
-): RuntimeSessionMessagesResponse {
+): Promise<RuntimeSessionMessagesResponse> {
   return {
     ...response,
-    messages: response.messages.map(toRuntimeSessionMessage),
+    messages: await Promise.all(response.messages.map(toRuntimeSessionMessage)),
   };
 }

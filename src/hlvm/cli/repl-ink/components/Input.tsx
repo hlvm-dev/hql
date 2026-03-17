@@ -51,7 +51,7 @@ import {
   getAttachmentType,
   getDisplayName,
   isAttachment,
-  isSupportedConversationMedia,
+  isSupportedConversationAttachmentPath,
   shouldCollapseText,
 } from "../../repl/attachment.ts";
 import {
@@ -330,7 +330,7 @@ export function Input({
   const {
     attachments,
     addAttachmentWithId,
-    addTextAttachment,
+    addTextAttachmentWithId,
     reserveNextId,
     clearAttachments,
     lastError: attachmentError,
@@ -2664,7 +2664,7 @@ export function Input({
         const isAbsolutePath = cleanText.startsWith("/") ||
           cleanText.startsWith("~");
 
-        if (isAbsolutePath && isSupportedConversationMedia(cleanText)) {
+        if (isAbsolutePath && isSupportedConversationAttachmentPath(cleanText)) {
           const id = reserveNextId();
           const mimeType = detectMimeType(cleanText);
           const type = getAttachmentType(mimeType);
@@ -2676,8 +2676,22 @@ export function Input({
 
         // Check for large text paste that should collapse
         if (shouldCollapseText(normalizedText)) {
-          const textAttachment = addTextAttachment(normalizedText);
-          insertAt(textAttachment.displayName + " ");
+          const id = reserveNextId();
+          const displayName = getDisplayName("text", id);
+          insertAt(displayName + " ");
+          pendingAttachmentOpsRef.current += 1;
+          void addTextAttachmentWithId(normalizedText, id).then((
+            attachment,
+          ) => {
+            if (attachment === null) return;
+            if ("attachmentId" in attachment) return;
+            removeFailedAttachmentDisplayName(displayName);
+          }).finally(() => {
+            pendingAttachmentOpsRef.current = Math.max(
+              0,
+              pendingAttachmentOpsRef.current - 1,
+            );
+          });
           return;
         }
 

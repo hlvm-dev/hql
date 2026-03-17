@@ -203,11 +203,12 @@ Deno.test("chat context: explicit request history persists only the new visible 
   );
 });
 
-Deno.test("chat context: mixed media attachments survive replay for chat and agent builders", async () => {
+Deno.test("chat context: mixed attachments survive replay for chat and agent builders", async () => {
   const platform = getPlatform();
   const tmpDir = await platform.fs.makeTempDir({ prefix: "chat-ctx-" });
   const imagePath = platform.path.join(tmpDir, "test.png");
   const pdfPath = platform.path.join(tmpDir, "test.pdf");
+  const textPath = platform.path.join(tmpDir, "notes.txt");
   await platform.fs.writeFile(
     imagePath,
     new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
@@ -216,17 +217,22 @@ Deno.test("chat context: mixed media attachments survive replay for chat and age
     pdfPath,
     new Uint8Array([0x25, 0x50, 0x44, 0x46]),
   );
+  await platform.fs.writeTextFile(
+    textPath,
+    "Attachment-backed notes\nSecond line",
+  );
 
   try {
     const imageAttachment = await registerAttachmentFromPath(imagePath);
     const pdfAttachment = await registerAttachmentFromPath(pdfPath);
+    const textAttachment = await registerAttachmentFromPath(textPath);
     const requestMessages = [{
       role: "system" as const,
       content: "retain explicit history",
     }, {
       role: "user" as const,
       content: "see image",
-      attachment_ids: [imageAttachment.id, pdfAttachment.id],
+      attachment_ids: [imageAttachment.id, pdfAttachment.id, textAttachment.id],
     }];
 
     const chat = await buildChatProviderMessages({
@@ -236,7 +242,17 @@ Deno.test("chat context: mixed media attachments survive replay for chat and age
     });
     const chatUser = chat.messages.find((message) => message.role === "user");
     assertExists(chatUser);
-    assertEquals(chatUser.images?.length, 2);
+    assertEquals(chatUser.attachments?.length, 3);
+    assertEquals(
+      chatUser.attachments?.map((attachment) =>
+        `${attachment.mode}:${attachment.mimeType}`
+      ),
+      [
+        "binary:image/png",
+        "binary:application/pdf",
+        "text:text/plain",
+      ],
+    );
 
     const agent = await buildAgentHistoryMessages({
       requestMessages,
@@ -247,11 +263,79 @@ Deno.test("chat context: mixed media attachments survive replay for chat and age
     const agentUser = agent.find((message) => message.role === "user");
     assertExists(agentUser);
     assertEquals(
-      agentUser.images?.map((attachment) => attachment.mimeType),
-      ["image/png", "application/pdf"],
+      agentUser.attachments?.map((attachment) =>
+        `${attachment.mode}:${attachment.mimeType}`
+      ),
+      [
+        "binary:image/png",
+        "binary:application/pdf",
+        "text:text/plain",
+      ],
     );
-    assertEquals((agentUser.images?.[0]?.data.length ?? 0) > 0, true);
-    assertEquals((agentUser.images?.[1]?.data.length ?? 0) > 0, true);
+    const imagePayload = agentUser.attachments?.[0];
+    const pdfPayload = agentUser.attachments?.[1];
+    const textPayload = agentUser.attachments?.[2];
+    assertEquals(
+      imagePayload?.mode === "binary" &&
+        imagePayload.data.length > 0,
+      true,
+    );
+    assertEquals(
+      pdfPayload?.mode === "binary" &&
+        pdfPayload.data.length > 0,
+      true,
+    );
+    assertEquals(
+      textPayload?.mode === "text" &&
+        textPayload.text.includes("Attachment-backed notes"),
+      true,
+    );
+  } finally {
+    await platform.fs.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("chat context: PDF attachments fall back to extracted text for text-only models", async () => {
+  const requestMessages: Array<{
+    role: "system" | "user";
+    content: string;
+    attachment_ids?: string[];
+  }> = [{
+    role: "system" as const,
+    content: "retain explicit history",
+  }, {
+    role: "user" as const,
+    content: "summarize this pdf",
+  }];
+  const platform = getPlatform();
+  const tmpDir = await platform.fs.makeTempDir({ prefix: "chat-ctx-pdf-" });
+  const pdfPath = platform.path.join(tmpDir, "report.pdf");
+  await platform.fs.writeTextFile(
+    pdfPath,
+    `%PDF-1.4
+1 0 obj
+(Hello PDF fallback)
+endobj
+%%EOF`,
+  );
+
+  try {
+    const attachment = await registerAttachmentFromPath(pdfPath);
+    requestMessages[1].attachment_ids = [attachment.id];
+
+    const chat = await buildChatProviderMessages({
+      requestMessages,
+      storedMessages: [],
+      modelKey: "ollama/llama3.2",
+    });
+    const userMessage = chat.messages.find((message) => message.role === "user");
+    assertExists(userMessage);
+    assertEquals(userMessage.attachments?.[0]?.mode, "text");
+    assertEquals(
+      userMessage.attachments?.[0]?.mode === "text" &&
+        userMessage.attachments[0].text.length > 0,
+      true,
+    );
   } finally {
     await platform.fs.remove(tmpDir, { recursive: true });
   }

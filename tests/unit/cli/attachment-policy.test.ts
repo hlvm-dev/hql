@@ -1,5 +1,7 @@
 import { assertEquals } from "jsr:@std/assert";
+import { registerUploadedAttachment } from "../../../src/hlvm/attachments/service.ts";
 import {
+  checkModelAttachmentIds,
   checkModelAttachmentMimeTypes,
   describeAttachmentFailure,
   getSupportedAttachmentKindsForModel,
@@ -7,12 +9,14 @@ import {
 import {
   getConversationAttachmentKind,
   getConversationAttachmentMimeType,
+  isSupportedConversationAttachmentPath,
   isSupportedConversationMedia,
 } from "../../../src/hlvm/cli/repl/attachment.ts";
 import type {
   ModelInfo,
   ProviderCapability,
 } from "../../../src/hlvm/providers/types.ts";
+import { withTempHlvmDir } from "../helpers.ts";
 
 function createModelInfo(
   capabilities: readonly ProviderCapability[],
@@ -23,8 +27,9 @@ function createModelInfo(
   };
 }
 
-Deno.test("attachment policy: text files normalize internally but remain outside the surfaced attachment set", () => {
+Deno.test("attachment policy: text files stay outside legacy media handling but are accepted by the broad attachment path", () => {
   assertEquals(isSupportedConversationMedia("/tmp/notes.md"), false);
+  assertEquals(isSupportedConversationAttachmentPath("/tmp/notes.md"), true);
   assertEquals(
     getConversationAttachmentMimeType("/tmp/notes.md"),
     "text/plain",
@@ -41,12 +46,12 @@ Deno.test("attachment policy: Claude models allow PDF attachments on vision mode
 
   assertEquals(
     getSupportedAttachmentKindsForModel("claude-code/claude-opus-4-6", null),
-    ["image", "pdf"],
+    ["image", "pdf", "text"],
   );
   assertEquals(support.supported, true);
 });
 
-Deno.test("attachment policy: OpenAI models reject text attachments", async () => {
+Deno.test("attachment policy: OpenAI models allow extracted text attachments", async () => {
   const support = await checkModelAttachmentMimeTypes(
     "openai/gpt-4.1",
     ["text/plain"],
@@ -55,10 +60,31 @@ Deno.test("attachment policy: OpenAI models reject text attachments", async () =
 
   assertEquals(
     getSupportedAttachmentKindsForModel("openai/gpt-4.1", null),
-    ["image", "pdf"],
+    ["image", "pdf", "text"],
   );
-  assertEquals(support.supported, false);
-  assertEquals(support.unsupportedKind, "text");
+  assertEquals(support.supported, true);
+});
+
+Deno.test("attachment policy: text-only models can accept PDF attachments via extracted text fallback", async () => {
+  await withTempHlvmDir(async () => {
+    const pdf = await registerUploadedAttachment({
+      fileName: "doc.pdf",
+      bytes: new TextEncoder().encode(`%PDF-1.4\n1 0 obj\n(Hello PDF)\nendobj\n%%EOF`),
+      mimeType: "application/pdf",
+    });
+
+    const support = await checkModelAttachmentIds(
+      "ollama/llama3.2",
+      [pdf.id],
+      createModelInfo(["chat"]),
+    );
+
+    assertEquals(
+      getSupportedAttachmentKindsForModel("ollama/llama3.2", null),
+      ["image", "text"],
+    );
+    assertEquals(support.supported, true);
+  });
 });
 
 Deno.test("attachment policy: multimodal file inputs still require vision", async () => {

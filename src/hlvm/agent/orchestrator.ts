@@ -32,6 +32,7 @@ import {
   SlidingWindowRateLimiter,
 } from "../../common/rate-limiter.ts";
 import type { AgentPolicy } from "./policy.ts";
+import type { ConversationAttachmentPayload } from "../attachments/types.ts";
 import {
   estimateUsage,
   getMessageCharCount,
@@ -948,7 +949,7 @@ export async function runReActLoop(
   userRequest: string,
   config: OrchestratorConfig,
   llmFunction: LLMFunction,
-  images?: Array<{ data: string; mimeType: string }>,
+  attachments?: ConversationAttachmentPayload[],
 ): Promise<string> {
   if (!config.l1Confirmations) {
     config = { ...config, l1Confirmations: new Map<string, boolean>() };
@@ -973,7 +974,7 @@ export async function runReActLoop(
   const autoMemoryRecall = config.autoMemoryRecall ?? false;
   resetWebToolBudget();
 
-  addContextMessage(config, { role: "user", content: userRequest, images });
+  addContextMessage(config, { role: "user", content: userRequest, attachments });
   if (isPlanExecutionMode(config.permissionMode)) {
     const reminder = config.planModeState?.planningAllowlist?.length
       ? buildPlanModeReminder(

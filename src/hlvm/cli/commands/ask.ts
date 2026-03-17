@@ -21,7 +21,7 @@ import { getPlatform } from "../../../platform/platform.ts";
 import {
   createAttachment,
   isAttachment,
-  isSupportedConversationMedia,
+  isSupportedConversationAttachmentPath,
 } from "../repl/attachment.ts";
 import type {
   AgentUIEvent,
@@ -39,7 +39,10 @@ import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 import { runAgentQueryViaHost } from "../../runtime/host-client.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
-import { checkModelAttachmentIds } from "../attachment-policy.ts";
+import {
+  checkModelAttachmentIds,
+  describeAttachmentFailure,
+} from "../attachment-policy.ts";
 import {
   type DelegateTranscriptSnapshot,
   listDelegateTranscriptLines,
@@ -79,7 +82,7 @@ OPTIONS:
   --verbose                    Show agent header, tool labels, stats, and trace output
   --json                       Emit newline-delimited JSON events
   --usage                      Show token usage summary after execution
-  --attach <path>              Attach image/audio/video/PDF input (repeatable)
+  --attach <path>              Attach a file input (repeatable)
   --model <provider/model>     Use a specific AI model (e.g., openai/gpt-4o, anthropic/claude-sonnet-4-5-20250929)
   --fresh                      Start a fresh session (no prior session history)
   --auto-edit                  Auto-approve file reads and writes; only confirm destructive ops
@@ -290,12 +293,13 @@ async function ensureModelAttachmentSupport(
   if (attachmentSupport.supported) return;
   if (attachmentSupport.catalogFailed) {
     throw new ValidationError(
-      "Could not verify model media-attachment support. Check provider connection and try again.",
+      "Could not verify model attachment support. Check provider connection and try again.",
       "ask",
     );
   }
   throw new ValidationError(
-    `Selected model does not support media attachments: ${modelName}`,
+    describeAttachmentFailure(attachmentSupport, modelName) ||
+      `Selected model does not support these attachments: ${modelName}`,
     "ask",
   );
 }
@@ -971,9 +975,9 @@ async function resolveAskAttachmentIds(
       ? platform.path.normalize(rawPath)
       : platform.path.resolve(platform.process.cwd(), rawPath);
 
-    if (!isSupportedConversationMedia(absolutePath)) {
+    if (!isSupportedConversationAttachmentPath(absolutePath)) {
       throw new ValidationError(
-        `Unsupported attachment type: ${rawPath}. Supported attachments are images, audio, video, and PDF files.`,
+        `Unsupported attachment type: ${rawPath}.`,
         "ask",
       );
     }
