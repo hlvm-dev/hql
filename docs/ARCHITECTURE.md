@@ -223,13 +223,12 @@ ReplServerManager.stopServer()
 ```
 GUI                              Server
  │                                │
- │── POST /api/sessions ─────────▶│
- │   { "title": "Debug auth" }    │
- │                                │── create session in SQLite
- │◀── 201 ───────────────────────│
- │   { "id": "uuid", ... }        │
+ │── GET /api/chat/messages ────▶│
+ │                                │── resolve active hidden session
+ │◀── 200 ───────────────────────│
+ │   { "messages": [...], ... }   │
 
-Used by: sessions CRUD, messages CRUD, config, models, eval, cancel
+Used by: active conversation messages, config, models, eval, cancel
 ```
 
 #### Pattern B: NDJSON Stream (Long-Running Operations)
@@ -260,19 +259,19 @@ Used by: /api/chat, /api/models/pull
 ```
 GUI                              Server
  │                                │
- │── GET /api/sessions/stream ──▶│
+ │── GET /api/chat/stream ──────▶│
  │   Accept: text/event-stream    │
  │                                │
  │◀── 200 (text/event-stream)    │
  │◀─ retry: 3000\n\n             │  ← reconnection interval
- │◀─ id: 1\nevent: sessions_snapshot\ndata: {...}\n\n
+ │◀─ id: 1\nevent: snapshot\ndata: {...}\n\n
  │   ... time passes ...
- │◀─ id: 2\nevent: session_created\ndata: {...}\n\n
+ │◀─ id: 2\nevent: conversation_updated\ndata: {...}\n\n
  │◀─ : heartbeat\n\n             │  ← every 30 seconds
  │   ... connection stays open indefinitely ...
 
 On disconnect: GUI reconnects with Last-Event-ID, server replays missed events.
-Used by: sessions/stream, sessions/{id}/stream, models/stream, config/stream
+Used by: /api/chat/stream, models/stream, config/stream
 ```
 
 ---
@@ -290,32 +289,14 @@ Used by: sessions/stream, sessions/{id}/stream, models/stream, config/stream
 | Method | Path | Auth | Response | Purpose |
 |--------|------|------|----------|---------|
 | POST | `/api/chat` | Yes | NDJSON stream | Streaming chat/agent request |
+| GET | `/api/chat/messages` | Yes | JSON | List active conversation messages |
+| GET | `/api/chat/messages/:mid` | Yes | JSON | Get a single active-conversation message |
+| POST | `/api/chat/messages` | Yes | JSON | Add message to the active conversation |
+| PATCH | `/api/chat/messages/:mid` | Yes | JSON | Update an active-conversation message |
+| DELETE | `/api/chat/messages/:mid` | Yes | JSON | Delete an active-conversation message |
+| GET | `/api/chat/stream` | Yes | SSE | Real-time active-conversation updates |
 | POST | `/api/chat/cancel` | Yes | JSON | Cancel in-flight request |
 | POST | `/api/chat/interaction` | Yes | JSON | Respond to permission/question |
-
-### Sessions
-
-| Method | Path | Auth | Response | Purpose |
-|--------|------|------|----------|---------|
-| GET | `/api/sessions` | Yes | JSON | List all sessions |
-| POST | `/api/sessions` | Yes | JSON | Create session |
-| GET | `/api/sessions/:id` | Yes | JSON | Get session |
-| PATCH | `/api/sessions/:id` | Yes | JSON | Update title/metadata |
-| DELETE | `/api/sessions/:id` | Yes | JSON | Delete session + messages |
-| DELETE | `/api/sessions` | Yes | JSON | Delete all sessions |
-| POST | `/api/sessions/:id/cancel` | Yes | JSON | Cancel all requests for session |
-| GET | `/api/sessions/stream` | Yes | SSE | Real-time session list updates |
-| GET | `/api/sessions/:id/stream` | Yes | SSE | Real-time message updates |
-
-### Messages
-
-| Method | Path | Auth | Response | Purpose |
-|--------|------|------|----------|---------|
-| GET | `/api/sessions/:id/messages` | Yes | JSON | List messages (paginated) |
-| GET | `/api/sessions/:id/messages/:mid` | Yes | JSON | Get single message |
-| POST | `/api/sessions/:id/messages` | Yes | JSON | Add message |
-| PATCH | `/api/sessions/:id/messages/:mid` | Yes | JSON | Update message |
-| DELETE | `/api/sessions/:id/messages/:mid` | Yes | JSON | Delete message |
 
 ### Models
 
@@ -365,12 +346,11 @@ When the user types "fix the auth bug" in the Chat window:
 │     ▼                                                               │
 │  ReplLogViewModel.sendMessage(text)                                 │
 │     ├── Generate client_turn_id (UUID)                              │
-│     ├── Append to local ChatRoom.messages (optimistic UI)           │
+│     ├── Append to local message store (optimistic UI)               │
 │     │                                                               │
 │     ▼                                                               │
 │  HqlChatClient.streamChat(HqlChatRequest {                          │
 │     mode: "agent",                                                  │
-│     session_id: "sess-123",                                         │
 │     messages: [                                                     │
 │       { role: "system", content: "You are..." },                    │
 │       { role: "user", content: "fix the auth bug",                  │
@@ -527,15 +507,14 @@ GUI: display result inline in Spotlight panel
 
 ## State Synchronization
 
-### SSE Connections (4 concurrent, long-lived)
+### SSE Connections (3 concurrent, long-lived)
 
 ```
 GUI Process                          Server (:11435)
    │                                    │
-   │═══ GET /api/sessions/stream ══════▶│  ① Session list changes
-   │═══ GET /api/sessions/{id}/stream ═▶│  ② Active chat messages
-   │═══ GET /api/models/stream ════════▶│  ③ Model availability
-   │═══ GET /api/config/stream ════════▶│  ④ Config changes
+   │═══ GET /api/chat/stream ══════════▶│  ① Active chat messages
+   │═══ GET /api/models/stream ════════▶│  ② Model availability
+   │═══ GET /api/config/stream ════════▶│  ③ Config changes
    │                                    │
    │  All SSE connections:              │
    │  - Auto-reconnect (3s retry)       │
@@ -567,10 +546,9 @@ GUI                                 Server
 GUI Process                           hlvm serve (:11435)
 
  SSE (long-lived):
- ═══════════════════▶  GET /api/sessions/stream       ①
- ═══════════════════▶  GET /api/sessions/{id}/stream   ②
- ═══════════════════▶  GET /api/models/stream          ③
- ═══════════════════▶  GET /api/config/stream           ④
+ ═══════════════════▶  GET /api/chat/stream            ①
+ ═══════════════════▶  GET /api/models/stream          ②
+ ═══════════════════▶  GET /api/config/stream          ③
 
  NDJSON (per-chat):
  ───────────────────▶  POST /api/chat                  ⑤
@@ -708,8 +686,8 @@ GUI                          Server                    Ollama
 
 ### Chat Window
 
-- **Type**: NavigationSplitView (sidebar + detail)
-- **Sidebar**: Chat room list (create, rename, delete)
+- **Type**: Single active-conversation chat surface
+- **Layout**: Message transcript + activity/detail panels
 - **Detail**: Message bubbles with Markdown/syntax highlighting
 - **Features**: SiriIcon animation, ThinkingBubble, ActivityPanel (tool calls), InteractionBubble (permissions), image drag-and-drop, drawing input
 
@@ -1072,19 +1050,18 @@ User presses Ctrl+3
                                                │
                    ┌───────────────────────────┐│┌──────────────────────────────┐
                    │  NDJSON (streaming)       │││  SSE (real-time push)        │
-                   │  POST /api/chat           │││  GET /api/sessions/stream    │
-                   │  POST /api/models/pull    │││  GET /api/sessions/{id}/stream│
-                   │                           │││  GET /api/models/stream      │
-                   │  Events:                  │││  GET /api/config/stream      │
-                   │  start → token* → tool*   │││                              │
-                   │  → interaction? → complete │││  Events:                     │
-                   │  (or error/cancelled)     │││  session_created/updated     │
+                   │  POST /api/chat           │││  GET /api/chat/stream        │
+                   │  POST /api/models/pull    │││  GET /api/models/stream      │
+                   │                           │││  GET /api/config/stream      │
+                   │  Events:                  │││                              │
+                   │  start → token* → tool*   │││  Events:                     │
+                   │  → interaction? → complete│││  snapshot / message_*        │
+                   │  (or error/cancelled)     │││  models_updated/config_updated│
                    └───────────────────────────┘│└──────────────────────────────┘
                                                │
                    ┌───────────────────────────┐│┌──────────────────────────────┐
                    │  REST (CRUD)             │││  Eval/Complete               │
-                   │  /api/sessions (CRUD)     │││  POST /eval (polyglot)      │
-                   │  /api/sessions/{id}/msgs  │││  POST /api/completions      │
+                   │  /api/chat/messages      │││  POST /eval (polyglot)       │
                    │  /api/models (list/del)   │││  GET  /api/memory/functions  │
                    │  /api/config (get/patch)  │││  POST /api/memory/fn/execute │
                    │  GET /health (no auth)    │││                              │
@@ -1678,7 +1655,7 @@ User presses Ctrl+3
     │                                                                               │
     │  ④ Route matching (http-router.ts)                                            │
     │     Pattern matching with path params:                                        │
-    │     "/api/sessions/:id/messages/:messageId" → { id, messageId }              │
+    │     "/api/chat/messages/:messageId" → { id, messageId }              │
     │     Method + path → handler function                                          │
     │                                                                               │
     │  ⑤ Handler execution → Response                                               │
@@ -1692,19 +1669,12 @@ User presses Ctrl+3
     │                                                                               │
     │  GUI                              Server                                      │
     │   │                                │                                          │
-    │   │── POST /api/sessions ─────────▶│                                          │
-    │   │   { "title": "Debug auth" }    │                                          │
-    │   │                                │── create session in SQLite               │
+    │   │── GET /api/chat/messages ────▶│                                          │
+    │   │                                │── resolve active hidden session          │
+    │   │◀── 200 ───────────────────────│                                          │
+    │   │   { "messages": [...], ... }   │                                          │
     │   │                                │                                          │
-    │   │◀── 201 ───────────────────────│                                          │
-    │   │   {                            │                                          │
-    │   │     "id": "uuid",             │                                          │
-    │   │     "title": "Debug auth",    │                                          │
-    │   │     "session_version": 1,      │                                          │
-    │   │     "created_at": "ISO8601"    │                                          │
-    │   │   }                            │                                          │
-    │   │                                │                                          │
-    │  Used by: sessions CRUD, messages CRUD, config get/patch,                     │
+    │  Used by: active conversation messages, config get/patch,                    │
     │           models list, eval, completions, cancel, interaction                 │
     │                                                                               │
     └───────────────────────────────────────────────────────────────────────────────┘
@@ -1718,8 +1688,8 @@ User presses Ctrl+3
     │   │   X-Request-ID: req-456        │                                          │
     │   │   {                            │                                          │
     │   │     "mode": "agent",           │                                          │
-    │   │     "session_id": "sess-123",  │                                          │
-    │   │     "messages": [...]          │                                          │
+    │   │     "messages": [...],         │                                          │
+    │   │     "stateless": false         │                                          │
     │   │   }                            │                                          │
     │   │                                │                                          │
     │   │◀── 200 ───────────────────────│                                          │
@@ -1729,20 +1699,9 @@ User presses Ctrl+3
     │   │   X-Request-ID: req-456        │                                          │
     │   │                                │                                          │
     │   │◀─ {"event":"start","request_id":"req-456"}\n                             │
-    │   │                                │── LLM generates tokens                   │
-    │   │◀─ {"event":"token","text":"I"}\n                                         │
-    │   │◀─ {"event":"token","text":"'ll"}\n                                       │
-    │   │◀─ {"event":"token","text":" search"}\n                                   │
-    │   │                                │── LLM requests tool call                 │
-    │   │◀─ {"event":"tool_start","name":"search_code","args_summary":"auth"}\n    │
-    │   │                                │── tool executes (1.2 seconds)            │
-    │   │◀─ {"event":"tool_end","name":"search_code","success":true,               │
-    │   │     "content":"Found 3 matches...","duration_ms":1200}\n                 │
-    │   │                                │── LLM continues                          │
-    │   │◀─ {"event":"token","text":"Found"}\n                                     │
-    │   │◀─ {"event":"token","text":" the"}\n                                      │
-    │   │◀─ {"event":"token","text":" bug"}\n                                      │
-    │   │◀─ {"event":"turn_stats","tool_count":1,"duration_ms":3200}\n             │
+    │   │◀─ {"event":"token","text":"I'll"}\n                                      │
+    │   │◀─ {"event":"tool_start","name":"search_code",...}\n                      │
+    │   │◀─ {"event":"tool_end","name":"search_code","success":true,...}\n         │
     │   │◀─ {"event":"complete","session_version":2}\n                             │
     │   │                                │                                          │
     │   │   [connection closes]          │                                          │
@@ -1760,7 +1719,7 @@ User presses Ctrl+3
     │                                                                               │
     │  GUI                              Server                                      │
     │   │                                │                                          │
-    │   │── GET /api/sessions/stream ──▶│                                          │
+    │   │── GET /api/chat/stream ──────▶│                                          │
     │   │   Accept: text/event-stream    │                                          │
     │   │                                │                                          │
     │   │◀── 200 ───────────────────────│                                          │
@@ -1769,27 +1728,19 @@ User presses Ctrl+3
     │   │   Connection: keep-alive                                                  │
     │   │                                │                                          │
     │   │◀─ retry: 3000\n\n             │  ← reconnection interval                 │
-    │   │                                │                                          │
     │   │◀─ id: 1\n                      │                                          │
-    │   │   event: sessions_snapshot\n   │  ← initial state dump                    │
-    │   │   data: {"sessions":[...]}\n\n │                                          │
-    │   │                                │                                          │
-    │   │   ... time passes ...          │                                          │
-    │   │                                │                                          │
+    │   │   event: snapshot\n            │  ← initial active transcript            │
+    │   │   data: {"messages":[...]}\n\n │                                          │
     │   │◀─ id: 2\n                      │                                          │
-    │   │   event: session_created\n     │  ← another client created a session      │
-    │   │   data: {"session_id":"x"}\n\n │                                          │
-    │   │                                │                                          │
+    │   │   event: message_added\n       │  ← delta for another client/tool        │
+    │   │   data: {"message_id":"x"}\n\n │                                          │
     │   │◀─ : heartbeat\n\n             │  ← every 30 seconds (SSE comment)        │
-    │   │                                │                                          │
-    │   │   ... connection stays open indefinitely ...                              │
     │   │                                │                                          │
     │  On disconnect:                                                               │
     │   GUI auto-reconnects with Last-Event-ID: 2                                  │
     │   Server replays missed events since id 2                                    │
     │                                                                               │
-    │  Used by: /api/sessions/stream, /api/sessions/{id}/stream,                   │
-    │           /api/models/stream, /api/config/stream                              │
+    │  Used by: /api/chat/stream, /api/models/stream, /api/config/stream           │
     │                                                                               │
     └───────────────────────────────────────────────────────────────────────────────┘
 
@@ -1812,7 +1763,7 @@ User presses Ctrl+3
     │  ReplLogViewModel.sendMessage(text)                                           │
     │     │                                                                         │
     │     ├── Generate client_turn_id = UUID()                                      │
-    │     ├── Append user message to local ChatRoom.messages                        │
+    │     ├── Append user message to local message store                            │
     │     ├── Update UI immediately (optimistic)                                    │
     │     │                                                                         │
     │     ▼                                                                         │
@@ -1823,7 +1774,6 @@ User presses Ctrl+3
     │     │                                                                         │
     │     ├── request = HqlChatRequest {                                            │
     │     │     mode: "agent",                  // or "chat" or "claude-code-agent" │
-    │     │     session_id: "sess-123",                                             │
     │     │     messages: [                                                         │
     │     │       { role: "system", content: "You are...", client_turn_id: nil },   │
     │     │       { role: "user",   content: "fix the auth bug",                    │
@@ -2166,43 +2116,29 @@ User presses Ctrl+3
 
     ┌─ GUI ──────────────────────────────────────────────────────────────────────┐
     │                                                                            │
-    │  ┌─ SSE Connection 1: Session List ──────────────────────────────────┐    │
-    │  │  GET /api/sessions/stream                                          │    │
+    │  ┌─ SSE Connection 1: Active Conversation ───────────────────────────┐    │
+    │  │  GET /api/chat/stream                                             │    │
     │  │                                                                    │    │
     │  │  Server pushes:                                                    │    │
-    │  │  ├── sessions_snapshot → initial load of all sessions              │    │
-    │  │  ├── session_created  → add to sidebar list                        │    │
-    │  │  ├── session_updated  → update title in sidebar                    │    │
-    │  │  ├── session_deleted  → remove from sidebar                        │    │
-    │  │  └── sessions_cleared → empty sidebar                              │    │
-    │  │                                                                    │    │
-    │  │  GUI: ChatRepository observes → updates ChatRoom list              │    │
-    │  └────────────────────────────────────────────────────────────────────┘    │
-    │                                                                            │
-    │  ┌─ SSE Connection 2: Active Session Messages ───────────────────────┐    │
-    │  │  GET /api/sessions/{active_id}/stream                              │    │
-    │  │                                                                    │    │
-    │  │  Server pushes:                                                    │    │
-    │  │  ├── snapshot        → all messages for this session               │    │
+    │  │  ├── snapshot        → initial active transcript                   │    │
     │  │  ├── message_added   → new message (from agent or other client)    │    │
     │  │  ├── message_updated → edit (content change or cancellation)       │    │
     │  │  └── message_deleted → remove message                              │    │
     │  │                                                                    │    │
     │  │  GUI: ReplLogViewModel observes → updates chat bubbles             │    │
-    │  │  Note: reconnects with new session ID when user switches rooms     │    │
     │  └────────────────────────────────────────────────────────────────────┘    │
     │                                                                            │
-    │  ┌─ SSE Connection 3: Model Changes ─────────────────────────────────┐    │
+    │  ┌─ SSE Connection 2: Model Changes ─────────────────────────────────┐    │
     │  │  GET /api/models/stream                                            │    │
     │  │                                                                    │    │
     │  │  Server pushes:                                                    │    │
     │  │  └── models_updated → reason: runtime_ready | pull_complete |      │    │
     │  │                               deleted | replay_gap                 │    │
     │  │                                                                    │    │
-    │  │  GUI: LLMSelectorView refreshes model list                        │    │
+    │  │  GUI: LLMSelectorView refreshes model list                         │    │
     │  └────────────────────────────────────────────────────────────────────┘    │
     │                                                                            │
-    │  ┌─ SSE Connection 4: Config Changes ────────────────────────────────┐    │
+    │  ┌─ SSE Connection 3: Config Changes ────────────────────────────────┐    │
     │  │  GET /api/config/stream                                            │    │
     │  │                                                                    │    │
     │  │  Server pushes:                                                    │    │
@@ -2402,28 +2338,25 @@ User presses Ctrl+3
     │                        ┌──────────────────────────────────────┐           │
     │                        │     hlvm serve (:11435)              │           │
     │                        │                                      │           │
-    │  SSE (long-lived) ─────│──── GET /api/sessions/stream    ①   │           │
-    │  ═══════════════════▶  │     (session list updates)          │           │
+    │  SSE (long-lived) ─────│──── GET /api/chat/stream        ①   │           │
+    │  ═══════════════════▶  │     (active conversation deltas)    │           │
     │                        │                                      │           │
-    │  SSE (long-lived) ─────│──── GET /api/sessions/x/stream  ②   │           │
-    │  ═══════════════════▶  │     (active chat messages)          │           │
-    │                        │                                      │           │
-    │  SSE (long-lived) ─────│──── GET /api/models/stream      ③   │           │
+    │  SSE (long-lived) ─────│──── GET /api/models/stream      ②   │           │
     │  ═══════════════════▶  │     (model availability)            │           │
     │                        │                                      │           │
-    │  SSE (long-lived) ─────│──── GET /api/config/stream      ④   │           │
+    │  SSE (long-lived) ─────│──── GET /api/config/stream      ③   │           │
     │  ═══════════════════▶  │     (config changes)                │           │
     │                        │                                      │           │
-    │  NDJSON (per-chat) ────│──── POST /api/chat              ⑤   │           │
+    │  NDJSON (per-chat) ────│──── POST /api/chat              ④   │           │
     │  ─────────────────────▶│     (active agent stream)           │           │
     │                        │                                      │           │
-    │  REST (on-demand) ─────│──── POST /eval                  ⑥   │           │
-    │  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─▶│     GET /api/models             ⑦   │           │
-    │                        │     PATCH /api/config            ⑧   │           │
-    │                        │     POST /api/chat/cancel        ⑨   │           │
-    │                        │     POST /api/chat/interaction   ⑩   │           │
-    │                        │     GET /api/memory/functions    ⑪   │           │
-    │                        │     POST /api/completions        ⑫   │           │
+    │  REST (on-demand) ─────│──── POST /eval                  ⑤   │           │
+    │  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─▶│     GET /api/models             ⑥   │           │
+    │                        │     PATCH /api/config            ⑦   │           │
+    │                        │     POST /api/chat/cancel        ⑧   │           │
+    │                        │     POST /api/chat/interaction   ⑨   │           │
+    │                        │     GET /api/memory/functions    ⑩   │           │
+    │                        │     POST /api/completions        ⑪   │           │
     │                        │     ... (any CRUD endpoint)          │           │
     │                        │                                      │           │
     │                        └──────────────┬───────────────────────┘           │
@@ -2444,13 +2377,13 @@ User presses Ctrl+3
 
     Connection characteristics:
 
-    ①②③④  SSE: auto-reconnect (3s retry), Last-Event-ID replay,
+    ①②③  SSE: auto-reconnect (3s retry), Last-Event-ID replay,
            30s heartbeat, survives network blips
 
-    ⑤      NDJSON: one per active chat, 5-minute timeout,
-           cancellable via ⑨, streams until complete/error/cancelled
+    ④      NDJSON: one per active chat, 5-minute timeout,
+           cancellable via ⑧, streams until complete/error/cancelled
 
-    ⑥-⑫   REST: short-lived, request-response, <30s timeout
+    ⑤-⑪   REST: short-lived, request-response, <30s timeout
 
 
 
@@ -2464,7 +2397,7 @@ User presses Ctrl+3
     ┌─ GUI Process (Swift) ──────────────────────────────────────────────────────┐
     │                                                                            │
     │  Ephemeral (in-memory, lost on restart):                                   │
-    │  ├── Current chat room selection                                           │
+    │  ├── Active conversation UI state                                          │
     │  ├── Scroll position, UI state                                             │
     │  ├── Streaming accumulation buffers                                        │
     │  ├── SSE connection state                                                  │

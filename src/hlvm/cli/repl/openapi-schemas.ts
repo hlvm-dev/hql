@@ -45,6 +45,11 @@
  *           type: integer
  *         session_id:
  *           type: string
+ *         stateless:
+ *           type: boolean
+ *           description: |
+ *             When true, use a fresh hidden session for this request only
+ *             without rebinding the daemon's active conversation.
  *         order:
  *           type: integer
  *           description: Monotonic order within the session.
@@ -290,7 +295,7 @@
  *         expected_version:
  *           type: integer
  *           description: Optimistic concurrency — reject if session has been modified.
- *       required: [mode, session_id, messages]
+ *       required: [mode, messages]
  *     Error:
  *       type: object
  *       properties:

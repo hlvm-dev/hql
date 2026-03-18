@@ -3,7 +3,7 @@
  * Extracted from chat.ts for modularity.
  */
 
-import { pushSSEEvent, SESSIONS_CHANNEL } from "../../../store/sse-store.ts";
+import { pushSSEEvent } from "../../../store/sse-store.ts";
 import {
   cancelRequestMessages,
   updateMessage,
@@ -69,8 +69,14 @@ export function setAgentReadyPromise(
   }
 }
 
-export function pushSessionUpdatedEvent(sessionId: string): void {
-  pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: sessionId });
+export function pushConversationUpdatedEvent(
+  sessionId: string,
+  data: Record<string, unknown> = {},
+): void {
+  pushSSEEvent(sessionId, "conversation_updated", {
+    session_id: sessionId,
+    ...data,
+  });
 }
 
 export function getLastUserMessage(
@@ -82,31 +88,6 @@ export function getLastUserMessage(
   return undefined;
 }
 
-export function cancelSessionRequests(sessionId: string): number {
-  let count = 0;
-  for (const [requestId, entry] of activeRequests) {
-    if (entry.sessionId !== sessionId) continue;
-
-    if (entry.cancel) {
-      entry.cancel();
-    } else {
-      entry.controller.abort();
-    }
-
-    activeRequests.delete(requestId);
-    count++;
-  }
-  return count;
-}
-
-export function handleSessionCancel(sessionId: string): Response {
-  const count = cancelSessionRequests(sessionId);
-  return Response.json({
-    cancelled: count > 0,
-    session_id: sessionId,
-    cancelled_count: count,
-  });
-}
 
 export function emitCancellation(
   assistantMessageId: number,
@@ -130,7 +111,7 @@ export function emitCancellation(
     content: partialText,
     cancelled: true,
   });
-  pushSessionUpdatedEvent(sessionId);
+  pushConversationUpdatedEvent(sessionId);
   emit({
     event: "cancelled",
     request_id: requestId,

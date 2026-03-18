@@ -8,7 +8,6 @@
  *   (config.get "model")       // Configuration
  *   (bindings.list)             // Persistent definitions
  *   (memory)                    // Assistant-visible durable memory
- *   (session.list)             // Chat sessions
  *   (history.list)             // Command history
  *   (ai.generate "prompt")     // AI capabilities
  *   (ai.models.list)           // Model management
@@ -21,7 +20,6 @@
 import { config } from "./config.ts";
 import { bindings } from "./bindings.ts";
 import { memory } from "./memory.ts";
-import { session } from "./session.ts";
 import { history, setReplState } from "./history.ts";
 import { ai } from "./ai.ts";
 import {
@@ -44,7 +42,6 @@ export {
   bindings,
   memory,
   runtime,
-  session,
   setAbortSignal,
   setReplState,
   setRuntimeState,
@@ -83,7 +80,6 @@ export function registerApis(options?: RegisterApisOptions): void {
   global.config = config;
   global.bindings = bindings;
   global.memory = memory;
-  global.session = session;
   global.history = history;
   global.ai = ai;
   global.runtime = runtime;

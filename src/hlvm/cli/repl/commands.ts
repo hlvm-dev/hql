@@ -1,6 +1,6 @@
 /**
  * HLVM REPL Commands
- * Handles slash-prefixed commands like /help, /new, and /flush.
+ * Handles slash-prefixed commands like /help and /flush.
  */
 
 import { ANSI_COLORS } from "../ansi.ts";
@@ -9,7 +9,6 @@ import { handleConfigCommand } from "./config/index.ts";
 import { registry } from "../repl-ink/keybindings/index.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
-import { clearCurrentSession } from "../../api/session.ts";
 import { normalizeModelId } from "../../../common/config/types.ts";
 import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
 import { listRuntimeMcpServers } from "../../runtime/host-client.ts";
@@ -71,7 +70,6 @@ function createOutputWriter(
 
 // Commands handled by App.tsx (not in the `commands` record below)
 const APP_HANDLED_COMMANDS: readonly { name: string; description: string }[] = [
-  { name: "/resume", description: "Switch to another session" },
   { name: "/tasks", description: "View background tasks" },
   { name: "/bg", description: "Push current eval to background" },
 ];
@@ -125,14 +123,6 @@ export const commands: Record<string, Command> = {
     description: "Show help message",
     handler: (_state, _args, context) => {
       context.output(generateHelpText());
-    },
-  },
-
-  "/new": {
-    description: "Start a fresh conversation session",
-    handler: () => {
-      clearCurrentSession();
-      log.raw.clear();
     },
   },
 
@@ -252,7 +242,7 @@ export const commands: Record<string, Command> = {
     },
   },
   // NOTE: /tasks is handled by App.tsx to open BackgroundTasksOverlay
-  // /bg, /resume, and /tasks are handled by App.tsx to manage interactive UI state.
+  // /bg and /tasks are handled by App.tsx to manage interactive UI state.
 };
 
 /** Unified catalog of all slash commands (derived from `commands` + App-handled commands). */

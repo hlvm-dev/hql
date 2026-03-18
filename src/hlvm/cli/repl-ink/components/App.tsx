@@ -14,7 +14,6 @@ import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";
-import { SessionPicker } from "./SessionPicker.tsx";
 import { ConfigOverlay, type ConfigOverlayState } from "./ConfigOverlay.tsx";
 import {
   CommandPaletteOverlay,
@@ -55,7 +54,6 @@ import {
   type SurfacePanel,
   useOverlayPanel,
 } from "../hooks/useOverlayPanel.ts";
-import { useSessionPicker } from "../hooks/useSessionPicker.ts";
 import { useConversationComposer } from "../hooks/useConversationComposer.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
 import type { EvalResult } from "../types.ts";
@@ -71,7 +69,6 @@ import { useTheme } from "../../theme/index.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 import { isCommand, runCommand } from "../../repl/commands.ts";
-import type { SessionInitOptions } from "../../repl/session/types.ts";
 import { ensureError, truncate } from "../../../../common/utils.ts";
 import {
   type HlvmConfig,
@@ -93,10 +90,6 @@ import {
   getCustomKeybindingsSnapshot,
   setCustomKeybindingsSnapshot,
 } from "../keybindings/custom-bindings.ts";
-import {
-  clearCurrentSession,
-  session as sessionApi,
-} from "../../../api/session.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
 import { describeConversationAttachmentMimeTypeError } from "../../attachment-policy.ts";
 import {
@@ -124,7 +117,6 @@ interface CurrentEval {
 
 interface AppProps {
   showBanner?: boolean;
-  sessionOptions?: SessionInitOptions;
   initialConfig?: HlvmConfig;
 }
 
@@ -187,7 +179,7 @@ function sanitizeHistoryInput(input: string): string {
  * App wrapper - provides ReplContext for FRP state management
  */
 export function App(
-  { showBanner = true, sessionOptions, initialConfig }: AppProps,
+  { showBanner = true, initialConfig }: AppProps,
 ): React.ReactElement {
   const stateRef = useRef<ReplState>(new ReplState());
 
@@ -195,7 +187,6 @@ export function App(
     <ReplProvider replState={stateRef.current}>
       <AppContent
         showBanner={showBanner}
-        sessionOptions={sessionOptions}
         initialConfig={initialConfig}
         replState={stateRef.current}
       />
@@ -211,7 +202,7 @@ interface AppContentProps extends AppProps {
  * AppContent - main REPL UI (uses ReplContext for reactive state)
  */
 function AppContent(
-  { showBanner = true, sessionOptions, initialConfig, replState }:
+  { showBanner = true, initialConfig, replState }:
     AppContentProps,
 ): React.ReactElement {
   const { exit } = useApp();
@@ -359,35 +350,12 @@ function AppContent(
     setNextId((n: number) => n + 1);
   }, []);
 
-  // Session picker management
-  const sessionPicker = useSessionPicker({
-    sessionOptions,
-    conversation,
-    addHistoryEntry,
-    setSurfacePanel,
-    setFooterContextUsageLabel,
-  });
-  const {
-    currentSession,
-    setCurrentSession,
-    pickerSessions,
-    setPickerSessions,
-    setPendingResumeInput,
-    resumeConversationSession,
-    handlePickerSelect,
-    handlePickerCancel,
-  } = sessionPicker;
-
   // Agent runner: conversation execution, interaction queue, force-interrupt
   const agentRunner = useAgentRunner({
     conversation,
     agentExecutionMode,
     configuredContextWindow,
     refreshRuntimeConfigState,
-    applyRuntimeConfigState,
-    modelSelection,
-    currentSession,
-    setCurrentSession,
     setIsEvaluating,
     setFooterContextUsageLabel,
     setSurfacePanel,
@@ -601,27 +569,6 @@ function AppContent(
     hasConversationContext,
   ]);
 
-  const startNewConversationSession = useCallback(() => {
-    flushReplOutput();
-    restoreComposerDraft(null);
-    clearCurrentSession();
-    setCurrentSession(null);
-    if (hasConversationContext) {
-      closeConversationMode({ clearConversation: true });
-      return;
-    }
-    interactionResolversRef.current.clear();
-    setInteractionQueue([]);
-    setFooterContextUsageLabel("");
-    setActiveOverlay("none");
-    setSurfacePanel("none");
-  }, [
-    closeConversationMode,
-    flushReplOutput,
-    hasConversationContext,
-    restoreComposerDraft,
-  ]);
-
   const handleAppExit = useCallback(() => {
     replState.flushHistorySync();
     exit();
@@ -731,8 +678,7 @@ function AppContent(
         commandArgs.length === 0;
       const isPanelCommand = commandName === "/help" ||
         commandName === "/config" || commandName === "/tasks" ||
-        commandName === "/bg" || commandName === "/resume" ||
-        commandName === "/new" || commandName === "/flush" ||
+        commandName === "/bg" || commandName === "/flush" ||
         opensModelPicker;
       const isAnyCommand = isPanelCommand || isCommand(code);
 
@@ -806,35 +752,11 @@ function AppContent(
         return;
       }
 
-      // Handle /resume command
-      if (commandName === "/resume") {
-        if (commandArgs.length > 0) {
-          await resumeConversationSession(commandArgs, code, commandArgs);
-          return;
-        }
-        const sessions = await sessionApi.list({ limit: 20 });
-
-        if (sessions.length === 0) {
-          addHistoryEntry(code, { success: true, value: "No sessions found" });
-        } else {
-          setPendingResumeInput(code); // Store command for history
-          setPickerSessions(sessions);
-          setSurfacePanel("picker");
-        }
-        return;
-      }
-
       // Handle /model command - open model picker
       if (opensModelPicker) {
         setModelBrowserParentSurface(surfacePanel);
         setModelBrowserParentOverlay("none");
         setSurfacePanel("models");
-        return;
-      }
-
-      // Handle /new command - start a fresh session without deleting saved history
-      if (commandName === "/new") {
-        startNewConversationSession();
         return;
       }
 
@@ -1225,15 +1147,6 @@ function AppContent(
   // overlayScreen removed — overlays are inlined as flat conditional siblings in JSX
   const standaloneSurfaceScreen = (() => {
     switch (surfacePanel) {
-      case "picker":
-        return (
-          <SessionPicker
-            sessions={pickerSessions}
-            currentSessionId={sessionApi.current()?.id ?? currentSession?.id}
-            onSelect={handlePickerSelect}
-            onCancel={handlePickerCancel}
-          />
-        );
       case "models":
         return (
           <ModelBrowser
@@ -1560,9 +1473,8 @@ async function handleCommand(
       return "Polyglot mode is always on (HQL + JavaScript).";
     case "/hql":
       return "Polyglot mode is always on (HQL + JavaScript).";
-    case "/new":
     case "/flush":
-      return null; // Screen/session resets are handled by App.tsx
+      return null; // Screen resets are handled by App.tsx
     case "/exit":
       await state.flushHistory();
       state.flushHistorySync();

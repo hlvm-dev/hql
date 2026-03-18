@@ -14,19 +14,8 @@ import { findFreePort, withEnv } from "../../shared/light-helpers.ts";
 
 const encoder = new TextEncoder();
 
-interface FakeSession {
-  id: string;
-  title: string;
-  created_at: string;
-  updated_at: string;
-  message_count: number;
-  session_version: number;
-  metadata: string | null;
-}
-
 async function withChatHost(
   options: {
-    sessions?: FakeSession[];
     onChat?: (body: Record<string, unknown>) => void;
   },
   fn: (helpers: { output: () => string }) => Promise<void>,
@@ -34,7 +23,6 @@ async function withChatHost(
   const port = await findFreePort();
   const authToken = "test-auth-token";
   const identity = await getRuntimeHostIdentity();
-  const sessions = options.sessions ?? [];
   const raw = log.raw as {
     log: (text: string) => void;
     write: (text: string) => void;
@@ -64,10 +52,6 @@ async function withChatHost(
       });
     }
 
-    if (url.pathname === "/api/sessions") {
-      return Response.json({ sessions });
-    }
-
     if (url.pathname === "/api/config") {
       return Response.json({
         model: "ollama/llama3.1:8b",
@@ -75,16 +59,6 @@ async function withChatHost(
         endpoint: "http://localhost:11434",
         theme: "sicp",
       });
-    }
-
-    const sessionMatch = url.pathname.match(/^\/api\/sessions\/(.+)$/);
-    if (sessionMatch) {
-      const sessionId = decodeURIComponent(sessionMatch[1]);
-      const session = sessions.find((item) => item.id === sessionId);
-      if (!session) {
-        return Response.json({ error: "Session not found" }, { status: 404 });
-      }
-      return Response.json(session);
     }
 
     if (url.pathname === "/api/chat") {
@@ -139,17 +113,17 @@ async function withChatHost(
   }
 }
 
-Deno.test("chat command: rejects bare --resume because plain chat has no picker", async () => {
+Deno.test("chat command: rejects removed session flags", async () => {
   await assertRejects(
     async () => {
-      parseChatArgs(["--resume", "--model", "ollama/llama3.1:8b", "hello"]);
+      parseChatArgs(["--resume", "hello"]);
     },
     Error,
-    "--resume requires a session id",
+    "Unknown option: --resume",
   );
 });
 
-Deno.test("chat command: one-shot plain chat streams through the runtime host", async () => {
+Deno.test("chat command: one-shot plain chat streams through the active conversation host path", async () => {
   let capturedChatBody: Record<string, unknown> | null = null;
 
   await withChatHost({
@@ -167,90 +141,6 @@ Deno.test("chat command: one-shot plain chat streams through the runtime host", 
         ?.content,
       "hello",
     );
-    assertEquals(typeof capturedChatBody?.session_id, "string");
-  });
-});
-
-Deno.test("chat command: default behavior reuses the latest host session", async () => {
-  const sessions: FakeSession[] = [{
-    id: "sess-default",
-    title: "Latest",
-    created_at: "2026-03-07T00:00:00.000Z",
-    updated_at: "2026-03-07T00:00:00.000Z",
-    message_count: 4,
-    session_version: 4,
-    metadata: null,
-  }];
-  let capturedSessionId = "";
-
-  await withChatHost({
-    sessions,
-    onChat: (body) => {
-      capturedSessionId = String(body.session_id);
-    },
-  }, async () => {
-    await chatCommand([
-      "--model",
-      "ollama/llama3.1:8b",
-      "follow up",
-    ]);
-    assertEquals(capturedSessionId, "sess-default");
-  });
-});
-
-Deno.test("chat command: --continue reuses the latest host session", async () => {
-  const sessions: FakeSession[] = [{
-    id: "sess-latest",
-    title: "Latest",
-    created_at: "2026-03-07T00:00:00.000Z",
-    updated_at: "2026-03-07T00:00:00.000Z",
-    message_count: 4,
-    session_version: 4,
-    metadata: null,
-  }];
-  let capturedSessionId = "";
-
-  await withChatHost({
-    sessions,
-    onChat: (body) => {
-      capturedSessionId = String(body.session_id);
-    },
-  }, async () => {
-    await chatCommand([
-      "--model",
-      "ollama/llama3.1:8b",
-      "--continue",
-      "second",
-    ]);
-    assertEquals(capturedSessionId, "sess-latest");
-  });
-});
-
-Deno.test("chat command: --resume <id> validates and uses the requested host session", async () => {
-  const sessions: FakeSession[] = [{
-    id: "sess-explicit",
-    title: "Explicit",
-    created_at: "2026-03-07T00:00:00.000Z",
-    updated_at: "2026-03-07T00:00:00.000Z",
-    message_count: 2,
-    session_version: 2,
-    metadata: null,
-  }];
-  let capturedSessionId = "";
-
-  await withChatHost({
-    sessions,
-    onChat: (body) => {
-      capturedSessionId = String(body.session_id);
-    },
-  }, async () => {
-    await chatCommand([
-      "--model",
-      "ollama/llama3.1:8b",
-      "--resume",
-      "sess-explicit",
-      "third",
-    ]);
-    assertEquals(capturedSessionId, "sess-explicit");
+    assertEquals(capturedChatBody?.session_id, undefined);
   });
 });

@@ -11,9 +11,6 @@ type SSECallback = (event: SSEEvent) => void;
 
 const MAX_BUFFER_SIZE = 1024;
 
-/** Well-known SSE channel for session-level events (created/updated/deleted) */
-export const SESSIONS_CHANNEL = "__sessions__";
-
 // MARK: - Stored Properties
 
 const buffers = new Map<string, SSEEvent[]>();

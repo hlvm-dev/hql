@@ -18,13 +18,31 @@ function assertOrderedSubstrings(output: string, parts: string[]): void {
 }
 
 binaryTest(
+  "CLI ask: rejects removed --fresh flag",
+  async () => {
+    await withTempDir(async (dir) => {
+      const result = await runCLI("ask", ["--fresh", "inspect the project"], {
+        cwd: dir,
+        env: {
+          HLVM_DIR: dir,
+        },
+      });
+
+      const output = normalizeCliOutput(result.stdout + result.stderr);
+      assertEquals(result.success, false, output);
+      assertStringIncludes(output, "Unknown option: --fresh");
+    });
+  },
+);
+
+binaryTest(
   "CLI ask: fixture-backed default transcript shows todo and delegation progress",
   async () => {
     await withTempDir(async (dir) => {
       const port = await findFreePort();
       const result = await runCLI(
         "ask",
-        ["--fresh", "--model", "ollama/test-fixture", "inspect the project"],
+        ["--stateless", "--model", "ollama/test-fixture", "inspect the project"],
         {
           cwd: dir,
           env: {
@@ -58,7 +76,7 @@ binaryTest(
       const result = await runCLI(
         "ask",
         [
-          "--fresh",
+          "--stateless",
           "--model",
           "ollama/test-fixture",
           "inspect the project and summarize findings",
@@ -94,7 +112,7 @@ binaryTest(
       const result = await runCLI(
         "ask",
         [
-          "--fresh",
+          "--stateless",
           "--verbose",
           "--model",
           "ollama/test-fixture",
@@ -131,7 +149,7 @@ binaryTest(
       const result = await runCLI(
         "ask",
         [
-          "--fresh",
+          "--stateless",
           "--json",
           "--model",
           "ollama/test-fixture",
@@ -181,7 +199,7 @@ binaryTest(
       const result = await runCLI(
         "ask",
         [
-          "--fresh",
+          "--stateless",
           "--verbose",
           "--model",
           "ollama/test-fixture",
@@ -216,7 +234,7 @@ binaryTest(
       const result = await runCLI(
         "ask",
         [
-          "--fresh",
+          "--stateless",
           "--json",
           "--model",
           "ollama/test-fixture",
@@ -304,7 +322,7 @@ binaryTest(
       const result = await runCLI(
         "ask",
         [
-          "--fresh",
+          "--stateless",
           "--verbose",
           "--model",
           "ollama/test-fixture",

@@ -17,7 +17,6 @@ import { resetTerminalViewport } from "../../ansi.ts";
 
 export type SurfacePanel =
   | "none"
-  | "picker"
   | "models"
   | "model-setup"
   | "conversation";
@@ -52,8 +51,7 @@ function isModalOverlayPanel(panel: string): boolean {
 }
 
 function usesStandaloneSurfacePanel(surfacePanel: string): boolean {
-  return surfacePanel === "picker" || surfacePanel === "models" ||
-    surfacePanel === "model-setup";
+  return surfacePanel === "models" || surfacePanel === "model-setup";
 }
 
 interface UseOverlayPanelInput {

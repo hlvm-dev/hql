@@ -36,7 +36,7 @@ import {
   awaitInteractionResponse,
   getAgentReadyPromise,
   getLastUserMessage,
-  pushSessionUpdatedEvent,
+  pushConversationUpdatedEvent,
   setAgentReadyPromise,
 } from "./chat-session.ts";
 import { streamDirectChatFallback } from "./chat-direct.ts";
@@ -60,6 +60,10 @@ export async function handleAgentMode(
   requestId: string,
   modelInfo?: ModelInfo | null,
 ): Promise<ChatResultStats> {
+  const sessionId = body.session_id;
+  if (!sessionId) {
+    throw new ValidationError("Missing active conversation session", "chat");
+  }
   const effectiveToolDenylist = body.tool_denylist?.length
     ? [...body.tool_denylist]
     : [...DEFAULT_TOOL_DENYLIST];
@@ -101,7 +105,7 @@ export async function handleAgentMode(
     requestMessages: body.messages,
     storedMessages: shouldHonorRequestMessages(body.messages)
       ? []
-      : loadAllMessages(body.session_id),
+      : loadAllMessages(sessionId),
     assistantMessageId,
     maxGroups: AGENT_CONTEXT_HISTORY_LIMIT,
     modelKey: resolvedModel,
@@ -115,7 +119,7 @@ export async function handleAgentMode(
   const result = await runAgentQuery({
     query,
     model: resolvedModel,
-    sessionId: body.session_id,
+    sessionId,
     transcriptPersistenceMode: "caller",
     permissionMode: body.permission_mode ??
       getPermissionMode(config.snapshot) ??
@@ -162,17 +166,17 @@ export async function handleAgentMode(
               failedToolCalls += 1;
             }
             const toolMsg = insertMessage({
-              session_id: body.session_id,
+              session_id: sessionId,
               role: "tool",
               content: event.content ?? "",
               tool_name: event.name,
               sender_type: "agent",
               request_id: requestId,
             });
-            pushSSEEvent(body.session_id, "message_added", {
+            pushSSEEvent(sessionId, "message_added", {
               message: toolMsg,
             });
-            pushSessionUpdatedEvent(body.session_id);
+            pushConversationUpdatedEvent(sessionId);
             emit({
               event: "tool_end",
               name: event.name,
@@ -360,7 +364,7 @@ export async function handleAgentMode(
     if (shouldFallbackToDirectChat) {
       const fallbackText = await streamDirectChatFallback(
         body.messages,
-        body.session_id,
+        sessionId,
         assistantMessageId,
         resolvedModel,
         body,
@@ -386,11 +390,11 @@ export async function handleAgentMode(
     }
 
     updateMessage(assistantMessageId, { content: finalText });
-    pushSSEEvent(body.session_id, "message_updated", {
+    pushSSEEvent(sessionId, "message_updated", {
       id: assistantMessageId,
       content: finalText,
     });
-    pushSessionUpdatedEvent(body.session_id);
+    pushConversationUpdatedEvent(sessionId);
   }
 
   emit({ event: "result_stats", stats: result.stats });
@@ -405,6 +409,10 @@ export async function handleClaudeCodeAgentMode(
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
 ): Promise<void> {
+  const sessionId = body.session_id;
+  if (!sessionId) {
+    throw new ValidationError("Missing active conversation session", "chat");
+  }
   const lastUserMessage = getLastUserMessage(body.messages);
   const query = lastUserMessage?.content ?? "";
 
@@ -424,7 +432,7 @@ export async function handleClaudeCodeAgentMode(
   let claudeCodeSessionId: string | null = null;
   let existingMeta: Record<string, unknown> = {};
   if (sessionMemoryEnabled) {
-    const session = getSession(body.session_id);
+    const session = getSession(sessionId);
     const parsedMeta = parseSessionMemoryMetadata(session?.metadata);
     existingMeta = parsedMeta.existingMeta;
     claudeCodeSessionId = parsedMeta.claudeCodeSessionId;
@@ -433,7 +441,7 @@ export async function handleClaudeCodeAgentMode(
   const result = await spawnClaudeCodeProcess(
     query,
     claudeCodeSessionId,
-    body.session_id,
+    sessionId,
     assistantMessageId,
     sessionMemoryEnabled,
     existingMeta,
@@ -448,13 +456,13 @@ export async function handleClaudeCodeAgentMode(
         `Claude Code --resume failed (session ${claudeCodeSessionId}), retrying fresh`,
       );
       existingMeta.claudeCodeSessionId = undefined;
-      updateSession(body.session_id, {
+      updateSession(sessionId, {
         metadata: JSON.stringify(existingMeta),
       });
       const retryResult = await spawnClaudeCodeProcess(
         query,
         null,
-        body.session_id,
+        sessionId,
         assistantMessageId,
         sessionMemoryEnabled,
         existingMeta,
@@ -675,7 +683,7 @@ async function spawnClaudeCodeProcess(
       id: assistantMessageId,
       content: fullText,
     });
-    pushSessionUpdatedEvent(hlvmSessionId);
+    pushConversationUpdatedEvent(hlvmSessionId);
   }
 
   return { success: true };

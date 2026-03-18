@@ -2,7 +2,7 @@
  * Minimal HTTP Router
  *
  * Supports :param path segments. No external dependencies.
- * Pattern: "/api/sessions/:id/messages" -> params { id: "uuid" }
+ * Pattern: "/api/chat/messages/:messageId" -> params { messageId: "123" }
  */
 
 export type RouteParams = Record<string, string>;

@@ -15,14 +15,6 @@ export const commandKeybindings: Keybinding[] = [
     action: { type: "SLASH_COMMAND", cmd: "/help" },
   },
   {
-    id: "/new",
-    display: "/new",
-    label: "Fresh session",
-    description: "Start a new conversation without deleting saved history",
-    category: "Commands",
-    action: { type: "SLASH_COMMAND", cmd: "/new" },
-  },
-  {
     id: "/flush",
     display: "/flush",
     label: "Flush screen",
@@ -69,14 +61,6 @@ export const commandKeybindings: Keybinding[] = [
     description: "Push the active evaluation into the background",
     category: "Commands",
     action: { type: "SLASH_COMMAND", cmd: "/bg" },
-  },
-  {
-    id: "/resume",
-    display: "/resume",
-    label: "Switch session",
-    description: "Switch to another session",
-    category: "Commands",
-    action: { type: "SLASH_COMMAND", cmd: "/resume" },
   },
   {
     id: "/mcp",

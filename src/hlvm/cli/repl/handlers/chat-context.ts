@@ -12,6 +12,7 @@
 import { getContextWindow } from "../../../../common/config/selectors.ts";
 import { isObjectValue } from "../../../../common/utils.ts";
 import { config } from "../../../api/config.ts";
+import { log } from "../../../api/log.ts";
 import {
   ContextManager,
   type Message as AgentMessage,

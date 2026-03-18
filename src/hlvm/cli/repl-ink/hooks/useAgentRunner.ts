@@ -31,12 +31,6 @@ import {
 import { ensureError } from "../../../../common/utils.ts";
 
 import { ConfigError } from "../../../../common/config/types.ts";
-import type { ModelSelectionState } from "../../../../common/config/model-selection.ts";
-import {
-  ensureCurrentSession,
-  session as sessionApi,
-  syncCurrentSession,
-} from "../../../api/session.ts";
 import {
   checkModelAttachmentIds,
   describeAttachmentFailure,
@@ -46,7 +40,6 @@ import { runChatViaHost } from "../../../runtime/host-client.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
 import type { ReplState } from "../../repl/state.ts";
-import type { SessionMeta } from "../../repl/session/types.ts";
 import type { OverlayPanel } from "./useOverlayPanel.ts";
 
 const CONVERSATION_DELEGATE_TOOL_DENYLIST = [
@@ -77,13 +70,6 @@ interface UseAgentRunnerInput {
   refreshRuntimeConfigState: () => Promise<
     { activeModelId: string | null }
   >;
-  applyRuntimeConfigState: (
-    cfg: Record<string, unknown>,
-    activeModelId?: string,
-  ) => ModelSelectionState;
-  modelSelection: { activeModelId: string | null };
-  currentSession: SessionMeta | null;
-  setCurrentSession: Dispatch<SetStateAction<SessionMeta | null>>;
   setIsEvaluating: Dispatch<SetStateAction<boolean>>;
   setFooterContextUsageLabel: (label: string) => void;
   setSurfacePanel: Dispatch<SetStateAction<SurfacePanel>>;
@@ -151,10 +137,6 @@ export function useAgentRunner(
     agentExecutionMode,
     configuredContextWindow,
     refreshRuntimeConfigState,
-    applyRuntimeConfigState,
-    modelSelection,
-    currentSession,
-    setCurrentSession,
     setIsEvaluating,
     setFooterContextUsageLabel,
     setSurfacePanel,
@@ -269,12 +251,6 @@ export function useAgentRunner(
         }
       }
 
-      const sessionMeta = sessionApi.current() ?? currentSession ??
-        await ensureCurrentSession();
-      if (!currentSession || currentSession.id !== sessionMeta.id) {
-        setCurrentSession(sessionMeta);
-      }
-
       let textBuffer = "";
       let finalCitations: AssistantCitation[] | undefined;
       // Plan mode should feel status-driven, not like a streaming chat reply.
@@ -294,7 +270,6 @@ export function useAgentRunner(
       };
       const result = await runChatViaHost({
         mode: "agent",
-        sessionId: sessionMeta.id,
         messages: [{
           role: "user",
           content: query,
@@ -486,11 +461,6 @@ export function useAgentRunner(
       } else {
         setFooterContextUsageLabel("");
       }
-
-      const refreshed = await syncCurrentSession(sessionMeta.id);
-      if (refreshed) {
-        setCurrentSession(refreshed);
-      }
     } catch (error) {
       if (controller.signal.aborted) {
         if (isActiveConversationRun()) {
@@ -511,12 +481,9 @@ export function useAgentRunner(
       }
     }
   }, [
-    applyRuntimeConfigState,
     agentExecutionMode,
     configuredContextWindow,
-    modelSelection,
     conversation,
-    currentSession,
     refreshRuntimeConfigState,
   ]);
 

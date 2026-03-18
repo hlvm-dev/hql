@@ -13,21 +13,15 @@ import { RuntimeError } from "../../../src/common/error.ts";
 import {
   __testOnlyGetRuntimeStartLockPath,
   addRuntimeMcpServer,
-  addRuntimeSessionMessage,
-  createRuntimeSession,
   deleteRuntimeModel,
-  deleteRuntimeSession,
   getRuntimeAttachment,
   getRuntimeConfig,
   getRuntimeConfigApi,
   getRuntimeModel,
   getRuntimeModelDiscovery,
   getRuntimeProviderStatus,
-  getRuntimeSession,
   listRuntimeInstalledModels,
   listRuntimeMcpServers,
-  listRuntimeSessionMessages,
-  listRuntimeSessions,
   loginRuntimeMcpServer,
   logoutRuntimeMcpServer,
   pullRuntimeModelViaHost,
@@ -40,8 +34,6 @@ import {
 } from "../../../src/hlvm/runtime/host-client.ts";
 import type { AttachmentRecord } from "../../../src/hlvm/attachments/types.ts";
 import { withRuntimePortOverrideForTests } from "../../../src/hlvm/runtime/host-config.ts";
-import type { RuntimeSessionMessage } from "../../../src/hlvm/runtime/session-protocol.ts";
-import { deriveDefaultSessionKey } from "../../../src/hlvm/runtime/session-key.ts";
 import { getPlatform, setPlatform } from "../../../src/platform/platform.ts";
 import type { PlatformHttpServerHandle } from "../../../src/platform/types.ts";
 import {
@@ -284,10 +276,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       assertEquals(result.stats.usage?.totalTokens, 15);
 
       assert(capturedChatBody !== null);
-      assertEquals(
-        capturedChatBody?.session_id,
-        deriveDefaultSessionKey(),
-      );
+      assertEquals(capturedChatBody?.session_id, undefined);
       assertEquals(capturedChatBody?.permission_mode, "auto-edit");
       assertEquals(capturedChatBody?.context_window, 4096);
       assertEquals(capturedChatBody?.skip_session_history, undefined);
@@ -636,85 +625,15 @@ Deno.test("runAgentQueryViaHost maps team and batch events through the host stre
   }
 });
 
-Deno.test("runtime host client lists sessions, resolves session lookups, and streams direct chat", async () => {
+Deno.test("runtime host client streams direct chat through the active conversation contract", async () => {
   const port = await findFreePort();
   const authToken = "test-auth-token";
-  const sessions = [{
-    id: "sess-1",
-    title: "First",
-    created_at: "2026-03-07T00:00:00.000Z",
-    updated_at: "2026-03-07T00:00:00.000Z",
-    message_count: 2,
-    session_version: 3,
-    metadata: null,
-  }];
-  const messages: RuntimeSessionMessage[] = [{
-    id: 1,
-    session_id: "sess-1",
-    order: 1,
-    role: "user",
-    content: "hello",
-    client_turn_id: "turn-1",
-    request_id: null,
-    sender_type: "user",
-    sender_detail: null,
-    attachment_ids: undefined,
-    tool_calls: null,
-    tool_name: null,
-    tool_call_id: null,
-    cancelled: 0,
-    created_at: "2026-03-07T00:00:00.000Z",
-  }];
-  let capturedChatBody: Record<string, unknown> | null = null;
-  let createdSessionBody: Record<string, unknown> | null = null;
-  let appendedMessageBody: Record<string, unknown> | null = null;
-  let deletedSessionId = "";
+  let capturedChatBody = null;
 
   const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
     if (url.pathname === "/health") {
       return Response.json(await createRuntimeHostHealthResponse(authToken));
-    }
-
-    if (url.pathname === "/api/sessions") {
-      if (req.method === "POST") {
-        createdSessionBody = await req.json();
-        return Response.json({
-          id: "created-1",
-          title: "Created",
-          created_at: "2026-03-07T00:01:00.000Z",
-          updated_at: "2026-03-07T00:01:00.000Z",
-          message_count: 0,
-          session_version: 1,
-          metadata: null,
-        }, { status: 201 });
-      }
-      return Response.json({ sessions });
-    }
-
-    if (url.pathname === "/api/sessions/sess-1") {
-      if (req.method === "DELETE") {
-        deletedSessionId = "sess-1";
-        return Response.json({ deleted: true });
-      }
-      return Response.json(sessions[0]);
-    }
-
-    if (url.pathname === "/api/sessions/sess-1/messages") {
-      if (req.method === "POST") {
-        appendedMessageBody = await req.json();
-        return Response.json(messages[0], { status: 201 });
-      }
-      return Response.json({
-        messages,
-        total: messages.length,
-        has_more: false,
-        session_version: 3,
-      });
-    }
-
-    if (url.pathname === "/api/sessions/missing") {
-      return Response.json({ error: "Session not found" }, { status: 404 });
     }
 
     if (url.pathname === "/api/chat") {
@@ -756,52 +675,23 @@ Deno.test("runtime host client lists sessions, resolves session lookups, and str
 
   try {
     await withEnv("HLVM_REPL_PORT", String(port), async () => {
-      const listed = await listRuntimeSessions();
-      const created = await createRuntimeSession({ title: "Created" });
-      const found = await getRuntimeSession("sess-1");
-      const missing = await getRuntimeSession("missing");
-      const listedMessages = await listRuntimeSessionMessages("sess-1");
-      const added = await addRuntimeSessionMessage("sess-1", {
-        role: "assistant",
-        content: "reply",
-        sender_type: "assistant",
-      });
-      const deleted = await deleteRuntimeSession("sess-1");
-      const tokens: string[] = [];
-
+      const tokens = [];
       const result = await runDirectChatViaHost({
         query: "hello",
-        sessionId: "sess-1",
         model: "ollama/llama3.1:8b",
         callbacks: {
           onToken: (text) => tokens.push(text),
         },
       });
 
-      assertEquals(listed, sessions);
-      assertEquals(created.id, "created-1");
-      assertEquals(createdSessionBody?.title, "Created");
-      assertEquals(found, sessions[0]);
-      assertEquals(missing, null);
-      assertEquals(listedMessages.length, 1);
-      assertEquals(listedMessages[0]!.id, messages[0]!.id);
-      assertEquals(listedMessages[0]!.content, messages[0]!.content);
-      assertEquals(listedMessages[0]!.sender_type, messages[0]!.sender_type);
-      assertEquals(listedMessages[0]!.role, messages[0]!.role);
-      assertEquals(listedMessages[0]!.created_at, messages[0]!.created_at);
-      assertEquals(added.id, 1);
-      assertEquals(appendedMessageBody?.content, "reply");
-      assertEquals(deleted, true);
-      assertEquals(deletedSessionId, "sess-1");
       assertEquals(tokens, ["reply:hello"]);
       assertEquals(result.text, "reply:hello");
       assertEquals(result.sessionVersion, 4);
       assertEquals(capturedChatBody?.mode, "chat");
-      assertEquals(capturedChatBody?.session_id, "sess-1");
+      assertEquals(capturedChatBody?.session_id, undefined);
       assertEquals(capturedChatBody?.model, "ollama/llama3.1:8b");
       assertEquals(
-        (capturedChatBody?.messages as Array<Record<string, unknown>>)[0]
-          ?.content,
+        capturedChatBody?.messages[0]?.content,
         "hello",
       );
     });
@@ -1160,10 +1050,10 @@ Deno.test("runAgentQueryViaHost preserves structured HQL codes from streamed hos
   }
 });
 
-Deno.test("runAgentQueryViaHost uses ephemeral session ids for fresh sessions", async () => {
+Deno.test("runAgentQueryViaHost sends stateless requests without rebinding the active conversation", async () => {
   const port = await findFreePort();
   const authToken = "test-auth-token";
-  let capturedSessionId = "";
+  let capturedChatBody = null;
 
   const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
@@ -1172,8 +1062,7 @@ Deno.test("runAgentQueryViaHost uses ephemeral session ids for fresh sessions", 
     }
 
     if (url.pathname === "/api/chat") {
-      const body = await req.json() as Record<string, unknown>;
-      capturedSessionId = String(body.session_id);
+      capturedChatBody = await req.json();
       const stream = new ReadableStream({
         start(controller) {
           controller.enqueue(
@@ -1214,10 +1103,11 @@ Deno.test("runAgentQueryViaHost uses ephemeral session ids for fresh sessions", 
       await runAgentQueryViaHost({
         query: "fresh run",
         model: "ollama/llama3.1:8b",
-        skipSessionHistory: true,
+        stateless: true,
         callbacks: {},
       });
-      assertStringIncludes(capturedSessionId, "fresh:");
+      assertEquals(capturedChatBody?.stateless, true);
+      assertEquals(capturedChatBody?.session_id, undefined);
     });
   } finally {
     await handle.shutdown();

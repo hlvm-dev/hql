@@ -20,6 +20,7 @@ export interface ChatRequestMessage {
 export interface ChatRequest {
   mode: ChatMode;
   session_id?: string;
+  stateless?: boolean;
   messages: ChatRequestMessage[];
   model?: string;
   fixture_path?: string;

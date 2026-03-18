@@ -75,7 +75,7 @@ EXAMPLES:
   hlvm ask --json "count test files"     # Stream NDJSON events for automation
   hlvm ask --model openai/gpt-4o "summarize this codebase"
   hlvm ask --model anthropic/claude-sonnet-4-5-20250929 "list files"
-  hlvm ask --fresh "hello"               # Start fresh (no prior session history)
+  hlvm ask --stateless "hello"           # Use an isolated hidden session
 
 OPTIONS:
   --help, -h                   Show this help message
@@ -84,7 +84,7 @@ OPTIONS:
   --usage                      Show token usage summary after execution
   --attach <path>              Attach a file input (repeatable)
   --model <provider/model>     Use a specific AI model (e.g., openai/gpt-4o, anthropic/claude-sonnet-4-5-20250929)
-  --fresh                      Start a fresh session (no prior session history)
+  --stateless                  Use an isolated hidden session for this run only
   --auto-edit                  Auto-approve file reads and writes; only confirm destructive ops
   --dangerously-skip-permissions  Skip ALL permission prompts (like Claude Code --dangerously-skip-permissions)
 `);
@@ -401,7 +401,7 @@ export async function askCommand(args: string[]): Promise<void> {
   let verbose = false;
   let jsonOutput = false;
   let showUsage = false;
-  let freshSession = false;
+  let stateless = false;
   let modelOverride: string | undefined;
   let permissionModeOverride: PermissionMode | undefined;
   const attachmentArgs: string[] = [];
@@ -414,8 +414,8 @@ export async function askCommand(args: string[]): Promise<void> {
       jsonOutput = true;
     } else if (arg === "--usage") {
       showUsage = true;
-    } else if (arg === "--fresh") {
-      freshSession = true;
+    } else if (arg === "--stateless") {
+      stateless = true;
     } else if (arg === "--auto-edit") {
       permissionModeOverride = "auto-edit";
     } else if (arg === "--dangerously-skip-permissions") {
@@ -462,7 +462,7 @@ export async function askCommand(args: string[]): Promise<void> {
   const fixturePath = getPlatform().env.get("HLVM_ASK_FIXTURE_PATH")?.trim() ||
     undefined;
   if (fixturePath) {
-    freshSession = true;
+    stateless = true;
   }
 
   const attachmentIds = await resolveAskAttachmentIds(attachmentArgs);
@@ -826,7 +826,7 @@ export async function askCommand(args: string[]): Promise<void> {
       model: resolvedModel,
       fixturePath,
       contextWindow,
-      skipSessionHistory: freshSession,
+      stateless,
       permissionMode: effectivePermissionMode,
       callbacks: {
         onToken,

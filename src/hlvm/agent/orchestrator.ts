@@ -932,7 +932,7 @@ function buildLimitStopMessage(
   return [
     headline,
     buildProgressSummary(state),
-    "Re-run without --fresh to continue from current context.",
+    "Re-run without --stateless to continue from current context.",
   ].join("\n");
 }
 

@@ -6,10 +6,6 @@ import React from "react";
 import { render } from "ink";
 import { App } from "./components/App.tsx";
 import { ThemeProvider } from "../theme/index.ts";
-import {
-  parseSessionFlags,
-  type SessionInitOptions,
-} from "../repl/session/types.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
@@ -24,8 +20,6 @@ import { REPL_RENDER_OPTIONS } from "./render-options.ts";
 
 export interface InkReplOptions {
   showBanner?: boolean;
-  /** Session options for persistence */
-  session?: SessionInitOptions;
 }
 
 export async function startInkRepl(
@@ -36,7 +30,7 @@ export async function startInkRepl(
     return 1;
   }
 
-  const { showBanner = true, session } = options;
+  const { showBanner = true } = options;
   const runtimeConfig = await createRuntimeConfigManager();
   const runtimeSnapshot = await runtimeConfig.sync();
   const initialTheme = setCurrentThemeName(runtimeConfig.getTheme());
@@ -48,7 +42,6 @@ export async function startInkRepl(
       <ThemeProvider initialTheme={initialTheme}>
         <App
           showBanner={showBanner}
-          sessionOptions={session}
           initialConfig={runtimeSnapshot}
         />
       </ThemeProvider>,
@@ -66,6 +59,5 @@ if (import.meta.main) {
 
   startInkRepl({
     showBanner: !args.includes("--no-banner"),
-    session: parseSessionFlags(args),
   }).then((code) => getPlatform().process.exit(code));
 }

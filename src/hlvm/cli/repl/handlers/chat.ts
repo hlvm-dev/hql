@@ -22,7 +22,7 @@ import {
   validateExpectedVersion,
 } from "../../../store/conversation-store.ts";
 import { resolveConversationSessionId } from "../../../store/active-conversation.ts";
-import { pushSSEEvent, SESSIONS_CHANNEL } from "../../../store/sse-store.ts";
+import { pushSSEEvent } from "../../../store/sse-store.ts";
 import {
   ensureInitialModelConfigured,
 } from "../../../../common/ai-default-model.ts";
@@ -46,11 +46,8 @@ import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
 import { evaluateProviderApproval } from "../../../providers/approval.ts";
 import { supportsAgentExecution } from "../../../agent/constants.ts";
 
-// Re-exports consumed by http-server.ts and sessions.ts
 export {
-  cancelSessionRequests,
   handleChatInteraction,
-  handleSessionCancel,
 } from "./chat-session.ts";
 
 import {
@@ -60,7 +57,7 @@ import {
   CLAUDE_CODE_AGENT_MODE,
   emitCancellation,
   getLastUserMessage,
-  pushSessionUpdatedEvent,
+  pushConversationUpdatedEvent,
   TITLE_SEARCH_HISTORY_LIMIT,
 } from "./chat-session.ts";
 import {
@@ -213,7 +210,9 @@ export async function handleChat(req: Request): Promise<Response> {
   if (!body.messages?.length) {
     return jsonError("Missing messages", 400);
   }
-  body.session_id = resolveConversationSessionId(body.session_id);
+  const sessionId = resolveConversationSessionId(undefined, {
+    stateless: body.stateless === true,
+  });
 
   const requestValidationError = validateChatRequestMessages(body.messages);
   if (requestValidationError) {
@@ -235,14 +234,14 @@ export async function handleChat(req: Request): Promise<Response> {
   }
 
   if (body.expected_version !== undefined) {
-    if (!validateExpectedVersion(body.session_id, body.expected_version)) {
+    if (!validateExpectedVersion(sessionId, body.expected_version)) {
       return jsonError("Conflict: session has been modified", 409);
     }
   }
 
   if (currentTurnId) {
     const existing = getMessageByClientTurnId(
-      body.session_id,
+      sessionId,
       currentTurnId,
     );
     if (existing) {
@@ -356,16 +355,8 @@ export async function handleChat(req: Request): Promise<Response> {
   }
 
   const controller = new AbortController();
-  activeRequests.set(requestId, { controller, sessionId: body.session_id });
-
-  const sessionId = body.session_id;
-  const existingSession = getSession(sessionId);
+  activeRequests.set(requestId, { controller, sessionId });
   const session = getOrCreateSession(sessionId);
-  if (!existingSession) {
-    pushSSEEvent(SESSIONS_CHANNEL, "session_created", {
-      session_id: session.id,
-    });
-  }
 
   const persistedRequestMessages = buildRequestMessagesToPersist({
     requestMessages: body.messages,
@@ -385,7 +376,7 @@ export async function handleChat(req: Request): Promise<Response> {
       attachment_ids: message.attachmentIds,
     });
     pushSSEEvent(session.id, "message_added", { message: inserted });
-    pushSessionUpdatedEvent(session.id);
+    pushConversationUpdatedEvent(session.id);
   }
 
   const senderType = body.mode === "agent"
@@ -404,7 +395,7 @@ export async function handleChat(req: Request): Promise<Response> {
   });
   const assistantMessageId = assistantMsg.id;
   pushSSEEvent(session.id, "message_added", { message: assistantMsg });
-  pushSessionUpdatedEvent(session.id);
+  pushConversationUpdatedEvent(session.id);
 
   let partialText = "";
   let cancellationEmitted = false;
@@ -457,7 +448,7 @@ export async function handleChat(req: Request): Promise<Response> {
             id: assistantMessageId,
             content: displayContent,
           });
-          pushSessionUpdatedEvent(sessionId);
+          pushConversationUpdatedEvent(sessionId);
         } catch (pushError) {
           log.warn("Failed to publish chat error update", pushError);
         }
@@ -524,6 +515,7 @@ export async function handleChat(req: Request): Promise<Response> {
         if (effectiveMode === CLAUDE_CODE_AGENT_MODE) {
           await handleClaudeCodeAgentMode(
             body,
+            sessionId,
             assistantMessageId,
             controller.signal,
             emit,
@@ -533,6 +525,7 @@ export async function handleChat(req: Request): Promise<Response> {
           if (supportsAgentExecution(resolvedModel, resolvedModelInfo)) {
             resultStats = await handleAgentMode(
               body,
+              sessionId,
               resolvedModel!,
               assistantMessageId,
               controller.signal,
@@ -584,11 +577,7 @@ export async function handleChat(req: Request): Promise<Response> {
                 " ",
               ).trim();
               updateSession(sessionId, { title: autoTitle });
-              pushSSEEvent(sessionId, "session_updated", {
-                session_id: sessionId,
-                title: autoTitle,
-              });
-              pushSessionUpdatedEvent(sessionId);
+              pushConversationUpdatedEvent(sessionId, { title: autoTitle });
             }
           }
 

@@ -25,7 +25,7 @@ import { serveCommand, showServeHelp } from "./commands/serve.ts";
 import { mcpCommand, showMcpHelp } from "./commands/mcp.ts";
 
 import { run as runCommand } from "./run.ts";
-import { type InkReplOptions, startInkRepl } from "./repl-ink/index.tsx";
+import { startInkRepl } from "./repl-ink/index.tsx";
 import { VERSION } from "../../version.ts";
 
 /**
@@ -65,12 +65,7 @@ EXAMPLES:
 
   const showBanner = !args.includes("--no-banner");
 
-  const replOptions: InkReplOptions = {
-    showBanner,
-    session: {},
-  };
-
-  return await startInkRepl(replOptions);
+  return await startInkRepl({ showBanner });
 }
 
 /**

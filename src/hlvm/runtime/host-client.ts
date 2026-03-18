@@ -28,14 +28,6 @@ import {
   type HostHealthResponse,
   type InteractionResponseRequest,
 } from "./chat-protocol.ts";
-import {
-  type RuntimeSession,
-  type RuntimeSessionMessage,
-  type RuntimeSessionMessageInput,
-  type RuntimeSessionMessagesResponse,
-  type RuntimeSessionsResponse,
-} from "./session-protocol.ts";
-import { deriveDefaultSessionKey } from "./session-key.ts";
 import type {
   PullProgress,
   RuntimeModelDiscoveryResponse,
@@ -162,6 +154,7 @@ interface HostBackedChatCallbacks {
 interface HostBackedChatOptions {
   mode: ChatMode;
   sessionId?: string;
+  stateless?: boolean;
   messages: ChatRequestMessage[];
   model?: string;
   fixturePath?: string;
@@ -184,7 +177,7 @@ interface HostBackedAgentQueryOptions {
   fixturePath?: string;
   attachmentIds?: string[];
   contextWindow?: number;
-  skipSessionHistory?: boolean;
+  stateless?: boolean;
   disablePersistentMemory?: boolean;
   permissionMode?: AgentExecutionMode;
   toolDenylist?: string[];
@@ -576,13 +569,6 @@ export async function ensureRuntimeHostReady(): Promise<void> {
   await ensureRuntimeAiReady();
 }
 
-function createSessionId(skipSessionHistory: boolean): string {
-  if (skipSessionHistory) {
-    return `fresh:${crypto.randomUUID()}`;
-  }
-  return deriveDefaultSessionKey();
-}
-
 function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
   switch (event.event) {
     case "thinking":
@@ -894,95 +880,6 @@ function cloneMessagesWithCurrentTurn(
   };
 }
 
-export async function listRuntimeSessions(): Promise<RuntimeSession[]> {
-  const response = await fetchRuntimeJson<RuntimeSessionsResponse>(
-    "/api/sessions",
-  );
-  return response.sessions;
-}
-
-export async function createRuntimeSession(
-  input: { id?: string; title?: string } = {},
-): Promise<RuntimeSession> {
-  return await postRuntimeJson<RuntimeSession>("/api/sessions", input);
-}
-
-export async function getRuntimeSession(
-  sessionId: string,
-): Promise<RuntimeSession | null> {
-  const response = await fetchRuntimeRaw(
-    `/api/sessions/${encodeURIComponent(sessionId)}`,
-  );
-
-  if (response.status === 404) {
-    await response.body?.cancel();
-    return null;
-  }
-
-  if (!response.ok) await parseErrorResponse(response);
-
-  return await response.json() as RuntimeSession;
-}
-
-export async function deleteRuntimeSession(
-  sessionId: string,
-): Promise<boolean> {
-  const response = await fetchRuntimeRaw(
-    `/api/sessions/${encodeURIComponent(sessionId)}`,
-    { method: "DELETE" },
-  );
-
-  if (response.status === 404) {
-    await response.body?.cancel();
-    return false;
-  }
-
-  if (!response.ok) await parseErrorResponse(response);
-
-  const result = await response.json() as { deleted?: boolean };
-  return result.deleted === true;
-}
-
-export async function addRuntimeSessionMessage(
-  sessionId: string,
-  input: RuntimeSessionMessageInput,
-): Promise<RuntimeSessionMessage> {
-  return await postRuntimeJson<RuntimeSessionMessage>(
-    `/api/sessions/${encodeURIComponent(sessionId)}/messages`,
-    input,
-  );
-}
-
-export async function listRuntimeSessionMessages(
-  sessionId: string,
-): Promise<RuntimeSessionMessage[]> {
-  const messages: RuntimeSessionMessage[] = [];
-  let offset = 0;
-  const limit = 200;
-
-  while (true) {
-    const response = await fetchRuntimeRaw(
-      `/api/sessions/${
-        encodeURIComponent(sessionId)
-      }/messages?limit=${limit}&offset=${offset}&sort=asc`,
-    );
-
-    if (response.status === 404) {
-      await response.body?.cancel();
-      return [];
-    }
-
-    if (!response.ok) await parseErrorResponse(response);
-
-    const page = await response.json() as RuntimeSessionMessagesResponse;
-    messages.push(...page.messages);
-    if (!page.has_more || page.messages.length === 0) break;
-    offset += page.messages.length;
-  }
-
-  return messages;
-}
-
 export async function verifyRuntimeModelAccess(
   modelId: string,
 ): Promise<boolean> {
@@ -1280,6 +1177,7 @@ async function runChatViaHostAttempt(
   const request: ChatRequest = {
     mode: options.mode,
     session_id: options.sessionId,
+    stateless: options.stateless,
     messages,
     client_turn_id: clientTurnId,
     assistant_client_turn_id: crypto.randomUUID(),
@@ -1461,7 +1359,6 @@ export async function runAgentQueryViaHost(
 ): Promise<HostBackedAgentQueryResult> {
   const result = await runChatViaHost({
     mode: "agent",
-    sessionId: createSessionId(options.skipSessionHistory === true),
     messages: [{
       role: "user",
       content: options.query,
@@ -1471,8 +1368,8 @@ export async function runAgentQueryViaHost(
     model: options.model,
     fixturePath: options.fixturePath,
     contextWindow: options.contextWindow,
+    stateless: options.stateless,
     permissionMode: options.permissionMode,
-    skipSessionHistory: options.skipSessionHistory,
     disablePersistentMemory: options.disablePersistentMemory,
     toolDenylist: options.toolDenylist,
     signal: options.signal,

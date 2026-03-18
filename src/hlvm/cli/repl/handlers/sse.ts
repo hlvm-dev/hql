@@ -1,9 +1,9 @@
 /**
  * SSE Handler
  *
- * Server-Sent Events stream for real-time session updates.
+ * Server-Sent Events stream for the active conversation.
  * Supports Last-Event-ID for reconnect replay.
- */
+*/
 
 import { getSession } from "../../../store/conversation-store.ts";
 import { getActiveConversationSessionId } from "../../../store/active-conversation.ts";
@@ -14,22 +14,16 @@ import { jsonError, formatSSE, createSSEResponse } from "../http-utils.ts";
 
 /**
  * @openapi
- * /api/sessions/{id}/stream:
+ * /api/chat/stream:
  *   get:
- *     tags: [Sessions]
- *     summary: SSE stream for a single session
- *     operationId: streamSession
+ *     tags: [Chat]
+ *     summary: SSE stream for the active conversation
+ *     operationId: streamActiveConversation
  *     description: |
- *       Server-Sent Events stream for real-time session updates.
+ *       Server-Sent Events stream for real-time active-conversation updates.
  *       Events: snapshot, message_added, message_updated, message_deleted,
- *       session_updated, session_deleted. Supports Last-Event-ID for replay.
+ *       conversation_updated. Supports Last-Event-ID for replay.
  *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *         description: Session ID.
  *       - in: header
  *         name: Last-Event-ID
  *         schema:
@@ -43,12 +37,6 @@ import { jsonError, formatSSE, createSSEResponse } from "../http-utils.ts";
  *             schema:
  *               type: string
  *         x-response-type: stream
- *       '404':
- *         description: Session not found.
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  */
 export function handleSSEStream(
   req: Request,

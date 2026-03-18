@@ -13,7 +13,7 @@ import {
   isPersistentMemoryEnabled,
   persistConversationFacts,
 } from "../../../memory/mod.ts";
-import { pushSessionUpdatedEvent, type ChatRequest } from "./chat-session.ts";
+import { pushConversationUpdatedEvent, type ChatRequest } from "./chat-session.ts";
 import {
   buildChatProviderMessages,
   shouldHonorRequestMessages,
@@ -110,7 +110,7 @@ export async function handleChatMode(
       id: assistantMessageId,
       content: fullText,
     });
-    pushSessionUpdatedEvent(sessionId);
+    pushConversationUpdatedEvent(sessionId);
 
     if (isPersistentMemoryEnabled(body.disable_persistent_memory)) {
       // Persist baseline conversation facts through the shared memory pipeline.

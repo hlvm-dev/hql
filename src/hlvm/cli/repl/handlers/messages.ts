@@ -1,7 +1,7 @@
 /**
  * Messages Handler
  *
- * Paginated message retrieval and CRUD for session messages.
+ * Paginated message retrieval and CRUD for active-conversation messages.
  */
 
 import {
@@ -14,13 +14,14 @@ import {
   deleteMessage,
 } from "../../../store/conversation-store.ts";
 import { getActiveConversationSessionId } from "../../../store/active-conversation.ts";
-import { pushSSEEvent, SESSIONS_CHANNEL } from "../../../store/sse-store.ts";
+import { pushSSEEvent } from "../../../store/sse-store.ts";
 import {
   toRuntimeSessionMessage,
   toRuntimeSessionMessagesResponse,
 } from "../../../runtime/session-protocol.ts";
 import type { RouteParams } from "../http-router.ts";
 import { parseJsonBody, jsonError } from "../http-utils.ts";
+import { pushConversationUpdatedEvent } from "./chat-session.ts";
 
 // MARK: - Private Helpers
 
@@ -57,7 +58,7 @@ function requireMessage(params: RouteParams, sessionId: string): { messageId: nu
 
 /**
  * @openapi
- * /api/sessions/{id}/messages:
+ * /api/chat/messages:
  *   get:
  *     tags: [Messages]
  *     summary: List messages in a session
@@ -129,7 +130,7 @@ export async function handleGetMessages(
 
 /**
  * @openapi
- * /api/sessions/{id}/messages/{messageId}:
+ * /api/chat/messages/{messageId}:
  *   get:
  *     tags: [Messages]
  *     summary: Get a single message
@@ -182,7 +183,7 @@ export async function handleGetMessage(
 
 /**
  * @openapi
- * /api/sessions/{id}/messages:
+ * /api/chat/messages:
  *   post:
  *     tags: [Messages]
  *     summary: Add a message to a session
@@ -267,13 +268,13 @@ export async function handleAddMessage(
   });
 
   pushSSEEvent(session.sessionId, "message_added", { id: row.id });
-  pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: session.sessionId });
+  pushConversationUpdatedEvent(session.sessionId);
   return Response.json(await toRuntimeSessionMessage(row), { status: 201 });
 }
 
 /**
  * @openapi
- * /api/sessions/{id}/messages/{messageId}:
+ * /api/chat/messages/{messageId}:
  *   patch:
  *     tags: [Messages]
  *     summary: Update a message
@@ -347,7 +348,7 @@ export async function handleUpdateMessage(
     content: patch.content ?? existing.content,
     cancelled: patch.cancelled ?? Boolean(existing.cancelled),
   });
-  pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: session.sessionId });
+  pushConversationUpdatedEvent(session.sessionId);
 
   const updated = getMessage(msg.messageId);
   return Response.json(
@@ -357,7 +358,7 @@ export async function handleUpdateMessage(
 
 /**
  * @openapi
- * /api/sessions/{id}/messages/{messageId}:
+ * /api/chat/messages/{messageId}:
  *   delete:
  *     tags: [Messages]
  *     summary: Delete a message
@@ -420,7 +421,7 @@ export function handleDeleteMessage(
   if (!deleted) return jsonError("Failed to delete message", 500);
 
   pushSSEEvent(session.sessionId, "message_deleted", { id: msg.messageId });
-  pushSSEEvent(SESSIONS_CHANNEL, "session_updated", { session_id: session.sessionId });
+  pushConversationUpdatedEvent(session.sessionId);
   return Response.json({ deleted: true, id: msg.messageId });
 }
 

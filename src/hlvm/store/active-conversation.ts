@@ -38,14 +38,23 @@ export function ensureActiveConversationSession() {
 
 export function resolveConversationSessionId(
   requestedSessionId?: string | null,
+  options: { stateless?: boolean } = {},
 ): string {
+  const stateless = options.stateless === true;
   const trimmed = requestedSessionId?.trim();
   if (trimmed) {
     const existing = getSession(trimmed);
     if (existing) {
-      activeSessionId = trimmed;
+      if (!stateless) {
+        activeSessionId = trimmed;
+      }
       return trimmed;
     }
+  }
+
+  if (stateless) {
+    pruneInactiveSessions();
+    return createSession("").id;
   }
 
   return ensureActiveConversationSession().id;

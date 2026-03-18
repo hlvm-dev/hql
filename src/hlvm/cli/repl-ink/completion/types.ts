@@ -81,7 +81,7 @@ export type CompletionType =
   | "operator"   // Primitive operators: +, -, *, /
   | "file"       // Regular files
   | "directory"  // Directories
-  | "command";   // Slash commands: /help, /new, /flush
+  | "command";   // Slash commands: /help, /flush, /model
 
 /** Provider identifier */
 export type ProviderId = "symbol" | "file" | "command";

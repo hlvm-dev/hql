@@ -27,9 +27,6 @@ export const MIN_PANEL_WIDTH = 48;
 /** Standard padding subtracted from terminal width for panel sizing. */
 export const PANEL_PADDING = 4;
 
-/** Maximum width for the session picker panel. */
-export const SESSION_PICKER_MAX_WIDTH = 96;
-
 /** Maximum width for the model browser panel. */
 export const MODEL_BROWSER_MAX_WIDTH = 118;
 
