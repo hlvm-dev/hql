@@ -23,7 +23,6 @@ import {
   clearOverlay,
   fg,
   OVERLAY_BG_COLOR,
-  type RGB,
   resolveOverlayFrame,
   shouldClearOverlay,
   themeToOverlayColors,

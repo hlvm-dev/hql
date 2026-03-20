@@ -45,11 +45,6 @@
  *           type: integer
  *         session_id:
  *           type: string
- *         stateless:
- *           type: boolean
- *           description: |
- *             When true, use a fresh hidden session for this request only
- *             without rebinding the daemon's active conversation.
  *         order:
  *           type: integer
  *           description: Monotonic order within the session.
@@ -261,6 +256,16 @@
  *           enum: [chat, agent, claude-code-agent]
  *         session_id:
  *           type: string
+ *           description: |
+ *             Optional explicit session to reuse or create. Omit to use the
+ *             daemon's active conversation, or combine with `stateless` to
+ *             keep the request isolated from the active visible session.
+ *         stateless:
+ *           type: boolean
+ *           description: |
+ *             When true, run this request in a fresh hidden session without
+ *             rebinding the daemon's active visible conversation unless an
+ *             explicit `session_id` is provided.
  *         messages:
  *           type: array
  *           description: |

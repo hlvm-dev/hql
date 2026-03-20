@@ -27,9 +27,12 @@ function imageAttachment(id: number) {
 function textAttachment(id: number, lineCount: number) {
   return {
     id,
+    attachmentId: `att_text_${id}`,
     type: "text" as const,
     displayName: `[Pasted text #${id} +${lineCount} lines]`,
     content: "alpha\nbeta\ngamma",
+    fileName: `pasted-${id}.txt`,
+    mimeType: "text/plain",
     lineCount,
     size: 16,
   };

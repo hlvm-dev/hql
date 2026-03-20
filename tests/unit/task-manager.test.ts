@@ -1,16 +1,12 @@
-import {
-  assertEquals,
-  assertExists,
-  assertThrows,
-} from "jsr:@std/assert@1";
+import { assertEquals, assertExists, assertThrows } from "jsr:@std/assert@1";
 import {
   canTransition,
+  type EvalTask,
   friendlyError,
   isModelPullTask,
-  type EvalTask,
+  resetTaskManager,
   TaskManager,
   VALID_TRANSITIONS,
-  resetTaskManager,
 } from "../../src/hlvm/cli/repl/task-manager/index.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../src/common/config/types.ts";
 import { withRuntimeHostServer } from "../shared/light-helpers.ts";
@@ -131,40 +127,53 @@ Deno.test("TaskManager: endpoint and empty query state are initialized predictab
 });
 
 Deno.test({
-  name: "TaskManager: pullModel validates names, trims input, and rejects duplicates",
+  name:
+    "TaskManager: pullModel validates names, trims input, and rejects duplicates",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
     await withPullHost(async () => {
-    const manager = new TaskManager();
-    try {
-      assertThrows(() => manager.pullModel(""), Error, "Model name is required");
-      assertThrows(() => manager.pullModel("   "), Error, "Model name is required");
+      const manager = new TaskManager();
+      try {
+        assertThrows(
+          () => manager.pullModel(""),
+          Error,
+          "Model name is required",
+        );
+        assertThrows(
+          () => manager.pullModel("   "),
+          Error,
+          "Model name is required",
+        );
 
-      const taskId = manager.pullModel("  llama3.2  ");
-      const task = manager.getTask(taskId);
-      assertExists(task);
-      assertEquals(task.status === "pending" || task.status === "running", true);
-      assertEquals(manager.isModelPulling("llama3.2"), true);
-      if (task && isModelPullTask(task)) {
-        assertEquals(task.modelName, "llama3.2");
+        const taskId = manager.pullModel("  llama3.2  ");
+        const task = manager.getTask(taskId);
+        assertExists(task);
+        assertEquals(
+          task.status === "pending" || task.status === "running",
+          true,
+        );
+        assertEquals(manager.isModelPulling("llama3.2"), true);
+        if (task && isModelPullTask(task)) {
+          assertEquals(task.modelName, "llama3.2");
+        }
+
+        assertThrows(
+          () => manager.pullModel("llama3.2"),
+          Error,
+          "already being pulled",
+        );
+        await waitFor(() => manager.getTask(taskId)?.status === "completed");
+      } finally {
+        await manager.shutdown();
       }
-
-      assertThrows(
-        () => manager.pullModel("llama3.2"),
-        Error,
-        "already being pulled",
-      );
-      await waitFor(() => manager.getTask(taskId)?.status === "completed");
-    } finally {
-      await manager.shutdown();
-    }
-  });
+    });
   },
 });
 
 Deno.test({
-  name: "TaskManager: pullModel emits observable updates, completes, and freezes task snapshots",
+  name:
+    "TaskManager: pullModel emits observable updates, completes, and freezes task snapshots",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -277,7 +286,10 @@ Deno.test({
       const manager = new TaskManager();
       try {
         const taskId = manager.pullModel("deepseek-v3.1:671b-cloud");
-        await waitFor(() => manager.getTask(taskId)?.status === "completed", 400);
+        await waitFor(
+          () => manager.getTask(taskId)?.status === "completed",
+          400,
+        );
 
         assertEquals(pullRequests, 0);
         assertEquals(signinRequests, 0);
@@ -290,7 +302,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "TaskManager: cancel, cancelAll, clearCompleted, and removeTask respect task state",
+  name:
+    "TaskManager: cancel, cancelAll, clearCompleted, and removeTask respect task state",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -344,14 +357,24 @@ Deno.test("TaskManager: shutdown runs cleanup and rejects new work while shuttin
 });
 
 Deno.test({
-  name: "TaskManager: friendlyError maps transport and abort failures to user-facing text",
+  name:
+    "TaskManager: friendlyError maps transport and abort failures to user-facing text",
   sanitizeOps: false,
   sanitizeResources: false,
   fn() {
     const cases = [
-      [new TypeError("fetch failed"), "Cannot connect to Ollama. Is it running?"],
-      [new DOMException("Request timed out", "TimeoutError"), "Request timed out. Try again."],
-      [new DOMException("Request aborted", "AbortError"), "Request was cancelled."],
+      [
+        new TypeError("fetch failed"),
+        "Cannot connect to Ollama. Is it running?",
+      ],
+      [
+        new DOMException("Request timed out", "TimeoutError"),
+        "Request timed out. Try again.",
+      ],
+      [
+        new DOMException("Request aborted", "AbortError"),
+        "Request was cancelled.",
+      ],
       [new Error("ECONNREFUSED"), "Cannot connect to Ollama. Is it running?"],
       [new Error("Something went wrong"), "Something went wrong"],
       ["plain text error", "plain text error"],
@@ -403,7 +426,32 @@ Deno.test("TaskManager: eval tasks track output, completion, failure, and cancel
     const cancelledId = manager.createEvalTask('(ask "cancel")', controller);
     assertEquals(manager.cancel(cancelledId), true);
     assertEquals(controller.signal.aborted, true);
-    assertEquals((manager.getTask(cancelledId) as EvalTask).status, "cancelled");
+    assertEquals(
+      (manager.getTask(cancelledId) as EvalTask).status,
+      "cancelled",
+    );
+  } finally {
+    await manager.shutdown();
+  }
+});
+
+Deno.test("TaskManager: prunes old terminal tasks to keep memory bounded", async () => {
+  const manager = new TaskManager();
+  try {
+    const completedIds: string[] = [];
+    for (let i = 0; i < 105; i++) {
+      const taskId = manager.createEvalTask(`(print ${i})`);
+      completedIds.push(taskId);
+      manager.completeEvalTask(taskId, `done-${i}`);
+    }
+
+    assertEquals(manager.getTasks().size, 100);
+    for (const taskId of completedIds.slice(0, 5)) {
+      assertEquals(manager.getTask(taskId), undefined);
+    }
+    for (const taskId of completedIds.slice(-100)) {
+      assertExists(manager.getTask(taskId));
+    }
   } finally {
     await manager.shutdown();
   }

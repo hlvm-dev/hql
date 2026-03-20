@@ -14,11 +14,10 @@ import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { Input } from "./Input.tsx";
 import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";
-import { ConfigOverlay, type ConfigOverlayState } from "./ConfigOverlay.tsx";
+import { ConfigOverlay } from "./ConfigOverlay.tsx";
 import {
   CommandPaletteOverlay,
   type KeyCombo,
-  type PaletteState,
 } from "./CommandPaletteOverlay.tsx";
 import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
 import { TeamDashboardOverlay } from "./TeamDashboardOverlay.tsx";
@@ -80,7 +79,6 @@ import {
 } from "../../../../common/config/model-selection.ts";
 import { ReplProvider } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
-import { log } from "../../../api/log.ts";
 import { looksLikeNaturalLanguage } from "../../repl/input-routing.ts";
 import {
   getRuntimeConfigApi,
@@ -254,7 +252,6 @@ function AppContent(
     setModelBrowserParentOverlay,
     modelBrowserParentSurface,
     setModelBrowserParentSurface,
-    modelSetupHandled,
     setModelSetupHandled,
     paletteState,
     setPaletteState,
@@ -296,7 +293,6 @@ function AppContent(
     applyRuntimeConfigState,
     refreshRuntimeConfigState,
     cycleAgentMode,
-    flashFooterStatus,
   } = modelConfig;
 
   useEffect(() => {
@@ -369,10 +365,8 @@ function AppContent(
   });
   const {
     interactionQueue,
-    setInteractionQueue,
     pendingInteraction,
     agentControllerRef,
-    interactionResolversRef,
     prepareConversationAttachmentPayload,
     runConversation,
     submitConversationDraft,
@@ -415,6 +409,17 @@ function AppContent(
   }, [
     conversation,
     handleInteractionResponse,
+    pendingInteraction,
+  ]);
+  const handleQuestionInterrupt = useCallback(() => {
+    if (pendingInteraction?.mode !== "question") return;
+    interruptConversationRun({
+      requestId: pendingInteraction.requestId,
+      clearPlanning: hasActivePlanningState,
+    });
+  }, [
+    hasActivePlanningState,
+    interruptConversationRun,
     pendingInteraction,
   ]);
   useEffect(() => {
@@ -1348,11 +1353,7 @@ function AppContent(
               interactionQueueLength={interactionQueue.length}
               onInteractionResponse={handleConversationInteractionResponse}
               onQuestionInterrupt={pendingInteraction?.mode === "question"
-                ? () =>
-                  interruptConversationRun({
-                    requestId: pendingInteraction.requestId,
-                    clearPlanning: hasActivePlanningState,
-                  })
+                ? handleQuestionInterrupt
                 : undefined}
               extraReservedRows={queuePreviewRows}
             />

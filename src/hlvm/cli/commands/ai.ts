@@ -1,9 +1,6 @@
 import { log } from "../../api/log.ts";
 import { getProgressPercent } from "../../../common/ai-default-model.ts";
-import {
-  capabilitiesToDisplayTags,
-  parseModelString,
-} from "../../providers/index.ts";
+import { capabilitiesToDisplayTags } from "../../providers/index.ts";
 import type { ModelInfo } from "../../providers/types.ts";
 import { RuntimeError, ValidationError } from "../../../common/error.ts";
 import { startModelBrowser } from "../repl-ink/model-browser.tsx";
@@ -20,10 +17,7 @@ import { hasHelpFlag } from "../utils/common-helpers.ts";
 import {
   getModelDiscoveryModels,
 } from "../../providers/model-discovery-store.ts";
-import {
-  getRuntimeModelDiscovery,
-  listRuntimeInstalledModels,
-} from "../../runtime/host-client.ts";
+import { getRuntimeModelDiscovery } from "../../runtime/host-client.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import {
   ensureRuntimeModelAvailable,

@@ -117,15 +117,6 @@ function removeCurrentTurnTurnStats(
   );
 }
 
-function removeCurrentTurnThinkingItems(
-  items: ConversationItem[],
-): ConversationItem[] {
-  const turnStartIdx = findCurrentTurnStartIndex(items);
-  return items.filter((item, index) =>
-    !(index > turnStartIdx && item.type === "thinking")
-  );
-}
-
 function keepOnlyCurrentTurnPrompt(
   items: ConversationItem[],
 ): ConversationItem[] {

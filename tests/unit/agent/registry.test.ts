@@ -15,6 +15,8 @@ import {
   normalizeToolName,
   prepareToolArgsForExecution,
   registerTool,
+  registerTools,
+  releaseToolOwner,
   resolveTools,
   searchTools,
   suggestToolNames,
@@ -186,4 +188,32 @@ Deno.test("Registry: dynamic tools participate in selection and search", () => {
   });
 
   assertEquals(hasTool("test_dynamic_registry"), false);
+});
+
+Deno.test("Registry: releaseToolOwner clears owner-scoped caches and dynamic tools", () => {
+  const ownerId = "session:test-owner";
+  registerTools({
+    test_owner_scoped_tool: {
+      fn: async () => ({ ok: true }),
+      description: "Owner-scoped registry entry",
+      args: {},
+      category: "meta",
+      safetyLevel: "L0",
+    },
+  }, ownerId);
+
+  try {
+    const cached = getAllTools(ownerId);
+    assertEquals("test_owner_scoped_tool" in cached, true);
+    assertEquals(hasTool("test_owner_scoped_tool", ownerId), true);
+
+    releaseToolOwner(ownerId);
+
+    const afterRelease = getAllTools(ownerId);
+    assertEquals("test_owner_scoped_tool" in afterRelease, false);
+    assertEquals(hasTool("test_owner_scoped_tool", ownerId), false);
+    assertEquals(hasTool("test_owner_scoped_tool"), false);
+  } finally {
+    unregisterTool("test_owner_scoped_tool", ownerId);
+  }
 });

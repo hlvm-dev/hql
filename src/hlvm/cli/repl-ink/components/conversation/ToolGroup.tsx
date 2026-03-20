@@ -47,7 +47,6 @@ export const ToolGroup = React.memo(function ToolGroup({
   ).length;
   const total = tools.length;
   const isAllDone = completed === total;
-  const hasError = tools.some((t) => t.status === "error");
 
   // Map aggregate status to border color
   let borderColor: string;

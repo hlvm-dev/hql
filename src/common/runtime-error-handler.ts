@@ -4,11 +4,12 @@
 import { globalErrorReporter, HQLError, RuntimeError } from "./error.ts";
 import { globalLogger as logger } from "../logger.ts";
 import { escapeRegExp, LINE_SPLIT_REGEX } from "./utils.ts";
+import { LRUCache } from "./lru-cache.ts";
 
 // Cached regex patterns for matching function calls in source code
 // Cache prevents repeated regex compilation for the same function name
-const sexpCallRegexCache = new Map<string, RegExp>();
-const jsCallRegexCache = new Map<string, RegExp>();
+const sexpCallRegexCache = new LRUCache<string, RegExp>(512);
+const jsCallRegexCache = new LRUCache<string, RegExp>(512);
 
 function getSExpCallRegex(funcName: string): RegExp {
   let regex = sexpCallRegexCache.get(funcName);
@@ -47,7 +48,7 @@ const LEAST_UPPER_BOUND = 2;
  */
 interface RuntimeContext {
   currentHqlFile?: string;
-  currentJsFile?: string;  // Path to the generated .mjs file for source map lookups
+  currentJsFile?: string; // Path to the generated .mjs file for source map lookups
   sourceMap?: RawSourceMap | null;
   sourceMapConsumer?: SourceMapConsumer | null;
 }
@@ -364,7 +365,8 @@ export async function resolveRuntimeLocation(
 
   // Fallback: For syntax errors, the location is in the error message, not the stack
   if (!frame && error.message) {
-    const messagePattern = /at ((?:file:\/\/)?[^\s)]+\.(?:m?js|hql)):(\d+):(\d+)/;
+    const messagePattern =
+      /at ((?:file:\/\/)?[^\s)]+\.(?:m?js|hql)):(\d+):(\d+)/;
     const match = error.message.match(messagePattern);
     if (match) {
       frame = {
@@ -516,7 +518,8 @@ export async function handleRuntimeError(
     // If error is already an HQLError (ParseError, ImportError, etc.),
     // preserve its error code and information
     if (error instanceof HQLError) {
-      const targetFile = error.sourceLocation?.filePath || runtimeContext.currentHqlFile;
+      const targetFile = error.sourceLocation?.filePath ||
+        runtimeContext.currentHqlFile;
 
       // Create RuntimeError that preserves the original error code
       const hqlError = new RuntimeError(error.message, {
@@ -532,7 +535,10 @@ export async function handleRuntimeError(
         hqlError.contextLines = error.contextLines;
       } else if (error.sourceLocation?.line && targetFile) {
         // Try to load context lines from the source file
-        const contextLines = await readContextLines(targetFile, error.sourceLocation.line);
+        const contextLines = await readContextLines(
+          targetFile,
+          error.sourceLocation.line,
+        );
         hqlError.contextLines = contextLines.map((line) => {
           if (line.isError && error.sourceLocation?.column) {
             return { ...line, column: error.sourceLocation.column };
@@ -579,8 +585,8 @@ export async function handleRuntimeError(
         // Replace all occurrences of the JS file path and line with HQL path and line
         // Pattern: /path/to/file.mjs:lineNum:colNum -> /path/to/file.hql:hqlLineNum:colNum
         hqlError.stack = hqlError.stack.replace(
-          new RegExp(escapeRegExp(jsPath) + ':(\\d+):(\\d+)', 'g'),
-          `${hqlPath}:${locationInfo.line}:${locationInfo.column}`
+          new RegExp(escapeRegExp(jsPath) + ":(\\d+):(\\d+)", "g"),
+          `${hqlPath}:${locationInfo.line}:${locationInfo.column}`,
         );
       }
     }
@@ -765,9 +771,19 @@ function getErrorSuggestion(error: Error): string | undefined {
   // ==========================================================================
   // Type errors
   // ==========================================================================
-  if (messageIncludesAny(normalized, "type error", "typeerror") || errorName === "typeerror") {
+  if (
+    messageIncludesAny(normalized, "type error", "typeerror") ||
+    errorName === "typeerror"
+  ) {
     // Generic type error
-    if (messageIncludesAny(normalized, "cannot convert", "is not iterable", "not iterable")) {
+    if (
+      messageIncludesAny(
+        normalized,
+        "cannot convert",
+        "is not iterable",
+        "not iterable",
+      )
+    ) {
       return "Type mismatch: The value cannot be used in this context. Check that you're using the correct type. For iteration, ensure the value is an array, string, or other iterable.";
     }
 
@@ -781,20 +797,35 @@ function getErrorSuggestion(error: Error): string | undefined {
   // ==========================================================================
   // Division by zero
   // ==========================================================================
-  if (messageIncludesAny(normalized, "division by zero", "divide by zero", "infinity")) {
+  if (
+    messageIncludesAny(
+      normalized,
+      "division by zero",
+      "divide by zero",
+      "infinity",
+    )
+  ) {
     return "Division by zero detected. Add a check to ensure the divisor is not zero before dividing: (if (not (= divisor 0)) (/ dividend divisor) default-value)";
   }
 
   // ==========================================================================
   // Regular expression errors
   // ==========================================================================
-  if (messageIncludesAny(normalized, "invalid regular expression", "invalid regex")) {
+  if (
+    messageIncludesAny(
+      normalized,
+      "invalid regular expression",
+      "invalid regex",
+    )
+  ) {
     const detail = matchFirstGroup(
       rawMessage,
       /invalid regular expression:.*?\/(.+?)\//i,
     ) ?? "";
 
-    return `Invalid regular expression${detail ? `: /${detail}/` : ""}. Common issues: unescaped special characters (use \\\\ for backslash), unbalanced brackets, invalid quantifiers. Check the regex syntax.`;
+    return `Invalid regular expression${
+      detail ? `: /${detail}/` : ""
+    }. Common issues: unescaped special characters (use \\\\ for backslash), unbalanced brackets, invalid quantifiers. Check the regex syntax.`;
   }
 
   if (messageIncludesAny(normalized, "unterminated character class")) {
@@ -808,14 +839,24 @@ function getErrorSuggestion(error: Error): string | undefined {
   // ==========================================================================
   // Stack overflow / recursion errors
   // ==========================================================================
-  if (messageIncludesAny(normalized, "maximum call stack", "stack overflow", "too much recursion")) {
+  if (
+    messageIncludesAny(
+      normalized,
+      "maximum call stack",
+      "stack overflow",
+      "too much recursion",
+    )
+  ) {
     return "Maximum call stack size exceeded (stack overflow). This usually means infinite recursion. Check that: (1) recursive functions have a proper base case, (2) there are no accidental infinite loops, (3) mutual recursion terminates.";
   }
 
   // ==========================================================================
   // JSON parse errors
   // ==========================================================================
-  if (messageIncludesAny(normalized, "json", "unexpected token") && errorName === "syntaxerror") {
+  if (
+    messageIncludesAny(normalized, "json", "unexpected token") &&
+    errorName === "syntaxerror"
+  ) {
     const position = matchFirstGroup(rawMessage, /position (\d+)/i);
     const positionHint = position ? ` at position ${position}` : "";
 
@@ -848,37 +889,67 @@ function getErrorSuggestion(error: Error): string | undefined {
   // ==========================================================================
   // Assignment errors (strict mode)
   // ==========================================================================
-  if (messageIncludesAny(normalized, "cannot assign to read only", "read-only", "readonly")) {
-    const propName = matchFirstGroup(rawMessage, /property ['"]?([^'"]+?)['"]?/i) ?? "";
-    return `Cannot assign to read-only property${propName ? ` '${propName}'` : ""}. The property or variable is immutable (defined with const or as a read-only property). If you need to modify it, use let instead of const or make the property writable.`;
+  if (
+    messageIncludesAny(
+      normalized,
+      "cannot assign to read only",
+      "read-only",
+      "readonly",
+    )
+  ) {
+    const propName =
+      matchFirstGroup(rawMessage, /property ['"]?([^'"]+?)['"]?/i) ?? "";
+    return `Cannot assign to read-only property${
+      propName ? ` '${propName}'` : ""
+    }. The property or variable is immutable (defined with const or as a read-only property). If you need to modify it, use let instead of const or make the property writable.`;
   }
 
-  if (messageIncludesAny(normalized, "assignment to constant", "const", "immutable")) {
+  if (
+    messageIncludesAny(
+      normalized,
+      "assignment to constant",
+      "const",
+      "immutable",
+    )
+  ) {
     return "Cannot reassign a constant variable. Variables declared with 'const' cannot be reassigned. Use 'let' if you need to reassign the variable, or use mutation methods for objects/arrays.";
   }
 
   // ==========================================================================
   // Promise/async errors
   // ==========================================================================
-  if (messageIncludesAny(normalized, "unhandled promise rejection", "promise rejection")) {
+  if (
+    messageIncludesAny(
+      normalized,
+      "unhandled promise rejection",
+      "promise rejection",
+    )
+  ) {
     return "An unhandled Promise rejection occurred. Make sure to: (1) use try/catch around await calls, (2) add .catch() handlers to promises, (3) handle all error cases in async functions.";
   }
 
-  if (messageIncludesAny(normalized, "await is only valid", "cannot use await")) {
+  if (
+    messageIncludesAny(normalized, "await is only valid", "cannot use await")
+  ) {
     return "The 'await' keyword can only be used inside async functions. Either mark the containing function as async, or use .then()/.catch() for Promise handling.";
   }
 
   // ==========================================================================
   // URI errors
   // ==========================================================================
-  if (errorName === "urierror" || messageIncludesAny(normalized, "uri", "malformed", "decode")) {
+  if (
+    errorName === "urierror" ||
+    messageIncludesAny(normalized, "uri", "malformed", "decode")
+  ) {
     return "URI encoding/decoding error. The string contains invalid URI sequences. Make sure to use encodeURIComponent before decoding, and that the input is properly encoded.";
   }
 
   // ==========================================================================
   // Eval errors (security)
   // ==========================================================================
-  if (errorName === "evalerror" || messageIncludesAll(normalized, "eval", "error")) {
+  if (
+    errorName === "evalerror" || messageIncludesAll(normalized, "eval", "error")
+  ) {
     return "Error in eval() call. Avoid using eval() as it poses security risks and makes debugging difficult. Consider using safer alternatives like JSON.parse() for data or Function() for dynamic code.";
   }
 
@@ -922,13 +993,13 @@ function getErrorSuggestion(error: Error): string | undefined {
   // Reference error (catch-all for undefined references)
   // ==========================================================================
   if (errorName === "referenceerror") {
-    const varName = matchFirstGroup(rawMessage, /(['"]?[^'"]+?)['"]?\s+is not defined/i) ?? "";
+    const varName =
+      matchFirstGroup(rawMessage, /(['"]?[^'"]+?)['"]?\s+is not defined/i) ??
+        "";
 
     // Try to find a similar name
     const didYouMean = varName ? getDidYouMeanSuggestion(varName) : null;
-    const suggestion = didYouMean
-      ? `${didYouMean} `
-      : "";
+    const suggestion = didYouMean ? `${didYouMean} ` : "";
 
     return `Reference error: '${varName}' is not accessible. ${suggestion}This usually means the variable doesn't exist in the current scope. Check spelling, scope, and declaration order.`;
   }
@@ -947,13 +1018,20 @@ function getGenericSuggestion(error: Error): string {
 
   // Map error types to helpful generic messages
   const suggestions: Record<string, string> = {
-    "typeerror": "Check that values have the expected types. Ensure you're not calling methods on null/undefined or using incompatible types.",
-    "referenceerror": "Check that all variables and functions are defined before use. Look for typos in names or scope issues.",
-    "rangeerror": "A value is out of its allowed range. Check numeric bounds and array/string lengths.",
-    "syntaxerror": "Check the syntax near this location. Look for missing or extra punctuation, brackets, or quotes.",
-    "urierror": "Check URI encoding/decoding. Ensure strings are properly encoded before decoding.",
-    "evalerror": "Avoid using eval(). Use safer alternatives like JSON.parse() or structured data parsing.",
-    "internalerror": "An internal error occurred. This might be due to resource limits (stack, memory). Try simplifying the code.",
+    "typeerror":
+      "Check that values have the expected types. Ensure you're not calling methods on null/undefined or using incompatible types.",
+    "referenceerror":
+      "Check that all variables and functions are defined before use. Look for typos in names or scope issues.",
+    "rangeerror":
+      "A value is out of its allowed range. Check numeric bounds and array/string lengths.",
+    "syntaxerror":
+      "Check the syntax near this location. Look for missing or extra punctuation, brackets, or quotes.",
+    "urierror":
+      "Check URI encoding/decoding. Ensure strings are properly encoded before decoding.",
+    "evalerror":
+      "Avoid using eval(). Use safer alternatives like JSON.parse() or structured data parsing.",
+    "internalerror":
+      "An internal error occurred. This might be due to resource limits (stack, memory). Try simplifying the code.",
   };
 
   if (errorName && suggestions[errorName]) {

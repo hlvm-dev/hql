@@ -47,9 +47,9 @@ import {
   snapshotWorkspaceFiles,
 } from "../../../src/hlvm/agent/delegation.ts";
 import {
+  type AgentEngine,
   resetAgentEngine,
   setAgentEngine,
-  type AgentEngine,
 } from "../../../src/hlvm/agent/engine.ts";
 import {
   addBatchSpawnFailure,
@@ -57,6 +57,7 @@ import {
   getBatchSnapshot,
   registerBatch,
   resetBatchRegistry,
+  restoreBatchSnapshots,
 } from "../../../src/hlvm/agent/delegate-batches.ts";
 import { createDelegateCoordinationBoard } from "../../../src/hlvm/agent/delegate-coordination.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
@@ -2087,6 +2088,38 @@ Deno.test("DelegateBatchRegistry: derives counts from thread state and spawn fai
   assertEquals(snapshot.errored, 1);
   assertEquals(snapshot.spawned, 3);
   assertEquals(snapshot.status, "running");
+});
+
+Deno.test("DelegateBatchRegistry: prunes older completed batches", () => {
+  resetBatchRegistry();
+  resetThreadRegistry();
+
+  const snapshots = Array.from({ length: 25 }, (_, index) => ({
+    batchId: `batch-${index}`,
+    agent: "code",
+    totalRows: 1,
+    threadIds: [`thread-${index}`],
+    _threadIdSet: new Set([`thread-${index}`]),
+    spawnFailures: 0,
+    createdAt: Date.now() + index,
+    queued: 0,
+    running: 0,
+    completed: 1,
+    errored: 0,
+    cancelled: 0,
+    spawned: 1,
+    status: "completed" as const,
+  }));
+
+  restoreBatchSnapshots(snapshots);
+
+  assertEquals(getBatchSnapshot("batch-0"), undefined);
+  assertEquals(getBatchSnapshot("batch-1"), undefined);
+  assertEquals(getBatchSnapshot("batch-2"), undefined);
+  assertEquals(getBatchSnapshot("batch-3"), undefined);
+  assertEquals(getBatchSnapshot("batch-4"), undefined);
+  assertExists(getBatchSnapshot("batch-5"));
+  assertExists(getBatchSnapshot("batch-24"));
 });
 
 Deno.test("DelegateCoordinationBoard: tracks work by ID and thread", () => {

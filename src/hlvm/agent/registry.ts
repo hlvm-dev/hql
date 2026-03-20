@@ -948,3 +948,31 @@ export function unregisterTool(name: string, ownerId?: string): void {
   }
   invalidateAllToolsCache();
 }
+
+/**
+ * Release all owner-scoped tool state for a disposed session/request.
+ *
+ * This clears the per-owner merged registry cache and removes any dynamic
+ * tools registered for that owner so long-running processes do not retain
+ * one registry snapshot per completed session.
+ */
+export function releaseToolOwner(ownerId: string): void {
+  let removedScopedTools = false;
+
+  for (const [name, entry] of DYNAMIC_TOOL_REGISTRY.entries()) {
+    if (!entry.scopedTools.delete(ownerId)) {
+      continue;
+    }
+    removedScopedTools = true;
+    if (!entry.fallbackTool && entry.scopedTools.size === 0) {
+      DYNAMIC_TOOL_REGISTRY.delete(name);
+    }
+  }
+
+  if (removedScopedTools) {
+    invalidateAllToolsCache();
+    return;
+  }
+
+  _ownerToolsCache.delete(ownerId);
+}

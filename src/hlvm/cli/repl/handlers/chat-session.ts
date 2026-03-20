@@ -3,6 +3,7 @@
  * Extracted from chat.ts for modularity.
  */
 
+import { LRUCache } from "../../../../common/lru-cache.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
 import {
   cancelRequestMessages,
@@ -17,15 +18,13 @@ export {
   type ChatRequest,
   CLAUDE_CODE_AGENT_MODE,
 } from "../../../runtime/chat-protocol.ts";
-import {
-  type CancelRequest,
-  type ChatRequest,
-} from "../../../runtime/chat-protocol.ts";
+import { type ChatRequest } from "../../../runtime/chat-protocol.ts";
 
 export const TITLE_SEARCH_HISTORY_LIMIT = 40;
 export const AGENT_CONTEXT_HISTORY_LIMIT = 20;
 const INTERACTION_TIMEOUT_MS = 300_000;
 const MAX_PENDING_INTERACTIONS = 50;
+const MAX_READY_MODELS = 64;
 
 // MARK: - Stored Properties
 
@@ -35,7 +34,9 @@ export const activeRequests = new Map<string, {
   cancel?: () => void;
 }>();
 const DEFAULT_AGENT_READY_KEY = "__default__";
-const agentReadyPromises = new Map<string, Promise<void>>();
+const agentReadyPromises = new LRUCache<string, Promise<void>>(
+  MAX_READY_MODELS,
+);
 
 function getAgentReadyKey(model?: string): string {
   const trimmed = model?.trim();
@@ -69,6 +70,10 @@ export function setAgentReadyPromise(
   }
 }
 
+export function __testOnlyResetAgentReadyState(): void {
+  agentReadyPromises.clear();
+}
+
 export function pushConversationUpdatedEvent(
   sessionId: string,
   data: Record<string, unknown> = {},
@@ -87,7 +92,6 @@ export function getLastUserMessage(
   }
   return undefined;
 }
-
 
 export function emitCancellation(
   assistantMessageId: number,

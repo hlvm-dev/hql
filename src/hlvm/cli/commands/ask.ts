@@ -90,13 +90,26 @@ OPTIONS:
 `);
 }
 
-async function promptRuntimeInteraction(event: {
+async function promptRuntimeInteraction(
+  event: {
   mode: "permission" | "question";
   toolName?: string;
   toolArgs?: string;
   question?: string;
-}): Promise<{ approved?: boolean; userInput?: string }> {
+  },
+  permissionMode: PermissionMode,
+): Promise<{ approved?: boolean; userInput?: string }> {
   if (!getPlatform().terminal.stdin.isTerminal()) {
+    if (event.mode === "permission") {
+      if (permissionMode === "yolo") {
+        return event.toolName === "plan_review"
+          ? { approved: true, userInput: "approve:auto" }
+          : { approved: true };
+      }
+      if (permissionMode === "auto-edit" && event.toolName === "plan_review") {
+        return { approved: true };
+      }
+    }
     return event.mode === "question"
       ? { approved: false, userInput: "" }
       : { approved: false };
@@ -501,7 +514,6 @@ export async function askCommand(args: string[]): Promise<void> {
     }
   }
 
-  const model = modelOverride ?? undefined;
   const contextWindow = runtimeConfig.getContextWindow();
 
   if (!fixturePath && attachmentIds?.length) {
@@ -836,7 +848,8 @@ export async function askCommand(args: string[]): Promise<void> {
           finalMeta = meta;
         },
       },
-      onInteraction: promptRuntimeInteraction,
+      onInteraction: (event) =>
+        promptRuntimeInteraction(event, effectivePermissionMode),
     });
     const visibleResultText = stripPlanEnvelopeBlocks(result.text);
 

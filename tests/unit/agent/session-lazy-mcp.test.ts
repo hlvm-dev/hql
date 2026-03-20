@@ -21,6 +21,9 @@ Deno.test({
         "fixtures",
         "mcp-server.ts",
       );
+      await platform.fs.mkdir(platform.path.dirname(getMcpConfigPath()), {
+        recursive: true,
+      });
       await platform.fs.writeTextFile(
         getMcpConfigPath(),
         JSON.stringify({
@@ -70,6 +73,9 @@ Deno.test({
         "fixtures",
         "mcp-server.ts",
       );
+      await platform.fs.mkdir(platform.path.dirname(getMcpConfigPath()), {
+        recursive: true,
+      });
       await platform.fs.writeTextFile(
         getMcpConfigPath(),
         JSON.stringify({

@@ -28,7 +28,6 @@ import { getHistoryPath } from "../../../common/paths.ts";
 import { isToolArgsObject } from "../validation.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
-import { safeStringify } from "../../../common/safe-stringify.ts";
 import type {
   FormattedToolResult,
   ToolExecutionOptions,

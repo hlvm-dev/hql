@@ -10,7 +10,6 @@ import { ANSI_COLORS } from "../../ansi.ts";
 import { log } from "../../../api/log.ts";
 import {
   type ConfigKey,
-  type HlvmConfig,
   CONFIG_KEYS,
   DEFAULT_CONFIG,
   parseValue,

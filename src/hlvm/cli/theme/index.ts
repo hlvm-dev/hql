@@ -11,7 +11,7 @@
  */
 
 import { useMemo } from "react";
-import { THEMES, type ThemeName, type ThemePalette } from "./palettes.ts";
+import { THEMES, type ThemePalette } from "./palettes.ts";
 import { buildSemanticColors, type SemanticColors } from "./semantic.ts";
 import { useTheme } from "./ThemeContext.tsx";
 import { getCurrentThemeName } from "./state.ts";

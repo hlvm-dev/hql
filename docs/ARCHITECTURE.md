@@ -629,7 +629,7 @@ GUI                          Server                    Ollama
 
 | Category | Data | Storage |
 |----------|------|---------|
-| Ephemeral | Chat room selection, scroll position, streaming buffers, SSE state, auth token | Memory |
+| Ephemeral | Visible conversation state, scroll position, streaming buffers, SSE state, auth token | Memory |
 | Persistent | Hotbar slots, Spotlight position, shortcuts, appearance, launch-at-login | UserDefaults |
 
 ### Server Process (Deno)

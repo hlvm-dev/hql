@@ -9,8 +9,12 @@
  */
 
 import { parseModelString } from "../../../providers/index.ts";
-import type { ModelInfo, ProviderCapability } from "../../../providers/types.ts";
+import type {
+  ModelInfo,
+  ProviderCapability,
+} from "../../../providers/types.ts";
 import { getRuntimeModel } from "../../../runtime/host-client.ts";
+import { LRUCache } from "../../../../common/lru-cache.ts";
 
 // Re-export for backwards compatibility
 export type { ModelInfo, ProviderCapability };
@@ -24,7 +28,7 @@ export {
 // Cache
 // ============================================================
 
-const modelInfoCache = new Map<string, ModelInfo>();
+const modelInfoCache = new LRUCache<string, ModelInfo>(128);
 
 // ============================================================
 // Helpers
@@ -51,7 +55,9 @@ export async function fetchModelInfo(modelName: string): Promise<ModelInfo> {
   const displayName = extractModelName(modelName);
 
   // Check cache first
-  const cacheKey = providerName ? `${providerName}/${parsedModelName}` : displayName;
+  const cacheKey = providerName
+    ? `${providerName}/${parsedModelName}`
+    : displayName;
   const cached = modelInfoCache.get(cacheKey);
   if (cached) return cached;
 
@@ -87,4 +93,8 @@ export async function fetchModelInfo(modelName: string): Promise<ModelInfo> {
     modelInfoCache.set(cacheKey, defaultInfo);
     return defaultInfo;
   }
+}
+
+export function __testOnlyResetModelInfoCache(): void {
+  modelInfoCache.clear();
 }

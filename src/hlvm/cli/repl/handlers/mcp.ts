@@ -51,7 +51,7 @@ async function resolveServerByName(
     null;
 }
 
-export async function handleListMcpServers(req: Request): Promise<Response> {
+export async function handleListMcpServers(): Promise<Response> {
   const servers = await loadMcpConfigMultiScope();
   const payload: RuntimeMcpListResponse = {
     servers: servers.map((server) => {

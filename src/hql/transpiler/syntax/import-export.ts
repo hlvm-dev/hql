@@ -1,7 +1,7 @@
 // src/hql/transpiler/syntax/import-export.ts
 
 import * as IR from "../type/hql_ir.ts";
-import type { HQLNode, ListNode, LiteralNode, SymbolNode, TransformNodeFn } from "../type/hql_ast.ts";
+import type { ListNode, LiteralNode, SymbolNode, TransformNodeFn } from "../type/hql_ast.ts";
 import { createId } from "../utils/ir-helpers.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {

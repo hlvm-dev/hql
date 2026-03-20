@@ -52,6 +52,7 @@ import type { ChatResultStats } from "../../../runtime/chat-protocol.ts";
 
 export async function handleAgentMode(
   body: ChatRequest,
+  sessionId: string,
   resolvedModel: string,
   assistantMessageId: number,
   signal: AbortSignal,
@@ -60,10 +61,6 @@ export async function handleAgentMode(
   requestId: string,
   modelInfo?: ModelInfo | null,
 ): Promise<ChatResultStats> {
-  const sessionId = body.session_id;
-  if (!sessionId) {
-    throw new ValidationError("Missing active conversation session", "chat");
-  }
   const effectiveToolDenylist = body.tool_denylist?.length
     ? [...body.tool_denylist]
     : [...DEFAULT_TOOL_DENYLIST];
@@ -341,6 +338,9 @@ export async function handleAgentMode(
               iteration: event.iteration,
               tool_count: event.toolCount,
               duration_ms: event.durationMs,
+              input_tokens: event.inputTokens,
+              output_tokens: event.outputTokens,
+              model_id: event.modelId,
             });
             break;
           case "interaction_request":
@@ -404,15 +404,12 @@ export async function handleAgentMode(
 /** Claude Code Agent Mode — delegates the entire agentic loop to Claude Code CLI. */
 export async function handleClaudeCodeAgentMode(
   body: ChatRequest,
+  sessionId: string,
   assistantMessageId: number,
   signal: AbortSignal,
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
 ): Promise<void> {
-  const sessionId = body.session_id;
-  if (!sessionId) {
-    throw new ValidationError("Missing active conversation session", "chat");
-  }
   const lastUserMessage = getLastUserMessage(body.messages);
   const query = lastUserMessage?.content ?? "";
 

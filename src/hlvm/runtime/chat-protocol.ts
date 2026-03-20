@@ -197,6 +197,9 @@ export type ChatStreamEvent =
     iteration: number;
     tool_count: number;
     duration_ms?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+    model_id?: string;
   }
   | { event: "trace"; trace: TraceEvent }
   | { event: "final_response_meta"; meta: FinalResponseMeta }

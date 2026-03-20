@@ -628,7 +628,12 @@ Deno.test("runAgentQueryViaHost maps team and batch events through the host stre
 Deno.test("runtime host client streams direct chat through the active conversation contract", async () => {
   const port = await findFreePort();
   const authToken = "test-auth-token";
-  let capturedChatBody = null;
+  let capturedChatBody: {
+    mode?: string;
+    session_id?: string;
+    model?: string;
+    messages?: Array<{ content?: string }>;
+  } | null = null;
 
   const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);
@@ -675,7 +680,7 @@ Deno.test("runtime host client streams direct chat through the active conversati
 
   try {
     await withEnv("HLVM_REPL_PORT", String(port), async () => {
-      const tokens = [];
+      const tokens: string[] = [];
       const result = await runDirectChatViaHost({
         query: "hello",
         model: "ollama/llama3.1:8b",
@@ -691,7 +696,7 @@ Deno.test("runtime host client streams direct chat through the active conversati
       assertEquals(capturedChatBody?.session_id, undefined);
       assertEquals(capturedChatBody?.model, "ollama/llama3.1:8b");
       assertEquals(
-        capturedChatBody?.messages[0]?.content,
+        capturedChatBody?.messages?.[0]?.content,
         "hello",
       );
     });
@@ -1053,7 +1058,10 @@ Deno.test("runAgentQueryViaHost preserves structured HQL codes from streamed hos
 Deno.test("runAgentQueryViaHost sends stateless requests without rebinding the active conversation", async () => {
   const port = await findFreePort();
   const authToken = "test-auth-token";
-  let capturedChatBody = null;
+  let capturedChatBody: {
+    stateless?: boolean;
+    session_id?: string;
+  } | null = null;
 
   const handle = getPlatform().http.serveWithHandle!(async (req) => {
     const url = new URL(req.url);

@@ -15,7 +15,6 @@ import {
   fitOverlayRect,
   fg,
   OVERLAY_BG_COLOR,
-  type RGB,
   themeToOverlayColors,
   writeToTerminal,
 } from "../overlay/index.ts";

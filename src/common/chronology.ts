@@ -148,19 +148,6 @@ export function getTimeZone(): string {
 // Block building
 // ============================================================
 
-function dedupePrompts(prompts: string[], limit: number): string[] {
-  const unique: string[] = [];
-  const seen = new Set<string>();
-  for (const prompt of prompts) {
-    const normalized = normalizePrompt(prompt).toLowerCase();
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    unique.push(prompt);
-    if (unique.length >= limit) break;
-  }
-  return unique;
-}
-
 function buildQuestionHistoryEntries(
   entries: readonly ChronologyEntry[],
 ): ChronologyEntry[] {

@@ -1,4 +1,9 @@
-import { assert, assertEquals, assertExists, assertRejects } from "jsr:@std/assert";
+import {
+  assert,
+  assertEquals,
+  assertExists,
+  assertRejects,
+} from "jsr:@std/assert";
 import {
   getAttachmentExtractedDir,
   getAttachmentPreparedDir,
@@ -126,7 +131,9 @@ function createXlsxBytes(rows: Array<Array<string | number>>): Uint8Array {
 }
 
 function createRtfBytes(text: string): Uint8Array {
-  return new TextEncoder().encode(`{\\rtf1\\ansi ${text.replace(/\n/g, "\\par ")}}`);
+  return new TextEncoder().encode(
+    `{\\rtf1\\ansi ${text.replace(/\n/g, "\\par ")}}`,
+  );
 }
 
 Deno.test("attachment service registers, deduplicates, and records image metadata", async () => {
@@ -256,17 +263,72 @@ Deno.test("attachment service refreshes stale prepared payload metadata after a 
       fileName: "notes.txt",
       bytes,
     });
-    const refreshedMaterialized = await materializeAttachment(promoted.id, "default");
+    const refreshedMaterialized = await materializeAttachment(
+      promoted.id,
+      "default",
+    );
     const loaded = await getAttachmentRecord(promoted.id);
 
     assertEquals(firstMaterialized.prepared.fileName, "attachment.bin");
-    assertEquals(firstMaterialized.prepared.mimeType, "application/octet-stream");
+    assertEquals(
+      firstMaterialized.prepared.mimeType,
+      "application/octet-stream",
+    );
     assertEquals(firstMaterialized.prepared.kind, "file");
     assertEquals(refreshedMaterialized.prepared.fileName, "notes.txt");
     assertEquals(refreshedMaterialized.prepared.mimeType, "text/plain");
     assertEquals(refreshedMaterialized.prepared.kind, "text");
     assertExists(loaded?.lastAccessedAt);
     assert(loaded.lastAccessedAt !== "2000-01-01T00:00:00.000Z");
+  });
+});
+
+Deno.test("attachment service treats corrupted record JSON as missing instead of crashing", async () => {
+  await withTempHlvmDir(async () => {
+    const platform = getPlatform();
+    const record = await registerUploadedAttachment({
+      fileName: "pixel.png",
+      bytes: ONE_BY_ONE_PNG,
+      mimeType: "image/png",
+    });
+
+    const recordPath = platform.path.join(
+      getAttachmentRecordsDir(),
+      `${record.id}.json`,
+    );
+    await platform.fs.writeTextFile(recordPath, "{");
+
+    assertEquals(await getAttachmentRecord(record.id), null);
+    await assertRejects(
+      () => materializeAttachment(record.id, "default"),
+      AttachmentServiceError,
+      "Attachment not found",
+    );
+  });
+});
+
+Deno.test("attachment service rebuilds corrupted prepared cache entries instead of crashing", async () => {
+  await withTempHlvmDir(async () => {
+    const platform = getPlatform();
+    const record = await registerUploadedAttachment({
+      fileName: "doc.pdf",
+      bytes: SINGLE_PAGE_PDF,
+      mimeType: "application/pdf",
+    });
+
+    const first = await materializeAttachment(record.id, "anthropic");
+    const preparedPath = platform.path.join(
+      getAttachmentPreparedDir(),
+      "anthropic",
+      `${record.id}.json`,
+    );
+    await platform.fs.writeTextFile(preparedPath, "{");
+
+    const rebuilt = await materializeAttachment(record.id, "anthropic");
+
+    assertEquals(first.prepared.attachmentId, rebuilt.prepared.attachmentId);
+    assertEquals(rebuilt.prepared.mimeType, "application/pdf");
+    assertEquals(rebuilt.prepared.data.length > 0, true);
   });
 });
 
@@ -343,9 +405,18 @@ Deno.test("attachment service extracts office-family attachments and caches extr
       "text",
       "text",
     ]);
-    assertEquals(payloads[0]?.mode === "text" ? payloads[0].text : "", "Hello DOCX\nSecond line");
-    assertEquals(payloads[1]?.mode === "text" ? payloads[1].text : "", "Name\nValue\nalpha\n42");
-    assertEquals(payloads[2]?.mode === "text" ? payloads[2].text : "", "Hello PPTX");
+    assertEquals(
+      payloads[0]?.mode === "text" ? payloads[0].text : "",
+      "Hello DOCX\nSecond line",
+    );
+    assertEquals(
+      payloads[1]?.mode === "text" ? payloads[1].text : "",
+      "Name\nValue\nalpha\n42",
+    );
+    assertEquals(
+      payloads[2]?.mode === "text" ? payloads[2].text : "",
+      "Hello PPTX",
+    );
     assertEquals(
       payloads[3]?.mode === "text" &&
         payloads[3].text.includes("Hello RTF") &&

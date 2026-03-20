@@ -6,18 +6,23 @@
  * context, usage tracking, and stats.
  */
 
+import { LRUCache } from "./lru-cache.ts";
+
 const DEFAULT_CHARS_PER_TOKEN = 4.0;
 const MIN_CHARS_PER_TOKEN = 1.5;
 const MAX_CHARS_PER_TOKEN = 8.0;
 const ADAPTIVE_ALPHA = 0.2;
 const GLOBAL_ESTIMATOR_KEY = "__global__";
+const MAX_ESTIMATOR_STATES = 128;
 
 interface EstimatorState {
   charsPerToken: number;
   sampleCount: number;
 }
 
-const estimatorStates = new Map<string, EstimatorState>();
+const estimatorStates = new LRUCache<string, EstimatorState>(
+  MAX_ESTIMATOR_STATES,
+);
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -35,6 +40,10 @@ function getEstimatorState(key: string): EstimatorState | undefined {
 
 function setEstimatorState(key: string, state: EstimatorState): void {
   estimatorStates.set(key, state);
+}
+
+export function __testOnlyResetTokenEstimatorState(): void {
+  estimatorStates.clear();
 }
 
 /**
@@ -95,7 +104,10 @@ export function estimateTokensFromCharCount(
   return Math.ceil(charCount / charsPerToken);
 }
 
-export function estimateTokensFromText(text: string, modelKey?: string): number {
+export function estimateTokensFromText(
+  text: string,
+  modelKey?: string,
+): number {
   return estimateTokensFromCharCount(text.length, modelKey);
 }
 

@@ -7,7 +7,7 @@
  */
 
 import * as IR from "../../type/hql_ir.ts";
-import type { HQLNode, ListNode, LiteralNode, TransformNodeFn } from "../../type/hql_ast.ts";
+import type { ListNode, LiteralNode, TransformNodeFn } from "../../type/hql_ast.ts";
 
 /**
  * Transform a literal node to its IR representation.

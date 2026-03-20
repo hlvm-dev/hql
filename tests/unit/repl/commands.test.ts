@@ -37,7 +37,7 @@ Deno.test("commands registry - has expected commands", () => {
   }
 });
 
-Deno.test("commands registry - omits removed commands", () => {
+Deno.test("commands registry - omits retired legacy commands from the active conversation surface", () => {
   const removedCommands = [
     "/clear",
     "/reset",

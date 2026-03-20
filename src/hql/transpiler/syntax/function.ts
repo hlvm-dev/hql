@@ -717,8 +717,6 @@ function reconstructReturnTypeString(listNode: ListNode): string | null {
   const elems = listNode.elements;
   if (elems.length === 0) return null;
 
-  const first = elems[0];
-
   // Vector: [Type] → parsed as (vector Type) or (vector Type1 : Type2) for dicts
   if (hasArrayLiteralPrefix(listNode)) {
     const typeElems = elems.slice(1);

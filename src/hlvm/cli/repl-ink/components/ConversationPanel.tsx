@@ -16,7 +16,6 @@ import {
   StreamingState as ConversationStreamingState,
   type ThinkingItem,
   type ToolCallDisplay,
-  type ToolGroupItem,
 } from "../types.ts";
 import type { Plan, PlanningPhase } from "../../../agent/planning.ts";
 import type { TodoState } from "../../../agent/todo-state.ts";
@@ -176,10 +175,6 @@ export function shouldHideConversationTextInCompactPlanFlow(
   if (planningPhase === "done") return false;
   return streamingState !== ConversationStreamingState.Idle ||
     hasInteractionRequest;
-}
-
-function hasToolGroupError(item: ToolGroupItem): boolean {
-  return item.tools.some((tool) => tool.status === "error");
 }
 
 export function getConversationDisplayItems(
@@ -449,7 +444,9 @@ function renderItem(
   }
 }
 
-export function ConversationPanel({
+// Conversation history is expensive to recompute; skip redraws while the
+// composer draft changes but the transcript props stay referentially stable.
+export const ConversationPanel = React.memo(function ConversationPanel({
   items,
   width,
   streamingState,
@@ -910,4 +907,4 @@ export function ConversationPanel({
       )}
     </Box>
   );
-}
+});

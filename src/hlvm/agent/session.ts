@@ -51,6 +51,7 @@ import {
   loadMemorySystemMessage,
 } from "../memory/mod.ts";
 import { cloneToolList } from "./orchestrator-state.ts";
+import { releaseToolOwner } from "./registry.ts";
 
 interface AgentSessionOptions {
   workspace: string;
@@ -354,14 +355,18 @@ export async function createAgentSession(
     l1Confirmations: new Map<string, boolean>(),
     toolOwnerId,
     dispose: async () => {
-      await Promise.allSettled([
-        (async () => {
-          if (!loadingMcp) return;
-          const mcp = await loadingMcp;
-          await mcp.dispose();
-        })(),
-        lspDiagnostics.dispose(),
-      ]);
+      try {
+        await Promise.allSettled([
+          (async () => {
+            if (!loadingMcp) return;
+            const mcp = await loadingMcp;
+            await mcp.dispose();
+          })(),
+          lspDiagnostics.dispose(),
+        ]);
+      } finally {
+        releaseToolOwner(toolOwnerId);
+      }
     },
     profile,
     isFrontierModel: isFrontier,

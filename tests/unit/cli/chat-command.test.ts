@@ -113,7 +113,7 @@ async function withChatHost(
   }
 }
 
-Deno.test("chat command: rejects removed session flags", async () => {
+Deno.test("chat command: rejects unsupported legacy flags", async () => {
   await assertRejects(
     async () => {
       parseChatArgs(["--resume", "hello"]);

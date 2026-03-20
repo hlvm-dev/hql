@@ -5,7 +5,12 @@ import {
   getAttachmentPreparedDir,
   getAttachmentRecordsDir,
 } from "../../common/paths.ts";
-import { getErrorMessage, isFileNotFoundError } from "../../common/utils.ts";
+import {
+  getErrorMessage,
+  isFileNotFoundError,
+  isObjectValue,
+  tryParseJson,
+} from "../../common/utils.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import {
   detectAttachmentMimeType,
@@ -30,6 +35,17 @@ import {
 } from "./types.ts";
 
 const RECORD_VERSION = 1;
+const ATTACHMENT_KINDS = new Set(
+  [
+    "image",
+    "audio",
+    "video",
+    "pdf",
+    "text",
+    "document",
+    "file",
+  ] satisfies AttachmentRecord["kind"][],
+);
 
 function path() {
   return getPlatform().path;
@@ -167,6 +183,37 @@ function getPreparedPath(
   );
 }
 
+function isAttachmentKind(value: unknown): value is AttachmentRecord["kind"] {
+  return typeof value === "string" &&
+    ATTACHMENT_KINDS.has(value as AttachmentRecord["kind"]);
+}
+
+function isAttachmentRecord(value: unknown): value is AttachmentRecord {
+  if (!isObjectValue(value)) return false;
+  return typeof value.id === "string" &&
+    typeof value.blobSha256 === "string" &&
+    typeof value.fileName === "string" &&
+    typeof value.mimeType === "string" &&
+    isAttachmentKind(value.kind) &&
+    typeof value.size === "number" &&
+    typeof value.createdAt === "string" &&
+    typeof value.updatedAt === "string" &&
+    (value.sourcePath === undefined || typeof value.sourcePath === "string") &&
+    (value.lastAccessedAt === undefined ||
+      typeof value.lastAccessedAt === "string") &&
+    (value.metadata === undefined || isObjectValue(value.metadata));
+}
+
+function isPreparedAttachment(value: unknown): value is PreparedAttachment {
+  if (!isObjectValue(value)) return false;
+  return typeof value.attachmentId === "string" &&
+    typeof value.fileName === "string" &&
+    typeof value.mimeType === "string" &&
+    isAttachmentKind(value.kind) &&
+    typeof value.size === "number" &&
+    typeof value.data === "string";
+}
+
 async function ensureParentDir(filePath: string): Promise<void> {
   await fs().mkdir(path().dirname(filePath), { recursive: true });
 }
@@ -195,12 +242,9 @@ async function readRecord(
 ): Promise<AttachmentRecord | null> {
   if (!await fs().exists(recordPath)) return null;
   const raw = await fs().readTextFile(recordPath);
-  const parsed = JSON.parse(raw) as AttachmentRecord & { version?: number };
-  return {
-    ...parsed,
-    createdAt: parsed.createdAt,
-    updatedAt: parsed.updatedAt,
-  };
+  const parsed = tryParseJson(raw, null);
+  if (!isAttachmentRecord(parsed)) return null;
+  return parsed;
 }
 
 async function writeRecord(record: AttachmentRecord): Promise<void> {
@@ -461,10 +505,14 @@ async function prepareAttachmentForProfile(
 
   const preparedPath = getPreparedPath(record.id, providerProfile);
   if (await fs().exists(preparedPath)) {
-    const cached = JSON.parse(
+    const cached = tryParseJson(
       await fs().readTextFile(preparedPath),
-    ) as PreparedAttachment;
-    if (preparedAttachmentMatchesRecord(cached, record)) {
+      null,
+    );
+    if (
+      isPreparedAttachment(cached) &&
+      preparedAttachmentMatchesRecord(cached, record)
+    ) {
       return cached;
     }
   }

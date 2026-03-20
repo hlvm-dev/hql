@@ -51,62 +51,6 @@
       ]
     },
     {
-      "name": "planned",
-      "match": {
-        "contains": [
-          "inspect the project and summarize findings"
-        ]
-      },
-      "steps": [
-        {
-          "response": "PLAN\n{\"goal\":\"Inspect the project\",\"steps\":[{\"id\":\"step-1\",\"title\":\"Track work\"},{\"id\":\"step-2\",\"title\":\"Inspect files\"}]}\nEND_PLAN"
-        },
-        {
-          "toolCalls": [
-            {
-              "id": "todo_1",
-              "toolName": "todo_write",
-              "args": {
-                "items": [
-                  {
-                    "id": "step-1",
-                    "content": "Track work",
-                    "status": "in_progress"
-                  }
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "toolCalls": [
-            {
-              "id": "delegate_1",
-              "toolName": "delegate_agent",
-              "args": {
-                "agent": "web",
-                "task": "Inspect files"
-              }
-            }
-          ]
-        },
-        {
-          "toolCalls": [
-            {
-              "id": "read_1",
-              "toolName": "read_file",
-              "args": {
-                "path": "README.md"
-              }
-            }
-          ]
-        },
-        {
-          "response": "Parent complete"
-        }
-      ]
-    },
-    {
       "name": "team",
       "match": {
         "contains": [
@@ -170,9 +114,6 @@
         ]
       },
       "steps": [
-        {
-          "response": "No explicit plan required."
-        },
         {
           "toolCalls": [
             {

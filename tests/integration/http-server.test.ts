@@ -304,7 +304,7 @@ Deno.test({
     await withIsolatedServerTest(async () => {
       const arithmetic = await evalCode("(+ 1 2)");
       const ask = await evalCode("(typeof ask)");
-      const generate = await evalCode("(typeof generate)");
+      const generate = await evalCode("(typeof ai.generate)");
       const javascript = await evalCode("let x = 10; x * 2");
 
       assertEquals(arithmetic.success, true);

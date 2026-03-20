@@ -60,8 +60,12 @@ async function withWorkspace(
 
 async function writeMcpConfig(servers: unknown): Promise<void> {
   const platform = getPlatform();
+  const configPath = getMcpConfigPath();
+  await platform.fs.mkdir(platform.path.dirname(configPath), {
+    recursive: true,
+  });
   await platform.fs.writeTextFile(
-    getMcpConfigPath(),
+    configPath,
     JSON.stringify({ version: 1, servers }),
   );
 }

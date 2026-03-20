@@ -38,6 +38,7 @@ import {
   handleGetActiveMessages,
   handleUpdateActiveMessage,
 } from "./handlers/messages.ts";
+import { closeActiveConversationSession } from "../../store/active-conversation.ts";
 import {
   handleDeleteModel,
   handleGetModel,
@@ -138,6 +139,10 @@ interface BindingFunctionsResponse {
 interface BindingExecuteRequest {
   functionName: string;
   args?: string[];
+}
+
+interface EvalRequest {
+  code: string;
 }
 
 interface BindingExecuteResponse {
@@ -351,6 +356,49 @@ export async function handleComplete(req: Request): Promise<Response> {
   }
 }
 
+export async function handleEval(req: Request): Promise<Response> {
+  try {
+    const parsed = await parseJsonBody<EvalRequest>(req);
+    if (!parsed.ok) return parsed.response;
+
+    const { code } = parsed.value;
+    if (typeof code !== "string") {
+      return jsonError("Missing code", 400);
+    }
+
+    if (!replState) {
+      replState = await initState();
+    }
+
+    const result = await evaluate(code, replState, true);
+    if (result.success) {
+      const hasValue = Object.prototype.hasOwnProperty.call(result, "value");
+      return Response.json({
+        success: true,
+        value: hasValue ? formatPlainValue(result.value) : "",
+        error: null,
+      });
+    }
+
+    return Response.json({
+      success: false,
+      error: {
+        name: result.error?.name ?? "Error",
+        message: result.error?.message ?? "Execution failed",
+      },
+    });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(getErrorMessage(error));
+    return Response.json({
+      success: false,
+      error: {
+        name: err.name,
+        message: err.message,
+      },
+    });
+  }
+}
+
 /**
  * @openapi
  * /health:
@@ -407,7 +455,9 @@ function scheduleServerShutdown(): void {
   }, 0);
 }
 
-function handleRuntimeShutdown(): Response {
+async function handleRuntimeShutdown(): Promise<Response> {
+  replState = null;
+  await closeActiveConversationSession();
   scheduleServerShutdown();
   return Response.json({ ok: true, shutting_down: true });
 }
@@ -647,6 +697,7 @@ async function handleBindingExecute(req: Request): Promise<Response> {
 const router = createRouter();
 
 router.add("POST", "/api/chat", (req) => handleChat(req));
+router.add("POST", "/eval", (req) => handleEval(req));
 router.add("POST", "/api/chat/cancel", (req) => handleChatCancel(req));
 router.add(
   "POST",

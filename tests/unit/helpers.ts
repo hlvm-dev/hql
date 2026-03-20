@@ -5,6 +5,7 @@
  * All unit tests should import helper functions from here to avoid duplication.
  */
 import hql, { type RunOptions } from "../../mod.ts";
+import { resetHlvmDirCacheForTests } from "../../src/common/paths.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
 import { generateTypeScript } from "../../src/hql/transpiler/pipeline/ir-to-typescript.ts";
@@ -12,6 +13,9 @@ import { transformToIR } from "../../src/hql/transpiler/pipeline/hql-ast-to-hql-
 import { parse } from "../../src/hql/transpiler/pipeline/parser.ts";
 import { initializeRuntimeHelpers } from "../../src/common/runtime-helpers.ts";
 import { RuntimeError } from "../../src/common/error.ts";
+import { _resetActiveConversationForTesting } from "../../src/hlvm/store/active-conversation.ts";
+import { _resetDbForTesting } from "../../src/hlvm/store/db.ts";
+import { closeFactDb } from "../../src/hlvm/memory/mod.ts";
 import { withGlobalTestLock } from "./_shared/global-test-lock.ts";
 
 const path = () => getPlatform().path;
@@ -180,26 +184,33 @@ export async function withTempHlvmDir(
   fn: () => Promise<void>,
 ): Promise<void> {
   await withGlobalTestLock(async () => {
-    const { resetHlvmDirCacheForTests } = await import(
-      "../../src/common/paths.ts"
-    );
     const platform = getPlatform();
     const previousHlvmDir = platform.env.get("HLVM_DIR");
     const tempDir = await platform.fs.makeTempDir({
       prefix: "hlvm-test-hlvmdir-",
     });
+    const resetHlvmRuntimeState = () => {
+      _resetDbForTesting();
+      closeFactDb();
+      _resetActiveConversationForTesting();
+    };
+    const restoreHlvmDirEnv = () => {
+      if (previousHlvmDir === undefined) {
+        platform.env.delete("HLVM_DIR");
+      } else {
+        platform.env.set("HLVM_DIR", previousHlvmDir);
+      }
+    };
 
+    resetHlvmRuntimeState();
     platform.env.set("HLVM_DIR", tempDir);
     resetHlvmDirCacheForTests();
 
     try {
       await fn();
     } finally {
-      if (previousHlvmDir === undefined) {
-        platform.env.delete("HLVM_DIR");
-      } else {
-        platform.env.set("HLVM_DIR", previousHlvmDir);
-      }
+      resetHlvmRuntimeState();
+      restoreHlvmDirEnv();
       resetHlvmDirCacheForTests();
 
       try {

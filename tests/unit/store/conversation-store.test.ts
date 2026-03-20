@@ -15,6 +15,10 @@ import {
   updateSession,
   validateExpectedVersion,
 } from "../../../src/hlvm/store/conversation-store.ts";
+import {
+  pushSSEEvent,
+  replayAfter,
+} from "../../../src/hlvm/store/sse-store.ts";
 import { setupStoreTestDb } from "../_shared/store-test-db.ts";
 
 async function withDb(fn: () => Promise<void> | void): Promise<void> {
@@ -30,6 +34,7 @@ Deno.test("conversation store: session lifecycle covers create, get, list, updat
   await withDb(() => {
     const defaultSession = createSession();
     const custom = createSession("Custom ID", "my-custom-id");
+    pushSSEEvent(custom.id, "message_added", { text: "buffered" });
 
     assertEquals(defaultSession.title, "");
     assertEquals(custom.id, "my-custom-id");
@@ -46,6 +51,7 @@ Deno.test("conversation store: session lifecycle covers create, get, list, updat
 
     assertEquals(deleteSession(custom.id), true);
     assertEquals(getSession(custom.id), null);
+    assertEquals(replayAfter(custom.id, null).events.length, 0);
     assertEquals(deleteSession("non-existent"), false);
   });
 });

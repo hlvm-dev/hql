@@ -153,7 +153,6 @@ interface HostBackedChatCallbacks {
 
 interface HostBackedChatOptions {
   mode: ChatMode;
-  sessionId?: string;
   stateless?: boolean;
   messages: ChatRequestMessage[];
   model?: string;
@@ -190,7 +189,6 @@ interface HostBackedAgentQueryOptions {
 
 interface HostBackedDirectChatOptions {
   query: string;
-  sessionId?: string;
   model?: string;
   attachmentIds?: string[];
   expectedVersion?: number;
@@ -1176,7 +1174,6 @@ async function runChatViaHostAttempt(
   );
   const request: ChatRequest = {
     mode: options.mode,
-    session_id: options.sessionId,
     stateless: options.stateless,
     messages,
     client_turn_id: clientTurnId,
@@ -1388,7 +1385,6 @@ export async function runDirectChatViaHost(
 ): Promise<HostBackedChatResult> {
   return await runChatViaHost({
     mode: "chat",
-    sessionId: options.sessionId,
     messages: [{
       role: "user",
       content: options.query,

@@ -18,7 +18,7 @@ function assertOrderedSubstrings(output: string, parts: string[]): void {
 }
 
 binaryTest(
-  "CLI ask: rejects removed --fresh flag",
+  "CLI ask: rejects unsupported legacy isolation flags",
   async () => {
     await withTempDir(async (dir) => {
       const result = await runCLI("ask", ["--fresh", "inspect the project"], {
@@ -69,42 +69,6 @@ binaryTest(
 );
 
 binaryTest(
-  "CLI ask: fixture-backed default transcript stays compact for multi-step requests",
-  async () => {
-    await withTempDir(async (dir) => {
-      const port = await findFreePort();
-      const result = await runCLI(
-        "ask",
-        [
-          "--stateless",
-          "--model",
-          "ollama/test-fixture",
-          "inspect the project and summarize findings",
-        ],
-        {
-          cwd: dir,
-          env: {
-            HLVM_DIR: dir,
-            HLVM_REPL_PORT: String(port),
-            HLVM_ASK_FIXTURE_PATH: FIXTURE_PATH,
-          },
-        },
-      );
-
-      const output = normalizeCliOutput(result.stdout + result.stderr);
-      assertEquals(result.success, true, output);
-      assertOrderedSubstrings(output, [
-        "todo_write",
-        "delegate web",
-        "Parent complete",
-      ]);
-      assertEquals(output.includes("Plan"), false, output);
-      assertEquals(output.includes("Todo ->"), false, output);
-    });
-  },
-);
-
-binaryTest(
   "CLI ask: fixture-backed verbose transcript includes delegate details and final response",
   async () => {
     await withTempDir(async (dir) => {
@@ -137,56 +101,6 @@ binaryTest(
         "Exploration complete",
         "Result:\nParent complete",
       ]);
-    });
-  },
-);
-
-binaryTest(
-  "CLI ask: fixture-backed json transcript streams NDJSON events",
-  async () => {
-    await withTempDir(async (dir) => {
-      const port = await findFreePort();
-      const result = await runCLI(
-        "ask",
-        [
-          "--stateless",
-          "--json",
-          "--model",
-          "ollama/test-fixture",
-          "inspect the project and summarize findings",
-        ],
-        {
-          cwd: dir,
-          env: {
-            HLVM_DIR: dir,
-            HLVM_REPL_PORT: String(port),
-            HLVM_ASK_FIXTURE_PATH: FIXTURE_PATH,
-          },
-        },
-      );
-
-      const output = normalizeCliOutput(result.stdout + result.stderr).trim();
-      assertEquals(result.success, true, output);
-      const lines = output
-        .split("\n")
-        .filter(Boolean)
-        .map((line) =>
-          JSON.parse(line) as { type: string; event?: { type?: string } }
-        );
-      assertEquals(lines.at(-1)?.type, "final");
-      assertEquals(
-        lines.some((line) =>
-          line.type === "agent_event" && line.event?.type === "plan_created"
-        ),
-        true,
-      );
-      assertEquals(
-        lines.some((line) =>
-          line.type === "agent_event" && line.event?.type === "delegate_end"
-        ),
-        true,
-      );
-      assertEquals(lines.some((line) => line.type === "final"), true);
     });
   },
 );

@@ -14,7 +14,6 @@ import {
   parseBingSearchResults,
   parseDuckDuckGoSearchResults,
 } from "../../../src/hlvm/agent/tools/web/duckduckgo.ts";
-import { resetHlvmDirCacheForTests } from "../../../src/common/paths.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import type { AgentPolicy } from "../../../src/hlvm/agent/policy.ts";
 import {
@@ -29,37 +28,25 @@ import {
 } from "../../../src/hlvm/agent/tools/web/search-provider-bootstrap.ts";
 import { ai } from "../../../src/hlvm/api/ai.ts";
 import { __testOnlyResetWebCache } from "../../../src/hlvm/agent/web-cache.ts";
+import { withTempHlvmDir } from "../helpers.ts";
 
 async function withIsolatedSearchRegistry(
   fn: () => Promise<void>,
 ): Promise<void> {
-  const originalHlvmDir = Deno.env.get("HLVM_DIR");
-  const tempHlvmDir = await Deno.makeTempDir({
-    dir: "/tmp",
-    prefix: "hlvm-web-tools-",
-  });
-  Deno.env.set("HLVM_DIR", tempHlvmDir);
-  resetHlvmDirCacheForTests();
-  await __testOnlyResetWebCache();
-  resetSearchProviderBootstrap();
-  resetSearchProviders();
-  initSearchProviders();
-  try {
-    await fn();
-  } finally {
+  await withTempHlvmDir(async () => {
     await __testOnlyResetWebCache();
     resetSearchProviderBootstrap();
     resetSearchProviders();
     initSearchProviders();
-    resetHlvmDirCacheForTests();
-    if (originalHlvmDir) {
-      Deno.env.set("HLVM_DIR", originalHlvmDir);
-    } else {
-      Deno.env.delete("HLVM_DIR");
+    try {
+      await fn();
+    } finally {
+      await __testOnlyResetWebCache();
+      resetSearchProviderBootstrap();
+      resetSearchProviders();
+      initSearchProviders();
     }
-    resetHlvmDirCacheForTests();
-    await Deno.remove(tempHlvmDir, { recursive: true }).catch(() => undefined);
-  }
+  });
 }
 
 async function withStubbedFetch(

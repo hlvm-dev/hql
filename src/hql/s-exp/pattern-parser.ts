@@ -25,7 +25,6 @@ import {
 import {
   hasArrayLiteralPrefix,
   hasHashMapPrefix,
-  isSymbolWithName,
 } from "../../common/sexp-utils.ts";
 import {
   HASH_MAP_INTERNAL,

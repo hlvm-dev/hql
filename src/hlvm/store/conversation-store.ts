@@ -13,6 +13,7 @@ import type {
   PageOpts,
   SessionRow,
 } from "./types.ts";
+import { clearSessionBuffer } from "./sse-store.ts";
 
 // MARK: - Session Operations
 
@@ -82,12 +83,10 @@ export function updateSession(
 export function deleteSession(id: string): boolean {
   const db = getDb();
   const result = db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+  if (result > 0) {
+    clearSessionBuffer(id);
+  }
   return result > 0;
-}
-
-export function deleteAllSessions(): number {
-  const db = getDb();
-  return db.prepare("DELETE FROM sessions").run();
 }
 
 export function getOrCreateSession(id: string): SessionRow {

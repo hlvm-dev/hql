@@ -28,6 +28,17 @@ export interface DelegateBatchSnapshot extends DelegateBatch {
 }
 
 const batches = new Map<string, DelegateBatch>();
+const MAX_TERMINAL_BATCHES = 20;
+
+function pruneCompletedBatches(maxRetained = MAX_TERMINAL_BATCHES): void {
+  const terminalBatches = [...batches.values()]
+    .filter((batch) => batch.persistedSnapshot?.status !== "running")
+    .sort((left, right) => right.createdAt - left.createdAt);
+
+  for (let index = maxRetained; index < terminalBatches.length; index++) {
+    batches.delete(terminalBatches[index].batchId);
+  }
+}
 
 function cloneBatchSnapshot(
   snapshot: DelegateBatchSnapshot,
@@ -54,6 +65,7 @@ export function registerBatch(
     spawnFailures: 0,
     createdAt: Date.now(),
   });
+  pruneCompletedBatches();
 }
 
 export function addBatchThread(batchId: string, threadId: string): void {
@@ -76,7 +88,9 @@ export function getBatchSnapshot(
 ): DelegateBatchSnapshot | undefined {
   const batch = batches.get(batchId);
   if (!batch) return undefined;
-  const hasLiveThreads = batch.threadIds.some((threadId) => getThread(threadId));
+  const hasLiveThreads = batch.threadIds.some((threadId) =>
+    getThread(threadId)
+  );
   if (!hasLiveThreads && batch.persistedSnapshot) {
     return cloneBatchSnapshot(batch.persistedSnapshot);
   }
@@ -155,4 +169,5 @@ export function restoreBatchSnapshots(
       persistedSnapshot: cloneBatchSnapshot(snapshot),
     });
   }
+  pruneCompletedBatches();
 }

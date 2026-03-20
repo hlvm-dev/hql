@@ -74,7 +74,9 @@ interface PersistedAgentChildSessionSummary {
 }
 
 export function getPersistedAgentSessionId(): string {
-  return deriveDefaultSessionKey();
+  const sessionId = deriveDefaultSessionKey();
+  getOrCreateSession(sessionId);
+  return sessionId;
 }
 
 export async function loadPersistedAgentHistory(options: {

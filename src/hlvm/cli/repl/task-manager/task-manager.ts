@@ -12,25 +12,27 @@
  */
 
 import {
-  type Task,
-  type TaskStatus,
-  type TaskEvent,
-  type TaskEventListener,
+  canTransition,
+  type DelegateTask,
+  type EvalProgress,
+  type EvalTask,
   type ModelPullTask,
   type PullProgress,
-  type EvalTask,
-  type EvalProgress,
-  type DelegateTask,
-  canTransition,
+  type Task,
+  type TaskEvent,
+  type TaskEventListener,
+  type TaskStatus,
 } from "./types.ts";
 import type { DelegateTranscriptSnapshot } from "../../../agent/delegate-transcript.ts";
 import { cancelThread } from "../../../agent/delegate-threads.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { log } from "../../../api/log.ts";
-import { ValidationError, RuntimeError } from "../../../../common/error.ts";
+import { RuntimeError, ValidationError } from "../../../../common/error.ts";
 import { ensureError, truncate } from "../../../../common/utils.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { ensureRuntimeModelAvailable } from "../../../runtime/model-availability.ts";
+
+const MAX_RETAINED_TERMINAL_TASKS = 100;
 
 // ============================================================
 // Resource Registry
@@ -160,7 +162,7 @@ export class TaskManager {
   // ============================================================
 
   /** Subscribe to state changes */
-  subscribe = (listener: () => void): (() => void) => {
+  subscribe = (listener: () => void): () => void => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
@@ -194,6 +196,41 @@ export class TaskManager {
     return () => this.eventListeners.delete(listener);
   }
 
+  private pruneTerminalTasks(): void {
+    let terminalCount = 0;
+    for (const task of this.tasks.values()) {
+      if (
+        task.status === "completed" || task.status === "failed" ||
+        task.status === "cancelled"
+      ) {
+        terminalCount++;
+      }
+    }
+
+    if (terminalCount <= MAX_RETAINED_TERMINAL_TASKS) {
+      return;
+    }
+
+    let toRemove = terminalCount - MAX_RETAINED_TERMINAL_TASKS;
+    let removed = false;
+    for (const [taskId, task] of this.tasks) {
+      if (toRemove === 0) {
+        break;
+      }
+      if (
+        task.status !== "completed" && task.status !== "failed" &&
+        task.status !== "cancelled"
+      ) {
+        continue;
+      }
+      removed = this.tasks.delete(taskId) || removed;
+      toRemove--;
+    }
+    if (removed) {
+      this.notify();
+    }
+  }
+
   /** Emit event to all listeners */
   private emit(event: TaskEvent): void {
     for (const listener of this.eventListeners) {
@@ -217,7 +254,7 @@ export class TaskManager {
   private transition(
     taskId: string,
     newStatus: TaskStatus,
-    options: { silent?: boolean } = {}
+    options: { silent?: boolean } = {},
   ): boolean {
     const task = this.tasks.get(taskId);
     if (!task) return false;
@@ -227,9 +264,13 @@ export class TaskManager {
     // Validate transition
     if (!canTransition(task.status, newStatus)) {
       if (options.silent) {
-        log.debug(`[TaskManager] Skipping invalid transition: ${task.status} → ${newStatus} for task ${taskId}`);
+        log.debug(
+          `[TaskManager] Skipping invalid transition: ${task.status} → ${newStatus} for task ${taskId}`,
+        );
       } else {
-        log.warn(`[TaskManager] Invalid transition: ${task.status} → ${newStatus} for task ${taskId}`);
+        log.warn(
+          `[TaskManager] Invalid transition: ${task.status} → ${newStatus} for task ${taskId}`,
+        );
       }
       return false;
     }
@@ -238,7 +279,9 @@ export class TaskManager {
     const updatedTask = Object.freeze({
       ...task,
       status: newStatus,
-      ...(newStatus !== "pending" && newStatus !== "running" ? { completedAt: Date.now() } : {}),
+      ...(newStatus !== "pending" && newStatus !== "running"
+        ? { completedAt: Date.now() }
+        : {}),
       ...(newStatus === "running" ? { startedAt: Date.now() } : {}),
     });
 
@@ -251,7 +294,10 @@ export class TaskManager {
    * Update progress for a model pull task (immutable).
    * Creates a new frozen task object to ensure React detects the change.
    */
-  private updateProgress(taskId: string, progress: Partial<PullProgress>): void {
+  private updateProgress(
+    taskId: string,
+    progress: Partial<PullProgress>,
+  ): void {
     const task = this.tasks.get(taskId) as ModelPullTask | undefined;
     if (!task || task.type !== "model-pull") return;
 
@@ -274,7 +320,11 @@ export class TaskManager {
 
     this.tasks.set(taskId, updatedTask);
     this.notify();
-    this.emit({ type: "task:progress", taskId, progress: updatedTask.progress });
+    this.emit({
+      type: "task:progress",
+      taskId,
+      progress: updatedTask.progress,
+    });
   }
 
   /**
@@ -353,14 +403,20 @@ export class TaskManager {
   pullModel(modelName: string): string {
     // Validate input
     if (!modelName?.trim()) {
-      throw new ValidationError("Model name is required", "TaskManager.pullModel");
+      throw new ValidationError(
+        "Model name is required",
+        "TaskManager.pullModel",
+      );
     }
 
     const normalizedName = modelName.trim();
 
     // Prevent duplicate downloads
     if (this.isModelPulling(normalizedName)) {
-      throw new ValidationError(`Model ${normalizedName} is already being pulled`, "TaskManager.pullModel");
+      throw new ValidationError(
+        `Model ${normalizedName} is already being pulled`,
+        "TaskManager.pullModel",
+      );
     }
 
     // Check if shutting down
@@ -389,10 +445,16 @@ export class TaskManager {
 
     // Start download in background (non-blocking) and keep a handle so shutdown
     // can wait for the aborted pull path to finish unwinding.
-    const pullPromise = this.executePull(id, normalizedName, abortController.signal)
+    const pullPromise = this.executePull(
+      id,
+      normalizedName,
+      abortController.signal,
+    )
       .catch((error) => {
         log.debug(
-          `[TaskManager] pullModel background task surfaced after local handling: ${ensureError(error).message}`,
+          `[TaskManager] pullModel background task surfaced after local handling: ${
+            ensureError(error).message
+          }`,
         );
       })
       .finally(() => {
@@ -411,7 +473,7 @@ export class TaskManager {
   private async executePull(
     taskId: string,
     modelName: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<void> {
     // Transition to running using state machine
     if (!this.transition(taskId, "running", { silent: true })) {
@@ -429,30 +491,36 @@ export class TaskManager {
         timedOut = true;
         timeoutController.abort();
       }, 30 * 60 * 1000);
-      const combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
+      const combinedSignal = AbortSignal.any([
+        signal,
+        timeoutController.signal,
+      ]);
 
       try {
-        const result = await ensureRuntimeModelAvailable(`ollama/${modelName}`, {
-          pull: true,
-          signal: combinedSignal,
-          onProgress: (progress) => {
-            if (!signal.aborted) {
-              this.updateProgress(taskId, progress);
-            }
+        const result = await ensureRuntimeModelAvailable(
+          `ollama/${modelName}`,
+          {
+            pull: true,
+            signal: combinedSignal,
+            onProgress: (progress) => {
+              if (!signal.aborted) {
+                this.updateProgress(taskId, progress);
+              }
+            },
+            onCloudWaiting: () => {
+              this.updateProgress(taskId, { status: "waiting for sign-in" });
+            },
+            onCloudError: (message) => {
+              this.updateProgress(taskId, { status: message });
+            },
+            onCloudOutput: (line) => {
+              const status = line.trim();
+              if (status) {
+                this.updateProgress(taskId, { status });
+              }
+            },
           },
-          onCloudWaiting: () => {
-            this.updateProgress(taskId, { status: "waiting for sign-in" });
-          },
-          onCloudError: (message) => {
-            this.updateProgress(taskId, { status: message });
-          },
-          onCloudOutput: (line) => {
-            const status = line.trim();
-            if (status) {
-              this.updateProgress(taskId, { status });
-            }
-          },
-        });
+        );
         if (!result.ok) {
           throw new RuntimeError(
             result.error ?? `Model unavailable: ${result.modelName}`,
@@ -467,6 +535,7 @@ export class TaskManager {
         // Only emit if transition succeeds (cancel() may have already done this)
         if (this.transition(taskId, "cancelled", { silent: true })) {
           this.emit({ type: "task:cancelled", taskId });
+          this.pruneTerminalTasks();
         }
         return;
       }
@@ -475,6 +544,7 @@ export class TaskManager {
       if (this.transition(taskId, "completed")) {
         this.updateProgress(taskId, { status: "done", percent: 100 });
         this.emit({ type: "task:completed", taskId });
+        this.pruneTerminalTasks();
       }
     } catch (error) {
       // Check if abort error
@@ -484,12 +554,14 @@ export class TaskManager {
           this.setError(taskId, timeoutError);
           if (this.transition(taskId, "failed")) {
             this.emit({ type: "task:failed", taskId, error: timeoutError });
+            this.pruneTerminalTasks();
           }
           return;
         }
         // Only emit if transition succeeds (cancel() may have already done this)
         if (this.transition(taskId, "cancelled", { silent: true })) {
           this.emit({ type: "task:cancelled", taskId });
+          this.pruneTerminalTasks();
         }
         return;
       }
@@ -499,6 +571,7 @@ export class TaskManager {
       this.setError(taskId, taskError);
       if (this.transition(taskId, "failed")) {
         this.emit({ type: "task:failed", taskId, error: taskError });
+        this.pruneTerminalTasks();
       }
     } finally {
       this.resources.unregister(taskId);
@@ -520,7 +593,10 @@ export class TaskManager {
    */
   createEvalTask(code: string, controller?: AbortController): string {
     if (!code?.trim()) {
-      throw new ValidationError("Code is required", "TaskManager.createEvalTask");
+      throw new ValidationError(
+        "Code is required",
+        "TaskManager.createEvalTask",
+      );
     }
 
     if (this.resources.shuttingDown) {
@@ -570,12 +646,16 @@ export class TaskManager {
       result,
       output,
       isStreaming: false,
-      progress: Object.freeze({ ...(task as EvalTask).progress, status: "done" }),
+      progress: Object.freeze({
+        ...(task as EvalTask).progress,
+        status: "done",
+      }),
     });
 
     this.tasks.set(taskId, updated);
     this.notify();
     this.emit({ type: "task:completed", taskId, result });
+    this.pruneTerminalTasks();
   }
 
   /**
@@ -592,12 +672,16 @@ export class TaskManager {
       completedAt: Date.now(),
       error,
       isStreaming: false,
-      progress: Object.freeze({ ...(task as EvalTask).progress, status: "failed" }),
+      progress: Object.freeze({
+        ...(task as EvalTask).progress,
+        status: "failed",
+      }),
     });
 
     this.tasks.set(taskId, updated);
     this.notify();
     this.emit({ type: "task:failed", taskId, error });
+    this.pruneTerminalTasks();
   }
 
   /**
@@ -605,7 +689,9 @@ export class TaskManager {
    */
   getEvalResult(taskId: string): unknown | undefined {
     const task = this.tasks.get(taskId) as EvalTask | undefined;
-    if (!task || task.type !== "eval" || task.status !== "completed") return undefined;
+    if (!task || task.type !== "eval" || task.status !== "completed") {
+      return undefined;
+    }
     return task.result;
   }
 
@@ -710,11 +796,18 @@ export class TaskManager {
     if (initialStatus === "running") {
       this.emit({ type: "task:started", taskId: id });
     } else if (terminalStatus === "completed") {
-      this.emit({ type: "task:completed", taskId: id, result: delegateTask.summary });
+      this.emit({
+        type: "task:completed",
+        taskId: id,
+        result: delegateTask.summary,
+      });
     } else if (terminalStatus === "failed" && delegateTask.error) {
       this.emit({ type: "task:failed", taskId: id, error: delegateTask.error });
     } else if (terminalStatus === "cancelled") {
       this.emit({ type: "task:cancelled", taskId: id });
+    }
+    if (terminalStatus) {
+      this.pruneTerminalTasks();
     }
     return id;
   }
@@ -766,10 +859,13 @@ export class TaskManager {
         ? "failed"
         : "cancelled",
       completedAt: delegateTask.completedAt ?? Date.now(),
-      summary: outcome.status === "completed" ? outcome.summary : delegateTask.summary,
+      summary: outcome.status === "completed"
+        ? outcome.summary
+        : delegateTask.summary,
       error: outcome.status === "completed" ? undefined : outcome.error,
       snapshot: outcome.snapshot ?? delegateTask.snapshot,
-      childSessionId: outcome.snapshot?.childSessionId ?? delegateTask.childSessionId,
+      childSessionId: outcome.snapshot?.childSessionId ??
+        delegateTask.childSessionId,
     });
 
     this.tasks.set(taskId, next);
@@ -784,6 +880,8 @@ export class TaskManager {
         this.emit({ type: "task:cancelled", taskId });
       }
     }
+
+    this.pruneTerminalTasks();
 
     return true;
   }
@@ -825,7 +923,9 @@ export class TaskManager {
    */
   findDelegateTaskByThreadId(threadId: string): DelegateTask | undefined {
     for (const task of this.tasks.values()) {
-      if (task.type === "delegate" && (task as DelegateTask).threadId === threadId) {
+      if (
+        task.type === "delegate" && (task as DelegateTask).threadId === threadId
+      ) {
         return task as DelegateTask;
       }
     }
@@ -891,6 +991,7 @@ export class TaskManager {
       }
       if (this.transition(taskId, "cancelled", { silent: true })) {
         this.emit({ type: "task:cancelled", taskId });
+        this.pruneTerminalTasks();
         return true;
       }
       return false;
@@ -911,6 +1012,7 @@ export class TaskManager {
       }
       if (this.transition(taskId, "cancelled", { silent: true })) {
         this.emit({ type: "task:cancelled", taskId });
+        this.pruneTerminalTasks();
         return true;
       }
       return false;
@@ -936,7 +1038,10 @@ export class TaskManager {
   /** Clear completed/failed/cancelled tasks from list */
   clearCompleted(): void {
     for (const [id, task] of this.tasks) {
-      if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
+      if (
+        task.status === "completed" || task.status === "failed" ||
+        task.status === "cancelled"
+      ) {
         this.tasks.delete(id);
       }
     }

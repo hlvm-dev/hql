@@ -134,7 +134,6 @@ export function createModelDiscoveryStore(
   const resolvedDeps = { ...getDefaultDeps(), ...deps };
   let cachedSnapshot: ModelDiscoverySnapshot | null = null;
   let inFlightRefresh: Promise<ModelDiscoveryRefreshResult> | null = null;
-  let hasPersistedSnapshot = false;
 
   function getSeedSnapshot(): ModelDiscoverySnapshot {
     return getBundledModelDiscoverySnapshot();
@@ -143,11 +142,8 @@ export function createModelDiscoveryStore(
   async function readDiskSnapshot(): Promise<ModelDiscoverySnapshot | null> {
     try {
       const raw = await resolvedDeps.readTextFile(getModelDiscoveryCachePath());
-      const parsed = parsePersistedSnapshot(raw);
-      hasPersistedSnapshot = parsed !== null;
-      return parsed;
+      return parsePersistedSnapshot(raw);
     } catch {
-      hasPersistedSnapshot = false;
       return null;
     }
   }
@@ -155,11 +151,8 @@ export function createModelDiscoveryStore(
   function readDiskSnapshotSync(): ModelDiscoverySnapshot | null {
     try {
       const raw = resolvedDeps.readTextFileSync(getModelDiscoveryCachePath());
-      const parsed = parsePersistedSnapshot(raw);
-      hasPersistedSnapshot = parsed !== null;
-      return parsed;
+      return parsePersistedSnapshot(raw);
     } catch {
-      hasPersistedSnapshot = false;
       return null;
     }
   }
@@ -173,7 +166,6 @@ export function createModelDiscoveryStore(
         getModelDiscoveryCachePath(),
         JSON.stringify(snapshot),
       );
-      hasPersistedSnapshot = true;
     } catch {
       // Best-effort persistence only.
     }
@@ -186,7 +178,6 @@ export function createModelDiscoveryStore(
         getModelDiscoveryCachePath(),
         JSON.stringify(snapshot),
       );
-      hasPersistedSnapshot = true;
     } catch {
       // Best-effort persistence only.
     }
@@ -307,7 +298,6 @@ export function createModelDiscoveryStore(
   function resetCacheForTests(): void {
     cachedSnapshot = null;
     inFlightRefresh = null;
-    hasPersistedSnapshot = false;
   }
 
   return {

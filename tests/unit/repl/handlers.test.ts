@@ -11,10 +11,9 @@ import {
   handleGetMessages,
   handleUpdateMessage,
 } from "../../../src/hlvm/cli/repl/handlers/messages.ts";
+import { handleChat } from "../../../src/hlvm/cli/repl/handlers/chat.ts";
 import {
-  handleChat,
-} from "../../../src/hlvm/cli/repl/handlers/chat.ts";
-import {
+  __testOnlyResetAgentReadyState,
   isAgentReady,
   markAgentReady,
 } from "../../../src/hlvm/cli/repl/handlers/chat-session.ts";
@@ -250,7 +249,11 @@ Deno.test("handlers: chat rejects attachments for agent models without vision su
       registerProvider("multimodal-test", () => ({
         name: "multimodal-test",
         displayName: "Multimodal Test",
-        capabilities: ["chat" as const, "tools" as const, "models.list" as const],
+        capabilities: [
+          "chat" as const,
+          "tools" as const,
+          "models.list" as const,
+        ],
         async *generate() {
           yield "";
         },
@@ -307,6 +310,7 @@ Deno.test("handlers: chat rejects attachments for agent models without vision su
 });
 
 Deno.test("handlers: chat exports track readiness by model and no-op cancellation", async () => {
+  __testOnlyResetAgentReadyState();
   const modelA = "ollama/llama3.2:1b";
   const modelB = "openai/gpt-4.1-mini";
 
@@ -320,4 +324,18 @@ Deno.test("handlers: chat exports track readiness by model and no-op cancellatio
   assertEquals(isAgentReady(), true);
   assertEquals(isAgentReady(modelA), true);
   assertEquals(isAgentReady(modelB), false);
+});
+
+Deno.test("handlers: agent readiness cache evicts older model entries", () => {
+  __testOnlyResetAgentReadyState();
+
+  markAgentReady("ollama/model-0");
+  assertEquals(isAgentReady("ollama/model-0"), true);
+
+  for (let index = 1; index <= 80; index++) {
+    markAgentReady(`ollama/model-${index}`);
+  }
+
+  assertEquals(isAgentReady("ollama/model-0"), false);
+  assertEquals(isAgentReady("ollama/model-80"), true);
 });

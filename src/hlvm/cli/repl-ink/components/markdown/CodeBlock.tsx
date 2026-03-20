@@ -140,7 +140,7 @@ export const CodeBlock = memo(function CodeBlock(
     StreamingAutoHighlightCache | undefined
   >(undefined);
 
-  const { visibleCode, totalLines, hiddenCount, needsTruncation } = useMemo(() => {
+  const { visibleCode, totalLines, hiddenCount } = useMemo(() => {
     const normalizedCode = code.replace(/\t/g, "  ");
     // Determine effective max lines: use availableHeight cap during streaming
     const effectiveMaxLines = isPending && availableHeight
@@ -156,7 +156,7 @@ export const CodeBlock = memo(function CodeBlock(
       : rawLines;
     const hiddenCount = totalLines - visibleRawLines.length;
     const visibleCode = visibleRawLines.join("\n");
-    return { visibleCode, totalLines, hiddenCount, needsTruncation };
+    return { visibleCode, totalLines, hiddenCount };
   }, [code, maxLines, isPending, availableHeight]);
 
   const hasLineNumbers = totalLines >= 5;

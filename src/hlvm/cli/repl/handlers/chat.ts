@@ -46,9 +46,7 @@ import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
 import { evaluateProviderApproval } from "../../../providers/approval.ts";
 import { supportsAgentExecution } from "../../../agent/constants.ts";
 
-export {
-  handleChatInteraction,
-} from "./chat-session.ts";
+export { handleChatInteraction } from "./chat-session.ts";
 
 import {
   activeRequests,
@@ -210,7 +208,7 @@ export async function handleChat(req: Request): Promise<Response> {
   if (!body.messages?.length) {
     return jsonError("Missing messages", 400);
   }
-  const sessionId = resolveConversationSessionId(undefined, {
+  const sessionId = resolveConversationSessionId(body.session_id, {
     stateless: body.stateless === true,
   });
 
@@ -304,21 +302,21 @@ export async function handleChat(req: Request): Promise<Response> {
         getRequestAttachmentIds(body.messages),
         resolvedModelInfo,
       );
-        if (!attachmentSupport.supported) {
-          if (attachmentSupport.catalogFailed) {
-            return jsonError(
-              "Could not verify model attachment support. Check provider connection and try again.",
-              503,
-            );
-          }
+      if (!attachmentSupport.supported) {
+        if (attachmentSupport.catalogFailed) {
           return jsonError(
-            describeAttachmentFailure(attachmentSupport, resolvedModel) ||
-              (body.model
-                ? "Selected model does not support these attachments"
-                : "Default model does not support these attachments"),
-            400,
+            "Could not verify model attachment support. Check provider connection and try again.",
+            503,
           );
         }
+        return jsonError(
+          describeAttachmentFailure(attachmentSupport, resolvedModel) ||
+            (body.model
+              ? "Selected model does not support these attachments"
+              : "Default model does not support these attachments"),
+          400,
+        );
+      }
     }
     if (body.mode === "agent") {
       const toolCheck = await modelSupportsTools(

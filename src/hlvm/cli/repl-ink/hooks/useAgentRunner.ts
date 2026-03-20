@@ -96,10 +96,7 @@ export interface UseAgentRunnerResult {
     attachments: ConversationAttachmentRef[] | undefined;
     unsupportedMimeType: string | undefined;
   };
-  expandConversationDraftText: (
-    text: string,
-    attachments?: AnyAttachment[],
-  ) => string;
+  expandConversationDraftText: (text: string) => string;
   runConversation: (
     query: string,
     attachments?: ConversationAttachmentRef[],
@@ -191,10 +188,9 @@ export function useAgentRunner(
     [],
   );
 
-  const expandConversationDraftText = useCallback((
-    text: string,
-    attachments?: AnyAttachment[],
-  ): string => text, []);
+  const expandConversationDraftText = useCallback((text: string): string => {
+    return text;
+  }, []);
 
   const runConversation = useCallback(async (
     query: string,
@@ -492,7 +488,6 @@ export function useAgentRunner(
   ): { started: boolean; unsupportedMimeType?: string } => {
     const expandedText = expandConversationDraftText(
       draft.text,
-      draft.attachments,
     );
     const { attachments, unsupportedMimeType } =
       prepareConversationAttachmentPayload(draft.attachments);

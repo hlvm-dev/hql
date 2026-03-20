@@ -8,6 +8,7 @@
 import {
   createSession,
   deleteSession,
+  getOrCreateSession,
   getSession,
   listSessions,
 } from "./conversation-store.ts";
@@ -19,21 +20,39 @@ const MAX_INACTIVE_AGE_MS = 1000 * 60 * 60 * 24 * 7;
 
 let activeSessionId: string | null = null;
 
+function getExistingActiveConversationSession() {
+  if (!activeSessionId) return null;
+  const existing = getSession(activeSessionId);
+  if (existing) return existing;
+  activeSessionId = null;
+  return null;
+}
+
+function bindActiveConversationSession<T extends { id: string }>(
+  session: T,
+): T {
+  activeSessionId = session.id;
+  return session;
+}
+
+function createConversationSession(id?: string) {
+  pruneInactiveSessions();
+  return createSession("", id);
+}
+
+function getOrCreateConversationSession(id: string) {
+  pruneInactiveSessions();
+  return getOrCreateSession(id);
+}
+
 export function getActiveConversationSessionId(): string {
   return ensureActiveConversationSession().id;
 }
 
 export function ensureActiveConversationSession() {
-  if (activeSessionId) {
-    const existing = getSession(activeSessionId);
-    if (existing) return existing;
-    activeSessionId = null;
-  }
-
-  pruneInactiveSessions();
-  const session = createSession("");
-  activeSessionId = session.id;
-  return session;
+  const existing = getExistingActiveConversationSession();
+  if (existing) return existing;
+  return bindActiveConversationSession(createConversationSession());
 }
 
 export function resolveConversationSessionId(
@@ -43,18 +62,13 @@ export function resolveConversationSessionId(
   const stateless = options.stateless === true;
   const trimmed = requestedSessionId?.trim();
   if (trimmed) {
-    const existing = getSession(trimmed);
-    if (existing) {
-      if (!stateless) {
-        activeSessionId = trimmed;
-      }
-      return trimmed;
-    }
+    const session = getOrCreateConversationSession(trimmed);
+    if (!stateless) bindActiveConversationSession(session);
+    return session.id;
   }
 
   if (stateless) {
-    pruneInactiveSessions();
-    return createSession("").id;
+    return createConversationSession().id;
   }
 
   return ensureActiveConversationSession().id;
@@ -103,5 +117,9 @@ export async function closeActiveConversationSession(): Promise<void> {
     }
   }
 
+  activeSessionId = null;
+}
+
+export function _resetActiveConversationForTesting(): void {
   activeSessionId = null;
 }

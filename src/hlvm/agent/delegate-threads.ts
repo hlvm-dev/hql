@@ -114,6 +114,15 @@ const threads = new Map<string, DelegateThread>();
 const completedQueue: string[] = [];
 const completedQueueSet = new Set<string>();
 
+function removeQueuedCompletion(threadId: string): void {
+  completedQueueSet.delete(threadId);
+  for (let index = completedQueue.length - 1; index >= 0; index--) {
+    if (completedQueue[index] === threadId) {
+      completedQueue.splice(index, 1);
+    }
+  }
+}
+
 /** DRY helper: look up a thread and apply a mutation if it exists. */
 function withThread(
   threadId: string,
@@ -181,21 +190,27 @@ export function updateThreadSnapshot(
   threadId: string,
   snapshot: DelegateTranscriptSnapshot,
 ): void {
-  withThread(threadId, (thread) => { thread.snapshot = snapshot; });
+  withThread(threadId, (thread) => {
+    thread.snapshot = snapshot;
+  });
 }
 
 export function updateThreadResult(
   threadId: string,
   result: DelegateThreadResult,
 ): void {
-  withThread(threadId, (thread) => { thread.terminalResult = result; });
+  withThread(threadId, (thread) => {
+    thread.terminalResult = result;
+  });
 }
 
 export function updateThreadChildSession(
   threadId: string,
   childSessionId: string,
 ): void {
-  withThread(threadId, (thread) => { thread.childSessionId = childSessionId; });
+  withThread(threadId, (thread) => {
+    thread.childSessionId = childSessionId;
+  });
 }
 
 export function updateThreadWorkspace(
@@ -229,14 +244,18 @@ export function updateThreadParentSnapshots(
   threadId: string,
   snapshots: Map<string, string>,
 ): void {
-  withThread(threadId, (thread) => { thread.parentSnapshots = snapshots; });
+  withThread(threadId, (thread) => {
+    thread.parentSnapshots = snapshots;
+  });
 }
 
 export function updateThreadBatchId(
   threadId: string,
   batchId: string,
 ): void {
-  withThread(threadId, (thread) => { thread.batchId = batchId; });
+  withThread(threadId, (thread) => {
+    thread.batchId = batchId;
+  });
 }
 
 export function updateThreadMerge(
@@ -368,7 +387,7 @@ export function cancelThreadsForOwner(ownerId: string): void {
 }
 
 export function removeThread(threadId: string): void {
-  completedQueueSet.delete(threadId);
+  removeQueuedCompletion(threadId);
   threads.delete(threadId);
 }
 
@@ -419,7 +438,7 @@ export function cleanupCompletedThreads(
     if (i >= maxRetained || age > maxAgeMs) {
       // Fire-and-forget workspace cleanup
       thread.workspaceCleanup?.().catch(() => {});
-      completedQueueSet.delete(thread.threadId);
+      removeQueuedCompletion(thread.threadId);
       threads.delete(thread.threadId);
       removed++;
     }
