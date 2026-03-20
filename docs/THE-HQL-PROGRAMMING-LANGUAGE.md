@@ -2733,19 +2733,19 @@ Quoting is the mechanism for treating code as data:
 (quote foo)          ;; => "foo"
 ```
 
-**Quasiquote** (backtick) creates a template with selective evaluation:
+**Syntax-quote** (backtick) creates a hygienic template with selective evaluation:
 
 ```clojure
 `(+ 1 ~x)           ;; x is evaluated, rest is quoted
 `(list ~@items)      ;; items is evaluated and spliced in
 ```
 
-Within a quasiquote:
+Within a template quote:
 - `~expr` (unquote) evaluates the expression
 - `~@expr` (unquote-splicing) evaluates and splices elements into the enclosing list
 - Everything else is quoted (preserved as data)
 
-Outside quasiquote, `~` is the bitwise NOT operator.
+`quasiquote` remains available as the raw non-resolving template form. Outside template quote context, `~` is the bitwise NOT operator.
 
 #### 15.3 Threading Macros
 
@@ -2842,7 +2842,7 @@ HQL does not have automatic Scheme-style hygiene. Macro authors must manually av
        (= ~b ~tmp))))
 ```
 
-**Auto-gensym** -- symbols ending with `#` inside quasiquote automatically get unique names:
+**Auto-gensym** -- symbols ending with `#` inside `syntax-quote` or `quasiquote` automatically get unique names:
 
 ```clojure
 (macro swap [a b]
@@ -3889,7 +3889,8 @@ Self-hosted functions are transpiled to JavaScript at build time via `scripts/bu
 | `yield*` | Generator | `(yield* iterable)` |
 | `macro` | Metaprog | `(macro name [params] body)` |
 | `quote` | Metaprog | `(quote expr)` |
-| `quasiquote` | Metaprog | `` `(expr ~val ~@list) `` |
+| `syntax-quote` | Metaprog | `` `(expr ~val ~@list) `` |
+| `quasiquote` | Metaprog | `(quasiquote expr)` |
 | `unquote` | Metaprog | `~expr` |
 | `unquote-splicing` | Metaprog | `~@expr` |
 | `gensym` | Metaprog | `(gensym "prefix")` |
@@ -4230,4 +4231,3 @@ This grammar is intentionally informal and simplified. The actual parser handles
 - Template literals with interpolation
 - Reader macros for quote/unquote
 - Nested quasiquote depth tracking
-

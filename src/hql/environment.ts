@@ -7,6 +7,7 @@ import {
   isSymbol,
   isVector,
   type SExp,
+  type SList,
 } from "./s-exp/types.ts";
 import { Logger } from "../logger.ts";
 import { MacroRegistry } from "./s-exp/macro-registry.ts";
@@ -41,11 +42,18 @@ export type Value =
   | Record<string, unknown>
   | unknown[];
 
-export type MacroFn = ((args: SExp[], env: Environment) => SExp) & {
+export type MacroFn = ((args: SExp[], env: Environment, originalForm?: SList) => SExp) & {
   isMacro?: boolean;
   macroName?: string;
   sourceFile?: string;
 };
+
+export interface ResolvedMacro {
+  macro: MacroFn;
+  macroName: string;
+  sourceFile?: string;
+  isSystem: boolean;
+}
 
 function isSExpValue(value: unknown): value is SExp {
   return typeof value === "object" &&
@@ -936,69 +944,90 @@ export class Environment {
   }
 
   /**
-   * Check if a macro in a specific scope is accessible from this environment
-   * Returns true/false if found, undefined if macro not in this scope
+   * Resolve a macro in a specific scope.
+   * Returns undefined if not present in that scope or inaccessible from here.
    */
-  private checkMacroAccessibilityInScope(
+  private resolveMacroInScope(
     scope: Environment,
     macroName: string,
-  ): boolean | undefined {
+  ): ResolvedMacro | undefined {
     if (!scope.macros.has(macroName)) {
-      return undefined; // Macro not in this scope
+      return undefined;
     }
 
-    // Found the macro - check accessibility
+    const macro = scope.macros.get(macroName);
+    if (!macro) {
+      return undefined;
+    }
+
     const macroSourceFile = scope.macroSourceFiles.get(macroName);
 
-    // If no source file tracked, it's accessible
     if (!macroSourceFile) {
-      return true;
+      return {
+        macro,
+        macroName,
+        isSystem: false,
+      };
     }
 
-    // Get effective current file
     const effectiveCurrentFile = this.getEffectiveCurrentFile();
 
-    // Macro from current file is always accessible
     if (macroSourceFile === effectiveCurrentFile) {
-      return true;
+      return {
+        macro,
+        macroName,
+        sourceFile: macroSourceFile,
+        isSystem: false,
+      };
     }
 
-    // Check if macro was explicitly imported
     if (this.importedMacros.has(macroName)) {
-      return true;
+      return {
+        macro,
+        macroName,
+        sourceFile: macroSourceFile,
+        isSystem: false,
+      };
     }
 
-    // Not accessible - macro is from another file and not imported
-    return false;
+    return undefined;
+  }
+
+  /**
+   * Resolve a macro using one lookup path for system, local, parent, and imported macros.
+   */
+  resolveMacro(macroName: string): ResolvedMacro | undefined {
+    const systemMacro = this.macroRegistry.getMacro(macroName);
+    if (systemMacro) {
+      return {
+        macro: systemMacro,
+        macroName,
+        isSystem: true,
+      };
+    }
+
+    const localResolution = this.resolveMacroInScope(this, macroName);
+    if (localResolution) {
+      return localResolution;
+    }
+
+    let current = this.parent;
+    while (current !== null) {
+      const resolution = this.resolveMacroInScope(current, macroName);
+      if (resolution) {
+        return resolution;
+      }
+      current = current.parent;
+    }
+
+    return undefined;
   }
 
   /**
    * Check if a macro is accessible in the current scope
    */
   isMacroAccessible(macroName: string): boolean {
-    // System macros are always accessible
-    if (this.macroRegistry.hasMacro(macroName)) {
-      return true;
-    }
-
-    // Check this scope first
-    const thisResult = this.checkMacroAccessibilityInScope(this, macroName);
-    if (thisResult !== undefined) {
-      return thisResult;
-    }
-
-    // Walk up the parent chain
-    let current = this.parent;
-    while (current !== null) {
-      const result = this.checkMacroAccessibilityInScope(current, macroName);
-      if (result !== undefined) {
-        return result;
-      }
-      current = current.parent;
-    }
-
-    // Macro not found in any scope
-    return false;
+    return this.resolveMacro(macroName) !== undefined;
   }
 
   importMacro(
@@ -1038,38 +1067,11 @@ export class Environment {
   }
 
   hasMacro(key: string): boolean {
-    return this.isMacroAccessible(key);
+    return this.resolveMacro(key) !== undefined;
   }
 
   getMacro(key: string): MacroFn | undefined {
-    // First check if accessible
-    if (!this.isMacroAccessible(key)) {
-      return undefined;
-    }
-
-    // Check system macros first
-    const systemMacro = this.macroRegistry.getMacro(key);
-    if (systemMacro) {
-      return systemMacro;
-    }
-
-    // Check this scope first
-    const thisMacro = this.macros.get(key);
-    if (thisMacro) {
-      return thisMacro;
-    }
-
-    // Walk up the parent chain to find the macro
-    let current = this.parent;
-    while (current !== null) {
-      const macro = current.macros.get(key);
-      if (macro) {
-        return macro;
-      }
-      current = current.parent;
-    }
-
-    return undefined;
+    return this.resolveMacro(key)?.macro;
   }
 
   isSystemMacro(symbolName: string): boolean {
@@ -1104,6 +1106,26 @@ export class Environment {
 
   getCurrentFile(): string {
     return this.currentFilePath ?? "";
+  }
+
+  listVisibleMacros(): string[] {
+    const visible = new Set<string>(this.macroRegistry.listMacros());
+
+    let current: Environment | null = this;
+    while (current !== null) {
+      for (const name of current.macros.keys()) {
+        if (this.resolveMacro(name)) {
+          visible.add(name);
+        }
+      }
+      current = current.parent;
+    }
+
+    return [...visible].sort();
+  }
+
+  listImportedMacros(): string[] {
+    return [...this.importedMacros.keys()].sort();
   }
 
   

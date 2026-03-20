@@ -1,0 +1,45 @@
+import type {
+  OverlayPanel,
+  SurfacePanel,
+} from "../hooks/useOverlayPanel.ts";
+
+export function shouldAutoCloseConversationSurface(options: {
+  activeOverlay: OverlayPanel;
+  surfacePanel: SurfacePanel;
+  itemCount: number;
+  hasActiveRun: boolean;
+  queuedDraftCount: number;
+  hasPendingInteraction: boolean;
+  hasPlanState: boolean;
+}): boolean {
+  return options.activeOverlay === "none" &&
+    options.surfacePanel === "conversation" &&
+    options.itemCount === 0 &&
+    !options.hasActiveRun &&
+    options.queuedDraftCount === 0 &&
+    !options.hasPendingInteraction &&
+    !options.hasPlanState;
+}
+
+export function shouldRenderMainBanner(options: {
+  showBanner: boolean;
+  hasBeenCleared: boolean;
+  isOverlayOpen: boolean;
+  hasStandaloneSurface: boolean;
+  hasActivePlanningState: boolean;
+}): boolean {
+  return options.showBanner &&
+    !options.hasBeenCleared &&
+    !options.isOverlayOpen &&
+    !options.hasStandaloneSurface;
+}
+
+export function resolveConversationEscapeAction(options: {
+  surfacePanel: SurfacePanel;
+  isConversationTaskRunning: boolean;
+}): "interrupt" | "ignore" {
+  if (options.surfacePanel !== "conversation") {
+    return "ignore";
+  }
+  return options.isConversationTaskRunning ? "interrupt" : "ignore";
+}

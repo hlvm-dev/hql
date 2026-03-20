@@ -7,22 +7,25 @@
 
 HQL provides a Lisp-style macro system for compile-time code transformation. Macros are defined with the `macro` keyword and expand before runtime. The system includes:
 
-- `quote` / `quasiquote` / `unquote` / `unquote-splicing` for code-as-data
+- `quote` / `syntax-quote` / `quasiquote` / `unquote` / `unquote-splicing` for code-as-data
 - Backtick shorthand syntax (`` ` ``, `~`, `~@`)
 - User-defined macros with `macro`
-- Manual hygiene via `gensym` and auto-gensym (`foo#`)
-- Macro primitives (`%first`, `%rest`, `%nth`, `%length`, `%empty?`) for S-expression manipulation
+- Hygienic `syntax-quote` plus explicit raw `quasiquote`
+- Hygiene helpers via `gensym` and auto-gensym (`foo#`)
+- Macro primitives (`%first`, `%rest`, `%nth`, `%length`, `%empty?`, `%eval`, `%macroexpand-1`, `%macroexpand-all`) for S-expression manipulation
 - Introspection functions (`list?`, `symbol?`, `name`) available at macro-time
-- `macroexpand` / `macroexpand1` for debugging macro expansion
+- `&form` / `&env` pseudo-params and destructuring in macro parameter lists
+- `macroexpand` / `macroexpand1` / `macroexpandAll` / `macroexpandTrace` for debugging macro expansion
 
 ## Defining Macros
 
 ```lisp
 (macro name [params] body)
 (macro name [params & rest-param] body)
+(macro name [&form &env params] body)
 ```
 
-The keyword is `macro` (not `defmacro`). Parameters use vector syntax `[...]`. Rest parameters use `&`.
+The keyword is `macro` (not `defmacro`). Parameters use vector syntax `[...]`. Rest parameters use `&`. Macro parameter lists also support vector/map destructuring. `&form` and `&env` may appear at the front of the parameter list to access the original invocation form and the current macro environment snapshot.
 
 ```lisp
 (macro when [test & body]
@@ -50,18 +53,18 @@ The keyword is `macro` (not `defmacro`). Parameters use vector syntax `[...]`. R
 
 Symbols become strings. Lists become arrays (recursive). Primitives pass through.
 
-## Quasiquote and Unquote
+## Syntax-Quote, Quasiquote, and Unquote
 
-`quasiquote` is a template that allows selective evaluation via `unquote` and `unquote-splicing`:
+`syntax-quote` is the hygienic template form. It resolves non-local symbols, preserves local binding identity metadata, and still supports `unquote` / `unquote-splicing`:
 
 ```lisp
-(quasiquote (a b c))                          ;; => ["a", "b", "c"]
+(syntax-quote (a b c))                        ;; => ["a", "b", "c"]
 
 (var x 10)
-(quasiquote (a (unquote x) c))                ;; => ["a", 10, "c"]
+(syntax-quote (a (unquote x) c))              ;; => ["a", 10, "c"]
 
 (var nums [1, 2, 3])
-(quasiquote (a (unquote-splicing nums) b))    ;; => ["a", 1, 2, 3, "b"]
+(syntax-quote (a (unquote-splicing nums) b))  ;; => ["a", 1, 2, 3, "b"]
 ```
 
 ### Backtick Shorthand
@@ -70,7 +73,7 @@ The parser transforms backtick syntax into the long forms:
 
 | Shorthand | Long form |
 |-----------|-----------|
-| `` `(...) `` | `(quasiquote (...))` |
+| `` `(...) `` | `(syntax-quote (...))` |
 | `~expr` | `(unquote expr)` |
 | `~@expr` | `(unquote-splicing expr)` |
 
@@ -84,17 +87,21 @@ The parser transforms backtick syntax into the long forms:
 
 Outside of a quasiquote context, `~` is treated as the bitwise NOT operator. `~@` outside quasiquote is a parse error.
 
-### Nested Quasiquotes
+### Raw Quasiquote
 
-Quasiquotes support nesting with depth tracking. Each nested quasiquote increments depth; each unquote decrements it. Only at depth 0 does unquote evaluate the expression.
+`quasiquote` remains available as the raw, non-resolving template form. Use it when you explicitly want a template without hygienic symbol resolution.
+
+### Nested Template Quotes
+
+Template quotes support nesting with depth tracking. Each nested `syntax-quote` or `quasiquote` increments depth; each unquote decrements it. Only at depth 0 does unquote evaluate the expression.
 
 ## Macro Hygiene
 
-HQL uses **manual hygiene** (Common Lisp style), not automatic hygiene. Two mechanisms are available:
+HQL uses hygienic `syntax-quote` for symbol resolution, plus explicit gensym-based control when you need to construct fresh locals yourself. Two mechanisms are available:
 
 ### Auto-gensym (`foo#`)
 
-Inside a quasiquote template, symbols ending with `#` are automatically replaced with unique generated symbols. All occurrences of the same `foo#` within the same quasiquote map to the same symbol.
+Inside a `syntax-quote` or `quasiquote` template, symbols ending with `#` are automatically replaced with unique generated symbols. All occurrences of the same `foo#` within the same template map to the same symbol.
 
 ```lisp
 (macro match [value & clauses]
@@ -169,11 +176,13 @@ Available at macro-time for inspecting S-expression types:
 Macro bodies can use the following at expansion time:
 
 - **`if`**, **`cond`**, **`let`**, **`var`** -- control flow and bindings
-- **`quote`**, **`quasiquote`** -- code construction
+- **`quote`**, **`syntax-quote`**, **`quasiquote`** -- code construction
 - **Macro primitives** (`%first`, `%rest`, etc.)
 - **Arithmetic and comparison** (`+`, `-`, `===`, `>=`, etc.) via interpreter bridge
 - **User-defined functions** -- named `fn` definitions are registered in a persistent interpreter environment and can be called from later macros
 - **Nested macro calls** -- macro arguments that are themselves macro calls get pre-expanded
+
+Macros receive raw forms by default. If you want to force macro-time execution of a raw form, use `%eval`. `%macroexpand-1` and `%macroexpand-all` expose expansion from inside macro bodies.
 
 The macro system uses a lazy singleton interpreter with a persistent environment for evaluating macro-time expressions. User-defined functions survive across macro expansions.
 
@@ -195,6 +204,25 @@ Single-step expansion (one iteration, no recursive descent):
 ```typescript
 import { macroexpand1 } from "./src/hql/macroexpand.ts";
 const result = await macroexpand1(`(when true (print "hello"))`);
+```
+
+### `macroexpandAll`
+
+Full fixed-point expansion alias:
+
+```typescript
+import { macroexpandAll } from "./src/hql/macroexpand.ts";
+const result = await macroexpandAll(`(when true (print "hello"))`);
+```
+
+### `macroexpandTrace`
+
+Machine-readable expansion trace for tooling and debugging:
+
+```typescript
+import { macroexpandTrace } from "./src/hql/macroexpand.ts";
+const result = await macroexpandTrace(`(when true (print "hello"))`);
+// result.trace => [{ stage, before, after, macroName?, iteration?, ... }]
 ```
 
 ### Visualization
@@ -272,7 +300,7 @@ When the `macro` log namespace is enabled, macro expansions are printed with ASC
 HQL Source
   |
   v
-Parser (backtick => quasiquote, ~ => unquote, ~@ => unquote-splicing)
+Parser (backtick => syntax-quote, ~ => unquote, ~@ => unquote-splicing)
   |
   v
 Macro Expansion (compile-time, iterative fixed-point)

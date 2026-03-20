@@ -85,6 +85,7 @@ export interface AttachmentRegistrationInput {
   bytes: Uint8Array;
   sourcePath?: string;
   mimeType?: string;
+  metadata?: AttachmentMetadata;
 }
 
 export type AttachmentServiceErrorCode =

@@ -723,12 +723,411 @@ This is a defining property of a runtime platform.
 
 ---
 
-## 15. The Important `search_web` Clarification
+## 15. The Staircase To The Final Goal
+
+This thesis is intentionally not an implementation document, but it still needs
+to be explicit about one important reality:
+
+```text
+The final platform vision is too large to arrive all at once.
+It must be reached through prerequisite layers.
+```
+
+That does not weaken the vision. It clarifies how to think about progress.
+
+The right mental model is:
+
+```text
+highest abstraction = destination
+lower-level truths = prerequisites
+```
+
+Or visually:
+
+```text
+                    FINAL GOAL
+     ┌──────────────────────────────────────────────┐
+     │ HLVM as task-level AI runtime platform       │
+     │ "User states intent, HLVM handles the rest"  │
+     └──────────────────────────────────────────────┘
+                          ▲
+                          │
+                          │  11. trusted default
+                          │  10. judgment quality
+                          │   9. opt-in higher abstraction
+                          │   8. mixed-task coherence
+                          │   7. more capability families
+                          │   6. provenance and trust
+                          │   5. first capability pilot
+                          │   4. execution surface
+                          │   3. policy awareness
+                          │   2. availability awareness
+                          │   1. stable manual baseline
+                          │   0. guardrails
+                          │
+CURRENT ──────────────────┘
+```
+
+The key idea is simple:
+
+```text
+High abstraction is not one feature.
+High abstraction is the result of many lower-level capabilities
+working together coherently.
+```
+
+### 15.1 Phase 0: Guardrails
+
+Purpose:
+
+- define what must remain true while the system evolves
+- prevent the platform vision from becoming uncontrolled abstraction drift
+
+Core truths:
+
+- manual model/provider choice remains valid
+- the system must not pretend inaccessible backends exist
+- higher abstraction may remain opt-in while trust is still being earned
+- user constraints remain real and binding
+
+What this phase means conceptually:
+
+```text
+The destination may be higher abstraction.
+The transition must still preserve trust and user control.
+```
+
+### 15.2 Phase 1: Stable Manual Baseline
+
+Purpose:
+
+- preserve HLVM's current value as a reliable manually steered runtime
+
+User-facing meaning:
+
+- the user can still choose a provider
+- the user can still choose a model
+- the user can still force local-only or similar constraints
+
+Why this matters:
+
+```text
+If the manual baseline is not strong,
+the higher abstraction has nothing trustworthy to stand on.
+```
+
+Visual:
+
+```text
+User
+  -> choose model/provider
+  -> HLVM orchestrates
+  -> HLVM tools execute
+  -> result
+```
+
+### 15.3 Phase 2: Availability Awareness
+
+Purpose:
+
+- HLVM must know what is actually available for this user, machine, and
+  session
+
+This includes realities such as:
+
+- Ollama present or absent
+- provider keys present or absent
+- Claude Code available or unavailable
+- MCP services configured or missing
+
+Why this matters:
+
+```text
+HLVM cannot become a high-level runtime
+if it reasons over imaginary backends.
+```
+
+The runtime must think in terms of:
+
+```text
+reachable backends
+```
+
+not:
+
+```text
+all theoretically possible backends in the ecosystem
+```
+
+### 15.4 Phase 3: Policy Awareness
+
+Purpose:
+
+- HLVM must understand not just what exists, but what is allowed
+
+Examples of real constraints:
+
+- keep data local
+- no uploads
+- cloud allowed
+- cost sensitive
+- quality preferred
+
+Why this matters:
+
+```text
+A capability that exists but is disallowed
+is not part of the real execution space for that task.
+```
+
+Visual:
+
+```text
+reachable backends
+  minus disallowed paths
+  equals
+allowed execution surface
+```
+
+### 15.5 Phase 4: Execution Surface
+
+Purpose:
+
+- HLVM begins reasoning over one coherent current execution surface rather than
+  over scattered disconnected tools and vendors
+
+This means the system increasingly sees the task through the lens of:
+
+- what is reachable now
+- what is allowed now
+- what execution families are actually on the table
+
+Why this matters:
+
+```text
+The platform does not become higher abstraction
+by listing more tools.
+It becomes higher abstraction by operating over one coherent
+execution reality for the current task.
+```
+
+### 15.6 Phase 5: First Capability Pilot
+
+Purpose:
+
+- prove the platform idea with one concrete capability family
+
+The most natural example is public web search because it already reveals the
+difference between:
+
+- vendor-hosted capabilities
+- external tool paths
+- HLVM-local fallback behavior
+
+Why this matters:
+
+```text
+The thesis becomes real when one user intent
+can be fulfilled through different backend paths
+without changing the user's conceptual experience.
+```
+
+This is where a question like:
+
+```text
+"Research the latest official guidance on X."
+```
+
+begins to mean:
+
+```text
+one task need
+  -> multiple possible backend realizations
+```
+
+instead of:
+
+```text
+one fixed concrete tool every time
+```
+
+### 15.7 Phase 6: Provenance And Trust
+
+Purpose:
+
+- ensure that abstraction does not feel like unsafe black-box magic
+
+The user should increasingly be able to understand:
+
+- what stayed local
+- what used cloud infrastructure
+- what path fulfilled the task
+- what fallback occurred if any
+
+Why this matters:
+
+```text
+Higher abstraction without provenance feels like loss of control.
+Higher abstraction with provenance feels like trustworthy delegation.
+```
+
+### 15.8 Phase 7: More Capability Families
+
+Purpose:
+
+- extend the same platform behavior beyond one pilot capability
+
+The point is not a particular list of implementations.
+The point is that the same higher-level product logic begins to hold across
+multiple task families.
+
+Why this matters:
+
+```text
+One successful capability proves the idea is possible.
+Several successful capability families prove it is a platform.
+```
+
+### 15.9 Phase 8: Mixed-Task Coherence
+
+Purpose:
+
+- HLVM must be able to treat one user request as one coherent job even when it
+  requires multiple execution families
+
+Examples:
+
+- local repo inspection
+- public documentation research
+- cloud or local reasoning
+- local validation
+
+Why this matters:
+
+```text
+The real product is not "many nicely abstracted pieces."
+The real product is one coherent execution experience for mixed tasks.
+```
+
+Visual:
+
+```text
+One user task
+  -> local read
+  -> public research
+  -> reasoning
+  -> local action
+  -> one final result
+```
+
+### 15.10 Phase 9: Opt-In Higher Abstraction
+
+Purpose:
+
+- the higher abstraction becomes usable in real sessions without yet becoming
+  the forced default
+
+This is the stage where two valid product modes coexist:
+
+```text
+Manual:
+  user pins provider/model/path
+
+Auto:
+  HLVM chooses the path underneath
+```
+
+Why this matters:
+
+```text
+The platform can mature in public
+without breaking the trust of users who still want direct control.
+```
+
+### 15.11 Phase 10: Judgment Quality
+
+Purpose:
+
+- HLVM's choices become not merely automatic, but good
+
+This means the system increasingly chooses sensibly across:
+
+- privacy
+- locality
+- capability fit
+- quality
+- cost
+- availability
+
+Why this matters:
+
+```text
+The higher abstraction only deserves to become primary
+when its judgment is consistently defensible.
+```
+
+### 15.12 Phase 11: Trusted Default
+
+Purpose:
+
+- the platform finally reaches the product shape implied by the thesis
+
+At this point, the common experience becomes:
+
+```text
+user states intent + constraints
+  -> HLVM chooses the execution strategy
+  -> HLVM uses the best allowed/reachable paths
+  -> HLVM falls back when needed
+  -> user gets one coherent result
+```
+
+Manual control still remains first-class.
+
+That remains important even at the end-state.
+
+The destination is not:
+
+```text
+remove control
+```
+
+The destination is:
+
+```text
+make control optional instead of mandatory
+```
+
+### 15.13 Why The Staircase Matters
+
+Without this staircase, the platform vision can become vague, theatrical, or
+prematurely overgeneralized.
+
+With this staircase, progress can be judged more honestly.
+
+The right question becomes:
+
+```text
+Has HLVM become more coherent, more trustworthy, and more task-centered
+for the user?
+```
+
+not:
+
+```text
+Has HLVM invented a more abstract vocabulary?
+```
+
+That is the right standard.
+
+---
+
+## 16. The Important `search_web` Clarification
 
 This example is central because it illustrates both the progress already made
 and the remaining gap.
 
-### 15.1 What `search_web` gets right
+### 16.1 What `search_web` gets right
 
 HLVM already has:
 
@@ -741,7 +1140,7 @@ That means HLVM is not simply exposing raw vendor wire names to the model.
 
 That is good.
 
-### 15.2 What `search_web` does not yet solve
+### 16.2 What `search_web` does not yet solve
 
 Today `search_web` is still primarily:
 
@@ -764,7 +1163,7 @@ Until the runtime can choose among:
 
 the abstraction remains incomplete.
 
-### 15.3 Why naming still matters
+### 16.3 Why naming still matters
 
 The difference between:
 
@@ -780,7 +1179,7 @@ That is the distinction to preserve.
 
 ---
 
-## 16. Where HLVM Is Today
+## 17. Where HLVM Is Today
 
 The current codebase is best described as:
 
@@ -801,7 +1200,7 @@ It is not yet a full task-level execution platform.
 
 That is the most honest summary.
 
-### 16.1 What is already strong
+### 17.1 What is already strong
 
 #### A. HLVM already owns the outer runtime loop
 
@@ -876,7 +1275,7 @@ Examples:
 This is important because it means the system already reasons partly in its own
 language rather than only in vendor wire names.
 
-### 16.2 What is still partial or shallow
+### 17.2 What is still partial or shallow
 
 #### A. Provider capability modeling is still shallow
 
@@ -962,7 +1361,7 @@ It does not yet mean:
 HLVM can choose among multiple implementations of the same semantic need
 ```
 
-### 16.3 What is still missing
+### 17.3 What is still missing
 
 The platform still needs:
 
@@ -981,7 +1380,7 @@ Without enough of that layer, the system tends to collapse into:
 
 ---
 
-## 17. What Should Be Preserved
+## 18. What Should Be Preserved
 
 The right move is not a big discard.
 
@@ -1002,7 +1401,7 @@ properties, it is not progress.
 
 ---
 
-## 18. What Should Be Re-Layered
+## 19. What Should Be Re-Layered
 
 Provider abstraction should be treated as:
 
@@ -1034,7 +1433,7 @@ something that can support runtime choice over:
 
 ---
 
-## 19. What Must Remain True
+## 20. What Must Remain True
 
 - HLVM should not merely choose a model.
 - HLVM should choose how the whole task gets executed.
@@ -1042,13 +1441,15 @@ something that can support runtime choice over:
 - Manual model/provider choice remains a real first-class feature.
 - During transition, manual choice may remain primary.
 - The higher abstraction may remain opt-in until it is stable enough to trust.
+- The path to the higher abstraction should be understood as staged
+  prerequisites rather than as one monolithic leap.
 - The user should eventually be able to speak mostly in task language.
 - The system must respect privacy, locality, and user constraints.
 - The same conceptual task should remain coherent across different backend sets.
 
 ---
 
-## 20. Final Summary
+## 21. Final Summary
 
 HLVM should be treated as a runtime platform whose job is to execute user
 intent across heterogeneous AI backends rather than as a mere adapter whose job
@@ -1059,4 +1460,6 @@ already contains meaningful foundations for that direction, which means the
 vision is not fantasy. The architecture is not fundamentally wrong. It is
 unfinished. The end-state remains a high-level task execution platform, while
 the transitional product may still keep manual model/provider choice as the
-primary path until the higher abstraction is stable enough to trust.
+primary path until the higher abstraction is stable enough to trust. The route
+to that end-state should be understood as a staircase of prerequisite layers,
+not as one giant all-at-once transformation.

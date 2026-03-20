@@ -779,7 +779,7 @@ router.add("POST", "/api/config/reload", () => handleReloadConfig());
 router.add("POST", "/api/config/reset", () => handleResetConfig());
 router.add("GET", "/api/config/stream", (req) => handleConfigStream(req));
 
-router.add("GET", "/api/mcp/servers", (req) => handleListMcpServers(req));
+router.add("GET", "/api/mcp/servers", () => handleListMcpServers());
 router.add("POST", "/api/mcp/servers", (req) => handleAddMcpServer(req));
 router.add("DELETE", "/api/mcp/servers", (req) => handleRemoveMcpServer(req));
 router.add("POST", "/api/mcp/oauth/login", (req) => handleLoginMcpServer(req));

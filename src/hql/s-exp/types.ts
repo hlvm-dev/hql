@@ -8,6 +8,15 @@ import { hasArrayLiteralPrefix } from "../../common/sexp-utils.ts";
 
 export type SExp = SSymbol | SList | SLiteral;
 
+export interface ResolvedBindingMeta {
+  kind: "local" | "module";
+  exportName: string;
+  lexicalId?: string;
+  modulePath?: string;
+  originalName?: string;
+  importedFrom?: string;
+}
+
 // Destructuring pattern types
 export type Pattern = IdentifierPattern | ArrayPattern | ObjectPattern;
 
@@ -58,6 +67,7 @@ export interface SExpMeta {
   column?: number;
   endLine?: number;
   endColumn?: number;
+  resolvedBinding?: ResolvedBindingMeta;
   _meta?: SExpMeta; // Allow nested metadata
 }
 

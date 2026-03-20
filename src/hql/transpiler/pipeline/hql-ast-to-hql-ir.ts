@@ -397,6 +397,11 @@ function initializeTransformFactory(): void {
       quoteModule.transformQuasiquote(list, currentDir, transformHQLNodeToIR),
   );
   transformFactory.set(
+    "syntax-quote",
+    (list, currentDir) =>
+      quoteModule.transformSyntaxQuote(list, currentDir, transformHQLNodeToIR),
+  );
+  transformFactory.set(
     "unquote",
     (list, currentDir) =>
       quoteModule.transformUnquote(list, currentDir, transformHQLNodeToIR),

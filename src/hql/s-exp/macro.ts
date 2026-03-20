@@ -5,6 +5,7 @@ import {
   createListFrom,
   createLiteral,
   createNilLiteral,
+  createSymbol,
   getMeta,
   isDefMacro,
   isForm,
@@ -12,6 +13,8 @@ import {
   isLiteral,
   isSymbol,
   isVector,
+  type Pattern,
+  type ResolvedBindingMeta,
   type SExp,
   type SExpMeta,
   sexpToString,
@@ -19,6 +22,7 @@ import {
   type SLiteral,
   type SSymbol,
 } from "./types.ts";
+import { couldBePattern, parsePattern } from "./pattern-parser.ts";
 import type { Environment } from "../environment.ts";
 import type { Logger } from "../../logger.ts";
 import type { MacroFn } from "../environment.ts";
@@ -42,6 +46,7 @@ import {
   MAX_EXPANSION_ITERATIONS,
   MAX_SEQ_LENGTH,
 } from "../../common/limits.ts";
+import { globalSymbolTable } from "../transpiler/symbol_table.ts";
 
 // Lazy singleton interpreter for macro-time evaluation
 let macroInterpreter: Interpreter | null = null;
@@ -267,6 +272,211 @@ function bridgeToInterpreterEnv(compilerEnv: Environment): InterpreterEnv {
 // Auto-gensym: Map from "foo#" to generated symbol within a quasiquote
 type AutoGensymMap = Map<string, SSymbol>;
 
+type TemplateQuoteKind = "quasiquote" | "syntax-quote";
+
+type MacroBindingTarget =
+  | { kind: "identifier"; name: string }
+  | { kind: "pattern"; pattern: Pattern };
+
+interface MacroParamSpec {
+  params: MacroBindingTarget[];
+  restParam: MacroBindingTarget | null;
+  wantsForm: boolean;
+  wantsEnv: boolean;
+}
+
+const macroLocalBindings = new WeakMap<Environment, Map<string, ResolvedBindingMeta>>();
+let macroLexicalBindingCounter = 0;
+
+function cloneResolvedBindingMeta(
+  binding: ResolvedBindingMeta,
+): ResolvedBindingMeta {
+  return { ...binding };
+}
+
+function getOrCreateMacroLocalBindings(
+  env: Environment,
+): Map<string, ResolvedBindingMeta> {
+  const existing = macroLocalBindings.get(env);
+  if (existing) {
+    return existing;
+  }
+  const created = new Map<string, ResolvedBindingMeta>();
+  macroLocalBindings.set(env, created);
+  return created;
+}
+
+function inheritMacroLocalBindings(
+  env: Environment,
+  parent: Environment,
+): void {
+  const bindings = new Map<string, ResolvedBindingMeta>();
+  let current: Environment | null = parent;
+  while (current !== null) {
+    const currentBindings = macroLocalBindings.get(current);
+    if (currentBindings) {
+      for (const [name, binding] of currentBindings.entries()) {
+        if (!bindings.has(name)) {
+          bindings.set(name, cloneResolvedBindingMeta(binding));
+        }
+      }
+    }
+    current = current.getParent();
+  }
+  macroLocalBindings.set(env, bindings);
+}
+
+function registerMacroLocalBinding(
+  env: Environment,
+  name: string,
+): ResolvedBindingMeta {
+  const bindings = getOrCreateMacroLocalBindings(env);
+  const binding: ResolvedBindingMeta = {
+    kind: "local",
+    exportName: name,
+    lexicalId: `macro-local-${++macroLexicalBindingCounter}`,
+  };
+  bindings.set(name, binding);
+  return binding;
+}
+
+function lookupMacroLocalBinding(
+  env: Environment,
+  name: string,
+): ResolvedBindingMeta | undefined {
+  let current: Environment | null = env;
+  while (current !== null) {
+    const bindings = macroLocalBindings.get(current);
+    const binding = bindings?.get(name);
+    if (binding) {
+      return binding;
+    }
+    current = current.getParent();
+  }
+  return undefined;
+}
+
+function describeResolvedBinding(
+  binding: ResolvedBindingMeta,
+): Record<string, string> {
+  if (binding.kind === "local") {
+    return {
+      kind: binding.kind,
+      exportName: binding.exportName,
+      lexicalId: binding.lexicalId ?? "",
+    };
+  }
+
+  return {
+    kind: binding.kind,
+    exportName: binding.exportName,
+    modulePath: binding.modulePath ?? "",
+    originalName: binding.originalName ?? "",
+    importedFrom: binding.importedFrom ?? "",
+  };
+}
+
+function buildMacroEnvView(env: Environment): Record<string, unknown> {
+  const currentFile = getEffectiveCurrentFile(env);
+  const locals = Object.fromEntries(
+    [...getOrCreateMacroLocalBindings(env).entries()].map(([name, binding]) => [
+      name,
+      describeResolvedBinding(binding),
+    ]),
+  );
+
+  return {
+    locals,
+    currentFile,
+    modulePath: currentFile,
+    imports: env.listImportedMacros(),
+    visibleMacros: env.listVisibleMacros(),
+  };
+}
+
+function getEffectiveCurrentFile(env: Environment): string {
+  let current: Environment | null = env;
+  while (current !== null) {
+    const file = current.getCurrentFile();
+    if (file) {
+      return file;
+    }
+    current = current.getParent();
+  }
+  return "";
+}
+
+function attachResolvedBinding(
+  symbol: SSymbol,
+  binding: ResolvedBindingMeta,
+): SSymbol {
+  const meta = getMeta(symbol);
+  return {
+    ...symbol,
+    _meta: {
+      ...(meta ? { ...meta } : {}),
+      resolvedBinding: cloneResolvedBindingMeta(binding),
+    },
+  };
+}
+
+function resolveNonLocalBinding(
+  symbol: SSymbol,
+  env: Environment,
+): ResolvedBindingMeta {
+  const symbolInfo = globalSymbolTable.get(symbol.name);
+  const currentFile = getEffectiveCurrentFile(env);
+
+  if (symbolInfo?.sourceModule) {
+    return {
+      kind: "module",
+      exportName: symbolInfo.aliasOf ?? symbol.name,
+      modulePath: symbolInfo.sourceModule,
+      originalName: symbol.name,
+      importedFrom: symbolInfo.isImported ? symbolInfo.sourceModule : undefined,
+    };
+  }
+
+  if (getSpecialFormsSet().has(symbol.name)) {
+    return {
+      kind: "module",
+      exportName: symbol.name,
+      modulePath: "<special-form>",
+    };
+  }
+
+  try {
+    if (typeof env.lookup(symbol.name) === "function") {
+      return {
+        kind: "module",
+        exportName: symbol.name,
+        modulePath: "<builtin>",
+      };
+    }
+  } catch {
+    // Leave unresolved names anchored to the current module below.
+  }
+
+  return {
+    kind: "module",
+    exportName: symbol.name,
+    modulePath: currentFile || "<unknown-module>",
+    originalName: symbol.name,
+  };
+}
+
+function resolveSyntaxQuotedSymbol(
+  symbol: SSymbol,
+  env: Environment,
+): SSymbol {
+  const localBinding = lookupMacroLocalBinding(env, symbol.name);
+  if (localBinding) {
+    return attachResolvedBinding(symbol, localBinding);
+  }
+
+  return attachResolvedBinding(symbol, resolveNonLocalBinding(symbol, env));
+}
+
 /**
  * Check if a symbol name is an auto-gensym (ends with #)
  * e.g., "tmp#", "result#", "value#"
@@ -297,6 +507,32 @@ export interface MacroExpanderOptions {
   maxExpandDepth?: number;
   currentFile?: string;
   iterationLimit?: number;
+  traceCollector?: MacroExpansionTraceStep[];
+}
+
+export interface MacroExpansionTraceStep {
+  stage: "iteration" | "macro-call";
+  before: string;
+  after: string;
+  changed: boolean;
+  iteration?: number;
+  expressionIndex?: number;
+  macroName?: string;
+  depth?: number;
+}
+
+function recordMacroTraceStep(
+  options: MacroExpanderOptions,
+  step: Omit<MacroExpansionTraceStep, "changed"> & { changed?: boolean },
+): void {
+  if (!options.traceCollector) {
+    return;
+  }
+
+  options.traceCollector.push({
+    ...step,
+    changed: step.changed ?? step.before !== step.after,
+  });
 }
 
 /**
@@ -341,7 +577,11 @@ function updateMetaRecursively(expr: SExp, callSiteMeta: SExpMeta): void {
         exprMeta.line < callSiteMeta.line);
 
     if (shouldUpdate) {
-      (current as { _meta?: SExpMeta })._meta = { ...callSiteMeta };
+      (current as { _meta?: SExpMeta })._meta = {
+        ...(exprMeta ? { ...exprMeta } : {}),
+        ...callSiteMeta,
+        resolvedBinding: exprMeta?.resolvedBinding,
+      };
     }
 
     // Push children onto stack for processing
@@ -431,8 +671,7 @@ function processMacroDefinition(
   macroForm: SList,
 ): {
   macroName: string;
-  params: string[];
-  restParam: string | null;
+  paramSpec: MacroParamSpec;
   body: SExp[];
 } {
   const loc = getMeta(macroForm) || {};
@@ -461,20 +700,39 @@ function processMacroDefinition(
       getMeta(paramsExp) || loc,
     );
   }
-  const { params, restParam } = processParamList(paramsExp);
+  const paramSpec = processParamList(paramsExp);
   const body = macroForm.elements.slice(3);
-  return { macroName, params, restParam, body };
+  return { macroName, paramSpec, body };
 }
 
 /* Helper: Process a parameter list (including rest parameters) */
 const isRestMarker = (symbol: SSymbol): boolean => symbol.name === "&";
 
+function parseMacroBindingTarget(param: SExp): MacroBindingTarget {
+  if (isSymbol(param)) {
+    return { kind: "identifier", name: param.name };
+  }
+
+  if (isList(param) && couldBePattern(param)) {
+    return { kind: "pattern", pattern: parsePattern(param) };
+  }
+
+  throw new MacroError(
+    `Macro parameter must be a symbol or destructuring pattern, got: ${sexpToString(param)}`,
+    "parameter parsing",
+    getMeta(param),
+  );
+}
+
 function processParamList(
   paramsExp: SList,
-): { params: string[]; restParam: string | null } {
-  const params: string[] = [];
-  let restParam: string | null = null;
+): MacroParamSpec {
+  const params: MacroBindingTarget[] = [];
+  let restParam: MacroBindingTarget | null = null;
+  let wantsForm = false;
+  let wantsEnv = false;
   let restMode = false;
+  let sawOrdinaryParam = false;
 
   // Handle vector form: [a b c] parses as (vector a b c)
   // We need to skip the 'vector' symbol at the start
@@ -483,35 +741,206 @@ function processParamList(
     : paramsExp.elements;
 
   elements.forEach((param, index) => {
-    if (!isSymbol(param)) {
-      throw new MacroError(
-        `Macro parameter at position ${index + 1} must be a symbol, got: ${
-          sexpToString(param)
-        }`,
-        "parameter parsing",
-      );
-    }
-
-    if (isRestMarker(param)) {
+    if (isSymbol(param) && isRestMarker(param)) {
       restMode = true;
       return;
     }
 
-    if (restMode) {
-      if (restParam !== null) {
+    if (isSymbol(param) && param.name === "&form") {
+      if (restMode || wantsForm || wantsEnv || sawOrdinaryParam) {
         throw new MacroError(
-          `Multiple rest parameters not allowed: found '${restParam}' and '${param.name}'`,
+          "&form must appear at the front of the macro parameter list",
           "parameter parsing",
+          getMeta(param),
         );
       }
-      restParam = param.name;
+      wantsForm = true;
       return;
     }
 
-    params.push(param.name);
+    if (isSymbol(param) && param.name === "&env") {
+      if (restMode || wantsEnv || sawOrdinaryParam || index > (wantsForm ? 1 : 0)) {
+        throw new MacroError(
+          "&env must appear at the front of the macro parameter list after optional &form",
+          "parameter parsing",
+          getMeta(param),
+        );
+      }
+      wantsEnv = true;
+      return;
+    }
+
+    const target = parseMacroBindingTarget(param);
+    sawOrdinaryParam = true;
+
+    if (restMode) {
+      if (restParam !== null) {
+        throw new MacroError(
+          "Multiple rest parameters are not allowed",
+          "parameter parsing",
+          getMeta(param),
+        );
+      }
+      restParam = target;
+      return;
+    }
+
+    params.push(target);
   });
 
-  return { params, restParam };
+  if (restMode && restParam === null) {
+    throw new MacroError(
+      "Rest parameter marker '&' must be followed by a binding target",
+      "parameter parsing",
+      getMeta(paramsExp),
+    );
+  }
+
+  return { params, restParam, wantsForm, wantsEnv };
+}
+
+function isHashMapSExp(value: SExp): value is SList {
+  return isList(value) &&
+    value.elements.length > 0 &&
+    isSymbol(value.elements[0]) &&
+    (value.elements[0].name === "hash-map" ||
+      value.elements[0].name === "__hql_hash_map");
+}
+
+function toBindingValue(value: unknown): SExp {
+  return isSExpLike(value) ? value : convertJsValueToSExp(value);
+}
+
+function getArrayLikeElements(value: SExp): SExp[] {
+  if (isList(value)) {
+    if (isVector(value)) {
+      return value.elements.slice(1);
+    }
+    return value.elements;
+  }
+  return [];
+}
+
+function getObjectLikeEntries(value: SExp): Map<string, SExp> {
+  const entries = new Map<string, SExp>();
+
+  if (!isHashMapSExp(value)) {
+    return entries;
+  }
+
+  for (let i = 1; i < value.elements.length; i += 2) {
+    const keyNode = value.elements[i];
+    const valueNode = value.elements[i + 1] ?? createNilLiteral();
+    if (isSymbol(keyNode)) {
+      entries.set(keyNode.name, valueNode);
+      continue;
+    }
+    if (isLiteral(keyNode) && typeof keyNode.value === "string") {
+      entries.set(keyNode.value, valueNode);
+    }
+  }
+
+  return entries;
+}
+
+function createHashMapSExp(entries: Map<string, SExp>): SExp {
+  const elements: SExp[] = [createSymbol("hash-map")];
+  for (const [key, value] of entries.entries()) {
+    elements.push(createSymbol(key), value);
+  }
+  return createList(...elements);
+}
+
+function bindMacroTarget(
+  env: Environment,
+  target: MacroBindingTarget,
+  value: unknown,
+  logger: Logger,
+): void {
+  const boundValue = toBindingValue(value);
+
+  if (target.kind === "identifier") {
+    if (target.name === "_") {
+      return;
+    }
+    env.define(target.name, boundValue);
+    registerMacroLocalBinding(env, target.name);
+    return;
+  }
+
+  bindMacroPattern(env, target.pattern, boundValue, logger);
+}
+
+function bindMacroPattern(
+  env: Environment,
+  pattern: Pattern,
+  value: SExp,
+  logger: Logger,
+): void {
+  switch (pattern.type) {
+    case "IdentifierPattern": {
+      if (pattern.name === "_") {
+        return;
+      }
+      const boundValue = value ?? pattern.default ?? createNilLiteral();
+      env.define(pattern.name, boundValue);
+      registerMacroLocalBinding(env, pattern.name);
+      return;
+    }
+    case "ArrayPattern": {
+      const values = getArrayLikeElements(value);
+      let position = 0;
+      for (const element of pattern.elements) {
+        if (!element) {
+          position++;
+          continue;
+        }
+
+        if (element.type === "SkipPattern") {
+          position++;
+          continue;
+        }
+
+        if (element.type === "RestPattern") {
+          const restValue = createList(...values.slice(position));
+          bindMacroTarget(
+            env,
+            { kind: "identifier", name: element.argument.name },
+            restValue,
+            logger,
+          );
+          continue;
+        }
+
+        const nextValue = values[position] ?? element.default ?? createNilLiteral();
+        bindMacroPattern(env, element, nextValue, logger);
+        position++;
+      }
+      return;
+    }
+    case "ObjectPattern": {
+      const entries = getObjectLikeEntries(value);
+      for (const property of pattern.properties) {
+        const propertyValue = entries.has(property.key)
+          ? entries.get(property.key)!
+          : property.default ?? createNilLiteral();
+        entries.delete(property.key);
+        bindMacroPattern(env, property.value, propertyValue, logger);
+      }
+
+      if (pattern.rest) {
+        bindMacroTarget(
+          env,
+          { kind: "identifier", name: pattern.rest.name },
+          createHashMapSExp(entries),
+          logger,
+        );
+      }
+      return;
+    }
+    default:
+      logger.debug(`Unsupported macro pattern type: ${(pattern as Pattern).type}`);
+  }
 }
 
 /* Exported: Register a global macro definition */
@@ -521,13 +950,12 @@ function defineMacro(
   logger: Logger,
 ): void {
   try {
-    const { macroName, params, restParam, body } = processMacroDefinition(
+    const { macroName, paramSpec, body } = processMacroDefinition(
       macroForm,
     );
     const macroFn = createMacroFunction(
       macroName,
-      params,
-      restParam,
+      paramSpec,
       body,
       logger,
     );
@@ -594,6 +1022,18 @@ export function expandMacros(
     const newExprs = currentExprs.map((expr) =>
       expandMacroExpression(expr, env, options, 0)
     );
+
+    currentExprs.forEach((expr, index) => {
+      const expanded = newExprs[index];
+      recordMacroTraceStep(options, {
+        stage: "iteration",
+        iteration,
+        expressionIndex: index,
+        before: sexpToString(expr),
+        after: sexpToString(expanded),
+        changed: expr !== expanded,
+      });
+    });
 
     // Reference equality check: if no expression changed, fixed point reached
     const changed = currentExprs.some((expr, i) => expr !== newExprs[i]);
@@ -685,6 +1125,8 @@ function evaluateList(expr: SList, env: Environment, logger: Logger): SExp {
     switch (op) {
       case "quote":
         return evaluateQuote(expr);
+      case "syntax-quote":
+        return evaluateSyntaxQuote(expr, env, logger);
       case "quasiquote":
         return evaluateQuasiquote(expr, env, logger);
       case "unquote":
@@ -787,6 +1229,7 @@ function evaluateLet(list: SList, env: Environment, logger: Logger): SExp {
     const value = evaluateForMacro(list.elements[2], env, logger);
     // Bind in current environment (like var) so the value is accessible
     env.define(name, value);
+    registerMacroLocalBinding(env, name);
     // Return the value (expression-everywhere semantics)
     return value;
   }
@@ -811,16 +1254,18 @@ function evaluateLet(list: SList, env: Environment, logger: Logger): SExp {
     );
   }
   const letEnv = env.extend();
+  inheritMacroLocalBindings(letEnv, env);
   for (let i = 0; i < elements.length; i += 2) {
     const name = elements[i];
     const value = elements[i + 1];
-    if (!isSymbol(name)) {
+    if (!isSymbol(name) && !(isList(name) && couldBePattern(name))) {
       throw new MacroError("let binding names must be symbols", "let");
     }
-    letEnv.define(
-      (name as SSymbol).name,
-      evaluateForMacro(value, letEnv, logger),
-    );
+    const evaluatedValue = evaluateForMacro(value, letEnv, logger);
+    const bindingTarget = isSymbol(name)
+      ? { kind: "identifier" as const, name: name.name }
+      : { kind: "pattern" as const, pattern: parsePattern(name) };
+    bindMacroTarget(letEnv, bindingTarget, evaluatedValue, logger);
   }
   let result: SExp = createNilLiteral();
   for (let i = 2; i < list.elements.length; i++) {
@@ -858,6 +1303,7 @@ function evaluateVar(list: SList, env: Environment, logger: Logger): SExp {
 
   // Define in CURRENT environment (not a new scope)
   env.define((name as SSymbol).name, evaluatedValue);
+  registerMacroLocalBinding(env, (name as SSymbol).name);
 
   logger.debug(`Defined var '${(name as SSymbol).name}' in macro environment`);
 
@@ -953,110 +1399,104 @@ function getSpecialFormsSet(): Set<string> {
   return _specialFormsCache;
 }
 
-/**
- * Check if an operator is known (can be evaluated).
- *
- * This function determines whether a list form like (op ...) can be evaluated
- * during macro expansion. Known operators include:
- * - Special forms (from interpreter's canonical list)
- * - Macros (defined in environment)
- * - Macro primitives (% prefix convention)
- * - Functions (defined in compiler or interpreter environment)
- *
- * Unknown operators (like 'case', 'default') are treated as syntax/data,
- * allowing code-generating macros to receive them unevaluated.
- */
-function isKnownOperator(op: string, env: Environment): boolean {
-  // Special forms - use interpreter's canonical list
-  if (getSpecialFormsSet().has(op)) return true;
+function macroexpandSingleExpr(
+  expr: SExp,
+  env: Environment,
+  options: MacroExpanderOptions = {},
+): SExp {
+  let current = expr;
+  const maxIterations = options.iterationLimit ?? MAX_EXPANSION_ITERATIONS;
 
-  // Macros
-  if (env.hasMacro(op)) return true;
+  for (let iteration = 0; iteration < maxIterations; iteration++) {
+    const expanded = expandMacroExpression(
+      current,
+      env,
+      {
+        ...options,
+        currentFile: options.currentFile ?? (env.getCurrentFile() || undefined),
+      },
+      0,
+    );
 
-  // Macro primitives (% prefix convention)
-  if (op.startsWith("%")) return true;
+    if (expanded === current) {
+      return current;
+    }
 
-  // Try compiler env (user-defined functions, stdlib bindings)
-  try {
-    const value = env.lookup(op);
-    if (typeof value === "function") return true;
-  } catch {
-    // Not found in compiler env
+    current = expanded;
   }
 
-  // Check interpreter's persistent env (stdlib functions, arithmetic operators, etc.)
-  // isDefined() never throws — no try/catch needed
-  const interpEnv = getPersistentMacroEnv();
-  if (interpEnv.isDefined(op)) return true;
-
-  return false;
+  throw new MacroError(
+    `Macro expansion reached maximum iterations (${maxIterations}). This likely indicates infinite macro recursion.`,
+    "macro-expansion",
+    { line: 0, column: 0 },
+  );
 }
 
-/**
- * Evaluate an argument for a macro call.
- *
- * This carefully handles the distinction between:
- * - Evaluable expressions (known operators): evaluate them for computation macros
- * - Syntax/data forms (unknown operators like 'case'): preserve for code-generating macros
- *
- * This enables BOTH patterns:
- * - Code-generating macros like `match` that receive syntax as data
- * - Compile-time computation macros like `count-sum` that need evaluated args
- *
- * Examples:
- *   - (count-sum (- n 1)) → evaluates (- n 1) because '-' is known
- *   - (match x (case pat res)) → preserves (case pat res) because 'case' is unknown
- */
-function evaluateArgumentForMacro(
+function expandNestedMacroArgument(
   arg: SExp,
   env: Environment,
-  logger: Logger,
 ): SExp {
-  // Non-list expressions: evaluate normally (symbols resolve, literals pass through)
-  if (!isList(arg)) {
-    return evaluateForMacro(arg, env, logger);
+  if (
+    isList(arg) &&
+    arg.elements.length > 0 &&
+    isSymbol(arg.elements[0]) &&
+    env.hasMacro(arg.elements[0].name)
+  ) {
+    return macroexpandSingleExpr(arg, env, {
+      iterationLimit: 1,
+      maxExpandDepth: 0,
+      currentFile: env.getCurrentFile() || undefined,
+    });
   }
 
-  const argList = arg as SList;
-  if (argList.elements.length === 0) {
-    return arg;
-  }
-
-  const first = argList.elements[0];
-
-  // Non-symbol head (IIFE, etc.): evaluate normally
-  if (!isSymbol(first)) {
-    return evaluateForMacro(arg, env, logger);
-  }
-
-  const op = (first as SSymbol).name;
-
-  // Check if operator is known (evaluable)
-  if (isKnownOperator(op, env)) {
-    return evaluateForMacro(arg, env, logger);
-  }
-
-  // Unknown operator - this is likely syntax/data for a code-generating macro
-  // Return as-is without evaluating (prevents errors on forms like (case x (if guard) y))
-  logger.debug(`Preserving '${op}' form as syntax in macro argument`);
   return arg;
 }
 
-/* Evaluate a macro call
- *
- * HYBRID SEMANTICS: Evaluate arguments with known operators, preserve unknown syntax.
- *
- * This combines the best of both worlds:
- * - Computation macros (like count-sum) get evaluated arguments: (- n 1) → 2
- * - Code-generating macros (like match) get syntax preserved: (case x y) stays as-is
- *
- * The distinction is based on whether the argument's operator is KNOWN (function,
- * macro, special form, builtin) or UNKNOWN (syntax marker like 'case', 'default').
- *
- * Examples:
- *   - (count-sum (- 3 1)) - '-' is known, so (- 3 1) evaluates to 2
- *   - (__match_impl__ val (case x y)) - 'case' is unknown, so (case x y) stays as syntax
- */
+function evaluateMacroPrimitiveCall(
+  list: SList,
+  env: Environment,
+  logger: Logger,
+): SExp | undefined {
+  const op = (list.elements[0] as SSymbol).name;
+
+  switch (op) {
+    case "%eval": {
+      if (list.elements.length !== 2) {
+        throw new MacroError("%eval requires exactly one argument", "%eval");
+      }
+      const rawValue = evaluateForMacro(list.elements[1], env, logger);
+      return evaluateForMacro(rawValue, env, logger);
+    }
+    case "%macroexpand-1": {
+      if (list.elements.length !== 2) {
+        throw new MacroError(
+          "%macroexpand-1 requires exactly one argument",
+          "%macroexpand-1",
+        );
+      }
+      return macroexpandSingleExpr(list.elements[1], env, {
+        iterationLimit: 1,
+        maxExpandDepth: 0,
+        currentFile: env.getCurrentFile() || undefined,
+      });
+    }
+    case "%macroexpand-all": {
+      if (list.elements.length !== 2) {
+        throw new MacroError(
+          "%macroexpand-all requires exactly one argument",
+          "%macroexpand-all",
+        );
+      }
+      return macroexpandSingleExpr(list.elements[1], env, {
+        currentFile: env.getCurrentFile() || undefined,
+      });
+    }
+    default:
+      return undefined;
+  }
+}
+
+/* Evaluate a macro call with raw-form semantics. */
 function evaluateMacroCall(
   list: SList,
   env: Environment,
@@ -1068,15 +1508,8 @@ function evaluateMacroCall(
     throw new MacroError(`Macro not found: ${op}`, op);
   }
 
-  // Evaluate arguments with hybrid semantics:
-  // - Known operators (functions, macros, special forms): evaluate
-  // - Unknown operators (syntax markers like 'case'): preserve as-is
-  const args = mapTail(
-    list.elements,
-    (arg) => evaluateArgumentForMacro(arg, env, logger),
-  );
-  const expanded = macroFn(args, env);
-  return evaluateForMacro(expanded, env, logger);
+  const args = mapTail(list.elements, (arg) => expandNestedMacroArgument(arg, env));
+  return macroFn(args, env, list);
 }
 
 /* Helper: Evaluate arguments for function calls
@@ -1127,6 +1560,11 @@ function evaluateFunctionCall(
 
     // Macro primitives (% prefix) go directly to compiler env - they're designed for S-exps
     if (op.startsWith("%")) {
+      const primitiveResult = evaluateMacroPrimitiveCall(list, env, logger);
+      if (primitiveResult !== undefined) {
+        return primitiveResult;
+      }
+
       try {
         const fn = env.lookup(op);
         if (typeof fn === "function") {
@@ -1193,152 +1631,151 @@ function evaluateFunctionCall(
   );
 }
 
-/* Evaluate a quasiquoted expression */
+function evaluateSyntaxQuote(
+  expr: SList,
+  env: Environment,
+  logger: Logger,
+): SExp {
+  return evaluateTemplateQuote(expr, env, logger, "syntax-quote");
+}
+
 function evaluateQuasiquote(
   expr: SList,
   env: Environment,
   logger: Logger,
 ): SExp {
+  return evaluateTemplateQuote(expr, env, logger, "quasiquote");
+}
+
+function evaluateTemplateQuote(
+  expr: SList,
+  env: Environment,
+  logger: Logger,
+  quoteKind: TemplateQuoteKind,
+): SExp {
   if (expr.elements.length !== 2) {
     throw new MacroError(
-      "quasiquote requires exactly one argument",
-      "quasiquote",
+      `${quoteKind} requires exactly one argument`,
+      quoteKind,
     );
   }
-  logger.debug(`Evaluating quasiquote: ${sexpToString(expr.elements[1])}`);
-  // Create auto-gensym map for this quasiquote template
-  // All foo# symbols within this template will map to the same generated symbol
-  const autoGensymMap: AutoGensymMap = new Map();
-  return processQuasiquotedExpr(
+
+  logger.debug(`Evaluating ${quoteKind}: ${sexpToString(expr.elements[1])}`);
+  return processTemplateExpr(
     expr.elements[1],
     0,
     env,
     logger,
-    autoGensymMap,
+    quoteKind,
+    new Map(),
   );
 }
 
-/* Process a quasiquoted expression with depth tracking for nested quasiquotes
- * BUG FIX: Added depth parameter to properly handle nested quasiquotes
- * - depth=0: we're at the outermost quasiquote level
- * - depth>0: we're inside nested quasiquotes
- * - unquote decrements depth
- * - nested quasiquote increments depth
- *
- * AUTO-GENSYM: Symbols ending with # (e.g., tmp#, result#) are automatically
- * replaced with unique gensyms. All occurrences of the same foo# within
- * the same quasiquote template map to the same generated symbol.
- */
-function processQuasiquotedExpr(
+function processTemplateExpr(
   expr: SExp,
   depth: number,
   env: Environment,
   logger: Logger,
-  autoGensymMap: AutoGensymMap = new Map(),
+  quoteKind: TemplateQuoteKind,
+  autoGensymMap: AutoGensymMap,
 ): SExp {
-  // Handle auto-gensym symbols (e.g., tmp#, value#)
-  // Only at depth 0 - nested quasiquotes get their own context
-  if (isSymbol(expr) && depth === 0) {
-    const symName = (expr as SSymbol).name;
-    if (isAutoGensymSymbol(symName)) {
-      const generated = getAutoGensym(symName, autoGensymMap);
-      logger.debug(`Auto-gensym: ${symName} -> ${generated.name}`);
+  if (isSymbol(expr)) {
+    if (depth === 0 && isAutoGensymSymbol(expr.name)) {
+      const generated = getAutoGensym(expr.name, autoGensymMap);
+      logger.debug(`Auto-gensym: ${expr.name} -> ${generated.name}`);
       return generated;
     }
+
+    if (quoteKind === "syntax-quote" && depth === 0) {
+      return resolveSyntaxQuotedSymbol(expr, env);
+    }
+
     return expr;
   }
 
-  if (!isList(expr)) return expr;
+  if (!isList(expr)) {
+    return expr;
+  }
+
   const list = expr as SList;
-  if (list.elements.length === 0) return expr;
+  if (list.elements.length === 0) {
+    return expr;
+  }
+
   const first = list.elements[0];
 
-  // Check for nested quasiquote - increment depth
-  if (isSymbol(first) && (first as SSymbol).name === "quasiquote") {
+  if (
+    isSymbol(first) &&
+    (first.name === "quasiquote" || first.name === "syntax-quote")
+  ) {
     if (list.elements.length !== 2) {
       throw new MacroError(
-        "quasiquote requires exactly one argument",
-        "quasiquote",
+        `${first.name} requires exactly one argument`,
+        first.name,
       );
     }
-    // Process inner quasiquote at increased depth
-    // Note: nested quasiquotes get a fresh autoGensymMap for their own scope
-    const innerProcessed = processQuasiquotedExpr(
+
+    const innerProcessed = processTemplateExpr(
       list.elements[1],
       depth + 1,
       env,
       logger,
-      depth === 0 ? new Map() : autoGensymMap,
+      first.name,
+      new Map(),
     );
-    // At depth 0, expand the inner quasiquote fully
-    // At depth > 0, preserve the quasiquote form as data
-    if (depth === 0) {
-      return innerProcessed;
-    } else {
-      return createListFrom(list, [
-        { type: "symbol", name: "quasiquote" },
-        innerProcessed,
-      ]);
-    }
+
+    return createListFrom(list, [createSymbol(first.name), innerProcessed]);
   }
 
-  // Check for unquote - evaluate if depth=0, otherwise decrement depth
-  if (isSymbol(first) && (first as SSymbol).name === "unquote") {
+  if (isSymbol(first) && first.name === "unquote") {
     if (list.elements.length !== 2) {
       throw new MacroError("unquote requires exactly one argument", "unquote");
     }
+
     if (depth === 0) {
-      // At depth 0, unquote evaluates the expression
-      logger.debug(`Evaluating unquote: ${sexpToString(list.elements[1])}`);
       return evaluateForMacro(list.elements[1], env, logger);
-    } else if (depth === 1) {
-      // At depth 1, unquote gives us the unevaluated expression
-      // Don't process further - just return the expression as data
-      return list.elements[1];
-    } else {
-      // At depth > 1, unquote decrements depth and wraps in unquote form
-      const innerProcessed = processQuasiquotedExpr(
-        list.elements[1],
-        depth - 1,
-        env,
-        logger,
-        autoGensymMap,
-      );
-      return createListFrom(list, [
-        { type: "symbol", name: "unquote" },
-        innerProcessed,
-      ]);
     }
+
+    const innerProcessed = processTemplateExpr(
+      list.elements[1],
+      depth - 1,
+      env,
+      logger,
+      quoteKind,
+      autoGensymMap,
+    );
+    return createListFrom(list, [createSymbol("unquote"), innerProcessed]);
   }
 
-  if (isSymbol(first) && (first as SSymbol).name === "unquote-splicing") {
+  if (isSymbol(first) && first.name === "unquote-splicing") {
+    if (list.elements.length !== 2) {
+      throw new MacroError(
+        "unquote-splicing requires exactly one argument",
+        "unquote-splicing",
+      );
+    }
+
     if (depth > 0) {
-      // Handle unquote-splicing at nested depth
-      if (list.elements.length !== 2) {
-        throw new MacroError(
-          "unquote-splicing requires exactly one argument",
-          "unquote-splicing",
-        );
-      }
-      const innerProcessed = processQuasiquotedExpr(
+      const innerProcessed = processTemplateExpr(
         list.elements[1],
         depth - 1,
         env,
         logger,
+        quoteKind,
         autoGensymMap,
       );
       return createListFrom(list, [
-        { type: "symbol", name: "unquote-splicing" },
+        createSymbol("unquote-splicing"),
         innerProcessed,
       ]);
     }
+
     throw new MacroError(
       "unquote-splicing not in list context",
       "unquote-splicing",
     );
   }
 
-  // Process list elements, handling unquote-splicing at depth 0
   const processedElements: SExp[] = [];
   for (const element of list.elements) {
     if (depth === 0 && isForm(element, "unquote-splicing")) {
@@ -1349,19 +1786,12 @@ function processQuasiquotedExpr(
           "unquote-splicing",
         );
       }
-      const splicedExpr = spliceList.elements[1];
-      logger.debug(`Processing unquote-splicing: ${sexpToString(splicedExpr)}`);
-      const spliced = evaluateForMacro(splicedExpr, env, logger);
-      logger.debug(`Evaluated unquote-splicing to: ${sexpToString(spliced)}`);
+
+      const spliced = evaluateForMacro(spliceList.elements[1], env, logger);
       if (isList(spliced)) {
-        const elements = (spliced as SList).elements;
-        // Skip "vector" prefix if present - vectors returned from interpreter
-        // are represented as (vector a b c), but we want to splice [a b c]
-        if (isVector(spliced)) {
-          processedElements.push(...elements.slice(1));
-        } else {
-          processedElements.push(...elements);
-        }
+        processedElements.push(
+          ...(isVector(spliced) ? spliced.elements.slice(1) : spliced.elements),
+        );
       } else if (isRestParameterSplice(spliced)) {
         processedElements.push(...spliced.elements);
       } else {
@@ -1372,13 +1802,21 @@ function processQuasiquotedExpr(
         );
         processedElements.push(spliced);
       }
-    } else {
-      processedElements.push(
-        processQuasiquotedExpr(element, depth, env, logger, autoGensymMap),
-      );
+      continue;
     }
+
+    processedElements.push(
+      processTemplateExpr(
+        element,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+      ),
+    );
   }
-  // Preserve _meta from original list for source location tracking
+
   return createListFrom(list, processedElements);
 }
 
@@ -1456,7 +1894,7 @@ function expandMacroExpression(
 
       logger.debug(`Expanding macro ${op} at depth ${depth}`, "macro");
 
-      const expanded = macroFn(args, env);
+      const expanded = macroFn(args as SExp[], env, originalExpr);
 
       // CRITICAL: Copy _meta from original call site to expanded expression
       // This ensures error messages point to the original source location,
@@ -1470,6 +1908,13 @@ function expandMacroExpression(
         updateMetaRecursively(expanded, callSiteMeta);
       }
 
+      recordMacroTraceStep(options, {
+        stage: "macro-call",
+        macroName: op,
+        depth,
+        before: sexpToString(originalExpr),
+        after: sexpToString(expanded),
+      });
       visualizeMacroExpansion(originalExpr, expanded, op, logger);
       return expandMacroExpression(expanded, env, options, depth + 1);
     }
@@ -1596,14 +2041,23 @@ function formatExpression(expr: string): string {
 /* Create a macro function */
 function createMacroFunction(
   macroName: string,
-  params: string[],
-  restParam: string | null,
+  paramSpec: MacroParamSpec,
   body: SExp[],
   logger: Logger,
 ): MacroFn {
-  const macroFn = (args: SExp[], callEnv: Environment): SExp => {
+  const macroFn = (
+    args: SExp[],
+    callEnv: Environment,
+    originalForm?: SList,
+  ): SExp => {
     logger.debug(`Expanding macro ${macroName} with ${args.length} args`);
-    const macroEnv = createMacroEnv(callEnv, params, restParam, args, logger);
+    const macroEnv = createMacroEnv(
+      callEnv,
+      paramSpec,
+      args,
+      logger,
+      originalForm,
+    );
     let result: SExp = createNilLiteral();
     for (const expr of body) {
       result = evaluateForMacro(expr, macroEnv, logger);
@@ -1621,28 +2075,41 @@ function createMacroFunction(
 /* Create a new environment for macro expansion with parameter bindings */
 function createMacroEnv(
   parent: Environment,
-  params: string[],
-  restParam: string | null,
+  paramSpec: MacroParamSpec,
   args: SExp[],
   logger: Logger,
+  originalForm?: SList,
 ): Environment {
   const env = parent.extend();
+  inheritMacroLocalBindings(env, parent);
 
-  // Bind regular parameters
-  for (let i = 0; i < params.length; i++) {
-    const paramValue = i < args.length ? args[i] : createNilLiteral();
-    env.define(params[i], paramValue);
+  if (paramSpec.wantsForm) {
+    bindMacroTarget(
+      env,
+      { kind: "identifier", name: "&form" },
+      originalForm ?? createList(),
+      logger,
+    );
   }
 
-  // Bind rest parameter
-  if (restParam !== null) {
-    const restArgs = args.slice(params.length);
+  for (let i = 0; i < paramSpec.params.length; i++) {
+    const paramValue = i < args.length ? args[i] : createNilLiteral();
+    bindMacroTarget(env, paramSpec.params[i], paramValue, logger);
+  }
+
+  if (paramSpec.restParam !== null) {
+    const restArgs = args.slice(paramSpec.params.length);
     logger.debug(
-      `Creating rest parameter '${restParam}' with ${restArgs.length} elements`,
+      `Creating rest parameter with ${restArgs.length} elements`,
     );
     const restList = createList(...restArgs);
     Object.defineProperty(restList, "isRestParameter", { value: true });
-    env.define(restParam, restList);
+    bindMacroTarget(env, paramSpec.restParam, restList, logger);
+  }
+
+  if (paramSpec.wantsEnv) {
+    env.define("&env", buildMacroEnvView(env));
+    registerMacroLocalBinding(env, "&env");
   }
 
   return env;

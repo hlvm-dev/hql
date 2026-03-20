@@ -10,8 +10,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, Text, useApp, useInput, useStdout } from "ink";
-import { Input } from "./Input.tsx";
+import { Box, Text, type Key, useApp, useInput, useStdout } from "ink";
 import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";
 import { ConfigOverlay } from "./ConfigOverlay.tsx";
@@ -25,7 +24,11 @@ import { ShortcutsOverlay } from "./ShortcutsOverlay.tsx";
 import { ModelBrowser } from "./ModelBrowser.tsx";
 import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
-import { QueuePreview } from "./QueuePreview.tsx";
+import {
+  ComposerSurface,
+  type ComposerSurfaceHandle,
+  type ComposerSurfaceUiState,
+} from "./ComposerSurface.tsx";
 import { ConversationPanel } from "./ConversationPanel.tsx";
 import { RenderErrorBoundary } from "./ErrorBoundary.tsx";
 import {
@@ -53,7 +56,6 @@ import {
   type SurfacePanel,
   useOverlayPanel,
 } from "../hooks/useOverlayPanel.ts";
-import { useConversationComposer } from "../hooks/useConversationComposer.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
 import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
@@ -97,6 +99,15 @@ import {
 } from "../utils/conversation-queue.ts";
 import { resolveCtrlCAction } from "../ctrl-c-behavior.ts";
 import type { InteractionResponse } from "../../../agent/registry.ts";
+import {
+  advanceComposerShellState,
+  type ComposerShellState,
+} from "../utils/composer-shell-state.ts";
+import {
+  resolveConversationEscapeAction,
+  shouldAutoCloseConversationSurface,
+  shouldRenderMainBanner,
+} from "../utils/app-surface.ts";
 
 interface HistoryEntry {
   id: number;
@@ -129,37 +140,6 @@ function isAsyncIterable(
 ): value is AsyncIterableIterator<string> {
   return !!value && typeof value === "object" &&
     Symbol.asyncIterator in (value as object);
-}
-
-export function shouldAutoCloseConversationSurface(options: {
-  activeOverlay: OverlayPanel;
-  surfacePanel: SurfacePanel;
-  itemCount: number;
-  hasActiveRun: boolean;
-  queuedDraftCount: number;
-  hasPendingInteraction: boolean;
-  hasPlanState: boolean;
-}): boolean {
-  return options.activeOverlay === "none" &&
-    options.surfacePanel === "conversation" &&
-    options.itemCount === 0 &&
-    !options.hasActiveRun &&
-    options.queuedDraftCount === 0 &&
-    !options.hasPendingInteraction &&
-    !options.hasPlanState;
-}
-
-export function shouldRenderMainBanner(options: {
-  showBanner: boolean;
-  hasBeenCleared: boolean;
-  isOverlayOpen: boolean;
-  hasStandaloneSurface: boolean;
-  hasActivePlanningState: boolean;
-}): boolean {
-  return options.showBanner &&
-    !options.hasBeenCleared &&
-    !options.isOverlayOpen &&
-    !options.hasStandaloneSurface;
 }
 
 /**
@@ -211,7 +191,6 @@ function AppContent(
   const init = useInitialization(replState);
   const { refreshAiReadiness } = init;
 
-  const [input, setInput] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [isEvaluating, setIsEvaluating] = useState(false);
   // Ref to avoid stale closure in useInput callback
@@ -222,6 +201,15 @@ function AppContent(
   const [nextId, setNextId] = useState(1);
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
+  const composerRef = useRef<ComposerSurfaceHandle | null>(null);
+  const [composerShellState, setComposerShellState] = useState<
+    ComposerShellState
+  >({
+    hasDraftInput: false,
+    queuedDraftCount: 0,
+    queuePreviewRows: 0,
+    version: 0,
+  });
 
   // Task manager for background evaluation
   const {
@@ -315,22 +303,43 @@ function AppContent(
     );
   }, [applyRuntimeConfigState]);
 
-  // Conversation composer: attachments, queue, drafts
-  const composer = useConversationComposer({ input, setInput, replState });
-  const {
-    attachmentState: composerAttachmentState,
-    restoredComposerDraftRevision,
-    restoredComposerCursorOffset,
-    pendingConversationQueue,
-    setPendingConversationQueue,
-    currentComposerDraft,
-    queueEditBinding,
-    queueEditBindingLabel,
-    queuePreviewRows,
-    restoreComposerDraft,
-    handleQueueDraft,
-    handleEditLastQueuedDraft,
-  } = composer;
+  const handleComposerUiStateChange = useCallback(
+    (nextState: ComposerSurfaceUiState) => {
+      setComposerShellState((prev: ComposerShellState) =>
+        advanceComposerShellState(prev, nextState)
+      );
+    },
+    [],
+  );
+
+  const getCurrentComposerDraft = useCallback((): ConversationComposerDraft => {
+    return composerRef.current?.getCurrentDraft() ??
+      createConversationComposerDraft("", []);
+  }, []);
+
+  const getPendingConversationQueue = useCallback(
+    (): ConversationComposerDraft[] =>
+      composerRef.current?.getPendingQueue() ?? [],
+    [],
+  );
+
+  const setPendingConversationQueue = useCallback(
+    (updater: React.SetStateAction<ConversationComposerDraft[]>) => {
+      composerRef.current?.setPendingQueue(updater);
+    },
+    [],
+  );
+
+  const restoreComposerDraft = useCallback(
+    (draft: ConversationComposerDraft | null) => {
+      composerRef.current?.restoreDraft(draft);
+    },
+    [],
+  );
+
+  const clearComposerDraft = useCallback(() => {
+    composerRef.current?.clearDraft();
+  }, []);
   // Helper to add history entry and increment ID (DRY pattern used 8+ times)
   // Uses ref to avoid stale closure — no dependency on nextId state
   const nextIdRef = useRef(nextId);
@@ -356,9 +365,11 @@ function AppContent(
     setFooterContextUsageLabel,
     setSurfacePanel,
     setActiveOverlay,
+    clearComposerDraft,
+    getCurrentComposerDraft,
+    getPendingConversationQueue,
+    pendingConversationQueueVersion: composerShellState.version,
     setPendingConversationQueue,
-    pendingConversationQueue,
-    currentComposerDraft,
     restoreComposerDraft,
     hasConversationContext,
     replState,
@@ -429,7 +440,7 @@ function AppContent(
         surfacePanel,
         itemCount: conversation.items.length,
         hasActiveRun: isEvaluating || agentControllerRef.current !== null,
-        queuedDraftCount: pendingConversationQueue.length,
+        queuedDraftCount: composerShellState.queuedDraftCount,
         hasPendingInteraction: Boolean(pendingInteraction),
         hasPlanState: hasActivePlanningState,
       })
@@ -443,7 +454,7 @@ function AppContent(
     conversation.items.length,
     agentControllerRef,
     isEvaluating,
-    pendingConversationQueue.length,
+    composerShellState.queuedDraftCount,
     pendingInteraction,
     hasActivePlanningState,
     setSurfacePanel,
@@ -581,8 +592,8 @@ function AppContent(
 
   const handleCtrlC = useCallback(async () => {
     const action = resolveCtrlCAction({
-      draftText: input,
-      attachmentCount: composerAttachmentState.attachments.length,
+      draftText: composerRef.current?.getDraftText() ?? "",
+      attachmentCount: composerRef.current?.getAttachmentCount() ?? 0,
     });
     if (action === "clear-draft") {
       const handled = await executeHandler(HandlerIds.COMPOSER_CLEAR);
@@ -592,12 +603,7 @@ function AppContent(
       return;
     }
     handleAppExit();
-  }, [
-    composerAttachmentState.attachments.length,
-    handleAppExit,
-    input,
-    restoreComposerDraft,
-  ]);
+  }, [handleAppExit, restoreComposerDraft]);
 
   useEffect(() => {
     registerHandler(
@@ -653,10 +659,6 @@ function AppContent(
   conversationRef.current = conversation;
   const pendingInteractionRef = useRef(pendingInteraction);
   pendingInteractionRef.current = pendingInteraction;
-  const pendingConversationQueueRef = useRef(pendingConversationQueue);
-  pendingConversationQueueRef.current = pendingConversationQueue;
-  const closeConversationModeRef = useRef(closeConversationMode);
-  closeConversationModeRef.current = closeConversationMode;
   const handleInteractionResponseRef = useRef(handleInteractionResponse);
   handleInteractionResponseRef.current = handleInteractionResponse;
   const restoreComposerDraftRef = useRef(restoreComposerDraft);
@@ -665,7 +667,6 @@ function AppContent(
   const handleSubmit = useCallback(
     async (code: string, attachments?: AnyAttachment[]) => {
       if (!code.trim()) return;
-      setInput("");
 
       // Handle commands that need React state (pickers/panels)
       const trimmedInput = code.trim();
@@ -805,7 +806,6 @@ function AppContent(
           setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
             enqueueConversationDraft(prev, conversationDraft)
           );
-          composerAttachmentState.clearAttachments();
           return;
         }
         const result = submitConversationDraft(conversationDraft);
@@ -1005,8 +1005,10 @@ function AppContent(
     }).catch(() => {});
   }, []);
 
-  // Global shortcuts (handler-backed globals plus ESC cancel-in-place)
-  useInput((char, key) => {
+  const appInputHandlerRef = useRef(
+    (_char: string, _key: Key) => {},
+  );
+  appInputHandlerRef.current = (char: string, key: Key) => {
     const globalBinding = inspectHandlerKeybinding(char, key, {
       categories: GLOBAL_KEYBINDING_CATEGORIES,
     });
@@ -1018,7 +1020,7 @@ function AppContent(
       !key.meta &&
       !key.escape &&
       activeOverlay === "none" &&
-      input.length === 0 &&
+      (composerRef.current?.getDraftText() ?? "").length === 0 &&
       pendingInteraction?.mode !== "question";
     if (
       globalBinding.kind === "handler" &&
@@ -1051,10 +1053,8 @@ function AppContent(
     }
     const pickerInteractionActive = hasConversationContext &&
       isPickerInteractionRequest(pendingInteraction);
-    // Only real Enter key — Option+Enter (\r without key.return) is newline.
     const isEnterLikeInput = key.return;
 
-    // Interaction response keys (y/n/Enter) during conversation permission dialogs
     if (pickerInteractionActive) {
       return;
     }
@@ -1092,23 +1092,19 @@ function AppContent(
       }
     }
 
-    // ESC during conversation:
-    // - running: cancel in-place and restore queued drafts into composer
-    // - idle: exit conversation mode
-    if (key.escape && surfacePanel === "conversation") {
-      if (isConversationTaskRunning) {
+    if (key.escape) {
+      const conversationEscapeAction = resolveConversationEscapeAction({
+        surfacePanel,
+        isConversationTaskRunning,
+      });
+      if (conversationEscapeAction === "interrupt") {
         interruptConversationRun({
           clearPlanning: hasActivePlanningState,
         });
-      } else {
-        closeConversationMode();
+        return;
       }
-      return;
     }
 
-    // ESC during evaluation: abort and cancel
-    // This actually stops the evaluation (if it supports AbortSignal)
-    // Use ref to avoid stale closure issue
     if (key.escape && isEvaluatingRef.current && currentEvalRef.current) {
       const evalState = currentEvalRef.current;
       evalState.cancelled = true;
@@ -1129,7 +1125,13 @@ function AppContent(
       currentEvalRef.current = null;
       setIsEvaluating(false);
     }
-  });
+  };
+  const handleAppInput = useCallback((char: string, key: Parameters<
+    typeof appInputHandlerRef.current
+  >[1]) => {
+    appInputHandlerRef.current(char, key);
+  }, []);
+  useInput(handleAppInput);
 
   const pickerInteractionActive = hasConversationContext &&
     isPickerInteractionRequest(pendingInteraction);
@@ -1148,7 +1150,7 @@ function AppContent(
   // - input disabled (agent actively running / permission mode / overlays)
   // - empty prompt (paredit no-op)
   const allowConversationToggleHotkeys = !isInputVisible || isInputDisabled ||
-    input.length === 0;
+    !composerShellState.hasDraftInput;
   // overlayScreen removed — overlays are inlined as flat conditional siblings in JSX
   const standaloneSurfaceScreen = (() => {
     switch (surfacePanel) {
@@ -1355,32 +1357,19 @@ function AppContent(
               onQuestionInterrupt={pendingInteraction?.mode === "question"
                 ? handleQuestionInterrupt
                 : undefined}
-              extraReservedRows={queuePreviewRows}
+              extraReservedRows={composerShellState.queuePreviewRows}
             />
           </RenderErrorBoundary>
         </Box>
       )}
 
-      {/* Queue preview bar (visible above input when queue has items in conversation mode) */}
-      {!isOverlayOpen && hasConversationContext &&
-        pendingConversationQueue.length > 0 &&
-        (
-          <QueuePreview
-            items={pendingConversationQueue}
-            editBindingLabel={queueEditBindingLabel}
-          />
-        )}
-
       {/* Input line */}
       {!isOverlayOpen && isInputVisible &&
         (
-          <Box
-            marginTop={hasConversationContext ? 1 : 0}
-            flexDirection="column"
-          >
-            <Input
-              value={input}
-              onChange={setInput}
+          <ComposerSurface
+            ref={composerRef}
+            replState={replState}
+            onUiStateChange={handleComposerUiStateChange}
               onSubmit={handleSubmit}
               onForceSubmit={hasConversationContext
                 ? handleForceInterrupt
@@ -1391,30 +1380,19 @@ function AppContent(
                     clearPlanning: hasActivePlanningState,
                   })
                 : undefined}
-              onQueueDraft={hasConversationContext && agentControllerRef.current
-                ? handleQueueDraft
-                : undefined}
-              onEditLastQueuedDraft={hasConversationContext &&
-                  pendingConversationQueue.length > 0
-                ? handleEditLastQueuedDraft
-                : undefined}
-              queueEditBinding={queueEditBinding}
-              canEditQueuedDraft={hasConversationContext &&
-                pendingConversationQueue.length > 0}
+              queueEnabled={hasConversationContext &&
+                agentControllerRef.current !== null}
               isConversationTaskRunning={isConversationTaskRunning}
-              attachmentState={composerAttachmentState}
-              restoredCursorOffset={restoredComposerCursorOffset}
-              restoredDraftRevision={restoredComposerDraftRevision}
               onCycleMode={cycleAgentMode}
               disabled={isInputDisabled}
+              isConversationContext={hasConversationContext}
               highlightMode={hasConversationContext ? "chat" : "code"}
               promptLabel={hasConversationContext &&
                   pendingInteraction?.mode === "question" &&
                   !pickerInteractionActive
                 ? "answer>"
                 : "hlvm>"}
-            />
-          </Box>
+          />
         )}
 
       {/* Footer hint (directly under input, no gap) */}
@@ -1434,8 +1412,7 @@ function AppContent(
             interactionQueueLength={hasConversationContext
               ? interactionQueue.length
               : 0}
-            hasDraftInput={input.trim().length > 0 ||
-              composerAttachmentState.attachments.length > 0}
+            hasDraftInput={composerShellState.hasDraftInput}
             inConversation={hasConversationContext}
             hasPendingPermission={hasConversationContext &&
               pendingInteraction?.mode === "permission"}

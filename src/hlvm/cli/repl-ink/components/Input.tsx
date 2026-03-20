@@ -10,7 +10,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, Text, useInput, useStdout } from "ink";
+import { Box, Text, type Key, useInput, useStdout } from "ink";
 import {
   AUTO_PAIR_CHARS,
   backwardSexp,
@@ -259,6 +259,39 @@ export interface EscapeKeyInfo {
   return?: boolean;
 }
 
+interface InputHandlerActions {
+  composerClear: () => void;
+  composerCycleMode: () => void;
+  composerForceSubmit: () => void;
+  completionAccept: () => void | Promise<void>;
+  completionCancel: () => void;
+  completionToggleDocs: () => void;
+  editDeleteToEnd: () => void;
+  editDeleteToStart: () => void;
+  editDeleteWordBack: () => void;
+  editJumpEnd: () => void;
+  editJumpStart: () => void;
+  editRedo: () => void;
+  editUndo: () => void;
+  historySearch: () => void;
+  navInsertNewline: () => void;
+  navSexpBack: () => void;
+  navSexpDown: () => void;
+  navSexpForward: () => void;
+  navSexpUp: () => void;
+  navWordBack: () => void;
+  navWordForward: () => void;
+  pareditBarfBackward: () => void;
+  pareditBarfForward: () => void;
+  pareditKill: () => void;
+  pareditRaise: () => void;
+  pareditSlurpBackward: () => void;
+  pareditSlurpForward: () => void;
+  pareditSplice: () => void;
+  pareditTranspose: () => void;
+  pareditWrap: () => void;
+}
+
 export function isPureEscKeyEvent(input: string, key: EscapeKeyInfo): boolean {
   return !!key.escape &&
     !key.ctrl &&
@@ -391,6 +424,23 @@ export function Input({
   const pendingValueRef = useRef<string | null>(null);
   const previousAutoTriggerValueRef = useRef<string | null>(value);
 
+  // Helper: clear paste buffer on mode transitions.
+  const clearPasteBuffer = useCallback(() => {
+    if (pasteTimeoutRef.current) {
+      clearTimeout(pasteTimeoutRef.current);
+      pasteTimeoutRef.current = null;
+    }
+    pasteBufferRef.current = "";
+  }, []);
+
+  // Helper: cancel pending pure-ESC action (used when ESC is actually a prefix).
+  const cancelPendingEsc = useCallback(() => {
+    if (escSequenceTimerRef.current) {
+      clearTimeout(escSequenceTimerRef.current);
+      escSequenceTimerRef.current = null;
+    }
+  }, []);
+
   // Ref for disabled prop to avoid stale closure in useInput
   const disabledRef = useRef(disabled);
 
@@ -410,6 +460,20 @@ export function Input({
     }
     appliedRestoreRevisionRef.current = restoredDraftRevision;
     pendingAttachmentOpsRef.current = 0;
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    pendingValueRef.current = null;
+    textChangeFromCyclingRef.current = false;
+    previousAutoTriggerValueRef.current = value;
+    clearPasteBuffer();
+    cancelPendingEsc();
+    completion.close();
+    historySearch.actions.cancelSearch();
+    setPlaceholders([]);
+    setPlaceholderIndex(-1);
+    setSuggestion(null);
+    setHistoryIndex(-1);
+    setTempInput("");
     setCursorPos(
       Math.max(
         0,
@@ -417,8 +481,13 @@ export function Input({
       ),
     );
   }, [
+    cancelPendingEsc,
+    clearPasteBuffer,
+    completion,
+    historySearch.actions,
     restoredCursorOffset,
     restoredDraftRevision,
+    value,
     value.length,
   ]);
 
@@ -829,14 +898,23 @@ export function Input({
         );
       } else if (result.sideEffect?.type === "EXECUTE") {
         // Command execution - close dropdown and submit immediately (single Enter)
-        completion.close();
         const finalText = result.text.trim();
         onSubmit(finalText, attachments.length > 0 ? attachments : undefined);
         pendingAttachmentOpsRef.current = 0;
-        onChange("");
-        setCursorPos(0);
+        undoStackRef.current = [];
+        redoStackRef.current = [];
+        pendingValueRef.current = "";
+        textChangeFromCyclingRef.current = false;
+        clearPasteBuffer();
+        cancelPendingEsc();
+        completion.close();
+        historySearch.actions.cancelSearch();
+        exitPlaceholderMode();
+        setSuggestion(null);
         setHistoryIndex(-1);
         setTempInput("");
+        onChange("");
+        setCursorPos(0);
         clearAttachments();
         return; // Early return - already closed dropdown
       } else {
@@ -858,9 +936,13 @@ export function Input({
       attachments,
       reserveNextId,
       attachPathWithCleanup,
-      enterPlaceholderMode,
-      pushUndo,
+      cancelPendingEsc,
       clearAttachments,
+      clearPasteBuffer,
+      exitPlaceholderMode,
+      enterPlaceholderMode,
+      historySearch.actions,
+      pushUndo,
     ],
   );
 
@@ -1101,11 +1183,28 @@ export function Input({
     pendingAttachmentOpsRef.current = 0;
     undoStackRef.current = [];
     redoStackRef.current = [];
+    pendingValueRef.current = "";
+    textChangeFromCyclingRef.current = false;
+    clearPasteBuffer();
+    cancelPendingEsc();
     setHistoryIndex(-1);
     setTempInput("");
     completion.close();
+    historySearch.actions.cancelSearch();
+    exitPlaceholderMode();
+    setSuggestion(null);
+    onChange("");
+    setCursorPos(0);
     clearAttachments();
-  }, [completion, clearAttachments]);
+  }, [
+    cancelPendingEsc,
+    clearAttachments,
+    clearPasteBuffer,
+    completion,
+    exitPlaceholderMode,
+    historySearch.actions,
+    onChange,
+  ]);
 
   const cycleComposerMode = useCallback(() => {
     onCycleMode?.();
@@ -1140,37 +1239,16 @@ export function Input({
         trimmedDraft.cursorOffset,
       ),
     );
-    onChange("");
-    setCursorPos(0);
     resetAfterSubmit();
     return true;
   }, [
     attachments,
     cursorPos,
-    onChange,
     onQueueDraft,
     resetAfterSubmit,
     suggestion,
     value,
   ]);
-
-  // FIX H4: Helper to clear paste buffer on mode transitions
-  // This prevents paste data from corrupting history entries or mode state
-  const clearPasteBuffer = useCallback(() => {
-    if (pasteTimeoutRef.current) {
-      clearTimeout(pasteTimeoutRef.current);
-      pasteTimeoutRef.current = null;
-    }
-    pasteBufferRef.current = "";
-  }, []);
-
-  // Helper: cancel pending pure-ESC action (used when ESC is actually a prefix)
-  const cancelPendingEsc = useCallback(() => {
-    if (escSequenceTimerRef.current) {
-      clearTimeout(escSequenceTimerRef.current);
-      escSequenceTimerRef.current = null;
-    }
-  }, []);
 
   // Helper: schedule pure ESC handling after a short timeout.
   // If a follow-up key arrives, we cancel and treat ESC as a prefix.
@@ -1183,29 +1261,8 @@ export function Input({
   }, [cancelPendingEsc]);
 
   const clearCurrentDraft = useCallback(() => {
-    pendingAttachmentOpsRef.current = 0;
-    undoStackRef.current = [];
-    redoStackRef.current = [];
-    clearPasteBuffer();
-    cancelPendingEsc();
-    completion.close();
-    historySearch.actions.cancelSearch();
-    exitPlaceholderMode();
-    setSuggestion(null);
-    setHistoryIndex(-1);
-    setTempInput("");
-    onChange("");
-    setCursorPos(0);
-    clearAttachments();
-  }, [
-    cancelPendingEsc,
-    clearAttachments,
-    clearPasteBuffer,
-    completion,
-    exitPlaceholderMode,
-    historySearch.actions,
-    onChange,
-  ]);
+    resetAfterSubmit();
+  }, [resetAfterSubmit]);
 
   // Helper: accept and apply suggestion (DRY helper)
   const acceptAndApplySuggestion = useCallback(() => {
@@ -1380,168 +1437,323 @@ export function Input({
     await triggerCompletionRef.current(value, cursorPos, true);
   }, [value, cursorPos, completion]);
 
-  // ============================================================
-  // Handler Registry Registration
-  // Register handlers for palette/keybinding execution
-  // ============================================================
-  useEffect(() => {
-    // Paredit helper using current value/cursorPos closure (with undo)
-    const applyParedit = (fn: PareditFn) => {
-      const result = fn(value, cursorPos);
-      if (result) {
-        pushUndo();
-        onChange(result.newValue);
-        setCursorPos(result.newCursor);
-      }
-    };
-
-    // Editing handlers (multiline-aware: operate on current logical line)
-    registerHandler(HandlerIds.EDIT_JUMP_START, () => {
-      const { lineStart } = logicalLineBounds(value, cursorPos);
-      setCursorPos(lineStart);
-    }, "Input");
-    registerHandler(HandlerIds.EDIT_JUMP_END, () => {
+  const registeredHandlerActionsRef = useRef<InputHandlerActions>({
+    composerClear: () => {},
+    composerCycleMode: () => {},
+    composerForceSubmit: () => {},
+    completionAccept: () => {},
+    completionCancel: () => {},
+    completionToggleDocs: () => {},
+    editDeleteToEnd: () => {},
+    editDeleteToStart: () => {},
+    editDeleteWordBack: () => {},
+    editJumpEnd: () => {},
+    editJumpStart: () => {},
+    editRedo: () => {},
+    editUndo: () => {},
+    historySearch: () => {},
+    navInsertNewline: () => {},
+    navSexpBack: () => {},
+    navSexpDown: () => {},
+    navSexpForward: () => {},
+    navSexpUp: () => {},
+    navWordBack: () => {},
+    navWordForward: () => {},
+    pareditBarfBackward: () => {},
+    pareditBarfForward: () => {},
+    pareditKill: () => {},
+    pareditRaise: () => {},
+    pareditSlurpBackward: () => {},
+    pareditSlurpForward: () => {},
+    pareditSplice: () => {},
+    pareditTranspose: () => {},
+    pareditWrap: () => {},
+  });
+  registeredHandlerActionsRef.current = {
+    composerClear: clearCurrentDraft,
+    composerCycleMode: cycleComposerMode,
+    composerForceSubmit: forceSubmitCurrentDraft,
+    completionAccept: () => {
+      void handleTab();
+    },
+    completionCancel: () => completion.close(),
+    completionToggleDocs: () => completion.toggleDocPanel(),
+    editDeleteToEnd: () => {
+      pushUndo();
+      const { v, c } = getCleanedValue();
+      const { lineEnd: le } = logicalLineBounds(v, c);
+      onChange(v.slice(0, c) + v.slice(le));
+    },
+    editDeleteToStart: () => {
+      pushUndo();
+      const { v, c } = getCleanedValue();
+      const { lineStart: ls } = logicalLineBounds(v, c);
+      onChange(v.slice(0, ls) + v.slice(c));
+      setCursorPos(ls);
+    },
+    editDeleteWordBack: () => {
+      pushUndo();
+      const { v, c } = getCleanedValue();
+      deleteWord(v, c);
+    },
+    editJumpEnd: () => {
       if (suggestion && cursorPos === value.length) {
         acceptAndApplySuggestion();
       } else {
         const { lineEnd } = logicalLineBounds(value, cursorPos);
         setCursorPos(lineEnd);
       }
-    }, "Input");
-    registerHandler(HandlerIds.EDIT_DELETE_TO_START, () => {
-      pushUndo();
-      const { v, c } = getCleanedValue();
-      const { lineStart: ls } = logicalLineBounds(v, c);
-      onChange(v.slice(0, ls) + v.slice(c));
-      setCursorPos(ls);
-    }, "Input");
-    registerHandler(HandlerIds.EDIT_DELETE_TO_END, () => {
-      pushUndo();
-      const { v, c } = getCleanedValue();
-      const { lineEnd: le } = logicalLineBounds(v, c);
-      onChange(v.slice(0, c) + v.slice(le));
-    }, "Input");
-    registerHandler(HandlerIds.EDIT_DELETE_WORD_BACK, () => {
-      pushUndo();
-      const { v, c } = getCleanedValue();
-      deleteWord(v, c);
-    }, "Input");
-    registerHandler(HandlerIds.EDIT_UNDO, undo, "Input");
-    registerHandler(HandlerIds.EDIT_REDO, redo, "Input");
-
-    // Navigation handlers
-    registerHandler(HandlerIds.NAV_WORD_BACK, moveWordBack, "Input");
-    registerHandler(HandlerIds.NAV_WORD_FORWARD, moveWordForward, "Input");
-    registerHandler(HandlerIds.NAV_SEXP_BACK, () => {
-      const newPos = backwardSexp(value, cursorPos);
-      if (newPos !== cursorPos) setCursorPos(newPos);
-    }, "Input");
-    registerHandler(HandlerIds.NAV_SEXP_FORWARD, () => {
-      const newPos = forwardSexp(value, cursorPos);
-      if (newPos !== cursorPos) setCursorPos(newPos);
-    }, "Input");
-    registerHandler(HandlerIds.NAV_SEXP_UP, () => {
-      const newPos = backwardUpSexp(value, cursorPos);
-      if (newPos !== cursorPos) setCursorPos(newPos);
-    }, "Input");
-    registerHandler(HandlerIds.NAV_SEXP_DOWN, () => {
-      const newPos = forwardDownSexp(value, cursorPos);
-      if (newPos !== cursorPos) setCursorPos(newPos);
-    }, "Input");
-    registerHandler(
-      HandlerIds.NAV_INSERT_NEWLINE,
-      () => insertAt("\n"),
-      "Input",
-    );
-
-    // Completion handlers
-    registerHandler(HandlerIds.COMPLETION_ACCEPT, handleTab, "Input");
-    registerHandler(
-      HandlerIds.COMPLETION_TOGGLE_DOCS,
-      () => completion.toggleDocPanel(),
-      "Input",
-    );
-    registerHandler(
-      HandlerIds.COMPLETION_CANCEL,
-      () => completion.close(),
-      "Input",
-    );
-
-    // History handlers
-    registerHandler(HandlerIds.HISTORY_SEARCH, () => {
+    },
+    editJumpStart: () => {
+      const { lineStart } = logicalLineBounds(value, cursorPos);
+      setCursorPos(lineStart);
+    },
+    editRedo: redo,
+    editUndo: undo,
+    historySearch: () => {
       completion.close();
       exitPlaceholderMode();
       clearPasteBuffer();
       historySearch.actions.startSearch();
-    }, "Input");
+    },
+    navInsertNewline: () => insertAt("\n"),
+    navSexpBack: () => {
+      const newPos = backwardSexp(value, cursorPos);
+      if (newPos !== cursorPos) setCursorPos(newPos);
+    },
+    navSexpDown: () => {
+      const newPos = forwardDownSexp(value, cursorPos);
+      if (newPos !== cursorPos) setCursorPos(newPos);
+    },
+    navSexpForward: () => {
+      const newPos = forwardSexp(value, cursorPos);
+      if (newPos !== cursorPos) setCursorPos(newPos);
+    },
+    navSexpUp: () => {
+      const newPos = backwardUpSexp(value, cursorPos);
+      if (newPos !== cursorPos) setCursorPos(newPos);
+    },
+    navWordBack: moveWordBack,
+    navWordForward: moveWordForward,
+    pareditBarfBackward: () => {
+      const result = barfBackward(value, cursorPos);
+      if (!result) return;
+      pushUndo();
+      onChange(result.newValue);
+      setCursorPos(result.newCursor);
+    },
+    pareditBarfForward: () => {
+      const result = barfForward(value, cursorPos);
+      if (!result) return;
+      pushUndo();
+      onChange(result.newValue);
+      setCursorPos(result.newCursor);
+    },
+    pareditKill: () => {
+      const result = killSexp(value, cursorPos);
+      if (!result) return;
+      pushUndo();
+      onChange(result.newValue);
+      setCursorPos(result.newCursor);
+    },
+    pareditRaise: () => {
+      const result = raiseSexp(value, cursorPos);
+      if (!result) return;
+      pushUndo();
+      onChange(result.newValue);
+      setCursorPos(result.newCursor);
+    },
+    pareditSlurpBackward: () => {
+      const result = slurpBackward(value, cursorPos);
+      if (!result) return;
+      pushUndo();
+      onChange(result.newValue);
+      setCursorPos(result.newCursor);
+    },
+    pareditSlurpForward: () => {
+      const result = slurpForward(value, cursorPos);
+      if (!result) return;
+      pushUndo();
+      onChange(result.newValue);
+      setCursorPos(result.newCursor);
+    },
+    pareditSplice: () => {
+      const result = spliceSexp(value, cursorPos);
+      if (!result) return;
+      pushUndo();
+      onChange(result.newValue);
+      setCursorPos(result.newCursor);
+    },
+    pareditTranspose: () => {
+      const result = transposeSexp(value, cursorPos);
+      if (!result) return;
+      pushUndo();
+      onChange(result.newValue);
+      setCursorPos(result.newCursor);
+    },
+    pareditWrap: () => {
+      const result = wrapSexp(value, cursorPos);
+      if (!result) return;
+      pushUndo();
+      onChange(result.newValue);
+      setCursorPos(result.newCursor);
+    },
+  };
 
-    // Composer handlers
+  // Register handler IDs once; handlers read current behavior from refs.
+  useEffect(() => {
+    registerHandler(
+      HandlerIds.EDIT_JUMP_START,
+      () => registeredHandlerActionsRef.current.editJumpStart(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.EDIT_JUMP_END,
+      () => registeredHandlerActionsRef.current.editJumpEnd(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.EDIT_DELETE_TO_START,
+      () => registeredHandlerActionsRef.current.editDeleteToStart(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.EDIT_DELETE_TO_END,
+      () => registeredHandlerActionsRef.current.editDeleteToEnd(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.EDIT_DELETE_WORD_BACK,
+      () => registeredHandlerActionsRef.current.editDeleteWordBack(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.EDIT_UNDO,
+      () => registeredHandlerActionsRef.current.editUndo(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.EDIT_REDO,
+      () => registeredHandlerActionsRef.current.editRedo(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.NAV_WORD_BACK,
+      () => registeredHandlerActionsRef.current.navWordBack(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.NAV_WORD_FORWARD,
+      () => registeredHandlerActionsRef.current.navWordForward(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.NAV_SEXP_BACK,
+      () => registeredHandlerActionsRef.current.navSexpBack(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.NAV_SEXP_FORWARD,
+      () => registeredHandlerActionsRef.current.navSexpForward(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.NAV_SEXP_UP,
+      () => registeredHandlerActionsRef.current.navSexpUp(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.NAV_SEXP_DOWN,
+      () => registeredHandlerActionsRef.current.navSexpDown(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.NAV_INSERT_NEWLINE,
+      () => registeredHandlerActionsRef.current.navInsertNewline(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.COMPLETION_ACCEPT,
+      () => registeredHandlerActionsRef.current.completionAccept(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.COMPLETION_TOGGLE_DOCS,
+      () => registeredHandlerActionsRef.current.completionToggleDocs(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.COMPLETION_CANCEL,
+      () => registeredHandlerActionsRef.current.completionCancel(),
+      "Input",
+    );
+    registerHandler(
+      HandlerIds.HISTORY_SEARCH,
+      () => registeredHandlerActionsRef.current.historySearch(),
+      "Input",
+    );
     registerHandler(
       HandlerIds.COMPOSER_CYCLE_MODE,
-      cycleComposerMode,
+      () => registeredHandlerActionsRef.current.composerCycleMode(),
       "Input",
     );
     registerHandler(
       HandlerIds.COMPOSER_CLEAR,
-      clearCurrentDraft,
+      () => registeredHandlerActionsRef.current.composerClear(),
       "Input",
     );
     registerHandler(
       HandlerIds.COMPOSER_FORCE_SUBMIT,
-      forceSubmitCurrentDraft,
+      () => registeredHandlerActionsRef.current.composerForceSubmit(),
       "Input",
     );
-
-    // Paredit handlers
     registerHandler(
       HandlerIds.PAREDIT_SLURP_FORWARD,
-      () => applyParedit(slurpForward),
+      () => registeredHandlerActionsRef.current.pareditSlurpForward(),
       "Input",
     );
     registerHandler(
       HandlerIds.PAREDIT_SLURP_BACKWARD,
-      () => applyParedit(slurpBackward),
+      () => registeredHandlerActionsRef.current.pareditSlurpBackward(),
       "Input",
     );
     registerHandler(
       HandlerIds.PAREDIT_BARF_FORWARD,
-      () => applyParedit(barfForward),
+      () => registeredHandlerActionsRef.current.pareditBarfForward(),
       "Input",
     );
     registerHandler(
       HandlerIds.PAREDIT_BARF_BACKWARD,
-      () => applyParedit(barfBackward),
+      () => registeredHandlerActionsRef.current.pareditBarfBackward(),
       "Input",
     );
     registerHandler(
       HandlerIds.PAREDIT_WRAP,
-      () => applyParedit(wrapSexp),
+      () => registeredHandlerActionsRef.current.pareditWrap(),
       "Input",
     );
     registerHandler(
       HandlerIds.PAREDIT_SPLICE,
-      () => applyParedit(spliceSexp),
+      () => registeredHandlerActionsRef.current.pareditSplice(),
       "Input",
     );
     registerHandler(
       HandlerIds.PAREDIT_RAISE,
-      () => applyParedit(raiseSexp),
+      () => registeredHandlerActionsRef.current.pareditRaise(),
       "Input",
     );
     registerHandler(
       HandlerIds.PAREDIT_TRANSPOSE,
-      () => applyParedit(transposeSexp),
+      () => registeredHandlerActionsRef.current.pareditTranspose(),
       "Input",
     );
     registerHandler(
       HandlerIds.PAREDIT_KILL,
-      () => applyParedit(killSexp),
+      () => registeredHandlerActionsRef.current.pareditKill(),
       "Input",
     );
 
-    // Cleanup on unmount or when dependencies change
     return () => {
-      // Editing
       unregisterHandler(HandlerIds.EDIT_JUMP_START);
       unregisterHandler(HandlerIds.EDIT_JUMP_END);
       unregisterHandler(HandlerIds.EDIT_DELETE_TO_START);
@@ -1549,7 +1761,6 @@ export function Input({
       unregisterHandler(HandlerIds.EDIT_DELETE_WORD_BACK);
       unregisterHandler(HandlerIds.EDIT_UNDO);
       unregisterHandler(HandlerIds.EDIT_REDO);
-      // Navigation
       unregisterHandler(HandlerIds.NAV_WORD_BACK);
       unregisterHandler(HandlerIds.NAV_WORD_FORWARD);
       unregisterHandler(HandlerIds.NAV_SEXP_BACK);
@@ -1557,17 +1768,13 @@ export function Input({
       unregisterHandler(HandlerIds.NAV_SEXP_UP);
       unregisterHandler(HandlerIds.NAV_SEXP_DOWN);
       unregisterHandler(HandlerIds.NAV_INSERT_NEWLINE);
-      // Completion
       unregisterHandler(HandlerIds.COMPLETION_ACCEPT);
       unregisterHandler(HandlerIds.COMPLETION_TOGGLE_DOCS);
       unregisterHandler(HandlerIds.COMPLETION_CANCEL);
-      // History
       unregisterHandler(HandlerIds.HISTORY_SEARCH);
-      // Composer
       unregisterHandler(HandlerIds.COMPOSER_CYCLE_MODE);
       unregisterHandler(HandlerIds.COMPOSER_CLEAR);
       unregisterHandler(HandlerIds.COMPOSER_FORCE_SUBMIT);
-      // Paredit
       unregisterHandler(HandlerIds.PAREDIT_SLURP_FORWARD);
       unregisterHandler(HandlerIds.PAREDIT_SLURP_BACKWARD);
       unregisterHandler(HandlerIds.PAREDIT_BARF_FORWARD);
@@ -1578,34 +1785,14 @@ export function Input({
       unregisterHandler(HandlerIds.PAREDIT_TRANSPOSE);
       unregisterHandler(HandlerIds.PAREDIT_KILL);
     };
-  }, [
-    value,
-    cursorPos,
-    suggestion,
-    placeholders,
-    placeholderIndex,
-    onChange,
-    moveWordBack,
-    moveWordForward,
-    deleteWord,
-    handleTab,
-    completion,
-    historySearch.actions,
-    exitPlaceholderMode,
-    cycleComposerMode,
-    clearCurrentDraft,
-    forceSubmitCurrentDraft,
-    getCleanedValue,
-    insertAt,
-    acceptAndApplySuggestion,
-    clearPasteBuffer,
-    undo,
-    redo,
-    pushUndo,
-  ]);
+  }, []);
+
+  const inputEventHandlerRef = useRef<(input: string, key: Key) => void>(
+    () => {},
+  );
 
   // Main input handler
-  useInput((input, key) => {
+  inputEventHandlerRef.current = (input: string, key: Key) => {
     const isPureEscPrefixEvent = isPureEscKeyEvent(input, key);
 
     if (
@@ -2086,6 +2273,9 @@ export function Input({
           // Clear input
           pendingAttachmentOpsRef.current = 0;
           pushUndo();
+          pendingValueRef.current = "";
+          setHistoryIndex(-1);
+          setTempInput("");
           onChange("");
           setCursorPos(0);
           clearAttachments();
@@ -2755,7 +2945,12 @@ export function Input({
       // Single character - insert directly
       insertAt(input);
     }
-  }); // Note: disabled check is via disabledRef.current at top of callback (avoids stale closure)
+  };
+
+  const handleInkInput = useCallback((input: string, key: Key) => {
+    inputEventHandlerRef.current(input, key);
+  }, []);
+  useInput(handleInkInput); // Note: disabled check is via disabledRef.current at top of callback (avoids stale closure)
 
   // Render with syntax highlighting
   // Paren matching: highlight BOTH brackets of a pair when cursor is ON/NEAR any delimiter
@@ -2785,61 +2980,46 @@ export function Input({
   }, [value, cursorPos]);
 
   const rawGhostText = suggestion ? suggestion.ghost : "";
-  // Truncate ghost text to fit on one line — prevents multiline wrap from jumping the input bar
-  const ghostText = useMemo(() => {
-    if (!rawGhostText) return "";
-    const termCols = stdout?.columns ?? 80;
-    const prefixWidth = promptLabel.length + 1;
-    const contentWidth = Math.max(1, termCols - prefixWidth);
-    const valueLines = value.split("\n");
-    const lastLine = valueLines[valueLines.length - 1] ?? "";
-    // With word-boundary wrapping, available space is on the last visual chunk
-    const lastWrap = wrapLine(lastLine, contentWidth);
-    const lastChunkLen = lastWrap.chunks[lastWrap.chunks.length - 1].length;
-    const available = Math.max(0, contentWidth - lastChunkLen - 1);
-    return rawGhostText.length <= available
-      ? rawGhostText
-      : rawGhostText.slice(0, Math.max(0, available - 1)) + "…";
-  }, [rawGhostText, stdout?.columns, value, promptLabel]);
-
-  // Helper: get bracket positions adjusted for a text slice
-  // Returns positions relative to the slice, filtering out positions outside the range
-  const getBracketPositionsForSlice = (
+  const hasPlaceholderMode = placeholders.length > 0 && placeholderIndex >= 0;
+  const sliceRelativeBracketPositions = useCallback((
+    positions: readonly number[] | null,
     sliceStart: number,
     sliceEnd: number,
   ): number[] | null => {
-    if (!bracketPair) return null;
-    const positions: number[] = [];
-    for (const pos of bracketPair) {
-      if (pos >= sliceStart && pos < sliceEnd) {
-        positions.push(pos - sliceStart); // Convert to slice-relative
-      }
+    if (!positions || positions.length === 0 || sliceStart >= sliceEnd) {
+      return null;
     }
-    return positions.length > 0 ? positions : null;
-  };
+    const sliced = positions
+      .filter((pos: number) => pos >= sliceStart && pos < sliceEnd)
+      .map((pos: number) => pos - sliceStart);
+    return sliced.length > 0 ? sliced : null;
+  }, []);
 
-  // Helper: render text with placeholder highlighting
-  // OPTIMIZED: O(n) single pass instead of O(n²) nested loops
-  const renderWithPlaceholders = (
+  // Render text with placeholder highlighting. Bracket positions are
+  // relative to the provided text slice so cursor-only changes can decorate
+  // a small subset of already-cached chunks.
+  const renderChunkText = useCallback((
     text: string,
     startOffset: number,
+    bracketPositions: readonly number[] | null = null,
   ): string => {
     const renderHighlighted = (
       chunk: string,
-      bracketPositions: number[] | null,
+      relativeBracketPositions: readonly number[] | null,
     ): string =>
-      highlightMode === "chat" ? chunk : highlight(chunk, bracketPositions);
+      highlightMode === "chat"
+        ? chunk
+        : highlight(
+          chunk,
+          relativeBracketPositions && relativeBracketPositions.length > 0
+            ? [...relativeBracketPositions]
+            : null,
+        );
 
-    const sliceBrackets = getBracketPositionsForSlice(
-      startOffset,
-      startOffset + text.length,
-    );
-
-    if (!isInPlaceholderMode() || placeholders.length === 0) {
-      return renderHighlighted(text, sliceBrackets);
+    if (!hasPlaceholderMode || placeholders.length === 0) {
+      return renderHighlighted(text, bracketPositions);
     }
 
-    // Filter placeholders that overlap with this text range [startOffset, startOffset + text.length)
     const endOffset = startOffset + text.length;
     const relevantPhs = placeholders
       .map((ph: Placeholder, idx: number) => ({ ph, idx }))
@@ -2848,10 +3028,9 @@ export function Input({
       );
 
     if (relevantPhs.length === 0) {
-      return renderHighlighted(text, sliceBrackets);
+      return renderHighlighted(text, bracketPositions);
     }
 
-    // Build result in single pass through text, iterating placeholders once
     let result = "";
     let textPos = 0;
     let phIdx = 0;
@@ -2859,7 +3038,6 @@ export function Input({
     while (textPos < text.length) {
       const pos = startOffset + textPos;
 
-      // Skip placeholders that end before current position
       while (
         phIdx < relevantPhs.length &&
         relevantPhs[phIdx].ph.start + relevantPhs[phIdx].ph.length <= pos
@@ -2867,30 +3045,22 @@ export function Input({
         phIdx++;
       }
 
-      // Check if current position is inside a placeholder
       if (phIdx < relevantPhs.length) {
         const { ph, idx: originalIdx } = relevantPhs[phIdx];
 
         if (pos >= ph.start && pos < ph.start + ph.length) {
-          // Inside placeholder - render text before it first (if any)
           const phStartInText = Math.max(0, ph.start - startOffset);
           if (phStartInText > textPos) {
-            const chunkStart = startOffset + textPos;
-            const chunkEnd = startOffset + phStartInText;
-            const chunkBrackets = getBracketPositionsForSlice(
-              chunkStart,
-              chunkEnd,
-            );
-            // Adjust positions to be relative to the slice being highlighted
-            const adjustedBrackets = chunkBrackets?.map((p) => p - textPos) ??
-              null;
             result += renderHighlighted(
               text.slice(textPos, phStartInText),
-              adjustedBrackets,
+              sliceRelativeBracketPositions(
+                bracketPositions,
+                textPos,
+                phStartInText,
+              ),
             );
           }
 
-          // Render placeholder text with styling
           const phEndInText = Math.min(
             text.length,
             ph.start + ph.length - startOffset,
@@ -2912,120 +3082,215 @@ export function Input({
           continue;
         }
 
-        // Not in placeholder - render text up to next placeholder
         const nextPhStart = Math.min(text.length, ph.start - startOffset);
-        const chunkStart = startOffset + textPos;
-        const chunkEnd = startOffset + nextPhStart;
-        const chunkBrackets = getBracketPositionsForSlice(chunkStart, chunkEnd);
-        const adjustedBrackets = chunkBrackets?.map((p) => p - textPos) ?? null;
         result += renderHighlighted(
           text.slice(textPos, nextPhStart),
-          adjustedBrackets,
+          sliceRelativeBracketPositions(
+            bracketPositions,
+            textPos,
+            nextPhStart,
+          ),
         );
         textPos = nextPhStart;
       } else {
-        // No more placeholders - render rest of text
-        const chunkStart = startOffset + textPos;
-        const chunkEnd = startOffset + text.length;
-        const chunkBrackets = getBracketPositionsForSlice(chunkStart, chunkEnd);
-        const adjustedBrackets = chunkBrackets?.map((p) => p - textPos) ?? null;
-        result += renderHighlighted(text.slice(textPos), adjustedBrackets);
+        result += renderHighlighted(
+          text.slice(textPos),
+          sliceRelativeBracketPositions(
+            bracketPositions,
+            textPos,
+            text.length,
+          ),
+        );
         break;
       }
     }
 
     return result;
-  };
+  }, [
+    hasPlaceholderMode,
+    highlightMode,
+    placeholderIndex,
+    placeholders,
+    sliceRelativeBracketPositions,
+  ]);
 
-  // Word-boundary visual wrapping: break text into visual rows preferring
-  // spaces as break points. Row 0 shows "hlvm>", continuation rows show
-  // spaces of equal width.
-  const logicalLines = value.split("\n");
-  const prefixWidth = promptLabel.length + 1; // "hlvm> " = 6
-  const termWidth = stdout?.columns ?? 80;
-  const contentWidth = Math.max(1, termWidth - prefixWidth);
+  const visualLayout = useMemo(() => {
+    const logicalLines = value.split("\n");
+    const prefixWidth = promptLabel.length + 1;
+    const termWidth = stdout?.columns ?? 80;
+    const contentWidth = Math.max(1, termWidth - prefixWidth);
+    const wrappedLines = logicalLines.map((line: string) => ({
+      line,
+      wrap: wrapLine(line, contentWidth),
+    }));
+    const chunks: Array<{
+      baseRendered: string;
+      chunkIdx: number;
+      globalOffset: number;
+      isLastVisual: boolean;
+      key: string;
+      logIdx: number;
+      prompt: string;
+      text: string;
+    }> = [];
 
-  // Locate cursor within logical lines
-  let cursorLogLine = 0;
-  let cursorPosInLine = cursorPos;
-  {
+    let isFirstVisual = true;
+    let globalOffset = 0;
+    const continuationPrompt = " ".repeat(promptLabel.length);
+    const lastLogIdx = logicalLines.length - 1;
+
+    for (let logIdx = 0; logIdx <= lastLogIdx; logIdx++) {
+      const { line, wrap } = wrappedLines[logIdx];
+      for (let chunkIdx = 0; chunkIdx < wrap.chunks.length; chunkIdx++) {
+        const text = wrap.chunks[chunkIdx];
+        const chunkGlobalOffset = globalOffset + wrap.offsets[chunkIdx];
+        chunks.push({
+          baseRendered: renderChunkText(text, chunkGlobalOffset),
+          chunkIdx,
+          globalOffset: chunkGlobalOffset,
+          isLastVisual: logIdx === lastLogIdx &&
+            chunkIdx === wrap.chunks.length - 1,
+          key: `${logIdx}-${chunkIdx}`,
+          logIdx,
+          prompt: isFirstVisual ? promptLabel : continuationPrompt,
+          text,
+        });
+        isFirstVisual = false;
+      }
+      globalOffset += line.length + 1;
+    }
+
+    return {
+      chunks,
+      contentWidth,
+      logicalLines,
+      wrappedLines,
+    };
+  }, [promptLabel, renderChunkText, stdout?.columns, value]);
+
+  const cursorLayout = useMemo(() => {
+    let cursorLogLine = 0;
+    let cursorPosInLine = cursorPos;
     let acc = 0;
-    for (let i = 0; i < logicalLines.length; i++) {
-      if (acc + logicalLines[i].length >= cursorPos) {
+
+    for (let i = 0; i < visualLayout.logicalLines.length; i++) {
+      if (acc + visualLayout.logicalLines[i].length >= cursorPos) {
         cursorLogLine = i;
         cursorPosInLine = cursorPos - acc;
         break;
       }
-      acc += logicalLines[i].length + 1;
-    }
-  }
-
-  const lineElements: React.ReactNode[] = [];
-  let isFirstVisual = true;
-  let globalOffset = 0;
-  const lastLogIdx = logicalLines.length - 1;
-
-  for (let logIdx = 0; logIdx <= lastLogIdx; logIdx++) {
-    const line = logicalLines[logIdx];
-    const wrap = wrapLine(line, contentWidth);
-
-    // Find cursor chunk for this logical line
-    let cursorChunkIdx = -1;
-    let cursorColInChunk = 0;
-    if (logIdx === cursorLogLine) {
-      cursorChunkIdx = findChunkIndex(wrap.offsets, cursorPosInLine);
-      cursorColInChunk = cursorPosInLine - wrap.offsets[cursorChunkIdx];
+      acc += visualLayout.logicalLines[i].length + 1;
     }
 
-    for (let ci = 0; ci < wrap.chunks.length; ci++) {
-      const chunkText = wrap.chunks[ci];
-      const chunkOff = wrap.offsets[ci];
-      const prompt = isFirstVisual
-        ? promptLabel
-        : " ".repeat(promptLabel.length);
-      const chunkGlobalOff = globalOffset + chunkOff;
-      const isCursorChunk = ci === cursorChunkIdx;
-      const isLastVisual = logIdx === lastLogIdx &&
-        ci === wrap.chunks.length - 1;
+    const wrappedLine = visualLayout.wrappedLines[cursorLogLine] ??
+      visualLayout.wrappedLines[0];
+    const cursorChunkIdx = wrappedLine
+      ? findChunkIndex(wrappedLine.wrap.offsets, cursorPosInLine)
+      : 0;
+    const cursorColInChunk = wrappedLine
+      ? cursorPosInLine - wrappedLine.wrap.offsets[cursorChunkIdx]
+      : 0;
 
-      if (!isCursorChunk) {
-        lineElements.push(
-          <Box key={`${logIdx}-${ci}`}>
-            <Text>
-              <Text color={color("primary")} bold>{prompt}</Text>{" "}
-              {renderWithPlaceholders(chunkText, chunkGlobalOff)}
-            </Text>
-          </Box>,
-        );
-      } else {
-        const before = chunkText.slice(0, cursorColInChunk);
-        // Grapheme-aware cursor block
-        const seg = getGraphemeSegmenter().segment(chunkText).containing(
-          cursorColInChunk,
-        );
-        const charLen = seg?.segment.length ?? 1;
-        const charAt =
-          chunkText.slice(cursorColInChunk, cursorColInChunk + charLen) || " ";
-        const after = chunkText.slice(cursorColInChunk + charLen);
-        lineElements.push(
-          <Box key={`${logIdx}-${ci}`}>
-            <Text>
-              <Text color={color("primary")} bold>{prompt}</Text>{" "}
-              {renderWithPlaceholders(before, chunkGlobalOff)}
-              <Text backgroundColor="white" color="black">{charAt}</Text>
-              {renderWithPlaceholders(
-                after,
-                chunkGlobalOff + cursorColInChunk + charLen,
-              )}
-              {isLastVisual && ghostText && <Text dimColor>{ghostText}</Text>}
-            </Text>
-          </Box>,
-        );
+    return { cursorChunkIdx, cursorColInChunk, cursorLogLine };
+  }, [cursorPos, visualLayout.logicalLines, visualLayout.wrappedLines]);
+
+  const chunkBracketPositionsByKey = useMemo(() => {
+    const positionsByKey = new Map<string, number[]>();
+    if (!bracketPair) return positionsByKey;
+
+    for (const chunk of visualLayout.chunks) {
+      const positions = bracketPair
+        .filter((pos: number) =>
+          pos >= chunk.globalOffset && pos < chunk.globalOffset + chunk.text.length
+        )
+        .map((pos: number) => pos - chunk.globalOffset);
+      if (positions.length > 0) {
+        positionsByKey.set(chunk.key, positions);
       }
-      isFirstVisual = false;
     }
-    globalOffset += line.length + 1;
-  }
+
+    return positionsByKey;
+  }, [bracketPair, visualLayout.chunks]);
+
+  // Truncate ghost text to fit on one line — prevents multiline wrap from jumping the input bar
+  const ghostText = useMemo(() => {
+    if (!rawGhostText) return "";
+    const lastWrappedLine = visualLayout.wrappedLines[
+      visualLayout.wrappedLines.length - 1
+    ];
+    const lastChunkLen = lastWrappedLine
+      ? lastWrappedLine.wrap.chunks[lastWrappedLine.wrap.chunks.length - 1]
+        .length
+      : 0;
+    const available = Math.max(0, visualLayout.contentWidth - lastChunkLen - 1);
+    return rawGhostText.length <= available
+      ? rawGhostText
+      : rawGhostText.slice(0, Math.max(0, available - 1)) + "…";
+  }, [rawGhostText, visualLayout.contentWidth, visualLayout.wrappedLines]);
+
+  const lineElements = visualLayout.chunks.map((chunk: typeof visualLayout.chunks[number]) => {
+    const chunkBracketPositions = chunkBracketPositionsByKey.get(chunk.key) ??
+      null;
+    const isCursorChunk = chunk.logIdx === cursorLayout.cursorLogLine &&
+      chunk.chunkIdx === cursorLayout.cursorChunkIdx;
+
+    if (!isCursorChunk) {
+      return (
+        <Box key={chunk.key}>
+          <Text>
+            <Text color={color("primary")} bold>{chunk.prompt}</Text>{" "}
+            {chunkBracketPositions
+              ? renderChunkText(
+                chunk.text,
+                chunk.globalOffset,
+                chunkBracketPositions,
+              )
+              : chunk.baseRendered}
+          </Text>
+        </Box>
+      );
+    }
+
+    const before = chunk.text.slice(0, cursorLayout.cursorColInChunk);
+    const seg = getGraphemeSegmenter().segment(chunk.text).containing(
+      cursorLayout.cursorColInChunk,
+    );
+    const charLen = seg?.segment.length ?? 1;
+    const charAt =
+      chunk.text.slice(
+        cursorLayout.cursorColInChunk,
+        cursorLayout.cursorColInChunk + charLen,
+      ) || " ";
+    const after = chunk.text.slice(cursorLayout.cursorColInChunk + charLen);
+
+    return (
+      <Box key={chunk.key}>
+        <Text>
+          <Text color={color("primary")} bold>{chunk.prompt}</Text>{" "}
+          {renderChunkText(
+            before,
+            chunk.globalOffset,
+            sliceRelativeBracketPositions(
+              chunkBracketPositions,
+              0,
+              before.length,
+            ),
+          )}
+          <Text backgroundColor="white" color="black">{charAt}</Text>
+          {renderChunkText(
+            after,
+            chunk.globalOffset + cursorLayout.cursorColInChunk + charLen,
+            sliceRelativeBracketPositions(
+              chunkBracketPositions,
+              cursorLayout.cursorColInChunk + charLen,
+              chunk.text.length,
+            ),
+          )}
+          {chunk.isLastVisual && ghostText && <Text dimColor>{ghostText}</Text>}
+        </Text>
+      </Box>
+    );
+  });
 
   // ============================================================
   // FIX C1: Unified mode guard - ensure only ONE overlay at a time

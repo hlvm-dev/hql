@@ -116,6 +116,14 @@ export function transformQuasiquote(
   return transformed;
 }
 
+export function transformSyntaxQuote(
+  list: ListNode,
+  currentDir: string,
+  transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+): IR.IRNode {
+  return transformQuasiquote(list, currentDir, transformNode);
+}
+
 function buildQuasiquoteIR(
   node: HQLNode,
   depth: number, // BUG FIX: Added depth parameter for nested quasiquote support

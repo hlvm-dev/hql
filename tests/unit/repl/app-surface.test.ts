@@ -1,8 +1,9 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
+  resolveConversationEscapeAction,
   shouldAutoCloseConversationSurface,
   shouldRenderMainBanner,
-} from "../../../src/hlvm/cli/repl-ink/components/App.tsx";
+} from "../../../src/hlvm/cli/repl-ink/utils/app-surface.ts";
 
 Deno.test("shouldAutoCloseConversationSurface stays open while a conversation run is starting", () => {
   assertEquals(
@@ -16,6 +17,30 @@ Deno.test("shouldAutoCloseConversationSurface stays open while a conversation ru
       hasPlanState: false,
     }),
     false,
+  );
+});
+
+Deno.test("resolveConversationEscapeAction only interrupts active conversation runs", () => {
+  assertEquals(
+    resolveConversationEscapeAction({
+      surfacePanel: "conversation",
+      isConversationTaskRunning: true,
+    }),
+    "interrupt",
+  );
+  assertEquals(
+    resolveConversationEscapeAction({
+      surfacePanel: "conversation",
+      isConversationTaskRunning: false,
+    }),
+    "ignore",
+  );
+  assertEquals(
+    resolveConversationEscapeAction({
+      surfacePanel: "none",
+      isConversationTaskRunning: true,
+    }),
+    "ignore",
   );
 });
 

@@ -274,17 +274,45 @@ function classifySymbol(value: string): TokenType {
 // Tokenization Memoization
 // ============================================================
 
-// Simple single-entry cache for tokenization
-// Avoids repeated tokenization of the same input during a single render cycle
-let _lastTokenizeInput: string | null = null;
-let _cachedTokens: Token[] | null = null;
+const TOKENIZE_CACHE_LIMIT = 32;
+const tokenizeCache = new Map<string, Token[]>();
+
+function getTokenizeCacheEntry(input: string): Token[] | null {
+  const cached = tokenizeCache.get(input);
+  if (!cached) return null;
+  tokenizeCache.delete(input);
+  tokenizeCache.set(input, cached);
+  return cached;
+}
+
+function setTokenizeCacheEntry(input: string, tokens: Token[]): Token[] {
+  if (tokenizeCache.has(input)) {
+    tokenizeCache.delete(input);
+  }
+  tokenizeCache.set(input, tokens);
+  if (tokenizeCache.size > TOKENIZE_CACHE_LIMIT) {
+    const oldestKey = tokenizeCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      tokenizeCache.delete(oldestKey);
+    }
+  }
+  return tokens;
+}
 
 function tokenizeCached(input: string): Token[] {
-  if (input !== _lastTokenizeInput) {
-    _lastTokenizeInput = input;
-    _cachedTokens = tokenize(input);
+  const cached = getTokenizeCacheEntry(input);
+  if (cached) {
+    return cached;
   }
-  return _cachedTokens!;
+  return setTokenizeCacheEntry(input, tokenize(input));
+}
+
+export function __resetTokenizeCacheForTest(): void {
+  tokenizeCache.clear();
+}
+
+export function __getTokenizeCacheKeysForTest(): string[] {
+  return [...tokenizeCache.keys()];
 }
 
 // ============================================================

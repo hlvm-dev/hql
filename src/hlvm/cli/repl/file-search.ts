@@ -51,6 +51,7 @@ interface FileIndex {
 // ============================================================
 
 let indexCache: FileIndex | null = null;
+let indexPromise: Promise<FileIndex> | null = null;
 
 // ============================================================
 // File Indexing
@@ -124,10 +125,30 @@ export async function getFileIndex(forceRefresh = false): Promise<FileIndex> {
     return indexCache;
   }
 
-  const baseDir = getPlatform().process.cwd();
-  indexCache = await indexDirectory(baseDir);
+  if (indexPromise) {
+    return indexPromise;
+  }
 
-  return indexCache;
+  const baseDir = getPlatform().process.cwd();
+  const nextIndexPromise = indexDirectory(baseDir);
+  indexPromise = nextIndexPromise;
+  try {
+    indexCache = await nextIndexPromise;
+    return indexCache;
+  } finally {
+    if (indexPromise === nextIndexPromise) {
+      indexPromise = null;
+    }
+  }
+}
+
+export function prewarmFileIndex(): Promise<FileIndex> {
+  return getFileIndex();
+}
+
+export function __resetFileIndexCacheForTest(): void {
+  indexCache = null;
+  indexPromise = null;
 }
 
 // ============================================================

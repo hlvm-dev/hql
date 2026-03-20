@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { initializeRuntime } from "../../../../common/runtime-initializer.ts";
-import { getFileIndex } from "../../repl/file-search.ts";
+import { prewarmFileIndex } from "../../repl/file-search.ts";
 import { ReplState } from "../../repl/state.ts";
 import {
   initReplState,
@@ -129,7 +129,7 @@ export function useInitialization(state: ReplState): InitializationState {
     (async () => {
       try {
         // Pre-index files in background for @ mention feature
-        getFileIndex().catch(() => {});
+        prewarmFileIndex().catch(() => {});
 
         // Load persistent history early (in parallel with other init)
         const historyInit = startReplHistoryInit(state, (error) => {

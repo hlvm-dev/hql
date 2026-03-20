@@ -74,11 +74,13 @@ interface UseAgentRunnerInput {
   setFooterContextUsageLabel: (label: string) => void;
   setSurfacePanel: Dispatch<SetStateAction<SurfacePanel>>;
   setActiveOverlay: Dispatch<SetStateAction<OverlayPanel>>;
+  clearComposerDraft: () => void;
+  getCurrentComposerDraft: () => ConversationComposerDraft;
+  getPendingConversationQueue: () => ConversationComposerDraft[];
+  pendingConversationQueueVersion: number;
   setPendingConversationQueue: Dispatch<
     SetStateAction<ConversationComposerDraft[]>
   >;
-  pendingConversationQueue: ConversationComposerDraft[];
-  currentComposerDraft: ConversationComposerDraft;
   restoreComposerDraft: (draft: ConversationComposerDraft | null) => void;
   hasConversationContext: boolean;
   replState: ReplState;
@@ -138,9 +140,11 @@ export function useAgentRunner(
     setFooterContextUsageLabel,
     setSurfacePanel,
     setActiveOverlay,
+    clearComposerDraft,
+    getCurrentComposerDraft,
+    getPendingConversationQueue,
+    pendingConversationQueueVersion,
     setPendingConversationQueue,
-    pendingConversationQueue,
-    currentComposerDraft,
     restoreComposerDraft,
     hasConversationContext,
     replState,
@@ -570,6 +574,8 @@ export function useAgentRunner(
       return;
     }
 
+    const pendingConversationQueue = getPendingConversationQueue();
+    const currentComposerDraft = getCurrentComposerDraft();
     const restoredDraft = options?.restoreDraft === false
       ? null
       : mergeConversationDraftsForInterrupt(
@@ -595,10 +601,10 @@ export function useAgentRunner(
     }
     conversation.finalize();
   }, [
+    getCurrentComposerDraft,
+    getPendingConversationQueue,
     conversation,
-    currentComposerDraft,
     handleInteractionResponse,
-    pendingConversationQueue,
     restoreComposerDraft,
     setFooterContextUsageLabel,
   ]);
@@ -607,7 +613,7 @@ export function useAgentRunner(
     (code: string, attachments?: AnyAttachment[]) => {
       if (!code.trim()) return;
       recordPromptHistory(replState, code, "conversation");
-      restoreComposerDraft(null);
+      clearComposerDraft();
       const draft = createConversationComposerDraft(code.trim(), attachments);
 
       interruptConversationRun({
@@ -629,6 +635,7 @@ export function useAgentRunner(
       }
     },
     [
+      clearComposerDraft,
       interruptConversationRun,
       replState,
       restoreComposerDraft,
@@ -640,6 +647,7 @@ export function useAgentRunner(
   useEffect(() => {
     if (!hasConversationContext) return;
     if (agentControllerRef.current) return;
+    const pendingConversationQueue = getPendingConversationQueue();
     if (pendingConversationQueue.length === 0) return;
 
     const { draft: nextTurn, remaining } = shiftQueuedConversationDraft(
@@ -651,6 +659,7 @@ export function useAgentRunner(
       setPendingConversationQueue(remaining);
       return;
     }
+    const currentComposerDraft = getCurrentComposerDraft();
     setPendingConversationQueue(remaining);
     restoreComposerDraft(
       mergeConversationDraftsForInterrupt([nextTurn], currentComposerDraft),
@@ -664,9 +673,10 @@ export function useAgentRunner(
     }
   }, [
     conversation,
-    currentComposerDraft,
+    getCurrentComposerDraft,
+    getPendingConversationQueue,
     hasConversationContext,
-    pendingConversationQueue,
+    pendingConversationQueueVersion,
     restoreComposerDraft,
     submitConversationDraft,
   ]);

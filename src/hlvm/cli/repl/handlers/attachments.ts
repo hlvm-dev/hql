@@ -9,6 +9,56 @@ import { AttachmentServiceError } from "../../../attachments/types.ts";
 import type { RouteParams } from "../http-router.ts";
 import { jsonError, parseJsonBody } from "../http-utils.ts";
 
+function parseOptionalInteger(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  const parsed = Number.parseInt(normalized, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalFloat(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseAttachmentMetadata(input: {
+  width?: unknown;
+  height?: unknown;
+  duration?: unknown;
+  pages?: unknown;
+}) {
+  const width = parseOptionalInteger(input.width);
+  const height = parseOptionalInteger(input.height);
+  const duration = parseOptionalFloat(input.duration);
+  const pages = parseOptionalInteger(input.pages);
+
+  if (
+    width === undefined &&
+    height === undefined &&
+    duration === undefined &&
+    pages === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...(width !== undefined ? { width } : {}),
+    ...(height !== undefined ? { height } : {}),
+    ...(duration !== undefined ? { duration } : {}),
+    ...(pages !== undefined ? { pages } : {}),
+  };
+}
+
 function toAttachmentErrorResponse(error: AttachmentServiceError): Response {
   switch (error.code) {
     case "not_found":
@@ -72,7 +122,15 @@ function toAttachmentErrorResponse(error: AttachmentServiceError): Response {
 export async function handleRegisterAttachment(
   req: Request,
 ): Promise<Response> {
-  const parsed = await parseJsonBody<{ path?: string }>(req);
+  const parsed = await parseJsonBody<{
+    path?: string;
+    metadata?: {
+      width?: number;
+      height?: number;
+      duration?: number;
+      pages?: number;
+    };
+  }>(req);
   if (!parsed.ok) return parsed.response;
 
   const filePath = parsed.value.path?.trim();
@@ -81,7 +139,10 @@ export async function handleRegisterAttachment(
   }
 
   try {
-    const record = await registerAttachmentFromPath(filePath);
+    const record = await registerAttachmentFromPath(
+      filePath,
+      parseAttachmentMetadata(parsed.value.metadata ?? {}),
+    );
     return Response.json(record, { status: 201 });
   } catch (error) {
     if (error instanceof AttachmentServiceError) {
@@ -142,12 +203,19 @@ export async function handleUploadAttachment(
     }
 
     const sourcePath = form.get("source_path");
+    const metadata = parseAttachmentMetadata({
+      width: form.get("metadata_width"),
+      height: form.get("metadata_height"),
+      duration: form.get("metadata_duration"),
+      pages: form.get("metadata_pages"),
+    });
     const bytes = new Uint8Array(await file.arrayBuffer());
     const record = await registerUploadedAttachment({
       fileName: file.name || "attachment.bin",
       bytes,
       mimeType: file.type || undefined,
       sourcePath: typeof sourcePath === "string" ? sourcePath : undefined,
+      metadata,
     });
     return Response.json(record, { status: 201 });
   } catch (error) {

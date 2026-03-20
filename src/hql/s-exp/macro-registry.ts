@@ -177,4 +177,8 @@ export class MacroRegistry {
     this.logger.debug(`Macro ${name} not found in system macros`);
     return undefined;
   }
+
+  listMacros(): string[] {
+    return [...this.systemMacros.keys()];
+  }
 }

@@ -13,7 +13,15 @@ import {
   getRuntimeCacheDir,
 } from "./src/common/hlvm-cache-tracker.ts";
 import { getPlatform } from "./src/platform/platform.ts";
-import { macroexpand, type MacroExpandOptions } from "./src/hql/macroexpand.ts";
+import {
+  macroexpand,
+  macroexpand1,
+  macroexpandAll,
+  macroexpandTrace,
+  type MacroExpandOptions,
+  type MacroExpandTraceResult,
+} from "./src/hql/macroexpand.ts";
+import type { MacroExpansionTraceStep } from "./src/hql/s-exp/macro.ts";
 import { createEmbeddedPackageLookup } from "./src/hql/embedded-package-utils.ts";
 
 // Local aliases for frequently used platform functions
@@ -75,12 +83,18 @@ export interface HQLModule {
   run: (source: string, options?: RunOptions) => Promise<unknown>;
   runFile?: (filePath: string, options?: RunOptions) => Promise<unknown>;
   macroexpand?: (source: string, options?: MacroExpandOptions) => Promise<string[]>;
+  macroexpand1?: (source: string, options?: MacroExpandOptions) => Promise<string[]>;
+  macroexpandAll?: (source: string, options?: MacroExpandOptions) => Promise<string[]>;
+  macroexpandTrace?: (
+    source: string,
+    options?: MacroExpandOptions,
+  ) => Promise<MacroExpandTraceResult>;
   version: string;
 }
 
 export type HqlAdapter = (js: string) => unknown | Promise<unknown>;
 
-export type { MacroExpandOptions };
+export type { MacroExpandOptions, MacroExpandTraceResult, MacroExpansionTraceStep };
 
 export interface TranspileOptions extends Record<string, unknown> {
   baseDir?: string;
@@ -831,7 +845,7 @@ export async function run(
   }
 }
 
-export { macroexpand } from "./src/hql/macroexpand.ts";
+export { macroexpand, macroexpand1, macroexpandAll, macroexpandTrace } from "./src/hql/macroexpand.ts";
 
 interface ModuleProcessingContext {
   importerDir: string;
@@ -1160,6 +1174,9 @@ const hql: HQLModule = {
   run,
   runFile,
   macroexpand,
+  macroexpand1,
+  macroexpandAll,
+  macroexpandTrace,
   version,
 } as HQLModule;
 export default hql;

@@ -102,6 +102,7 @@ export const KERNEL_PRIMITIVES = new Set([
   "let",    // v2.0: Mutable block-scoped binding (changed from immutable)
   "var",    // Function-scoped binding (unchanged)
   "def",    // Global immutable binding (persists in REPL memory)
+  "syntax-quote",
   "quasiquote",
   "unquote",
   "unquote-splicing",

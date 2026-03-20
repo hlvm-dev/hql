@@ -1,9 +1,14 @@
 import {
+  assert,
   assertEquals,
   assertMatch,
 } from "jsr:@std/assert";
-import { macroexpand } from "../../mod.ts";
-import { macroexpand1 } from "../../src/hql/macroexpand.ts";
+import {
+  macroexpand,
+  macroexpand1,
+  macroexpandAll,
+  macroexpandTrace,
+} from "../../mod.ts";
 
 Deno.test("macroexpand: expands user macros and cond into executable core forms", async () => {
   const [nestedMacro] = await macroexpand(`(do
@@ -48,4 +53,41 @@ Deno.test("macroexpand: hash-map accepts both literal and expression keys", asyn
 Deno.test("macroexpand: identity-style forms remain stable when already core syntax", async () => {
   const [expanded] = await macroexpand(`(throw (js-new Error "boom"))`);
   assertEquals(expanded, `(throw (js-new Error "boom"))`);
+});
+
+Deno.test("macroexpandAll: aliases full fixed-point expansion", async () => {
+  const [expanded] = await macroexpandAll(`(do
+    (macro twice [x]
+      \`(+ ~x ~x))
+    (macro add-four [x]
+      \`(twice (twice ~x)))
+    (add-four 10))`);
+
+  assertEquals(expanded, `(do (+ (+ 10 10) (+ 10 10)))`);
+});
+
+Deno.test("macroexpandTrace: returns machine-readable macro expansion steps", async () => {
+  const result = await macroexpandTrace(`(do
+    (macro twice [x]
+      \`(+ ~x ~x))
+    (macro add-four [x]
+      \`(twice (twice ~x)))
+    (add-four 10))`);
+
+  assertEquals(result.expanded, [`(do (+ (+ 10 10) (+ 10 10)))`]);
+  assert(
+    result.trace.some((step) =>
+      step.stage === "macro-call" &&
+      step.macroName === "add-four" &&
+      step.before === "(add-four 10)" &&
+      step.after === "(twice (twice 10))"
+    ),
+  );
+  assert(
+    result.trace.some((step) =>
+      step.stage === "iteration" &&
+      step.iteration === 1 &&
+      step.expressionIndex === 0
+    ),
+  );
 });

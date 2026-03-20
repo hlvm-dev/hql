@@ -7,11 +7,14 @@
 ```
 (macro <name> [<params>] <body>...)
 (macro <name> [<params> & <rest-param>] <body>...)
+(macro <name> [&form &env <params>] <body>...)
 ```
 
 - `<name>` must be a symbol
-- `<params>` is a vector of symbols
+- `<params>` is a vector of symbols or destructuring patterns
 - `& <rest-param>` captures remaining arguments as a list
+- `&form` binds the original invocation form
+- `&env` binds a read-only macro environment snapshot
 - `<body>` is one or more expressions evaluated at macro expansion time
 - The last expression's value becomes the macro's expansion result
 
@@ -27,27 +30,30 @@
 - Lists => arrays (recursive)
 - Empty list => empty array
 
-### Quasiquote
+### Syntax-Quote and Quasiquote
 
 ```
-(quasiquote <template>)
+(syntax-quote <template>)
 `<template>
+(quasiquote <template>)
 ```
 
-Reader transforms: `` ` `` => `quasiquote`, `~` => `unquote`, `~@` => `unquote-splicing`.
+Reader transforms: `` ` `` => `syntax-quote`, `~` => `unquote`, `~@` => `unquote-splicing`.
 
-Within a quasiquote template:
+Within a template quote:
 - Bare symbols/lists are quoted (code as data)
 - `(unquote <expr>)` or `~<expr>` evaluates the expression
 - `(unquote-splicing <expr>)` or `~@<expr>` evaluates and splices elements into the enclosing list
 
-Nesting: each nested quasiquote increments depth. Unquote decrements depth. Evaluation only occurs at depth 0.
+`syntax-quote` is hygienic and attaches resolved binding metadata. `quasiquote` is the raw non-resolving template form.
+
+Nesting: each nested `syntax-quote` or `quasiquote` increments depth. Unquote decrements depth. Evaluation only occurs at depth 0.
 
 Outside quasiquote: `~` is the bitwise NOT operator. `~@` is a parse error.
 
 ### Auto-gensym
 
-Within a quasiquote at depth 0, symbols ending with `#` are replaced with unique generated symbols. All occurrences of the same `foo#` within the same quasiquote share the same generated symbol.
+Within a template quote at depth 0, symbols ending with `#` are replaced with unique generated symbols. All occurrences of the same `foo#` within the same template share the same generated symbol.
 
 ```
 `(let (tmp# ~value) (use tmp#))
@@ -83,17 +89,18 @@ Maximum recursive expansion depth: 100 (configurable via `maxExpandDepth`).
 
 ### Argument Evaluation Strategy
 
-Macro arguments use hybrid semantics:
-- Arguments whose head is a **known operator** (function, macro, special form, `%`-primitive) are evaluated
-- Arguments whose head is an **unknown operator** (e.g., `case`, `default`) are preserved as syntax/data
+Macro arguments are raw forms by default. Nested macro calls in argument position are expanded before binding, but ordinary forms are not evaluated implicitly.
 
-This enables both computation macros (that need evaluated args) and code-generating macros (that receive syntax).
+Explicit macro-time evaluation is provided by:
+- `%eval`
+- `%macroexpand-1`
+- `%macroexpand-all`
 
 ## Macro-Time Environment
 
 ### Special Forms
 
-`if`, `cond`, `let`, `var`, `quote`, `quasiquote` are handled as special forms during macro-time evaluation.
+`if`, `cond`, `let`, `var`, `quote`, `syntax-quote`, `quasiquote` are handled as special forms during macro-time evaluation.
 
 ### Macro Primitives
 

@@ -148,10 +148,18 @@ obj.property                     // obj.property
 ### Macros
 ```clojure
 (macro name [args] body)         // define macro
+(macro name [&form &env args] body) // access original form and macro env
 'expr                            // quote
-`expr                            // syntax-quote
+`expr                            // syntax-quote (hygienic template)
+(syntax-quote expr)              // long-form hygienic template
+(quasiquote expr)                // raw non-resolving template
 ~x                               // unquote
 ~@rest                           // unquote-splicing
+(%eval form)                     // explicit macro-time evaluation
+(%macroexpand-1 form)            // single-step expansion in a macro body
+(%macroexpand-all form)          // full expansion in a macro body
+(macroexpandAll source)          // public API full fixed-point expansion
+(macroexpandTrace source)        // public API machine-readable expansion trace
 (-> x (f) (g))                   // thread-first
 (->> x (f) (g))                  // thread-last
 (as-> x sym (f sym))             // thread-as

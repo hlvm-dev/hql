@@ -457,10 +457,10 @@ function parseExpressionByTokenType(token: Token, state: ParserState): SExp {
     }
     case TokenType.Backtick: {
       state.quasiquoteDepth++;
-      checkQuasiquoteDepth(state, token.position); // Prevent deeply nested quasiquotes
+      checkQuasiquoteDepth(state, token.position); // Prevent deeply nested template quotes
       const expr = parseExpression(state);
       state.quasiquoteDepth--;
-      result = createList(createSymbol("quasiquote"), expr);
+      result = createList(createSymbol("syntax-quote"), expr);
       break;
     }
     case TokenType.Unquote: {
@@ -476,10 +476,10 @@ function parseExpressionByTokenType(token: Token, state: ParserState): SExp {
       break;
     }
     case TokenType.UnquoteSplicing: {
-      // UnquoteSplicing (~@) should only work inside quasiquotes
+      // UnquoteSplicing (~@) should only work inside template quotes
       if (state.quasiquoteDepth === 0) {
         throw new ParseError(
-          "Unquote-splicing (~@) can only be used inside a quasiquote (backtick `)",
+          "Unquote-splicing (~@) can only be used inside a template quote (backtick `, syntax-quote, or quasiquote)",
           errorOptions(token.position, state),
         );
       }

@@ -265,7 +265,6 @@ function handleQuote(
 
 /**
  * Special form: quasiquote
- * (quasiquote expr) or `expr
  * Template with unquote/unquote-splicing support
  */
 function handleQuasiquote(
@@ -276,13 +275,30 @@ function handleQuasiquote(
   if (args.length !== 1) {
     throw new ArityError("quasiquote", 1, args.length);
   }
-  return processQuasiquote(args[0], 0, env, interpreter);
+  return processTemplateQuote(args[0], 0, env, interpreter);
 }
 
 /**
- * Process quasiquoted expression with depth tracking
+ * Special form: syntax-quote
+ * (syntax-quote expr) or `expr
  */
-function processQuasiquote(
+function handleSyntaxQuote(
+  args: SExp[],
+  env: InterpreterEnv,
+  interpreter: IInterpreter
+): HQLValue {
+  if (args.length !== 1) {
+    throw new ArityError("syntax-quote", 1, args.length);
+  }
+  return processTemplateQuote(args[0], 0, env, interpreter);
+}
+
+/**
+ * Process template-quoted expression with depth tracking.
+ * Runtime syntax-quote currently shares quasiquote evaluation semantics;
+ * hygienic resolution is applied in the compile-time macro expander.
+ */
+function processTemplateQuote(
   expr: SExp,
   depth: number,
   env: InterpreterEnv,
@@ -299,12 +315,16 @@ function processQuasiquote(
 
   const first = list.elements[0];
 
-  // Handle nested quasiquote
-  if (isSymbol(first) && (first as SSymbol).name === "quasiquote") {
+  // Handle nested template quote
+  if (
+    isSymbol(first) &&
+    (((first as SSymbol).name === "quasiquote") ||
+      ((first as SSymbol).name === "syntax-quote"))
+  ) {
     if (list.elements.length !== 2) {
-      throw new SyntaxError("quasiquote", "requires exactly one argument");
+      throw new SyntaxError((first as SSymbol).name, "requires exactly one argument");
     }
-    const inner = processQuasiquote(list.elements[1], depth + 1, env, interpreter);
+    const inner = processTemplateQuote(list.elements[1], depth + 1, env, interpreter);
     return depth === 0 ? inner : createList(first, inner);
   }
 
@@ -317,10 +337,8 @@ function processQuasiquote(
       // Evaluate and return
       const result = interpreter.eval(list.elements[1], env);
       return hqlValueToSExp(result);
-    } else if (depth === 1) {
-      return list.elements[1];
     } else {
-      const inner = processQuasiquote(list.elements[1], depth - 1, env, interpreter);
+      const inner = processTemplateQuote(list.elements[1], depth - 1, env, interpreter);
       return createList(first, inner);
     }
   }
@@ -331,7 +349,7 @@ function processQuasiquote(
       if (list.elements.length !== 2) {
         throw new SyntaxError("unquote-splicing", "requires exactly one argument");
       }
-      const inner = processQuasiquote(list.elements[1], depth - 1, env, interpreter);
+      const inner = processTemplateQuote(list.elements[1], depth - 1, env, interpreter);
       return createList(first, inner);
     }
     throw new SyntaxError("unquote-splicing", "not in list context");
@@ -371,7 +389,7 @@ function processQuasiquote(
         processedElements.push(hqlValueToSExp(result));
       }
     } else {
-      processedElements.push(processQuasiquote(element, depth, env, interpreter));
+      processedElements.push(processTemplateQuote(element, depth, env, interpreter));
     }
   }
 
@@ -489,6 +507,7 @@ export function getSpecialForms(): Map<string, SpecialFormHandler> {
   forms.set("fn", handleFn);
   forms.set("do", handleDo);
   forms.set("quote", handleQuote);
+  forms.set("syntax-quote", handleSyntaxQuote);
   forms.set("quasiquote", handleQuasiquote);
   forms.set("cond", handleCond);
   forms.set("!", handleNot);

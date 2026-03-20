@@ -787,7 +787,7 @@ output.js + output.js.map (Source Map V3)
 | Functions | `fn`, `async fn`, `fn*`, arrow, variadic |
 | Classes | Full: inherit, private, getters/setters |
 | Pattern matching | `match`/`case`/guards, or-patterns |
-| Macros | Compile-time, hygienic, auto-gensym |
+| Macros | Compile-time, syntax-quote hygiene, raw quasiquote, auto-gensym |
 | Threading | `->`, `->>`, `as->` |
 | Lazy sequences | Clojure-style, infinite |
 | TCO | Auto self-recursion + mutual (Tarjan SCC) |

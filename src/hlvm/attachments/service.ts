@@ -55,6 +55,12 @@ function fs() {
   return getPlatform().fs;
 }
 
+function logApi() {
+  return globalThis as typeof globalThis & {
+    log?: { info?: (...args: unknown[]) => void };
+  };
+}
+
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest))
@@ -254,6 +260,35 @@ async function writeRecord(record: AttachmentRecord): Promise<void> {
   });
 }
 
+function mergeAttachmentMetadata(
+  extractedMetadata: AttachmentRecord["metadata"],
+  clientMetadata: AttachmentRecord["metadata"],
+): AttachmentRecord["metadata"] {
+  if (!extractedMetadata && !clientMetadata) return undefined;
+
+  return {
+    width: clientMetadata?.width ?? extractedMetadata?.width,
+    height: clientMetadata?.height ?? extractedMetadata?.height,
+    duration: clientMetadata?.duration ?? extractedMetadata?.duration,
+    pages: clientMetadata?.pages ?? extractedMetadata?.pages,
+  };
+}
+
+function logVideoReceipt(record: AttachmentRecord): void {
+  if (record.kind !== "video") return;
+
+  logApi().log?.info?.(
+    "[attachments] video received",
+    JSON.stringify({
+      attachmentId: record.id,
+      fileName: record.fileName,
+      mimeType: record.mimeType,
+      size: record.size,
+      metadata: record.metadata ?? null,
+    }),
+  );
+}
+
 function preparedAttachmentMatchesRecord(
   prepared: PreparedAttachment,
   record: AttachmentRecord,
@@ -308,7 +343,10 @@ async function registerAttachmentBytes(
   const blobSha256 = await sha256Hex(input.bytes);
   const attachmentId = getAttachmentId(blobSha256);
   const recordPath = getRecordPath(attachmentId);
-  const metadata = extractAttachmentMetadata(mimeType, input.bytes);
+  const metadata = mergeAttachmentMetadata(
+    extractAttachmentMetadata(mimeType, input.bytes),
+    input.metadata,
+  );
   const now = new Date().toISOString();
   const candidateRecord: AttachmentRecord = {
     id: attachmentId,
@@ -350,17 +388,20 @@ async function registerAttachmentBytes(
       lastAccessedAt: now,
     };
     await writeRecord(updated);
+    logVideoReceipt(updated);
     return updated;
   }
 
   await writeBlobIfMissing(blobSha256, input.bytes);
   const record: AttachmentRecord = candidateRecord;
   await writeRecord(record);
+  logVideoReceipt(record);
   return record;
 }
 
 export async function registerAttachmentFromPath(
   filePath: string,
+  metadata?: AttachmentRecord["metadata"],
 ): Promise<AttachmentRecord> {
   const platform = getPlatform();
   const resolvedPath = platform.path.resolve(filePath);
@@ -403,6 +444,7 @@ export async function registerAttachmentFromPath(
       fileName: getAttachmentFileName(resolvedPath),
       bytes,
       sourcePath: resolvedPath,
+      metadata,
     });
   } catch (error) {
     if (error instanceof AttachmentServiceError) throw error;
