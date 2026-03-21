@@ -17,6 +17,7 @@ import type {
   ToolDefinition,
 } from "./types.ts";
 import type { ConversationAttachmentPayload } from "../attachments/types.ts";
+import { appendAttachmentPipelineTrace } from "../attachments/service.ts";
 import { normalizeToolArgs } from "../agent/validation.ts";
 import { generateToolCallId } from "../agent/tool-call.ts";
 import { getPlatform } from "../../platform/platform.ts";
@@ -342,6 +343,30 @@ export interface SdkConvertibleMessage {
   _sdkResponseMessages?: unknown[];
 }
 
+async function traceProviderPackedAttachments(
+  spec: SdkModelSpec,
+  messages: readonly SdkConvertibleMessage[],
+): Promise<void> {
+  for (const msg of messages) {
+    if (msg.role !== "user" || !msg.attachments?.length) continue;
+    for (const attachment of msg.attachments) {
+      await appendAttachmentPipelineTrace({
+        stage: "provider_packed",
+        attachmentId: attachment.attachmentId,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        kind: attachment.kind,
+        size: attachment.size,
+        providerName: spec.providerName,
+        modelId: spec.modelId,
+        conversationKind: attachment.conversationKind,
+        attachmentMode: attachment.mode,
+        textLength: attachment.mode === "text" ? attachment.text.length : undefined,
+      });
+    }
+  }
+}
+
 /**
  * Universal converter: internal messages → AI SDK ModelMessage[].
  * Handles both AgentMessage (camelCase) and ProviderMessage (snake_case) field names.
@@ -646,6 +671,7 @@ export async function* chatWithSdk(
   signal?: AbortSignal,
 ): AsyncGenerator<string, void, unknown> {
   const model = await createSdkLanguageModel(spec);
+  await traceProviderPackedAttachments(spec, messages);
   const sdkMessages = convertToSdkMessages(messages);
   const settings = buildCommonSettings(
     spec,
@@ -677,6 +703,7 @@ export async function chatStructuredWithSdk(
   signal?: AbortSignal,
 ): Promise<ChatStructuredResponse> {
   const model = await createSdkLanguageModel(spec);
+  await traceProviderPackedAttachments(spec, messages);
   const sdkMessages = convertToSdkMessages(messages);
   const settings = buildCommonSettings(
     spec,

@@ -1,9 +1,11 @@
 import { encodeBase64 } from "@std/encoding/base64";
+import { appendJsonLine } from "../../common/jsonl.ts";
 import {
   ensureAttachmentDirs,
   getAttachmentBlobsDir,
   getAttachmentPreparedDir,
   getAttachmentRecordsDir,
+  getAttachmentTracePath,
 } from "../../common/paths.ts";
 import {
   getErrorMessage,
@@ -59,6 +61,69 @@ function logApi() {
   return globalThis as typeof globalThis & {
     log?: { info?: (...args: unknown[]) => void };
   };
+}
+
+type AttachmentPipelineTraceStage =
+  | "received"
+  | "chat_requested"
+  | "materialized"
+  | "provider_packed";
+
+type AttachmentPipelineTraceEntry = {
+  stage: AttachmentPipelineTraceStage;
+  attachmentId?: string;
+  attachmentIds?: string[];
+  fileName?: string;
+  mimeType?: string;
+  kind?: AttachmentRecord["kind"];
+  size?: number;
+  sourcePath?: string;
+  metadata?: AttachmentRecord["metadata"];
+  sessionId?: string;
+  clientTurnId?: string;
+  requestMode?: string;
+  model?: string;
+  providerProfile?: string;
+  providerName?: string;
+  modelId?: string;
+  conversationKind?: string;
+  attachmentMode?: ConversationAttachmentPayload["mode"];
+  textLength?: number;
+  attachmentCount?: number;
+};
+
+export async function appendAttachmentPipelineTrace(
+  entry: AttachmentPipelineTraceEntry,
+): Promise<void> {
+  try {
+    await appendJsonLine(getAttachmentTracePath(), {
+      timestamp: new Date().toISOString(),
+      ...entry,
+    });
+  } catch (error) {
+    logApi().log?.info?.(
+      "[attachments] trace write failed",
+      getErrorMessage(error),
+    );
+  }
+}
+
+async function appendAttachmentRecordTrace(
+  stage: AttachmentPipelineTraceStage,
+  record: AttachmentRecord,
+  extras: Partial<AttachmentPipelineTraceEntry> = {},
+): Promise<void> {
+  await appendAttachmentPipelineTrace({
+    stage,
+    attachmentId: record.id,
+    fileName: record.fileName,
+    mimeType: record.mimeType,
+    kind: record.kind,
+    size: record.size,
+    sourcePath: record.sourcePath,
+    metadata: record.metadata,
+    ...extras,
+  });
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -125,7 +190,7 @@ export async function materializeConversationAttachment(
     !materializationOptions.preferTextKinds.includes(conversationKind);
 
   if (shouldUseBinary) {
-    return {
+    const payload: ConversationAttachmentPayload = {
       mode: "binary",
       attachmentId: materialized.record.id,
       fileName: materialized.record.fileName,
@@ -135,6 +200,16 @@ export async function materializeConversationAttachment(
       size: materialized.record.size,
       data: materialized.prepared.data,
     };
+    await appendAttachmentRecordTrace(
+      "materialized",
+      materialized.record,
+      {
+        providerProfile: materializationOptions.providerProfile,
+        conversationKind,
+        attachmentMode: payload.mode,
+      },
+    );
+    return payload;
   }
 
   const { bytes } = await readAttachmentContent(materialized.record.id);
@@ -144,7 +219,7 @@ export async function materializeConversationAttachment(
     materializationOptions,
   );
   if (extractedText !== null) {
-    return {
+    const payload: ConversationAttachmentPayload = {
       mode: "text",
       attachmentId: materialized.record.id,
       fileName: materialized.record.fileName,
@@ -154,6 +229,17 @@ export async function materializeConversationAttachment(
       size: materialized.record.size,
       text: extractedText,
     };
+    await appendAttachmentRecordTrace(
+      "materialized",
+      materialized.record,
+      {
+        providerProfile: materializationOptions.providerProfile,
+        conversationKind: payload.conversationKind,
+        attachmentMode: payload.mode,
+        textLength: extractedText.length,
+      },
+    );
+    return payload;
   }
 
   throw createUnsupportedAttachmentError(materialized.record);
@@ -275,6 +361,8 @@ function mergeAttachmentMetadata(
 }
 
 function logVideoReceipt(record: AttachmentRecord): void {
+  void appendAttachmentRecordTrace("received", record);
+
   if (record.kind !== "video") return;
 
   logApi().log?.info?.(

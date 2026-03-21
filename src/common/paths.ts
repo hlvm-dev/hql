@@ -218,6 +218,10 @@ export function getAttachmentPreparedDir(): string {
   return join(getAttachmentsDir(), "prepared");
 }
 
+export function getAttachmentTracePath(): string {
+  return join(getHlvmDir(), "attachment-pipeline.jsonl");
+}
+
 /**
  * Get the extracted-text cache directory (~/.hlvm/attachments/extracted)
  */

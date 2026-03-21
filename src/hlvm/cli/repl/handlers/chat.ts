@@ -73,6 +73,7 @@ import {
   checkModelAttachmentIds,
   describeAttachmentFailure,
 } from "../../attachment-policy.ts";
+import { appendAttachmentPipelineTrace } from "../../../attachments/service.ts";
 
 function requestHasMediaAttachments(
   messages: ChatRequest["messages"],
@@ -255,6 +256,18 @@ export async function handleChat(req: Request): Promise<Response> {
 
   const resolvedModel = body.model ??
     (await ensureInitialModelConfigured()).model;
+  const requestAttachmentIds = getRequestAttachmentIds(body.messages);
+  if (requestAttachmentIds.length > 0) {
+    await appendAttachmentPipelineTrace({
+      stage: "chat_requested",
+      attachmentIds: requestAttachmentIds,
+      attachmentCount: requestAttachmentIds.length,
+      sessionId,
+      clientTurnId: currentTurnId,
+      requestMode: body.mode,
+      model: resolvedModel,
+    });
+  }
   const cfgSnapshot = config.snapshot;
   const fixturePath = typeof body.fixture_path === "string" &&
       body.fixture_path.trim()
