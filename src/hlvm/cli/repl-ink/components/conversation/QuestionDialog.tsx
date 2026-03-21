@@ -21,7 +21,7 @@ import type {
   InteractionOption,
   InteractionResponse,
 } from "../../../../agent/registry.ts";
-import { ChromeChip } from "../ChromeChip.tsx";
+import { ConversationCallout } from "./ConversationCallout.tsx";
 
 interface QuestionDialogProps {
   requestId?: string;
@@ -76,16 +76,11 @@ export const QuestionDialog = React.memo(function QuestionDialog(
   }
 
   return (
-    <Box
-      borderStyle="round"
-      borderColor={sc.status.warning}
-      paddingX={1}
-      paddingY={0}
-      flexDirection="column"
+    <ConversationCallout
+      title="Clarification needed"
+      tone="warning"
+      marginBottom={0}
     >
-      <Box>
-        <ChromeChip text="Clarification needed" tone="warning" />
-      </Box>
       {dialog.question && (
         <Box marginTop={0}>
           <Text color={sc.text.primary} wrap="wrap">
@@ -98,6 +93,6 @@ export const QuestionDialog = React.memo(function QuestionDialog(
           {QUESTION_DIALOG_HINT}
         </Text>
       </Box>
-    </Box>
+    </ConversationCallout>
   );
 });

@@ -8,8 +8,13 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { HistorySearchState } from "../hooks/useHistorySearch.ts";
-import { useTheme } from "../../theme/index.ts";
+import { useSemanticColors } from "../../theme/index.ts";
 import { HighlightedText } from "./HighlightedText.tsx";
+import { ChromeChip } from "./ChromeChip.tsx";
+import {
+  getHistorySearchHintText,
+  getHistorySearchMatchLabel,
+} from "../utils/shell-chrome.ts";
 
 // ============================================================
 // Main Component
@@ -30,45 +35,46 @@ interface HistorySearchPromptProps {
 export function HistorySearchPrompt(
   { state }: HistorySearchPromptProps,
 ): React.ReactElement | null {
-  const { color } = useTheme();
+  const sc = useSemanticColors();
 
   if (!state.isSearching) {
     return null;
   }
 
   const { query, selectedMatch, matches, selectedIndex } = state;
+  const matchLabel = getHistorySearchMatchLabel(
+    query,
+    matches.length,
+    selectedIndex,
+  );
+  const hintText = getHistorySearchHintText(query, matches.length);
 
   return (
     <Box flexDirection="column">
       <Box>
-        <Text color={color("accent")}>(reverse-i-search)</Text>
-        <Text dimColor>`</Text>
-        <Text color={color("success")}>{query}</Text>
-        <Text dimColor>'</Text>
-        <Text>:</Text>
+        <ChromeChip text="History search" tone="active" />
+        <Text color={query ? sc.shell.prompt : sc.text.muted}>
+          {query ? ` ${query}` : " start typing"}
+        </Text>
+        <Text color={sc.text.muted}>{` · ${matchLabel}`}</Text>
+      </Box>
+      <Box marginTop={0}>
         {selectedMatch
           ? (
             <HighlightedText
               text={selectedMatch.text}
               matchIndices={selectedMatch.matchIndices}
-              highlightColor={color("warning")}
+              highlightColor={sc.status.warning}
+              baseColor={sc.text.primary}
             />
           )
           : query
-          ? <Text dimColor italic>no match</Text>
-          : <Text dimColor italic>type to search</Text>}
+          ? <Text color={sc.text.muted} italic>No match</Text>
+          : <Text color={sc.text.muted} italic>Search history by typing.</Text>}
       </Box>
-      <Box marginLeft={2}>
-        <Text dimColor>
-          {matches.length === 0 && query
-            ? "no matches (Esc cancel, keep typing)"
-            : matches.length === 1
-            ? "1 match (Enter select, Esc cancel)"
-            : matches.length > 1
-            ? `${
-              selectedIndex + 1
-            }/${matches.length} matches (Ctrl+R next, Ctrl+S prev, Enter select, Esc cancel)`
-            : "type to search (Esc cancel)"}
+      <Box>
+        <Text color={sc.shell.queueHint}>
+          {hintText}
         </Text>
       </Box>
     </Box>

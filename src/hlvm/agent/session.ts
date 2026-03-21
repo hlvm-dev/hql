@@ -109,7 +109,6 @@ export interface AgentSession {
     toolOwnerId?: string;
     temperature?: number;
     providerExecutionPlan?: ResolvedProviderExecutionPlan;
-    webCapabilityPlan?: ResolvedWebCapabilityPlan;
   };
   /** Mutable reasoning state shared with orchestrator/engine and tests. */
   thinkingState?: ThinkingState;
@@ -358,7 +357,6 @@ export async function createAgentSession(
       modelTier,
       agentProfiles: options.agentProfiles,
       providerExecutionPlan,
-      webCapabilityPlan,
     }),
   });
 
@@ -399,7 +397,6 @@ export async function createAgentSession(
       onToken: options.onToken,
       thinkingCapable,
       providerExecutionPlan,
-      webCapabilityPlan,
     });
 
   const llmConfig = options.fixturePath ? undefined : {
@@ -412,7 +409,6 @@ export async function createAgentSession(
     toolOwnerId,
     temperature: 0.0,
     providerExecutionPlan,
-    webCapabilityPlan,
   };
 
   return {

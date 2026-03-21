@@ -262,10 +262,6 @@ Deno.test({
         true,
       );
       assertEquals(
-        session.llmConfig?.webCapabilityPlan === session.webCapabilityPlan,
-        true,
-      );
-      assertEquals(
         reused.providerExecutionPlan === session.providerExecutionPlan,
         true,
       );
@@ -276,10 +272,6 @@ Deno.test({
       assertEquals(
         reused.llmConfig?.providerExecutionPlan ===
           session.providerExecutionPlan,
-        true,
-      );
-      assertEquals(
-        reused.llmConfig?.webCapabilityPlan === session.webCapabilityPlan,
         true,
       );
       assertEquals(

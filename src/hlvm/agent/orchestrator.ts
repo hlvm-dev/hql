@@ -79,10 +79,7 @@ import { recordBudgetUsage } from "./delegate-token-budget.ts";
 import { resolveThinkingProfile } from "./thinking-profile.ts";
 import type { AgentHookRuntime } from "./hooks.ts";
 import type { LspDiagnosticsRuntime } from "./lsp-diagnostics.ts";
-import type {
-  ResolvedProviderExecutionPlan,
-  ResolvedWebCapabilityPlan,
-} from "./tool-capabilities.ts";
+import type { ResolvedProviderExecutionPlan } from "./tool-capabilities.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -493,7 +490,6 @@ export interface OrchestratorConfig {
   teamLeadMemberId?: string;
   delegateTokenBudget?: DelegateTokenBudget;
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
-  webCapabilityPlan?: ResolvedWebCapabilityPlan;
 }
 
 function memoryWriteAvailable(config: OrchestratorConfig): boolean {

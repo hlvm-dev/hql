@@ -1,9 +1,15 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
+  buildConversationSectionText,
   buildDelegateHeaderText,
+  buildWorkingIndicatorLayout,
   getDelegateStatusGlyph,
   getDelegateStatusTone,
+  getThinkingLabel,
+  getToolResultLabel,
+  getToolResultTone,
 } from "../../../src/hlvm/cli/repl-ink/components/conversation/conversation-chrome.ts";
+import { STATUS_GLYPHS } from "../../../src/hlvm/cli/repl-ink/ui-constants.ts";
 
 Deno.test("getDelegateStatusTone maps delegate statuses into shared chrome tones", () => {
   assertEquals(getDelegateStatusTone("success"), "success");
@@ -13,10 +19,41 @@ Deno.test("getDelegateStatusTone maps delegate statuses into shared chrome tones
 });
 
 Deno.test("getDelegateStatusGlyph maps delegate statuses into stable glyphs", () => {
-  assertEquals(getDelegateStatusGlyph("success"), "✓");
-  assertEquals(getDelegateStatusGlyph("error"), "✗");
+  assertEquals(getDelegateStatusGlyph("success"), STATUS_GLYPHS.success);
+  assertEquals(getDelegateStatusGlyph("error"), STATUS_GLYPHS.error);
   assertEquals(getDelegateStatusGlyph("queued"), "⏳");
   assertEquals(getDelegateStatusGlyph("running"), "↗");
+});
+
+Deno.test("tool result chrome stays mapped through shared conversation tones", () => {
+  assertEquals(getToolResultTone("error"), "error");
+  assertEquals(getToolResultTone("success"), "success");
+  assertEquals(getToolResultTone("pending"), "neutral");
+  assertEquals(getToolResultLabel("error"), "Error output");
+  assertEquals(getToolResultLabel("success"), "Result");
+});
+
+Deno.test("conversation section labels use the shared default width", () => {
+  assertEquals(
+    buildConversationSectionText("Choices"),
+    "Choices ────────────────",
+  );
+  assertEquals(
+    buildConversationSectionText("Sources", 12),
+    "Sources ────",
+  );
+});
+
+Deno.test("conversation status helpers provide stable waiting and thinking labels", () => {
+  assertEquals(getThinkingLabel("reasoning"), "Thinking");
+  assertEquals(getThinkingLabel("planning"), "Planning");
+
+  const layout = buildWorkingIndicatorLayout(44, "5s");
+  assertEquals(layout.rightText, "5s · Esc interrupt");
+  assertEquals(
+    layout.leftText.length + layout.gapWidth + layout.rightText.length,
+    44,
+  );
 });
 
 Deno.test("buildDelegateHeaderText keeps status and duration in a fixed right slot", () => {

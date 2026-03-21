@@ -72,7 +72,6 @@ import {
   normalizeWebCapabilitySelectors,
   projectToolSearchResultsForWebCapabilities,
   type ResolvedProviderExecutionPlan,
-  type ResolvedWebCapabilityPlan,
   resolveProviderExecutionPlan,
 } from "./tool-capabilities.ts";
 
@@ -240,7 +239,6 @@ async function executeToolWithTimeout(
   toolAllowlist?: string[],
   toolDenylist?: string[],
   providerExecutionPlan?: ResolvedProviderExecutionPlan,
-  webCapabilityPlan?: ResolvedWebCapabilityPlan,
 ): Promise<unknown> {
   return await withTimeout(
     async (signal) => {
@@ -266,7 +264,7 @@ async function executeToolWithTimeout(
               ),
               ownerId: options?.ownerId ?? toolOwnerId,
             }),
-            providerExecutionPlan ?? webCapabilityPlan,
+            providerExecutionPlan,
           ),
         teamRuntime,
         teamMemberId,
@@ -977,7 +975,6 @@ export async function executeToolCall(
         allowlist: currentToolAllowlist,
         denylist: currentToolDenylist,
       });
-    const webCapabilityPlan = providerExecutionPlan.web;
     const runTool = (args: unknown = coercedArgs) =>
       executeToolWithTimeout(
         tool.fn,
@@ -1001,7 +998,6 @@ export async function executeToolCall(
         currentToolAllowlist,
         currentToolDenylist,
         providerExecutionPlan,
-        webCapabilityPlan,
       );
     let result: unknown;
     try {

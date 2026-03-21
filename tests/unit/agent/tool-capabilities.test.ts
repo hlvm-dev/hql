@@ -294,17 +294,23 @@ Deno.test("tool capabilities: tool_search projection emits provider-native searc
 
 Deno.test("tool capabilities: web helper predicates track web, citation-backed, and raw-payload tools", () => {
   assertEquals(isWebCapabilityToolName("web_search"), true);
+  assertEquals(isWebCapabilityToolName("google_search"), true);
   assertEquals(isWebCapabilityToolName("web_fetch"), true);
+  assertEquals(isWebCapabilityToolName("url_context"), true);
   assertEquals(isWebCapabilityToolName("fetch_url"), true);
   assertEquals(isWebCapabilityToolName("read_file"), false);
 
   assertEquals(isCitationBackedWebToolName("web_search"), true);
+  assertEquals(isCitationBackedWebToolName("google_search"), true);
   assertEquals(isCitationBackedWebToolName("search_web"), true);
   assertEquals(isCitationBackedWebToolName("web_fetch"), true);
+  assertEquals(isCitationBackedWebToolName("url_context"), true);
   assertEquals(isCitationBackedWebToolName("fetch_url"), true);
 
   assertEquals(isRawPayloadCitationWebToolName("search_web"), true);
   assertEquals(isRawPayloadCitationWebToolName("web_fetch"), true);
   assertEquals(isRawPayloadCitationWebToolName("fetch_url"), true);
   assertEquals(isRawPayloadCitationWebToolName("web_search"), false);
+  assertEquals(isRawPayloadCitationWebToolName("google_search"), false);
+  assertEquals(isRawPayloadCitationWebToolName("url_context"), false);
 });

@@ -35,9 +35,11 @@ import {
 import {
   createNativeProviderTools,
   getNativeProviderCapabilityAvailability,
-  hasNativeWebSearchTool,
 } from "./native-web-tools.ts";
-import type { NativeProviderCapabilityAvailability } from "../agent/tool-capabilities.ts";
+import {
+  EMPTY_NATIVE_PROVIDER_CAPABILITY_AVAILABILITY,
+  type NativeProviderCapabilityAvailability,
+} from "../agent/tool-capabilities.ts";
 
 export type SdkProviderName =
   | "openai"
@@ -338,8 +340,7 @@ export async function createSdkProviderBundle(
       const apiKey = getRequiredApiKey(providerName, spec.apiKey);
       const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
       const baseURL = withApiPathSuffix(
-        toNonEmptyString(spec.endpoint) ??
-          getPlatform().env.get("GOOGLE_BASE_URL"),
+        toNonEmptyString(spec.endpoint),
         "/v1beta",
       );
       const google = createGoogleGenerativeAI({
@@ -403,17 +404,6 @@ export async function createSdkLanguageModel(
   return (await createSdkProviderBundle(spec)).model;
 }
 
-export async function preflightNativeWebSearch(
-  spec: SdkModelSpec,
-): Promise<boolean> {
-  try {
-    const bundle = await createSdkProviderBundle(spec);
-    return hasNativeWebSearchTool(bundle.nativeTools);
-  } catch {
-    return false;
-  }
-}
-
 export async function preflightProviderExecutionCapabilities(
   spec: SdkModelSpec,
 ): Promise<NativeProviderCapabilityAvailability> {
@@ -421,11 +411,7 @@ export async function preflightProviderExecutionCapabilities(
     const bundle = await createSdkProviderBundle(spec);
     return getNativeProviderCapabilityAvailability(bundle.nativeTools);
   } catch {
-    return {
-      webSearch: false,
-      webPageRead: false,
-      remoteCodeExecution: false,
-    };
+    return EMPTY_NATIVE_PROVIDER_CAPABILITY_AVAILABILITY;
   }
 }
 
@@ -618,8 +604,7 @@ function decodeAttachmentData(data: string): Uint8Array {
 function getGoogleHttpOptions(
   spec: SdkModelSpec,
 ): { baseUrl?: string; apiVersion?: string } | undefined {
-  const configuredBaseUrl = toNonEmptyString(spec.endpoint) ??
-    toNonEmptyString(getPlatform().env.get("GOOGLE_BASE_URL"));
+  const configuredBaseUrl = toNonEmptyString(spec.endpoint);
   if (!configuredBaseUrl) {
     return undefined;
   }

@@ -144,7 +144,3 @@ export function getNativeProviderCapabilityAvailability(
     remoteCodeExecution: REMOTE_CODE_EXECUTE_TOOL_NAME in tools,
   };
 }
-
-export function hasNativeWebSearchTool(tools: ToolSet): boolean {
-  return NATIVE_WEB_SEARCH_TOOL_NAME in tools;
-}

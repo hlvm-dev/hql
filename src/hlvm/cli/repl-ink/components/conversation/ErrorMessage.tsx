@@ -9,7 +9,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { STATUS_GLYPHS } from "../../ui-constants.ts";
-import { ChromeChip } from "../ChromeChip.tsx";
+import { ConversationCallout } from "./ConversationCallout.tsx";
 
 interface ErrorMessageProps {
   text: string;
@@ -20,22 +20,14 @@ export const ErrorMessage = React.memo(
     const sc = useSemanticColors();
 
     return (
-      <Box
-        marginBottom={1}
-        borderStyle="round"
-        borderLeft
-        borderRight={false}
-        borderTop={false}
-        borderBottom={false}
-        borderColor={sc.status.error}
-        paddingLeft={1}
-        flexDirection="column"
+      <ConversationCallout
+        title={`${STATUS_GLYPHS.error} Error`}
+        tone="error"
       >
-        <Box>
-          <ChromeChip text={`${STATUS_GLYPHS.error} Error`} tone="error" />
+        <Box marginTop={0}>
+          <Text color={sc.status.error} wrap="wrap">{text}</Text>
         </Box>
-        <Text color={sc.status.error} wrap="wrap">{text}</Text>
-      </Box>
+      </ConversationCallout>
     );
   },
 );

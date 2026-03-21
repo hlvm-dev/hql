@@ -10,7 +10,6 @@ import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
 import type {
   ResolvedProviderExecutionPlan,
-  ResolvedWebCapabilityPlan,
 } from "./tool-capabilities.ts";
 
 /** Mutable tool filter state shared between orchestrator and engine. */
@@ -45,8 +44,6 @@ export interface AgentLLMConfig {
   thinkingCapable?: boolean;
   /** Session-resolved provider execution plan reused across prompt/tool execution. */
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
-  /** Session-resolved web capability plan reused by prompt, tool_search, and SDK injection. */
-  webCapabilityPlan?: ResolvedWebCapabilityPlan;
 }
 
 /** Abstract engine interface for creating LLM functions */

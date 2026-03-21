@@ -15,10 +15,15 @@ import {
 } from "./registry.ts";
 import type { AgentProfile } from "./agent-registry.ts";
 import {
+  CUSTOM_WEB_SEARCH_TOOL_NAME,
+  getResolvedWebCapabilityPlan,
+  NATIVE_WEB_SEARCH_TOOL_NAME,
   normalizeWebCapabilitySelectors,
   projectPromptToolsForWebCapabilities,
+  RAW_URL_FETCH_TOOL_NAME,
+  REMOTE_CODE_EXECUTE_TOOL_NAME,
   type ResolvedProviderExecutionPlan,
-  type ResolvedWebCapabilityPlan,
+  WEB_PAGE_READ_TOOL_NAME,
 } from "./tool-capabilities.ts";
 import { buildToolJsonSchema } from "./tool-schema.ts";
 import { getPlatform } from "../../platform/platform.ts";
@@ -140,8 +145,6 @@ export interface SystemPromptOptions {
   agentProfiles?: readonly AgentProfile[];
   /** Session-resolved provider execution plan for prompt projection. */
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
-  /** Session-resolved web capability plan for prompt tool projection. */
-  webCapabilityPlan?: ResolvedWebCapabilityPlan;
 }
 
 /** Human-readable labels for routing table */
@@ -298,14 +301,14 @@ function renderPermissionTiers(
 
 function renderWebToolGuidance(
   tools: Record<string, ToolMetadata>,
-  plan?: ResolvedProviderExecutionPlan | ResolvedWebCapabilityPlan,
+  plan?: ResolvedProviderExecutionPlan,
 ): PromptSection {
-  const webPlan = plan && "web" in plan ? plan.web : plan;
-  const hasCustomSearch = "search_web" in tools;
-  const hasNativeSearch = "web_search" in tools;
+  const webPlan = getResolvedWebCapabilityPlan(plan);
+  const hasCustomSearch = CUSTOM_WEB_SEARCH_TOOL_NAME in tools;
+  const hasNativeSearch = NATIVE_WEB_SEARCH_TOOL_NAME in tools;
   const hasSearch = hasCustomSearch || hasNativeSearch;
-  const hasWebFetch = "web_fetch" in tools;
-  const hasFetchUrl = "fetch_url" in tools;
+  const hasWebFetch = WEB_PAGE_READ_TOOL_NAME in tools;
+  const hasFetchUrl = RAW_URL_FETCH_TOOL_NAME in tools;
   if (!hasSearch && !hasWebFetch && !hasFetchUrl) {
     return { id: "web_guidance", content: "", minTier: "weak" };
   }
@@ -355,7 +358,7 @@ function renderWebToolGuidance(
 function renderRemoteExecutionGuidance(
   tools: Record<string, ToolMetadata>,
 ): PromptSection {
-  if (!("remote_code_execute" in tools)) {
+  if (!(REMOTE_CODE_EXECUTE_TOOL_NAME in tools)) {
     return { id: "remote_exec_guidance", content: "", minTier: "weak" };
   }
 
@@ -552,7 +555,7 @@ export function generateSystemPrompt(
       denylist: normalizeWebCapabilitySelectors(options.toolDenylist),
       ownerId: options.toolOwnerId,
     }),
-    providerExecutionPlan ?? options.webCapabilityPlan,
+    providerExecutionPlan,
   );
 
   const sections: PromptSection[] = [
@@ -562,7 +565,7 @@ export function generateSystemPrompt(
     renderToolRouting(tools),
     renderWebToolGuidance(
       tools,
-      providerExecutionPlan ?? options.webCapabilityPlan,
+      providerExecutionPlan,
     ),
     renderRemoteExecutionGuidance(tools),
     renderPermissionTiers(tools),

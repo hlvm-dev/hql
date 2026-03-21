@@ -143,14 +143,22 @@ const WEB_CAPABILITY_SPECS: readonly WebCapabilitySpec[] = [
 ] as const;
 
 const WEB_CAPABILITY_BY_TOOL_NAME = new Map<string, WebCapabilitySpec>();
+const PROVIDER_EXECUTED_WEB_TOOL_NAMES = new Set<string>();
 for (const spec of WEB_CAPABILITY_SPECS) {
   WEB_CAPABILITY_BY_TOOL_NAME.set(spec.customToolName, spec);
   if (spec.nativeToolName) {
     WEB_CAPABILITY_BY_TOOL_NAME.set(spec.nativeToolName, spec);
+    if (spec.nativeToolName !== spec.customToolName) {
+      PROVIDER_EXECUTED_WEB_TOOL_NAMES.add(spec.nativeToolName);
+    }
+  }
+  for (const alias of getProviderNativeAliases(spec)) {
+    WEB_CAPABILITY_BY_TOOL_NAME.set(alias, spec);
+    PROVIDER_EXECUTED_WEB_TOOL_NAMES.add(alias);
   }
 }
 
-type CapabilityProjectionPlan =
+export type CapabilityProjectionPlan =
   | ResolvedWebCapabilityPlan
   | ResolvedProviderExecutionPlan;
 
@@ -371,18 +379,25 @@ export function resolveProviderExecutionPlan(options: {
   };
 }
 
-function getResolvedWebPlan(
+export function getResolvedWebCapabilityPlan(
   plan?: CapabilityProjectionPlan,
 ): ResolvedWebCapabilityPlan | undefined {
   if (!plan) return undefined;
   return "web" in plan ? plan.web : plan;
 }
 
-function getResolvedRemotePlan(
+export function getResolvedRemoteExecutionCapability(
   plan?: CapabilityProjectionPlan,
 ): ResolvedRemoteExecutionCapability | undefined {
   if (!plan || !("remoteCodeExecution" in plan)) return undefined;
   return plan.remoteCodeExecution;
+}
+
+export function getResolvedProviderExecutionPlan(
+  plan?: CapabilityProjectionPlan,
+): ResolvedProviderExecutionPlan | undefined {
+  if (!plan || !("web" in plan)) return undefined;
+  return plan;
 }
 
 export function projectPromptToolsForWebCapabilities(
@@ -390,8 +405,8 @@ export function projectPromptToolsForWebCapabilities(
   plan?: CapabilityProjectionPlan,
 ): Record<string, ToolMetadata> {
   const projected = { ...tools };
-  const webPlan = getResolvedWebPlan(plan);
-  const remotePlan = getResolvedRemotePlan(plan);
+  const webPlan = getResolvedWebCapabilityPlan(plan);
+  const remotePlan = getResolvedRemoteExecutionCapability(plan);
   if (!webPlan && !remotePlan) {
     delete projected[NATIVE_WEB_SEARCH_TOOL_NAME];
     return projected;
@@ -450,8 +465,8 @@ export function projectToolSearchResultsForWebCapabilities<
   results: readonly T[],
   plan?: CapabilityProjectionPlan,
 ): T[] {
-  const webPlan = getResolvedWebPlan(plan);
-  const remotePlan = getResolvedRemotePlan(plan);
+  const webPlan = getResolvedWebCapabilityPlan(plan);
+  const remotePlan = getResolvedRemoteExecutionCapability(plan);
   if (!webPlan && !remotePlan) {
     return results.map((result) => ({ ...result }));
   }
@@ -518,16 +533,12 @@ export function isCitationBackedWebToolName(toolName: string): boolean {
 }
 
 export function isRawPayloadCitationWebToolName(toolName: string): boolean {
-  if (toolName === NATIVE_WEB_SEARCH_TOOL_NAME) return false;
+  if (PROVIDER_EXECUTED_WEB_TOOL_NAMES.has(toolName)) return false;
   const spec = WEB_CAPABILITY_BY_TOOL_NAME.get(toolName);
   return spec?.rawPayloadCitationEligible ?? false;
 }
 
-export function isNativeWebToolName(toolName: string): boolean {
-  return toolName === NATIVE_WEB_SEARCH_TOOL_NAME;
-}
-
-export function getActiveWebToolNames(
+function getActiveWebToolNames(
   plan: ResolvedWebCapabilityPlan,
 ): string[] {
   return WEB_CAPABILITY_SPECS.flatMap((spec) => {
@@ -550,22 +561,32 @@ export function getActiveProviderExecutionToolNames(
 export function getProviderExecutedToolNames(
   plan: ResolvedProviderExecutionPlan,
 ): string[] {
-  return dedupeToolNames([
-    ...WEB_CAPABILITY_SPECS.flatMap((spec) => {
-      const capability = plan.web.capabilities[spec.id];
-      return capability?.implementation === "native" && capability.activeToolName
-        ? [capability.activeToolName, ...getProviderNativeAliases(spec)]
-        : [];
-    }),
-    ...(plan.remoteCodeExecution.implementation === "native" &&
-        plan.remoteCodeExecution.activeToolName
-      ? [plan.remoteCodeExecution.activeToolName, "code_execution"]
-      : []),
-  ]);
+  return [...getProviderExecutedToolNameSet(plan)];
 }
 
-export function getWebCapabilityForToolName(
-  toolName: string,
-): WebCapabilityId | undefined {
-  return WEB_CAPABILITY_BY_TOOL_NAME.get(toolName)?.id;
+export function getProviderExecutedToolNameSet(
+  plan: ResolvedProviderExecutionPlan,
+): ReadonlySet<string> {
+  const names = new Set<string>();
+
+  for (const spec of WEB_CAPABILITY_SPECS) {
+    const capability = plan.web.capabilities[spec.id];
+    if (capability?.implementation !== "native" || !capability.activeToolName) {
+      continue;
+    }
+    names.add(capability.activeToolName);
+    for (const alias of getProviderNativeAliases(spec)) {
+      names.add(alias);
+    }
+  }
+
+  if (
+    plan.remoteCodeExecution.implementation === "native" &&
+    plan.remoteCodeExecution.activeToolName
+  ) {
+    names.add(plan.remoteCodeExecution.activeToolName);
+    names.add("code_execution");
+  }
+
+  return names;
 }

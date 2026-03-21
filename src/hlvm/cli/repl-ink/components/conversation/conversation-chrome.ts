@@ -1,6 +1,10 @@
-import { truncate } from "../../../../../common/utils.ts";
 import { formatDurationMs } from "../../utils/formatting.ts";
-import { buildRightSlotTextLayout } from "../../utils/display-chrome.ts";
+import {
+  buildBalancedTextRow,
+  buildRightSlotTextLayout,
+  buildSectionLabelText,
+} from "../../utils/display-chrome.ts";
+import { STATUS_GLYPHS } from "../../ui-constants.ts";
 
 export type ConversationStatusTone =
   | "neutral"
@@ -8,6 +12,8 @@ export type ConversationStatusTone =
   | "success"
   | "warning"
   | "error";
+
+export const DEFAULT_CONVERSATION_SECTION_LABEL_WIDTH = 24;
 
 export function getDelegateStatusTone(status: string): ConversationStatusTone {
   switch (status) {
@@ -26,11 +32,11 @@ export function getDelegateStatusTone(status: string): ConversationStatusTone {
 export function getDelegateStatusGlyph(status: string): string {
   switch (status) {
     case "success":
-      return "✓";
+      return STATUS_GLYPHS.success;
     case "error":
-      return "✗";
+      return STATUS_GLYPHS.error;
     case "cancelled":
-      return "○";
+      return STATUS_GLYPHS.pending;
     case "queued":
       return "⏳";
     default:
@@ -51,6 +57,25 @@ export function getDelegateStatusLabel(status: string): string {
     default:
       return status;
   }
+}
+
+export function getToolResultTone(status: string): ConversationStatusTone {
+  switch (status) {
+    case "error":
+      return "error";
+    case "success":
+      return "success";
+    default:
+      return "neutral";
+  }
+}
+
+export function getToolResultLabel(status: string): string {
+  return status === "error" ? "Error output" : "Result";
+}
+
+export function getThinkingLabel(kind: "reasoning" | "planning"): string {
+  return kind === "reasoning" ? "Thinking" : "Planning";
 }
 
 export function buildDelegateHeaderText(
@@ -80,9 +105,23 @@ export function buildDelegateHeaderText(
   );
 }
 
-export function buildConversationCalloutText(
-  text: string,
-  width: number,
+export function buildConversationSectionText(
+  label: string,
+  width = DEFAULT_CONVERSATION_SECTION_LABEL_WIDTH,
 ): string {
-  return truncate(text, Math.max(1, width), "…");
+  return buildSectionLabelText(label, width);
+}
+
+export function buildWorkingIndicatorLayout(
+  width: number,
+  elapsedText: string,
+): { leftText: string; rightText: string; gapWidth: number } {
+  return buildBalancedTextRow(
+    width,
+    "Waiting for first token",
+    `${elapsedText} · Esc interrupt`,
+    {
+      maxRightWidth: Math.max(14, Math.floor(width * 0.45)),
+    },
+  );
 }

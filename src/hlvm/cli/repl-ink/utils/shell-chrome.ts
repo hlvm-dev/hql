@@ -20,6 +20,26 @@ export interface ShellQueuePreviewLine {
   chip?: boolean;
 }
 
+export function getHistorySearchMatchLabel(
+  query: string,
+  matchCount: number,
+  selectedIndex: number,
+): string {
+  if (!query.trim()) return "type to search";
+  if (matchCount === 0) return "no match";
+  if (matchCount === 1) return "1 match";
+  return `${selectedIndex + 1}/${matchCount} matches`;
+}
+
+export function getHistorySearchHintText(
+  query: string,
+  matchCount: number,
+): string {
+  if (!query.trim()) return "Type to search · Esc cancel";
+  if (matchCount <= 1) return "Enter select · Esc cancel";
+  return "Ctrl+R next · Ctrl+S prev · Enter select · Esc cancel";
+}
+
 export function getShellPromptSlotWidth(promptLabel = ""): number {
   return promptLabel.length;
 }

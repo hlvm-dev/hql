@@ -13,6 +13,11 @@ import { ToolStatusIcon } from "./ToolStatusIcon.tsx";
 import { ToolResult } from "./ToolResult.tsx";
 import type { ToolCallDisplay } from "../../types.ts";
 import { buildToolCallTextLayout } from "./layout.ts";
+import { ConversationCallout } from "./ConversationCallout.tsx";
+import {
+  getToolResultLabel,
+  getToolResultTone,
+} from "./conversation-chrome.ts";
 
 interface ToolCallItemProps {
   tool: ToolCallDisplay;
@@ -65,26 +70,22 @@ export const ToolCallItem = React.memo(function ToolCallItem(
       </Box>
 
       {resolveToolResultText(tool, expanded) && tool.status !== "running" && (
-        <Box
-          marginLeft={2}
-          flexDirection="column"
-          borderStyle="single"
-          borderLeft
-          borderRight={false}
-          borderTop={false}
-          borderBottom={false}
-          borderColor={tool.status === "error"
-            ? sc.status.error
-            : sc.border.default}
-          paddingLeft={1}
-        >
-          <ToolResult
-            text={resolveToolResultText(tool, expanded)}
-            width={Math.max(10, width - 6)}
-            maxLines={tool.status === "error" ? 12 : 8}
-            expanded={expanded}
-            tone={tool.status === "error" ? "error" : "default"}
-          />
+        <Box marginLeft={2} flexDirection="column">
+          <ConversationCallout
+            title={getToolResultLabel(tool.status)}
+            tone={getToolResultTone(tool.status)}
+            marginBottom={0}
+          >
+            <Box marginTop={0}>
+              <ToolResult
+                text={resolveToolResultText(tool, expanded)}
+                width={Math.max(10, width - 10)}
+                maxLines={tool.status === "error" ? 12 : 8}
+                expanded={expanded}
+                tone={tool.status === "error" ? "error" : "default"}
+              />
+            </Box>
+          </ConversationCallout>
         </Box>
       )}
     </Box>

@@ -9,6 +9,11 @@ import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { useConversationSpinnerFrame } from "../../hooks/useConversationMotion.ts";
 import { STATUS_GLYPHS } from "../../ui-constants.ts";
+import { ChromeChip } from "../ChromeChip.tsx";
+import {
+  buildConversationSectionText,
+  getThinkingLabel,
+} from "./conversation-chrome.ts";
 
 interface ThinkingIndicatorProps {
   kind: "reasoning" | "planning";
@@ -39,31 +44,34 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
     lines.length - visibleBodyLines.length,
   );
   const body = visibleBodyLines.join("\n").trim();
-  const title = kind === "reasoning" ? "Thinking" : "Planning";
+  const title = getThinkingLabel(kind);
 
   return (
     <Box paddingLeft={1} flexDirection="column" marginBottom={1}>
       <Box>
-        <Text color={sc.status.warning}>{`${marker} `}</Text>
-        <Text color={sc.status.warning} bold>
-          {title}
-        </Text>
+        <ChromeChip
+          text={`${marker} ${title}`}
+          tone={isAnimating ? "warning" : "neutral"}
+        />
         {iteration > 1 && (
-          <Text color={sc.text.muted}>{` (${iteration})`}</Text>
+          <Text color={sc.text.muted}>{` pass ${iteration}`}</Text>
         )}
       </Box>
       {body && (
         <Box
-          paddingLeft={3}
+          paddingLeft={1}
           flexDirection="column"
         >
+          <Text color={sc.chrome.sectionLabel}>
+            {buildConversationSectionText("Summary", 18)}
+          </Text>
           <Text color={sc.text.secondary} italic wrap="wrap">
             {body}
           </Text>
         </Box>
       )}
       {expanded && hiddenBodyLineCount > 0 && (
-        <Box marginLeft={3}>
+        <Box marginLeft={1}>
           <Text color={sc.text.muted}>
             ... ({hiddenBodyLineCount} more lines)
           </Text>

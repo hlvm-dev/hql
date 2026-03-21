@@ -16,7 +16,11 @@ import { STATUS_GLYPHS } from "../../ui-constants.ts";
 import { createIncrementalSanitizer } from "../../utils/sanitize-ansi.ts";
 import { formatElapsed } from "../../utils/formatting.ts";
 import { useConversationSpinnerFrame } from "../../hooks/useConversationMotion.ts";
-import { buildSectionLabelText } from "../../utils/display-chrome.ts";
+import {
+  buildConversationSectionText,
+  buildWorkingIndicatorLayout,
+} from "./conversation-chrome.ts";
+import { ConversationCallout } from "./ConversationCallout.tsx";
 
 /** Shown while waiting for the first token from the model. */
 function WorkingIndicator({ width }: { width: number }): React.ReactElement {
@@ -28,13 +32,21 @@ function WorkingIndicator({ width }: { width: number }): React.ReactElement {
     const id = setInterval(() => setElapsed(Date.now() - startTime), 1000);
     return () => clearInterval(id);
   }, [startTime]);
+  const layout = buildWorkingIndicatorLayout(
+    Math.max(10, width - 6),
+    formatElapsed(elapsed),
+  );
   return (
-    <Box width={width} marginBottom={1} marginTop={0} paddingLeft={1}>
-      <Text color={sc.text.muted}>
-        {spinnerFrame ?? STATUS_GLYPHS.running}{" "}
-        Thinking... ({formatElapsed(elapsed)} · esc to interrupt)
-      </Text>
-    </Box>
+    <ConversationCallout
+      title={`${spinnerFrame ?? STATUS_GLYPHS.running} Thinking`}
+      tone="warning"
+    >
+      <Box marginTop={0}>
+        <Text color={sc.text.secondary}>{layout.leftText}</Text>
+        {layout.gapWidth > 0 && <Text>{" ".repeat(layout.gapWidth)}</Text>}
+        <Text color={sc.text.muted}>{layout.rightText}</Text>
+      </Box>
+    </ConversationCallout>
   );
 }
 
@@ -210,7 +222,10 @@ export const AssistantMessage = React.memo(function AssistantMessage(
         {!isPending && citationMemo.sources.length > 0 && (
           <Box flexDirection="column" marginTop={1}>
             <Text color={sc.chrome.sectionLabel}>
-              {buildSectionLabelText(citationMemo.sourcesLabel, contentWidth)}
+              {buildConversationSectionText(
+                citationMemo.sourcesLabel,
+                contentWidth,
+              )}
             </Text>
             {citationMemo.sources.map((source: CitationSourceView) => {
               const lead = `[${source.index}] ${source.title}`;

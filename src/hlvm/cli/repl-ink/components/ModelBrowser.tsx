@@ -14,7 +14,7 @@ import React, {
   useState,
 } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
-import { useTheme } from "../../theme/index.ts";
+import { useSemanticColors, useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { formatBytes } from "../../../../common/limits.ts";
 import {
@@ -33,7 +33,10 @@ import { getPlatform } from "../../../../platform/platform.ts";
 import { getErrorMessage, truncate } from "../../../../common/utils.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { isSelectedModelActive } from "../../../../common/config/model-selection.ts";
-import { capabilitiesToDisplayTags, type ModelInfo } from "../../../providers/types.ts";
+import {
+  capabilitiesToDisplayTags,
+  type ModelInfo,
+} from "../../../providers/types.ts";
 import { isOllamaCloudModel } from "../../../providers/ollama/cloud.ts";
 import {
   findProviderMetaKey,
@@ -59,10 +62,16 @@ import {
 import {
   getModelStatusLabel,
   getStatusIndicator,
-  MODEL_BROWSER_FOCUSED_LABEL,
   MODEL_BROWSER_SELECT_ACTION_LABEL,
   type ModelStatusKind,
 } from "./model-browser-status.ts";
+import { ChromeChip } from "./ChromeChip.tsx";
+import { buildSectionLabelText } from "../utils/display-chrome.ts";
+import {
+  buildModelBrowserFocusLayout,
+  buildModelBrowserScopeText,
+  buildModelBrowserViewLayout,
+} from "./model-browser-chrome.ts";
 
 const platform = getPlatform();
 const openUrl = (url: string) => platform.openUrl(url);
@@ -588,6 +597,7 @@ export function ModelBrowser({
   endpoint = DEFAULT_OLLAMA_ENDPOINT,
 }: ModelBrowserProps): React.ReactElement {
   const { color } = useTheme();
+  const sc = useSemanticColors();
   const { stdout } = useStdout();
   const { tasks, cancel } = useTaskManager();
   const manager = useMemo(() => getTaskManager(endpoint), [endpoint]);
@@ -1246,6 +1256,11 @@ export function ModelBrowser({
     Math.max(0, contentWidth - 2),
     "…",
   );
+  const scopeText = buildModelBrowserScopeText(
+    selectionScopeTitle,
+    currentModel,
+    defaultModelWidth,
+  );
   const hasDiscoveryResults = remoteModels.length > 0 || cloudModels.length > 0;
   const emptyStateMessage = discoveryRefreshFailed && !hasDiscoveryResults
     ? "Model catalog unavailable. Retry in a moment."
@@ -1253,6 +1268,38 @@ export function ModelBrowser({
   const modelCountLabel = normalizedSearchQuery
     ? `${displayModels.length}/${viewModels.length}`
     : `${displayModels.length}`;
+  const viewLayout = buildModelBrowserViewLayout(
+    contentWidth,
+    FILTER_LABELS[activeFilterMode],
+    modelCountLabel,
+    nextFilter,
+  );
+  const selectedStatusKind = selectedModel
+    ? getModelStatusKind(
+      selectedModel,
+      isSelectedModelActive(selectedModel.name, currentModel),
+      pendingDelete === selectedModel.name,
+    )
+    : undefined;
+  const selectedStatusLabel = selectedStatusKind
+    ? getModelStatusLabel(selectedStatusKind)
+    : undefined;
+  const focusLayout = buildModelBrowserFocusLayout(
+    contentWidth,
+    selectedModel?.name,
+    selectedStatusLabel,
+  );
+  const selectedStatusColor = selectedStatusKind === "pending-delete" ||
+      selectedStatusKind === "cancelled" || selectedStatusKind === "failed" ||
+      selectedStatusKind === "needs-key"
+    ? color("error")
+    : selectedStatusKind === "active" || selectedStatusKind === "installed"
+    ? color("success")
+    : selectedStatusKind === "downloading"
+    ? color("warning")
+    : selectedStatusKind === "cloud"
+    ? color("accent")
+    : color("muted");
 
   return (
     <Box
@@ -1264,31 +1311,25 @@ export function ModelBrowser({
       alignSelf="center"
     >
       <Box justifyContent="space-between">
-        <Text bold color={color("primary")} wrap="truncate-end">
-          Models: {FILTER_LABELS[activeFilterMode]} ({modelCountLabel})
-        </Text>
+        <ChromeChip text="Model catalog" tone="active" />
         <Text dimColor wrap="truncate-end">
-          {currentModel
-            ? `${selectionScopeTitle}: ${
-              truncate(currentModel, defaultModelWidth, "…")
-            }`
-            : `${selectionScopeTitle}: none`}
+          {scopeText}
         </Text>
       </Box>
-      <Box justifyContent="space-between">
-        <Box flexGrow={1}>
-          <Text wrap="truncate-end">
-            <Text dimColor>View:</Text>{" "}
-            <Text color={color("accent")} bold>
-              {FILTER_LABELS[activeFilterMode]}
-            </Text>
-            <Text dimColor>{" · Tab cycles views"}</Text>
-          </Text>
-        </Box>
-        <Text dimColor>Ctrl+B: Tasks</Text>
+      <Box>
+        <Text color={sc.text.primary}>{viewLayout.leftText}</Text>
+        {viewLayout.gapWidth > 0 && (
+          <Text>{" ".repeat(viewLayout.gapWidth)}</Text>
+        )}
+        <Text color={sc.text.muted}>{viewLayout.rightText}</Text>
       </Box>
 
       <Box marginTop={1}>
+        <Text color={sc.chrome.sectionLabel}>
+          {buildSectionLabelText("Search", contentWidth)}
+        </Text>
+      </Box>
+      <Box marginTop={0}>
         <ListSearchField
           query={searchQuery}
           cursor={searchCursor}
@@ -1297,37 +1338,21 @@ export function ModelBrowser({
         />
       </Box>
       <Box marginTop={1}>
-        <Text wrap="truncate-end">
-          <Text dimColor>{MODEL_BROWSER_FOCUSED_LABEL}:</Text> {selectedModel
-            ? (
-              (() => {
-                const isActive = isSelectedModelActive(
-                  selectedModel.name,
-                  currentModel,
-                );
-                const isPending = pendingDelete === selectedModel.name;
-                const status = getModelStatusLabel(
-                  getModelStatusKind(selectedModel, isActive, isPending),
-                );
-                return (
-                  <>
-                    <Text bold>
-                      {truncate(
-                        selectedModel.name,
-                        Math.max(0, contentWidth - status.length - 13),
-                        "…",
-                      )}
-                    </Text>{" "}
-                    <Text dimColor>[{status}]</Text>
-                  </>
-                );
-              })()
-            )
-            : <Text dimColor>None</Text>}
+        <Text color={sc.chrome.sectionLabel}>
+          {buildSectionLabelText("Focused model", contentWidth)}
         </Text>
       </Box>
+      <Box marginTop={0}>
+        <Text color={selectedModel ? sc.text.primary : sc.text.muted} bold>
+          {focusLayout.leftText}
+        </Text>
+        {focusLayout.gapWidth > 0 && (
+          <Text>{" ".repeat(focusLayout.gapWidth)}</Text>
+        )}
+        <Text color={selectedStatusColor}>{focusLayout.rightText}</Text>
+      </Box>
       {selectedMetadata && (
-        <Box paddingLeft={2}>
+        <Box paddingLeft={1}>
           <HighlightedText
             text={selectedMetadataDisplay}
             matchIndices={getSubstringMatchIndices(
@@ -1341,20 +1366,26 @@ export function ModelBrowser({
         </Box>
       )}
 
+      <Box marginTop={1}>
+        <Text color={sc.chrome.sectionLabel}>
+          {buildSectionLabelText("Catalog", contentWidth)}
+        </Text>
+      </Box>
+
       {/* Loading */}
       {loading && (
-        <Box marginTop={1}>
+        <Box marginTop={0}>
           <Text dimColor>Loading installed models...</Text>
         </Box>
       )}
       {!loading && discoveryLoading && (
-        <Box marginTop={1}>
+        <Box marginTop={0}>
           <Text dimColor>Loading model catalog...</Text>
         </Box>
       )}
       {!loading && !discoveryLoading && discoveryRefreshing &&
         !hasDiscoveryResults && (
-        <Box marginTop={1}>
+        <Box marginTop={0}>
           <Text dimColor>Refreshing model catalog...</Text>
         </Box>
       )}
@@ -1362,7 +1393,7 @@ export function ModelBrowser({
       {/* Model list */}
       {!loading && !discoveryLoading && !discoveryRefreshing &&
         displayModels.length === 0 && (
-        <Box marginTop={1}>
+        <Box marginTop={0}>
           <Text dimColor wrap="truncate-end">
             {emptyStateMessage}
           </Text>
@@ -1399,7 +1430,9 @@ export function ModelBrowser({
       )}
 
       <Box marginTop={1} flexDirection="column">
-        <Text dimColor>{`${"─".repeat(Math.max(0, contentWidth))}`}</Text>
+        <Text color={sc.chrome.sectionLabel}>
+          {buildSectionLabelText("Actions", contentWidth)}
+        </Text>
         {pendingDelete
           ? (
             <Box
@@ -1427,7 +1460,8 @@ export function ModelBrowser({
                 {MODEL_BROWSER_SELECT_ACTION_LABEL} · Esc back
               </Text>
               <Text dimColor wrap="truncate-end">
-                Type to filter · Ctrl+O info · Ctrl+D delete · Ctrl+X cancel
+                Type to filter · Ctrl+O info · Ctrl+D delete · Ctrl+X cancel ·
+                Ctrl+B tasks
               </Text>
             </>
           )}

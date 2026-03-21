@@ -974,7 +974,6 @@ export async function runAgentQuery(
           delegateOwnerId,
           ensureMcpLoaded: session.ensureMcpLoaded,
           providerExecutionPlan: session.providerExecutionPlan,
-          webCapabilityPlan: session.webCapabilityPlan,
         },
         session.llm,
         options.attachments,

@@ -3,6 +3,8 @@ import { THEMES } from "../../../src/hlvm/cli/theme/index.ts";
 import { buildSemanticColors } from "../../../src/hlvm/cli/theme/semantic.ts";
 import {
   fitShellFooterSegments,
+  getHistorySearchHintText,
+  getHistorySearchMatchLabel,
   getShellPromptPrefixWidth,
   getShellPromptSlotWidth,
   padShellPromptLabel,
@@ -45,5 +47,24 @@ Deno.test("fitShellFooterSegments truncates trailing hint text before dropping c
   assertEquals(
     fitted.map((segment) => segment.text),
     ["Plan mode", "+2 queued", "Tab q…"],
+  );
+});
+
+Deno.test("history search shell helpers summarize match state without punctuation noise", () => {
+  assertEquals(getHistorySearchMatchLabel("", 0, 0), "type to search");
+  assertEquals(getHistorySearchMatchLabel("plan", 0, 0), "no match");
+  assertEquals(getHistorySearchMatchLabel("plan", 1, 0), "1 match");
+  assertEquals(getHistorySearchMatchLabel("plan", 4, 1), "2/4 matches");
+});
+
+Deno.test("history search shell helpers keep hint text compact", () => {
+  assertEquals(getHistorySearchHintText("", 0), "Type to search · Esc cancel");
+  assertEquals(
+    getHistorySearchHintText("plan", 1),
+    "Enter select · Esc cancel",
+  );
+  assertEquals(
+    getHistorySearchHintText("plan", 3),
+    "Ctrl+R next · Ctrl+S prev · Enter select · Esc cancel",
   );
 });

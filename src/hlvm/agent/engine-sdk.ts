@@ -26,7 +26,9 @@ import type { LLMResponse, ToolCall } from "./tool-call.ts";
 import { buildToolDefinitions } from "./llm-integration.ts";
 import {
   getActiveProviderExecutionToolNames,
-  getProviderExecutedToolNames,
+  getProviderExecutedToolNameSet,
+  getResolvedProviderExecutionPlan,
+  getResolvedWebCapabilityPlan,
   isWebCapabilityToolName,
   NATIVE_WEB_SEARCH_TOOL_NAME,
   normalizeWebCapabilitySelectors,
@@ -141,8 +143,9 @@ export function mergeSdkWebCapabilityTools(
   const merged = { ...customTools };
   if (!plan) return merged;
 
-  const providerExecutionPlan = "web" in plan ? plan : undefined;
-  const webPlan = "web" in plan ? plan.web : plan;
+  const providerExecutionPlan = getResolvedProviderExecutionPlan(plan);
+  const webPlan = getResolvedWebCapabilityPlan(plan);
+  if (!webPlan) return merged;
 
   for (const capability of Object.values(webPlan.capabilities)) {
     if (capability.implementation === "disabled") {
@@ -208,7 +211,7 @@ export function filterLocallyExecutableToolCalls(
   plan?: ResolvedProviderExecutionPlan,
 ): ToolCall[] {
   const providerExecutedToolNames = plan
-    ? new Set(getProviderExecutedToolNames(plan))
+    ? getProviderExecutedToolNameSet(plan)
     : new Set<string>([NATIVE_WEB_SEARCH_TOOL_NAME]);
   return calls.filter((call) => !providerExecutedToolNames.has(call.toolName));
 }

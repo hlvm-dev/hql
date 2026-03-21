@@ -5,8 +5,8 @@ import { listDelegateTranscriptLines } from "../../../../agent/delegate-transcri
 import { useSemanticColors } from "../../../theme/index.ts";
 import type { DelegateItem as DelegateItemData } from "../../types.ts";
 import { ChromeChip } from "../ChromeChip.tsx";
-import { buildSectionLabelText } from "../../utils/display-chrome.ts";
 import {
+  buildConversationSectionText,
   buildDelegateHeaderText,
   getDelegateStatusGlyph,
   getDelegateStatusTone,
@@ -95,7 +95,7 @@ export const DelegateItem = React.memo(function DelegateItem(
               <ChromeChip text={` ${icon} transcript `} tone={tone} />
             </Box>
             <Text color={sc.chrome.sectionLabel}>
-              {buildSectionLabelText("Events", Math.max(10, width - 8))}
+              {buildConversationSectionText("Events", Math.max(10, width - 8))}
             </Text>
             {listDelegateTranscriptLines(item.snapshot).map((line, index) => (
               <React.Fragment key={`${item.id}-event-${index}`}>

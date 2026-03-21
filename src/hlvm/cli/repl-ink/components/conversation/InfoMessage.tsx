@@ -8,7 +8,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { STATUS_GLYPHS } from "../../ui-constants.ts";
-import { ChromeChip } from "../ChromeChip.tsx";
+import { ConversationCallout } from "./ConversationCallout.tsx";
 
 interface InfoMessageProps {
   text: string;
@@ -19,22 +19,14 @@ export const InfoMessage = React.memo(
     const sc = useSemanticColors();
 
     return (
-      <Box
-        marginBottom={1}
-        borderStyle="round"
-        borderLeft
-        borderRight={false}
-        borderTop={false}
-        borderBottom={false}
-        borderColor={sc.border.dim}
-        paddingLeft={1}
-        flexDirection="column"
+      <ConversationCallout
+        title={`${STATUS_GLYPHS.info} Info`}
+        tone="neutral"
       >
-        <Box>
-          <ChromeChip text={`${STATUS_GLYPHS.info} Info`} tone="neutral" />
+        <Box marginTop={0}>
+          <Text color={sc.text.muted} wrap="wrap">{text}</Text>
         </Box>
-        <Text color={sc.text.muted} wrap="wrap">{text}</Text>
-      </Box>
+      </ConversationCallout>
     );
   },
 );

@@ -19,7 +19,7 @@ import {
 } from "./InteractionPicker.tsx";
 import type { InteractionResponse } from "../../../../agent/registry.ts";
 import { ChromeChip } from "../ChromeChip.tsx";
-import { buildSectionLabelText } from "../../utils/display-chrome.ts";
+import { buildConversationSectionText } from "./conversation-chrome.ts";
 
 interface ConfirmationDialogProps {
   requestId?: string;
@@ -88,7 +88,7 @@ export const ConfirmationDialog = React.memo(
                 {dialog.planReview.plan.goal}
               </Text>
               <Text color={sc.chrome.sectionLabel}>
-                {buildSectionLabelText("Steps", 24)}
+                {buildConversationSectionText("Steps")}
               </Text>
               <Box paddingLeft={1} flexDirection="column">
                 {dialog.planReview.visibleSteps.map((step) => (
@@ -108,7 +108,7 @@ export const ConfirmationDialog = React.memo(
               {dialog.planReview.verificationLines.length > 0 && (
                 <>
                   <Text color={sc.chrome.sectionLabel}>
-                    {buildSectionLabelText("Verification", 24)}
+                    {buildConversationSectionText("Verification")}
                   </Text>
                   <Box paddingLeft={1} flexDirection="column">
                     {dialog.planReview.verificationLines.map((line) => (
@@ -158,7 +158,7 @@ export const ConfirmationDialog = React.memo(
               {dialog.planReview.plan.goal}
             </Text>
             <Text color={sc.chrome.sectionLabel}>
-              {buildSectionLabelText("Steps", 24)}
+              {buildConversationSectionText("Steps")}
             </Text>
             <Box paddingLeft={1} flexDirection="column">
               {dialog.planReview.visibleSteps.map((step) => (
@@ -178,7 +178,7 @@ export const ConfirmationDialog = React.memo(
             {dialog.planReview.verificationLines.length > 0 && (
               <>
                 <Text color={sc.chrome.sectionLabel}>
-                  {buildSectionLabelText("Verification", 24)}
+                  {buildConversationSectionText("Verification")}
                 </Text>
                 <Box paddingLeft={1} flexDirection="column">
                   {dialog.planReview.verificationLines.map((line) => (
@@ -196,7 +196,7 @@ export const ConfirmationDialog = React.memo(
         {!dialog.planReview && visibleArgLines.length > 0 && (
           <Box flexDirection="column" marginTop={0}>
             <Text color={sc.chrome.sectionLabel}>
-              {buildSectionLabelText(isPlanReview ? "Plan" : "Args", 24)}
+              {buildConversationSectionText(isPlanReview ? "Plan" : "Args")}
             </Text>
             <Box paddingLeft={1} flexDirection="column">
               {visibleArgLines.map((line: string, i: number) => (

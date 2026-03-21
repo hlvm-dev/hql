@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { ChromeChip } from "../ChromeChip.tsx";
-import { buildSectionLabelText } from "../../utils/display-chrome.ts";
+import { buildConversationSectionText } from "./conversation-chrome.ts";
 
 export interface InteractionPickerOption {
   label: string;
@@ -170,7 +170,7 @@ export const InteractionPicker = React.memo(function InteractionPicker(
       )}
       <Box marginTop={1} flexDirection="column">
         <Text color={sc.chrome.sectionLabel}>
-          {buildSectionLabelText("Choices", 24)}
+          {buildConversationSectionText("Choices")}
         </Text>
         {options.map((option, index) => {
           const isSelected = index === selectedIndex;
@@ -210,7 +210,7 @@ export const InteractionPicker = React.memo(function InteractionPicker(
       {allowNotes && (notesMode || notes.length > 0) && (
         <Box marginBottom={1} flexDirection="column">
           <Text color={sc.chrome.sectionLabel}>
-            {buildSectionLabelText("Notes", 24)}
+            {buildConversationSectionText("Notes")}
           </Text>
           <Text color={notesMode ? sc.text.primary : sc.text.muted}>
             {notes.length > 0
