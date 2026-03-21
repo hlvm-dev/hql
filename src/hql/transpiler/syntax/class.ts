@@ -26,6 +26,10 @@ import {
 } from "./function.ts";
 import { createBlock, createExprStmt, createId, createReturn, createStr } from "../utils/ir-helpers.ts";
 import { hasArrayLiteralPrefix } from "../../../common/sexp-utils.ts";
+import {
+  type BindingResolutionContext,
+  withLexicalScope,
+} from "../utils/binding-resolution.ts";
 
 interface MemberExpressionOptions {
   guard?: boolean;
@@ -86,6 +90,7 @@ export function transformClass(
   list: ListNode,
   currentDir: string,
   transformNode: TransformNodeFn,
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   try {
     // Validate class syntax
@@ -204,6 +209,7 @@ export function transformClass(
           elementList,
           currentDir,
           transformNode,
+          bindingContext,
         );
         if (method) {
           methods.push(method);
@@ -259,6 +265,7 @@ export function transformClass(
             methodList,
             currentDir,
             transformNode,
+            bindingContext,
           );
           if (method) {
             method.isStatic = true;
@@ -279,6 +286,7 @@ export function transformClass(
           "get",
           currentDir,
           transformNode,
+          bindingContext,
         );
         if (getter) {
           methods.push(getter);
@@ -290,6 +298,7 @@ export function transformClass(
           "set",
           currentDir,
           transformNode,
+          bindingContext,
         );
         if (setter) {
           methods.push(setter);
@@ -511,6 +520,7 @@ function parseClassMethodParameters(
   paramsNode: ListNode,
   currentDir: string,
   transformNode: TransformNodeFn,
+  bindingContext: BindingResolutionContext,
 ): {
   params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[];
   defaults: Map<string, IR.IRNode>;
@@ -524,6 +534,7 @@ function parseClassMethodParameters(
       paramsList,
       currentDir,
       transformNode,
+      bindingContext,
     );
     return { params, defaults, hasJsonParams: true };
   }
@@ -540,6 +551,7 @@ function parseClassMethodParameters(
     paramsList,
     currentDir,
     transformNode,
+    bindingContext,
   );
   return { params: parsed.params, defaults: parsed.defaults, hasJsonParams: false };
 }
@@ -622,6 +634,7 @@ function processClassMethodFn(
   elementList: ListNode,
   currentDir: string,
   transformNode: TransformNodeFn,
+  bindingContext: BindingResolutionContext,
 ): IR.IRClassMethod | null {
   try {
     if (elementList.elements.length < 4) {
@@ -654,44 +667,45 @@ function processClassMethodFn(
       );
     }
 
-    const { params, defaults, hasJsonParams } = parseClassMethodParameters(
-      paramsNode as ListNode,
-      currentDir,
-      transformNode,
-    );
+    return withLexicalScope(bindingContext, () => {
+      const { params, defaults, hasJsonParams } = parseClassMethodParameters(
+        paramsNode as ListNode,
+        currentDir,
+        transformNode,
+        bindingContext,
+      );
 
-    const { bodyElements } = extractMethodBodyElements(elementList, 3);
+      const { bodyElements } = extractMethodBodyElements(elementList, 3);
 
-    const bodyNodes = transformNonNullElements(
-      bodyElements,
-      currentDir,
-      transformNode,
-    );
+      const bodyNodes = transformNonNullElements(
+        bodyElements,
+        currentDir,
+        transformNode,
+      );
 
-    // Methods need implicit return: last expression should be wrapped in return
-    const bodyStmts = bodyNodes.map((node, i) => {
-      const isLast = i === bodyNodes.length - 1;
-      // If it's the last statement and not already a return, wrap it
-      if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
-        return createReturn(node);
+      const bodyStmts = bodyNodes.map((node, i) => {
+        const isLast = i === bodyNodes.length - 1;
+        if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
+          return createReturn(node);
+        }
+        return node;
+      });
+
+      const method: IR.IRClassMethod = {
+        type: IR.IRNodeType.ClassMethod,
+        name: methodName,
+        params,
+        body: createBlock(bodyStmts),
+        hasJsonParams,
+      };
+
+      const defaultEntries = buildMethodDefaults(params, defaults);
+      if (defaultEntries) {
+        method.defaults = defaultEntries;
       }
-      return node;
+
+      return method;
     });
-
-    const method: IR.IRClassMethod = {
-      type: IR.IRNodeType.ClassMethod,
-      name: methodName,
-      params,
-      body: createBlock(bodyStmts),
-      hasJsonParams,
-    };
-
-    const defaultEntries = buildMethodDefaults(params, defaults);
-    if (defaultEntries) {
-      method.defaults = defaultEntries;
-    }
-
-    return method;
   } catch (error) {
     logger.error(
       `Error processing class method (fn): ${
@@ -812,6 +826,7 @@ function processClassAccessor(
   kind: "get" | "set",
   currentDir: string,
   transformNode: TransformNodeFn,
+  bindingContext: BindingResolutionContext,
 ): IR.IRClassMethod | null {
   try {
     // Both getter and setter: (get/set name [params] body) - minimum 4 elements
@@ -846,11 +861,13 @@ function processClassAccessor(
       );
     }
 
-    const { params } = parseClassMethodParameters(
-      paramsNode as ListNode,
-      currentDir,
-      transformNode,
-    );
+    const { params } = withLexicalScope(bindingContext, () =>
+      parseClassMethodParameters(
+        paramsNode as ListNode,
+        currentDir,
+        transformNode,
+        bindingContext,
+      ));
 
     // Validate parameter count
     if (kind === "get" && params.length > 0) {

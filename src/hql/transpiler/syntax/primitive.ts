@@ -30,6 +30,7 @@ import {
   createNum,
 } from "../utils/ir-helpers.ts";
 import {
+  type BindingResolutionContext,
   identifierFromBindingCarrier,
   resolveSymbolIdentifier,
 } from "../utils/binding-resolution.ts";
@@ -80,10 +81,11 @@ function chainBinaryExprs(op: string, args: IR.IRNode[]): IR.IRNode {
 function buildDotNotationMember(
   parts: string[],
   mapSelfToThis: boolean,
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   const base = mapSelfToThis && parts[0] === "self"
     ? createId("this")
-    : resolveSymbolIdentifier({
+    : resolveSymbolIdentifier(bindingContext, {
       type: "symbol",
       name: parts[0],
     } as SymbolNode);
@@ -107,6 +109,7 @@ function resolveAssignmentTarget(
   operator: string,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
   options: AssignmentTargetOptions = {},
 ): IR.IRNode {
   if (targetNode.type === "symbol") {
@@ -116,10 +119,14 @@ function resolveAssignmentTarget(
       return buildDotNotationMember(
         symbolName.split("."),
         options.mapSelfToThis === true,
+        bindingContext,
       );
     }
 
-    return identifierFromBindingCarrier(targetNode as SymbolNode);
+    return identifierFromBindingCarrier(
+      bindingContext,
+      targetNode as SymbolNode,
+    );
   }
 
   if (targetNode.type === "list") {
@@ -166,6 +173,7 @@ export function transformPrimitiveOp(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   const op = (list.elements[0] as SymbolNode).name;
 
@@ -173,7 +181,7 @@ export function transformPrimitiveOp(
   // - Assignment: (= x 10) where x is a symbol or member expression
   // - Equality: (= 1 1) or (= (+ 1 2) 3) where first arg is a literal/expression
   if (op === "=") {
-    return transformEqualsOperator(list, currentDir, transformNode);
+    return transformEqualsOperator(list, currentDir, transformNode, bindingContext);
   }
 
   // Handle all assignment operators (logical: ??=, &&=, ||= and compound: +=, -=, etc.)
@@ -181,7 +189,13 @@ export function transformPrimitiveOp(
     op === "??=" || op === "&&=" || op === "||=" ||
     COMPOUND_ASSIGN_OPS_SET.has(op)
   ) {
-    return transformCompoundAssignment(list, currentDir, transformNode, op);
+    return transformCompoundAssignment(
+      list,
+      currentDir,
+      transformNode,
+      bindingContext,
+      op,
+    );
   }
 
   const args = transformElements(
@@ -361,6 +375,7 @@ function transformEqualsOperator(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   if (list.elements.length < 3) {
     throw arityError("=", "at least 2", list.elements.length - 1);
@@ -404,7 +419,7 @@ function transformEqualsOperator(
     }
 
     // All other symbols (including dot notation like obj.prop) - ASSIGNMENT
-    return transformAssignment(list, currentDir, transformNode);
+    return transformAssignment(list, currentDir, transformNode, bindingContext);
   }
 
   // List as first arg - could be member expression or expression
@@ -417,7 +432,7 @@ function transformEqualsOperator(
       innerList.elements[0].type === "symbol" &&
       (innerList.elements[0] as SymbolNode).name === "."
     ) {
-      return transformAssignment(list, currentDir, transformNode);
+      return transformAssignment(list, currentDir, transformNode, bindingContext);
     }
 
     // Other expressions - ERROR (can't assign to expression result)
@@ -447,6 +462,7 @@ function transformAssignment(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   validateListLength(list, 3, "=", "assignment expression");
 
@@ -458,6 +474,7 @@ function transformAssignment(
     "=",
     currentDir,
     transformNode,
+    bindingContext,
     { mapSelfToThis: true },
   );
 
@@ -502,6 +519,7 @@ function transformCompoundAssignment(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
   operator: string,
 ): IR.IRNode {
   validateListLength(list, 3, operator, "compound assignment expression");
@@ -514,6 +532,7 @@ function transformCompoundAssignment(
     operator,
     currentDir,
     transformNode,
+    bindingContext,
     { requireMemberExpr: true },
   );
 

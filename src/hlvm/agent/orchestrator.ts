@@ -79,6 +79,10 @@ import { recordBudgetUsage } from "./delegate-token-budget.ts";
 import { resolveThinkingProfile } from "./thinking-profile.ts";
 import type { AgentHookRuntime } from "./hooks.ts";
 import type { LspDiagnosticsRuntime } from "./lsp-diagnostics.ts";
+import type {
+  ResolvedProviderExecutionPlan,
+  ResolvedWebCapabilityPlan,
+} from "./tool-capabilities.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -488,6 +492,8 @@ export interface OrchestratorConfig {
   /** Lead member ID for the current team runtime. */
   teamLeadMemberId?: string;
   delegateTokenBudget?: DelegateTokenBudget;
+  providerExecutionPlan?: ResolvedProviderExecutionPlan;
+  webCapabilityPlan?: ResolvedWebCapabilityPlan;
 }
 
 function memoryWriteAvailable(config: OrchestratorConfig): boolean {
@@ -576,9 +582,19 @@ function requestImpliesDelegation(query: string): boolean {
 
 // Pre-defined tool name sets for O(1) phase classification
 const WRITE_TOOLS = new Set(["write_file", "edit_file"]);
-const COMPLETE_TOOLS = new Set(["shell_exec", "shell_script", "git_diff", "git_status"]);
+const COMPLETE_TOOLS = new Set([
+  "shell_exec",
+  "shell_script",
+  "git_diff",
+  "git_status",
+]);
 const DELEGATE_TOOLS = new Set(["delegate_agent", "batch_delegate"]);
-const READ_TOOLS = new Set(["read_file", "search_code", "list_files", "tool_search"]);
+const READ_TOOLS = new Set([
+  "read_file",
+  "search_code",
+  "list_files",
+  "tool_search",
+]);
 
 function deriveRuntimePhase(
   state: LoopState,
@@ -593,8 +609,9 @@ function deriveRuntimePhase(
   for (const name of state.lastToolNames) {
     if (WRITE_TOOLS.has(name)) hasWrite = true;
     else if (COMPLETE_TOOLS.has(name)) hasComplete = true;
-    else if (DELEGATE_TOOLS.has(name) || name.startsWith("team_")) hasDelegate = true;
-    else if (READ_TOOLS.has(name)) hasRead = true;
+    else if (DELEGATE_TOOLS.has(name) || name.startsWith("team_")) {
+      hasDelegate = true;
+    } else if (READ_TOOLS.has(name)) hasRead = true;
   }
 
   if (config.planModeState?.phase === "executing" || state.planState) {
@@ -663,9 +680,7 @@ export function applyAdaptiveToolPhase(
     .filter(([, meta]) => !meta.category || categories.has(meta.category))
     .map(([name]) => name);
   const phaseAllowlist = uniqueToolList([
-    ...ALWAYS_AVAILABLE_RUNTIME_TOOLS.filter((name) =>
-      name in availableTools
-    ),
+    ...ALWAYS_AVAILABLE_RUNTIME_TOOLS.filter((name) => name in availableTools),
     ...scoped,
   ]);
   const nextAllowlist = intersectToolLists(
@@ -704,13 +719,6 @@ export function applyAdaptiveToolPhase(
 // ============================================================
 // Mid-Conversation Reminders
 // ============================================================
-
-/** @internal Exported for unit testing */
-export const WEB_TOOL_NAMES = new Set([
-  "web_fetch",
-  "search_web",
-  "fetch_url",
-]);
 
 const MEMORY_RECALL_RESULT_LIMIT = 3;
 const MEMORY_RECALL_MAX_QUERY_CHARS = 400;
@@ -974,7 +982,11 @@ export async function runReActLoop(
   const autoMemoryRecall = config.autoMemoryRecall ?? false;
   resetWebToolBudget();
 
-  addContextMessage(config, { role: "user", content: userRequest, attachments });
+  addContextMessage(config, {
+    role: "user",
+    content: userRequest,
+    attachments,
+  });
   if (isPlanExecutionMode(config.permissionMode)) {
     const reminder = config.planModeState?.planningAllowlist?.length
       ? buildPlanModeReminder(

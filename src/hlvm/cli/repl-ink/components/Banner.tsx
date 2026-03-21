@@ -6,8 +6,8 @@
 import React from "react";
 import { Box, Text, useStdout } from "ink";
 import { version as VERSION } from "../../../../../mod.ts";
-import { useTheme } from "../../theme/index.ts";
-import type { ThemePalette } from "../../theme/index.ts";
+import { useSemanticColors, useTheme } from "../../theme/index.ts";
+import type { SemanticColors } from "../../theme/index.ts";
 import type { ConfiguredModelReadinessState } from "../../../runtime/configured-model-readiness.ts";
 import { truncate } from "../../../../common/utils.ts";
 import {
@@ -16,12 +16,11 @@ import {
 } from "../ui-constants.ts";
 
 const LOGO_LINES = [
-  "██╗  ██╗ ██╗      ██╗   ██╗ ███╗   ███╗",
-  "██║  ██║ ██║      ██║   ██║ ████╗ ████║",
-  "███████║ ██║      ██║   ██║ ██╔████╔██║",
-  "██╔══██║ ██║      ╚██╗ ██╔╝ ██║╚██╔╝██║",
-  "██║  ██║ ███████╗  ╚████╔╝  ██║ ╚═╝ ██║",
-  "╚═╝  ╚═╝ ╚══════╝   ╚═══╝   ╚═╝     ╚═╝",
+  "██  ██ ██      ██    ██ ██    ██",
+  "██  ██ ██      ██    ██ ███  ███",
+  "██████ ██      ██    ██ ██ ██ ██",
+  "██  ██ ██       ██  ██  ██    ██",
+  "██  ██ ███████   ████   ██    ██",
 ] as const;
 
 const SYMBOLS = {
@@ -40,7 +39,7 @@ interface BannerProps {
 
 interface BannerAiIndicator {
   label: string;
-  tone: "success" | "warning" | "error";
+  tone: keyof SemanticColors["banner"]["status"];
 }
 
 function clampChannel(value: number): number {
@@ -57,9 +56,11 @@ function hexToRgb(hex: string): [number, number, number] {
 }
 
 function rgbToHex([r, g, b]: [number, number, number]): string {
-  return `#${[r, g, b].map((channel) =>
-    clampChannel(channel).toString(16).padStart(2, "0")
-  ).join("")}`;
+  return `#${
+    [r, g, b].map((channel) =>
+      clampChannel(channel).toString(16).padStart(2, "0")
+    ).join("")
+  }`;
 }
 
 export function interpolateHexColor(
@@ -80,23 +81,33 @@ export function interpolateHexColor(
 
 export function getBannerLogoColors(
   themeName: string,
-  theme: Pick<ThemePalette, "primary" | "accent" | "success">,
+  banner: Pick<
+    SemanticColors["banner"],
+    "logoStart" | "logoMiddle" | "logoEnd"
+  >,
   compact: boolean,
 ): readonly string[] {
-  const cacheKey = `${themeName}:${compact}:${theme.primary}:${theme.accent}:${theme.success}`;
+  const cacheKey =
+    `${themeName}:${compact}:${banner.logoStart}:${banner.logoMiddle}:${banner.logoEnd}`;
   const cached = bannerRampCache.get(cacheKey);
   if (cached) return cached;
 
-  const colors = compact
-    ? [theme.primary]
-    : LOGO_LINES.map((_, index) => {
-      const position = LOGO_LINES.length <= 1
-        ? 0
-        : index / (LOGO_LINES.length - 1);
-      return position <= 0.5
-        ? interpolateHexColor(theme.primary, theme.accent, position * 2)
-        : interpolateHexColor(theme.accent, theme.success, (position - 0.5) * 2);
-    });
+  const colors = compact ? [banner.logoStart] : LOGO_LINES.map((_, index) => {
+    const position = LOGO_LINES.length <= 1
+      ? 0
+      : index / (LOGO_LINES.length - 1);
+    return position <= 0.5
+      ? interpolateHexColor(
+        banner.logoStart,
+        banner.logoMiddle,
+        position * 2,
+      )
+      : interpolateHexColor(
+        banner.logoMiddle,
+        banner.logoEnd,
+        (position - 0.5) * 2,
+      );
+  });
 
   bannerRampCache.set(cacheKey, colors);
   return colors;
@@ -132,9 +143,9 @@ export function resolveBannerAiIndicator(
 
   switch (aiReadiness) {
     case "available":
-      return { label: "AI available", tone: "success" };
+      return { label: "AI available", tone: "ready" };
     case "setup_required":
-      return { label: "AI setup required", tone: "warning" };
+      return { label: "AI setup required", tone: "attention" };
     default:
       return { label: "AI unavailable", tone: "error" };
   }
@@ -144,7 +155,8 @@ export function Banner(
   { aiExports, aiReadiness, errors, modelName }: BannerProps,
 ): React.ReactElement {
   const { stdout } = useStdout();
-  const { color, theme, themeName } = useTheme();
+  const { color, themeName } = useTheme();
+  const sc = useSemanticColors();
   const model = modelName?.trim() ?? "";
   const indicator = resolveBannerAiIndicator(aiExports.length > 0, aiReadiness);
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
@@ -153,7 +165,7 @@ export function Banner(
   const showSpacer = !compact && terminalHeight >= 18;
   const contentWidth = Math.max(20, terminalWidth - 2);
   const statusLabel = model ? `${indicator.label} · ${model}` : indicator.label;
-  const logoColors = getBannerLogoColors(themeName, theme, compact);
+  const logoColors = getBannerLogoColors(themeName, sc.banner, compact);
 
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -167,7 +179,7 @@ export function Banner(
         ))}
       </Box>
 
-      <Text color={color("secondary")} bold>
+      <Text color={sc.banner.meta} bold>
         {truncate(
           `HLVM ${VERSION} • AI-native runtime infrastructure`,
           contentWidth,
@@ -177,18 +189,16 @@ export function Banner(
       {showSpacer && <Text />}
 
       <Box>
-        <Text color={color("secondary")}>{SYMBOLS.bullet}</Text>
-        <Text color={color(indicator.tone)}>
+        <Text color={sc.banner.bullet}>{SYMBOLS.bullet}</Text>
+        <Text color={sc.banner.status[indicator.tone]}>
           {truncate(statusLabel, Math.max(8, contentWidth - 2), "…")}
         </Text>
       </Box>
 
       {errors.length > 0 && (
-        <Text color={color("warning")}>
+        <Text color={sc.banner.status.attention}>
           {truncate(
-            `⚠ ${errors.length} warning${
-              errors.length > 1 ? "s" : ""
-            }`,
+            `⚠ ${errors.length} warning${errors.length > 1 ? "s" : ""}`,
             contentWidth,
             "…",
           )}

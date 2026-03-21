@@ -16,23 +16,11 @@ import { processVectorElements } from "./data-structure.ts";
 import { globalSymbolTable, type SymbolTable } from "../symbol_table.ts";
 import { ALL_DECLARATION_BINDING_KEYWORDS_SET } from "../keyword/primitives.ts";
 import {
+  type BindingResolutionContext,
   buildBoundIdentifierName,
   identifierFromRegisteredName,
   moduleBindingIdentity,
 } from "../utils/binding-resolution.ts";
-
-// Module-level symbol table for current import/export processing
-// Set by setCurrentSymbolTable(), used by transformVectorExport/transformVectorImport
-// This enables isolation when context.symbolTable is provided
-let currentSymbolTable: SymbolTable = globalSymbolTable;
-
-/**
- * Set the symbol table for import/export processing.
- * Called from hql-ast-to-hql-ir.ts to synchronize with compilation context.
- */
-export function setCurrentSymbolTable(table: SymbolTable): void {
-  currentSymbolTable = table;
-}
 
 /** Valid export declaration types - cached Set for O(1) lookup */
 const VALID_EXPORT_DECLARATION_TYPES: ReadonlySet<IR.IRNodeType> = new Set([
@@ -127,6 +115,7 @@ export function isSingleExport(list: ListNode): boolean {
  * Transform a single export: (export name)
  */
 export function transformSingleExport(
+  bindingContext: BindingResolutionContext,
   list: ListNode,
 ): IR.IRNode | null {
   const nameNode = list.elements[1] as SymbolNode;
@@ -136,7 +125,7 @@ export function transformSingleExport(
     type: IR.IRNodeType.ExportNamedDeclaration,
     specifiers: [{
       type: IR.IRNodeType.ExportSpecifier,
-      local: createRuntimeLocalIdentifier(nameNode.name),
+      local: createRuntimeLocalIdentifier(bindingContext, nameNode.name),
       exported: createId(name),
     } as IR.IRExportSpecifier],
   } as IR.IRExportNamedDeclaration;
@@ -180,27 +169,39 @@ function createImportSpecifier(
   imported: string,
   local: string,
   modulePath: string,
+  symbolTable: SymbolTable,
 ): IR.IRImportSpecifier {
-  const bindingIdentity = moduleBindingIdentity(modulePath, imported);
+  const symbolInfo = lookupSymbolInfo(symbolTable, local);
+  const bindingIdentity = symbolInfo?.bindingIdentity ??
+    moduleBindingIdentity(modulePath, imported);
   return {
     type: IR.IRNodeType.ImportSpecifier,
     // Sanitize imported name, but preserve "default" for default imports
     imported: createId(
       imported === "default" ? imported : sanitizeIdentifier(imported),
     ),
-    local: createId(buildBoundIdentifierName(local, bindingIdentity), {
+    local: createId(
+      symbolInfo?.jsName ?? buildBoundIdentifierName(local, bindingIdentity),
+      {
       originalName: local,
       bindingIdentity,
-    }),
+      },
+    ),
   };
 }
 
-function createRuntimeLocalIdentifier(name: string): IR.IRIdentifier {
-  return identifierFromRegisteredName(name);
+function createRuntimeLocalIdentifier(
+  bindingContext: BindingResolutionContext,
+  name: string,
+): IR.IRIdentifier {
+  return identifierFromRegisteredName(bindingContext, name);
 }
 
-function lookupSymbolInfo(name: string) {
-  return currentSymbolTable.get(name) ?? globalSymbolTable.get(name);
+function lookupSymbolInfo(
+  symbolTable: SymbolTable,
+  name: string,
+) {
+  return symbolTable.get(name) ?? globalSymbolTable.get(name);
 }
 
 /**
@@ -209,6 +210,7 @@ function lookupSymbolInfo(name: string) {
 export function transformNamespaceImport(
   list: ListNode,
   _currentDir: string,
+  _bindingContext: BindingResolutionContext,
 ): IR.IRNode | null {
   const nameNode = list.elements[1];
   const pathNode = list.elements[3];
@@ -250,6 +252,8 @@ export function transformNamespaceImport(
  * Transform a vector-based export statement
  */
 export function transformVectorExport(
+  bindingContext: BindingResolutionContext,
+  symbolTable: SymbolTable,
   list: ListNode,
   _currentDir: string,
 ): IR.IRNode | null {
@@ -277,7 +281,7 @@ export function transformVectorExport(
     const localName = (elem as SymbolNode).name;
 
     // Check if this is a macro - macros should not be exported as runtime values
-    const symbolInfo = lookupSymbolInfo(localName);
+    const symbolInfo = lookupSymbolInfo(symbolTable, localName);
     const isMacro = symbolInfo?.kind === "macro";
 
     if (isMacro) {
@@ -296,10 +300,14 @@ export function transformVectorExport(
     // Check for alias: [foo as bar]
     if (hasAliasFollowing(symbols, i)) {
       const exportedName = (symbols[i + 2] as SymbolNode).name;
-      exportSpecifiers.push(createExportSpecifier(localName, exportedName));
+      exportSpecifiers.push(
+        createExportSpecifier(bindingContext, localName, exportedName),
+      );
       i += 3;
     } else {
-      exportSpecifiers.push(createExportSpecifier(localName, localName));
+      exportSpecifiers.push(
+        createExportSpecifier(bindingContext, localName, localName),
+      );
       i++;
     }
   }
@@ -323,12 +331,13 @@ export function transformVectorExport(
  * Create an export specifier
  */
 function createExportSpecifier(
+  bindingContext: BindingResolutionContext,
   local: string,
   exported: string,
 ): IR.IRExportSpecifier {
   return {
     type: IR.IRNodeType.ExportSpecifier,
-    local: createRuntimeLocalIdentifier(local),
+    local: createRuntimeLocalIdentifier(bindingContext, local),
     exported: createId(sanitizeIdentifier(exported)),
   };
 }
@@ -337,6 +346,7 @@ function createExportSpecifier(
  * Transform a vector-based import statement
  */
 export function transformVectorImport(
+  symbolTable: SymbolTable,
   list: ListNode,
 ): IR.IRNode | null {
   const vectorNode = list.elements[1] as ListNode;
@@ -366,7 +376,7 @@ export function transformVectorImport(
       const symbolName = (elem as SymbolNode).name;
 
       // Check if this symbol is a macro - macros should not be in JS imports
-      const symbolInfo = lookupSymbolInfo(symbolName);
+      const symbolInfo = lookupSymbolInfo(symbolTable, symbolName);
       const isMacro = symbolInfo?.kind === "macro";
 
       if (isMacro) {
@@ -384,13 +394,23 @@ export function transformVectorImport(
 
       if (hasAlias) {
         importSpecifiers.push(
-          createImportSpecifier(symbolName, aliasName!, modulePath),
+          createImportSpecifier(
+            symbolName,
+            aliasName!,
+            modulePath,
+            symbolTable,
+          ),
         );
 
         i += 3;
       } else {
         importSpecifiers.push(
-          createImportSpecifier(symbolName, symbolName, modulePath),
+          createImportSpecifier(
+            symbolName,
+            symbolName,
+            modulePath,
+            symbolTable,
+          ),
         );
 
         i += 1;
@@ -422,6 +442,7 @@ export function transformDefaultExport(
   list: ListNode,
   currentDir: string,
   transformNode: TransformNodeFn,
+  _bindingContext: BindingResolutionContext,
 ): IR.IRNode | null {
   // list.elements[0] = 'export'
   // list.elements[1] = 'default'
@@ -461,6 +482,7 @@ export function transformDeclarationExport(
   list: ListNode,
   currentDir: string,
   transformNode: TransformNodeFn,
+  _bindingContext: BindingResolutionContext,
 ): IR.IRNode | null {
   const declNode = list.elements[1];
   const transformed = transformNode(declNode, currentDir);

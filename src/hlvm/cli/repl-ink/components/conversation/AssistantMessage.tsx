@@ -16,6 +16,7 @@ import { STATUS_GLYPHS } from "../../ui-constants.ts";
 import { createIncrementalSanitizer } from "../../utils/sanitize-ansi.ts";
 import { formatElapsed } from "../../utils/formatting.ts";
 import { useConversationSpinnerFrame } from "../../hooks/useConversationMotion.ts";
+import { buildSectionLabelText } from "../../utils/display-chrome.ts";
 
 /** Shown while waiting for the first token from the model. */
 function WorkingIndicator({ width }: { width: number }): React.ReactElement {
@@ -30,7 +31,8 @@ function WorkingIndicator({ width }: { width: number }): React.ReactElement {
   return (
     <Box width={width} marginBottom={1} marginTop={0} paddingLeft={1}>
       <Text color={sc.text.muted}>
-        {spinnerFrame ?? STATUS_GLYPHS.running} Thinking... ({formatElapsed(elapsed)} · esc to interrupt)
+        {spinnerFrame ?? STATUS_GLYPHS.running}{" "}
+        Thinking... ({formatElapsed(elapsed)} · esc to interrupt)
       </Text>
     </Box>
   );
@@ -175,7 +177,10 @@ export const AssistantMessage = React.memo(function AssistantMessage(
       : sanitizedText;
     const citationView = buildCitationRenderView(displayText, citations ?? []);
     const sources = citationView.sources.slice(0, 6);
-    const sourceOverflow = Math.max(0, citationView.sources.length - sources.length);
+    const sourceOverflow = Math.max(
+      0,
+      citationView.sources.length - sources.length,
+    );
     const sourcesLabel = resolveSourcesLabel(citations ?? []);
     return { citationView, sources, sourceOverflow, sourcesLabel };
   }, [text, citations]);
@@ -197,10 +202,16 @@ export const AssistantMessage = React.memo(function AssistantMessage(
         borderColor={sc.border.default}
         paddingLeft={1}
       >
-        <MarkdownDisplay text={citationMemo.citationView.text} width={contentWidth} isPending={isPending} />
+        <MarkdownDisplay
+          text={citationMemo.citationView.text}
+          width={contentWidth}
+          isPending={isPending}
+        />
         {!isPending && citationMemo.sources.length > 0 && (
           <Box flexDirection="column" marginTop={1}>
-            <Text color={sc.text.muted}>{citationMemo.sourcesLabel}</Text>
+            <Text color={sc.chrome.sectionLabel}>
+              {buildSectionLabelText(citationMemo.sourcesLabel, contentWidth)}
+            </Text>
             {citationMemo.sources.map((source: CitationSourceView) => {
               const lead = `[${source.index}] ${source.title}`;
               return (

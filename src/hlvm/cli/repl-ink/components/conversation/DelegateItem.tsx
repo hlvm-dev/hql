@@ -3,8 +3,14 @@ import { Box, Text } from "ink";
 import { truncate } from "../../../../../common/utils.ts";
 import { listDelegateTranscriptLines } from "../../../../agent/delegate-transcript.ts";
 import { useSemanticColors } from "../../../theme/index.ts";
-import { formatDurationMs } from "../../utils/formatting.ts";
 import type { DelegateItem as DelegateItemData } from "../../types.ts";
+import { ChromeChip } from "../ChromeChip.tsx";
+import { buildSectionLabelText } from "../../utils/display-chrome.ts";
+import {
+  buildDelegateHeaderText,
+  getDelegateStatusGlyph,
+  getDelegateStatusTone,
+} from "./conversation-chrome.ts";
 
 interface DelegateItemProps {
   item: DelegateItemData;
@@ -16,33 +22,30 @@ export const DelegateItem = React.memo(function DelegateItem(
   { item, width, expanded = false }: DelegateItemProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
-  const accentMap: Record<string, string> = {
-    error: sc.status.error,
-    success: sc.status.success,
-    cancelled: sc.text.muted,
-    queued: sc.text.muted,
-  };
-  const iconMap: Record<string, string> = {
-    error: "✗",
-    success: "✓",
-    cancelled: "○",
-    queued: "⏳",
-  };
-  const accent = accentMap[item.status] ?? sc.status.warning;
-  const icon = iconMap[item.status] ?? "↗";
-  const duration = item.durationMs != null
-    ? ` · ${formatDurationMs(item.durationMs)}`
-    : "";
+  const tone = getDelegateStatusTone(item.status);
+  const accent = tone === "error"
+    ? sc.status.error
+    : tone === "success"
+    ? sc.status.success
+    : tone === "neutral"
+    ? sc.text.muted
+    : sc.status.warning;
+  const icon = getDelegateStatusGlyph(item.status);
   const body = item.status === "error"
     ? item.error
     : item.status === "cancelled"
     ? "Cancelled"
     : item.summary;
 
-  // Show nickname in header when available
-  const header = item.nickname
-    ? `${item.nickname} [${item.agent}]`
-    : `Delegate ${item.agent}`;
+  const headerLayout = buildDelegateHeaderText(
+    {
+      nickname: item.nickname,
+      agent: item.agent,
+      durationMs: item.durationMs,
+      status: item.status,
+    },
+    Math.max(10, width - 8),
+  );
 
   return (
     <Box flexDirection="row" width={width} marginBottom={1}>
@@ -60,12 +63,15 @@ export const DelegateItem = React.memo(function DelegateItem(
         borderColor={accent}
         paddingLeft={1}
       >
-        <Text bold color={accent}>
-          {truncate(header, Math.max(10, width - 8), "…")}
-        </Text>
+        <Box>
+          <Text bold color={accent}>{headerLayout.leftText}</Text>
+          {headerLayout.gapWidth > 0 && (
+            <Text>{" ".repeat(headerLayout.gapWidth)}</Text>
+          )}
+          <Text color={sc.text.muted}>{headerLayout.rightText}</Text>
+        </Box>
         <Text color={sc.text.secondary}>
           {truncate(item.task, Math.max(10, width - 8), "…")}
-          {duration}
         </Text>
         {body && (
           <Text
@@ -85,6 +91,12 @@ export const DelegateItem = React.memo(function DelegateItem(
         )}
         {expanded && item.snapshot && (
           <Box flexDirection="column" marginTop={1}>
+            <Box marginBottom={0}>
+              <ChromeChip text={` ${icon} transcript `} tone={tone} />
+            </Box>
+            <Text color={sc.chrome.sectionLabel}>
+              {buildSectionLabelText("Events", Math.max(10, width - 8))}
+            </Text>
             {listDelegateTranscriptLines(item.snapshot).map((line, index) => (
               <React.Fragment key={`${item.id}-event-${index}`}>
                 <Text color={sc.text.muted}>

@@ -106,7 +106,7 @@ import {
   effectiveToolSurfaceIncludesMutation,
   isMutatingTool,
 } from "./security/safety.ts";
-import { loadAgentHookRuntime, type AgentHookRuntime } from "./hooks.ts";
+import { type AgentHookRuntime, loadAgentHookRuntime } from "./hooks.ts";
 import { cloneToolList } from "./orchestrator-state.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
@@ -289,9 +289,9 @@ export function shouldReuseAgentSession(
     return false;
   }
   return toolListsMatch(
-      session.llmConfig?.toolAllowlist,
-      options.toolAllowlist,
-    ) &&
+    session.llmConfig?.toolAllowlist,
+    options.toolAllowlist,
+  ) &&
     toolListsMatch(
       session.llmConfig?.toolDenylist,
       options.toolDenylist,
@@ -801,7 +801,9 @@ export async function runAgentQuery(
     >;
     let teamRuntime: ReturnType<typeof createTeamRuntime> | undefined;
     const onAgentEvent = (() => {
-      if (!persistedTurn && !sessionKey && !hookRuntime) return callbacks.onAgentEvent;
+      if (!persistedTurn && !sessionKey && !hookRuntime) {
+        return callbacks.onAgentEvent;
+      }
       const activePersistedTurn = persistedTurn;
       const syncTeamTodoState = (): void => {
         if (!teamRuntime) return;
@@ -971,6 +973,8 @@ export async function runAgentQuery(
           toolOwnerId: session.toolOwnerId,
           delegateOwnerId,
           ensureMcpLoaded: session.ensureMcpLoaded,
+          providerExecutionPlan: session.providerExecutionPlan,
+          webCapabilityPlan: session.webCapabilityPlan,
         },
         session.llm,
         options.attachments,

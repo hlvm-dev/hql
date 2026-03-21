@@ -18,6 +18,8 @@ import {
   type InteractionPickerOption,
 } from "./InteractionPicker.tsx";
 import type { InteractionResponse } from "../../../../agent/registry.ts";
+import { ChromeChip } from "../ChromeChip.tsx";
+import { buildSectionLabelText } from "../../utils/display-chrome.ts";
 
 interface ConfirmationDialogProps {
   requestId?: string;
@@ -78,14 +80,16 @@ export const ConfirmationDialog = React.memo(
           onCancel={() => onResolve(requestId, { approved: false })}
         >
           <Box flexDirection="column">
-            <Text color={sc.text.secondary}>
-              Here is the plan:
-            </Text>
+            <Box>
+              <ChromeChip text="Plan review" tone="active" />
+            </Box>
             <Box marginTop={1} flexDirection="column">
               <Text color={sc.text.primary} wrap="wrap">
                 {dialog.planReview.plan.goal}
               </Text>
-              <Text color={sc.text.secondary}>Steps:</Text>
+              <Text color={sc.chrome.sectionLabel}>
+                {buildSectionLabelText("Steps", 24)}
+              </Text>
               <Box paddingLeft={1} flexDirection="column">
                 {dialog.planReview.visibleSteps.map((step) => (
                   <React.Fragment key={step.id}>
@@ -103,7 +107,9 @@ export const ConfirmationDialog = React.memo(
               </Box>
               {dialog.planReview.verificationLines.length > 0 && (
                 <>
-                  <Text color={sc.text.secondary}>Verification:</Text>
+                  <Text color={sc.chrome.sectionLabel}>
+                    {buildSectionLabelText("Verification", 24)}
+                  </Text>
                   <Box paddingLeft={1} flexDirection="column">
                     {dialog.planReview.verificationLines.map((line) => (
                       <React.Fragment key={line}>
@@ -130,17 +136,13 @@ export const ConfirmationDialog = React.memo(
         flexDirection="column"
       >
         <Box>
-          <Text
-            color={isPlanReview ? sc.text.primary : sc.status.warning}
-            bold
-          >
-            {isPlanReview ? "Ready to code?" : "Permission required"}
-          </Text>
+          <ChromeChip
+            text={isPlanReview ? "Ready to code?" : "Permission required"}
+            tone={isPlanReview ? "active" : "warning"}
+          />
         </Box>
         {isPlanReview && (
-          <Text color={sc.text.secondary}>
-            Here is the plan:
-          </Text>
+          <Text color={sc.text.secondary}>Review before proceeding.</Text>
         )}
         {toolName && !isPlanReview && (
           <Box marginTop={0}>
@@ -155,7 +157,9 @@ export const ConfirmationDialog = React.memo(
             <Text color={sc.text.primary} wrap="wrap">
               {dialog.planReview.plan.goal}
             </Text>
-            <Text color={sc.text.secondary}>Steps:</Text>
+            <Text color={sc.chrome.sectionLabel}>
+              {buildSectionLabelText("Steps", 24)}
+            </Text>
             <Box paddingLeft={1} flexDirection="column">
               {dialog.planReview.visibleSteps.map((step) => (
                 <React.Fragment key={step.id}>
@@ -173,7 +177,9 @@ export const ConfirmationDialog = React.memo(
             </Box>
             {dialog.planReview.verificationLines.length > 0 && (
               <>
-                <Text color={sc.text.secondary}>Verification:</Text>
+                <Text color={sc.chrome.sectionLabel}>
+                  {buildSectionLabelText("Verification", 24)}
+                </Text>
                 <Box paddingLeft={1} flexDirection="column">
                   {dialog.planReview.verificationLines.map((line) => (
                     <React.Fragment key={line}>
@@ -189,8 +195,8 @@ export const ConfirmationDialog = React.memo(
         )}
         {!dialog.planReview && visibleArgLines.length > 0 && (
           <Box flexDirection="column" marginTop={0}>
-            <Text color={sc.text.secondary}>
-              {isPlanReview ? "Plan:" : "Args:"}
+            <Text color={sc.chrome.sectionLabel}>
+              {buildSectionLabelText(isPlanReview ? "Plan" : "Args", 24)}
             </Text>
             <Box paddingLeft={1} flexDirection="column">
               {visibleArgLines.map((line: string, i: number) => (

@@ -24,7 +24,7 @@ import { GIT_TOOLS } from "./tools/git-tools.ts";
 import { DELEGATE_TOOLS } from "./tools/delegate-tools.ts";
 import { TEAM_TOOLS } from "./tools/team-tools.ts";
 import { ACTIVITY_TOOLS } from "./tools/activity-tools.ts";
-import { ValidationError } from "../../common/error.ts";
+import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { isToolArgsObject } from "./validation.ts";
@@ -223,6 +223,23 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...META_TOOLS,
   ...WEB_TOOLS,
   ...MEMORY_TOOLS,
+  remote_code_execute: {
+    fn: () =>
+      Promise.reject(
+        new RuntimeError(
+          "remote_code_execute is provider-executed and not callable locally",
+        ),
+      ),
+    description:
+      "Run inline code in a provider-hosted sandbox. No workspace access. Provider network/filesystem behavior depends on provider support.",
+    category: "data",
+    args: {
+      code: "string - Inline code to execute remotely",
+      language:
+        "string (optional) - Language hint such as python; provider support varies",
+    },
+    safetyLevel: "L2",
+  },
   delegate_agent: {
     fn: () =>
       Promise.reject(

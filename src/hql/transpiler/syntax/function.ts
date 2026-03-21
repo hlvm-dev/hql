@@ -51,6 +51,7 @@ import { parsePattern } from "../../s-exp/pattern-parser.ts";
 import { getMeta } from "../../s-exp/types.ts";
 import { LRUCache } from "../../../common/lru-cache.ts";
 import {
+  type BindingResolutionContext,
   identifierFromBindingCarrier,
   identifierFromBindingRecord,
   registerBindingAlias,
@@ -77,8 +78,11 @@ const fnFunctionRegistry = new LRUCache<string, IR.IRFnFunctionDeclaration>(
   5000,
 );
 
-function withFunctionScope<T>(fn: () => T): T {
-  return withLexicalScope(fn);
+function withFunctionScope<T>(
+  bindingContext: BindingResolutionContext,
+  fn: () => T,
+): T {
+  return withLexicalScope(bindingContext, fn);
 }
 
 // Pre-compiled regex for extracting generic type parameters from names
@@ -260,6 +264,7 @@ function transformArgsWithSpread(
 export function transformStandardFunctionCall(
   list: ListNode,
   currentDir: string,
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   const first = list.elements[0];
   const argNodes = list.elements.slice(1);
@@ -277,7 +282,10 @@ export function transformStandardFunctionCall(
       ? { line: meta.line, column: meta.column, filePath: meta.filePath }
       : undefined;
 
-    const calleeId = identifierFromBindingCarrier(first as SymbolNode);
+    const calleeId = identifierFromBindingCarrier(
+      bindingContext,
+      first as SymbolNode,
+    );
     calleeId.position = position; // Copy position from source symbol
 
     const callExpr = createCall(
@@ -356,6 +364,7 @@ export function transformFn(
   currentDir: string,
   transformNode: TransformNodeFn,
   processFunctionBody: (body: HQLNode[], dir: string) => IR.IRNode[],
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   try {
     logger.debug("Transforming fn function");
@@ -382,6 +391,7 @@ export function transformFn(
           currentDir,
           transformNode,
           processFunctionBody,
+          bindingContext,
           true,
         );
       }
@@ -391,6 +401,7 @@ export function transformFn(
         currentDir,
         transformNode,
         processFunctionBody,
+        bindingContext,
       );
     } else if (secondElement.type === "list") {
       // Check if this is multi-arity anonymous: (fn ([] body1) ([x] body2)...)
@@ -400,6 +411,7 @@ export function transformFn(
           currentDir,
           transformNode,
           processFunctionBody,
+          bindingContext,
           false,
         );
       }
@@ -409,6 +421,7 @@ export function transformFn(
         currentDir,
         processFunctionBody,
         transformNode,
+        bindingContext,
       );
     } else {
       throw new ValidationError(
@@ -452,6 +465,7 @@ function transformMultiArityFn(
   currentDir: string,
   transformNode: TransformNodeFn,
   processFunctionBody: (body: HQLNode[], dir: string) => IR.IRNode[],
+  bindingContext: BindingResolutionContext,
   isNamed: boolean,
 ): IR.IRNode {
   const argsIdentifier = "__args";
@@ -471,6 +485,7 @@ function transformMultiArityFn(
     const funcNameNode = list.elements[1] as SymbolNode;
     funcName = funcNameNode.name;
     functionBinding = registerDeclaredBinding(
+      bindingContext,
       funcName,
       funcNameNode.name,
       functionNameMeta,
@@ -575,11 +590,13 @@ function transformMultiArityFn(
 
   for (const arityInfo of arities) {
     const caseBody = withFunctionScope(
+      bindingContext,
       () => {
         const body: IR.IRNode[] = [];
 
         if (isNamed && funcName) {
           registerBindingAlias(
+            bindingContext,
             funcName,
             functionBinding?.bindingIdentity,
             functionBinding?.jsName,
@@ -590,7 +607,10 @@ function transformMultiArityFn(
         for (let pIdx = 0; pIdx < arityInfo.params.length; pIdx++) {
           const param = arityInfo.params[pIdx];
           if (param.type === "symbol") {
-            const paramBinding = registerLexicalBinding(param.name);
+            const paramBinding = registerLexicalBinding(
+              bindingContext,
+              param.name,
+            );
             const paramId = identifierFromBindingRecord(
               paramBinding,
               param.name,
@@ -606,6 +626,7 @@ function transformMultiArityFn(
             const parsedPattern = parsePattern(patternNode);
             const irPattern = patternToIR(
               parsedPattern,
+              bindingContext,
               transformNode,
               currentDir,
             );
@@ -626,7 +647,10 @@ function transformMultiArityFn(
         }
 
         if (arityInfo.hasRest && arityInfo.restParam) {
-          const restBinding = registerLexicalBinding(arityInfo.restParam);
+          const restBinding = registerLexicalBinding(
+            bindingContext,
+            arityInfo.restParam,
+          );
           const restId = createId(`...${restBinding.jsName}`, {
             originalName: arityInfo.restParam,
             bindingIdentity: restBinding.bindingIdentity,
@@ -720,6 +744,7 @@ function transformNamedFn(
   currentDir: string,
   transformNode: TransformNodeFn,
   processFunctionBody: (body: HQLNode[], dir: string) => IR.IRNode[],
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   if (list.elements.length < 3) {
     throw new ValidationError(
@@ -761,6 +786,7 @@ function transformNamedFn(
   }
   const paramList = paramListNode as ListNode;
   const functionBinding = registerDeclaredBinding(
+    bindingContext,
     funcName,
     funcNameNode.name,
     getMeta(funcNameNode)?.resolvedBinding,
@@ -772,8 +798,9 @@ function transformNamedFn(
   copyPosition(funcNameNode, funcId);
   copyEndPosition(list, funcId);
 
-  return withFunctionScope(() => {
+  return withFunctionScope(bindingContext, () => {
     registerBindingAlias(
+      bindingContext,
       funcName,
       functionBinding.bindingIdentity,
       functionBinding.jsName,
@@ -783,6 +810,7 @@ function transformNamedFn(
       paramList,
       currentDir,
       transformNode,
+      bindingContext,
     );
 
     const returnTypeResult = parseReturnTypeAnnotation(list.elements, 3);
@@ -823,6 +851,7 @@ function transformAnonymousFn(
   currentDir: string,
   processFunctionBody: (body: HQLNode[], dir: string) => IR.IRNode[],
   transformNode: TransformNodeFn,
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   if (list.elements.length < 3) {
     throw new ValidationError(
@@ -843,11 +872,12 @@ function transformAnonymousFn(
     );
   }
   const paramList = paramListNode as ListNode;
-  return withFunctionScope(() => {
+  return withFunctionScope(bindingContext, () => {
     const { params } = parseFunctionParameters(
       paramList,
       currentDir,
       transformNode,
+      bindingContext,
     );
 
     const { returnType, bodyStartIndex } = parseReturnTypeAnnotation(
@@ -1388,6 +1418,7 @@ function parseParameters(
   paramList: ListNode,
   currentDir: string,
   transformNode: TransformNodeFn,
+  bindingContext: BindingResolutionContext,
   options: ParameterParseOptions,
 ): {
   params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[];
@@ -1405,7 +1436,12 @@ function parseParameters(
     if (elem.type === "list") {
       const patternNode = elem as ListNode;
       const parsedPattern = parsePattern(patternNode);
-      const irPattern = patternToIR(parsedPattern, transformNode, currentDir);
+      const irPattern = patternToIR(
+        parsedPattern,
+        bindingContext,
+        transformNode,
+        currentDir,
+      );
 
       if (
         irPattern &&
@@ -1457,6 +1493,7 @@ function parseParameters(
         ? `...${sanitizeIdentifier(paramNameWithoutType)}`
         : sanitizeIdentifier(paramNameWithoutType);
       const bindingRecord = registerLexicalBinding(
+        bindingContext,
         paramNameWithoutType,
         getMeta(elem)?.resolvedBinding,
       );
@@ -1510,11 +1547,12 @@ export function parseParametersWithDefaults(
   paramList: ListNode,
   currentDir: string,
   transformNode: TransformNodeFn,
+  bindingContext: BindingResolutionContext,
 ): {
   params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[];
   defaults: Map<string, IR.IRNode>;
 } {
-  return parseParameters(paramList, currentDir, transformNode, {
+  return parseParameters(paramList, currentDir, transformNode, bindingContext, {
     supportRest: true,
   });
 }
@@ -1526,6 +1564,7 @@ function parseFunctionParameters(
   paramList: ListNode,
   currentDir: string,
   transformNode: TransformNodeFn,
+  bindingContext: BindingResolutionContext,
 ): {
   params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[];
   defaults: Map<string, IR.IRNode>;
@@ -1536,6 +1575,7 @@ function parseFunctionParameters(
       paramList,
       currentDir,
       transformNode,
+      bindingContext,
     );
     return { params, defaults, usesJsonMapParams: true };
   }
@@ -1549,6 +1589,7 @@ function parseFunctionParameters(
       vectorList,
       currentDir,
       transformNode,
+      bindingContext,
     );
     return { params, defaults, usesJsonMapParams: false };
   }
@@ -1557,6 +1598,7 @@ function parseFunctionParameters(
     paramList,
     currentDir,
     transformNode,
+    bindingContext,
   );
   return { params, defaults, usesJsonMapParams: false };
 }
@@ -1565,6 +1607,7 @@ export function parseJsonMapParameters(
   mapNode: ListNode,
   currentDir: string,
   transformNode: TransformNodeFn,
+  bindingContext: BindingResolutionContext,
 ): {
   params: IR.IRIdentifier[];
   defaults: Map<string, IR.IRNode>;
@@ -1615,7 +1658,7 @@ export function parseJsonMapParameters(
 
     const paramName = (keyNode as LiteralNode).value as string;
 
-    const bindingRecord = registerLexicalBinding(paramName);
+    const bindingRecord = registerLexicalBinding(bindingContext, paramName);
     const param = createId(bindingRecord.jsName, {
       originalName: paramName,
       bindingIdentity: bindingRecord.bindingIdentity,
@@ -1714,6 +1757,7 @@ export function transformArrowLambda(
   currentDir: string,
   transformNode: TransformNodeFn,
   processFunctionBody: (body: HQLNode[], dir: string) => IR.IRNode[],
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   try {
     logger.debug("Transforming arrow lambda (=>)");
@@ -1738,6 +1782,7 @@ export function transformArrowLambda(
         currentDir,
         transformNode,
         processFunctionBody,
+        bindingContext,
       );
     }
 
@@ -1771,7 +1816,13 @@ export function transformArrowLambda(
     };
 
     const fnList = createFnListNode(paramList, bodyElements);
-    return transformFn(fnList, currentDir, transformNode, processFunctionBody);
+    return transformFn(
+      fnList,
+      currentDir,
+      transformNode,
+      processFunctionBody,
+      bindingContext,
+    );
   } catch (error) {
     throw new TransformError(
       `Failed to transform arrow lambda: ${getErrorMessage(error)}`,

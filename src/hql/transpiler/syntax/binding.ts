@@ -39,6 +39,7 @@ import {
   wrapIIFEResult,
 } from "../utils/ir-helpers.ts";
 import {
+  type BindingResolutionContext,
   identifierFromBindingRecord,
   registerDeclaredBinding,
   withLexicalScope,
@@ -67,6 +68,7 @@ function transformBinding(
     node: ListNode | SymbolNode | LiteralNode,
     dir: string,
   ) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
   options: BindingOptions,
 ): IR.IRNode {
   const { kind, freeze, keyword } = options;
@@ -142,6 +144,7 @@ function transformBinding(
             bodyExprs,
             currentDir,
             transformNode,
+            bindingContext,
             kind,
           );
         }
@@ -157,7 +160,12 @@ function transformBinding(
         }
 
         const pattern = parsePattern(patternSexp);
-        const patternIR = patternToIR(pattern, transformNode, currentDir);
+        const patternIR = patternToIR(
+          pattern,
+          bindingContext,
+          transformNode,
+          currentDir,
+        );
 
         if (!patternIR) {
           throw new ValidationError(
@@ -216,6 +224,7 @@ function transformBinding(
       }
 
       const bindingRecord = registerDeclaredBinding(
+        bindingContext,
         name,
         nameNode.name,
         getMeta(nameNode)?.resolvedBinding,
@@ -255,7 +264,7 @@ function transformBinding(
           patternSexp = { ...sexp, elements: sexp.elements.slice(1) } as SList;
         }
 
-        return withLexicalScope(() => {
+        return withLexicalScope(bindingContext, () => {
           const init = validateTransformed(
             transformIfOrValue(valueNode, currentDir, transformNode),
             `${keyword} value`,
@@ -263,7 +272,12 @@ function transformBinding(
           );
 
           const pattern = parsePattern(patternSexp);
-          const patternIR = patternToIR(pattern, transformNode, currentDir);
+          const patternIR = patternToIR(
+            pattern,
+            bindingContext,
+            transformNode,
+            currentDir,
+          );
 
           if (!patternIR) {
             throw new ValidationError(
@@ -327,8 +341,9 @@ function transformBinding(
       valueExpr = wrapWithFreeze(valueExpr);
     }
 
-    return withLexicalScope(() => {
+    return withLexicalScope(bindingContext, () => {
       const bindingRecord = registerDeclaredBinding(
+        bindingContext,
         name,
         (nameNode as SymbolNode).name,
         getMeta(nameNode)?.resolvedBinding,
@@ -386,6 +401,7 @@ function transformBinding(
       bodyExprs,
       currentDir,
       transformNode,
+      bindingContext,
       kind,
     );
   }
@@ -438,8 +454,9 @@ export function transformConst(
     node: ListNode | SymbolNode | LiteralNode,
     dir: string,
   ) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
-  return transformBinding(list, currentDir, transformNode, {
+  return transformBinding(list, currentDir, transformNode, bindingContext, {
     kind: "const",
     freeze: true,
     keyword: "const",
@@ -460,8 +477,9 @@ export function transformLet(
     node: ListNode | SymbolNode | LiteralNode,
     dir: string,
   ) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
-  return transformBinding(list, currentDir, transformNode, {
+  return transformBinding(list, currentDir, transformNode, bindingContext, {
     kind: "let",
     freeze: false,
     keyword: "let",
@@ -481,8 +499,9 @@ export function transformVar(
     node: ListNode | SymbolNode | LiteralNode,
     dir: string,
   ) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
-  return transformBinding(list, currentDir, transformNode, {
+  return transformBinding(list, currentDir, transformNode, bindingContext, {
     kind: "var",
     freeze: false,
     keyword: "var",
@@ -500,9 +519,10 @@ function processBindings(
     node: ListNode | SymbolNode | LiteralNode,
     dir: string,
   ) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
   kind: "const" | "let" | "var",
 ): IR.IRNode {
-  return withLexicalScope(() => {
+  return withLexicalScope(bindingContext, () => {
     const variableDeclarations: IR.IRNode[] = [];
 
     for (let i = 0; i < bindingsNode.elements.length; i += 2) {
@@ -543,7 +563,12 @@ function processBindings(
           }
 
           const pattern = parsePattern(patternSexp);
-          const patternIR = patternToIR(pattern, transformNode, currentDir);
+          const patternIR = patternToIR(
+            pattern,
+            bindingContext,
+            transformNode,
+            currentDir,
+          );
 
           if (!patternIR) {
             throw new ValidationError(
@@ -584,6 +609,7 @@ function processBindings(
       );
 
       const bindingRecord = registerDeclaredBinding(
+        bindingContext,
         name,
         (nameNode as SymbolNode).name,
         getMeta(nameNode)?.resolvedBinding,

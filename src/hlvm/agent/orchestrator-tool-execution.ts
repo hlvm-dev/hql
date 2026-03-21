@@ -8,8 +8,8 @@ import {
   normalizeToolName,
   prepareToolArgsForExecution,
   searchTools,
-  type ToolExecutionOptions,
   suggestToolNames,
+  type ToolExecutionOptions,
   type ToolFunction,
 } from "./registry.ts";
 import type { ModelTier } from "./constants.ts";
@@ -18,7 +18,11 @@ import { classifyShellCommand } from "./security/shell-classifier.ts";
 import { DEFAULT_TIMEOUTS, RATE_LIMITS } from "./constants.ts";
 import { withTimeout } from "../../common/timeout-utils.ts";
 import { SlidingWindowRateLimiter } from "../../common/rate-limiter.ts";
-import { getErrorMessage, isObjectValue, truncate } from "../../common/utils.ts";
+import {
+  getErrorMessage,
+  isObjectValue,
+  truncate,
+} from "../../common/utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { getAgentLogger } from "./logger.ts";
 import type { AgentPolicy } from "./policy.ts";
@@ -64,6 +68,13 @@ import {
 import { parse as parseCsv } from "jsr:@std/csv/parse";
 import { emitDelegateBatchProgress } from "./delegate-batch-progress.ts";
 import type { WriteVerificationResult } from "./lsp-diagnostics.ts";
+import {
+  normalizeWebCapabilitySelectors,
+  projectToolSearchResultsForWebCapabilities,
+  type ResolvedProviderExecutionPlan,
+  type ResolvedWebCapabilityPlan,
+  resolveProviderExecutionPlan,
+} from "./tool-capabilities.ts";
 
 const CHECKPOINT_SUPPORTED_MUTATION_TOOLS = new Set([
   "write_file",
@@ -125,13 +136,15 @@ function emitTeamTaskUpdated(
 
 function emitTeamMessages(
   config: OrchestratorConfig,
-  messages: Array<{
-    kind: string;
-    fromMemberId: string;
-    toMemberId?: string;
-    relatedTaskId?: string;
-    content: string;
-  }> | undefined,
+  messages:
+    | Array<{
+      kind: string;
+      fromMemberId: string;
+      toMemberId?: string;
+      relatedTaskId?: string;
+      content: string;
+    }>
+    | undefined,
 ): void {
   if (!messages?.length) return;
   for (const message of messages) {
@@ -196,7 +209,9 @@ async function coerceBatchRows(
   return valueRows
     .filter((row): row is string[] => Array.isArray(row))
     .map((row) =>
-      Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]))
+      Object.fromEntries(
+        headers.map((header, index) => [header, row[index] ?? ""]),
+      )
     );
 }
 
@@ -222,6 +237,10 @@ async function executeToolWithTimeout(
   delegateOwnerId?: string,
   sessionId?: string,
   currentUserRequest?: string,
+  toolAllowlist?: string[],
+  toolDenylist?: string[],
+  providerExecutionPlan?: ResolvedProviderExecutionPlan,
+  webCapabilityPlan?: ResolvedWebCapabilityPlan,
 ): Promise<unknown> {
   return await withTimeout(
     async (signal) => {
@@ -236,10 +255,19 @@ async function executeToolWithTimeout(
         ensureMcpLoaded,
         todoState,
         searchTools: (query, options) =>
-          searchTools(query, {
-            ...options,
-            ownerId: options?.ownerId ?? toolOwnerId,
-          }),
+          projectToolSearchResultsForWebCapabilities(
+            searchTools(query, {
+              ...options,
+              allowlist: normalizeWebCapabilitySelectors(
+                options?.allowlist ?? toolAllowlist,
+              ),
+              denylist: normalizeWebCapabilitySelectors(
+                options?.denylist ?? toolDenylist,
+              ),
+              ownerId: options?.ownerId ?? toolOwnerId,
+            }),
+            providerExecutionPlan ?? webCapabilityPlan,
+          ),
         teamRuntime,
         teamMemberId,
         teamLeadMemberId,
@@ -332,7 +360,8 @@ export async function executeToolCall(
   // Lazy MCP bootstrap: defer MCP connect+registration until a tool call needs it.
   if (
     config.ensureMcpLoaded &&
-    (toolCall.toolName.startsWith("mcp_") || toolCall.toolName === "tool_search")
+    (toolCall.toolName.startsWith("mcp_") ||
+      toolCall.toolName === "tool_search")
   ) {
     await config.ensureMcpLoaded();
   }
@@ -442,7 +471,11 @@ export async function executeToolCall(
       );
     }
 
-    const mutatingTool = isMutatingTool(toolCall.toolName, config.toolOwnerId, toolCall.args);
+    const mutatingTool = isMutatingTool(
+      toolCall.toolName,
+      config.toolOwnerId,
+      toolCall.args,
+    );
     if (mutatingTool && isPlanExecutionMode(config.permissionMode)) {
       return buildToolErrorResult(
         toolCall.toolName,
@@ -473,7 +506,9 @@ export async function executeToolCall(
             toolCall,
             startedAt,
             config,
-            `Plan review failed before mutation: ${truncate(getErrorMessage(error), 120)}`,
+            `Plan review failed before mutation: ${
+              truncate(getErrorMessage(error), 120)
+            }`,
           );
         }
       }
@@ -545,7 +580,9 @@ export async function executeToolCall(
               : crypto.randomUUID()
           )
           : undefined;
-        const teamMemberId = config.teamRuntime ? crypto.randomUUID() : undefined;
+        const teamMemberId = config.teamRuntime
+          ? crypto.randomUUID()
+          : undefined;
         const delegateArgs = {
           ...(coercedArgs as Record<string, unknown>),
           ...(coordinationId ? { _coordinationId: coordinationId } : {}),
@@ -798,9 +835,7 @@ export async function executeToolCall(
     // batch_delegate: fan-out delegation to multiple agents
     if (toolCall.toolName === "batch_delegate" && config.delegate) {
       const batchArgs = coercedArgs as Record<string, unknown>;
-      const agent = typeof batchArgs.agent === "string"
-        ? batchArgs.agent
-        : "";
+      const agent = typeof batchArgs.agent === "string" ? batchArgs.agent : "";
       const taskTemplate = typeof batchArgs.task_template === "string"
         ? batchArgs.task_template
         : "";
@@ -820,7 +855,10 @@ export async function executeToolCall(
           toolCall.id,
         );
       }
-      if (config.teamRuntime && !config.teamRuntime.getPolicy().allowBatchDelegation) {
+      if (
+        config.teamRuntime &&
+        !config.teamRuntime.getPolicy().allowBatchDelegation
+      ) {
         return buildToolErrorResult(
           toolCall.toolName,
           "batch delegation is disabled by the current team policy",
@@ -846,15 +884,23 @@ export async function executeToolCall(
         try {
           let task = taskTemplate;
           if (row && typeof row === "object") {
-            for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
+            for (
+              const [key, value] of Object.entries(
+                row as Record<string, unknown>,
+              )
+            ) {
               task = task.replaceAll(`{{${key}}}`, String(value));
             }
           }
           const coordinationId = config.coordinationBoard
             ? crypto.randomUUID()
             : undefined;
-          const teamTaskId = config.teamRuntime ? crypto.randomUUID() : undefined;
-          const teamMemberId = config.teamRuntime ? crypto.randomUUID() : undefined;
+          const teamTaskId = config.teamRuntime
+            ? crypto.randomUUID()
+            : undefined;
+          const teamMemberId = config.teamRuntime
+            ? crypto.randomUUID()
+            : undefined;
           const result = await config.delegate!(
             {
               agent,
@@ -888,15 +934,13 @@ export async function executeToolCall(
       await Promise.all(data.map((row) => spawnOne(row)));
 
       const snapshot = getBatchSnapshot(batchId);
-      const batchResult = snapshot
-        ? { ...snapshot, threadIds }
-        : {
-          batchId,
-          totalRows: data.length,
-          spawned: threadIds.length,
-          threadIds,
-          status: "running",
-        };
+      const batchResult = snapshot ? { ...snapshot, threadIds } : {
+        batchId,
+        totalRows: data.length,
+        spawned: threadIds.length,
+        threadIds,
+        status: "running",
+      };
       emitDelegateBatchProgress(config, snapshot);
       const { llmContent, summaryDisplay, returnDisplay } =
         buildToolResultOutputs(toolCall.toolName, batchResult, config);
@@ -923,6 +967,17 @@ export async function executeToolCall(
     // Execute tool (with timeout)
     const tool = getTool(toolCall.toolName, config.toolOwnerId);
     const toolTimeout = getToolTimeoutMs(toolCall.toolName, config.toolTimeout);
+    const currentToolAllowlist = config.toolFilterState?.allowlist ??
+      config.toolAllowlist;
+    const currentToolDenylist = config.toolFilterState?.denylist ??
+      config.toolDenylist;
+    const providerExecutionPlan = config.providerExecutionPlan ??
+      resolveProviderExecutionPlan({
+        providerName: "ollama",
+        allowlist: currentToolAllowlist,
+        denylist: currentToolDenylist,
+      });
+    const webCapabilityPlan = providerExecutionPlan.web;
     const runTool = (args: unknown = coercedArgs) =>
       executeToolWithTimeout(
         tool.fn,
@@ -943,6 +998,10 @@ export async function executeToolCall(
         config.delegateOwnerId,
         config.sessionId,
         config.currentUserRequest,
+        currentToolAllowlist,
+        currentToolDenylist,
+        providerExecutionPlan,
+        webCapabilityPlan,
       );
     let result: unknown;
     try {
@@ -990,7 +1049,9 @@ export async function executeToolCall(
           toolCallId: toolCall.id,
           modelId: config.modelId,
           sessionId: config.sessionId,
-          path: typeof toolCall.args?.path === "string" ? toolCall.args.path : undefined,
+          path: typeof toolCall.args?.path === "string"
+            ? toolCall.args.path
+            : undefined,
           ok: verification.ok,
           source: verification.source,
           verifier: verification.verifier,
@@ -1001,11 +1062,12 @@ export async function executeToolCall(
       }
     }
 
-    const { llmContent, summaryDisplay, returnDisplay } = buildToolResultOutputs(
-      toolCall.toolName,
-      result,
-      config,
-    );
+    const { llmContent, summaryDisplay, returnDisplay } =
+      buildToolResultOutputs(
+        toolCall.toolName,
+        result,
+        config,
+      );
     if (
       toolCall.toolName === "report_result" &&
       config.coordinationBoard &&
@@ -1029,7 +1091,8 @@ export async function executeToolCall(
       result &&
       typeof result === "object"
     ) {
-      const currentTaskId = config.teamRuntime.getMember(config.teamMemberId)?.currentTaskId;
+      const currentTaskId = config.teamRuntime.getMember(config.teamMemberId)
+        ?.currentTaskId;
       if (currentTaskId) {
         const report = result as Record<string, unknown>;
         const task = config.teamRuntime.updateTask(currentTaskId, {
@@ -1083,36 +1146,46 @@ export async function executeToolCall(
     if (toolCall.toolName === "todo_write" && config.todoState) {
       config.onAgentEvent?.({
         type: "todo_updated",
-        todoState: { items: config.todoState.items.map((item) => ({ ...item })) },
+        todoState: {
+          items: config.todoState.items.map((item) => ({ ...item })),
+        },
         source: "tool",
       });
     }
 
     if (
-      (toolCall.toolName === "team_task_write" || toolCall.toolName === "team_task_claim") &&
+      (toolCall.toolName === "team_task_write" ||
+        toolCall.toolName === "team_task_claim") &&
       result &&
       typeof result === "object" &&
       "task" in result
     ) {
-      const task = (result as { task?: {
-        id: string;
-        goal: string;
-        status: string;
-        assigneeMemberId?: string;
-      } }).task;
+      const task = (result as {
+        task?: {
+          id: string;
+          goal: string;
+          status: string;
+          assigneeMemberId?: string;
+        };
+      }).task;
       emitTeamTaskUpdated(config, task);
     }
 
-    if (toolCall.toolName === "team_message_send" && result && typeof result === "object") {
+    if (
+      toolCall.toolName === "team_message_send" && result &&
+      typeof result === "object"
+    ) {
       emitTeamMessages(
         config,
-        (result as { messages?: Array<{
-          kind: string;
-          fromMemberId: string;
-          toMemberId?: string;
-          relatedTaskId?: string;
-          content: string;
-        }> }).messages,
+        (result as {
+          messages?: Array<{
+            kind: string;
+            fromMemberId: string;
+            toMemberId?: string;
+            relatedTaskId?: string;
+            content: string;
+          }>;
+        }).messages,
       );
     }
 
@@ -1123,12 +1196,14 @@ export async function executeToolCall(
       typeof result === "object" &&
       "approval" in result
     ) {
-      const approval = (result as { approval?: {
-        id: string;
-        taskId: string;
-        submittedByMemberId: string;
-        note?: string;
-      } }).approval;
+      const approval = (result as {
+        approval?: {
+          id: string;
+          taskId: string;
+          submittedByMemberId: string;
+          note?: string;
+        };
+      }).approval;
       if (approval) {
         const task = config.teamRuntime.updateTask(approval.taskId, {
           approvalId: approval.id,
@@ -1163,15 +1238,17 @@ export async function executeToolCall(
       typeof result === "object" &&
       "approval" in result
     ) {
-      const approval = (result as { approval?: {
-        id: string;
-        taskId: string;
-        submittedByMemberId: string;
-        reviewedByMemberId?: string;
-        approved: boolean;
-        status: "approved" | "rejected";
-        feedback?: string;
-      } }).approval;
+      const approval = (result as {
+        approval?: {
+          id: string;
+          taskId: string;
+          submittedByMemberId: string;
+          reviewedByMemberId?: string;
+          approved: boolean;
+          status: "approved" | "rejected";
+          feedback?: string;
+        };
+      }).approval;
       if (approval) {
         const approved = approval.status === "approved";
         const task = config.teamRuntime.updateTask(approval.taskId, {
@@ -1183,7 +1260,8 @@ export async function executeToolCall(
         emitTeamMessages(
           config,
           config.teamRuntime.sendMessage({
-            fromMemberId: approval.reviewedByMemberId ?? config.teamRuntime.leadMemberId,
+            fromMemberId: approval.reviewedByMemberId ??
+              config.teamRuntime.leadMemberId,
             toMemberId: approval.submittedByMemberId,
             kind: "approval_response",
             content: approval.feedback?.trim().length
@@ -1211,12 +1289,14 @@ export async function executeToolCall(
       typeof result === "object" &&
       "shutdown" in result
     ) {
-      const shutdown = (result as { shutdown?: {
-        id: string;
-        memberId: string;
-        requestedByMemberId: string;
-        reason?: string;
-      } }).shutdown;
+      const shutdown = (result as {
+        shutdown?: {
+          id: string;
+          memberId: string;
+          requestedByMemberId: string;
+          reason?: string;
+        };
+      }).shutdown;
       if (shutdown) {
         config.onAgentEvent?.({
           type: "team_shutdown_requested",
@@ -1235,11 +1315,13 @@ export async function executeToolCall(
       typeof result === "object" &&
       "shutdown" in result
     ) {
-      const shutdown = (result as { shutdown?: {
-        id: string;
-        memberId: string;
-        requestedByMemberId: string;
-      } }).shutdown;
+      const shutdown = (result as {
+        shutdown?: {
+          id: string;
+          memberId: string;
+          requestedByMemberId: string;
+        };
+      }).shutdown;
       if (shutdown) {
         emitTeamMessages(
           config,

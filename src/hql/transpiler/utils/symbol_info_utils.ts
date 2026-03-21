@@ -6,6 +6,7 @@ import {
   buildBoundIdentifierName,
   moduleBindingIdentity,
 } from "./binding-resolution.ts";
+import { canonicalizeModuleId } from "./module-identity.ts";
 
 type MacroLikeFunction =
   & ((...args: unknown[]) => unknown)
@@ -19,11 +20,16 @@ export function createBasicSymbolInfo(
   scope: SymbolScope = "global",
   filePath?: string,
 ): SymbolInfo {
+  const canonicalFilePath = filePath
+    ? canonicalizeModuleId(filePath, filePath)
+    : undefined;
   return {
     name,
     kind: "variable",
     scope,
-    bindingIdentity: filePath ? moduleBindingIdentity(filePath, name) : undefined,
+    bindingIdentity: canonicalFilePath
+      ? moduleBindingIdentity(canonicalFilePath, name)
+      : undefined,
     jsName: undefined,
   };
 }
@@ -101,12 +107,17 @@ export function enrichImportedSymbolInfo(
   symbolName: string,
   modulePath: string,
   aliasName?: string,
+  resolvedModulePath?: string,
 ): SymbolInfo {
+  const canonicalModuleId = canonicalizeModuleId(
+    modulePath,
+    resolvedModulePath ?? modulePath,
+  );
   // Start with basic import information
   const result = { ...symbolInfo };
   result.isImported = true;
-  result.sourceModule = modulePath;
-  result.bindingIdentity = moduleBindingIdentity(modulePath, symbolName);
+  result.sourceModule = canonicalModuleId;
+  result.bindingIdentity = moduleBindingIdentity(canonicalModuleId, symbolName);
   result.jsName = buildBoundIdentifierName(aliasName ?? symbolInfo.name, result.bindingIdentity);
   if (aliasName && aliasName !== symbolName) {
     result.aliasOf = symbolName;

@@ -21,6 +21,7 @@ import type {
   InteractionOption,
   InteractionResponse,
 } from "../../../../agent/registry.ts";
+import { ChromeChip } from "../ChromeChip.tsx";
 
 interface QuestionDialogProps {
   requestId?: string;
@@ -83,9 +84,7 @@ export const QuestionDialog = React.memo(function QuestionDialog(
       flexDirection="column"
     >
       <Box>
-        <Text color={sc.status.warning} bold>
-          Clarification needed
-        </Text>
+        <ChromeChip text="Clarification needed" tone="warning" />
       </Box>
       {dialog.question && (
         <Box marginTop={0}>

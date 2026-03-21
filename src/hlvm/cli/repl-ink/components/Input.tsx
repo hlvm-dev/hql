@@ -10,7 +10,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, Text, type Key, useInput, useStdout } from "ink";
+import { Box, type Key, Text, useInput, useStdout } from "ink";
 import {
   AUTO_PAIR_CHARS,
   backwardSexp,
@@ -61,7 +61,7 @@ import {
 import { useHistorySearch } from "../hooks/useHistorySearch.ts";
 import { HistorySearchPrompt } from "./HistorySearchPrompt.tsx";
 import { ANSI_COLORS, getThemedAnsi } from "../../ansi.ts";
-import { useTheme } from "../../theme/index.ts";
+import { useSemanticColors, useTheme } from "../../theme/index.ts";
 import type {
   ConversationComposerDraft,
   ConversationQueueEditBinding,
@@ -91,6 +91,11 @@ import {
 // FRP Context - reactive state
 import { useReplContext } from "../context/index.ts";
 import { deleteWordPreservingDelimiters } from "../utils/text-editing.ts";
+import {
+  getShellPromptPrefixWidth,
+  getShellPromptSlotWidth,
+  padShellPromptLabel,
+} from "../utils/shell-chrome.ts";
 
 // Handler Registry - for palette/keybinding execution
 import {
@@ -348,6 +353,7 @@ export function Input({
 
   // Theme from context
   const { color } = useTheme();
+  const sc = useSemanticColors();
   const { stdout } = useStdout();
 
   // Autosuggestion (ghost text - separate from completion)
@@ -2069,7 +2075,8 @@ export function Input({
         insertAutoClosePair(input);
         return;
       }
-      const currentInputIsInsideString = isInsideString(value, cursorPos, '"') ||
+      const currentInputIsInsideString =
+        isInsideString(value, cursorPos, '"') ||
         isInsideString(value, cursorPos, "'");
       const mentionContext = buildCompletionContext(
         value.slice(0, cursorPos) + input + value.slice(cursorPos),
@@ -2571,7 +2578,7 @@ export function Input({
     // uniform prefix), so up/down is simply ±contentWidth within the
     // current logical line, with cross-line handling at boundaries.
     if (key.upArrow) {
-      const pw = promptLabel.length + 1;
+      const pw = getShellPromptPrefixWidth(promptLabel);
       const cw = Math.max(1, (stdout?.columns ?? 80) - pw);
       const lines = value.split("\n");
       let acc = 0;
@@ -2616,7 +2623,7 @@ export function Input({
       return;
     }
     if (key.downArrow) {
-      const pw = promptLabel.length + 1;
+      const pw = getShellPromptPrefixWidth(promptLabel);
       const cw = Math.max(1, (stdout?.columns ?? 80) - pw);
       const lines = value.split("\n");
       let acc = 0;
@@ -2854,7 +2861,9 @@ export function Input({
         const isAbsolutePath = cleanText.startsWith("/") ||
           cleanText.startsWith("~");
 
-        if (isAbsolutePath && isSupportedConversationAttachmentPath(cleanText)) {
+        if (
+          isAbsolutePath && isSupportedConversationAttachmentPath(cleanText)
+        ) {
           const id = reserveNextId();
           const mimeType = detectMimeType(cleanText);
           const type = getAttachmentType(mimeType);
@@ -3007,14 +3016,12 @@ export function Input({
       chunk: string,
       relativeBracketPositions: readonly number[] | null,
     ): string =>
-      highlightMode === "chat"
-        ? chunk
-        : highlight(
-          chunk,
-          relativeBracketPositions && relativeBracketPositions.length > 0
-            ? [...relativeBracketPositions]
-            : null,
-        );
+      highlightMode === "chat" ? chunk : highlight(
+        chunk,
+        relativeBracketPositions && relativeBracketPositions.length > 0
+          ? [...relativeBracketPositions]
+          : null,
+      );
 
     if (!hasPlaceholderMode || placeholders.length === 0) {
       return renderHighlighted(text, bracketPositions);
@@ -3116,7 +3123,8 @@ export function Input({
 
   const visualLayout = useMemo(() => {
     const logicalLines = value.split("\n");
-    const prefixWidth = promptLabel.length + 1;
+    const promptSlotWidth = getShellPromptSlotWidth(promptLabel);
+    const prefixWidth = promptSlotWidth + 1;
     const termWidth = stdout?.columns ?? 80;
     const contentWidth = Math.max(1, termWidth - prefixWidth);
     const wrappedLines = logicalLines.map((line: string) => ({
@@ -3136,7 +3144,7 @@ export function Input({
 
     let isFirstVisual = true;
     let globalOffset = 0;
-    const continuationPrompt = " ".repeat(promptLabel.length);
+    const continuationPrompt = " ".repeat(promptSlotWidth);
     const lastLogIdx = logicalLines.length - 1;
 
     for (let logIdx = 0; logIdx <= lastLogIdx; logIdx++) {
@@ -3152,7 +3160,9 @@ export function Input({
             chunkIdx === wrap.chunks.length - 1,
           key: `${logIdx}-${chunkIdx}`,
           logIdx,
-          prompt: isFirstVisual ? promptLabel : continuationPrompt,
+          prompt: isFirstVisual
+            ? padShellPromptLabel(promptLabel)
+            : continuationPrompt,
           text,
         });
         isFirstVisual = false;
@@ -3201,7 +3211,8 @@ export function Input({
     for (const chunk of visualLayout.chunks) {
       const positions = bracketPair
         .filter((pos: number) =>
-          pos >= chunk.globalOffset && pos < chunk.globalOffset + chunk.text.length
+          pos >= chunk.globalOffset &&
+          pos < chunk.globalOffset + chunk.text.length
         )
         .map((pos: number) => pos - chunk.globalOffset);
       if (positions.length > 0) {
@@ -3228,69 +3239,72 @@ export function Input({
       : rawGhostText.slice(0, Math.max(0, available - 1)) + "…";
   }, [rawGhostText, visualLayout.contentWidth, visualLayout.wrappedLines]);
 
-  const lineElements = visualLayout.chunks.map((chunk: typeof visualLayout.chunks[number]) => {
-    const chunkBracketPositions = chunkBracketPositionsByKey.get(chunk.key) ??
-      null;
-    const isCursorChunk = chunk.logIdx === cursorLayout.cursorLogLine &&
-      chunk.chunkIdx === cursorLayout.cursorChunkIdx;
+  const lineElements = visualLayout.chunks.map(
+    (chunk: typeof visualLayout.chunks[number]) => {
+      const chunkBracketPositions = chunkBracketPositionsByKey.get(chunk.key) ??
+        null;
+      const isCursorChunk = chunk.logIdx === cursorLayout.cursorLogLine &&
+        chunk.chunkIdx === cursorLayout.cursorChunkIdx;
 
-    if (!isCursorChunk) {
-      return (
-        <Box key={chunk.key}>
-          <Text>
-            <Text color={color("primary")} bold>{chunk.prompt}</Text>{" "}
-            {chunkBracketPositions
-              ? renderChunkText(
-                chunk.text,
-                chunk.globalOffset,
-                chunkBracketPositions,
-              )
-              : chunk.baseRendered}
-          </Text>
-        </Box>
+      if (!isCursorChunk) {
+        return (
+          <Box key={chunk.key}>
+            <Text>
+              <Text color={sc.shell.prompt} bold>{chunk.prompt}</Text>{" "}
+              {chunkBracketPositions
+                ? renderChunkText(
+                  chunk.text,
+                  chunk.globalOffset,
+                  chunkBracketPositions,
+                )
+                : chunk.baseRendered}
+            </Text>
+          </Box>
+        );
+      }
+
+      const before = chunk.text.slice(0, cursorLayout.cursorColInChunk);
+      const seg = getGraphemeSegmenter().segment(chunk.text).containing(
+        cursorLayout.cursorColInChunk,
       );
-    }
-
-    const before = chunk.text.slice(0, cursorLayout.cursorColInChunk);
-    const seg = getGraphemeSegmenter().segment(chunk.text).containing(
-      cursorLayout.cursorColInChunk,
-    );
-    const charLen = seg?.segment.length ?? 1;
-    const charAt =
-      chunk.text.slice(
+      const charLen = seg?.segment.length ?? 1;
+      const charAt = chunk.text.slice(
         cursorLayout.cursorColInChunk,
         cursorLayout.cursorColInChunk + charLen,
       ) || " ";
-    const after = chunk.text.slice(cursorLayout.cursorColInChunk + charLen);
+      const after = chunk.text.slice(cursorLayout.cursorColInChunk + charLen);
 
-    return (
-      <Box key={chunk.key}>
-        <Text>
-          <Text color={color("primary")} bold>{chunk.prompt}</Text>{" "}
-          {renderChunkText(
-            before,
-            chunk.globalOffset,
-            sliceRelativeBracketPositions(
-              chunkBracketPositions,
-              0,
-              before.length,
-            ),
-          )}
-          <Text backgroundColor="white" color="black">{charAt}</Text>
-          {renderChunkText(
-            after,
-            chunk.globalOffset + cursorLayout.cursorColInChunk + charLen,
-            sliceRelativeBracketPositions(
-              chunkBracketPositions,
-              cursorLayout.cursorColInChunk + charLen,
-              chunk.text.length,
-            ),
-          )}
-          {chunk.isLastVisual && ghostText && <Text dimColor>{ghostText}</Text>}
-        </Text>
-      </Box>
-    );
-  });
+      return (
+        <Box key={chunk.key}>
+          <Text>
+            <Text color={sc.shell.prompt} bold>{chunk.prompt}</Text>{" "}
+            {renderChunkText(
+              before,
+              chunk.globalOffset,
+              sliceRelativeBracketPositions(
+                chunkBracketPositions,
+                0,
+                before.length,
+              ),
+            )}
+            <Text backgroundColor="white" color="black">{charAt}</Text>
+            {renderChunkText(
+              after,
+              chunk.globalOffset + cursorLayout.cursorColInChunk + charLen,
+              sliceRelativeBracketPositions(
+                chunkBracketPositions,
+                cursorLayout.cursorColInChunk + charLen,
+                chunk.text.length,
+              ),
+            )}
+            {chunk.isLastVisual && ghostText && (
+              <Text dimColor>{ghostText}</Text>
+            )}
+          </Text>
+        </Box>
+      );
+    },
+  );
 
   // ============================================================
   // FIX C1: Unified mode guard - ensure only ONE overlay at a time

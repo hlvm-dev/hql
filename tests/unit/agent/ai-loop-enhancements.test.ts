@@ -79,8 +79,7 @@ Deno.test("Item 1: buildProviderOptions enables native thinking for supported pr
     { thinkingCapable: true },
   );
   assertEquals(google?.google?.thinkingConfig, {
-    includeThoughts: true,
-    thinkingLevel: "low",
+    thinkingBudget: 1024,
   });
 
   // Ollama (no thinking) — only num_ctx

@@ -14,14 +14,17 @@ import {
   getConversationDraftPreview,
 } from "../utils/conversation-queue.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
+import {
+  buildQueuePreviewHeaderLine,
+  buildQueuePreviewHintLine,
+  buildQueuePreviewItemLine,
+  buildQueuePreviewOverflowLine,
+  type ShellQueuePreviewLine,
+} from "../utils/shell-chrome.ts";
 
 const MAX_VISIBLE_ITEMS = 3;
 const PREVIEW_LENGTH = 72;
-
-export interface QueuePreviewLine {
-  kind: "header" | "item" | "ellipsis" | "hint";
-  text: string;
-}
+export type QueuePreviewLine = ShellQueuePreviewLine;
 
 export interface QueuePreviewProps {
   items: ConversationComposerDraft[];
@@ -34,32 +37,23 @@ export function buildQueuePreviewLines(
 ): QueuePreviewLine[] {
   if (items.length === 0) return [];
 
-  const lines: QueuePreviewLine[] = [{
-    kind: "header",
-    text: "Queued:",
-  }];
+  const lines: QueuePreviewLine[] = [buildQueuePreviewHeaderLine()];
 
   const visibleItems = items.slice(0, MAX_VISIBLE_ITEMS);
   for (let i = 0; i < visibleItems.length; i++) {
-    lines.push({
-      kind: "item",
-      text: `  ${i + 1}. ${
-        truncate(getConversationDraftPreview(visibleItems[i]), PREVIEW_LENGTH)
-      }`,
-    });
+    lines.push(
+      buildQueuePreviewItemLine(
+        i,
+        truncate(getConversationDraftPreview(visibleItems[i]), PREVIEW_LENGTH),
+      ),
+    );
   }
 
   if (items.length > visibleItems.length) {
-    lines.push({
-      kind: "ellipsis",
-      text: "    \u2026",
-    });
+    lines.push(buildQueuePreviewOverflowLine());
   }
 
-  lines.push({
-    kind: "hint",
-    text: `    ${editBindingLabel} edit last queued message`,
-  });
+  lines.push(buildQueuePreviewHintLine(editBindingLabel));
 
   return lines;
 }
@@ -84,8 +78,27 @@ export const QueuePreview = React.memo(function QueuePreview({
   return (
     <Box flexDirection="column">
       {lines.map((line: QueuePreviewLine, index: number) => {
-        const color = line.kind === "header" ? sc.text.primary : sc.text.muted;
-        const dimColor = line.kind !== "header";
+        if (line.chip) {
+          return (
+            <Box key={`${line.kind}-${index}`}>
+              <Text
+                backgroundColor={sc.shell.chipNeutral.background}
+                color={sc.shell.chipNeutral.foreground}
+              >
+                {" "}
+                {truncate(line.text, maxWidth, "…")}
+                {" "}
+              </Text>
+            </Box>
+          );
+        }
+
+        const color = line.tone === "hint"
+          ? sc.shell.queueHint
+          : line.tone === "neutral"
+          ? sc.text.primary
+          : sc.text.secondary;
+        const dimColor = line.tone !== "neutral";
         return (
           <Box key={`${line.kind}-${index}`}>
             <Text color={color} dimColor={dimColor}>

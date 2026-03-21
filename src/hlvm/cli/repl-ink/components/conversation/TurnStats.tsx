@@ -10,10 +10,12 @@ import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { formatDurationMs } from "../../utils/formatting.ts";
+import { buildTurnStatsTextLayout } from "./layout.ts";
 
 interface TurnStatsProps {
   toolCount: number;
   durationMs: number;
+  width: number;
   inputTokens?: number;
   outputTokens?: number;
   modelId?: string;
@@ -26,10 +28,17 @@ function formatTokens(n: number): string {
   return `${Math.round(n / 1000)}k`;
 }
 
-export const TurnStats = React.memo(function TurnStats({ toolCount, durationMs, inputTokens, outputTokens, modelId }: TurnStatsProps): React.ReactElement {
+export const TurnStats = React.memo(function TurnStats(
+  { toolCount, durationMs, width, inputTokens, outputTokens, modelId }:
+    TurnStatsProps,
+): React.ReactElement {
   const sc = useSemanticColors();
   const duration = formatDurationMs(durationMs);
-  const tools = toolCount === 0 ? "" : toolCount === 1 ? "1 tool" : `${toolCount} tools`;
+  const tools = toolCount === 0
+    ? ""
+    : toolCount === 1
+    ? "1 tool"
+    : `${toolCount} tools`;
   const model = modelId ? modelId.split("/").pop() ?? modelId : "";
 
   // Build token summary with explicit direction labels.
@@ -42,13 +51,28 @@ export const TurnStats = React.memo(function TurnStats({ toolCount, durationMs, 
     tokenPart = segments.join(" · ");
   }
 
-  const parts = [model, tools, duration, tokenPart].filter(Boolean).join(" · ");
+  const layout = buildTurnStatsTextLayout(
+    Math.max(10, width),
+    [model, tools, duration, tokenPart],
+  );
+  const leadingRule = "─".repeat(layout.leftRuleWidth);
+  const trailingRule = "─".repeat(layout.rightRuleWidth);
 
   return (
     <Box marginY={1}>
-      <Text color={sc.text.muted}>
-        {`── ${parts} ──`}
-      </Text>
+      {leadingRule.length > 0 && (
+        <Text color={sc.chrome.separator}>{leadingRule}</Text>
+      )}
+      {layout.text.length > 0 && (
+        <Text color={sc.text.muted}>
+          {leadingRule.length > 0 ? " " : ""}
+          {layout.text}
+          {trailingRule.length > 0 ? " " : ""}
+        </Text>
+      )}
+      {trailingRule.length > 0 && (
+        <Text color={sc.chrome.separator}>{trailingRule}</Text>
+      )}
     </Box>
   );
 });

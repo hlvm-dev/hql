@@ -34,6 +34,10 @@ import {
 import { useTheme } from "../../theme/index.ts";
 import { padTo } from "../utils/formatting.ts";
 import { STATUS_GLYPHS } from "../ui-constants.ts";
+import {
+  buildBalancedTextRow,
+  buildSectionLabelText,
+} from "../utils/display-chrome.ts";
 
 interface TeamDashboardOverlayProps {
   onClose: () => void;
@@ -54,6 +58,42 @@ type DashboardItem =
 const PADDING = TEAM_DASHBOARD_OVERLAY_SPEC.padding;
 const WIDE_DASHBOARD_MIN_WIDTH = 88;
 const DASHBOARD_COLUMN_GAP = 3;
+const DASHBOARD_ITEM_GLYPHS = {
+  member: "M",
+  task: "T",
+  approval: "R",
+  shutdown: "S",
+  attention: "!",
+} as const;
+
+export function buildTeamDashboardSummaryRows(
+  teamState: TeamDashboardState,
+  contentWidth: number,
+  interactionMode?: "permission" | "question",
+): [string, string] {
+  const primary = buildBalancedTextRow(
+    contentWidth,
+    `Members ${teamState.members.length} · Workers ${teamState.workers.length}`,
+    `Active ${
+      (teamState.taskCounts.in_progress ?? 0) +
+      (teamState.taskCounts.claimed ?? 0)
+    } · Done ${teamState.taskCounts.completed ?? 0}`,
+  );
+  const secondary = buildBalancedTextRow(
+    contentWidth,
+    `Reviews ${teamState.pendingApprovals.length} · Attention ${teamState.attentionItems.length}`,
+    interactionMode
+      ? `Interaction ${interactionMode}`
+      : `Shutdowns ${teamState.shutdowns.length} · Errors ${
+        teamState.taskCounts.errored ?? 0
+      }`,
+  );
+
+  return [
+    primary.leftText + " ".repeat(primary.gapWidth) + primary.rightText,
+    secondary.leftText + " ".repeat(secondary.gapWidth) + secondary.rightText,
+  ];
+}
 
 function workerStatusIcon(status: WorkerStatus["status"]): {
   icon: string;
@@ -80,7 +120,7 @@ function formatDashboardRow(item: DashboardItem, contentWidth: number): {
   switch (item.kind) {
     case "member":
       return {
-        icon: "M",
+        icon: DASHBOARD_ITEM_GLYPHS.member,
         iconColor: "accent",
         text: truncate(
           `${item.data.id} [${item.data.role}] ${item.data.status}${
@@ -111,7 +151,7 @@ function formatDashboardRow(item: DashboardItem, contentWidth: number): {
         ? ` · merge:${item.data.mergeState}`
         : "";
       return {
-        icon: "T",
+        icon: DASHBOARD_ITEM_GLYPHS.task,
         iconColor: "accent",
         text: truncate(
           `${item.data.status} ${item.data.goal}${assignee}${review}${merge}`,
@@ -121,7 +161,7 @@ function formatDashboardRow(item: DashboardItem, contentWidth: number): {
     }
     case "approval":
       return {
-        icon: "R",
+        icon: DASHBOARD_ITEM_GLYPHS.approval,
         iconColor: "warning",
         text: truncate(
           `${item.data.status} ${
@@ -132,7 +172,7 @@ function formatDashboardRow(item: DashboardItem, contentWidth: number): {
       };
     case "shutdown":
       return {
-        icon: "S",
+        icon: DASHBOARD_ITEM_GLYPHS.shutdown,
         iconColor: item.data.status === "forced" ? "error" : "warning",
         text: truncate(
           `${item.data.status} ${item.data.memberId}${
@@ -143,7 +183,7 @@ function formatDashboardRow(item: DashboardItem, contentWidth: number): {
       };
     case "attention":
       return {
-        icon: "!",
+        icon: DASHBOARD_ITEM_GLYPHS.attention,
         iconColor: "error",
         text: truncate(item.data.label, contentWidth),
       };
@@ -374,29 +414,17 @@ export function TeamDashboardOverlay({
     const title = "Team Dashboard";
     const closeHint = viewMode === "details" ? "esc/q back" : "esc/q close";
 
-    const members = teamState.members.length;
-    const running = teamState.taskCounts.in_progress ?? 0;
-    const claimed = teamState.taskCounts.claimed ?? 0;
-    const completed = teamState.taskCounts.completed ?? 0;
-    const errored = teamState.taskCounts.errored ?? 0;
-    const summaryText = truncate(
-      `${members} members · ${
-        running + claimed
-      } active tasks · ${completed} done · ${errored} errored`,
+    const [summaryText, secondaryText] = buildTeamDashboardSummaryRows(
+      teamState,
       contentWidth,
+      interactionMode,
     );
     drawRow(headerY, () => {
       output += " ".repeat(PADDING.left);
-      output += fg(colors.muted) + summaryText + ansi.reset + bgStyle;
+      output += fg(colors.accent) + summaryText + ansi.reset + bgStyle;
       return PADDING.left + summaryText.length;
     });
 
-    const secondaryText = truncate(
-      interactionMode
-        ? `Interaction pending: ${interactionMode}`
-        : `${teamState.pendingApprovals.length} reviews · ${teamState.attentionItems.length} attention`,
-      contentWidth,
-    );
     drawRow(headerY + 1, () => {
       output += " ".repeat(PADDING.left);
       output += fg(colors.muted) + secondaryText + ansi.reset + bgStyle;
@@ -484,8 +512,8 @@ export function TeamDashboardOverlay({
           16,
           contentWidth - leftWidth - DASHBOARD_COLUMN_GAP,
         );
-        const leftLabel = truncate("Members & Workers", leftWidth);
-        const rightLabel = truncate("Tasks & Reviews", rightWidth);
+        const leftLabel = buildSectionLabelText("Members & Workers", leftWidth);
+        const rightLabel = buildSectionLabelText("Tasks & Reviews", rightWidth);
         const labelY = overlayFrame.y + chromeLayout.contentStart;
 
         drawRow(labelY, () => {

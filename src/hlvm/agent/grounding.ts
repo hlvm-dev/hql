@@ -8,6 +8,7 @@
  */
 
 import { hasTool } from "./registry.ts";
+import { isCitationBackedWebToolName } from "./tool-capabilities.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
 
 // ============================================================
@@ -184,12 +185,6 @@ function responseIncorporatesToolData(
   return false;
 }
 
-const CITATION_BACKED_TOOL_NAMES = new Set([
-  "search_web",
-  "web_fetch",
-  "fetch_url",
-]);
-
 function toolUseHasCitationPayload(toolUse: ToolUse): boolean {
   try {
     const parsed = JSON.parse(toolUse.result);
@@ -200,8 +195,33 @@ function toolUseHasCitationPayload(toolUse: ToolUse): boolean {
 }
 
 function isCitationBackedToolUse(toolUse: ToolUse): boolean {
-  return CITATION_BACKED_TOOL_NAMES.has(toolUse.toolName) ||
+  return isCitationBackedWebToolName(toolUse.toolName) ||
     toolUseHasCitationPayload(toolUse);
+}
+
+function usesOnlyCitationBackedWebTools(toolUses: ToolUse[]): boolean {
+  return toolUses.length > 0 &&
+    toolUses.every((toolUse) => isCitationBackedWebToolName(toolUse.toolName));
+}
+
+function toolUseIndicatesEmptyCitationBackedResult(toolUse: ToolUse): boolean {
+  if (!isCitationBackedWebToolName(toolUse.toolName)) return false;
+
+  try {
+    const parsed = JSON.parse(toolUse.result);
+    if (!parsed || typeof parsed !== "object") return false;
+
+    const objectValue = parsed as Record<string, unknown>;
+    const results = objectValue.results;
+    if (Array.isArray(results) && results.length === 0) return true;
+
+    const count = objectValue.count;
+    if (typeof count === "number" && count === 0) return true;
+  } catch {
+    // Non-JSON tool payloads are treated as non-empty by default.
+  }
+
+  return false;
 }
 
 function hasCitationData(
@@ -259,10 +279,23 @@ export function checkGrounding(
       return lower.includes(normalized) || lower.includes(tool.toolName);
     });
     const incorporatesData = responseIncorporatesToolData(response, toolUses);
+    const citationBackedOnly = usesOnlyCitationBackedWebTools(toolUses);
+    const emptyCitationBackedResultsOnly = citationBackedOnly &&
+      toolUses.every(toolUseIndicatesEmptyCitationBackedResult);
     const hasCitations = hasCitationData(toolUses, citationSpans);
 
+    if (citationBackedOnly && !hasCitations && !emptyCitationBackedResultsOnly) {
+      warnings.push(
+        "Citation-backed web tools were used but no citations were produced.",
+      );
+    }
+
     if (
-      !mentionsBasedOn && !mentionsTool && !incorporatesData && !hasCitations
+      !(citationBackedOnly && !hasCitations && !emptyCitationBackedResultsOnly) &&
+      !mentionsBasedOn &&
+      !mentionsTool &&
+      !incorporatesData &&
+      !hasCitations
     ) {
       warnings.push(
         "Response does not cite tool sources. Include tool names or 'Based on ...'.",

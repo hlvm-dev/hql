@@ -21,6 +21,7 @@ import type { TransformNodeFn } from "../type/hql_ast.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { TransformError } from "../../../common/error.ts";
 import {
+  type BindingResolutionContext,
   identifierFromBindingRecord,
   registerLexicalBinding,
 } from "./binding-resolution.ts";
@@ -46,6 +47,7 @@ import {
  */
 export function patternToIR(
   pattern: Pattern | SkipPattern | RestPattern | null,
+  bindingContext: BindingResolutionContext,
   transformNode?: TransformNodeFn,
   currentDir?: string,
 ):
@@ -61,7 +63,7 @@ export function patternToIR(
 
   // Identifier pattern: x → x (or x = default)
   if (isIdentifierPattern(pattern)) {
-    const irPattern = identifierPatternToIR(pattern);
+    const irPattern = identifierPatternToIR(pattern, bindingContext);
     return wrapWithDefault(
       irPattern,
       pattern.default,
@@ -72,7 +74,12 @@ export function patternToIR(
 
   // Array pattern: [x y z] → const [x, y, z] = ... (or with default)
   if (isArrayPattern(pattern)) {
-    const irPattern = arrayPatternToIR(pattern, transformNode, currentDir);
+    const irPattern = arrayPatternToIR(
+      pattern,
+      bindingContext,
+      transformNode,
+      currentDir,
+    );
     return wrapWithDefault(
       irPattern,
       pattern.default,
@@ -83,7 +90,12 @@ export function patternToIR(
 
   // Object pattern: {x y} → const {x, y} = ... (or with default)
   if (isObjectPattern(pattern)) {
-    const irPattern = objectPatternToIR(pattern, transformNode, currentDir);
+    const irPattern = objectPatternToIR(
+      pattern,
+      bindingContext,
+      transformNode,
+      currentDir,
+    );
     return wrapWithDefault(
       irPattern,
       pattern.default,
@@ -99,7 +111,7 @@ export function patternToIR(
 
   // Rest pattern: & rest → ...rest
   if (isRestPattern(pattern)) {
-    return restPatternToIR(pattern);
+    return restPatternToIR(pattern, bindingContext);
   }
 
   throw new TransformError(`Unknown pattern type: ${JSON.stringify(pattern)}`, "pattern transformation");
@@ -157,8 +169,12 @@ function wrapWithDefault(
  * @param pattern - The identifier pattern
  * @returns IRIdentifier node
  */
-function identifierPatternToIR(pattern: IdentifierPattern): IR.IRIdentifier {
+function identifierPatternToIR(
+  pattern: IdentifierPattern,
+  bindingContext: BindingResolutionContext,
+): IR.IRIdentifier {
   const bindingRecord = registerLexicalBinding(
+    bindingContext,
     pattern.name,
     pattern._meta?.resolvedBinding,
   );
@@ -200,6 +216,7 @@ function identifierPatternToIR(pattern: IdentifierPattern): IR.IRIdentifier {
  */
 function arrayPatternToIR(
   pattern: ArrayPattern,
+  bindingContext: BindingResolutionContext,
   transformNode?: TransformNodeFn,
   currentDir?: string,
 ): IR.IRArrayPattern {
@@ -216,11 +233,16 @@ function arrayPatternToIR(
 
     // Rest pattern becomes IRRestElement
     if (isRestPattern(elem)) {
-      return restPatternToIR(elem);
+      return restPatternToIR(elem, bindingContext);
     }
 
     // All other patterns - use patternToIR recursively to handle defaults
-    const converted = patternToIR(elem, transformNode, currentDir);
+    const converted = patternToIR(
+      elem,
+      bindingContext,
+      transformNode,
+      currentDir,
+    );
 
     // Validate result type (only certain types allowed in array patterns)
     if (
@@ -271,6 +293,7 @@ function arrayPatternToIR(
  */
 function objectPatternToIR(
   pattern: ObjectPattern,
+  bindingContext: BindingResolutionContext,
   transformNode?: TransformNodeFn,
   currentDir?: string,
 ): IR.IRObjectPattern {
@@ -285,7 +308,12 @@ function objectPatternToIR(
       copyPosition(prop.value, key);
 
       // Convert value pattern to IR (with potential default from property)
-      let valueIR = patternToIR(prop.value, transformNode, currentDir);
+      let valueIR = patternToIR(
+        prop.value,
+        bindingContext,
+        transformNode,
+        currentDir,
+      );
 
       // If property itself has a default (from {x: y = 10} syntax), wrap it
       if (prop.default && transformNode && currentDir) {
@@ -373,10 +401,13 @@ function objectPatternToIR(
  * })
  * // → { type: IRNodeType.RestElement, argument: { type: IRNodeType.Identifier, name: "rest" } }
  */
-function restPatternToIR(pattern: RestPattern): IR.IRRestElement {
+function restPatternToIR(
+  pattern: RestPattern,
+  bindingContext: BindingResolutionContext,
+): IR.IRRestElement {
   const restElement: IR.IRRestElement = {
     type: IR.IRNodeType.RestElement,
-    argument: identifierPatternToIR(pattern.argument),
+    argument: identifierPatternToIR(pattern.argument, bindingContext),
   };
   copyPosition(pattern, restElement);
   return restElement;

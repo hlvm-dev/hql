@@ -7,6 +7,12 @@ export interface ToolCallTextLayout {
   gapWidth: number;
 }
 
+export interface TurnStatsTextLayout {
+  text: string;
+  leftRuleWidth: number;
+  rightRuleWidth: number;
+}
+
 export function buildToolGroupCountSlot(
   completed: number,
   total: number,
@@ -57,5 +63,30 @@ export function buildToolCallTextLayout(
     argsText,
     durationText,
     gapWidth,
+  };
+}
+
+export function buildTurnStatsTextLayout(
+  width: number,
+  parts: string[],
+): TurnStatsTextLayout {
+  const safeWidth = Math.max(0, width);
+  if (safeWidth === 0) {
+    return { text: "", leftRuleWidth: 0, rightRuleWidth: 0 };
+  }
+
+  const summary = truncate(parts.filter(Boolean).join(" · "), safeWidth, "…");
+  if (summary.length >= safeWidth) {
+    return { text: summary, leftRuleWidth: 0, rightRuleWidth: 0 };
+  }
+
+  const remaining = Math.max(0, safeWidth - summary.length - 2);
+  const leftRuleWidth = Math.floor(remaining / 2);
+  const rightRuleWidth = remaining - leftRuleWidth;
+
+  return {
+    text: summary,
+    leftRuleWidth,
+    rightRuleWidth,
   };
 }

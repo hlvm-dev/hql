@@ -45,6 +45,11 @@ import { useTheme } from "../../theme/index.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import { CURSOR_BLINK_MS } from "../ui-constants.ts";
 import { buildCursorWindowDisplay } from "../utils/cursor-window.ts";
+import {
+  buildPaletteCategoryLabel,
+  buildPaletteHeaderLayout,
+  buildPaletteItemLayout,
+} from "../utils/palette-layout.ts";
 
 // ============================================================
 // Types
@@ -309,10 +314,18 @@ export function CommandPaletteOverlay({
     const bgStyle = colors.bgStyle;
     let output = ansi.cursorSave + ansi.cursorHide;
 
+    const drawRow = (y: number, renderContent: () => number) => {
+      output += ansi.cursorTo(overlayFrame.x, y) + bgStyle;
+      const visibleLen = renderContent();
+      const remaining = overlayFrame.width - visibleLen;
+      if (remaining > 0) {
+        output += " ".repeat(remaining);
+      }
+    };
+
     // Helper: draw empty row
     const drawEmptyRow = (y: number) => {
-      output += ansi.cursorTo(overlayFrame.x, y) + bgStyle +
-        " ".repeat(overlayFrame.width);
+      drawRow(y, () => 0);
     };
 
     // === Top padding ===
@@ -321,7 +334,21 @@ export function CommandPaletteOverlay({
     }
 
     const headerY = overlayFrame.y + PADDING.top;
-    drawEmptyRow(headerY);
+    const headerLayout = buildPaletteHeaderLayout({
+      query,
+      resultCount: selectableItems.length,
+      selectedCount: selectedIndex >= 0 ? selectedIndex + 1 : 0,
+      rebindMode,
+    }, contentWidth);
+    drawRow(headerY, () => {
+      output += " ".repeat(PADDING.left);
+      output += fg(colors.muted) + headerLayout.leftText + ansi.reset + bgStyle;
+      output += " ".repeat(headerLayout.gapWidth);
+      output += fg(colors.category) + headerLayout.rightText + ansi.reset +
+        bgStyle;
+      return PADDING.left + headerLayout.leftText.length +
+        headerLayout.gapWidth + headerLayout.rightText.length;
+    });
 
     // === Search input row ===
     const searchY = headerY + 1;
@@ -383,7 +410,7 @@ export function CommandPaletteOverlay({
         // Category header
         output += " ".repeat(PADDING.left);
         output += fg(colors.category) + ansi.bold;
-        const catText = item.category.slice(0, contentWidth);
+        const catText = buildPaletteCategoryLabel(item.category, contentWidth);
         output += catText;
         output += ansi.reset + bgStyle;
         output += " ".repeat(
@@ -409,25 +436,26 @@ export function CommandPaletteOverlay({
           output += isInfoOnly ? "⌨ " : "  ";
         }
 
-        const maxLabelLen = contentWidth - 14;
-        const label = kb.label.slice(0, maxLabelLen);
+        const itemLayout = buildPaletteItemLayout(
+          kb.label,
+          display,
+          Math.max(0, contentWidth - 2),
+        );
         // Dim INFO items slightly when not selected
         if (isInfoOnly && !isSelected) {
           output += fg(colors.muted);
         }
-        output += label;
+        output += itemLayout.leftText;
         if (isInfoOnly && !isSelected) {
           output += ansi.reset + bgStyle;
         }
 
-        const shortcut = display.slice(0, 12);
-        const padLen = contentWidth - label.length - shortcut.length;
-        output += " ".repeat(Math.max(1, padLen));
+        output += " ".repeat(itemLayout.gapWidth);
 
         if (!isSelected) {
           output += fg(colors.muted);
         }
-        output += shortcut;
+        output += itemLayout.rightText;
         output += ansi.reset + bgStyle;
         output += " ".repeat(PADDING.right);
       }

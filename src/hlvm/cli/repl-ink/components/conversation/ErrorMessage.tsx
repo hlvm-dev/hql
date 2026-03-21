@@ -9,27 +9,33 @@ import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { STATUS_GLYPHS } from "../../ui-constants.ts";
+import { ChromeChip } from "../ChromeChip.tsx";
 
 interface ErrorMessageProps {
   text: string;
 }
 
-export const ErrorMessage = React.memo(function ErrorMessage({ text }: ErrorMessageProps): React.ReactElement {
-  const sc = useSemanticColors();
+export const ErrorMessage = React.memo(
+  function ErrorMessage({ text }: ErrorMessageProps): React.ReactElement {
+    const sc = useSemanticColors();
 
-  return (
-    <Box
-      marginBottom={1}
-      borderStyle="single"
-      borderLeft
-      borderRight={false}
-      borderTop={false}
-      borderBottom={false}
-      borderColor={sc.status.error}
-      paddingLeft={1}
-    >
-      <Text color={sc.status.error} bold>{STATUS_GLYPHS.error} </Text>
-      <Text color={sc.status.error} wrap="wrap">{text}</Text>
-    </Box>
-  );
-});
+    return (
+      <Box
+        marginBottom={1}
+        borderStyle="round"
+        borderLeft
+        borderRight={false}
+        borderTop={false}
+        borderBottom={false}
+        borderColor={sc.status.error}
+        paddingLeft={1}
+        flexDirection="column"
+      >
+        <Box>
+          <ChromeChip text={`${STATUS_GLYPHS.error} Error`} tone="error" />
+        </Box>
+        <Text color={sc.status.error} wrap="wrap">{text}</Text>
+      </Box>
+    );
+  },
+);

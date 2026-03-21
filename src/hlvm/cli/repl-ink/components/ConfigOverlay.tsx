@@ -66,6 +66,7 @@ import {
 import { CURSOR_BLINK_MS } from "../ui-constants.ts";
 import { buildCursorWindowDisplay } from "../utils/cursor-window.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
+import { buildBalancedTextRow } from "../utils/display-chrome.ts";
 
 // ============================================================
 // Types
@@ -198,6 +199,31 @@ function parseOptionValue(key: EditableConfigKey, value: string): unknown {
 /** Runtime-host-backed config accessor for shell overlays. */
 function getConfigApi(): RuntimeConfigApi {
   return getRuntimeConfigApi();
+}
+
+export function buildConfigSummaryRow(
+  {
+    description,
+    mode,
+    selectedIndex,
+    total,
+    isDefaultValue,
+  }: {
+    description: string;
+    mode: Mode;
+    selectedIndex: number;
+    total: number;
+    isDefaultValue: boolean;
+  },
+  contentWidth: number,
+): string {
+  const rightText = mode === "edit"
+    ? `${selectedIndex + 1}/${total} · editing`
+    : `${selectedIndex + 1}/${total} · ${
+      isDefaultValue ? "default" : "custom"
+    }`;
+  const layout = buildBalancedTextRow(contentWidth, description, rightText);
+  return layout.leftText + " ".repeat(layout.gapWidth) + layout.rightText;
 }
 
 // ============================================================
@@ -494,7 +520,22 @@ export function ConfigOverlay({
     }
 
     const headerY = overlayFrame.y + PADDING.top;
-    drawEmptyRow(headerY);
+    const summaryText = buildConfigSummaryRow(
+      {
+        description: fieldMeta.description,
+        mode,
+        selectedIndex,
+        total: OVERLAY_CONFIG_KEYS.length,
+        isDefaultValue: isDefault(selectedKey),
+      },
+      contentWidth,
+    );
+    drawRow(
+      headerY,
+      " ".repeat(PADDING.left) + fg(colors.muted) + summaryText +
+        ansi.reset + bgStyle,
+      PADDING.left + summaryText.length,
+    );
 
     // === Config field rows ===
     for (let i = 0; i < visibleFieldCount; i++) {
@@ -630,13 +671,17 @@ export function ConfigOverlay({
       footerColor = colors.muted;
     }
     const footerCount = OVERLAY_CONFIG_KEYS.length > visibleFieldCount
-      ? ` ${selectedIndex + 1}/${OVERLAY_CONFIG_KEYS.length}`
+      ? `${selectedIndex + 1}/${OVERLAY_CONFIG_KEYS.length}`
       : "";
-    const footerDisplay = (footerText + footerCount).slice(0, contentWidth);
-
-    const footerContent = " ".repeat(PADDING.left) +
-      fg(footerColor) + footerDisplay + ansi.reset + bgStyle +
-      " ".repeat(PADDING.right);
+    const footerLayout = buildBalancedTextRow(
+      contentWidth,
+      footerText,
+      footerCount,
+    );
+    const footerDisplay = footerLayout.leftText +
+      " ".repeat(footerLayout.gapWidth) + footerLayout.rightText;
+    const footerContent = " ".repeat(PADDING.left) + fg(footerColor) +
+      footerDisplay + ansi.reset + bgStyle + " ".repeat(PADDING.right);
     drawRow(
       footerY,
       footerContent,

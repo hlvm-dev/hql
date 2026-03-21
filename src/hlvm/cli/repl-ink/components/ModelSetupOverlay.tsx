@@ -8,6 +8,7 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
+import { useSemanticColors } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { formatBytes } from "../../../../common/limits.ts";
 import { ProgressBar } from "./conversation/ProgressBar.tsx";
@@ -18,11 +19,9 @@ import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { createRuntimeConfigManager } from "../../../runtime/model-config.ts";
 import { resolveModelAvailabilityTarget } from "../../../runtime/model-availability.ts";
 import { getConfiguredModelReadiness } from "../../../runtime/configured-model-readiness.ts";
-import {
-  clampPanelWidth,
-  DEFAULT_TERMINAL_WIDTH,
-} from "../ui-constants.ts";
+import { clampPanelWidth, DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 import { truncate } from "../../../../common/utils.ts";
+import { ChromeChip } from "./ChromeChip.tsx";
 
 // ============================================================
 // Types
@@ -50,6 +49,7 @@ export function ModelSetupOverlay({
   endpoint = DEFAULT_OLLAMA_ENDPOINT,
 }: ModelSetupOverlayProps): React.ReactElement {
   const { color } = useTheme();
+  const sc = useSemanticColors();
   const { stdout } = useStdout();
   const { tasks, cancel } = useTaskManager();
   const manager = useMemo(() => getTaskManager(endpoint), [endpoint]);
@@ -121,6 +121,7 @@ export function ModelSetupOverlay({
   const completed = progress?.completed ?? 0;
   const total = progress?.total ?? 0;
   const status = progress?.status ?? "Preparing...";
+  const percentLabel = `${Math.round(percent)}%`;
 
   // Determine display state
   const isDownloading = task?.status === "running" ||
@@ -139,62 +140,74 @@ export function ModelSetupOverlay({
       width={panelWidth}
       alignSelf="center"
     >
-      {/* Header */}
       <Box marginBottom={1}>
+        <ChromeChip text="AI setup" tone="active" />
+        <Text></Text>
         <Text bold color={color("primary")}>
-          ⏳ First-time AI Setup
+          First-time model download
         </Text>
       </Box>
 
-      {/* Status */}
       <Box marginBottom={1}>
-        <Text>Downloading </Text>
+        <Text color={sc.text.muted}>Downloading</Text>
         <Text bold color={color("accent")}>
           {truncate(modelName, Math.max(8, contentWidth - 12), "…")}
         </Text>
       </Box>
 
-      {/* Progress bar */}
+      <Box marginBottom={1}>
+        <Text color={sc.text.muted}>
+          {truncate(`Endpoint · ${endpoint}`, contentWidth, "…")}
+        </Text>
+      </Box>
+
       {isDownloading && (
         <Box flexDirection="column">
-          <Box>
+          <Box justifyContent="space-between">
             <ProgressBar current={percent} total={100} width={progressWidth} />
+            <Text color={sc.text.muted}>{percentLabel}</Text>
           </Box>
           {total > 0 && (
             <Box marginTop={0}>
-              <Text dimColor>
-                {formatBytes(completed)} / {formatBytes(total)}
+              <Text color={sc.text.muted}>
+                {status} · {formatBytes(completed)} / {formatBytes(total)}
               </Text>
             </Box>
           )}
           {status && !total && (
             <Box marginTop={0}>
-              <Text dimColor>{status}</Text>
+              <Text color={sc.text.muted}>{status}</Text>
             </Box>
           )}
         </Box>
       )}
 
-      {/* Failed state */}
       {isFailed && (
-        <Box flexDirection="column">
-          <Text color={color("error")}>✗ Download failed</Text>
-          <Text dimColor>Check that Ollama is running and try again.</Text>
+        <Box flexDirection="column" marginTop={1}>
+          <Box>
+            <ChromeChip text="Download failed" tone="error" />
+          </Box>
+          <Text color={sc.text.muted}>
+            Check that Ollama is running and try again.
+          </Text>
         </Box>
       )}
 
-      {/* Cancelled state */}
       {isCancelled && (
-        <Box>
-          <Text color={color("warning")}>Download cancelled</Text>
+        <Box marginTop={1}>
+          <ChromeChip text="Download cancelled" tone="warning" />
         </Box>
       )}
 
-      {/* Footer hint */}
-      <Box marginTop={1}>
-        <Text dimColor wrap="truncate-end">
+      <Box marginTop={1} flexDirection="column">
+        <Box>
+          <ChromeChip text="One-time download" tone="neutral" />
+          <Text></Text>
+          <ChromeChip text="Esc cancels" tone="warning" />
+        </Box>
+        <Text color={sc.text.muted} wrap="truncate-end">
           {truncate(
-            "This is a one-time download (~2GB). Press Esc to cancel.",
+            "Initial model setup may download around 2GB once.",
             contentWidth,
             "…",
           )}

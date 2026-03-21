@@ -24,6 +24,7 @@ import {
   createBasicSymbolInfo,
   enrichSymbolInfoWithValueType,
 } from "./transpiler/utils/symbol_info_utils.ts";
+import { canonicalizeModuleId } from "./transpiler/utils/module-identity.ts";
 import {
   registerBuiltins,
   registerMacro,
@@ -754,6 +755,8 @@ export class Environment {
         (targetObj as Record<string, Value>)[k] = v;
       }
 
+      const canonicalModuleName = canonicalizeModuleId(moduleName, moduleName);
+
       // Register module in symbol table
       globalSymbolTable.set({
         name: moduleName,
@@ -780,7 +783,7 @@ export class Environment {
               scope: "module",
               parent: moduleName,
               isImported: true,
-              sourceModule: moduleName,
+              sourceModule: canonicalModuleName,
             });
           } else if ("isDefFunction" in exportValue) {
             this.define(`${moduleName}.${exportName}`, exportValue);
@@ -793,7 +796,7 @@ export class Environment {
               parent: moduleName,
               type: "Function",
               isImported: true,
-              sourceModule: moduleName,
+              sourceModule: canonicalModuleName,
             });
           }
         } else {
@@ -812,7 +815,7 @@ export class Environment {
             parent: moduleName,
             type: typeDescription,
             isImported: true,
-            sourceModule: moduleName,
+            sourceModule: canonicalModuleName,
           });
         }
       }
@@ -1102,13 +1105,14 @@ export class Environment {
       );
       if (success) {
         const importName = aliasName || macroName;
+        const canonicalSourceFile = canonicalizeModuleId(sourceFile, sourceFile);
         // Register in symbol table
         globalSymbolTable.set({
           name: importName,
           kind: "macro",
           scope: "local",
           aliasOf: aliasName ? macroName : undefined,
-          sourceModule: sourceFile,
+          sourceModule: canonicalSourceFile,
           isImported: true,
         });
       }

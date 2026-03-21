@@ -30,8 +30,10 @@ interface BindingCarrier {
   _meta?: SExpMeta;
 }
 
-let currentSymbolTable: SymbolTable = globalSymbolTable;
-let lexicalScopes: LexicalScope[] = [createLexicalScope()];
+export interface BindingResolutionContext {
+  symbolTable: SymbolTable;
+  lexicalScopes: LexicalScope[];
+}
 
 function createLexicalScope(): LexicalScope {
   return {
@@ -40,11 +42,20 @@ function createLexicalScope(): LexicalScope {
   };
 }
 
-function getCurrentScope(): LexicalScope {
-  if (lexicalScopes.length === 0) {
-    lexicalScopes = [createLexicalScope()];
+export function createBindingResolutionContext(
+  symbolTable: SymbolTable = globalSymbolTable,
+): BindingResolutionContext {
+  return {
+    symbolTable,
+    lexicalScopes: [createLexicalScope()],
+  };
+}
+
+function getCurrentScope(context: BindingResolutionContext): LexicalScope {
+  if (context.lexicalScopes.length === 0) {
+    context.lexicalScopes = [createLexicalScope()];
   }
-  return lexicalScopes[lexicalScopes.length - 1];
+  return context.lexicalScopes[context.lexicalScopes.length - 1];
 }
 
 function normalizeBindingIdentitySegment(value: string): string {
@@ -93,35 +104,34 @@ export function buildBoundIdentifierName(
   return sanitizeIdentifier(`${baseName}__${suffix}`);
 }
 
-export function initializeBindingResolution(symbolTable: SymbolTable): void {
-  currentSymbolTable = symbolTable;
-  lexicalScopes = [createLexicalScope()];
+export function pushLexicalScope(context: BindingResolutionContext): void {
+  context.lexicalScopes.push(createLexicalScope());
 }
 
-export function pushLexicalScope(): void {
-  lexicalScopes.push(createLexicalScope());
-}
-
-export function popLexicalScope(): void {
-  if (lexicalScopes.length > 1) {
-    lexicalScopes.pop();
+export function popLexicalScope(context: BindingResolutionContext): void {
+  if (context.lexicalScopes.length > 1) {
+    context.lexicalScopes.pop();
   }
 }
 
-export function withLexicalScope<T>(fn: () => T): T {
-  pushLexicalScope();
+export function withLexicalScope<T>(
+  context: BindingResolutionContext,
+  fn: () => T,
+): T {
+  pushLexicalScope(context);
   try {
     return fn();
   } finally {
-    popLexicalScope();
+    popLexicalScope(context);
   }
 }
 
 function findLexicalBindingByName(
+  context: BindingResolutionContext,
   name: string,
 ): LexicalBindingRecord | undefined {
-  for (let i = lexicalScopes.length - 1; i >= 0; i--) {
-    const binding = lexicalScopes[i].bindingsByName.get(name);
+  for (let i = context.lexicalScopes.length - 1; i >= 0; i--) {
+    const binding = context.lexicalScopes[i].bindingsByName.get(name);
     if (binding) {
       return binding;
     }
@@ -130,10 +140,13 @@ function findLexicalBindingByName(
 }
 
 function findLexicalBindingByIdentity(
+  context: BindingResolutionContext,
   bindingIdentity: string,
 ): LexicalBindingRecord | undefined {
-  for (let i = lexicalScopes.length - 1; i >= 0; i--) {
-    const binding = lexicalScopes[i].bindingsByIdentity.get(bindingIdentity);
+  for (let i = context.lexicalScopes.length - 1; i >= 0; i--) {
+    const binding = context.lexicalScopes[i].bindingsByIdentity.get(
+      bindingIdentity,
+    );
     if (binding) {
       return binding;
     }
@@ -142,9 +155,10 @@ function findLexicalBindingByIdentity(
 }
 
 function registerLexicalBindingRecord(
+  context: BindingResolutionContext,
   record: LexicalBindingRecord,
 ): LexicalBindingRecord {
-  const scope = getCurrentScope();
+  const scope = getCurrentScope(context);
   scope.bindingsByName.set(record.sourceName, record);
   if (record.bindingIdentity) {
     scope.bindingsByIdentity.set(record.bindingIdentity, record);
@@ -169,25 +183,30 @@ function createLexicalBindingRecord(
 }
 
 export function registerLexicalBinding(
+  context: BindingResolutionContext,
   name: string,
   meta?: ResolvedBindingMeta,
 ): LexicalBindingRecord {
-  return registerLexicalBindingRecord(createLexicalBindingRecord(name, meta));
+  return registerLexicalBindingRecord(
+    context,
+    createLexicalBindingRecord(name, meta),
+  );
 }
 
 export function registerDeclaredBinding(
+  context: BindingResolutionContext,
   name: string,
   originalName: string = name,
   meta?: ResolvedBindingMeta,
 ): LexicalBindingRecord {
   if (meta) {
-    return registerLexicalBinding(name, meta);
+    return registerLexicalBinding(context, name, meta);
   }
 
-  if (lexicalScopes.length === 1) {
-    const symbolInfo = lookupSymbolInfoByName(originalName);
+  if (context.lexicalScopes.length === 1) {
+    const symbolInfo = lookupSymbolInfoByName(context, originalName);
     if (symbolInfo?.bindingIdentity || symbolInfo?.jsName) {
-      return registerLexicalBindingRecord({
+      return registerLexicalBindingRecord(context, {
         sourceName: name,
         jsName: symbolInfo.jsName ??
           buildBoundIdentifierName(
@@ -200,15 +219,16 @@ export function registerDeclaredBinding(
     }
   }
 
-  return registerLexicalBinding(name, undefined);
+  return registerLexicalBinding(context, name, undefined);
 }
 
 export function registerBindingAlias(
+  context: BindingResolutionContext,
   name: string,
   bindingIdentity?: string,
   jsName?: string,
 ): LexicalBindingRecord {
-  return registerLexicalBindingRecord({
+  return registerLexicalBindingRecord(context, {
     sourceName: name,
     jsName: jsName ??
       (bindingIdentity
@@ -219,15 +239,21 @@ export function registerBindingAlias(
 }
 
 export function registerBindingCarrier(
+  context: BindingResolutionContext,
   carrier: BindingCarrier,
 ): LexicalBindingRecord {
-  return registerLexicalBinding(carrier.name, carrier._meta?.resolvedBinding);
+  return registerLexicalBinding(
+    context,
+    carrier.name,
+    carrier._meta?.resolvedBinding,
+  );
 }
 
 export function identifierFromBindingCarrier(
+  context: BindingResolutionContext,
   carrier: BindingCarrier,
 ): IR.IRIdentifier {
-  const record = registerBindingCarrier(carrier);
+  const record = registerBindingCarrier(context, carrier);
   return createId(record.jsName, {
     originalName: carrier.name,
     bindingIdentity: record.bindingIdentity,
@@ -245,17 +271,22 @@ export function identifierFromBindingRecord(
 }
 
 function lookupSymbolInfoByBindingIdentity(
+  context: BindingResolutionContext,
   bindingIdentity: string,
 ): SymbolInfo | undefined {
-  return currentSymbolTable.getByBindingIdentity(bindingIdentity) ??
+  return context.symbolTable.getByBindingIdentity(bindingIdentity) ??
     globalSymbolTable.getByBindingIdentity(bindingIdentity);
 }
 
-function lookupSymbolInfoByName(name: string): SymbolInfo | undefined {
-  return currentSymbolTable.get(name) ?? globalSymbolTable.get(name);
+function lookupSymbolInfoByName(
+  context: BindingResolutionContext,
+  name: string,
+): SymbolInfo | undefined {
+  return context.symbolTable.get(name) ?? globalSymbolTable.get(name);
 }
 
 export function lookupResolvedSymbolInfo(
+  context: BindingResolutionContext,
   symbol: BindingCarrier,
 ): SymbolInfo | undefined {
   const resolvedBinding = symbol._meta?.resolvedBinding;
@@ -266,10 +297,10 @@ export function lookupResolvedSymbolInfo(
     resolvedBinding.modulePath !== "<special-form>" &&
     resolvedBinding.modulePath !== "<builtin>"
   ) {
-    return lookupSymbolInfoByBindingIdentity(bindingIdentity);
+    return lookupSymbolInfoByBindingIdentity(context, bindingIdentity);
   }
 
-  return lookupSymbolInfoByName(symbol.name);
+  return lookupSymbolInfoByName(context, symbol.name);
 }
 
 function identifierFromSymbolInfo(
@@ -283,8 +314,11 @@ function identifierFromSymbolInfo(
   });
 }
 
-export function identifierFromRegisteredName(name: string): IR.IRIdentifier {
-  const symbolInfo = lookupSymbolInfoByName(name);
+export function identifierFromRegisteredName(
+  context: BindingResolutionContext,
+  name: string,
+): IR.IRIdentifier {
+  const symbolInfo = lookupSymbolInfoByName(context, name);
   if (!symbolInfo) {
     return createId(sanitizeIdentifier(name), {
       originalName: name,
@@ -307,14 +341,20 @@ export function identifierFromRegisteredName(name: string): IR.IRIdentifier {
   );
 }
 
-export function resolveSymbolIdentifier(symbol: SymbolNode): IR.IRIdentifier {
+export function resolveSymbolIdentifier(
+  context: BindingResolutionContext,
+  symbol: SymbolNode,
+): IR.IRIdentifier {
   const meta = getMeta(symbol);
   const resolvedBinding = meta?.resolvedBinding;
   const bindingIdentity = resolvedBindingIdentity(resolvedBinding);
 
   if (resolvedBinding && bindingIdentity) {
     if (resolvedBinding.kind === "local") {
-      const lexicalBinding = findLexicalBindingByIdentity(bindingIdentity);
+      const lexicalBinding = findLexicalBindingByIdentity(
+        context,
+        bindingIdentity,
+      );
       if (!lexicalBinding) {
         throw new ValidationError(
           `Resolved local binding '${symbol.name}' is no longer in scope`,
@@ -334,7 +374,7 @@ export function resolveSymbolIdentifier(symbol: SymbolNode): IR.IRIdentifier {
       });
     }
 
-    const target = lookupSymbolInfoByBindingIdentity(bindingIdentity);
+    const target = lookupSymbolInfoByBindingIdentity(context, bindingIdentity);
     if (!target) {
       throw new ValidationError(
         `Resolved module binding '${resolvedBinding.exportName}' from '${resolvedBinding.modulePath}' could not be found`,
@@ -344,12 +384,12 @@ export function resolveSymbolIdentifier(symbol: SymbolNode): IR.IRIdentifier {
     return identifierFromSymbolInfo(symbol.name, target, bindingIdentity);
   }
 
-  const lexicalBinding = findLexicalBindingByName(symbol.name);
+  const lexicalBinding = findLexicalBindingByName(context, symbol.name);
   if (lexicalBinding) {
     return identifierFromBindingRecord(lexicalBinding, symbol.name);
   }
 
-  const symbolInfo = lookupResolvedSymbolInfo(symbol);
+  const symbolInfo = lookupResolvedSymbolInfo(context, symbol);
   if (symbolInfo?.jsName || symbolInfo?.bindingIdentity) {
     return identifierFromSymbolInfo(
       symbol.name,

@@ -28,7 +28,10 @@ import {
   createMember,
   createStr,
 } from "../utils/ir-helpers.ts";
-import { resolveSymbolIdentifier } from "../utils/binding-resolution.ts";
+import {
+  type BindingResolutionContext,
+  resolveSymbolIdentifier,
+} from "../utils/binding-resolution.ts";
 
 /**
  * Transform arguments, handling spread operators.
@@ -113,6 +116,7 @@ export function transformJsNew(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  _bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   if (list.elements.length < 2) {
     throw new ValidationError(
@@ -165,6 +169,7 @@ export function transformJsGet(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  _bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   validateListLength(list, 3, "js-get");
 
@@ -203,6 +208,7 @@ export function transformJsCall(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  _bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   if (list.elements.length < 2) {
     throw arityError("js-call", "at least 1", list.elements.length - 1);
@@ -261,6 +267,7 @@ export function transformJsSet(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  _bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   validateListLength(list, 4, "js-set");
 
@@ -299,6 +306,7 @@ export function transformJsGetInvoke(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  _bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   validateListLength(list, 3, "js-get-invoke");
 
@@ -333,6 +341,7 @@ export function transformJsGetInvokeSpecialCase(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  _bindingContext: BindingResolutionContext,
 ): IR.IRNode | null {
   if (
     list.elements.length === 3 &&
@@ -374,11 +383,12 @@ export function transformDotNotation(
   op: string,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   const parts = op.split(".");
   const objectExpr = parts[0] === "self"
     ? createId("this")
-    : resolveSymbolIdentifier({
+    : resolveSymbolIdentifier(bindingContext, {
       type: "symbol",
       name: parts[0],
     } as SymbolNode);

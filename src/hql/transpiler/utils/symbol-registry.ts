@@ -5,6 +5,7 @@
 // Reusable helpers for registering symbols in the global symbol table.
 
 import { globalSymbolTable } from "../symbol_table.ts";
+import { canonicalizeModuleId } from "./module-identity.ts";
 
 /**
  * Register a builtin function/special form in the global symbol table.
@@ -58,6 +59,6 @@ export function registerMacro(
     kind: "macro",
     scope: "global",
     isExported,
-    sourceModule: sourceFile,
+    sourceModule: canonicalizeModuleId(sourceFile, sourceFile),
   });
 }

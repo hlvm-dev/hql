@@ -303,7 +303,7 @@ Deno.test("handlers: chat rejects attachments for agent models without vision su
       assertEquals(response.status, 400);
       assertEquals(
         (await response.json()).error,
-        "multimodal-test/tools-only does not support this attachment type.",
+        "multimodal-test/tools-only does not support image attachments. Supported: PDF, audio, video, text.",
       );
     });
   });

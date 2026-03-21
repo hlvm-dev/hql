@@ -17,6 +17,7 @@ import { validateTransformed } from "../../utils/validation-helpers.ts";
 import * as functionModule from "../../syntax/function.ts";
 import { processFunctionBody } from "../../syntax/function.ts";
 import * as jsInteropModule from "../../syntax/js-interop.ts";
+import type { BindingResolutionContext } from "../../utils/binding-resolution.ts";
 
 // Type for metadata returned from extractMeta
 type MetaData = {
@@ -53,6 +54,7 @@ export function transformAsync(
   list: ListNode,
   currentDir: string,
   transformNode: TransformNodeFn,
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode | null {
   if (list.elements.length < 2) {
     throw new ValidationError(
@@ -85,7 +87,13 @@ export function transformAsync(
   let transformed: IR.IRNode;
   if (isGenerator) {
     // Async generator: (async fn* name [params] body...)
-    transformed = transformGeneratorFn(fnList, currentDir, transformNode, processFunctionBody);
+    transformed = transformGeneratorFn(
+      fnList,
+      currentDir,
+      transformNode,
+      processFunctionBody,
+      bindingContext,
+    );
   } else {
     // Regular async function: (async fn name [params] body...)
     transformed = functionModule.transformFn(
@@ -93,6 +101,7 @@ export function transformAsync(
       currentDir,
       transformNode,
       processFunctionBody,
+      bindingContext,
     );
   }
 
@@ -162,6 +171,7 @@ export function transformGeneratorFn(
   currentDir: string,
   transformNode: TransformNodeFn,
   processFnBody: (body: HQLNode[], dir: string) => IR.IRNode[],
+  bindingContext: BindingResolutionContext,
 ): IR.IRNode {
   // Transform as regular fn, then set generator flag
   const transformed = functionModule.transformFn(
@@ -169,6 +179,7 @@ export function transformGeneratorFn(
     currentDir,
     transformNode,
     processFnBody,
+    bindingContext,
   );
 
   // Set generator flag on the function based on its type

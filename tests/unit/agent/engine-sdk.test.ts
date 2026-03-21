@@ -1,19 +1,22 @@
-import {
-  assertEquals,
-  assertExists,
-  assertRejects,
-} from "jsr:@std/assert";
+import { assertEquals, assertExists, assertRejects } from "jsr:@std/assert";
 import {
   applyPromptCaching,
   buildToolCallRepairFunction,
+  filterLocallyExecutableToolCalls,
   getSdkModel,
   mapSdkToolCalls,
+  mergeSdkWebCapabilityTools,
   repairMalformedToolCallInput,
   SdkAgentEngine,
 } from "../../../src/hlvm/agent/engine-sdk.ts";
 import {
-  convertToSdkMessages,
+  REMOTE_CODE_EXECUTE_TOOL_NAME,
+  resolveProviderExecutionPlan,
+  resolveWebCapabilityPlan,
+} from "../../../src/hlvm/agent/tool-capabilities.ts";
+import {
   convertToolDefinitionsToSdk,
+  convertToSdkMessages,
   mapSdkUsage,
 } from "../../../src/hlvm/providers/sdk-runtime.ts";
 import type { Message } from "../../../src/hlvm/agent/context.ts";
@@ -66,13 +69,25 @@ Deno.test("engine sdk: assistant tool calls become content parts and tool result
   assertEquals(result.length, 2);
   assertEquals(result[0].role, "assistant");
   assertEquals(assistantContent[0].type, "text");
-  assertEquals((assistantContent[0] as { text: string }).text, "Let me search for that.");
+  assertEquals(
+    (assistantContent[0] as { text: string }).text,
+    "Let me search for that.",
+  );
   assertEquals(assistantContent[1].type, "tool-call");
-  assertEquals((assistantContent[1] as { toolCallId: string }).toolCallId, "call_123");
-  assertEquals((assistantContent[1] as { toolName: string }).toolName, "search_code");
+  assertEquals(
+    (assistantContent[1] as { toolCallId: string }).toolCallId,
+    "call_123",
+  );
+  assertEquals(
+    (assistantContent[1] as { toolName: string }).toolName,
+    "search_code",
+  );
   assertEquals(result[1].role, "tool");
   assertEquals(toolContent[0].type, "tool-result");
-  assertEquals((toolContent[0] as { toolCallId: string }).toolCallId, "call_123");
+  assertEquals(
+    (toolContent[0] as { toolCallId: string }).toolCallId,
+    "call_123",
+  );
 });
 
 Deno.test("engine sdk: tool-call argument parsing tolerates object, string, and invalid JSON inputs", () => {
@@ -108,8 +123,12 @@ Deno.test("engine sdk: tool-call argument parsing tolerates object, string, and 
   ]);
 
   const stringContent = stringArgs[0].content as Array<Record<string, unknown>>;
-  const invalidContent = invalidArgs[0].content as Array<Record<string, unknown>>;
-  assertEquals((stringContent[0] as { input: unknown }).input, { path: "foo.ts" });
+  const invalidContent = invalidArgs[0].content as Array<
+    Record<string, unknown>
+  >;
+  assertEquals((stringContent[0] as { input: unknown }).input, {
+    path: "foo.ts",
+  });
   assertEquals((invalidContent[0] as { input: unknown }).input, {});
 });
 
@@ -188,6 +207,222 @@ Deno.test("engine sdk: usage mapping preserves values and defaults missing count
   assertEquals(mapSdkUsage(undefined), undefined);
 });
 
+Deno.test("engine sdk: provider-executed native web_search tool calls are excluded from local execution", () => {
+  const mapped = mapSdkToolCalls([
+    {
+      toolCallId: "call_native",
+      toolName: "web_search",
+      input: { query: "latest deno blog" },
+    },
+    {
+      toolCallId: "call_local",
+      toolName: "read_file",
+      input: { path: "README.md" },
+    },
+  ]);
+
+  assertEquals(
+    filterLocallyExecutableToolCalls(
+      mapped,
+      resolveProviderExecutionPlan({
+        providerName: "google",
+        allowlist: ["web_search"],
+        nativeCapabilities: {
+          webSearch: true,
+          webPageRead: false,
+          remoteCodeExecution: false,
+        },
+      }),
+    ),
+    [{
+      id: "call_local",
+      toolName: "read_file",
+      args: { path: "README.md" },
+    }],
+  );
+});
+
+Deno.test("engine sdk: provider-executed native web_fetch is excluded only on the dedicated conservative surface", () => {
+  const mapped = mapSdkToolCalls([
+    {
+      toolCallId: "call_native_fetch",
+      toolName: "web_fetch",
+      input: {},
+    },
+    {
+      toolCallId: "call_local",
+      toolName: "read_file",
+      input: { path: "README.md" },
+    },
+  ]);
+
+  assertEquals(
+    filterLocallyExecutableToolCalls(
+      mapped,
+      resolveProviderExecutionPlan({
+        providerName: "google",
+        allowlist: ["web_fetch"],
+        nativeCapabilities: {
+          webSearch: true,
+          webPageRead: true,
+          remoteCodeExecution: true,
+        },
+      }),
+    ),
+    [{
+      id: "call_local",
+      toolName: "read_file",
+      args: { path: "README.md" },
+    }],
+  );
+});
+
+Deno.test("engine sdk: provider-executed remote_code_execute is excluded from local execution", () => {
+  const mapped = mapSdkToolCalls([
+    {
+      toolCallId: "call_native_remote",
+      toolName: "code_execution",
+      input: { code: "print(1)" },
+    },
+    {
+      toolCallId: "call_local",
+      toolName: "read_file",
+      input: { path: "README.md" },
+    },
+  ]);
+
+  assertEquals(
+    filterLocallyExecutableToolCalls(
+      mapped,
+      resolveProviderExecutionPlan({
+        providerName: "google",
+        allowlist: [REMOTE_CODE_EXECUTE_TOOL_NAME],
+        nativeCapabilities: {
+          webSearch: true,
+          webPageRead: true,
+          remoteCodeExecution: true,
+        },
+      }),
+    ),
+    [{
+      id: "call_local",
+      toolName: "read_file",
+      args: { path: "README.md" },
+    }],
+  );
+});
+
+Deno.test("engine sdk: native provider tools replace custom tools only when the resolved execution plan activates them", () => {
+  const customSearchTool = convertToolDefinitionsToSdk([{
+    type: "function",
+    function: {
+      name: "search_web",
+      description: "Search the web",
+      parameters: { type: "object", properties: {} },
+    },
+  }])!.search_web;
+  const nativeSearchTool = convertToolDefinitionsToSdk([{
+    type: "function",
+    function: {
+      name: "web_search",
+      description: "Native web search",
+      parameters: { type: "object", properties: {} },
+    },
+  }])!.web_search;
+  const readFileTool = convertToolDefinitionsToSdk([{
+    type: "function",
+    function: {
+      name: "read_file",
+      description: "Read a file",
+      parameters: { type: "object", properties: {} },
+    },
+  }])!.read_file;
+  const webFetchTool = convertToolDefinitionsToSdk([{
+    type: "function",
+    function: {
+      name: "web_fetch",
+      description: "Fetch a readable page",
+      parameters: { type: "object", properties: {} },
+    },
+  }])!.web_fetch;
+  const remoteCodeTool = convertToolDefinitionsToSdk([{
+    type: "function",
+    function: {
+      name: REMOTE_CODE_EXECUTE_TOOL_NAME,
+      description: "Remote code execution",
+      parameters: { type: "object", properties: {} },
+    },
+  }])![REMOTE_CODE_EXECUTE_TOOL_NAME];
+  const nativePlan = resolveWebCapabilityPlan({
+    providerName: "openai",
+    nativeCapabilities: {
+      webSearch: true,
+      webPageRead: false,
+      remoteCodeExecution: false,
+    },
+  });
+  const customPlan = resolveWebCapabilityPlan({
+    providerName: "google",
+    nativeCapabilities: {
+      webSearch: false,
+      webPageRead: false,
+      remoteCodeExecution: false,
+    },
+  });
+  const providerPlan = resolveProviderExecutionPlan({
+    providerName: "google",
+    allowlist: ["web_fetch", REMOTE_CODE_EXECUTE_TOOL_NAME],
+    nativeCapabilities: {
+      webSearch: true,
+      webPageRead: true,
+      remoteCodeExecution: true,
+    },
+  });
+
+  assertEquals(
+    Object.keys(mergeSdkWebCapabilityTools(
+      {
+        search_web: customSearchTool,
+        read_file: readFileTool,
+        web_fetch: webFetchTool,
+      },
+      { web_search: nativeSearchTool },
+      nativePlan,
+    )).sort(),
+    ["read_file", "web_fetch", "web_search"],
+  );
+  assertEquals(
+    mergeSdkWebCapabilityTools(
+      { search_web: customSearchTool },
+      {},
+      nativePlan,
+    ).search_web,
+    customSearchTool,
+  );
+  assertEquals(
+    mergeSdkWebCapabilityTools(
+      { search_web: customSearchTool },
+      { web_search: nativeSearchTool },
+      customPlan,
+    ).search_web,
+    customSearchTool,
+  );
+  assertEquals(
+    Object.keys(mergeSdkWebCapabilityTools(
+      {
+        web_fetch: webFetchTool,
+        [REMOTE_CODE_EXECUTE_TOOL_NAME]: remoteCodeTool,
+      },
+      {
+        web_fetch: nativeSearchTool,
+        [REMOTE_CODE_EXECUTE_TOOL_NAME]: nativeSearchTool,
+      },
+      providerPlan,
+    )).sort(),
+    [REMOTE_CODE_EXECUTE_TOOL_NAME, "web_fetch"],
+  );
+});
+
 Deno.test("engine sdk: SdkAgentEngine exposes llm and summarizer factories", () => {
   const engine = new SdkAgentEngine();
   assertEquals(typeof engine.createLLM({ model: "ollama/test" }), "function");
@@ -235,7 +470,11 @@ Deno.test("engine sdk: applyPromptCaching decorates anthropic system, last messa
   ];
   const tools = convertToolDefinitionsToSdk(defs)!;
   const decorated = applyPromptCaching(
-    { providerName: "anthropic", modelId: "claude-sonnet", providerConfig: null },
+    {
+      providerName: "anthropic",
+      modelId: "claude-sonnet",
+      providerConfig: null,
+    },
     messages,
     tools,
     { anthropic: { thinking: { type: "enabled", budgetTokens: 1000 } } },
@@ -243,25 +482,36 @@ Deno.test("engine sdk: applyPromptCaching decorates anthropic system, last messa
     "tool-filter-signature",
   );
 
-  const systemProviderOptions = (decorated.messages[0] as Record<string, unknown>).providerOptions as Record<string, unknown>;
-  const lastMessageContent = (decorated.messages[1] as Record<string, unknown>).content as Array<Record<string, unknown>>;
-  const lastMessagePartOptions = lastMessageContent[0].providerOptions as Record<string, unknown>;
+  const systemProviderOptions =
+    (decorated.messages[0] as Record<string, unknown>)
+      .providerOptions as Record<string, unknown>;
+  const lastMessageContent = (decorated.messages[1] as Record<string, unknown>)
+    .content as Array<Record<string, unknown>>;
+  const lastMessagePartOptions = lastMessageContent[0]
+    .providerOptions as Record<string, unknown>;
   const lastTool = decorated.tools.edit_file as Record<string, unknown>;
 
   assertEquals(
-    ((systemProviderOptions.anthropic as Record<string, unknown>).cacheControl as Record<string, unknown>).type,
+    ((systemProviderOptions.anthropic as Record<string, unknown>)
+      .cacheControl as Record<string, unknown>).type,
     "ephemeral",
   );
   assertEquals(
-    ((lastMessagePartOptions.anthropic as Record<string, unknown>).cacheControl as Record<string, unknown>).type,
+    ((lastMessagePartOptions.anthropic as Record<string, unknown>)
+      .cacheControl as Record<string, unknown>).type,
     "ephemeral",
   );
   assertEquals(
-    ((((lastTool.providerOptions as Record<string, unknown>).anthropic) as Record<string, unknown>).cacheControl as Record<string, unknown>).type,
+    ((((lastTool.providerOptions as Record<string, unknown>)
+      .anthropic) as Record<string, unknown>).cacheControl as Record<
+        string,
+        unknown
+      >).type,
     "ephemeral",
   );
   assertEquals(
-    ((decorated.providerOptions?.anthropic as Record<string, unknown>).thinking as Record<string, unknown>).type,
+    ((decorated.providerOptions?.anthropic as Record<string, unknown>)
+      .thinking as Record<string, unknown>).type,
     "enabled",
   );
 });
@@ -305,7 +555,10 @@ Deno.test("engine sdk: applyPromptCaching adds stable openai promptCacheKey and 
   );
 
   const firstOpenAI = first.providerOptions?.openai as Record<string, unknown>;
-  const secondOpenAI = second.providerOptions?.openai as Record<string, unknown>;
+  const secondOpenAI = second.providerOptions?.openai as Record<
+    string,
+    unknown
+  >;
   assertEquals(firstOpenAI.promptCacheKey, secondOpenAI.promptCacheKey);
   assertEquals(firstOpenAI.reasoningEffort, "high");
 });

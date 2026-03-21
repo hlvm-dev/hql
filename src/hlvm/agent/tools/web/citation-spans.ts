@@ -9,6 +9,7 @@
 import type { Citation } from "./search-provider.ts";
 import type { LLMSource } from "../../tool-call.ts";
 import { isObjectValue } from "../../../../common/utils.ts";
+import { isRawPayloadCitationWebToolName } from "../../tool-capabilities.ts";
 
 export type CitationSourceKind = "snippet" | "passage";
 
@@ -173,7 +174,8 @@ function addSourceEntry(
     tokens,
     evidenceStrength: options.evidenceStrength,
     evidenceReason: options.evidenceReason,
-    evidenceRank: options.evidenceRank ?? evidenceStrengthRank(options.evidenceStrength),
+    evidenceRank: options.evidenceRank ??
+      evidenceStrengthRank(options.evidenceStrength),
   });
 }
 
@@ -186,13 +188,20 @@ function collectFromSearchLikePayload(
   const results = Array.isArray(payload.results) ? payload.results : [];
   for (const item of results) {
     if (!isObjectValue(item)) continue;
-    const evidenceStrength = item.evidenceStrength === "high" || item.evidenceStrength === "medium" || item.evidenceStrength === "low"
-      ? item.evidenceStrength
+    const evidenceStrength =
+      item.evidenceStrength === "high" || item.evidenceStrength === "medium" ||
+        item.evidenceStrength === "low"
+        ? item.evidenceStrength
+        : undefined;
+    const evidenceReason = typeof item.evidenceReason === "string"
+      ? item.evidenceReason
       : undefined;
-    const evidenceReason = typeof item.evidenceReason === "string" ? item.evidenceReason : undefined;
     const baseEvidenceRank = evidenceStrengthRank(evidenceStrength) +
       (Array.isArray(item.passages) && item.passages.length > 0 ? 2 : 0) +
-      (typeof item.pageDescription === "string" && item.pageDescription.trim().length > 0 ? 1 : 0);
+      (typeof item.pageDescription === "string" &&
+          item.pageDescription.trim().length > 0
+        ? 1
+        : 0);
     const citation = makeCitation(
       item.url,
       item.title,
@@ -287,11 +296,7 @@ export function buildCitationSourceIndex(
 
   for (const item of toolResults) {
     if (!item || !isObjectValue(item.result)) continue;
-    if (
-      item.toolName !== "search_web" &&
-      item.toolName !== "web_fetch" &&
-      item.toolName !== "fetch_url"
-    ) {
+    if (!isRawPayloadCitationWebToolName(item.toolName)) {
       continue;
     }
 
@@ -316,7 +321,10 @@ export function mapLlmSourcesToCitations(
 
   const deduped = new Map<string, Citation>();
   for (const source of sources) {
-    if (!source || source.sourceType !== "url" || typeof source.url !== "string" || source.url.length === 0) {
+    if (
+      !source || source.sourceType !== "url" ||
+      typeof source.url !== "string" || source.url.length === 0
+    ) {
       continue;
     }
     const key = source.url.trim();
@@ -466,7 +474,8 @@ export function attributeCitationSpans(
       const shared = intersectionCount(sentenceTokens, candidate.tokenSet);
       if (shared < sharedTokenThreshold) continue;
       // |A union B| = |A| + |B| - |A intersect B| avoids allocating a new Set per candidate.
-      const unionSize = sentenceTokenSet.size + candidate.tokenSet.size - shared;
+      const unionSize = sentenceTokenSet.size + candidate.tokenSet.size -
+        shared;
       if (unionSize === 0) continue;
       const jaccard = shared / unionSize;
       const coverage = shared / sentenceTokens.length;
@@ -475,7 +484,12 @@ export function attributeCitationSpans(
         (candidate.sourceKind === "passage" ? 0.02 : 0) +
         Math.min(0.06, candidate.evidenceRank * 0.01);
       if (!best || adjustedScore > best.adjustedScore) {
-        if (best) runnerUpAdjustedScore = Math.max(runnerUpAdjustedScore, best.adjustedScore);
+        if (best) {
+          runnerUpAdjustedScore = Math.max(
+            runnerUpAdjustedScore,
+            best.adjustedScore,
+          );
+        }
         best = { entry: candidate, score, adjustedScore };
       } else {
         runnerUpAdjustedScore = Math.max(runnerUpAdjustedScore, adjustedScore);
@@ -483,7 +497,10 @@ export function attributeCitationSpans(
     }
 
     if (!best || best.score < minScore) continue;
-    if (runnerUpAdjustedScore > Number.NEGATIVE_INFINITY && (best.adjustedScore - runnerUpAdjustedScore) < 0.03) {
+    if (
+      runnerUpAdjustedScore > Number.NEGATIVE_INFINITY &&
+      (best.adjustedScore - runnerUpAdjustedScore) < 0.03
+    ) {
       continue;
     }
     attributed.push({

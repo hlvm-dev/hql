@@ -16,6 +16,7 @@ import { ArityError, SyntaxError } from "./errors.ts";
 import {
   createList,
   createNilLiteral,
+  createSymbol,
   isList,
   isSymbol,
   isVector,
@@ -24,6 +25,11 @@ import {
   type SLiteral,
   type SSymbol,
 } from "../s-exp/types.ts";
+import type { ResolvedBindingMeta } from "../s-exp/types.ts";
+import {
+  processTemplateQuote as processSharedTemplateQuote,
+  type TemplateQuoteContext,
+} from "../s-exp/template-quote.ts";
 
 /**
  * Map of special form names to their handlers
@@ -286,7 +292,11 @@ function handleQuasiquote(
   if (args.length !== 1) {
     throw new ArityError("quasiquote", 1, args.length);
   }
-  return processTemplateQuote(args[0], 0, env, interpreter);
+  return processSharedTemplateQuote(
+    args[0],
+    "quasiquote",
+    createInterpreterTemplateQuoteContext(env, interpreter),
+  );
 }
 
 /**
@@ -301,124 +311,66 @@ function handleSyntaxQuote(
   if (args.length !== 1) {
     throw new ArityError("syntax-quote", 1, args.length);
   }
-  return processTemplateQuote(args[0], 0, env, interpreter);
+  return processSharedTemplateQuote(
+    args[0],
+    "syntax-quote",
+    createInterpreterTemplateQuoteContext(env, interpreter),
+  );
 }
 
-/**
- * Process template-quoted expression with depth tracking.
- * The interpreter returns real S-expression values here. Hygienic binding
- * resolution still comes from the macro/transpiler path rather than the
- * tree-walk interpreter itself.
- */
-function processTemplateQuote(
-  expr: SExp,
-  depth: number,
+function createInterpreterTemplateQuoteContext(
   env: InterpreterEnv,
   interpreter: IInterpreter,
-): SExp {
-  if (!isList(expr)) {
-    return expr;
-  }
+): TemplateQuoteContext {
+  const interpreterEnv = env as InterpreterEnv & {
+    getCurrentFile?(): string;
+    lookupImportedBinding?(name: string): ResolvedBindingMeta | undefined;
+  };
 
-  const list = expr as SList;
-  if (list.elements.length === 0) {
-    return expr;
-  }
-
-  const first = list.elements[0];
-
-  // Handle nested template quote
-  if (
-    isSymbol(first) &&
-    (((first as SSymbol).name === "quasiquote") ||
-      ((first as SSymbol).name === "syntax-quote"))
-  ) {
-    if (list.elements.length !== 2) {
-      throw new SyntaxError(
-        (first as SSymbol).name,
-        "requires exactly one argument",
-      );
-    }
-    const inner = processTemplateQuote(
-      list.elements[1],
-      depth + 1,
-      env,
-      interpreter,
-    );
-    return depth === 0 ? inner : createList(first, inner);
-  }
-
-  // Handle unquote
-  if (isSymbol(first) && (first as SSymbol).name === "unquote") {
-    if (list.elements.length !== 2) {
-      throw new SyntaxError("unquote", "requires exactly one argument");
-    }
-    if (depth === 0) {
-      // Evaluate and return
-      const result = interpreter.eval(list.elements[1], env);
-      return hqlValueToSExp(result);
-    } else {
-      const inner = processTemplateQuote(
-        list.elements[1],
-        depth - 1,
-        env,
-        interpreter,
-      );
-      return createList(first, inner);
-    }
-  }
-
-  // Handle unquote-splicing at top level (error)
-  if (isSymbol(first) && (first as SSymbol).name === "unquote-splicing") {
-    if (depth > 0) {
-      if (list.elements.length !== 2) {
-        throw new SyntaxError(
-          "unquote-splicing",
-          "requires exactly one argument",
-        );
+  return {
+    mode: "evaluate",
+    currentFile: interpreterEnv.getCurrentFile?.() || undefined,
+    fail(formName, message) {
+      throw new SyntaxError(formName, message);
+    },
+    resolveNonLocalBinding(symbol) {
+      const importedBinding = interpreterEnv.lookupImportedBinding?.(symbol.name);
+      if (importedBinding) {
+        return importedBinding;
       }
-      const inner = processTemplateQuote(
-        list.elements[1],
-        depth - 1,
-        env,
-        interpreter,
-      );
-      return createList(first, inner);
-    }
-    throw new SyntaxError("unquote-splicing", "not in list context");
-  }
-
-  // Process list elements, handling unquote-splicing
-  const processedElements: SExp[] = [];
-
-  for (const element of list.elements) {
-    if (
-      depth === 0 &&
-      isList(element) &&
-      (element as SList).elements.length > 0 &&
-      isSymbol((element as SList).elements[0]) &&
-      ((element as SList).elements[0] as SSymbol).name === "unquote-splicing"
-    ) {
-      // Handle unquote-splicing
-      const spliceList = element as SList;
-      if (spliceList.elements.length !== 2) {
-        throw new SyntaxError(
-          "unquote-splicing",
-          "requires exactly one argument",
-        );
+      if (getSpecialForms().has(symbol.name)) {
+        return {
+          kind: "module",
+          exportName: symbol.name,
+          modulePath: "<special-form>",
+        };
       }
-      const result = interpreter.eval(spliceList.elements[1], env);
-      processedElements.push(
-        ...(__hql_splice_to_sexp_items(result) as SExp[]),
-      );
-    } else {
-      processedElements.push(
-        processTemplateQuote(element, depth, env, interpreter),
-      );
-    }
-  }
-
-  return createList(...processedElements);
+      if (env.isDefined(symbol.name)) {
+        return {
+          kind: "module",
+          exportName: symbol.name,
+          modulePath: "<builtin>",
+        };
+      }
+      return undefined;
+    },
+    createLocalBinding(name) {
+      return {
+        kind: "local",
+        exportName: name,
+        lexicalId: `interp-template-local-${crypto.randomUUID()}`,
+      };
+    },
+    createAutoGensym(baseName) {
+      return createSymbol(`${baseName}_${crypto.randomUUID().slice(0, 8)}`);
+    },
+    evaluateUnquote(expr) {
+      return hqlValueToSExp(interpreter.eval(expr, env));
+    },
+    spliceValueToElements(value) {
+      return __hql_splice_to_sexp_items(value) as SExp[];
+    },
+  };
 }
 
 /**

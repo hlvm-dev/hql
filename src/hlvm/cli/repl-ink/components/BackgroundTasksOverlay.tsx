@@ -50,6 +50,11 @@ import {
 import { truncate } from "../../../../common/utils.ts";
 import { padTo } from "../utils/formatting.ts";
 import { STATUS_GLYPHS } from "../ui-constants.ts";
+import {
+  buildBalancedTextRow,
+  buildRightSlotTextLayout,
+  buildSectionLabelText,
+} from "../utils/display-chrome.ts";
 
 // ============================================================
 // Types
@@ -66,6 +71,97 @@ type ViewMode = "list" | "result";
 // ============================================================
 
 const PADDING = BACKGROUND_TASKS_OVERLAY_SPEC.padding;
+
+interface BackgroundTaskSummaryCounts {
+  active: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+}
+
+function getBackgroundTaskSummaryCounts(
+  tasks: Task[],
+): BackgroundTaskSummaryCounts {
+  return tasks.reduce<BackgroundTaskSummaryCounts>(
+    (summary, task) => {
+      if (isTaskActive(task)) {
+        summary.active += 1;
+      } else if (task.status === "completed") {
+        summary.completed += 1;
+      } else if (task.status === "failed") {
+        summary.failed += 1;
+      } else if (task.status === "cancelled") {
+        summary.cancelled += 1;
+      }
+      return summary;
+    },
+    { active: 0, completed: 0, failed: 0, cancelled: 0 },
+  );
+}
+
+function getBackgroundTaskPreview(task: Task): string {
+  return isEvalTask(task) ? task.preview : task.label;
+}
+
+export function buildBackgroundTasksSummaryRows(
+  tasks: Task[],
+  {
+    viewMode,
+    selectedIndex,
+    viewingTask,
+    resultLines,
+  }: {
+    viewMode: ViewMode;
+    selectedIndex: number;
+    viewingTask: Task | null;
+    resultLines: string[];
+  },
+  contentWidth: number,
+): [string, string] {
+  if (viewMode === "result" && viewingTask) {
+    const primary = buildBalancedTextRow(
+      contentWidth,
+      `Status ${viewingTask.status}`,
+      resultLines.length === 1 ? "1 line" : `${resultLines.length} lines`,
+    );
+    const secondary = buildBalancedTextRow(
+      contentWidth,
+      getBackgroundTaskPreview(viewingTask),
+      isTaskActive(viewingTask) ? "running" : "saved result",
+    );
+    return [
+      primary.leftText + " ".repeat(primary.gapWidth) + primary.rightText,
+      secondary.leftText + " ".repeat(secondary.gapWidth) + secondary.rightText,
+    ];
+  }
+
+  const counts = getBackgroundTaskSummaryCounts(tasks);
+  const primary = buildBalancedTextRow(
+    contentWidth,
+    `Active ${counts.active} · Done ${counts.completed}`,
+    `Failed ${counts.failed} · Cancelled ${counts.cancelled}`,
+  );
+  const secondary = buildBalancedTextRow(
+    contentWidth,
+    "Eval + delegate tasks",
+    tasks.length > 0
+      ? `Selected ${selectedIndex + 1}/${tasks.length}`
+      : "Selected 0/0",
+  );
+  return [
+    primary.leftText + " ".repeat(primary.gapWidth) + primary.rightText,
+    secondary.leftText + " ".repeat(secondary.gapWidth) + secondary.rightText,
+  ];
+}
+
+export function formatBackgroundTaskResultLine(
+  line: string,
+  contentWidth: number,
+): string {
+  const sectionMatch = /^---\s+(.+?)\s+---$/.exec(line.trim());
+  if (!sectionMatch) return truncate(line, contentWidth);
+  return buildSectionLabelText(sectionMatch[1], contentWidth);
+}
 
 // ============================================================
 // Component
@@ -219,25 +315,28 @@ export function BackgroundTasksOverlay({
     const title = viewMode === "list" ? "Background Tasks" : "Result";
     const escHint = viewMode === "list" ? "esc close" : "esc back";
 
-    // === Hint row ===
-    const hintY = headerY;
-    const hintPreview = viewingTask
-      ? (isEvalTask(viewingTask)
-        ? (viewingTask as EvalTask).preview
-        : viewingTask.label)
-      : "";
-    const hint = viewMode === "list"
-      ? "Background agents & eval tasks"
-      : truncate(hintPreview, contentWidth);
+    const [summaryText, hintText] = buildBackgroundTasksSummaryRows(
+      bgTasks,
+      {
+        viewMode,
+        selectedIndex,
+        viewingTask,
+        resultLines,
+      },
+      contentWidth,
+    );
 
-    drawRow(hintY, () => {
+    drawRow(headerY, () => {
       output += " ".repeat(PADDING.left);
-      output += fg(colors.muted) + hint + ansi.reset + bgStyle;
-      return PADDING.left + hint.length;
+      output += fg(colors.accent) + summaryText + ansi.reset + bgStyle;
+      return PADDING.left + summaryText.length;
     });
 
-    // === Empty row after hint ===
-    drawEmptyRow(hintY + 1);
+    drawRow(headerY + 1, () => {
+      output += " ".repeat(PADDING.left);
+      output += fg(colors.muted) + hintText + ansi.reset + bgStyle;
+      return PADDING.left + hintText.length;
+    });
 
     // === Content rows ===
     if (viewMode === "list") {
@@ -311,42 +410,34 @@ export function BackgroundTasksOverlay({
               statusText = task.status;
           }
 
-          // Build row with selection highlight
           if (isSelected) {
             output += bg(colors.warning) + ansi.fg(30, 30, 30);
           }
 
           let len = 0;
 
-          // Selection indicator
-          output += isSelected ? " ▸ " : "   ";
-          len += 3;
-
-          // Icon (using simpler ASCII for consistent width)
+          output += " ".repeat(PADDING.left);
+          len += PADDING.left;
+          output += isSelected ? "▸ " : "  ";
+          len += 2;
           output += fg(iconColor) + icon + ansi.reset;
           if (isSelected) output += bg(colors.warning) + ansi.fg(30, 30, 30);
           else output += bgStyle;
           output += " ";
-          len += 2; // icon + space
+          len += 2;
 
-          // Preview (truncated) — use preview for eval, label for delegate
-          const previewMaxLen = Math.max(8, contentWidth - 15);
-          const previewText = isEvalTask(task)
-            ? (task as EvalTask).preview
-            : task.label;
-          const preview = padTo(
-            truncate(previewText, previewMaxLen),
-            previewMaxLen,
+          const rowLayout = buildRightSlotTextLayout(
+            Math.max(8, contentWidth - 4),
+            getBackgroundTaskPreview(task),
+            statusText,
+            10,
           );
-          output += preview;
-          len += previewMaxLen;
-
-          // Status (right-aligned)
-          const statusPadded = padTo(statusText, 10);
+          output += rowLayout.leftText;
+          output += " ".repeat(rowLayout.gapWidth);
           if (!isSelected) output += fg(colors.muted);
-          output += statusPadded;
+          output += padTo(rowLayout.rightText, 10);
           output += ansi.reset + bgStyle;
-          len += 10;
+          len += rowLayout.leftText.length + rowLayout.gapWidth + 10;
 
           return len;
         });
@@ -383,7 +474,10 @@ export function BackgroundTasksOverlay({
           }
           if (line !== undefined) {
             output += " ".repeat(PADDING.left);
-            const truncatedLine = truncate(line, contentWidth);
+            const truncatedLine = formatBackgroundTaskResultLine(
+              line,
+              contentWidth,
+            );
             output += truncatedLine;
             return PADDING.left + truncatedLine.length;
           }
@@ -406,12 +500,18 @@ export function BackgroundTasksOverlay({
 
     drawRow(footerY, () => {
       output += " ".repeat(PADDING.left);
-      output += fg(colors.muted) + footerText + ansi.reset + bgStyle;
-      const midPad = contentWidth - footerText.length - countText.length;
-      output += " ".repeat(Math.max(1, midPad));
-      output += countText;
-      return PADDING.left + footerText.length + Math.max(1, midPad) +
-        countText.length;
+      const footerLayout = buildBalancedTextRow(
+        contentWidth,
+        footerText,
+        countText,
+      );
+      output += fg(colors.muted) + footerLayout.leftText + ansi.reset + bgStyle;
+      output += " ".repeat(footerLayout.gapWidth);
+      output += fg(colors.muted) + footerLayout.rightText + ansi.reset +
+        bgStyle;
+      return PADDING.left + footerLayout.leftText.length +
+        footerLayout.gapWidth +
+        footerLayout.rightText.length;
     });
 
     // === Bottom padding ===

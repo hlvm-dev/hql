@@ -21,7 +21,10 @@ import {
   themeToOverlayColors,
   writeToTerminal,
 } from "../overlay/index.ts";
-import { padTo } from "../utils/formatting.ts";
+import {
+  buildRightSlotTextLayout,
+  buildSectionLabelText,
+} from "../utils/display-chrome.ts";
 
 interface ShortcutsOverlayProps {
   onClose: () => void;
@@ -207,23 +210,27 @@ export function ShortcutsOverlay({
     for (const section of visibleSections) {
       drawRow(rowY, () => {
         output += " ".repeat(PADDING.left);
-        output += fg(colors.accent) + section.title + ansi.reset + bgStyle;
-        return PADDING.left + section.title.length;
+        const label = buildSectionLabelText(section.title, contentWidth);
+        output += fg(colors.accent) + label + ansi.reset + bgStyle;
+        return PADDING.left + label.length;
       });
       rowY += 1;
 
       for (const row of section.rows) {
         drawRow(rowY, () => {
-          const visibleLabel = row.label.slice(
-            0,
-            Math.max(0, contentWidth - displayWidth - 2),
+          const layout = buildRightSlotTextLayout(
+            contentWidth,
+            row.label,
+            row.display,
+            displayWidth,
           );
           output += " ".repeat(PADDING.left);
-          output += fg(colors.primary) + padTo(row.display, displayWidth) +
-            ansi.reset + bgStyle;
-          output += "  ";
-          output += visibleLabel;
-          return PADDING.left + displayWidth + 2 + visibleLabel.length;
+          output += layout.leftText;
+          output += " ".repeat(layout.gapWidth);
+          output += fg(colors.primary) + layout.rightText + ansi.reset +
+            bgStyle;
+          return PADDING.left + layout.leftText.length + layout.gapWidth +
+            layout.rightText.length;
         });
         rowY += 1;
       }

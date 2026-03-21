@@ -67,7 +67,14 @@ type AttachmentPipelineTraceStage =
   | "received"
   | "chat_requested"
   | "materialized"
-  | "provider_packed";
+  | "provider_packed"
+  | "google_file_upload_started"
+  | "google_file_uploaded"
+  | "google_file_ready"
+  | "provider_request_started"
+  | "provider_first_chunk"
+  | "provider_completed"
+  | "provider_failed";
 
 type AttachmentPipelineTraceEntry = {
   stage: AttachmentPipelineTraceStage;
@@ -90,6 +97,8 @@ type AttachmentPipelineTraceEntry = {
   attachmentMode?: ConversationAttachmentPayload["mode"];
   textLength?: number;
   attachmentCount?: number;
+  fileState?: string;
+  errorMessage?: string;
 };
 
 export async function appendAttachmentPipelineTrace(

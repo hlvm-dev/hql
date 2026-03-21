@@ -54,6 +54,7 @@ import {
   createBasicSymbolInfo,
   enrichImportedSymbolInfo,
 } from "./transpiler/utils/symbol_info_utils.ts";
+import { canonicalizeModuleId } from "./transpiler/utils/module-identity.ts";
 import { processVectorElements } from "./transpiler/syntax/data-structure.ts";
 import { LRUCache } from "../common/lru-cache.ts";
 
@@ -789,6 +790,7 @@ async function processSimpleImport(
 
   // Special handling for @hlvm/ packages
   if (isStdlibPackage(modulePath)) {
+    const canonicalModuleId = canonicalizeModuleId(modulePath, modulePath);
     // Register with original path, don't try to resolve to filesystem
     registerModulePath(modulePath, modulePath);
 
@@ -806,12 +808,13 @@ async function processSimpleImport(
       kind: "module",
       scope: "global",
       isImported: true,
-      sourceModule: modulePath,
+      sourceModule: canonicalModuleId,
     });
     return;
   }
 
   const resolvedPath = path().resolve(baseDir, modulePath);
+  const canonicalModuleId = canonicalizeModuleId(modulePath, resolvedPath);
   validateImportPath(modulePath, resolvedPath, baseDir);
 
   logger.debug(
@@ -834,7 +837,7 @@ async function processSimpleImport(
     kind: "module",
     scope: "global",
     isImported: true,
-    sourceModule: modulePath,
+    sourceModule: canonicalModuleId,
   });
 }
 
@@ -860,6 +863,9 @@ async function processNamespaceImport(
 
     const moduleName = (elements[1] as SSymbol).name;
     const modulePath = (elements[3] as SLiteral).value as string;
+    const canonicalModuleId = isStdlibPackage(modulePath)
+      ? canonicalizeModuleId(modulePath, modulePath)
+      : canonicalizeModuleId(modulePath, path().resolve(baseDir, modulePath));
 
     registerModulePath(moduleName, modulePath);
     logger.debug(
@@ -892,7 +898,7 @@ async function processNamespaceImport(
         kind: "module",
         scope: "global",
         isImported: true,
-        sourceModule: modulePath,
+        sourceModule: canonicalModuleId,
       });
       return;
     }
@@ -920,7 +926,7 @@ async function processNamespaceImport(
       kind: "module",
       scope: "global",
       isImported: true,
-      sourceModule: modulePath,
+      sourceModule: canonicalModuleId,
     });
   } catch (error) {
     // If the error is already an HQLError with a different filePath, preserve it
@@ -1068,6 +1074,7 @@ async function processVectorBasedImport(
         symbolName,
         modulePath,
         aliasName || undefined, // Convert null to undefined
+        resolvedPath,
       );
 
       globalSymbolTable.set(enrichedSymbolInfo);
@@ -1195,6 +1202,11 @@ function importSymbols(
   lineInfo?: { line: number; column: number },
   resolvedModulePath?: string,
 ): void {
+  const canonicalModuleId = canonicalizeModuleId(
+    modulePath,
+    resolvedModulePath ?? modulePath,
+  );
+
   for (const [symbolName, aliasName] of requestedSymbols.entries()) {
     try {
       // Check for user-defined macros FIRST (before system macros)
@@ -1257,7 +1269,7 @@ function importSymbols(
           kind: "macro",
           scope: "local",
           isImported: true,
-          sourceModule: modulePath,
+          sourceModule: canonicalModuleId,
         });
 
         logger.debug(
@@ -1297,7 +1309,7 @@ function importSymbols(
         env.recordImportedBinding(aliasName || symbolName, {
           kind: "module",
           exportName: symbolName,
-          modulePath,
+          modulePath: canonicalModuleId,
           originalName: aliasName || symbolName,
           importedFrom: modulePath,
         });

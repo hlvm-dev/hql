@@ -6,13 +6,14 @@
  * existing AIProvider interface and globalThis.ai contract unchanged.
  */
 
+import { decodeBase64 } from "@std/encoding/base64";
 import { generateText, jsonSchema, streamText, tool } from "ai";
-import type { LanguageModel, ModelMessage, ToolCallPart } from "ai";
+import type { LanguageModel, ModelMessage, ToolCallPart, ToolSet } from "ai";
 import type {
   ChatOptions,
   ChatStructuredResponse,
-  Message,
   GenerateOptions,
+  Message,
   ProviderToolCall,
   ToolDefinition,
 } from "./types.ts";
@@ -23,8 +24,20 @@ import { generateToolCallId } from "../agent/tool-call.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
-import { classifyProviderErrorCode, formatProviderFailureMessage } from "./common.ts";
-import { isProviderErrorCode as isProviderErrorFromDomain, ProviderErrorCode } from "../../common/error-codes.ts";
+import {
+  classifyProviderErrorCode,
+  formatProviderFailureMessage,
+} from "./common.ts";
+import {
+  isProviderErrorCode as isProviderErrorFromDomain,
+  ProviderErrorCode,
+} from "../../common/error-codes.ts";
+import {
+  createNativeProviderTools,
+  getNativeProviderCapabilityAvailability,
+  hasNativeWebSearchTool,
+} from "./native-web-tools.ts";
+import type { NativeProviderCapabilityAvailability } from "../agent/tool-capabilities.ts";
 
 export type SdkProviderName =
   | "openai"
@@ -38,6 +51,11 @@ export interface SdkModelSpec {
   modelId: string;
   endpoint?: string;
   apiKey?: string;
+}
+
+export interface SdkProviderBundle {
+  model: LanguageModel;
+  nativeTools: ToolSet;
 }
 
 const SUPPORTED_SDK_PROVIDERS = new Set<SdkProviderName>([
@@ -164,7 +182,10 @@ function classifyProviderError(
   error: unknown,
   providerName: string,
 ): ProviderErrorCode {
-  if (error instanceof RuntimeError && error.code && isProviderErrorFromDomain(error.code)) {
+  if (
+    error instanceof RuntimeError && error.code &&
+    isProviderErrorFromDomain(error.code)
+  ) {
     return error.code;
   }
 
@@ -176,8 +197,10 @@ function classifyProviderError(
     return ProviderErrorCode.NETWORK_ERROR;
   }
 
-  if (lowerMessage.includes("invalid json") ||
-    lowerMessage.includes("unexpected token")) {
+  if (
+    lowerMessage.includes("invalid json") ||
+    lowerMessage.includes("unexpected token")
+  ) {
     return ProviderErrorCode.STREAM_ERROR;
   }
 
@@ -185,9 +208,11 @@ function classifyProviderError(
     return ProviderErrorCode.REQUEST_FAILED;
   }
 
-  if (providerName === "claude-code" &&
+  if (
+    providerName === "claude-code" &&
     lowerMessage.includes("invalid tool") &&
-    lowerMessage.includes("not supported")) {
+    lowerMessage.includes("not supported")
+  ) {
     return ProviderErrorCode.REQUEST_REJECTED;
   }
 
@@ -254,9 +279,17 @@ export async function maybeHandleSdkAuthError(
   }
 }
 
-export async function createSdkLanguageModel(
+function safeCreateNativeTools(factory: () => ToolSet): ToolSet {
+  try {
+    return factory();
+  } catch {
+    return {};
+  }
+}
+
+export async function createSdkProviderBundle(
   spec: SdkModelSpec,
-): Promise<LanguageModel> {
+): Promise<SdkProviderBundle> {
   const providerName = assertSupportedSdkProvider(spec.providerName);
   const modelId = toNonEmptyString(spec.modelId);
   if (!modelId) {
@@ -273,7 +306,12 @@ export async function createSdkLanguageModel(
         "/v1",
       );
       const openai = createOpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
-      return openai(modelId);
+      return {
+        model: openai(modelId),
+        nativeTools: safeCreateNativeTools(() =>
+          createNativeProviderTools(providerName, openai)
+        ),
+      };
     }
 
     case "anthropic": {
@@ -288,7 +326,12 @@ export async function createSdkLanguageModel(
         apiKey,
         ...(baseURL ? { baseURL } : {}),
       });
-      return anthropic(modelId);
+      return {
+        model: anthropic(modelId),
+        nativeTools: safeCreateNativeTools(() =>
+          createNativeProviderTools(providerName, anthropic)
+        ),
+      };
     }
 
     case "google": {
@@ -303,7 +346,12 @@ export async function createSdkLanguageModel(
         apiKey,
         ...(baseURL ? { baseURL } : {}),
       });
-      return google(modelId);
+      return {
+        model: google(modelId),
+        nativeTools: safeCreateNativeTools(() =>
+          createNativeProviderTools(providerName, google)
+        ),
+      };
     }
 
     case "claude-code": {
@@ -323,7 +371,12 @@ export async function createSdkLanguageModel(
         },
         name: "claude-code.messages",
       });
-      return anthropic(modelId);
+      return {
+        model: anthropic(modelId),
+        nativeTools: safeCreateNativeTools(() =>
+          createNativeProviderTools(providerName, anthropic)
+        ),
+      };
     }
 
     case "ollama": {
@@ -334,8 +387,45 @@ export async function createSdkLanguageModel(
         "/api",
       );
       const ollama = createOllama({ ...(baseURL ? { baseURL } : {}) });
-      return ollama(modelId);
+      return {
+        model: ollama(modelId),
+        nativeTools: safeCreateNativeTools(() =>
+          createNativeProviderTools(providerName, ollama)
+        ),
+      };
     }
+  }
+}
+
+export async function createSdkLanguageModel(
+  spec: SdkModelSpec,
+): Promise<LanguageModel> {
+  return (await createSdkProviderBundle(spec)).model;
+}
+
+export async function preflightNativeWebSearch(
+  spec: SdkModelSpec,
+): Promise<boolean> {
+  try {
+    const bundle = await createSdkProviderBundle(spec);
+    return hasNativeWebSearchTool(bundle.nativeTools);
+  } catch {
+    return false;
+  }
+}
+
+export async function preflightProviderExecutionCapabilities(
+  spec: SdkModelSpec,
+): Promise<NativeProviderCapabilityAvailability> {
+  try {
+    const bundle = await createSdkProviderBundle(spec);
+    return getNativeProviderCapabilityAvailability(bundle.nativeTools);
+  } catch {
+    return {
+      webSearch: false,
+      webPageRead: false,
+      remoteCodeExecution: false,
+    };
   }
 }
 
@@ -357,6 +447,35 @@ type SdkTextPart = { type: "text"; text: string };
 type SdkImagePart = { type: "image"; image: string };
 type SdkFilePart = { type: "file"; data: string; mediaType: string };
 type SdkAssistantPart = SdkTextPart | ToolCallPart;
+type GoogleGenAIModule = typeof import("npm:@google/genai");
+type GoogleGenAIClient = InstanceType<GoogleGenAIModule["GoogleGenAI"]>;
+type GoogleContentPart = ReturnType<GoogleGenAIModule["createPartFromText"]>;
+type GoogleContent = ReturnType<GoogleGenAIModule["createUserContent"]>;
+
+interface GoogleFileRecord {
+  name?: string;
+  uri?: string;
+  mimeType?: string;
+  state?: string;
+  error?: {
+    message?: string;
+  };
+}
+
+interface GoogleGenerateContentChunk {
+  text?: string;
+}
+
+interface GoogleUploadedAttachment {
+  attachmentId: string;
+  fileName: string;
+  mimeType: string;
+  kind: ConversationAttachmentPayload["kind"];
+  size: number;
+  conversationKind: ConversationAttachmentPayload["conversationKind"];
+  uploadedName: string;
+  uploadedUri: string;
+}
 
 /**
  * Message shape accepted by the universal SDK converter.
@@ -401,9 +520,476 @@ async function traceProviderPackedAttachments(
         modelId: spec.modelId,
         conversationKind: attachment.conversationKind,
         attachmentMode: attachment.mode,
-        textLength: attachment.mode === "text" ? attachment.text.length : undefined,
+        textLength: attachment.mode === "text"
+          ? attachment.text.length
+          : undefined,
       });
     }
+  }
+}
+
+function getUserBinaryAttachments(
+  messages: readonly SdkConvertibleMessage[],
+): ConversationAttachmentPayload[] {
+  return messages.flatMap((message) => {
+    if (message.role !== "user") return [];
+    return (message.attachments ?? []).filter((attachment) =>
+      attachment.mode === "binary"
+    );
+  });
+}
+
+function hasGoogleVideoAttachments(
+  spec: SdkModelSpec,
+  messages: readonly SdkConvertibleMessage[],
+): boolean {
+  if (spec.providerName !== "google") {
+    return false;
+  }
+  return getUserBinaryAttachments(messages).some((attachment) =>
+    attachment.conversationKind === "video"
+  );
+}
+
+async function appendProviderAttachmentTrace(
+  spec: SdkModelSpec,
+  messages: readonly SdkConvertibleMessage[],
+  stage:
+    | "provider_request_started"
+    | "provider_first_chunk"
+    | "provider_completed"
+    | "provider_failed",
+  extras: Partial<{
+    errorMessage: string;
+  }> = {},
+): Promise<void> {
+  for (const attachment of getUserBinaryAttachments(messages)) {
+    await appendAttachmentPipelineTrace({
+      stage,
+      attachmentId: attachment.attachmentId,
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+      kind: attachment.kind,
+      size: attachment.size,
+      providerName: spec.providerName,
+      modelId: spec.modelId,
+      conversationKind: attachment.conversationKind,
+      attachmentMode: attachment.mode,
+      errorMessage: extras.errorMessage,
+    });
+  }
+}
+
+async function appendGoogleFileTrace(
+  spec: SdkModelSpec,
+  attachment: ConversationAttachmentPayload,
+  stage:
+    | "google_file_upload_started"
+    | "google_file_uploaded"
+    | "google_file_ready",
+  extras: Partial<{
+    fileState: string;
+    errorMessage: string;
+  }> = {},
+): Promise<void> {
+  if (attachment.mode !== "binary") {
+    return;
+  }
+  await appendAttachmentPipelineTrace({
+    stage,
+    attachmentId: attachment.attachmentId,
+    fileName: attachment.fileName,
+    mimeType: attachment.mimeType,
+    kind: attachment.kind,
+    size: attachment.size,
+    providerName: spec.providerName,
+    modelId: spec.modelId,
+    conversationKind: attachment.conversationKind,
+    attachmentMode: attachment.mode,
+    fileState: extras.fileState,
+    errorMessage: extras.errorMessage,
+  });
+}
+
+function decodeAttachmentData(data: string): Uint8Array {
+  return decodeBase64(data);
+}
+
+function getGoogleHttpOptions(
+  spec: SdkModelSpec,
+): { baseUrl?: string; apiVersion?: string } | undefined {
+  const configuredBaseUrl = toNonEmptyString(spec.endpoint) ??
+    toNonEmptyString(getPlatform().env.get("GOOGLE_BASE_URL"));
+  if (!configuredBaseUrl) {
+    return undefined;
+  }
+
+  const normalizedBaseUrl = configuredBaseUrl.replace(/\/+$/, "");
+  const hasEmbeddedApiVersion = /\/v[0-9][a-z0-9.-]*$/i.test(
+    normalizedBaseUrl,
+  );
+  return hasEmbeddedApiVersion
+    ? { baseUrl: normalizedBaseUrl, apiVersion: "" }
+    : { baseUrl: normalizedBaseUrl };
+}
+
+async function createGoogleNativeClient(
+  spec: SdkModelSpec,
+): Promise<{
+  ai: GoogleGenAIClient;
+  module: GoogleGenAIModule;
+}> {
+  const apiKey = getRequiredApiKey("google", spec.apiKey);
+  const module = await import("npm:@google/genai");
+  const httpOptions = getGoogleHttpOptions(spec);
+  const ai = new module.GoogleGenAI({
+    apiKey,
+    ...(httpOptions ? { httpOptions } : {}),
+  });
+  return { ai, module };
+}
+
+function requireGoogleFileIdentity(
+  attachment: ConversationAttachmentPayload,
+  file: GoogleFileRecord,
+): GoogleUploadedAttachment {
+  if (attachment.mode !== "binary") {
+    throw new ValidationError(
+      "Google file uploads require binary attachments.",
+      "provider_sdk_runtime",
+    );
+  }
+
+  const uploadedName = toNonEmptyString(file.name);
+  const uploadedUri = toNonEmptyString(file.uri);
+  const uploadedMimeType = toNonEmptyString(file.mimeType) ??
+    attachment.mimeType;
+
+  if (!uploadedName || !uploadedUri) {
+    throw new RuntimeError(
+      `Google file upload returned an incomplete file record for ${attachment.fileName}.`,
+      { code: ProviderErrorCode.REQUEST_FAILED },
+    );
+  }
+
+  return {
+    attachmentId: attachment.attachmentId,
+    fileName: attachment.fileName,
+    mimeType: uploadedMimeType,
+    kind: attachment.kind,
+    size: attachment.size,
+    conversationKind: attachment.conversationKind,
+    uploadedName,
+    uploadedUri,
+  };
+}
+
+async function waitForGoogleFileReady(
+  spec: SdkModelSpec,
+  ai: GoogleGenAIClient,
+  module: GoogleGenAIModule,
+  attachment: ConversationAttachmentPayload,
+  uploadedFile: GoogleFileRecord,
+  signal?: AbortSignal,
+): Promise<GoogleUploadedAttachment> {
+  const initialRecord = requireGoogleFileIdentity(attachment, uploadedFile);
+  const activeState = module.FileState.ACTIVE;
+  const failedState = module.FileState.FAILED;
+
+  let currentFile = uploadedFile;
+  for (let attempt = 0; attempt < 120; attempt++) {
+    const currentState = currentFile.state;
+    if (currentState === activeState || currentState === "ACTIVE") {
+      await appendGoogleFileTrace(spec, attachment, "google_file_ready", {
+        fileState: currentState,
+      });
+      return requireGoogleFileIdentity(attachment, currentFile);
+    }
+    if (currentState === failedState || currentState === "FAILED") {
+      const errorMessage = toNonEmptyString(currentFile.error?.message) ??
+        `Google rejected ${attachment.fileName} during file processing.`;
+      await appendGoogleFileTrace(spec, attachment, "google_file_ready", {
+        fileState: currentState,
+        errorMessage,
+      });
+      throw new RuntimeError(
+        errorMessage,
+        { code: ProviderErrorCode.REQUEST_REJECTED },
+      );
+    }
+
+    signal?.throwIfAborted();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    currentFile = await ai.files.get({
+      name: initialRecord.uploadedName,
+    }) as GoogleFileRecord;
+  }
+
+  throw new RuntimeError(
+    `Timed out waiting for Google to finish processing ${attachment.fileName}.`,
+    { code: ProviderErrorCode.REQUEST_FAILED },
+  );
+}
+
+async function uploadGoogleAttachment(
+  spec: SdkModelSpec,
+  ai: GoogleGenAIClient,
+  module: GoogleGenAIModule,
+  attachment: ConversationAttachmentPayload,
+  signal?: AbortSignal,
+): Promise<GoogleUploadedAttachment> {
+  if (attachment.mode !== "binary") {
+    throw new ValidationError(
+      "Google file uploads require binary attachments.",
+      "provider_sdk_runtime",
+    );
+  }
+
+  await appendGoogleFileTrace(spec, attachment, "google_file_upload_started");
+
+  const bytes = decodeAttachmentData(attachment.data);
+  const file = await ai.files.upload({
+    file: new Blob([bytes], { type: attachment.mimeType }),
+    config: {
+      mimeType: attachment.mimeType,
+      displayName: attachment.fileName,
+      ...(signal ? { abortSignal: signal } : {}),
+    },
+  }) as GoogleFileRecord;
+
+  await appendGoogleFileTrace(spec, attachment, "google_file_uploaded", {
+    fileState: file.state,
+  });
+
+  return await waitForGoogleFileReady(
+    spec,
+    ai,
+    module,
+    attachment,
+    file,
+    signal,
+  );
+}
+
+async function resolveGoogleUploadedAttachment(
+  spec: SdkModelSpec,
+  ai: GoogleGenAIClient,
+  module: GoogleGenAIModule,
+  attachment: ConversationAttachmentPayload,
+  uploadCache: Map<string, Promise<GoogleUploadedAttachment>>,
+  signal?: AbortSignal,
+): Promise<GoogleUploadedAttachment> {
+  const cached = uploadCache.get(attachment.attachmentId);
+  if (cached) {
+    return await cached;
+  }
+  const uploadPromise = uploadGoogleAttachment(
+    spec,
+    ai,
+    module,
+    attachment,
+    signal,
+  );
+  uploadCache.set(attachment.attachmentId, uploadPromise);
+  return await uploadPromise;
+}
+
+function formatTextAttachmentForPrompt(
+  attachment: ConversationAttachmentPayload,
+): string {
+  if (attachment.mode !== "text") {
+    throw new ValidationError(
+      "Expected text attachment payload.",
+      "provider_sdk_runtime",
+    );
+  }
+  return `Attached file (${attachment.fileName}, ${attachment.mimeType}):\n${attachment.text}`;
+}
+
+function formatAssistantToolCalls(
+  toolCalls: NonNullable<SdkConvertibleMessage["toolCalls"]>,
+): string {
+  return toolCalls.map((toolCall) =>
+    `Tool call: ${toolCall.function.name}\nArguments: ${
+      JSON.stringify(normalizeToolArgs(toolCall.function.arguments))
+    }`
+  ).join("\n\n");
+}
+
+function formatToolResultMessage(message: SdkConvertibleMessage): string {
+  const toolName = message.toolName ?? message.tool_name ?? "tool";
+  const toolContent = message.content.trim();
+  return toolContent.length > 0
+    ? `Tool result (${toolName}):\n${toolContent}`
+    : `Tool result (${toolName})`;
+}
+
+async function buildGoogleContents(
+  spec: SdkModelSpec,
+  ai: GoogleGenAIClient,
+  module: GoogleGenAIModule,
+  messages: readonly SdkConvertibleMessage[],
+  signal?: AbortSignal,
+): Promise<{
+  contents: GoogleContent[];
+  systemInstruction?: string;
+}> {
+  const uploadCache = new Map<string, Promise<GoogleUploadedAttachment>>();
+  const systemParts: string[] = [];
+  const contents: GoogleContent[] = [];
+
+  for (const message of messages) {
+    if (message.role === "system") {
+      if (message.content) {
+        systemParts.push(message.content);
+      }
+      continue;
+    }
+
+    if (message.role === "user") {
+      const parts: GoogleContentPart[] = [];
+      if (message.content) {
+        parts.push(module.createPartFromText(message.content));
+      }
+      for (const attachment of message.attachments ?? []) {
+        if (attachment.mode === "text") {
+          parts.push(
+            module.createPartFromText(
+              formatTextAttachmentForPrompt(attachment),
+            ),
+          );
+          continue;
+        }
+        if (attachment.mimeType.startsWith("image/")) {
+          parts.push(
+            module.createPartFromBase64(attachment.data, attachment.mimeType),
+          );
+          continue;
+        }
+        const uploadedAttachment = await resolveGoogleUploadedAttachment(
+          spec,
+          ai,
+          module,
+          attachment,
+          uploadCache,
+          signal,
+        );
+        parts.push(
+          module.createPartFromUri(
+            uploadedAttachment.uploadedUri,
+            uploadedAttachment.mimeType,
+          ),
+        );
+      }
+      if (parts.length > 0) {
+        contents.push(module.createUserContent(parts));
+      }
+      continue;
+    }
+
+    if (message.role === "assistant") {
+      const parts: GoogleContentPart[] = [];
+      if (message.content) {
+        parts.push(module.createPartFromText(message.content));
+      }
+      const toolCalls = message.toolCalls ?? message.tool_calls;
+      if (toolCalls?.length) {
+        parts.push(
+          module.createPartFromText(formatAssistantToolCalls(toolCalls)),
+        );
+      }
+      if (parts.length > 0) {
+        contents.push(module.createModelContent(parts));
+      }
+      continue;
+    }
+
+    contents.push(
+      module.createUserContent(
+        [module.createPartFromText(formatToolResultMessage(message))],
+      ),
+    );
+  }
+
+  return {
+    contents,
+    ...(systemParts.length > 0
+      ? { systemInstruction: systemParts.join("\n\n") }
+      : {}),
+  };
+}
+
+async function* streamGoogleVideoRequest(
+  spec: SdkModelSpec,
+  messages: Message[],
+  options?: ChatOptions,
+  signal?: AbortSignal,
+): AsyncGenerator<string, void, unknown> {
+  try {
+    const { ai, module } = await createGoogleNativeClient(spec);
+    const { contents, systemInstruction } = await buildGoogleContents(
+      spec,
+      ai,
+      module,
+      messages,
+      signal,
+    );
+    const request = {
+      model: spec.modelId,
+      contents,
+      config: {
+        ...(systemInstruction ? { systemInstruction } : {}),
+        ...(typeof options?.temperature === "number"
+          ? { temperature: options.temperature }
+          : {}),
+        ...(typeof options?.maxTokens === "number"
+          ? { maxOutputTokens: options.maxTokens }
+          : {}),
+        ...(options?.stop?.length ? { stopSequences: options.stop } : {}),
+        ...(signal ? { abortSignal: signal } : {}),
+      },
+    };
+
+    await appendProviderAttachmentTrace(
+      spec,
+      messages,
+      "provider_request_started",
+    );
+
+    const stream = await ai.models.generateContentStream(
+      request,
+    ) as AsyncGenerator<GoogleGenerateContentChunk>;
+    let sawFirstChunk = false;
+
+    for await (const chunk of stream) {
+      const text = typeof chunk.text === "string" ? chunk.text : "";
+      if (!text) {
+        continue;
+      }
+      if (!sawFirstChunk) {
+        sawFirstChunk = true;
+        await appendProviderAttachmentTrace(
+          spec,
+          messages,
+          "provider_first_chunk",
+        );
+      }
+      yield text;
+    }
+
+    await appendProviderAttachmentTrace(
+      spec,
+      messages,
+      "provider_completed",
+    );
+  } catch (error) {
+    await appendProviderAttachmentTrace(
+      spec,
+      messages,
+      "provider_failed",
+      { errorMessage: getErrorMessage(error) },
+    );
+    wrapProviderSdkError(error, spec.providerName);
   }
 }
 
@@ -545,11 +1131,15 @@ export function convertToSdkMessages(
     if (!toolCallId) {
       continue;
     }
-    const pendingIndex = pendingToolCalls.findIndex((call) => call.id === toolCallId);
+    const pendingIndex = pendingToolCalls.findIndex((call) =>
+      call.id === toolCallId
+    );
     if (pendingIndex < 0) {
       continue;
     }
-    pendingToolCalls = pendingToolCalls.filter((call) => call.id !== toolCallId);
+    pendingToolCalls = pendingToolCalls.filter((call) =>
+      call.id !== toolCallId
+    );
 
     const toolResultPart = {
       type: "tool-result" as const,
@@ -597,9 +1187,7 @@ function toProviderToolCalls(
 export function normalizeProviderMetadata(
   value: unknown,
 ): Record<string, unknown> | undefined {
-  return isObjectValue(value)
-    ? value as Record<string, unknown>
-    : undefined;
+  return isObjectValue(value) ? value as Record<string, unknown> : undefined;
 }
 
 interface SdkSourceShape {
@@ -694,7 +1282,9 @@ export async function* generateWithSdk(
   messages.push({
     role: "user",
     content: prompt,
-    ...(options?.attachments?.length ? { attachments: options.attachments } : {}),
+    ...(options?.attachments?.length
+      ? { attachments: options.attachments }
+      : {}),
   });
   yield* chatWithSdk(
     spec,
@@ -710,8 +1300,12 @@ export async function* chatWithSdk(
   options?: ChatOptions,
   signal?: AbortSignal,
 ): AsyncGenerator<string, void, unknown> {
-  const model = await createSdkLanguageModel(spec);
   await traceProviderPackedAttachments(spec, messages);
+  if (hasGoogleVideoAttachments(spec, messages)) {
+    yield* streamGoogleVideoRequest(spec, messages, options, signal);
+    return;
+  }
+  const model = await createSdkLanguageModel(spec);
   const sdkMessages = convertToSdkMessages(messages);
   const settings = buildCommonSettings(
     spec,
@@ -742,8 +1336,26 @@ export async function chatStructuredWithSdk(
   options?: ChatOptions,
   signal?: AbortSignal,
 ): Promise<ChatStructuredResponse> {
-  const model = await createSdkLanguageModel(spec);
   await traceProviderPackedAttachments(spec, messages);
+  if (hasGoogleVideoAttachments(spec, messages)) {
+    const onToken = options?.onToken;
+    let content = "";
+    for await (
+      const chunk of streamGoogleVideoRequest(
+        spec,
+        messages,
+        options,
+        signal,
+      )
+    ) {
+      content += chunk;
+      onToken?.(chunk);
+    }
+    return {
+      content,
+    };
+  }
+  const model = await createSdkLanguageModel(spec);
   const sdkMessages = convertToSdkMessages(messages);
   const settings = buildCommonSettings(
     spec,
@@ -763,13 +1375,14 @@ export async function chatStructuredWithSdk(
         onToken(chunk);
       }
 
-      const [text, toolCalls, usage, sources, providerMetadata] = await Promise.all([
-        result.text,
-        result.toolCalls,
-        result.usage,
-        result.sources,
-        result.providerMetadata,
-      ]);
+      const [text, toolCalls, usage, sources, providerMetadata] = await Promise
+        .all([
+          result.text,
+          result.toolCalls,
+          result.usage,
+          result.sources,
+          result.providerMetadata,
+        ]);
 
       return {
         content: contentChunks.join("") || text || "",

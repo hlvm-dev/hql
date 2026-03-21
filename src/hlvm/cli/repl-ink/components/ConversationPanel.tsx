@@ -9,9 +9,9 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 import { truncate } from "../../../../common/utils.ts";
 import {
-  isStructuredTeamInfoItem,
   type AssistantCitation,
   type ConversationItem,
+  isStructuredTeamInfoItem,
   type StreamingState,
   StreamingState as ConversationStreamingState,
   type ThinkingItem,
@@ -195,8 +195,8 @@ export function getConversationDisplayItems(
   // Only compute turn index for picker suppression, NOT for history hiding
   const currentTurnStartIndex =
     options?.compactPlanTranscript && options?.suppressCurrentTurnPrompt
-    ? findCurrentTurnStartIndex(items)
-    : -1;
+      ? findCurrentTurnStartIndex(items)
+      : -1;
   return items.filter((item, itemIndex) => {
     if (!shouldRenderConversationItem(item)) {
       return false;
@@ -228,8 +228,9 @@ export function getConversationDisplayItems(
 }
 
 function summarizeThinkingActivity(item: ThinkingItem): string {
-  const firstLine = item.summary.split("\n").find((line) => line.trim().length > 0)
-    ?.trim() ?? "";
+  const firstLine =
+    item.summary.split("\n").find((line) => line.trim().length > 0)
+      ?.trim() ?? "";
   return truncate(firstLine, 84, "…");
 }
 
@@ -323,9 +324,7 @@ function getPlanningPhaseTitle(
     case "drafting":
       return "Drafting plan";
     case "reviewing":
-      return hasPendingPlanReview
-        ? "Ready to code"
-        : "Reviewing";
+      return hasPendingPlanReview ? "Ready to code" : "Reviewing";
     case "executing":
       return "Executing";
     case "done":
@@ -433,6 +432,7 @@ function renderItem(
         <TurnStats
           toolCount={item.toolCount}
           durationMs={item.durationMs}
+          width={width}
           inputTokens={item.inputTokens}
           outputTokens={item.outputTokens}
           modelId={item.modelId}
@@ -481,7 +481,8 @@ export const ConversationPanel = React.memo(function ConversationPanel({
   );
   const [scrollOffsetFromBottom, setScrollOffsetFromBottom] = useState(0);
   const compactPlanTranscript = useMemo(
-    () => shouldCompactPlanTranscript(planningPhase, activePlan, pendingPlanReview),
+    () =>
+      shouldCompactPlanTranscript(planningPhase, activePlan, pendingPlanReview),
     [activePlan, pendingPlanReview, planningPhase],
   );
   const planFlowActive = streamingState !== ConversationStreamingState.Idle ||
@@ -503,7 +504,12 @@ export const ConversationPanel = React.memo(function ConversationPanel({
           pickerInteractionActive,
         hideConversationText,
       }),
-    [compactPlanTranscript, hideConversationText, pickerInteractionActive, items],
+    [
+      compactPlanTranscript,
+      hideConversationText,
+      pickerInteractionActive,
+      items,
+    ],
   );
 
   useEffect(() => {
@@ -530,17 +536,12 @@ export const ConversationPanel = React.memo(function ConversationPanel({
     Boolean(pendingPlanReview),
   );
   const latestPlanActivity = useMemo(
-    () =>
-      compactPlanTranscript
-        ? getPlanFlowActivitySummary(items)
-        : undefined,
+    () => compactPlanTranscript ? getPlanFlowActivitySummary(items) : undefined,
     [compactPlanTranscript, items],
   );
   const recentPlanActivities = useMemo(
     () =>
-      compactPlanTranscript
-        ? getRecentPlanFlowActivitySummaries(items, 3)
-        : [],
+      compactPlanTranscript ? getRecentPlanFlowActivitySummaries(items, 3) : [],
     [compactPlanTranscript, items],
   );
   const activeTodoItem = compactPlanTranscript &&
@@ -613,7 +614,13 @@ export const ConversationPanel = React.memo(function ConversationPanel({
         reservedRows: headerRows + extraReservedRows +
           (interactionRequest ? interactionRows + 2 : 8),
       }),
-    [extraReservedRows, headerRows, interactionRows, interactionRequest, terminalRows],
+    [
+      extraReservedRows,
+      headerRows,
+      interactionRows,
+      interactionRequest,
+      terminalRows,
+    ],
   );
   const renderableDisplayItems = hideTranscriptDuringPicker ? [] : displayItems;
   const viewport = useMemo(
@@ -662,7 +669,9 @@ export const ConversationPanel = React.memo(function ConversationPanel({
   );
 
   const toggleTarget = useCallback((target: ToggleTarget): void => {
-    const toggle = (setter: React.Dispatch<React.SetStateAction<Set<string>>>) => {
+    const toggle = (
+      setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    ) => {
       setter((prev: Set<string>) => {
         const next = new Set(prev);
         if (next.has(target.id)) next.delete(target.id);
@@ -871,7 +880,7 @@ export const ConversationPanel = React.memo(function ConversationPanel({
                 : sc.text.primary;
               return (
                 <Box key={item.id}>
-                  <Text color={markerColor}>{marker} </Text>
+                  <Text color={markerColor}>{marker}</Text>
                   <Text color={textColor}>{item.content}</Text>
                 </Box>
               );

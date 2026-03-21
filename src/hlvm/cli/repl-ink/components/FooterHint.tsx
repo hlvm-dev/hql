@@ -18,8 +18,13 @@ import { STATUS_GLYPHS } from "../ui-constants.ts";
 
 import { truncate } from "../../../../common/utils.ts";
 import { useConversationSpinnerFrame } from "../hooks/useConversationMotion.ts";
-
-const FOOTER_SECTION_SEPARATOR = " · ";
+import {
+  fitShellFooterSegments,
+  formatShellFooterText,
+  SHELL_SEGMENT_SEPARATOR,
+  type ShellFooterSegment,
+  summarizeModeLabel,
+} from "../utils/shell-chrome.ts";
 
 interface FooterProps {
   streamingState?: StreamingState;
@@ -56,6 +61,13 @@ interface FooterLeftStateInput {
   statusMessage?: string;
 }
 
+interface FooterLeftState {
+  mode: "message" | "segments";
+  segments: ShellFooterSegment[];
+  text: string;
+  tone: "muted" | "warning";
+}
+
 export function buildFooterLeftState({
   inConversation,
   streamingState,
@@ -71,65 +83,118 @@ export function buildFooterLeftState({
   teamAttentionCount,
   spinner,
   statusMessage,
-}: FooterLeftStateInput): { text: string; tone: "muted" | "warning" } {
-  let text = "";
-  let tone: "muted" | "warning" = "muted";
+}: FooterLeftStateInput): FooterLeftState {
+  const modeChip = summarizeModeLabel(modeLabel);
+  const queuedCount = Math.max(0, interactionQueueLength - 1);
+  const teamHint = teamActive && teamAttentionCount && teamAttentionCount > 0
+    ? `Ctrl+T (${teamAttentionCount})`
+    : "";
 
   if (!inConversation) {
-    text = statusMessage || modeLabel || "";
-    if (teamActive && teamAttentionCount && teamAttentionCount > 0) {
-      text += `${text ? " · " : ""}Ctrl+T team (${teamAttentionCount})`;
+    const segments: ShellFooterSegment[] = [];
+    if (modeChip) {
+      segments.push({ text: modeChip, tone: "neutral", chip: true });
     }
-    return { text, tone };
+    const hintText = statusMessage ||
+      (modeChip ? "Shift+Tab cycles" : "") ||
+      "";
+    const combinedHint = [hintText, teamHint].filter(Boolean).join(
+      SHELL_SEGMENT_SEPARATOR,
+    );
+    if (combinedHint) {
+      segments.push({ text: combinedHint, tone: "muted" });
+    }
+    return {
+      mode: "segments",
+      segments,
+      text: formatShellFooterText(segments),
+      tone: "muted",
+    };
   }
 
   // Warning states — keep visible since they require user action
-  if (suppressInteractionHints && (hasPendingPlanReview || hasPendingQuestion)) {
-    text = "";
+  if (
+    suppressInteractionHints && (hasPendingPlanReview || hasPendingQuestion)
+  ) {
+    return { mode: "message", segments: [], text: "", tone: "muted" };
   } else if (hasPendingPlanReview) {
-    text = "Use arrows or 1-3 · Enter confirm · Esc cancel";
-    tone = "warning";
+    return {
+      mode: "message",
+      segments: [],
+      text: "Use arrows or 1-3 · Enter confirm · Esc cancel",
+      tone: "warning",
+    };
   } else if (hasPendingPermission) {
-    text = "Enter approve · Esc cancel";
-    tone = "warning";
+    return {
+      mode: "message",
+      segments: [],
+      text: "Enter approve · Esc cancel",
+      tone: "warning",
+    };
   } else if (hasPendingQuestion) {
-    text = "Enter submit · Tab notes · Esc cancel";
-    tone = "warning";
+    return {
+      mode: "message",
+      segments: [],
+      text: "Enter submit · Tab notes · Esc cancel",
+      tone: "warning",
+    };
   } else if (
     streamingState === ConversationStreamingState.WaitingForConfirmation
   ) {
-    text = "Waiting for confirmation";
-    tone = "warning";
-  } else if (streamingState === ConversationStreamingState.Responding) {
-    if (hasDraftInput) {
-      text = "tab queue · ctrl+enter force";
-    } else if (activeTool) {
-      text =
-        `${spinner} ${activeTool.name} (${activeTool.toolIndex}/${activeTool.toolTotal}) · esc cancel`;
-      tone = "warning";
-    } else {
-      text = "esc cancel";
-    }
-  } else if (statusMessage) {
-    text = statusMessage;
-  } else if (modeLabel) {
-    text = modeLabel;
-  } else {
-    text = "";
+    return {
+      mode: "message",
+      segments: [],
+      text: "Waiting for confirmation",
+      tone: "warning",
+    };
   }
 
-  const queuedCount = Math.max(0, interactionQueueLength - 1);
+  const segments: ShellFooterSegment[] = [];
+  if (modeChip) {
+    segments.push({ text: modeChip, tone: "neutral", chip: true });
+  }
   if (queuedCount > 0) {
-    text += `${text ? " · " : ""}+${queuedCount} queued`;
+    segments.push({
+      text: `+${queuedCount} queued`,
+      tone: "active",
+      chip: true,
+    });
+  }
+  if (
+    streamingState === ConversationStreamingState.Responding &&
+    activeTool &&
+    !hasDraftInput
+  ) {
+    segments.push({
+      text:
+        `${spinner} ${activeTool.name} ${activeTool.toolIndex}/${activeTool.toolTotal}`,
+      tone: "warning",
+      chip: true,
+    });
   }
 
-  if (teamActive) {
-    text += teamAttentionCount && teamAttentionCount > 0
-      ? `${text ? " · " : ""}Ctrl+T (${teamAttentionCount})`
-      : "";
+  const hintText = streamingState === ConversationStreamingState.Responding
+    ? hasDraftInput ? "Tab queues · Ctrl+Enter forces" : "Esc cancels"
+    : statusMessage || (modeChip ? "Shift+Tab cycles" : "") || "";
+  const combinedHint = [hintText, teamHint].filter(Boolean).join(
+    SHELL_SEGMENT_SEPARATOR,
+  );
+  if (combinedHint) {
+    segments.push({
+      text: combinedHint,
+      tone: hasDraftInput &&
+          streamingState === ConversationStreamingState.Responding
+        ? "active"
+        : "muted",
+    });
   }
 
-  return { text, tone };
+  return {
+    mode: "segments",
+    segments,
+    text: formatShellFooterText(segments),
+    tone: "muted",
+  };
 }
 
 interface FooterRightStateInput {
@@ -140,12 +205,13 @@ interface FooterRightStateInput {
 export function buildFooterRightState({
   modelName,
   contextUsageLabel,
-}: FooterRightStateInput): { infoText: string } {
-  const infoParts: string[] = [];
-  if (contextUsageLabel) infoParts.push(contextUsageLabel);
-  if (modelName) infoParts.push(modelName);
+}: FooterRightStateInput): { infoParts: string[]; infoText: string } {
+  const infoParts = [contextUsageLabel, modelName].filter(
+    (part): part is string => Boolean(part && part.trim()),
+  );
   return {
-    infoText: infoParts.join(FOOTER_SECTION_SEPARATOR),
+    infoParts,
+    infoText: infoParts.join(SHELL_SEGMENT_SEPARATOR),
   };
 }
 
@@ -169,7 +235,8 @@ export function FooterHint({
   const { stdout } = useStdout();
   const sc = useSemanticColors();
   const model = modelName ?? "";
-  const isAnimating = streamingState === ConversationStreamingState.Responding &&
+  const isAnimating =
+    streamingState === ConversationStreamingState.Responding &&
     !!activeTool;
   const spinnerFrame = useConversationSpinnerFrame(isAnimating);
   const spinner = spinnerFrame ?? STATUS_GLYPHS.running;
@@ -190,7 +257,6 @@ export function FooterHint({
     spinner,
     statusMessage,
   });
-  const leftColor = left.tone === "warning" ? sc.status.warning : sc.text.muted;
 
   const right = buildFooterRightState({
     modelName: model,
@@ -201,25 +267,98 @@ export function FooterHint({
   const contentWidth = Math.max(20, rawTerminalWidth - 2);
 
   // Single line: left status ... right model info
-  const rightText = right.infoText;
+  const maxRightWidth = Math.max(8, Math.floor(contentWidth * 0.45));
+  const rightText = truncate(right.infoText, maxRightWidth);
+  const rightParts = rightText === right.infoText
+    ? right.infoParts
+    : [rightText];
 
   // Reserve space for right side, truncate left to fit
   const rightLen = rightText.length;
   const gap = 2; // minimum gap between left and right
   const leftMaxWidth = Math.max(8, contentWidth - rightLen - gap);
-  const leftText = truncate(left.text, leftMaxWidth);
   const separator = "─".repeat(contentWidth);
+  const fittedSegments = left.mode === "segments"
+    ? fitShellFooterSegments(left.segments, leftMaxWidth)
+    : [];
+  const leftText = left.mode === "message"
+    ? truncate(left.text, leftMaxWidth)
+    : "";
+
+  const renderSegment = (
+    segment: ShellFooterSegment,
+    index: number,
+  ): React.ReactElement => {
+    if (segment.chip) {
+      const tone = segment.tone === "warning"
+        ? sc.shell.chipWarning
+        : segment.tone === "active"
+        ? sc.shell.chipActive
+        : sc.shell.chipNeutral;
+      return (
+        <Text
+          backgroundColor={tone.background}
+          color={tone.foreground}
+        >
+          {" "}
+          {segment.text}
+          {" "}
+        </Text>
+      );
+    }
+
+    const color = segment.tone === "active"
+      ? sc.shell.chipActive.background
+      : segment.tone === "warning"
+      ? sc.status.warning
+      : sc.text.muted;
+    return <Text color={color}>{segment.text}</Text>;
+  };
 
   return (
     <Box flexDirection="column">
-      <Text color={sc.border.dim}>{separator}</Text>
+      <Text color={sc.shell.separator}>{separator}</Text>
       <Box
         flexGrow={1}
         flexDirection="row"
         justifyContent="space-between"
       >
-        <Text color={leftColor}>{leftText}</Text>
-        {rightText.length > 0 && <Text color={sc.text.muted}>{rightText}</Text>}
+        <Box>
+          {left.mode === "message"
+            ? (
+              <Text
+                color={left.tone === "warning"
+                  ? sc.status.warning
+                  : sc.text.muted}
+              >
+                {leftText}
+              </Text>
+            )
+            : fittedSegments.map((segment, index) => (
+              <React.Fragment key={`${segment.text}-${index}`}>
+                {index > 0 && (
+                  <Text color={sc.shell.separator}>
+                    {SHELL_SEGMENT_SEPARATOR}
+                  </Text>
+                )}
+                {renderSegment(segment, index)}
+              </React.Fragment>
+            ))}
+        </Box>
+        {rightParts.length > 0 && (
+          <Box>
+            {rightParts.map((part, index) => (
+              <React.Fragment key={`${part}-${index}`}>
+                {index > 0 && (
+                  <Text color={sc.shell.separator}>
+                    {SHELL_SEGMENT_SEPARATOR}
+                  </Text>
+                )}
+                <Text color={sc.text.muted}>{part}</Text>
+              </React.Fragment>
+            ))}
+          </Box>
+        )}
       </Box>
     </Box>
   );

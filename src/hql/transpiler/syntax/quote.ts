@@ -26,10 +26,6 @@ import {
 } from "../utils/validation-helpers.ts";
 import { globalSymbolTable, type SymbolTable } from "../symbol_table.ts";
 import {
-  addResolvedBindings,
-  attachResolvedBindingMeta,
-  cloneResolvedBindingMap,
-  createListFrom,
   createSymbol,
   getMeta,
   isForm,
@@ -39,37 +35,31 @@ import {
   type ResolvedBindingMeta,
   type SExpMeta,
 } from "../../s-exp/types.ts";
-import { couldBePattern } from "../../s-exp/pattern-parser.ts";
 import {
-  hasArrayLiteralPrefix,
-  hasHashMapPrefix,
-} from "../../../common/sexp-utils.ts";
+  processTemplateQuote,
+  type TemplateQuoteContext,
+} from "../../s-exp/template-quote.ts";
 import {
   KERNEL_PRIMITIVES,
   PRIMITIVE_DATA_STRUCTURE,
   PRIMITIVE_OPS,
 } from "../keyword/primitives.ts";
+import { canonicalizeModuleId } from "../utils/module-identity.ts";
 
-type TemplateQuoteKind = "quasiquote" | "syntax-quote";
-
-interface TemplateState {
-  quoteKind: TemplateQuoteKind;
-  autoGensymMap: Map<string, SymbolNode>;
-  templateBindings: Map<string, ResolvedBindingMeta>;
-  currentFile?: string;
+export interface RuntimeQuoteTransformContext {
+  symbolTable: SymbolTable;
+  lexicalBindingCounter: number;
+  autoGensymCounter: number;
 }
 
-interface TemplateBindingTargetResult {
-  expr: HQLNode;
-  bindings: ResolvedBindingMeta[];
-}
-
-let currentSymbolTable: SymbolTable = globalSymbolTable;
-let templateLexicalBindingCounter = 0;
-let templateAutoGensymCounter = 0;
-
-export function setCurrentSymbolTable(table: SymbolTable): void {
-  currentSymbolTable = table;
+export function createRuntimeQuoteTransformContext(
+  symbolTable: SymbolTable = globalSymbolTable,
+): RuntimeQuoteTransformContext {
+  return {
+    symbolTable,
+    lexicalBindingCounter: 0,
+    autoGensymCounter: 0,
+  };
 }
 
 function createBooleanLiteral(value: boolean): IR.IRBooleanLiteral {
@@ -79,14 +69,6 @@ function createBooleanLiteral(value: boolean): IR.IRBooleanLiteral {
   } as IR.IRBooleanLiteral;
 }
 
-function createLocalBindingMeta(name: string): ResolvedBindingMeta {
-  return {
-    kind: "local",
-    exportName: name,
-    lexicalId: `runtime-template-local-${++templateLexicalBindingCounter}`,
-  };
-}
-
 function getNodeFilePath(
   node: HQLNode,
   fallback?: string,
@@ -94,31 +76,25 @@ function getNodeFilePath(
   return getMeta(node)?.filePath ?? fallback;
 }
 
-function getAutoGensym(name: string, state: TemplateState): SymbolNode {
-  const existing = state.autoGensymMap.get(name);
-  if (existing) {
-    return existing;
-  }
-
-  const generated = createSymbol(
-    `${name.slice(0, -1)}_${templateAutoGensymCounter++}`,
-  );
-  state.autoGensymMap.set(name, generated);
-  return generated;
-}
-
 function resolveNonLocalBinding(
   symbol: SymbolNode,
   currentFile?: string,
+  symbolTable: SymbolTable = globalSymbolTable,
 ): ResolvedBindingMeta | undefined {
-  const symbolInfo = currentSymbolTable.get(symbol.name) ??
+  const symbolInfo = symbolTable.get(symbol.name) ??
     globalSymbolTable.get(symbol.name);
+  const canonicalCurrentFile = currentFile
+    ? canonicalizeModuleId(currentFile, currentFile)
+    : undefined;
 
   if (symbolInfo?.sourceModule) {
     return {
       kind: "module",
       exportName: symbolInfo.aliasOf ?? symbol.name,
-      modulePath: symbolInfo.sourceModule,
+      modulePath: canonicalizeModuleId(
+        symbolInfo.sourceModule,
+        symbolInfo.sourceModule,
+      ),
       originalName: symbol.name,
       importedFrom: symbolInfo.isImported ? symbolInfo.sourceModule : undefined,
     };
@@ -158,679 +134,45 @@ function resolveNonLocalBinding(
     };
   }
 
-  return currentFile && symbolInfo?.sourceModule === currentFile
+  return canonicalCurrentFile && symbolInfo?.sourceModule === canonicalCurrentFile
     ? {
       kind: "module",
       exportName: symbol.name,
-      modulePath: currentFile,
+      modulePath: canonicalCurrentFile,
       originalName: symbol.name,
     }
     : undefined;
 }
 
-function preprocessSymbol(
-  symbol: SymbolNode,
-  depth: number,
-  state: TemplateState,
-): SymbolNode {
-  if (depth === 0 && symbol.name.endsWith("#")) {
-    return getAutoGensym(symbol.name, state);
-  }
-
-  if (state.quoteKind !== "syntax-quote" || depth !== 0) {
-    return symbol;
-  }
-
-  const templateBinding = state.templateBindings.get(symbol.name);
-  if (templateBinding) {
-    return attachResolvedBindingMeta(symbol, templateBinding);
-  }
-
-  const resolvedBinding = resolveNonLocalBinding(symbol, state.currentFile);
-  return resolvedBinding
-    ? attachResolvedBindingMeta(symbol, resolvedBinding)
-    : symbol;
-}
-
-function annotateBindingTarget(
-  target: HQLNode,
-): TemplateBindingTargetResult {
-  if (isSymbol(target)) {
-    if (target.name === "_") {
-      return { expr: target, bindings: [] };
-    }
-
-    const binding = createLocalBindingMeta(target.name);
-    return {
-      expr: attachResolvedBindingMeta(target, binding),
-      bindings: [binding],
-    };
-  }
-
-  if (!isList(target)) {
-    return { expr: target, bindings: [] };
-  }
-
-  if (hasHashMapPrefix(target)) {
-    const bindings: ResolvedBindingMeta[] = [];
-    const elements: HQLNode[] = [target.elements[0]];
-
-    for (let i = 1; i < target.elements.length; i += 2) {
-      const keyNode = target.elements[i];
-      const valueNode = target.elements[i + 1];
-      if (!keyNode) {
-        continue;
-      }
-
-      elements.push(keyNode);
-
-      if (!valueNode) {
-        continue;
-      }
-
-      if (isSymbol(keyNode) && keyNode.name === "&") {
-        if (isSymbol(valueNode) && valueNode.name !== "_") {
-          const binding = createLocalBindingMeta(valueNode.name);
-          elements.push(attachResolvedBindingMeta(valueNode, binding));
-          bindings.push(binding);
-        } else {
-          elements.push(valueNode);
-        }
-        break;
-      }
-
-      const annotatedValue = annotateBindingTarget(valueNode);
-      elements.push(annotatedValue.expr);
-      bindings.push(...annotatedValue.bindings);
-    }
-
-    return {
-      expr: createListFrom(target, elements),
-      bindings,
-    };
-  }
-
-  const rawElements = hasArrayLiteralPrefix(target)
-    ? target.elements.slice(1)
-    : target.elements;
-  const processedElements: HQLNode[] = hasArrayLiteralPrefix(target)
-    ? [target.elements[0]]
-    : [];
-  const bindings: ResolvedBindingMeta[] = [];
-
-  for (let i = 0; i < rawElements.length; i++) {
-    const element = rawElements[i];
-
-    if (isSymbol(element) && element.name === "&") {
-      processedElements.push(element);
-      const restTarget = rawElements[i + 1];
-      if (restTarget && isSymbol(restTarget) && restTarget.name !== "_") {
-        const binding = createLocalBindingMeta(restTarget.name);
-        processedElements.push(attachResolvedBindingMeta(restTarget, binding));
-        bindings.push(binding);
-      } else if (restTarget) {
-        processedElements.push(restTarget);
-      }
-      i += 1;
-      continue;
-    }
-
-    if (
-      isList(element) &&
-      (couldBePattern(element) || hasArrayLiteralPrefix(element) ||
-        hasHashMapPrefix(element))
-    ) {
-      const annotated = annotateBindingTarget(element);
-      processedElements.push(annotated.expr);
-      bindings.push(...annotated.bindings);
-      continue;
-    }
-
-    if (isSymbol(element) && element.name !== "_") {
-      const binding = createLocalBindingMeta(element.name);
-      processedElements.push(attachResolvedBindingMeta(element, binding));
-      bindings.push(binding);
-      continue;
-    }
-
-    processedElements.push(element);
-  }
-
+function createTemplateQuoteContext(
+  runtimeContext: RuntimeQuoteTransformContext,
+  currentFile?: string,
+): TemplateQuoteContext {
   return {
-    expr: createListFrom(target, processedElements),
-    bindings,
+    mode: "preserve",
+    currentFile,
+    fail(formName, message, node) {
+      throw syntaxError(formName, message, extractPosition(node));
+    },
+    resolveNonLocalBinding(symbol, filePath) {
+      return resolveNonLocalBinding(
+        symbol,
+        filePath,
+        runtimeContext.symbolTable,
+      );
+    },
+    createLocalBinding(name) {
+      return {
+        kind: "local",
+        exportName: name,
+        lexicalId:
+          `runtime-template-local-${++runtimeContext.lexicalBindingCounter}`,
+      };
+    },
+    createAutoGensym(baseName) {
+      return createSymbol(`${baseName}_${runtimeContext.autoGensymCounter++}`);
+    },
   };
-}
-
-function preprocessBindingTarget(
-  target: HQLNode,
-  depth: number,
-  state: TemplateState,
-): TemplateBindingTargetResult {
-  return annotateBindingTarget(preprocessTemplateNode(target, depth, state));
-}
-
-function preprocessBindingForm(
-  list: ListNode,
-  depth: number,
-  state: TemplateState,
-): HQLNode {
-  const processedHead = preprocessTemplateNode(list.elements[0], depth, state);
-  if (list.elements.length < 2) {
-    return createListFrom(list, [processedHead]);
-  }
-
-  const bindingTarget = list.elements[1];
-  const scopeBindings = cloneResolvedBindingMap(state.templateBindings);
-
-  if (isSymbol(bindingTarget)) {
-    const processedValue = list.elements.length > 2
-      ? preprocessTemplateNode(list.elements[2], depth, {
-        ...state,
-        templateBindings: scopeBindings,
-      })
-      : bindingTarget;
-
-    const annotatedTarget = bindingTarget.name === "_"
-      ? { expr: bindingTarget as HQLNode, bindings: [] }
-      : preprocessBindingTarget(bindingTarget, depth, state);
-    addResolvedBindings(scopeBindings, annotatedTarget.bindings);
-
-    const processedElements: HQLNode[] = [
-      processedHead,
-      annotatedTarget.expr,
-      processedValue,
-    ];
-
-    for (let i = 3; i < list.elements.length; i++) {
-      processedElements.push(
-        preprocessTemplateNode(list.elements[i], depth, {
-          ...state,
-          templateBindings: scopeBindings,
-        }),
-      );
-    }
-
-    return createListFrom(list, processedElements);
-  }
-
-  if (!isList(bindingTarget)) {
-    return createListFrom(list, [
-      processedHead,
-      preprocessTemplateNode(bindingTarget, depth, state),
-      ...list.elements.slice(2).map((element) =>
-        preprocessTemplateNode(element, depth, state)
-      ),
-    ]);
-  }
-
-  const rawBindingElements = hasArrayLiteralPrefix(bindingTarget)
-    ? bindingTarget.elements.slice(1)
-    : bindingTarget.elements;
-  const processedBindingElements: HQLNode[] =
-    hasArrayLiteralPrefix(bindingTarget) ? [bindingTarget.elements[0]] : [];
-
-  for (let i = 0; i < rawBindingElements.length; i += 2) {
-    const target = rawBindingElements[i];
-    const value = rawBindingElements[i + 1];
-    if (!target) {
-      continue;
-    }
-
-    const annotatedTarget = preprocessBindingTarget(target, depth, {
-      ...state,
-      templateBindings: scopeBindings,
-    });
-    processedBindingElements.push(annotatedTarget.expr);
-
-    if (value) {
-      processedBindingElements.push(
-        preprocessTemplateNode(value, depth, {
-          ...state,
-          templateBindings: scopeBindings,
-        }),
-      );
-    }
-
-    addResolvedBindings(scopeBindings, annotatedTarget.bindings);
-  }
-
-  const processedElements: HQLNode[] = [
-    processedHead,
-    createListFrom(bindingTarget, processedBindingElements),
-  ];
-
-  for (let i = 2; i < list.elements.length; i++) {
-    processedElements.push(
-      preprocessTemplateNode(list.elements[i], depth, {
-        ...state,
-        templateBindings: scopeBindings,
-      }),
-    );
-  }
-
-  return createListFrom(list, processedElements);
-}
-
-function preprocessParams(
-  paramsNode: ListNode,
-  depth: number,
-  state: TemplateState,
-  scopeBindings: Map<string, ResolvedBindingMeta>,
-): HQLNode {
-  const rawParams = hasArrayLiteralPrefix(paramsNode)
-    ? paramsNode.elements.slice(1)
-    : paramsNode.elements;
-  const processedParams: HQLNode[] = hasArrayLiteralPrefix(paramsNode)
-    ? [paramsNode.elements[0]]
-    : [];
-
-  for (let i = 0; i < rawParams.length; i++) {
-    const param = rawParams[i];
-
-    if (isSymbol(param) && param.name === "&") {
-      processedParams.push(param);
-      const restParam = rawParams[i + 1];
-      if (restParam) {
-        const annotatedRest = preprocessBindingTarget(restParam, depth, {
-          ...state,
-          templateBindings: scopeBindings,
-        });
-        processedParams.push(annotatedRest.expr);
-        addResolvedBindings(scopeBindings, annotatedRest.bindings);
-      }
-      i += 1;
-      continue;
-    }
-
-    if (isSymbol(param) && param.name.startsWith("...")) {
-      const annotatedRest = preprocessBindingTarget(param, depth, {
-        ...state,
-        templateBindings: scopeBindings,
-      });
-      processedParams.push(annotatedRest.expr);
-      addResolvedBindings(scopeBindings, annotatedRest.bindings);
-      continue;
-    }
-
-    if (
-      isList(param) &&
-      (couldBePattern(param) || hasArrayLiteralPrefix(param) ||
-        hasHashMapPrefix(param))
-    ) {
-      const annotatedPattern = preprocessBindingTarget(param, depth, {
-        ...state,
-        templateBindings: scopeBindings,
-      });
-      processedParams.push(annotatedPattern.expr);
-      addResolvedBindings(scopeBindings, annotatedPattern.bindings);
-      continue;
-    }
-
-    if (isSymbol(param)) {
-      const annotatedParam = preprocessBindingTarget(param, depth, {
-        ...state,
-        templateBindings: scopeBindings,
-      });
-      processedParams.push(annotatedParam.expr);
-      addResolvedBindings(scopeBindings, annotatedParam.bindings);
-      continue;
-    }
-
-    processedParams.push(param);
-  }
-
-  return createListFrom(paramsNode, processedParams);
-}
-
-function preprocessFunctionClause(
-  clause: ListNode,
-  depth: number,
-  state: TemplateState,
-  baseScopeBindings: Map<string, ResolvedBindingMeta>,
-): HQLNode {
-  if (clause.elements.length === 0 || !isList(clause.elements[0])) {
-    return preprocessTemplateNode(clause, depth, {
-      ...state,
-      templateBindings: baseScopeBindings,
-    });
-  }
-
-  const scopeBindings = cloneResolvedBindingMap(baseScopeBindings);
-  const processedParams = preprocessParams(
-    clause.elements[0] as ListNode,
-    depth,
-    state,
-    scopeBindings,
-  );
-  const processedElements: HQLNode[] = [processedParams];
-
-  for (let i = 1; i < clause.elements.length; i++) {
-    processedElements.push(
-      preprocessTemplateNode(clause.elements[i], depth, {
-        ...state,
-        templateBindings: scopeBindings,
-      }),
-    );
-  }
-
-  return createListFrom(clause, processedElements);
-}
-
-function looksLikeMultiArityFunction(
-  list: ListNode,
-  paramIndex: number,
-): boolean {
-  if (list.elements.length <= paramIndex) {
-    return false;
-  }
-
-  return list.elements.slice(paramIndex).every((clause) =>
-    isList(clause) &&
-    clause.elements.length > 0 &&
-    isList(clause.elements[0])
-  );
-}
-
-function preprocessFunctionForm(
-  list: ListNode,
-  depth: number,
-  state: TemplateState,
-): HQLNode {
-  const processedHead = preprocessTemplateNode(list.elements[0], depth, state);
-  const scopeBindings = cloneResolvedBindingMap(state.templateBindings);
-  const processedElements: HQLNode[] = [processedHead];
-  let paramIndex = 1;
-
-  if (
-    list.elements.length > 1 &&
-    isSymbol(list.elements[1]) &&
-    list.elements.length > 2 &&
-    isList(list.elements[2])
-  ) {
-    const annotatedName = preprocessBindingTarget(list.elements[1], depth, {
-      ...state,
-      templateBindings: scopeBindings,
-    });
-    processedElements.push(annotatedName.expr);
-    addResolvedBindings(scopeBindings, annotatedName.bindings);
-    paramIndex = 2;
-  }
-
-  if (looksLikeMultiArityFunction(list, paramIndex)) {
-    for (let i = paramIndex; i < list.elements.length; i++) {
-      processedElements.push(
-        preprocessFunctionClause(
-          list.elements[i] as ListNode,
-          depth,
-          state,
-          scopeBindings,
-        ),
-      );
-    }
-    return createListFrom(list, processedElements);
-  }
-
-  if (
-    list.elements.length <= paramIndex || !isList(list.elements[paramIndex])
-  ) {
-    return createListFrom(list, [
-      ...processedElements,
-      ...list.elements.slice(paramIndex).map((element) =>
-        preprocessTemplateNode(element, depth, state)
-      ),
-    ]);
-  }
-
-  const bodyScopeBindings = cloneResolvedBindingMap(scopeBindings);
-  processedElements.push(
-    preprocessParams(
-      list.elements[paramIndex] as ListNode,
-      depth,
-      state,
-      bodyScopeBindings,
-    ),
-  );
-
-  for (let i = paramIndex + 1; i < list.elements.length; i++) {
-    processedElements.push(
-      preprocessTemplateNode(list.elements[i], depth, {
-        ...state,
-        templateBindings: bodyScopeBindings,
-      }),
-    );
-  }
-
-  return createListFrom(list, processedElements);
-}
-
-function preprocessForOfForm(
-  list: ListNode,
-  depth: number,
-  state: TemplateState,
-): HQLNode {
-  const processedHead = preprocessTemplateNode(list.elements[0], depth, state);
-  if (list.elements.length < 2 || !isList(list.elements[1])) {
-    return createListFrom(list, [
-      processedHead,
-      ...list.elements.slice(1).map((element) =>
-        preprocessTemplateNode(element, depth, state)
-      ),
-    ]);
-  }
-
-  const bindingList = list.elements[1] as ListNode;
-  const rawElements = hasArrayLiteralPrefix(bindingList)
-    ? bindingList.elements.slice(1)
-    : bindingList.elements;
-  if (rawElements.length < 2) {
-    return createListFrom(list, [
-      processedHead,
-      preprocessTemplateNode(bindingList, depth, state),
-      ...list.elements.slice(2).map((element) =>
-        preprocessTemplateNode(element, depth, state)
-      ),
-    ]);
-  }
-
-  const scopeBindings = cloneResolvedBindingMap(state.templateBindings);
-  const annotatedTarget = preprocessBindingTarget(rawElements[0], depth, state);
-  addResolvedBindings(scopeBindings, annotatedTarget.bindings);
-
-  const processedBindingElements: HQLNode[] = hasArrayLiteralPrefix(bindingList)
-    ? [bindingList.elements[0]]
-    : [];
-  processedBindingElements.push(annotatedTarget.expr);
-  processedBindingElements.push(
-    preprocessTemplateNode(rawElements[1], depth, state),
-  );
-
-  for (let i = 2; i < rawElements.length; i++) {
-    processedBindingElements.push(
-      preprocessTemplateNode(rawElements[i], depth, state),
-    );
-  }
-
-  const processedElements: HQLNode[] = [
-    processedHead,
-    createListFrom(bindingList, processedBindingElements),
-  ];
-
-  for (let i = 2; i < list.elements.length; i++) {
-    processedElements.push(
-      preprocessTemplateNode(list.elements[i], depth, {
-        ...state,
-        templateBindings: scopeBindings,
-      }),
-    );
-  }
-
-  return createListFrom(list, processedElements);
-}
-
-function preprocessCatchForm(
-  list: ListNode,
-  depth: number,
-  state: TemplateState,
-): HQLNode {
-  const processedHead = preprocessTemplateNode(list.elements[0], depth, state);
-  if (list.elements.length < 2) {
-    return createListFrom(list, [processedHead]);
-  }
-
-  const scopeBindings = cloneResolvedBindingMap(state.templateBindings);
-  const processedElements: HQLNode[] = [processedHead];
-  const binder = list.elements[1];
-
-  if (isSymbol(binder)) {
-    const annotatedBinder = preprocessBindingTarget(binder, depth, state);
-    processedElements.push(annotatedBinder.expr);
-    addResolvedBindings(scopeBindings, annotatedBinder.bindings);
-  } else {
-    processedElements.push(preprocessTemplateNode(binder, depth, state));
-  }
-
-  for (let i = 2; i < list.elements.length; i++) {
-    processedElements.push(
-      preprocessTemplateNode(list.elements[i], depth, {
-        ...state,
-        templateBindings: scopeBindings,
-      }),
-    );
-  }
-
-  return createListFrom(list, processedElements);
-}
-
-function preprocessSyntaxQuotedList(
-  list: ListNode,
-  depth: number,
-  state: TemplateState,
-): HQLNode | null {
-  if (
-    depth !== 0 ||
-    state.quoteKind !== "syntax-quote" ||
-    list.elements.length === 0 ||
-    !isSymbol(list.elements[0])
-  ) {
-    return null;
-  }
-
-  switch (list.elements[0].name) {
-    case "let":
-    case "var":
-    case "const":
-    case "loop":
-      return preprocessBindingForm(list, depth, state);
-    case "fn":
-    case "function":
-    case "defn":
-    case "fx":
-      return preprocessFunctionForm(list, depth, state);
-    case "for-of":
-    case "for-await-of":
-      return preprocessForOfForm(list, depth, state);
-    case "catch":
-      return preprocessCatchForm(list, depth, state);
-    default:
-      return null;
-  }
-}
-
-function preprocessTemplateNode(
-  node: HQLNode,
-  depth: number,
-  state: TemplateState,
-): HQLNode {
-  state.currentFile = getNodeFilePath(node, state.currentFile);
-
-  if (isSymbol(node)) {
-    return preprocessSymbol(node, depth, state);
-  }
-
-  if (!isList(node)) {
-    return node;
-  }
-
-  if (node.elements.length === 0) {
-    return node;
-  }
-
-  const first = node.elements[0];
-  if (
-    isSymbol(first) &&
-    (first.name === "quasiquote" || first.name === "syntax-quote")
-  ) {
-    if (node.elements.length !== 2) {
-      throw syntaxError(
-        first.name,
-        `${first.name} requires exactly one argument`,
-        extractPosition(node),
-      );
-    }
-
-    const nestedState: TemplateState = {
-      quoteKind: first.name,
-      autoGensymMap: new Map(),
-      templateBindings: cloneResolvedBindingMap(state.templateBindings),
-      currentFile: getNodeFilePath(node, state.currentFile),
-    };
-
-    return createListFrom(node, [
-      createSymbol(first.name),
-      preprocessTemplateNode(node.elements[1], depth + 1, nestedState),
-    ]);
-  }
-
-  if (isSymbol(first) && first.name === "unquote") {
-    if (node.elements.length !== 2) {
-      throw syntaxError(
-        "unquote",
-        "unquote requires exactly one argument",
-        extractPosition(node),
-      );
-    }
-
-    if (depth === 0) {
-      return node;
-    }
-
-    return createListFrom(node, [
-      createSymbol("unquote"),
-      preprocessTemplateNode(node.elements[1], depth - 1, state),
-    ]);
-  }
-
-  if (isSymbol(first) && first.name === "unquote-splicing") {
-    if (node.elements.length !== 2) {
-      throw syntaxError(
-        "unquote-splicing",
-        "unquote-splicing requires exactly one argument",
-        extractPosition(node),
-      );
-    }
-
-    if (depth === 0) {
-      return node;
-    }
-
-    return createListFrom(node, [
-      createSymbol("unquote-splicing"),
-      preprocessTemplateNode(node.elements[1], depth - 1, state),
-    ]);
-  }
-
-  const specialized = preprocessSyntaxQuotedList(node, depth, state);
-  if (specialized) {
-    return specialized;
-  }
-
-  return createListFrom(
-    node,
-    node.elements.map((element) =>
-      preprocessTemplateNode(element, depth, state)
-    ),
-  );
 }
 
 function createObjectProperty(
@@ -1184,6 +526,7 @@ export function transformQuote(
   list: ListNode,
   _currentDir: string,
   _transformNode: TransformNodeFn,
+  _runtimeContext: RuntimeQuoteTransformContext,
 ): IR.IRNode {
   validateListLength(list, 2, "quote");
   const result = createStaticSExp(list.elements[1]);
@@ -1195,15 +538,15 @@ export function transformQuasiquote(
   list: ListNode,
   currentDir: string,
   transformNode: TransformNodeFn,
+  runtimeContext: RuntimeQuoteTransformContext,
 ): IR.IRNode {
   validateListLength(list, 2, "quasiquote");
 
-  const processed = preprocessTemplateNode(list.elements[1], 0, {
-    quoteKind: "quasiquote",
-    autoGensymMap: new Map(),
-    templateBindings: new Map(),
-    currentFile: getNodeFilePath(list, undefined),
-  });
+  const processed = processTemplateQuote(
+    list.elements[1],
+    "quasiquote",
+    createTemplateQuoteContext(runtimeContext, getNodeFilePath(list, undefined)),
+  );
   const result = buildTemplateQuoteIR(processed, 0, currentDir, transformNode);
   copyPosition(list, result);
   return result;
@@ -1213,15 +556,15 @@ export function transformSyntaxQuote(
   list: ListNode,
   currentDir: string,
   transformNode: TransformNodeFn,
+  runtimeContext: RuntimeQuoteTransformContext,
 ): IR.IRNode {
   validateListLength(list, 2, "syntax-quote");
 
-  const processed = preprocessTemplateNode(list.elements[1], 0, {
-    quoteKind: "syntax-quote",
-    autoGensymMap: new Map(),
-    templateBindings: new Map(),
-    currentFile: getNodeFilePath(list, undefined),
-  });
+  const processed = processTemplateQuote(
+    list.elements[1],
+    "syntax-quote",
+    createTemplateQuoteContext(runtimeContext, getNodeFilePath(list, undefined)),
+  );
   const result = buildTemplateQuoteIR(processed, 0, currentDir, transformNode);
   copyPosition(list, result);
   return result;

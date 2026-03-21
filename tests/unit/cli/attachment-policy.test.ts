@@ -87,14 +87,14 @@ Deno.test("attachment policy: text-only models can accept PDF attachments via ex
   });
 });
 
-Deno.test("attachment policy: multimodal file inputs still require vision", async () => {
+Deno.test("attachment policy: Anthropic models accept PDF attachments without vision", async () => {
   const support = await checkModelAttachmentMimeTypes(
     "anthropic/claude-sonnet-4-5-20250929",
     ["application/pdf"],
     createModelInfo(["chat", "tools"]),
   );
 
-  assertEquals(support.supported, false);
+  assertEquals(support.supported, true);
   assertEquals(support.unsupportedKind, undefined);
 });
 

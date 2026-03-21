@@ -51,7 +51,6 @@ import {
   isSingleExport,
   isVectorExport,
   isVectorImport,
-  setCurrentSymbolTable as setImportExportSymbolTable,
 } from "../syntax/import-export.ts";
 import { FIRST_CLASS_OPERATORS } from "../keyword/primitives.ts";
 import { hasArrayLiteralPrefix } from "../../../common/sexp-utils.ts";
@@ -75,16 +74,25 @@ import { globalSymbolTable, type SymbolTable } from "../symbol_table.ts";
 import { type CompilerContext, getSymbolTable } from "../compiler-context.ts";
 import { extractAndNormalizeType } from "../tokenizer/type-tokenizer.ts";
 import {
-  initializeBindingResolution,
+  createBindingResolutionContext,
+  type BindingResolutionContext,
   lookupResolvedSymbolInfo,
   resolveSymbolIdentifier,
 } from "../utils/binding-resolution.ts";
 import { buildMemberExpressionChain } from "../utils/member-expression.ts";
+import {
+  createRuntimeQuoteTransformContext,
+  type RuntimeQuoteTransformContext,
+} from "../syntax/quote.ts";
 
 // Module-level symbol table for current IR transformation
 // Set by transformToIR, used throughout the transformation
 // This enables isolation when context.symbolTable is provided
 let currentSymbolTable: SymbolTable = globalSymbolTable;
+let currentBindingResolutionContext: BindingResolutionContext =
+  createBindingResolutionContext(currentSymbolTable);
+let currentQuoteTransformContext: RuntimeQuoteTransformContext =
+  createRuntimeQuoteTransformContext(currentSymbolTable);
 
 // Per-compilation loop state — reset in transformToIR() to prevent cross-compilation corruption
 let currentLoopState: loopRecurModule.LoopState = loopRecurModule
@@ -314,10 +322,12 @@ export function transformToIR(
   functionModule.resetFnFunctionRegistry();
   // Use context-specific symbol table if provided, otherwise global
   currentSymbolTable = getSymbolTable(context);
-  // Sync import-export module with current symbol table
-  setImportExportSymbolTable(currentSymbolTable);
-  quoteModule.setCurrentSymbolTable(currentSymbolTable);
-  initializeBindingResolution(currentSymbolTable);
+  currentBindingResolutionContext = createBindingResolutionContext(
+    currentSymbolTable,
+  );
+  currentQuoteTransformContext = createRuntimeQuoteTransformContext(
+    currentSymbolTable,
+  );
 
   // Fresh loop state per compilation pass — prevents cross-compilation corruption
   currentLoopState = loopRecurModule.createLoopState();
@@ -416,17 +426,32 @@ function initializeTransformFactory(): void {
   transformFactory.set(
     "quote",
     (list, currentDir) =>
-      quoteModule.transformQuote(list, currentDir, transformHQLNodeToIR),
+      quoteModule.transformQuote(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentQuoteTransformContext,
+      ),
   );
   transformFactory.set(
     "quasiquote",
     (list, currentDir) =>
-      quoteModule.transformQuasiquote(list, currentDir, transformHQLNodeToIR),
+      quoteModule.transformQuasiquote(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentQuoteTransformContext,
+      ),
   );
   transformFactory.set(
     "syntax-quote",
     (list, currentDir) =>
-      quoteModule.transformSyntaxQuote(list, currentDir, transformHQLNodeToIR),
+      quoteModule.transformSyntaxQuote(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentQuoteTransformContext,
+      ),
   );
   transformFactory.set(
     "unquote",
@@ -491,6 +516,7 @@ function initializeTransformFactory(): void {
         currentDir,
         transformHQLNodeToIR,
         processFunctionBody,
+        currentBindingResolutionContext,
       ),
   );
   // defn is an alias for fn (used for REPL memory persistence)
@@ -502,6 +528,7 @@ function initializeTransformFactory(): void {
         currentDir,
         transformHQLNodeToIR,
         processFunctionBody,
+        currentBindingResolutionContext,
       ),
   );
   // Pure function: (fx name [params] body...) — compile-time purity enforcement
@@ -513,6 +540,7 @@ function initializeTransformFactory(): void {
         currentDir,
         transformHQLNodeToIR,
         processFunctionBody,
+        currentBindingResolutionContext,
       );
       setPureFlag(result);
       return result;
@@ -527,6 +555,7 @@ function initializeTransformFactory(): void {
         currentDir,
         transformHQLNodeToIR,
         processFunctionBody,
+        currentBindingResolutionContext,
       ),
   );
   // Yield expression: (yield value) or (yield* iterator)
@@ -556,6 +585,7 @@ function initializeTransformFactory(): void {
         currentDir,
         transformHQLNodeToIR,
         processFunctionBody,
+        currentBindingResolutionContext,
       ),
   );
   transformFactory.set(
@@ -565,6 +595,7 @@ function initializeTransformFactory(): void {
         list,
         currentDir,
         transformHQLNodeToIR,
+        currentBindingResolutionContext,
       ),
   );
   transformFactory.set(
@@ -579,23 +610,43 @@ function initializeTransformFactory(): void {
   transformFactory.set(
     "const",
     (list, currentDir) =>
-      bindingModule.transformConst(list, currentDir, transformHQLNodeToIR),
+      bindingModule.transformConst(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentBindingResolutionContext,
+      ),
   );
   // def is an alias for const (used for REPL memory persistence)
   transformFactory.set(
     "def",
     (list, currentDir) =>
-      bindingModule.transformConst(list, currentDir, transformHQLNodeToIR),
+      bindingModule.transformConst(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentBindingResolutionContext,
+      ),
   );
   transformFactory.set(
     "let",
     (list, currentDir) =>
-      bindingModule.transformLet(list, currentDir, transformHQLNodeToIR),
+      bindingModule.transformLet(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentBindingResolutionContext,
+      ),
   );
   transformFactory.set(
     "var",
     (list, currentDir) =>
-      bindingModule.transformVar(list, currentDir, transformHQLNodeToIR),
+      bindingModule.transformVar(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentBindingResolutionContext,
+      ),
   );
   transformFactory.set(
     "if",
@@ -651,6 +702,7 @@ function initializeTransformFactory(): void {
         list,
         currentDir,
         transformHQLNodeToIR,
+        currentBindingResolutionContext,
         currentLoopState,
       ),
   );
@@ -691,6 +743,7 @@ function initializeTransformFactory(): void {
         list,
         currentDir,
         transformHQLNodeToIR,
+        currentBindingResolutionContext,
         currentLoopState,
       ),
   );
@@ -701,6 +754,7 @@ function initializeTransformFactory(): void {
         list,
         currentDir,
         transformHQLNodeToIR,
+        currentBindingResolutionContext,
         currentLoopState,
       ),
   );
@@ -739,17 +793,32 @@ function initializeTransformFactory(): void {
   transformFactory.set(
     "js-new",
     (list, currentDir) =>
-      jsInteropModule.transformJsNew(list, currentDir, transformHQLNodeToIR),
+      jsInteropModule.transformJsNew(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentBindingResolutionContext,
+      ),
   );
   transformFactory.set(
     "js-get",
     (list, currentDir) =>
-      jsInteropModule.transformJsGet(list, currentDir, transformHQLNodeToIR),
+      jsInteropModule.transformJsGet(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentBindingResolutionContext,
+      ),
   );
   transformFactory.set(
     "js-call",
     (list, currentDir) =>
-      jsInteropModule.transformJsCall(list, currentDir, transformHQLNodeToIR),
+      jsInteropModule.transformJsCall(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentBindingResolutionContext,
+      ),
   );
   transformFactory.set(
     "js-get-invoke",
@@ -758,17 +827,28 @@ function initializeTransformFactory(): void {
         list,
         currentDir,
         transformHQLNodeToIR,
+        currentBindingResolutionContext,
       ),
   );
   transformFactory.set(
     "js-set",
     (list, currentDir) =>
-      jsInteropModule.transformJsSet(list, currentDir, transformHQLNodeToIR),
+      jsInteropModule.transformJsSet(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentBindingResolutionContext,
+      ),
   );
   transformFactory.set(
     "class",
     (list, currentDir) =>
-      classModule.transformClass(list, currentDir, transformHQLNodeToIR),
+      classModule.transformClass(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentBindingResolutionContext,
+      ),
   );
   // method-call is now a macro that expands to js-call
   transformFactory.set(
@@ -795,11 +875,15 @@ function initializeTransformFactory(): void {
         } as IR.IRImportDeclaration;
       } // Check if it's a vector import or namespace import
       else if (importExportModule.isVectorImport(list)) {
-        return importExportModule.transformVectorImport(list);
+        return importExportModule.transformVectorImport(
+          currentSymbolTable,
+          list,
+        );
       } else if (importExportModule.isNamespaceImport(list)) {
         return importExportModule.transformNamespaceImport(
           list,
           currentDir,
+          currentBindingResolutionContext,
         );
       } else {
         throw new ValidationError(
@@ -819,19 +903,29 @@ function initializeTransformFactory(): void {
           list,
           currentDir,
           transformHQLNodeToIR,
+          currentBindingResolutionContext,
         );
       }
       if (importExportModule.isSingleExport(list)) {
-        return importExportModule.transformSingleExport(list);
+        return importExportModule.transformSingleExport(
+          currentBindingResolutionContext,
+          list,
+        );
       }
       if (importExportModule.isVectorExport(list)) {
-        return importExportModule.transformVectorExport(list, currentDir);
+        return importExportModule.transformVectorExport(
+          currentBindingResolutionContext,
+          currentSymbolTable,
+          list,
+          currentDir,
+        );
       }
       if (isDefaultExport(list)) {
         return importExportModule.transformDefaultExport(
           list,
           currentDir,
           transformHQLNodeToIR,
+          currentBindingResolutionContext,
         );
       }
       throw new ValidationError(
@@ -2070,6 +2164,7 @@ function transformList(list: ListNode, currentDir: string): IR.IRNode | null {
     list,
     currentDir,
     transformHQLNodeToIR,
+    currentBindingResolutionContext,
   );
   if (jsGetInvokeResult) return jsGetInvokeResult;
 
@@ -2104,7 +2199,11 @@ function transformList(list: ListNode, currentDir: string): IR.IRNode | null {
   }
 
   // Default case: standard function call
-  return transformStandardFunctionCall(list, currentDir);
+  return transformStandardFunctionCall(
+    list,
+    currentDir,
+    currentBindingResolutionContext,
+  );
 }
 
 /**
@@ -2192,28 +2291,42 @@ function transformBasedOnOperator(
       list,
       currentDir,
       transformHQLNodeToIR,
+      currentBindingResolutionContext,
     );
   }
   if (isSingleExport(list)) {
-    return importExportModule.transformSingleExport(list);
+    return importExportModule.transformSingleExport(
+      currentBindingResolutionContext,
+      list,
+    );
   }
   if (isVectorExport(list)) {
-    return importExportModule.transformVectorExport(list, currentDir);
+    return importExportModule.transformVectorExport(
+      currentBindingResolutionContext,
+      currentSymbolTable,
+      list,
+      currentDir,
+    );
   }
   if (isDefaultExport(list)) {
     return importExportModule.transformDefaultExport(
       list,
       currentDir,
       transformHQLNodeToIR,
+      currentBindingResolutionContext,
     );
   }
 
   if (isVectorImport(list)) {
-    return importExportModule.transformVectorImport(list);
+    return importExportModule.transformVectorImport(currentSymbolTable, list);
   }
 
   if (isNamespaceImport(list)) {
-    return importExportModule.transformNamespaceImport(list, currentDir);
+    return importExportModule.transformNamespaceImport(
+      list,
+      currentDir,
+      currentBindingResolutionContext,
+    );
   }
 
   // Handle optional chaining method calls (obj?.greet "World")
@@ -2233,6 +2346,7 @@ function transformBasedOnOperator(
       op,
       currentDir,
       transformHQLNodeToIR,
+      currentBindingResolutionContext,
     );
   }
 
@@ -2262,6 +2376,7 @@ function transformBasedOnOperator(
       list,
       currentDir,
       transformHQLNodeToIR,
+      currentBindingResolutionContext,
     );
   }
 
@@ -2271,7 +2386,11 @@ function transformBasedOnOperator(
   }
 
   // Fallback to standard function call
-  return transformStandardFunctionCall(list, currentDir);
+  return transformStandardFunctionCall(
+    list,
+    currentDir,
+    currentBindingResolutionContext,
+  );
 }
 
 /**
@@ -2389,7 +2508,10 @@ function determineCallOrAccess(
     const isNumberLiteral = secondElement.type === "literal" &&
       typeof (secondElement as LiteralNode).value === "number";
     const firstSymbolInfo = firstElement.type === "symbol"
-      ? lookupResolvedSymbolInfo(firstElement as SymbolNode)
+      ? lookupResolvedSymbolInfo(
+        currentBindingResolutionContext,
+        firstElement as SymbolNode,
+      )
       : undefined;
     const shouldPreferCall = firstElement.type === "symbol" &&
       (
@@ -2539,7 +2661,7 @@ function transformOptionalChainSymbol(name: string): IR.IRNode {
       type: IR.IRNodeType.Identifier,
       name: "this",
     } as IR.IRIdentifier
-    : resolveSymbolIdentifier({
+    : resolveSymbolIdentifier(currentBindingResolutionContext, {
       type: "symbol",
       name: segments[0].name,
     } as SymbolNode);
@@ -2652,7 +2774,10 @@ function transformSymbol(sym: SymbolNode): IR.IRNode {
         type: IR.IRNodeType.Identifier,
         name: "this",
       } as IR.IRIdentifier
-      : resolveSymbolIdentifier({ ...sym, name: parts[0] });
+      : resolveSymbolIdentifier(
+        currentBindingResolutionContext,
+        { ...sym, name: parts[0] },
+      );
     const result = buildMemberExpressionChain(base, parts.slice(1));
     if ("position" in result) {
       result.position = position;
@@ -2667,7 +2792,7 @@ function transformSymbol(sym: SymbolNode): IR.IRNode {
   }
 
   if (!isJS) {
-    return resolveSymbolIdentifier(sym);
+    return resolveSymbolIdentifier(currentBindingResolutionContext, sym);
   }
 
   name = hyphenToUnderscore(name);

@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
+import { ChromeChip } from "../ChromeChip.tsx";
+import { buildSectionLabelText } from "../../utils/display-chrome.ts";
 
 export interface InteractionPickerOption {
   label: string;
@@ -34,7 +36,9 @@ function getInitialSelection(options: InteractionPickerOption[]): number {
   return recommendedIndex >= 0 ? recommendedIndex : 0;
 }
 
-function optionNeedsNotes(option: InteractionPickerOption | undefined): boolean {
+function optionNeedsNotes(
+  option: InteractionPickerOption | undefined,
+): boolean {
   if (!option) return false;
   return /\b(other|something else|describe)\b/i.test(
     `${option.label} ${option.value}`,
@@ -111,7 +115,10 @@ export const InteractionPicker = React.memo(function InteractionPicker(
         setNotes((current: string) => removeLastCharacter(current));
         return;
       }
-      if (!key.ctrl && !key.meta && input.length > 0 && input !== "\r" && input !== "\n") {
+      if (
+        !key.ctrl && !key.meta && input.length > 0 && input !== "\r" &&
+        input !== "\n"
+      ) {
         setNotes((current: string) => current + input);
       }
       return;
@@ -133,7 +140,10 @@ export const InteractionPicker = React.memo(function InteractionPicker(
     }
     if (key.return) {
       if (selectedOption) {
-        if (allowNotes && optionNeedsNotes(selectedOption) && trimmedNotes.length === 0) {
+        if (
+          allowNotes && optionNeedsNotes(selectedOption) &&
+          trimmedNotes.length === 0
+        ) {
           setNotesMode(true);
           return;
         }
@@ -145,7 +155,9 @@ export const InteractionPicker = React.memo(function InteractionPicker(
 
   return (
     <Box flexDirection="column">
-      <Text color={sc.text.primary} bold>{title}</Text>
+      <Box>
+        <ChromeChip text={title} tone="active" />
+      </Box>
       {subtitle && (
         <Text color={sc.text.secondary} wrap="wrap">
           {subtitle}
@@ -157,16 +169,30 @@ export const InteractionPicker = React.memo(function InteractionPicker(
         </Box>
       )}
       <Box marginTop={1} flexDirection="column">
+        <Text color={sc.chrome.sectionLabel}>
+          {buildSectionLabelText("Choices", 24)}
+        </Text>
         {options.map((option, index) => {
           const isSelected = index === selectedIndex;
           return (
-            <Box key={`${option.value}-${index}`} flexDirection="column" marginBottom={1}>
+            <Box
+              key={`${option.value}-${index}`}
+              flexDirection="column"
+              marginBottom={1}
+            >
               <Box>
-                <Text color={isSelected ? sc.border.active : sc.text.muted} bold>
+                <Text
+                  color={isSelected ? sc.border.active : sc.text.muted}
+                  bold
+                >
                   {isSelected ? "›" : " "} {index + 1}.
                 </Text>
-                <Text color={isSelected ? sc.border.active : sc.text.primary} bold>
-                  {" "}{option.label}
+                <Text
+                  color={isSelected ? sc.border.active : sc.text.primary}
+                  bold
+                >
+                  {" "}
+                  {option.label}
                   {option.recommended ? " (Recommended)" : ""}
                 </Text>
               </Box>
@@ -183,7 +209,9 @@ export const InteractionPicker = React.memo(function InteractionPicker(
       </Box>
       {allowNotes && (notesMode || notes.length > 0) && (
         <Box marginBottom={1} flexDirection="column">
-          <Text color={sc.text.secondary}>Notes</Text>
+          <Text color={sc.chrome.sectionLabel}>
+            {buildSectionLabelText("Notes", 24)}
+          </Text>
           <Text color={notesMode ? sc.text.primary : sc.text.muted}>
             {notes.length > 0
               ? notes

@@ -161,11 +161,12 @@ Deno.test("buildQueuePreviewLines renders codex-style header, previews, and hint
   );
 
   assertEquals(lines.map((line) => line.text), [
-    "Queued:",
-    "  1. first queued",
-    "  2. second queued",
-    "  3. third queued",
-    "    \u2026",
-    "    Alt+\u2191 edit last queued message",
+    "Queued",
+    " 1. first queued",
+    " 2. second queued",
+    " 3. third queued",
+    "\u2026",
+    "Alt+\u2191 edit last queued message",
   ]);
+  assertEquals(lines[0]?.chip, true);
 });

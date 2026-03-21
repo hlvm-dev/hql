@@ -45,7 +45,7 @@ import {
   stripStepMarkers,
 } from "./planning.ts";
 import { listAgentProfiles } from "./agent-registry.ts";
-import { type OrchestratorConfig, WEB_TOOL_NAMES } from "./orchestrator.ts";
+import type { OrchestratorConfig } from "./orchestrator.ts";
 import {
   checkToolResultBytesLimit,
   cloneToolList,
@@ -64,6 +64,7 @@ import {
 import { executeToolCalls } from "./orchestrator-tool-execution.ts";
 import { callLLMWithRetry, type LLMFunction } from "./orchestrator-llm.ts";
 import type { ToolUse } from "./grounding.ts";
+import { isWebCapabilityToolName } from "./tool-capabilities.ts";
 
 /** DRY: Append citation sources to the passage index with bounded size. */
 function mergePassageIndex(
@@ -494,9 +495,7 @@ async function handleDraftedPlan(
         ? [...config.planModeState.executionDenylist]
         : undefined;
       config.toolFilterBaseline = {
-        allowlist: executionAllowlist
-          ? [...executionAllowlist]
-          : undefined,
+        allowlist: executionAllowlist ? [...executionAllowlist] : undefined,
         denylist: config.planModeState.executionDenylist?.length
           ? [...config.planModeState.executionDenylist]
           : undefined,
@@ -980,6 +979,7 @@ export async function handlePostToolExecution(
     toolCalls: ToolCall[];
     toolUses: ToolUse[];
     toolBytes: number;
+    nativeSources?: LLMSource[];
   },
   state: LoopState,
   lc: LoopConfig,
@@ -1223,8 +1223,8 @@ export async function handlePostToolExecution(
 
   // --- Web tool tracking (for mid-conversation reminders) ---
   state.lastToolsIncludedWeb = result.toolCalls.some(
-    (tc) => WEB_TOOL_NAMES.has(tc.toolName),
-  );
+    (tc) => isWebCapabilityToolName(tc.toolName),
+  ) || (result.nativeSources?.length ?? 0) > 0;
 
   // --- Consecutive failure tracking ---
   const allFailed = result.results.length > 0 &&

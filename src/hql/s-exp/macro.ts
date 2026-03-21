@@ -26,6 +26,10 @@ import {
   type SLiteral,
   type SSymbol,
 } from "./types.ts";
+import {
+  processTemplateQuote,
+  type TemplateQuoteContext,
+} from "./template-quote.ts";
 import { couldBePattern, parsePattern } from "./pattern-parser.ts";
 import type { Environment } from "../environment.ts";
 import type { Logger } from "../../logger.ts";
@@ -55,6 +59,7 @@ import {
   hasArrayLiteralPrefix,
   hasHashMapPrefix,
 } from "../../common/sexp-utils.ts";
+import { canonicalizeModuleId } from "../transpiler/utils/module-identity.ts";
 
 // Lazy singleton interpreter for macro-time evaluation
 let macroInterpreter: Interpreter | null = null;
@@ -450,12 +455,18 @@ function resolveNonLocalBinding(
 
   const symbolInfo = globalSymbolTable.get(symbol.name);
   const currentFile = getEffectiveCurrentFile(env);
+  const canonicalCurrentFile = currentFile
+    ? canonicalizeModuleId(currentFile, currentFile)
+    : undefined;
 
   if (symbolInfo?.sourceModule) {
     return {
       kind: "module",
       exportName: symbolInfo.aliasOf ?? symbol.name,
-      modulePath: symbolInfo.sourceModule,
+      modulePath: canonicalizeModuleId(
+        symbolInfo.sourceModule,
+        symbolInfo.sourceModule,
+      ),
       originalName: symbol.name,
       importedFrom: symbolInfo.isImported ? symbolInfo.sourceModule : undefined,
     };
@@ -481,14 +492,56 @@ function resolveNonLocalBinding(
     // Leave unresolved names anchored to the current module below.
   }
 
-  return currentFile && symbolInfo?.sourceModule === currentFile
+  return canonicalCurrentFile && symbolInfo?.sourceModule === canonicalCurrentFile
     ? {
       kind: "module",
       exportName: symbol.name,
-      modulePath: currentFile,
+      modulePath: canonicalCurrentFile,
       originalName: symbol.name,
     }
     : undefined;
+}
+
+function createMacroTemplateQuoteContext(
+  env: Environment,
+  logger: Logger,
+): TemplateQuoteContext {
+  return {
+    mode: "evaluate",
+    currentFile: env.getCurrentFile() || undefined,
+    fail(formName, message, node) {
+      throw new MacroError(message, formName, getMeta(node));
+    },
+    resolveNonLocalBinding(symbol) {
+      const localBinding = lookupMacroLocalBinding(env, symbol.name);
+      if (localBinding) {
+        return localBinding;
+      }
+      return resolveNonLocalBinding(symbol, env);
+    },
+    createLocalBinding(name) {
+      return createMacroLocalBindingMeta(name);
+    },
+    createAutoGensym(baseName) {
+      const generated = gensym(baseName);
+      return { type: "symbol", name: generated.name };
+    },
+    evaluateUnquote(expr) {
+      return evaluateForMacro(expr, env, logger);
+    },
+    spliceValueToElements(value) {
+      if (isList(value)) {
+        return isVector(value) ? value.elements.slice(1) : value.elements;
+      }
+      if (isRestParameterSplice(value)) {
+        return value.elements;
+      }
+      logger.warn(
+        `unquote-splicing received a non-list value: ${sexpToString(value)}`,
+      );
+      return [value];
+    },
+  };
 }
 
 function resolveSyntaxQuotedSymbol(
@@ -2623,14 +2676,10 @@ function evaluateTemplateQuote(
   }
 
   logger.debug(`Evaluating ${quoteKind}: ${sexpToString(expr.elements[1])}`);
-  return processTemplateExpr(
+  return processTemplateQuote(
     expr.elements[1],
-    0,
-    env,
-    logger,
     quoteKind,
-    new Map(),
-    new Map(),
+    createMacroTemplateQuoteContext(env, logger),
   );
 }
 

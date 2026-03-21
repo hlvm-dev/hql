@@ -118,6 +118,38 @@ Deno.test("handleFinalResponse prefers provider-native sources over inferred cit
   assertEquals(finalMeta?.providerMetadata?.google !== undefined, true);
 });
 
+Deno.test("handlePostToolExecution marks native provider sources as web usage", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+
+  const directive = await handlePostToolExecution(
+    {
+      toolCallsMade: 0,
+      results: [],
+      toolCalls: [],
+      toolUses: [],
+      toolBytes: 0,
+      nativeSources: [{
+        id: "src_1",
+        sourceType: "url",
+        url: "https://example.com",
+        title: "Example",
+      }],
+    },
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+
+  assertEquals(directive.action, "proceed");
+  assertEquals(state.lastToolsIncludedWeb, true);
+});
+
 Deno.test("handleFinalResponse promotes an approved plan-mode draft into execution", async () => {
   const context = new ContextManager();
   const phaseEvents: string[] = [];

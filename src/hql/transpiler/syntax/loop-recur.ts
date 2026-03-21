@@ -33,6 +33,7 @@ import {
 } from "../utils/ir-tree-walker.ts";
 import { STATEMENT_TYPES } from "../constants/index.ts";
 import {
+  type BindingResolutionContext,
   identifierFromBindingRecord,
   registerLexicalBinding,
   withLexicalScope,
@@ -86,6 +87,7 @@ export function transformLoop(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
   state: LoopState,
 ): IR.IRNode {
   try {
@@ -134,7 +136,7 @@ export function transformLoop(
     pushLoopContext(state, loopId); // Push this loop onto the context stack
 
     try {
-      return withLexicalScope(() => {
+      return withLexicalScope(bindingContext, () => {
         const params: IR.IRIdentifier[] = [];
         const initialValues: IR.IRNode[] = [];
 
@@ -158,6 +160,7 @@ export function transformLoop(
           initialValues.push(valueNode);
 
           const paramBinding = registerLexicalBinding(
+            bindingContext,
             paramName,
             getMeta(nameNode as SymbolNode)?.resolvedBinding,
           );
@@ -1134,6 +1137,7 @@ export function transformForOf(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
   state: LoopState,
   isAwait: boolean = false,
 ): IR.IRNode {
@@ -1209,8 +1213,12 @@ export function transformForOf(
   try {
     // Register the binding variable in a lexical scope so body references resolve correctly.
     // This is critical for macro-generated for-of forms where the binding has resolved metadata.
-    return withLexicalScope(() => {
-    const varBinding = registerLexicalBinding(varSymbol.name, varMeta);
+    return withLexicalScope(bindingContext, () => {
+    const varBinding = registerLexicalBinding(
+      bindingContext,
+      varSymbol.name,
+      varMeta,
+    );
     const varName = varBinding.jsName;
 
     // Transform body expressions
@@ -1312,9 +1320,17 @@ export function transformForAwaitOf(
   list: ListNode,
   currentDir: string,
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
+  bindingContext: BindingResolutionContext,
   state: LoopState,
 ): IR.IRNode {
-  return transformForOf(list, currentDir, transformNode, state, true);
+  return transformForOf(
+    list,
+    currentDir,
+    transformNode,
+    bindingContext,
+    state,
+    true,
+  );
 }
 
 /**

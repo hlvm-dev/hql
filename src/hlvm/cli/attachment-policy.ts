@@ -79,6 +79,94 @@ function resolveModelProviderName(
   return typeof metadataProvider === "string" ? metadataProvider : null;
 }
 
+function normalizeModelId(modelName: string): string {
+  const [, parsedModelName] = parseModelString(modelName);
+  return parsedModelName.trim().toLowerCase();
+}
+
+function filterImageKinds(
+  supportedKinds: readonly ConversationAttachmentKind[],
+): readonly ConversationAttachmentKind[] {
+  return supportedKinds.filter((kind) => kind !== "image");
+}
+
+function resolveExplicitAttachmentKinds(
+  providerName: string | null,
+  modelName: string,
+  modelInfo: ModelInfo | null,
+): readonly ConversationAttachmentKind[] | null {
+  if (!providerName) return null;
+
+  const normalizedModelId = normalizeModelId(modelName);
+  const hasVisionCapability = modelInfo?.capabilities?.includes("vision") ===
+    true;
+
+  switch (providerName) {
+    case "google":
+      if (normalizedModelId.startsWith("gemini-2.5-flash")) {
+        return PROVIDER_ATTACHMENT_KINDS.google;
+      }
+      if (normalizedModelId.startsWith("gemini")) {
+        return hasVisionCapability
+          ? PROVIDER_ATTACHMENT_KINDS.google
+          : ["text"];
+      }
+      if (normalizedModelId.startsWith("gemma")) {
+        return hasVisionCapability ? ["image", "text"] : ["text"];
+      }
+      return null;
+
+    case "ollama":
+      if (modelInfo?.capabilities) {
+        return hasVisionCapability ? ["image", "text"] : ["text"];
+      }
+      return null;
+
+    default:
+      return null;
+  }
+}
+
+async function resolveSupportedAttachmentKindsForModel(
+  modelName: string,
+  modelInfo: ModelInfo | null,
+): Promise<readonly ConversationAttachmentKind[]> {
+  const providerName = resolveModelProviderName(modelName, modelInfo);
+  const explicitKinds = resolveExplicitAttachmentKinds(
+    providerName,
+    modelName,
+    modelInfo,
+  );
+  if (explicitKinds) {
+    return explicitKinds;
+  }
+
+  const providerKinds = providerName
+    ? PROVIDER_ATTACHMENT_KINDS[providerName] ?? DEFAULT_MODEL_ATTACHMENT_KINDS
+    : DEFAULT_MODEL_ATTACHMENT_KINDS;
+
+  if (!providerKinds.includes("image")) {
+    return providerKinds;
+  }
+
+  if (modelInfo?.capabilities) {
+    return modelInfo.capabilities.includes("vision")
+      ? providerKinds
+      : filterImageKinds(providerKinds);
+  }
+
+  if (!providerName) {
+    return providerKinds;
+  }
+
+  const visionCheck = await modelSupportsVision(modelName, modelInfo);
+  if (!visionCheck.supported) {
+    return filterImageKinds(providerKinds);
+  }
+
+  return providerKinds;
+}
+
 export function getSupportedAttachmentKindsForModel(
   modelName: string,
   modelInfo: ModelInfo | null,
@@ -123,7 +211,7 @@ export async function checkModelAttachmentMimeTypes(
   mimeTypes: readonly string[],
   modelInfo: ModelInfo | null,
 ): Promise<AttachmentSupportCheck> {
-  const supportedKinds = getSupportedAttachmentKindsForModel(
+  const supportedKinds = await resolveSupportedAttachmentKindsForModel(
     modelName,
     modelInfo,
   );
@@ -140,24 +228,6 @@ export async function checkModelAttachmentMimeTypes(
     }
   }
 
-  const requiresVision = mimeTypes.some((mimeType) => {
-    const kind = getConversationAttachmentKind(mimeType);
-    return kind !== null && kind !== "text";
-  });
-
-  if (!requiresVision) {
-    return { supported: true, supportedKinds };
-  }
-
-  const visionCheck = await modelSupportsVision(modelName, modelInfo);
-  if (!visionCheck.supported) {
-    return {
-      supported: false,
-      supportedKinds,
-      catalogFailed: visionCheck.catalogFailed,
-    };
-  }
-
   return { supported: true, supportedKinds };
 }
 
@@ -166,7 +236,7 @@ export async function checkModelAttachmentIds(
   attachmentIds: readonly string[],
   modelInfo: ModelInfo | null,
 ): Promise<AttachmentSupportCheck> {
-  const supportedKinds = getSupportedAttachmentKindsForModel(
+  const supportedKinds = await resolveSupportedAttachmentKindsForModel(
     modelName,
     modelInfo,
   );
