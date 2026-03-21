@@ -23,24 +23,26 @@ import { useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import {
+  type DelegateTask,
+  type EvalTask,
   isDelegateTask,
   isEvalTask,
   isTaskActive,
-  type DelegateTask,
-  type EvalTask,
   type Task,
 } from "../../repl/task-manager/types.ts";
 import { calculateScrollWindow } from "../completion/navigation.ts";
 import { formatEvalTaskResultLines } from "../utils/eval-task-results.ts";
 import {
   ansi,
+  BACKGROUND_TASKS_OVERLAY_SPEC,
   bg,
   clearOverlay,
   drawOverlayFrame,
   fg,
   OVERLAY_BG_COLOR,
-  type RGB,
+  resolveOverlayChromeLayout,
   resolveOverlayFrame,
+  type RGB,
   shouldClearOverlay,
   themeToOverlayColors,
   writeToTerminal,
@@ -63,13 +65,7 @@ type ViewMode = "list" | "result";
 // Layout Constants
 // ============================================================
 
-const OVERLAY_WIDTH = 60;
-const OVERLAY_HEIGHT = 20;
-const PADDING = { top: 1, bottom: 1, left: 2, right: 2 };
-const HEADER_ROWS = 3; // header + hint + empty
-const CONTENT_START = PADDING.top + HEADER_ROWS;
-const MIN_OVERLAY_WIDTH = 42;
-const MIN_OVERLAY_HEIGHT = 12;
+const PADDING = BACKGROUND_TASKS_OVERLAY_SPEC.padding;
 
 // ============================================================
 // Component
@@ -90,11 +86,23 @@ export function BackgroundTasksOverlay({
   const terminalRows = stdout?.rows ?? 0;
   const overlayFrame = useMemo(
     () =>
-      resolveOverlayFrame(OVERLAY_WIDTH, OVERLAY_HEIGHT, {
-        minWidth: MIN_OVERLAY_WIDTH,
-        minHeight: MIN_OVERLAY_HEIGHT,
-      }),
+      resolveOverlayFrame(
+        BACKGROUND_TASKS_OVERLAY_SPEC.width,
+        BACKGROUND_TASKS_OVERLAY_SPEC.height,
+        {
+          minWidth: BACKGROUND_TASKS_OVERLAY_SPEC.minWidth,
+          minHeight: BACKGROUND_TASKS_OVERLAY_SPEC.minHeight,
+        },
+      ),
     [terminalColumns, terminalRows],
+  );
+  const chromeLayout = useMemo(
+    () =>
+      resolveOverlayChromeLayout(
+        overlayFrame.height,
+        BACKGROUND_TASKS_OVERLAY_SPEC,
+      ),
+    [overlayFrame.height],
   );
   const contentWidth = Math.max(
     16,
@@ -102,7 +110,7 @@ export function BackgroundTasksOverlay({
   );
   const visibleRows = Math.max(
     3,
-    overlayFrame.height - CONTENT_START - PADDING.bottom - 1,
+    chromeLayout.visibleRows,
   );
   const previousFrameRef = useRef<typeof overlayFrame | null>(null);
 
@@ -114,7 +122,9 @@ export function BackgroundTasksOverlay({
 
   // Filter and sort tasks — include both eval and delegate tasks
   const bgTasks = useMemo(() => {
-    const filtered = tasks.filter((t: Task) => isEvalTask(t) || isDelegateTask(t));
+    const filtered = tasks.filter((t: Task) =>
+      isEvalTask(t) || isDelegateTask(t)
+    );
     // Sort: active first, then by creation time descending
     return filtered.sort((a: Task, b: Task) => {
       const aActive = isTaskActive(a) ? 0 : 1;
@@ -153,7 +163,11 @@ export function BackgroundTasksOverlay({
         lines.push("", "--- Events ---");
         for (const ev of dt.snapshot.events) {
           if (ev.type === "tool_end") {
-            lines.push(`  ${ev.success ? "✓" : "✗"} ${ev.name}: ${ev.summary ?? ev.content ?? ""}`);
+            lines.push(
+              `  ${ev.success ? "✓" : "✗"} ${ev.name}: ${
+                ev.summary ?? ev.content ?? ""
+              }`,
+            );
           }
         }
       }
@@ -201,25 +215,16 @@ export function BackgroundTasksOverlay({
       drawEmptyRow(overlayFrame.y + i);
     }
 
-    // === Header row ===
     const headerY = overlayFrame.y + PADDING.top;
     const title = viewMode === "list" ? "Background Tasks" : "Result";
     const escHint = viewMode === "list" ? "esc close" : "esc back";
 
-    drawRow(headerY, () => {
-      output += " ".repeat(PADDING.left);
-      output += fg(colors.primary) + ansi.bold + title + ansi.reset + bgStyle;
-      const midPad = contentWidth - title.length - escHint.length;
-      output += " ".repeat(midPad);
-      output += fg(colors.muted) + escHint + ansi.reset + bgStyle;
-      output += " ".repeat(PADDING.right);
-      return overlayFrame.width;
-    });
-
     // === Hint row ===
-    const hintY = headerY + 1;
+    const hintY = headerY;
     const hintPreview = viewingTask
-      ? (isEvalTask(viewingTask) ? (viewingTask as EvalTask).preview : viewingTask.label)
+      ? (isEvalTask(viewingTask)
+        ? (viewingTask as EvalTask).preview
+        : viewingTask.label)
       : "";
     const hint = viewMode === "list"
       ? "Background agents & eval tasks"
@@ -245,7 +250,7 @@ export function BackgroundTasksOverlay({
       const visibleTasks = bgTasks.slice(window.start, window.end);
 
       for (let row = 0; row < visibleRows; row++) {
-        const rowY = overlayFrame.y + CONTENT_START + row;
+        const rowY = overlayFrame.y + chromeLayout.contentStart + row;
         const task = visibleTasks[row];
 
         drawRow(rowY, () => {
@@ -355,7 +360,7 @@ export function BackgroundTasksOverlay({
       );
 
       for (let row = 0; row < visibleRows; row++) {
-        const rowY = overlayFrame.y + CONTENT_START + row;
+        const rowY = overlayFrame.y + chromeLayout.contentStart + row;
         const line = visibleLines[row];
 
         drawRow(rowY, () => {
@@ -388,7 +393,7 @@ export function BackgroundTasksOverlay({
     }
 
     // === Footer row ===
-    const footerY = overlayFrame.y + overlayFrame.height - PADDING.bottom - 1;
+    const footerY = overlayFrame.y + chromeLayout.footerY;
     const footerText = truncate(
       viewMode === "list"
         ? "↑↓ nav  Enter view  x dismiss  c clear"
@@ -417,6 +422,8 @@ export function BackgroundTasksOverlay({
     output += drawOverlayFrame(overlayFrame, {
       borderColor: colors.accent,
       backgroundColor: OVERLAY_BG_COLOR,
+      title,
+      rightText: escHint,
     });
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
@@ -430,6 +437,8 @@ export function BackgroundTasksOverlay({
     resultLines,
     resultScrollOffset,
     contentWidth,
+    chromeLayout.contentStart,
+    chromeLayout.footerY,
     overlayFrame,
     visibleRows,
   ]);

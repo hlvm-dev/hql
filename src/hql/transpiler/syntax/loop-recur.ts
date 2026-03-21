@@ -1187,7 +1187,8 @@ export function transformForOf(
     );
   }
 
-  const varName = sanitizeIdentifier((varNode as SymbolNode).name);
+  const varSymbol = varNode as SymbolNode;
+  const varMeta = getMeta(varSymbol)?.resolvedBinding;
 
   // Transform the collection/iterable expression
   const collectionNode = bindings.elements[1];
@@ -1206,6 +1207,12 @@ export function transformForOf(
   pushLoopContext(state, loopId);
 
   try {
+    // Register the binding variable in a lexical scope so body references resolve correctly.
+    // This is critical for macro-generated for-of forms where the binding has resolved metadata.
+    return withLexicalScope(() => {
+    const varBinding = registerLexicalBinding(varSymbol.name, varMeta);
+    const varName = varBinding.jsName;
+
     // Transform body expressions
     const bodyExprs = list.elements.slice(2);
     const bodyStatements: IR.IRNode[] = [];
@@ -1289,6 +1296,7 @@ export function transformForOf(
     const result = wrapIIFEResult(iife, hasYields, hasAwaits);
     if (result !== iife) copyPosition(list, result);
     return result;
+    }); // end withLexicalScope
   } finally {
     popLoopContext(state);
   }

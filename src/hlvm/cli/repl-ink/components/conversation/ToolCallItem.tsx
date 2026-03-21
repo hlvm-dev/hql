@@ -8,12 +8,11 @@
 
 import React from "react";
 import { Box, Text } from "ink";
-import { truncate } from "../../../../../common/utils.ts";
 import { useSemanticColors } from "../../../theme/index.ts";
-import { formatDurationMs } from "../../utils/formatting.ts";
 import { ToolStatusIcon } from "./ToolStatusIcon.tsx";
 import { ToolResult } from "./ToolResult.tsx";
 import type { ToolCallDisplay } from "../../types.ts";
+import { buildToolCallTextLayout } from "./layout.ts";
 
 interface ToolCallItemProps {
   tool: ToolCallDisplay;
@@ -21,7 +20,6 @@ interface ToolCallItemProps {
   expanded?: boolean;
   animateStatusIcon?: boolean;
 }
-
 
 export function resolveToolResultText(
   tool: Pick<ToolCallDisplay, "resultSummaryText" | "resultText">,
@@ -32,30 +30,38 @@ export function resolveToolResultText(
 }
 
 export const ToolCallItem = React.memo(function ToolCallItem(
-  { tool, width, expanded = false, animateStatusIcon = false }: ToolCallItemProps,
+  { tool, width, expanded = false, animateStatusIcon = false }:
+    ToolCallItemProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
-
-  const durationStr = tool.durationMs != null ? `(${formatDurationMs(tool.durationMs)})` : "";
-  const fixedWidth = 2 + tool.name.length + 1 + (durationStr ? durationStr.length + 1 : 0);
-  const argsWidth = Math.max(0, width - fixedWidth);
-  const argsSummary = truncate(tool.argsSummary, argsWidth, "…");
+  const layout = buildToolCallTextLayout(
+    Math.max(0, width - 2),
+    tool.name,
+    tool.argsSummary,
+    tool.durationMs,
+  );
 
   const nameColor = tool.status === "error" ? sc.status.error : sc.text.primary;
-  const argsColor = tool.status === "error" ? sc.status.error : sc.text.secondary;
+  const argsColor = tool.status === "error"
+    ? sc.status.error
+    : sc.text.secondary;
 
   return (
     <Box flexDirection="column">
       <Box>
         <ToolStatusIcon status={tool.status} animate={animateStatusIcon} />
-        <Text> </Text>
+        <Text></Text>
         <Text bold color={nameColor}>{tool.name}</Text>
-        {argsSummary && (
+        {layout.argsText && (
           <Text color={argsColor}>
-            {" "}{argsSummary}
+            {" "}
+            {layout.argsText}
           </Text>
         )}
-        {durationStr && <Text color={sc.text.muted}> · {durationStr}</Text>}
+        {layout.gapWidth > 0 && <Text>{" ".repeat(layout.gapWidth)}</Text>}
+        {layout.durationText && (
+          <Text color={sc.text.muted}>{layout.durationText}</Text>
+        )}
       </Box>
 
       {resolveToolResultText(tool, expanded) && tool.status !== "running" && (
@@ -67,7 +73,9 @@ export const ToolCallItem = React.memo(function ToolCallItem(
           borderRight={false}
           borderTop={false}
           borderBottom={false}
-          borderColor={tool.status === "error" ? sc.status.error : sc.border.default}
+          borderColor={tool.status === "error"
+            ? sc.status.error
+            : sc.border.default}
           paddingLeft={1}
         >
           <ToolResult

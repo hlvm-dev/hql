@@ -22,18 +22,20 @@ import { useInput, useStdout } from "ink";
 import {
   CATEGORY_ORDER,
   getDisplay,
-  registry,
   type KeybindingAction,
   type KeybindingCategory,
   type KeybindingMatch,
+  registry,
 } from "../keybindings/index.ts";
 import {
   ansi,
   bg,
   clearOverlay,
+  COMMAND_PALETTE_OVERLAY_SPEC,
   drawOverlayFrame,
   fg,
   OVERLAY_BG_COLOR,
+  resolveOverlayChromeLayout,
   resolveOverlayFrame,
   shouldClearOverlay,
   themeToOverlayColors,
@@ -94,13 +96,7 @@ interface PaletteListData {
 // Layout Constants
 // ============================================================
 
-const PALETTE_WIDTH = 58;
-const PALETTE_HEIGHT = 24;
-const PADDING = { top: 2, bottom: 2, left: 4, right: 4 };
-const HEADER_ROWS = 4; // header + empty + search + empty
-const CONTENT_START = PADDING.top + HEADER_ROWS;
-const MIN_PALETTE_WIDTH = 40;
-const MIN_PALETTE_HEIGHT = 12;
+const PADDING = COMMAND_PALETTE_OVERLAY_SPEC.padding;
 // ============================================================
 // Helpers
 // ============================================================
@@ -182,11 +178,23 @@ export function CommandPaletteOverlay({
   const terminalRows = stdout?.rows ?? 0;
   const overlayFrame = useMemo(
     () =>
-      resolveOverlayFrame(PALETTE_WIDTH, PALETTE_HEIGHT, {
-        minWidth: MIN_PALETTE_WIDTH,
-        minHeight: MIN_PALETTE_HEIGHT,
-      }),
+      resolveOverlayFrame(
+        COMMAND_PALETTE_OVERLAY_SPEC.width,
+        COMMAND_PALETTE_OVERLAY_SPEC.height,
+        {
+          minWidth: COMMAND_PALETTE_OVERLAY_SPEC.minWidth,
+          minHeight: COMMAND_PALETTE_OVERLAY_SPEC.minHeight,
+        },
+      ),
     [terminalColumns, terminalRows],
+  );
+  const chromeLayout = useMemo(
+    () =>
+      resolveOverlayChromeLayout(
+        overlayFrame.height,
+        COMMAND_PALETTE_OVERLAY_SPEC,
+      ),
+    [overlayFrame.height],
   );
   const contentWidth = Math.max(
     12,
@@ -194,7 +202,7 @@ export function CommandPaletteOverlay({
   );
   const visibleRows = Math.max(
     3,
-    overlayFrame.height - CONTENT_START - PADDING.bottom,
+    chromeLayout.visibleRows,
   );
   const overlayFrameRef = useRef(overlayFrame);
   const previousFrameRef = useRef<typeof overlayFrame | null>(null);
@@ -274,7 +282,7 @@ export function CommandPaletteOverlay({
     const frame = overlayFrameRef.current;
     if (frame.width <= 0 || frame.height <= 0) return;
 
-    const searchY = frame.y + PADDING.top + 2;
+    const searchY = frame.y + PADDING.top + 1;
     const display = buildCursorWindowDisplay(query, cursorPos, contentWidth);
     const cursorX = frame.x + PADDING.left + display.beforeCursor.length;
 
@@ -312,24 +320,11 @@ export function CommandPaletteOverlay({
       drawEmptyRow(overlayFrame.y + i);
     }
 
-    // === Header row ===
     const headerY = overlayFrame.y + PADDING.top;
-    const title = "Commands";
-    const escHint = "esc";
-    const headerPad = contentWidth - title.length - escHint.length;
-
-    output += ansi.cursorTo(overlayFrame.x, headerY) + bgStyle;
-    output += " ".repeat(PADDING.left);
-    output += fg(colors.primary) + ansi.bold + title + ansi.reset + bgStyle;
-    output += " ".repeat(Math.max(1, headerPad));
-    output += fg(colors.muted) + escHint + ansi.reset + bgStyle;
-    output += " ".repeat(PADDING.right);
-
-    // === Empty row after header ===
-    drawEmptyRow(headerY + 1);
+    drawEmptyRow(headerY);
 
     // === Search input row ===
-    const searchY = headerY + 2;
+    const searchY = headerY + 1;
     output += ansi.cursorTo(overlayFrame.x, searchY) + bgStyle;
     output += " ".repeat(PADDING.left);
 
@@ -373,7 +368,7 @@ export function CommandPaletteOverlay({
     const selectedItem = selectableItems[selectedIndex];
 
     for (let row = 0; row < visibleRows; row++) {
-      const rowY = overlayFrame.y + CONTENT_START + row;
+      const rowY = overlayFrame.y + chromeLayout.contentStart + row;
       const item = visibleList[row];
 
       output += ansi.cursorTo(overlayFrame.x, rowY) + bgStyle;
@@ -439,13 +434,12 @@ export function CommandPaletteOverlay({
     }
 
     // === Bottom padding ===
-    const footerStartY = overlayFrame.y + CONTENT_START + visibleRows;
-    for (let i = 0; i < PADDING.bottom - 1; i++) {
-      drawEmptyRow(footerStartY + i);
+    const footerY = overlayFrame.y + chromeLayout.footerY;
+    for (let y = footerY + 1; y < overlayFrame.y + overlayFrame.height; y++) {
+      drawEmptyRow(y);
     }
 
     // === Footer row ===
-    const footerY = overlayFrame.y + overlayFrame.height - 1;
     // Show different hints based on mode
     const hintText = rebindMode
       ? "esc=cancel"
@@ -468,6 +462,8 @@ export function CommandPaletteOverlay({
     output += drawOverlayFrame(overlayFrame, {
       borderColor: colors.primary,
       backgroundColor: OVERLAY_BG_COLOR,
+      title: "Commands",
+      rightText: "esc",
     });
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
@@ -484,6 +480,8 @@ export function CommandPaletteOverlay({
     rebindMode,
     onRebind,
     contentWidth,
+    chromeLayout.contentStart,
+    chromeLayout.footerY,
     overlayFrame,
     visibleRows,
   ]);

@@ -56,10 +56,16 @@
 //
 // Each name in the vector gets bound to (gensym "name"), making the
 // macro hygienic by avoiding variable capture.
+// Strategy: for each name, wrap body in (let (name (gensym "name")) ...).
+// Uses recursive macro expansion to handle multiple names:
+//   (with-gensyms [a b] body)
+//   → (let (a (gensym "a")) (with-gensyms [b] body))
+//   → (let (a (gensym "a")) (let (b (gensym "b")) body))
 (macro with-gensyms [names & body]
-  `(let ~(apply vector
-           (apply concat
-             (map (fn [n]
-                    [n `(gensym ~(if (symbol? n) (name n) "g"))])
-                  names)))
-     ~@body))
+  (let (first-name (%first names)
+        rest-names (%rest names))
+    (if (seq rest-names)
+      `(let (~first-name (gensym ~(if (symbol? first-name) (name first-name) "g")))
+         (with-gensyms ~rest-names ~@body))
+      `(let (~first-name (gensym ~(if (symbol? first-name) (name first-name) "g")))
+         ~@body))))

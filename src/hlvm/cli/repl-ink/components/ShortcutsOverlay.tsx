@@ -8,14 +8,16 @@
 import React, { useCallback, useEffect, useMemo } from "react";
 import { useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
-import { getDisplay, registry, type Keybinding } from "../keybindings/index.ts";
+import { getDisplay, type Keybinding, registry } from "../keybindings/index.ts";
 import {
   ansi,
   bg,
   drawOverlayFrame,
-  fitOverlayRect,
   fg,
+  fitOverlayRect,
   OVERLAY_BG_COLOR,
+  resolveOverlayChromeLayout,
+  SHORTCUTS_OVERLAY_SPEC,
   themeToOverlayColors,
   writeToTerminal,
 } from "../overlay/index.ts";
@@ -53,8 +55,7 @@ const SECTION_IDS = [
   },
 ] as const;
 
-const OVERLAY_WIDTH = 58;
-const PADDING = { top: 1, bottom: 1, left: 2, right: 2 };
+const PADDING = SHORTCUTS_OVERLAY_SPEC.padding;
 
 function getOverlayHeight(sections: readonly ShortcutSection[]): number {
   const sectionRows = sections.reduce(
@@ -141,20 +142,28 @@ export function ShortcutsOverlay({
 
   const drawOverlay = useCallback(() => {
     const desiredHeight = getOverlayHeight(sections);
-    const overlay = fitOverlayRect(OVERLAY_WIDTH, desiredHeight, {
-      marginX: 1,
-      marginY: 1,
-    });
+    const overlay = fitOverlayRect(
+      SHORTCUTS_OVERLAY_SPEC.width,
+      desiredHeight,
+      {
+        marginX: 1,
+        marginY: 1,
+      },
+    );
+    const chromeLayout = resolveOverlayChromeLayout(
+      overlay.height,
+      SHORTCUTS_OVERLAY_SPEC,
+    );
     const overlayHeight = overlay.height;
-    const contentWidth = Math.max(12, overlay.width - PADDING.left - PADDING.right);
+    const contentWidth = Math.max(
+      12,
+      overlay.width - PADDING.left - PADDING.right,
+    );
     const displayWidth = Math.max(
       8,
       Math.min(12, Math.floor(contentWidth * 0.3)),
     );
-    const bodyRows = Math.max(
-      0,
-      overlayHeight - PADDING.top - PADDING.bottom - 4,
-    );
+    const bodyRows = chromeLayout.visibleRows;
     const visibleSections = fitShortcutSections(sections, bodyRows);
     const renderedRowCount = visibleSections.reduce(
       (rows: number, section: ShortcutSection) => rows + section.rows.length,
@@ -182,26 +191,19 @@ export function ShortcutsOverlay({
     }
 
     const headerY = overlay.y + PADDING.top;
-    drawRow(headerY, () => {
-      const title = "Shortcuts";
-      const closeHint = "esc";
-      output += " ".repeat(PADDING.left);
-      output += fg(colors.primary) + ansi.bold + title + ansi.reset + bgStyle;
-      const pad = contentWidth - title.length - closeHint.length;
-      output += " ".repeat(Math.max(1, pad));
-      output += fg(colors.muted) + closeHint + ansi.reset + bgStyle;
-      output += " ".repeat(PADDING.right);
-      return overlay.width;
-    });
 
-    drawRow(headerY + 1, () => {
-      const hint = "Summary first by default. Expand only when you need detail.";
+    drawRow(headerY, () => {
+      const hint =
+        "Summary first by default. Expand only when you need detail.";
       output += " ".repeat(PADDING.left);
-      output += fg(colors.muted) + hint.slice(0, contentWidth) + ansi.reset + bgStyle;
+      output += fg(colors.muted) + hint.slice(0, contentWidth) + ansi.reset +
+        bgStyle;
       return PADDING.left + Math.min(hint.length, contentWidth);
     });
 
-    let rowY = headerY + 3;
+    drawEmptyRow(headerY + 1);
+
+    let rowY = overlay.y + chromeLayout.contentStart;
     for (const section of visibleSections) {
       drawRow(rowY, () => {
         output += " ".repeat(PADDING.left);
@@ -212,9 +214,13 @@ export function ShortcutsOverlay({
 
       for (const row of section.rows) {
         drawRow(rowY, () => {
-          const visibleLabel = row.label.slice(0, Math.max(0, contentWidth - displayWidth - 2));
+          const visibleLabel = row.label.slice(
+            0,
+            Math.max(0, contentWidth - displayWidth - 2),
+          );
           output += " ".repeat(PADDING.left);
-          output += fg(colors.primary) + padTo(row.display, displayWidth) + ansi.reset + bgStyle;
+          output += fg(colors.primary) + padTo(row.display, displayWidth) +
+            ansi.reset + bgStyle;
           output += "  ";
           output += visibleLabel;
           return PADDING.left + displayWidth + 2 + visibleLabel.length;
@@ -225,7 +231,7 @@ export function ShortcutsOverlay({
       rowY += 1;
     }
 
-    const footerY = overlay.y + overlayHeight - PADDING.bottom - 1;
+    const footerY = overlay.y + chromeLayout.footerY;
     drawRow(footerY, () => {
       const footer = hasHiddenRows
         ? "Reopen with /help. Widen terminal for the full list."
@@ -243,6 +249,8 @@ export function ShortcutsOverlay({
     output += drawOverlayFrame(overlay, {
       borderColor: colors.muted,
       backgroundColor: OVERLAY_BG_COLOR,
+      title: "Shortcuts",
+      rightText: "esc",
     });
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
     writeToTerminal(output);

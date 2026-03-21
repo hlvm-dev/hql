@@ -24,8 +24,10 @@ import {
   drawOverlayFrame,
   fg,
   OVERLAY_BG_COLOR,
+  resolveOverlayChromeLayout,
   resolveOverlayFrame,
   shouldClearOverlay,
+  TEAM_DASHBOARD_OVERLAY_SPEC,
   themeToOverlayColors,
   writeToTerminal,
 } from "../overlay/index.ts";
@@ -49,13 +51,7 @@ type DashboardItem =
   | { id: string; kind: "shutdown"; data: ShutdownItem }
   | { id: string; kind: "attention"; data: AttentionItem };
 
-const OVERLAY_WIDTH = 76;
-const OVERLAY_HEIGHT = 26;
-const PADDING = { top: 1, bottom: 1, left: 2, right: 2 };
-const HEADER_ROWS = 4;
-const CONTENT_START = PADDING.top + HEADER_ROWS;
-const MIN_OVERLAY_WIDTH = 48;
-const MIN_OVERLAY_HEIGHT = 14;
+const PADDING = TEAM_DASHBOARD_OVERLAY_SPEC.padding;
 const WIDE_DASHBOARD_MIN_WIDTH = 88;
 const DASHBOARD_COLUMN_GAP = 3;
 
@@ -108,8 +104,12 @@ function formatDashboardRow(item: DashboardItem, contentWidth: number): {
     }
     case "task": {
       const assignee = item.data.assignee ? ` · ${item.data.assignee}` : "";
-      const review = item.data.reviewStatus ? ` · review:${item.data.reviewStatus}` : "";
-      const merge = item.data.mergeState ? ` · merge:${item.data.mergeState}` : "";
+      const review = item.data.reviewStatus
+        ? ` · review:${item.data.reviewStatus}`
+        : "";
+      const merge = item.data.mergeState
+        ? ` · merge:${item.data.mergeState}`
+        : "";
       return {
         icon: "T",
         iconColor: "accent",
@@ -124,7 +124,9 @@ function formatDashboardRow(item: DashboardItem, contentWidth: number): {
         icon: "R",
         iconColor: "warning",
         text: truncate(
-          `${item.data.status} ${item.data.taskGoal ?? item.data.taskId} · ${item.data.submittedByMemberId}`,
+          `${item.data.status} ${
+            item.data.taskGoal ?? item.data.taskId
+          } · ${item.data.submittedByMemberId}`,
           contentWidth,
         ),
       };
@@ -156,7 +158,9 @@ function detailLines(item: DashboardItem): string[] {
         `Agent: ${item.data.agent}`,
         `Role: ${item.data.role}`,
         `Status: ${item.data.status}`,
-        item.data.currentTaskId ? `Current task: ${item.data.currentTaskId}` : "",
+        item.data.currentTaskId
+          ? `Current task: ${item.data.currentTaskId}`
+          : "",
         item.data.currentTaskGoal ? `Goal: ${item.data.currentTaskGoal}` : "",
       ].filter(Boolean);
     case "worker":
@@ -179,7 +183,9 @@ function detailLines(item: DashboardItem): string[] {
           : "",
         item.data.reviewStatus ? `Review: ${item.data.reviewStatus}` : "",
         item.data.mergeState ? `Merge: ${item.data.mergeState}` : "",
-        item.data.delegateThreadId ? `Delegate thread: ${item.data.delegateThreadId}` : "",
+        item.data.delegateThreadId
+          ? `Delegate thread: ${item.data.delegateThreadId}`
+          : "",
       ].filter(Boolean);
     case "approval":
       return [
@@ -236,11 +242,23 @@ export function TeamDashboardOverlay({
   const terminalRows = stdout?.rows ?? 0;
   const overlayFrame = useMemo(
     () =>
-      resolveOverlayFrame(OVERLAY_WIDTH, OVERLAY_HEIGHT, {
-        minWidth: MIN_OVERLAY_WIDTH,
-        minHeight: MIN_OVERLAY_HEIGHT,
-      }),
+      resolveOverlayFrame(
+        TEAM_DASHBOARD_OVERLAY_SPEC.width,
+        TEAM_DASHBOARD_OVERLAY_SPEC.height,
+        {
+          minWidth: TEAM_DASHBOARD_OVERLAY_SPEC.minWidth,
+          minHeight: TEAM_DASHBOARD_OVERLAY_SPEC.minHeight,
+        },
+      ),
     [terminalColumns, terminalRows],
+  );
+  const chromeLayout = useMemo(
+    () =>
+      resolveOverlayChromeLayout(
+        overlayFrame.height,
+        TEAM_DASHBOARD_OVERLAY_SPEC,
+      ),
+    [overlayFrame.height],
   );
   const contentWidth = Math.max(
     20,
@@ -248,7 +266,7 @@ export function TeamDashboardOverlay({
   );
   const visibleRows = Math.max(
     4,
-    overlayFrame.height - CONTENT_START - PADDING.bottom - 1,
+    chromeLayout.visibleRows,
   );
   const previousFrameRef = useRef<typeof overlayFrame | null>(null);
 
@@ -315,10 +333,15 @@ export function TeamDashboardOverlay({
       }
       return;
     }
-    if (!selectedId || !items.some((item: DashboardItem) => item.id === selectedId)) {
+    if (
+      !selectedId ||
+      !items.some((item: DashboardItem) => item.id === selectedId)
+    ) {
       setSelectedId(items[0].id);
     }
-    if (detailId && !items.some((item: DashboardItem) => item.id === detailId)) {
+    if (
+      detailId && !items.some((item: DashboardItem) => item.id === detailId)
+    ) {
       setViewMode("dashboard");
       setDetailId(null);
     }
@@ -350,14 +373,6 @@ export function TeamDashboardOverlay({
     const headerY = overlayFrame.y + PADDING.top;
     const title = "Team Dashboard";
     const closeHint = viewMode === "details" ? "esc/q back" : "esc/q close";
-    drawRow(headerY, () => {
-      output += " ".repeat(PADDING.left);
-      output += fg(colors.primary) + ansi.bold + title + ansi.reset + bgStyle;
-      const midPad = contentWidth - title.length - closeHint.length;
-      output += " ".repeat(Math.max(1, midPad));
-      output += fg(colors.muted) + closeHint + ansi.reset + bgStyle;
-      return overlayFrame.width;
-    });
 
     const members = teamState.members.length;
     const running = teamState.taskCounts.in_progress ?? 0;
@@ -365,10 +380,12 @@ export function TeamDashboardOverlay({
     const completed = teamState.taskCounts.completed ?? 0;
     const errored = teamState.taskCounts.errored ?? 0;
     const summaryText = truncate(
-      `${members} members · ${running + claimed} active tasks · ${completed} done · ${errored} errored`,
+      `${members} members · ${
+        running + claimed
+      } active tasks · ${completed} done · ${errored} errored`,
       contentWidth,
     );
-    drawRow(headerY + 1, () => {
+    drawRow(headerY, () => {
       output += " ".repeat(PADDING.left);
       output += fg(colors.muted) + summaryText + ansi.reset + bgStyle;
       return PADDING.left + summaryText.length;
@@ -380,13 +397,13 @@ export function TeamDashboardOverlay({
         : `${teamState.pendingApprovals.length} reviews · ${teamState.attentionItems.length} attention`,
       contentWidth,
     );
-    drawRow(headerY + 2, () => {
+    drawRow(headerY + 1, () => {
       output += " ".repeat(PADDING.left);
       output += fg(colors.muted) + secondaryText + ansi.reset + bgStyle;
       return PADDING.left + secondaryText.length;
     });
 
-    drawEmptyRow(headerY + 3);
+    drawEmptyRow(headerY + 2);
 
     if (viewMode === "dashboard") {
       const drawDashboardCell = (
@@ -423,7 +440,7 @@ export function TeamDashboardOverlay({
 
       if (items.length === 0) {
         for (let row = 0; row < visibleRows; row++) {
-          const rowY = overlayFrame.y + CONTENT_START + row;
+          const rowY = overlayFrame.y + chromeLayout.contentStart + row;
           drawRow(rowY, () => {
             if (row > 0) return 0;
             output += " ".repeat(PADDING.left);
@@ -440,18 +457,25 @@ export function TeamDashboardOverlay({
         const rightSelectedIndex = selectedId
           ? columns.right.findIndex((item) => item.id === selectedId)
           : -1;
+        const columnRowCount = Math.max(0, visibleRows - 1);
         const leftWindow = calculateScrollWindow(
           Math.max(0, leftSelectedIndex),
           columns.left.length,
-          visibleRows,
+          columnRowCount,
         );
         const rightWindow = calculateScrollWindow(
           Math.max(0, rightSelectedIndex),
           columns.right.length,
-          visibleRows,
+          columnRowCount,
         );
-        const leftVisible = columns.left.slice(leftWindow.start, leftWindow.end);
-        const rightVisible = columns.right.slice(rightWindow.start, rightWindow.end);
+        const leftVisible = columns.left.slice(
+          leftWindow.start,
+          leftWindow.end,
+        );
+        const rightVisible = columns.right.slice(
+          rightWindow.start,
+          rightWindow.end,
+        );
         const leftWidth = Math.max(
           16,
           Math.floor((contentWidth - DASHBOARD_COLUMN_GAP) / 2),
@@ -460,9 +484,25 @@ export function TeamDashboardOverlay({
           16,
           contentWidth - leftWidth - DASHBOARD_COLUMN_GAP,
         );
+        const leftLabel = truncate("Members & Workers", leftWidth);
+        const rightLabel = truncate("Tasks & Reviews", rightWidth);
+        const labelY = overlayFrame.y + chromeLayout.contentStart;
 
-        for (let row = 0; row < visibleRows; row++) {
-          const rowY = overlayFrame.y + CONTENT_START + row;
+        drawRow(labelY, () => {
+          output += " ".repeat(PADDING.left);
+          let len = PADDING.left;
+          output += fg(colors.accent) + leftLabel + ansi.reset + bgStyle;
+          output += " ".repeat(Math.max(0, leftWidth - leftLabel.length));
+          len += leftWidth;
+          output += " ".repeat(DASHBOARD_COLUMN_GAP);
+          len += DASHBOARD_COLUMN_GAP;
+          output += fg(colors.accent) + rightLabel + ansi.reset + bgStyle;
+          len += rightLabel.length;
+          return len;
+        });
+
+        for (let row = 0; row < columnRowCount; row++) {
+          const rowY = overlayFrame.y + chromeLayout.contentStart + row + 1;
           const leftItem = leftVisible[row];
           const rightItem = rightVisible[row];
 
@@ -493,7 +533,7 @@ export function TeamDashboardOverlay({
         const visible = items.slice(window.start, window.end);
 
         for (let row = 0; row < visibleRows; row++) {
-          const rowY = overlayFrame.y + CONTENT_START + row;
+          const rowY = overlayFrame.y + chromeLayout.contentStart + row;
           const item = visible[row];
 
           drawRow(rowY, () => {
@@ -509,7 +549,7 @@ export function TeamDashboardOverlay({
     } else {
       const lines = detailItem ? detailLines(detailItem) : ["No selection"];
       for (let row = 0; row < visibleRows; row++) {
-        const rowY = overlayFrame.y + CONTENT_START + row;
+        const rowY = overlayFrame.y + chromeLayout.contentStart + row;
         drawRow(rowY, () => {
           const line = lines[row];
           if (!line) return 0;
@@ -520,7 +560,7 @@ export function TeamDashboardOverlay({
       }
     }
 
-    const footerY = overlayFrame.y + overlayFrame.height - PADDING.bottom - 1;
+    const footerY = overlayFrame.y + chromeLayout.footerY;
     const footerText = truncate(
       interactionMode
         ? "Esc/q close"
@@ -549,6 +589,8 @@ export function TeamDashboardOverlay({
     output += drawOverlayFrame(overlayFrame, {
       borderColor: colors.accent,
       backgroundColor: OVERLAY_BG_COLOR,
+      title,
+      rightText: closeHint,
     });
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
     writeToTerminal(output);
@@ -561,6 +603,8 @@ export function TeamDashboardOverlay({
     teamState,
     viewMode,
     contentWidth,
+    chromeLayout.contentStart,
+    chromeLayout.footerY,
     overlayFrame,
     visibleRows,
   ]);

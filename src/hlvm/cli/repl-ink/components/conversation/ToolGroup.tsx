@@ -12,6 +12,10 @@ import { useSemanticColors } from "../../../theme/index.ts";
 import { ToolCallItem } from "./ToolCallItem.tsx";
 import { ProgressBar } from "./ProgressBar.tsx";
 import type { ToolCallDisplay } from "../../types.ts";
+import {
+  buildToolGroupCountSlot,
+  buildToolGroupProgressSlot,
+} from "./layout.ts";
 
 interface ToolGroupProps {
   tools: ToolCallDisplay[];
@@ -60,7 +64,8 @@ export const ToolGroup = React.memo(function ToolGroup({
     0,
     total - successCount - errorCount - runningCount,
   );
-  const activeRunningToolId = tools.find((tool) => tool.status === "running")?.id;
+  const activeRunningToolId = tools.find((tool) => tool.status === "running")
+    ?.id;
 
   // Map aggregate status to border color
   let borderColor: string;
@@ -94,7 +99,8 @@ export const ToolGroup = React.memo(function ToolGroup({
     : isAllDone
     ? "complete"
     : "pending";
-  const countLabel = isAllDone ? `(${total})` : `(${completed}/${total})`;
+  const countLabel = buildToolGroupCountSlot(completed, total, isAllDone);
+  const progressCountLabel = buildToolGroupProgressSlot(completed, total);
 
   return (
     <Box
@@ -109,8 +115,8 @@ export const ToolGroup = React.memo(function ToolGroup({
       <Box justifyContent="space-between">
         <Box>
           <Text bold color={borderColor}>Tools</Text>
-          <Text color={sc.text.secondary}> {countLabel}</Text>
-          <Text color={sc.text.muted}> · {statusLabel}</Text>
+          <Text color={sc.text.secondary}>{countLabel}</Text>
+          <Text color={sc.text.muted}>· {statusLabel}</Text>
         </Box>
         <Box>
           {showProgressBar && (
@@ -127,10 +133,10 @@ export const ToolGroup = React.memo(function ToolGroup({
                   pending: pendingCount,
                 }}
               />
-              <Text color={sc.text.muted}> </Text>
+              <Text color={sc.text.muted}></Text>
             </>
           )}
-          <Text color={sc.text.muted}>{completed}/{total}</Text>
+          <Text color={sc.text.muted}>{progressCountLabel}</Text>
         </Box>
       </Box>
 

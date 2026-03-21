@@ -11,6 +11,7 @@ const activeConsumers = new Set<symbol>();
 
 let frameIndex = 0;
 let intervalId: ReturnType<typeof setInterval> | null = null;
+let intervalStartCount = 0;
 
 function notifyListeners(): void {
   for (const listener of listeners) {
@@ -21,6 +22,7 @@ function notifyListeners(): void {
 function syncTicker(): void {
   if (activeConsumers.size > 0) {
     if (intervalId === null) {
+      intervalStartCount += 1;
       intervalId = setInterval(() => {
         frameIndex = (frameIndex + 1) % SPINNER_FRAMES.length;
         notifyListeners();
@@ -66,7 +68,32 @@ function getInactiveSnapshot(): number {
   return 0;
 }
 
-export function useConversationSpinnerFrame(active: boolean): string | undefined {
+export const conversationMotionStore = {
+  subscribe,
+  getSnapshot: getSpinnerSnapshot,
+  setConsumerActive,
+  getDebugState: () => ({
+    activeConsumerCount: activeConsumers.size,
+    listenerCount: listeners.size,
+    frameIndex,
+    intervalRunning: intervalId !== null,
+    intervalStartCount,
+  }),
+  resetForTest: () => {
+    activeConsumers.clear();
+    listeners.clear();
+    if (intervalId !== null) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+    frameIndex = 0;
+    intervalStartCount = 0;
+  },
+} as const;
+
+export function useConversationSpinnerFrame(
+  active: boolean,
+): string | undefined {
   const consumerIdRef = useRef<symbol>(Symbol("conversation-spinner"));
   const snapshot = useSyncExternalStore(
     active ? subscribe : subscribeInactive,
@@ -76,8 +103,8 @@ export function useConversationSpinnerFrame(active: boolean): string | undefined
 
   useEffect(() => {
     const consumerId = consumerIdRef.current;
-    setConsumerActive(consumerId, active);
-    return () => setConsumerActive(consumerId, false);
+    conversationMotionStore.setConsumerActive(consumerId, active);
+    return () => conversationMotionStore.setConsumerActive(consumerId, false);
   }, [active]);
 
   return active ? SPINNER_FRAMES[snapshot] : undefined;

@@ -724,8 +724,19 @@ function processSyntaxQuotedBindingForm(
     return createListFrom(list, [processedHead]);
   }
 
-  const bindingTarget = list.elements[1];
+  let bindingTarget = list.elements[1];
   const scopeBindings = cloneResolvedBindingMap(templateBindings);
+
+  // Handle unquoted binding targets: `(let ~(computed) body)` or `(var ~s val)`
+  // The unquote must be evaluated BEFORE binder-aware processing, otherwise
+  // the (unquote ...) form is misinterpreted as a destructuring pattern.
+  if (depth === 0 && isForm(bindingTarget, "unquote")) {
+    bindingTarget = evaluateForMacro(
+      (bindingTarget as SList).elements[1],
+      env,
+      logger,
+    );
+  }
 
   if (isSymbol(bindingTarget)) {
     const processedValue = list.elements.length > 2
@@ -883,21 +894,40 @@ function processSyntaxQuotedFunctionForm(
 
   let paramIndex = 1;
 
-  if (
-    list.elements.length > 1 && isSymbol(list.elements[1]) &&
-    list.elements.length > 2 && isList(list.elements[2])
-  ) {
-    const annotatedName = processTemplateBindingTarget(
-      list.elements[1],
-      depth,
+  // Handle unquoted function name: `(defn ~name [x] ...)` or `(fn ~name [x] ...)`
+  // Evaluate the unquote first so the resolved symbol is available for named-function handling.
+  // Unquoted names are user-provided — they intentionally escape hygiene, so we skip annotation.
+  let nameCandidate = list.elements.length > 1 ? list.elements[1] : undefined;
+  let nameWasUnquoted = false;
+  if (depth === 0 && nameCandidate && isForm(nameCandidate, "unquote")) {
+    nameCandidate = evaluateForMacro(
+      (nameCandidate as SList).elements[1],
       env,
       logger,
-      quoteKind,
-      autoGensymMap,
-      scopeBindings,
     );
-    processedElements.push(annotatedName.expr);
-    addResolvedBindings(scopeBindings, annotatedName.bindings);
+    nameWasUnquoted = true;
+  }
+
+  if (
+    nameCandidate && isSymbol(nameCandidate) &&
+    list.elements.length > 2 && isList(list.elements[2])
+  ) {
+    if (nameWasUnquoted) {
+      // User explicitly unquoted the name — skip hygiene annotation
+      processedElements.push(nameCandidate);
+    } else {
+      const annotatedName = processTemplateBindingTarget(
+        nameCandidate,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        scopeBindings,
+      );
+      processedElements.push(annotatedName.expr);
+      addResolvedBindings(scopeBindings, annotatedName.bindings);
+    }
     paramIndex = 2;
   }
 
@@ -2433,7 +2463,11 @@ function evaluateMacroPrimitiveCall(
   }
 }
 
-/* Evaluate a macro call with raw-form semantics. */
+/* Evaluate a macro call with raw-form semantics.
+ * After expansion, the result is evaluated (standard Lisp behavior:
+ * macro expansion produces code which is then evaluated in the same environment).
+ * This enables macros like with-gensyms to expand into (let ...) forms
+ * that are evaluated at macro time rather than being returned as literal code. */
 function evaluateMacroCall(
   list: SList,
   env: Environment,
@@ -2446,7 +2480,9 @@ function evaluateMacroCall(
   }
 
   const args = mapTail(list.elements, (arg) => arg);
-  return macroFn(args, env, list);
+  const expansion = macroFn(args, env, list);
+  // Evaluate the expansion — macros produce code, which must be evaluated.
+  return evaluateForMacro(expansion, env, logger);
 }
 
 /* Helper: Evaluate arguments for function calls

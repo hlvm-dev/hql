@@ -22,6 +22,88 @@ Swift GUI (thin client)          Deno Binary (SSOT)              LLM API
 
 ---
 
+## Current Status (2026-03-21)
+
+Yes: the current video flow is working through the normal attachment pipeline up to the final model capability gate.
+
+What has been validated end to end:
+
+- HLVM can record a video, attach it as a local draft, and resolve that draft on send
+- HLVM sends the video to `hql` through the same attachment system used for other files
+- `hql` stores the attachment as a standard `AttachmentRecord`
+- `hql` materializes the attachment into the normal conversation attachment payload shape
+- `hql` rejects unsupported models at the attachment policy layer before provider packing
+
+What failed in the validated run:
+
+- Model: `claude-code/claude-haiku-4-5-20251001`
+- Reason: attachment policy for `claude-code` does not allow `video`
+- Error surfaced to GUI: `does not support video attachments. Supported: image, PDF, text.`
+
+What that means:
+
+- The attachment pipeline is not broken
+- The video did not bypass the system
+- The failure happened exactly where it should happen: the provider capability gate
+
+Operationally, this means the current status is:
+
+| Stage | Status |
+|-------|--------|
+| GUI capture | Working |
+| GUI draft attachment | Working |
+| GUI send → binary | Working |
+| Binary storage | Working |
+| Binary materialization | Working |
+| Provider policy gate | Working |
+| Final vendor execution on non-video model | Expected rejection |
+
+In the local policy as of this date, `google` is the only provider family currently marked as accepting `video`.
+
+---
+
+## SSOT Boundaries Across GUI and Binary
+
+The attachment system is single-path by design. Different UX entry points may construct attachments differently, but they converge into one binary-owned attachment pipeline.
+
+### Canonical Entry Points
+
+| Layer | SSOT Entry Point | Location |
+|------|-------------------|----------|
+| GUI capture abstraction | `AttachmentInput` | `/Users/seoksoonjang/dev/HLVM/HLVM/REPL/Presentation/Chat/Protocol/ReplChatProtocols.swift` |
+| GUI draft resolution | `resolveDraftAttachments()` | `/Users/seoksoonjang/dev/HLVM/HLVM/REPL/Presentation/Chat/Controller/ReplChatController.swift` |
+| GUI binary bridge | `registerAttachment(_:)` | `/Users/seoksoonjang/dev/HLVM/HLVM/REPL/Presentation/Chat/Controller/ReplChatController.swift` |
+| GUI HTTP bridge | `registerAttachment(path:)`, `uploadAttachment(...)` | `/Users/seoksoonjang/dev/HLVM/HLVM/Shared/Infrastructure/Network/HTTP/HqlAPIClient.swift` |
+| Binary HTTP ingress | `handleRegisterAttachment()`, `handleUploadAttachment()` | `src/hlvm/cli/repl/handlers/attachments.ts` |
+| Binary storage + validation | `registerAttachmentBytes()` | `src/hlvm/attachments/service.ts` |
+| Binary chat ingress | `handleChat()` | `src/hlvm/cli/repl/handlers/chat.ts` |
+| Binary materialization | `materializeConversationAttachment()` | `src/hlvm/attachments/service.ts` |
+| Provider packing | `convertToSdkMessages()` | `src/hlvm/providers/sdk-runtime.ts` |
+
+### No-Backdoor Rule
+
+There is no special video-only chat path.
+
+Both image and video end up in the same binary-owned flow:
+
+1. GUI constructs `AttachmentInput`
+2. GUI resolves local drafts before send
+3. GUI registers or uploads into binary attachment storage
+4. Chat message carries `attachment_ids`
+5. Binary materializes attachments into conversation payloads
+6. Provider runtime converts those payloads into vendor SDK parts
+
+There are two transport flavors at the GUI edge, but they are not architectural forks:
+
+| GUI Attachment Shape | Typical Use | Binary Convergence Point |
+|----------------------|-------------|---------------------------|
+| `AttachmentInput.memory(...)` | screenshots, pasted images | `registerAttachmentBytes()` via `/api/attachments/upload` |
+| `AttachmentInput.file(...)` | recorded videos, dragged files | `registerAttachmentBytes()` via `/api/attachments/register` |
+
+So the storage, policy, materialization, and provider conversion logic is still centralized. The variation is only how the GUI gets bytes into the binary.
+
+---
+
 ## Full Flow: User Attaches Image and Sends Chat
 
 ```
@@ -454,6 +536,167 @@ Swift GUI (thin client)          Deno Binary (SSOT)              LLM API
 
 ---
 
+## Full Flow: User Records Video in HLVM and Sends Chat
+
+This is the same attachment architecture, with one important GUI nuance: recorded videos start as local draft attachments and are only registered with the binary when the user presses `Send`.
+
+```
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     USER RECORDS VIDEO IN HLVM GUI                          ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  SWIFT GUI                                                                  │
+│                                                                              │
+│  User opens capture overlay → Video → Selected Portion or Current Screen     │
+│  ScreenCaptureManager records to a local temp movie file                     │
+│                                                                              │
+│  Example local file:                                                         │
+│    /var/folders/.../T/Screen Recording 2026-03-21 at 8.58.10 PM.mp4         │
+│                                                                              │
+│  GUI wraps the result as:                                                    │
+│    AttachmentInput.file(                                                     │
+│      fileURL: tempMovieURL,                                                  │
+│      mimeType: "video/mp4",                                                  │
+│      metadata: { width, height, duration }                                   │
+│    )                                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  GUI DRAFT PHASE                                                             │
+│                                                                              │
+│  ReplChatController detects local video file attachments                     │
+│  and keeps them as local draft attachments first.                            │
+│                                                                              │
+│  This is intentional.                                                        │
+│                                                                              │
+│  Why:                                                                        │
+│    - user should see the attachment immediately                              │
+│    - recording can complete without blocking on network                      │
+│    - the file stays local for preview / Quick Look                           │
+│                                                                              │
+│  At this point, hql has not received anything yet.                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  USER PRESSES SEND                                                           │
+│                                                                              │
+│  ReplChatController.resolveDraftAttachments()                                │
+│    │                                                                         │
+│    ├─ sees local draft video attachment                                      │
+│    ├─ reconstructs AttachmentInput.file(...)                                 │
+│    └─ calls registerAttachment(...)                                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  GUI → BINARY HTTP BRIDGE                                                    │
+│                                                                              │
+│  HqlAPIClient.registerAttachment(path, metadata)                             │
+│                                                                              │
+│  POST /api/attachments/register                                              │
+│  {                                                                           │
+│    "path": "/var/folders/.../Screen Recording ... .mp4",                    │
+│    "metadata": {                                                             │
+│      "width": 1068,                                                          │
+│      "height": 854,                                                          │
+│      "duration": 1.9733333333333334                                          │
+│    }                                                                         │
+│  }                                                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  BINARY ATTACHMENT REGISTRATION                                              │
+│                                                                              │
+│  handleRegisterAttachment()                                                  │
+│    └─ registerAttachmentFromPath(path)                                       │
+│         └─ registerAttachmentBytes({                                         │
+│              fileName, bytes, sourcePath, metadata                           │
+│            })                                                                │
+│                                                                              │
+│  Binary detects:                                                             │
+│    mimeType = "video/mp4"                                                    │
+│    kind = "video"                                                            │
+│                                                                              │
+│  Binary stores:                                                              │
+│    ~/.hlvm/attachments/records/att_<sha>.json                                │
+│    ~/.hlvm/attachments/blobs/<sha path>                                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  GUI SENDS CHAT REQUEST                                                      │
+│                                                                              │
+│  POST /api/chat                                                              │
+│  {                                                                           │
+│    "messages": [{                                                            │
+│      "role": "user",                                                         │
+│      "content": "what can you see?",                                         │
+│      "attachment_ids": ["att_2b29188c..."]                                   │
+│    }],                                                                       │
+│    "model": "claude-code/claude-haiku-4-5-20251001"                          │
+│  }                                                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  BINARY CHAT HANDLER                                                         │
+│                                                                              │
+│  handleChat()                                                                │
+│    │                                                                         │
+│    ├─ persists message with attachment_ids                                   │
+│    ├─ validates model attachment support                                     │
+│    └─ if allowed, builds provider messages                                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  BINARY MATERIALIZATION                                                      │
+│                                                                              │
+│  materializeConversationAttachment("att_2b29188c...", options)               │
+│    │                                                                         │
+│    ├─ reads the stored record                                                │
+│    ├─ prepares binary payload cache                                          │
+│    ├─ maps mimeType "video/mp4" → conversationKind "video"                   │
+│    └─ returns BinaryConversationAttachmentPayload                            │
+│                                                                              │
+│      {                                                                       │
+│        mode: "binary",                                                       │
+│        kind: "video",                                                        │
+│        conversationKind: "video",                                            │
+│        mimeType: "video/mp4",                                                │
+│        data: "<base64>",                                                     │
+│        metadata: { width, height, duration }                                 │
+│      }                                                                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  PROVIDER CAPABILITY GATE                                                    │
+│                                                                              │
+│  attachment-policy.ts                                                        │
+│    │                                                                         │
+│    ├─ provider family = "claude-code"                                        │
+│    ├─ supported kinds = ["image", "pdf", "text"]                             │
+│    ├─ requested kind = "video"                                               │
+│    └─ reject with HTTP 400                                                   │
+│                                                                              │
+│  Result:                                                                     │
+│    pipeline succeeds through storage + materialization                        │
+│    provider execution is blocked intentionally                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Meaning
+
+The video is already in the correct reusable binary form by the time the model rejects it. The remaining gap is not attachment architecture. It is vendor capability or policy.
+
+---
+
 ## Disk State After Flow
 
 ```
@@ -475,6 +718,54 @@ SQLite DB (messages table):
 │ sess_xyz   │ asst │ This shows a sunset...  │ null                  │
 └────────────┴──────┴─────────────────────────┴────────────────────────┘
 ```
+
+---
+
+## Operational Tracing
+
+The binary now writes attachment pipeline traces to:
+
+```
+~/.hlvm/attachment-pipeline.jsonl
+```
+
+This is the fastest way to prove where an attachment got to during a real GUI run.
+
+### Stage Semantics
+
+| Stage | Meaning | Emitted From |
+|------|---------|--------------|
+| `received` | The binary accepted and stored the attachment record | `src/hlvm/attachments/service.ts` |
+| `chat_requested` | `/api/chat` was called with attachment IDs | `src/hlvm/cli/repl/handlers/chat.ts` |
+| `materialized` | Stored attachment became conversation payload data | `src/hlvm/attachments/service.ts` |
+| `provider_packed` | Conversation attachment was converted into provider SDK parts | `src/hlvm/providers/sdk-runtime.ts` |
+
+### How To Read Failures
+
+| Last Trace Stage Seen | Interpretation |
+|-----------------------|----------------|
+| no trace at all | GUI never sent anything to `hql` |
+| `received` only | attachment stored, but no chat send happened |
+| `chat_requested` without `materialized` | chat reached binary, but attachment preparation failed |
+| `materialized` without `provider_packed` | attachment was valid and prepared, but was blocked before provider SDK conversion |
+| `provider_packed` | attachment reached provider runtime formatting |
+
+### Validated Example Run
+
+The validated video run on 2026-03-21 produced:
+
+- `received`
+- `chat_requested`
+- `materialized`
+
+and then stopped with:
+
+```
+Bad request (HTTP 400): claude-code/claude-haiku-4-5-20251001
+does not support video attachments. Supported: image, PDF, text.
+```
+
+That is the expected signature of a working attachment pipeline plus a rejecting model capability policy.
 
 ---
 
@@ -606,3 +897,13 @@ The `buildChatProviderMessages()` → `resolveAttachments()` → `materializeCon
 | Attachment policy | `src/hlvm/cli/attachment-policy.ts` |
 | SDK message conversion | `src/hlvm/providers/sdk-runtime.ts` |
 | Session protocol | `src/hlvm/runtime/session-protocol.ts` |
+
+### GUI File Map
+
+| Component | File |
+|-----------|------|
+| GUI attachment abstraction | `/Users/seoksoonjang/dev/HLVM/HLVM/REPL/Presentation/Chat/Protocol/ReplChatProtocols.swift` |
+| GUI send + draft resolution | `/Users/seoksoonjang/dev/HLVM/HLVM/REPL/Presentation/Chat/Controller/ReplChatController.swift` |
+| GUI HTTP attachment client | `/Users/seoksoonjang/dev/HLVM/HLVM/Shared/Infrastructure/Network/HTTP/HqlAPIClient.swift` |
+| GUI screen recording | `/Users/seoksoonjang/dev/HLVM/HLVM/Manager/ScreenCaptureManager.swift` |
+| GUI capture controller | `/Users/seoksoonjang/dev/HLVM/HLVM/Shared/Presentation/Drawing/DrawingViewController.swift` |
