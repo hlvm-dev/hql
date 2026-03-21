@@ -244,6 +244,7 @@ export interface IRIdentifier extends IRNode {
   type: IRNodeType.Identifier;
   name: string;
   originalName?: string;
+  bindingIdentity?: string;
   isJS?: boolean;
   /** TypeScript type annotation (e.g., "number", "string[]", "T | null") */
   typeAnnotation?: string;

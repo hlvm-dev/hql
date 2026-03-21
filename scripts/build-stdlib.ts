@@ -75,6 +75,24 @@ const HEADER = `\
 // ===========================================================================
 `;
 
+function demangleSelfHostedName(name: string): string {
+  const marker = "_stdlib_hql_";
+  const markerIndex = name.lastIndexOf(marker);
+  if (markerIndex >= 0) {
+    return name.slice(markerIndex + marker.length);
+  }
+  return name;
+}
+
+function buildSelfHostedExportEntries(
+  names: string[],
+): { internalName: string; publicName: string }[] {
+  return names.map((internalName) => ({
+    internalName,
+    publicName: demangleSelfHostedName(internalName),
+  }));
+}
+
 async function main() {
   console.log("Reading stdlib.hql...");
   const source = await platform.fs.readTextFile(STDLIB_HQL);
@@ -133,6 +151,13 @@ async function main() {
   const selfHostedNames = letLineMatch
     ? letLineMatch[1].split(",").map((n: string) => n.trim()).filter(Boolean)
     : [];
+  const selfHostedExportEntries = buildSelfHostedExportEntries(selfHostedNames);
+  const selfHostedInternalByPublicName = new Map(
+    selfHostedExportEntries.map(({ internalName, publicName }) => [
+      publicName,
+      internalName,
+    ]),
+  );
 
   // ── Post-process 3: Add missing runtime imports from core.js ──
   // The transpiler treats first/rest/cons/seq/__hql_lazy_seq/etc. as globals
@@ -164,17 +189,30 @@ async function main() {
   // Generate the export from the let-declared names, which IS complete.
   const letMatch = code.match(/^let (.+);$/m);
   if (letMatch) {
-    // Strip `: Function` type annotations to get bare names
-    const letNames = letMatch[1].split(",")
-      .map((n: string) => n.replace(/:.*/, "").trim())
-      .filter(Boolean);
-    const exportLine = `export { ${letNames.join(", ")} };`;
+    const exportLine = `export { ${
+      selfHostedExportEntries.map(({ internalName, publicName }) =>
+        internalName === publicName
+          ? internalName
+          : `${internalName} as ${publicName}`
+      ).join(", ")
+    } };`;
     // Replace the transpiler's export block (or append if missing)
     if (/^export\s*\{[^}]+\}\s*;/m.test(code)) {
       code = code.replace(/^export\s*\{[^}]+\}\s*;/m, exportLine);
     } else {
       code += "\n" + exportLine + "\n";
     }
+  }
+
+  const publicAliasLines = selfHostedExportEntries
+    .filter(({ internalName, publicName }) => internalName !== publicName)
+    .map(({ internalName, publicName }) =>
+      `const ${publicName} = ${internalName};`
+    )
+    .join("\n");
+  if (publicAliasLines.length > 0) {
+    code += "\n// Public local aliases for self-hosted stdlib bindings\n";
+    code += publicAliasLines + "\n";
   }
 
   // ── Post-process 5: Replace _QMARK_ identifiers with original names ──
@@ -194,7 +232,10 @@ async function main() {
 
   // ── Post-process 7: Append _QMARK_ alias re-exports ──
   const aliasLines = QMARK_ALIASES
-    .map(([src, alias]) => `export { ${src} as ${alias} };`)
+    .map(([src, alias]) => {
+      const localName = selfHostedInternalByPublicName.get(src) ?? src;
+      return `export { ${localName} as ${alias} };`;
+    })
     .join("\n");
   code += `\n// Lisp-style predicate aliases (with ? suffix)\n`;
   code += `// These map \`nil?\` -> \`nil_QMARK_\` via sanitizeIdentifier\n`;
@@ -206,7 +247,9 @@ async function main() {
     "// AUTO-GENERATED from stdlib.hql — DO NOT EDIT",
     "// Provides type declarations for self-hosted.js",
     "",
-    ...selfHostedNames.map(name => `export declare function ${name}(...args: any[]): any;`),
+    ...selfHostedExportEntries.map(({ publicName }) =>
+      `export declare function ${publicName}(...args: any[]): any;`
+    ),
     "",
     // QMARK aliases
     ...QMARK_ALIASES.map(([src, alias]) => `export { ${src} as ${alias} };`),

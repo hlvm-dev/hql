@@ -3,15 +3,9 @@
 
 import * as IR from "../type/hql_ir.ts";
 import type { ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
-import {
-  ValidationError,
-} from "../../../common/error.ts";
-import {
-  sanitizeIdentifier,
-} from "../../../common/utils.ts";
-import {
-  extractAndNormalizeType,
-} from "../tokenizer/type-tokenizer.ts";
+import { ValidationError } from "../../../common/error.ts";
+import {} from "../../../common/utils.ts";
+import { extractAndNormalizeType } from "../tokenizer/type-tokenizer.ts";
 import { transformIf } from "./conditional.ts";
 import {
   transformNonNullElements,
@@ -19,27 +13,36 @@ import {
 } from "../utils/validation-helpers.ts";
 import { couldBePattern, parsePattern } from "../../s-exp/pattern-parser.ts";
 import { patternToIR } from "../utils/pattern-to-ir.ts";
-import type { SList } from "../../s-exp/types.ts";
+import { getMeta, type SList } from "../../s-exp/types.ts";
 import {
   hasHashMapPrefix,
   hasVectorPrefix,
 } from "../../../common/sexp-utils.ts";
 import { DEEP_FREEZE_HELPER } from "../../../common/runtime-helper-impl.ts";
-import { copyPosition, copyEndPosition, isExpressionResult } from "../pipeline/hql-ast-to-hql-ir.ts";
+import {
+  copyEndPosition,
+  copyPosition,
+  isExpressionResult,
+} from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
   containsAwaitExpression,
   containsYieldExpression,
 } from "../utils/ir-tree-walker.ts";
 import {
   createBlock,
-  createId,
-  ensureReturnStatement,
-  createExprStmt,
   createCall,
+  createExprStmt,
   createFnExpr,
+  createId,
   createVarDecl,
+  ensureReturnStatement,
   wrapIIFEResult,
 } from "../utils/ir-helpers.ts";
+import {
+  identifierFromBindingRecord,
+  registerDeclaredBinding,
+  withLexicalScope,
+} from "../utils/binding-resolution.ts";
 
 /**
  * Options for binding transformation
@@ -85,7 +88,8 @@ function transformBinding(
       // elements are symbols.
       if (hadVectorPrefix) {
         const innerElements = listNode.elements.slice(1); // strip "vector" prefix
-        const isPairCount = innerElements.length >= 2 && innerElements.length % 2 === 0;
+        const isPairCount = innerElements.length >= 2 &&
+          innerElements.length % 2 === 0;
         const bindingNamePositionsAreSymbols = innerElements
           .filter((_e, i) => i % 2 === 0)
           .every((e) => e.type === "symbol");
@@ -110,16 +114,18 @@ function transformBinding(
           : null;
         const secondIsSpreadLiteral = !!(
           secondVecInner &&
-          secondVecInner.some((e) => e.type === "symbol" && (e as SymbolNode).name.startsWith("..."))
+          secondVecInner.some((e) =>
+            e.type === "symbol" && (e as SymbolNode).name.startsWith("...")
+          )
         );
         const secondLooksLikePattern = !!(
           secondList &&
           !secondIsSpreadLiteral &&
-          (hasVectorPrefix(secondList) || hasHashMapPrefix(secondList) || secondIsDefaultForm)
+          (hasVectorPrefix(secondList) || hasHashMapPrefix(secondList) ||
+            secondIsDefaultForm)
         );
 
-        const shouldTreatAsBindingVector =
-          isPairCount &&
+        const shouldTreatAsBindingVector = isPairCount &&
           bindingNamePositionsAreSymbols &&
           secondIsNotSymbol &&
           !secondIsDefaultForm &&
@@ -131,7 +137,13 @@ function transformBinding(
             elements: innerElements,
           } as ListNode;
           const bodyExprs = list.elements.slice(2);
-          return processBindings(bindingsNode, bodyExprs, currentDir, transformNode, kind);
+          return processBindings(
+            bindingsNode,
+            bodyExprs,
+            currentDir,
+            transformNode,
+            kind,
+          );
         }
       }
 
@@ -177,7 +189,9 @@ function transformBinding(
       const nameNode = bindingTarget as SymbolNode;
 
       // Extract type annotation if present (e.g., "x:number")
-      const { name, type: typeAnnotation } = extractAndNormalizeType(nameNode.name);
+      const { name, type: typeAnnotation } = extractAndNormalizeType(
+        nameNode.name,
+      );
 
       // Validate for var: cannot use for property assignment
       if (keyword === "var" && name.includes(".") && !name.startsWith(".")) {
@@ -188,8 +202,6 @@ function transformBinding(
           `property access '${name}'`,
         );
       }
-
-      const id = createId(sanitizeIdentifier(name));
 
       const valueNode = list.elements[2];
       let init = validateTransformed(
@@ -202,6 +214,13 @@ function transformBinding(
       if (freeze) {
         init = wrapWithFreeze(init);
       }
+
+      const bindingRecord = registerDeclaredBinding(
+        name,
+        nameNode.name,
+        getMeta(nameNode)?.resolvedBinding,
+      );
+      const id = identifierFromBindingRecord(bindingRecord, nameNode.name);
 
       const decl = createVarDecl(id, init, kind);
       decl.declarations[0].typeAnnotation = typeAnnotation;
@@ -236,48 +255,54 @@ function transformBinding(
           patternSexp = { ...sexp, elements: sexp.elements.slice(1) } as SList;
         }
 
-        const pattern = parsePattern(patternSexp);
-        const patternIR = patternToIR(pattern, transformNode, currentDir);
-
-        if (!patternIR) {
-          throw new ValidationError(
-            "Invalid destructuring pattern",
-            `${keyword} binding pattern`,
-            "valid pattern",
-            "null pattern",
+        return withLexicalScope(() => {
+          const init = validateTransformed(
+            transformIfOrValue(valueNode, currentDir, transformNode),
+            `${keyword} value`,
+            `${keyword.charAt(0).toUpperCase() + keyword.slice(1)} value`,
           );
-        }
 
-        const init = validateTransformed(
-          transformIfOrValue(valueNode, currentDir, transformNode),
-          `${keyword} value`,
-          `${keyword.charAt(0).toUpperCase() + keyword.slice(1)} value`,
-        );
+          const pattern = parsePattern(patternSexp);
+          const patternIR = patternToIR(pattern, transformNode, currentDir);
 
-        const variableDecl = createVarDecl(patternIR, init, kind);
-        copyPosition(nameNode, variableDecl.declarations[0]);
-        copyEndPosition(list, variableDecl.declarations[0]);
+          if (!patternIR) {
+            throw new ValidationError(
+              "Invalid destructuring pattern",
+              `${keyword} binding pattern`,
+              "valid pattern",
+              "null pattern",
+            );
+          }
 
-        // If there are body expressions, wrap in IIFE
-        if (list.elements.length > 2) {
-          const bodyExprs = list.elements.slice(2);
-          const bodyNodes = transformNonNullElements(bodyExprs, currentDir, transformNode);
+          const variableDecl = createVarDecl(patternIR, init, kind);
+          copyPosition(nameNode, variableDecl.declarations[0]);
+          copyEndPosition(list, variableDecl.declarations[0]);
 
-          const bodyStmts = bodyNodes.map((node, i) => {
-            const isLast = i === bodyNodes.length - 1;
-            if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
-              return ensureReturnStatement(node);
-            }
-            if (isExpressionResult(node)) {
-              return createExprStmt(node);
-            }
-            return node;
-          });
+          // If there are body expressions, wrap in IIFE
+          if (list.elements.length > 2) {
+            const bodyExprs = list.elements.slice(2);
+            const bodyNodes = transformNonNullElements(
+              bodyExprs,
+              currentDir,
+              transformNode,
+            );
 
-          return makeIIFE(createBlock([variableDecl, ...bodyStmts]));
-        }
+            const bodyStmts = bodyNodes.map((node, i) => {
+              const isLast = i === bodyNodes.length - 1;
+              if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
+                return ensureReturnStatement(node);
+              }
+              if (isExpressionResult(node)) {
+                return createExprStmt(node);
+              }
+              return node;
+            });
 
-        return variableDecl;
+            return makeIIFE(createBlock([variableDecl, ...bodyStmts]));
+          }
+
+          return variableDecl;
+        });
       }
     }
 
@@ -302,35 +327,46 @@ function transformBinding(
       valueExpr = wrapWithFreeze(valueExpr);
     }
 
-    const idNode = createId(sanitizeIdentifier(name));
-    copyPosition(nameNode, idNode);
-    copyEndPosition(list, idNode);
+    return withLexicalScope(() => {
+      const bindingRecord = registerDeclaredBinding(
+        name,
+        (nameNode as SymbolNode).name,
+        getMeta(nameNode)?.resolvedBinding,
+      );
+      const idNode = identifierFromBindingRecord(bindingRecord, nameNode.name);
+      copyPosition(nameNode, idNode);
+      copyEndPosition(list, idNode);
 
-    const variableDecl = createVarDecl(idNode, valueExpr, kind);
-    copyPosition(nameNode, variableDecl.declarations[0]);
-    copyEndPosition(list, variableDecl.declarations[0]);
+      const variableDecl = createVarDecl(idNode, valueExpr, kind);
+      copyPosition(nameNode, variableDecl.declarations[0]);
+      copyEndPosition(list, variableDecl.declarations[0]);
 
-    // If there are body expressions
-    if (list.elements.length > 2) {
-      const bodyExprs = list.elements.slice(2);
-      const bodyNodes = transformNonNullElements(bodyExprs, currentDir, transformNode);
+      // If there are body expressions
+      if (list.elements.length > 2) {
+        const bodyExprs = list.elements.slice(2);
+        const bodyNodes = transformNonNullElements(
+          bodyExprs,
+          currentDir,
+          transformNode,
+        );
 
-      const bodyStmts = bodyNodes.map((node, i) => {
-        const isLast = i === bodyNodes.length - 1;
-        if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
-          return ensureReturnStatement(node);
-        }
-        // Wrap non-last expressions in ExpressionStatement
-        if (isExpressionResult(node)) {
-          return createExprStmt(node);
-        }
-        return node;
-      });
+        const bodyStmts = bodyNodes.map((node, i) => {
+          const isLast = i === bodyNodes.length - 1;
+          if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
+            return ensureReturnStatement(node);
+          }
+          // Wrap non-last expressions in ExpressionStatement
+          if (isExpressionResult(node)) {
+            return createExprStmt(node);
+          }
+          return node;
+        });
 
-      return makeIIFE(createBlock([variableDecl, ...bodyStmts]));
-    }
+        return makeIIFE(createBlock([variableDecl, ...bodyStmts]));
+      }
 
-    return variableDecl;
+      return variableDecl;
+    });
   }
 
   // Handle standard local binding form: (let/var (name1 value1 ...) body...)
@@ -339,10 +375,19 @@ function transformBinding(
     const rawBindingsNode = list.elements[1] as ListNode;
     // Strip vector prefix if present (Clojure-style [name val ...] binding vector)
     const bindingsNode = hasVectorPrefix(rawBindingsNode)
-      ? { ...rawBindingsNode, elements: rawBindingsNode.elements.slice(1) } as ListNode
+      ? {
+        ...rawBindingsNode,
+        elements: rawBindingsNode.elements.slice(1),
+      } as ListNode
       : rawBindingsNode;
     const bodyExprs = list.elements.slice(2);
-    return processBindings(bindingsNode, bodyExprs, currentDir, transformNode, kind);
+    return processBindings(
+      bindingsNode,
+      bodyExprs,
+      currentDir,
+      transformNode,
+      kind,
+    );
   }
 
   throw new ValidationError(
@@ -457,137 +502,130 @@ function processBindings(
   ) => IR.IRNode | null,
   kind: "const" | "let" | "var",
 ): IR.IRNode {
-  // Process bindings as pairs
-  const bindings: Array<{
-    name: string;
-    value: IR.IRNode;
-    nameNode: SymbolNode;
-    typeAnnotation?: string;
-  }> = [];
+  return withLexicalScope(() => {
+    const variableDeclarations: IR.IRNode[] = [];
 
-  // Track pattern bindings separately (destructuring creates IR patterns, not names)
-  const patternDeclarations: IR.IRVariableDeclaration[] = [];
-
-  for (let i = 0; i < bindingsNode.elements.length; i += 2) {
-    if (i + 1 >= bindingsNode.elements.length) {
-      throw new ValidationError(
-        `Incomplete binding pair in ${kind}`,
-        `${kind} binding`,
-        "name-value pair",
-        "incomplete pair",
-      );
-    }
-
-    const nameNode = bindingsNode.elements[i];
-    const valueNode = bindingsNode.elements[i + 1];
-
-    // Check if nameNode is a destructuring pattern (array or object)
-    if (nameNode.type === "list") {
-      const listNode = nameNode as ListNode;
-      const hadVectorPrefix = hasVectorPrefix(listNode);
-      const hadHashMapPrefix = hasHashMapPrefix(listNode);
-      const sexp = nameNode;
-
-      if ((hadVectorPrefix || hadHashMapPrefix) && couldBePattern(sexp)) {
-        // Handle destructuring pattern
-        let patternSexp = sexp;
-        if (hadVectorPrefix && sexp.type === "list" && hasVectorPrefix(sexp)) {
-          patternSexp = { ...sexp, elements: sexp.elements.slice(1) } as SList;
-        }
-
-        const pattern = parsePattern(patternSexp);
-        const patternIR = patternToIR(pattern, transformNode, currentDir);
-
-        if (!patternIR) {
-          throw new ValidationError(
-            "Invalid destructuring pattern",
-            `${kind} binding pattern`,
-            "valid pattern",
-            "null pattern",
-          );
-        }
-
-        // Transform the value
-        const valueExpr = validateTransformed(
-          transformIfOrValue(valueNode, currentDir, transformNode),
-          `${kind} binding value`,
-          `Binding value for pattern`,
+    for (let i = 0; i < bindingsNode.elements.length; i += 2) {
+      if (i + 1 >= bindingsNode.elements.length) {
+        throw new ValidationError(
+          `Incomplete binding pair in ${kind}`,
+          `${kind} binding`,
+          "name-value pair",
+          "incomplete pair",
         );
-
-        const finalValue = kind === "const" ? wrapWithFreeze(valueExpr) : valueExpr;
-
-        patternDeclarations.push(createVarDecl(patternIR, finalValue, kind));
-
-        continue;
       }
-    }
 
-    // Regular symbol binding
-    if (nameNode.type !== "symbol") {
-      throw new ValidationError(
-        "Binding name must be a symbol or destructuring pattern",
-        `${kind} binding name`,
-        "symbol or pattern",
-        nameNode.type,
+      const nameNode = bindingsNode.elements[i];
+      const valueNode = bindingsNode.elements[i + 1];
+
+      // Check if nameNode is a destructuring pattern (array or object)
+      if (nameNode.type === "list") {
+        const listNode = nameNode as ListNode;
+        const hadVectorPrefix = hasVectorPrefix(listNode);
+        const hadHashMapPrefix = hasHashMapPrefix(listNode);
+        const sexp = nameNode;
+
+        if ((hadVectorPrefix || hadHashMapPrefix) && couldBePattern(sexp)) {
+          const valueExpr = validateTransformed(
+            transformIfOrValue(valueNode, currentDir, transformNode),
+            `${kind} binding value`,
+            `Binding value for pattern`,
+          );
+
+          let patternSexp = sexp;
+          if (
+            hadVectorPrefix && sexp.type === "list" && hasVectorPrefix(sexp)
+          ) {
+            patternSexp = {
+              ...sexp,
+              elements: sexp.elements.slice(1),
+            } as SList;
+          }
+
+          const pattern = parsePattern(patternSexp);
+          const patternIR = patternToIR(pattern, transformNode, currentDir);
+
+          if (!patternIR) {
+            throw new ValidationError(
+              "Invalid destructuring pattern",
+              `${kind} binding pattern`,
+              "valid pattern",
+              "null pattern",
+            );
+          }
+
+          const finalValue = kind === "const"
+            ? wrapWithFreeze(valueExpr)
+            : valueExpr;
+          variableDeclarations.push(createVarDecl(patternIR, finalValue, kind));
+          continue;
+        }
+      }
+
+      // Regular symbol binding
+      if (nameNode.type !== "symbol") {
+        throw new ValidationError(
+          "Binding name must be a symbol or destructuring pattern",
+          `${kind} binding name`,
+          "symbol or pattern",
+          nameNode.type,
+        );
+      }
+
+      // Extract type annotation if present (e.g., "x:number")
+      const { name, type: typeAnnotation } = extractAndNormalizeType(
+        (nameNode as SymbolNode).name,
       );
+
+      const valueExpr = validateTransformed(
+        transformIfOrValue(valueNode, currentDir, transformNode),
+        `${kind} binding value`,
+        `Binding value for '${name}'`,
+      );
+
+      const bindingRecord = registerDeclaredBinding(
+        name,
+        (nameNode as SymbolNode).name,
+        getMeta(nameNode)?.resolvedBinding,
+      );
+      const idNode = identifierFromBindingRecord(
+        bindingRecord,
+        (nameNode as SymbolNode).name,
+      );
+      copyPosition(nameNode, idNode);
+      copyEndPosition(bindingsNode, idNode);
+
+      const finalValue = kind === "const"
+        ? wrapWithFreeze(valueExpr)
+        : valueExpr;
+      const decl = createVarDecl(idNode, finalValue, kind);
+      decl.declarations[0].typeAnnotation = typeAnnotation;
+      copyPosition(nameNode, decl.declarations[0]);
+      copyEndPosition(bindingsNode, decl.declarations[0]);
+      variableDeclarations.push(decl);
     }
 
-    // Extract type annotation if present (e.g., "x:number")
-    const { name, type: typeAnnotation } = extractAndNormalizeType((nameNode as SymbolNode).name);
-
-    const valueExpr = validateTransformed(
-      transformIfOrValue(valueNode, currentDir, transformNode),
-      `${kind} binding value`,
-      `Binding value for '${name}'`,
+    // Process body expressions
+    const bodyStatements = transformNonNullElements(
+      bodyExprs,
+      currentDir,
+      transformNode,
     );
 
-    // Wrap with freeze if it's a const binding (let)
-    const finalValue = kind === "const" ? wrapWithFreeze(valueExpr) : valueExpr;
-    bindings.push({
-      name,
-      value: finalValue,
-      nameNode: nameNode as SymbolNode,
-      typeAnnotation,
+    // Bindings need implicit return: wrap last body expression in return statement
+    const bodyStmts = bodyStatements.map((node, i) => {
+      const isLast = i === bodyStatements.length - 1;
+      if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
+        return ensureReturnStatement(node);
+      }
+      if (isExpressionResult(node)) {
+        return createExprStmt(node);
+      }
+      return node;
     });
-  }
 
-  // Create variable declarations for all bindings
-  const variableDeclarations: IR.IRNode[] = bindings.map((b) => {
-    const idNode = createId(sanitizeIdentifier(b.name));
-    copyPosition(b.nameNode, idNode);
-    copyEndPosition(bindingsNode, idNode);
-
-    const decl = createVarDecl(idNode, b.value, kind);
-    decl.declarations[0].typeAnnotation = b.typeAnnotation;
-    copyPosition(b.nameNode, decl.declarations[0]);
-    copyEndPosition(bindingsNode, decl.declarations[0]);
-
-    return decl;
+    return makeIIFE(createBlock([...variableDeclarations, ...bodyStmts]));
   });
-
-  // Process body expressions
-  const bodyStatements = transformNonNullElements(
-    bodyExprs,
-    currentDir,
-    transformNode,
-  );
-
-  // Bindings need implicit return: wrap last body expression in return statement
-  const bodyStmts = bodyStatements.map((node, i) => {
-    const isLast = i === bodyStatements.length - 1;
-    // If it's the last statement and not already a return, wrap it in return
-    // Use ensureReturnStatement to handle IfStatement (which has its own returns)
-    if (isLast && node.type !== IR.IRNodeType.ReturnStatement) {
-      return ensureReturnStatement(node);
-    }
-    // Wrap non-last expressions in ExpressionStatement
-    if (isExpressionResult(node)) {
-      return createExprStmt(node);
-    }
-    return node;
-  });
-
-  return makeIIFE(createBlock([...patternDeclarations, ...variableDeclarations, ...bodyStmts]));
 }
 
 /**

@@ -16,7 +16,7 @@ import {
   shouldSuppressFinalResponse,
   stripPlanEnvelopeBlocks,
 } from "../../agent/model-compat.ts";
-import { classifyError, getRecoveryHint } from "../../agent/error-taxonomy.ts";
+import { describeErrorForDisplay } from "../../agent/error-taxonomy.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import {
   createAttachment,
@@ -909,14 +909,12 @@ export async function askCommand(args: string[]): Promise<void> {
   }
 
   if (jsonOutput) {
-    const classified = classifyError(executionError);
+    const described = describeErrorForDisplay(executionError);
     emitJson({
       type: "error",
-      message: executionError instanceof Error
-        ? executionError.message
-        : String(executionError),
-      errorClass: classified.class,
-      retryable: classified.retryable,
+      message: described.message,
+      errorClass: described.class,
+      retryable: described.retryable,
     });
     getPlatform().process.exit(1);
     return;
@@ -947,10 +945,9 @@ export async function askCommand(args: string[]): Promise<void> {
   if (recovery.recovered) return;
 
   if (executionError instanceof Error) {
-    const classified = classifyError(executionError);
-    const hint = getRecoveryHint(executionError.message);
-    log.error(`Agent error (${classified.class}): ${executionError.message}`);
-    if (hint) log.error(`Hint: ${hint}`);
+    const described = describeErrorForDisplay(executionError);
+    log.error(`Agent error (${described.class}): ${described.message}`);
+    if (described.hint) log.error(`Hint: ${described.hint}`);
     throw executionError;
   }
   throw executionError;

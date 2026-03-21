@@ -7,6 +7,7 @@ import React from "react";
 import { Box, Text, useStdout } from "ink";
 import { version as VERSION } from "../../../../../mod.ts";
 import { useTheme } from "../../theme/index.ts";
+import type { ThemePalette } from "../../theme/index.ts";
 import type { ConfiguredModelReadinessState } from "../../../runtime/configured-model-readiness.ts";
 import { truncate } from "../../../../common/utils.ts";
 import {
@@ -28,6 +29,7 @@ const SYMBOLS = {
 } as const;
 
 const FULL_LOGO_WIDTH = Math.max(...LOGO_LINES.map((line) => line.length));
+const bannerRampCache = new Map<string, readonly string[]>();
 
 interface BannerProps {
   aiExports: string[];
@@ -39,6 +41,65 @@ interface BannerProps {
 interface BannerAiIndicator {
   label: string;
   tone: "success" | "warning" | "error";
+}
+
+function clampChannel(value: number): number {
+  return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const clean = hex.replace(/^#/, "");
+  return [
+    parseInt(clean.slice(0, 2), 16) || 0,
+    parseInt(clean.slice(2, 4), 16) || 0,
+    parseInt(clean.slice(4, 6), 16) || 0,
+  ];
+}
+
+function rgbToHex([r, g, b]: [number, number, number]): string {
+  return `#${[r, g, b].map((channel) =>
+    clampChannel(channel).toString(16).padStart(2, "0")
+  ).join("")}`;
+}
+
+export function interpolateHexColor(
+  fromHex: string,
+  toHex: string,
+  ratio: number,
+): string {
+  const clampedRatio = Math.max(0, Math.min(1, ratio));
+  const from = hexToRgb(fromHex);
+  const to = hexToRgb(toHex);
+
+  return rgbToHex([
+    from[0] + (to[0] - from[0]) * clampedRatio,
+    from[1] + (to[1] - from[1]) * clampedRatio,
+    from[2] + (to[2] - from[2]) * clampedRatio,
+  ]);
+}
+
+export function getBannerLogoColors(
+  themeName: string,
+  theme: Pick<ThemePalette, "primary" | "accent" | "success">,
+  compact: boolean,
+): readonly string[] {
+  const cacheKey = `${themeName}:${compact}:${theme.primary}:${theme.accent}:${theme.success}`;
+  const cached = bannerRampCache.get(cacheKey);
+  if (cached) return cached;
+
+  const colors = compact
+    ? [theme.primary]
+    : LOGO_LINES.map((_, index) => {
+      const position = LOGO_LINES.length <= 1
+        ? 0
+        : index / (LOGO_LINES.length - 1);
+      return position <= 0.5
+        ? interpolateHexColor(theme.primary, theme.accent, position * 2)
+        : interpolateHexColor(theme.accent, theme.success, (position - 0.5) * 2);
+    });
+
+  bannerRampCache.set(cacheKey, colors);
+  return colors;
 }
 
 export function getBannerRowCount(
@@ -83,7 +144,7 @@ export function Banner(
   { aiExports, aiReadiness, errors, modelName }: BannerProps,
 ): React.ReactElement {
   const { stdout } = useStdout();
-  const { color } = useTheme();
+  const { color, theme, themeName } = useTheme();
   const model = modelName?.trim() ?? "";
   const indicator = resolveBannerAiIndicator(aiExports.length > 0, aiReadiness);
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
@@ -92,13 +153,14 @@ export function Banner(
   const showSpacer = !compact && terminalHeight >= 18;
   const contentWidth = Math.max(20, terminalWidth - 2);
   const statusLabel = model ? `${indicator.label} · ${model}` : indicator.label;
+  const logoColors = getBannerLogoColors(themeName, theme, compact);
 
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box flexDirection="column">
         {(compact ? ["HLVM"] : LOGO_LINES).map((line, index) => (
           <React.Fragment key={index}>
-            <Text color={color("primary")} bold>
+            <Text color={logoColors[index] ?? color("primary")} bold>
               {line}
             </Text>
           </React.Fragment>

@@ -78,7 +78,7 @@ Returns a `GensymSymbol` object. When used in `(unquote ...)` within a quasiquot
 3. **Filtering**: Macro definitions are removed from the final output
 
 Within a single expansion:
-- If the head of a list is a known macro, its arguments are pre-expanded (nested macro calls only), then the macro function is invoked with the arguments
+- If the head of a list is a known macro, the macro function is invoked with its raw argument forms
 - The macro function creates a child environment with parameter bindings, evaluates the body, and returns the result
 - The result is recursively expanded again (to support macros that expand to other macro calls)
 - Source location metadata from the call site is propagated to all expanded nodes
@@ -89,7 +89,7 @@ Maximum recursive expansion depth: 100 (configurable via `maxExpandDepth`).
 
 ### Argument Evaluation Strategy
 
-Macro arguments are raw forms by default. Nested macro calls in argument position are expanded before binding, but ordinary forms are not evaluated implicitly.
+Macro arguments are raw forms by default. Nested macro calls remain raw until the macro explicitly expands or evaluates them.
 
 Explicit macro-time evaluation is provided by:
 - `%eval`

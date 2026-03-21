@@ -147,6 +147,124 @@ export function bg(rgb: RGB): string {
   return ansi.bg(rgb[0], rgb[1], rgb[2]);
 }
 
+const ROUND_BORDER = {
+  topLeft: "╭",
+  topRight: "╮",
+  bottomLeft: "╰",
+  bottomRight: "╯",
+  horizontal: "─",
+  vertical: "│",
+} as const;
+
+function truncateFrameLabel(label: string, maxWidth: number): string {
+  const glyphs = Array.from(label);
+  if (glyphs.length <= maxWidth) return label;
+  if (maxWidth <= 0) return "";
+  if (maxWidth === 1) return "…";
+  return `${glyphs.slice(0, maxWidth - 1).join("")}…`;
+}
+
+export function buildOverlayFrameText(
+  width: number,
+  options: { title?: string; rightText?: string } = {},
+): { top: string; bottom: string } {
+  if (width <= 0) {
+    return { top: "", bottom: "" };
+  }
+  if (width === 1) {
+    return {
+      top: ROUND_BORDER.topLeft,
+      bottom: ROUND_BORDER.bottomLeft,
+    };
+  }
+
+  const innerWidth = Math.max(0, width - 2);
+  const topCells: string[] = Array.from(
+    { length: innerWidth },
+    () => ROUND_BORDER.horizontal,
+  );
+  let titleLabel = options.title?.trim() ? ` ${options.title.trim()} ` : "";
+  let rightLabel = options.rightText?.trim() ? ` ${options.rightText.trim()} ` : "";
+
+  if (rightLabel.length > innerWidth) {
+    rightLabel = truncateFrameLabel(rightLabel, innerWidth);
+  }
+
+  const reservedRight = rightLabel ? rightLabel.length + 1 : 0;
+  const maxTitleWidth = Math.max(0, innerWidth - reservedRight - 1);
+  if (titleLabel.length > maxTitleWidth) {
+    titleLabel = truncateFrameLabel(titleLabel, maxTitleWidth);
+  }
+
+  const writeLabel = (label: string, start: number): void => {
+    Array.from(label).forEach((glyph, index) => {
+      const target = start + index;
+      if (target >= 0 && target < topCells.length) {
+        topCells[target] = glyph;
+      }
+    });
+  };
+
+  if (titleLabel) {
+    writeLabel(
+      titleLabel,
+      Math.min(1, Math.max(0, innerWidth - titleLabel.length)),
+    );
+  }
+
+  if (rightLabel) {
+    const rightStart = Math.max(
+      titleLabel.length > 0 ? titleLabel.length + 2 : 0,
+      innerWidth - rightLabel.length - 1,
+    );
+    writeLabel(rightLabel, Math.max(0, rightStart));
+  }
+
+  return {
+    top: `${ROUND_BORDER.topLeft}${topCells.join("")}${ROUND_BORDER.topRight}`,
+    bottom:
+      `${ROUND_BORDER.bottomLeft}${ROUND_BORDER.horizontal.repeat(innerWidth)}${ROUND_BORDER.bottomRight}`,
+  };
+}
+
+export function drawOverlayFrame(
+  frame: Pick<ClearRegion, "x" | "y" | "width" | "height">,
+  options: {
+    borderColor: RGB;
+    backgroundColor?: RGB;
+    title?: string;
+    rightText?: string;
+  },
+): string {
+  if (frame.width <= 0 || frame.height <= 0) return "";
+
+  const backgroundColor = options.backgroundColor ?? OVERLAY_BG_COLOR;
+  const borderStyle = fg(options.borderColor);
+  const backgroundStyle = bg(backgroundColor);
+  const { top, bottom } = buildOverlayFrameText(frame.width, {
+    title: options.title,
+    rightText: options.rightText,
+  });
+
+  let output = "";
+  output += ansi.cursorTo(frame.x, frame.y) + backgroundStyle + borderStyle + top;
+
+  for (let row = 1; row < Math.max(1, frame.height - 1); row++) {
+    if (row >= frame.height - 1) break;
+    output += ansi.cursorTo(frame.x, frame.y + row) + backgroundStyle +
+      borderStyle + ROUND_BORDER.vertical;
+    output += ansi.cursorTo(frame.x + frame.width - 1, frame.y + row) +
+      backgroundStyle + borderStyle + ROUND_BORDER.vertical;
+  }
+
+  if (frame.height > 1) {
+    output += ansi.cursorTo(frame.x, frame.y + frame.height - 1) +
+      backgroundStyle + borderStyle + bottom;
+  }
+
+  return output + ansi.reset;
+}
+
 /** Calculate centered overlay position */
 function calcOverlayPosition(width: number, height: number): { x: number; y: number } {
   const rect = fitOverlayRect(width, height);

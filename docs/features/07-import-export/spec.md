@@ -102,7 +102,7 @@ Both import and export processing check whether symbols are macros:
 - **Import**: macros are skipped from the JS `import` statement. If all symbols in an import are macros, the entire import declaration is omitted.
 - **Export**: macros are skipped from the JS `export` statement. If all symbols are macros, the entire export declaration is omitted.
 
-Macro detection uses both the symbol table (`currentSymbolTable`) and the global macro registry (`globalMacroRegistry`).
+Macro detection uses the compiler symbol table plus environment/import state as the single source of truth for compile-time-only macro visibility.
 
 ## Import Resolution (Runtime)
 

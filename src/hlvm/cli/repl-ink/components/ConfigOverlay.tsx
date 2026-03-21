@@ -52,6 +52,7 @@ import {
   ansi,
   bg,
   clearOverlay,
+  drawOverlayFrame,
   fg,
   OVERLAY_BG_COLOR,
   type RGB,
@@ -656,6 +657,10 @@ export function ConfigOverlay({
       drawEmptyRow(footerY + i);
     }
 
+    output += drawOverlayFrame(overlayFrame, {
+      borderColor: colors.primary,
+      backgroundColor: OVERLAY_BG_COLOR,
+    });
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
     writeToTerminal(output);

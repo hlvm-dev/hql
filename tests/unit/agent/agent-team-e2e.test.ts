@@ -13,11 +13,7 @@ import {
 import {
   type LLMFunction,
   runReActLoop,
-  type ToolCall,
 } from "../../../src/hlvm/agent/orchestrator.ts";
-import { ContextManager } from "../../../src/hlvm/agent/context.ts";
-import { generateSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
-import { ENGINE_PROFILES } from "../../../src/hlvm/agent/constants.ts";
 import { createDelegateHandler } from "../../../src/hlvm/agent/delegation.ts";
 import { createDelegateInbox } from "../../../src/hlvm/agent/delegate-inbox.ts";
 import { createDelegateCoordinationBoard } from "../../../src/hlvm/agent/delegate-coordination.ts";
@@ -32,55 +28,13 @@ import { createTeamRuntime } from "../../../src/hlvm/agent/team-runtime.ts";
 import { clearAllL1Confirmations } from "../../../src/hlvm/agent/security/safety.ts";
 import type { AgentUIEvent } from "../../../src/hlvm/agent/orchestrator.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { createContext, createScriptedLLM } from "./test-helpers.ts";
 
 // ============================================================
 // Test helpers
 // ============================================================
 
 const platform = getPlatform();
-
-interface ScriptedStep {
-  content?: string;
-  toolCalls?: ToolCall[];
-  expectLastIncludes?: string;
-}
-
-function createScriptedLLM(steps: ScriptedStep[]): LLMFunction {
-  let index = 0;
-  return (messages, signal) => {
-    if (signal?.aborted) {
-      const err = new Error("LLM aborted");
-      err.name = "AbortError";
-      throw err;
-    }
-    if (index >= steps.length) {
-      throw new Error(
-        `Scripted LLM exhausted steps (called ${index + 1} times, only ${steps.length} steps)`,
-      );
-    }
-    const step = steps[index++];
-    if (step.expectLastIncludes) {
-      const last = messages[messages.length - 1];
-      assertStringIncludes(last.content, step.expectLastIncludes);
-    }
-    return Promise.resolve({
-      content: step.content ?? "",
-      toolCalls: step.toolCalls ?? [],
-    });
-  };
-}
-
-function createContext(): ContextManager {
-  const context = new ContextManager({
-    maxTokens: Math.max(ENGINE_PROFILES.normal.context.maxTokens, 12000),
-    overflowStrategy: "fail",
-  });
-  context.addMessage({
-    role: "system",
-    content: generateSystemPrompt(),
-  });
-  return context;
-}
 
 async function waitForBackgroundThreads(): Promise<void> {
   const threads = getAllThreads();

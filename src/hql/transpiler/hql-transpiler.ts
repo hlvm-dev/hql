@@ -31,7 +31,7 @@ const macroExpressionsCache = new LRUCache<string, SExp[]>(1000);
 // This avoids re-parsing and re-expanding system macros on every compilation.
 let cachedBaseEnv: Environment | null = null;
 let baseEnvInitPromise: Promise<Environment> | null = null;
-let persistentInteractiveEnv: Environment | null = null;
+const persistentInteractiveEnvs = new LRUCache<string, Environment>(128);
 
 interface ProcessOptions {
   verbose?: boolean;
@@ -488,17 +488,25 @@ async function loadSystemMacros(
  * Each call returns a fresh clone to prevent state pollution between compilations.
  */
 async function getGlobalEnv(options: ProcessOptions): Promise<Environment> {
-  if (options.preserveMacroState && persistentInteractiveEnv) {
-    logger.debug("Reusing persistent interactive environment");
-    return persistentInteractiveEnv;
+  const interactiveKey = options.preserveMacroState
+    ? (options.currentFile || options.baseDir || "<interactive>")
+    : null;
+
+  if (interactiveKey) {
+    const existing = persistentInteractiveEnvs.get(interactiveKey);
+    if (existing) {
+      logger.debug(`Reusing persistent interactive environment for ${interactiveKey}`);
+      return existing;
+    }
   }
 
   // If base environment is cached, clone it for this compilation
   if (cachedBaseEnv) {
     logger.debug("Cloning cached base environment");
-    if (options.preserveMacroState) {
-      persistentInteractiveEnv = cachedBaseEnv.clone();
-      return persistentInteractiveEnv;
+    if (interactiveKey) {
+      const interactiveEnv = cachedBaseEnv.clone();
+      persistentInteractiveEnvs.set(interactiveKey, interactiveEnv);
+      return interactiveEnv;
     }
     return cachedBaseEnv.clone();
   }
@@ -507,9 +515,10 @@ async function getGlobalEnv(options: ProcessOptions): Promise<Environment> {
   if (baseEnvInitPromise) {
     logger.debug("Waiting for base environment initialization");
     const baseEnv = await baseEnvInitPromise;
-    if (options.preserveMacroState) {
-      persistentInteractiveEnv = baseEnv.clone();
-      return persistentInteractiveEnv;
+    if (interactiveKey) {
+      const interactiveEnv = baseEnv.clone();
+      persistentInteractiveEnvs.set(interactiveKey, interactiveEnv);
+      return interactiveEnv;
     }
     return baseEnv.clone();
   }
@@ -530,9 +539,10 @@ async function getGlobalEnv(options: ProcessOptions): Promise<Environment> {
 
   const baseEnv = await baseEnvInitPromise;
   // Return a clone for this compilation
-  if (options.preserveMacroState) {
-    persistentInteractiveEnv = baseEnv.clone();
-    return persistentInteractiveEnv;
+  if (interactiveKey) {
+    const interactiveEnv = baseEnv.clone();
+    persistentInteractiveEnvs.set(interactiveKey, interactiveEnv);
+    return interactiveEnv;
   }
   return baseEnv.clone();
 }

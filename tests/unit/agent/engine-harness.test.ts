@@ -10,115 +10,18 @@ import {
   assertRejects,
   assertStringIncludes,
 } from "jsr:@std/assert";
+import { runReActLoop } from "../../../src/hlvm/agent/orchestrator.ts";
 import {
-  type LLMFunction,
-  runReActLoop,
-  type ToolCall,
-} from "../../../src/hlvm/agent/orchestrator.ts";
-import { ContextManager } from "../../../src/hlvm/agent/context.ts";
-import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
-import { generateSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
-import { ENGINE_PROFILES } from "../../../src/hlvm/agent/constants.ts";
+  addFailingTool,
+  addFakeTool,
+  addValidatingTool,
+  createContext,
+  createScriptedLLM,
+  overrideTool,
+  removeTool,
+} from "./test-helpers.ts";
 
 const TEST_MAX_TOOL_CALLS = 3;
-
-// ============================================================
-// Test helpers
-// ============================================================
-
-interface ScriptedStep {
-  content?: string;
-  toolCalls?: ToolCall[];
-  expectLastIncludes?: string;
-}
-
-function createScriptedLLM(steps: ScriptedStep[]): LLMFunction {
-  let index = 0;
-  return (messages, signal) => {
-    if (signal?.aborted) {
-      const err = new Error("LLM aborted");
-      err.name = "AbortError";
-      throw err;
-    }
-
-    if (index >= steps.length) {
-      throw new Error("Scripted LLM exhausted steps");
-    }
-
-    const step = steps[index++];
-
-    if (step.expectLastIncludes) {
-      const last = messages[messages.length - 1];
-      assertStringIncludes(last.content, step.expectLastIncludes);
-    }
-
-    return Promise.resolve({
-      content: step.content ?? "",
-      toolCalls: step.toolCalls ?? [],
-    });
-  };
-}
-
-function addFakeTool(name: string, result: unknown): void {
-  TOOL_REGISTRY[name] = {
-    fn: () => Promise.resolve(result),
-    description: "Fake tool for deterministic tests",
-    args: {},
-    skipValidation: true,
-  };
-}
-
-function addValidatingTool(
-  name: string,
-  result: unknown,
-  args: Record<string, string>,
-): void {
-  TOOL_REGISTRY[name] = {
-    fn: () => Promise.resolve(result),
-    description: "Fake tool for deterministic tests",
-    args,
-  };
-}
-
-function addFailingTool(name: string, message: string): void {
-  TOOL_REGISTRY[name] = {
-    fn: () => Promise.reject(new Error(message)),
-    description: "Fake failing tool for deterministic tests",
-    args: {},
-    skipValidation: true,
-  };
-}
-
-function removeTool(name: string): void {
-  delete TOOL_REGISTRY[name];
-}
-
-function overrideTool(
-  name: string,
-  tool: typeof TOOL_REGISTRY[string],
-): () => void {
-  const original = TOOL_REGISTRY[name];
-  TOOL_REGISTRY[name] = tool;
-  return () => {
-    if (original) {
-      TOOL_REGISTRY[name] = original;
-    } else {
-      delete TOOL_REGISTRY[name];
-    }
-  };
-}
-
-function createContext(): ContextManager {
-  const context = new ContextManager({
-    maxTokens: Math.max(ENGINE_PROFILES.normal.context.maxTokens, 12000),
-    overflowStrategy: "fail",
-  });
-  context.addMessage({
-    role: "system",
-    content: generateSystemPrompt(),
-  });
-  return context;
-}
 
 // ============================================================
 // Tests

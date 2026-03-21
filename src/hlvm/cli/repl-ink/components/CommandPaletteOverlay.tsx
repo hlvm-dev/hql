@@ -31,6 +31,7 @@ import {
   ansi,
   bg,
   clearOverlay,
+  drawOverlayFrame,
   fg,
   OVERLAY_BG_COLOR,
   resolveOverlayFrame,
@@ -464,6 +465,10 @@ export function CommandPaletteOverlay({
     output += posText + ansi.reset + bgStyle;
     output += " ".repeat(PADDING.right);
 
+    output += drawOverlayFrame(overlayFrame, {
+      borderColor: colors.primary,
+      backgroundColor: OVERLAY_BG_COLOR,
+    });
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
     writeToTerminal(output);

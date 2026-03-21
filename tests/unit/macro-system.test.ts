@@ -1,35 +1,18 @@
 import {
   assertEquals,
   assertExists,
+  assertStringIncludes,
+  assertThrows,
 } from "jsr:@std/assert";
+import { findSymbolByName } from "./helpers.ts";
 import { macroexpand } from "../../mod.ts";
 import { expandHql } from "../../src/hql/transpiler/hql-transpiler.ts";
+import { ValidationError } from "../../src/common/error.ts";
 import {
   getMeta,
-  isList,
-  isSymbol,
   type SExp,
-  type SSymbol,
 } from "../../src/hql/s-exp/types.ts";
-
-function findSymbolByName(expr: SExp, name: string): SSymbol | undefined {
-  if (isSymbol(expr) && expr.name === name) {
-    return expr;
-  }
-
-  if (!isList(expr)) {
-    return undefined;
-  }
-
-  for (const element of expr.elements) {
-    const found = findSymbolByName(element, name);
-    if (found) {
-      return found;
-    }
-  }
-
-  return undefined;
-}
+import { transformToIR } from "../../src/hql/transpiler/pipeline/hql-ast-to-hql-ir.ts";
 
 Deno.test("macro args stay as raw forms by default", async () => {
   const [expanded] = await macroexpand(`(do
@@ -111,4 +94,56 @@ Deno.test("&form, &env, and macro destructuring are available in macro params", 
       \`(+ ~x ~y))
     (sum-fields {x: 1 y: 2}))`);
   assertEquals(mapExpanded, `(do (+ 1 2))`);
+});
+
+Deno.test("outer macros receive nested macro calls as raw forms", async () => {
+  const [expanded] = await macroexpand(`(do
+    (macro inner []
+      \`(+ 1 2))
+    (macro outer [form]
+      (if (list? form)
+          (name (%first form))
+          "not-list"))
+    (outer (inner)))`);
+
+  assertEquals(expanded, `(do "inner")`);
+});
+
+Deno.test("%macroexpand-1 explicitly expands nested macro forms inside macro bodies", async () => {
+  const [expanded] = await macroexpand(`(do
+    (macro inner []
+      \`(+ 1 2))
+    (macro outer [form]
+      (name (%first (%macroexpand-1 form))))
+    (outer (inner)))`);
+
+  assertEquals(expanded, `(do "+")`);
+});
+
+Deno.test("resolved module bindings fail closed when the target cannot be found", () => {
+  const missingModulePath = "<missing-binding-test>";
+
+  const error = assertThrows(
+    () =>
+      transformToIR(
+        [{
+          type: "symbol",
+          name: "missing-symbol",
+          _meta: {
+            resolvedBinding: {
+              kind: "module",
+              exportName: "missing-symbol",
+              modulePath: missingModulePath,
+            },
+          },
+        }],
+        "/tmp",
+      ),
+    ValidationError,
+  );
+
+  assertStringIncludes(
+    error.message,
+    "Resolved module binding 'missing-symbol' from '<missing-binding-test>' could not be found",
+  );
 });

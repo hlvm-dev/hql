@@ -7,6 +7,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
+import { STATUS_GLYPHS } from "../../ui-constants.ts";
 
 interface InfoMessageProps {
   text: string;
@@ -17,7 +18,7 @@ export const InfoMessage = React.memo(function InfoMessage({ text }: InfoMessage
 
   return (
     <Box marginBottom={1} paddingLeft={1}>
-      <Text color={sc.text.muted}>ℹ </Text>
+      <Text color={sc.text.muted}>{STATUS_GLYPHS.info} </Text>
       <Text color={sc.text.muted} wrap="wrap">{text}</Text>
     </Box>
   );

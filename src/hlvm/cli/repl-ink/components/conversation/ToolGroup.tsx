@@ -34,6 +34,12 @@ function aggregateStatus(
   return "pending";
 }
 
+export function getToolGroupProgressWidth(innerWidth: number): number | null {
+  if (innerWidth >= 34) return 18;
+  if (innerWidth >= 28) return 12;
+  return null;
+}
+
 export const ToolGroup = React.memo(function ToolGroup({
   tools,
   width,
@@ -47,6 +53,14 @@ export const ToolGroup = React.memo(function ToolGroup({
   ).length;
   const total = tools.length;
   const isAllDone = completed === total;
+  const successCount = tools.filter((tool) => tool.status === "success").length;
+  const errorCount = tools.filter((tool) => tool.status === "error").length;
+  const runningCount = tools.filter((tool) => tool.status === "running").length;
+  const pendingCount = Math.max(
+    0,
+    total - successCount - errorCount - runningCount,
+  );
+  const activeRunningToolId = tools.find((tool) => tool.status === "running")?.id;
 
   // Map aggregate status to border color
   let borderColor: string;
@@ -69,7 +83,8 @@ export const ToolGroup = React.memo(function ToolGroup({
 
   // Inner width accounts for border + padding (2 border chars + 2 padding chars = 4)
   const innerWidth = Math.max(10, width - 4);
-  const showProgressBar = !isAllDone && innerWidth >= 28;
+  const progressWidth = getToolGroupProgressWidth(innerWidth);
+  const showProgressBar = !isAllDone && progressWidth !== null;
   const statusLabel = status === "running"
     ? "running"
     : status === "error"
@@ -100,7 +115,18 @@ export const ToolGroup = React.memo(function ToolGroup({
         <Box>
           {showProgressBar && (
             <>
-              <ProgressBar current={completed} total={total} width={Math.min(14, innerWidth - 26)} />
+              <ProgressBar
+                mode="segmented"
+                total={total}
+                width={progressWidth}
+                showCounts={false}
+                segments={{
+                  success: successCount,
+                  error: errorCount,
+                  running: runningCount,
+                  pending: pendingCount,
+                }}
+              />
               <Text color={sc.text.muted}> </Text>
             </>
           )}
@@ -115,6 +141,7 @@ export const ToolGroup = React.memo(function ToolGroup({
             tool={tool}
             width={innerWidth}
             expanded={Boolean(isToolExpanded?.(tool.id))}
+            animateStatusIcon={tool.id === activeRunningToolId}
           />
         </Box>
       ))}

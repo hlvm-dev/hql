@@ -15,6 +15,13 @@ import {
   RetryError,
   UnsupportedFunctionalityError,
 } from "ai";
+import { RuntimeError } from "../../common/error.ts";
+import {
+  getErrorFixes,
+  parseErrorCodeFromMessage,
+  stripErrorCodeFromMessage,
+  type UnifiedErrorCode,
+} from "../../common/error-codes.ts";
 import { TimeoutError } from "../../common/timeout-utils.ts";
 import { LINE_SPLIT_REGEX, getErrorMessage, truncate } from "../../common/utils.ts";
 
@@ -50,35 +57,55 @@ function isTimeoutError(err: unknown, message: string): boolean {
   return err instanceof TimeoutError || message.includes("timeout");
 }
 
-// Compiled regex patterns for error classification (module-level, created once)
-const RE_RATE_LIMIT = /rate limit|too many requests|429/;
-const RE_TRANSIENT_NETWORK =
-  /econnreset|econnrefused|enetunreach|enotfound|etimedout|epipe|econnaborted|error reading a body|connection.*closed|socket hang up|network error|http 50[023]/;
-const RE_AUTH =
-  /api key not configured|api key not valid|incorrect api key|invalid api key|invalid x-api-key|authentication_error|exceeded your current quota|insufficient_quota|http 40[13]/;
-const RE_CONTEXT_OVERFLOW =
-  /context length|maximum context|token limit|too many tokens|exceeds the model|prompt is too long/;
-const RE_PERMANENT =
-  /invalid request|invalid model|invalid parameter|bad request|http 400|http 422|http 501|not allowed|permission denied|denied by user/;
+// Compiled regex patterns for error classification (module-level, created once).
+// Each entry maps a regex to {class, retryable} — used both in classifyError()
+// for SDK-level checks (e.g. context_overflow inside APICallError) and for the
+// string-matching fallback path.
+const ERROR_PATTERNS: ReadonlyArray<
+  { re: RegExp; class: ErrorClass; retryable: boolean }
+> = [
+  {
+    re: /api key not configured|api key not valid|incorrect api key|invalid api key|invalid x-api-key|authentication_error|exceeded your current quota|insufficient_quota|http 40[13]/,
+    class: "permanent",
+    retryable: false,
+  },
+  {
+    re: /rate limit|too many requests|429/,
+    class: "rate_limit",
+    retryable: true,
+  },
+  {
+    re: /context length|maximum context|token limit|too many tokens|exceeds the model|prompt is too long/,
+    class: "context_overflow",
+    retryable: true,
+  },
+  {
+    re: /invalid request|invalid model|invalid parameter|bad request|http 400|http 422|http 501|not allowed|permission denied|denied by user/,
+    class: "permanent",
+    retryable: false,
+  },
+  {
+    re: /econnreset|econnrefused|enetunreach|enotfound|etimedout|epipe|econnaborted|error reading a body|connection.*closed|socket hang up|network error|http 50[023]/,
+    class: "transient",
+    retryable: true,
+  },
+];
 
-function isRateLimitError(message: string): boolean {
-  return RE_RATE_LIMIT.test(message);
-}
-
-function isTransientNetworkError(message: string): boolean {
-  return RE_TRANSIENT_NETWORK.test(message);
-}
-
-function isAuthError(message: string): boolean {
-  return RE_AUTH.test(message);
+function matchErrorPattern(
+  message: string,
+): { class: ErrorClass; retryable: boolean } | null {
+  for (const pattern of ERROR_PATTERNS) {
+    if (pattern.re.test(message)) return pattern;
+  }
+  return null;
 }
 
 function isContextOverflowError(message: string): boolean {
-  return RE_CONTEXT_OVERFLOW.test(message);
+  return ERROR_PATTERNS[2].re.test(message);
 }
 
-function isPermanentError(message: string): boolean {
-  return RE_PERMANENT.test(message);
+function isTransientNetworkError(message: string): boolean {
+  return ERROR_PATTERNS[4].re.test(message);
 }
 
 const EDIT_FILE_TARGET_NOT_FOUND_PATTERNS = [
@@ -279,26 +306,8 @@ export function classifyError(err: unknown): ClassifiedError {
 
   // ── String-matching fallback (non-SDK errors, tool errors, legacy) ──
 
-  if (isAuthError(message)) {
-    return { class: "permanent", retryable: false, message };
-  }
-
-  if (isRateLimitError(message)) {
-    return { class: "rate_limit", retryable: true, message };
-  }
-
-  // Context overflow is retryable (handled by orchestrator's callLLMWithRetry)
-  if (isContextOverflowError(message)) {
-    return { class: "context_overflow", retryable: true, message };
-  }
-
-  if (isPermanentError(message)) {
-    return { class: "permanent", retryable: false, message };
-  }
-
-  if (isTransientNetworkError(message)) {
-    return { class: "transient", retryable: true, message };
-  }
+  const matched = matchErrorPattern(message);
+  if (matched) return { ...matched, message };
 
   // Programming errors are permanent — don't waste retries
   if (
@@ -388,4 +397,39 @@ export function getRecoveryHint(errorMessage: string): string | null {
   }
 
   return null;
+}
+
+function extractStructuredErrorCode(
+  err: unknown,
+  rawMessage: string,
+): UnifiedErrorCode | null {
+  if (err instanceof RuntimeError) {
+    return err.code ?? null;
+  }
+  return parseErrorCodeFromMessage(rawMessage);
+}
+
+export interface DisplayableError {
+  message: string;
+  hint: string | null;
+  class: ErrorClass;
+  retryable: boolean;
+}
+
+export function describeErrorForDisplay(err: unknown): DisplayableError {
+  const rawMessage = getErrorMessage(err);
+  const classified = classifyError(err);
+  const code = extractStructuredErrorCode(err, rawMessage);
+  const message = stripErrorCodeFromMessage(rawMessage).trim() ||
+    rawMessage.trim() ||
+    "Unknown error";
+  const hint = getRecoveryHint(message) ??
+    (code != null ? getErrorFixes(code)[0] ?? null : null);
+
+  return {
+    message,
+    hint,
+    class: classified.class,
+    retryable: classified.retryable,
+  };
 }

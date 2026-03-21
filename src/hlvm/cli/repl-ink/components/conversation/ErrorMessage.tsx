@@ -8,6 +8,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
+import { STATUS_GLYPHS } from "../../ui-constants.ts";
 
 interface ErrorMessageProps {
   text: string;
@@ -27,7 +28,7 @@ export const ErrorMessage = React.memo(function ErrorMessage({ text }: ErrorMess
       borderColor={sc.status.error}
       paddingLeft={1}
     >
-      <Text color={sc.status.error} bold>✗ </Text>
+      <Text color={sc.status.error} bold>{STATUS_GLYPHS.error} </Text>
       <Text color={sc.status.error} wrap="wrap">{text}</Text>
     </Box>
   );

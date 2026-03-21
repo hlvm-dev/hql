@@ -51,7 +51,7 @@ export function macroexpand1(
   source: string,
   options: MacroExpandOptions = {},
 ): Promise<string[]> {
-  return macroexpandInternal(source, 1, options, { maxExpandDepth: 0 });
+  return macroexpandInternal(source, 1, options);
 }
 
 export function macroexpandAll(

@@ -1,19 +1,25 @@
 // src/hql/transpiler/syntax/import-export.ts
 
 import * as IR from "../type/hql_ir.ts";
-import type { ListNode, LiteralNode, SymbolNode, TransformNodeFn } from "../type/hql_ast.ts";
+import type {
+  ListNode,
+  LiteralNode,
+  SymbolNode,
+  TransformNodeFn,
+} from "../type/hql_ast.ts";
 import { createId } from "../utils/ir-helpers.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
-import {
-  TransformError,
-  ValidationError,
-} from "../../../common/error.ts";
+import { TransformError, ValidationError } from "../../../common/error.ts";
 import { sanitizeIdentifier } from "../../../common/utils.ts";
 import { globalLogger as logger } from "../../../logger.ts";
 import { processVectorElements } from "./data-structure.ts";
 import { globalSymbolTable, type SymbolTable } from "../symbol_table.ts";
-import { globalMacroRegistry } from "../../imports.ts";
 import { ALL_DECLARATION_BINDING_KEYWORDS_SET } from "../keyword/primitives.ts";
+import {
+  buildBoundIdentifierName,
+  identifierFromRegisteredName,
+  moduleBindingIdentity,
+} from "../utils/binding-resolution.ts";
 
 // Module-level symbol table for current import/export processing
 // Set by setCurrentSymbolTable(), used by transformVectorExport/transformVectorImport
@@ -130,7 +136,7 @@ export function transformSingleExport(
     type: IR.IRNodeType.ExportNamedDeclaration,
     specifiers: [{
       type: IR.IRNodeType.ExportSpecifier,
-      local: createId(name),
+      local: createRuntimeLocalIdentifier(nameNode.name),
       exported: createId(name),
     } as IR.IRExportSpecifier],
   } as IR.IRExportNamedDeclaration;
@@ -173,13 +179,28 @@ function hasAliasFollowing(
 function createImportSpecifier(
   imported: string,
   local: string,
+  modulePath: string,
 ): IR.IRImportSpecifier {
+  const bindingIdentity = moduleBindingIdentity(modulePath, imported);
   return {
     type: IR.IRNodeType.ImportSpecifier,
     // Sanitize imported name, but preserve "default" for default imports
-    imported: createId(imported === "default" ? imported : sanitizeIdentifier(imported)),
-    local: createId(sanitizeIdentifier(local)),
+    imported: createId(
+      imported === "default" ? imported : sanitizeIdentifier(imported),
+    ),
+    local: createId(buildBoundIdentifierName(local, bindingIdentity), {
+      originalName: local,
+      bindingIdentity,
+    }),
   };
+}
+
+function createRuntimeLocalIdentifier(name: string): IR.IRIdentifier {
+  return identifierFromRegisteredName(name);
+}
+
+function lookupSymbolInfo(name: string) {
+  return currentSymbolTable.get(name) ?? globalSymbolTable.get(name);
 }
 
 /**
@@ -256,13 +277,13 @@ export function transformVectorExport(
     const localName = (elem as SymbolNode).name;
 
     // Check if this is a macro - macros should not be exported as runtime values
-    const symbolInfo = currentSymbolTable.get(localName);
-    const isSymbolTableMacro = symbolInfo?.kind === "macro";
-    const isRegistryMacro = globalMacroRegistry.has(localName);
-    const isMacro = isSymbolTableMacro || isRegistryMacro;
+    const symbolInfo = lookupSymbolInfo(localName);
+    const isMacro = symbolInfo?.kind === "macro";
 
     if (isMacro) {
-      logger.debug(`Filtering macro '${localName}' from export declaration (macros are compile-time only)`);
+      logger.debug(
+        `Filtering macro '${localName}' from export declaration (macros are compile-time only)`,
+      );
       // Skip the macro and its alias if present
       if (hasAliasFollowing(symbols, i)) {
         i += 3; // Skip name, 'as', and alias
@@ -284,7 +305,9 @@ export function transformVectorExport(
   }
 
   if (exportSpecifiers.length === 0) {
-    logger.debug("No valid exports found (all were macros), skipping export declaration");
+    logger.debug(
+      "No valid exports found (all were macros), skipping export declaration",
+    );
     return null;
   }
 
@@ -305,7 +328,7 @@ function createExportSpecifier(
 ): IR.IRExportSpecifier {
   return {
     type: IR.IRNodeType.ExportSpecifier,
-    local: createId(sanitizeIdentifier(local)),
+    local: createRuntimeLocalIdentifier(local),
     exported: createId(sanitizeIdentifier(exported)),
   };
 }
@@ -343,16 +366,12 @@ export function transformVectorImport(
       const symbolName = (elem as SymbolNode).name;
 
       // Check if this symbol is a macro - macros should not be in JS imports
-      // Check both symbol table and global macro registry for consistency
-      const symbolInfo = currentSymbolTable.get(symbolName);
-      const isSymbolTableMacro = symbolInfo?.kind === "macro";
-      const isRegistryMacro = globalMacroRegistry.has(symbolName) ||
-                               globalMacroRegistry.has(sanitizeIdentifier(symbolName));
-      const isMacro = isSymbolTableMacro || isRegistryMacro;
+      const symbolInfo = lookupSymbolInfo(symbolName);
+      const isMacro = symbolInfo?.kind === "macro";
 
       if (isMacro) {
         logger.debug(
-          `Skipping macro '${symbolName}' from import statement (symbolTable: ${isSymbolTableMacro}, registry: ${isRegistryMacro})`,
+          `Skipping macro '${symbolName}' from import statement (symbolTable)`,
         );
         // Skip this symbol - check if it has an alias and skip that too
         const hasAlias = hasAliasFollowing(elements, i);
@@ -361,19 +380,17 @@ export function transformVectorImport(
       }
 
       const hasAlias = hasAliasFollowing(elements, i);
-      const aliasName = hasAlias
-        ? (elements[i + 2] as SymbolNode).name
-        : null;
+      const aliasName = hasAlias ? (elements[i + 2] as SymbolNode).name : null;
 
       if (hasAlias) {
         importSpecifiers.push(
-          createImportSpecifier(symbolName, aliasName!),
+          createImportSpecifier(symbolName, aliasName!, modulePath),
         );
 
         i += 3;
       } else {
         importSpecifiers.push(
-          createImportSpecifier(symbolName, symbolName),
+          createImportSpecifier(symbolName, symbolName, modulePath),
         );
 
         i += 1;

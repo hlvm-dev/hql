@@ -43,6 +43,8 @@ export interface SymbolInfo {
   kind: SymbolKind;
   type?: string; // e.g., 'Set', 'Array', 'Function', 'Color', etc.
   scope: SymbolScope;
+  bindingIdentity?: string;
+  jsName?: string;
   parent?: string; // e.g., enclosing class, enum, module
   params?: { name: string; type?: string }[];
   returnType?: string;
@@ -62,6 +64,7 @@ export interface SymbolInfo {
 
 export class SymbolTable {
   private table: Map<string, SymbolInfo> = new Map();
+  private bindingTable: Map<string, SymbolInfo> = new Map();
   private parent: SymbolTable | null;
   private scopeName: string; // Track current scope name for better debugging
   private maxSize: number; // Limit to prevent unbounded growth in long-running processes
@@ -87,11 +90,18 @@ export class SymbolTable {
     if (this.table.size >= this.maxSize && !this.table.has(symbol.name)) {
       const firstKey = this.table.keys().next().value;
       if (firstKey !== undefined) {
+        const evicted = this.table.get(firstKey);
+        if (evicted?.bindingIdentity) {
+          this.bindingTable.delete(evicted.bindingIdentity);
+        }
         this.table.delete(firstKey);
       }
     }
 
     this.table.set(symbol.name, symbol);
+    if (symbol.bindingIdentity) {
+      this.bindingTable.set(symbol.bindingIdentity, symbol);
+    }
     return symbol; // Return for chaining
   }
 
@@ -103,6 +113,13 @@ export class SymbolTable {
     const local = this.table.get(name);
     if (local !== undefined) return local;
     if (this.parent) return this.parent.get(name);
+    return undefined;
+  }
+
+  getByBindingIdentity(bindingIdentity: string): SymbolInfo | undefined {
+    const local = this.bindingTable.get(bindingIdentity);
+    if (local !== undefined) return local;
+    if (this.parent) return this.parent.getByBindingIdentity(bindingIdentity);
     return undefined;
   }
 
@@ -140,6 +157,7 @@ export class SymbolTable {
    */
   clear() {
     this.table.clear();
+    this.bindingTable.clear();
   }
 
   /**

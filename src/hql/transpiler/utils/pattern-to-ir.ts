@@ -20,6 +20,10 @@ import { sanitizeIdentifier } from "../../../common/utils.ts";
 import type { TransformNodeFn } from "../type/hql_ast.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import { TransformError } from "../../../common/error.ts";
+import {
+  identifierFromBindingRecord,
+  registerLexicalBinding,
+} from "./binding-resolution.ts";
 
 /**
  * Convert a Pattern AST node to an IR node (identifier or destructuring pattern).
@@ -154,10 +158,11 @@ function wrapWithDefault(
  * @returns IRIdentifier node
  */
 function identifierPatternToIR(pattern: IdentifierPattern): IR.IRIdentifier {
-  const identifier: IR.IRIdentifier = {
-    type: IR.IRNodeType.Identifier,
-    name: sanitizeIdentifier(pattern.name),
-  };
+  const bindingRecord = registerLexicalBinding(
+    pattern.name,
+    pattern._meta?.resolvedBinding,
+  );
+  const identifier = identifierFromBindingRecord(bindingRecord, pattern.name);
   copyPosition(pattern, identifier);
   return identifier;
 }

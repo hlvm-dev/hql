@@ -36,6 +36,7 @@ import {
   ansi,
   bg,
   clearOverlay,
+  drawOverlayFrame,
   fg,
   OVERLAY_BG_COLOR,
   type RGB,
@@ -46,6 +47,7 @@ import {
 } from "../overlay/index.ts";
 import { truncate } from "../../../../common/utils.ts";
 import { padTo } from "../utils/formatting.ts";
+import { STATUS_GLYPHS } from "../ui-constants.ts";
 
 // ============================================================
 // Types
@@ -265,23 +267,23 @@ export function BackgroundTasksOverlay({
           let iconColor: RGB;
           switch (task.status) {
             case "running":
-              icon = "⏳";
+              icon = STATUS_GLYPHS.running;
               iconColor = colors.warning;
               break;
             case "completed":
-              icon = "✓";
+              icon = STATUS_GLYPHS.success;
               iconColor = colors.success;
               break;
             case "failed":
-              icon = "✗";
+              icon = STATUS_GLYPHS.error;
               iconColor = colors.error;
               break;
             case "cancelled":
-              icon = "○";
+              icon = STATUS_GLYPHS.pending;
               iconColor = colors.muted;
               break;
             default:
-              icon = "○";
+              icon = STATUS_GLYPHS.pending;
               iconColor = colors.muted;
           }
 
@@ -412,6 +414,10 @@ export function BackgroundTasksOverlay({
       drawEmptyRow(overlayFrame.y + overlayFrame.height - PADDING.bottom + i);
     }
 
+    output += drawOverlayFrame(overlayFrame, {
+      borderColor: colors.accent,
+      backgroundColor: OVERLAY_BG_COLOR,
+    });
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
     writeToTerminal(output);

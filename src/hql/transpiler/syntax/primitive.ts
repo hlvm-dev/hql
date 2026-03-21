@@ -3,10 +3,7 @@
 
 import * as IR from "../type/hql_ir.ts";
 import type { HQLNode, ListNode, SymbolNode } from "../type/hql_ast.ts";
-import {
-  ValidationError,
-} from "../../../common/error.ts";
-import { sanitizeIdentifier } from "../../../common/utils.ts";
+import { ValidationError } from "../../../common/error.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
   arityError,
@@ -18,27 +15,49 @@ import {
   BITWISE_OPS_SET,
   COMPARISON_OPS_SET,
   COMPOUND_ASSIGN_OPS_SET,
+  JS_LITERAL_KEYWORDS_SET,
   KERNEL_PRIMITIVES,
   LOGICAL_OPS_SET,
   PRIMITIVE_CLASS,
   PRIMITIVE_DATA_STRUCTURE,
   PRIMITIVE_OPS,
-  JS_LITERAL_KEYWORDS_SET,
   TYPE_OPS_SET,
 } from "../keyword/primitives.ts";
-import { createId, createCall, createNum, createMember } from "../utils/ir-helpers.ts";
-import { NUMERIC_PATTERN } from "../constants/index.ts";
+import {
+  createCall,
+  createId,
+  createMember,
+  createNum,
+} from "../utils/ir-helpers.ts";
+import {
+  identifierFromBindingCarrier,
+  resolveSymbolIdentifier,
+} from "../utils/binding-resolution.ts";
+import { buildMemberExpressionChain } from "../utils/member-expression.ts";
 
 // ============================================================================
 // Shared IR node constructors (DRY: used by all operator transforms)
 // ============================================================================
 
-function makeBinaryExpr(op: string, left: IR.IRNode, right: IR.IRNode): IR.IRBinaryExpression {
-  return { type: IR.IRNodeType.BinaryExpression, operator: op, left, right } as IR.IRBinaryExpression;
+function makeBinaryExpr(
+  op: string,
+  left: IR.IRNode,
+  right: IR.IRNode,
+): IR.IRBinaryExpression {
+  return {
+    type: IR.IRNodeType.BinaryExpression,
+    operator: op,
+    left,
+    right,
+  } as IR.IRBinaryExpression;
 }
 
 function makeUnaryExpr(op: string, argument: IR.IRNode): IR.IRUnaryExpression {
-  return { type: IR.IRNodeType.UnaryExpression, operator: op, argument } as IR.IRUnaryExpression;
+  return {
+    type: IR.IRNodeType.UnaryExpression,
+    operator: op,
+    argument,
+  } as IR.IRUnaryExpression;
 }
 
 function chainBinaryExprs(op: string, args: IR.IRNode[]): IR.IRNode {
@@ -54,31 +73,22 @@ function chainBinaryExprs(op: string, args: IR.IRNode[]): IR.IRNode {
 // ============================================================================
 
 /**
- * Build a member expression from a dot-notation symbol like "obj.prop" or "obj.a.b".
- * Handles numeric indices (array.0) and standard identifier properties.
- */
-function buildMemberFromProperty(object: IR.IRNode, propStr: string): IR.IRMemberExpression {
-  if (NUMERIC_PATTERN.test(propStr)) {
-    return createMember(object, createNum(parseInt(propStr, 10)), true);
-  }
-  return createMember(object, createId(sanitizeIdentifier(propStr)));
-}
-
-/**
  * Build a member expression chain from dot-notation parts.
  * @param parts - split parts of the dot notation (e.g., ["obj", "a", "b"])
  * @param mapSelfToThis - if true, maps "self" base to "this" (used by = operator)
  */
-function buildDotNotationMember(parts: string[], mapSelfToThis: boolean): IR.IRMemberExpression {
-  const baseName = mapSelfToThis && parts[0] === "self"
-    ? "this"
-    : sanitizeIdentifier(parts[0]);
+function buildDotNotationMember(
+  parts: string[],
+  mapSelfToThis: boolean,
+): IR.IRNode {
+  const base = mapSelfToThis && parts[0] === "self"
+    ? createId("this")
+    : resolveSymbolIdentifier({
+      type: "symbol",
+      name: parts[0],
+    } as SymbolNode);
 
-  let memberExpr = buildMemberFromProperty(createId(baseName), parts[1]);
-  for (let i = 2; i < parts.length; i++) {
-    memberExpr = buildMemberFromProperty(memberExpr, parts[i]);
-  }
-  return memberExpr;
+  return buildMemberExpressionChain(base, parts.slice(1));
 }
 
 interface AssignmentTargetOptions {
@@ -103,10 +113,13 @@ function resolveAssignmentTarget(
     const symbolName = (targetNode as SymbolNode).name;
 
     if (symbolName.includes(".") && !symbolName.startsWith(".")) {
-      return buildDotNotationMember(symbolName.split("."), options.mapSelfToThis === true);
+      return buildDotNotationMember(
+        symbolName.split("."),
+        options.mapSelfToThis === true,
+      );
     }
 
-    return createId(sanitizeIdentifier(symbolName));
+    return identifierFromBindingCarrier(targetNode as SymbolNode);
   }
 
   if (targetNode.type === "list") {
@@ -164,7 +177,10 @@ export function transformPrimitiveOp(
   }
 
   // Handle all assignment operators (logical: ??=, &&=, ||= and compound: +=, -=, etc.)
-  if (op === "??=" || op === "&&=" || op === "||=" || COMPOUND_ASSIGN_OPS_SET.has(op)) {
+  if (
+    op === "??=" || op === "&&=" || op === "||=" ||
+    COMPOUND_ASSIGN_OPS_SET.has(op)
+  ) {
     return transformCompoundAssignment(list, currentDir, transformNode, op);
   }
 
@@ -437,7 +453,13 @@ function transformAssignment(
   const targetNode = list.elements[1];
   const valueNode = list.elements[2];
 
-  const target = resolveAssignmentTarget(targetNode, "=", currentDir, transformNode, { mapSelfToThis: true });
+  const target = resolveAssignmentTarget(
+    targetNode,
+    "=",
+    currentDir,
+    transformNode,
+    { mapSelfToThis: true },
+  );
 
   const args = transformElements(
     [valueNode],
@@ -487,7 +509,13 @@ function transformCompoundAssignment(
   const targetNode = list.elements[1];
   const valueNode = list.elements[2];
 
-  const target = resolveAssignmentTarget(targetNode, operator, currentDir, transformNode, { requireMemberExpr: true });
+  const target = resolveAssignmentTarget(
+    targetNode,
+    operator,
+    currentDir,
+    transformNode,
+    { requireMemberExpr: true },
+  );
 
   const value = transformNode(valueNode, currentDir);
   if (!value) {

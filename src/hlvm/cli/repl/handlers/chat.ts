@@ -26,8 +26,7 @@ import { pushSSEEvent } from "../../../store/sse-store.ts";
 import {
   ensureInitialModelConfigured,
 } from "../../../../common/ai-default-model.ts";
-import { getErrorMessage } from "../../../../common/utils.ts";
-import { classifyError } from "../../../agent/error-taxonomy.ts";
+import { describeErrorForDisplay } from "../../../agent/error-taxonomy.ts";
 import {
   jsonError,
   ndjsonLine,
@@ -443,7 +442,8 @@ export async function handleChat(req: Request): Promise<Response> {
       };
 
       const emitErrorState = (error: unknown): void => {
-        const errorMsg = getErrorMessage(error);
+        const described = describeErrorForDisplay(error);
+        const errorMsg = described.message;
         const displayContent = partialText.length > 0
           ? `${partialText}\n\n[Error: ${errorMsg}]`
           : `Error: ${errorMsg}`;
@@ -468,12 +468,11 @@ export async function handleChat(req: Request): Promise<Response> {
           emit({ event: "token", text: `Error: ${errorMsg}` });
         }
 
-        const classified = classifyError(error);
         emit({
           event: "error",
           message: errorMsg,
-          errorClass: classified.class,
-          retryable: classified.retryable,
+          errorClass: described.class,
+          retryable: described.retryable,
         });
       };
 

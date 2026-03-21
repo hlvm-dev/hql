@@ -33,6 +33,14 @@ import {
 import { ParseError } from "../../common/error.ts";
 import { getMeta } from "./types.ts";
 
+function cloneMeta<T extends { _meta?: unknown }>(source: SExp, target: T): T {
+  const meta = getMeta(source);
+  if (meta) {
+    target._meta = { ...meta };
+  }
+  return target;
+}
+
 /** Extract source position from an S-expression node, falling back to 0:0. */
 function posOf(node: SExp): { line: number; column: number } {
   const m = getMeta(node);
@@ -130,7 +138,7 @@ function parseIdentifierPattern(exp: SExp): IdentifierPattern {
     throw new ParseError(`Expected symbol for identifier pattern, got: ${exp.type}`, posOf(exp));
   }
 
-  return createIdentifierPattern(exp.name);
+  return cloneMeta(exp, createIdentifierPattern(exp.name));
 }
 
 /**
@@ -213,8 +221,8 @@ function parseArrayPattern(exp: SExp): ArrayPattern {
       }
 
       // Create rest pattern and add to elements
-      const restArg = createIdentifierPattern(nextElem.name);
-      const restPattern = createRestPattern(restArg);
+      const restArg = cloneMeta(nextElem, createIdentifierPattern(nextElem.name));
+      const restPattern = cloneMeta(elem, createRestPattern(restArg));
       elements.push(restPattern);
 
       // Skip the next element (we've consumed it)
@@ -230,7 +238,7 @@ function parseArrayPattern(exp: SExp): ArrayPattern {
           posOf(elem)
         );
       }
-      elements.push(createSkipPattern());
+      elements.push(cloneMeta(elem, createSkipPattern()));
       continue;
     }
 
@@ -268,7 +276,7 @@ function parseArrayPattern(exp: SExp): ArrayPattern {
       if (isDefaultValueForm(nextElem)) {
         // Attach default to pattern (nextElem is guaranteed to be a list)
         const defaultValue = (nextElem as SList).elements[1];
-        pattern = createIdentifierPattern(elem.name, defaultValue);
+        pattern = cloneMeta(elem, createIdentifierPattern(elem.name, defaultValue));
         i++; // Skip the next element (we've consumed it)
       }
 
@@ -293,7 +301,7 @@ function parseArrayPattern(exp: SExp): ArrayPattern {
     );
   }
 
-  return createArrayPattern(elements);
+  return cloneMeta(exp, createArrayPattern(elements));
 }
 
 /**
@@ -370,7 +378,7 @@ function parseObjectPattern(exp: SExp): ObjectPattern {
       }
 
       // Create rest pattern
-      rest = createIdentifierPattern(valueExp.name);
+      rest = cloneMeta(valueExp, createIdentifierPattern(valueExp.name));
       break; // Rest must be last, we're done
     }
 
@@ -391,9 +399,9 @@ function parseObjectPattern(exp: SExp): ObjectPattern {
     const value = parsePattern(valueExp);
 
     // Create property pattern
-    const property = createPropertyPattern(key, value);
+    const property = cloneMeta(valueExp, createPropertyPattern(key, value));
     properties.push(property);
   }
 
-  return createObjectPattern(properties, rest);
+  return cloneMeta(exp, createObjectPattern(properties, rest));
 }

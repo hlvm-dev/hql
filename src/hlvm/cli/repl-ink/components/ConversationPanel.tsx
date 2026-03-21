@@ -58,6 +58,13 @@ import { RenderErrorBoundary } from "./ErrorBoundary.tsx";
 
 const CONVERSATION_KEYBINDING_CATEGORIES = ["Conversation"] as const;
 
+const SHELL_COMMAND_LABELS: ReadonlyArray<[RegExp, string]> = [
+  [/^mkdir\b/i, "Creating directories"],
+  [/^mv\b/i, "Moving files"],
+  [/^cp\b/i, "Copying files"],
+  [/^rm\b/i, "Removing files"],
+];
+
 interface ConversationPanelProps {
   items: ConversationItem[];
   width: number;
@@ -244,20 +251,16 @@ function summarizeToolActivity(tool: ToolCallDisplay): string {
       return "Updating the checklist";
     case "ask_user":
       return "Waiting on a clarification";
-    case "shell_exec":
-      if (/^mkdir\b/i.test(shellCommand)) {
-        return args ? `Creating directories: ${args}` : "Creating directories";
-      }
-      if (/^mv\b/i.test(shellCommand)) {
-        return args ? `Moving files: ${args}` : "Moving files";
-      }
-      if (/^cp\b/i.test(shellCommand)) {
-        return args ? `Copying files: ${args}` : "Copying files";
-      }
-      if (/^rm\b/i.test(shellCommand)) {
-        return args ? `Removing files: ${args}` : "Removing files";
+    case "shell_exec": {
+      const shellMatch = SHELL_COMMAND_LABELS.find(([re]) =>
+        re.test(shellCommand)
+      );
+      if (shellMatch) {
+        const label = shellMatch[1];
+        return args ? `${label}: ${args}` : label;
       }
       return args ? `Running ${args}` : "Running a shell command";
+    }
     default:
       return args ? `${tool.name} ${args}` : tool.name;
   }

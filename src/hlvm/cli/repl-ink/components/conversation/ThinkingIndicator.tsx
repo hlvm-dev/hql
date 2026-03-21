@@ -7,6 +7,8 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
+import { useConversationSpinnerFrame } from "../../hooks/useConversationMotion.ts";
+import { STATUS_GLYPHS } from "../../ui-constants.ts";
 
 interface ThinkingIndicatorProps {
   kind: "reasoning" | "planning";
@@ -25,7 +27,10 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
   isAnimating = true,
 }: ThinkingIndicatorProps): React.ReactElement {
   const sc = useSemanticColors();
-  const marker = isAnimating ? "●" : "○";
+  const spinnerFrame = useConversationSpinnerFrame(isAnimating);
+  const marker = isAnimating
+    ? (spinnerFrame ?? STATUS_GLYPHS.running)
+    : STATUS_GLYPHS.pending;
   const lines = summary ? summary.split("\n") : [];
   const maxBodyLines = expanded ? lines.length : 0;
   const visibleBodyLines = lines.slice(0, maxBodyLines);

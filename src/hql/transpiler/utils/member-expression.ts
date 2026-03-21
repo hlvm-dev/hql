@@ -8,6 +8,7 @@ export const IDENTIFIER_REGEX = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
 
 // Regex for private field identifiers (#name)
 export const PRIVATE_IDENTIFIER_REGEX = /^#[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+const NUMERIC_MEMBER_SEGMENT_REGEX = /^\d+$/;
 
 /**
  * Determines if a property should use computed access (obj[prop]) or dot access (obj.prop)
@@ -29,7 +30,9 @@ export function resolveMemberProperty(
   if (property.type === IR.IRNodeType.StringLiteral) {
     const keyValue = (property as IR.IRStringLiteral).value;
     // Handle regular identifiers and private field identifiers (#name)
-    if (IDENTIFIER_REGEX.test(keyValue) || PRIVATE_IDENTIFIER_REGEX.test(keyValue)) {
+    if (
+      IDENTIFIER_REGEX.test(keyValue) || PRIVATE_IDENTIFIER_REGEX.test(keyValue)
+    ) {
       return {
         property: {
           type: IR.IRNodeType.Identifier,
@@ -41,4 +44,58 @@ export function resolveMemberProperty(
   }
 
   return { property, computed: true };
+}
+
+function createMemberProperty(segment: string): {
+  property: IR.IRNode;
+  computed: boolean;
+} {
+  if (NUMERIC_MEMBER_SEGMENT_REGEX.test(segment)) {
+    return {
+      property: {
+        type: IR.IRNodeType.NumericLiteral,
+        value: Number(segment),
+      } as IR.IRNumericLiteral,
+      computed: true,
+    };
+  }
+
+  if (
+    IDENTIFIER_REGEX.test(segment) || PRIVATE_IDENTIFIER_REGEX.test(segment)
+  ) {
+    return {
+      property: {
+        type: IR.IRNodeType.Identifier,
+        name: segment,
+      } as IR.IRIdentifier,
+      computed: false,
+    };
+  }
+
+  return {
+    property: {
+      type: IR.IRNodeType.StringLiteral,
+      value: segment,
+    } as IR.IRStringLiteral,
+    computed: true,
+  };
+}
+
+export function buildMemberExpressionChain(
+  base: IR.IRNode,
+  segments: string[],
+): IR.IRNode {
+  let current = base;
+
+  for (const segment of segments) {
+    const { property, computed } = createMemberProperty(segment);
+    current = {
+      type: IR.IRNodeType.MemberExpression,
+      object: current,
+      property,
+      computed,
+    } as IR.IRMemberExpression;
+  }
+
+  return current;
 }

@@ -3,7 +3,13 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 import * as IR from "../type/hql_ir.ts";
-import type { HQLNode, ListNode, LiteralNode, SymbolNode, TransformNodeFn } from "../type/hql_ast.ts";
+import type {
+  HQLNode,
+  ListNode,
+  LiteralNode,
+  SymbolNode,
+  TransformNodeFn,
+} from "../type/hql_ast.ts";
 import type {
   ArrayPattern,
   IdentifierPattern,
@@ -12,31 +18,31 @@ import type {
   RestPattern,
   SkipPattern,
 } from "../../s-exp/types.ts";
-import { sanitizeIdentifier, hyphenToUnderscore } from "../../../common/utils.ts";
 import {
-  HASH_MAP_INTERNAL,
-  HASH_MAP_USER,
-  LAZY_SEQ_HELPER,
+  hyphenToUnderscore,
+  sanitizeIdentifier,
+} from "../../../common/utils.ts";
+import {
   DELAY_HELPER,
   GET_NUMERIC_HELPER,
   GET_OP_HELPER,
+  HASH_MAP_INTERNAL,
+  HASH_MAP_USER,
+  LAZY_SEQ_HELPER,
   VECTOR_SYMBOL,
 } from "../../../common/runtime-helper-impl.ts";
 import { globalLogger as logger } from "../../../logger.ts";
+import { TransformError, ValidationError } from "../../../common/error.ts";
 import {
-  TransformError,
-  ValidationError,
-} from "../../../common/error.ts";
-import {
-  transformElements,
-  validateTransformed,
   isSpreadOperator,
+  transformElements,
   transformSpreadOperator,
+  validateTransformed,
 } from "../utils/validation-helpers.ts";
 import {
+  GENERIC_NAME_REGEX,
   processFunctionBody,
   transformStandardFunctionCall,
-  GENERIC_NAME_REGEX,
 } from "../syntax/function.ts";
 import {
   isDeclarationExport,
@@ -66,8 +72,14 @@ import * as asyncGeneratorsModule from "./transform/async-generators.ts";
 import * as tryCatchModule from "./transform/try-catch.ts";
 import * as literalsModule from "./transform/literals.ts";
 import { globalSymbolTable, type SymbolTable } from "../symbol_table.ts";
-import { getSymbolTable, type CompilerContext } from "../compiler-context.ts";
+import { type CompilerContext, getSymbolTable } from "../compiler-context.ts";
 import { extractAndNormalizeType } from "../tokenizer/type-tokenizer.ts";
+import {
+  initializeBindingResolution,
+  lookupResolvedSymbolInfo,
+  resolveSymbolIdentifier,
+} from "../utils/binding-resolution.ts";
+import { buildMemberExpressionChain } from "../utils/member-expression.ts";
 
 // Module-level symbol table for current IR transformation
 // Set by transformToIR, used throughout the transformation
@@ -75,7 +87,8 @@ import { extractAndNormalizeType } from "../tokenizer/type-tokenizer.ts";
 let currentSymbolTable: SymbolTable = globalSymbolTable;
 
 // Per-compilation loop state — reset in transformToIR() to prevent cross-compilation corruption
-let currentLoopState: loopRecurModule.LoopState = loopRecurModule.createLoopState();
+let currentLoopState: loopRecurModule.LoopState = loopRecurModule
+  .createLoopState();
 
 type MetaData = {
   line?: number;
@@ -104,12 +117,16 @@ function isVectorNode(node: HQLNode): node is ListNode {
  * E.g., "MyClass<T, U>" -> { name: "MyClass", typeParameters: ["T", "U"] }
  * E.g., "MyClass" -> { name: "MyClass", typeParameters: undefined }
  */
-function parseGenericName(fullName: string): { name: string; typeParameters: string[] | undefined } {
+function parseGenericName(
+  fullName: string,
+): { name: string; typeParameters: string[] | undefined } {
   const match = fullName.match(GENERIC_NAME_REGEX);
   if (match) {
     return {
       name: match[1],
-      typeParameters: match[2] ? match[2].split(",").map(s => s.trim()) : undefined,
+      typeParameters: match[2]
+        ? match[2].split(",").map((s) => s.trim())
+        : undefined,
     };
   }
   return { name: fullName, typeParameters: undefined };
@@ -251,7 +268,9 @@ export function copyPosition(
       line: typeof meta.line === "number" ? meta.line : undefined,
       column: typeof meta.column === "number" ? meta.column : undefined,
       endLine: typeof meta.endLine === "number" ? meta.endLine : undefined,
-      endColumn: typeof meta.endColumn === "number" ? meta.endColumn : undefined,
+      endColumn: typeof meta.endColumn === "number"
+        ? meta.endColumn
+        : undefined,
       filePath: typeof meta.filePath === "string" ? meta.filePath : undefined,
     };
   }
@@ -267,7 +286,9 @@ export function copyEndPosition(
   const meta = extractMeta(listSource);
   if (!meta) return;
   if (typeof meta.endLine === "number") target.position.endLine = meta.endLine;
-  if (typeof meta.endColumn === "number") target.position.endColumn = meta.endColumn;
+  if (typeof meta.endColumn === "number") {
+    target.position.endColumn = meta.endColumn;
+  }
 }
 
 /**
@@ -290,10 +311,13 @@ export function transformToIR(
   currentDir: string,
   context?: CompilerContext,
 ): IR.IRProgram {
+  functionModule.resetFnFunctionRegistry();
   // Use context-specific symbol table if provided, otherwise global
   currentSymbolTable = getSymbolTable(context);
   // Sync import-export module with current symbol table
   setImportExportSymbolTable(currentSymbolTable);
+  quoteModule.setCurrentSymbolTable(currentSymbolTable);
+  initializeBindingResolution(currentSymbolTable);
 
   // Fresh loop state per compilation pass — prevents cross-compilation corruption
   currentLoopState = loopRecurModule.createLoopState();
@@ -353,7 +377,10 @@ function createThunkWrapper(
 
   return {
     type: IR.IRNodeType.CallExpression,
-    callee: { type: IR.IRNodeType.Identifier, name: helperName } as IR.IRIdentifier,
+    callee: {
+      type: IR.IRNodeType.Identifier,
+      name: helperName,
+    } as IR.IRIdentifier,
     arguments: [{
       type: IR.IRNodeType.FunctionExpression,
       id: null,
@@ -409,27 +436,47 @@ function initializeTransformFactory(): void {
   transformFactory.set(
     "unquote-splicing",
     (list, currentDir) =>
-      quoteModule.transformUnquoteSplicing(list, currentDir, transformHQLNodeToIR),
+      quoteModule.transformUnquoteSplicing(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      ),
   );
   transformFactory.set(
     VECTOR_SYMBOL,
     (list, currentDir) =>
-      dataStructureModule.transformVector(list, currentDir, transformHQLNodeToIR),
+      dataStructureModule.transformVector(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      ),
   );
   transformFactory.set(
     "hash-set",
     (list, currentDir) =>
-      dataStructureModule.transformHashSet(list, currentDir, transformHQLNodeToIR),
+      dataStructureModule.transformHashSet(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      ),
   );
   transformFactory.set(
     HASH_MAP_USER,
     (list, currentDir) =>
-      dataStructureModule.transformHashMap(list, currentDir, transformHQLNodeToIR),
+      dataStructureModule.transformHashMap(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      ),
   );
   transformFactory.set(
     HASH_MAP_INTERNAL,
     (list, currentDir) =>
-      dataStructureModule.transformHashMap(list, currentDir, transformHQLNodeToIR),
+      dataStructureModule.transformHashMap(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      ),
   );
   transformFactory.set(
     "new",
@@ -461,7 +508,12 @@ function initializeTransformFactory(): void {
   transformFactory.set(
     "fx",
     (list, currentDir) => {
-      const result = functionModule.transformFn(list, currentDir, transformHQLNodeToIR, processFunctionBody);
+      const result = functionModule.transformFn(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        processFunctionBody,
+      );
       setPureFlag(result);
       return result;
     },
@@ -470,16 +522,31 @@ function initializeTransformFactory(): void {
   transformFactory.set(
     "fn*",
     (list, currentDir) =>
-      asyncGeneratorsModule.transformGeneratorFn(list, currentDir, transformHQLNodeToIR, processFunctionBody),
+      asyncGeneratorsModule.transformGeneratorFn(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        processFunctionBody,
+      ),
   );
   // Yield expression: (yield value) or (yield* iterator)
   transformFactory.set(
     "yield",
-    (list, currentDir) => asyncGeneratorsModule.transformYield(list, currentDir, transformHQLNodeToIR),
+    (list, currentDir) =>
+      asyncGeneratorsModule.transformYield(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      ),
   );
   transformFactory.set(
     "yield*",
-    (list, currentDir) => asyncGeneratorsModule.transformYieldDelegate(list, currentDir, transformHQLNodeToIR),
+    (list, currentDir) =>
+      asyncGeneratorsModule.transformYieldDelegate(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      ),
   );
   transformFactory.set(
     "=>",
@@ -493,11 +560,21 @@ function initializeTransformFactory(): void {
   );
   transformFactory.set(
     "async",
-    (list, currentDir) => asyncGeneratorsModule.transformAsync(list, currentDir, transformHQLNodeToIR),
+    (list, currentDir) =>
+      asyncGeneratorsModule.transformAsync(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      ),
   );
   transformFactory.set(
     "await",
-    (list, currentDir) => asyncGeneratorsModule.transformAwait(list, currentDir, transformHQLNodeToIR),
+    (list, currentDir) =>
+      asyncGeneratorsModule.transformAwait(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      ),
   );
   transformFactory.set(
     "const",
@@ -533,12 +610,20 @@ function initializeTransformFactory(): void {
   transformFactory.set(
     "?",
     (list, currentDir) =>
-      conditionalModule.transformTernary(list, currentDir, transformHQLNodeToIR),
+      conditionalModule.transformTernary(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      ),
   );
   transformFactory.set(
     "template-literal",
     (list, currentDir) =>
-      literalsModule.transformTemplateLiteral(list, currentDir, transformHQLNodeToIR),
+      literalsModule.transformTemplateLiteral(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      ),
   );
   transformFactory.set(
     "do",
@@ -546,48 +631,88 @@ function initializeTransformFactory(): void {
       conditionalModule.transformDo(list, currentDir, transformHQLNodeToIR),
   );
   // lazy-seq and delay both wrap body in a thunk: helperName(() => { return body; })
-  transformFactory.set("lazy-seq", (list, currentDir) =>
-    createThunkWrapper(LAZY_SEQ_HELPER, list, currentDir));
-  transformFactory.set("delay", (list, currentDir) =>
-    createThunkWrapper(DELAY_HELPER, list, currentDir));
+  transformFactory.set(
+    "lazy-seq",
+    (list, currentDir) => createThunkWrapper(LAZY_SEQ_HELPER, list, currentDir),
+  );
+  transformFactory.set(
+    "delay",
+    (list, currentDir) => createThunkWrapper(DELAY_HELPER, list, currentDir),
+  );
   transformFactory.set(
     "try",
-    (list, currentDir) => tryCatchModule.transformTry(list, currentDir, transformHQLNodeToIR),
+    (list, currentDir) =>
+      tryCatchModule.transformTry(list, currentDir, transformHQLNodeToIR),
   );
   transformFactory.set(
     "loop",
     (list, currentDir) =>
-      loopRecurModule.transformLoop(list, currentDir, transformHQLNodeToIR, currentLoopState),
+      loopRecurModule.transformLoop(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentLoopState,
+      ),
   );
   transformFactory.set(
     "recur",
     (list, currentDir) =>
-      loopRecurModule.transformRecur(list, currentDir, transformHQLNodeToIR, currentLoopState),
+      loopRecurModule.transformRecur(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentLoopState,
+      ),
   );
   transformFactory.set(
     "continue",
     (list, currentDir) =>
-      loopRecurModule.transformContinue(list, currentDir, transformHQLNodeToIR, currentLoopState),
+      loopRecurModule.transformContinue(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentLoopState,
+      ),
   );
   transformFactory.set(
     "break",
     (list, currentDir) =>
-      loopRecurModule.transformBreak(list, currentDir, transformHQLNodeToIR, currentLoopState),
+      loopRecurModule.transformBreak(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentLoopState,
+      ),
   );
   transformFactory.set(
     "for-of",
     (list, currentDir) =>
-      loopRecurModule.transformForOf(list, currentDir, transformHQLNodeToIR, currentLoopState),
+      loopRecurModule.transformForOf(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentLoopState,
+      ),
   );
   transformFactory.set(
     "for-await-of",
     (list, currentDir) =>
-      loopRecurModule.transformForAwaitOf(list, currentDir, transformHQLNodeToIR, currentLoopState),
+      loopRecurModule.transformForAwaitOf(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentLoopState,
+      ),
   );
   transformFactory.set(
     "label",
     (list, currentDir) =>
-      loopRecurModule.transformLabel(list, currentDir, transformHQLNodeToIR, currentLoopState),
+      loopRecurModule.transformLabel(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+        currentLoopState,
+      ),
   );
   transformFactory.set(
     "return",
@@ -629,7 +754,11 @@ function initializeTransformFactory(): void {
   transformFactory.set(
     "js-get-invoke",
     (list, currentDir) =>
-      jsInteropModule.transformJsGetInvoke(list, currentDir, transformHQLNodeToIR),
+      jsInteropModule.transformJsGetInvoke(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      ),
   );
   transformFactory.set(
     "js-set",
@@ -645,7 +774,11 @@ function initializeTransformFactory(): void {
   transformFactory.set(
     "enum",
     (list, currentDir) =>
-      enumModule.transformEnumDeclaration(list, currentDir, transformHQLNodeToIR),
+      enumModule.transformEnumDeclaration(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      ),
   );
   transformFactory.set(
     "import",
@@ -682,7 +815,11 @@ function initializeTransformFactory(): void {
     "export",
     (list, currentDir) => {
       if (importExportModule.isDeclarationExport(list)) {
-        return importExportModule.transformDeclarationExport(list, currentDir, transformHQLNodeToIR);
+        return importExportModule.transformDeclarationExport(
+          list,
+          currentDir,
+          transformHQLNodeToIR,
+        );
       }
       if (importExportModule.isSingleExport(list)) {
         return importExportModule.transformSingleExport(list);
@@ -691,7 +828,11 @@ function initializeTransformFactory(): void {
         return importExportModule.transformVectorExport(list, currentDir);
       }
       if (isDefaultExport(list)) {
-        return importExportModule.transformDefaultExport(list, currentDir, transformHQLNodeToIR);
+        return importExportModule.transformDefaultExport(
+          list,
+          currentDir,
+          transformHQLNodeToIR,
+        );
       }
       throw new ValidationError(
         "Invalid export statement format",
@@ -783,9 +924,14 @@ function initializeTransformFactory(): void {
    */
 
   /** Convert a parseTypeExpression result (string | IRTypeExpression) to IRTypeExpression */
-  function toTypeRef(parsed: IR.IRTypeExpression | string): IR.IRTypeExpression {
+  function toTypeRef(
+    parsed: IR.IRTypeExpression | string,
+  ): IR.IRTypeExpression {
     return typeof parsed === "string"
-      ? ({ type: IR.IRNodeType.TypeReference, name: parsed } as IR.IRTypeReference)
+      ? ({
+        type: IR.IRNodeType.TypeReference,
+        name: parsed,
+      } as IR.IRTypeReference)
       : parsed;
   }
 
@@ -845,12 +991,17 @@ function initializeTransformFactory(): void {
       // Helper to convert element to type expression, checking if it's a string literal
       const toTypeExpr = (el: HQLNode): IR.IRTypeExpression => {
         // If the element is a string literal, check if it's a simple literal or complex expression
-        if (el.type === "literal" && typeof (el as LiteralNode).value === "string") {
+        if (
+          el.type === "literal" && typeof (el as LiteralNode).value === "string"
+        ) {
           const value = (el as LiteralNode).value as string;
           // If it looks like a complex type expression, parse it as TypeReference
           // Single regex test is faster than 6 separate includes() calls
           if (/[\s|&<({]/.test(value)) {
-            return { type: IR.IRNodeType.TypeReference, name: value } as IR.IRTypeReference;
+            return {
+              type: IR.IRNodeType.TypeReference,
+              name: value,
+            } as IR.IRTypeReference;
           }
           // Otherwise, it's a string literal type like "pending" or "active"
           return { type: IR.IRNodeType.LiteralType, value } as IR.IRLiteralType;
@@ -859,7 +1010,9 @@ function initializeTransformFactory(): void {
       };
       const parseFunctionTypeParameters = (
         paramsNode: HQLNode,
-      ): Array<{ name?: string; type: IR.IRTypeExpression; optional?: boolean }> => {
+      ): Array<
+        { name?: string; type: IR.IRTypeExpression; optional?: boolean }
+      > => {
         if (paramsNode.type !== "list") {
           throw new TransformError(
             "function type parameters must be a vector",
@@ -893,9 +1046,10 @@ function initializeTransformFactory(): void {
           }
 
           if (paramNode.type === "symbol") {
-            const { name: parsedName, type: parsedType } = extractAndNormalizeType(
-              (paramNode as SymbolNode).name,
-            );
+            const { name: parsedName, type: parsedType } =
+              extractAndNormalizeType(
+                (paramNode as SymbolNode).name,
+              );
 
             if (parsedType !== undefined) {
               const optional = parsedName.endsWith("?");
@@ -947,7 +1101,10 @@ function initializeTransformFactory(): void {
         case "keyof": {
           // Keyof: (keyof T) → keyof T
           if (elements.length < 2) {
-            throw new TransformError("keyof requires a type argument", nodeMeta);
+            throw new TransformError(
+              "keyof requires a type argument",
+              nodeMeta,
+            );
           }
           const arg = parseTypeExpression(elements[1]);
           return {
@@ -960,14 +1117,20 @@ function initializeTransformFactory(): void {
         case "indexed": {
           // Indexed access: ([] T K) → T[K]
           if (elements.length < 3) {
-            throw new TransformError("Indexed access requires object and index types", nodeMeta);
+            throw new TransformError(
+              "Indexed access requires object and index types",
+              nodeMeta,
+            );
           }
           const objType = parseTypeExpression(elements[1]);
           const idxElement = elements[2];
           // Special handling for index: if it's a string literal, treat as LiteralType
           // This ensures (indexed Person "name") → Person["name"]
           let idxTypeResult: IR.IRTypeExpression;
-          if (idxElement.type === "literal" && typeof (idxElement as LiteralNode).value === "string") {
+          if (
+            idxElement.type === "literal" &&
+            typeof (idxElement as LiteralNode).value === "string"
+          ) {
             idxTypeResult = {
               type: IR.IRNodeType.LiteralType,
               value: (idxElement as LiteralNode).value as string,
@@ -1006,7 +1169,9 @@ function initializeTransformFactory(): void {
 
         case "tuple": {
           // Tuple: (tuple A B C) → [A, B, C]
-          const tupleElements = elements.slice(1).map((el) => toTypeRef(parseTypeExpression(el)));
+          const tupleElements = elements.slice(1).map((el) =>
+            toTypeRef(parseTypeExpression(el))
+          );
           return {
             type: IR.IRNodeType.TupleType,
             elements: tupleElements,
@@ -1016,7 +1181,10 @@ function initializeTransformFactory(): void {
         case "array": {
           // Array: (array T) → T[]
           if (elements.length < 2) {
-            throw new TransformError("array requires an element type", nodeMeta);
+            throw new TransformError(
+              "array requires an element type",
+              nodeMeta,
+            );
           }
           return {
             type: IR.IRNodeType.ArrayType,
@@ -1027,7 +1195,10 @@ function initializeTransformFactory(): void {
         case "readonly": {
           // Readonly: (readonly T) → readonly T
           if (elements.length < 2) {
-            throw new TransformError("readonly requires a type argument", nodeMeta);
+            throw new TransformError(
+              "readonly requires a type argument",
+              nodeMeta,
+            );
           }
           return {
             type: IR.IRNodeType.ReadonlyType,
@@ -1038,11 +1209,17 @@ function initializeTransformFactory(): void {
         case "infer": {
           // Infer: (infer T) → infer T
           if (elements.length < 2) {
-            throw new TransformError("infer requires a type parameter", nodeMeta);
+            throw new TransformError(
+              "infer requires a type parameter",
+              nodeMeta,
+            );
           }
           const paramNode = elements[1];
           if (paramNode.type !== "symbol") {
-            throw new TransformError("infer type parameter must be a symbol", extractMeta(paramNode) ?? nodeMeta);
+            throw new TransformError(
+              "infer type parameter must be a symbol",
+              extractMeta(paramNode) ?? nodeMeta,
+            );
           }
           return {
             type: IR.IRNodeType.InferType,
@@ -1062,7 +1239,10 @@ function initializeTransformFactory(): void {
           } else if (exprNode.type === "literal") {
             expression = String((exprNode as LiteralNode).value);
           } else {
-            throw new TransformError("typeof expression must be a symbol or string", extractMeta(exprNode) ?? nodeMeta);
+            throw new TransformError(
+              "typeof expression must be a symbol or string",
+              extractMeta(exprNode) ?? nodeMeta,
+            );
           }
           return {
             type: IR.IRNodeType.TypeofType,
@@ -1080,7 +1260,10 @@ function initializeTransformFactory(): void {
           }
           const paramNode = elements[1];
           if (paramNode.type !== "symbol") {
-            throw new TransformError("mapped type parameter must be a symbol", extractMeta(paramNode) ?? nodeMeta);
+            throw new TransformError(
+              "mapped type parameter must be a symbol",
+              extractMeta(paramNode) ?? nodeMeta,
+            );
           }
           return {
             type: IR.IRNodeType.MappedType,
@@ -1112,7 +1295,10 @@ function initializeTransformFactory(): void {
         case "rest": {
           // Rest type: (... T) → ...T
           if (elements.length < 2) {
-            throw new TransformError("rest type requires a type argument", nodeMeta);
+            throw new TransformError(
+              "rest type requires a type argument",
+              nodeMeta,
+            );
           }
           return {
             type: IR.IRNodeType.RestType,
@@ -1123,7 +1309,9 @@ function initializeTransformFactory(): void {
         default: {
           // Unknown operator - treat as generic type reference
           // e.g., (Partial T) → Partial<T>
-          const typeArgs = elements.slice(1).map((el) => toTypeRef(parseTypeExpression(el)));
+          const typeArgs = elements.slice(1).map((el) =>
+            toTypeRef(parseTypeExpression(el))
+          );
           return {
             type: IR.IRNodeType.TypeReference,
             name: opName,
@@ -1134,7 +1322,10 @@ function initializeTransformFactory(): void {
     }
 
     // Exhaustive check fallback - should never be reached
-    throw new TransformError(`Unknown type expression: ${(node as HQLNode).type}`, nodeMeta);
+    throw new TransformError(
+      `Unknown type expression: ${(node as HQLNode).type}`,
+      nodeMeta,
+    );
   }
 
   // =========================================================================
@@ -1210,7 +1401,7 @@ function initializeTransformFactory(): void {
         throw new ValidationError(
           "interface requires at least 2 arguments: name and body",
           "interface",
-          "(interface Name \"{ ... }\")",
+          '(interface Name "{ ... }")',
           `${list.elements.length - 1} arguments`,
         );
       }
@@ -1235,13 +1426,17 @@ function initializeTransformFactory(): void {
       idx++;
       // Check for extends clause
       let extendsClause: string[] | undefined;
-      if (list.elements[idx]?.type === "symbol" &&
-          (list.elements[idx] as SymbolNode).name === "extends") {
+      if (
+        list.elements[idx]?.type === "symbol" &&
+        (list.elements[idx] as SymbolNode).name === "extends"
+      ) {
         idx++;
         extendsClause = [];
         // Collect all extends types until we hit the body string
-        while (idx < list.elements.length - 1 &&
-               list.elements[idx].type === "symbol") {
+        while (
+          idx < list.elements.length - 1 &&
+          list.elements[idx].type === "symbol"
+        ) {
           extendsClause.push((list.elements[idx] as SymbolNode).name);
           idx++;
         }
@@ -1292,7 +1487,9 @@ function initializeTransformFactory(): void {
           extractMeta(nameNode),
         );
       }
-      const { name, typeParameters } = parseGenericName((nameNode as SymbolNode).name);
+      const { name, typeParameters } = parseGenericName(
+        (nameNode as SymbolNode).name,
+      );
 
       let idx = 1;
       let superClass: IR.IRNode | undefined;
@@ -1304,7 +1501,8 @@ function initializeTransformFactory(): void {
         (elements[idx] as SymbolNode).name === "extends"
       ) {
         idx++;
-        superClass = transformHQLNodeToIR(elements[idx], currentDir) ?? undefined;
+        superClass = transformHQLNodeToIR(elements[idx], currentDir) ??
+          undefined;
         idx++;
       }
 
@@ -1361,7 +1559,9 @@ function initializeTransformFactory(): void {
           extractMeta(nameNode),
         );
       }
-      const { name, typeParameters } = parseGenericName((nameNode as SymbolNode).name);
+      const { name, typeParameters } = parseGenericName(
+        (nameNode as SymbolNode).name,
+      );
 
       // Parse params (as string for TypeScript signature)
       const paramsNode = elements[1];
@@ -1390,9 +1590,7 @@ function initializeTransformFactory(): void {
         if (returnNode.type === "symbol") {
           const symName = (returnNode as SymbolNode).name;
           // Remove leading : if present
-          returnType = symName.startsWith(":")
-            ? symName.slice(1)
-            : symName;
+          returnType = symName.startsWith(":") ? symName.slice(1) : symName;
         } else if (returnNode.type === "literal") {
           returnType = String((returnNode as LiteralNode).value);
         }
@@ -1429,7 +1627,9 @@ function initializeTransformFactory(): void {
       let typeParameters: string[] | undefined;
 
       if (nameNode.type === "symbol") {
-        ({ name, typeParameters } = parseGenericName((nameNode as SymbolNode).name));
+        ({ name, typeParameters } = parseGenericName(
+          (nameNode as SymbolNode).name,
+        ));
       } else if (nameNode.type === "literal") {
         name = String((nameNode as LiteralNode).value);
       } else {
@@ -1689,21 +1889,33 @@ function initializeTransformFactory(): void {
   transformFactory.set(
     "js-method",
     (list: ListNode, currentDir: string) => {
-      return asyncGeneratorsModule.transformJsMethod(list, currentDir, transformHQLNodeToIR);
+      return asyncGeneratorsModule.transformJsMethod(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      );
     },
   );
   // method-call: (.foo obj args) transforms to obj.foo(args)
   transformFactory.set(
     "method-call",
     (list: ListNode, currentDir: string) => {
-      return classModule.transformMethodCall(list, currentDir, transformHQLNodeToIR);
+      return classModule.transformMethodCall(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      );
     },
   );
   // optional-method-call: (.?foo obj args) transforms to obj?.foo(args)
   transformFactory.set(
     "optional-method-call",
     (list: ListNode, currentDir: string) => {
-      return classModule.transformOptionalMethodCall(list, currentDir, transformHQLNodeToIR);
+      return classModule.transformOptionalMethodCall(
+        list,
+        currentDir,
+        transformHQLNodeToIR,
+      );
     },
   );
   // optional-js-method: (.?foo obj) transforms to obj?.foo (property access)
@@ -1740,19 +1952,22 @@ function initializeTransformFactory(): void {
       // Transform arguments if present, otherwise empty array
       const args = list.elements.length > 3
         ? transformElements(
-            list.elements.slice(3),
-            currentDir,
-            transformHQLNodeToIR,
-            "optional-js-method argument",
-            "Argument",
-          )
+          list.elements.slice(3),
+          currentDir,
+          transformHQLNodeToIR,
+          "optional-js-method argument",
+          "Argument",
+        )
         : [];
       return {
         type: IR.IRNodeType.OptionalCallExpression,
         callee: {
           type: IR.IRNodeType.OptionalMemberExpression,
           object,
-          property: { type: IR.IRNodeType.Identifier, name: methodName } as IR.IRIdentifier,
+          property: {
+            type: IR.IRNodeType.Identifier,
+            name: methodName,
+          } as IR.IRIdentifier,
           computed: false,
           optional: true,
         } as IR.IROptionalMemberExpression,
@@ -1761,9 +1976,7 @@ function initializeTransformFactory(): void {
       } as IR.IROptionalCallExpression;
     },
   );
-
 }
-
 
 export function isExpressionResult(node: IR.IRNode): boolean {
   switch (node.type) {
@@ -1832,7 +2045,9 @@ export function transformHQLNodeToIR(
         "literal | symbol | list",
         fallback,
         {
-          filePath: typeof meta?.filePath === "string" ? meta.filePath : undefined,
+          filePath: typeof meta?.filePath === "string"
+            ? meta.filePath
+            : undefined,
           line: typeof meta?.line === "number" ? meta.line : undefined,
           column: typeof meta?.column === "number" ? meta.column : undefined,
         },
@@ -1879,7 +2094,6 @@ function transformList(list: ListNode, currentDir: string): IR.IRNode | null {
       return { type: IR.IRNodeType.NullLiteral } as IR.IRNullLiteral;
     }
 
-
     // Delegate to appropriate handler based on operation type
     return transformBasedOnOperator(list, op, currentDir);
   }
@@ -1912,7 +2126,14 @@ function transformDotMethodCall(list: ListNode, currentDir: string): IR.IRNode {
   const args: IR.IRNode[] = [];
   for (const arg of list.elements.slice(2)) {
     if (isSpreadOperator(arg)) {
-      args.push(transformSpreadOperator(arg, currentDir, transformHQLNodeToIR, "spread in method call"));
+      args.push(
+        transformSpreadOperator(
+          arg,
+          currentDir,
+          transformHQLNodeToIR,
+          "spread in method call",
+        ),
+      );
     } else {
       args.push(validateTransformed(
         transformHQLNodeToIR(arg, currentDir),
@@ -1948,18 +2169,30 @@ function transformBasedOnOperator(
 ): IR.IRNode | null {
   // First check if this is an optional method call (.?foo)
   if (op.startsWith(".?")) {
-    return classModule.transformOptionalMethodCall(list, currentDir, transformHQLNodeToIR);
+    return classModule.transformOptionalMethodCall(
+      list,
+      currentDir,
+      transformHQLNodeToIR,
+    );
   }
   // Then check if this is a regular method call (.foo)
   if (op.startsWith(".")) {
-    return classModule.transformMethodCall(list, currentDir, transformHQLNodeToIR);
+    return classModule.transformMethodCall(
+      list,
+      currentDir,
+      transformHQLNodeToIR,
+    );
   }
 
   // Check for import/export forms which have special handling
   // Declaration exports must be checked BEFORE vector exports
   // because both have list as second element
   if (isDeclarationExport(list)) {
-    return importExportModule.transformDeclarationExport(list, currentDir, transformHQLNodeToIR);
+    return importExportModule.transformDeclarationExport(
+      list,
+      currentDir,
+      transformHQLNodeToIR,
+    );
   }
   if (isSingleExport(list)) {
     return importExportModule.transformSingleExport(list);
@@ -1968,7 +2201,11 @@ function transformBasedOnOperator(
     return importExportModule.transformVectorExport(list, currentDir);
   }
   if (isDefaultExport(list)) {
-    return importExportModule.transformDefaultExport(list, currentDir, transformHQLNodeToIR);
+    return importExportModule.transformDefaultExport(
+      list,
+      currentDir,
+      transformHQLNodeToIR,
+    );
   }
 
   if (isVectorImport(list)) {
@@ -1981,7 +2218,12 @@ function transformBasedOnOperator(
 
   // Handle optional chaining method calls (obj?.greet "World")
   if (op.includes("?.") && !op.startsWith("js/") && !op.startsWith("...")) {
-    return transformOptionalChainMethodCall(list, op, currentDir, transformHQLNodeToIR);
+    return transformOptionalChainMethodCall(
+      list,
+      op,
+      currentDir,
+      transformHQLNodeToIR,
+    );
   }
 
   // Handle dot notation for property access (obj.prop)
@@ -2066,12 +2308,32 @@ function determineCallOrAccess(
     const only = elements[0];
     // If it's a symbol, treat as function call with zero args
     if (only.type === "symbol") {
+      const callee = transformHQLNodeToIR(only, currentDir);
+      if (!callee) {
+        throw new TransformError(
+          "Single-element callee transformed to null",
+          JSON.stringify(list),
+          "Function call",
+        );
+      }
+      if (
+        callee.type !== IR.IRNodeType.Identifier &&
+        callee.type !== IR.IRNodeType.MemberExpression &&
+        callee.type !== IR.IRNodeType.FunctionExpression
+      ) {
+        throw new TransformError(
+          "Single-element callee is not callable",
+          JSON.stringify(list),
+          "Function call",
+        );
+      }
+      const callableCallee = callee as
+        | IR.IRIdentifier
+        | IR.IRMemberExpression
+        | IR.IRFunctionExpression;
       return {
         type: IR.IRNodeType.CallExpression,
-        callee: {
-          type: IR.IRNodeType.Identifier,
-          name: sanitizeIdentifier(only.name),
-        },
+        callee: callableCallee,
         arguments: [],
       } as IR.IRCallExpression;
     }
@@ -2126,8 +2388,16 @@ function determineCallOrAccess(
     const secondElement = elements[1];
     const isNumberLiteral = secondElement.type === "literal" &&
       typeof (secondElement as LiteralNode).value === "number";
+    const firstSymbolInfo = firstElement.type === "symbol"
+      ? lookupResolvedSymbolInfo(firstElement as SymbolNode)
+      : undefined;
+    const shouldPreferCall = firstElement.type === "symbol" &&
+      (
+        firstSymbolInfo?.kind === "function" ||
+        firstSymbolInfo?.kind === "fn"
+      );
 
-    if (isNumberLiteral) {
+    if (isNumberLiteral && !shouldPreferCall) {
       const keyTransformed = transformHQLNodeToIR(secondElement, currentDir);
       if (!keyTransformed) {
         throw new TransformError(
@@ -2189,7 +2459,14 @@ function createCallExpression(
 
     // Check if this argument is a spread operator (...args or (... expr))
     if (isSpreadOperator(elem)) {
-      args.push(transformSpreadOperator(elem, currentDir, transformHQLNodeToIR, "spread in function call"));
+      args.push(
+        transformSpreadOperator(
+          elem,
+          currentDir,
+          transformHQLNodeToIR,
+          "spread in function call",
+        ),
+      );
     } else {
       const arg = transformHQLNodeToIR(elem, currentDir);
       if (!arg) {
@@ -2214,7 +2491,9 @@ function createCallExpression(
  * Parse optional chain segments from a symbol like "user?.name" or "data?.user?.address?.city"
  * Returns array of segments: [{name: "user", optional: false}, {name: "name", optional: true}]
  */
-function parseOptionalChainSegments(name: string): { name: string; optional: boolean }[] {
+function parseOptionalChainSegments(
+  name: string,
+): { name: string; optional: boolean }[] {
   // Split on `?.` or `.` while preserving the delimiter type.
   // The regex captures the delimiter so we can tell optional from regular access.
   // E.g. "obj?.a.b?.c" -> ["obj", "?.", "a", ".", "b", "?.", "c"]
@@ -2247,17 +2526,23 @@ function transformOptionalChainSymbol(name: string): IR.IRNode {
   const segments = parseOptionalChainSegments(name);
 
   if (segments.length === 0) {
-    throw new TransformError(`Invalid optional chain: ${name}`, name, "optional chain");
+    throw new TransformError(
+      `Invalid optional chain: ${name}`,
+      name,
+      "optional chain",
+    );
   }
 
   // Start with the first segment as an identifier
-  const baseObjectName = sanitizeIdentifier(segments[0].name);
-  const objectName = baseObjectName === "self" ? "this" : baseObjectName;
-
-  let current: IR.IRNode = {
-    type: IR.IRNodeType.Identifier,
-    name: objectName,
-  } as IR.IRIdentifier;
+  let current: IR.IRNode = segments[0].name === "self"
+    ? {
+      type: IR.IRNodeType.Identifier,
+      name: "this",
+    } as IR.IRIdentifier
+    : resolveSymbolIdentifier({
+      type: "symbol",
+      name: segments[0].name,
+    } as SymbolNode);
 
   // Build chain from left to right
   for (let i = 1; i < segments.length; i++) {
@@ -2331,43 +2616,46 @@ function transformSymbol(sym: SymbolNode): IR.IRNode {
   if (FIRST_CLASS_OPERATORS.has(name)) {
     return {
       type: IR.IRNodeType.CallExpression,
-      callee: { type: IR.IRNodeType.Identifier, name: GET_OP_HELPER } as IR.IRIdentifier,
-      arguments: [{ type: IR.IRNodeType.StringLiteral, value: name } as IR.IRStringLiteral],
+      callee: {
+        type: IR.IRNodeType.Identifier,
+        name: GET_OP_HELPER,
+      } as IR.IRIdentifier,
+      arguments: [
+        {
+          type: IR.IRNodeType.StringLiteral,
+          value: name,
+        } as IR.IRStringLiteral,
+      ],
     } as IR.IRCallExpression;
   }
 
   // Handle optional chaining: user?.name, data?.user?.address
-  if (name.includes("?.") && !name.startsWith("js/") && !name.startsWith("...")) {
+  if (
+    name.includes("?.") && !name.startsWith("js/") && !name.startsWith("...")
+  ) {
     return transformOptionalChainSymbol(name);
   }
 
   // Exclude spread operators (...identifier) from dot notation handling
   // Handle chained property access: myobj.a.b.c -> myobj.a.b.c (not myobj["a.b.c"])
-  if (name.includes(".") && !name.startsWith("js/") && !name.startsWith("...")) {
+  if (
+    name.includes(".") && !name.startsWith("js/") && !name.startsWith("...")
+  ) {
     const parts = name.split(".");
     const meta = extractMeta(sym);
-    const position = meta ? { line: meta.line, column: meta.column, filePath: meta.filePath } : undefined;
+    const position = meta
+      ? { line: meta.line, column: meta.column, filePath: meta.filePath }
+      : undefined;
 
-    // Build base identifier
-    const baseObjectName = sanitizeIdentifier(parts[0]);
-    const objectName = baseObjectName === "self" ? "this" : baseObjectName;
-    let result: IR.IRNode = {
-      type: IR.IRNodeType.Identifier,
-      name: objectName,
-    } as IR.IRIdentifier;
-
-    // Chain member expressions for each property in the path
-    for (let i = 1; i < parts.length; i++) {
-      result = {
-        type: IR.IRNodeType.MemberExpression,
-        object: result,
-        property: {
-          type: IR.IRNodeType.Identifier,
-          name: parts[i],
-        } as IR.IRIdentifier,
-        computed: false,
-        position,
-      } as IR.IRMemberExpression;
+    const base = parts[0] === "self"
+      ? {
+        type: IR.IRNodeType.Identifier,
+        name: "this",
+      } as IR.IRIdentifier
+      : resolveSymbolIdentifier({ ...sym, name: parts[0] });
+    const result = buildMemberExpressionChain(base, parts.slice(1));
+    if ("position" in result) {
+      result.position = position;
     }
 
     return result;
@@ -2378,8 +2666,11 @@ function transformSymbol(sym: SymbolNode): IR.IRNode {
     isJS = true;
   }
 
-  name = isJS ? hyphenToUnderscore(name) : sanitizeIdentifier(name);
+  if (!isJS) {
+    return resolveSymbolIdentifier(sym);
+  }
 
+  name = hyphenToUnderscore(name);
   return { type: IR.IRNodeType.Identifier, name, isJS } as IR.IRIdentifier;
 }
 

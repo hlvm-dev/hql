@@ -23,7 +23,7 @@ import { generateToolCallId } from "../agent/tool-call.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
-import { classifyProviderErrorCode } from "./common.ts";
+import { classifyProviderErrorCode, formatProviderFailureMessage } from "./common.ts";
 import { isProviderErrorCode as isProviderErrorFromDomain, ProviderErrorCode } from "../../common/error-codes.ts";
 
 export type SdkProviderName =
@@ -117,6 +117,36 @@ function extractStatusCode(error: unknown): number | null {
   return null;
 }
 
+function extractResponseBodyText(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const record = error as Record<string, unknown>;
+  const body = record.responseBody ?? record.body ??
+    (isObjectValue(record.response)
+      ? (record.response as Record<string, unknown>).body
+      : undefined);
+
+  if (typeof body === "string") return body;
+  if (body instanceof Uint8Array) {
+    return new TextDecoder().decode(body);
+  }
+  if (body instanceof ArrayBuffer) {
+    return new TextDecoder().decode(new Uint8Array(body));
+  }
+  if (ArrayBuffer.isView(body)) {
+    return new TextDecoder().decode(
+      new Uint8Array(body.buffer, body.byteOffset, body.byteLength),
+    );
+  }
+  if (isObjectValue(body)) {
+    try {
+      return JSON.stringify(body);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 function isNetworkFailure(message: string, error?: unknown): boolean {
   if (error instanceof Error && error.name === "AbortError") {
     return false;
@@ -169,11 +199,18 @@ function wrapProviderSdkError(
   error: unknown,
   providerName: string,
 ): never {
-  const message = getErrorMessage(error);
+  const code = classifyProviderError(error, providerName);
+  const message = formatProviderFailureMessage({
+    providerName,
+    code,
+    status: extractStatusCode(error),
+    responseBody: extractResponseBodyText(error),
+    fallbackMessage: getErrorMessage(error),
+  });
   throw new RuntimeError(
-    `${providerName} request failed: ${message}`,
+    message,
     {
-      code: classifyProviderError(error, providerName),
+      code,
       originalError: error instanceof Error ? error : undefined,
     },
   );
@@ -186,6 +223,7 @@ export async function maybeHandleSdkAuthError(
   if (providerName !== "claude-code") return;
   const status = extractStatusCode(error);
   const message = getErrorMessage(error);
+  const responseBody = extractResponseBodyText(error);
 
   // Token invalid / expired → clear cache so next attempt re-reads keychain
   if (status === 401 || status === 403) {
@@ -200,10 +238,12 @@ export async function maybeHandleSdkAuthError(
   // "I couldn't generate a response" fallback.
   if (
     status === 400 &&
-    message.toLowerCase() === "error" &&
-    (error as Record<string, unknown>)?.responseBody
+    (/^error$/i.test(message.trim()) ||
+      /^http( error)?:?\s*400\b/i.test(message.trim()) ||
+      /^bad request$/i.test(message.trim())) &&
+    responseBody
   ) {
-    const body = String((error as Record<string, unknown>).responseBody);
+    const body = responseBody;
     if (body.includes("invalid_request_error")) {
       throw new RuntimeError(
         "Claude Code OAuth: this model is not available with your current subscription. " +

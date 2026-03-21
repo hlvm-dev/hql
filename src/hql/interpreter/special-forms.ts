@@ -1,19 +1,28 @@
 // src/hql/interpreter/special-forms.ts - Special form handlers for the HQL interpreter
 
-import type { HQLValue, HQLFunction, Interpreter as IInterpreter, InterpreterEnv } from "./types.ts";
-import { isTruthy, isHQLFunction, isSExp } from "./types.ts";
+import type {
+  HQLFunction,
+  HQLValue,
+  Interpreter as IInterpreter,
+  InterpreterEnv,
+} from "./types.ts";
+import { isHQLFunction, isSExp, isTruthy } from "./types.ts";
 import { SEQ_SYMBOL } from "../../common/protocol-symbols.ts";
-import { SyntaxError, ArityError } from "./errors.ts";
 import {
-  type SExp,
-  type SList,
-  type SSymbol,
-  type SLiteral,
-  isSymbol,
-  isList,
-  isVector,
+  __hql_splice_to_sexp_items,
+  __hql_value_to_sexp,
+} from "../../common/runtime-helper-impl.ts";
+import { ArityError, SyntaxError } from "./errors.ts";
+import {
   createList,
   createNilLiteral,
+  isList,
+  isSymbol,
+  isVector,
+  type SExp,
+  type SList,
+  type SLiteral,
+  type SSymbol,
 } from "../s-exp/types.ts";
 
 /**
@@ -22,7 +31,7 @@ import {
 export type SpecialFormHandler = (
   args: SExp[],
   env: InterpreterEnv,
-  interpreter: IInterpreter
+  interpreter: IInterpreter,
 ) => HQLValue;
 
 /**
@@ -30,7 +39,9 @@ export type SpecialFormHandler = (
  * Handles both (a b c) and [a b c] (vector) syntax
  * Supports rest parameters with &
  */
-function parseParams(paramsExpr: SExp): { params: string[]; restParam: string | null } {
+function parseParams(
+  paramsExpr: SExp,
+): { params: string[]; restParam: string | null } {
   if (!isList(paramsExpr)) {
     throw new SyntaxError("fn", "parameters must be a list or vector");
   }
@@ -72,7 +83,7 @@ function parseParams(paramsExpr: SExp): { params: string[]; restParam: string | 
 function handleIf(
   args: SExp[],
   env: InterpreterEnv,
-  interpreter: IInterpreter
+  interpreter: IInterpreter,
 ): HQLValue {
   if (args.length < 2 || args.length > 3) {
     throw new ArityError("if", "2 or 3", args.length);
@@ -98,7 +109,7 @@ function handleIf(
 function handleLet(
   args: SExp[],
   env: InterpreterEnv,
-  interpreter: IInterpreter
+  interpreter: IInterpreter,
 ): HQLValue {
   if (args.length < 1) {
     throw new SyntaxError("let", "requires bindings");
@@ -153,7 +164,7 @@ function handleLet(
 function handleVar(
   args: SExp[],
   env: InterpreterEnv,
-  interpreter: IInterpreter
+  interpreter: IInterpreter,
 ): HQLValue {
   if (args.length !== 2) {
     throw new ArityError("var", 2, args.length);
@@ -180,7 +191,7 @@ function handleVar(
 function handleFn(
   args: SExp[],
   env: InterpreterEnv,
-  _interpreter: IInterpreter
+  _interpreter: IInterpreter,
 ): HQLValue {
   if (args.length < 2) {
     throw new SyntaxError("fn", "requires parameters and body");
@@ -238,7 +249,7 @@ function handleFn(
 function handleDo(
   args: SExp[],
   env: InterpreterEnv,
-  interpreter: IInterpreter
+  interpreter: IInterpreter,
 ): HQLValue {
   let result: HQLValue = null;
   for (const expr of args) {
@@ -255,7 +266,7 @@ function handleDo(
 function handleQuote(
   args: SExp[],
   _env: InterpreterEnv,
-  _interpreter: IInterpreter
+  _interpreter: IInterpreter,
 ): HQLValue {
   if (args.length !== 1) {
     throw new ArityError("quote", 1, args.length);
@@ -270,7 +281,7 @@ function handleQuote(
 function handleQuasiquote(
   args: SExp[],
   env: InterpreterEnv,
-  interpreter: IInterpreter
+  interpreter: IInterpreter,
 ): HQLValue {
   if (args.length !== 1) {
     throw new ArityError("quasiquote", 1, args.length);
@@ -285,7 +296,7 @@ function handleQuasiquote(
 function handleSyntaxQuote(
   args: SExp[],
   env: InterpreterEnv,
-  interpreter: IInterpreter
+  interpreter: IInterpreter,
 ): HQLValue {
   if (args.length !== 1) {
     throw new ArityError("syntax-quote", 1, args.length);
@@ -295,14 +306,15 @@ function handleSyntaxQuote(
 
 /**
  * Process template-quoted expression with depth tracking.
- * Runtime syntax-quote currently shares quasiquote evaluation semantics;
- * hygienic resolution is applied in the compile-time macro expander.
+ * The interpreter returns real S-expression values here. Hygienic binding
+ * resolution still comes from the macro/transpiler path rather than the
+ * tree-walk interpreter itself.
  */
 function processTemplateQuote(
   expr: SExp,
   depth: number,
   env: InterpreterEnv,
-  interpreter: IInterpreter
+  interpreter: IInterpreter,
 ): SExp {
   if (!isList(expr)) {
     return expr;
@@ -322,9 +334,17 @@ function processTemplateQuote(
       ((first as SSymbol).name === "syntax-quote"))
   ) {
     if (list.elements.length !== 2) {
-      throw new SyntaxError((first as SSymbol).name, "requires exactly one argument");
+      throw new SyntaxError(
+        (first as SSymbol).name,
+        "requires exactly one argument",
+      );
     }
-    const inner = processTemplateQuote(list.elements[1], depth + 1, env, interpreter);
+    const inner = processTemplateQuote(
+      list.elements[1],
+      depth + 1,
+      env,
+      interpreter,
+    );
     return depth === 0 ? inner : createList(first, inner);
   }
 
@@ -338,7 +358,12 @@ function processTemplateQuote(
       const result = interpreter.eval(list.elements[1], env);
       return hqlValueToSExp(result);
     } else {
-      const inner = processTemplateQuote(list.elements[1], depth - 1, env, interpreter);
+      const inner = processTemplateQuote(
+        list.elements[1],
+        depth - 1,
+        env,
+        interpreter,
+      );
       return createList(first, inner);
     }
   }
@@ -347,9 +372,17 @@ function processTemplateQuote(
   if (isSymbol(first) && (first as SSymbol).name === "unquote-splicing") {
     if (depth > 0) {
       if (list.elements.length !== 2) {
-        throw new SyntaxError("unquote-splicing", "requires exactly one argument");
+        throw new SyntaxError(
+          "unquote-splicing",
+          "requires exactly one argument",
+        );
       }
-      const inner = processTemplateQuote(list.elements[1], depth - 1, env, interpreter);
+      const inner = processTemplateQuote(
+        list.elements[1],
+        depth - 1,
+        env,
+        interpreter,
+      );
       return createList(first, inner);
     }
     throw new SyntaxError("unquote-splicing", "not in list context");
@@ -369,27 +402,19 @@ function processTemplateQuote(
       // Handle unquote-splicing
       const spliceList = element as SList;
       if (spliceList.elements.length !== 2) {
-        throw new SyntaxError("unquote-splicing", "requires exactly one argument");
+        throw new SyntaxError(
+          "unquote-splicing",
+          "requires exactly one argument",
+        );
       }
       const result = interpreter.eval(spliceList.elements[1], env);
-
-      // Splice the result into the list
-      if (Array.isArray(result)) {
-        for (const item of result) {
-          processedElements.push(hqlValueToSExp(item));
-        }
-      } else if (isSExp(result) && isList(result)) {
-        const resultList = result as SList;
-        // Skip "vector" prefix if present
-        const elements = isVector(resultList)
-          ? resultList.elements.slice(1)
-          : resultList.elements;
-        processedElements.push(...elements);
-      } else if (result !== null) {
-        processedElements.push(hqlValueToSExp(result));
-      }
+      processedElements.push(
+        ...(__hql_splice_to_sexp_items(result) as SExp[]),
+      );
     } else {
-      processedElements.push(processTemplateQuote(element, depth, env, interpreter));
+      processedElements.push(
+        processTemplateQuote(element, depth, env, interpreter),
+      );
     }
   }
 
@@ -403,7 +428,7 @@ function processTemplateQuote(
 function handleCond(
   args: SExp[],
   env: InterpreterEnv,
-  interpreter: IInterpreter
+  interpreter: IInterpreter,
 ): HQLValue {
   for (const clause of args) {
     if (!isList(clause)) {
@@ -441,37 +466,7 @@ function handleCond(
  * Used for quasiquote results
  */
 export function hqlValueToSExp(value: HQLValue): SExp {
-  if (value === null) {
-    return createNilLiteral();
-  }
-
-  if (typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
-    return { type: "literal", value } as SLiteral;
-  }
-
-  if (Array.isArray(value)) {
-    // Convert array to vector form
-    const vectorSymbol: SSymbol = { type: "symbol", name: "vector" };
-    return createList(vectorSymbol, ...value.map(hqlValueToSExp));
-  }
-
-  if (isSExp(value)) {
-    return value as SExp;
-  }
-
-  if (isHQLFunction(value)) {
-    // Return a placeholder - functions can't really be serialized to S-exp
-    return { type: "symbol", name: `#<function:${value.name || "anonymous"}>` } as SSymbol;
-  }
-
-  // Check for lazy sequences (ISeq protocol) - avoid infinite iteration on String(value)
-  if (typeof value === "object" && value !== null && (value as unknown as Record<symbol, unknown>)[SEQ_SYMBOL]) {
-    // Return a placeholder for lazy sequences - they can't be serialized during macro expansion
-    return { type: "symbol", name: "#<lazy-seq>" } as SSymbol;
-  }
-
-  // Default: convert to string literal
-  return { type: "literal", value: String(value) } as SLiteral;
+  return __hql_value_to_sexp(value) as SExp;
 }
 
 /**
@@ -481,7 +476,7 @@ export function hqlValueToSExp(value: HQLValue): SExp {
 function handleNot(
   args: SExp[],
   env: InterpreterEnv,
-  interpreter: IInterpreter
+  interpreter: IInterpreter,
 ): HQLValue {
   if (args.length !== 1) {
     throw new ArityError("!", "1", args.length);

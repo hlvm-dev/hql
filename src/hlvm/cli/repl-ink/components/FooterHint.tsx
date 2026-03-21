@@ -14,8 +14,10 @@ import {
   StreamingState as ConversationStreamingState,
 } from "../types.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
+import { STATUS_GLYPHS } from "../ui-constants.ts";
 
 import { truncate } from "../../../../common/utils.ts";
+import { useConversationSpinnerFrame } from "../hooks/useConversationMotion.ts";
 
 const FOOTER_SECTION_SEPARATOR = " · ";
 
@@ -167,7 +169,10 @@ export function FooterHint({
   const { stdout } = useStdout();
   const sc = useSemanticColors();
   const model = modelName ?? "";
-  const spinner = "·";
+  const isAnimating = streamingState === ConversationStreamingState.Responding &&
+    !!activeTool;
+  const spinnerFrame = useConversationSpinnerFrame(isAnimating);
+  const spinner = spinnerFrame ?? STATUS_GLYPHS.running;
 
   const left = buildFooterLeftState({
     inConversation,
@@ -203,16 +208,19 @@ export function FooterHint({
   const gap = 2; // minimum gap between left and right
   const leftMaxWidth = Math.max(8, contentWidth - rightLen - gap);
   const leftText = truncate(left.text, leftMaxWidth);
+  const separator = "─".repeat(contentWidth);
 
   return (
-    <Box
-      flexGrow={1}
-      flexDirection="row"
-      justifyContent="space-between"
-      marginTop={1}
-    >
-      <Text color={leftColor}>{leftText}</Text>
-      {rightText.length > 0 && <Text color={sc.text.muted}>{rightText}</Text>}
+    <Box flexDirection="column">
+      <Text color={sc.border.dim}>{separator}</Text>
+      <Box
+        flexGrow={1}
+        flexDirection="row"
+        justifyContent="space-between"
+      >
+        <Text color={leftColor}>{leftText}</Text>
+        {rightText.length > 0 && <Text color={sc.text.muted}>{rightText}</Text>}
+      </Box>
     </Box>
   );
 }

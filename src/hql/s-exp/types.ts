@@ -113,6 +113,46 @@ export function getMeta(node: unknown): SExpMeta | undefined {
   return undefined;
 }
 
+export function cloneResolvedBindingMeta(
+  binding: ResolvedBindingMeta,
+): ResolvedBindingMeta {
+  return { ...binding };
+}
+
+export function cloneResolvedBindingMap(
+  bindings: Map<string, ResolvedBindingMeta>,
+): Map<string, ResolvedBindingMeta> {
+  return new Map(
+    [...bindings.entries()].map(([name, binding]) => [
+      name,
+      cloneResolvedBindingMeta(binding),
+    ]),
+  );
+}
+
+export function addResolvedBindings(
+  target: Map<string, ResolvedBindingMeta>,
+  bindings: Iterable<ResolvedBindingMeta>,
+): void {
+  for (const binding of bindings) {
+    target.set(binding.exportName, cloneResolvedBindingMeta(binding));
+  }
+}
+
+export function attachResolvedBindingMeta<T extends { _meta?: SExpMeta }>(
+  node: T,
+  binding: ResolvedBindingMeta,
+): T {
+  const meta = getMeta(node);
+  return {
+    ...node,
+    _meta: {
+      ...(meta ? { ...meta } : {}),
+      resolvedBinding: cloneResolvedBindingMeta(binding),
+    },
+  };
+}
+
 /**
  * Copy metadata from a source object to a target object.
  * Works with any object that has a _meta property (SExp, HQLNode, etc.)

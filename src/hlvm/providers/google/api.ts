@@ -5,9 +5,8 @@
  * This module keeps only provider-specific model discovery and status checks.
  */
 
-import { API_TIMEOUT_MS } from "../common.ts";
+import { API_TIMEOUT_MS, checkApiStatus } from "../common.ts";
 import { http } from "../../../common/http-client.ts";
-import { getErrorMessage } from "../../../common/utils.ts";
 import type { ModelInfo, ProviderStatus } from "../types.ts";
 
 export async function listModels(
@@ -38,21 +37,11 @@ export async function listModels(
     }));
 }
 
-export async function checkStatus(
+export function checkStatus(
   endpoint: string,
   apiKey: string,
 ): Promise<ProviderStatus> {
-  try {
-    const url = `${endpoint}/v1beta/models?key=${apiKey}`;
-    const response = await http.fetchRaw(url, { timeout: API_TIMEOUT_MS });
-    return {
-      available: response.ok,
-      error: response.ok ? undefined : `HTTP ${response.status}`,
-    };
-  } catch (error) {
-    return {
-      available: false,
-      error: getErrorMessage(error),
-    };
-  }
+  return checkApiStatus(`${endpoint}/v1beta/models?key=${apiKey}`, {
+    timeout: API_TIMEOUT_MS,
+  });
 }

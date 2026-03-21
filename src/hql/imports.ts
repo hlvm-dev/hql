@@ -5,30 +5,19 @@ import type { Environment, Value } from "./environment.ts";
 import type { MacroFn } from "./environment.ts";
 import { evaluateForMacro, expandMacros } from "./s-exp/macro.ts";
 import { parse } from "./transpiler/pipeline/parser.ts";
-import { escapeRegExp, readFile, sanitizeIdentifier, getErrorMessage, isObjectValue } from "../common/utils.ts";
+import {
+  escapeRegExp,
+  getErrorMessage,
+  isObjectValue,
+  readFile,
+  sanitizeIdentifier,
+} from "../common/utils.ts";
 import { getPlatform } from "../platform/platform.ts";
 
 // Local aliases for frequently used platform functions
 const p = () => getPlatform();
 const path = () => p().path;
 const fs = () => p().fs;
-
-import { DEFAULT_LRU_CACHE_SIZE } from "../common/limits.ts";
-
-// Global registry to track which symbols are macros
-// This persists across file compilations so transpilation can filter them
-// Uses LRUCache to bound memory in long-running processes
-// High limit because macros are essential for correctness and typical projects have < 1000
-const globalMacroRegistryCache = new LRUCache<string, true>(DEFAULT_LRU_CACHE_SIZE);
-
-// Export a Set-like interface for backward compatibility
-export const globalMacroRegistry = {
-  add(name: string): void { globalMacroRegistryCache.set(name, true); },
-  has(name: string): boolean { return globalMacroRegistryCache.has(name); },
-  delete(name: string): boolean { return globalMacroRegistryCache.delete(name); },
-  clear(): void { globalMacroRegistryCache.clear(); },
-  get size(): number { return globalMacroRegistryCache.size; },
-};
 
 import {
   createTempDirIfNeeded,
@@ -37,7 +26,7 @@ import {
   processJavaScriptFile,
 } from "../common/hlvm-cache-tracker.ts";
 import { createEmbeddedPackageLookup } from "./embedded-package-utils.ts";
-import { isEmbeddedFile, getEmbeddedContent } from "./lib/embedded-macros.ts";
+import { getEmbeddedContent, isEmbeddedFile } from "./lib/embedded-macros.ts";
 import { EMBEDDED_PACKAGES } from "./embedded-packages.ts";
 import {
   isImport,
@@ -58,10 +47,7 @@ import {
   isTypeScriptFile,
   registerModulePath,
 } from "../common/import-utils.ts";
-import {
-  SourceLocationInfo,
-  ValidationError,
-} from "../common/error.ts";
+import { SourceLocationInfo, ValidationError } from "../common/error.ts";
 import { ImportError, MacroError, RuntimeError } from "../common/error.ts";
 import { globalSymbolTable } from "./transpiler/symbol_table.ts";
 import {
@@ -110,7 +96,10 @@ function validateImportPath(
   }
 
   // Allow package imports (@hlvm/*, npm:*, jsr:*)
-  if (modulePath.startsWith("@") || modulePath.startsWith("npm:") || modulePath.startsWith("jsr:")) {
+  if (
+    modulePath.startsWith("@") || modulePath.startsWith("npm:") ||
+    modulePath.startsWith("jsr:")
+  ) {
     return;
   }
 
@@ -139,7 +128,7 @@ function validateImportPath(
   if (!isWithinBase) {
     throw new ImportError(
       `Import path "${modulePath}" resolves outside project directory. ` +
-      `Path traversal is not allowed for security reasons.`,
+        `Path traversal is not allowed for security reasons.`,
       "import validation",
     );
   }
@@ -248,7 +237,10 @@ export async function processImports(
 ): Promise<void> {
   // Always resolve baseDir relative to this file if not explicitly provided
   const baseDir = options.baseDir ||
-    path().resolve(path().dirname(path().fromFileUrl(import.meta.url)), "../../");
+    path().resolve(
+      path().dirname(path().fromFileUrl(import.meta.url)),
+      "../../",
+    );
 
   const processedFiles = options.processedFiles || new Set<string>();
   const inProgressFiles = options.inProgressFiles || new Set<string>();
@@ -497,7 +489,9 @@ async function processImportBatch(
   if (imports.length === 0) return;
 
   logger.debug(
-    `Processing ${imports.length} imports in ${mode === "parallel" ? "parallel" : "sequence"}`,
+    `Processing ${imports.length} imports in ${
+      mode === "parallel" ? "parallel" : "sequence"
+    }`,
   );
 
   const processOne = async (importExpr: SList) => {
@@ -507,7 +501,9 @@ async function processImportBatch(
       const modulePath = getModulePathFromImport(importExpr);
       const importLine = findImportLineInfo(importExpr, options.currentFile);
       wrapImportError(
-        mode === "parallel" ? "Error processing import" : "Processing sequential import",
+        mode === "parallel"
+          ? "Error processing import"
+          : "Processing sequential import",
         error,
         modulePath,
         options.currentFile,
@@ -536,13 +532,20 @@ function getCachedFileLines(filePath?: string): string[] | null {
 }
 
 /** Cache for import pattern regex (avoids recompilation per call) */
-const importPatternCache = new Map<string, { vector: RegExp; namespace: RegExp }>();
+const importPatternCache = new Map<
+  string,
+  { vector: RegExp; namespace: RegExp }
+>();
 
-function getImportPatterns(escapedPath: string): { vector: RegExp; namespace: RegExp } {
+function getImportPatterns(
+  escapedPath: string,
+): { vector: RegExp; namespace: RegExp } {
   let patterns = importPatternCache.get(escapedPath);
   if (!patterns) {
     patterns = {
-      vector: new RegExp(`import\\s+\\[([^\\]]+)\\]\\s+from\\s+["']${escapedPath}["']`),
+      vector: new RegExp(
+        `import\\s+\\[([^\\]]+)\\]\\s+from\\s+["']${escapedPath}["']`,
+      ),
       namespace: new RegExp(`import\\s+\\S+\\s+from\\s+["']${escapedPath}["']`),
     };
     importPatternCache.set(escapedPath, patterns);
@@ -783,18 +786,18 @@ async function processSimpleImport(
   options: ImportProcessorOptions,
 ): Promise<void> {
   const modulePath = (elements[1] as SLiteral).value as string;
-  
+
   // Special handling for @hlvm/ packages
   if (isStdlibPackage(modulePath)) {
     // Register with original path, don't try to resolve to filesystem
     registerModulePath(modulePath, modulePath);
-    
+
     await loadHqlModule(
       path().basename(modulePath),
       modulePath,
       modulePath, // Use modulePath as resolvedPath for embedded modules
       env,
-      options
+      options,
     );
 
     // Register in symbol table
@@ -870,9 +873,9 @@ async function processNamespaceImport(
         modulePath,
         modulePath, // Use modulePath as resolvedPath
         env,
-        options
+        options,
       );
-      
+
       // Alias logic remains the same
       const moduleId = generateModuleId(modulePath);
       if (moduleId !== moduleName) {
@@ -882,7 +885,7 @@ async function processNamespaceImport(
           logger.debug(`Created module alias: ${moduleName} → ${moduleId}`);
         }
       }
-      
+
       // Register in symbol table
       globalSymbolTable.set({
         name: moduleName,
@@ -938,10 +941,14 @@ async function processNamespaceImport(
       if (cachedLines) {
         for (let i = 0; i < cachedLines.length; i++) {
           if (
-            cachedLines[i].includes("import") && cachedLines[i].includes("from") &&
+            cachedLines[i].includes("import") &&
+            cachedLines[i].includes("from") &&
             cachedLines[i].includes(modulePath)
           ) {
-            line = { line: i + 1, column: cachedLines[i].indexOf("import") + 1 };
+            line = {
+              line: i + 1,
+              column: cachedLines[i].indexOf("import") + 1,
+            };
             break;
           }
         }
@@ -979,7 +986,7 @@ async function processVectorBasedImport(
     }
 
     const modulePath = elements[3].value as string;
-    
+
     let resolvedPath: string;
     let moduleId: string;
 
@@ -1022,15 +1029,18 @@ async function processVectorBasedImport(
     // Register in symbol table for each imported symbol
     for (const [symbolName, aliasName] of requestedSymbols.entries()) {
       const finalName = aliasName || symbolName;
-
-      // Check if this is a system macro
-      const isMacro = env.isSystemMacro(symbolName);
+      const existingSymbolInfo = globalSymbolTable.get(finalName);
+      const isMacro = existingSymbolInfo?.kind === "macro" ||
+        env.hasMacro(finalName) ||
+        env.hasMacro(symbolName);
 
       // Get the actual value from the environment to determine its type
       // Use a try-catch to handle cases where the symbol might not be available yet
       let importedValue;
       try {
-        importedValue = env.lookup(symbolName);
+        importedValue = isMacro
+          ? env.getMacro(finalName) ?? env.getMacro(symbolName)
+          : env.lookup(symbolName);
       } catch (_e) {
         // If symbol is not found, we'll proceed with minimal type information
         logger.debug(
@@ -1191,11 +1201,21 @@ function importSymbols(
       const moduleExports = env.moduleExports.get(tempModuleName);
       const exportedValue = moduleExports?.[symbolName];
 
-      logger.debug(`importSymbols: checking ${symbolName} in ${tempModuleName}`);
+      logger.debug(
+        `importSymbols: checking ${symbolName} in ${tempModuleName}`,
+      );
       logger.debug(`  moduleExports exists: ${moduleExports !== undefined}`);
-      logger.debug(`  moduleExports keys: ${moduleExports ? Object.keys(moduleExports).join(', ') : 'none'}`);
+      logger.debug(
+        `  moduleExports keys: ${
+          moduleExports ? Object.keys(moduleExports).join(", ") : "none"
+        }`,
+      );
       logger.debug(`  exportedValue: ${exportedValue}`);
-      logger.debug(`  isMacroFunction: ${exportedValue ? isMacroFunction(exportedValue) : 'N/A'}`);
+      logger.debug(
+        `  isMacroFunction: ${
+          exportedValue ? isMacroFunction(exportedValue) : "N/A"
+        }`,
+      );
 
       if (exportedValue && isMacroFunction(exportedValue)) {
         // This is a user-defined macro - import it properly
@@ -1212,7 +1232,11 @@ function importSymbols(
           throw new ImportError(
             `Macro '${symbolName}' is not exported from '${modulePath}'`,
             symbolName,
-            { filePath: currentFile, line: lineInfo?.line, column: lineInfo?.column },
+            {
+              filePath: currentFile,
+              line: lineInfo?.line,
+              column: lineInfo?.column,
+            },
           );
         }
 
@@ -1226,10 +1250,6 @@ function importSymbols(
             env.macros.set(sanitizedAlias, exportedValue as MacroFn);
           }
         }
-
-        // Register in global macro registry for transpilation filtering
-        globalMacroRegistry.add(macroName);
-        globalMacroRegistry.add(sanitizeIdentifier(macroName)); // Also add sanitized version
 
         // Register in symbol table as a macro
         globalSymbolTable.set({
@@ -1274,6 +1294,13 @@ function importSymbols(
       try {
         const value = env.lookup(moduleLookupKey);
         env.define(aliasName || symbolName, value);
+        env.recordImportedBinding(aliasName || symbolName, {
+          kind: "module",
+          exportName: symbolName,
+          modulePath,
+          originalName: aliasName || symbolName,
+          importedFrom: modulePath,
+        });
         logger.debug(
           `Imported symbol: ${symbolName}${
             aliasName ? ` as ${aliasName}` : ""
@@ -1530,7 +1557,7 @@ async function loadHqlModule(
             `Circular import involving macro '${name}' detected.\n` +
               `File: ${resolvedPath}\n` +
               `Macros cannot be used in circular imports because they need to be expanded at compile-time.\n` +
-              `Please restructure your code to avoid circular dependencies with macros.`
+              `Please restructure your code to avoid circular dependencies with macros.`,
           );
         }
       }
@@ -1572,7 +1599,8 @@ async function loadHqlModule(
 
     // Check embedded packages (uses module-level cached lookup) and embedded macros
     // (static imports replace previous per-call dynamic imports)
-    const embeddedPkgContent = embeddedPackageLookup.getBySpecifierOrPath(modulePath) ||
+    const embeddedPkgContent =
+      embeddedPackageLookup.getBySpecifierOrPath(modulePath) ||
       embeddedPackageLookup.getBySpecifierOrPath(resolvedPath);
     if (embeddedPkgContent) {
       fileContent = embeddedPkgContent;
@@ -1710,9 +1738,7 @@ async function loadTypeScriptModule(
     );
   } catch (e) {
     throw new ImportError(
-      `Importing TypeScript module ${moduleName}: ${
-        getErrorMessage(e)
-      }`,
+      `Importing TypeScript module ${moduleName}: ${getErrorMessage(e)}`,
       modulePath,
     );
   }
@@ -1759,9 +1785,7 @@ async function loadJavaScriptModule(
     logger.debug(`Imported JS module: ${moduleName} from ${finalModuleUrl}`);
   } catch (error) {
     throw new ImportError(
-      `Importing JS module ${moduleName}: ${
-        getErrorMessage(error)
-      }`,
+      `Importing JS module ${moduleName}: ${getErrorMessage(error)}`,
       modulePath,
     );
   }
@@ -1799,9 +1823,7 @@ async function transpileTypeScriptToJavaScript(
     logger.debug(`Transpiled ${tsPath} to ${jsPath}`);
   } catch (error) {
     throw new RuntimeError(
-      `Failed to transpile TypeScript: ${
-        getErrorMessage(error)
-      }`
+      `Failed to transpile TypeScript: ${getErrorMessage(error)}`,
     );
   }
 }
@@ -1842,7 +1864,6 @@ async function tryImportSources(
     throw error;
   }
 }
-
 
 /**
  * Process file definitions (let, fn, macro) for variables, functions and macros
@@ -1944,17 +1965,21 @@ function processFileExportsAndDefinitions(
         // Check if this is a macro and export it directly
         if (env.hasMacro(name)) {
           const macroFn = env.getMacro(name);
-          logger.debug(`processFileExportsAndDefinitions: macroFn for ${name} is ${macroFn ? 'defined' : 'undefined'}`);
+          logger.debug(
+            `processFileExportsAndDefinitions: macroFn for ${name} is ${
+              macroFn ? "defined" : "undefined"
+            }`,
+          );
           if (macroFn) {
             moduleExports[name] = macroFn;
-            logger.debug(`processFileExportsAndDefinitions: added ${name} to moduleExports, keys now: ${Object.keys(moduleExports).join(', ')}`);
+            logger.debug(
+              `processFileExportsAndDefinitions: added ${name} to moduleExports, keys now: ${
+                Object.keys(moduleExports).join(", ")
+              }`,
+            );
 
             // Mark this macro as exported from the current file
             env.markMacroExported(name);
-
-            // Register in global macro registry
-            globalMacroRegistry.add(name);
-            globalMacroRegistry.add(sanitizeIdentifier(name));
 
             logger.debug(`Added macro export: "${name}"`);
             continue;

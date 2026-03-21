@@ -6,6 +6,7 @@ import {
   isList,
   isSymbol,
   isVector,
+  type ResolvedBindingMeta,
   type SExp,
   type SList,
 } from "./s-exp/types.ts";
@@ -23,11 +24,20 @@ import {
   createBasicSymbolInfo,
   enrichSymbolInfoWithValueType,
 } from "./transpiler/utils/symbol_info_utils.ts";
-import { registerBuiltins, registerMacro } from "./transpiler/utils/symbol-registry.ts";
+import {
+  registerBuiltins,
+  registerMacro,
+} from "./transpiler/utils/symbol-registry.ts";
 import { STDLIB_PUBLIC_API } from "./lib/stdlib/js/stdlib.js";
 import { gensym } from "./gensym.ts";
 import { isEmbeddedFile } from "./lib/embedded-macros.ts";
-import { getErrorMessage, hyphenToUnderscore, isObjectValue, addWithSanitized, isNullish } from "../common/utils.ts";
+import {
+  addWithSanitized,
+  getErrorMessage,
+  hyphenToUnderscore,
+  isNullish,
+  isObjectValue,
+} from "../common/utils.ts";
 
 type CallableValue = (...args: unknown[]) => unknown;
 
@@ -42,11 +52,13 @@ export type Value =
   | Record<string, unknown>
   | unknown[];
 
-export type MacroFn = ((args: SExp[], env: Environment, originalForm?: SList) => SExp) & {
-  isMacro?: boolean;
-  macroName?: string;
-  sourceFile?: string;
-};
+export type MacroFn =
+  & ((args: SExp[], env: Environment, originalForm?: SList) => SExp)
+  & {
+    isMacro?: boolean;
+    macroName?: string;
+    sourceFile?: string;
+  };
 
 export interface ResolvedMacro {
   macro: MacroFn;
@@ -73,7 +85,7 @@ export class Environment {
   private lookupCache = new LRUCache<string, Value>(500);
   private macroRegistry: MacroRegistry;
   private currentFilePath: string | null = null;
-  
+
   private variableVersion = 0;
   public logger: Logger;
 
@@ -86,6 +98,9 @@ export class Environment {
   // Track which macros have been imported into the current file: macroName -> true
   // Bounded (5000 macros max) - wrapped as LRU with boolean values
   private importedMacros = new LRUCache<string, true>(5000);
+  // Track imported value bindings in the current environment chain so macro hygiene
+  // can resolve introduced symbols to their actual source module.
+  private importedBindings = new LRUCache<string, ResolvedBindingMeta>(5000);
 
   /**
    * Create a standard environment with built-ins loaded.
@@ -117,6 +132,9 @@ export class Environment {
     }
     for (const [file, macros] of this.exportedMacros) {
       cloned.exportedMacros.set(file, new Set(macros));
+    }
+    for (const [name, binding] of this.importedBindings) {
+      cloned.importedBindings.set(name, { ...binding });
     }
 
     // Share the macro registry (contains parsed macro definitions)
@@ -180,12 +198,14 @@ export class Environment {
       const isVectorSymbol = (val: unknown): boolean => {
         if (!val || typeof val !== "object") return false;
         const obj = val as { type?: string; name?: string };
-        return obj.type === "symbol" && (obj.name === "vector" || obj.name === "empty-array");
+        return obj.type === "symbol" &&
+          (obj.name === "vector" || obj.name === "empty-array");
       };
 
       // Helper to check if collection is a JS Array representing vector syntax
       const isJSArrayVector = (coll: unknown): coll is unknown[] => {
-        return Array.isArray(coll) && coll.length > 0 && isVectorSymbol(coll[0]);
+        return Array.isArray(coll) && coll.length > 0 &&
+          isVectorSymbol(coll[0]);
       };
 
       this.define(
@@ -327,7 +347,9 @@ export class Environment {
         // 1. Handle Vector as S-Expression Object
         if (isSExpValue(coll) && isVector(coll)) {
           const list = coll as unknown as { elements: SExp[] };
-          return list.elements.length > 1 ? list.elements[1] : createNilLiteral();
+          return list.elements.length > 1
+            ? list.elements[1]
+            : createNilLiteral();
         }
 
         // 2. Handle Vector as JS Array (Internal Parser Representation)
@@ -369,12 +391,16 @@ export class Environment {
         // Handle JS arrays - check for vector syntax first
         if (isJSArrayVector(coll)) {
           // [vector, x, y, z] -> rest is [y, z] (indices 2+)
-          return coll.length > 2 ? createList(...(coll.slice(2) as SExp[])) : createList();
+          return coll.length > 2
+            ? createList(...(coll.slice(2) as SExp[]))
+            : createList();
         }
 
         // Handle regular JS arrays - convert to S-expression list
         if (Array.isArray(coll)) {
-          return coll.length > 0 ? createList(...(coll.slice(1) as SExp[])) : createList();
+          return coll.length > 0
+            ? createList(...(coll.slice(1) as SExp[]))
+            : createList();
         }
         return createList();
       });
@@ -512,11 +538,29 @@ export class Environment {
   private registerBuiltinsInSymbolTable(): void {
     // Use consolidated symbol-registry helper
     registerBuiltins([
-      "+", "-", "*", "/", "%",
-      "=", "!=", "<", ">", "<=", ">=",
-      "get", "js-get", "js-call", "throw",
-      "list?", "symbol?", "name",
-      "%first", "%rest", "%length", "%empty?", "%nth",
+      "+",
+      "-",
+      "*",
+      "/",
+      "%",
+      "=",
+      "!=",
+      "<",
+      ">",
+      "<=",
+      ">=",
+      "get",
+      "js-get",
+      "js-call",
+      "throw",
+      "list?",
+      "symbol?",
+      "name",
+      "%first",
+      "%rest",
+      "%length",
+      "%empty?",
+      "%nth",
     ]);
   }
 
@@ -801,21 +845,28 @@ export class Environment {
       }
     } catch (error) {
       this.logger.warn(
-        `Could not tag macro function ${name}: ${
-          getErrorMessage(error)
-        }`,
+        `Could not tag macro function ${name}: ${getErrorMessage(error)}`,
       );
     }
   }
 
-  defineMacro(key: string, macro: MacroFn, isSystemMacro: boolean = false): void {
+  defineMacro(
+    key: string,
+    macro: MacroFn,
+    isSystemMacro: boolean = false,
+  ): void {
     try {
       const sourceFile = this.currentFilePath;
 
       // Auto-detect system macros from embedded macro files
-      const isSystem = isSystemMacro || !sourceFile || isEmbeddedFile(sourceFile);
+      const isSystem = isSystemMacro || !sourceFile ||
+        isEmbeddedFile(sourceFile);
 
-      this.logger.debug(`Defining macro: ${key} (system: ${isSystem}, file: ${sourceFile || "none"})`);
+      this.logger.debug(
+        `Defining macro: ${key} (system: ${isSystem}, file: ${
+          sourceFile || "none"
+        })`,
+      );
       this.tagMacroFunction(macro, key);
 
       if (isSystem) {
@@ -854,7 +905,9 @@ export class Environment {
   markMacroExported(macroName: string): void {
     const sourceFile = this.currentFilePath;
     if (!sourceFile) {
-      this.logger.debug(`Cannot mark macro ${macroName} as exported: no current file`);
+      this.logger.debug(
+        `Cannot mark macro ${macroName} as exported: no current file`,
+      );
       return;
     }
 
@@ -865,7 +918,9 @@ export class Environment {
     }
     addWithSanitized(exports, macroName);
 
-    this.logger.debug(`Marked macro ${macroName} as exported from ${sourceFile}`);
+    this.logger.debug(
+      `Marked macro ${macroName} as exported from ${sourceFile}`,
+    );
   }
 
   /**
@@ -894,10 +949,12 @@ export class Environment {
       // We check if the requested sourceFile is a suffix of a known exported file or vice versa
       // matching at least the filename and parent directory for safety
       // Cache the filename extraction to avoid redundant .split() calls
-      const sourceFileName = sourceFile.split('/').pop();
+      const sourceFileName = sourceFile.split("/").pop();
       for (const [path, exportSet] of this.exportedMacros.entries()) {
-        if ((path.endsWith(sourceFile) || sourceFile.endsWith(path)) &&
-            path.split('/').pop() === sourceFileName) {
+        if (
+          (path.endsWith(sourceFile) || sourceFile.endsWith(path)) &&
+          path.split("/").pop() === sourceFileName
+        ) {
           exports = exportSet;
           break;
         }
@@ -909,7 +966,7 @@ export class Environment {
       const sanitizedName = hyphenToUnderscore(macroName);
       if (!exports?.has(sanitizedName)) {
         this.logger.debug(
-          `Cannot import macro ${macroName}: not exported from ${sourceFile}`
+          `Cannot import macro ${macroName}: not exported from ${sourceFile}`,
         );
         return false;
       }
@@ -1097,9 +1154,7 @@ export class Environment {
       this.currentFilePath = filePath;
     } catch (error) {
       this.logger.warn(
-        `Error setting current file: ${
-          getErrorMessage(error)
-        }`,
+        `Error setting current file: ${getErrorMessage(error)}`,
       );
     }
   }
@@ -1128,7 +1183,30 @@ export class Environment {
     return [...this.importedMacros.keys()].sort();
   }
 
-  
+  recordImportedBinding(localName: string, binding: ResolvedBindingMeta): void {
+    this.importedBindings.set(localName, { ...binding });
+    const sanitizedName = hyphenToUnderscore(localName);
+    if (sanitizedName !== localName) {
+      this.importedBindings.set(sanitizedName, { ...binding });
+    }
+  }
+
+  lookupImportedBinding(localName: string): ResolvedBindingMeta | undefined {
+    const binding = this.importedBindings.get(localName);
+    if (binding) {
+      return { ...binding };
+    }
+
+    const sanitizedName = hyphenToUnderscore(localName);
+    if (sanitizedName !== localName) {
+      const sanitizedBinding = this.importedBindings.get(sanitizedName);
+      if (sanitizedBinding) {
+        return { ...sanitizedBinding };
+      }
+    }
+
+    return this.parent?.lookupImportedBinding(localName);
+  }
 
   extend(): Environment {
     return new Environment(this, this.logger);

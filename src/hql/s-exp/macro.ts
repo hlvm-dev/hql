@@ -1,6 +1,10 @@
 // src/hql/s-exp/macro.ts - Refactored to remove user-level macro support
 
 import {
+  addResolvedBindings,
+  attachResolvedBindingMeta,
+  cloneResolvedBindingMap,
+  cloneResolvedBindingMeta,
   createList,
   createListFrom,
   createLiteral,
@@ -47,6 +51,10 @@ import {
   MAX_SEQ_LENGTH,
 } from "../../common/limits.ts";
 import { globalSymbolTable } from "../transpiler/symbol_table.ts";
+import {
+  hasArrayLiteralPrefix,
+  hasHashMapPrefix,
+} from "../../common/sexp-utils.ts";
 
 // Lazy singleton interpreter for macro-time evaluation
 let macroInterpreter: Interpreter | null = null;
@@ -228,7 +236,9 @@ function bridgeToInterpreterEnv(compilerEnv: Environment): InterpreterEnv {
 
   if (cached && cached.fingerprint === fingerprint) {
     // Return a child scope of the cached bridge for isolation
-    return cached.env.extend();
+    const childEnv = cached.env.extend() as MacroAwareInterpreterEnv;
+    attachMacroBridge(childEnv, compilerEnv);
+    return childEnv;
   }
 
   // Use persistent env as base to preserve user-defined functions across macro expansions
@@ -263,16 +273,37 @@ function bridgeToInterpreterEnv(compilerEnv: Environment): InterpreterEnv {
     }
   }
 
+  attachMacroBridge(interpEnv as MacroAwareInterpreterEnv, compilerEnv);
+
   // Cache for reuse within this macro expansion
   _bridgeCache.set(compilerEnv, { env: interpEnv, fingerprint });
 
   return interpEnv;
 }
 
+function attachMacroBridge(
+  interpEnv: MacroAwareInterpreterEnv,
+  compilerEnv: Environment,
+): void {
+  interpEnv.hasMacro = (name: string) => compilerEnv.hasMacro(name);
+  interpEnv.getMacro = (name: string) => compilerEnv.getMacro(name);
+  interpEnv.getMacroExpansionEnv = () => compilerEnv;
+}
+
 // Auto-gensym: Map from "foo#" to generated symbol within a quasiquote
 type AutoGensymMap = Map<string, SSymbol>;
 
 type TemplateQuoteKind = "quasiquote" | "syntax-quote";
+
+interface MacroAwareInterpreterEnv extends InterpreterEnv {
+  hasMacro?(name: string): boolean;
+  getMacro?(
+    name: string,
+  ):
+    | ((args: SExp[], env: Environment, originalForm?: SList) => SExp)
+    | undefined;
+  getMacroExpansionEnv?(): Environment;
+}
 
 type MacroBindingTarget =
   | { kind: "identifier"; name: string }
@@ -285,14 +316,11 @@ interface MacroParamSpec {
   wantsEnv: boolean;
 }
 
-const macroLocalBindings = new WeakMap<Environment, Map<string, ResolvedBindingMeta>>();
+const macroLocalBindings = new WeakMap<
+  Environment,
+  Map<string, ResolvedBindingMeta>
+>();
 let macroLexicalBindingCounter = 0;
-
-function cloneResolvedBindingMeta(
-  binding: ResolvedBindingMeta,
-): ResolvedBindingMeta {
-  return { ...binding };
-}
 
 function getOrCreateMacroLocalBindings(
   env: Environment,
@@ -330,14 +358,19 @@ function registerMacroLocalBinding(
   env: Environment,
   name: string,
 ): ResolvedBindingMeta {
-  const bindings = getOrCreateMacroLocalBindings(env);
-  const binding: ResolvedBindingMeta = {
+  const binding = createMacroLocalBindingMeta(name);
+  getOrCreateMacroLocalBindings(env).set(name, binding);
+  return binding;
+}
+
+function createMacroLocalBindingMeta(
+  name: string,
+): ResolvedBindingMeta {
+  return {
     kind: "local",
     exportName: name,
     lexicalId: `macro-local-${++macroLexicalBindingCounter}`,
   };
-  bindings.set(name, binding);
-  return binding;
 }
 
 function lookupMacroLocalBinding(
@@ -406,24 +439,15 @@ function getEffectiveCurrentFile(env: Environment): string {
   return "";
 }
 
-function attachResolvedBinding(
-  symbol: SSymbol,
-  binding: ResolvedBindingMeta,
-): SSymbol {
-  const meta = getMeta(symbol);
-  return {
-    ...symbol,
-    _meta: {
-      ...(meta ? { ...meta } : {}),
-      resolvedBinding: cloneResolvedBindingMeta(binding),
-    },
-  };
-}
-
 function resolveNonLocalBinding(
   symbol: SSymbol,
   env: Environment,
-): ResolvedBindingMeta {
+): ResolvedBindingMeta | undefined {
+  const importedBinding = env.lookupImportedBinding(symbol.name);
+  if (importedBinding) {
+    return importedBinding;
+  }
+
   const symbolInfo = globalSymbolTable.get(symbol.name);
   const currentFile = getEffectiveCurrentFile(env);
 
@@ -457,12 +481,14 @@ function resolveNonLocalBinding(
     // Leave unresolved names anchored to the current module below.
   }
 
-  return {
-    kind: "module",
-    exportName: symbol.name,
-    modulePath: currentFile || "<unknown-module>",
-    originalName: symbol.name,
-  };
+  return currentFile && symbolInfo?.sourceModule === currentFile
+    ? {
+      kind: "module",
+      exportName: symbol.name,
+      modulePath: currentFile,
+      originalName: symbol.name,
+    }
+    : undefined;
 }
 
 function resolveSyntaxQuotedSymbol(
@@ -471,10 +497,945 @@ function resolveSyntaxQuotedSymbol(
 ): SSymbol {
   const localBinding = lookupMacroLocalBinding(env, symbol.name);
   if (localBinding) {
-    return attachResolvedBinding(symbol, localBinding);
+    return attachResolvedBindingMeta(symbol, localBinding);
   }
 
-  return attachResolvedBinding(symbol, resolveNonLocalBinding(symbol, env));
+  const resolvedBinding = resolveNonLocalBinding(symbol, env);
+  return resolvedBinding
+    ? attachResolvedBindingMeta(symbol, resolvedBinding)
+    : symbol;
+}
+
+function processTemplateListContextElements(
+  elements: SExp[],
+  depth: number,
+  env: Environment,
+  logger: Logger,
+  quoteKind: TemplateQuoteKind,
+  autoGensymMap: AutoGensymMap,
+  templateBindings: Map<string, ResolvedBindingMeta>,
+): SExp[] {
+  const processedElements: SExp[] = [];
+
+  for (const element of elements) {
+    if (depth === 0 && isForm(element, "unquote-splicing")) {
+      const spliceList = element as SList;
+      if (spliceList.elements.length !== 2) {
+        throw new MacroError(
+          "unquote-splicing requires exactly one argument",
+          "unquote-splicing",
+        );
+      }
+
+      const spliced = evaluateForMacro(spliceList.elements[1], env, logger);
+      if (isList(spliced)) {
+        processedElements.push(
+          ...(isVector(spliced) ? spliced.elements.slice(1) : spliced.elements),
+        );
+      } else if (isRestParameterSplice(spliced)) {
+        processedElements.push(...spliced.elements);
+      } else {
+        logger.warn(
+          `unquote-splicing received a non-list value: ${
+            sexpToString(spliced)
+          }`,
+        );
+        processedElements.push(spliced);
+      }
+      continue;
+    }
+
+    processedElements.push(
+      processTemplateExpr(
+        element,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        templateBindings,
+      ),
+    );
+  }
+
+  return processedElements;
+}
+
+interface TemplateBindingTargetResult {
+  expr: SExp;
+  bindings: ResolvedBindingMeta[];
+}
+
+function processTemplateBindingTarget(
+  target: SExp,
+  depth: number,
+  env: Environment,
+  logger: Logger,
+  quoteKind: TemplateQuoteKind,
+  autoGensymMap: AutoGensymMap,
+  templateBindings: Map<string, ResolvedBindingMeta>,
+): TemplateBindingTargetResult {
+  const processedTarget = processTemplateExpr(
+    target,
+    depth,
+    env,
+    logger,
+    quoteKind,
+    autoGensymMap,
+    templateBindings,
+  );
+  return annotateTemplateBindingTarget(processedTarget);
+}
+
+function annotateTemplateBindingTarget(
+  target: SExp,
+): TemplateBindingTargetResult {
+  if (isSymbol(target)) {
+    if (target.name === "_") {
+      return { expr: target, bindings: [] };
+    }
+
+    const binding = createMacroLocalBindingMeta(target.name);
+    return {
+      expr: attachResolvedBindingMeta(target, binding),
+      bindings: [binding],
+    };
+  }
+
+  if (!isList(target)) {
+    return { expr: target, bindings: [] };
+  }
+
+  const list = target as SList;
+
+  if (hasHashMapPrefix(list)) {
+    const processedElements: SExp[] = [list.elements[0]];
+    const bindings: ResolvedBindingMeta[] = [];
+
+    for (let i = 1; i < list.elements.length; i += 2) {
+      const keyNode = list.elements[i];
+      const valueNode = list.elements[i + 1];
+
+      if (!keyNode) {
+        continue;
+      }
+
+      if (isSymbol(keyNode) && keyNode.name === "&") {
+        processedElements.push(keyNode);
+        if (valueNode && isSymbol(valueNode) && valueNode.name !== "_") {
+          const binding = createMacroLocalBindingMeta(valueNode.name);
+          processedElements.push(attachResolvedBindingMeta(valueNode, binding));
+          bindings.push(binding);
+        } else if (valueNode) {
+          processedElements.push(valueNode);
+        }
+        break;
+      }
+
+      processedElements.push(keyNode);
+
+      if (!valueNode) {
+        continue;
+      }
+
+      const annotatedValue = annotateTemplateBindingTarget(valueNode);
+      processedElements.push(annotatedValue.expr);
+      bindings.push(...annotatedValue.bindings);
+    }
+
+    return {
+      expr: createListFrom(list, processedElements),
+      bindings,
+    };
+  }
+
+  const rawElements = hasArrayLiteralPrefix(list)
+    ? list.elements.slice(1)
+    : list.elements;
+  const processedElements: SExp[] = hasArrayLiteralPrefix(list)
+    ? [list.elements[0]]
+    : [];
+  const bindings: ResolvedBindingMeta[] = [];
+
+  for (let i = 0; i < rawElements.length; i++) {
+    const element = rawElements[i];
+
+    if (isSymbol(element) && element.name === "&") {
+      processedElements.push(element);
+      const restTarget = rawElements[i + 1];
+      if (restTarget && isSymbol(restTarget) && restTarget.name !== "_") {
+        const binding = createMacroLocalBindingMeta(restTarget.name);
+        processedElements.push(attachResolvedBindingMeta(restTarget, binding));
+        bindings.push(binding);
+      } else if (restTarget) {
+        processedElements.push(restTarget);
+      }
+      i += 1;
+      continue;
+    }
+
+    if (
+      isList(element) &&
+      (couldBePattern(element) || hasArrayLiteralPrefix(element) ||
+        hasHashMapPrefix(element))
+    ) {
+      const annotated = annotateTemplateBindingTarget(element);
+      processedElements.push(annotated.expr);
+      bindings.push(...annotated.bindings);
+      continue;
+    }
+
+    if (isSymbol(element) && element.name !== "_") {
+      const binding = createMacroLocalBindingMeta(element.name);
+      processedElements.push(attachResolvedBindingMeta(element, binding));
+      bindings.push(binding);
+      continue;
+    }
+
+    processedElements.push(element);
+  }
+
+  return {
+    expr: createListFrom(list, processedElements),
+    bindings,
+  };
+}
+
+function processSyntaxQuotedBindingForm(
+  list: SList,
+  depth: number,
+  env: Environment,
+  logger: Logger,
+  quoteKind: TemplateQuoteKind,
+  autoGensymMap: AutoGensymMap,
+  templateBindings: Map<string, ResolvedBindingMeta>,
+): SExp {
+  const processedHead = processTemplateExpr(
+    list.elements[0],
+    depth,
+    env,
+    logger,
+    quoteKind,
+    autoGensymMap,
+    templateBindings,
+  );
+
+  if (list.elements.length < 2) {
+    return createListFrom(list, [processedHead]);
+  }
+
+  const bindingTarget = list.elements[1];
+  const scopeBindings = cloneResolvedBindingMap(templateBindings);
+
+  if (isSymbol(bindingTarget)) {
+    const processedValue = list.elements.length > 2
+      ? processTemplateExpr(
+        list.elements[2],
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        scopeBindings,
+      )
+      : createNilLiteral();
+
+    const annotatedTarget = bindingTarget.name === "_"
+      ? { expr: bindingTarget as SExp, bindings: [] }
+      : processTemplateBindingTarget(
+        bindingTarget,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        templateBindings,
+      );
+    addResolvedBindings(scopeBindings, annotatedTarget.bindings);
+
+    const processedElements: SExp[] = [
+      processedHead,
+      annotatedTarget.expr,
+      processedValue,
+    ];
+    processedElements.push(
+      ...processTemplateListContextElements(
+        list.elements.slice(3),
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        scopeBindings,
+      ),
+    );
+
+    return createListFrom(list, processedElements);
+  }
+
+  if (!isList(bindingTarget)) {
+    return createListFrom(list, [
+      processedHead,
+      processTemplateExpr(
+        bindingTarget,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        templateBindings,
+      ),
+      ...processTemplateListContextElements(
+        list.elements.slice(2),
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        templateBindings,
+      ),
+    ]);
+  }
+
+  const bindingList = bindingTarget as SList;
+  const rawBindingElements = hasArrayLiteralPrefix(bindingList)
+    ? bindingList.elements.slice(1)
+    : bindingList.elements;
+  const processedBindingElements: SExp[] = hasArrayLiteralPrefix(bindingList)
+    ? [bindingList.elements[0]]
+    : [];
+
+  for (let i = 0; i < rawBindingElements.length; i += 2) {
+    const target = rawBindingElements[i];
+    const value = rawBindingElements[i + 1];
+
+    if (!target) {
+      continue;
+    }
+
+    const annotatedTarget = processTemplateBindingTarget(
+      target,
+      depth,
+      env,
+      logger,
+      quoteKind,
+      autoGensymMap,
+      scopeBindings,
+    );
+    processedBindingElements.push(annotatedTarget.expr);
+
+    if (value) {
+      processedBindingElements.push(
+        processTemplateExpr(
+          value,
+          depth,
+          env,
+          logger,
+          quoteKind,
+          autoGensymMap,
+          scopeBindings,
+        ),
+      );
+    }
+
+    addResolvedBindings(scopeBindings, annotatedTarget.bindings);
+  }
+
+  const processedElements: SExp[] = [
+    processedHead,
+    createListFrom(bindingList, processedBindingElements),
+  ];
+  processedElements.push(
+    ...processTemplateListContextElements(
+      list.elements.slice(2),
+      depth,
+      env,
+      logger,
+      quoteKind,
+      autoGensymMap,
+      scopeBindings,
+    ),
+  );
+
+  return createListFrom(list, processedElements);
+}
+
+function processSyntaxQuotedFunctionForm(
+  list: SList,
+  depth: number,
+  env: Environment,
+  logger: Logger,
+  quoteKind: TemplateQuoteKind,
+  autoGensymMap: AutoGensymMap,
+  templateBindings: Map<string, ResolvedBindingMeta>,
+): SExp {
+  const processedHead = processTemplateExpr(
+    list.elements[0],
+    depth,
+    env,
+    logger,
+    quoteKind,
+    autoGensymMap,
+    templateBindings,
+  );
+  const scopeBindings = cloneResolvedBindingMap(templateBindings);
+  const processedElements: SExp[] = [processedHead];
+
+  let paramIndex = 1;
+
+  if (
+    list.elements.length > 1 && isSymbol(list.elements[1]) &&
+    list.elements.length > 2 && isList(list.elements[2])
+  ) {
+    const annotatedName = processTemplateBindingTarget(
+      list.elements[1],
+      depth,
+      env,
+      logger,
+      quoteKind,
+      autoGensymMap,
+      scopeBindings,
+    );
+    processedElements.push(annotatedName.expr);
+    addResolvedBindings(scopeBindings, annotatedName.bindings);
+    paramIndex = 2;
+  }
+
+  if (
+    list.elements.length <= paramIndex || !isList(list.elements[paramIndex])
+  ) {
+    return createListFrom(list, [
+      ...processedElements,
+      ...list.elements.slice(paramIndex).map((element) =>
+        processTemplateExpr(
+          element,
+          depth,
+          env,
+          logger,
+          quoteKind,
+          autoGensymMap,
+          templateBindings,
+        )
+      ),
+    ]);
+  }
+
+  if (looksLikeMultiAritySyntaxQuotedFunction(list, paramIndex)) {
+    for (let i = paramIndex; i < list.elements.length; i++) {
+      processedElements.push(
+        processSyntaxQuotedFunctionClause(
+          list.elements[i] as SList,
+          depth,
+          env,
+          logger,
+          quoteKind,
+          autoGensymMap,
+          scopeBindings,
+        ),
+      );
+    }
+    return createListFrom(list, processedElements);
+  }
+
+  const paramList = list.elements[paramIndex] as SList;
+  const rawParams = hasArrayLiteralPrefix(paramList)
+    ? paramList.elements.slice(1)
+    : paramList.elements;
+  const processedParams: SExp[] = hasArrayLiteralPrefix(paramList)
+    ? [paramList.elements[0]]
+    : [];
+
+  for (let i = 0; i < rawParams.length; i++) {
+    const param = rawParams[i];
+
+    if (isSymbol(param) && param.name === "&") {
+      processedParams.push(param);
+      const restParam = rawParams[i + 1];
+      if (restParam) {
+        const annotatedRest = processTemplateBindingTarget(
+          restParam,
+          depth,
+          env,
+          logger,
+          quoteKind,
+          autoGensymMap,
+          scopeBindings,
+        );
+        processedParams.push(annotatedRest.expr);
+        addResolvedBindings(scopeBindings, annotatedRest.bindings);
+      }
+      i += 1;
+      continue;
+    }
+
+    if (isSymbol(param) && param.name.startsWith("...")) {
+      const annotatedRest = processTemplateBindingTarget(
+        param,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        scopeBindings,
+      );
+      processedParams.push(annotatedRest.expr);
+      addResolvedBindings(scopeBindings, annotatedRest.bindings);
+      continue;
+    }
+
+    if (
+      isList(param) &&
+      (couldBePattern(param) || hasArrayLiteralPrefix(param) ||
+        hasHashMapPrefix(param))
+    ) {
+      const annotatedPattern = processTemplateBindingTarget(
+        param,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        scopeBindings,
+      );
+      processedParams.push(annotatedPattern.expr);
+      addResolvedBindings(scopeBindings, annotatedPattern.bindings);
+      continue;
+    }
+
+    if (isSymbol(param)) {
+      const annotatedParam = processTemplateBindingTarget(
+        param,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        scopeBindings,
+      );
+      processedParams.push(annotatedParam.expr);
+      addResolvedBindings(scopeBindings, annotatedParam.bindings);
+      continue;
+    }
+
+    processedParams.push(param);
+  }
+
+  processedElements.push(createListFrom(paramList, processedParams));
+  processedElements.push(
+    ...processTemplateListContextElements(
+      list.elements.slice(paramIndex + 1),
+      depth,
+      env,
+      logger,
+      quoteKind,
+      autoGensymMap,
+      scopeBindings,
+    ),
+  );
+
+  return createListFrom(list, processedElements);
+}
+
+function processSyntaxQuotedFunctionClause(
+  clause: SList,
+  depth: number,
+  env: Environment,
+  logger: Logger,
+  quoteKind: TemplateQuoteKind,
+  autoGensymMap: AutoGensymMap,
+  baseScopeBindings: Map<string, ResolvedBindingMeta>,
+): SExp {
+  if (clause.elements.length === 0 || !isList(clause.elements[0])) {
+    return processTemplateExpr(
+      clause,
+      depth,
+      env,
+      logger,
+      quoteKind,
+      autoGensymMap,
+      baseScopeBindings,
+    );
+  }
+
+  const scopeBindings = cloneResolvedBindingMap(baseScopeBindings);
+  const paramList = clause.elements[0] as SList;
+  const rawParams = hasArrayLiteralPrefix(paramList)
+    ? paramList.elements.slice(1)
+    : paramList.elements;
+  const processedParams: SExp[] = hasArrayLiteralPrefix(paramList)
+    ? [paramList.elements[0]]
+    : [];
+
+  for (let i = 0; i < rawParams.length; i++) {
+    const param = rawParams[i];
+
+    if (isSymbol(param) && param.name === "&") {
+      processedParams.push(param);
+      const restParam = rawParams[i + 1];
+      if (restParam) {
+        const annotatedRest = processTemplateBindingTarget(
+          restParam,
+          depth,
+          env,
+          logger,
+          quoteKind,
+          autoGensymMap,
+          scopeBindings,
+        );
+        processedParams.push(annotatedRest.expr);
+        addResolvedBindings(scopeBindings, annotatedRest.bindings);
+      }
+      i += 1;
+      continue;
+    }
+
+    if (isSymbol(param) && param.name.startsWith("...")) {
+      const annotatedRest = processTemplateBindingTarget(
+        param,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        scopeBindings,
+      );
+      processedParams.push(annotatedRest.expr);
+      addResolvedBindings(scopeBindings, annotatedRest.bindings);
+      continue;
+    }
+
+    if (
+      isList(param) &&
+      (couldBePattern(param) || hasArrayLiteralPrefix(param) ||
+        hasHashMapPrefix(param))
+    ) {
+      const annotatedPattern = processTemplateBindingTarget(
+        param,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        scopeBindings,
+      );
+      processedParams.push(annotatedPattern.expr);
+      addResolvedBindings(scopeBindings, annotatedPattern.bindings);
+      continue;
+    }
+
+    if (isSymbol(param)) {
+      const annotatedParam = processTemplateBindingTarget(
+        param,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        scopeBindings,
+      );
+      processedParams.push(annotatedParam.expr);
+      addResolvedBindings(scopeBindings, annotatedParam.bindings);
+      continue;
+    }
+
+    processedParams.push(param);
+  }
+
+  const processedElements: SExp[] = [
+    createListFrom(paramList, processedParams),
+  ];
+  processedElements.push(
+    ...processTemplateListContextElements(
+      clause.elements.slice(1),
+      depth,
+      env,
+      logger,
+      quoteKind,
+      autoGensymMap,
+      scopeBindings,
+    ),
+  );
+
+  return createListFrom(clause, processedElements);
+}
+
+function looksLikeMultiAritySyntaxQuotedFunction(
+  list: SList,
+  paramIndex: number,
+): boolean {
+  if (list.elements.length <= paramIndex) {
+    return false;
+  }
+
+  return list.elements.slice(paramIndex).every((clause) =>
+    isList(clause) &&
+    clause.elements.length > 0 &&
+    isList(clause.elements[0])
+  );
+}
+
+function processSyntaxQuotedForOfForm(
+  list: SList,
+  depth: number,
+  env: Environment,
+  logger: Logger,
+  quoteKind: TemplateQuoteKind,
+  autoGensymMap: AutoGensymMap,
+  templateBindings: Map<string, ResolvedBindingMeta>,
+): SExp {
+  const processedHead = processTemplateExpr(
+    list.elements[0],
+    depth,
+    env,
+    logger,
+    quoteKind,
+    autoGensymMap,
+    templateBindings,
+  );
+
+  if (list.elements.length < 2 || !isList(list.elements[1])) {
+    return createListFrom(list, [
+      processedHead,
+      ...processTemplateListContextElements(
+        list.elements.slice(1),
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        templateBindings,
+      ),
+    ]);
+  }
+
+  const bindingList = list.elements[1] as SList;
+  const rawElements = hasArrayLiteralPrefix(bindingList)
+    ? bindingList.elements.slice(1)
+    : bindingList.elements;
+  if (rawElements.length < 2) {
+    return createListFrom(list, [
+      processedHead,
+      processTemplateExpr(
+        bindingList,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        templateBindings,
+      ),
+      ...processTemplateListContextElements(
+        list.elements.slice(2),
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        templateBindings,
+      ),
+    ]);
+  }
+
+  const scopeBindings = cloneResolvedBindingMap(templateBindings);
+  const annotatedTarget = processTemplateBindingTarget(
+    rawElements[0],
+    depth,
+    env,
+    logger,
+    quoteKind,
+    autoGensymMap,
+    templateBindings,
+  );
+  addResolvedBindings(scopeBindings, annotatedTarget.bindings);
+
+  const processedBindingElements: SExp[] = hasArrayLiteralPrefix(bindingList)
+    ? [bindingList.elements[0]]
+    : [];
+  processedBindingElements.push(annotatedTarget.expr);
+  processedBindingElements.push(
+    processTemplateExpr(
+      rawElements[1],
+      depth,
+      env,
+      logger,
+      quoteKind,
+      autoGensymMap,
+      templateBindings,
+    ),
+  );
+
+  for (let i = 2; i < rawElements.length; i++) {
+    processedBindingElements.push(
+      processTemplateExpr(
+        rawElements[i],
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        templateBindings,
+      ),
+    );
+  }
+
+  const processedElements: SExp[] = [
+    processedHead,
+    createListFrom(bindingList, processedBindingElements),
+  ];
+  processedElements.push(
+    ...processTemplateListContextElements(
+      list.elements.slice(2),
+      depth,
+      env,
+      logger,
+      quoteKind,
+      autoGensymMap,
+      scopeBindings,
+    ),
+  );
+
+  return createListFrom(list, processedElements);
+}
+
+function processSyntaxQuotedCatchForm(
+  list: SList,
+  depth: number,
+  env: Environment,
+  logger: Logger,
+  quoteKind: TemplateQuoteKind,
+  autoGensymMap: AutoGensymMap,
+  templateBindings: Map<string, ResolvedBindingMeta>,
+): SExp {
+  const processedHead = processTemplateExpr(
+    list.elements[0],
+    depth,
+    env,
+    logger,
+    quoteKind,
+    autoGensymMap,
+    templateBindings,
+  );
+
+  if (list.elements.length < 2) {
+    return createListFrom(list, [processedHead]);
+  }
+
+  const scopeBindings = cloneResolvedBindingMap(templateBindings);
+  const processedElements: SExp[] = [processedHead];
+  const binder = list.elements[1];
+
+  if (isSymbol(binder)) {
+    const annotatedBinder = processTemplateBindingTarget(
+      binder,
+      depth,
+      env,
+      logger,
+      quoteKind,
+      autoGensymMap,
+      templateBindings,
+    );
+    processedElements.push(annotatedBinder.expr);
+    addResolvedBindings(scopeBindings, annotatedBinder.bindings);
+  } else {
+    processedElements.push(
+      processTemplateExpr(
+        binder,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        templateBindings,
+      ),
+    );
+  }
+
+  processedElements.push(
+    ...processTemplateListContextElements(
+      list.elements.slice(2),
+      depth,
+      env,
+      logger,
+      quoteKind,
+      autoGensymMap,
+      scopeBindings,
+    ),
+  );
+
+  return createListFrom(list, processedElements);
+}
+
+function processSyntaxQuotedList(
+  list: SList,
+  depth: number,
+  env: Environment,
+  logger: Logger,
+  quoteKind: TemplateQuoteKind,
+  autoGensymMap: AutoGensymMap,
+  templateBindings: Map<string, ResolvedBindingMeta>,
+): SExp | null {
+  if (
+    depth !== 0 || quoteKind !== "syntax-quote" || list.elements.length === 0
+  ) {
+    return null;
+  }
+
+  const first = list.elements[0];
+  if (!isSymbol(first)) {
+    return null;
+  }
+
+  switch (first.name) {
+    case "let":
+    case "var":
+    case "const":
+    case "loop":
+      return processSyntaxQuotedBindingForm(
+        list,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        templateBindings,
+      );
+    case "fn":
+    case "function":
+    case "defn":
+    case "fx":
+      return processSyntaxQuotedFunctionForm(
+        list,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        templateBindings,
+      );
+    case "for-of":
+    case "for-await-of":
+      return processSyntaxQuotedForOfForm(
+        list,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        templateBindings,
+      );
+    case "catch":
+      return processSyntaxQuotedCatchForm(
+        list,
+        depth,
+        env,
+        logger,
+        quoteKind,
+        autoGensymMap,
+        templateBindings,
+      );
+    default:
+      return null;
+  }
 }
 
 /**
@@ -718,7 +1679,9 @@ function parseMacroBindingTarget(param: SExp): MacroBindingTarget {
   }
 
   throw new MacroError(
-    `Macro parameter must be a symbol or destructuring pattern, got: ${sexpToString(param)}`,
+    `Macro parameter must be a symbol or destructuring pattern, got: ${
+      sexpToString(param)
+    }`,
     "parameter parsing",
     getMeta(param),
   );
@@ -759,7 +1722,9 @@ function processParamList(
     }
 
     if (isSymbol(param) && param.name === "&env") {
-      if (restMode || wantsEnv || sawOrdinaryParam || index > (wantsForm ? 1 : 0)) {
+      if (
+        restMode || wantsEnv || sawOrdinaryParam || index > (wantsForm ? 1 : 0)
+      ) {
         throw new MacroError(
           "&env must appear at the front of the macro parameter list after optional &form",
           "parameter parsing",
@@ -912,7 +1877,8 @@ function bindMacroPattern(
           continue;
         }
 
-        const nextValue = values[position] ?? element.default ?? createNilLiteral();
+        const nextValue = values[position] ?? element.default ??
+          createNilLiteral();
         bindMacroPattern(env, element, nextValue, logger);
         position++;
       }
@@ -939,7 +1905,9 @@ function bindMacroPattern(
       return;
     }
     default:
-      logger.debug(`Unsupported macro pattern type: ${(pattern as Pattern).type}`);
+      logger.debug(
+        `Unsupported macro pattern type: ${(pattern as Pattern).type}`,
+      );
   }
 }
 
@@ -1359,37 +2327,6 @@ function registerNamedFnInMacroEnv(
   }
 }
 
-/**
- * Pre-expand macro calls in a list of arguments.
- * This is used by both evaluateFunctionCall and expandMacroExpression
- * to ensure nested macro calls are expanded before passing to outer operations.
- *
- * DRY: This helper consolidates the pre-expansion pattern used in multiple places.
- *
- * @param args - The arguments to process
- * @param env - The environment for macro lookup
- * @param expandFn - The function to use for expanding macro calls
- * @returns Arguments with nested macro calls expanded
- */
-function preExpandMacroArgs<T>(
-  args: SExp[],
-  env: Environment,
-  expandFn: (arg: SExp) => T,
-): (SExp | T)[] {
-  return args.map((arg) => {
-    if (isList(arg)) {
-      const argList = arg as SList;
-      if (argList.elements.length > 0 && isSymbol(argList.elements[0])) {
-        const argOp = (argList.elements[0] as SSymbol).name;
-        if (env.hasMacro(argOp)) {
-          return expandFn(arg);
-        }
-      }
-    }
-    return arg;
-  });
-}
-
 // Cache special forms from interpreter (canonical source of truth)
 let _specialFormsCache: Set<string> | null = null;
 function getSpecialFormsSet(): Set<string> {
@@ -1425,31 +2362,15 @@ function macroexpandSingleExpr(
     current = expanded;
   }
 
+  if (options.iterationLimit != null) {
+    return current;
+  }
+
   throw new MacroError(
     `Macro expansion reached maximum iterations (${maxIterations}). This likely indicates infinite macro recursion.`,
     "macro-expansion",
     { line: 0, column: 0 },
   );
-}
-
-function expandNestedMacroArgument(
-  arg: SExp,
-  env: Environment,
-): SExp {
-  if (
-    isList(arg) &&
-    arg.elements.length > 0 &&
-    isSymbol(arg.elements[0]) &&
-    env.hasMacro(arg.elements[0].name)
-  ) {
-    return macroexpandSingleExpr(arg, env, {
-      iterationLimit: 1,
-      maxExpandDepth: 0,
-      currentFile: env.getCurrentFile() || undefined,
-    });
-  }
-
-  return arg;
 }
 
 function evaluateMacroPrimitiveCall(
@@ -1474,7 +2395,15 @@ function evaluateMacroPrimitiveCall(
           "%macroexpand-1",
         );
       }
-      return macroexpandSingleExpr(list.elements[1], env, {
+      const expansionTarget = isSymbol(list.elements[1])
+        ? evaluateForMacro(list.elements[1], env, logger)
+        : list.elements[1];
+      const expansionExpr =
+        isSymbol(expansionTarget) || isList(expansionTarget) ||
+          isLiteral(expansionTarget)
+          ? expansionTarget
+          : createLiteral(expansionTarget as string | number | boolean);
+      return macroexpandSingleExpr(expansionExpr, env, {
         iterationLimit: 1,
         maxExpandDepth: 0,
         currentFile: env.getCurrentFile() || undefined,
@@ -1487,7 +2416,15 @@ function evaluateMacroPrimitiveCall(
           "%macroexpand-all",
         );
       }
-      return macroexpandSingleExpr(list.elements[1], env, {
+      const expansionTarget = isSymbol(list.elements[1])
+        ? evaluateForMacro(list.elements[1], env, logger)
+        : list.elements[1];
+      const expansionExpr =
+        isSymbol(expansionTarget) || isList(expansionTarget) ||
+          isLiteral(expansionTarget)
+          ? expansionTarget
+          : createLiteral(expansionTarget as string | number | boolean);
+      return macroexpandSingleExpr(expansionExpr, env, {
         currentFile: env.getCurrentFile() || undefined,
       });
     }
@@ -1508,7 +2445,7 @@ function evaluateMacroCall(
     throw new MacroError(`Macro not found: ${op}`, op);
   }
 
-  const args = mapTail(list.elements, (arg) => expandNestedMacroArgument(arg, env));
+  const args = mapTail(list.elements, (arg) => arg);
   return macroFn(args, env, list);
 }
 
@@ -1588,18 +2525,7 @@ function evaluateFunctionCall(
 
       if (interpEnv.isDefined(op)) {
         logger.debug(`Using interpreter for '${op}'`);
-
-        // Pre-expand macro calls in arguments before passing to interpreter.
-        // The interpreter doesn't know about HQL macros, so we expand them first.
-        // Example: (+ (double x) 5) where 'double' is a macro -> (+ 10 5)
-        const expandedArgs = preExpandMacroArgs(
-          list.elements.slice(1),
-          env,
-          (arg) => evaluateForMacro(arg, env, logger),
-        );
-        const expandedList = createListFrom(list, [first, ...expandedArgs]);
-
-        const result = interpreter.eval(expandedList, interpEnv);
+        const result = interpreter.eval(list, interpEnv);
         return hqlValueToSExp(result);
       }
     } catch (interpError) {
@@ -1668,6 +2594,7 @@ function evaluateTemplateQuote(
     logger,
     quoteKind,
     new Map(),
+    new Map(),
   );
 }
 
@@ -1678,6 +2605,7 @@ function processTemplateExpr(
   logger: Logger,
   quoteKind: TemplateQuoteKind,
   autoGensymMap: AutoGensymMap,
+  templateBindings: Map<string, ResolvedBindingMeta>,
 ): SExp {
   if (isSymbol(expr)) {
     if (depth === 0 && isAutoGensymSymbol(expr.name)) {
@@ -1687,6 +2615,10 @@ function processTemplateExpr(
     }
 
     if (quoteKind === "syntax-quote" && depth === 0) {
+      const templateBinding = templateBindings.get(expr.name);
+      if (templateBinding) {
+        return attachResolvedBindingMeta(expr, templateBinding);
+      }
       return resolveSyntaxQuotedSymbol(expr, env);
     }
 
@@ -1722,6 +2654,7 @@ function processTemplateExpr(
       logger,
       first.name,
       new Map(),
+      templateBindings,
     );
 
     return createListFrom(list, [createSymbol(first.name), innerProcessed]);
@@ -1743,6 +2676,7 @@ function processTemplateExpr(
       logger,
       quoteKind,
       autoGensymMap,
+      templateBindings,
     );
     return createListFrom(list, [createSymbol("unquote"), innerProcessed]);
   }
@@ -1763,6 +2697,7 @@ function processTemplateExpr(
         logger,
         quoteKind,
         autoGensymMap,
+        templateBindings,
       );
       return createListFrom(list, [
         createSymbol("unquote-splicing"),
@@ -1774,6 +2709,19 @@ function processTemplateExpr(
       "unquote-splicing not in list context",
       "unquote-splicing",
     );
+  }
+
+  const specialized = processSyntaxQuotedList(
+    list,
+    depth,
+    env,
+    logger,
+    quoteKind,
+    autoGensymMap,
+    templateBindings,
+  );
+  if (specialized) {
+    return specialized;
   }
 
   const processedElements: SExp[] = [];
@@ -1813,6 +2761,7 @@ function processTemplateExpr(
         logger,
         quoteKind,
         autoGensymMap,
+        templateBindings,
       ),
     );
   }
@@ -1827,7 +2776,7 @@ function expandMacroExpression(
   options: MacroExpanderOptions,
   depth: number,
 ): SExp {
-  const maxDepth = options.maxExpandDepth || 100;
+  const maxDepth = options.maxExpandDepth ?? 100;
 
   if (depth > maxDepth) {
     if (options.maxExpandDepth === undefined) {
@@ -1842,8 +2791,13 @@ function expandMacroExpression(
   if (isList(expr) && isDefMacro(expr)) {
     // Skip re-registration if already defined in the pre-pass
     const macroList = expr as SList;
-    const macroNameNode = macroList.elements.length >= 2 ? macroList.elements[1] : null;
-    if (!macroNameNode || macroNameNode.type !== "symbol" || !env.hasMacro((macroNameNode as SSymbol).name)) {
+    const macroNameNode = macroList.elements.length >= 2
+      ? macroList.elements[1]
+      : null;
+    if (
+      !macroNameNode || macroNameNode.type !== "symbol" ||
+      !env.hasMacro((macroNameNode as SSymbol).name)
+    ) {
       defineMacro(macroList, env, logger);
     }
     const placeholder = createNilLiteral();
@@ -1876,25 +2830,11 @@ function expandMacroExpression(
     if (env.hasMacro(op)) {
       const macroFn = env.getMacro(op);
       if (!macroFn) return expr;
-
-      // Arguments to compile-time macros need careful handling.
-      // For code-generating macros (using quasiquote), args should be passed as code.
-      // But for compile-time evaluation macros, args need to be evaluated first.
-      //
-      // We only pre-expand MACRO calls in arguments, keeping other expressions as code.
-      // This preserves macro semantics (receiving code as data) while enabling
-      // patterns like (dec1 (dec1 5)) where nested macros need expansion.
-      // DRY: Uses preExpandMacroArgs helper for consistent pre-expansion logic.
-      const args = preExpandMacroArgs(
-        list.elements.slice(1),
-        env,
-        (arg) => expandMacroExpression(arg, env, options, depth + 1),
-      );
       const originalExpr = list;
 
       logger.debug(`Expanding macro ${op} at depth ${depth}`, "macro");
 
-      const expanded = macroFn(args as SExp[], env, originalExpr);
+      const expanded = macroFn(list.elements.slice(1), env, originalExpr);
 
       // CRITICAL: Copy _meta from original call site to expanded expression
       // This ensures error messages point to the original source location,

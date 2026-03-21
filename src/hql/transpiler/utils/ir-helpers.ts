@@ -55,10 +55,17 @@ export function ensureReturnStatement(node: IR.IRNode): IR.IRNode {
 
 export function createId(
   name: string,
-  opts?: { originalName?: string; isJS?: boolean; typeAnnotation?: string; effectAnnotation?: "Pure" | "Impure" },
+  opts?: {
+    originalName?: string;
+    bindingIdentity?: string;
+    isJS?: boolean;
+    typeAnnotation?: string;
+    effectAnnotation?: "Pure" | "Impure";
+  },
 ): IR.IRIdentifier {
   const node: IR.IRIdentifier = { type: IR.IRNodeType.Identifier, name };
   if (opts?.originalName) node.originalName = opts.originalName;
+  if (opts?.bindingIdentity) node.bindingIdentity = opts.bindingIdentity;
   if (opts?.isJS) node.isJS = opts.isJS;
   if (opts?.typeAnnotation) node.typeAnnotation = opts.typeAnnotation;
   if (opts?.effectAnnotation) node.effectAnnotation = opts.effectAnnotation;

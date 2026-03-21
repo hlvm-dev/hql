@@ -668,7 +668,8 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // symbol - Create symbol from string
-(fn symbol [n] (js-call String n))
+(fn symbol [n]
+  {"type": "symbol", "name": (js-call String n)})
 
 // keyword - Create keyword (string with : prefix)
 (fn keyword [n]
@@ -681,10 +682,13 @@
 (fn name [x]
   (if (nil? x)
     nil
-    (let [s (js-call String x)]
-      (if (js-call s "startsWith" ":")
-        (js-call s "slice" 1)
-        s))))
+    (if (and (=== (typeof x) "object")
+             (=== (js-get x "type") "symbol"))
+      (js-get x "name")
+      (let [s (js-call String x)]
+        (if (js-call s "startsWith" ":")
+          (js-call s "slice" 1)
+          s)))))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 8: LAZY CONSTRUCTORS

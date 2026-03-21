@@ -21,6 +21,7 @@ import {
   ansi,
   bg,
   clearOverlay,
+  drawOverlayFrame,
   fg,
   OVERLAY_BG_COLOR,
   resolveOverlayFrame,
@@ -30,6 +31,7 @@ import {
 } from "../overlay/index.ts";
 import { useTheme } from "../../theme/index.ts";
 import { padTo } from "../utils/formatting.ts";
+import { STATUS_GLYPHS } from "../ui-constants.ts";
 
 interface TeamDashboardOverlayProps {
   onClose: () => void;
@@ -54,6 +56,8 @@ const HEADER_ROWS = 4;
 const CONTENT_START = PADDING.top + HEADER_ROWS;
 const MIN_OVERLAY_WIDTH = 48;
 const MIN_OVERLAY_HEIGHT = 14;
+const WIDE_DASHBOARD_MIN_WIDTH = 88;
+const DASHBOARD_COLUMN_GAP = 3;
 
 function workerStatusIcon(status: WorkerStatus["status"]): {
   icon: string;
@@ -61,14 +65,14 @@ function workerStatusIcon(status: WorkerStatus["status"]): {
 } {
   switch (status) {
     case "running":
-      return { icon: "●", colorKey: "warning" };
+      return { icon: STATUS_GLYPHS.running, colorKey: "warning" };
     case "completed":
-      return { icon: "✓", colorKey: "success" };
+      return { icon: STATUS_GLYPHS.success, colorKey: "success" };
     case "errored":
-      return { icon: "✗", colorKey: "error" };
+      return { icon: STATUS_GLYPHS.error, colorKey: "error" };
     case "cancelled":
     default:
-      return { icon: "○", colorKey: "muted" };
+      return { icon: STATUS_GLYPHS.pending, colorKey: "muted" };
   }
 }
 
@@ -201,6 +205,21 @@ function detailLines(item: DashboardItem): string[] {
         item.data.label,
       ];
   }
+}
+
+function splitDashboardColumns(items: DashboardItem[]): {
+  left: DashboardItem[];
+  right: DashboardItem[];
+} {
+  return {
+    left: items.filter((item) =>
+      item.kind === "member" || item.kind === "worker"
+    ),
+    right: items.filter((item) =>
+      item.kind === "task" || item.kind === "approval" ||
+      item.kind === "shutdown" || item.kind === "attention"
+    ),
+  };
 }
 
 export function TeamDashboardOverlay({
@@ -370,50 +389,122 @@ export function TeamDashboardOverlay({
     drawEmptyRow(headerY + 3);
 
     if (viewMode === "dashboard") {
-      const window = calculateScrollWindow(
-        Math.max(0, selectedIndex),
-        items.length,
-        visibleRows,
-      );
-      const visible = items.slice(window.start, window.end);
+      const drawDashboardCell = (
+        item: DashboardItem | undefined,
+        cellWidth: number,
+        isSelected: boolean,
+      ): number => {
+        if (!item) {
+          output += " ".repeat(cellWidth);
+          return cellWidth;
+        }
 
-      for (let row = 0; row < visibleRows; row++) {
-        const rowY = overlayFrame.y + CONTENT_START + row;
-        const item = visible[row];
+        if (isSelected) {
+          output += bg(colors.warning) + ansi.fg(30, 30, 30);
+        }
 
-        drawRow(rowY, () => {
-          if (!item) {
-            if (row === 0 && items.length === 0) {
-              output += " ".repeat(PADDING.left);
-              output += fg(colors.muted) + "No team activity yet" +
-                ansi.reset + bgStyle;
-              return PADDING.left + 20;
-            }
-            return 0;
-          }
+        const prefix = formatDashboardRow(item, Math.max(8, cellWidth - 5));
+        const iconRgb = colors[prefix.iconColor];
+        let len = 0;
+        output += isSelected ? "▸ " : "  ";
+        len += 2;
+        output += fg(iconRgb) + prefix.icon + ansi.reset;
+        output += isSelected
+          ? bg(colors.warning) + ansi.fg(30, 30, 30)
+          : bgStyle;
+        output += " ";
+        len += 2;
+        const textWidth = Math.max(0, cellWidth - len);
+        output += padTo(prefix.text, textWidth);
+        len += textWidth;
+        output += ansi.reset + bgStyle;
+        return len;
+      };
 
-          const actualIndex = window.start + row;
-          const isSelected = actualIndex === selectedIndex;
-          if (isSelected) {
-            output += bg(colors.warning) + ansi.fg(30, 30, 30);
-          }
+      if (items.length === 0) {
+        for (let row = 0; row < visibleRows; row++) {
+          const rowY = overlayFrame.y + CONTENT_START + row;
+          drawRow(rowY, () => {
+            if (row > 0) return 0;
+            output += " ".repeat(PADDING.left);
+            output += fg(colors.muted) + "No team activity yet" + ansi.reset +
+              bgStyle;
+            return PADDING.left + 20;
+          });
+        }
+      } else if (overlayFrame.width >= WIDE_DASHBOARD_MIN_WIDTH) {
+        const columns = splitDashboardColumns(items);
+        const leftSelectedIndex = selectedId
+          ? columns.left.findIndex((item) => item.id === selectedId)
+          : -1;
+        const rightSelectedIndex = selectedId
+          ? columns.right.findIndex((item) => item.id === selectedId)
+          : -1;
+        const leftWindow = calculateScrollWindow(
+          Math.max(0, leftSelectedIndex),
+          columns.left.length,
+          visibleRows,
+        );
+        const rightWindow = calculateScrollWindow(
+          Math.max(0, rightSelectedIndex),
+          columns.right.length,
+          visibleRows,
+        );
+        const leftVisible = columns.left.slice(leftWindow.start, leftWindow.end);
+        const rightVisible = columns.right.slice(rightWindow.start, rightWindow.end);
+        const leftWidth = Math.max(
+          16,
+          Math.floor((contentWidth - DASHBOARD_COLUMN_GAP) / 2),
+        );
+        const rightWidth = Math.max(
+          16,
+          contentWidth - leftWidth - DASHBOARD_COLUMN_GAP,
+        );
 
-          const prefix = formatDashboardRow(item, Math.max(8, contentWidth - 6));
-          const iconRgb = colors[prefix.iconColor];
-          let len = 0;
-          output += isSelected ? " ▸ " : "   ";
-          len += 3;
-          output += fg(iconRgb) + prefix.icon + ansi.reset;
-          output += isSelected
-            ? bg(colors.warning) + ansi.fg(30, 30, 30)
-            : bgStyle;
-          output += " ";
-          len += 2;
-          output += padTo(prefix.text, Math.max(0, contentWidth - len));
-          len += Math.max(0, contentWidth - len);
-          output += ansi.reset + bgStyle;
-          return len + PADDING.left;
-        });
+        for (let row = 0; row < visibleRows; row++) {
+          const rowY = overlayFrame.y + CONTENT_START + row;
+          const leftItem = leftVisible[row];
+          const rightItem = rightVisible[row];
+
+          drawRow(rowY, () => {
+            output += " ".repeat(PADDING.left);
+            let len = PADDING.left;
+            len += drawDashboardCell(
+              leftItem,
+              leftWidth,
+              leftItem?.id === selectedId,
+            );
+            output += " ".repeat(DASHBOARD_COLUMN_GAP);
+            len += DASHBOARD_COLUMN_GAP;
+            len += drawDashboardCell(
+              rightItem,
+              rightWidth,
+              rightItem?.id === selectedId,
+            );
+            return len;
+          });
+        }
+      } else {
+        const window = calculateScrollWindow(
+          Math.max(0, selectedIndex),
+          items.length,
+          visibleRows,
+        );
+        const visible = items.slice(window.start, window.end);
+
+        for (let row = 0; row < visibleRows; row++) {
+          const rowY = overlayFrame.y + CONTENT_START + row;
+          const item = visible[row];
+
+          drawRow(rowY, () => {
+            if (!item) return 0;
+            const actualIndex = window.start + row;
+            const isSelected = actualIndex === selectedIndex;
+            output += " ".repeat(PADDING.left);
+            return PADDING.left +
+              drawDashboardCell(item, contentWidth, isSelected);
+          });
+        }
       }
     } else {
       const lines = detailItem ? detailLines(detailItem) : ["No selection"];
@@ -455,6 +546,10 @@ export function TeamDashboardOverlay({
       drawEmptyRow(overlayFrame.y + overlayFrame.height - PADDING.bottom + i);
     }
 
+    output += drawOverlayFrame(overlayFrame, {
+      borderColor: colors.accent,
+      backgroundColor: OVERLAY_BG_COLOR,
+    });
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
     writeToTerminal(output);
   }, [

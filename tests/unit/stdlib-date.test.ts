@@ -72,3 +72,17 @@ Deno.test("@hlvm/date - multiple operations", async () => {
   const result = await run(code);
   assertEquals(result, [7200000, "2024-01-01T02:00:00.000Z"]);
 });
+
+Deno.test("@hlvm/date - sequential runs keep imported fn bindings isolated", async () => {
+  const first = await run(`
+    (import [now] from "@hlvm/date")
+    (now)
+  `);
+  assert(typeof first === "number");
+
+  const second = await run(`
+    (import [parse, format] from "@hlvm/date")
+    (format (parse "2024-01-01T00:00:00.000Z"))
+  `);
+  assertEquals(second, "2024-01-01T00:00:00.000Z");
+});

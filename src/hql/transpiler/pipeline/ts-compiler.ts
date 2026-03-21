@@ -331,6 +331,10 @@ declare function __hql_for_each<T>(bindingName: string, sequence: Iterable<T>, b
 
 declare function __hql_throw(value: unknown): never;
 
+declare function __hql_value_to_sexp(value: unknown): unknown;
+
+declare function __hql_splice_to_sexp_items(value: unknown): unknown[];
+
 declare function __hql_deepFreeze<T>(obj: T): T;
 
 declare function __hql_trampoline<T>(thunk: () => T): T;

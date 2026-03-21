@@ -24,6 +24,14 @@ import { getSpecialForms, type SpecialFormHandler } from "./special-forms.ts";
 import { InterpreterError, MaxCallDepthError, UndefinedSymbolError } from "./errors.ts";
 import { getErrorMessage, mapTail } from "../../common/utils.ts";
 
+interface MacroAwareInterpreterEnv extends IInterpreterEnv {
+  hasMacro?(name: string): boolean;
+  getMacro?(
+    name: string,
+  ): ((args: SExp[], env: unknown, originalForm?: SList) => SExp) | undefined;
+  getMacroExpansionEnv?(): unknown;
+}
+
 /**
  * Tree-walk interpreter for HQL
  *
@@ -93,6 +101,24 @@ export class Interpreter implements IInterpreter {
       const handler = this.specialForms.get(opName);
       if (handler) {
         return handler(list.elements.slice(1), env, this);
+      }
+
+      const macroEnv = env as MacroAwareInterpreterEnv;
+      if (
+        typeof macroEnv.hasMacro === "function" &&
+        typeof macroEnv.getMacro === "function" &&
+        macroEnv.hasMacro(opName)
+      ) {
+        const macroFn = macroEnv.getMacro(opName);
+        const expansionEnv = macroEnv.getMacroExpansionEnv?.();
+        if (macroFn && expansionEnv) {
+          const expanded = macroFn(
+            list.elements.slice(1),
+            expansionEnv,
+            list,
+          );
+          return this.eval(expanded, env);
+        }
       }
     }
 

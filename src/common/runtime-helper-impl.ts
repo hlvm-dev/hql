@@ -122,6 +122,14 @@ export function __hql_range(...args: number[]) {
 export function __hql_toSequence(value: unknown): unknown[] {
   if (value == null) return []; // Inline check - don't use external imports!
   if (Array.isArray(value)) return value;
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { type?: string }).type === "list" &&
+    Array.isArray((value as { elements?: unknown[] }).elements)
+  ) {
+    return (value as { elements: unknown[] }).elements;
+  }
   if (typeof value === "number") {
     const result: number[] = [];
     const step = value >= 0 ? 1 : -1;
@@ -150,6 +158,14 @@ export function __hql_toSequence(value: unknown): unknown[] {
  */
 export function __hql_toIterable(value: unknown): Iterable<unknown> {
   if (value == null) return [];
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { type?: string }).type === "list" &&
+    Array.isArray((value as { elements?: unknown[] }).elements)
+  ) {
+    return (value as { elements: unknown[] }).elements;
+  }
   // If already iterable, return as-is
   if (
     typeof (value as Iterable<unknown>)[Symbol.iterator] === "function"
@@ -222,6 +238,112 @@ export function __hql_hash_map(...entries: unknown[]): Record<string, unknown> {
 
 export function __hql_throw(value: unknown): never {
   throw value;
+}
+
+export function __hql_value_to_sexp(value: unknown): unknown {
+  const isSExpNode = (candidate: unknown): candidate is {
+    type: string;
+    name?: string;
+    elements?: unknown[];
+    value?: unknown;
+  } =>
+    !!candidate &&
+    typeof candidate === "object" &&
+    "type" in candidate &&
+    (
+      (candidate as { type?: string }).type === "symbol" ||
+      (candidate as { type?: string }).type === "list" ||
+      (candidate as { type?: string }).type === "literal"
+    );
+
+  if (value == null) {
+    return { type: "literal", value: null };
+  }
+
+  if (isSExpNode(value)) {
+    return value;
+  }
+
+  if (
+    typeof value === "boolean" || typeof value === "number" ||
+    typeof value === "string"
+  ) {
+    return { type: "literal", value };
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      type: "list",
+      elements: [
+        { type: "symbol", name: "vector" },
+        ...value.map((item) => __hql_value_to_sexp(item)),
+      ],
+    };
+  }
+
+  if (typeof value === "function") {
+    return {
+      type: "symbol",
+      name: `#<function:${value.name || "anonymous"}>`,
+    };
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Iterable<unknown>)[Symbol.iterator] === "function"
+  ) {
+    return { type: "symbol", name: "#<iterable>" };
+  }
+
+  return {
+    type: "literal",
+    value: String(value),
+  };
+}
+
+export function __hql_splice_to_sexp_items(value: unknown): unknown[] {
+  const isSExpList = (candidate: unknown): candidate is { type: "list"; elements: unknown[] } =>
+    !!candidate &&
+    typeof candidate === "object" &&
+    (candidate as { type?: string }).type === "list" &&
+    Array.isArray((candidate as { elements?: unknown[] }).elements);
+
+  if (value == null) {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => __hql_value_to_sexp(item));
+  }
+
+  if (isSExpList(value)) {
+    const listValue = value as { type: "list"; elements: unknown[] };
+    const firstElement = listValue.elements[0];
+    const isVectorList = !!firstElement &&
+      typeof firstElement === "object" &&
+      (firstElement as { type?: string }).type === "symbol" &&
+      (
+        (firstElement as { name?: string }).name === "vector" ||
+        (firstElement as { name?: string }).name === "empty-array"
+      );
+    return isVectorList
+      ? listValue.elements.slice(1)
+      : listValue.elements;
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Iterable<unknown>)[Symbol.iterator] === "function"
+  ) {
+    return Array.from(
+      value as Iterable<unknown>,
+      (item) => __hql_value_to_sexp(item),
+    );
+  }
+
+  return [__hql_value_to_sexp(value)];
 }
 
 /**
@@ -434,6 +556,8 @@ const runtimeHelperImplementations = {
   __hql_for_each,
   __hql_hash_map,
   __hql_throw,
+  __hql_value_to_sexp,
+  __hql_splice_to_sexp_items,
   __hql_deepFreeze,
   __hql_match_obj,
   __hql_trampoline,

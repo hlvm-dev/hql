@@ -352,12 +352,18 @@ function mergeAttachmentMetadata(
 ): AttachmentRecord["metadata"] {
   if (!extractedMetadata && !clientMetadata) return undefined;
 
-  return {
-    width: clientMetadata?.width ?? extractedMetadata?.width,
-    height: clientMetadata?.height ?? extractedMetadata?.height,
-    duration: clientMetadata?.duration ?? extractedMetadata?.duration,
-    pages: clientMetadata?.pages ?? extractedMetadata?.pages,
-  };
+  const metadata: NonNullable<AttachmentRecord["metadata"]> = {};
+  const width = clientMetadata?.width ?? extractedMetadata?.width;
+  const height = clientMetadata?.height ?? extractedMetadata?.height;
+  const duration = clientMetadata?.duration ?? extractedMetadata?.duration;
+  const pages = clientMetadata?.pages ?? extractedMetadata?.pages;
+
+  if (width !== undefined) metadata.width = width;
+  if (height !== undefined) metadata.height = height;
+  if (duration !== undefined) metadata.duration = duration;
+  if (pages !== undefined) metadata.pages = pages;
+
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
 function logVideoReceipt(record: AttachmentRecord): void {

@@ -22,6 +22,7 @@ import { copyPosition, copyEndPosition } from "../pipeline/hql-ast-to-hql-ir.ts"
 import { extractMetaSourceLocation } from "../utils/source_location_utils.ts";
 import { ARITHMETIC_OPS_SET } from "../keyword/primitives.ts";
 import { hasArrayLiteralPrefix } from "../../../common/sexp-utils.ts";
+import { getMeta } from "../../s-exp/types.ts";
 import {
   containsAwaitExpression,
   containsYieldExpression,
@@ -31,6 +32,11 @@ import {
   collectForOfStatementsInScope,
 } from "../utils/ir-tree-walker.ts";
 import { STATEMENT_TYPES } from "../constants/index.ts";
+import {
+  identifierFromBindingRecord,
+  registerLexicalBinding,
+  withLexicalScope,
+} from "../utils/binding-resolution.ts";
 
 /**
  * Encapsulates all mutable state for loop/recur compilation.
@@ -128,120 +134,109 @@ export function transformLoop(
     pushLoopContext(state, loopId); // Push this loop onto the context stack
 
     try {
-      // Extract parameter names and initial values
-      const params: IR.IRIdentifier[] = [];
-      const initialValues: IR.IRNode[] = [];
+      return withLexicalScope(() => {
+        const params: IR.IRIdentifier[] = [];
+        const initialValues: IR.IRNode[] = [];
 
-      for (let i = 0; i < bindings.elements.length; i += 2) {
-        const nameNode = bindings.elements[i];
-        if (nameNode.type !== "symbol") {
-          throw new ValidationError(
-            "loop binding names must be symbols",
-            "loop binding name",
-            "symbol",
-            { actualType: nameNode.type, ...extractMetaSourceLocation(nameNode) },
+        for (let i = 0; i < bindings.elements.length; i += 2) {
+          const nameNode = bindings.elements[i];
+          if (nameNode.type !== "symbol") {
+            throw new ValidationError(
+              "loop binding names must be symbols",
+              "loop binding name",
+              "symbol",
+              { actualType: nameNode.type, ...extractMetaSourceLocation(nameNode) },
+            );
+          }
+
+          const paramName = (nameNode as SymbolNode).name;
+          const valueNode = validateTransformed(
+            transformNode(bindings.elements[i + 1], currentDir),
+            "loop binding value",
+            `Binding value for '${paramName}'`,
+          );
+          initialValues.push(valueNode);
+
+          const paramBinding = registerLexicalBinding(
+            paramName,
+            getMeta(nameNode as SymbolNode)?.resolvedBinding,
+          );
+          const param = identifierFromBindingRecord(paramBinding, paramName);
+          copyPosition(nameNode, param);
+          copyEndPosition(bindings, param);
+          params.push(param);
+        }
+
+        const bodyExprs = list.elements.slice(2);
+        if (isSimpleLoop(bodyExprs)) {
+          return transformSimpleLoop(
+            params,
+            initialValues,
+            bodyExprs[0],
+            currentDir,
+            transformNode,
           );
         }
 
-        const paramName = (nameNode as SymbolNode).name;
-        const param = createId(sanitizeIdentifier(paramName));
-        copyPosition(nameNode, param);
-        copyEndPosition(bindings, param);
-        params.push(param);
+        let bodyBlock: IR.IRBlockStatement;
+        const singleIfWhen = list.elements.length === 3 &&
+          list.elements[2].type === "list" &&
+          (list.elements[2] as ListNode).elements.length > 0 &&
+          (list.elements[2] as ListNode).elements[0].type === "symbol" &&
+          ((((list.elements[2] as ListNode).elements[0] as SymbolNode).name === "if") ||
+           (((list.elements[2] as ListNode).elements[0] as SymbolNode).name === "when"));
 
-        // Transform the initial value
-        const valueNode = validateTransformed(
-          transformNode(bindings.elements[i + 1], currentDir),
-          "loop binding value",
-          `Binding value for '${paramName}'`,
-        );
-        initialValues.push(valueNode);
-      }
+        if (singleIfWhen) {
+          const transformed = transformIfForLoop(
+            list.elements[2] as ListNode,
+            currentDir,
+            transformNode,
+          );
+          bodyBlock = createBlock(transformed ? [transformed] : []);
+        } else {
+          bodyBlock = transformLoopBody(
+            list.elements.slice(2),
+            currentDir,
+            transformNode,
+          );
+        }
 
-      // Check if this is a simple loop that can be optimized to native while
-      const bodyExprs = list.elements.slice(2);
-      if (isSimpleLoop(bodyExprs)) {
-        // Optimize to native while loop
-        return transformSimpleLoop(
+        const loopFunc: IR.IRFunctionDeclaration = {
+          type: IR.IRNodeType.FunctionDeclaration,
+          id: createId(loopId),
           params,
-          initialValues,
-          bodyExprs[0],
-          currentDir,
-          transformNode,
+          body: bodyBlock,
+        };
+
+        const iifeParams: IR.IRIdentifier[] = [];
+        const iifeCallArgs: IR.IRNode[] = [];
+
+        for (let i = 0; i < initialValues.length; i++) {
+          const initParamName = `__init_${i}`;
+          iifeParams.push(createId(initParamName));
+          iifeCallArgs.push(initialValues[i]);
+        }
+
+        const initialCall = createCall(
+          createId(loopId),
+          iifeParams.map(p => createId(p.name)),
         );
-      }
 
-      // Complex loop: use recursive function (original implementation)
-      // Transform the body expressions
-      // For a loop, we'll wrap all body expressions in a single block statement
-      // This ensures the recur call is properly tail-recursive
-      let bodyBlock: IR.IRBlockStatement;
+        const hasAwaits = containsAwaitExpression(bodyBlock);
+        const hasYields = containsYieldExpression(bodyBlock);
 
-      // Special case: If there's only one expression in the body and it's an if/when
-      // we'll transform it specially to ensure proper tail recursion
-      const singleIfWhen = list.elements.length === 3 &&
-        list.elements[2].type === "list" &&
-        (list.elements[2] as ListNode).elements.length > 0 &&
-        (list.elements[2] as ListNode).elements[0].type === "symbol" &&
-        ((((list.elements[2] as ListNode).elements[0] as SymbolNode).name === "if") ||
-         (((list.elements[2] as ListNode).elements[0] as SymbolNode).name === "when"));
+        const iifeBody: IR.IRBlockStatement = createBlock([
+          loopFunc,
+          createReturn(initialCall),
+        ]);
 
-      if (singleIfWhen) {
-        const transformed = transformIfForLoop(
-          list.elements[2] as ListNode,
-          currentDir,
-          transformNode,
+        const iife = createCall(
+          createFnExpr(iifeParams, iifeBody, { async: hasAwaits, generator: hasYields }),
+          iifeCallArgs,
         );
-        bodyBlock = createBlock(transformed ? [transformed] : []);
-      } else {
-        bodyBlock = transformLoopBody(
-          list.elements.slice(2),
-          currentDir,
-          transformNode,
-        );
-      }
 
-      // Create the loop function declaration
-      const loopFunc: IR.IRFunctionDeclaration = {
-        type: IR.IRNodeType.FunctionDeclaration,
-        id: createId(loopId),
-        params,
-        body: bodyBlock,
-      };
-
-      // Create IIFE parameters to capture initial values in outer scope
-      // This fixes the scoping issue where (loop [n n ...]) would fail
-      // because the initial value 'n' would reference the loop param instead of outer 'n'
-      const iifeParams: IR.IRIdentifier[] = [];
-      const iifeCallArgs: IR.IRNode[] = [];
-
-      for (let i = 0; i < initialValues.length; i++) {
-        const initParamName = `__init_${i}`;
-        iifeParams.push(createId(initParamName));
-        iifeCallArgs.push(initialValues[i]);
-      }
-
-      // Create initial function call using IIFE params (which capture outer scope values)
-      const initialCall = createCall(
-        createId(loopId),
-        iifeParams.map(p => createId(p.name)),
-      );
-
-      // Check if loop body contains await/yield for async/generator IIFE
-      const hasAwaits = containsAwaitExpression(bodyBlock);
-      const hasYields = containsYieldExpression(bodyBlock);
-
-      const iifeBody: IR.IRBlockStatement = createBlock([
-        loopFunc,
-        createReturn(initialCall),
-      ]);
-
-      const iife = createCall(
-        createFnExpr(iifeParams, iifeBody, { async: hasAwaits, generator: hasYields }),
-        iifeCallArgs,
-      );
-
-      return wrapIIFEResult(iife, hasYields, hasAwaits);
+        return wrapIIFEResult(iife, hasYields, hasAwaits);
+      });
     } finally {
       // Always pop the loop context, even on error
       popLoopContext(state);

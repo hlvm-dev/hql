@@ -12,6 +12,7 @@ import { getDisplay, registry, type Keybinding } from "../keybindings/index.ts";
 import {
   ansi,
   bg,
+  drawOverlayFrame,
   fitOverlayRect,
   fg,
   OVERLAY_BG_COLOR,
@@ -239,6 +240,10 @@ export function ShortcutsOverlay({
       drawEmptyRow(overlay.y + overlayHeight - PADDING.bottom + i);
     }
 
+    output += drawOverlayFrame(overlay, {
+      borderColor: colors.muted,
+      backgroundColor: OVERLAY_BG_COLOR,
+    });
     output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
     writeToTerminal(output);
   }, [colors, sections, terminalColumns, terminalRows]);

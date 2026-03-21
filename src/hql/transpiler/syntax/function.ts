@@ -3,41 +3,38 @@
 import * as IR from "../type/hql_ir.ts";
 import {
   type HQLNode,
+  isListNode,
+  isSymbolNode,
   type ListNode,
   type LiteralNode,
   type SymbolNode,
   type TransformNodeFn,
-  isListNode,
-  isSymbolNode,
 } from "../type/hql_ast.ts";
 import {
   HQLError,
   TransformError,
   ValidationError,
 } from "../../../common/error.ts";
-import {
-  getErrorMessage,
-  sanitizeIdentifier,
-} from "../../../common/utils.ts";
+import { getErrorMessage, sanitizeIdentifier } from "../../../common/utils.ts";
 import {
   extractAndNormalizeType,
   normalizeType,
 } from "../tokenizer/type-tokenizer.ts";
 import { globalLogger as logger } from "../../../logger.ts";
 import {
-  copyPosition,
   copyEndPosition,
+  copyPosition,
   extractMeta,
   getIIFEDepth,
+  isExpressionResult,
   setIIFEDepth,
   transformHQLNodeToIR,
-  isExpressionResult,
 } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
-  validateTransformed,
+  isHashMapParams,
   isSpreadOperator,
   transformSpreadOperator,
-  isHashMapParams,
+  validateTransformed,
 } from "../utils/validation-helpers.ts";
 import { extractMetaSourceLocation } from "../utils/source_location_utils.ts";
 import {
@@ -51,7 +48,16 @@ import {
 import { hasArrayLiteralPrefix } from "../../../common/sexp-utils.ts";
 import { patternToIR } from "../utils/pattern-to-ir.ts";
 import { parsePattern } from "../../s-exp/pattern-parser.ts";
+import { getMeta } from "../../s-exp/types.ts";
 import { LRUCache } from "../../../common/lru-cache.ts";
+import {
+  identifierFromBindingCarrier,
+  identifierFromBindingRecord,
+  registerBindingAlias,
+  registerDeclaredBinding,
+  registerLexicalBinding,
+  withLexicalScope,
+} from "../utils/binding-resolution.ts";
 import {
   createBlock,
   createCall,
@@ -67,7 +73,13 @@ import {
 } from "../utils/ir-helpers.ts";
 
 // LRU cache with size limit to prevent unbounded memory growth in long-running processes
-const fnFunctionRegistry = new LRUCache<string, IR.IRFnFunctionDeclaration>(5000);
+const fnFunctionRegistry = new LRUCache<string, IR.IRFnFunctionDeclaration>(
+  5000,
+);
+
+function withFunctionScope<T>(fn: () => T): T {
+  return withLexicalScope(fn);
+}
 
 // Pre-compiled regex for extracting generic type parameters from names
 // e.g., "identity<T>" -> name="identity", typeParameters=["T"]
@@ -96,10 +108,10 @@ function detectRemovedNamedArgumentSyntax(args: HQLNode[]): void {
       const paramName = (arg as SymbolNode).name.slice(0, -1);
       throw new ValidationError(
         `Named arguments (${paramName}: value) have been removed from HQL.\n\n` +
-        `Please use one of these alternatives:\n` +
-        `  1. Positional arguments: (fn-name value1 value2 ...)\n` +
-        `  2. JSON map parameters: (fn-name {"${paramName}": value, ...})\n\n` +
-        `See migration guide for details.`,
+          `Please use one of these alternatives:\n` +
+          `  1. Positional arguments: (fn-name value1 value2 ...)\n` +
+          `  2. JSON map parameters: (fn-name {"${paramName}": value, ...})\n\n` +
+          `See migration guide for details.`,
         "function call",
         "positional or JSON map arguments",
         `named argument '${paramName}:'`,
@@ -162,12 +174,18 @@ export function processFunctionBody(
           // Wrap consequent in return if it's not already a control flow statement
           const finalConsequent = isControlFlowStatement(ifStmt.consequent)
             ? ifStmt.consequent
-            : { ...createReturn(ifStmt.consequent), position: ifStmt.consequent.position };
+            : {
+              ...createReturn(ifStmt.consequent),
+              position: ifStmt.consequent.position,
+            };
 
           // Wrap alternate in return if it's not already a control flow statement
           let finalAlternate = ifStmt.alternate;
           if (finalAlternate && !isControlFlowStatement(finalAlternate)) {
-            finalAlternate = { ...createReturn(finalAlternate), position: finalAlternate.position };
+            finalAlternate = {
+              ...createReturn(finalAlternate),
+              position: finalAlternate.position,
+            };
           }
 
           bodyNodes.push({
@@ -183,7 +201,10 @@ export function processFunctionBody(
         }
       } else {
         // Wrap in a return statement to ensure the value is returned
-        bodyNodes.push({ ...createReturn(lastExpr), position: lastExpr.position });
+        bodyNodes.push({
+          ...createReturn(lastExpr),
+          position: lastExpr.position,
+        });
       }
     }
 
@@ -194,8 +215,13 @@ export function processFunctionBody(
     );
     if (hasNestedReturns) {
       // Get position for block statement from first body node
-      const blockPosition = bodyNodes.length > 0 ? bodyNodes[0].position : undefined;
-      const originalBody: IR.IRBlockStatement = createBlock(bodyNodes, blockPosition);
+      const blockPosition = bodyNodes.length > 0
+        ? bodyNodes[0].position
+        : undefined;
+      const originalBody: IR.IRBlockStatement = createBlock(
+        bodyNodes,
+        blockPosition,
+      );
       const wrappedBody = wrapWithEarlyReturnHandler(originalBody);
       return wrappedBody.body; // Return the statements from the wrapped body
     }
@@ -216,7 +242,12 @@ function transformArgsWithSpread(
 ): IR.IRNode[] {
   return args.map((arg) => {
     if (isSpreadOperator(arg)) {
-      return transformSpreadOperator(arg, currentDir, transformHQLNodeToIR, "spread in function call");
+      return transformSpreadOperator(
+        arg,
+        currentDir,
+        transformHQLNodeToIR,
+        "spread in function call",
+      );
     }
     return validateTransformed(
       transformHQLNodeToIR(arg, currentDir),
@@ -242,12 +273,17 @@ export function transformStandardFunctionCall(
 
     // Extract position from the function name symbol
     const meta = extractMeta(first);
-    const position = meta ? { line: meta.line, column: meta.column, filePath: meta.filePath } : undefined;
+    const position = meta
+      ? { line: meta.line, column: meta.column, filePath: meta.filePath }
+      : undefined;
 
-    const calleeId = createId(sanitizeIdentifier(op));
+    const calleeId = identifierFromBindingCarrier(first as SymbolNode);
     calleeId.position = position; // Copy position from source symbol
 
-    const callExpr = createCall(calleeId, transformArgsWithSpread(argNodes, currentDir));
+    const callExpr = createCall(
+      calleeId,
+      transformArgsWithSpread(argNodes, currentDir),
+    );
     callExpr.position = position; // Copy position to call expression too
     return callExpr;
   }
@@ -261,9 +297,18 @@ export function transformStandardFunctionCall(
 
   // Get position from the list (the full call expression)
   const listMeta = extractMeta(list);
-  const listPosition = listMeta ? { line: listMeta.line, column: listMeta.column, filePath: listMeta.filePath } : undefined;
+  const listPosition = listMeta
+    ? {
+      line: listMeta.line,
+      column: listMeta.column,
+      filePath: listMeta.filePath,
+    }
+    : undefined;
 
-  const callExpr = createCall(callee as IR.IRIdentifier | IR.IRMemberExpression | IR.IRFunctionExpression, transformArgsWithSpread(argNodes, currentDir));
+  const callExpr = createCall(
+    callee as IR.IRIdentifier | IR.IRMemberExpression | IR.IRFunctionExpression,
+    transformArgsWithSpread(argNodes, currentDir),
+  );
   callExpr.position = listPosition; // Use position of the whole call expression
   return callExpr;
 }
@@ -275,6 +320,10 @@ export function getFnFunction(
   name: string,
 ): IR.IRFnFunctionDeclaration | undefined {
   return fnFunctionRegistry.get(name);
+}
+
+export function resetFnFunctionRegistry(): void {
+  fnFunctionRegistry.clear();
 }
 
 /**
@@ -291,8 +340,8 @@ function isMultiArityClause(node: HQLNode): boolean {
   // Check if it's a vector: can be "vector", "empty-array", or "[]"
   return hasArrayLiteralPrefix(paramList) ||
     (paramList.elements.length > 0 &&
-     paramList.elements[0].type === "symbol" &&
-     (paramList.elements[0] as SymbolNode).name === "[]");
+      paramList.elements[0].type === "symbol" &&
+      (paramList.elements[0] as SymbolNode).name === "[]");
 }
 
 /**
@@ -328,17 +377,39 @@ export function transformFn(
       // Named function - check if multi-arity
       // Multi-arity: (fn name ([] body1) ([x] body2)...)
       if (list.elements.length >= 3 && isMultiArityClause(list.elements[2])) {
-        return transformMultiArityFn(list, currentDir, transformNode, processFunctionBody, true);
+        return transformMultiArityFn(
+          list,
+          currentDir,
+          transformNode,
+          processFunctionBody,
+          true,
+        );
       }
       // Single-arity named function: (fn name [params] body...)
-      return transformNamedFn(list, currentDir, transformNode, processFunctionBody);
+      return transformNamedFn(
+        list,
+        currentDir,
+        transformNode,
+        processFunctionBody,
+      );
     } else if (secondElement.type === "list") {
       // Check if this is multi-arity anonymous: (fn ([] body1) ([x] body2)...)
       if (isMultiArityClause(secondElement)) {
-        return transformMultiArityFn(list, currentDir, transformNode, processFunctionBody, false);
+        return transformMultiArityFn(
+          list,
+          currentDir,
+          transformNode,
+          processFunctionBody,
+          false,
+        );
       }
       // Single-arity anonymous function: (fn [params] body...)
-      return transformAnonymousFn(list, currentDir, processFunctionBody, transformNode);
+      return transformAnonymousFn(
+        list,
+        currentDir,
+        processFunctionBody,
+        transformNode,
+      );
     } else {
       throw new ValidationError(
         "Second argument must be function name (symbol) or parameters (list)",
@@ -384,16 +455,27 @@ function transformMultiArityFn(
   isNamed: boolean,
 ): IR.IRNode {
   const argsIdentifier = "__args";
+  const functionNameMeta = isNamed && list.elements[1].type === "symbol"
+    ? getMeta(list.elements[1] as SymbolNode)?.resolvedBinding
+    : undefined;
 
   // Extract function name and arity clauses
   let funcName: string | null = null;
   let funcId: IR.IRIdentifier | null = null;
+  let functionBinding:
+    | ReturnType<typeof registerDeclaredBinding>
+    | null = null;
   let arityClauses: ListNode[];
 
   if (isNamed) {
     const funcNameNode = list.elements[1] as SymbolNode;
     funcName = funcNameNode.name;
-    funcId = createId(sanitizeIdentifier(funcName));
+    functionBinding = registerDeclaredBinding(
+      funcName,
+      funcNameNode.name,
+      functionNameMeta,
+    );
+    funcId = identifierFromBindingRecord(functionBinding, funcNameNode.name);
     copyPosition(funcNameNode, funcId);
     copyEndPosition(list, funcId);
     arityClauses = list.elements.slice(2) as ListNode[];
@@ -405,7 +487,9 @@ function transformMultiArityFn(
   for (let i = 0; i < arityClauses.length; i++) {
     if (!isMultiArityClause(arityClauses[i])) {
       throw new ValidationError(
-        `Invalid arity clause at position ${i + 1}. Expected ([params...] body...)`,
+        `Invalid arity clause at position ${
+          i + 1
+        }. Expected ([params...] body...)`,
         "multi-arity fn",
         "([params...] body...)",
         arityClauses[i].type,
@@ -418,7 +502,13 @@ function transformMultiArityFn(
   interface ArityInfo {
     arity: number;
     hasRest: boolean;
-    params: Array<{ type: "symbol"; name: string } | { type: "pattern"; node: HQLNode; index: number }>;
+    params: Array<
+      { type: "symbol"; name: string } | {
+        type: "pattern";
+        node: HQLNode;
+        index: number;
+      }
+    >;
     restParam: string | null;
     bodyExprs: HQLNode[];
   }
@@ -464,7 +554,13 @@ function transformMultiArityFn(
       }
     }
 
-    arities.push({ arity: params.length, hasRest, params, restParam, bodyExprs });
+    arities.push({
+      arity: params.length,
+      hasRest,
+      params,
+      restParam,
+      bodyExprs,
+    });
   }
 
   // Sort arities: rest-param arities go last (they catch "N or more" args)
@@ -478,62 +574,90 @@ function transformMultiArityFn(
   const switchCases: IR.IRSwitchCase[] = [];
 
   for (const arityInfo of arities) {
-    const caseBody: IR.IRNode[] = [];
+    const caseBody = withFunctionScope(
+      () => {
+        const body: IR.IRNode[] = [];
 
-    // Destructure parameters from __args
-    for (let pIdx = 0; pIdx < arityInfo.params.length; pIdx++) {
-      const param = arityInfo.params[pIdx];
-      if (param.type === "symbol") {
-        // Simple symbol parameter: const paramName = __args[i];
-        caseBody.push(
-          createVarDecl(
-            createId(sanitizeIdentifier(param.name)),
-            createMember(createId(argsIdentifier), createNum(pIdx), true),
-          ),
-        );
-      } else {
-        // Destructuring pattern parameter: const [x, y] = __args[i];
-        const patternNode = param.node as ListNode;
-        const parsedPattern = parsePattern(patternNode);
-        const irPattern = patternToIR(parsedPattern, transformNode, currentDir);
+        if (isNamed && funcName) {
+          registerBindingAlias(
+            funcName,
+            functionBinding?.bindingIdentity,
+            functionBinding?.jsName,
+          );
+        }
 
-        if (irPattern) {
-          caseBody.push(
+        // Destructure parameters from __args
+        for (let pIdx = 0; pIdx < arityInfo.params.length; pIdx++) {
+          const param = arityInfo.params[pIdx];
+          if (param.type === "symbol") {
+            const paramBinding = registerLexicalBinding(param.name);
+            const paramId = identifierFromBindingRecord(
+              paramBinding,
+              param.name,
+            );
+            body.push(
+              createVarDecl(
+                paramId,
+                createMember(createId(argsIdentifier), createNum(pIdx), true),
+              ),
+            );
+          } else {
+            const patternNode = param.node as ListNode;
+            const parsedPattern = parsePattern(patternNode);
+            const irPattern = patternToIR(
+              parsedPattern,
+              transformNode,
+              currentDir,
+            );
+
+            if (irPattern) {
+              body.push(
+                createVarDecl(
+                  irPattern,
+                  createMember(
+                    createId(argsIdentifier),
+                    createNum(param.index),
+                    true,
+                  ),
+                ),
+              );
+            }
+          }
+        }
+
+        if (arityInfo.hasRest && arityInfo.restParam) {
+          const restBinding = registerLexicalBinding(arityInfo.restParam);
+          const restId = createId(`...${restBinding.jsName}`, {
+            originalName: arityInfo.restParam,
+            bindingIdentity: restBinding.bindingIdentity,
+          });
+          body.push(
             createVarDecl(
-              irPattern,
-              createMember(createId(argsIdentifier), createNum(param.index), true),
+              restId,
+              createCall(
+                createMember(createId(argsIdentifier), createId("slice")),
+                [createNum(arityInfo.arity)],
+              ),
             ),
           );
         }
-      }
-    }
 
-    // Handle rest parameter if present
-    if (arityInfo.hasRest && arityInfo.restParam) {
-      caseBody.push(
-        createVarDecl(
-          createId(sanitizeIdentifier(arityInfo.restParam)),
-          createCall(
-            createMember(createId(argsIdentifier), createId("slice")),
-            [createNum(arityInfo.arity)],
-          ),
-        ),
-      );
-    }
-
-    // Process body
-    const bodyNodes = processFunctionBody(arityInfo.bodyExprs, currentDir);
-    caseBody.push(...bodyNodes);
+        body.push(...processFunctionBody(arityInfo.bodyExprs, currentDir));
+        return body;
+      },
+    );
 
     if (arityInfo.hasRest) {
       switchCases.push(createSwitchCase(null, [createBlock(caseBody)]));
     } else {
-      switchCases.push(createSwitchCase(createNum(arityInfo.arity), [createBlock(caseBody)]));
+      switchCases.push(
+        createSwitchCase(createNum(arityInfo.arity), [createBlock(caseBody)]),
+      );
     }
   }
 
   // If no rest arity, add default case that throws error
-  const hasRestArity = arities.some(a => a.hasRest);
+  const hasRestArity = arities.some((a) => a.hasRest);
   if (!hasRestArity) {
     const errorMessage = funcName
       ? `No matching arity for function '${funcName}' with `
@@ -610,7 +734,8 @@ function transformNamedFn(
   let funcName = funcNameNode.name;
 
   let returnType: string | undefined;
-  const { name: nameWithoutReturnType, type: nameReturnType } = extractAndNormalizeType(funcName);
+  const { name: nameWithoutReturnType, type: nameReturnType } =
+    extractAndNormalizeType(funcName);
   funcName = nameWithoutReturnType;
   if (nameReturnType) {
     returnType = nameReturnType;
@@ -635,37 +760,58 @@ function transformNamedFn(
     );
   }
   const paramList = paramListNode as ListNode;
-
-  const { params, defaults, usesJsonMapParams } = parseFunctionParameters(
-    paramList, currentDir, transformNode,
+  const functionBinding = registerDeclaredBinding(
+    funcName,
+    funcNameNode.name,
+    getMeta(funcNameNode)?.resolvedBinding,
   );
-
-  const returnTypeResult = parseReturnTypeAnnotation(list.elements, 3);
-  returnType = returnTypeResult.returnType ?? returnType;
-  const bodyStartIndex = returnTypeResult.bodyStartIndex;
-
-  const bodyExpressions = list.elements.slice(bodyStartIndex);
-  const bodyNodes = processFunctionBody(bodyExpressions, currentDir);
-
-  const funcId = createId(sanitizeIdentifier(funcName));
+  const funcId = identifierFromBindingRecord(
+    functionBinding,
+    funcNameNode.name,
+  );
   copyPosition(funcNameNode, funcId);
   copyEndPosition(list, funcId);
 
-  const blockPosition = bodyNodes.length > 0 ? bodyNodes[0].position : undefined;
+  return withFunctionScope(() => {
+    registerBindingAlias(
+      funcName,
+      functionBinding.bindingIdentity,
+      functionBinding.jsName,
+    );
 
-  const fnFuncDecl = {
-    type: IR.IRNodeType.FnFunctionDeclaration,
-    id: funcId,
-    params,
-    defaults: Array.from(defaults.entries()).map(([name, value]) => ({ name, value })),
-    body: createBlock(bodyNodes, blockPosition),
-    usesJsonMapParams,
-    returnType,
-    typeParameters,
-  } as IR.IRFnFunctionDeclaration;
+    const { params, defaults, usesJsonMapParams } = parseFunctionParameters(
+      paramList,
+      currentDir,
+      transformNode,
+    );
 
-  registerFnFunction(funcName, fnFuncDecl);
-  return fnFuncDecl;
+    const returnTypeResult = parseReturnTypeAnnotation(list.elements, 3);
+    returnType = returnTypeResult.returnType ?? returnType;
+    const bodyStartIndex = returnTypeResult.bodyStartIndex;
+
+    const bodyExpressions = list.elements.slice(bodyStartIndex);
+    const bodyNodes = processFunctionBody(bodyExpressions, currentDir);
+    const blockPosition = bodyNodes.length > 0
+      ? bodyNodes[0].position
+      : undefined;
+
+    const fnFuncDecl = {
+      type: IR.IRNodeType.FnFunctionDeclaration,
+      id: funcId,
+      params,
+      defaults: Array.from(defaults.entries()).map(([name, value]) => ({
+        name,
+        value,
+      })),
+      body: createBlock(bodyNodes, blockPosition),
+      usesJsonMapParams,
+      returnType,
+      typeParameters,
+    } as IR.IRFnFunctionDeclaration;
+
+    registerFnFunction(funcName, fnFuncDecl);
+    return fnFuncDecl;
+  });
 }
 
 /**
@@ -697,16 +843,32 @@ function transformAnonymousFn(
     );
   }
   const paramList = paramListNode as ListNode;
+  return withFunctionScope(() => {
+    const { params } = parseFunctionParameters(
+      paramList,
+      currentDir,
+      transformNode,
+    );
 
-  const { params } = parseFunctionParameters(paramList, currentDir, transformNode);
+    const { returnType, bodyStartIndex } = parseReturnTypeAnnotation(
+      list.elements,
+      2,
+    );
 
-  const { returnType, bodyStartIndex } = parseReturnTypeAnnotation(list.elements, 2);
+    const bodyNodes = processFunctionBody(
+      list.elements.slice(bodyStartIndex),
+      currentDir,
+    );
+    const blockPosition = bodyNodes.length > 0
+      ? bodyNodes[0].position
+      : undefined;
+    const usesThis = containsThisReference(list.elements.slice(bodyStartIndex));
 
-  const bodyNodes = processFunctionBody(list.elements.slice(bodyStartIndex), currentDir);
-  const blockPosition = bodyNodes.length > 0 ? bodyNodes[0].position : undefined;
-  const usesThis = containsThisReference(list.elements.slice(bodyStartIndex));
-
-  return createFnExpr(params, createBlock(bodyNodes, blockPosition), { returnType, usesThis: usesThis || undefined });
+    return createFnExpr(params, createBlock(bodyNodes, blockPosition), {
+      returnType,
+      usesThis: usesThis || undefined,
+    });
+  });
 }
 
 /**
@@ -721,8 +883,8 @@ function reconstructReturnTypeString(listNode: ListNode): string | null {
   if (hasArrayLiteralPrefix(listNode)) {
     const typeElems = elems.slice(1);
     if (typeElems.length === 0) return null;
-    const names = typeElems.map(e => reconstructNodeAsTypeString(e));
-    if (names.some(n => n === null)) return null;
+    const names = typeElems.map((e) => reconstructNodeAsTypeString(e));
+    if (names.some((n) => n === null)) return null;
     // Check for dict pattern: [String : Int] → second elem is ":"
     if (names.length === 3 && names[1] === ":") {
       return `[${names[0]}: ${names[2]}]`;
@@ -738,8 +900,8 @@ function reconstructReturnTypeString(listNode: ListNode): string | null {
   // Only treat as a tuple type if each element is itself type-like (not an expression).
   // This prevents (+ a b) or (console.log x) from being misinterpreted as tuple types.
   if (elems.length >= 2 && elems.every(isTupleTypeElement)) {
-    const names = elems.map(e => reconstructNodeAsTypeString(e));
-    if (names.some(n => n === null)) return null;
+    const names = elems.map((e) => reconstructNodeAsTypeString(e));
+    if (names.some((n) => n === null)) return null;
     return `(${(names as string[]).join(", ")})`;
   }
 
@@ -751,7 +913,9 @@ function reconstructReturnTypeString(listNode: ListNode): string | null {
  */
 function reconstructNodeAsTypeString(node: HQLNode): string | null {
   if (node.type === "symbol") return (node as SymbolNode).name;
-  if (node.type === "list") return reconstructReturnTypeString(node as ListNode);
+  if (node.type === "list") {
+    return reconstructReturnTypeString(node as ListNode);
+  }
   if (node.type === "literal") return String((node as LiteralNode).value);
   return null;
 }
@@ -776,10 +940,16 @@ function reconstructHashMapTypeString(listNode: ListNode): string | null {
   for (let i = 0; i < entries.length; i += 2) {
     const key = entries[i];
     const val = entries[i + 1];
-    const keyStr = key.type === "literal" ? String((key as LiteralNode).value) :
-                   key.type === "symbol" ? (key as SymbolNode).name : null;
-    const valStr = val.type === "symbol" ? (val as SymbolNode).name :
-                   val.type === "list" ? reconstructReturnTypeString(val as ListNode) : null;
+    const keyStr = key.type === "literal"
+      ? String((key as LiteralNode).value)
+      : key.type === "symbol"
+      ? (key as SymbolNode).name
+      : null;
+    const valStr = val.type === "symbol"
+      ? (val as SymbolNode).name
+      : val.type === "list"
+      ? reconstructReturnTypeString(val as ListNode)
+      : null;
     if (!keyStr || !valStr) return null;
     fields.push(`${keyStr}: ${valStr}`);
   }
@@ -790,16 +960,48 @@ function reconstructHashMapTypeString(listNode: ListNode): string | null {
  * Check whether a node is type-like in tuple return type context.
  */
 function isTupleTypeElement(node: HQLNode): boolean {
-  if (node.type === "symbol") return looksLikeTypeName((node as SymbolNode).name);
-  if (node.type === "list") return reconstructReturnTypeString(node as ListNode) !== null;
+  if (node.type === "symbol") {
+    return looksLikeTypeName((node as SymbolNode).name);
+  }
+  if (node.type === "list") {
+    return reconstructReturnTypeString(node as ListNode) !== null;
+  }
   return false;
 }
 
 /** Operator/special chars that indicate an expression, not a type name */
-const OPERATOR_START_CHARS = new Set(["+", "-", "*", "/", "=", "<", ">", "!", "&", "|", ".", "%", "^", "~"]);
+const OPERATOR_START_CHARS = new Set([
+  "+",
+  "-",
+  "*",
+  "/",
+  "=",
+  "<",
+  ">",
+  "!",
+  "&",
+  "|",
+  ".",
+  "%",
+  "^",
+  "~",
+]);
 
 /** Known TypeScript primitive types (module-level to avoid per-call allocation) */
-const LOWERCASE_TYPES = new Set(["number", "string", "boolean", "void", "any", "never", "null", "undefined", "object", "unknown", "bigint", "symbol"]);
+const LOWERCASE_TYPES = new Set([
+  "number",
+  "string",
+  "boolean",
+  "void",
+  "any",
+  "never",
+  "null",
+  "undefined",
+  "object",
+  "unknown",
+  "bigint",
+  "symbol",
+]);
 
 /**
  * Check if a symbol name looks like a type name (not an operator or variable).
@@ -925,7 +1127,9 @@ function processJsonMapArgs(
           (listArg.elements[0] as SymbolNode).name === HASH_MAP_INTERNAL)
       ) {
         const transformedArg = validateTransformed(
-          transformNode(arg, currentDir), "function call", "JSON map argument",
+          transformNode(arg, currentDir),
+          "function call",
+          "JSON map argument",
         );
         return createCall(createId(funcDef.id.name), [transformedArg]);
       }
@@ -933,7 +1137,7 @@ function processJsonMapArgs(
     throw new ValidationError(
       `Function '${funcName}' expects a JSON map argument, but received ${arg.type}`,
       "function call",
-      "JSON map object (e.g., {\"key\": value})",
+      'JSON map object (e.g., {"key": value})',
       arg.type,
     );
   } else {
@@ -947,9 +1151,14 @@ function processJsonMapArgs(
 }
 
 /** Cached defaults Map per funcDef (avoids rebuilding on every call) */
-const _defaultsCache = new WeakMap<IR.IRFnFunctionDeclaration, Map<string, IR.IRNode>>();
+const _defaultsCache = new WeakMap<
+  IR.IRFnFunctionDeclaration,
+  Map<string, IR.IRNode>
+>();
 
-function getDefaultValues(funcDef: IR.IRFnFunctionDeclaration): Map<string, IR.IRNode> {
+function getDefaultValues(
+  funcDef: IR.IRFnFunctionDeclaration,
+): Map<string, IR.IRNode> {
   let cached = _defaultsCache.get(funcDef);
   if (!cached) {
     cached = new Map(funcDef.defaults.map((d) => [d.name, d.value]));
@@ -973,9 +1182,18 @@ function processPositionalArgs(
   if (hasSpreadArgs) {
     return args.map((arg) => {
       if (isSpreadOperator(arg)) {
-        return transformSpreadOperator(arg, currentDir, transformNode, "spread in function call");
+        return transformSpreadOperator(
+          arg,
+          currentDir,
+          transformNode,
+          "spread in function call",
+        );
       }
-      return validateTransformed(transformNode(arg, currentDir), "function argument", "Function argument");
+      return validateTransformed(
+        transformNode(arg, currentDir),
+        "function argument",
+        "Function argument",
+      );
     });
   }
 
@@ -984,8 +1202,11 @@ function processPositionalArgs(
   );
   const defaultValues = getDefaultValues(funcDef);
 
-  const lastParam = paramNames.length > 0 ? paramNames[paramNames.length - 1] : null;
-  const hasRestParam = lastParam !== null && lastParam !== undefined && lastParam.startsWith("...");
+  const lastParam = paramNames.length > 0
+    ? paramNames[paramNames.length - 1]
+    : null;
+  const hasRestParam = lastParam !== null && lastParam !== undefined &&
+    lastParam.startsWith("...");
   const regularParamNames = hasRestParam ? paramNames.slice(0, -1) : paramNames;
 
   const finalArgs: IR.IRNode[] = [];
@@ -996,14 +1217,17 @@ function processPositionalArgs(
     if (paramName === null) {
       if (i < args.length) {
         const transformedArg = validateTransformed(
-          transformNode(args[i], currentDir), "function call",
+          transformNode(args[i], currentDir),
+          "function call",
           `Argument for pattern parameter at position ${i}`,
         );
         finalArgs.push(transformedArg);
       } else {
         throw new ValidationError(
           `Missing required argument for pattern parameter at position ${i} in call to function '${funcName}'`,
-          "function call", `pattern parameter at position ${i}`, "missing argument",
+          "function call",
+          `pattern parameter at position ${i}`,
+          "missing argument",
         );
       }
       continue;
@@ -1018,13 +1242,16 @@ function processPositionalArgs(
         } else {
           throw new ValidationError(
             `Placeholder used for parameter '${paramName}' but no default value is defined`,
-            "function call with placeholder", "parameter with default value",
-            "parameter without default", extractMetaSourceLocation(arg),
+            "function call with placeholder",
+            "parameter with default value",
+            "parameter without default",
+            extractMetaSourceLocation(arg),
           );
         }
       } else {
         const transformedArg = validateTransformed(
-          transformNode(arg, currentDir), "function call",
+          transformNode(arg, currentDir),
+          "function call",
           `Argument for parameter '${paramName}'`,
         );
         finalArgs.push(transformedArg);
@@ -1034,7 +1261,9 @@ function processPositionalArgs(
     } else {
       throw new ValidationError(
         `Missing required argument for parameter '${paramName}' in call to function '${funcName}'`,
-        "function call", `required parameter '${paramName}'`, "missing argument",
+        "function call",
+        `required parameter '${paramName}'`,
+        "missing argument",
         extractMetaSourceLocation(args),
       );
     }
@@ -1059,7 +1288,9 @@ function processPositionalArgs(
         paramNames.length === 1 ? "argument" : "arguments"
       }, but got ${args.length}. Extra arguments: ${extraArgStr}`,
       "function call",
-      `${paramNames.length} ${paramNames.length === 1 ? "argument" : "arguments"}`,
+      `${paramNames.length} ${
+        paramNames.length === 1 ? "argument" : "arguments"
+      }`,
       `${args.length} arguments`,
       extractMetaSourceLocation(args, { index: paramNames.length }),
     );
@@ -1083,21 +1314,40 @@ export function processFnFunctionCall(
     detectRemovedNamedArgumentSyntax(args);
 
     if (funcDef.usesJsonMapParams) {
-      return processJsonMapArgs(funcName, funcDef, args, currentDir, transformNode);
+      return processJsonMapArgs(
+        funcName,
+        funcDef,
+        args,
+        currentDir,
+        transformNode,
+      );
     }
 
-    const finalArgs = processPositionalArgs(funcName, funcDef, args, currentDir, transformNode);
+    const finalArgs = processPositionalArgs(
+      funcName,
+      funcDef,
+      args,
+      currentDir,
+      transformNode,
+    );
 
     let calleePosition: IR.SourcePosition | undefined;
     if (sourceList && sourceList.elements.length > 0) {
       const firstElem = sourceList.elements[0];
       const meta = extractMeta(firstElem);
       if (meta) {
-        calleePosition = { line: meta.line, column: meta.column, filePath: meta.filePath };
+        calleePosition = {
+          line: meta.line,
+          column: meta.column,
+          filePath: meta.filePath,
+        };
       }
     }
 
-    const calleeId = createId(sanitizeIdentifier(funcName));
+    const calleeId = createId(funcDef.id.name, {
+      originalName: funcName,
+      bindingIdentity: funcDef.id.bindingIdentity,
+    });
     calleeId.position = calleePosition;
     return createCall(calleeId, finalArgs);
   } catch (error) {
@@ -1108,7 +1358,9 @@ export function processFnFunctionCall(
       throw error;
     }
     throw new TransformError(
-      `Failed to process function call to '${funcName}': ${getErrorMessage(error)}`,
+      `Failed to process function call to '${funcName}': ${
+        getErrorMessage(error)
+      }`,
       "function call processing",
       extractMetaSourceLocation(args),
     );
@@ -1118,7 +1370,10 @@ export function processFnFunctionCall(
 /**
  * Register an fn function in the registry for call site handling
  */
-function registerFnFunction(name: string, def: IR.IRFnFunctionDeclaration): void {
+function registerFnFunction(
+  name: string,
+  def: IR.IRFnFunctionDeclaration,
+): void {
   fnFunctionRegistry.set(name, def);
 }
 
@@ -1139,7 +1394,8 @@ function parseParameters(
   defaults: Map<string, IR.IRNode>;
 } {
   const { supportRest } = options;
-  const params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[] = [];
+  const params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[] =
+    [];
   const defaults = new Map<string, IR.IRNode>();
   let restMode = false;
 
@@ -1160,7 +1416,8 @@ function parseParameters(
       } else {
         throw new ValidationError(
           "Pattern parameter must be an array or object pattern",
-          "function parameter", "array or object pattern",
+          "function parameter",
+          "array or object pattern",
           irPattern ? irPattern.type.toString() : "null",
         );
       }
@@ -1178,13 +1435,16 @@ function parseParameters(
       const isRestParam = supportRest && symbolName.startsWith("...");
       const actualParamName = isRestParam ? symbolName.slice(3) : symbolName;
 
-      const { name: paramNameWithoutType, type: typeAnnotation, effect } = extractAndNormalizeType(actualParamName);
+      const { name: paramNameWithoutType, type: typeAnnotation, effect } =
+        extractAndNormalizeType(actualParamName);
 
       // Look-ahead: f: {a:Int} — param ending with ':' followed by hash-map type
       let resolvedType = typeAnnotation;
-      if (resolvedType === undefined && actualParamName.endsWith(":") &&
-          i + 1 < paramList.elements.length &&
-          paramList.elements[i + 1].type === "list") {
+      if (
+        resolvedType === undefined && actualParamName.endsWith(":") &&
+        i + 1 < paramList.elements.length &&
+        paramList.elements[i + 1].type === "list"
+      ) {
         const nextList = paramList.elements[i + 1] as ListNode;
         const reconstructed = reconstructHashMapTypeString(nextList);
         if (reconstructed !== null) {
@@ -1196,7 +1456,21 @@ function parseParameters(
       const paramIdName = (restMode || isRestParam)
         ? `...${sanitizeIdentifier(paramNameWithoutType)}`
         : sanitizeIdentifier(paramNameWithoutType);
-      const param = createId(paramIdName, { originalName: paramNameWithoutType, typeAnnotation: resolvedType, effectAnnotation: effect });
+      const bindingRecord = registerLexicalBinding(
+        paramNameWithoutType,
+        getMeta(elem)?.resolvedBinding,
+      );
+      const param = createId(
+        restMode || isRestParam
+          ? `...${bindingRecord.jsName}`
+          : bindingRecord.jsName,
+        {
+          originalName: paramNameWithoutType,
+          bindingIdentity: bindingRecord.bindingIdentity,
+          typeAnnotation: resolvedType,
+          effectAnnotation: effect,
+        },
+      );
       copyPosition(elem, param);
       copyEndPosition(paramList, param);
       params.push(param);
@@ -1211,13 +1485,18 @@ function parseParameters(
           const defaultValueNode = paramList.elements[i + 2];
           const defaultValue = transformNode(defaultValueNode, currentDir);
           if (defaultValue) {
-            defaults.set(sanitizeIdentifier(paramNameWithoutType), defaultValue);
+            defaults.set(
+              sanitizeIdentifier(paramNameWithoutType),
+              defaultValue,
+            );
           }
           i += 2;
         } else {
           throw new ValidationError(
             `Missing default value after '=' for parameter '${paramNameWithoutType}'`,
-            "fn parameter default", "default value", "missing value",
+            "fn parameter default",
+            "default value",
+            "missing value",
           );
         }
       }
@@ -1235,7 +1514,9 @@ export function parseParametersWithDefaults(
   params: (IR.IRIdentifier | IR.IRArrayPattern | IR.IRObjectPattern)[];
   defaults: Map<string, IR.IRNode>;
 } {
-  return parseParameters(paramList, currentDir, transformNode, { supportRest: true });
+  return parseParameters(paramList, currentDir, transformNode, {
+    supportRest: true,
+  });
 }
 
 /**
@@ -1251,17 +1532,32 @@ function parseFunctionParameters(
   usesJsonMapParams: boolean;
 } {
   if (isHashMapParams(paramList)) {
-    const { params, defaults } = parseJsonMapParameters(paramList, currentDir, transformNode);
+    const { params, defaults } = parseJsonMapParameters(
+      paramList,
+      currentDir,
+      transformNode,
+    );
     return { params, defaults, usesJsonMapParams: true };
   }
 
   if (hasArrayLiteralPrefix(paramList)) {
-    const vectorList = { ...paramList, elements: paramList.elements.slice(1) } as ListNode;
-    const { params, defaults } = parseParametersWithDefaults(vectorList, currentDir, transformNode);
+    const vectorList = {
+      ...paramList,
+      elements: paramList.elements.slice(1),
+    } as ListNode;
+    const { params, defaults } = parseParametersWithDefaults(
+      vectorList,
+      currentDir,
+      transformNode,
+    );
     return { params, defaults, usesJsonMapParams: false };
   }
 
-  const { params, defaults } = parseParametersWithDefaults(paramList, currentDir, transformNode);
+  const { params, defaults } = parseParametersWithDefaults(
+    paramList,
+    currentDir,
+    transformNode,
+  );
   return { params, defaults, usesJsonMapParams: false };
 }
 
@@ -1297,21 +1593,33 @@ export function parseJsonMapParameters(
     if (!valueNode) {
       throw new ValidationError(
         `Missing default value for JSON map parameter`,
-        "function parameter", "key and default value", "missing value",
+        "function parameter",
+        "key and default value",
+        "missing value",
       );
     }
 
-    if (keyNode.type !== "literal" || typeof (keyNode as LiteralNode).value !== "string") {
+    if (
+      keyNode.type !== "literal" ||
+      typeof (keyNode as LiteralNode).value !== "string"
+    ) {
       throw new ValidationError(
         "JSON map parameter keys must be quoted strings",
-        "parameter key", "string literal (e.g., \"key\")",
-        keyNode.type === "symbol" ? `unquoted symbol '${(keyNode as SymbolNode).name}'` : keyNode.type,
+        "parameter key",
+        'string literal (e.g., "key")',
+        keyNode.type === "symbol"
+          ? `unquoted symbol '${(keyNode as SymbolNode).name}'`
+          : keyNode.type,
       );
     }
 
     const paramName = (keyNode as LiteralNode).value as string;
 
-    const param = createId(sanitizeIdentifier(paramName), { originalName: paramName });
+    const bindingRecord = registerLexicalBinding(paramName);
+    const param = createId(bindingRecord.jsName, {
+      originalName: paramName,
+      bindingIdentity: bindingRecord.bindingIdentity,
+    });
     copyPosition(keyNode, param);
     copyEndPosition(mapNode, param);
     params.push(param);
@@ -1322,7 +1630,9 @@ export function parseJsonMapParameters(
     } else {
       throw new ValidationError(
         `Failed to parse default value for parameter '${paramName}'`,
-        "parameter default value", "valid expression", "invalid or null value",
+        "parameter default value",
+        "valid expression",
+        "invalid or null value",
       );
     }
   }
@@ -1330,7 +1640,9 @@ export function parseJsonMapParameters(
   if (params.length === 0) {
     throw new ValidationError(
       "JSON map parameters cannot be empty",
-      "function parameters", "at least one parameter with default value", "empty hash-map",
+      "function parameters",
+      "at least one parameter with default value",
+      "empty hash-map",
     );
   }
 
@@ -1349,7 +1661,9 @@ const ARROW_LAMBDA_ERRORS = {
   NO_IMPLICIT_PARAMS:
     "Arrow lambda with implicit parameters must use $0, $1, $2, etc. or provide explicit parameter list",
   TOO_MANY_PARAMS: (found: number, max: number) =>
-    `Arrow lambda has too many implicit parameters ($${found}). Maximum is $${max - 1}`,
+    `Arrow lambda has too many implicit parameters ($${found}). Maximum is $${
+      max - 1
+    }`,
 } as const;
 
 /**
@@ -1382,7 +1696,10 @@ function createSymbolNode(name: string): SymbolNode {
   return { type: "symbol", name };
 }
 
-function createFnListNode(paramList: ListNode, bodyElements: HQLNode[]): ListNode {
+function createFnListNode(
+  paramList: ListNode,
+  bodyElements: HQLNode[],
+): ListNode {
   return {
     type: "list",
     elements: [createSymbolNode("fn"), paramList, ...bodyElements],
@@ -1404,7 +1721,8 @@ export function transformArrowLambda(
     if (list.elements.length < 2) {
       throw new ValidationError(
         "Arrow lambda requires at least a body",
-        "=> expression", "body or [params] body",
+        "=> expression",
+        "body or [params] body",
         `${list.elements.length - 1} arguments`,
       );
     }
@@ -1415,7 +1733,12 @@ export function transformArrowLambda(
       const paramList = secondElement;
       const bodyElements = list.elements.slice(2);
       const fnList = createFnListNode(paramList, bodyElements);
-      return transformFn(fnList, currentDir, transformNode, processFunctionBody);
+      return transformFn(
+        fnList,
+        currentDir,
+        transformNode,
+        processFunctionBody,
+      );
     }
 
     const bodyElements = list.elements.slice(1);

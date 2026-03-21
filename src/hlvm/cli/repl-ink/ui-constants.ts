@@ -5,6 +5,33 @@
 /** Cursor blink interval in ms (macOS standard) */
 export const CURSOR_BLINK_MS = 530;
 
+/** Shared spinner cadence for conversation UI motion. */
+export const CONVERSATION_SPINNER_INTERVAL_MS = 100;
+
+/** Braille spinner frames used by the shared conversation motion store. */
+export const SPINNER_FRAMES = [
+  "⠋",
+  "⠙",
+  "⠹",
+  "⠸",
+  "⠼",
+  "⠴",
+  "⠦",
+  "⠧",
+  "⠇",
+  "⠏",
+] as const;
+
+/** Shared status glyphs for conversation and overlay chrome. */
+export const STATUS_GLYPHS = {
+  pending: "○",
+  running: "●",
+  success: "✓",
+  error: "✗",
+  warning: "⚠",
+  info: "ℹ",
+} as const;
+
 
 /** Shared helper hint for expanding/collapsing latest tool/thinking section. */
 export const TOGGLE_LATEST_HINT = "Ctrl+O toggles latest section";

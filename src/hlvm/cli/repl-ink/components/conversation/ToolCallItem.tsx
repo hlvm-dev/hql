@@ -19,6 +19,7 @@ interface ToolCallItemProps {
   tool: ToolCallDisplay;
   width: number;
   expanded?: boolean;
+  animateStatusIcon?: boolean;
 }
 
 
@@ -31,7 +32,7 @@ export function resolveToolResultText(
 }
 
 export const ToolCallItem = React.memo(function ToolCallItem(
-  { tool, width, expanded = false }: ToolCallItemProps,
+  { tool, width, expanded = false, animateStatusIcon = false }: ToolCallItemProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
 
@@ -46,7 +47,7 @@ export const ToolCallItem = React.memo(function ToolCallItem(
   return (
     <Box flexDirection="column">
       <Box>
-        <ToolStatusIcon status={tool.status} />
+        <ToolStatusIcon status={tool.status} animate={animateStatusIcon} />
         <Text> </Text>
         <Text bold color={nameColor}>{tool.name}</Text>
         {argsSummary && (

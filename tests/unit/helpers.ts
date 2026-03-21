@@ -17,6 +17,13 @@ import { _resetActiveConversationForTesting } from "../../src/hlvm/store/active-
 import { _resetDbForTesting } from "../../src/hlvm/store/db.ts";
 import { closeFactDb } from "../../src/hlvm/memory/mod.ts";
 import { withGlobalTestLock } from "./_shared/global-test-lock.ts";
+import {
+  isList,
+  isSymbol,
+  sexpToString,
+  type SExp,
+  type SSymbol,
+} from "../../src/hql/s-exp/types.ts";
 
 const path = () => getPlatform().path;
 const fs = () => getPlatform().fs;
@@ -135,6 +142,32 @@ export async function evalHql(code: string): Promise<unknown> {
   initializeRuntimeHelpers();
   const js = await transpile(code);
   return eval(js);
+}
+
+export function formatSExpValue(value: unknown): string {
+  return sexpToString(value as SExp);
+}
+
+export function findSymbolByName(
+  expr: SExp,
+  name: string,
+): SSymbol | undefined {
+  if (isSymbol(expr) && expr.name === name) {
+    return expr;
+  }
+
+  if (!isList(expr)) {
+    return undefined;
+  }
+
+  for (const element of expr.elements) {
+    const found = findSymbolByName(element, name);
+    if (found) {
+      return found;
+    }
+  }
+
+  return undefined;
 }
 
 // ============================================================================

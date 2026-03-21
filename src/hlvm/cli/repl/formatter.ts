@@ -6,6 +6,7 @@
 import { ANSI_COLORS } from "../ansi.ts";
 import { escapeString } from "./string-utils.ts";
 import { SEQ_SYMBOL } from "../../../common/protocol-symbols.ts";
+import { isList, isLiteral, isSymbol, sexpToString } from "../../../hql/s-exp/types.ts";
 
 /**
  * Check if value implements SEQ protocol (LazySeq, Cons, ArraySeq, NumericRange, etc.)
@@ -100,6 +101,10 @@ function formatValueInternal(value: unknown, depth = 0, useColor = true): string
 
   if (typeof value === "symbol") {
     return `${YELLOW}${value.toString()}${RESET}`;
+  }
+
+  if (isSymbol(value as never) || isLiteral(value as never) || isList(value as never)) {
+    return sexpToString(value as never);
   }
 
   if (value instanceof Error) {

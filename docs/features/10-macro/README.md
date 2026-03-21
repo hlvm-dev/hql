@@ -180,9 +180,8 @@ Macro bodies can use the following at expansion time:
 - **Macro primitives** (`%first`, `%rest`, etc.)
 - **Arithmetic and comparison** (`+`, `-`, `===`, `>=`, etc.) via interpreter bridge
 - **User-defined functions** -- named `fn` definitions are registered in a persistent interpreter environment and can be called from later macros
-- **Nested macro calls** -- macro arguments that are themselves macro calls get pre-expanded
 
-Macros receive raw forms by default. If you want to force macro-time execution of a raw form, use `%eval`. `%macroexpand-1` and `%macroexpand-all` expose expansion from inside macro bodies.
+Macros receive raw forms by default, including nested macro calls. If you want to force macro-time execution of a raw form, use `%eval`. `%macroexpand-1` and `%macroexpand-all` expose explicit expansion from inside macro bodies.
 
 The macro system uses a lazy singleton interpreter with a persistent environment for evaluating macro-time expressions. User-defined functions survive across macro expansions.
 
@@ -193,7 +192,7 @@ The macro system uses a lazy singleton interpreter with a persistent environment
 Fully expand all macros in a source string (returns array of S-expression strings):
 
 ```typescript
-import { macroexpand } from "./src/hql/macroexpand.ts";
+import { macroexpand } from "hql";
 const result = await macroexpand(`(when true (print "hello"))`);
 ```
 
@@ -202,7 +201,7 @@ const result = await macroexpand(`(when true (print "hello"))`);
 Single-step expansion (one iteration, no recursive descent):
 
 ```typescript
-import { macroexpand1 } from "./src/hql/macroexpand.ts";
+import { macroexpand1 } from "hql";
 const result = await macroexpand1(`(when true (print "hello"))`);
 ```
 
@@ -211,7 +210,7 @@ const result = await macroexpand1(`(when true (print "hello"))`);
 Full fixed-point expansion alias:
 
 ```typescript
-import { macroexpandAll } from "./src/hql/macroexpand.ts";
+import { macroexpandAll } from "hql";
 const result = await macroexpandAll(`(when true (print "hello"))`);
 ```
 
@@ -220,7 +219,7 @@ const result = await macroexpandAll(`(when true (print "hello"))`);
 Machine-readable expansion trace for tooling and debugging:
 
 ```typescript
-import { macroexpandTrace } from "./src/hql/macroexpand.ts";
+import { macroexpandTrace } from "hql";
 const result = await macroexpandTrace(`(when true (print "hello"))`);
 // result.trace => [{ stage, before, after, macroName?, iteration?, ... }]
 ```

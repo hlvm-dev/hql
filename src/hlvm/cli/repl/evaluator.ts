@@ -41,12 +41,15 @@ import { materializeAttachment } from "../../attachments/service.ts";
 // Constants
 const DECLARATION_OPS: Set<string> = new Set(DECLARATION_KEYWORDS);
 const BINDING_OPS: Set<string> = new Set(BINDING_KEYWORDS);
-const REPL_RUN_OPTIONS = {
-  baseDir: getPlatform().process.cwd(),
-  currentFile: "<repl>",
-  suppressUnknownNameErrors: true, // REPL bindings are on globalThis, not known to TypeScript
-  preserveMacroState: true, // REPL should preserve macro-time helpers between inputs
-} as const;
+
+function getReplRunOptions(state: ReplState) {
+  return {
+    baseDir: getPlatform().process.cwd(),
+    currentFile: state.macroSessionFile,
+    suppressUnknownNameErrors: true,
+    preserveMacroState: true,
+  } as const;
+}
 
 export interface EvalResult {
   success: boolean;
@@ -249,7 +252,7 @@ export async function evaluate(
         const wrappedCode = codeParts.join("\n");
 
         try {
-          const result = await run(wrappedCode, REPL_RUN_OPTIONS);
+          const result = await run(wrappedCode, getReplRunOptions(state));
 
           // FIRST: Persist all definitions to memory.hql
           // Must complete BEFORE state mutations to avoid race condition
@@ -341,7 +344,7 @@ export async function evaluate(
       }
 
       // Regular expression - evaluate and return result
-      return await handleExpression(sourceCode);
+      return await handleExpression(sourceCode, state);
     } catch (error) {
       return {
         success: false,
@@ -411,7 +414,7 @@ async function handleImport(
       ? `${sourceCode}\n${persistStatements}`
       : sourceCode;
 
-    await run(wrappedHql, REPL_RUN_OPTIONS);
+    await run(wrappedHql, getReplRunOptions(state));
 
     // Mark names as declared
     for (const name of names) {
@@ -455,7 +458,7 @@ async function handleBinding(
       __result
     `;
 
-    const result = await run(wrappedHql, REPL_RUN_OPTIONS);
+    const result = await run(wrappedHql, getReplRunOptions(state));
 
     // Persist to memory.hql for "def" (not let/var/const)
     // Only if not currently loading from memory (prevents loop)
@@ -506,7 +509,7 @@ async function handleDeclaration(
       ${name}
     `;
 
-    const result = await run(wrappedHql, REPL_RUN_OPTIONS);
+    const result = await run(wrappedHql, getReplRunOptions(state));
 
     // Persist to memory.hql for "defn" ONLY (not fn/function)
     // Only if not currently loading from memory (prevents loop)
@@ -548,9 +551,12 @@ async function handleDeclaration(
 /**
  * Handle regular expressions
  */
-async function handleExpression(sourceCode: string): Promise<EvalResult> {
+async function handleExpression(
+  sourceCode: string,
+  state: ReplState,
+): Promise<EvalResult> {
   try {
-    const result = await run(sourceCode, REPL_RUN_OPTIONS);
+    const result = await run(sourceCode, getReplRunOptions(state));
     return { success: true, value: result };
   } catch (error) {
     return { success: false, error: ensureError(error) };

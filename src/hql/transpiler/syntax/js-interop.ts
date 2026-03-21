@@ -2,20 +2,24 @@
 // Module for handling JavaScript interop operations
 
 import * as IR from "../type/hql_ir.ts";
-import type { HQLNode, ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
-import {
-  ValidationError,
-} from "../../../common/error.ts";
+import type {
+  HQLNode,
+  ListNode,
+  LiteralNode,
+  SymbolNode,
+} from "../type/hql_ast.ts";
+import { ValidationError } from "../../../common/error.ts";
 import { copyPosition } from "../pipeline/hql-ast-to-hql-ir.ts";
 import {
   arityError,
-  transformElements,
-  validateTransformed,
-  validateListLength,
   isSpreadOperator,
+  transformElements,
   transformSpreadOperator,
+  validateListLength,
+  validateTransformed,
 } from "../utils/validation-helpers.ts";
 import {
+  buildMemberExpressionChain,
   resolveMemberProperty,
 } from "../utils/member-expression.ts";
 import {
@@ -24,6 +28,7 @@ import {
   createMember,
   createStr,
 } from "../utils/ir-helpers.ts";
+import { resolveSymbolIdentifier } from "../utils/binding-resolution.ts";
 
 /**
  * Transform arguments, handling spread operators.
@@ -38,7 +43,14 @@ function transformArgumentsWithSpread(
 
   for (const arg of args) {
     if (isSpreadOperator(arg)) {
-      result.push(transformSpreadOperator(arg, currentDir, transformNode, "spread in method call"));
+      result.push(
+        transformSpreadOperator(
+          arg,
+          currentDir,
+          transformNode,
+          "spread in method call",
+        ),
+      );
     } else {
       const transformed = validateTransformed(
         transformNode(arg, currentDir),
@@ -164,7 +176,10 @@ export function transformJsGet(
 
   const literalProperty = getLiteralString(list.elements[2]);
   if (literalProperty !== null) {
-    const { property, computed } = resolveMemberProperty(createStr(literalProperty), true);
+    const { property, computed } = resolveMemberProperty(
+      createStr(literalProperty),
+      true,
+    );
     const result = createMember(object, property, computed);
     copyPosition(list, result);
     return result;
@@ -202,7 +217,9 @@ export function transformJsCall(
   // Check if element 2 is a literal string (method name)
   // If so: (js-call obj "method" args...) -> obj.method(args...)
   // If not: (js-call func args...) -> func(args...)
-  const literalMethod = list.elements[2] ? getLiteralString(list.elements[2]) : null;
+  const literalMethod = list.elements[2]
+    ? getLiteralString(list.elements[2])
+    : null;
 
   if (literalMethod !== null) {
     // Method call: (js-call obj "method" args...)
@@ -212,7 +229,10 @@ export function transformJsCall(
       transformNode,
     );
 
-    const { property, computed } = resolveMemberProperty(createStr(literalMethod), true);
+    const { property, computed } = resolveMemberProperty(
+      createStr(literalMethod),
+      true,
+    );
     const result = createCall(createMember(firstArg, property, computed), args);
     copyPosition(list, result);
     return result;
@@ -356,20 +376,33 @@ export function transformDotNotation(
   transformNode: (node: HQLNode, dir: string) => IR.IRNode | null,
 ): IR.IRNode {
   const parts = op.split(".");
-  const objectName = parts[0];
-  const property = parts.slice(1).join(".");
+  const objectExpr = parts[0] === "self"
+    ? createId("this")
+    : resolveSymbolIdentifier({
+      type: "symbol",
+      name: parts[0],
+    } as SymbolNode);
+  const property = parts.slice(1);
+  const resolvedProperty = property.length === 1
+    ? resolveMemberProperty(createStr(property[0]), true)
+    : null;
+  const memberExpr: IR.IRMemberExpression = property.length === 1
+    ? createMember(
+      objectExpr,
+      resolvedProperty!.property,
+      resolvedProperty!.computed,
+    )
+    : buildMemberExpressionChain(objectExpr, property) as IR.IRMemberExpression;
 
-  const objectExpr = createId(objectName);
-  const { property: memberProperty, computed } = resolveMemberProperty(
-    createStr(property),
-    true,
+  const args = list.elements.length === 1 ? [] : transformElements(
+    list.elements.slice(1),
+    currentDir,
+    transformNode,
+    "method argument",
+    "Method argument",
   );
 
-  const args = list.elements.length === 1
-    ? []
-    : transformElements(list.elements.slice(1), currentDir, transformNode, "method argument", "Method argument");
-
-  const result = createCall(createMember(objectExpr, memberProperty, computed), args);
+  const result = createCall(memberExpr, args);
   copyPosition(list, result);
   return result;
 }

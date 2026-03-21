@@ -203,7 +203,7 @@ Macros (`macro` definitions) are compile-time constructs. The import/export syst
 - Macros in import vectors are automatically skipped during JS codegen (they don't produce runtime `import` statements)
 - Macros in export vectors are filtered out at compile time
 - If all imports/exports in a statement are macros, the entire statement is omitted from output
-- User-defined macros can be imported and are tracked in the global macro registry
+- User-defined macros can be imported and are tracked through the normal compiler/environment symbol resolution path
 
 ## Hyphenated Identifiers
 

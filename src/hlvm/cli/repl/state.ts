@@ -14,6 +14,7 @@ import { log } from "../../api/log.ts";
 // Pre-compiled regex patterns (avoid compilation per-call)
 /** Matches function parameter declarations in all JS function forms */
 const JS_FUNCTION_PARAMS_REGEX = /^(?:async\s+)?(?:function\s*\*?\s*\w*\s*)?\(([^)]*)\)|^(\w+)\s*=>/;
+let replSessionCounter = 0;
 
 /**
  * Extract parameter names from a JavaScript function.
@@ -103,6 +104,7 @@ function extractParamName(paramStr: string): string | null {
 }
 
 export class ReplState {
+  private readonly replModulePath = `<repl:${++replSessionCounter}>`;
   private bindings = new Set<string>();
   private signatures = new Map<string, string[]>();  // function name -> param names
   private docstrings = new Map<string, string>();    // name -> docstring from comments
@@ -208,6 +210,10 @@ export class ReplState {
   /** Get bindings Set directly (for stable reference - avoids allocation) */
   getBindingsSet(): ReadonlySet<string> {
     return this.bindings;
+  }
+
+  get macroSessionFile(): string {
+    return this.replModulePath;
   }
 
   /** Get command history */

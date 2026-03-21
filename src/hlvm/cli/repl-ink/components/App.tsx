@@ -51,11 +51,7 @@ import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
 import { useTeamState } from "../hooks/useTeamState.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
-import {
-  type OverlayPanel,
-  type SurfacePanel,
-  useOverlayPanel,
-} from "../hooks/useOverlayPanel.ts";
+import { useOverlayPanel } from "../hooks/useOverlayPanel.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
 import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
@@ -382,7 +378,6 @@ function AppContent(
     runConversation,
     submitConversationDraft,
     handleInteractionResponse,
-    closeConversationMode,
     interruptConversationRun,
     handleForceInterrupt,
   } = agentRunner;
@@ -569,7 +564,7 @@ function AppContent(
   }, [replState]);
 
   // (runConversation, submitConversationDraft, handleInteractionResponse,
-  //  closeConversationMode, handleForceInterrupt, queue drain effect
+  //  handleForceInterrupt, queue drain effect
   //  all moved to useAgentRunner)
   const flushReplOutput = useCallback(() => {
     clearTerminal();

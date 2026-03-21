@@ -7,8 +7,10 @@
 
 export {
   ansi,
+  buildOverlayFrameText,
   clearOverlay,
   type ClearRegion,
+  drawOverlayFrame,
   type OverlayColors,
   type OverlayFrame,
   type RGB,

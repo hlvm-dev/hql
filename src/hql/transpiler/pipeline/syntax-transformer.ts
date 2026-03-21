@@ -24,6 +24,7 @@ import type { SymbolKind } from "../symbol_table.ts";
 import { getSymbolTable, type CompilerContext } from "../compiler-context.ts";
 import { hasArrayLiteralPrefix, hasHashMapPrefix } from "../../../common/sexp-utils.ts";
 import { NUMERIC_PATTERN } from "../constants/index.ts";
+import { moduleBindingIdentity } from "../utils/binding-resolution.ts";
 
 /**
  * Reverse lookup: caseName → enumName for O(1) enum case resolution.
@@ -35,6 +36,7 @@ let caseToEnumMap: Map<string, string> = new Map();
 // Set by transformSyntax, used by helper functions
 // This enables isolation when context.symbolTable is provided
 let currentSymbolTable: SymbolTable = globalSymbolTable;
+let currentFilePath: string | undefined;
 
 /**
  * Main entry point - transforms all syntax sugar into canonical S-expressions
@@ -44,6 +46,7 @@ let currentSymbolTable: SymbolTable = globalSymbolTable;
 export function transformSyntax(ast: SExp[], context?: CompilerContext): SExp[] {
   // Use context-specific symbol table if provided, otherwise global
   currentSymbolTable = getSymbolTable(context);
+  currentFilePath = context?.currentFile;
 
   // Clear the symbol table at the start
   currentSymbolTable.clear();
@@ -150,6 +153,9 @@ function registerEnum(list: SList, enumDefinitions: Map<string, SList>): void {
           kind: "enum-case",
           parent: enumName,
           scope: "global",
+          bindingIdentity: currentFilePath
+            ? moduleBindingIdentity(currentFilePath, `${enumName}.${caseName}`)
+            : undefined,
           associatedValues,
         });
       }
@@ -160,6 +166,9 @@ function registerEnum(list: SList, enumDefinitions: Map<string, SList>): void {
       cases,
       associatedValues,
       scope: "global",
+      bindingIdentity: currentFilePath
+        ? moduleBindingIdentity(currentFilePath, enumName)
+        : undefined,
     });
   }
 }
@@ -195,6 +204,9 @@ function registerClass(list: SList): void {
               parent: typeName,
               scope: "class",
               type,
+              bindingIdentity: currentFilePath
+                ? moduleBindingIdentity(currentFilePath, `${typeName}.${name}`)
+                : undefined,
             });
           } else {
             fields.push({ name: fieldName, type: fieldType });
@@ -204,6 +216,9 @@ function registerClass(list: SList): void {
               parent: typeName,
               scope: "class",
               type: fieldType,
+              bindingIdentity: currentFilePath
+                ? moduleBindingIdentity(currentFilePath, `${typeName}.${fieldName}`)
+                : undefined,
             });
           }
         } else if (
@@ -230,6 +245,9 @@ function registerClass(list: SList): void {
             scope: "class",
             params,
             returnType,
+            bindingIdentity: currentFilePath
+              ? moduleBindingIdentity(currentFilePath, `${typeName}.${mName}`)
+              : undefined,
           });
         }
       }
@@ -240,6 +258,9 @@ function registerClass(list: SList): void {
       fields,
       methods,
       scope: "global",
+      bindingIdentity: currentFilePath
+        ? moduleBindingIdentity(currentFilePath, typeName)
+        : undefined,
     });
   }
 }
@@ -265,6 +286,9 @@ function registerFunctionOrMacro(list: SList, head: string): void {
       scope: "global",
       params,
       returnType,
+      bindingIdentity: currentFilePath
+        ? moduleBindingIdentity(currentFilePath, name)
+        : undefined,
     });
   }
 }
@@ -305,6 +329,9 @@ function registerBinding(list: SList, bindingKeyword: string): void {
         kind: "variable",
         type: dataType,
         scope: "local",
+        bindingIdentity: currentFilePath
+          ? moduleBindingIdentity(currentFilePath, varName)
+          : undefined,
       });
       logger.debug(
         `Registered ${bindingKeyword} binding: ${varName} with type ${dataType}`,
@@ -336,6 +363,9 @@ function registerBinding(list: SList, bindingKeyword: string): void {
               kind: "variable",
               type: dataType,
               scope: "local",
+              bindingIdentity: currentFilePath
+                ? moduleBindingIdentity(currentFilePath, varName)
+                : undefined,
             });
             logger.debug(
               `Registered ${bindingKeyword} binding: ${varName} with type ${dataType}`,
@@ -391,6 +421,9 @@ function registerModuleConstruct(list: SList, head: string): void {
       name,
       kind: symbolKind,
       scope: "global",
+      bindingIdentity: currentFilePath
+        ? moduleBindingIdentity(currentFilePath, name)
+        : undefined,
     });
   }
 }
@@ -1281,4 +1314,3 @@ function transformAnonymousFnSyntax(
     ...body,
   );
 }
-

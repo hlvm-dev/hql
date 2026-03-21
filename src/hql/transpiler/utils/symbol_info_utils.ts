@@ -2,6 +2,10 @@
 // This centralizes all symbol info creation and manipulation to ensure consistency
 
 import type { SymbolInfo, SymbolScope } from "../symbol_table.ts";
+import {
+  buildBoundIdentifierName,
+  moduleBindingIdentity,
+} from "./binding-resolution.ts";
 
 type MacroLikeFunction =
   & ((...args: unknown[]) => unknown)
@@ -13,12 +17,14 @@ type MacroLikeFunction =
 export function createBasicSymbolInfo(
   name: string,
   scope: SymbolScope = "global",
-  _filePath?: string,
+  filePath?: string,
 ): SymbolInfo {
   return {
     name,
     kind: "variable",
     scope,
+    bindingIdentity: filePath ? moduleBindingIdentity(filePath, name) : undefined,
+    jsName: undefined,
   };
 }
 
@@ -36,7 +42,9 @@ export function enrichSymbolInfoWithValueType(
     result.type = "Function";
 
     const functionValue = value as MacroLikeFunction;
-    if ("isUserMacro" in functionValue && functionValue.isUserMacro) {
+    if ("isMacro" in functionValue && functionValue.isMacro) {
+      result.kind = "macro";
+    } else if ("isUserMacro" in functionValue && functionValue.isUserMacro) {
       result.kind = "macro";
     } else if (
       "isSystemMacro" in functionValue && functionValue.isSystemMacro
@@ -98,6 +106,8 @@ export function enrichImportedSymbolInfo(
   const result = { ...symbolInfo };
   result.isImported = true;
   result.sourceModule = modulePath;
+  result.bindingIdentity = moduleBindingIdentity(modulePath, symbolName);
+  result.jsName = buildBoundIdentifierName(aliasName ?? symbolInfo.name, result.bindingIdentity);
   if (aliasName && aliasName !== symbolName) {
     result.aliasOf = symbolName;
   }

@@ -17,8 +17,8 @@ import {
   macroexpand,
   macroexpand1,
   macroexpandAll,
-  macroexpandTrace,
   type MacroExpandOptions,
+  macroexpandTrace,
   type MacroExpandTraceResult,
 } from "./src/hql/macroexpand.ts";
 import type { MacroExpansionTraceStep } from "./src/hql/s-exp/macro.ts";
@@ -35,15 +35,21 @@ const exists = (path: string) => _fs().exists(path);
 const platformFromFileUrl = (url: string | URL) => _path().fromFileUrl(url);
 const platformIsAbsolute = (path: string) => _path().isAbsolute(path);
 const join = (...paths: string[]) => _path().join(...paths);
-const platformMkdir = (path: string, opts?: { recursive?: boolean }) => _fs().mkdir(path, opts);
+const platformMkdir = (path: string, opts?: { recursive?: boolean }) =>
+  _fs().mkdir(path, opts);
 const platformNormalize = (path: string) => _path().normalize(path);
 const platformReadTextFile = (path: string) => _fs().readTextFile(path);
-const platformRelative = (from: string, to: string) => _path().relative(from, to);
+const platformRelative = (from: string, to: string) =>
+  _path().relative(from, to);
 const platformResolve = (...paths: string[]) => _path().resolve(...paths);
 const platformToFileUrl = (path: string) => _path().toFileUrl(path);
-const platformWriteTextFile = (path: string, content: string) => _fs().writeTextFile(path, content);
+const platformWriteTextFile = (path: string, content: string) =>
+  _fs().writeTextFile(path, content);
 import * as acorn from "npm:acorn@8.11.3";
-import { installSourceMapSupport, preloadSourceMap } from "./src/hql/transpiler/pipeline/source-map-support.ts";
+import {
+  installSourceMapSupport,
+  preloadSourceMap,
+} from "./src/hql/transpiler/pipeline/source-map-support.ts";
 import {
   handleRuntimeError,
   setRuntimeContext,
@@ -82,9 +88,18 @@ export interface HQLModule {
   ) => Promise<string | TranspileResult>;
   run: (source: string, options?: RunOptions) => Promise<unknown>;
   runFile?: (filePath: string, options?: RunOptions) => Promise<unknown>;
-  macroexpand?: (source: string, options?: MacroExpandOptions) => Promise<string[]>;
-  macroexpand1?: (source: string, options?: MacroExpandOptions) => Promise<string[]>;
-  macroexpandAll?: (source: string, options?: MacroExpandOptions) => Promise<string[]>;
+  macroexpand?: (
+    source: string,
+    options?: MacroExpandOptions,
+  ) => Promise<string[]>;
+  macroexpand1?: (
+    source: string,
+    options?: MacroExpandOptions,
+  ) => Promise<string[]>;
+  macroexpandAll?: (
+    source: string,
+    options?: MacroExpandOptions,
+  ) => Promise<string[]>;
   macroexpandTrace?: (
     source: string,
     options?: MacroExpandOptions,
@@ -94,7 +109,11 @@ export interface HQLModule {
 
 export type HqlAdapter = (js: string) => unknown | Promise<unknown>;
 
-export type { MacroExpandOptions, MacroExpandTraceResult, MacroExpansionTraceStep };
+export type {
+  MacroExpandOptions,
+  MacroExpandTraceResult,
+  MacroExpansionTraceStep,
+};
 
 export interface TranspileOptions extends Record<string, unknown> {
   baseDir?: string;
@@ -129,7 +148,7 @@ export async function transpile(
   options: TranspileOptions = {},
 ): Promise<string | TranspileResult> {
   // Default baseDir to directory of currentFile if provided, otherwise current working directory
-  const baseDir = options.baseDir ?? 
+  const baseDir = options.baseDir ??
     (options.currentFile ? dirname(options.currentFile) : platformCwd());
 
   const transpileOptions: TranspileOptions = {
@@ -149,7 +168,9 @@ export async function transpile(
     result.code.includes("__hql_for_each(");
   const needsDeepFreeze = result.code.includes("__hql_deepFreeze(");
   const needsMatchObj = result.code.includes("__hql_match_obj(");
-  const needsConsumeAsyncIter = result.code.includes("__hql_consume_async_iter(");
+  const needsConsumeAsyncIter = result.code.includes(
+    "__hql_consume_async_iter(",
+  );
 
   // If source maps are requested, inject helpers WITHOUT IIFE wrapping
   if (options.generateSourceMap && result.sourceMap) {
@@ -206,7 +227,9 @@ export async function transpile(
 
     if (needsConsumeAsyncIter) {
       helperSnippets.push(
-        `const __hql_consume_async_iter = ${getRuntimeHelperSource("__hql_consume_async_iter")};`,
+        `const __hql_consume_async_iter = ${
+          getRuntimeHelperSource("__hql_consume_async_iter")
+        };`,
       );
     }
 
@@ -237,7 +260,10 @@ export async function transpile(
       // CRITICAL: Count ACTUAL lines in helpers, not just number of helper snippets!
       // Each helper can be multi-line (e.g. __hql_get is 11 lines)
       const helperLineCount = helperSnippets.length > 0
-        ? helperSnippets.reduce((count, snippet) => count + snippet.split("\n").length, 0) + 1  // +1 for empty line after helpers
+        ? helperSnippets.reduce(
+          (count, snippet) => count + snippet.split("\n").length,
+          0,
+        ) + 1 // +1 for empty line after helpers
         : 0;
       const totalLineOffset = helperLineCount;
 
@@ -245,57 +271,59 @@ export async function transpile(
         const mapJson = JSON.parse(result.sourceMap);
 
         // Import the SourceMapGenerator to properly adjust mappings
-      const { SourceMapGenerator } = await import("npm:source-map@0.6.1");
+        const { SourceMapGenerator } = await import("npm:source-map@0.6.1");
 
-      // Create a new source map with adjusted line numbers
-      const generator = new SourceMapGenerator({
-        file: mapJson.file
-      });
-
-      // Re-add source content if it exists
-      if (mapJson.sourcesContent) {
-        mapJson.sources.forEach((source: string, i: number) => {
-          if (mapJson.sourcesContent[i]) {
-            generator.setSourceContent(source, mapJson.sourcesContent[i]);
-          }
+        // Create a new source map with adjusted line numbers
+        const generator = new SourceMapGenerator({
+          file: mapJson.file,
         });
-      }
 
-      // Parse the original mappings and shift all generated lines down
-      const { SourceMapConsumer } = await import("npm:source-map@0.6.1");
-      const consumer = await new SourceMapConsumer(mapJson);
-
-      interface MappingItem {
-        source: string | null;
-        originalLine: number | null;
-        originalColumn: number | null;
-        generatedLine: number;
-        generatedColumn: number;
-        name: string | null;
-      }
-
-      consumer.eachMapping((mapping: MappingItem) => {
-        // Only add mappings that have valid original positions
-        // Source maps can have generated-only mappings (no original source)
-        // Skip those since we can't shift them properly
-        if (mapping.source !== null &&
-            mapping.originalLine !== null &&
-            mapping.originalColumn !== null) {
-          generator.addMapping({
-            source: mapping.source,
-            original: {
-              line: mapping.originalLine,
-              column: mapping.originalColumn
-            },
-            generated: {
-              line: mapping.generatedLine + totalLineOffset, // Shift down by total offset
-              column: mapping.generatedColumn
-            },
-            name: mapping.name || undefined
+        // Re-add source content if it exists
+        if (mapJson.sourcesContent) {
+          mapJson.sources.forEach((source: string, i: number) => {
+            if (mapJson.sourcesContent[i]) {
+              generator.setSourceContent(source, mapJson.sourcesContent[i]);
+            }
           });
         }
-        // Skip generated-only mappings - they don't map back to HQL source
-      });
+
+        // Parse the original mappings and shift all generated lines down
+        const { SourceMapConsumer } = await import("npm:source-map@0.6.1");
+        const consumer = await new SourceMapConsumer(mapJson);
+
+        interface MappingItem {
+          source: string | null;
+          originalLine: number | null;
+          originalColumn: number | null;
+          generatedLine: number;
+          generatedColumn: number;
+          name: string | null;
+        }
+
+        consumer.eachMapping((mapping: MappingItem) => {
+          // Only add mappings that have valid original positions
+          // Source maps can have generated-only mappings (no original source)
+          // Skip those since we can't shift them properly
+          if (
+            mapping.source !== null &&
+            mapping.originalLine !== null &&
+            mapping.originalColumn !== null
+          ) {
+            generator.addMapping({
+              source: mapping.source,
+              original: {
+                line: mapping.originalLine,
+                column: mapping.originalColumn,
+              },
+              generated: {
+                line: mapping.generatedLine + totalLineOffset, // Shift down by total offset
+                column: mapping.generatedColumn,
+              },
+              name: mapping.name || undefined,
+            });
+          }
+          // Skip generated-only mappings - they don't map back to HQL source
+        });
 
         // Note: consumer cleanup handled by garbage collection
         // destroy() method exists but not in TypeScript types
@@ -379,7 +407,9 @@ export async function transpile(
 
     if (needsConsumeAsyncIter) {
       helperSnippets.push(
-        `const __hql_consume_async_iter = ${getRuntimeHelperSource("__hql_consume_async_iter")};`,
+        `const __hql_consume_async_iter = ${
+          getRuntimeHelperSource("__hql_consume_async_iter")
+        };`,
       );
     }
 
@@ -420,12 +450,14 @@ export async function transpile(
     const statements = ast.body;
     const hasStatements = statements.length > 1 ||
       statements.some((statement) =>
-        statement.type !== 'ExpressionStatement' &&
-        statement.type !== 'EmptyStatement'
+        statement.type !== "ExpressionStatement" &&
+        statement.type !== "EmptyStatement"
       );
 
     // Inner IIFE must be async if code uses await (detected by needsConsumeAsyncIter)
-    const innerFnKeyword = needsConsumeAsyncIter ? "async function" : "function";
+    const innerFnKeyword = needsConsumeAsyncIter
+      ? "async function"
+      : "function";
 
     if (hasStatements) {
       const precedingStatements = statements.slice(0, -1);
@@ -449,10 +481,13 @@ export async function transpile(
         .join("\n");
 
       let formattedLast: string;
-      if (lastStatement.type === 'ExpressionStatement') {
+      if (lastStatement.type === "ExpressionStatement") {
         // Extract just the expression part (without trailing semicolon)
         const expr = lastStatement.expression;
-        if (!expr || typeof expr.start !== 'number' || typeof expr.end !== 'number') {
+        if (
+          !expr || typeof expr.start !== "number" ||
+          typeof expr.end !== "number"
+        ) {
           throw new Error("Invalid expression node in REPL wrapper");
         }
         const expressionSource = codeWithoutStrict
@@ -460,8 +495,8 @@ export async function transpile(
           .trim();
         formattedLast = `    return ${expressionSource};`;
       } else if (
-        lastStatement.type === 'ReturnStatement' ||
-        lastStatement.type === 'ThrowStatement'
+        lastStatement.type === "ReturnStatement" ||
+        lastStatement.type === "ThrowStatement"
       ) {
         formattedLast = formatStatement(lastStatement);
       } else {
@@ -506,7 +541,11 @@ ${formattedExpression}
 })()`;
       return wrappedCode;
     }
-  } else if ((hasExports || hasImports) && (needsGet || needsRange || needsSequence || needsThrow || needsHashMap || needsDeepFreeze || needsMatchObj || needsConsumeAsyncIter)) {
+  } else if (
+    (hasExports || hasImports) &&
+    (needsGet || needsRange || needsSequence || needsThrow || needsHashMap ||
+      needsDeepFreeze || needsMatchObj || needsConsumeAsyncIter)
+  ) {
     // Code has ES module exports/imports AND needs helpers
     // Prepend helpers WITHOUT wrapping (like source map mode)
     const helperSnippets: string[] = [];
@@ -561,7 +600,9 @@ ${formattedExpression}
 
     if (needsConsumeAsyncIter) {
       helperSnippets.push(
-        `const __hql_consume_async_iter = ${getRuntimeHelperSource("__hql_consume_async_iter")};`,
+        `const __hql_consume_async_iter = ${
+          getRuntimeHelperSource("__hql_consume_async_iter")
+        };`,
       );
     }
 
@@ -609,9 +650,14 @@ function wrapCodeForModuleExport(code: string): string {
     let body: string;
     let returnStmt: string;
 
-    if (lastStatement.type === "ExpressionStatement" && lastStatement.expression) {
+    if (
+      lastStatement.type === "ExpressionStatement" && lastStatement.expression
+    ) {
       // Last statement is an expression - return its value
-      const expr = code.slice(lastStatement.expression.start, lastStatement.expression.end);
+      const expr = code.slice(
+        lastStatement.expression.start,
+        lastStatement.expression.end,
+      );
       body = precedingCode;
       returnStmt = `return ${expr};`;
     } else {
@@ -630,11 +676,14 @@ function wrapCodeForModuleExport(code: string): string {
     // If parsing fails (shouldn't happen with ES2022+), try to intelligently wrap the code
     // Find the last semicolon-terminated statement and extract it as the return value
     const trimmed = code.trim();
-    const lastSemiIdx = trimmed.lastIndexOf(';');
+    const lastSemiIdx = trimmed.lastIndexOf(";");
     if (lastSemiIdx > 0) {
       // Find the start of the last statement by searching backwards for newline or start
       let stmtStart = lastSemiIdx;
-      while (stmtStart > 0 && trimmed[stmtStart - 1] !== '\n' && trimmed[stmtStart - 1] !== ';') {
+      while (
+        stmtStart > 0 && trimmed[stmtStart - 1] !== "\n" &&
+        trimmed[stmtStart - 1] !== ";"
+      ) {
         stmtStart--;
       }
       const precedingCode = trimmed.slice(0, stmtStart).trim();
@@ -646,7 +695,9 @@ function wrapCodeForModuleExport(code: string): string {
       }
     }
     // Fallback: wrap entire code and return it
-    return `export default (async () => {\nreturn ${trimmed.replace(/;$/, '')};\n})();`;
+    return `export default (async () => {\nreturn ${
+      trimmed.replace(/;$/, "")
+    };\n})();`;
   }
 }
 
@@ -845,7 +896,12 @@ export async function run(
   }
 }
 
-export { macroexpand, macroexpand1, macroexpandAll, macroexpandTrace } from "./src/hql/macroexpand.ts";
+export {
+  macroexpand,
+  macroexpand1,
+  macroexpandAll,
+  macroexpandTrace,
+} from "./src/hql/macroexpand.ts";
 
 interface ModuleProcessingContext {
   importerDir: string;
@@ -895,11 +951,22 @@ async function processModuleCode(
 
   const joinedImports = updatedImports.join("\n");
   // Remove 'use strict'; directive if present - it will be re-added by the generated IIFE if needed
-  const cleanBody = bodyWithoutImports.trim().replace(/^['"]use strict['"];?\s*\n?/, "");
-  const trimmedBody = cleanBody.trim().replace(/;+\s*$/, "");
+  const cleanBody = bodyWithoutImports.trim().replace(
+    /^['"]use strict['"];?\s*\n?/,
+    "",
+  );
+  const sourceMapMatch = cleanBody.match(
+    /(?:\r?\n)?\/\/# sourceMappingURL=[^\n\r]+(?:\r?\n)?$/,
+  );
+  const sourceMapComment = sourceMapMatch?.[0].trim() ?? "";
+  const bodyWithoutSourceMap = sourceMapMatch
+    ? cleanBody.slice(0, sourceMapMatch.index).trimEnd()
+    : cleanBody.trimEnd();
+  const trimmedBody = bodyWithoutSourceMap.trim().replace(/;+\s*$/, "");
 
   // Check for existing exports in the body
-  const hasExports = cleanBody.includes("export ") && !!cleanBody.match(/^\s*export\s+/m);
+  const hasExports = cleanBody.includes("export ") &&
+    !!cleanBody.match(/^\s*export\s+/m);
 
   if (context.isEntry && !hasExports) {
     // For entry modules with imports but NO existing exports, wrap the result in export default
@@ -913,9 +980,9 @@ async function processModuleCode(
       let topLevelSemicolons = 0;
       for (let i = 0; i < trimmedBody.length; i++) {
         const char = trimmedBody[i];
-        if (char === '{' || char === '[' || char === '(') depth++;
-        else if (char === '}' || char === ']' || char === ')') depth--;
-        else if (char === ';' && depth === 0) topLevelSemicolons++;
+        if (char === "{" || char === "[" || char === "(") depth++;
+        else if (char === "}" || char === "]" || char === ")") depth--;
+        else if (char === ";" && depth === 0) topLevelSemicolons++;
       }
       const hasMultipleStatements = topLevelSemicolons > 0;
 
@@ -934,6 +1001,9 @@ async function processModuleCode(
     }
     const segments = [joinedImports, `export default ${expressionBody};`]
       .filter((segment) => segment.length > 0);
+    if (sourceMapComment) {
+      segments.push(sourceMapComment);
+    }
     return { code: `${segments.join("\n")}\n`, hasImports: true };
   }
 
@@ -942,6 +1012,9 @@ async function processModuleCode(
   const segments = [joinedImports, bodySegment].filter((segment) =>
     segment.length > 0
   );
+  if (sourceMapComment) {
+    segments.push(`${sourceMapComment}\n`);
+  }
   return { code: segments.join("\n"), hasImports: true };
 }
 
@@ -967,7 +1040,7 @@ async function rewriteImportStatement(
     if (embeddedPackageLookup.hasSpecifier(specifier)) {
       const compiledPath = await compileHqlModule(specifier, context);
       replacement = platformToFileUrl(compiledPath).href;
-      
+
       if (fromMatch) {
         return statement.replace(fromMatch[1], replacement);
       }
@@ -976,10 +1049,13 @@ async function rewriteImportStatement(
       }
       return statement;
     }
-    
+
     // Fallback for dev mode if not in EMBEDDED_PACKAGES (should generally be there now)
     const packageName = specifier.replace("@hlvm/", "");
-    specifier = platformResolve(HQL_MODULE_DIR, `packages/${packageName}/mod.hql`);
+    specifier = platformResolve(
+      HQL_MODULE_DIR,
+      `packages/${packageName}/mod.hql`,
+    );
     replacement = specifier;
   }
 
@@ -1054,21 +1130,22 @@ async function compileHqlModule(
     /\\/g,
     "/",
   );
-  
+
   // For @hlvm/ packages, use the package name as the relative path base to ensure unique cache location
   const isHqlPackage = modulePath.startsWith("@hlvm/");
-  const targetRel = isHqlPackage 
+  const targetRel = isHqlPackage
     ? modulePath.replace("@hlvm/", "hql_packages/") + ".mjs"
     : relativePath.replace(/\.hql$/i, ".mjs");
-    
+
   const outputPath = platformResolve(context.runtimeDir, targetRel);
   context.moduleOutputs.set(normalized, outputPath);
 
   const compilationPromise = (async () => {
     // Check if this is an embedded @hlvm/ package first
     let source: string;
-    const embeddedSource = embeddedPackageLookup.getBySpecifierOrPath(modulePath) ??
-      embeddedPackageLookup.getByPath(normalized);
+    const embeddedSource =
+      embeddedPackageLookup.getBySpecifierOrPath(modulePath) ??
+        embeddedPackageLookup.getByPath(normalized);
     if (embeddedSource) {
       source = embeddedSource;
     } else {
@@ -1107,7 +1184,9 @@ async function compileHqlModule(
       mapJson.file = outputPath;
       await platformWriteTextFile(mapPath, JSON.stringify(mapJson));
 
-      const codeWithMap = `${processed.code}\n//# sourceMappingURL=${basename(mapPath)}`;
+      const codeWithMap = `${processed.code}\n//# sourceMappingURL=${
+        basename(mapPath)
+      }`;
       await platformWriteTextFile(outputPath, codeWithMap);
 
       // Preload source map into cache for error handling

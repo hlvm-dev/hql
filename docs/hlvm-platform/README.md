@@ -1120,6 +1120,290 @@ Has HLVM invented a more abstract vocabulary?
 
 That is the right standard.
 
+### 15.14 Roadmap Decisions Already Locked
+
+The staircase above is conceptual.
+
+The following roadmap decisions are now explicit and should be treated as part
+of the plan unless a later design decision deliberately changes them.
+
+#### A. Transitional product posture
+
+- manual mode remains the default path for now
+- higher abstraction is opt-in during transition
+- manual model/provider choice remains first-class even in the final product
+
+#### B. User entry into higher abstraction
+
+The higher-abstraction path should be entered explicitly rather than
+accidentally.
+
+The intended user-facing shape is:
+
+```text
+manual:
+  current default behavior
+
+auto:
+  explicitly requested by the user
+```
+
+That means the transitional product should not silently convert all current
+manual flows into automatic ones.
+
+#### C. First proof slice
+
+The first real proof of the platform should be the search family:
+
+- `search_web`
+- `web_fetch`
+- `fetch_url`
+
+This is the correct first slice because it exposes the key architectural
+difference between:
+
+- hosted vendor capability
+- MCP-mediated capability
+- HLVM-local fallback capability
+
+without forcing the entire platform vision to land at once.
+
+#### D. Manual constraint semantics
+
+If the user pins a specific model/provider, that remains a hard constraint.
+
+The runtime may still make lower-level execution choices within that boundary,
+but it should not silently violate the pin.
+
+This means, for example:
+
+```text
+If the user pins provider X,
+vendor-hosted capability use must stay within provider X.
+If provider X cannot satisfy that hosted path,
+HLVM may fall back to MCP or HLVM-local paths,
+but should not silently jump to provider Y hosted infrastructure.
+```
+
+#### E. Early scope of abstraction
+
+The first meaning of higher abstraction is:
+
+```text
+HLVM chooses better execution paths underneath the task
+```
+
+not immediately:
+
+```text
+HLVM fully chooses any model from any provider at any time
+```
+
+Full reasoning-model abstraction is part of the later staircase, not the first
+step.
+
+#### F. Later model-selection posture
+
+When HLVM later begins choosing the reasoning model/provider automatically, the
+default priority should be:
+
+```text
+configured-first
+```
+
+Meaning:
+
+- prefer the user's configured model/provider if it is reachable and adequate
+- only switch when the configured path cannot satisfy the task or constraints
+
+This protects continuity and avoids surprising the user.
+
+### 15.15 Explicit Phased Execution Roadmap
+
+The sections above explain why the staircase exists.
+
+This section makes the intended execution plan explicit enough that another
+engineer or agent can follow it without redefining the product each time.
+
+#### Phase A. Foundation: Manual Default, Auto Opt-In
+
+The first implementation phase should establish a real execution strategy with
+two product meanings:
+
+```text
+manual:
+  current explicit model/provider-oriented behavior
+
+auto:
+  HLVM runtime chooses execution paths underneath the task
+```
+
+The important point is that auto mode must be explicitly entered by the user,
+while manual remains the normal default until the higher abstraction earns
+trust.
+
+This phase should create one session-level runtime picture of:
+
+- active or pinned model/provider
+- reachable providers
+- reachable MCP services
+- allowed vs disallowed path families
+- currently valid execution options for the task/session
+
+This phase is not about a grand universal capability taxonomy.
+It is about making the runtime aware of the current execution reality.
+
+#### Phase B. Search-Family Pilot
+
+This is the first concrete proof phase.
+
+The runtime should continue exposing HLVM-owned search-family concepts while
+allowing the underlying fulfillment path to vary.
+
+The conceptual order in higher-abstraction mode should be:
+
+```text
+active provider hosted capability
+  -> MCP path
+  -> HLVM-local fallback
+```
+
+The user's conceptual experience should still be:
+
+```text
+"search/read the web"
+```
+
+not:
+
+```text
+"choose which vendor tool or wire name should do the search"
+```
+
+This phase is where the distinction between:
+
+- `search_web`
+- vendor-native hosted search
+- fallback web search
+
+becomes practically meaningful rather than theoretical.
+
+#### Phase C. Provenance And Trust Surface
+
+Once the search family begins routing dynamically, the system must become
+inspectable.
+
+The user and developer should be able to understand:
+
+- what path was used
+- what stayed local
+- what used hosted infrastructure
+- when a fallback was taken
+
+Without this, higher abstraction becomes opaque and untrustworthy.
+
+With it, higher abstraction becomes understandable delegation.
+
+#### Phase D. Additional Capability Families
+
+Only after the search family is stable should the platform repeat the same
+shape for additional capability families.
+
+The rule should remain:
+
+```text
+one family at a time
+```
+
+not:
+
+```text
+abstract everything first and hope the behavior emerges later
+```
+
+Each new family should preserve the same runtime contract:
+
+- manual mode remains stable
+- higher abstraction remains explicit
+- hosted/MCP/local choice is runtime-managed
+- fallback remains graceful
+- provenance remains visible
+
+#### Phase E. Mixed-Task Coherence
+
+Once multiple families exist, HLVM must prove that the platform works for one
+mixed task rather than for isolated tool demonstrations.
+
+The true target is a task such as:
+
+```text
+read local code
+  + research public docs
+  + reason about the change
+  + make or validate the local result
+```
+
+and still make that feel like:
+
+```text
+one task
+one session
+one coherent execution experience
+```
+
+This is the point where HLVM begins to look clearly more like a runtime
+platform than a provider router.
+
+#### Phase F. Later Reasoning-Model Abstraction
+
+Only after the earlier phases are stable should HLVM begin selecting the
+reasoning model/provider automatically for auto mode when the user has not
+pinned one.
+
+The intended posture is:
+
+```text
+configured-first
+```
+
+That means:
+
+- try the user's configured model/provider first
+- remain there when it is adequate
+- only change when the task or constraints require it
+
+This phase should be treated as later because changing the execution path
+underneath a task is much easier to trust than changing the brain itself.
+
+#### Phase G. Trusted Default
+
+Only when the previous phases are strong should higher abstraction become the
+default user experience.
+
+At that point, the common experience can become:
+
+```text
+user states task + constraints
+  -> HLVM chooses the execution strategy
+  -> HLVM uses the best currently valid path
+  -> HLVM falls back when necessary
+  -> user receives one coherent result
+```
+
+Even there, manual control remains first-class.
+
+The final destination is:
+
+```text
+control becomes optional
+```
+
+not:
+
+```text
+control disappears
+```
+
 ---
 
 ## 16. The Important `search_web` Clarification

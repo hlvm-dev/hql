@@ -6,7 +6,6 @@ import { LazySeq, SEQ } from "../lib/stdlib/js/internal/seq-protocol.js";
 import type { HQLValue, BuiltinFn, Interpreter as IInterpreter, InterpreterEnv } from "./types.ts";
 import { isHQLFunction, isSExp } from "./types.ts";
 import type { Interpreter } from "./interpreter.ts";
-import { sexpToJs } from "../s-exp/types.ts";
 import { MAX_SEQ_LENGTH } from "../../common/limits.ts";
 import { RuntimeError } from "../../common/error.ts";
 
@@ -109,9 +108,9 @@ function hqlToJs(
     };
   }
 
-  // S-expression -> convert to JS representation (vector flattens to array)
+  // S-expression -> preserve as runtime code-as-data
   if (isSExp(value)) {
-    return sexpToJs(value, { vectorAsArray: true });
+    return value;
   }
 
   // JS array (already converted)
@@ -216,6 +215,10 @@ function jsToHql(value: unknown, maxLength: number = MAX_SEQ_LENGTH): HQLValue {
   }
 
   // Plain object -> convert to Map
+  if (isSExp(value)) {
+    return value;
+  }
+
   if (typeof value === "object" && value !== null && value.constructor === Object) {
     const result = new Map<string, HQLValue>();
     for (const [k, v] of Object.entries(value)) {

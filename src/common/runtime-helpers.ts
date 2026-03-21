@@ -8,11 +8,13 @@ import {
   __hql_hash_map,
   __hql_match_obj,
   __hql_range,
+  __hql_splice_to_sexp_items,
   __hql_throw,
   __hql_toIterable,
   __hql_toSequence,
   __hql_trampoline,
   __hql_trampoline_gen,
+  __hql_value_to_sexp,
   GEN_THUNK_SYMBOL,
 } from "./runtime-helper-impl.ts";
 import { __hql_get_op, __hql_lazy_seq, __hql_delay } from "../hql/lib/stdlib/js/core.js";
@@ -51,6 +53,8 @@ type GlobalHlvmHelpers = {
   __hql_hash_map?: typeof __hql_hash_map;
   __hql_match_obj?: typeof __hql_match_obj;
   __hql_throw?: typeof __hql_throw;
+  __hql_value_to_sexp?: typeof __hql_value_to_sexp;
+  __hql_splice_to_sexp_items?: typeof __hql_splice_to_sexp_items;
   __hql_deepFreeze?: typeof __hql_deepFreeze;
   __hql_trampoline?: typeof __hql_trampoline;
   __hql_trampoline_gen?: typeof __hql_trampoline_gen;
@@ -322,6 +326,8 @@ function ensureHelpers(): void {
     ["__hql_hash_map", __hql_hash_map],
     ["__hql_match_obj", __hql_match_obj],
     ["__hql_throw", __hql_throw],
+    ["__hql_value_to_sexp", __hql_value_to_sexp],
+    ["__hql_splice_to_sexp_items", __hql_splice_to_sexp_items],
     ["__hql_deepFreeze", __hql_deepFreeze],
     ["__hql_trampoline", __hql_trampoline],
     ["__hql_trampoline_gen", __hql_trampoline_gen],
