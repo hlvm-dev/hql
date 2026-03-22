@@ -55,7 +55,7 @@ export const DelegateItem = React.memo(function DelegateItem(
       <Box
         flexDirection="column"
         flexGrow={1}
-        borderStyle="single"
+        borderStyle="round"
         borderLeft
         borderRight={false}
         borderTop={false}

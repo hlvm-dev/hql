@@ -49,7 +49,7 @@ export interface Token {
 
 type HighlightColorKey = Exclude<TokenType, "symbol" | "whitespace"> | "functionCall";
 
-interface HighlightSegment {
+export interface HighlightSegment {
   readonly value: string;
   readonly colorKey?: HighlightColorKey;
   readonly bold?: boolean;

@@ -18,6 +18,7 @@ import {
   type ToolCallRepairFunction,
   type ToolSet,
 } from "ai";
+import { fnv1aHex } from "../../common/hash.ts";
 import type { LanguageModel } from "ai";
 import type { AgentEngine, AgentLLMConfig, ToolFilterState } from "./engine.ts";
 import type { LLMFunction } from "./orchestrator.ts";
@@ -310,17 +311,8 @@ function withAnthropicCacheBreakpoint(message: ModelMessage): ModelMessage {
   return withProviderOptions(message, ANTHROPIC_EPHEMERAL_CACHE);
 }
 
-function stableHash(input: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
-
 function buildStableSignature(value: unknown): string {
-  return stableHash(JSON.stringify(canonicalizeForSignature(value)) ?? "null");
+  return fnv1aHex(JSON.stringify(canonicalizeForSignature(value)) ?? "null");
 }
 
 function buildOpenAIPromptCacheKey(

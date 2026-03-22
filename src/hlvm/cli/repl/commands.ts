@@ -12,20 +12,20 @@ import { log } from "../../api/log.ts";
 import { normalizeModelId } from "../../../common/config/types.ts";
 import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
 import { listRuntimeMcpServers } from "../../runtime/host-client.ts";
+import {
+  getTaskManager,
+  isModelPullTask,
+  isEvalTask,
+  isDelegateTask,
+  isTaskActive,
+} from "./task-manager/index.ts";
+import { formatElapsed, formatProgressBar } from "../repl-ink/utils/formatting.ts";
+import { STATUS_GLYPHS } from "../repl-ink/ui-constants.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
 // Pre-compiled whitespace pattern for command parsing
 const WHITESPACE_SPLIT_REGEX = /\s+/;
-
-function getStartupWarnings(): string[] {
-  const warnings = (globalThis as Record<string, unknown>).__hlvmStartupWarnings;
-  return Array.isArray(warnings)
-    ? warnings.filter((line: unknown): line is string =>
-      typeof line === "string" && line.length > 0
-    )
-    : [];
-}
 
 interface Command {
   description: string;
@@ -69,10 +69,7 @@ function createOutputWriter(
 }
 
 // Commands handled by App.tsx (not in the `commands` record below)
-const APP_HANDLED_COMMANDS: readonly { name: string; description: string }[] = [
-  { name: "/tasks", description: "View background tasks" },
-  { name: "/bg", description: "Push current eval to background" },
-];
+const APP_HANDLED_COMMANDS: readonly { name: string; description: string }[] = [];
 
 /** Generate help text dynamically using keybinding registry */
 function generateHelpText(): string {
@@ -98,23 +95,27 @@ ${BOLD}Bindings (auto-persist def/defn):${RESET}
 ${BOLD}Keybindings & Commands:${RESET}
 ${shortcuts}
 
-${BOLD}Polyglot (always on):${RESET}
-  Input starting with ( is HQL.
-  All other input is JavaScript.
+${BOLD}Input Routing:${RESET}
+  ${CYAN}(expression)${RESET}         HQL code evaluation
+  ${CYAN}(js "code")${RESET}          JavaScript evaluation
+  ${CYAN}/command${RESET}             Slash commands
+  Everything else      AI conversation
 
 ${BOLD}Tip:${RESET} Press ${YELLOW}Ctrl+P${RESET} to open the command palette with fuzzy search.
 
 ${BOLD}Examples:${RESET}
 
-  ${DIM_GRAY}; Define a persistent value${RESET}
+  ${DIM_GRAY}; HQL evaluation${RESET}
   ${GREEN}(def name "seoksoon")${RESET}
-
-  ${DIM_GRAY}; Define a persistent function${RESET}
   ${GREEN}(defn greet [name] (str "Hello, " name "!"))${RESET}
 
-  ${DIM_GRAY}; Use AI (requires embedded @hlvm/ai)${RESET}
-  ${GREEN}(import [ask] from "@hlvm/ai")${RESET}
-  ${GREEN}(await (ask "What is 2+2?"))${RESET}
+  ${DIM_GRAY}; JavaScript evaluation${RESET}
+  ${GREEN}(js "let x = 42")${RESET}
+  ${GREEN}(js "await Promise.resolve(42)")${RESET}
+
+  ${DIM_GRAY}; AI conversation (just type naturally)${RESET}
+  ${GREEN}what does this function do?${RESET}
+  ${GREEN}explain the error in my code${RESET}
 `;
 }
 
@@ -198,27 +199,62 @@ export const commands: Record<string, Command> = {
     },
   },
 
-  "/status": {
-    description: "Show runtime status",
+  "/tasks": {
+    description: "List background tasks",
     handler: (_state, _args, context) => {
-      const configApi = (globalThis as Record<string, unknown>).config as
-        | {
-          snapshot?: { model?: unknown };
-        }
-        | undefined;
-      const model = typeof configApi?.snapshot?.model === "string"
-        ? configApi.snapshot.model
-        : "not configured";
-      const aiApi = (globalThis as Record<string, unknown>).ai as
-        | { chat?: unknown }
-        | undefined;
-      const aiStatus = aiApi?.chat ? "ready" : "off";
-      const warningCount = getStartupWarnings().length;
+      const tm = getTaskManager();
+      const tasks = Array.from(tm.getTasks().values());
+      if (tasks.length === 0) {
+        context.output("No background tasks.");
+        return;
+      }
+      const now = Date.now();
+      for (const task of tasks) {
+        const active = isTaskActive(task);
+        const icon = active
+          ? STATUS_GLYPHS.running
+          : task.status === "completed"
+          ? STATUS_GLYPHS.success
+          : task.status === "failed"
+          ? STATUS_GLYPHS.error
+          : STATUS_GLYPHS.cancelled;
+        const elapsed = task.startedAt
+          ? formatElapsed((task.completedAt ?? now) - task.startedAt)
+          : "";
+        const timeSuffix = active
+          ? elapsed ? `(${elapsed})` : ""
+          : elapsed ? `(${elapsed} ago)` : "";
 
-      context.output(`${BOLD}Status:${RESET}`);
-      context.output(`  ${CYAN}AI:${RESET} ${aiStatus}`);
-      context.output(`  ${CYAN}Model:${RESET} ${model}`);
-      context.output(`  ${CYAN}Startup warnings:${RESET} ${warningCount}`);
+        if (isModelPullTask(task)) {
+          const pct = task.progress.total && task.progress.completed
+            ? Math.round((task.progress.completed / task.progress.total) * 100)
+            : 0;
+          const bar = active ? `${formatProgressBar(pct)} ${pct}%` : task.status;
+          context.output(
+            `  ${icon}  Pulling ${task.modelName.padEnd(20)} ${bar.padEnd(16)} ${timeSuffix}`,
+          );
+        } else if (isEvalTask(task)) {
+          const preview = task.preview.padEnd(24);
+          const detail = task.status === "completed"
+            ? `\u2192 ${String(task.result ?? "").slice(0, 30)}`
+            : task.status === "failed"
+            ? `Error: ${task.error?.message?.slice(0, 25) ?? "unknown"}`
+            : task.progress.status;
+          context.output(
+            `  ${icon}  ${preview} ${detail.padEnd(20)} ${timeSuffix}`,
+          );
+        } else if (isDelegateTask(task)) {
+          const label = `${task.nickname} (${task.agent}): ${task.task.slice(0, 20)}`;
+          context.output(
+            `  ${icon}  ${label.padEnd(36)} ${task.status.padEnd(12)} ${timeSuffix}`,
+          );
+        } else {
+          context.output(`  ${icon}  ${task.label}  (${task.status})`);
+        }
+      }
+      if (tm.getActiveCount() > 0) {
+        context.output(`\n  ${DIM_GRAY}Ctrl+F cancels all${RESET}`);
+      }
     },
   },
   "/mcp": {
@@ -241,8 +277,6 @@ export const commands: Record<string, Command> = {
       }
     },
   },
-  // NOTE: /tasks is handled by App.tsx to open BackgroundTasksOverlay
-  // /bg and /tasks are handled by App.tsx to manage interactive UI state.
 };
 
 /** Unified catalog of all slash commands (derived from `commands` + App-handled commands). */

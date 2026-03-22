@@ -28,7 +28,7 @@ Deno.test("commands registry - has expected commands", () => {
     "/exit",
     "/config",
     "/model",
-    "/status",
+    "/tasks",
     "/mcp",
   ];
 
@@ -50,6 +50,8 @@ Deno.test("commands registry - omits retired legacy commands from the active con
     "/warnings",
     "/new",
     "/resume",
+    "/status",
+    "/bg",
   ];
 
   for (const cmd of removedCommands) {

@@ -72,6 +72,7 @@ export function buildBalancedTextRow(
   };
 }
 
+/** @deprecated Use `buildBalancedTextRow` with `{ maxRightWidth }` instead. */
 export function buildRightSlotTextLayout(
   width: number,
   left: string,
@@ -79,35 +80,8 @@ export function buildRightSlotTextLayout(
   rightSlotWidth: number,
   minGap = 2,
 ): TwoColumnTextLayout {
-  const safeWidth = Math.max(0, width);
-  if (safeWidth === 0) {
-    return { leftText: "", rightText: "", gapWidth: 0 };
-  }
-
-  let fittedRight = truncate(
-    right,
-    Math.max(1, Math.min(rightSlotWidth, safeWidth)),
-    "…",
-  );
-  if (fittedRight.length >= safeWidth) {
-    fittedRight = truncate(fittedRight, safeWidth, "…");
-    return { leftText: "", rightText: fittedRight, gapWidth: 0 };
-  }
-
-  const preferredGap = safeWidth - fittedRight.length > minGap ? minGap : 1;
-  const availableLeft = Math.max(
-    0,
-    safeWidth - fittedRight.length - preferredGap,
-  );
-  const fittedLeft = truncate(left, availableLeft, "…");
-  const gapWidth = Math.max(
-    fittedLeft.length > 0 ? 1 : 0,
-    safeWidth - fittedLeft.length - fittedRight.length,
-  );
-
-  return {
-    leftText: fittedLeft,
-    rightText: fittedRight,
-    gapWidth,
-  };
+  return buildBalancedTextRow(width, left, right, {
+    minGap,
+    maxRightWidth: rightSlotWidth,
+  });
 }

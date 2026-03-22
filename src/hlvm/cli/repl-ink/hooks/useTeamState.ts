@@ -42,6 +42,7 @@ export interface TaskBoardItem {
   mergeState?: string;
   reviewStatus?: string;
   delegateThreadId?: string;
+  activeForm?: string;
 }
 
 export interface TeamMemberItem {
@@ -79,6 +80,7 @@ export interface TeamDashboardState {
   shutdowns: ShutdownItem[];
   taskCounts: Record<string, number>;
   attentionItems: AttentionItem[];
+  focusedWorkerIndex: number;
 }
 
 function createEmptySnapshot(): TeamRuntimeSnapshot {
@@ -305,6 +307,7 @@ const EMPTY_TEAM_STATE: TeamDashboardState = Object.freeze({
   shutdowns: [],
   taskCounts: { pending: 0, claimed: 0, in_progress: 0, blocked: 0, completed: 0, cancelled: 0, errored: 0, running: 0 },
   attentionItems: [],
+  focusedWorkerIndex: -1,
 }) as TeamDashboardState;
 
 export function deriveTeamDashboardState(items: ConversationItem[]): TeamDashboardState {
@@ -379,6 +382,9 @@ export function deriveTeamDashboardState(items: ConversationItem[]): TeamDashboa
       const delegateThreadId = typeof task.artifacts?.threadId === "string"
         ? task.artifacts.threadId
         : undefined;
+      const activeForm = typeof task.artifacts?.activeForm === "string"
+        ? task.artifacts.activeForm
+        : undefined;
       if (mergeState === "pending" || mergeState === "conflicted") {
         attentionItems.push({
           id: `merge-${task.id}`,
@@ -396,6 +402,7 @@ export function deriveTeamDashboardState(items: ConversationItem[]): TeamDashboa
         mergeState,
         reviewStatus,
         delegateThreadId,
+        activeForm,
       };
     });
 
@@ -486,6 +493,7 @@ export function deriveTeamDashboardState(items: ConversationItem[]): TeamDashboa
     shutdowns,
     taskCounts,
     attentionItems,
+    focusedWorkerIndex: -1,
   };
 }
 

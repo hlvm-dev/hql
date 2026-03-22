@@ -58,7 +58,7 @@ export function useRepl(options: UseReplOptions = {}): UseReplReturn {
       }
 
       // Pass attachments and signal to evaluator
-      return await hqlEvaluate(resolvedCode, state, true, attachments, signal);
+      return await hqlEvaluate(resolvedCode, state, attachments, signal);
     } catch (error) {
       // Check if this was an abort error
       if (error instanceof Error && error.name === "AbortError") {

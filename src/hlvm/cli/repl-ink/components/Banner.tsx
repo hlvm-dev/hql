@@ -120,10 +120,10 @@ export function getBannerRowCount(
 ): number {
   const compact = shouldUseCompactBanner(width, height);
   const logoRows = compact ? 1 : LOGO_LINES.length;
-  const spacerRows = !compact && height >= 18 ? 1 : 0;
+  const spacerRows = compact ? 0 : 1; // blank line between logo and tagline
   const warningRows = errorCount > 0 ? 1 : 0;
   const marginBottomRows = 1;
-  return logoRows + 1 + spacerRows + 1 + warningRows + marginBottomRows;
+  return logoRows + spacerRows + 1 + 1 + warningRows + marginBottomRows;
 }
 
 export function shouldUseCompactBanner(
@@ -162,7 +162,6 @@ export function Banner(
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const terminalHeight = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
   const compact = shouldUseCompactBanner(terminalWidth, terminalHeight);
-  const showSpacer = !compact && terminalHeight >= 18;
   const contentWidth = Math.max(20, terminalWidth - 2);
   const statusLabel = model ? `${indicator.label} · ${model}` : indicator.label;
   const logoColors = getBannerLogoColors(themeName, sc.banner, compact);
@@ -179,14 +178,14 @@ export function Banner(
         ))}
       </Box>
 
+      {!compact && <Text />}
       <Text color={sc.banner.meta} bold>
         {truncate(
-          `HLVM ${VERSION} • AI-native runtime infrastructure`,
+          `HLVM ${VERSION} — High Level Virtual Machine`,
           contentWidth,
           "…",
         )}
       </Text>
-      {showSpacer && <Text />}
 
       <Box>
         <Text color={sc.banner.bullet}>{SYMBOLS.bullet}</Text>

@@ -19,7 +19,9 @@ export type AgentHookName =
   | "write_verified"
   | "delegate_start"
   | "delegate_end"
-  | "final_response";
+  | "final_response"
+  | "teammate_idle"
+  | "task_completed";
 
 const HOOK_NAMES: ReadonlySet<AgentHookName> = new Set([
   "pre_llm",
@@ -31,6 +33,8 @@ const HOOK_NAMES: ReadonlySet<AgentHookName> = new Set([
   "delegate_start",
   "delegate_end",
   "final_response",
+  "teammate_idle",
+  "task_completed",
 ]);
 
 export interface AgentHookHandler {
@@ -40,9 +44,19 @@ export interface AgentHookHandler {
   env?: Record<string, string>;
 }
 
+/** Result from a hook that supports feedback (exit code 2). */
+export interface HookFeedback {
+  /** Whether the hook blocked the action (exit code 2). */
+  blocked: boolean;
+  /** Feedback message from the hook (stdout on exit code 2). */
+  feedback?: string;
+}
+
 export interface AgentHookRuntime {
   hasHandlers(name: AgentHookName): boolean;
   dispatch(name: AgentHookName, payload: unknown): Promise<void>;
+  /** Dispatch and return feedback if any handler exits with code 2. */
+  dispatchWithFeedback(name: AgentHookName, payload: unknown): Promise<HookFeedback>;
   dispatchDetached(name: AgentHookName, payload: unknown): void;
   waitForIdle(): Promise<void>;
 }
@@ -123,6 +137,22 @@ class Runtime implements AgentHookRuntime {
     if (!handlers?.length) return Promise.resolve();
     this.#queue = this.#queue.then(() => this.runHandlers(name, handlers, payload));
     return this.#queue;
+  }
+
+  async dispatchWithFeedback(
+    name: AgentHookName,
+    payload: unknown,
+  ): Promise<HookFeedback> {
+    const handlers = this.hooks.get(name);
+    if (!handlers?.length) return { blocked: false };
+    // Run handlers and check for exit code 2 (feedback/block)
+    for (const handler of handlers) {
+      const result = await this.runSingleHandlerWithResult(name, handler, payload);
+      if (result.exitCode === 2) {
+        return { blocked: true, feedback: result.stdout };
+      }
+    }
+    return { blocked: false };
   }
 
   dispatchDetached(name: AgentHookName, payload: unknown): void {
@@ -238,6 +268,56 @@ class Runtime implements AgentHookRuntime {
       }
     } finally {
       abortHandler.clear();
+    }
+  }
+
+  /**
+   * Variant of runSingleHandler that returns exit code + stdout for feedback hooks.
+   * Used by dispatchWithFeedback for TeammateIdle/TaskCompleted (exit code 2 = block).
+   */
+  private async runSingleHandlerWithResult(
+    name: AgentHookName,
+    handler: AgentHookHandler,
+    envelope: unknown,
+  ): Promise<{ exitCode: number; stdout: string }> {
+    const platform = getPlatform();
+    const cwd = handler.cwd
+      ? platform.path.isAbsolute(handler.cwd)
+        ? handler.cwd
+        : platform.path.join(this.workspace, handler.cwd)
+      : this.workspace;
+    const payloadText = `${safeStringify(envelope, 0)}\n`;
+
+    try {
+      const process = platform.command.run({
+        cmd: handler.command,
+        cwd,
+        env: {
+          ...platform.env.toObject(),
+          ...(handler.env ?? {}),
+          HLVM_AGENT_HOOK: name,
+          HLVM_AGENT_WORKSPACE: this.workspace,
+        },
+        stdin: "piped",
+        stdout: "piped",
+        stderr: "piped",
+      });
+
+      await writeToProcessStdin(process.stdin, new TextEncoder().encode(payloadText));
+      await closeProcessStdin(process.stdin);
+
+      const [stdoutBytes, , status] = await Promise.all([
+        readProcessStream(process.stdout),
+        readProcessStream(process.stderr),
+        process.status,
+      ]);
+
+      return {
+        exitCode: status.code,
+        stdout: new TextDecoder().decode(stdoutBytes).trim(),
+      };
+    } catch {
+      return { exitCode: 1, stdout: "" };
     }
   }
 

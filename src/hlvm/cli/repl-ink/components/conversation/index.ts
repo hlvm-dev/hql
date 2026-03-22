@@ -23,6 +23,12 @@ export { ProgressBar } from "./ProgressBar.tsx";
 // Diff renderer
 export { default as DiffRenderer } from "./DiffRenderer.tsx";
 
+// Memory activity
+export { MemoryActivityLine } from "./MemoryActivityLine.tsx";
+
+// Team events
+export { TeamEventItem } from "./TeamEventItem.tsx";
+
 // Dialog components
 export { ConfirmationDialog } from "./ConfirmationDialog.tsx";
 export { QuestionDialog } from "./QuestionDialog.tsx";

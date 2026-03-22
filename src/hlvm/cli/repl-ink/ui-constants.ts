@@ -28,6 +28,7 @@ export const STATUS_GLYPHS = {
   running: "●",
   success: "✓",
   error: "✗",
+  cancelled: "○",
   warning: "⚠",
   info: "ℹ",
 } as const;

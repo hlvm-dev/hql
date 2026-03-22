@@ -13,6 +13,8 @@ import {
   type ConversationItem,
   type DelegateItem,
   type InfoItem,
+  type MemoryActivityDetail,
+  type MemoryActivityItem,
   type StreamingState,
   StreamingState as ConversationStreamingState,
   type StructuredTeamInfoItem,
@@ -570,6 +572,7 @@ export function reduceTranscriptState(
         }
         case "tool_start": {
           if (event.name === "delegate_agent") return state;
+          if (event.name.startsWith("memory_")) return state;
           const tool: ToolCallDisplay = {
             id: `ci-${state.nextId + 1}`,
             name: event.name,
@@ -622,6 +625,7 @@ export function reduceTranscriptState(
         }
         case "tool_end": {
           if (event.name === "delegate_agent") return state;
+          if (event.name.startsWith("memory_")) return state;
           const groupIdx = state.items.findLastIndex((item) =>
             item.type === "tool_group" &&
             findMatchingRunningToolIndex(
@@ -776,6 +780,54 @@ export function reduceTranscriptState(
             withoutTransientItems(state),
             `Batch ${event.snapshot.batchId}: ${event.snapshot.running} running · ${event.snapshot.completed} completed · ${event.snapshot.errored} errored`,
           );
+        case "memory_activity": {
+          const details: MemoryActivityDetail[] = [];
+          for (const r of event.recalled) {
+            details.push({ action: "recalled", text: r.text, score: r.score, factId: r.factId });
+          }
+          for (const w of event.written) {
+            details.push({ action: "wrote", text: w.text, factId: w.factId });
+          }
+          if (event.searched) {
+            details.push({ action: "searched", text: `"${event.searched.query}" → ${event.searched.count} results` });
+          }
+          const recalled = event.recalled.length;
+          const written = event.written.length;
+          const searched = event.searched;
+
+          // Merge into trailing MemoryActivityItem in current turn if present
+          const turnStart = findCurrentTurnStartIndex(state.items);
+          const trailingMemIdx = state.items.findLastIndex((item, idx) =>
+            idx > turnStart && item.type === "memory_activity"
+          );
+          if (trailingMemIdx >= 0) {
+            const existing = state.items[trailingMemIdx] as MemoryActivityItem;
+            const nextItems = [...state.items];
+            nextItems[trailingMemIdx] = {
+              ...existing,
+              recalled: existing.recalled + recalled,
+              written: existing.written + written,
+              searched: searched ?? existing.searched,
+              details: [...existing.details, ...details],
+            };
+            return { ...state, items: nextItems };
+          }
+
+          const [nextState, id] = nextItemId(state);
+          const memItem: MemoryActivityItem = {
+            type: "memory_activity",
+            id,
+            recalled,
+            written,
+            searched,
+            details,
+            ts: Date.now(),
+          };
+          return {
+            ...nextState,
+            items: insertBeforePendingAssistant(nextState.items, memItem),
+          };
+        }
         case "plan_created":
           return {
             ...state,

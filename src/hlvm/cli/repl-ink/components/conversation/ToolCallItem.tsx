@@ -15,6 +15,7 @@ import type { ToolCallDisplay } from "../../types.ts";
 import { buildToolCallTextLayout } from "./layout.ts";
 import { ConversationCallout } from "./ConversationCallout.tsx";
 import {
+  getToolDurationTone,
   getToolResultLabel,
   getToolResultTone,
 } from "./conversation-chrome.ts";
@@ -50,6 +51,12 @@ export const ToolCallItem = React.memo(function ToolCallItem(
   const argsColor = tool.status === "error"
     ? sc.status.error
     : sc.text.secondary;
+  const durationTone = getToolDurationTone(tool.durationMs);
+  const durationColor = durationTone === "error"
+    ? sc.status.error
+    : durationTone === "warning"
+    ? sc.status.warning
+    : sc.text.muted;
 
   return (
     <Box flexDirection="column">
@@ -65,7 +72,7 @@ export const ToolCallItem = React.memo(function ToolCallItem(
         )}
         {layout.gapWidth > 0 && <Text>{" ".repeat(layout.gapWidth)}</Text>}
         {layout.durationText && (
-          <Text color={sc.text.muted}>{layout.durationText}</Text>
+          <Text color={durationColor}>{layout.durationText}</Text>
         )}
       </Box>
 

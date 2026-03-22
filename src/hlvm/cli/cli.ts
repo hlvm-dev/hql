@@ -46,10 +46,11 @@ OPTIONS:
   --help, -h        Show this help
   --version         Show version
 
-POLYGLOT MODE (always on):
-  Input starting with ( is evaluated as HQL.
-  All other input is evaluated as JavaScript.
-  Both languages share variables via globalThis.
+INPUT ROUTING:
+  (expression)         HQL code evaluation
+  (js "code")          JavaScript evaluation
+  /command             Slash commands
+  Everything else      AI conversation
 
 EXAMPLES:
   hlvm repl              Start REPL

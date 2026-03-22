@@ -19,6 +19,7 @@ import { STATUS_GLYPHS } from "../ui-constants.ts";
 import { truncate } from "../../../../common/utils.ts";
 import { useConversationSpinnerFrame } from "../hooks/useConversationMotion.ts";
 import {
+  buildContextUsageMiniBar,
   fitShellFooterSegments,
   formatShellFooterText,
   SHELL_SEGMENT_SEPARATOR,
@@ -36,16 +37,21 @@ interface FooterProps {
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
   inConversation?: boolean;
+  isEvaluating?: boolean;
   hasPendingPermission?: boolean;
   hasPendingPlanReview?: boolean;
   hasPendingQuestion?: boolean;
   suppressInteractionHints?: boolean;
   teamActive?: boolean;
   teamAttentionCount?: number;
+  teamWorkerSummary?: string;
+  activeTaskCount?: number;
+  recentActiveTaskLabel?: string;
 }
 
 interface FooterLeftStateInput {
   inConversation?: boolean;
+  isEvaluating?: boolean;
   streamingState?: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   modeLabel?: string;
@@ -57,6 +63,9 @@ interface FooterLeftStateInput {
   suppressInteractionHints?: boolean;
   teamActive?: boolean;
   teamAttentionCount?: number;
+  teamWorkerSummary?: string;
+  activeTaskCount?: number;
+  recentActiveTaskLabel?: string;
   spinner: string;
   statusMessage?: string;
 }
@@ -70,6 +79,7 @@ interface FooterLeftState {
 
 export function buildFooterLeftState({
   inConversation,
+  isEvaluating,
   streamingState,
   activeTool,
   modeLabel,
@@ -81,6 +91,9 @@ export function buildFooterLeftState({
   suppressInteractionHints,
   teamActive,
   teamAttentionCount,
+  teamWorkerSummary,
+  activeTaskCount = 0,
+  recentActiveTaskLabel,
   spinner,
   statusMessage,
 }: FooterLeftStateInput): FooterLeftState {
@@ -89,15 +102,34 @@ export function buildFooterLeftState({
   const teamHint = teamActive && teamAttentionCount && teamAttentionCount > 0
     ? `Ctrl+T (${teamAttentionCount})`
     : "";
+  const teamChip: ShellFooterSegment | null = teamActive
+    ? { text: "Team", tone: "active", chip: true }
+    : null;
+  const teamWorkerSegment: ShellFooterSegment | null =
+    teamActive && teamWorkerSummary
+      ? { text: teamWorkerSummary, tone: "muted" }
+      : null;
+  const bgChip: ShellFooterSegment | null = activeTaskCount > 0
+    ? { text: `${STATUS_GLYPHS.running} ${activeTaskCount} tasks`, tone: "active", chip: true }
+    : null;
+  const bgTaskHint: ShellFooterSegment | null =
+    recentActiveTaskLabel && activeTaskCount > 0
+      ? { text: `${truncate(recentActiveTaskLabel, 24)} \u00B7 Ctrl+J tasks`, tone: "muted" }
+      : null;
 
   if (!inConversation) {
     const segments: ShellFooterSegment[] = [];
     if (modeChip) {
-      segments.push({ text: modeChip, tone: "neutral", chip: true });
+      const isFullAuto = modeChip === "Full auto";
+      segments.push({ text: modeChip, tone: "error", chip: isFullAuto });
     }
-    const hintText = statusMessage ||
-      (modeChip ? "Shift+Tab cycles" : "") ||
-      "";
+    if (teamChip) segments.push(teamChip);
+    if (teamWorkerSegment) segments.push(teamWorkerSegment);
+    if (bgChip) segments.push(bgChip);
+    if (bgTaskHint) segments.push(bgTaskHint);
+    const hintText = isEvaluating
+      ? "Ctrl+B background \u00B7 Esc cancels"
+      : statusMessage || (modeChip ? "Shift+Tab cycles" : "") || "";
     const combinedHint = [hintText, teamHint].filter(Boolean).join(
       SHELL_SEGMENT_SEPARATOR,
     );
@@ -160,6 +192,10 @@ export function buildFooterLeftState({
       chip: true,
     });
   }
+  if (teamChip) segments.push(teamChip);
+  if (teamWorkerSegment) segments.push(teamWorkerSegment);
+  if (bgChip) segments.push(bgChip);
+  if (bgTaskHint) segments.push(bgTaskHint);
   if (
     streamingState === ConversationStreamingState.Responding &&
     activeTool &&
@@ -206,7 +242,10 @@ export function buildFooterRightState({
   modelName,
   contextUsageLabel,
 }: FooterRightStateInput): { infoParts: string[]; infoText: string } {
-  const infoParts = [contextUsageLabel, modelName].filter(
+  const usageDisplay = contextUsageLabel
+    ? buildContextUsageMiniBar(contextUsageLabel)
+    : undefined;
+  const infoParts = [usageDisplay, modelName].filter(
     (part): part is string => Boolean(part && part.trim()),
   );
   return {
@@ -225,12 +264,16 @@ export function FooterHint({
   interactionQueueLength = 0,
   hasDraftInput,
   inConversation,
+  isEvaluating,
   hasPendingPermission,
   hasPendingPlanReview,
   hasPendingQuestion,
   suppressInteractionHints,
   teamActive,
   teamAttentionCount,
+  teamWorkerSummary,
+  activeTaskCount,
+  recentActiveTaskLabel,
 }: FooterProps): React.ReactElement {
   const { stdout } = useStdout();
   const sc = useSemanticColors();
@@ -243,6 +286,7 @@ export function FooterHint({
 
   const left = buildFooterLeftState({
     inConversation,
+    isEvaluating,
     streamingState,
     activeTool,
     modeLabel,
@@ -254,6 +298,9 @@ export function FooterHint({
     suppressInteractionHints,
     teamActive,
     teamAttentionCount,
+    teamWorkerSummary,
+    activeTaskCount,
+    recentActiveTaskLabel,
     spinner,
     statusMessage,
   });
@@ -274,7 +321,8 @@ export function FooterHint({
     : [rightText];
 
   // Reserve space for right side, truncate left to fit
-  const rightLen = rightText.length;
+  // +2 accounts for the "● " health dot prefix rendered before right parts
+  const rightLen = rightParts.length > 0 ? rightText.length + 2 : 0;
   const gap = 2; // minimum gap between left and right
   const leftMaxWidth = Math.max(8, contentWidth - rightLen - gap);
   const separator = "─".repeat(contentWidth);
@@ -290,7 +338,9 @@ export function FooterHint({
     index: number,
   ): React.ReactElement => {
     if (segment.chip) {
-      const tone = segment.tone === "warning"
+      const tone = segment.tone === "error"
+        ? sc.chrome.chipError
+        : segment.tone === "warning"
         ? sc.shell.chipWarning
         : segment.tone === "active"
         ? sc.shell.chipActive
@@ -307,7 +357,9 @@ export function FooterHint({
       );
     }
 
-    const color = segment.tone === "active"
+    const color = segment.tone === "error"
+      ? sc.status.error
+      : segment.tone === "active"
       ? sc.shell.chipActive.background
       : segment.tone === "warning"
       ? sc.status.warning
@@ -347,6 +399,7 @@ export function FooterHint({
         </Box>
         {rightParts.length > 0 && (
           <Box>
+            <Text color={sc.status.success}>{STATUS_GLYPHS.running} </Text>
             {rightParts.map((part, index) => (
               <React.Fragment key={`${part}-${index}`}>
                 {index > 0 && (

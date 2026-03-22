@@ -106,14 +106,14 @@ USAGE:
   hlvm serve
 
 ENDPOINTS:
-  POST /eval      Evaluate HQL or JavaScript code (polyglot)
+  POST /eval      Evaluate code (HQL or JS via (js ...))
   GET  /health    Health check
 
 DESCRIPTION:
   Starts the local HLVM runtime host on port 11435.
   Used by GUI clients and host-backed CLI surfaces.
-  Polyglot mode is always enabled: input starting with '(' is HQL,
-  all other input is JavaScript.
+  Input starting with '(' is code (HQL or JS via (js ...)),
+  all other input is AI conversation.
 
 EXAMPLES:
   hlvm serve                                  # Start server

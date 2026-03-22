@@ -180,7 +180,7 @@ Deno.test("global keybindings use canonical handler IDs", () => {
   assertEquals(globalHandlerIds.get("ctrl+l"), HandlerIds.APP_CLEAR);
   assertEquals(globalHandlerIds.get("cmd+k"), HandlerIds.APP_CLEAR);
   assertEquals(globalHandlerIds.get("ctrl+p"), HandlerIds.APP_PALETTE);
-  assertEquals(globalHandlerIds.get("ctrl+b"), HandlerIds.APP_TASKS);
+  assertEquals(globalHandlerIds.get("ctrl+b"), HandlerIds.APP_BACKGROUND);
   assertEquals(globalHandlerIds.get("ctrl+t"), HandlerIds.APP_TEAM_DASHBOARD);
 });
 

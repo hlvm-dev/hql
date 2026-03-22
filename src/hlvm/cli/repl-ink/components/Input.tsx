@@ -422,6 +422,10 @@ export function Input({
   // When cycling, we don't want to re-filter the dropdown
   const textChangeFromCyclingRef = useRef(false);
 
+  // Track if text change was from history navigation (Up/Down arrow)
+  // When recalling history, completion must NOT auto-trigger (inert recall pattern)
+  const textChangeFromHistoryRef = useRef(false);
+
   // Track the last value we sent via onChange to prevent cursor-clamping race.
   // When insertAt/onChange is called, cursorPos updates immediately (local state)
   // but the value prop update is deferred (requires parent re-render). Without
@@ -625,6 +629,12 @@ export function Input({
     // Skip re-trigger if text changed due to Up/Down cycling
     if (textChangeFromCyclingRef.current) {
       textChangeFromCyclingRef.current = false;
+      return;
+    }
+
+    // Skip auto-trigger if text changed due to history navigation (inert recall)
+    if (textChangeFromHistoryRef.current) {
+      textChangeFromHistoryRef.current = false;
       return;
     }
 
@@ -1384,12 +1394,11 @@ export function Input({
 
     pushUndo();
 
-    // Clear paste buffer to prevent data corruption
-    if (pasteTimeoutRef.current) {
-      clearTimeout(pasteTimeoutRef.current);
-      pasteTimeoutRef.current = null;
-    }
-    pasteBufferRef.current = "";
+    clearPasteBuffer();
+
+    // Suppress completion auto-trigger for recalled history entries (inert recall)
+    textChangeFromHistoryRef.current = true;
+    completion.close();
 
     if (direction < 0) {
       // Up arrow - go back in history
@@ -1426,7 +1435,7 @@ export function Input({
         setCursorPos(tempInput.length);
       }
     }
-  }, [history, historyIndex, tempInput, value, onChange, pushUndo]);
+  }, [history, historyIndex, tempInput, value, onChange, pushUndo, clearPasteBuffer, completion]);
 
   // Helper: Tab completion toggle.
   // Behavior: open dropdown when closed, close it when open.
@@ -3287,7 +3296,7 @@ export function Input({
                 before.length,
               ),
             )}
-            <Text backgroundColor="white" color="black">{charAt}</Text>
+            <Text inverse>{charAt}</Text>
             {renderChunkText(
               after,
               chunk.globalOffset + cursorLayout.cursorColInChunk + charLen,

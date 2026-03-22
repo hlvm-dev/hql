@@ -33,7 +33,7 @@ import {
   ensurePlaywrightChromium,
   isPlaywrightMissingError,
 } from "./playwright-support.ts";
-import type { OrchestratorConfig } from "./orchestrator.ts";
+import type { AgentUIEvent, MemoryActivityEntry, OrchestratorConfig } from "./orchestrator.ts";
 import type { ToolExecutionResult } from "./orchestrator-state.ts";
 import { createRateLimiter } from "./orchestrator-state.ts";
 import {
@@ -239,6 +239,10 @@ async function executeToolWithTimeout(
   toolAllowlist?: string[],
   toolDenylist?: string[],
   providerExecutionPlan?: ResolvedProviderExecutionPlan,
+  hookRuntime?: OrchestratorConfig["hookRuntime"],
+  onAgentEvent?: OrchestratorConfig["onAgentEvent"],
+  agentProfiles?: OrchestratorConfig["agentProfiles"],
+  instructions?: OrchestratorConfig["instructions"],
 ): Promise<unknown> {
   return await withTimeout(
     async (signal) => {
@@ -271,6 +275,10 @@ async function executeToolWithTimeout(
         teamLeadMemberId,
         sessionId,
         currentUserRequest,
+        hookRuntime,
+        onAgentEvent,
+        agentProfiles,
+        instructions,
       };
       const result = await toolFn(args, workspace, toolOptions);
       if (signal.aborted) {
@@ -998,6 +1006,10 @@ export async function executeToolCall(
         currentToolAllowlist,
         currentToolDenylist,
         providerExecutionPlan,
+        config.hookRuntime,
+        config.onAgentEvent,
+        config.agentProfiles,
+        config.instructions,
       );
     let result: unknown;
     try {
@@ -1138,6 +1150,11 @@ export async function executeToolCall(
       executedArgs,
       result,
     );
+
+    if (toolCall.toolName.startsWith("memory_")) {
+      const activity = buildMemoryActivityEvent(toolCall, result);
+      if (activity) config.onAgentEvent?.(activity);
+    }
 
     if (toolCall.toolName === "todo_write" && config.todoState) {
       config.onAgentEvent?.({
@@ -1561,6 +1578,29 @@ export async function maybeVerifyWrite(
   if (lspVerification) return lspVerification;
 
   return await maybeVerifySyntax(toolCall, config);
+}
+
+// ============================================================
+// Memory tool event builder
+// ============================================================
+
+function buildMemoryActivityEvent(
+  toolCall: ToolCall,
+  result: unknown,
+): Extract<AgentUIEvent, { type: "memory_activity" }> | null {
+  if (toolCall.toolName === "memory_write" && result && typeof result === "object") {
+    const r = result as Record<string, unknown>;
+    const text = truncate(String(r.content ?? r.message ?? ""), 120);
+    const factId = typeof r.factId === "number" ? r.factId : undefined;
+    return { type: "memory_activity", recalled: [], written: [{ text, factId }] };
+  }
+  if (toolCall.toolName === "memory_search" && result && typeof result === "object") {
+    const r = result as Record<string, unknown>;
+    const query = String(r.query ?? toolCall.args?.query ?? "");
+    const count = typeof r.count === "number" ? r.count : Array.isArray(r.results) ? r.results.length : 0;
+    return { type: "memory_activity", recalled: [], written: [], searched: { query, count } };
+  }
+  return null;
 }
 
 /**

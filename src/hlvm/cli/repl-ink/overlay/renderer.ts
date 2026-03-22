@@ -137,6 +137,15 @@ export type RGB = [number, number, number];
 /** Default overlay background color */
 export const OVERLAY_BG_COLOR: RGB = [35, 35, 40];
 
+/** Default selected-row background color (subtle dark highlight) */
+export const OVERLAY_SELECTED_BG_COLOR: RGB = [55, 55, 65];
+
+/** Pre-computed ANSI background style for overlay background (use instead of bg(OVERLAY_BG_COLOR)) */
+export const OVERLAY_BG_STYLE: string = ansi.bg(...OVERLAY_BG_COLOR);
+
+/** Pre-computed ANSI background style for selected rows (use instead of bg(OVERLAY_SELECTED_BG_COLOR)) */
+export const OVERLAY_SELECTED_BG_STYLE: string = ansi.bg(...OVERLAY_SELECTED_BG_COLOR);
+
 /** Create ANSI foreground color string from RGB */
 export function fg(rgb: RGB): string {
   return ansi.fg(rgb[0], rgb[1], rgb[2]);
@@ -366,7 +375,7 @@ export function writeToTerminal(output: string): void {
 
 /**
  * Pre-computed overlay RGB colors derived from the current theme palette.
- * Each overlay component selects the subset of colors it needs.
+ * Includes ready-to-use ANSI style strings so overlays don't recompute them.
  */
 export interface OverlayColors {
   primary: RGB;
@@ -376,15 +385,20 @@ export interface OverlayColors {
   warning: RGB;
   error: RGB;
   muted: RGB;
+  /** ANSI bg string for overlay background — use directly, no bg() call needed */
+  bgStyle: string;
+  /** ANSI bg string for selected-row highlight — use directly, no bg() call needed */
+  selectedBgStyle: string;
 }
 
 /**
- * Convert a theme palette (hex strings) to overlay RGB tuples.
- * Centralizes the `hexToRgb(theme.X) as RGB` pattern used by all overlay components.
+ * Convert a theme palette (hex strings) to overlay RGB tuples + pre-computed styles.
+ * SSOT for all overlay color derivation — call once in useMemo, use everywhere.
  *
  * Usage:
  * ```tsx
  * const colors = useMemo(() => themeToOverlayColors(theme), [theme]);
+ * // colors.bgStyle, colors.selectedBgStyle ready to use
  * ```
  */
 export function themeToOverlayColors(theme: {
@@ -404,5 +418,7 @@ export function themeToOverlayColors(theme: {
     warning: hexToRgb(theme.warning) as RGB,
     error: hexToRgb(theme.error) as RGB,
     muted: hexToRgb(theme.muted) as RGB,
+    bgStyle: OVERLAY_BG_STYLE,
+    selectedBgStyle: OVERLAY_SELECTED_BG_STYLE,
   };
 }

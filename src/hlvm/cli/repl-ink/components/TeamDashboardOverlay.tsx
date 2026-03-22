@@ -19,11 +19,9 @@ import type {
 } from "../hooks/useTeamState.ts";
 import {
   ansi,
-  bg,
   clearOverlay,
   drawOverlayFrame,
   fg,
-  OVERLAY_BG_COLOR,
   resolveOverlayChromeLayout,
   resolveOverlayFrame,
   shouldClearOverlay,
@@ -310,10 +308,7 @@ export function TeamDashboardOverlay({
   );
   const previousFrameRef = useRef<typeof overlayFrame | null>(null);
 
-  const colors = useMemo(() => ({
-    ...themeToOverlayColors(theme),
-    bgStyle: bg(OVERLAY_BG_COLOR),
-  }), [theme]);
+  const colors = useMemo(() => themeToOverlayColors(theme), [theme]);
 
   const items = useMemo<DashboardItem[]>(() => {
     return [
@@ -445,7 +440,7 @@ export function TeamDashboardOverlay({
         }
 
         if (isSelected) {
-          output += bg(colors.warning) + ansi.fg(30, 30, 30);
+          output += colors.selectedBgStyle;
         }
 
         const prefix = formatDashboardRow(item, Math.max(8, cellWidth - 5));
@@ -455,7 +450,7 @@ export function TeamDashboardOverlay({
         len += 2;
         output += fg(iconRgb) + prefix.icon + ansi.reset;
         output += isSelected
-          ? bg(colors.warning) + ansi.fg(30, 30, 30)
+          ? colors.selectedBgStyle
           : bgStyle;
         output += " ";
         len += 2;
@@ -615,8 +610,7 @@ export function TeamDashboardOverlay({
     }
 
     output += drawOverlayFrame(overlayFrame, {
-      borderColor: colors.accent,
-      backgroundColor: OVERLAY_BG_COLOR,
+      borderColor: colors.primary,
       title,
       rightText: closeHint,
     });

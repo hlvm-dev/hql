@@ -157,9 +157,7 @@ interface BindingExecuteResponse {
 // MARK: - REPL State
 
 async function initState(): Promise<ReplState> {
-  const initResult = await initReplState({
-    bindingsJsMode: false,
-  });
+  const initResult = await initReplState({});
   const state = initResult.state;
   const moduleResult = initResult.moduleResult;
 
@@ -370,7 +368,7 @@ export async function handleEval(req: Request): Promise<Response> {
       replState = await initState();
     }
 
-    const result = await evaluate(code, replState, true);
+    const result = await evaluate(code, replState);
     if (result.success) {
       const hasValue = Object.prototype.hasOwnProperty.call(result, "value");
       return Response.json({
@@ -673,7 +671,7 @@ async function handleBindingExecute(req: Request): Promise<Response> {
     }
 
     const code = buildExecuteCode(definition, args);
-    const result = await evaluate(code, replState, false);
+    const result = await evaluate(code, replState);
     if (!result.success) {
       return execError(
         result.error?.message ?? "Execution failed",

@@ -285,6 +285,20 @@ export function getCustomInstructionsPath(): string {
 }
 
 /**
+ * Get the project-level custom instructions path (<workspace>/.hlvm/HLVM.md)
+ */
+export function getProjectInstructionsPath(workspace: string): string {
+  return join(workspace, ".hlvm", "HLVM.md");
+}
+
+/**
+ * Get the trusted workspaces registry path (~/.hlvm/trusted-workspaces.json)
+ */
+export function getTrustedWorkspacesPath(): string {
+  return join(getHlvmDir(), "trusted-workspaces.json");
+}
+
+/**
  * Get the Claude Code external MCP plugins directory.
  * Claude Code stores installed MCP servers as subdirectories here,
  * each with a `.mcp.json` config file.
@@ -328,4 +342,85 @@ export function ensureHlvmDirSync(): void {
  */
 export async function ensureRuntimeDir(): Promise<void> {
   await getPlatform().fs.mkdir(getRuntimeDir(), { recursive: true });
+}
+
+// ── Agent Team Paths ──────────────────────────────────────────────────
+
+/**
+ * Get the teams root directory (~/.hlvm/teams)
+ */
+export function getTeamsDir(): string {
+  return join(getHlvmDir(), "teams");
+}
+
+/**
+ * Get a specific team's directory (~/.hlvm/teams/{teamName})
+ */
+export function getTeamDir(teamName: string): string {
+  return join(getTeamsDir(), teamName);
+}
+
+/**
+ * Get a team's config file path (~/.hlvm/teams/{teamName}/config.json)
+ */
+export function getTeamConfigPath(teamName: string): string {
+  return join(getTeamDir(teamName), "config.json");
+}
+
+/**
+ * Get a team's inboxes directory (~/.hlvm/teams/{teamName}/inboxes)
+ */
+export function getTeamInboxesDir(teamName: string): string {
+  return join(getTeamDir(teamName), "inboxes");
+}
+
+/**
+ * Get a specific agent's inbox path (~/.hlvm/teams/{teamName}/inboxes/{agentName}.json)
+ */
+export function getTeamInboxPath(teamName: string, agentName: string): string {
+  return join(getTeamInboxesDir(teamName), `${agentName}.json`);
+}
+
+/**
+ * Get the tasks root directory (~/.hlvm/tasks)
+ */
+export function getTasksDir(): string {
+  return join(getHlvmDir(), "tasks");
+}
+
+/**
+ * Get a team's task directory (~/.hlvm/tasks/{teamName})
+ */
+export function getTeamTasksDir(teamName: string): string {
+  return join(getTasksDir(), teamName);
+}
+
+/**
+ * Get a team's highwatermark file path (~/.hlvm/tasks/{teamName}/.highwatermark)
+ */
+export function getTeamHighwatermarkPath(teamName: string): string {
+  return join(getTeamTasksDir(teamName), ".highwatermark");
+}
+
+/**
+ * Ensure team directories exist for a given team name.
+ */
+export async function ensureTeamDirs(teamName: string): Promise<void> {
+  const fs = getPlatform().fs;
+  await fs.mkdir(getTeamDir(teamName), { recursive: true });
+  await fs.mkdir(getTeamInboxesDir(teamName), { recursive: true });
+  await fs.mkdir(getTeamTasksDir(teamName), { recursive: true });
+}
+
+/**
+ * Remove all team directories for a given team name.
+ */
+export async function removeTeamDirs(teamName: string): Promise<void> {
+  const fs = getPlatform().fs;
+  try {
+    await fs.remove(getTeamDir(teamName), { recursive: true });
+  } catch { /* may not exist */ }
+  try {
+    await fs.remove(getTeamTasksDir(teamName), { recursive: true });
+  } catch { /* may not exist */ }
 }

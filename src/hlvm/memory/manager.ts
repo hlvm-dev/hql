@@ -3,26 +3,18 @@
  *
  * Two sources (priority order):
  *   1. ~/.hlvm/memory/MEMORY.md  — user-authored, free-form notes
- *   2. memory.db facts           — auto-learned by the agent
+ *   2. memory.db facts           — pinned top facts (on-demand retrieval handles the rest)
  */
 
 import { estimateTokensFromText } from "../../common/token-utils.ts";
 import { readExplicitMemory } from "./explicit.ts";
-import { getValidFacts } from "./facts.ts";
+import { countValidFacts, getValidFacts } from "./facts.ts";
 import { warnMemory } from "./store.ts";
 
-const LARGE_CONTEXT_THRESHOLD = 32_000;
-const MEDIUM_CONTEXT_THRESHOLD = 16_000;
-const MEMORY_SIZE_WARNING = 3000;
 const MEMORY_MAX_TOKENS = 6000;
 const MEMORY_BUDGET_RATIO = 0.15;
 const MEMORY_SYSTEM_MESSAGE_HEADER = "# Your Memory";
-
-function maxFactsForContext(contextWindow: number): number {
-  if (contextWindow >= LARGE_CONTEXT_THRESHOLD) return 120;
-  if (contextWindow >= MEDIUM_CONTEXT_THRESHOLD) return 60;
-  return 30;
-}
+const PINNED_FACTS_LIMIT = 10;
 
 function groupFactsForPrompt(facts: ReturnType<typeof getValidFacts>): string {
   const grouped = new Map<string, string[]>();
@@ -89,26 +81,20 @@ export async function loadMemoryContext(
     }
   }
 
-  // --- Priority 2: Auto-learned DB facts ---
+  // --- Priority 2: Pinned top facts (on-demand retrieval handles the rest) ---
   let dbSection = "";
   if (remainingTokens > 0) {
-    const maxFacts = maxFactsForContext(contextWindow);
-    const facts = getValidFacts({ limit: maxFacts });
+    const pinnedFacts = getValidFacts({ limit: PINNED_FACTS_LIMIT });
+    const totalCount = countValidFacts();
 
-    if (facts.length > 0) {
-      const grouped = groupFactsForPrompt(facts);
+    if (pinnedFacts.length > 0) {
+      const grouped = groupFactsForPrompt(pinnedFacts);
       const result = truncateToTokenBudget(grouped, remainingTokens);
       dbSection = result.text;
 
-      if (result.truncated) {
-        dbSection += "\n\n[Memory truncated — consider consolidating facts]";
-        await warnMemory(
-          `Memory context truncated to ~${maxTokens} tokens.`,
-        );
-      } else if (result.tokens > MEMORY_SIZE_WARNING) {
-        await warnMemory(
-          `Memory context is large (~${result.tokens} tokens). Consider consolidating facts.`,
-        );
+      if (totalCount > PINNED_FACTS_LIMIT) {
+        dbSection +=
+          `\n\nYou have ${totalCount} memories available. Relevant ones are provided automatically each turn, or use memory_search for specific queries.`;
       }
     }
   }

@@ -228,16 +228,20 @@ export const AssistantMessage = React.memo(function AssistantMessage(
               )}
             </Text>
             {citationMemo.sources.map((source: CitationSourceView) => {
-              const lead = `[${source.index}] ${source.title}`;
+              const indexLabel = `[${source.index}]`;
+              const titleText = ` ${source.title}`;
               return (
                 <Box
                   key={`${source.index}:${source.url}`}
                   flexDirection="column"
                   marginTop={0}
                 >
-                  <Text color={sc.text.secondary}>
-                    {truncate(lead, contentWidth, "…")}
-                  </Text>
+                  <Box>
+                    <Text color={sc.border.active} bold>{indexLabel}</Text>
+                    <Text color={sc.text.secondary}>
+                      {truncate(titleText, contentWidth - indexLabel.length, "…")}
+                    </Text>
+                  </Box>
                   <Text color={sc.text.muted}>
                     {truncate(source.url, contentWidth, "…")}
                   </Text>

@@ -428,6 +428,7 @@ async function runDelegateChild(
       toolAllowlist: allowedTools,
       toolOwnerId: config.toolOwnerId,
       agentProfiles: config.agentProfiles ?? baseConfig.agentProfiles,
+      instructions: config.instructions,
     }),
   });
   context.addMessage({

@@ -2,6 +2,7 @@ import { assertEquals } from "jsr:@std/assert@1";
 import { THEMES } from "../../../src/hlvm/cli/theme/index.ts";
 import { buildSemanticColors } from "../../../src/hlvm/cli/theme/semantic.ts";
 import {
+  buildContextUsageMiniBar,
   fitShellFooterSegments,
   getHistorySearchHintText,
   getHistorySearchMatchLabel,
@@ -67,4 +68,11 @@ Deno.test("history search shell helpers keep hint text compact", () => {
     getHistorySearchHintText("plan", 3),
     "Ctrl+R next · Ctrl+S prev · Enter select · Esc cancel",
   );
+});
+
+Deno.test("buildContextUsageMiniBar renders percentage as block bar", () => {
+  assertEquals(buildContextUsageMiniBar("0% ctx"), "[░░░░░░░░] 0%");
+  assertEquals(buildContextUsageMiniBar("45% ctx"), "[████░░░░] 45%");
+  assertEquals(buildContextUsageMiniBar("100% ctx"), "[████████] 100%");
+  assertEquals(buildContextUsageMiniBar("no percentage"), "no percentage");
 });

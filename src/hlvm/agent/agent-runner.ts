@@ -9,17 +9,14 @@
  */
 
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
-import { getCustomInstructionsPath } from "../../common/paths.ts";
 import { ValidationError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import {
   closeFactDb,
-  extractSessionFacts,
   isMemorySystemMessage,
   isPersistentMemoryEnabled,
   loadMemorySystemMessage,
   MEMORY_TOOLS,
-  persistConversationFacts,
   setMemoryModelTier,
 } from "../memory/mod.ts";
 import { setAgentLogger } from "./logger.ts";
@@ -29,6 +26,7 @@ import {
   resolveCompatibleClaudeCodeModel,
 } from "../../common/ai-default-model.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import { loadInstructionHierarchy } from "../prompt/mod.ts";
 import { deriveDefaultSessionKey } from "../runtime/session-key.ts";
 import { type AgentSession, createAgentSession } from "./session.ts";
 import { getAgentEngine } from "./engine.ts";
@@ -161,9 +159,10 @@ export async function createReusableSession(
   },
 ): Promise<AgentSession> {
   const engine = getAgentEngine();
-  const agentProfiles = await loadAgentProfiles(workspace, {
-    toolValidator: hasTool,
-  });
+  const [agentProfiles, instructions] = await Promise.all([
+    loadAgentProfiles(workspace, { toolValidator: hasTool }),
+    loadInstructionHierarchy(workspace),
+  ]);
   const toolDenylist = opts?.toolDenylist
     ? [...opts.toolDenylist]
     : [...DEFAULT_TOOL_DENYLIST];
@@ -179,6 +178,7 @@ export async function createReusableSession(
     modelInfo: opts?.modelInfo,
     engine,
     agentProfiles,
+    instructions,
   });
   reusableSessions.add(session);
   return session;
@@ -484,13 +484,8 @@ export async function runAgentQuery(
     toolValidator: hasTool,
   });
 
-  // Pre-read custom instructions (~/.hlvm/HLVM.md) — non-blocking
-  let customInstructions = "";
-  try {
-    customInstructions = await getPlatform().fs.readTextFile(
-      getCustomInstructionsPath(),
-    );
-  } catch { /* file not found — skip */ }
+  // Load instruction hierarchy (global + project) — non-blocking
+  const instructions = await loadInstructionHierarchy(workspace);
 
   const matchingReusableSession = persistentMemoryEnabled &&
       shouldReuseAgentSession(options.reusableSession, {
@@ -517,11 +512,19 @@ export async function runAgentQuery(
       toolDenylist: effectiveToolDenylist,
       onToken: callbacks.onToken,
       modelInfo: options.modelInfo,
-      customInstructions,
+      instructions,
       disablePersistentMemory,
       engine,
       agentProfiles,
     });
+
+  // Emit prompt_compiled trace event (only when instruction hierarchy was compiled)
+  if (callbacks.onTrace && session.compiledPromptMeta) {
+    callbacks.onTrace({
+      type: "prompt_compiled",
+      ...session.compiledPromptMeta,
+    });
+  }
 
   const useExternalHistory = !!options.messageHistory;
   const shouldPersistSession = !skipSessionHistory;
@@ -940,6 +943,7 @@ export async function runAgentQuery(
           teamMemberId: teamRuntime.leadMemberId,
           teamLeadMemberId: teamRuntime.leadMemberId,
           agentProfiles,
+          instructions: session.instructions,
           planning: {
             mode: getPlanningModeForExecutionMode(permissionMode),
             requireStepMarkers: false,
@@ -1023,31 +1027,6 @@ export async function runAgentQuery(
 
     if (persistedTurn) {
       completePersistedAgentTurn(persistedTurn, model, text);
-    }
-
-    if (persistentMemoryEnabled) {
-      try {
-        persistConversationFacts([{ role: "user", content: query }], {
-          source: "extracted",
-        });
-      } catch {
-        // Best-effort only; extraction should never block agent response.
-      }
-
-      if (session.modelTier === "frontier") {
-        try {
-          await extractSessionFacts(
-            session.context.getMessages().map((message) => ({
-              role: message.role,
-              content: message.content,
-            })),
-            session.modelTier,
-            model,
-          );
-        } catch {
-          // Best-effort only; extraction should never block agent response.
-        }
-      }
     }
 
     const stats = session.context.getStats();

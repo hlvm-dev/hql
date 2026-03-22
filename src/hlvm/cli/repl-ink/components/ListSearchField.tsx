@@ -56,7 +56,7 @@ export function ListSearchField({
       {query.length === 0
         ? (
           <>
-            <Text backgroundColor="white" color="black">{" "}</Text>
+            <Text inverse>{" "}</Text>
             <Text dimColor wrap="truncate-end">
               {truncate(placeholder, placeholderWidth, "…")}
             </Text>
@@ -65,7 +65,7 @@ export function ListSearchField({
         : (
           <>
             <Text>{display.beforeCursor}</Text>
-            <Text backgroundColor="white" color="black">
+            <Text inverse>
               {display.cursorChar}
             </Text>
             <Text>{display.afterCursor}</Text>

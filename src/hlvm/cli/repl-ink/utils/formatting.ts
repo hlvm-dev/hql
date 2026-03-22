@@ -34,3 +34,13 @@ export function formatElapsed(ms: number): string {
   const hours = Math.floor(mins / 60);
   return `${hours}h ${mins % 60}m`;
 }
+
+/** Shared bar characters for progress indicators. */
+export const BAR_CHARS = { filled: "\u2588", empty: "\u2591" } as const;
+
+/** Render a plain-text progress bar from 0-100 percent (e.g. "████░░░░"). */
+export function formatProgressBar(percent: number, width = 8): string {
+  const clamped = Math.max(0, Math.min(100, percent));
+  const filled = Math.round((clamped / 100) * width);
+  return BAR_CHARS.filled.repeat(filled) + BAR_CHARS.empty.repeat(width - filled);
+}

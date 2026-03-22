@@ -23,6 +23,7 @@ export { insertFact } from "./pipeline.ts";
 // Canonical DB — exports used by tests and external consumers
 export { closeFactDb, getFactDb } from "./db.ts";
 export {
+  countValidFacts,
   getValidFacts,
   invalidateAllFacts,
   invalidateFact,
@@ -32,12 +33,6 @@ export {
 } from "./facts.ts";
 export { linkFactEntities } from "./entities.ts";
 export { accessBoost, retrieveMemory, temporalDecay, type RetrievalResult } from "./retrieve.ts";
-export {
-  extractConversationFacts,
-  extractSessionFacts,
-  parseLLMExtractionResponse,
-  persistConversationFacts,
-} from "./extract.ts";
 
 // Explicit memory (user-facing MEMORY.md)
 export {

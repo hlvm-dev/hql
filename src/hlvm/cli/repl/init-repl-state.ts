@@ -17,8 +17,6 @@ export type HistoryInitMode = "await" | "defer" | "skip";
 
 export interface InitReplStateOptions {
   state?: ReplState;
-  /** Whether to evaluate memory entries in JS mode */
-  bindingsJsMode?: boolean;
   /** History init mode; defaults to "await" */
   initHistory?: HistoryInitMode;
   /** Use an existing history init promise (e.g., started early) */
@@ -56,7 +54,6 @@ export async function initReplState(
 ): Promise<InitReplStateResult> {
   const {
     state: providedState,
-    bindingsJsMode = false,
     initHistory = "await",
     historyInitPromise,
     onHistoryError,
@@ -114,7 +111,7 @@ export async function initReplState(
       await bindings.compact();
       state.setLoadingBindings(true);
       const result = await bindings.load(async (code: string) => {
-        const evalResult = await evaluate(code, state, bindingsJsMode);
+        const evalResult = await evaluate(code, state);
         return { success: evalResult.success, error: evalResult.error };
       });
       state.setLoadingBindings(false);

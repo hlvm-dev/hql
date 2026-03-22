@@ -11,11 +11,9 @@ import { useTheme } from "../../theme/index.ts";
 import { getDisplay, type Keybinding, registry } from "../keybindings/index.ts";
 import {
   ansi,
-  bg,
   drawOverlayFrame,
   fg,
   fitOverlayRect,
-  OVERLAY_BG_COLOR,
   resolveOverlayChromeLayout,
   SHORTCUTS_OVERLAY_SPEC,
   themeToOverlayColors,
@@ -137,7 +135,7 @@ export function ShortcutsOverlay({
       primary: c.primary,
       accent: c.accent,
       muted: c.muted,
-      bgStyle: bg(OVERLAY_BG_COLOR),
+      bgStyle: c.bgStyle,
     };
   }, [theme]);
 
@@ -254,8 +252,7 @@ export function ShortcutsOverlay({
     }
 
     output += drawOverlayFrame(overlay, {
-      borderColor: colors.muted,
-      backgroundColor: OVERLAY_BG_COLOR,
+      borderColor: colors.primary,
       title: "Shortcuts",
       rightText: "esc",
     });

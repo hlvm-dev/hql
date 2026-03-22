@@ -15,8 +15,7 @@ import {
 import {
   appendExplicitMemoryNote,
   closeFactDb,
-  extractConversationFacts,
-  extractSessionFacts,
+  countValidFacts,
   getExplicitMemoryPath,
   getFactDb,
   getValidFacts,
@@ -26,8 +25,6 @@ import {
   linkFactEntities,
   loadMemorySystemMessage,
   MEMORY_TOOLS,
-  parseLLMExtractionResponse,
-  persistConversationFacts,
   readExplicitMemory,
   searchFactsFts,
   touchFact,
@@ -174,64 +171,6 @@ Deno.test("memory: system message warns that memory is not chronology", () => {
   assertStringIncludes(message, "## Preferences");
 });
 
-Deno.test("memory: shared conversation extractor emits stable facts", async () => {
-  await withTestEnv(async () => {
-    const facts = extractConversationFacts([
-      {
-        role: "user",
-        content: "My name is Alice. I prefer tabs. Remember that I use Deno.",
-      },
-      { role: "assistant", content: "Noted." },
-      { role: "user", content: "We decided to keep SQLite." },
-    ]);
-
-    assertEquals(
-      facts.map((fact) => [fact.category, fact.content]),
-      [
-        ["Identity", "User's name: Alice"],
-        ["Preferences", "I prefer tabs"],
-        ["Preferences", "Remember that I use Deno"],
-        ["Decisions", "We decided to keep SQLite"],
-      ],
-    );
-  });
-});
-
-Deno.test("memory: shared conversation extractor avoids false-positive name matches", async () => {
-  await withTestEnv(async () => {
-    const facts = extractConversationFacts([
-      {
-        role: "user",
-        content:
-          "I'm thinking about Deno.\n```ts\nconst person = 'not a fact';\n```",
-      },
-    ]);
-
-    assertEquals(facts, []);
-  });
-});
-
-Deno.test("memory: shared conversation persistence dedupes repeated baseline facts", async () => {
-  await withTestEnv(async () => {
-    const first = persistConversationFacts([
-      { role: "user", content: "My name is Alice. I prefer tabs." },
-    ]);
-    const second = persistConversationFacts([
-      { role: "user", content: "My name is Alice. I prefer tabs." },
-    ]);
-
-    assertEquals(first.factsExtracted, 2);
-    assertEquals(second.factsExtracted, 0);
-    assertEquals(
-      getValidFacts().map((fact) => [fact.category, fact.content]),
-      [
-        ["Preferences", "I prefer tabs"],
-        ["Identity", "User's name: Alice"],
-      ],
-    );
-  });
-});
-
 Deno.test("memory: canonical insert links entities once even if chat relinks the same fact", async () => {
   await withTestEnv(async () => {
     const content = "uses deno with auth.ts";
@@ -309,25 +248,6 @@ Deno.test("memory: reuseSession refreshes memory without losing the system promp
       messages.some((message) =>
         message.content.includes("Fresh preference: emacs keybindings")
       ),
-    );
-  });
-});
-
-Deno.test("memory: frontier session extraction reuses shared fact pipeline", async () => {
-  await withTestEnv(async () => {
-    const result = await extractSessionFacts([
-      { role: "user", content: "We decided to keep SQLite." },
-      { role: "assistant", content: "Sounds good." },
-      { role: "user", content: "Fixed auth bug in session resume flow." },
-    ], "frontier");
-
-    assertEquals(result.factsExtracted, 2);
-    assertEquals(
-      getValidFacts().map((fact) => [fact.category, fact.content]),
-      [
-        ["Bugs", "Fixed auth bug in session resume flow"],
-        ["Decisions", "We decided to keep SQLite"],
-      ],
     );
   });
 });
@@ -538,58 +458,31 @@ Deno.test("memory: fact CRUD covers defaults, invalidation, search, touch, and c
   });
 });
 
-Deno.test("memory: parseLLMExtractionResponse handles valid JSON array", () => {
-  const input = JSON.stringify([
-    { category: "Identity", content: "User's name: Bob" },
-    { category: "Preferences", content: "Prefers dark mode" },
-  ]);
-  const result = parseLLMExtractionResponse(input);
-  assertEquals(result.length, 2);
-  assertEquals(result[0].category, "Identity");
-  assertEquals(result[0].content, "User's name: Bob");
-  assertEquals(result[1].category, "Preferences");
-  assertEquals(result[1].content, "Prefers dark mode");
+Deno.test("memory: countValidFacts returns accurate count", async () => {
+  await withTestEnv(async () => {
+    assertEquals(countValidFacts(), 0);
+
+    insertFact({ content: "Fact A" });
+    insertFact({ content: "Fact B" });
+    const cId = insertFact({ content: "Fact C" });
+    assertEquals(countValidFacts(), 3);
+
+    invalidateFact(cId);
+    assertEquals(countValidFacts(), 2);
+  });
 });
 
-Deno.test("memory: parseLLMExtractionResponse strips markdown code fences", () => {
-  const input =
-    '```json\n[{"category": "Decisions", "content": "Chose SQLite"}]\n```';
-  const result = parseLLMExtractionResponse(input);
-  assertEquals(result.length, 1);
-  assertEquals(result[0].content, "Chose SQLite");
-});
+Deno.test("memory: pinned-facts startup loads limited facts with availability hint", async () => {
+  await withTestEnv(async () => {
+    // Insert more than the pinned limit (10)
+    for (let i = 0; i < 15; i++) {
+      insertFact({ content: `Fact ${i}`, category: "General" });
+    }
 
-Deno.test("memory: parseLLMExtractionResponse returns empty array for garbage", () => {
-  assertEquals(parseLLMExtractionResponse("not json at all"), []);
-  assertEquals(parseLLMExtractionResponse(""), []);
-  assertEquals(parseLLMExtractionResponse("{not an array}"), []);
-});
-
-Deno.test("memory: parseLLMExtractionResponse filters invalid entries", () => {
-  const input = JSON.stringify([
-    { category: "Identity", content: "Valid fact" },
-    { category: "Bugs" }, // missing content
-    { content: "No category" }, // missing category
-    { category: "Preferences", content: "" }, // empty content
-    { category: 123, content: "Number category" }, // wrong type
-    "not an object",
-  ]);
-  const result = parseLLMExtractionResponse(input);
-  assertEquals(result.length, 1);
-  assertEquals(result[0].content, "Valid fact");
-});
-
-Deno.test("memory: parseLLMExtractionResponse caps at 10 entries", () => {
-  const entries = Array.from({ length: 15 }, (_, i) => ({
-    category: "General",
-    content: `Fact ${i}`,
-  }));
-  const result = parseLLMExtractionResponse(JSON.stringify(entries));
-  assertEquals(result.length, 10);
-});
-
-Deno.test("memory: parseLLMExtractionResponse handles empty array", () => {
-  assertEquals(parseLLMExtractionResponse("[]"), []);
+    const context = await loadMemoryContext(32_000);
+    assertStringIncludes(context, "15 memories available");
+    assertStringIncludes(context, "memory_search");
+  });
 });
 
 // ── MEMORY.md tests ──────────────────────────────────────────────────────────

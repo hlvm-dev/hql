@@ -42,6 +42,51 @@ import { materializeAttachment } from "../../attachments/service.ts";
 const DECLARATION_OPS: Set<string> = new Set(DECLARATION_KEYWORDS);
 const BINDING_OPS: Set<string> = new Set(BINDING_KEYWORDS);
 
+/** Check if input is a `(js ...)` form */
+function isJsForm(input: string): boolean {
+  return /^\(js\s/i.test(input);
+}
+
+/**
+ * Extract JS code from `(js "...")` and evaluate it.
+ *
+ * String form only (valid Lisp syntax):
+ *   (js "1 + 2")
+ *   (js "await fetch(url)")
+ *   (js "                    ;; multiline
+ *     let a = 10
+ *     a + 1
+ *   ")
+ */
+async function evaluateJsForm(input: string, state: ReplState): Promise<EvalResult> {
+  // Find the string content between the first quote and last quote after (js
+  const afterJs = input.slice(3).trim(); // skip "(js"
+  const quote = afterJs[0];
+  if (quote !== '"' && quote !== "'") {
+    return { success: false, error: new Error("(js ...) requires a string argument: (js \"your code here\")") };
+  }
+  const lastQuote = afterJs.lastIndexOf(quote, afterJs.length - 2); // exclude trailing )
+  if (lastQuote <= 0) {
+    return { success: false, error: new Error("Unterminated string in (js ...) form") };
+  }
+  const jsCode = afterJs.slice(1, lastQuote).trim();
+
+  if (!jsCode) {
+    return { success: true, suppressOutput: true };
+  }
+
+  try {
+    const bindings = extractJSBindings(jsCode);
+    const { value, logs } = await evaluateJS(jsCode);
+    for (const name of bindings) {
+      state.addBinding(name);
+    }
+    return { success: true, value, logs };
+  } catch (error) {
+    return { success: false, error: ensureError(error) };
+  }
+}
+
 function getReplRunOptions(state: ReplState) {
   return {
     baseDir: getPlatform().process.cwd(),
@@ -112,19 +157,18 @@ function analyzeExpression(ast: SList): ExpressionType {
 
 /**
  * Evaluate code in REPL context.
- * In jsMode, input not starting with '(' is evaluated as JavaScript.
+ * Input starting with `(js ...)` is evaluated as JavaScript.
+ * All other input is evaluated as HQL.
  * Uses run() from mod.ts which properly handles EMBEDDED_PACKAGES.
  *
  * @param sourceCode - The code to evaluate
  * @param state - REPL state for tracking bindings
- * @param jsMode - Whether to evaluate as JavaScript
  * @param attachments - Optional attachments (pasted text, images, etc.)
  * @param signal - Optional AbortSignal for cancellation support
  */
 export async function evaluate(
   sourceCode: string,
   state: ReplState,
-  jsMode: boolean = false,
   attachments?: AnyAttachment[],
   signal?: AbortSignal,
 ): Promise<EvalResult> {
@@ -169,24 +213,9 @@ export async function evaluate(
       return { success: true, suppressOutput: true };
     }
 
-    // JavaScript mode: if input doesn't start with '(', evaluate as JavaScript
-    if (jsMode && !modeTrimmed.startsWith("(")) {
-      try {
-        // Extract bindings for state tracking
-        const bindings = extractJSBindings(trimmed);
-
-        // Evaluate JavaScript (transforms to persist to globalThis)
-        const { value, logs } = evaluateJS(trimmed);
-
-        // Track bindings in REPL state for autocompletion
-        for (const name of bindings) {
-          state.addBinding(name);
-        }
-
-        return { success: true, value, logs };
-      } catch (error) {
-        return { success: false, error: ensureError(error) };
-      }
+    // (js ...) form: extract JS code and evaluate
+    if (isJsForm(modeTrimmed)) {
+      return await evaluateJsForm(modeTrimmed, state);
     }
 
     // HQL evaluation

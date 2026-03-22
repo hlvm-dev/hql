@@ -50,12 +50,10 @@ import {
 } from "../../../runtime/host-client.ts";
 import {
   ansi,
-  bg,
   clearOverlay,
   CONFIG_OVERLAY_SPEC,
   drawOverlayFrame,
   fg,
-  OVERLAY_BG_COLOR,
   resolveOverlayChromeLayout,
   resolveOverlayFrame,
   type RGB,
@@ -124,7 +122,6 @@ const OVERLAY_CONFIG_KEYS: readonly EditableConfigKey[] = [
   "permissionMode",
 ];
 const OVERLAY_HEIGHT = CONFIG_OVERLAY_SPEC.height;
-const SELECTED_BG_COLOR: RGB = [55, 55, 65];
 
 // Config field metadata
 const FIELD_META: Record<EditableConfigKey, FieldMeta> = {
@@ -304,8 +301,8 @@ export function ConfigOverlay({
       primary: c.primary,
       muted: c.muted,
       error: c.error,
-      bgStyle: bg(OVERLAY_BG_COLOR),
-      selectedBgStyle: bg(SELECTED_BG_COLOR),
+      bgStyle: c.bgStyle,
+      selectedBgStyle: c.selectedBgStyle,
     };
   }, [theme]);
 
@@ -695,7 +692,6 @@ export function ConfigOverlay({
 
     output += drawOverlayFrame(overlayFrame, {
       borderColor: colors.primary,
-      backgroundColor: OVERLAY_BG_COLOR,
       title: "Configuration",
       rightText: "esc close",
     });

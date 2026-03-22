@@ -15,6 +15,7 @@ import type { ToolCallDisplay } from "../../types.ts";
 import {
   buildToolGroupCountSlot,
   buildToolGroupProgressSlot,
+  resolveCollapsedToolList,
 } from "./layout.ts";
 
 interface ToolGroupProps {
@@ -141,16 +142,55 @@ export const ToolGroup = React.memo(function ToolGroup({
       </Box>
 
       {/* Tool items */}
-      {tools.map((tool) => (
-        <Box key={tool.id}>
-          <ToolCallItem
-            tool={tool}
-            width={innerWidth}
-            expanded={Boolean(isToolExpanded?.(tool.id))}
-            animateStatusIcon={tool.id === activeRunningToolId}
-          />
-        </Box>
-      ))}
+      {(() => {
+        const anyExpanded = tools.some((t) => isToolExpanded?.(t.id));
+        const collapsed = anyExpanded
+          ? null
+          : resolveCollapsedToolList(tools);
+
+        if (!collapsed) {
+          return tools.map((tool) => (
+            <Box key={tool.id}>
+              <ToolCallItem
+                tool={tool}
+                width={innerWidth}
+                expanded={Boolean(isToolExpanded?.(tool.id))}
+                animateStatusIcon={tool.id === activeRunningToolId}
+              />
+            </Box>
+          ));
+        }
+
+        const visibleSet = new Set(collapsed.visibleTools);
+        const items: React.ReactElement[] = [];
+        let collapseSummaryInserted = false;
+
+        for (let i = 0; i < tools.length; i++) {
+          if (visibleSet.has(i)) {
+            items.push(
+              <Box key={tools[i].id}>
+                <ToolCallItem
+                  tool={tools[i]}
+                  width={innerWidth}
+                  expanded={false}
+                  animateStatusIcon={tools[i].id === activeRunningToolId}
+                />
+              </Box>,
+            );
+          } else if (!collapseSummaryInserted) {
+            collapseSummaryInserted = true;
+            items.push(
+              <Box key="__collapsed__" marginLeft={2}>
+                <Text color={sc.text.muted}>
+                  … {collapsed.hiddenCount} more tool
+                  {collapsed.hiddenCount === 1 ? "" : "s"}
+                </Text>
+              </Box>,
+            );
+          }
+        }
+        return items;
+      })()}
     </Box>
   );
 });

@@ -125,9 +125,9 @@ export function getSyntaxAnsi(): Record<string, string> & { reset: string } {
   const value = {
     keyword: hexToAnsi(theme.primary),
     macro: hexToAnsi(theme.secondary),
-    string: hexToAnsi(theme.secondary),
-    number: hexToAnsi(theme.accent),
-    operator: hexToAnsi(theme.accent),
+    string: hexToAnsi(theme.success),
+    number: hexToAnsi(theme.warning),
+    operator: hexToAnsi(theme.text),
     boolean: hexToAnsi(theme.warning),
     nil: hexToAnsi(theme.muted),
     comment: hexToAnsi(theme.muted),

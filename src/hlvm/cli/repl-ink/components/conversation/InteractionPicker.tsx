@@ -193,8 +193,13 @@ export const InteractionPicker = React.memo(function InteractionPicker(
                 >
                   {" "}
                   {option.label}
-                  {option.recommended ? " (Recommended)" : ""}
                 </Text>
+                {option.recommended && (
+                  <>
+                    <Text> </Text>
+                    <ChromeChip text="Recommended" tone="success" />
+                  </>
+                )}
               </Box>
               {option.detail && (
                 <Box paddingLeft={4}>

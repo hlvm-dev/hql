@@ -80,7 +80,9 @@ export type TeamMessageKind =
   | "approval_request"
   | "approval_response"
   | "shutdown_request"
-  | "shutdown_ack";
+  | "shutdown_ack"
+  | "idle_notification"
+  | "task_completed";
 
 export interface TeamMessage {
   id: string;

@@ -11,7 +11,8 @@
  */
 
 import { ContextManager } from "./context.ts";
-import { generateSystemPrompt } from "./llm-integration.ts";
+import { compileSystemPrompt } from "./llm-integration.ts";
+import type { CompiledPrompt, InstructionHierarchy } from "../prompt/mod.ts";
 import type { AgentProfile } from "./agent-registry.ts";
 import { resolveSdkModelSpec, toSdkRuntimeModelSpec } from "./engine-sdk.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
@@ -74,8 +75,8 @@ interface AgentSessionOptions {
   contextWindow?: number;
   /** Pre-fetched model info to avoid duplicate provider API calls */
   modelInfo?: ModelInfo | null;
-  /** Custom instructions from ~/.hlvm/HLVM.md */
-  customInstructions?: string;
+  /** Loaded instruction hierarchy (global + project). */
+  instructions?: InstructionHierarchy;
   /** Override the LLM engine (defaults to getAgentEngine()) */
   engine?: AgentEngine;
   /** Preloaded agent profiles for delegation guidance. */
@@ -134,6 +135,13 @@ export interface AgentSession {
   todoState: TodoState;
   /** Session-scoped LSP diagnostics runtime for post-write verification. */
   lspDiagnostics?: LspDiagnosticsRuntime;
+  /** Metadata from prompt compilation (for observability/tracing). */
+  compiledPromptMeta?: Pick<
+    CompiledPrompt,
+    "sections" | "instructionSources" | "signatureHash" | "mode" | "tier"
+  >;
+  /** Resolved instruction hierarchy — passed to child agents (delegation/team). */
+  instructions?: InstructionHierarchy;
 }
 
 /** Try to get ModelInfo from the provider (best-effort, non-blocking) */
@@ -347,18 +355,25 @@ export async function createAgentSession(
   const webCapabilityPlan = providerExecutionPlan.web;
 
   const context = new ContextManager(contextConfig);
-  context.addMessage({
-    role: "system",
-    content: generateSystemPrompt({
-      toolAllowlist: toolFilterState.allowlist,
-      toolDenylist: toolFilterState.denylist,
-      toolOwnerId,
-      customInstructions: options.customInstructions,
-      modelTier,
-      agentProfiles: options.agentProfiles,
-      providerExecutionPlan,
-    }),
+
+  // Compile prompt — single path via compileSystemPrompt (SSOT for tool resolution + prompt assembly).
+  const compiled = compileSystemPrompt({
+    toolAllowlist: toolFilterState.allowlist,
+    toolDenylist: toolFilterState.denylist,
+    toolOwnerId,
+    instructions: options.instructions,
+    modelTier,
+    agentProfiles: options.agentProfiles,
+    providerExecutionPlan,
   });
+  context.addMessage({ role: "system", content: compiled.text });
+  const compiledPromptMeta: AgentSession["compiledPromptMeta"] = {
+    sections: compiled.sections,
+    instructionSources: compiled.instructionSources,
+    signatureHash: compiled.signatureHash,
+    mode: compiled.mode,
+    tier: compiled.tier,
+  };
 
   // Inject memory as a SEPARATE system message (not embedded in main prompt).
   // This allows reuseSession() to refresh memory without duplicating it.
@@ -448,5 +463,7 @@ export async function createAgentSession(
     mcpSetSignal,
     todoState: createTodoState(),
     lspDiagnostics,
+    compiledPromptMeta,
+    instructions: options.instructions,
   };
 }

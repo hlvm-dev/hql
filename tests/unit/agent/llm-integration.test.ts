@@ -122,19 +122,16 @@ Deno.test("LLM integration: prompt omits memory exceptions when memory tools are
 Deno.test("LLM integration: prompt includes team coordination guidance when team tools are available", () => {
   const prompt = generateSystemPrompt({ modelTier: "mid" });
 
-  assertStringIncludes(prompt, "# Team Coordination");
-  assertStringIncludes(prompt, "team_status_read");
-  assertStringIncludes(prompt, "submit_team_plan");
-  assertStringIncludes(prompt, "apply_agent_changes");
-  assertStringIncludes(
-    prompt,
-    "Foreground or resumed delegates share the parent workspace and must stay read-only",
-  );
+  assertStringIncludes(prompt, "# Agent Teams");
+  assertStringIncludes(prompt, "Teammate");
+  assertStringIncludes(prompt, "TaskCreate");
+  assertStringIncludes(prompt, "SendMessage");
+  assertStringIncludes(prompt, "Team Lifecycle");
 });
 
 Deno.test("LLM integration: custom instructions are included and truncated", () => {
   const prompt = generateSystemPrompt({
-    customInstructions: "x".repeat(3000),
+    instructions: { global: "x".repeat(3000), project: "", trusted: false },
   });
 
   assertStringIncludes(prompt, "# Custom Instructions");

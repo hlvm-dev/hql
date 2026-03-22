@@ -212,7 +212,15 @@ export type TraceEvent =
     total?: number;
     message?: string;
   }
-  | { type: "transient_retry"; attempt: number; error: string };
+  | { type: "transient_retry"; attempt: number; error: string }
+  | {
+    type: "prompt_compiled";
+    mode: import("../prompt/types.ts").PromptMode;
+    tier: import("./constants.ts").ModelTier;
+    sections: import("../prompt/types.ts").SectionManifestEntry[];
+    instructionSources: import("../prompt/types.ts").InstructionSource[];
+    signatureHash: string;
+  };
 
 /** Agent UI event for display in CLI/GUI */
 export interface WebSearchToolEventMeta {
@@ -255,6 +263,12 @@ export type RuntimeToolPhase =
   | "verifying"
   | "delegating"
   | "completing";
+
+export interface MemoryActivityEntry {
+  text: string;
+  score?: number;
+  factId?: number;
+}
 
 export type AgentUIEvent =
   | { type: "plan_phase_changed"; phase: PlanningPhase }
@@ -348,6 +362,12 @@ export type AgentUIEvent =
     toMemberId?: string;
     relatedTaskId?: string;
     contentPreview: string;
+  }
+  | {
+    type: "memory_activity";
+    recalled: MemoryActivityEntry[];
+    written: MemoryActivityEntry[];
+    searched?: { query: string; count: number };
   }
   | {
     type: "team_plan_review_required";
@@ -484,6 +504,8 @@ export interface OrchestratorConfig {
   /** Shared team runtime for system-managed collaboration. */
   teamRuntime?: TeamRuntime;
   agentProfiles?: readonly AgentProfile[];
+  /** Resolved instruction hierarchy for child agent prompt compilation. */
+  instructions?: import("../prompt/types.ts").InstructionHierarchy;
   /** Current member ID for this team-aware run. */
   teamMemberId?: string;
   /** Lead member ID for the current team runtime. */
@@ -605,7 +627,11 @@ function deriveRuntimePhase(
   for (const name of state.lastToolNames) {
     if (WRITE_TOOLS.has(name)) hasWrite = true;
     else if (COMPLETE_TOOLS.has(name)) hasComplete = true;
-    else if (DELEGATE_TOOLS.has(name) || name.startsWith("team_")) {
+    else if (
+      DELEGATE_TOOLS.has(name) || name.startsWith("team_") ||
+      name === "Teammate" || name === "SendMessage" ||
+      name === "TaskCreate" || name === "TaskUpdate" || name === "TaskList"
+    ) {
       hasDelegate = true;
     } else if (READ_TOOLS.has(name)) hasRead = true;
   }
@@ -756,6 +782,15 @@ function maybeInjectMemoryRecall(
     addContextMessage(config, {
       role: "system",
       content: formatMemoryRecall(results),
+    });
+    config.onAgentEvent?.({
+      type: "memory_activity",
+      recalled: results.map((r) => ({
+        text: truncate(r.text.replace(/\s+/g, " ").trim(), 120),
+        score: Math.round(r.score * 100) / 100,
+        factId: r.factId,
+      })),
+      written: [],
     });
   } catch {
     // Best-effort only; memory recall should never block the main loop.

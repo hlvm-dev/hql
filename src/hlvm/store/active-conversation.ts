@@ -12,8 +12,7 @@ import {
   getSession,
   listSessions,
 } from "./conversation-store.ts";
-import { loadAllMessages } from "./message-utils.ts";
-import { persistConversationFacts } from "../memory/mod.ts";
+
 
 const MAX_INACTIVE_SESSIONS = 20;
 const MAX_INACTIVE_AGE_MS = 1000 * 60 * 60 * 24 * 7;
@@ -94,29 +93,6 @@ export function pruneInactiveSessions(): void {
 }
 
 export async function closeActiveConversationSession(): Promise<void> {
-  const sessionId = activeSessionId;
-  if (!sessionId) return;
-
-  const messages = loadAllMessages(sessionId)
-    .filter((message) =>
-      message.role === "user" || message.role === "assistant" ||
-      message.role === "tool"
-    )
-    .map((message) => ({
-      role: message.role,
-      content: message.content,
-    }));
-
-  if (messages.length > 0) {
-    try {
-      persistConversationFacts(messages, {
-        source: "extracted",
-      });
-    } catch {
-      // Best-effort only; shutdown should not fail on memory flush.
-    }
-  }
-
   activeSessionId = null;
 }
 

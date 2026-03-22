@@ -29,12 +29,10 @@ import {
 } from "../keybindings/index.ts";
 import {
   ansi,
-  bg,
   clearOverlay,
   COMMAND_PALETTE_OVERLAY_SPEC,
   drawOverlayFrame,
   fg,
-  OVERLAY_BG_COLOR,
   resolveOverlayChromeLayout,
   resolveOverlayFrame,
   shouldClearOverlay,
@@ -227,7 +225,8 @@ export function CommandPaletteOverlay({
       category: c.accent,
       primary: c.primary,
       muted: c.muted,
-      bgStyle: bg(OVERLAY_BG_COLOR),
+      bgStyle: c.bgStyle,
+      selectedBgStyle: c.selectedBgStyle,
     };
   }, [theme]);
 
@@ -425,7 +424,7 @@ export function CommandPaletteOverlay({
         const isInfoOnly = kb.action.type === "INFO";
 
         if (isSelected) {
-          output += bg(colors.highlight) + ansi.fg(30, 30, 30);
+          output += colors.selectedBgStyle;
         }
 
         output += " ".repeat(PADDING.left - 2);
@@ -489,7 +488,6 @@ export function CommandPaletteOverlay({
 
     output += drawOverlayFrame(overlayFrame, {
       borderColor: colors.primary,
-      backgroundColor: OVERLAY_BG_COLOR,
       title: "Commands",
       rightText: "esc",
     });

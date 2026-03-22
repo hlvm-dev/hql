@@ -17,6 +17,7 @@ const EMPTY_TEAM_STATE: TeamDashboardState = {
     completed: 0,
     errored: 0,
   },
+  focusedWorkerIndex: -1,
 };
 
 Deno.test("buildTeamDashboardSummaryRows uses stable metric ordering", () => {

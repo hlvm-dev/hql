@@ -84,6 +84,17 @@ Deno.test("buildFooterLeftState shows empty text outside conversation", () => {
   assertEquals(state.tone, "muted");
 });
 
+Deno.test("buildFooterLeftState shows Ctrl+B hint when evaluating outside conversation", () => {
+  const state = buildFooterLeftState({
+    inConversation: false,
+    isEvaluating: true,
+    spinner: "x",
+  });
+
+  assertEquals(state.text, "Ctrl+B background \u00B7 Esc cancels");
+  assertEquals(state.tone, "muted");
+});
+
 Deno.test("buildFooterLeftState shows persistent mode label outside conversation", () => {
   const state = buildFooterLeftState({
     inConversation: false,
@@ -159,7 +170,7 @@ Deno.test("buildFooterLeftState orders shell segments as mode, queue, active too
   );
 });
 
-Deno.test("buildFooterRightState includes model metadata", () => {
+Deno.test("buildFooterRightState includes model metadata with context mini-bar", () => {
   const state = buildFooterRightState({
     contextUsageLabel: "12% ctx",
     modelName: "claude-sonnet-4-6",
@@ -167,9 +178,9 @@ Deno.test("buildFooterRightState includes model metadata", () => {
 
   assertEquals(
     state.infoText,
-    "12% ctx \u00B7 claude-sonnet-4-6",
+    "[█░░░░░░░] 12% \u00B7 claude-sonnet-4-6",
   );
-  assertEquals(state.infoParts, ["12% ctx", "claude-sonnet-4-6"]);
+  assertEquals(state.infoParts, ["[█░░░░░░░] 12%", "claude-sonnet-4-6"]);
 });
 
 Deno.test("buildFooterRightState shows model name only when no metadata is present", () => {
@@ -179,4 +190,114 @@ Deno.test("buildFooterRightState shows model name only when no metadata is prese
 
   assertEquals(state.infoText, "llama3.2:1b");
   assertEquals(state.infoParts, ["llama3.2:1b"]);
+});
+
+Deno.test("buildFooterLeftState shows bg chip outside conversation when tasks active", () => {
+  const state = buildFooterLeftState({
+    inConversation: false,
+    activeTaskCount: 3,
+    spinner: "x",
+  });
+
+  assertEquals(state.mode, "segments");
+  const bgChip = state.segments.find((s) => s.text === "● 3 tasks");
+  assertEquals(bgChip?.chip, true);
+  assertEquals(bgChip?.tone, "active");
+});
+
+Deno.test("buildFooterLeftState hides bg chip when zero tasks active", () => {
+  const state = buildFooterLeftState({
+    inConversation: false,
+    activeTaskCount: 0,
+    spinner: "x",
+  });
+
+  assertEquals(
+    state.segments.some((s) => s.text.includes("tasks")),
+    false,
+  );
+});
+
+Deno.test("buildFooterLeftState shows bg chip in conversation idle", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    activeTaskCount: 2,
+    spinner: "x",
+  });
+
+  assertEquals(state.mode, "segments");
+  const bgChip = state.segments.find((s) => s.text === "● 2 tasks");
+  assertEquals(bgChip?.chip, true);
+  assertEquals(bgChip?.tone, "active");
+});
+
+Deno.test("buildFooterLeftState shows task label hint when recentActiveTaskLabel provided", () => {
+  const state = buildFooterLeftState({
+    inConversation: false,
+    activeTaskCount: 1,
+    recentActiveTaskLabel: "(+ 1 2)",
+    spinner: "x",
+  });
+
+  assertEquals(state.mode, "segments");
+  const hint = state.segments.find((s) => s.text.includes("Ctrl+J tasks"));
+  assertEquals(hint?.tone, "muted");
+  assertEquals(hint?.text, "(+ 1 2) \u00B7 Ctrl+J tasks");
+});
+
+Deno.test("buildFooterLeftState omits task hint when no recentActiveTaskLabel", () => {
+  const state = buildFooterLeftState({
+    inConversation: false,
+    activeTaskCount: 1,
+    spinner: "x",
+  });
+
+  assertEquals(
+    state.segments.some((s) => s.text.includes("Ctrl+J")),
+    false,
+  );
+});
+
+Deno.test("buildFooterLeftState shows Team chip when teamActive", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    teamActive: true,
+    spinner: "x",
+  });
+
+  assertEquals(state.mode, "segments");
+  const teamChip = state.segments.find((s) => s.text === "Team");
+  assertEquals(teamChip?.chip, true);
+  assertEquals(teamChip?.tone, "active");
+});
+
+Deno.test("buildFooterLeftState shows worker summary when team active with workers", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    teamActive: true,
+    teamWorkerSummary: "alice: working \u00B7 bob: idle",
+    spinner: "x",
+  });
+
+  assertEquals(state.mode, "segments");
+  const workerSegment = state.segments.find((s) => s.text.includes("alice"));
+  assertEquals(workerSegment?.tone, "muted");
+  assertEquals(workerSegment?.text, "alice: working \u00B7 bob: idle");
+});
+
+Deno.test("buildFooterLeftState omits Team chip when team not active", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    teamActive: false,
+    spinner: "x",
+  });
+
+  assertEquals(
+    state.segments.some((s) => s.text === "Team"),
+    false,
+  );
 });

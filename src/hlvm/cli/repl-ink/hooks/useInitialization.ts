@@ -141,7 +141,6 @@ export function useInitialization(state: ReplState): InitializationState {
 
         const initResult = await initReplState({
           state,
-          bindingsJsMode: true,
           initHistory: "defer",
           historyInitPromise: historyInit,
           runtime: { getMedia },

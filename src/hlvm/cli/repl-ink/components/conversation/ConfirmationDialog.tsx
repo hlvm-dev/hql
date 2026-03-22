@@ -19,7 +19,10 @@ import {
 } from "./InteractionPicker.tsx";
 import type { InteractionResponse } from "../../../../agent/registry.ts";
 import { ChromeChip } from "../ChromeChip.tsx";
-import { buildConversationSectionText } from "./conversation-chrome.ts";
+import {
+  buildConversationSectionText,
+  splitArgKeyValue,
+} from "./conversation-chrome.ts";
 
 interface ConfirmationDialogProps {
   requestId?: string;
@@ -199,11 +202,26 @@ export const ConfirmationDialog = React.memo(
               {buildConversationSectionText(isPlanReview ? "Plan" : "Args")}
             </Text>
             <Box paddingLeft={1} flexDirection="column">
-              {visibleArgLines.map((line: string, i: number) => (
-                <React.Fragment key={i}>
-                  <Text color={sc.text.muted} wrap="truncate-end">{line}</Text>
-                </React.Fragment>
-              ))}
+              {visibleArgLines.map((line: string, i: number) => {
+                const kv = splitArgKeyValue(line);
+                if (kv) {
+                  return (
+                    <Box key={i}>
+                      <Text color={sc.text.secondary} wrap="truncate-end">
+                        {kv.key}{kv.separator}
+                      </Text>
+                      <Text color={sc.text.muted} wrap="truncate-end">
+                        {kv.value}
+                      </Text>
+                    </Box>
+                  );
+                }
+                return (
+                  <React.Fragment key={i}>
+                    <Text color={sc.text.muted} wrap="truncate-end">{line}</Text>
+                  </React.Fragment>
+                );
+              })}
               {hiddenArgLines > 0 && (
                 <Text color={sc.text.muted}>
                   … {hiddenArgLines} more line{hiddenArgLines === 1 ? "" : "s"}

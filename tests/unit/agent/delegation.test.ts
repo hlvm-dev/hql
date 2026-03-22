@@ -1399,7 +1399,7 @@ Deno.test("TaskManager: cancel delegate task also cancels thread", () => {
   registerThread(thread);
   const taskId = tm.createDelegateTask("thread-4", "code", "Delta", "task");
 
-  // Cancel via TaskManager (as BackgroundTasksOverlay would)
+  // Cancel via TaskManager
   const cancelled = tm.cancel(taskId);
   assertEquals(cancelled, true);
 

@@ -322,7 +322,7 @@ Used by: /api/chat/stream, models/stream, config/stream
 
 | Method | Path | Auth | Response | Purpose |
 |--------|------|------|----------|---------|
-| POST | `/eval` | Yes | JSON | Evaluate HQL/JS (polyglot) |
+| POST | `/eval` | Yes | JSON | Evaluate code (HQL or JS via `(js ...)`) |
 | POST | `/api/completions` | Yes | JSON | Code completions |
 
 ### Memory Functions
@@ -1061,7 +1061,7 @@ User presses Ctrl+3
                                                │
                    ┌───────────────────────────┐│┌──────────────────────────────┐
                    │  REST (CRUD)             │││  Eval/Complete               │
-                   │  /api/chat/messages      │││  POST /eval (polyglot)       │
+                   │  /api/chat/messages      │││  POST /eval       │
                    │  /api/models (list/del)   │││  GET  /api/memory/functions  │
                    │  /api/config (get/patch)  │││  POST /api/memory/fn/execute │
                    │  GET /health (no auth)    │││                              │
@@ -1108,7 +1108,7 @@ User presses Ctrl+3
   │   │  └────────────────────────────────────────────────────────────────────────────────────┘   │  │
   │   │                                                                                          │  │
   │   │  ┌─ Eval Engine ─────────────────────────────────────────────────────────────────────┐   │  │
-  │   │  │  POST /eval              → polyglot: starts with "(" = HQL, else = JS             │   │  │
+  │   │  │  POST /eval              → starts with "(" = code (HQL or (js ...)), else = NL    │   │  │
   │   │  │  POST /api/completions   → code completion (fuzzy match on REPL state)            │   │  │
   │   │  │  GET  /api/memory/functions    → list defn's in REPL memory                       │   │  │
   │   │  │  POST /api/memory/fn/execute   → call a persisted function by name                │   │  │

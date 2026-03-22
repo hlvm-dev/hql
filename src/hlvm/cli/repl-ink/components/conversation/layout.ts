@@ -66,6 +66,41 @@ export function buildToolCallTextLayout(
   };
 }
 
+export interface CollapsedToolList {
+  visibleTools: number[];
+  hiddenCount: number;
+}
+
+export function resolveCollapsedToolList(
+  tools: Array<{ status: string }>,
+  maxVisible = 5,
+): CollapsedToolList | null {
+  if (tools.length <= maxVisible) return null;
+  if (tools.some((t) => t.status === "running")) return null;
+
+  // Always show: first 2, last 1, all errors
+  const visible = new Set<number>();
+  visible.add(0);
+  visible.add(1);
+  visible.add(tools.length - 1);
+  for (let i = 0; i < tools.length; i++) {
+    if (tools[i].status === "error") visible.add(i);
+  }
+
+  // Fill up to maxVisible from the start
+  if (visible.size < maxVisible) {
+    for (let i = 0; i < tools.length && visible.size < maxVisible; i++) {
+      visible.add(i);
+    }
+  }
+
+  const sortedVisible = [...visible].sort((a, b) => a - b);
+  const hiddenCount = tools.length - sortedVisible.length;
+  if (hiddenCount <= 0) return null;
+
+  return { visibleTools: sortedVisible, hiddenCount };
+}
+
 export function buildTurnStatsTextLayout(
   width: number,
   parts: string[],

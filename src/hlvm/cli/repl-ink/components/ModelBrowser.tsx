@@ -67,6 +67,7 @@ import {
 } from "./model-browser-status.ts";
 import { ChromeChip } from "./ChromeChip.tsx";
 import { buildSectionLabelText } from "../utils/display-chrome.ts";
+import { useConversationSpinnerFrame } from "../hooks/useConversationMotion.ts";
 import {
   buildModelBrowserFocusLayout,
   buildModelBrowserScopeText,
@@ -637,6 +638,9 @@ export function ModelBrowser({
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
+  const loadingSpinner = useConversationSpinnerFrame(
+    loading || discoveryLoading || discoveryRefreshing,
+  );
   // Track model name pending auto-select after pull completes (Ollama cloud flow)
   const pendingSelectRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
@@ -1304,7 +1308,8 @@ export function ModelBrowser({
   return (
     <Box
       flexDirection="column"
-      borderStyle="single"
+      borderStyle="round"
+      borderColor={color("primary")}
       paddingX={1}
       paddingY={1}
       width={panelWidth}
@@ -1375,18 +1380,18 @@ export function ModelBrowser({
       {/* Loading */}
       {loading && (
         <Box marginTop={0}>
-          <Text dimColor>Loading installed models...</Text>
+          <Text dimColor>{loadingSpinner} Loading installed models...</Text>
         </Box>
       )}
       {!loading && discoveryLoading && (
         <Box marginTop={0}>
-          <Text dimColor>Loading model catalog...</Text>
+          <Text dimColor>{loadingSpinner} Loading model catalog...</Text>
         </Box>
       )}
       {!loading && !discoveryLoading && discoveryRefreshing &&
         !hasDiscoveryResults && (
         <Box marginTop={0}>
-          <Text dimColor>Refreshing model catalog...</Text>
+          <Text dimColor>{loadingSpinner} Refreshing model catalog...</Text>
         </Box>
       )}
 

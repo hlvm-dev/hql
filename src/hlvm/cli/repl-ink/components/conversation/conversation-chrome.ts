@@ -70,12 +70,44 @@ export function getToolResultTone(status: string): ConversationStatusTone {
   }
 }
 
+export function getToolDurationTone(
+  durationMs: number | undefined,
+): ConversationStatusTone {
+  if (durationMs == null || durationMs < 1000) return "neutral";
+  if (durationMs <= 5000) return "warning";
+  return "error";
+}
+
 export function getToolResultLabel(status: string): string {
   return status === "error" ? "Error output" : "Result";
 }
 
 export function getThinkingLabel(kind: "reasoning" | "planning"): string {
   return kind === "reasoning" ? "Thinking" : "Planning";
+}
+
+export function splitArgKeyValue(
+  line: string,
+): { key: string; separator: string; value: string } | null {
+  const colonIndex = line.indexOf(":");
+  const equalsIndex = line.indexOf("=");
+  let splitIndex = -1;
+  let separator = "";
+
+  if (colonIndex >= 0 && (equalsIndex < 0 || colonIndex <= equalsIndex)) {
+    splitIndex = colonIndex;
+    separator = ":";
+  } else if (equalsIndex >= 0) {
+    splitIndex = equalsIndex;
+    separator = "=";
+  }
+
+  if (splitIndex < 1) return null;
+  return {
+    key: line.slice(0, splitIndex),
+    separator,
+    value: line.slice(splitIndex + 1),
+  };
 }
 
 export function buildDelegateHeaderText(
@@ -110,6 +142,115 @@ export function buildConversationSectionText(
   width = DEFAULT_CONVERSATION_SECTION_LABEL_WIDTH,
 ): string {
   return buildSectionLabelText(label, width);
+}
+
+// ── Team Event Chrome ──────────────────────────────────────
+
+export function getTeamTaskStatusTone(status: string): ConversationStatusTone {
+  switch (status) {
+    case "completed":
+      return "success";
+    case "errored":
+      return "error";
+    case "blocked":
+      return "warning";
+    case "in_progress":
+      return "active";
+    default:
+      return "neutral";
+  }
+}
+
+export function getTeamTaskStatusGlyph(status: string): string {
+  switch (status) {
+    case "completed":
+      return STATUS_GLYPHS.success;
+    case "errored":
+      return STATUS_GLYPHS.error;
+    case "blocked":
+      return STATUS_GLYPHS.warning;
+    case "in_progress":
+      return STATUS_GLYPHS.running;
+    default:
+      return STATUS_GLYPHS.pending;
+  }
+}
+
+export function getTeamMessageTone(kind: string): ConversationStatusTone {
+  switch (kind) {
+    case "task_completed":
+      return "success";
+    case "task_error":
+      return "error";
+    case "message":
+    case "broadcast":
+      return "active";
+    default:
+      return "neutral";
+  }
+}
+
+export function getTeamMessageGlyph(kind: string): string {
+  switch (kind) {
+    case "task_completed":
+      return STATUS_GLYPHS.success;
+    case "task_error":
+      return STATUS_GLYPHS.error;
+    case "broadcast":
+      return "📢";
+    case "message":
+      return "✉";
+    default:
+      return STATUS_GLYPHS.pending;
+  }
+}
+
+export function getTeamShutdownTone(status: string): ConversationStatusTone {
+  switch (status) {
+    case "forced":
+      return "error";
+    case "requested":
+      return "warning";
+    case "acknowledged":
+      return "active";
+    default:
+      return "neutral";
+  }
+}
+
+export function getTeamShutdownGlyph(status: string): string {
+  switch (status) {
+    case "forced":
+      return STATUS_GLYPHS.error;
+    case "requested":
+      return STATUS_GLYPHS.warning;
+    case "acknowledged":
+      return STATUS_GLYPHS.running;
+    default:
+      return STATUS_GLYPHS.pending;
+  }
+}
+
+export function getTeamPlanReviewTone(status: string): ConversationStatusTone {
+  switch (status) {
+    case "approved":
+      return "success";
+    case "rejected":
+      return "error";
+    default:
+      return "warning";
+  }
+}
+
+export function getTeamPlanReviewGlyph(status: string): string {
+  switch (status) {
+    case "approved":
+      return STATUS_GLYPHS.success;
+    case "rejected":
+      return STATUS_GLYPHS.error;
+    default:
+      return STATUS_GLYPHS.pending;
+  }
 }
 
 export function buildWorkingIndicatorLayout(

@@ -5,11 +5,14 @@ import { parseArgs } from "@std/cli/parse-args";
 import { globalLogger } from "../../../logger.ts";
 import { platformCwd } from "./platform-helpers.ts";
 
+export type TeammateMode = "in-process" | "tmux" | "auto";
+
 export interface CliOptions {
   verbose?: boolean;
   showTiming?: boolean;
   forceCache?: boolean;
   debug?: boolean;
+  teammateMode?: TeammateMode;
 }
 
 /**
@@ -18,8 +21,12 @@ export interface CliOptions {
 export function parseCliOptions(args: string[]): CliOptions {
   const parsed = parseArgs(args, {
     boolean: ["verbose", "time", "force-cache", "no-force-cache", "no-cache", "debug"],
+    string: ["teammate-mode"],
     alias: { v: "verbose" },
   });
+
+  const teammateMode = parsed["teammate-mode"] as string | undefined;
+  const validModes: TeammateMode[] = ["in-process", "tmux", "auto"];
 
   return {
     verbose: parsed.verbose || undefined,
@@ -30,6 +37,9 @@ export function parseCliOptions(args: string[]): CliOptions {
       ? false
       : undefined,
     debug: parsed.debug || undefined,
+    teammateMode: teammateMode && validModes.includes(teammateMode as TeammateMode)
+      ? teammateMode as TeammateMode
+      : undefined,
   };
 }
 

@@ -25,9 +25,9 @@ export type OverlayPanel =
   | "none"
   | "palette"
   | "config-overlay"
-  | "tasks-overlay"
   | "team-dashboard"
-  | "shortcuts-overlay";
+  | "shortcuts-overlay"
+  | "background-tasks";
 
 function createOverlayToggle(
   panelName: OverlayPanel,
@@ -46,8 +46,9 @@ function createOverlayToggle(
 
 function isModalOverlayPanel(panel: string): boolean {
   return panel === "palette" || panel === "config-overlay" ||
-    panel === "tasks-overlay" || panel === "team-dashboard" ||
-    panel === "shortcuts-overlay";
+    panel === "team-dashboard" ||
+    panel === "shortcuts-overlay" ||
+    panel === "background-tasks";
 }
 
 function usesStandaloneSurfacePanel(surfacePanel: string): boolean {
@@ -83,9 +84,9 @@ export interface UseOverlayPanelResult {
     SetStateAction<ConfigOverlayState>
   >;
   togglePalette: () => void;
-  toggleTasksOverlay: () => void;
   toggleTeamDashboard: () => void;
   toggleShortcutsOverlay: () => void;
+  toggleBackgroundTasks: () => void;
 }
 
 export function useOverlayPanel(
@@ -158,15 +159,19 @@ export function useOverlayPanel(
       createOverlayToggle("palette", lastPanelToggleRef, setActiveOverlay),
     [],
   );
-  const toggleTasksOverlay = useMemo(
-    () =>
-      createOverlayToggle("tasks-overlay", lastPanelToggleRef, setActiveOverlay),
-    [],
-  );
   const toggleShortcutsOverlay = useMemo(
     () =>
       createOverlayToggle(
         "shortcuts-overlay",
+        lastPanelToggleRef,
+        setActiveOverlay,
+      ),
+    [],
+  );
+  const toggleBackgroundTasks = useMemo(
+    () =>
+      createOverlayToggle(
+        "background-tasks",
         lastPanelToggleRef,
         setActiveOverlay,
       ),
@@ -194,8 +199,8 @@ export function useOverlayPanel(
     configOverlayState,
     setConfigOverlayState,
     togglePalette,
-    toggleTasksOverlay,
     toggleTeamDashboard,
     toggleShortcutsOverlay,
+    toggleBackgroundTasks,
   };
 }

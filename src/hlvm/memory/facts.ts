@@ -191,6 +191,13 @@ export function invalidateAllFacts(): number {
   });
 }
 
+export function countValidFacts(): number {
+  const row = getFactDb().prepare(
+    "SELECT COUNT(*) as cnt FROM facts WHERE valid_until IS NULL",
+  ).get() as { cnt: number };
+  return row.cnt;
+}
+
 export function getValidFacts(
   options?: { category?: string; limit?: number },
 ): FactRecord[] {

@@ -18,9 +18,9 @@ import {
   CommandPaletteOverlay,
   type KeyCombo,
 } from "./CommandPaletteOverlay.tsx";
-import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
 import { TeamDashboardOverlay } from "./TeamDashboardOverlay.tsx";
 import { ShortcutsOverlay } from "./ShortcutsOverlay.tsx";
+import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
 import { ModelBrowser } from "./ModelBrowser.tsx";
 import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
@@ -58,8 +58,8 @@ import { ReplState } from "../../repl/state.ts";
 import { getPersistentAgentExecutionModeLabel } from "../../../agent/execution-mode.ts";
 import { clearTerminal } from "../../ansi.ts";
 import {
+  getHighlightSegments,
   getUnclosedDepth,
-  tokenize,
   type TokenType,
 } from "../../repl/syntax.ts";
 import { useTheme } from "../../theme/index.ts";
@@ -77,7 +77,10 @@ import {
 } from "../../../../common/config/model-selection.ts";
 import { ReplProvider } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
-import { looksLikeNaturalLanguage } from "../../repl/input-routing.ts";
+import {
+  isTaskActive,
+  isEvalTask,
+} from "../../repl/task-manager/index.ts";
 import {
   getRuntimeConfigApi,
   patchRuntimeConfig,
@@ -209,11 +212,14 @@ function AppContent(
 
   // Task manager for background evaluation
   const {
+    tasks,
     createEvalTask,
     completeEvalTask,
     failEvalTask,
     updateEvalOutput,
     cancel,
+    cancelAll,
+    activeCount,
   } = useTaskManager();
 
   // Track current evaluation for Ctrl+B to push to background
@@ -242,9 +248,9 @@ function AppContent(
     configOverlayState,
     setConfigOverlayState,
     togglePalette,
-    toggleTasksOverlay,
     toggleTeamDashboard,
     toggleShortcutsOverlay,
+    toggleBackgroundTasks,
   } = overlay;
   // Theme from context (auto-updates when theme changes)
   const { color } = useTheme();
@@ -255,7 +261,12 @@ function AppContent(
 
   // Conversation state for agent mode
   const conversation = useConversation();
-  const teamState = useTeamState(conversation.items);
+  const baseTeamState = useTeamState(conversation.items);
+  const [focusedTeammateIndex, setFocusedTeammateIndex] = useState(-1);
+  const teamState = useMemo(
+    () => ({ ...baseTeamState, focusedWorkerIndex: focusedTeammateIndex }),
+    [baseTeamState, focusedTeammateIndex],
+  );
   const hasConversationContext = usesConversationContext(surfacePanel);
   const hasActivePlanningState = Boolean(
     conversation.activePlan ||
@@ -556,13 +567,6 @@ function AppContent(
   // Agent conversation handler
   // ============================================================
 
-  /** Detect if input looks like natural language rather than code */
-  const isNaturalLanguage = useCallback((input: string): boolean => {
-    return looksLikeNaturalLanguage(input, {
-      hasBinding: (name: string) => replState.hasBinding(name),
-    });
-  }, [replState]);
-
   // (runConversation, submitConversationDraft, handleInteractionResponse,
   //  handleForceInterrupt, queue drain effect
   //  all moved to useAgentRunner)
@@ -600,6 +604,70 @@ function AppContent(
     handleAppExit();
   }, [handleAppExit, restoreComposerDraft]);
 
+  const handleBackground = useCallback(() => {
+    const activeEval = currentEvalRef.current;
+    if (!activeEval || activeEval.backgrounded) return;
+    activeEval.backgrounded = true;
+    const taskId = activeEval.taskId ??
+      createEvalTask(activeEval.code, activeEval.controller);
+    activeEval.taskId = taskId;
+    if (activeEval.historyId != null) {
+      suppressHistoryOutput(activeEval.historyId);
+    }
+    currentEvalRef.current = null;
+    setIsEvaluating(false);
+    const preview = truncate(activeEval.code, 40);
+    addHistoryEntry("", {
+      success: true,
+      value: `Pushed to background (Task ${taskId.slice(0, 8)}): ${preview}`,
+      isCommandOutput: true,
+    });
+  }, [addHistoryEntry, createEvalTask, suppressHistoryOutput]);
+
+  // Ctrl+F double-press kill-all state
+  const ctrlFTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleKillAll = useCallback(() => {
+    if (activeCount === 0) {
+      addHistoryEntry("", {
+        success: true,
+        value: "No active tasks.",
+        isCommandOutput: true,
+      });
+      return;
+    }
+    if (ctrlFTimerRef.current !== null) {
+      // Second press within window — kill all
+      clearTimeout(ctrlFTimerRef.current);
+      ctrlFTimerRef.current = null;
+      cancelAll();
+      addHistoryEntry("", {
+        success: true,
+        value: "All background tasks cancelled.",
+        isCommandOutput: true,
+      });
+    } else {
+      // First press — start 3s confirmation window
+      addHistoryEntry("", {
+        success: true,
+        value: "Press Ctrl+F again within 3s to cancel all tasks.",
+        isCommandOutput: true,
+      });
+      ctrlFTimerRef.current = setTimeout(() => {
+        ctrlFTimerRef.current = null;
+      }, 3000);
+    }
+  }, [activeCount, cancelAll, addHistoryEntry]);
+
+  // Clean up Ctrl+F timer on unmount
+  useEffect(() => {
+    return () => {
+      if (ctrlFTimerRef.current !== null) {
+        clearTimeout(ctrlFTimerRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     registerHandler(
       HandlerIds.APP_EXIT,
@@ -622,8 +690,8 @@ function AppContent(
       "App",
     );
     registerHandler(
-      HandlerIds.APP_TASKS,
-      toggleTasksOverlay,
+      HandlerIds.APP_BACKGROUND,
+      handleBackground,
       "App",
     );
     registerHandler(
@@ -631,25 +699,65 @@ function AppContent(
       toggleTeamDashboard,
       "App",
     );
+    registerHandler(
+      HandlerIds.APP_CYCLE_TEAMMATE,
+      () => {
+        // Cycle through active teammates in in-process mode.
+        // Opens team dashboard if not already open, then advances focus.
+        const workerCount = teamStateRef.current.workers.length;
+        if (workerCount === 0) {
+          toggleTeamDashboard();
+          return;
+        }
+        // Open dashboard if not already open
+        if (activeOverlayRef.current !== "team-dashboard") {
+          setActiveOverlay("team-dashboard");
+        }
+        // Cycle: -1 → 0 → 1 → ... → workerCount-1 → -1
+        setFocusedTeammateIndex((prev) =>
+          prev + 1 >= workerCount ? -1 : prev + 1
+        );
+      },
+      "App",
+    );
+    registerHandler(
+      HandlerIds.APP_KILL_ALL,
+      handleKillAll,
+      "App",
+    );
+    registerHandler(
+      HandlerIds.APP_TASK_OVERLAY,
+      toggleBackgroundTasks,
+      "App",
+    );
     return () => {
       unregisterHandler(HandlerIds.APP_EXIT);
       unregisterHandler(HandlerIds.APP_SHORTCUTS);
       unregisterHandler(HandlerIds.APP_CLEAR);
       unregisterHandler(HandlerIds.APP_PALETTE);
-      unregisterHandler(HandlerIds.APP_TASKS);
+      unregisterHandler(HandlerIds.APP_BACKGROUND);
       unregisterHandler(HandlerIds.APP_TEAM_DASHBOARD);
+      unregisterHandler(HandlerIds.APP_CYCLE_TEAMMATE);
+      unregisterHandler(HandlerIds.APP_KILL_ALL);
+      unregisterHandler(HandlerIds.APP_TASK_OVERLAY);
     };
   }, [
     flushReplOutput,
     handleCtrlC,
     toggleShortcutsOverlay,
+    handleBackground,
+    handleKillAll,
     togglePalette,
-    toggleTasksOverlay,
     toggleTeamDashboard,
+    toggleBackgroundTasks,
   ]);
 
-  // Refs for values only read inside handleSubmit — avoids re-creating the callback
+  // Refs for values only read inside handlers — avoids re-creating callbacks
   // every time streaming tokens cause conversation/interaction/queue state to change.
+  const teamStateRef = useRef(teamState);
+  teamStateRef.current = teamState;
+  const activeOverlayRef = useRef(activeOverlay);
+  activeOverlayRef.current = activeOverlay;
   const conversationRef = useRef(conversation);
   conversationRef.current = conversation;
   const pendingInteractionRef = useRef(pendingInteraction);
@@ -665,10 +773,6 @@ function AppContent(
 
       // Handle commands that need React state (pickers/panels)
       const trimmedInput = code.trim();
-      const forceConversationPrompt = (() => {
-        const match = trimmedInput.match(/^>\s+([\s\S]+)$/);
-        return match ? match[1].trim() : undefined;
-      })();
       const normalizedInput = trimmedInput.startsWith(".")
         ? "/" + trimmedInput.slice(1)
         : trimmedInput;
@@ -678,8 +782,7 @@ function AppContent(
       const opensModelPicker = commandName === "/model" &&
         commandArgs.length === 0;
       const isPanelCommand = commandName === "/help" ||
-        commandName === "/config" || commandName === "/tasks" ||
-        commandName === "/bg" || commandName === "/flush" ||
+        commandName === "/config" || commandName === "/flush" ||
         opensModelPicker;
       const isAnyCommand = isPanelCommand || isCommand(code);
 
@@ -689,7 +792,7 @@ function AppContent(
       if (currentPendingInteraction?.mode === "question" && !isAnyCommand) {
         recordPromptHistory(replState, code, "interaction");
         conversationRef.current.addUserMessage(
-          forceConversationPrompt ?? code.trim(),
+          code.trim(),
           {
             startTurn: false,
           },
@@ -698,7 +801,7 @@ function AppContent(
           currentPendingInteraction.requestId,
           {
             approved: true,
-            userInput: forceConversationPrompt ?? code.trim(),
+            userInput: code.trim(),
           },
         );
         return;
@@ -715,49 +818,17 @@ function AppContent(
         return;
       }
 
-      // Handle /tasks command - show background tasks overlay
-      if (commandName === "/tasks") {
-        setActiveOverlay("tasks-overlay");
-        return;
-      }
-
-      // Handle /bg command - push current evaluation to background
-      if (commandName === "/bg") {
-        const activeEval = currentEvalRef.current;
-        if (activeEval && !activeEval.backgrounded) {
-          activeEval.backgrounded = true;
-          const taskId = activeEval.taskId ??
-            createEvalTask(activeEval.code, activeEval.controller);
-          activeEval.taskId = taskId;
-
-          if (activeEval.historyId != null) {
-            suppressHistoryOutput(activeEval.historyId);
-          }
-
-          currentEvalRef.current = null;
-          setIsEvaluating(false);
-
-          const preview = truncate(activeEval.code, 40);
-          addHistoryEntry("/bg", {
-            success: true,
-            value: `⏳ Pushed to background (Task ${
-              taskId.slice(0, 8)
-            })\n   ${preview}\n   Use /tasks to view`,
-          });
-        } else {
-          addHistoryEntry("/bg", {
-            success: false,
-            error: new Error("No running evaluation to background"),
-          });
-        }
-        return;
-      }
-
       // Handle /model command - open model picker
       if (opensModelPicker) {
         setModelBrowserParentSurface(surfacePanel);
         setModelBrowserParentOverlay("none");
         setSurfacePanel("models");
+        return;
+      }
+
+      // Handle /tasks command - open background tasks overlay
+      if (commandName === "/tasks") {
+        setActiveOverlay("background-tasks");
         return;
       }
 
@@ -785,7 +856,7 @@ function AppContent(
       if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
         addHistoryEntry(code, {
           success: false,
-          error: new Error("Evaluation already running. Use /bg or Esc."),
+          error: new Error("Evaluation already running. Ctrl+B to background, Esc cancels."),
         });
         return;
       }
@@ -794,7 +865,7 @@ function AppContent(
       if (hasConversationContext) {
         recordPromptHistory(replState, code, "conversation");
         const conversationDraft = createConversationComposerDraft(
-          forceConversationPrompt ?? code.trim(),
+          code.trim(),
           attachments,
         );
         if (agentControllerRef.current) {
@@ -825,14 +896,8 @@ function AppContent(
         return;
       }
 
-      // Natural language → agent conversation mode
-      const candidateConversationQuery = forceConversationPrompt ??
-        code.trim();
-      if (
-        forceConversationPrompt ||
-        agentExecutionMode === "plan" ||
-        isNaturalLanguage(candidateConversationQuery)
-      ) {
+      // Simple routing: ( → code eval, everything else → agent conversation
+      if (!trimmedInput.startsWith("(")) {
         recordPromptHistory(replState, code, "conversation");
         const { attachments: conversationAttachments, unsupportedMimeType } =
           prepareConversationAttachmentPayload(attachments);
@@ -850,7 +915,7 @@ function AppContent(
         setSurfacePanel("conversation");
         setIsEvaluating(true);
         void runConversation(
-          candidateConversationQuery,
+          trimmedInput,
           conversationAttachments,
           {},
         );
@@ -953,11 +1018,9 @@ function AppContent(
       failEvalTask,
       suppressHistoryOutput,
       streamEvalToTask,
-      agentExecutionMode,
       prepareConversationAttachmentPayload,
       runConversation,
       submitConversationDraft,
-      isNaturalLanguage,
       hasConversationContext,
       replState,
       conversation,
@@ -1128,6 +1191,12 @@ function AppContent(
   }, []);
   useInput(handleAppInput);
 
+  const recentActiveTaskLabel = useMemo(() => {
+    const active = tasks.find(isTaskActive);
+    if (!active) return undefined;
+    return isEvalTask(active) ? active.preview : active.label;
+  }, [tasks]);
+
   const pickerInteractionActive = hasConversationContext &&
     isPickerInteractionRequest(pendingInteraction);
   const isConversationInputVisible = hasConversationContext && !isOverlayOpen &&
@@ -1206,20 +1275,29 @@ function AppContent(
     }
   })();
   const tokenColor = useMemo(() => {
-    const s = color("secondary");
-    const a = color("accent");
     const p = color("primary");
-    const m = color("muted");
+    const s = color("secondary");
+    const su = color("success");
     const w = color("warning");
+    const m = color("muted");
+    const t = color("text");
     const map: Record<string, string | undefined> = {
-      string: s,
-      number: a,
       keyword: p,
-      macro: p,
+      macro: s,
+      string: su,
+      number: w,
+      operator: t,
+      boolean: w,
+      nil: m,
       comment: m,
       whitespace: m,
-      boolean: w,
-      operator: a,
+      "open-paren": m,
+      "close-paren": m,
+      "open-bracket": m,
+      "close-bracket": m,
+      "open-brace": m,
+      "close-brace": m,
+      functionCall: p,
     };
     return (type: TokenType): string | undefined => map[type];
   }, [color]);
@@ -1277,18 +1355,24 @@ function AppContent(
           onStateChange={setConfigOverlayState}
         />
       )}
-      {activeOverlay === "tasks-overlay" && (
-        <BackgroundTasksOverlay onClose={() => setActiveOverlay("none")} />
-      )}
       {activeOverlay === "team-dashboard" && (
         <TeamDashboardOverlay
-          onClose={() => setActiveOverlay("none")}
+          onClose={() => {
+            setActiveOverlay("none");
+            setFocusedTeammateIndex(-1);
+          }}
           teamState={teamState}
           interactionMode={pendingInteraction?.mode}
         />
       )}
       {activeOverlay === "shortcuts-overlay" && (
         <ShortcutsOverlay onClose={() => setActiveOverlay("none")} />
+      )}
+      {activeOverlay === "background-tasks" && (
+        <BackgroundTasksOverlay
+          onClose={() => setActiveOverlay("none")}
+          teamTasks={teamState.taskBoard}
+        />
       )}
 
       {/* History of inputs and outputs (hidden during conversation to prevent ghost rendering) */}
@@ -1308,12 +1392,15 @@ function AppContent(
                       : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
                   </Text>
                   <Box>
-                    {tokenize(line).map((token, tokenIdx) => (
+                    {getHighlightSegments(line).map((seg, segIdx) => (
                       <React.Fragment
-                        key={`${entry.id}-${lineIndex}-${tokenIdx}`}
+                        key={`${entry.id}-${lineIndex}-${segIdx}`}
                       >
-                        <Text color={tokenColor(token.type)}>
-                          {token.value}
+                        <Text
+                          color={seg.colorKey ? tokenColor(seg.colorKey as TokenType) : undefined}
+                          bold={seg.bold}
+                        >
+                          {seg.value}
                         </Text>
                       </React.Fragment>
                     ))}
@@ -1403,12 +1490,13 @@ function AppContent(
             activeTool={hasConversationContext
               ? conversation.activeTool
               : undefined}
-            contextUsageLabel=""
+            contextUsageLabel={modelConfig.footerContextUsageLabel}
             interactionQueueLength={hasConversationContext
               ? interactionQueue.length
               : 0}
             hasDraftInput={composerShellState.hasDraftInput}
             inConversation={hasConversationContext}
+            isEvaluating={isEvaluating && !hasConversationContext}
             hasPendingPermission={hasConversationContext &&
               pendingInteraction?.mode === "permission"}
             hasPendingPlanReview={hasConversationContext &&
@@ -1420,12 +1508,17 @@ function AppContent(
               pickerInteractionActive}
             teamActive={teamState.active}
             teamAttentionCount={teamState.attentionItems.length}
+            teamWorkerSummary={teamState.active
+              ? teamState.members
+                  .filter(m => m.role === "worker")
+                  .map(m => `${m.id}: ${m.currentTaskId ? "working" : "idle"}`)
+                  .join(" \u00B7 ") || undefined
+              : undefined}
+            activeTaskCount={activeCount}
+            recentActiveTaskLabel={recentActiveTaskLabel}
           />
         )}
 
-      {!isOverlayOpen && isEvaluating && !hasConversationContext && (
-        <Text dimColor>...</Text>
-      )}
     </Box>
   );
 }
@@ -1443,9 +1536,9 @@ async function handleCommand(
   // Commands that need React state (not in commands.ts)
   switch (normalized) {
     case "/js":
-      return "Polyglot mode is always on (HQL + JavaScript).";
+      return "Use (js ...) for JavaScript evaluation.";
     case "/hql":
-      return "Polyglot mode is always on (HQL + JavaScript).";
+      return "Use (...) for HQL evaluation.";
     case "/flush":
       return null; // Screen resets are handled by App.tsx
     case "/exit":

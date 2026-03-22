@@ -24,6 +24,7 @@ import { GIT_TOOLS } from "./tools/git-tools.ts";
 import { DELEGATE_TOOLS } from "./tools/delegate-tools.ts";
 import { TEAM_TOOLS } from "./tools/team-tools.ts";
 import { ACTIVITY_TOOLS } from "./tools/activity-tools.ts";
+import { AGENT_TEAM_TOOLS } from "./tools/agent-team-tools.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
 import type { AgentPolicy } from "./policy.ts";
@@ -31,6 +32,8 @@ import { isToolArgsObject } from "./validation.ts";
 import type { TodoState } from "./todo-state.ts";
 import type { ModelTier } from "./constants.ts";
 import type { TeamRuntime } from "./team-runtime.ts";
+import type { AgentHookRuntime } from "./hooks.ts";
+import type { AgentProfile } from "./agent-registry.ts";
 import {
   buildToolJsonSchema,
   coerceArgsToSchema,
@@ -111,6 +114,19 @@ export interface ToolExecutionOptions {
   sessionId?: string;
   /** Current user request for tools that need to ignore the triggering prompt. */
   currentUserRequest?: string;
+  /** Optional lifecycle hook runtime for teammate event hooks. */
+  hookRuntime?: AgentHookRuntime;
+  /** Agent event callback for teammate loop integration. */
+  // deno-lint-ignore no-explicit-any
+  onAgentEvent?: (event: any) => void;
+  /** Available agent profiles for teammate type resolution. */
+  agentProfiles?: readonly AgentProfile[];
+  /** Resolved instruction hierarchy for child agent prompt compilation. */
+  instructions?: import("../prompt/types.ts").InstructionHierarchy;
+  /** Override teammate idle poll interval in ms (for testing). */
+  idlePollIntervalMs?: number;
+  /** Override teammate max idle polls before exit (for testing). */
+  maxIdlePolls?: number;
 }
 
 /** Generic tool function signature */
@@ -304,6 +320,7 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...DELEGATE_TOOLS,
   ...TEAM_TOOLS,
   ...ACTIVITY_TOOLS,
+  ...AGENT_TEAM_TOOLS,
 } as Record<string, ToolMetadata>;
 
 /**
@@ -627,6 +644,7 @@ export function getToolsByCategory(): {
       "batch_delegate",
       ...Object.keys(DELEGATE_TOOLS),
       ...Object.keys(TEAM_TOOLS),
+      ...Object.keys(AGENT_TEAM_TOOLS),
     ],
     data: Object.keys(DATA_TOOLS),
     git: Object.keys(GIT_TOOLS),

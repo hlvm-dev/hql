@@ -187,6 +187,23 @@ export type StructuredTeamInfoItem =
   | TeamShutdownInfoItem
   | TeamRuntimeSnapshotInfoItem;
 
+export interface MemoryActivityDetail {
+  action: "recalled" | "wrote" | "searched";
+  text: string;
+  score?: number;
+  factId?: number;
+}
+
+export interface MemoryActivityItem {
+  type: "memory_activity";
+  id: string;
+  recalled: number;
+  written: number;
+  searched?: { query: string; count: number };
+  details: MemoryActivityDetail[];
+  ts: number;
+}
+
 /** Discriminated union of all renderable conversation items */
 export type ConversationItem =
   | UserItem
@@ -197,7 +214,8 @@ export type ConversationItem =
   | TurnStatsItem
   | ErrorItem
   | StructuredTeamInfoItem
-  | InfoItem;
+  | InfoItem
+  | MemoryActivityItem;
 
 export function isStructuredTeamInfoItem(
   item: ConversationItem,

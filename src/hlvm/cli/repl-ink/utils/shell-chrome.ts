@@ -1,11 +1,12 @@
 import { truncate } from "../../../../common/utils.ts";
+import { formatProgressBar } from "./formatting.ts";
 
 export const SHELL_PROMPT_LABELS = ["hlvm>", "answer>"] as const;
 export const SHELL_SEGMENT_SEPARATOR = " · ";
 
 const QUEUE_PREVIEW_INDEX_WIDTH = 2;
 
-export type ShellFooterSegmentTone = "neutral" | "active" | "warning" | "muted";
+export type ShellFooterSegmentTone = "neutral" | "active" | "warning" | "error" | "muted";
 
 export interface ShellFooterSegment {
   text: string;
@@ -126,6 +127,16 @@ export function fitShellFooterSegments(
   }
 
   return fitted;
+}
+
+export function buildContextUsageMiniBar(
+  label: string,
+  barWidth = 8,
+): string {
+  const match = label.match(/(\d+)%/);
+  if (!match) return label;
+  const pct = Math.max(0, Math.min(100, Number(match[1])));
+  return `[${formatProgressBar(pct, barWidth)}] ${pct}%`;
 }
 
 export function buildQueuePreviewHeaderLine(): ShellQueuePreviewLine {

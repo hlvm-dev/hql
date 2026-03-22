@@ -8,9 +8,9 @@
 import React from "react";
 import { Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
+import { BAR_CHARS } from "../../utils/formatting.ts";
 
-const FILLED_CHAR = "\u2588";
-const EMPTY_CHAR = "\u2591";
+const { filled: FILLED_CHAR, empty: EMPTY_CHAR } = BAR_CHARS;
 
 export interface ProgressBarSegments {
   success: number;

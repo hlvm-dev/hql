@@ -6,8 +6,10 @@ import {
   getDelegateStatusGlyph,
   getDelegateStatusTone,
   getThinkingLabel,
+  getToolDurationTone,
   getToolResultLabel,
   getToolResultTone,
+  splitArgKeyValue,
 } from "../../../src/hlvm/cli/repl-ink/components/conversation/conversation-chrome.ts";
 import { STATUS_GLYPHS } from "../../../src/hlvm/cli/repl-ink/ui-constants.ts";
 
@@ -72,4 +74,24 @@ Deno.test("buildDelegateHeaderText keeps status and duration in a fixed right sl
     layout.leftText.length + layout.gapWidth + layout.rightText.length,
     34,
   );
+});
+
+Deno.test("getToolDurationTone maps duration thresholds to semantic tones", () => {
+  assertEquals(getToolDurationTone(undefined), "neutral");
+  assertEquals(getToolDurationTone(500), "neutral");
+  assertEquals(getToolDurationTone(999), "neutral");
+  assertEquals(getToolDurationTone(1001), "warning");
+  assertEquals(getToolDurationTone(5000), "warning");
+  assertEquals(getToolDurationTone(5001), "error");
+});
+
+Deno.test("splitArgKeyValue splits at first colon or equals delimiter", () => {
+  const colon = splitArgKeyValue("path: /usr/local/bin");
+  assertEquals(colon, { key: "path", separator: ":", value: " /usr/local/bin" });
+
+  const equals = splitArgKeyValue("timeout=5000");
+  assertEquals(equals, { key: "timeout", separator: "=", value: "5000" });
+
+  assertEquals(splitArgKeyValue("no delimiter here"), null);
+  assertEquals(splitArgKeyValue(":starts with colon"), null);
 });

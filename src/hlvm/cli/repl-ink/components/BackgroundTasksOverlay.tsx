@@ -1,15 +1,14 @@
 /**
- * Background Tasks Overlay
+ * Tasks Overlay — Claude Code-Style Task Management
  *
- * True floating overlay for managing background HQL evaluation tasks.
- * Uses raw ANSI escape codes for absolute positioning (same pattern as CommandPaletteOverlay).
+ * True floating overlay showing both agent team tasks (TaskCreate/TaskUpdate)
+ * and background eval/delegate tasks. Matches Claude Code's task management TUI:
  *
- * Features:
- * - True floating overlay (doesn't push content down)
- * - Task list with status indicators
- * - Result viewing for completed tasks
- * - Cancel/dismiss actions
- * - Theme-aware colors
+ * - Team tasks shown with ○ pending / ● in_progress / ✓ completed status
+ * - Task IDs (#1, #2) and owner/assignee
+ * - activeForm text shown for in_progress tasks
+ * - Background eval/delegate tasks in a separate section
+ * - ↑↓ navigation, Enter to view, x to dismiss, c to clear
  */
 
 import React, {
@@ -30,6 +29,7 @@ import {
   isTaskActive,
   type Task,
 } from "../../repl/task-manager/types.ts";
+import type { TaskBoardItem } from "../hooks/useTeamState.ts";
 import { calculateScrollWindow } from "../completion/navigation.ts";
 import { formatEvalTaskResultLines } from "../utils/eval-task-results.ts";
 import {
@@ -52,7 +52,6 @@ import { padTo } from "../utils/formatting.ts";
 import { STATUS_GLYPHS } from "../ui-constants.ts";
 import {
   buildBalancedTextRow,
-  buildRightSlotTextLayout,
   buildSectionLabelText,
 } from "../utils/display-chrome.ts";
 
@@ -62,9 +61,31 @@ import {
 
 interface BackgroundTasksOverlayProps {
   onClose: () => void;
+  /** Team tasks from teamState.taskBoard (Claude Code TaskCreate/TaskUpdate). */
+  teamTasks?: TaskBoardItem[];
 }
 
 type ViewMode = "list" | "result";
+
+/**
+ * Unified task item displayed in the overlay.
+ * Wraps both team tasks (TaskBoardItem) and eval/delegate tasks (Task).
+ */
+export interface UnifiedTaskItem {
+  id: string;
+  kind: "team" | "eval" | "delegate" | "section";
+  label: string;
+  status: string;
+  statusText: string;
+  icon: string;
+  iconColor: RGB;
+  owner?: string;
+  blocked: boolean;
+  activeForm?: string;
+  /** Original task reference for actions. */
+  bgTask?: Task;
+  teamTask?: TaskBoardItem;
+}
 
 // ============================================================
 // Layout Constants
@@ -72,62 +93,52 @@ type ViewMode = "list" | "result";
 
 const PADDING = BACKGROUND_TASKS_OVERLAY_SPEC.padding;
 
-interface BackgroundTaskSummaryCounts {
-  active: number;
+interface TaskSummaryCounts {
+  pending: number;
+  inProgress: number;
   completed: number;
   failed: number;
-  cancelled: number;
 }
 
-function getBackgroundTaskSummaryCounts(
-  tasks: Task[],
-): BackgroundTaskSummaryCounts {
-  return tasks.reduce<BackgroundTaskSummaryCounts>(
-    (summary, task) => {
-      if (isTaskActive(task)) {
-        summary.active += 1;
-      } else if (task.status === "completed") {
-        summary.completed += 1;
-      } else if (task.status === "failed") {
-        summary.failed += 1;
-      } else if (task.status === "cancelled") {
-        summary.cancelled += 1;
-      }
-      return summary;
+function getTaskSummaryCounts(items: UnifiedTaskItem[]): TaskSummaryCounts {
+  return items.reduce<TaskSummaryCounts>(
+    (counts, item) => {
+      if (item.kind === "section") return counts;
+      if (item.status === "pending" || item.status === "blocked") counts.pending++;
+      else if (item.status === "in_progress" || item.status === "running") counts.inProgress++;
+      else if (item.status === "completed") counts.completed++;
+      else if (item.status === "failed") counts.failed++;
+      return counts;
     },
-    { active: 0, completed: 0, failed: 0, cancelled: 0 },
+    { pending: 0, inProgress: 0, completed: 0, failed: 0 },
   );
 }
 
-function getBackgroundTaskPreview(task: Task): string {
-  return isEvalTask(task) ? task.preview : task.label;
-}
-
 export function buildBackgroundTasksSummaryRows(
-  tasks: Task[],
+  items: UnifiedTaskItem[],
   {
     viewMode,
     selectedIndex,
-    viewingTask,
+    viewingItem,
     resultLines,
   }: {
     viewMode: ViewMode;
     selectedIndex: number;
-    viewingTask: Task | null;
+    viewingItem: UnifiedTaskItem | null;
     resultLines: string[];
   },
   contentWidth: number,
 ): [string, string] {
-  if (viewMode === "result" && viewingTask) {
+  if (viewMode === "result" && viewingItem) {
     const primary = buildBalancedTextRow(
       contentWidth,
-      `Status ${viewingTask.status}`,
+      `Status ${viewingItem.statusText}`,
       resultLines.length === 1 ? "1 line" : `${resultLines.length} lines`,
     );
     const secondary = buildBalancedTextRow(
       contentWidth,
-      getBackgroundTaskPreview(viewingTask),
-      isTaskActive(viewingTask) ? "running" : "saved result",
+      viewingItem.label,
+      viewingItem.kind === "team" ? "team task" : "background",
     );
     return [
       primary.leftText + " ".repeat(primary.gapWidth) + primary.rightText,
@@ -135,18 +146,17 @@ export function buildBackgroundTasksSummaryRows(
     ];
   }
 
-  const counts = getBackgroundTaskSummaryCounts(tasks);
+  const counts = getTaskSummaryCounts(items);
+  const totalReal = items.filter((i) => i.kind !== "section").length;
   const primary = buildBalancedTextRow(
     contentWidth,
-    `Active ${counts.active} · Done ${counts.completed}`,
-    `Failed ${counts.failed} · Cancelled ${counts.cancelled}`,
+    `Pending ${counts.pending} \u00B7 Active ${counts.inProgress} \u00B7 Done ${counts.completed}`,
+    counts.failed > 0 ? `Failed ${counts.failed}` : "",
   );
   const secondary = buildBalancedTextRow(
     contentWidth,
-    "Eval + delegate tasks",
-    tasks.length > 0
-      ? `Selected ${selectedIndex + 1}/${tasks.length}`
-      : "Selected 0/0",
+    "Task list",
+    totalReal > 0 ? `${selectedIndex + 1}/${totalReal}` : "empty",
   );
   return [
     primary.leftText + " ".repeat(primary.gapWidth) + primary.rightText,
@@ -164,11 +174,129 @@ export function formatBackgroundTaskResultLine(
 }
 
 // ============================================================
+// Unified Item Builder
+// ============================================================
+
+function resolveStatusDisplay(
+  status: string,
+  blocked: boolean,
+  colors: { warning: RGB; success: RGB; error: RGB; muted: RGB; accent: RGB },
+): { icon: string; iconColor: RGB; statusText: string } {
+  if (blocked) {
+    return { icon: STATUS_GLYPHS.pending, iconColor: colors.muted, statusText: "blocked" };
+  }
+  switch (status) {
+    case "in_progress":
+    case "running":
+    case "claimed":
+      return { icon: STATUS_GLYPHS.running, iconColor: colors.warning, statusText: "running" };
+    case "completed":
+      return { icon: STATUS_GLYPHS.success, iconColor: colors.success, statusText: "done" };
+    case "failed":
+    case "errored":
+      return { icon: STATUS_GLYPHS.error, iconColor: colors.error, statusText: "failed" };
+    case "cancelled":
+      return { icon: STATUS_GLYPHS.cancelled, iconColor: colors.muted, statusText: "cancelled" };
+    default:
+      return { icon: STATUS_GLYPHS.pending, iconColor: colors.muted, statusText: "pending" };
+  }
+}
+
+function buildUnifiedItems(
+  teamTasks: TaskBoardItem[],
+  bgTasks: Task[],
+  colors: { warning: RGB; success: RGB; error: RGB; muted: RGB; accent: RGB },
+): UnifiedTaskItem[] {
+  const items: UnifiedTaskItem[] = [];
+
+  const sectionColor: RGB = [0, 0, 0]; // placeholder for non-rendered sections
+
+  // Team tasks first (Claude Code TaskCreate/TaskUpdate)
+  if (teamTasks.length > 0) {
+    items.push({
+      id: "__section_team__",
+      kind: "section",
+      label: "Agent Tasks",
+      status: "",
+      statusText: "",
+      icon: "",
+      iconColor: sectionColor,
+      blocked: false,
+    });
+
+    for (const tt of teamTasks) {
+      const blocked = tt.blockedBy.length > 0;
+      const isActive = tt.status === "in_progress" || tt.status === "claimed";
+      const { icon, iconColor, statusText } = resolveStatusDisplay(
+        tt.status,
+        blocked,
+        colors,
+      );
+      // When in_progress with activeForm, show activeForm as label (Claude Code parity)
+      const displayLabel = isActive && tt.activeForm
+        ? `#${tt.id} ${tt.activeForm}`
+        : `#${tt.id} ${tt.goal}`;
+      items.push({
+        id: `team:${tt.id}`,
+        kind: "team",
+        label: displayLabel,
+        status: tt.status,
+        statusText: tt.assignee ? `@${tt.assignee}` : statusText,
+        icon,
+        iconColor,
+        owner: tt.assignee,
+        blocked,
+        activeForm: tt.activeForm,
+        teamTask: tt,
+      });
+    }
+  }
+
+  // Background eval/delegate tasks
+  if (bgTasks.length > 0) {
+    if (teamTasks.length > 0) {
+      items.push({
+        id: "__section_bg__",
+        kind: "section",
+        label: "Background",
+        status: "",
+        statusText: "",
+        icon: "",
+        iconColor: sectionColor,
+        blocked: false,
+      });
+    }
+
+    for (const task of bgTasks) {
+      const { icon, iconColor, statusText } = resolveStatusDisplay(
+        task.status,
+        false,
+        colors,
+      );
+      items.push({
+        id: `bg:${task.id}`,
+        kind: isEvalTask(task) ? "eval" : "delegate",
+        label: isEvalTask(task) ? task.preview : task.label,
+        status: task.status,
+        statusText,
+        icon,
+        iconColor,
+        blocked: false,
+        bgTask: task,
+      });
+    }
+  }
+
+  return items;
+}
+
+// ============================================================
 // Component
 // ============================================================
 
 export function BackgroundTasksOverlay({
   onClose,
+  teamTasks = [],
 }: BackgroundTasksOverlayProps): React.ReactElement | null {
   const { theme } = useTheme();
   const { stdout } = useStdout();
@@ -176,7 +304,7 @@ export function BackgroundTasksOverlay({
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
-  const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
+  const [viewingItemId, setViewingItemId] = useState<string | null>(null);
   const [resultScrollOffset, setResultScrollOffset] = useState(0);
   const terminalColumns = stdout?.columns ?? 0;
   const terminalRows = stdout?.rows ?? 0;
@@ -216,12 +344,11 @@ export function BackgroundTasksOverlay({
     bgStyle: bg(OVERLAY_BG_COLOR),
   }), [theme]);
 
-  // Filter and sort tasks — include both eval and delegate tasks
+  // Filter and sort background tasks (eval + delegate)
   const bgTasks = useMemo(() => {
     const filtered = tasks.filter((t: Task) =>
       isEvalTask(t) || isDelegateTask(t)
     );
-    // Sort: active first, then by creation time descending
     return filtered.sort((a: Task, b: Task) => {
       const aActive = isTaskActive(a) ? 0 : 1;
       const bActive = isTaskActive(b) ? 0 : 1;
@@ -230,54 +357,88 @@ export function BackgroundTasksOverlay({
     });
   }, [tasks]);
 
-  // Get viewing task
-  const viewingTask = viewingTaskId
-    ? bgTasks.find((t: Task) => t.id === viewingTaskId)
+  // Build unified item list
+  const unifiedItems = useMemo(
+    () => buildUnifiedItems(teamTasks, bgTasks, colors),
+    [teamTasks, bgTasks, colors],
+  );
+
+  // Get the selected unified item (skip sections)
+  const selectableItems = useMemo(
+    () => unifiedItems.filter((i: UnifiedTaskItem) => i.kind !== "section"),
+    [unifiedItems],
+  );
+
+  // Get viewing item
+  const viewingItem = viewingItemId
+    ? unifiedItems.find((i: UnifiedTaskItem) => i.id === viewingItemId)
     : null;
 
   // Format result for display
   const resultLines = useMemo(() => {
-    if (!viewingTask) return [];
-    if (isEvalTask(viewingTask)) {
-      return formatEvalTaskResultLines(viewingTask);
-    }
-    if (isDelegateTask(viewingTask)) {
-      const dt = viewingTask as DelegateTask;
-      const lines: string[] = [];
-      lines.push(`Agent: ${dt.nickname} [${dt.agent}]`);
-      lines.push(`Task: ${dt.task}`);
-      lines.push(`Status: ${dt.status}`);
-      if (dt.threadId) lines.push(`Thread: ${dt.threadId}`);
-      if (dt.childSessionId) lines.push(`Session: ${dt.childSessionId}`);
-      if (dt.summary) {
-        lines.push("", "--- Result ---", ...dt.summary.split("\n"));
+    if (!viewingItem) return [];
+    if (viewingItem.bgTask) {
+      if (isEvalTask(viewingItem.bgTask)) {
+        return formatEvalTaskResultLines(viewingItem.bgTask);
       }
-      if (dt.error) {
-        lines.push("", "--- Error ---", ...String(dt.error).split("\n"));
-      }
-      if (dt.snapshot?.events.length) {
-        lines.push("", "--- Events ---");
-        for (const ev of dt.snapshot.events) {
-          if (ev.type === "tool_end") {
-            lines.push(
-              `  ${ev.success ? "✓" : "✗"} ${ev.name}: ${
-                ev.summary ?? ev.content ?? ""
-              }`,
-            );
+      if (isDelegateTask(viewingItem.bgTask)) {
+        const dt = viewingItem.bgTask as DelegateTask;
+        const lines: string[] = [];
+        lines.push(`Agent: ${dt.nickname} [${dt.agent}]`);
+        lines.push(`Task: ${dt.task}`);
+        lines.push(`Status: ${dt.status}`);
+        if (dt.threadId) lines.push(`Thread: ${dt.threadId}`);
+        if (dt.childSessionId) lines.push(`Session: ${dt.childSessionId}`);
+        if (dt.summary) {
+          lines.push("", "--- Result ---", ...dt.summary.split("\n"));
+        }
+        if (dt.error) {
+          lines.push("", "--- Error ---", ...String(dt.error).split("\n"));
+        }
+        if (dt.snapshot?.events.length) {
+          lines.push("", "--- Events ---");
+          for (const ev of dt.snapshot.events) {
+            if (ev.type === "tool_end") {
+              lines.push(
+                `  ${ev.success ? "\u2713" : "\u2717"} ${ev.name}: ${
+                  ev.summary ?? ev.content ?? ""
+                }`,
+              );
+            }
           }
         }
+        return lines;
       }
+    }
+    if (viewingItem.teamTask) {
+      const tt = viewingItem.teamTask;
+      const lines: string[] = [];
+      lines.push(`Task #${tt.id}: ${tt.goal}`);
+      lines.push(`Status: ${tt.status}`);
+      if (tt.assignee) lines.push(`Owner: @${tt.assignee}`);
+      if (tt.blockedBy.length > 0) {
+        lines.push(`Blocked by: ${tt.blockedBy.map((id: string) => `#${id}`).join(", ")}`);
+      }
+      if (tt.mergeState) lines.push(`Merge: ${tt.mergeState}`);
+      if (tt.reviewStatus) lines.push(`Review: ${tt.reviewStatus}`);
       return lines;
     }
     return [];
-  }, [viewingTask]);
+  }, [viewingItem]);
 
   // Reset selection if out of bounds
   useEffect(() => {
-    if (selectedIndex >= bgTasks.length && bgTasks.length > 0) {
-      setSelectedIndex(Math.max(0, bgTasks.length - 1));
+    if (selectedIndex >= selectableItems.length && selectableItems.length > 0) {
+      setSelectedIndex(Math.max(0, selectableItems.length - 1));
     }
-  }, [bgTasks.length, selectedIndex]);
+  }, [selectableItems.length, selectedIndex]);
+
+  // Map selected index to unified items index
+  const selectedUnifiedIndex = useMemo(() => {
+    if (selectableItems.length === 0) return -1;
+    const target = selectableItems[selectedIndex];
+    return target ? unifiedItems.indexOf(target) : -1;
+  }, [selectedIndex, selectableItems, unifiedItems]);
 
   // Draw the overlay
   const drawOverlay = useCallback(() => {
@@ -289,19 +450,15 @@ export function BackgroundTasksOverlay({
     const bgStyle = colors.bgStyle;
     let output = ansi.cursorSave + ansi.cursorHide;
 
-    // Helper: draw a row with exact OVERLAY_WIDTH (ensures full background coverage)
-    // Takes a callback that appends content and returns visible char count
     const drawRow = (y: number, renderContent: () => number) => {
       output += ansi.cursorTo(overlayFrame.x, y) + bgStyle;
       const visibleLen = renderContent();
-      // Pad to exact width
       const remaining = overlayFrame.width - visibleLen;
       if (remaining > 0) {
         output += " ".repeat(remaining);
       }
     };
 
-    // Helper: draw empty row
     const drawEmptyRow = (y: number) => {
       drawRow(y, () => 0);
     };
@@ -312,15 +469,15 @@ export function BackgroundTasksOverlay({
     }
 
     const headerY = overlayFrame.y + PADDING.top;
-    const title = viewMode === "list" ? "Background Tasks" : "Result";
+    const title = viewMode === "list" ? "Tasks" : "Details";
     const escHint = viewMode === "list" ? "esc close" : "esc back";
 
     const [summaryText, hintText] = buildBackgroundTasksSummaryRows(
-      bgTasks,
+      unifiedItems,
       {
         viewMode,
         selectedIndex,
-        viewingTask,
+        viewingItem,
         resultLines,
       },
       contentWidth,
@@ -340,75 +497,36 @@ export function BackgroundTasksOverlay({
 
     // === Content rows ===
     if (viewMode === "list") {
-      // Task list view
       const window = calculateScrollWindow(
-        selectedIndex,
-        bgTasks.length,
+        selectedUnifiedIndex >= 0 ? selectedUnifiedIndex : 0,
+        unifiedItems.length,
         visibleRows,
       );
-      const visibleTasks = bgTasks.slice(window.start, window.end);
+      const visibleItems = unifiedItems.slice(window.start, window.end);
 
       for (let row = 0; row < visibleRows; row++) {
         const rowY = overlayFrame.y + chromeLayout.contentStart + row;
-        const task = visibleTasks[row];
+        const item = visibleItems[row];
 
         drawRow(rowY, () => {
-          if (!task) {
-            if (row === 0 && bgTasks.length === 0) {
-              // Show "No tasks" message
+          if (!item) {
+            if (row === 0 && unifiedItems.length === 0) {
               output += " ".repeat(PADDING.left);
               output += fg(colors.muted) + "No tasks" + ansi.reset + bgStyle;
               return PADDING.left + 8;
             }
-            return 0; // Empty row
+            return 0;
           }
 
-          const actualIndex = window.start + row;
-          const isSelected = actualIndex === selectedIndex;
-
-          // Status icon and color
-          let icon: string;
-          let iconColor: RGB;
-          switch (task.status) {
-            case "running":
-              icon = STATUS_GLYPHS.running;
-              iconColor = colors.warning;
-              break;
-            case "completed":
-              icon = STATUS_GLYPHS.success;
-              iconColor = colors.success;
-              break;
-            case "failed":
-              icon = STATUS_GLYPHS.error;
-              iconColor = colors.error;
-              break;
-            case "cancelled":
-              icon = STATUS_GLYPHS.pending;
-              iconColor = colors.muted;
-              break;
-            default:
-              icon = STATUS_GLYPHS.pending;
-              iconColor = colors.muted;
+          // Section headers
+          if (item.kind === "section") {
+            const sectionLabel = buildSectionLabelText(item.label, contentWidth);
+            output += " ".repeat(PADDING.left);
+            output += fg(colors.accent) + sectionLabel + ansi.reset + bgStyle;
+            return PADDING.left + sectionLabel.length;
           }
 
-          // Status text
-          let statusText: string;
-          switch (task.status) {
-            case "running":
-              statusText = "running";
-              break;
-            case "completed":
-              statusText = "done";
-              break;
-            case "failed":
-              statusText = "failed";
-              break;
-            case "cancelled":
-              statusText = "cancelled";
-              break;
-            default:
-              statusText = task.status;
-          }
+          const isSelected = item === selectableItems[selectedIndex];
 
           if (isSelected) {
             output += bg(colors.warning) + ansi.fg(30, 30, 30);
@@ -418,26 +536,27 @@ export function BackgroundTasksOverlay({
 
           output += " ".repeat(PADDING.left);
           len += PADDING.left;
-          output += isSelected ? "▸ " : "  ";
+          output += isSelected ? "\u25B8 " : "  ";
           len += 2;
-          output += fg(iconColor) + icon + ansi.reset;
+          output += fg(item.iconColor) + item.icon + ansi.reset;
           if (isSelected) output += bg(colors.warning) + ansi.fg(30, 30, 30);
           else output += bgStyle;
           output += " ";
           len += 2;
 
-          const rowLayout = buildRightSlotTextLayout(
+          const statusCol = item.statusText;
+          const rowLayout = buildBalancedTextRow(
             Math.max(8, contentWidth - 4),
-            getBackgroundTaskPreview(task),
-            statusText,
-            10,
+            item.label,
+            statusCol,
+            { maxRightWidth: 12 },
           );
           output += rowLayout.leftText;
           output += " ".repeat(rowLayout.gapWidth);
           if (!isSelected) output += fg(colors.muted);
-          output += padTo(rowLayout.rightText, 10);
+          output += padTo(rowLayout.rightText, 12);
           output += ansi.reset + bgStyle;
-          len += rowLayout.leftText.length + rowLayout.gapWidth + 10;
+          len += rowLayout.leftText.length + rowLayout.gapWidth + 12;
 
           return len;
         });
@@ -456,8 +575,7 @@ export function BackgroundTasksOverlay({
 
         drawRow(rowY, () => {
           if (row === 0 && resultScrollOffset > 0) {
-            // Show "more above" indicator
-            const text = "↑ more above...";
+            const text = "\u2191 more above...";
             output += " ".repeat(PADDING.left);
             output += fg(colors.muted) + text + ansi.reset + bgStyle;
             return PADDING.left + text.length;
@@ -466,8 +584,7 @@ export function BackgroundTasksOverlay({
             row === visibleRows - 1 &&
             resultScrollOffset + maxResultRows < resultLines.length
           ) {
-            // Show "more below" indicator
-            const text = "↓ more below...";
+            const text = "\u2193 more below...";
             output += " ".repeat(PADDING.left);
             output += fg(colors.muted) + text + ansi.reset + bgStyle;
             return PADDING.left + text.length;
@@ -481,21 +598,24 @@ export function BackgroundTasksOverlay({
             output += truncatedLine;
             return PADDING.left + truncatedLine.length;
           }
-          return 0; // Empty row
+          return 0;
         });
       }
     }
 
     // === Footer row ===
     const footerY = overlayFrame.y + chromeLayout.footerY;
+    const selectedItem = selectableItems[selectedIndex];
+    const canDismiss = selectedItem?.bgTask != null;
+    const listHints = canDismiss
+      ? "\u2191\u2193 nav  Enter view  x dismiss  c clear"
+      : "\u2191\u2193 nav  Enter view  c clear";
     const footerText = truncate(
-      viewMode === "list"
-        ? "↑↓ nav  Enter view  x dismiss  c clear"
-        : "↑↓ scroll  q/Esc back",
+      viewMode === "list" ? listHints : "\u2191\u2193 scroll  q/Esc back",
       contentWidth,
     );
-    const countText = viewMode === "list" && bgTasks.length > 0
-      ? `${selectedIndex + 1}/${bgTasks.length}`
+    const countText = viewMode === "list" && selectableItems.length > 0
+      ? `${selectedIndex + 1}/${selectableItems.length}`
       : "";
 
     drawRow(footerY, () => {
@@ -530,10 +650,12 @@ export function BackgroundTasksOverlay({
     writeToTerminal(output);
   }, [
     colors,
-    bgTasks,
+    unifiedItems,
+    selectableItems,
     selectedIndex,
+    selectedUnifiedIndex,
     viewMode,
-    viewingTask,
+    viewingItem,
     resultLines,
     resultScrollOffset,
     contentWidth,
@@ -551,10 +673,9 @@ export function BackgroundTasksOverlay({
   // Keyboard handling
   useInput((input, key) => {
     if (viewMode === "result") {
-      // Result view navigation
       if (key.escape || input === "q") {
         setViewMode("list");
-        setViewingTaskId(null);
+        setViewingItemId(null);
         setResultScrollOffset(0);
         return;
       }
@@ -590,36 +711,37 @@ export function BackgroundTasksOverlay({
       return;
     }
 
-    // Guard: no navigation when list is empty
-    if (bgTasks.length === 0) {
-      return;
-    }
+    if (selectableItems.length === 0) return;
 
     if (key.upArrow || input === "k") {
       setSelectedIndex((i: number) => Math.max(0, i - 1));
       return;
     }
     if (key.downArrow || input === "j") {
-      setSelectedIndex((i: number) => Math.min(bgTasks.length - 1, i + 1));
+      setSelectedIndex((i: number) =>
+        Math.min(selectableItems.length - 1, i + 1)
+      );
       return;
     }
 
-    // View result
-    if (key.return && bgTasks[selectedIndex]) {
-      const task = bgTasks[selectedIndex];
-      setViewingTaskId(task.id);
+    // View details
+    if (key.return && selectableItems[selectedIndex]) {
+      const item = selectableItems[selectedIndex];
+      setViewingItemId(item.id);
       setViewMode("result");
       setResultScrollOffset(0);
       return;
     }
 
-    // Cancel/dismiss
-    if (input === "x" && bgTasks[selectedIndex]) {
-      const task = bgTasks[selectedIndex];
-      if (isTaskActive(task)) {
-        cancel(task.id);
-      } else {
-        removeTask(task.id);
+    // Cancel/dismiss (only for eval/delegate tasks)
+    if (input === "x" && selectableItems[selectedIndex]) {
+      const item = selectableItems[selectedIndex];
+      if (item.bgTask) {
+        if (isTaskActive(item.bgTask)) {
+          cancel(item.bgTask.id);
+        } else {
+          removeTask(item.bgTask.id);
+        }
       }
       return;
     }
@@ -631,6 +753,5 @@ export function BackgroundTasksOverlay({
     }
   });
 
-  // Return null - we render directly to terminal
   return null;
 }

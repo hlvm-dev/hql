@@ -1,5 +1,5 @@
 /**
- * JavaScript Evaluation for Polyglot REPL
+ * JavaScript Evaluation for REPL (js ...) form
  *
  * Transforms JavaScript code to persist variables to globalThis,
  * enabling cross-eval and cross-language (HQL ↔ JS) interoperability.
@@ -191,11 +191,50 @@ export function transformJSForRepl(code: string): string {
   return transformed;
 }
 
+/** Keywords that start statements (not expressions) — used for return-value detection */
+const STATEMENT_KEYWORD_RE =
+  /^(if|for|while|do|switch|try|throw|return|const|let|var|class|function|async\s+function|import|export)\b/;
+
+/**
+ * Wrap transformed JS code in an async IIFE for full JS support (await, etc.).
+ *
+ * Two-phase approach:
+ *   Phase 1 — expression form `(async()=>(CODE))()`: returns value, works for
+ *             single expressions like `await fetch(...)`, `1 + 2`, etc.
+ *   Phase 2 — block form `(async()=>{CODE})()`: handles multi-statement code.
+ *             Injects `return` before the last expression-statement so the
+ *             caller gets a meaningful return value.
+ */
+function wrapForAsyncEval(code: string): string {
+  // Phase 1: try as single expression (preserves return value naturally)
+  try {
+    // deno-lint-ignore no-eval
+    new Function(`return (${code})`); // syntax check only — does NOT execute
+    return `(async()=>(\n${code}\n))()`;
+  } catch { /* not a single expression — fall through to Phase 2 */ }
+
+  // Phase 2: block form — inject `return` before last expression-statement
+  const lines = code.split("\n");
+  let lastIdx = lines.length - 1;
+  while (lastIdx >= 0 && !lines[lastIdx].trim()) lastIdx--;
+
+  if (lastIdx >= 0) {
+    const lastLine = lines[lastIdx].trimStart();
+    // Only inject return if last line is a single expression (no semicolons, not a statement keyword)
+    if (!STATEMENT_KEYWORD_RE.test(lastLine) && !lastLine.includes(";")) {
+      const indent = lines[lastIdx].length - lines[lastIdx].trimStart().length;
+      lines[lastIdx] = " ".repeat(indent) + "return (" + lastLine + ")";
+    }
+  }
+
+  return `(async()=>{\n${lines.join("\n")}\n})()`;
+}
+
 /**
  * Evaluate JavaScript code in REPL context.
- * Uses indirect eval for global scope execution.
+ * Wraps code in an async IIFE so `await`, Promises, and all async JS works.
  */
-export function evaluateJS(code: string): { value: unknown; logs: string[] } {
+export async function evaluateJS(code: string): Promise<{ value: unknown; logs: string[] }> {
   const transformed = transformJSForRepl(code);
   const logs: string[] = [];
   const toLogString = (arg: unknown): string => {
@@ -240,8 +279,9 @@ export function evaluateJS(code: string): { value: unknown; logs: string[] } {
   const originalConsole = globalWithConsole.console;
   globalWithConsole.console = consoleProxy;
   try {
+    const asyncCode = wrapForAsyncEval(transformed);
     // deno-lint-ignore no-eval
-    const value = (0, eval)(transformed);
+    const value = await (0, eval)(asyncCode);
     return { value, logs };
   } finally {
     globalWithConsole.console = originalConsole;

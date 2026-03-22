@@ -225,11 +225,11 @@ export function buildSemanticColors(palette: ThemePalette): SemanticColors {
     },
     syntax: {
       keyword: palette.primary,
-      string: palette.secondary,
-      number: palette.accent,
+      string: palette.success,
+      number: palette.warning,
       comment: palette.muted,
-      function: palette.success,
-      operator: palette.accent,
+      function: palette.primary,
+      operator: palette.text,
       default: palette.text,
     },
   };

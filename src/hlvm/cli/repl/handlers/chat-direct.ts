@@ -9,15 +9,12 @@ import { pushSSEEvent } from "../../../store/sse-store.ts";
 import { config } from "../../../api/config.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
-import {
-  isPersistentMemoryEnabled,
-  persistConversationFacts,
-} from "../../../memory/mod.ts";
 import { pushConversationUpdatedEvent, type ChatRequest } from "./chat-session.ts";
 import {
   buildChatProviderMessages,
   shouldHonorRequestMessages,
 } from "./chat-context.ts";
+import { compilePrompt, EMPTY_INSTRUCTIONS } from "../../../prompt/mod.ts";
 
 /** Drain a token iterator with abort support, forwarding each chunk. */
 async function drainTokenStream(
@@ -62,8 +59,14 @@ async function drainTokenStream(
   return fullText;
 }
 
-const DIRECT_CHAT_ACCESS_RULE =
-  "You have no live tool access in this response. Do not claim that you searched the web, fetched URLs, inspected files, or ran commands unless those results already appear in the conversation history.";
+function getChatSystemPrompt(): string {
+  return compilePrompt({
+    mode: "chat",
+    tier: "mid",
+    tools: {},
+    instructions: EMPTY_INSTRUCTIONS,
+  }).text;
+}
 
 export async function handleChatMode(
   body: ChatRequest,
@@ -88,7 +91,7 @@ export async function handleChatMode(
   });
   providerMessages.unshift({
     role: "system",
-    content: DIRECT_CHAT_ACCESS_RULE,
+    content: getChatSystemPrompt(),
   });
 
   const cfgSnapshot = config.snapshot;
@@ -111,15 +114,6 @@ export async function handleChatMode(
       content: fullText,
     });
     pushConversationUpdatedEvent(sessionId);
-
-    if (isPersistentMemoryEnabled(body.disable_persistent_memory)) {
-      // Persist baseline conversation facts through the shared memory pipeline.
-      const userContent = body.messages?.[body.messages.length - 1]?.content ??
-        "";
-      persistConversationFacts([{ role: "user", content: userContent }], {
-        source: "extracted",
-      });
-    }
   }
 }
 
@@ -148,7 +142,7 @@ export async function streamDirectChatFallback(
   });
   providerMessages.unshift({
     role: "system",
-    content: DIRECT_CHAT_ACCESS_RULE,
+    content: getChatSystemPrompt(),
   });
 
   const tokenIterator = ai.chat(providerMessages, {
