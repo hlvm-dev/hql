@@ -87,11 +87,6 @@ import {
 } from "../../runtime/host-config.ts";
 import { getRuntimeHostIdentity } from "../../runtime/host-identity.ts";
 import { normalizeComparableFilePath } from "./file-search.ts";
-import {
-  ensureRuntimeDir,
-  getServerInfoPath,
-  type ServerInfo,
-} from "../../../common/paths.ts";
 
 /**
  * REPL HTTP Server Port
@@ -111,8 +106,6 @@ const platform = getPlatform();
 /** Auth token generated on server start — clients must send `Authorization: Bearer <token>` */
 let serverAuthToken: string | null = null;
 let serverHandle: PlatformHttpServerHandle | null = null;
-/** Actual port the server is listening on (may differ from requested port on port-0 fallback) */
-let actualBoundPort: number | null = null;
 
 function resolvePort(): number {
   const port = resolveHlvmRuntimePort();
@@ -129,69 +122,6 @@ function resolvePort(): number {
 }
 
 let replState: ReplState | null = null;
-
-// ── Port File (server.json) ─────────────────────────────────────────────
-
-/** Best-effort PID retrieval for metadata purposes */
-function getCurrentPid(): number {
-  try {
-    // deno-lint-ignore no-explicit-any
-    return (globalThis as any).Deno?.pid ?? 0;
-  } catch {
-    return 0;
-  }
-}
-
-async function writeServerInfo(port: number): Promise<void> {
-  try {
-    await ensureRuntimeDir();
-    const info: ServerInfo = {
-      port,
-      pid: getCurrentPid(),
-      authToken: serverAuthToken ?? "",
-      startedAt: new Date().toISOString(),
-    };
-    await platform.fs.writeTextFile(
-      getServerInfoPath(),
-      JSON.stringify(info, null, 2) + "\n",
-    );
-  } catch (error) {
-    log.warn(`Failed to write server.json: ${getErrorMessage(error)}`);
-  }
-}
-
-function deleteServerInfoSync(): void {
-  try {
-    platform.fs.removeSync(getServerInfoPath());
-  } catch {
-    // File may not exist — that's fine.
-  }
-}
-
-/** Install signal handlers for graceful cleanup */
-function installCleanupHandlers(): void {
-  const cleanup = () => {
-    deleteServerInfoSync();
-  };
-  // Deno lifecycle hooks
-  if (typeof addEventListener === "function") {
-    addEventListener("beforeunload", cleanup);
-    addEventListener("unload", cleanup);
-  }
-  // POSIX signals via platform — best-effort
-  try {
-    platform.process.addSignalListener("SIGTERM", () => {
-      cleanup();
-      scheduleServerShutdown();
-    });
-    platform.process.addSignalListener("SIGINT", () => {
-      cleanup();
-      scheduleServerShutdown();
-    });
-  } catch {
-    // Signals may not be supported on all platforms.
-  }
-}
 
 // MARK: - Types
 
@@ -232,7 +162,10 @@ async function initState(): Promise<ReplState> {
   const moduleResult = initResult.moduleResult;
 
   if (moduleResult) {
-    log.info(`Loaded ${moduleResult.stdlibExports.length} stdlib functions`);
+    log.info(
+      `Loaded ${moduleResult.stdlibExports.length} stdlib + ` +
+        `${moduleResult.aiExports.length} AI functions`,
+    );
 
     if (moduleResult.errors.length > 0) {
       log.warn(`Module load errors: ${moduleResult.errors.join(", ")}`);
@@ -507,7 +440,6 @@ async function handleHealth(): Promise<Response> {
     version: identity.version,
     buildId: identity.buildId,
     authToken: serverAuthToken,
-    port: actualBoundPort,
   });
 }
 
@@ -522,7 +454,6 @@ function scheduleServerShutdown(): void {
 }
 
 async function handleRuntimeShutdown(): Promise<Response> {
-  deleteServerInfoSync();
   replState = null;
   await closeActiveConversationSession();
   scheduleServerShutdown();
@@ -944,132 +875,50 @@ export interface StartHttpServerOptions {
   port?: number;
 }
 
-/** Ask a live server on `port` to shut down gracefully. Returns true if it responded. */
-async function requestGracefulShutdown(port: number): Promise<boolean> {
-  const base = `http://127.0.0.1:${port}`;
-  try {
-    // /health is unauthenticated and exposes the server's auth token
-    const healthResp = await fetch(`${base}/health`, {
-      signal: AbortSignal.timeout(2000),
-    });
-    if (!healthResp.ok) return false;
-    const health = await healthResp.json();
-    const token = health?.authToken;
-    if (typeof token !== "string") return false;
-
-    const shutdownResp = await fetch(`${base}/api/runtime/shutdown`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(2000),
-    });
-    return shutdownResp.ok;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Wait for port release by connecting to the dying server's SSE stream.
- * SSE keeps the connection open until the server shuts down its listener,
- * at which point the stream errors out — that error IS the "port freed" event.
- * If connection is refused, the port is already free (instant return).
- */
-async function waitForPortFree(port: number): Promise<void> {
-  try {
-    const resp = await fetch(`http://127.0.0.1:${port}/api/config/stream`, {
-      signal: AbortSignal.timeout(3000),
-    });
-    if (!resp.body) return;
-    // Read the SSE stream until the server closes it (shutdown event)
-    const reader = resp.body.getReader();
-    try {
-      while (!(await reader.read()).done) { /* stream close = server gone */ }
-    } catch { /* connection reset / abort timeout = server died */ }
-    finally { reader.releaseLock(); }
-  } catch {
-    // Connection refused — port is already free
-  }
-}
-
 export async function startHttpServer(
   options: StartHttpServerOptions = {},
 ): Promise<void> {
   const port = options.port ?? resolvePort();
 
+  // Use pre-shared token from env (GUI passes this) or generate a random one
   serverAuthToken = getPlatform().env.get("HLVM_AUTH_TOKEN") ||
     crypto.randomUUID();
   log.info(`REPL auth token: ${serverAuthToken}`);
-  installCleanupHandlers();
 
   try {
-    await bindAndServe(port);
-  } catch (error) {
-    if (!(error instanceof Error) || error.name !== "AddrInUse") {
-      log.error(`Failed to start REPL HTTP server: ${getErrorMessage(error)}`);
-      throw new RuntimeError(
-        `REPL server failed to start: ${getErrorMessage(error)}`,
-      );
-    }
-
-    // Port conflict — determine cause and react once
-    log.warn(`Port ${port} in use, attempting graceful takeover...`);
-    const hadLiveServer = await requestGracefulShutdown(port);
-    if (hadLiveServer) {
-      log.info("Previous server acknowledged shutdown, waiting for port release...");
-    } else {
-      log.info("No live server responded; ghost socket from dead process...");
-    }
-    // In both cases, the port needs a moment: either the old server is draining
-    // its listener after responding, or the OS is cleaning up a ghost socket.
-    await waitForPortFree(port);
-
-    // Retry on preferred port
-    try {
-      await bindAndServe(port);
-    } catch (retryError) {
-      if (!(retryError instanceof Error) || retryError.name !== "AddrInUse") {
-        throw retryError;
-      }
-      // Ghost socket / genuine conflict — fall back to OS-assigned port (port 0)
-      log.warn(`Port ${port} still in use after takeover; falling back to OS-assigned port...`);
-      try {
-        await bindAndServe(0);
-      } catch (fallbackError) {
-        log.error(`Failed to start REPL HTTP server on fallback port: ${getErrorMessage(fallbackError)}`);
-        throw new RuntimeError(
-          `REPL server failed to start: ${getErrorMessage(fallbackError)}`,
-        );
-      }
-    }
-  }
-}
-
-async function bindAndServe(port: number): Promise<void> {
-  log.info(`Starting REPL HTTP server on port ${port === 0 ? "0 (OS-assigned)" : port}...`);
-  const onListen = ({ hostname, port: boundPort }: { hostname: string; port: number }) => {
-    actualBoundPort = boundPort;
-    log.info(`REPL HTTP server listening on http://${hostname}:${boundPort}`);
-    // Write port file so clients can discover the actual port
-    void writeServerInfo(boundPort);
-  };
-  try {
+    log.info(`Starting REPL HTTP server on port ${port}...`);
     if (platform.http.serveWithHandle) {
       serverHandle = platform.http.serveWithHandle(handleRequest, {
         port,
         hostname: "127.0.0.1",
-        onListen,
+        onListen: ({ hostname, port }) => {
+          log.info(`REPL HTTP server listening on http://${hostname}:${port}`);
+        },
       });
       await serverHandle.finished;
     } else {
       await platform.http.serve(handleRequest, {
         port,
         hostname: "127.0.0.1",
-        onListen,
+        onListen: ({ hostname, port }) => {
+          log.info(`REPL HTTP server listening on http://${hostname}:${port}`);
+        },
       });
     }
+  } catch (error) {
+    if (error instanceof Error && error.name === "AddrInUse") {
+      log.error(
+        `Port ${port} is already in use. Another HLVM instance may be running.`,
+      );
+      throw new RuntimeError(
+        `REPL server port ${port} is already in use`,
+      );
+    }
+    log.error(`Failed to start REPL HTTP server: ${getErrorMessage(error)}`);
+    throw new RuntimeError(
+      `REPL server failed to start: ${getErrorMessage(error)}`,
+    );
   } finally {
-    deleteServerInfoSync();
     serverHandle = null;
-    actualBoundPort = null;
   }
 }
