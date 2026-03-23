@@ -15,6 +15,8 @@ import { log } from "../api/log.ts";
 import { ensureRuntimeDir, getRuntimeDir } from "../../common/paths.ts";
 import { findLegacyRuntimeEngine } from "../../common/legacy-migration.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import { DEFAULT_OLLAMA_ENDPOINT } from "../../common/config/types.ts";
+import { http } from "../../common/http-client.ts";
 
 // ============================================================================
 // Interface — consumers depend on this, not concrete internals
@@ -50,10 +52,12 @@ function getEmbeddedEnginePath(): string {
 
 async function isAIRunning(): Promise<boolean> {
   try {
-    // AI runtime lifecycle here means the local Ollama daemon, not whichever
-    // provider is currently configured as default (which may be cloud-only).
-    const status = await ai.status("ollama");
-    return status.available;
+    // Direct HTTP check to avoid depending on provider registry initialization order
+    // This is more robust than ai.status() which may fail if providers aren't loaded yet
+    const response = await http.fetchRaw(DEFAULT_OLLAMA_ENDPOINT, {
+      timeout: 2000,
+    });
+    return response.ok;
   } catch {
     return false;
   }
@@ -151,10 +155,16 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
     aiProcess.unref?.();
 
     if (await waitForAIEngineReady()) {
+      log.debug?.(`AI engine started successfully (${enginePath})`);
       return;
     }
     throw new RuntimeError("AI engine failed to start");
   } catch (error) {
+    // If Ollama is already running (port conflict), that's fine - check if it's responsive
+    if (await isAIRunning()) {
+      log.debug?.("AI engine already running (port in use but responsive)");
+      return;
+    }
     log.warn(`AI features unavailable: ${(error as Error).message}`);
     throw error;
   }

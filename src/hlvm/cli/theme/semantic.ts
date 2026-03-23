@@ -183,9 +183,9 @@ export function buildSemanticColors(palette: ThemePalette): SemanticColors {
       meta: palette.text,
       bullet: palette.secondary,
       status: {
-        ready: palette.accent,
-        attention: palette.secondary,
-        error: palette.error,
+        ready: palette.success,  // Green for AI available
+        attention: palette.warning,  // Yellow for setup required
+        error: palette.error,  // Red for AI unavailable
       },
     },
     chrome,

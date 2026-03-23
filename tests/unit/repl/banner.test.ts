@@ -7,26 +7,10 @@ import {
   getBannerLogoColors,
   getBannerRowCount,
   interpolateHexColor,
-  resolveBannerAiIndicator,
   shouldUseCompactBanner,
 } from "../../../src/hlvm/cli/repl-ink/components/Banner.tsx";
 import { THEMES } from "../../../src/hlvm/cli/theme/index.ts";
 import { buildSemanticColors } from "../../../src/hlvm/cli/theme/semantic.ts";
-
-Deno.test("resolveBannerAiIndicator reflects runtime readiness", () => {
-  assertEquals(
-    resolveBannerAiIndicator("available"),
-    { label: "AI available", tone: "ready" },
-  );
-  assertEquals(
-    resolveBannerAiIndicator("setup_required"),
-    { label: "AI setup required", tone: "attention" },
-  );
-  assertEquals(
-    resolveBannerAiIndicator("unavailable"),
-    { label: "AI unavailable", tone: "error" },
-  );
-});
 
 Deno.test("shouldUseCompactBanner activates for narrow terminals", () => {
   assertEquals(shouldUseCompactBanner(32), true);
@@ -39,9 +23,9 @@ Deno.test("shouldUseCompactBanner activates for short terminals", () => {
 });
 
 Deno.test("getBannerRowCount matches compact and full banner footprints", () => {
-  assertEquals(getBannerRowCount(0, 80, 28), 9);
-  assertEquals(getBannerRowCount(1, 80, 28), 10);
-  assertEquals(getBannerRowCount(0, 32, 28), 4);
+  assertEquals(getBannerRowCount(0, 80, 28), 8);
+  assertEquals(getBannerRowCount(1, 80, 28), 9);
+  assertEquals(getBannerRowCount(0, 32, 28), 3);
 });
 
 Deno.test("interpolateHexColor blends between palette stops", () => {

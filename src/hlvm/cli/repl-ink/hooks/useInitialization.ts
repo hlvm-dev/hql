@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { initializeRuntime } from "../../../../common/runtime-initializer.ts";
+import { runtimeProgress, type InitProgressEvent } from "../../../../common/runtime-progress.ts";
 import { prewarmFileIndex } from "../../repl/file-search.ts";
 import { ReplState } from "../../repl/state.ts";
 import {
@@ -30,10 +31,14 @@ interface InitializationState {
   readyTime: number;
   errors: string[];
   aiReadiness: ConfiguredModelReadinessState;
+  /** True if AI engine (globalThis.ai) is actually available */
+  aiAvailable: boolean;
   /** True if the default AI model needs to be downloaded */
   needsModelSetup: boolean;
   /** The model name that needs to be downloaded */
   modelToSetup: string;
+  /** Current initialization progress (only set during loading) */
+  progress?: InitProgressEvent;
   refreshAiReadiness: (
     modelId?: string,
     options?: { force?: boolean },
@@ -63,27 +68,31 @@ export function useInitialization(state: ReplState): InitializationState {
   const [ready, setReady] = useState(false);
   const [readyTime, setReadyTime] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
+  const [progress, setProgress] = useState<InitProgressEvent | undefined>();
   const [aiReadiness, setAiReadiness] = useState<ConfiguredModelReadinessState>(
     "unavailable",
   );
+  const [aiAvailable, setAiAvailable] = useState(false);
   const [needsModelSetup, setNeedsModelSetup] = useState(false);
   const [modelToSetup, setModelToSetup] = useState("");
   const initialized = useRef(false);
-  const aiAvailableRef = useRef(false);
   const lastReadinessModelIdRef = useRef<string | null>(null);
 
   const applyModelReadinessState = useCallback(
     (
       readiness: ConfiguredModelReadiness,
-      aiAvailable: boolean,
+      isAiAvailable: boolean,
     ): void => {
       const nextState = resolveInitializationReadinessState(
         readiness,
-        aiAvailable,
+        isAiAvailable,
       );
 
       setAiReadiness((current: ConfiguredModelReadinessState) =>
         current === nextState.aiReadiness ? current : nextState.aiReadiness
+      );
+      setAiAvailable((current: boolean) =>
+        current === isAiAvailable ? current : isAiAvailable
       );
       setNeedsModelSetup((current: boolean) =>
         current === nextState.needsModelSetup
@@ -108,11 +117,14 @@ export function useInitialization(state: ReplState): InitializationState {
         return;
       }
 
+      const globalAi = (globalThis as Record<string, unknown>).ai;
+      const isAiAvailable = globalAi != null && typeof globalAi === "object";
+
       const readiness = normalizedModelId
         ? await getModelReadiness(normalizedModelId)
         : await getConfiguredModelReadiness();
       lastReadinessModelIdRef.current = readiness.modelId;
-      applyModelReadinessState(readiness, aiAvailableRef.current);
+      applyModelReadinessState(readiness, isAiAvailable);
     },
     [applyModelReadinessState],
   );
@@ -122,6 +134,11 @@ export function useInitialization(state: ReplState): InitializationState {
     initialized.current = true;
 
     const startTime = Date.now();
+
+    // Subscribe to progress events
+    const unsubscribe = runtimeProgress.subscribe((event) => {
+      setProgress(event);
+    });
 
     (async () => {
       try {
@@ -152,8 +169,8 @@ export function useInitialization(state: ReplState): InitializationState {
 
         // AI is available if globalThis.ai is registered (done by registerApis)
         const globalAi = (globalThis as Record<string, unknown>).ai;
-        aiAvailableRef.current = globalAi != null &&
-          typeof globalAi === "object";
+        const isAiAvailable = globalAi != null && typeof globalAi === "object";
+        setAiAvailable(isAiAvailable);
 
         if (initResult.bindingsResult?.errors.length) {
           loadErrors.push(...initResult.bindingsResult.errors);
@@ -186,6 +203,7 @@ export function useInitialization(state: ReplState): InitializationState {
         await refreshAiReadiness(undefined, { force: true });
 
         setReadyTime(Date.now() - startTime);
+        setProgress(undefined);  // Clear progress when done
         setLoading(false);
         setReady(true);
       } catch (error) {
@@ -193,7 +211,10 @@ export function useInitialization(state: ReplState): InitializationState {
         setErrors(startupErrors);
         (globalThis as Record<string, unknown>).__hlvmStartupWarnings =
           startupErrors;
+        setProgress(undefined);
         setLoading(false);
+      } finally {
+        unsubscribe();
       }
     })();
   }, [refreshAiReadiness, state]);
@@ -203,7 +224,9 @@ export function useInitialization(state: ReplState): InitializationState {
     ready,
     readyTime,
     errors,
+    progress,
     aiReadiness,
+    aiAvailable,
     needsModelSetup,
     modelToSetup,
     refreshAiReadiness,

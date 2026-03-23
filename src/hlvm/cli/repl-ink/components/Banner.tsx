@@ -8,7 +8,6 @@ import { Box, Text, useStdout } from "ink";
 import { version as VERSION } from "../../../../../mod.ts";
 import { useSemanticColors, useTheme } from "../../theme/index.ts";
 import type { SemanticColors } from "../../theme/index.ts";
-import type { ConfiguredModelReadinessState } from "../../../runtime/configured-model-readiness.ts";
 import { truncate } from "../../../../common/utils.ts";
 import {
   DEFAULT_TERMINAL_HEIGHT,
@@ -23,22 +22,11 @@ const LOGO_LINES = [
   "██  ██ ███████   ████   ██    ██",
 ] as const;
 
-const SYMBOLS = {
-  bullet: "◆",
-} as const;
-
 const FULL_LOGO_WIDTH = Math.max(...LOGO_LINES.map((line) => line.length));
 const bannerRampCache = new Map<string, readonly string[]>();
 
 interface BannerProps {
-  aiReadiness: ConfiguredModelReadinessState;
   errors: string[];
-  modelName?: string;
-}
-
-interface BannerAiIndicator {
-  label: string;
-  tone: keyof SemanticColors["banner"]["status"];
 }
 
 function clampChannel(value: number): number {
@@ -122,7 +110,7 @@ export function getBannerRowCount(
   const spacerRows = compact ? 0 : 1; // blank line between logo and tagline
   const warningRows = errorCount > 0 ? 1 : 0;
   const marginBottomRows = 1;
-  return logoRows + spacerRows + 1 + 1 + warningRows + marginBottomRows;
+  return logoRows + spacerRows + 1 + warningRows + marginBottomRows;
 }
 
 export function shouldUseCompactBanner(
@@ -132,32 +120,16 @@ export function shouldUseCompactBanner(
   return width < FULL_LOGO_WIDTH + 4 || height < 22;
 }
 
-export function resolveBannerAiIndicator(
-  aiReadiness: ConfiguredModelReadinessState,
-): BannerAiIndicator {
-  switch (aiReadiness) {
-    case "available":
-      return { label: "AI available", tone: "ready" };
-    case "setup_required":
-      return { label: "AI setup required", tone: "attention" };
-    default:
-      return { label: "AI unavailable", tone: "error" };
-  }
-}
-
 export function Banner(
-  { aiReadiness, errors, modelName }: BannerProps,
+  { errors }: BannerProps,
 ): React.ReactElement {
   const { stdout } = useStdout();
   const { color, themeName } = useTheme();
   const sc = useSemanticColors();
-  const model = modelName?.trim() ?? "";
-  const indicator = resolveBannerAiIndicator(aiReadiness);
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const terminalHeight = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
   const compact = shouldUseCompactBanner(terminalWidth, terminalHeight);
   const contentWidth = Math.max(20, terminalWidth - 2);
-  const statusLabel = model ? `${indicator.label} · ${model}` : indicator.label;
   const logoColors = getBannerLogoColors(themeName, sc.banner, compact);
 
   return (
@@ -180,13 +152,6 @@ export function Banner(
           "…",
         )}
       </Text>
-
-      <Box>
-        <Text color={sc.banner.bullet}>{SYMBOLS.bullet}</Text>
-        <Text color={sc.banner.status[indicator.tone]}>
-          {truncate(statusLabel, Math.max(8, contentWidth - 2), "…")}
-        </Text>
-      </Box>
 
       {errors.length > 0 && (
         <Text color={sc.banner.status.attention}>

@@ -13,6 +13,7 @@ import React, {
 import { Box, Text, type Key, useApp, useInput, useStdout } from "ink";
 import { Output } from "./Output.tsx";
 import { Banner } from "./Banner.tsx";
+import { LoadingScreen } from "./LoadingScreen.tsx";
 import { ConfigOverlay } from "./ConfigOverlay.tsx";
 import {
   CommandPaletteOverlay,
@@ -1319,12 +1320,10 @@ function AppContent(
           init.ready
             ? (
               <Banner
-                aiReadiness={init.aiReadiness}
                 errors={init.errors}
-                modelName={modelSelection.displayLabel}
               />
             )
-            : <Text dimColor>Loading HLVM...</Text>
+            : <LoadingScreen progress={init.progress} />
         )}
 
       {/* Overlays rendered as siblings (not ternary) to preserve Ink's live area tracking */}
@@ -1515,6 +1514,7 @@ function AppContent(
               : undefined}
             activeTaskCount={activeCount}
             recentActiveTaskLabel={recentActiveTaskLabel}
+            aiAvailable={init.aiAvailable}
           />
         )}
 

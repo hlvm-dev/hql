@@ -16,6 +16,7 @@ import { initializeRuntimeHelpers } from "./runtime-helpers.ts";
 import { initAIRuntime } from "../hlvm/runtime/ai-runtime.ts";
 import { config } from "../hlvm/api/config.ts";
 import { initContext } from "../hlvm/cli/repl/context.ts";
+import { runtimeProgress } from "./runtime-progress.ts";
 // Note: Model installation is now handled by the REPL's ModelSetupOverlay
 // for better UX with progress display. See useInitialization.ts
 
@@ -83,13 +84,26 @@ class HlvmRuntimeInitializer {
         `Initializing HLVM runtime with options: ${JSON.stringify(opts)}`,
       );
 
+    let step = 0;
+    const totalSteps = [
+      opts.helpers,
+      opts.config,
+      opts.context,
+      opts.stdlib || opts.cache,
+      opts.ai,
+    ].filter(Boolean).length;
+
     // Initialize runtime helpers (usually required)
     if (opts.helpers) {
+      step++;
+      runtimeProgress.emit("helpers", "Initializing runtime helpers", step, totalSteps);
       initializeRuntimeHelpers();
     }
 
     // Load configuration
     if (opts.config) {
+      step++;
+      runtimeProgress.emit("config", "Loading configuration", step, totalSteps);
       try {
         await config.reload();
       } catch (error) {
@@ -101,23 +115,29 @@ class HlvmRuntimeInitializer {
 
     // Initialize REPL context on globalThis
     if (opts.context) {
+      step++;
+      runtimeProgress.emit("context", "Initializing REPL context", step, totalSteps);
       initContext();
     }
 
     // Initialize stdlib and cache in parallel (if enabled)
-    const parallelInits: Promise<void>[] = [];
-    if (opts.stdlib) {
-      parallelInits.push(this.initializeStdlib());
-    }
-    if (opts.cache) {
-      parallelInits.push(this.initializeCache());
-    }
-    if (parallelInits.length > 0) {
+    if (opts.stdlib || opts.cache) {
+      step++;
+      runtimeProgress.emit("stdlib", "Loading standard library", step, totalSteps);
+      const parallelInits: Promise<void>[] = [];
+      if (opts.stdlib) {
+        parallelInits.push(this.initializeStdlib());
+      }
+      if (opts.cache) {
+        parallelInits.push(this.initializeCache());
+      }
       await Promise.all(parallelInits);
     }
 
     // Initialize AI runtime (checks if Ollama is running, starts if embedded)
     if (opts.ai) {
+      step++;
+      runtimeProgress.emit("ai", "Starting AI engine", step, totalSteps);
       try {
         await initAIRuntime();
       } catch (error) {
@@ -132,6 +152,7 @@ class HlvmRuntimeInitializer {
     // Note: Default model installation is handled by REPL's ModelSetupOverlay
     // This provides better UX with progress display instead of blocking here
 
+    runtimeProgress.emit("complete", "Runtime ready", totalSteps, totalSteps);
     logger.debug("HLVM runtime initialization complete");
   }
 

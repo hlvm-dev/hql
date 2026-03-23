@@ -47,6 +47,7 @@ interface FooterProps {
   teamWorkerSummary?: string;
   activeTaskCount?: number;
   recentActiveTaskLabel?: string;
+  aiAvailable?: boolean;
 }
 
 interface FooterLeftStateInput {
@@ -274,6 +275,7 @@ export function FooterHint({
   teamWorkerSummary,
   activeTaskCount,
   recentActiveTaskLabel,
+  aiAvailable = false,
 }: FooterProps): React.ReactElement {
   const { stdout } = useStdout();
   const sc = useSemanticColors();
@@ -399,7 +401,9 @@ export function FooterHint({
         </Box>
         {rightParts.length > 0 && (
           <Box>
-            <Text color={sc.status.success}>{STATUS_GLYPHS.running} </Text>
+            <Text color={aiAvailable ? sc.status.success : sc.status.error}>
+              {STATUS_GLYPHS.running}{" "}
+            </Text>
             {rightParts.map((part, index) => (
               <React.Fragment key={`${part}-${index}`}>
                 {index > 0 && (
