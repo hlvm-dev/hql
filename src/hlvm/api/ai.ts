@@ -37,8 +37,6 @@ import { collectAsyncGenerator } from "../../common/stream-utils.ts";
 // Types
 // ============================================================================
 
-type AiChatOptions = ChatOptions & { signal?: AbortSignal };
-
 /** Options for ai() callable */
 export interface AiCallableOptions {
   data?: unknown;
@@ -60,8 +58,8 @@ export interface AiAgentOptions {
 /** The callable ai function type */
 export type AiApi = {
   (prompt: string, options?: AiCallableOptions): Promise<string | unknown>;
-  chat: (messages: Message[], options?: AiChatOptions) => AsyncGenerator<string, void, unknown>;
-  chatStructured: (messages: Message[], options?: AiChatOptions) => Promise<ChatStructuredResponse>;
+  chat: (messages: Message[], options?: ChatOptions) => AsyncGenerator<string, void, unknown>;
+  chatStructured: (messages: Message[], options?: ChatOptions) => Promise<ChatStructuredResponse>;
   agent: (prompt: string, options?: AiAgentOptions) => Promise<string>;
   models: {
     list: (providerName?: string) => Promise<ModelInfo[]>;
@@ -91,6 +89,11 @@ function resolveProvider(modelString?: string): AIProvider {
     );
   }
   return provider;
+}
+
+/** Resolve provider by name (for models/status), falling back to default */
+function providerByName(name?: string): AIProvider | undefined {
+  return (name ? getProvider(name) : getDefaultProvider()) ?? undefined;
 }
 
 /** Extract provider-local model name: "ollama/llama3.2" → "llama3.2" */
@@ -164,7 +167,7 @@ function createAiApi(): AiApi {
   // ── chat (streaming) ──────────────────────────────────────────────
   callable.chat = async function* (
     messages: Message[],
-    options?: AiChatOptions,
+    options?: ChatOptions,
   ): AsyncGenerator<string, void, unknown> {
     const provider = resolveProvider(options?.model);
     yield* provider.chat(messages, { ...options, model: localModelName(options?.model) });
@@ -173,7 +176,7 @@ function createAiApi(): AiApi {
   // ── chatStructured ────────────────────────────────────────────────
   callable.chatStructured = async function (
     messages: Message[],
-    options?: AiChatOptions,
+    options?: ChatOptions,
   ): Promise<ChatStructuredResponse> {
     const provider = resolveProvider(options?.model);
     if (!provider.chatStructured) {
@@ -182,7 +185,7 @@ function createAiApi(): AiApi {
         "ai_chat_structured",
       );
     }
-    return await provider.chatStructured(messages, { ...options, model: localModelName(options?.model) });
+    return provider.chatStructured(messages, { ...options, model: localModelName(options?.model) });
   };
 
   // ── agent (ReAct loop) ────────────────────────────────────────────
@@ -204,46 +207,39 @@ function createAiApi(): AiApi {
 
   // ── models ────────────────────────────────────────────────────────
   callable.models = {
-    list(providerName?: string): Promise<ModelInfo[]> {
-      const p = providerName ? getProvider(providerName) : getDefaultProvider();
-      return p?.models?.list ? p.models.list() : Promise.resolve([]);
-    },
+    list: (providerName?: string) =>
+      providerByName(providerName)?.models?.list?.() ?? Promise.resolve([]),
 
-    async listAll(options?: ModelListAllOptions): Promise<ModelInfo[]> {
-      return await listAllProviderModels(options);
-    },
+    listAll: (options?: ModelListAllOptions) => listAllProviderModels(options),
 
     get(name: string, providerName?: string): Promise<ModelInfo | null> {
       const [parsed, model] = parseModelString(name);
-      const p = (providerName ? getProvider(providerName) : getDefaultProvider()) ??
-        (parsed ? getProvider(parsed) : null);
-      return p?.models?.get ? p.models.get(providerName ? name : model) : Promise.resolve(null);
+      const p = providerByName(providerName) ?? (parsed ? getProvider(parsed) ?? undefined : undefined);
+      return p?.models?.get?.(providerName ? name : model) ?? Promise.resolve(null);
     },
 
     async catalog(providerName?: string): Promise<ModelInfo[]> {
-      const resolved = providerName ?? getDefaultProvider()?.name;
+      const resolved = providerName ?? providerByName()?.name;
       const snapshot = await readStaleWhileRevalidateModelDiscoverySnapshot();
       if (!resolved || resolved === "ollama") return snapshot.remoteModels;
       return snapshot.cloudModels.filter((m) => m.metadata?.provider === resolved);
     },
 
     async *pull(name: string, providerName?: string, signal?: AbortSignal): AsyncGenerator<PullProgress, void, unknown> {
-      const p = providerName ? getProvider(providerName) : getDefaultProvider();
+      const p = providerByName(providerName);
       if (!p?.models?.pull) {
         throw new ValidationError("Provider does not support model pulling", "ai.models.pull");
       }
       yield* p.models.pull(name, signal);
     },
 
-    remove(name: string, providerName?: string): Promise<boolean> {
-      const p = providerName ? getProvider(providerName) : getDefaultProvider();
-      return p?.models?.remove ? p.models.remove(name) : Promise.resolve(false);
-    },
+    remove: (name: string, providerName?: string) =>
+      providerByName(providerName)?.models?.remove?.(name) ?? Promise.resolve(false),
   };
 
   // ── status ────────────────────────────────────────────────────────
   callable.status = (providerName?: string): Promise<ProviderStatus> => {
-    const p = providerName ? getProvider(providerName) : getDefaultProvider();
+    const p = providerByName(providerName);
     if (!p) {
       return Promise.resolve({
         available: false,
