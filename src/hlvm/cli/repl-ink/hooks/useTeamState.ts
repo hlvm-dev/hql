@@ -109,24 +109,39 @@ function ensureSnapshot(
   return snapshot ? snapshot : createEmptySnapshot();
 }
 
+/** In-place upsert: find by `key`, update if exists, otherwise push. Returns the item. */
+function upsertByField<T>(
+  arr: T[],
+  key: keyof T,
+  value: unknown,
+  build: (existing: T | undefined) => T,
+): T {
+  const index = arr.findIndex((item) => item[key] === value);
+  const next = build(index >= 0 ? arr[index] : undefined);
+  if (index >= 0) {
+    arr[index] = next;
+  } else {
+    arr.push(next);
+  }
+  return next;
+}
+
 function ensureMember(
   snapshot: TeamRuntimeSnapshot,
   memberId: string,
   ts: number,
 ): void {
-  const existing = snapshot.members.find((member) => member.id === memberId);
-  if (existing) {
-    existing.updatedAt = Math.max(existing.updatedAt, ts);
-    return;
-  }
-  snapshot.members.push({
-    id: memberId,
-    agent: memberId,
-    role: memberId === snapshot.leadMemberId ? "lead" : "worker",
-    status: "active",
-    createdAt: ts,
-    updatedAt: ts,
-  });
+  upsertByField(snapshot.members, "id", memberId, (existing) =>
+    existing
+      ? { ...existing, updatedAt: Math.max(existing.updatedAt, ts) }
+      : {
+        id: memberId,
+        agent: memberId,
+        role: (memberId === snapshot.leadMemberId ? "lead" : "worker") as "lead" | "worker",
+        status: "active" as const,
+        createdAt: ts,
+        updatedAt: ts,
+      });
 }
 
 function syncMemberTask(snapshot: TeamRuntimeSnapshot, task: TeamTask): void {
@@ -173,37 +188,31 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
 
     switch (item.teamEventType) {
       case "team_task_updated": {
-        const existingIndex = snapshot.tasks.findIndex((task) => task.id === item.taskId);
-        const existing = existingIndex >= 0 ? snapshot.tasks[existingIndex] : undefined;
         if (item.assigneeMemberId) {
           ensureMember(snapshot, item.assigneeMemberId, ts);
         }
-        const nextTask: TeamTask = existing
-          ? {
-            ...existing,
-            goal: item.goal,
-            status: item.status as TeamTask["status"],
-            assigneeMemberId: item.assigneeMemberId,
-            updatedAt: ts,
-            artifacts: item.artifacts
-              ? { ...(existing.artifacts ?? {}), ...item.artifacts }
-              : existing.artifacts,
-          }
-          : {
-            id: item.taskId,
-            goal: item.goal,
-            status: item.status as TeamTask["status"],
-            assigneeMemberId: item.assigneeMemberId,
-            dependencies: [],
-            artifacts: item.artifacts ? { ...item.artifacts } : undefined,
-            createdAt: ts,
-            updatedAt: ts,
-          };
-        if (existingIndex >= 0) {
-          snapshot.tasks[existingIndex] = nextTask;
-        } else {
-          snapshot.tasks.push(nextTask);
-        }
+        const nextTask = upsertByField(snapshot.tasks, "id", item.taskId, (existing) =>
+          existing
+            ? {
+              ...existing,
+              goal: item.goal,
+              status: item.status as TeamTask["status"],
+              assigneeMemberId: item.assigneeMemberId,
+              updatedAt: ts,
+              artifacts: item.artifacts
+                ? { ...(existing.artifacts ?? {}), ...item.artifacts }
+                : existing.artifacts,
+            }
+            : {
+              id: item.taskId,
+              goal: item.goal,
+              status: item.status as TeamTask["status"],
+              assigneeMemberId: item.assigneeMemberId,
+              dependencies: [],
+              artifacts: item.artifacts ? { ...item.artifacts } : undefined,
+              createdAt: ts,
+              updatedAt: ts,
+            });
         syncMemberTask(snapshot, nextTask);
         break;
       }
@@ -228,58 +237,46 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
         if (item.reviewedByMemberId) {
           ensureMember(snapshot, item.reviewedByMemberId, ts);
         }
-        const existingIndex = snapshot.approvals.findIndex((approval) => approval.id === item.approvalId);
-        const existing = existingIndex >= 0 ? snapshot.approvals[existingIndex] : undefined;
-        const nextApproval = existing
-          ? {
-            ...existing,
-            status: item.status,
-            reviewedByMemberId: item.reviewedByMemberId,
-            updatedAt: ts,
-          }
-          : {
-            id: item.approvalId,
-            taskId: item.taskId,
-            submittedByMemberId: item.submittedByMemberId,
-            status: item.status,
-            plan: { goal: `Task ${item.taskId}`, steps: [] },
-            createdAt: ts,
-            updatedAt: ts,
-            reviewedByMemberId: item.reviewedByMemberId,
-          };
-        if (existingIndex >= 0) {
-          snapshot.approvals[existingIndex] = nextApproval;
-        } else {
-          snapshot.approvals.push(nextApproval);
-        }
+        upsertByField(snapshot.approvals, "id", item.approvalId, (existing) =>
+          existing
+            ? {
+              ...existing,
+              status: item.status,
+              reviewedByMemberId: item.reviewedByMemberId,
+              updatedAt: ts,
+            }
+            : {
+              id: item.approvalId,
+              taskId: item.taskId,
+              submittedByMemberId: item.submittedByMemberId,
+              status: item.status,
+              plan: { goal: `Task ${item.taskId}`, steps: [] },
+              createdAt: ts,
+              updatedAt: ts,
+              reviewedByMemberId: item.reviewedByMemberId,
+            });
         break;
       }
       case "team_shutdown": {
         ensureMember(snapshot, item.memberId, ts);
         ensureMember(snapshot, item.requestedByMemberId, ts);
-        const existingIndex = snapshot.shutdowns.findIndex((shutdown) => shutdown.id === item.requestId);
-        const existing = existingIndex >= 0 ? snapshot.shutdowns[existingIndex] : undefined;
-        const nextShutdown = existing
-          ? {
-            ...existing,
-            status: item.status,
-            reason: item.reason ?? existing.reason,
-            updatedAt: ts,
-          }
-          : {
-            id: item.requestId,
-            memberId: item.memberId,
-            requestedByMemberId: item.requestedByMemberId,
-            status: item.status,
-            reason: item.reason,
-            createdAt: ts,
-            updatedAt: ts,
-          };
-        if (existingIndex >= 0) {
-          snapshot.shutdowns[existingIndex] = nextShutdown;
-        } else {
-          snapshot.shutdowns.push(nextShutdown);
-        }
+        upsertByField(snapshot.shutdowns, "id", item.requestId, (existing) =>
+          existing
+            ? {
+              ...existing,
+              status: item.status,
+              reason: item.reason ?? existing.reason,
+              updatedAt: ts,
+            }
+            : {
+              id: item.requestId,
+              memberId: item.memberId,
+              requestedByMemberId: item.requestedByMemberId,
+              status: item.status,
+              reason: item.reason,
+              createdAt: ts,
+              updatedAt: ts,
+            });
 
         const member = snapshot.members.find((entry) => entry.id === item.memberId);
         if (member) {

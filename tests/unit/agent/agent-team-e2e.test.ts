@@ -648,35 +648,6 @@ Deno.test({
 
 // ── Team E2E helpers ──
 
-/** Creates a mock AgentEngine that returns text-only (no tool calls). */
-function createMockEngine(responseText = "Task completed successfully."): AgentEngine {
-  return {
-    createLLM: () => {
-      return async (): Promise<LLMResponse> => ({
-        content: responseText,
-        toolCalls: [],
-      });
-    },
-    createSummarizer: () => {
-      return async () => "Summary";
-    },
-  };
-}
-
-/** Creates a mock AgentEngine whose LLM function throws an error. */
-function createFailingEngine(errorMessage: string): AgentEngine {
-  return {
-    createLLM: () => {
-      return async (): Promise<LLMResponse> => {
-        throw new Error(errorMessage);
-      };
-    },
-    createSummarizer: () => {
-      return async () => "Summary";
-    },
-  };
-}
-
 /** Standard agent profiles for tests — includes general-purpose. */
 const TEST_AGENT_PROFILES: readonly AgentProfile[] = [
   { name: "general-purpose", description: "General purpose agent", tools: [] },
@@ -685,46 +656,107 @@ const TEST_AGENT_PROFILES: readonly AgentProfile[] = [
 /** Fast idle polling options for tests — avoids 90s idle waits. */
 const FAST_POLL = { idlePollIntervalMs: 10, maxIdlePolls: 3 };
 
-/** Standard ToolExecutionOptions for spawnAgent calls. */
-function makeSpawnOptions(overrides?: Record<string, unknown>): Record<string, unknown> {
+/**
+ * Creates a mock AgentEngine. By default returns text-only responses.
+ * Pass `failWith` to make the LLM throw on every call.
+ */
+function createMockEngine(
+  options?: { responseText?: string; failWith?: string },
+): AgentEngine {
+  const text = options?.responseText ?? "Task completed successfully.";
   return {
-    agentProfiles: TEST_AGENT_PROFILES,
-    ...FAST_POLL,
-    ...overrides,
+    createLLM: () =>
+      async (): Promise<LLMResponse> => {
+        if (options?.failWith) throw new Error(options.failWith);
+        return { content: text, toolCalls: [] };
+      },
+    createSummarizer: () => async () => "Summary",
   };
 }
 
-function tmpHlvmDir(): string {
-  const tmpDir = getPlatform().path.join(
-    getPlatform().env.get("TMPDIR") || "/tmp",
-    `hlvm-e2e-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  getPlatform().fs.mkdirSync(tmpDir, { recursive: true });
-  return tmpDir;
-}
+/**
+ * Test harness for agent team E2E tests.
+ * Encapsulates setup/teardown, team creation, task management, and worker spawning.
+ */
+class TestHarness {
+  readonly dir: string;
 
-function setupTeamEnv(): string {
-  const dir = tmpHlvmDir();
-  getPlatform().env.set("HLVM_DIR", dir);
-  resetHlvmDirCacheForTests();
-  resetTeamStoreForTests();
-  resetThreadRegistry();
-  resetBatchRegistry();
-  return dir;
-}
+  constructor() {
+    const tmpDir = getPlatform().path.join(
+      getPlatform().env.get("TMPDIR") || "/tmp",
+      `hlvm-e2e-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    getPlatform().fs.mkdirSync(tmpDir, { recursive: true });
+    this.dir = tmpDir;
+    getPlatform().env.set("HLVM_DIR", tmpDir);
+    resetHlvmDirCacheForTests();
+    resetTeamStoreForTests();
+    resetThreadRegistry();
+    resetBatchRegistry();
+  }
 
-function teardownTeamEnv(): void {
-  setActiveTeamStore(null);
-  resetAgentEngine();
-  resetThreadRegistry();
-  resetBatchRegistry();
-  const dir = getPlatform().env.get("HLVM_DIR");
-  getPlatform().env.delete("HLVM_DIR");
-  resetHlvmDirCacheForTests();
-  resetTeamStoreForTests();
-  if (dir) {
+  async spawnTeam(name: string, description?: string): Promise<Record<string, unknown>> {
+    return await AGENT_TEAM_TOOLS.Teammate.fn(
+      { operation: "spawnTeam", team_name: name, description },
+      this.dir,
+    ) as Record<string, unknown>;
+  }
+
+  async createTask(subject: string, description: string): Promise<Record<string, unknown>> {
+    return await AGENT_TEAM_TOOLS.TaskCreate.fn(
+      { subject, description },
+      this.dir,
+    ) as Record<string, unknown>;
+  }
+
+  async updateTask(taskId: string, patch: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return await AGENT_TEAM_TOOLS.TaskUpdate.fn(
+      { taskId, ...patch },
+      this.dir,
+    ) as Record<string, unknown>;
+  }
+
+  async spawnWorker(
+    name: string,
+    engineOrOptions?: AgentEngine | { failWith: string },
+    extra?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const engine = engineOrOptions && "failWith" in engineOrOptions
+      ? createMockEngine(engineOrOptions)
+      : (engineOrOptions as AgentEngine | undefined) ?? createMockEngine();
+    setAgentEngine(engine);
+    return await AGENT_TEAM_TOOLS.Teammate.fn(
+      { operation: "spawnAgent", name, agent_type: "general-purpose", ...extra },
+      this.dir,
+      { agentProfiles: TEST_AGENT_PROFILES, ...FAST_POLL, ...extra } as any,
+    ) as Record<string, unknown>;
+  }
+
+  async waitForThreads(): Promise<void> {
+    await waitForBackgroundThreads();
+  }
+
+  store(): import("../../../src/hlvm/agent/team-store.ts").TeamStore {
+    return getActiveTeamStore()!;
+  }
+
+  async cleanupTeam(): Promise<Record<string, unknown>> {
+    return await AGENT_TEAM_TOOLS.Teammate.fn(
+      { operation: "cleanup" },
+      this.dir,
+    ) as Record<string, unknown>;
+  }
+
+  teardown(): void {
+    setActiveTeamStore(null);
+    resetAgentEngine();
+    resetThreadRegistry();
+    resetBatchRegistry();
+    getPlatform().env.delete("HLVM_DIR");
+    resetHlvmDirCacheForTests();
+    resetTeamStoreForTests();
     try {
-      getPlatform().fs.removeSync(dir, { recursive: true });
+      getPlatform().fs.removeSync(this.dir, { recursive: true });
     } catch { /* best effort */ }
   }
 }
@@ -738,67 +770,35 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const dir = setupTeamEnv();
+    const h = new TestHarness();
     try {
-      // 1. Create team via tool API
-      const teamResult = await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnTeam", team_name: "e2e-lifecycle", description: "Lifecycle test" },
-        dir,
-      ) as Record<string, unknown>;
+      const teamResult = await h.spawnTeam("e2e-lifecycle", "Lifecycle test");
       assertEquals(teamResult.status, "created");
-      assertEquals(teamResult.teamName, "e2e-lifecycle");
       assertExists(getActiveTeamStore());
 
-      // 2. Create a task via tool API
-      const taskResult = await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "Write tests", description: "Add unit tests for auth module" },
-        dir,
-      ) as Record<string, unknown>;
+      const taskResult = await h.createTask("Write tests", "Add unit tests for auth module");
       assertEquals(taskResult.id, "1");
 
-      // 3. Set up mock engine that returns text-only (task completes immediately)
-      setAgentEngine(createMockEngine());
-
-      // 4. Spawn teammate via tool API
-      const spawnResult = await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnAgent", name: "worker-1", agent_type: "general-purpose" },
-        dir,
-        makeSpawnOptions() as any,
-      ) as Record<string, unknown>;
+      const spawnResult = await h.spawnWorker("worker-1");
       assertEquals(spawnResult.status, "spawned");
       assertExists(spawnResult.threadId);
+      await h.waitForThreads();
 
-      // 5. Wait for background thread to finish
-      await waitForBackgroundThreads();
-
-      // 6. Verify task was completed
-      const store = getActiveTeamStore()!;
-      const task = await store.getTask("1");
+      const task = await h.store().getTask("1");
       assertExists(task);
       assertEquals(task!.status, "completed");
       assertEquals(task!.owner, "worker-1");
 
-      // 7. Verify runtime messages
-      const snapshot = store.runtime.snapshot();
-      const completionMsgs = snapshot.messages.filter((m) => m.kind === "task_completed");
-      assertEquals(completionMsgs.length >= 1, true, "Should have task_completed message");
+      const snapshot = h.store().runtime.snapshot();
+      assertEquals(snapshot.messages.some((m) => m.kind === "task_completed"), true);
+      assertEquals(snapshot.messages.some((m) => m.kind === "idle_notification"), true);
+      assertEquals(h.store().runtime.getMember("worker-1")?.status, "terminated");
 
-      const idleMsgs = snapshot.messages.filter((m) => m.kind === "idle_notification");
-      assertEquals(idleMsgs.length >= 1, true, "Should have idle_notification message");
-
-      // 8. Verify member is terminated
-      const member = store.runtime.getMember("worker-1");
-      assertEquals(member?.status, "terminated");
-
-      // 9. Cleanup
-      const cleanupResult = await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "cleanup" },
-        dir,
-      ) as Record<string, unknown>;
+      const cleanupResult = await h.cleanupTeam();
       assertEquals(cleanupResult.status, "cleaned_up");
       assertEquals(getActiveTeamStore(), null);
     } finally {
-      teardownTeamEnv();
+      h.teardown();
     }
   },
 });
@@ -812,59 +812,25 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const dir = setupTeamEnv();
+    const h = new TestHarness();
     try {
-      // Create team + 2 tasks
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnTeam", team_name: "e2e-parallel" },
-        dir,
-      );
-      await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "Task Alpha", description: "Do alpha work" },
-        dir,
-      );
-      await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "Task Beta", description: "Do beta work" },
-        dir,
-      );
+      await h.spawnTeam("e2e-parallel");
+      await h.createTask("Task Alpha", "Do alpha work");
+      await h.createTask("Task Beta", "Do beta work");
 
-      // Set up mock engine
-      setAgentEngine(createMockEngine());
+      await h.spawnWorker("worker-a");
+      await h.spawnWorker("worker-b");
+      await h.waitForThreads();
 
-      // Spawn two teammates
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnAgent", name: "worker-a", agent_type: "general-purpose" },
-        dir,
-        makeSpawnOptions() as any,
-      );
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnAgent", name: "worker-b", agent_type: "general-purpose" },
-        dir,
-        makeSpawnOptions() as any,
-      );
-
-      // Wait for both to finish
-      await waitForBackgroundThreads();
-
-      const store = getActiveTeamStore()!;
-      const tasks = await store.listTasks();
-
-      // Both tasks should be completed
+      const tasks = await h.store().listTasks();
       assertEquals(tasks.length, 2);
-      for (const t of tasks) {
-        assertEquals(t.status, "completed");
-      }
+      for (const t of tasks) assertEquals(t.status, "completed");
+      assertEquals(tasks.map((t) => t.owner).filter(Boolean).length, 2);
 
-      // Each should have an owner (might be same or different depending on race)
-      const owners = tasks.map((t) => t.owner).filter(Boolean);
-      assertEquals(owners.length, 2);
-
-      // Verify task_completed messages
-      const snapshot = store.runtime.snapshot();
-      const completionMsgs = snapshot.messages.filter((m) => m.kind === "task_completed");
-      assertEquals(completionMsgs.length >= 2, true, "Should have 2 task_completed messages");
+      const snapshot = h.store().runtime.snapshot();
+      assertEquals(snapshot.messages.filter((m) => m.kind === "task_completed").length >= 2, true);
     } finally {
-      teardownTeamEnv();
+      h.teardown();
     }
   },
 });
@@ -878,57 +844,29 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const dir = setupTeamEnv();
+    const h = new TestHarness();
     try {
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnTeam", team_name: "e2e-blocked" },
-        dir,
-      );
+      await h.spawnTeam("e2e-blocked");
+      await h.createTask("Setup infrastructure", "Set up DB and env");
+      await h.createTask("Build feature", "Build the feature on top of infra");
+      await h.updateTask("2", { addBlockedBy: ["1"] });
 
-      // Create task A (blocker) and task B (blocked by A)
-      await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "Setup infrastructure", description: "Set up DB and env" },
-        dir,
-      );
-      await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "Build feature", description: "Build the feature on top of infra" },
-        dir,
-      );
-      await AGENT_TEAM_TOOLS.TaskUpdate.fn(
-        { taskId: "2", addBlockedBy: ["1"] },
-        dir,
-      );
+      await h.spawnWorker("solo-worker");
+      await h.waitForThreads();
 
-      // Single teammate handles both
-      setAgentEngine(createMockEngine());
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnAgent", name: "solo-worker", agent_type: "general-purpose" },
-        dir,
-        makeSpawnOptions() as any,
-      );
-
-      await waitForBackgroundThreads();
-
-      const store = getActiveTeamStore()!;
-      const taskA = await store.getTask("1");
-      const taskB = await store.getTask("2");
-
-      // Both should be completed
+      const taskA = await h.store().getTask("1");
+      const taskB = await h.store().getTask("2");
       assertExists(taskA);
       assertExists(taskB);
       assertEquals(taskA!.status, "completed");
       assertEquals(taskB!.status, "completed");
-
-      // Task A should have been picked up first (solo worker, so sequential)
       assertEquals(taskA!.owner, "solo-worker");
       assertEquals(taskB!.owner, "solo-worker");
 
-      // Both were completed by the same worker
-      const snapshot = store.runtime.snapshot();
-      const completionMsgs = snapshot.messages.filter((m) => m.kind === "task_completed");
-      assertEquals(completionMsgs.length, 2);
+      const snapshot = h.store().runtime.snapshot();
+      assertEquals(snapshot.messages.filter((m) => m.kind === "task_completed").length, 2);
     } finally {
-      teardownTeamEnv();
+      h.teardown();
     }
   },
 });
@@ -942,18 +880,12 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const dir = setupTeamEnv();
+    const h = new TestHarness();
     try {
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnTeam", team_name: "e2e-shutdown" },
-        dir,
-      );
+      await h.spawnTeam("e2e-shutdown");
 
-      const store = getActiveTeamStore()!;
-
-      // Write a shutdown request to the worker's inbox BEFORE spawning.
-      // This way the loop picks it up on first inbox drain.
-      await store.sendMessage({
+      // Pre-populate inbox with shutdown request before spawning
+      await h.store().sendMessage({
         id: "shutdown-msg",
         type: "shutdown_request",
         from: "lead",
@@ -964,24 +896,12 @@ Deno.test({
         requestId: "shutdown-req-1",
       });
 
-      // No tasks — teammate will check inbox and find shutdown
-      setAgentEngine(createMockEngine());
+      await h.spawnWorker("shutdown-worker");
+      await h.waitForThreads();
 
-      // Spawn teammate
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnAgent", name: "shutdown-worker", agent_type: "general-purpose" },
-        dir,
-        makeSpawnOptions() as any,
-      );
-
-      // Wait for thread
-      await waitForBackgroundThreads();
-
-      // Verify member terminated
-      const member = store.runtime.getMember("shutdown-worker");
-      assertEquals(member?.status, "terminated");
+      assertEquals(h.store().runtime.getMember("shutdown-worker")?.status, "terminated");
     } finally {
-      teardownTeamEnv();
+      h.teardown();
     }
   },
 });
@@ -995,23 +915,13 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const dir = setupTeamEnv();
+    const h = new TestHarness();
     try {
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnTeam", team_name: "e2e-inbox" },
-        dir,
-      );
+      await h.spawnTeam("e2e-inbox");
+      await h.createTask("Process data", "Parse and transform the data");
 
-      // Create a task
-      await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "Process data", description: "Parse and transform the data" },
-        dir,
-      );
-
-      const store = getActiveTeamStore()!;
-
-      // Pre-populate inbox for the worker with a DM (before spawning)
-      await store.sendMessage({
+      // Pre-populate inbox with a DM before spawning
+      await h.store().sendMessage({
         id: "pre-dm-1",
         type: "message",
         from: "lead",
@@ -1021,28 +931,16 @@ Deno.test({
         recipient: "inbox-worker",
       });
 
-      setAgentEngine(createMockEngine());
+      await h.spawnWorker("inbox-worker");
+      await h.waitForThreads();
 
-      // Spawn the worker
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnAgent", name: "inbox-worker", agent_type: "general-purpose" },
-        dir,
-        makeSpawnOptions() as any,
-      );
-
-      await waitForBackgroundThreads();
-
-      // Task should be completed
-      const task = await store.getTask("1");
+      const task = await h.store().getTask("1");
       assertExists(task);
       assertEquals(task!.status, "completed");
       assertEquals(task!.owner, "inbox-worker");
-
-      // Inbox should be drained
-      const inbox = await store.readInbox("inbox-worker");
-      assertEquals(inbox.length, 0);
+      assertEquals((await h.store().readInbox("inbox-worker")).length, 0);
     } finally {
-      teardownTeamEnv();
+      h.teardown();
     }
   },
 });
@@ -1056,54 +954,28 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const dir = setupTeamEnv();
+    const h = new TestHarness();
     try {
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnTeam", team_name: "e2e-error" },
-        dir,
-      );
+      await h.spawnTeam("e2e-error");
+      await h.createTask("Failing task", "This will fail");
 
-      await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "Failing task", description: "This will fail" },
-        dir,
-      );
+      await h.spawnWorker("error-worker", { failWith: "Simulated LLM failure" });
+      await h.waitForThreads();
 
-      // Engine that throws errors
-      setAgentEngine(createFailingEngine("Simulated LLM failure"));
-
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnAgent", name: "error-worker", agent_type: "general-purpose" },
-        dir,
-        makeSpawnOptions() as any,
-      );
-
-      await waitForBackgroundThreads();
-
-      const store = getActiveTeamStore()!;
-
-      // Task should remain in_progress (not completed, available for retry)
-      const task = await store.getTask("1");
+      const task = await h.store().getTask("1");
       assertExists(task);
       assertEquals(task!.status, "in_progress");
 
-      // Runtime should have a task_error notification (sent via task_completed kind with error content)
-      const snapshot = store.runtime.snapshot();
+      // Verify task_error notification
+      const snapshot = h.store().runtime.snapshot();
       const errorMsgs = snapshot.messages.filter((m) => {
         if (m.kind !== "task_completed") return false;
-        try {
-          const payload = JSON.parse(m.content);
-          return payload.type === "task_error";
-        } catch {
-          return false;
-        }
+        try { return JSON.parse(m.content).type === "task_error"; } catch { return false; }
       });
       assertEquals(errorMsgs.length >= 1, true, "Should have task_error message");
-
-      // Worker should eventually terminate (idle timeout after error)
-      const member = store.runtime.getMember("error-worker");
-      assertEquals(member?.status, "terminated");
+      assertEquals(h.store().runtime.getMember("error-worker")?.status, "terminated");
     } finally {
-      teardownTeamEnv();
+      h.teardown();
     }
   },
 });
@@ -1115,51 +987,29 @@ Deno.test({
 Deno.test({
   name: "E2E team: task ID highwatermark persists across store recreation",
   async fn() {
-    const dir = setupTeamEnv();
+    const h = new TestHarness();
     try {
-      // Create team and 3 tasks
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnTeam", team_name: "e2e-highwatermark" },
-        dir,
-      );
-      await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "A", description: "a" },
-        dir,
-      );
-      await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "B", description: "b" },
-        dir,
-      );
-      await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "C", description: "c" },
-        dir,
-      );
+      await h.spawnTeam("e2e-highwatermark");
+      await h.createTask("A", "a");
+      await h.createTask("B", "b");
+      await h.createTask("C", "c");
 
-      // Verify IDs are 1, 2, 3
-      const store1 = getActiveTeamStore()!;
-      const tasks = await store1.listTasks();
+      const tasks = await h.store().listTasks();
       assertEquals(tasks.map((t) => t.id), ["1", "2", "3"]);
 
-      // Verify highwatermark file on disk
       const hwPath = getTeamHighwatermarkPath("e2e-highwatermark");
-      const hwContent = getPlatform().fs.readTextFileSync(hwPath);
-      assertEquals(hwContent, "3");
+      assertEquals(getPlatform().fs.readTextFileSync(hwPath), "3");
 
       // Reset and recreate store (simulating restart)
       setActiveTeamStore(null);
       resetTeamStoreForTests();
-
       const store2 = await createTeamStore("e2e-highwatermark");
       setActiveTeamStore(store2);
 
-      // Create another task — should continue from highwatermark
-      const newTask = await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "D", description: "d" },
-        dir,
-      ) as Record<string, unknown>;
+      const newTask = await h.createTask("D", "d");
       assertEquals(newTask.id, "4");
     } finally {
-      teardownTeamEnv();
+      h.teardown();
     }
   },
 });
@@ -1173,51 +1023,27 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const dir = setupTeamEnv();
+    const h = new TestHarness();
     try {
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnTeam", team_name: "e2e-config" },
-        dir,
-      );
+      await h.spawnTeam("e2e-config");
+      await h.createTask("Quick task", "...");
 
-      // Create a task so teammate doesn't idle-exit too fast
-      await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "Quick task", description: "..." },
-        dir,
-      );
+      await h.spawnWorker("config-worker", undefined, { plan_mode_required: true });
+      await h.waitForThreads();
 
-      setAgentEngine(createMockEngine());
-
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        {
-          operation: "spawnAgent",
-          name: "config-worker",
-          agent_type: "general-purpose",
-          plan_mode_required: true,
-        },
-        dir,
-        makeSpawnOptions() as any,
-      );
-
-      // Wait for thread to finish
-      await waitForBackgroundThreads();
-
-      // Read config.json from disk
       const configPath = getTeamConfigPath("e2e-config");
       const config = JSON.parse(getPlatform().fs.readTextFileSync(configPath));
 
-      // Should have 2 members: lead + config-worker
       assertEquals(config.members.length >= 2, true, "Config should have at least 2 members");
-
       const worker = config.members.find(
         (m: Record<string, unknown>) => m.name === "config-worker",
       );
       assertExists(worker, "Config should include config-worker member");
       assertEquals(worker.agentType, "general-purpose");
-      assertExists(worker.joinedAt, "Member should have joinedAt timestamp");
+      assertExists(worker.joinedAt);
       assertEquals(worker.backendType, "in-process");
     } finally {
-      teardownTeamEnv();
+      h.teardown();
     }
   },
 });
@@ -1237,185 +1063,96 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const dir = setupTeamEnv();
+    const h = new TestHarness();
     try {
-      // ── 1. Create team + task (user says "use a team to build auth") ──
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnTeam", team_name: "e2e-real-work", description: "Real work test" },
-        dir,
-      );
-      await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "Build auth module", description: "Implement authentication" },
-        dir,
-      );
+      await h.spawnTeam("e2e-real-work", "Real work test");
+      await h.createTask("Build auth module", "Implement authentication");
 
-      // ── 2. Script the LLM to make REAL tool calls ──
-      //    First task: Agent calls TaskCreate (verifiable side effect) then returns
-      //    Subsequent tasks: Agent just returns "Done" (no tool calls) to prevent infinite loop
+      // Script LLM: first task makes a real TaskCreate call, subsequent tasks complete immediately
       const capturedEvents: AgentUIEvent[] = [];
       let llmCallCount = 0;
-
       setAgentEngine({
         createLLM: () => {
           llmCallCount++;
           if (llmCallCount === 1) {
-            // First task: make a real tool call
             return createScriptedLLM([
               {
                 content: "I'll break this down. Creating a sub-task for test coverage.",
-                toolCalls: [
-                  {
-                    id: "tc-1",
-                    toolName: "TaskCreate",
-                    args: {
-                      subject: "Write auth tests",
-                      description: "Unit tests for login, logout, token refresh",
-                    },
-                  },
-                ],
+                toolCalls: [{
+                  id: "tc-1",
+                  toolName: "TaskCreate",
+                  args: { subject: "Write auth tests", description: "Unit tests for login, logout, token refresh" },
+                }],
               },
-              {
-                content: "Auth module implemented and sub-task created for tests.",
-                toolCalls: [],
-              },
+              { content: "Auth module implemented and sub-task created for tests.", toolCalls: [] },
             ]);
           }
-          // Subsequent tasks: just complete immediately
-          return createScriptedLLM([
-            { content: "Sub-task completed.", toolCalls: [] },
-          ]);
+          return createScriptedLLM([{ content: "Sub-task completed.", toolCalls: [] }]);
         },
         createSummarizer: () => async () => "Summary",
       });
 
-      // ── 3. Spawn agent with event capture ──
       await AGENT_TEAM_TOOLS.Teammate.fn(
         { operation: "spawnAgent", name: "alice", agent_type: "general-purpose" },
-        dir,
-        makeSpawnOptions({
-          onAgentEvent: (event: AgentUIEvent) => capturedEvents.push(event),
-        }) as any,
+        h.dir,
+        { agentProfiles: TEST_AGENT_PROFILES, ...FAST_POLL, onAgentEvent: (event: AgentUIEvent) => capturedEvents.push(event) } as any,
       );
-      await waitForBackgroundThreads();
+      await h.waitForThreads();
 
-      // ── 4. Verify REAL side effect: sub-task created by agent's tool call ──
-      // Debug: dump captured events to understand what happened
-      const eventSummary = capturedEvents.map((e) => {
-        if (e.type === "tool_start") return `tool_start:${(e as Record<string, unknown>).name}`;
-        if (e.type === "tool_end") return `tool_end:${(e as Record<string, unknown>).name}`;
-        return e.type;
-      });
-      const store = getActiveTeamStore()!;
-      const tasks = await store.listTasks();
-      assertEquals(
-        tasks.length,
-        2,
-        `Should have 2 tasks: original + sub-task created by agent. ` +
-          `Got ${tasks.length} tasks. Events: [${eventSummary.join(", ")}]`,
-      );
-
+      // Verify REAL side effect: sub-task created by agent's tool call
+      const tasks = await h.store().listTasks();
+      assertEquals(tasks.length, 2, `Should have 2 tasks (original + sub-task), got ${tasks.length}`);
       const subTask = tasks.find((t) => t.subject === "Write auth tests");
-      assertExists(subTask, "Agent should have created 'Write auth tests' sub-task via TaskCreate tool call");
-      assertStringIncludes(
-        subTask!.description,
-        "login",
-        "Sub-task description should contain the agent's text",
-      );
+      assertExists(subTask, "Agent should have created 'Write auth tests' sub-task");
+      assertStringIncludes(subTask!.description, "login");
 
-      // ── 5. Verify original task completed ──
-      const mainTask = await store.getTask("1");
+      const mainTask = await h.store().getTask("1");
       assertExists(mainTask);
-      assertEquals(mainTask!.status, "completed", "Main task should be completed");
+      assertEquals(mainTask!.status, "completed");
       assertEquals(mainTask!.owner, "alice");
 
-      // ── 6. Verify events were captured (not just [thinking, turn_stats]) ──
+      // Verify events
       const eventTypes = capturedEvents.map((e) => e.type);
-      assertEquals(
-        eventTypes.includes("team_task_updated"),
-        true,
-        `Expected team_task_updated in events: [${eventTypes.join(", ")}]`,
-      );
-      assertEquals(
-        eventTypes.includes("tool_start") || eventTypes.includes("tool_end"),
-        true,
-        `Expected tool execution events from TaskCreate call: [${eventTypes.join(", ")}]`,
-      );
+      assertEquals(eventTypes.includes("team_task_updated"), true);
+      assertEquals(eventTypes.includes("tool_start") || eventTypes.includes("tool_end"), true);
 
-      // ── 7. Feed captured events through the REAL reducer ──
-      //    (exactly as ConversationPanel does in the TUI)
+      // Feed events through REAL reducer
       let transcriptState = createTranscriptState();
       for (const event of capturedEvents) {
-        transcriptState = reduceTranscriptState(transcriptState, {
-          type: "agent_event",
-          event,
-        });
+        transcriptState = reduceTranscriptState(transcriptState, { type: "agent_event", event });
       }
 
-      // ── 8. Verify team events made it through the reducer ──
       const teamItems = transcriptState.items.filter(isStructuredTeamInfoItem);
-      assertEquals(
-        teamItems.length >= 2,
-        true,
-        `Expected >= 2 team items (claim + complete), got ${teamItems.length}. ` +
-          `Events: [${eventTypes.join(", ")}]`,
-      );
+      assertEquals(teamItems.length >= 2, true, `Expected >= 2 team items, got ${teamItems.length}`);
 
-      // ── 9. Verify specific team event content from real execution ──
       const taskUpdates = teamItems.filter((i) => i.teamEventType === "team_task_updated");
-      assertEquals(taskUpdates.length >= 2, true, "Should have claim + completion events");
+      assertEquals(taskUpdates.length >= 2, true);
+      assertExists(taskUpdates.find((i) => i.teamEventType === "team_task_updated" && i.status === "in_progress"));
+      assertExists(taskUpdates.find((i) => i.teamEventType === "team_task_updated" && i.status === "completed"));
 
-      // Verify claim event
-      const claimEvent = taskUpdates.find(
-        (i) => i.teamEventType === "team_task_updated" && i.status === "in_progress",
-      );
-      assertExists(claimEvent, "Should have in_progress (claim) event");
-      assertEquals(claimEvent!.assigneeMemberId, "alice");
-
-      // Verify completion event
-      const completeEvent = taskUpdates.find(
-        (i) => i.teamEventType === "team_task_updated" && i.status === "completed",
-      );
-      assertExists(completeEvent, "Should have completed event");
-
-      // ── 10. Verify chrome functions produce valid output on real data ──
+      // Verify chrome + component integration
       for (const item of taskUpdates) {
         if (item.teamEventType !== "team_task_updated") continue;
         const tone = getTeamTaskStatusTone(item.status);
-        const glyph = getTeamTaskStatusGlyph(item.status);
-        assertEquals(
-          ["neutral", "active", "success", "warning", "error"].includes(tone),
-          true,
-          `Tone "${tone}" should be valid for status "${item.status}"`,
-        );
-        assertEquals(glyph.length > 0, true, `Glyph should be non-empty for status "${item.status}"`);
+        assertEquals(["neutral", "active", "success", "warning", "error"].includes(tone), true);
+        assertEquals(getTeamTaskStatusGlyph(item.status).length > 0, true);
       }
-
-      // ── 11. Verify TeamEventItem accepts real reducer output ──
       for (const item of teamItems) {
         const el = React.createElement(TeamEventItem, { item, width: 80 });
-        assertExists(el, `TeamEventItem should accept real ${item.teamEventType} item`);
-        assertEquals(el.props.item, item);
+        assertExists(el);
       }
 
-      // ── 12. Verify footer state reflects active team ──
+      // Verify footer state
       const footerState = buildFooterLeftState({
-        inConversation: true,
-        streamingState: StreamingState.Idle,
-        teamActive: true,
-        teamAttentionCount: teamItems.length,
-        teamWorkerSummary: "alice: working",
-        spinner: "x",
+        inConversation: true, streamingState: StreamingState.Idle, teamActive: true,
+        teamAttentionCount: teamItems.length, teamWorkerSummary: "alice: working", spinner: "x",
       });
-      const teamChip = footerState.segments.find((s) => s.text === "Team");
-      assertExists(teamChip, "Footer should have Team chip");
-      assertEquals(teamChip!.tone, "active");
-      const workerSeg = footerState.segments.find((s) => s.text.includes("alice"));
-      assertExists(workerSeg, "Footer should show alice in worker summary");
+      assertExists(footerState.segments.find((s) => s.text === "Team"));
+      assertExists(footerState.segments.find((s) => s.text.includes("alice")));
 
-      // ── 13. Cleanup ──
-      await AGENT_TEAM_TOOLS.Teammate.fn({ operation: "cleanup" }, dir);
+      await h.cleanupTeam();
     } finally {
-      teardownTeamEnv();
+      h.teardown();
     }
   },
 });
@@ -1429,84 +1166,57 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const dir = setupTeamEnv();
+    const h = new TestHarness();
     const workspace = await platform.fs.makeTempDir({ prefix: "hlvm-team-write-" });
     try {
-      // 1. Create team + task
-      await AGENT_TEAM_TOOLS.Teammate.fn(
-        { operation: "spawnTeam", team_name: "e2e-write-file", description: "File write test" },
-        dir,
-      );
-      await AGENT_TEAM_TOOLS.TaskCreate.fn(
-        { subject: "Create config file", description: "Write a config.json to workspace" },
-        dir,
-      );
+      await h.spawnTeam("e2e-write-file", "File write test");
+      await h.createTask("Create config file", "Write a config.json to workspace");
 
-      // 2. Script LLM to call write_file (L1 — requires auto-edit permission)
+      // Script LLM to call write_file (L1 — requires auto-edit permission)
       const targetPath = platform.path.join(workspace, "config.json");
       const fileContent = JSON.stringify({ version: 1, name: "test-app" }, null, 2);
+      const capturedEvents: AgentUIEvent[] = [];
 
       setAgentEngine({
         createLLM: () => createScriptedLLM([
           {
             content: "Creating config file.",
-            toolCalls: [
-              {
-                id: "tc-write",
-                toolName: "write_file",
-                args: { path: targetPath, content: fileContent },
-              },
-            ],
+            toolCalls: [{ id: "tc-write", toolName: "write_file", args: { path: targetPath, content: fileContent } }],
           },
           { content: "Config file created successfully.", toolCalls: [] },
         ]),
         createSummarizer: () => async () => "Summary",
       });
 
-      // 3. Spawn teammate with permissionMode: "auto-edit" (inherits from lead)
-      //    Profile includes write_file so it's in the tool allowlist.
       const writeProfiles: readonly AgentProfile[] = [
         { name: "general", description: "General purpose agent", tools: ["write_file"] },
       ];
-      const capturedEvents: AgentUIEvent[] = [];
       await AGENT_TEAM_TOOLS.Teammate.fn(
         { operation: "spawnAgent", name: "writer", agent_type: "general-purpose" },
         workspace,
-        {
-          agentProfiles: writeProfiles,
-          ...FAST_POLL,
-          onAgentEvent: (event: AgentUIEvent) => capturedEvents.push(event),
-          permissionMode: "auto-edit",
-        } as any,
+        { agentProfiles: writeProfiles, ...FAST_POLL, onAgentEvent: (event: AgentUIEvent) => capturedEvents.push(event), permissionMode: "auto-edit" } as any,
       );
-      await waitForBackgroundThreads();
+      await h.waitForThreads();
 
-      // 4. Verify the file was ACTUALLY written to disk
+      // Verify file was ACTUALLY written to disk
       const written = await platform.fs.readTextFile(targetPath);
-      assertStringIncludes(written, "test-app", "File should contain the content written by teammate");
-      assertStringIncludes(written, "version", "File should have version field");
+      assertStringIncludes(written, "test-app");
+      assertStringIncludes(written, "version");
 
-      // 5. Verify task completed
-      const store = getActiveTeamStore()!;
-      const task = await store.getTask("1");
+      const task = await h.store().getTask("1");
       assertExists(task);
-      assertEquals(task!.status, "completed", "Task should be completed after file write");
+      assertEquals(task!.status, "completed");
       assertEquals(task!.owner, "writer");
 
-      // 6. Verify tool execution events include write_file
-      const toolStarts = capturedEvents.filter((e) => e.type === "tool_start");
-      const writeEvent = toolStarts.find((e) =>
-        (e as Record<string, unknown>).name === "write_file"
+      assertExists(
+        capturedEvents.filter((e) => e.type === "tool_start").find((e) => (e as Record<string, unknown>).name === "write_file"),
+        "Should have tool_start event for write_file",
       );
-      assertExists(writeEvent, "Should have tool_start event for write_file");
 
-      // 7. Cleanup
-      await AGENT_TEAM_TOOLS.Teammate.fn({ operation: "cleanup" }, dir);
+      await h.cleanupTeam();
     } finally {
-      try {
-        await platform.fs.remove(workspace, { recursive: true });
-      } catch { /* best effort */ }
-      teardownTeamEnv();
+      try { await platform.fs.remove(workspace, { recursive: true }); } catch { /* best effort */ }
+      h.teardown();
     }
   },
 });

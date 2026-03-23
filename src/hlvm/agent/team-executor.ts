@@ -198,6 +198,51 @@ export async function runTeammateLoop(
     }
   };
 
+  /** Send idle notification + dispatch hook in one call. */
+  const notifyIdle = (reason: string, tc?: number): void => {
+    sendNotification(
+      "idle_notification",
+      JSON.stringify({
+        type: "idle_notification",
+        name: identity.name,
+        reason,
+        ...(tc !== undefined ? { tasksCompleted: tc } : {}),
+      }),
+    );
+    hookRuntime?.dispatchDetached("teammate_idle", {
+      teamName: identity.teamName,
+      memberName: identity.name,
+      reason,
+    });
+  };
+
+  /** Send task completion/error notification + UI event + optional hook. */
+  const notifyTaskOutcome = (
+    taskId: string,
+    subject: string,
+    kind: "task_completed" | "task_error",
+    detail: string,
+  ): void => {
+    sendNotification(
+      "task_completed",
+      JSON.stringify({
+        type: kind,
+        name: identity.name,
+        taskId,
+        subject,
+        ...(kind === "task_completed" ? { summary: detail } : { error: detail }),
+      }),
+    );
+    onAgentEvent?.({
+      type: "team_message",
+      kind,
+      fromMemberId: identity.name,
+      toMemberId: identity.leadMemberId,
+      relatedTaskId: taskId,
+      contentPreview: detail.slice(0, 120),
+    });
+  };
+
   while (!signal.aborted) {
     // 1. Check for shutdown request
     const shutdownReq = runtime.getPendingShutdown(identity.teamMemberId);
@@ -250,39 +295,13 @@ export async function runTeammateLoop(
         log.info(
           `[TeamExecutor] Teammate "${identity.name}" idle limit reached (${maxIdlePolls} polls)`,
         );
-        sendNotification(
-          "idle_notification",
-          JSON.stringify({
-            type: "idle_notification",
-            name: identity.name,
-            reason: "no_work",
-            tasksCompleted,
-          }),
-        );
-        hookRuntime?.dispatchDetached("teammate_idle", {
-          teamName: identity.teamName,
-          memberName: identity.name,
-          reason: "no_work",
-        });
+        notifyIdle("no_work", tasksCompleted);
         runtime.updateMember(identity.teamMemberId, { status: "terminated" });
         return { tasksCompleted, exitReason: "no_work" };
       }
 
       if (idlePolls === 1) {
-        // Only send idle notification on first poll
-        sendNotification(
-          "idle_notification",
-          JSON.stringify({
-            type: "idle_notification",
-            name: identity.name,
-            reason: "waiting_for_tasks",
-          }),
-        );
-        hookRuntime?.dispatchDetached("teammate_idle", {
-          teamName: identity.teamName,
-          memberName: identity.name,
-          reason: "waiting_for_tasks",
-        });
+        notifyIdle("waiting_for_tasks");
       }
 
       try {
@@ -398,25 +417,7 @@ export async function runTeammateLoop(
         ? result.slice(0, 500)
         : "Task completed";
 
-      sendNotification(
-        "task_completed",
-        JSON.stringify({
-          type: "task_completed",
-          name: identity.name,
-          taskId: task.id,
-          subject: task.subject,
-          summary,
-        }),
-      );
-      onAgentEvent?.({
-        type: "team_message",
-        kind: "task_completed",
-        fromMemberId: identity.name,
-        toMemberId: identity.leadMemberId,
-        relatedTaskId: task.id,
-        contentPreview: summary.slice(0, 120),
-      });
-
+      notifyTaskOutcome(task.id, task.subject, "task_completed", summary);
       hookRuntime?.dispatchDetached("task_completed", {
         teamName: identity.teamName,
         memberName: identity.name,
@@ -438,24 +439,7 @@ export async function runTeammateLoop(
         currentTaskId: undefined,
       });
 
-      sendNotification(
-        "task_completed",
-        JSON.stringify({
-          type: "task_error",
-          name: identity.name,
-          taskId: task.id,
-          subject: task.subject,
-          error: message,
-        }),
-      );
-      onAgentEvent?.({
-        type: "team_message",
-        kind: "task_error",
-        fromMemberId: identity.name,
-        toMemberId: identity.leadMemberId,
-        relatedTaskId: task.id,
-        contentPreview: message.slice(0, 120),
-      });
+      notifyTaskOutcome(task.id, task.subject, "task_error", message);
 
       // Check if this was an abort
       if (signal.aborted) {
@@ -467,20 +451,7 @@ export async function runTeammateLoop(
     }
 
     // 9. Send idle notification after task
-    sendNotification(
-      "idle_notification",
-      JSON.stringify({
-        type: "idle_notification",
-        name: identity.name,
-        reason: "between_tasks",
-        tasksCompleted,
-      }),
-    );
-    hookRuntime?.dispatchDetached("teammate_idle", {
-      teamName: identity.teamName,
-      memberName: identity.name,
-      reason: "between_tasks",
-    });
+    notifyIdle("between_tasks", tasksCompleted);
   }
 
   // Signal was aborted outside the loop

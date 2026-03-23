@@ -37,80 +37,52 @@ import { collectAsyncGenerator } from "../../common/stream-utils.ts";
 // Types
 // ============================================================================
 
-/** Chat options with optional cancellation signal */
 type AiChatOptions = ChatOptions & { signal?: AbortSignal };
 
-/** Shared shape for provider option normalization */
-interface ProviderRequestOptions {
-  model?: string;
-  signal?: AbortSignal;
-  raw?: Record<string, unknown>;
-}
-
-/** Options for the ai() callable */
+/** Options for ai() callable */
 export interface AiCallableOptions {
-  /** Structured data to include in the prompt */
   data?: unknown;
-  /** JSON schema — when provided, response is parsed as JSON */
   schema?: Record<string, unknown>;
-  /** Model to use (e.g. "ollama/llama3.2", "anthropic/claude-3-haiku") */
   model?: string;
-  /** System message prepended to the conversation */
   system?: string;
-  /** Temperature for generation (0-1) */
   temperature?: number;
-  /** Abort signal for cancellation */
   signal?: AbortSignal;
 }
 
 /** Options for ai.agent() */
 export interface AiAgentOptions {
-  /** Structured data to include in the query */
   data?: unknown;
-  /** Model to use */
   model?: string;
-  /** Tool allowlist (only these tools available to agent) */
   tools?: string[];
-  /** Abort signal for cancellation */
   signal?: AbortSignal;
 }
 
-/** The callable ai function type — function + method properties */
+/** The callable ai function type */
 export type AiApi = {
   (prompt: string, options?: AiCallableOptions): Promise<string | unknown>;
-  chat: (
-    messages: Message[],
-    options?: AiChatOptions,
-  ) => AsyncGenerator<string, void, unknown>;
-  chatStructured: (
-    messages: Message[],
-    options?: AiChatOptions,
-  ) => Promise<ChatStructuredResponse>;
+  chat: (messages: Message[], options?: AiChatOptions) => AsyncGenerator<string, void, unknown>;
+  chatStructured: (messages: Message[], options?: AiChatOptions) => Promise<ChatStructuredResponse>;
   agent: (prompt: string, options?: AiAgentOptions) => Promise<string>;
   models: {
     list: (providerName?: string) => Promise<ModelInfo[]>;
     listAll: (options?: ModelListAllOptions) => Promise<ModelInfo[]>;
     get: (name: string, providerName?: string) => Promise<ModelInfo | null>;
     catalog: (providerName?: string) => Promise<ModelInfo[]>;
-    pull: (
-      name: string,
-      providerName?: string,
-      signal?: AbortSignal,
-    ) => AsyncGenerator<PullProgress, void, unknown>;
+    pull: (name: string, providerName?: string, signal?: AbortSignal) => AsyncGenerator<PullProgress, void, unknown>;
     remove: (name: string, providerName?: string) => Promise<boolean>;
   };
   status: (providerName?: string) => Promise<ProviderStatus>;
 };
 
 // ============================================================================
-// Internal Helpers
+// Helpers
 // ============================================================================
 
-function getProviderOrThrow(modelString?: string): AIProvider {
+/** Resolve "provider/model" → provider instance, or throw */
+function resolveProvider(modelString?: string): AIProvider {
   const provider = modelString
     ? getProviderForModel(modelString)
     : getDefaultProvider();
-
   if (!provider) {
     throw new RuntimeError(
       modelString
@@ -121,22 +93,24 @@ function getProviderOrThrow(modelString?: string): AIProvider {
   return provider;
 }
 
-function getProviderByNameOrDefault(
-  providerName?: string,
-): AIProvider | null {
-  return providerName ? getProvider(providerName) : getDefaultProvider();
+/** Extract provider-local model name: "ollama/llama3.2" → "llama3.2" */
+function localModelName(model?: string): string | undefined {
+  return model ? (parseModelString(model)[1] || undefined) : undefined;
 }
 
-function resolveModelName(model?: string): string | undefined {
-  if (!model) return undefined;
-  return parseModelString(model)[1] || undefined;
+/** Build prompt with optional data injection (shared by callable + agent) */
+function buildPrompt(prompt: string, data?: unknown): string {
+  return data != null
+    ? prompt + "\n\nData:\n" + JSON.stringify(data, null, 2)
+    : prompt;
 }
 
-function toProviderOptions<T extends ProviderRequestOptions>(options?: T): T {
-  return {
-    ...options,
-    model: resolveModelName(options?.model),
-  } as T;
+/** Strip markdown code fences that LLMs commonly wrap JSON in */
+function stripCodeFences(text: string): string {
+  return text
+    .replace(/^```(?:json)?\s*\n?/i, "")
+    .replace(/\n?```\s*$/, "")
+    .trim();
 }
 
 // ============================================================================
@@ -144,25 +118,14 @@ function toProviderOptions<T extends ProviderRequestOptions>(options?: T): T {
 // ============================================================================
 
 function createAiApi(): AiApi {
-  // ── The callable function ──────────────────────────────────────────
+  // ── The callable ───────────────────────────────────────────────────
   const callable = async function ai(
     prompt: string,
     options?: AiCallableOptions,
   ): Promise<string | unknown> {
-    const provider = getProviderOrThrow(options?.model);
-    const opts = toProviderOptions({
-      model: options?.model,
-      signal: options?.signal,
-      raw: options?.temperature != null
-        ? { temperature: options.temperature }
-        : undefined,
-    });
+    const provider = resolveProvider(options?.model);
 
-    // Build user message content
-    let content = prompt;
-    if (options?.data != null) {
-      content += "\n\nData:\n" + JSON.stringify(options.data, null, 2);
-    }
+    let content = buildPrompt(prompt, options?.data);
     if (options?.schema != null) {
       content += "\n\nRespond with ONLY raw JSON (no markdown, no code fences, no explanation) matching this schema:\n" +
         JSON.stringify(options.schema);
@@ -175,14 +138,16 @@ function createAiApi(): AiApi {
     messages.push({ role: "user", content });
 
     const result = await collectAsyncGenerator(
-      provider.chat(messages, opts),
+      provider.chat(messages, {
+        model: localModelName(options?.model),
+        signal: options?.signal,
+        ...(options?.temperature != null && { raw: { temperature: options.temperature } }),
+      }),
       options?.signal,
     );
 
-    // If schema was provided, parse as JSON
     if (options?.schema != null) {
-      // Strip markdown code fences that models commonly wrap JSON in
-      const cleaned = result.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/, "").trim();
+      const cleaned = stripCodeFences(result);
       try {
         return JSON.parse(cleaned);
       } catch {
@@ -201,9 +166,8 @@ function createAiApi(): AiApi {
     messages: Message[],
     options?: AiChatOptions,
   ): AsyncGenerator<string, void, unknown> {
-    const provider = getProviderOrThrow(options?.model);
-    const opts = toProviderOptions(options);
-    yield* provider.chat(messages, opts);
+    const provider = resolveProvider(options?.model);
+    yield* provider.chat(messages, { ...options, model: localModelName(options?.model) });
   };
 
   // ── chatStructured ────────────────────────────────────────────────
@@ -211,17 +175,14 @@ function createAiApi(): AiApi {
     messages: Message[],
     options?: AiChatOptions,
   ): Promise<ChatStructuredResponse> {
-    const provider = getProviderOrThrow(options?.model);
-    const opts = toProviderOptions(options);
-
+    const provider = resolveProvider(options?.model);
     if (!provider.chatStructured) {
       throw new ValidationError(
         `Provider "${provider.name}" does not support native tool calling.`,
         "ai_chat_structured",
       );
     }
-
-    return await provider.chatStructured(messages, opts);
+    return await provider.chatStructured(messages, { ...options, model: localModelName(options?.model) });
   };
 
   // ── agent (ReAct loop) ────────────────────────────────────────────
@@ -229,15 +190,9 @@ function createAiApi(): AiApi {
     prompt: string,
     options?: AiAgentOptions,
   ): Promise<string> {
-    let query = prompt;
-    if (options?.data != null) {
-      query += "\n\nData:\n" + JSON.stringify(options.data, null, 2);
-    }
-
-    // Dynamic import to avoid circular deps (api/ → agent/ → ... → api/)
     const { runAgentQuery } = await import("../agent/agent-runner.ts");
     const result = await runAgentQuery({
-      query,
+      query: buildPrompt(prompt, options?.data),
       model: options?.model,
       callbacks: {},
       toolAllowlist: options?.tools,
@@ -249,83 +204,60 @@ function createAiApi(): AiApi {
 
   // ── models ────────────────────────────────────────────────────────
   callable.models = {
-    list: (providerName?: string): Promise<ModelInfo[]> => {
-      const provider = getProviderByNameOrDefault(providerName);
-      return provider?.models?.list
-        ? provider.models.list()
-        : Promise.resolve([]);
+    list(providerName?: string): Promise<ModelInfo[]> {
+      const p = providerName ? getProvider(providerName) : getDefaultProvider();
+      return p?.models?.list ? p.models.list() : Promise.resolve([]);
     },
 
-    listAll: async (options?: ModelListAllOptions): Promise<ModelInfo[]> => {
+    async listAll(options?: ModelListAllOptions): Promise<ModelInfo[]> {
       return await listAllProviderModels(options);
     },
 
-    get: (
-      name: string,
-      providerName?: string,
-    ): Promise<ModelInfo | null> => {
-      const [parsedProvider, parsedModel] = parseModelString(name);
-      const resolvedProvider = providerName ?? parsedProvider ?? undefined;
-      const resolvedName = providerName ? name : parsedModel;
-      const provider = getProviderByNameOrDefault(resolvedProvider);
-      return provider?.models?.get
-        ? provider.models.get(resolvedName)
-        : Promise.resolve(null);
+    get(name: string, providerName?: string): Promise<ModelInfo | null> {
+      const [parsed, model] = parseModelString(name);
+      const p = (providerName ? getProvider(providerName) : getDefaultProvider()) ??
+        (parsed ? getProvider(parsed) : null);
+      return p?.models?.get ? p.models.get(providerName ? name : model) : Promise.resolve(null);
     },
 
-    catalog: async (providerName?: string): Promise<ModelInfo[]> => {
-      const resolvedProvider = providerName ?? getDefaultProvider()?.name;
+    async catalog(providerName?: string): Promise<ModelInfo[]> {
+      const resolved = providerName ?? getDefaultProvider()?.name;
       const snapshot = await readStaleWhileRevalidateModelDiscoverySnapshot();
-      if (!resolvedProvider || resolvedProvider === "ollama") {
-        return snapshot.remoteModels;
-      }
-      return snapshot.cloudModels.filter((model) =>
-        model.metadata?.provider === resolvedProvider
-      );
+      if (!resolved || resolved === "ollama") return snapshot.remoteModels;
+      return snapshot.cloudModels.filter((m) => m.metadata?.provider === resolved);
     },
 
-    pull: async function* (
-      name: string,
-      providerName?: string,
-      signal?: AbortSignal,
-    ): AsyncGenerator<PullProgress, void, unknown> {
-      const provider = getProviderByNameOrDefault(providerName);
-      if (!provider?.models?.pull) {
-        throw new ValidationError(
-          "Provider does not support model pulling",
-          "ai.models.pull",
-        );
+    async *pull(name: string, providerName?: string, signal?: AbortSignal): AsyncGenerator<PullProgress, void, unknown> {
+      const p = providerName ? getProvider(providerName) : getDefaultProvider();
+      if (!p?.models?.pull) {
+        throw new ValidationError("Provider does not support model pulling", "ai.models.pull");
       }
-      yield* provider.models.pull(name, signal);
+      yield* p.models.pull(name, signal);
     },
 
-    remove: (name: string, providerName?: string): Promise<boolean> => {
-      const provider = getProviderByNameOrDefault(providerName);
-      return provider?.models?.remove
-        ? provider.models.remove(name)
-        : Promise.resolve(false);
+    remove(name: string, providerName?: string): Promise<boolean> {
+      const p = providerName ? getProvider(providerName) : getDefaultProvider();
+      return p?.models?.remove ? p.models.remove(name) : Promise.resolve(false);
     },
   };
 
   // ── status ────────────────────────────────────────────────────────
   callable.status = (providerName?: string): Promise<ProviderStatus> => {
-    const provider = getProviderByNameOrDefault(providerName);
-    if (!provider) {
+    const p = providerName ? getProvider(providerName) : getDefaultProvider();
+    if (!p) {
       return Promise.resolve({
         available: false,
-        error: providerName
-          ? `Provider '${providerName}' not found`
-          : "No default provider configured",
+        error: providerName ? `Provider '${providerName}' not found` : "No default provider configured",
       });
     }
-    return provider.status();
+    return p.status();
   };
 
   return callable;
 }
 
 // ============================================================================
-// Singleton Export
+// Singleton
 // ============================================================================
 
 export const ai: AiApi = createAiApi();

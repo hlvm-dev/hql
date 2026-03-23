@@ -256,24 +256,29 @@ export interface TeamRuntime {
 }
 
 function cloneMessage(message: TeamMessage): TeamMessage {
-  return {
-    ...message,
-    readBy: new Set(message.readBy),
-  };
+  return { ...message, readBy: new Set(message.readBy) };
 }
 
 function clonePlan(plan: Plan): Plan {
-  return {
-    goal: plan.goal,
-    steps: plan.steps.map((step) => ({ ...step })),
-  };
+  return { goal: plan.goal, steps: plan.steps.map((step) => ({ ...step })) };
 }
 
 function toMessageSnapshot(message: TeamMessage): TeamMessageSnapshot {
+  return { ...message, readBy: [...message.readBy].sort() };
+}
+
+/** Deep clone a task, copying mutable arrays and optional objects. */
+function cloneTask(task: TeamTask): TeamTask {
   return {
-    ...message,
-    readBy: [...message.readBy].sort(),
+    ...task,
+    dependencies: [...task.dependencies],
+    ...(task.artifacts ? { artifacts: { ...task.artifacts } } : {}),
   };
+}
+
+/** Deep clone a task from snapshot format (same shape, used in snapshot restoration). */
+function cloneSnapshotTask(task: TeamTask): TeamTask {
+  return cloneTask(task);
 }
 
 export function cloneTeamRuntimeSnapshot(
@@ -285,19 +290,9 @@ export function cloneTeamRuntimeSnapshot(
     leadMemberId: snapshot.leadMemberId,
     policy: { ...defaultPolicy, ...(snapshot.policy ?? {}) },
     members: snapshot.members.map((member) => ({ ...member })),
-    tasks: snapshot.tasks.map((task) => ({
-      ...task,
-      dependencies: [...task.dependencies],
-      ...(task.artifacts ? { artifacts: { ...task.artifacts } } : {}),
-    })),
-    messages: snapshot.messages.map((message) => ({
-      ...message,
-      readBy: [...message.readBy],
-    })),
-    approvals: snapshot.approvals.map((approval) => ({
-      ...approval,
-      plan: clonePlan(approval.plan),
-    })),
+    tasks: snapshot.tasks.map(cloneTask),
+    messages: snapshot.messages.map((message) => ({ ...message, readBy: [...message.readBy] })),
+    approvals: snapshot.approvals.map((approval) => ({ ...approval, plan: clonePlan(approval.plan) })),
     shutdowns: snapshot.shutdowns.map((shutdown) => ({ ...shutdown })),
   };
 }
@@ -371,15 +366,6 @@ export function createTeamRuntime(
   ): void => {
     if (assigneeMemberId !== undefined) {
       requireMember(assigneeMemberId, toolName);
-    }
-  };
-
-  const validateRelatedTask = (
-    taskId: string | undefined,
-    toolName: string,
-  ): void => {
-    if (taskId !== undefined && !tasks.has(taskId)) {
-      throw new ValidationError(`task '${taskId}' not found`, toolName);
     }
   };
 
@@ -472,16 +458,9 @@ export function createTeamRuntime(
     leadMemberId,
     policy: { ...policy },
     members: [...members.values()].map((member) => ({ ...member })),
-    tasks: [...tasks.values()].map((task) => ({
-      ...task,
-      dependencies: [...task.dependencies],
-      ...(task.artifacts ? { artifacts: { ...task.artifacts } } : {}),
-    })),
+    tasks: [...tasks.values()].map(cloneTask),
     messages: messages.map(toMessageSnapshot),
-    approvals: [...approvals.values()].map((approval) => ({
-      ...approval,
-      plan: clonePlan(approval.plan),
-    })),
+    approvals: [...approvals.values()].map((approval) => ({ ...approval, plan: clonePlan(approval.plan) })),
     shutdowns: [...shutdowns.values()].map((shutdown) => ({ ...shutdown })),
   });
 
@@ -624,31 +603,25 @@ export function createTeamRuntime(
       validateAssignee(input.assigneeMemberId, "team_task_write");
       const id = input.id ?? crypto.randomUUID();
       const existing = tasks.get(id);
+
+      // Update path: build patch from all defined fields
       if (existing) {
         const patch: Partial<Omit<TeamTask, "id" | "goal" | "createdAt">> = {};
-        if (input.status !== undefined) {
-          patch.status = input.status;
+        const fields = [
+          "status", "assigneeMemberId", "resultSummary",
+          "delegateThreadId", "approvalId",
+        ] as const;
+        for (const field of fields) {
+          if (input[field] !== undefined) {
+            (patch as Record<string, unknown>)[field] = input[field];
+          }
         }
-        if (input.assigneeMemberId !== undefined) {
-          patch.assigneeMemberId = input.assigneeMemberId;
-        }
-        if (input.dependencies !== undefined) {
-          patch.dependencies = [...input.dependencies];
-        }
-        if (input.resultSummary !== undefined) {
-          patch.resultSummary = input.resultSummary;
-        }
-        if (input.artifacts !== undefined) {
-          patch.artifacts = { ...input.artifacts };
-        }
-        if (input.delegateThreadId !== undefined) {
-          patch.delegateThreadId = input.delegateThreadId;
-        }
-        if (input.approvalId !== undefined) {
-          patch.approvalId = input.approvalId;
-        }
+        if (input.dependencies !== undefined) patch.dependencies = [...input.dependencies];
+        if (input.artifacts !== undefined) patch.artifacts = { ...input.artifacts };
         return touchTask(existing, patch);
       }
+
+      // Create path
       const created: TeamTask = {
         id,
         goal: input.goal,
@@ -728,7 +701,9 @@ export function createTeamRuntime(
           "team_message_send",
         );
       }
-      validateRelatedTask(input.relatedTaskId, "team_message_send");
+      if (input.relatedTaskId !== undefined && !tasks.has(input.relatedTaskId)) {
+        throw new ValidationError(`task '${input.relatedTaskId}' not found`, "team_message_send");
+      }
       const recipients = input.toMemberId
         ? [input.toMemberId]
         : [...members.values()]
@@ -977,11 +952,7 @@ export function createTeamRuntime(
       }
     }
     for (const task of snapshot.tasks) {
-      tasks.set(task.id, {
-        ...task,
-        dependencies: [...task.dependencies],
-        ...(task.artifacts ? { artifacts: { ...task.artifacts } } : {}),
-      });
+      tasks.set(task.id, cloneSnapshotTask(task));
       if (task.delegateThreadId) {
         taskByThread.set(task.delegateThreadId, task.id);
       }

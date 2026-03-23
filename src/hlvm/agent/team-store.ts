@@ -310,6 +310,31 @@ export async function createTeamStore(
     await writeJson(taskFilePath(task.id), task);
   }
 
+  /** Link blockerId → blockedId dependency on both sides, persisting only the remote task. */
+  async function linkDependency(
+    blockerId: string,
+    blockedId: string,
+    now: number,
+    skipPersistId: string,
+  ): Promise<void> {
+    const blocker = taskCache.get(blockerId);
+    const blocked = taskCache.get(blockedId);
+    if (blocker && !blocker.blocks.includes(blockedId)) {
+      blocker.blocks.push(blockedId);
+      if (blocker.id !== skipPersistId) {
+        blocker.updatedAt = now;
+        await persistTask(blocker);
+      }
+    }
+    if (blocked && !blocked.blockedBy.includes(blockerId)) {
+      blocked.blockedBy.push(blockerId);
+      if (blocked.id !== skipPersistId) {
+        blocked.updatedAt = now;
+        await persistTask(blocked);
+      }
+    }
+  }
+
   function buildBlocks(taskId: string): string[] {
     const blocks: string[] = [];
     for (const t of taskCache.values()) {
@@ -415,31 +440,15 @@ export async function createTeamStore(
         }
       }
 
-      // Handle dependency updates
+      // Handle dependency updates — both directions are the same operation
       if (patch.addBlocks) {
         for (const blockedId of patch.addBlocks) {
-          const blocked = taskCache.get(blockedId);
-          if (blocked && !blocked.blockedBy.includes(taskId)) {
-            blocked.blockedBy.push(taskId);
-            blocked.updatedAt = now;
-            await persistTask(blocked);
-          }
-          if (!task.blocks.includes(blockedId)) {
-            task.blocks.push(blockedId);
-          }
+          await linkDependency(taskId, blockedId, now, taskId);
         }
       }
       if (patch.addBlockedBy) {
         for (const blockerId of patch.addBlockedBy) {
-          if (!task.blockedBy.includes(blockerId)) {
-            task.blockedBy.push(blockerId);
-          }
-          const blocker = taskCache.get(blockerId);
-          if (blocker && !blocker.blocks.includes(taskId)) {
-            blocker.blocks.push(taskId);
-            blocker.updatedAt = now;
-            await persistTask(blocker);
-          }
+          await linkDependency(blockerId, taskId, now, taskId);
         }
       }
 
