@@ -1,6 +1,6 @@
 # `concurrentMap` — Concurrent Async Map
 
-**Status**: TODO
+**Status**: IMPLEMENTED
 **File**: `src/hql/lib/stdlib/js/core.js` + `src/hql/lib/stdlib/js/index.js`
 **Depends on**: Nothing (pure utility)
 

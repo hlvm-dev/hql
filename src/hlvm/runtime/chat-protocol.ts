@@ -70,6 +70,8 @@ export interface HostHealthResponse {
   version: string;
   buildId: string;
   authToken: string | null;
+  /** Actual port the server is listening on (may differ from default on port-0 fallback) */
+  port?: number | null;
 }
 
 export type ChatStreamEvent =

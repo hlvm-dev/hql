@@ -1,6 +1,6 @@
 # `agent` — Agent Loop Function
 
-**Status**: TODO
+**Status**: IMPLEMENTED (as `ai.agent` method + `globalThis.agent` alias)
 **File**: `src/hlvm/api/index.ts`
 **Depends on**: `runAgentQuery()` from `src/hlvm/agent/agent-runner.ts`
 

@@ -72,6 +72,24 @@ export function createProcessAbortHandler(
 }
 
 /**
+ * Collect all string chunks from an async iterable into a single string.
+ *
+ * DRY utility for `chunks.push(chunk); join("")` pattern used across
+ * the codebase (ai callable, agent runner, etc.).
+ */
+export async function collectAsyncGenerator(
+  gen: AsyncIterable<string>,
+  signal?: AbortSignal,
+): Promise<string> {
+  const chunks: string[] = [];
+  for await (const chunk of gen) {
+    if (signal?.aborted) break;
+    chunks.push(chunk);
+  }
+  return chunks.join("");
+}
+
+/**
  * Read a process stream to completion, returning the full content as bytes.
  *
  * @param stream - The stream to read (typically process.stdout or process.stderr)

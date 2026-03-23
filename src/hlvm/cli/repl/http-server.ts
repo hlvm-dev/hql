@@ -87,6 +87,11 @@ import {
 } from "../../runtime/host-config.ts";
 import { getRuntimeHostIdentity } from "../../runtime/host-identity.ts";
 import { normalizeComparableFilePath } from "./file-search.ts";
+import {
+  ensureRuntimeDir,
+  getServerInfoPath,
+  type ServerInfo,
+} from "../../../common/paths.ts";
 
 /**
  * REPL HTTP Server Port
@@ -106,6 +111,8 @@ const platform = getPlatform();
 /** Auth token generated on server start — clients must send `Authorization: Bearer <token>` */
 let serverAuthToken: string | null = null;
 let serverHandle: PlatformHttpServerHandle | null = null;
+/** Actual port the server is listening on (may differ from requested port on port-0 fallback) */
+let actualBoundPort: number | null = null;
 
 function resolvePort(): number {
   const port = resolveHlvmRuntimePort();
@@ -122,6 +129,69 @@ function resolvePort(): number {
 }
 
 let replState: ReplState | null = null;
+
+// ── Port File (server.json) ─────────────────────────────────────────────
+
+/** Best-effort PID retrieval for metadata purposes */
+function getCurrentPid(): number {
+  try {
+    // deno-lint-ignore no-explicit-any
+    return (globalThis as any).Deno?.pid ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function writeServerInfo(port: number): Promise<void> {
+  try {
+    await ensureRuntimeDir();
+    const info: ServerInfo = {
+      port,
+      pid: getCurrentPid(),
+      authToken: serverAuthToken ?? "",
+      startedAt: new Date().toISOString(),
+    };
+    await platform.fs.writeTextFile(
+      getServerInfoPath(),
+      JSON.stringify(info, null, 2) + "\n",
+    );
+  } catch (error) {
+    log.warn(`Failed to write server.json: ${getErrorMessage(error)}`);
+  }
+}
+
+function deleteServerInfoSync(): void {
+  try {
+    platform.fs.removeSync(getServerInfoPath());
+  } catch {
+    // File may not exist — that's fine.
+  }
+}
+
+/** Install signal handlers for graceful cleanup */
+function installCleanupHandlers(): void {
+  const cleanup = () => {
+    deleteServerInfoSync();
+  };
+  // Deno lifecycle hooks
+  if (typeof addEventListener === "function") {
+    addEventListener("beforeunload", cleanup);
+    addEventListener("unload", cleanup);
+  }
+  // POSIX signals via platform — best-effort
+  try {
+    platform.process.addSignalListener("SIGTERM", () => {
+      cleanup();
+      scheduleServerShutdown();
+    });
+    platform.process.addSignalListener("SIGINT", () => {
+      cleanup();
+      scheduleServerShutdown();
+    });
+  } catch {
+    // Signals may not be supported on all platforms.
+  }
+}
 
 // MARK: - Types
 
@@ -437,6 +507,7 @@ async function handleHealth(): Promise<Response> {
     version: identity.version,
     buildId: identity.buildId,
     authToken: serverAuthToken,
+    port: actualBoundPort,
   });
 }
 
@@ -451,6 +522,7 @@ function scheduleServerShutdown(): void {
 }
 
 async function handleRuntimeShutdown(): Promise<Response> {
+  deleteServerInfoSync();
   replState = null;
   await closeActiveConversationSession();
   scheduleServerShutdown();
@@ -927,6 +999,7 @@ export async function startHttpServer(
   serverAuthToken = getPlatform().env.get("HLVM_AUTH_TOKEN") ||
     crypto.randomUUID();
   log.info(`REPL auth token: ${serverAuthToken}`);
+  installCleanupHandlers();
 
   try {
     await bindAndServe(port);
@@ -950,40 +1023,53 @@ export async function startHttpServer(
     // its listener after responding, or the OS is cleaning up a ghost socket.
     await waitForPortFree(port);
 
-    // Single retry — if this fails, it's a genuine conflict
+    // Retry on preferred port
     try {
       await bindAndServe(port);
     } catch (retryError) {
-      if (retryError instanceof Error && retryError.name === "AddrInUse") {
-        throw new RuntimeError(`REPL server port ${port} is already in use`);
+      if (!(retryError instanceof Error) || retryError.name !== "AddrInUse") {
+        throw retryError;
       }
-      throw retryError;
+      // Ghost socket / genuine conflict — fall back to OS-assigned port (port 0)
+      log.warn(`Port ${port} still in use after takeover; falling back to OS-assigned port...`);
+      try {
+        await bindAndServe(0);
+      } catch (fallbackError) {
+        log.error(`Failed to start REPL HTTP server on fallback port: ${getErrorMessage(fallbackError)}`);
+        throw new RuntimeError(
+          `REPL server failed to start: ${getErrorMessage(fallbackError)}`,
+        );
+      }
     }
   }
 }
 
 async function bindAndServe(port: number): Promise<void> {
-  log.info(`Starting REPL HTTP server on port ${port}...`);
+  log.info(`Starting REPL HTTP server on port ${port === 0 ? "0 (OS-assigned)" : port}...`);
+  const onListen = ({ hostname, port: boundPort }: { hostname: string; port: number }) => {
+    actualBoundPort = boundPort;
+    log.info(`REPL HTTP server listening on http://${hostname}:${boundPort}`);
+    // Write port file so clients can discover the actual port
+    void writeServerInfo(boundPort);
+  };
   try {
     if (platform.http.serveWithHandle) {
       serverHandle = platform.http.serveWithHandle(handleRequest, {
         port,
         hostname: "127.0.0.1",
-        onListen: ({ hostname, port }) => {
-          log.info(`REPL HTTP server listening on http://${hostname}:${port}`);
-        },
+        onListen,
       });
       await serverHandle.finished;
     } else {
       await platform.http.serve(handleRequest, {
         port,
         hostname: "127.0.0.1",
-        onListen: ({ hostname, port }) => {
-          log.info(`REPL HTTP server listening on http://${hostname}:${port}`);
-        },
+        onListen,
       });
     }
   } finally {
+    deleteServerInfoSync();
     serverHandle = null;
+    actualBoundPort = null;
   }
 }

@@ -21,7 +21,7 @@ import { config } from "./config.ts";
 import { bindings } from "./bindings.ts";
 import { memory } from "./memory.ts";
 import { history, setReplState } from "./history.ts";
-import { ai } from "./ai.ts";
+import { ai, type AiApi } from "./ai.ts";
 import {
   getAbortSignal,
   runtime,
@@ -31,6 +31,9 @@ import {
 } from "./runtime.ts";
 import { log } from "./log.ts";
 import { errors } from "./errors.ts";
+
+/** Top-level alias for ai.agent — runs the ReAct agent loop */
+export const agent: AiApi["agent"] = ai.agent;
 
 export {
   ai,
@@ -82,6 +85,7 @@ export function registerApis(options?: RegisterApisOptions): void {
   global.memory = memory;
   global.history = history;
   global.ai = ai;
+  global.agent = agent;
   global.runtime = runtime;
   global.log = log;
   global.errors = errors;

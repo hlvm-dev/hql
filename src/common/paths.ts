@@ -249,6 +249,26 @@ export function getRuntimeDir(): string {
 }
 
 /**
+ * Server runtime info written by `hlvm serve` on startup.
+ * Clients read this file to discover the actual port (may differ from default
+ * when port 0 fallback was used due to ghost sockets / EADDRINUSE).
+ */
+export interface ServerInfo {
+  port: number;
+  pid: number;
+  authToken: string;
+  startedAt: string;
+}
+
+/**
+ * Get the server info file path (~/.hlvm/.runtime/server.json)
+ * Written by the HTTP server on startup, deleted on shutdown.
+ */
+export function getServerInfoPath(): string {
+  return join(getRuntimeDir(), "server.json");
+}
+
+/**
  * Get the history file path (~/.hlvm/history.jsonl)
  * JSONL format: one JSON entry per line for append-only operations
  */

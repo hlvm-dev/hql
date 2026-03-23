@@ -1,6 +1,6 @@
 # `ai` — Callable AI Function
 
-**Status**: TODO
+**Status**: IMPLEMENTED
 **File**: `src/hlvm/api/ai.ts`
 **Depends on**: Existing provider infrastructure (unchanged)
 
@@ -25,7 +25,7 @@ ai(prompt: string, options: object) → Promise<string | object>
 | Key           | Type     | Default          | Description                              |
 |---------------|----------|------------------|------------------------------------------|
 | `data`        | any      | —                | Context data, JSON-stringified into prompt |
-| `schema`      | object   | —                | JSON Schema object (from `generable`)    |
+| `schema`      | object   | —                | Plain JSON Schema object                 |
 | `model`       | string   | default provider | e.g. `"gpt-4"`, `"ollama/llama3.2"`     |
 | `system`      | string   | —                | System prompt                            |
 | `temperature` | number   | provider default | 0.0–2.0                                  |

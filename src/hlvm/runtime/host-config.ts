@@ -1,4 +1,5 @@
 import { getPlatform } from "../../platform/platform.ts";
+import { getServerInfoPath, type ServerInfo } from "../../common/paths.ts";
 
 export const HLVM_RUNTIME_DEFAULT_PORT = 11435;
 const TEST_RUNTIME_PORT_OVERRIDE_KEY = "__HLVM_RUNTIME_PORT_OVERRIDE__";
@@ -14,19 +15,47 @@ function getTestRuntimePortOverride(): number | undefined {
     : undefined;
 }
 
+/**
+ * Read the server info port file written by `hlvm serve`.
+ * Returns the port if the file exists and contains valid JSON.
+ * Stale files (from dead servers) are harmless — the health check
+ * in host-client.ts will fail fast and the file will be overwritten
+ * on next server start.
+ */
+export function readPortFromServerInfo(): number | undefined {
+  const platform = getPlatform();
+  try {
+    const raw = platform.fs.readTextFileSync(getServerInfoPath());
+    const info = JSON.parse(raw) as Partial<ServerInfo>;
+    if (
+      typeof info.port !== "number" || info.port < 1 || info.port > 65535
+    ) {
+      return undefined;
+    }
+    return info.port;
+  } catch {
+    return undefined;
+  }
+}
+
 export function resolveHlvmRuntimePort(): number {
   const testOverride = getTestRuntimePortOverride();
   if (testOverride) return testOverride;
 
   const platform = getPlatform();
   const portOverride = platform.env.get("HLVM_REPL_PORT");
-  if (!portOverride) return HLVM_RUNTIME_DEFAULT_PORT;
-
-  const parsed = parseInt(portOverride, 10);
-  if (Number.isNaN(parsed) || parsed < 1 || parsed > 65535) {
-    return HLVM_RUNTIME_DEFAULT_PORT;
+  if (portOverride) {
+    const parsed = parseInt(portOverride, 10);
+    if (!Number.isNaN(parsed) && parsed >= 1 && parsed <= 65535) {
+      return parsed;
+    }
   }
-  return parsed;
+
+  // Check port file — may contain a non-default port from port-0 fallback
+  const portFromFile = readPortFromServerInfo();
+  if (portFromFile !== undefined) return portFromFile;
+
+  return HLVM_RUNTIME_DEFAULT_PORT;
 }
 
 export function getHlvmRuntimeBaseUrl(): string {
