@@ -287,10 +287,19 @@ export function listAgentProfiles(
   return profiles;
 }
 
+/** Common aliases LLMs use for built-in profile names. */
+const PROFILE_ALIASES: Record<string, string> = {
+  "general-purpose": "general",
+  "generalist": "general",
+};
+
 export function getAgentProfile(
   name: string,
   profiles: readonly AgentProfile[] = AGENT_PROFILES,
 ): AgentProfile | null {
   const normalized = name.trim().toLowerCase();
-  return profiles.find((profile) => profile.name === normalized) ?? null;
+  // Try exact match first, then alias
+  return profiles.find((p) => p.name === normalized)
+    ?? profiles.find((p) => p.name === (PROFILE_ALIASES[normalized] ?? normalized))
+    ?? null;
 }

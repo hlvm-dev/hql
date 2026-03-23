@@ -9,7 +9,7 @@
  *   (bindings.list)             // Persistent definitions
  *   (memory)                    // Assistant-visible durable memory
  *   (history.list)             // Command history
- *   (ai.generate "prompt")     // AI capabilities
+ *   (ai.chat messages)         // AI chat completion
  *   (ai.models.list)           // Model management
  */
 

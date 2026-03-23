@@ -156,7 +156,7 @@ Three `.hql` source files are embedded at build time via `embedded-macros.ts`:
 
 1. **`core.hql`** -- logic, conditionals, type predicates, utility, collections, threading, pattern matching
 2. **`utils.hql`** -- `doto`, `if-not`, `when-not`, `xor`, `min`, `max`, `with-gensyms`
-3. **`loop.hql`** -- `while`, `dotimes`, `repeat`, `for`
+3. **`loop.hql`** -- `while`, `repeat`, `for`
 
 These are compiled into `EMBEDDED_MACROS` object. To modify, edit the `.hql` files and run `deno run -A scripts/embed-packages.ts`.
 

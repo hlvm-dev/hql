@@ -15,15 +15,15 @@ import { buildSemanticColors } from "../../../src/hlvm/cli/theme/semantic.ts";
 
 Deno.test("resolveBannerAiIndicator reflects runtime readiness", () => {
   assertEquals(
-    resolveBannerAiIndicator(true, "available"),
+    resolveBannerAiIndicator("available"),
     { label: "AI available", tone: "ready" },
   );
   assertEquals(
-    resolveBannerAiIndicator(true, "setup_required"),
+    resolveBannerAiIndicator("setup_required"),
     { label: "AI setup required", tone: "attention" },
   );
   assertEquals(
-    resolveBannerAiIndicator(false, "available"),
+    resolveBannerAiIndicator("unavailable"),
     { label: "AI unavailable", tone: "error" },
   );
 });

@@ -67,6 +67,8 @@ export interface TeammateLoopOptions {
   idlePollIntervalMs?: number;
   /** Override max idle polls before exit (default 30). For testing. */
   maxIdlePolls?: number;
+  /** Inherited permission mode from parent (default inherits lead's mode). */
+  permissionMode?: import("../../common/config/types.ts").PermissionMode;
 }
 
 export interface TeammateLoopResult {
@@ -305,6 +307,13 @@ export async function runTeammateLoop(
     runtime.updateMember(identity.teamMemberId, {
       currentTaskId: task.id,
     });
+    onAgentEvent?.({
+      type: "team_task_updated",
+      taskId: task.id,
+      goal: task.subject,
+      status: "in_progress",
+      assigneeMemberId: identity.name,
+    });
 
     log.info(
       `[TeamExecutor] Teammate "${identity.name}" executing task #${task.id}: ${task.subject}`,
@@ -350,7 +359,7 @@ export async function runTeammateLoop(
         {
           workspace,
           context,
-          permissionMode: "default",
+          permissionMode: options.permissionMode ?? "auto-edit",
           maxIterations: DELEGATE_MAX_ITERATIONS,
           totalTimeout: DELEGATE_TOTAL_TIMEOUT,
           policy: policy ?? null,
@@ -377,6 +386,13 @@ export async function runTeammateLoop(
         currentTaskId: undefined,
       });
       tasksCompleted++;
+      onAgentEvent?.({
+        type: "team_task_updated",
+        taskId: task.id,
+        goal: task.subject,
+        status: "completed",
+        assigneeMemberId: identity.name,
+      });
 
       const summary = typeof result === "string"
         ? result.slice(0, 500)
@@ -392,6 +408,14 @@ export async function runTeammateLoop(
           summary,
         }),
       );
+      onAgentEvent?.({
+        type: "team_message",
+        kind: "task_completed",
+        fromMemberId: identity.name,
+        toMemberId: identity.leadMemberId,
+        relatedTaskId: task.id,
+        contentPreview: summary.slice(0, 120),
+      });
 
       hookRuntime?.dispatchDetached("task_completed", {
         teamName: identity.teamName,
@@ -424,6 +448,14 @@ export async function runTeammateLoop(
           error: message,
         }),
       );
+      onAgentEvent?.({
+        type: "team_message",
+        kind: "task_error",
+        fromMemberId: identity.name,
+        toMemberId: identity.leadMemberId,
+        relatedTaskId: task.id,
+        contentPreview: message.slice(0, 120),
+      });
 
       // Check if this was an abort
       if (signal.aborted) {

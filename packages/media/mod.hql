@@ -5,9 +5,8 @@
 // Media objects can be passed to AI functions via the {media: ...} option.
 //
 // Example:
-//   (import [ask] from "@hlvm/ai")
 //   (import [read-image] from "@hlvm/media")
-//   (ask "What's in this image?" {media: (read-image "./photo.jpg")})
+//   (ai.chat [{role: "user" content: "What's in this image?" images: [(read-image "./photo.jpg")]}])
 
 // ============================================================================
 // Media Types

@@ -289,8 +289,7 @@ When the `macro` log namespace is enabled, macro expansions are printed with ASC
 ### Loop Macros (loop.hql)
 
 - `while` -- `(while condition & body)` -- built on `loop`/`recur`
-- `dotimes` -- `(dotimes count & body)` -- execute body N times
-- `repeat` -- alias for `dotimes`
+- `repeat` -- `(repeat count & body)` -- execute body N times
 - `for` -- enhanced iteration with multiple syntaxes: `(for (x coll) body)`, `(for (i start end) body)`, `(for (i from: 0 to: 10 by: 2) body)`
 
 ## Transform Pipeline

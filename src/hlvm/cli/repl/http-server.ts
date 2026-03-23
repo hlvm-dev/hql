@@ -162,10 +162,7 @@ async function initState(): Promise<ReplState> {
   const moduleResult = initResult.moduleResult;
 
   if (moduleResult) {
-    log.info(
-      `Loaded ${moduleResult.stdlibExports.length} stdlib + ` +
-        `${moduleResult.aiExports.length} AI functions`,
-    );
+    log.info(`Loaded ${moduleResult.stdlibExports.length} stdlib functions`);
 
     if (moduleResult.errors.length > 0) {
       log.warn(`Module load errors: ${moduleResult.errors.join(", ")}`);
@@ -875,18 +872,99 @@ export interface StartHttpServerOptions {
   port?: number;
 }
 
+/** Ask a live server on `port` to shut down gracefully. Returns true if it responded. */
+async function requestGracefulShutdown(port: number): Promise<boolean> {
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    // /health is unauthenticated and exposes the server's auth token
+    const healthResp = await fetch(`${base}/health`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!healthResp.ok) return false;
+    const health = await healthResp.json();
+    const token = health?.authToken;
+    if (typeof token !== "string") return false;
+
+    const shutdownResp = await fetch(`${base}/api/runtime/shutdown`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(2000),
+    });
+    return shutdownResp.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wait for port release by connecting to the dying server's SSE stream.
+ * SSE keeps the connection open until the server shuts down its listener,
+ * at which point the stream errors out — that error IS the "port freed" event.
+ * If connection is refused, the port is already free (instant return).
+ */
+async function waitForPortFree(port: number): Promise<void> {
+  try {
+    const resp = await fetch(`http://127.0.0.1:${port}/api/config/stream`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!resp.body) return;
+    // Read the SSE stream until the server closes it (shutdown event)
+    const reader = resp.body.getReader();
+    try {
+      while (!(await reader.read()).done) { /* stream close = server gone */ }
+    } catch { /* connection reset / abort timeout = server died */ }
+    finally { reader.releaseLock(); }
+  } catch {
+    // Connection refused — port is already free
+  }
+}
+
 export async function startHttpServer(
   options: StartHttpServerOptions = {},
 ): Promise<void> {
   const port = options.port ?? resolvePort();
 
-  // Use pre-shared token from env (GUI passes this) or generate a random one
   serverAuthToken = getPlatform().env.get("HLVM_AUTH_TOKEN") ||
     crypto.randomUUID();
   log.info(`REPL auth token: ${serverAuthToken}`);
 
   try {
-    log.info(`Starting REPL HTTP server on port ${port}...`);
+    await bindAndServe(port);
+  } catch (error) {
+    if (!(error instanceof Error) || error.name !== "AddrInUse") {
+      log.error(`Failed to start REPL HTTP server: ${getErrorMessage(error)}`);
+      throw new RuntimeError(
+        `REPL server failed to start: ${getErrorMessage(error)}`,
+      );
+    }
+
+    // Port conflict — determine cause and react once
+    log.warn(`Port ${port} in use, attempting graceful takeover...`);
+    const hadLiveServer = await requestGracefulShutdown(port);
+    if (hadLiveServer) {
+      log.info("Previous server acknowledged shutdown, waiting for port release...");
+    } else {
+      log.info("No live server responded; ghost socket from dead process...");
+    }
+    // In both cases, the port needs a moment: either the old server is draining
+    // its listener after responding, or the OS is cleaning up a ghost socket.
+    await waitForPortFree(port);
+
+    // Single retry — if this fails, it's a genuine conflict
+    try {
+      await bindAndServe(port);
+    } catch (retryError) {
+      if (retryError instanceof Error && retryError.name === "AddrInUse") {
+        throw new RuntimeError(`REPL server port ${port} is already in use`);
+      }
+      throw retryError;
+    }
+  }
+}
+
+async function bindAndServe(port: number): Promise<void> {
+  log.info(`Starting REPL HTTP server on port ${port}...`);
+  try {
     if (platform.http.serveWithHandle) {
       serverHandle = platform.http.serveWithHandle(handleRequest, {
         port,
@@ -905,19 +983,6 @@ export async function startHttpServer(
         },
       });
     }
-  } catch (error) {
-    if (error instanceof Error && error.name === "AddrInUse") {
-      log.error(
-        `Port ${port} is already in use. Another HLVM instance may be running.`,
-      );
-      throw new RuntimeError(
-        `REPL server port ${port} is already in use`,
-      );
-    }
-    log.error(`Failed to start REPL HTTP server: ${getErrorMessage(error)}`);
-    throw new RuntimeError(
-      `REPL server failed to start: ${getErrorMessage(error)}`,
-    );
   } finally {
     serverHandle = null;
   }

@@ -68,7 +68,7 @@ const MACRO_SET: ReadonlySet<string> = new Set([
   "inc", "dec", "str", "print",
   "when-let", "if-let", "if-not", "when-not",
   "doto", "xor", "min", "max", "with-gensyms",
-  // Type predicates (macros)
+  // Type predicates (macros + stdlib)
   "isNull", "isUndefined", "isNil", "isDefined", "notNil",
   "isString", "isNumber", "isBoolean", "isFunction", "isSymbol",
   "isArray", "isObject",

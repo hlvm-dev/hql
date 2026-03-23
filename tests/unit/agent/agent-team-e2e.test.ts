@@ -52,6 +52,22 @@ import {
 } from "../../../src/hlvm/agent/engine.ts";
 import type { LLMResponse } from "../../../src/hlvm/agent/tool-call.ts";
 import type { AgentProfile } from "../../../src/hlvm/agent/agent-registry.ts";
+// TUI pipeline imports — for full E2E: execution → events → reducer → components
+import React from "react";
+import {
+  createTranscriptState,
+  reduceTranscriptState,
+} from "../../../src/hlvm/cli/agent-transcript-state.ts";
+import {
+  isStructuredTeamInfoItem,
+  StreamingState,
+} from "../../../src/hlvm/cli/repl-ink/types.ts";
+import { TeamEventItem } from "../../../src/hlvm/cli/repl-ink/components/conversation/TeamEventItem.tsx";
+import {
+  getTeamTaskStatusGlyph,
+  getTeamTaskStatusTone,
+} from "../../../src/hlvm/cli/repl-ink/components/conversation/conversation-chrome.ts";
+import { buildFooterLeftState } from "../../../src/hlvm/cli/repl-ink/components/FooterHint.tsx";
 
 // ============================================================
 // Test helpers
@@ -1201,6 +1217,295 @@ Deno.test({
       assertExists(worker.joinedAt, "Member should have joinedAt timestamp");
       assertEquals(worker.backendType, "in-process");
     } finally {
+      teardownTeamEnv();
+    }
+  },
+});
+
+// ============================================================
+// Test 15: TRUE E2E — scripted agent does REAL work via tool calls,
+// events flow through reducer to TUI components and footer.
+//
+// This proves: "spawn agents and get job done" actually works.
+// The scripted LLM calls TaskCreate (creates a real sub-task in the
+// store) — verifiable side effect that proves the orchestrator
+// executed the tool, not just returned a canned string.
+// ============================================================
+
+Deno.test({
+  name: "E2E team: agent does real work via tool calls, events flow through reducer to TUI",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const dir = setupTeamEnv();
+    try {
+      // ── 1. Create team + task (user says "use a team to build auth") ──
+      await AGENT_TEAM_TOOLS.Teammate.fn(
+        { operation: "spawnTeam", team_name: "e2e-real-work", description: "Real work test" },
+        dir,
+      );
+      await AGENT_TEAM_TOOLS.TaskCreate.fn(
+        { subject: "Build auth module", description: "Implement authentication" },
+        dir,
+      );
+
+      // ── 2. Script the LLM to make REAL tool calls ──
+      //    First task: Agent calls TaskCreate (verifiable side effect) then returns
+      //    Subsequent tasks: Agent just returns "Done" (no tool calls) to prevent infinite loop
+      const capturedEvents: AgentUIEvent[] = [];
+      let llmCallCount = 0;
+
+      setAgentEngine({
+        createLLM: () => {
+          llmCallCount++;
+          if (llmCallCount === 1) {
+            // First task: make a real tool call
+            return createScriptedLLM([
+              {
+                content: "I'll break this down. Creating a sub-task for test coverage.",
+                toolCalls: [
+                  {
+                    id: "tc-1",
+                    toolName: "TaskCreate",
+                    args: {
+                      subject: "Write auth tests",
+                      description: "Unit tests for login, logout, token refresh",
+                    },
+                  },
+                ],
+              },
+              {
+                content: "Auth module implemented and sub-task created for tests.",
+                toolCalls: [],
+              },
+            ]);
+          }
+          // Subsequent tasks: just complete immediately
+          return createScriptedLLM([
+            { content: "Sub-task completed.", toolCalls: [] },
+          ]);
+        },
+        createSummarizer: () => async () => "Summary",
+      });
+
+      // ── 3. Spawn agent with event capture ──
+      await AGENT_TEAM_TOOLS.Teammate.fn(
+        { operation: "spawnAgent", name: "alice", agent_type: "general-purpose" },
+        dir,
+        makeSpawnOptions({
+          onAgentEvent: (event: AgentUIEvent) => capturedEvents.push(event),
+        }) as any,
+      );
+      await waitForBackgroundThreads();
+
+      // ── 4. Verify REAL side effect: sub-task created by agent's tool call ──
+      // Debug: dump captured events to understand what happened
+      const eventSummary = capturedEvents.map((e) => {
+        if (e.type === "tool_start") return `tool_start:${(e as Record<string, unknown>).name}`;
+        if (e.type === "tool_end") return `tool_end:${(e as Record<string, unknown>).name}`;
+        return e.type;
+      });
+      const store = getActiveTeamStore()!;
+      const tasks = await store.listTasks();
+      assertEquals(
+        tasks.length,
+        2,
+        `Should have 2 tasks: original + sub-task created by agent. ` +
+          `Got ${tasks.length} tasks. Events: [${eventSummary.join(", ")}]`,
+      );
+
+      const subTask = tasks.find((t) => t.subject === "Write auth tests");
+      assertExists(subTask, "Agent should have created 'Write auth tests' sub-task via TaskCreate tool call");
+      assertStringIncludes(
+        subTask!.description,
+        "login",
+        "Sub-task description should contain the agent's text",
+      );
+
+      // ── 5. Verify original task completed ──
+      const mainTask = await store.getTask("1");
+      assertExists(mainTask);
+      assertEquals(mainTask!.status, "completed", "Main task should be completed");
+      assertEquals(mainTask!.owner, "alice");
+
+      // ── 6. Verify events were captured (not just [thinking, turn_stats]) ──
+      const eventTypes = capturedEvents.map((e) => e.type);
+      assertEquals(
+        eventTypes.includes("team_task_updated"),
+        true,
+        `Expected team_task_updated in events: [${eventTypes.join(", ")}]`,
+      );
+      assertEquals(
+        eventTypes.includes("tool_start") || eventTypes.includes("tool_end"),
+        true,
+        `Expected tool execution events from TaskCreate call: [${eventTypes.join(", ")}]`,
+      );
+
+      // ── 7. Feed captured events through the REAL reducer ──
+      //    (exactly as ConversationPanel does in the TUI)
+      let transcriptState = createTranscriptState();
+      for (const event of capturedEvents) {
+        transcriptState = reduceTranscriptState(transcriptState, {
+          type: "agent_event",
+          event,
+        });
+      }
+
+      // ── 8. Verify team events made it through the reducer ──
+      const teamItems = transcriptState.items.filter(isStructuredTeamInfoItem);
+      assertEquals(
+        teamItems.length >= 2,
+        true,
+        `Expected >= 2 team items (claim + complete), got ${teamItems.length}. ` +
+          `Events: [${eventTypes.join(", ")}]`,
+      );
+
+      // ── 9. Verify specific team event content from real execution ──
+      const taskUpdates = teamItems.filter((i) => i.teamEventType === "team_task_updated");
+      assertEquals(taskUpdates.length >= 2, true, "Should have claim + completion events");
+
+      // Verify claim event
+      const claimEvent = taskUpdates.find(
+        (i) => i.teamEventType === "team_task_updated" && i.status === "in_progress",
+      );
+      assertExists(claimEvent, "Should have in_progress (claim) event");
+      assertEquals(claimEvent!.assigneeMemberId, "alice");
+
+      // Verify completion event
+      const completeEvent = taskUpdates.find(
+        (i) => i.teamEventType === "team_task_updated" && i.status === "completed",
+      );
+      assertExists(completeEvent, "Should have completed event");
+
+      // ── 10. Verify chrome functions produce valid output on real data ──
+      for (const item of taskUpdates) {
+        if (item.teamEventType !== "team_task_updated") continue;
+        const tone = getTeamTaskStatusTone(item.status);
+        const glyph = getTeamTaskStatusGlyph(item.status);
+        assertEquals(
+          ["neutral", "active", "success", "warning", "error"].includes(tone),
+          true,
+          `Tone "${tone}" should be valid for status "${item.status}"`,
+        );
+        assertEquals(glyph.length > 0, true, `Glyph should be non-empty for status "${item.status}"`);
+      }
+
+      // ── 11. Verify TeamEventItem accepts real reducer output ──
+      for (const item of teamItems) {
+        const el = React.createElement(TeamEventItem, { item, width: 80 });
+        assertExists(el, `TeamEventItem should accept real ${item.teamEventType} item`);
+        assertEquals(el.props.item, item);
+      }
+
+      // ── 12. Verify footer state reflects active team ──
+      const footerState = buildFooterLeftState({
+        inConversation: true,
+        streamingState: StreamingState.Idle,
+        teamActive: true,
+        teamAttentionCount: teamItems.length,
+        teamWorkerSummary: "alice: working",
+        spinner: "x",
+      });
+      const teamChip = footerState.segments.find((s) => s.text === "Team");
+      assertExists(teamChip, "Footer should have Team chip");
+      assertEquals(teamChip!.tone, "active");
+      const workerSeg = footerState.segments.find((s) => s.text.includes("alice"));
+      assertExists(workerSeg, "Footer should show alice in worker summary");
+
+      // ── 13. Cleanup ──
+      await AGENT_TEAM_TOOLS.Teammate.fn({ operation: "cleanup" }, dir);
+    } finally {
+      teardownTeamEnv();
+    }
+  },
+});
+
+// ============================================================
+// Test 16: Teammate writes a file (L1 tool) — proves permission inheritance
+// ============================================================
+
+Deno.test({
+  name: "E2E team: teammate writes file (L1) with inherited auto-edit permission",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const dir = setupTeamEnv();
+    const workspace = await platform.fs.makeTempDir({ prefix: "hlvm-team-write-" });
+    try {
+      // 1. Create team + task
+      await AGENT_TEAM_TOOLS.Teammate.fn(
+        { operation: "spawnTeam", team_name: "e2e-write-file", description: "File write test" },
+        dir,
+      );
+      await AGENT_TEAM_TOOLS.TaskCreate.fn(
+        { subject: "Create config file", description: "Write a config.json to workspace" },
+        dir,
+      );
+
+      // 2. Script LLM to call write_file (L1 — requires auto-edit permission)
+      const targetPath = platform.path.join(workspace, "config.json");
+      const fileContent = JSON.stringify({ version: 1, name: "test-app" }, null, 2);
+
+      setAgentEngine({
+        createLLM: () => createScriptedLLM([
+          {
+            content: "Creating config file.",
+            toolCalls: [
+              {
+                id: "tc-write",
+                toolName: "write_file",
+                args: { path: targetPath, content: fileContent },
+              },
+            ],
+          },
+          { content: "Config file created successfully.", toolCalls: [] },
+        ]),
+        createSummarizer: () => async () => "Summary",
+      });
+
+      // 3. Spawn teammate with permissionMode: "auto-edit" (inherits from lead)
+      //    Profile includes write_file so it's in the tool allowlist.
+      const writeProfiles: readonly AgentProfile[] = [
+        { name: "general", description: "General purpose agent", tools: ["write_file"] },
+      ];
+      const capturedEvents: AgentUIEvent[] = [];
+      await AGENT_TEAM_TOOLS.Teammate.fn(
+        { operation: "spawnAgent", name: "writer", agent_type: "general-purpose" },
+        workspace,
+        {
+          agentProfiles: writeProfiles,
+          ...FAST_POLL,
+          onAgentEvent: (event: AgentUIEvent) => capturedEvents.push(event),
+          permissionMode: "auto-edit",
+        } as any,
+      );
+      await waitForBackgroundThreads();
+
+      // 4. Verify the file was ACTUALLY written to disk
+      const written = await platform.fs.readTextFile(targetPath);
+      assertStringIncludes(written, "test-app", "File should contain the content written by teammate");
+      assertStringIncludes(written, "version", "File should have version field");
+
+      // 5. Verify task completed
+      const store = getActiveTeamStore()!;
+      const task = await store.getTask("1");
+      assertExists(task);
+      assertEquals(task!.status, "completed", "Task should be completed after file write");
+      assertEquals(task!.owner, "writer");
+
+      // 6. Verify tool execution events include write_file
+      const toolStarts = capturedEvents.filter((e) => e.type === "tool_start");
+      const writeEvent = toolStarts.find((e) =>
+        (e as Record<string, unknown>).name === "write_file"
+      );
+      assertExists(writeEvent, "Should have tool_start event for write_file");
+
+      // 7. Cleanup
+      await AGENT_TEAM_TOOLS.Teammate.fn({ operation: "cleanup" }, dir);
+    } finally {
+      try {
+        await platform.fs.remove(workspace, { recursive: true });
+      } catch { /* best effort */ }
       teardownTeamEnv();
     }
   },

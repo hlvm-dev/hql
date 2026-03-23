@@ -29,7 +29,6 @@ build: clean stdlib embed-packages
 	@DENO_DIR=$$(mktemp -d) deno compile --allow-all --no-check --config deno.json \
 		--v8-flags=--max-old-space-size=4096 \
 		--include src/hql/lib/stdlib/js/index.js \
-		--include src/hql/lib/stdlib/js/ai.js \
 		--output $(BINARY) $(CLI_ENTRY)
 	@echo "✅ Done! Binary: ./$(BINARY)"
 	@ls -lh $(BINARY)
@@ -131,7 +130,7 @@ setup-ai:
 # Test AI features
 test-ai: build-ai
 	@echo "🧪 Testing HLVM AI features..."
-	@./$(BINARY) run -e '(import [ask] from "@hlvm/ai") (print (ask "Say: Hello from HLVM!"))'
+	@./$(BINARY) run -e '(print (ai.status))'
 	@echo "✅ AI test passed!"
 
 # Clean up (binaries + Deno compile cache)

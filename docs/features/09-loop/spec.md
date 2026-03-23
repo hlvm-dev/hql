@@ -2,7 +2,7 @@
 
 HQL's iteration model is built on a fundamental `loop/recur` mechanism, which
 forms the core of its iteration capabilities. Higher-level looping
-constructs -- `while`, `dotimes`/`repeat`, and `for` -- are implemented as macros
+constructs -- `while`, `repeat`, and `for` -- are implemented as macros
 on top of this core. Additional transpiler primitives provide `for-of`,
 `for-await-of`, `break`, `continue`, and `label`.
 
@@ -74,14 +74,14 @@ Final count: 3
 
 ---
 
-## 3. Dotimes Loop (Macro, Clojure-style)
+## 3. Repeat Loop (Macro)
 
 **Implementation:** Macro in `loop.hql`
 
-The `dotimes` macro expands to `loop/recur`:
+The `repeat` macro expands to `loop/recur`:
 
 ```lisp
-(dotimes count body...)
+(repeat count body...)
 ;; expands to:
 (loop [i 0]
   (if (< i count)
@@ -89,14 +89,12 @@ The `dotimes` macro expands to `loop/recur`:
     nil))
 ```
 
-> **Note:** Named `dotimes` after Clojure's convention to avoid conflicts with
-> user code and the stdlib `repeat` function. The internal counter variable `i`
-> is not exposed to the body.
+> **Note:** The internal counter variable is not exposed to the body.
 
 **Example:**
 
 ```lisp
-(dotimes 3
+(repeat 3
   (print "Hello!"))
 ```
 
@@ -111,7 +109,7 @@ Hello!
 **Multiple Expressions:**
 
 ```lisp
-(dotimes 2
+(repeat 2
   (print "First")
   (print "Second"))
 ```
@@ -123,15 +121,6 @@ First
 Second
 First
 Second
-```
-
-### 3b. Repeat (Alias)
-
-`repeat` is an identical macro to `dotimes` (uses `__repeat_i` as internal counter).
-
-```lisp
-(repeat 3
-  (print "Hello!"))
 ```
 
 ---
@@ -321,8 +310,7 @@ Lazy sequence generator. Used internally by the `for` macro.
 |-----------|------|---------------|
 | `loop/recur` | Transpiler primitive | `loop-recur.ts` |
 | `while` | Macro | Expands to `loop/recur` |
-| `dotimes` | Macro | Expands to `loop/recur` |
-| `repeat` | Macro | Alias for `dotimes` |
+| `repeat` | Macro | Expands to `loop/recur` |
 | `for` | Macro | Expands to `for-of` + `__hql_range`/`__hql_toIterable` |
 | `for-of` | Transpiler primitive | `loop-recur.ts`, returns null |
 | `for-await-of` | Transpiler primitive | `loop-recur.ts`, async IIFE |

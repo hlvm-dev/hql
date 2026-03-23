@@ -23,27 +23,10 @@
        nil)))
 
 // ====================
-// 2. Dotimes Loop (Clojure-style fixed iteration)
+// 2. Repeat Loop (fixed iteration)
 // ====================
 
-// Simple dotimes loop - executes body a specific number of times
-// Named after Clojure's dotimes to avoid conflicts with user code
-// Example usage:
-// (dotimes 3 (print "hello"))
-(macro dotimes [count & body]
-  `(loop [i 0]
-     (if (< i ~count)
-       (do
-         ~@body
-         (recur (+ i 1)))
-       nil)))
-
-// ====================
-// 2b. Repeat Loop (alias for dotimes)
-// ====================
-
-// repeat loop - executes body a specific number of times
-// Same as dotimes but with a different name
+// Repeat loop - executes body a specific number of times
 // Example usage:
 // (repeat 3 (print "hello"))
 (macro repeat [count & body]

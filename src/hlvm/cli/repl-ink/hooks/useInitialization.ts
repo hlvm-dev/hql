@@ -27,7 +27,6 @@ import {
 interface InitializationState {
   loading: boolean;
   ready: boolean;
-  aiExports: string[];
   readyTime: number;
   errors: string[];
   aiReadiness: ConfiguredModelReadinessState;
@@ -39,7 +38,6 @@ interface InitializationState {
     modelId?: string,
     options?: { force?: boolean },
   ) => Promise<void>;
-  // bindingNames and refreshBindingNames removed - now handled by FRP via ReplContext
 }
 
 export interface InitializationReadinessState {
@@ -50,11 +48,11 @@ export interface InitializationReadinessState {
 
 export function resolveInitializationReadinessState(
   readiness: ConfiguredModelReadiness,
-  aiHelpersLoaded: boolean,
+  aiAvailable: boolean,
 ): InitializationReadinessState {
   const needsModelSetup = readiness.state === "setup_required";
   return {
-    aiReadiness: aiHelpersLoaded ? readiness.state : "unavailable",
+    aiReadiness: aiAvailable ? readiness.state : "unavailable",
     needsModelSetup,
     modelToSetup: needsModelSetup ? readiness.modelName : "",
   };
@@ -63,7 +61,6 @@ export function resolveInitializationReadinessState(
 export function useInitialization(state: ReplState): InitializationState {
   const [loading, setLoading] = useState(true);
   const [ready, setReady] = useState(false);
-  const [aiExports, setAiExports] = useState<string[]>([]);
   const [readyTime, setReadyTime] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
   const [aiReadiness, setAiReadiness] = useState<ConfiguredModelReadinessState>(
@@ -72,17 +69,17 @@ export function useInitialization(state: ReplState): InitializationState {
   const [needsModelSetup, setNeedsModelSetup] = useState(false);
   const [modelToSetup, setModelToSetup] = useState("");
   const initialized = useRef(false);
-  const aiHelpersLoadedRef = useRef(false);
+  const aiAvailableRef = useRef(false);
   const lastReadinessModelIdRef = useRef<string | null>(null);
 
   const applyModelReadinessState = useCallback(
     (
       readiness: ConfiguredModelReadiness,
-      aiHelpersLoaded: boolean,
+      aiAvailable: boolean,
     ): void => {
       const nextState = resolveInitializationReadinessState(
         readiness,
-        aiHelpersLoaded,
+        aiAvailable,
       );
 
       setAiReadiness((current: ConfiguredModelReadinessState) =>
@@ -115,7 +112,7 @@ export function useInitialization(state: ReplState): InitializationState {
         ? await getModelReadiness(normalizedModelId)
         : await getConfiguredModelReadiness();
       lastReadinessModelIdRef.current = readiness.modelId;
-      applyModelReadinessState(readiness, aiHelpersLoadedRef.current);
+      applyModelReadinessState(readiness, aiAvailableRef.current);
     },
     [applyModelReadinessState],
   );
@@ -148,14 +145,16 @@ export function useInitialization(state: ReplState): InitializationState {
 
         const loadErrors: string[] = [];
         if (initResult.moduleResult) {
-          setAiExports(initResult.moduleResult.aiExports);
-          aiHelpersLoadedRef.current =
-            initResult.moduleResult.aiExports.length >
-              0;
           if (initResult.moduleResult.errors.length > 0) {
             loadErrors.push(...initResult.moduleResult.errors);
           }
         }
+
+        // AI is available if globalThis.ai is registered (done by registerApis)
+        const globalAi = (globalThis as Record<string, unknown>).ai;
+        aiAvailableRef.current = globalAi != null &&
+          typeof globalAi === "object";
+
         if (initResult.bindingsResult?.errors.length) {
           loadErrors.push(...initResult.bindingsResult.errors);
         }
@@ -202,7 +201,6 @@ export function useInitialization(state: ReplState): InitializationState {
   return {
     loading,
     ready,
-    aiExports,
     readyTime,
     errors,
     aiReadiness,

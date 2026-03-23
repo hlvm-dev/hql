@@ -3,7 +3,6 @@
  *
  * Programmable access to AI capabilities through provider abstraction.
  * Usage in REPL:
- *   (ai.generate "prompt")       // Generate text
  *   (ai.chat messages)           // Chat completion
  *   (ai.models.list)             // List available models
  *   (ai.models.catalog)          // List catalog models
@@ -15,7 +14,6 @@ import {
   type AIProvider,
   type ChatOptions,
   type ChatStructuredResponse,
-  type GenerateOptions,
   getDefaultProvider,
   getProvider,
   getProviderForModel,
@@ -37,12 +35,6 @@ import { RuntimeError, ValidationError } from "../../common/error.ts";
 // ============================================================================
 // Helper Types
 // ============================================================================
-
-/** Options with model override */
-interface AiOptions extends GenerateOptions {
-  /** Signal for abort/cancellation */
-  signal?: AbortSignal;
-}
 
 /** Chat options with optional cancellation signal */
 type AiChatOptions = ChatOptions & { signal?: AbortSignal };
@@ -114,21 +106,6 @@ function createAiApi() {
   }
 
   return {
-    /**
-     * Generate text from a prompt (streaming)
-     * Returns an async generator for token-by-token streaming
-     * @example (ai.generate "Write a haiku")
-     * @example (ai.generate "Write code" {model: "ollama/codellama"})
-     */
-    generate: async function* (
-      prompt: string,
-      options?: AiOptions,
-    ): AsyncGenerator<string, void, unknown> {
-      const provider = getProviderOrThrow(options?.model);
-      const opts = toProviderOptions(options);
-      yield* provider.generate(prompt, opts);
-    },
-
     /**
      * Chat completion with message history (streaming)
      * @example (ai.chat [{role: "user" content: "Hello"}])

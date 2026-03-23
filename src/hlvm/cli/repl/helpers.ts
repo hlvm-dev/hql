@@ -107,9 +107,9 @@ export function registerReplHelpers(state: ReplState): void {
       return { ...info, explanation: null };
     }
 
-    const ask = globalAny.ask as ((prompt: string) => Promise<unknown>) | undefined;
-    if (typeof ask !== "function") {
-      log.raw.log(`\n${YELLOW}AI not available. Check @hlvm/ai installation and API key.${RESET}`);
+    const aiApi = globalAny.ai as { chat?: (...args: unknown[]) => AsyncIterable<unknown> } | undefined;
+    if (!aiApi?.chat) {
+      log.raw.log(`\n${YELLOW}AI not available. Check provider configuration.${RESET}`);
       return { ...info, explanation: null };
     }
 
@@ -127,26 +127,19 @@ Provide:
 Keep the response concise. Use HQL syntax (parentheses, prefix notation) for examples.`;
 
     try {
-      const response = await ask(prompt);
+      const messages = [{ role: "user", content: prompt }];
+      const response = aiApi.chat(messages);
 
-      if (response && typeof (response as AsyncIterable<unknown>)[Symbol.asyncIterator] === "function") {
-        const encoder = new TextEncoder();
-        let explanation = "";
-        for await (const chunk of response as AsyncIterable<unknown>) {
-          if (typeof chunk === "string") {
-            getPlatform().terminal.stdout.writeSync(encoder.encode(chunk));
-            explanation += chunk;
-          }
+      const encoder = new TextEncoder();
+      let explanation = "";
+      for await (const chunk of response) {
+        if (typeof chunk === "string") {
+          getPlatform().terminal.stdout.writeSync(encoder.encode(chunk));
+          explanation += chunk;
         }
-        log.raw.log();
-        return { ...info, explanation };
-      } else if (typeof response === "string") {
-        log.raw.log(response);
-        return { ...info, explanation: response };
-      } else {
-        log.raw.log(String(response));
-        return { ...info, explanation: String(response) };
       }
+      log.raw.log();
+      return { ...info, explanation };
     } catch (error) {
       const errMsg = getErrorMessage(error);
       log.raw.log(`${YELLOW}AI error: ${errMsg}${RESET}`);

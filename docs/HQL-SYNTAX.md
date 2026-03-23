@@ -36,7 +36,7 @@ HQL (High-Level Query Language) is a Lisp dialect that transpiles to JavaScript/
 | **Functions** | `fn`, `async fn`, `fn*`, `async fn*`, `=>` |
 | **Classes** | `constructor`, methods, `static`, `getter`/`setter`, `#private` |
 | **Control** | `if`, `cond`, `when`, `unless`, `switch`, `match` |
-| **Loops** | `loop/recur`, `for`, `for-of`, `for-await-of`, `while`, `dotimes` |
+| **Loops** | `loop/recur`, `for`, `for-of`, `for-await-of`, `while`, `repeat` |
 | **Labels** | `label`, `break label`, `continue label` |
 | **Generators** | `fn*`, `yield`, `yield*` |
 | **Async** | `async fn`, `await`, `async fn*` |
@@ -94,7 +94,7 @@ _private         // Private convention
 
 ```
 fn let var const def if cond when unless do
-loop recur for for-of for-await-of while dotimes
+loop recur for for-of for-await-of while repeat
 class new async await return throw try catch finally
 import export macro match switch case default
 => & _ nil true false this
@@ -623,10 +623,10 @@ d.breed   // => "Labrador"
   (= count (+ count 1)))
 ```
 
-### Dotimes
+### Repeat
 
 ```clojure
-(dotimes 5
+(repeat 5
   (print "hello"))
 ```
 

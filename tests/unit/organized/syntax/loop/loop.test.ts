@@ -79,10 +79,10 @@ i
   assertEquals(result, 5);
 });
 
-Deno.test("LoopSyntax: dotimes repeats multi-expression bodies", async () => {
+Deno.test("LoopSyntax: repeat repeats multi-expression bodies", async () => {
   const result = await run(`
 (var output [])
-(dotimes 2
+(repeat 2
   (.push output "first")
   (.push output "second"))
 output

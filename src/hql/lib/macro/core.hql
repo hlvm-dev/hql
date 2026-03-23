@@ -37,9 +37,6 @@
 (macro isUndefined [x]
   `(=== ~x undefined))
 
-(macro isNil [x]
-  `(== ~x null))              // JS: x == null catches both null and undefined
-
 (macro isDefined [x]
   `(!== ~x undefined))        // Direct !== check
 

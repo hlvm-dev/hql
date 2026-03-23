@@ -31,7 +31,6 @@ const FULL_LOGO_WIDTH = Math.max(...LOGO_LINES.map((line) => line.length));
 const bannerRampCache = new Map<string, readonly string[]>();
 
 interface BannerProps {
-  aiExports: string[];
   aiReadiness: ConfiguredModelReadinessState;
   errors: string[];
   modelName?: string;
@@ -134,13 +133,8 @@ export function shouldUseCompactBanner(
 }
 
 export function resolveBannerAiIndicator(
-  aiHelpersLoaded: boolean,
   aiReadiness: ConfiguredModelReadinessState,
 ): BannerAiIndicator {
-  if (!aiHelpersLoaded) {
-    return { label: "AI unavailable", tone: "error" };
-  }
-
   switch (aiReadiness) {
     case "available":
       return { label: "AI available", tone: "ready" };
@@ -152,13 +146,13 @@ export function resolveBannerAiIndicator(
 }
 
 export function Banner(
-  { aiExports, aiReadiness, errors, modelName }: BannerProps,
+  { aiReadiness, errors, modelName }: BannerProps,
 ): React.ReactElement {
   const { stdout } = useStdout();
   const { color, themeName } = useTheme();
   const sc = useSemanticColors();
   const model = modelName?.trim() ?? "";
-  const indicator = resolveBannerAiIndicator(aiExports.length > 0, aiReadiness);
+  const indicator = resolveBannerAiIndicator(aiReadiness);
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const terminalHeight = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
   const compact = shouldUseCompactBanner(terminalWidth, terminalHeight);

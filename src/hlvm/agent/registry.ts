@@ -127,6 +127,8 @@ export interface ToolExecutionOptions {
   idlePollIntervalMs?: number;
   /** Override teammate max idle polls before exit (for testing). */
   maxIdlePolls?: number;
+  /** Parent permission mode inherited by spawned teammates. */
+  permissionMode?: import("../../common/config/types.ts").PermissionMode;
 }
 
 /** Generic tool function signature */

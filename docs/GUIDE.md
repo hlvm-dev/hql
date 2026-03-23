@@ -432,7 +432,7 @@ Time macro:
 ### Practice Problems
 
 1. Write `debug` macro that prints expression and result
-2. Write `dotimes` macro: `(dotimes 3 (print "Hi"))` (note: HQL already has this built-in)
+2. Write `repeat` macro: `(repeat 3 (print "Hi"))` (note: HQL already has this built-in)
 3. Write `assert` macro for testing
 
 ## Level 7: Building Projects (45 minutes)

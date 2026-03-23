@@ -1319,7 +1319,6 @@ function AppContent(
           init.ready
             ? (
               <Banner
-                aiExports={init.aiExports}
                 aiReadiness={init.aiReadiness}
                 errors={init.errors}
                 modelName={modelSelection.displayLabel}

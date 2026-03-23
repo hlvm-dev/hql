@@ -303,15 +303,13 @@ Deno.test({
   async fn() {
     await withIsolatedServerTest(async () => {
       const arithmetic = await evalCode("(+ 1 2)");
-      const ask = await evalCode("(typeof ask)");
-      const generate = await evalCode("(typeof ai.generate)");
+      const aiChat = await evalCode("(typeof ai.chat)");
       const javascript = await evalCode("let x = 10; x * 2");
 
       assertEquals(arithmetic.success, true);
       assertEquals(arithmetic.value, "3");
       assertEquals(arithmetic.error, null);
-      assertEquals(ask.value, '"function"');
-      assertEquals(generate.value, '"function"');
+      assertEquals(aiChat.value, '"function"');
       assertEquals(javascript.success, true);
       assertEquals(javascript.value, "20");
     });

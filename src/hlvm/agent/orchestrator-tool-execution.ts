@@ -243,6 +243,7 @@ async function executeToolWithTimeout(
   onAgentEvent?: OrchestratorConfig["onAgentEvent"],
   agentProfiles?: OrchestratorConfig["agentProfiles"],
   instructions?: OrchestratorConfig["instructions"],
+  permissionMode?: OrchestratorConfig["permissionMode"],
 ): Promise<unknown> {
   return await withTimeout(
     async (signal) => {
@@ -279,6 +280,7 @@ async function executeToolWithTimeout(
         onAgentEvent,
         agentProfiles,
         instructions,
+        permissionMode,
       };
       const result = await toolFn(args, workspace, toolOptions);
       if (signal.aborted) {
@@ -1010,6 +1012,7 @@ export async function executeToolCall(
         config.onAgentEvent,
         config.agentProfiles,
         config.instructions,
+        config.permissionMode,
       );
     let result: unknown;
     try {

@@ -65,7 +65,7 @@ const CONTROL_FLOW_KEYWORDS = [
   // Conditional macros
   "cond", "when", "unless", "match", "case", "default", "else",
   // Loop macros (NOTE: doseq does NOT exist in HQL - use for instead!)
-  "for", "while", "dotimes", "repeat",
+  "for", "while", "repeat",
   // Exception handling
   "try", "catch", "finally", "throw",
   // Async

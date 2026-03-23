@@ -72,7 +72,7 @@
 (for-of [x arr] body)            // for (const x of arr)
 (for-await-of [x iter] body)     // for await (const x of iter)
 (while cond body)                // while (cond) { body }
-(dotimes n body)                 // for (i=0; i<n; i++)
+(repeat n body)                  // for (i=0; i<n; i++)
 (label name (break name))        // name: { break name }
 (continue) (break)               // continue; break;
 ```
@@ -207,7 +207,7 @@ obj.property                     // obj.property
 | Classes | constructor, methods, static, private (#) | ✅ |
 | Classes | getters, setters, extends, abstract-class extends | ✅ |
 | Control | `if`, `cond`, `when`, `unless`, `switch`, `match` | ✅ |
-| Loops | `loop/recur`, `for`, `for-of`, `while`, `dotimes` | ✅ |
+| Loops | `loop/recur`, `for`, `for-of`, `while`, `repeat` | ✅ |
 | Loops | `for-await-of`, `label`, `break`, `continue` | ✅ |
 | Operators | `??`, `?.`, `??=`, `&&=`, `\|\|=` | ✅ |
 | Operators | All arithmetic, comparison, logical, bitwise | ✅ |

@@ -306,7 +306,7 @@ The following symbols have special meaning in HQL and cannot be used as variable
 
 ```
 fn let var const def if cond when unless do
-loop recur for for-of for-await-of while dotimes
+loop recur for for-of for-await-of while repeat
 class new async await return throw try catch finally
 import export macro match switch case default
 => & _ nil true false this
@@ -316,7 +316,7 @@ type deftype interface abstract-class namespace
 const-enum declare fn-overload
 ```
 
-Most of these will be familiar from JavaScript. The additions -- `fn`, `def`, `cond`, `loop`, `recur`, `macro`, `match`, `dotimes`, `fn*` -- come from HQL's Lisp heritage.
+Most of these will be familiar from JavaScript. The additions -- `fn`, `def`, `cond`, `loop`, `recur`, `macro`, `match`, `repeat`, `fn*` -- come from HQL's Lisp heritage.
 
 #### 2.5 Literals
 
@@ -1502,12 +1502,12 @@ HQL's `for` loop is a range-based iteration construct:
   (print n))
 ```
 
-#### 8.6 dotimes and repeat
+#### 8.6 repeat
 
-`dotimes` executes a body a fixed number of times:
+`repeat` executes a body a fixed number of times:
 
 ```lisp
-(dotimes 5
+(repeat 5
   (print "hello"))
 ;; prints "hello" 5 times
 ```
@@ -3860,7 +3860,6 @@ Self-hosted functions are transpiled to JavaScript at build time via `scripts/bu
 | `for` | Iteration | `(for [i 10] body)` |
 | `for-of` | Iteration | `(for-of [x arr] body)` |
 | `for-await-of` | Iteration | `(for-await-of [x iter] body)` |
-| `dotimes` | Iteration | `(dotimes n body...)` |
 | `repeat` | Iteration | `(repeat n body...)` |
 | `break` | Loop control | `(break)` or `(break label)` |
 | `continue` | Loop control | `(continue)` or `(continue label)` |
@@ -3994,7 +3993,7 @@ The following identifiers are reserved and cannot be used as variable names:
 `class`, `const`, `enum`, `export`, `extends`, `import`, `super`, `implements`, `interface`, `let`, `package`, `private`, `protected`, `public`, `static`, `yield`
 
 **HQL-specific keywords:**
-`fn`, `defn`, `fx`, `def`, `loop`, `recur`, `macro`, `quote`, `quasiquote`, `unquote`, `unquote-splicing`, `async`, `await`, `fn*`, `yield*`, `cond`, `when`, `unless`, `match`, `and`, `or`, `not`, `dotimes`, `repeat`, `for-of`, `for-await-of`, `label`, `import-dynamic`, `export`, `type`, `deftype`, `interface`, `namespace`, `enum`, `const-enum`, `declare`, `fn-overload`, `abstract-class`, `getter`, `setter`, `constructor`
+`fn`, `defn`, `fx`, `def`, `loop`, `recur`, `macro`, `quote`, `quasiquote`, `unquote`, `unquote-splicing`, `async`, `await`, `fn*`, `yield*`, `cond`, `when`, `unless`, `match`, `and`, `or`, `not`, `repeat`, `for-of`, `for-await-of`, `label`, `import-dynamic`, `export`, `type`, `deftype`, `interface`, `namespace`, `enum`, `const-enum`, `declare`, `fn-overload`, `abstract-class`, `getter`, `setter`, `constructor`
 
 ---
 

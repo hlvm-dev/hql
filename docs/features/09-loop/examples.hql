@@ -119,29 +119,29 @@
 (assert (=== searchIdx 5) "While early exit at index 5")
 
 // ============================================================================
-// SECTION 3: DOTIMES LOOP - FIXED ITERATIONS (Clojure-style)
+// SECTION 3: REPEAT LOOP - FIXED ITERATIONS
 // ============================================================================
 
-// Basic dotimes
-(var dotimesResult [])
-(dotimes 3
-  (.push dotimesResult "hello"))
-(assertEqual dotimesResult ["hello", "hello", "hello"] "Dotimes 3 times")
+// Basic repeat
+(var repeatResult [])
+(repeat 3
+  (.push repeatResult "hello"))
+(assertEqual repeatResult ["hello", "hello", "hello"] "Repeat 3 times")
 
-// Dotimes with multiple expressions
-(var dotimesMulti [])
-(dotimes 2
-  (.push dotimesMulti "first")
-  (.push dotimesMulti "second"))
-(assertEqual dotimesMulti ["first", "second", "first", "second"] "Dotimes with multiple expressions")
+// Repeat with multiple expressions
+(var repeatMulti [])
+(repeat 2
+  (.push repeatMulti "first")
+  (.push repeatMulti "second"))
+(assertEqual repeatMulti ["first", "second", "first", "second"] "Repeat with multiple expressions")
 
-// Dotimes with counter accumulation
-(var dotimesSum 0)
-(var dotimesCounter 0)
-(dotimes 5
-  (= dotimesSum (+ dotimesSum dotimesCounter))
-  (= dotimesCounter (+ dotimesCounter 1)))
-(assert (=== dotimesSum 10) "Dotimes with counter (0+1+2+3+4)")
+// Repeat with counter accumulation
+(var repeatSum 0)
+(var repeatCounter 0)
+(repeat 5
+  (= repeatSum (+ repeatSum repeatCounter))
+  (= repeatCounter (+ repeatCounter 1)))
+(assert (=== repeatSum 10) "Repeat with counter (0+1+2+3+4)")
 
 // ============================================================================
 // SECTION 4: FOR LOOP - RANGE ITERATION

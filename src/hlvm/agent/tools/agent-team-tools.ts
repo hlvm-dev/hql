@@ -168,6 +168,7 @@ export const teammate: ToolMetadata = {
       const instructions = _options?.instructions;
       const idlePollIntervalMs = _options?.idlePollIntervalMs;
       const maxIdlePolls = _options?.maxIdlePolls;
+      const permissionMode = _options?.permissionMode;
 
       // Launch runTeammateLoop as background promise (dynamic import to break circular dependency)
       const promise: Promise<DelegateThreadResult> = (async () => {
@@ -188,6 +189,7 @@ export const teammate: ToolMetadata = {
             toolOwnerId,
             idlePollIntervalMs,
             maxIdlePolls,
+            permissionMode,
           });
           return {
             success: true,
@@ -253,17 +255,17 @@ export const teammate: ToolMetadata = {
     operation:
       "string (required) - 'spawnTeam' to create a team, 'spawnAgent' to spawn a teammate, 'cleanup' to remove team resources",
     team_name:
-      "string (required for spawnTeam) - Name for the new team",
+      "string (optional) - Name for the new team (required for spawnTeam)",
     description:
-      "string (optional) - Team description/purpose",
+      "string (optional) - Team description/purpose (spawnTeam only)",
     name:
-      "string (required for spawnAgent) - Unique name for the teammate",
+      "string (optional) - Unique name for the teammate (required for spawnAgent)",
     agent_type:
-      "string (optional for spawnAgent) - Agent type/profile (default: 'general-purpose')",
+      "string (optional) - Agent type: 'general' (default, has file/shell/web tools), 'code', 'file', 'shell', 'web', 'memory' (spawnAgent only)",
     model:
-      "string (optional for spawnAgent) - Model to use for this teammate",
+      "string (optional) - Model to use for this teammate (spawnAgent only)",
     plan_mode_required:
-      "boolean (optional for spawnAgent) - Whether this teammate requires plan approval",
+      "boolean (optional) - Whether this teammate requires plan approval (spawnAgent only)",
   },
   returns: {
     status: "string - 'created', 'spawned', or 'cleaned_up'",
@@ -379,14 +381,14 @@ export const sendMessage: ToolMetadata = {
   args: {
     type: "string (required) - 'message', 'broadcast', 'shutdown_request', 'shutdown_response', 'plan_approval_response'",
     recipient:
-      "string (required for message/shutdown_request/plan_approval_response) - Agent name of recipient",
-    content: "string - Message text or feedback",
+      "string (optional) - Agent name of recipient (required for message/shutdown_request/plan_approval_response)",
+    content: "string (optional) - Message text or feedback",
     summary:
-      "string - 5-10 word summary shown as preview (required for message/broadcast)",
+      "string (optional) - 5-10 word summary shown as preview (required for message/broadcast)",
     request_id:
-      "string - Request ID for shutdown_response/plan_approval_response",
+      "string (optional) - Request ID (required for shutdown_response/plan_approval_response)",
     approve:
-      "boolean - Whether to approve (for shutdown_response/plan_approval_response)",
+      "boolean (optional) - Whether to approve (for shutdown_response/plan_approval_response)",
   },
   returns: {
     sent: "boolean - Whether the message was sent",

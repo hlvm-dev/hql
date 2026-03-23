@@ -9,14 +9,13 @@ HQL provides loop constructs for iteration and recursion:
 
 1. **`loop/recur`** - Tail-call optimization (functional recursion) — transpiler primitive
 2. **`while`** - Condition-based loop — macro expanding to `loop/recur`
-3. **`dotimes`** - Execute n times — macro expanding to `loop/recur`
-4. **`repeat`** - Alias for `dotimes`
-5. **`for`** - Range and collection iteration — macro expanding to `for-of`
-6. **`for-of`** - Collection iteration — transpiler primitive
-7. **`for-await-of`** - Async iteration over async iterables — transpiler primitive
-8. **`break`/`continue`** - Loop control statements (optional label) — transpiler primitives
-9. **`label`** - Named loops for multi-level control — transpiler primitive
-10. **`range`** - Lazy number sequence generator — stdlib function
+3. **`repeat`** - Execute n times — macro expanding to `loop/recur`
+4. **`for`** - Range and collection iteration — macro expanding to `for-of`
+5. **`for-of`** - Collection iteration — transpiler primitive
+6. **`for-await-of`** - Async iteration over async iterables — transpiler primitive
+7. **`break`/`continue`** - Loop control statements (optional label) — transpiler primitives
+8. **`label`** - Named loops for multi-level control — transpiler primitive
+9. **`range`** - Lazy number sequence generator — stdlib function
 
 ## Syntax
 
@@ -101,21 +100,18 @@ sum
     nil))
 ```
 
-### Dotimes Loop - Fixed Iterations (Clojure-style)
+### Repeat Loop - Fixed Iterations
 
-`dotimes` is a macro that expands to `loop/recur`.
-
-> **Note:** Named `dotimes` after Clojure's convention to avoid conflicts with
-> user code and the stdlib `repeat` function.
+`repeat` is a macro that expands to `loop/recur`.
 
 ```lisp
-// Basic dotimes
-(dotimes count
+// Basic repeat
+(repeat count
   body...)
 
 // Example: 3 times
 (var result [])
-(dotimes 3
+(repeat 3
   (.push result "hello"))
 result
 // => ["hello", "hello", "hello"]
@@ -123,7 +119,7 @@ result
 // With counter (manual)
 (var sum 0)
 (var counter 0)
-(dotimes 5
+(repeat 5
   (= sum (+ sum counter))
   (= counter (+ counter 1)))
 sum
@@ -133,7 +129,7 @@ sum
 **Macro expansion:**
 
 ```lisp
-(dotimes count body...)
+(repeat count body...)
 // expands to:
 (loop [i 0]
   (if (< i count)
@@ -141,17 +137,8 @@ sum
     nil))
 ```
 
-> The internal `i` variable is NOT exposed to the body. If you need an iteration
+> The internal counter variable is NOT exposed to the body. If you need an iteration
 > counter, manage one yourself.
-
-### Repeat Loop - Alias for Dotimes
-
-`repeat` is a macro identical to `dotimes`.
-
-```lisp
-(repeat 3
-  (print "hello"))
-```
 
 ### For Loop - Range and Collection Iteration
 
@@ -391,9 +378,9 @@ Arithmetic updates are optimized: `(+ i 1)` becomes `i++`, `(- i 1)` becomes `i-
 
 Macro that expands to `loop [] (if condition (do body (recur)) nil)`. The loop/recur then gets optimized to a native while loop.
 
-### Dotimes / Repeat
+### Repeat
 
-Macros that expand to `loop [i 0] (if (< i count) (do body (recur (+ i 1))) nil)`. The internal counter variable is not exposed to the body (`dotimes` uses `i`, `repeat` uses `__repeat_i`).
+Macro that expands to `loop [i 0] (if (< i count) (do body (recur (+ i 1))) nil)`. The internal counter variable is not exposed to the body.
 
 ### For Loop
 
@@ -444,10 +431,10 @@ Transpiler primitive. Generates `label: statement`. When a `for-of` inside the l
 - While loop with array operations
 - While loop early termination
 
-### Dotimes Loop
-- Basic dotimes loop
-- Dotimes with multiple expressions
-- Dotimes with counter accumulation
+### Repeat Loop
+- Basic repeat loop
+- Repeat with multiple expressions
+- Repeat with counter accumulation
 
 ### For Loop
 - Single arg range (0 to n-1)
@@ -523,10 +510,10 @@ Transpiler primitive. Generates `label: statement`. When a `for-of` inside the l
   (processItem))
 ```
 
-### Use Dotimes for Fixed Count
+### Use Repeat for Fixed Count
 
 ```lisp
-(dotimes 5
+(repeat 5
   (print "Hello"))
 ```
 
@@ -536,7 +523,7 @@ HQL's loop constructs:
 
 - **loop/recur**: Tail-call optimized functional recursion. Transpiler primitive. Simple loops optimize to native while.
 - **while**: Condition-based loop. Macro expanding to loop/recur.
-- **dotimes** / **repeat**: Fixed iteration count. Macros expanding to loop/recur.
+- **repeat**: Fixed iteration count. Macro expanding to loop/recur.
 - **for**: Range and collection iteration. Macro expanding to for-of with runtime range helpers.
 - **for-of**: Direct collection iteration. Transpiler primitive. Returns null (expression semantics).
 - **for-await-of**: Async iteration. Transpiler primitive.
