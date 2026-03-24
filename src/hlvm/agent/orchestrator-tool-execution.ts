@@ -281,6 +281,8 @@ async function executeToolWithTimeout(
         agentProfiles,
         instructions,
         permissionMode,
+        toolAllowlist,
+        toolDenylist,
       };
       const result = await toolFn(args, workspace, toolOptions);
       if (signal.aborted) {
@@ -465,18 +467,32 @@ export async function executeToolCall(
       );
     }
 
-    if (
-      toolCall.toolName === "ask_user" &&
-      config.planModeState?.active &&
-      config.planModeState.phase === "executing"
-    ) {
-      return buildToolErrorResult(
-        toolCall.toolName,
-        "Approved plan execution should not ask new clarifying questions. Continue with best effort, or finish with a concise blocker summary instead.",
-        startedAt,
-        config,
-        toolCall.id,
-      );
+    if (toolCall.toolName === "ask_user") {
+      // Block ask_user in headless mode
+      if (config.permissionMode === "headless") {
+        const errorMsg = "ask_user is blocked in headless mode (--print). The agent must complete the task without user interaction.";
+        return buildToolErrorResult(
+          toolCall.toolName,
+          `[INTERACTION_BLOCKED] ${errorMsg}`,
+          startedAt,
+          config,
+          toolCall.id,
+        );
+      }
+
+      // Block ask_user during plan execution
+      if (
+        config.planModeState?.active &&
+        config.planModeState.phase === "executing"
+      ) {
+        return buildToolErrorResult(
+          toolCall.toolName,
+          "Approved plan execution should not ask new clarifying questions. Continue with best effort, or finish with a concise blocker summary instead.",
+          startedAt,
+          config,
+          toolCall.id,
+        );
+      }
     }
 
     const mutatingTool = isMutatingTool(
@@ -532,7 +548,19 @@ export async function executeToolCall(
       ? "yolo"
       : config.permissionMode === "auto-edit"
       ? "auto-edit"
+      : config.permissionMode === "headless"
+      ? "headless"
       : "default";
+    const toolPermissions = config.toolAllowlist || config.toolDenylist
+      ? {
+        allowedTools: config.toolAllowlist
+          ? new Set(config.toolAllowlist)
+          : undefined,
+        deniedTools: config.toolDenylist
+          ? new Set(config.toolDenylist)
+          : undefined,
+      }
+      : undefined;
     const approved = await checkToolSafety(
       toolCall.toolName,
       coercedArgs,
@@ -542,12 +570,19 @@ export async function executeToolCall(
       config.toolOwnerId,
       config.onInteraction,
       safetyWarning,
+      toolPermissions,
     );
 
     if (!approved) {
+      const isHeadlessBlock = config.permissionMode === "headless";
+      const errorPrefix = isHeadlessBlock ? "[TOOL_BLOCKED] " : "";
       return buildToolErrorResult(
         toolCall.toolName,
-        `Tool execution denied by user: ${toolCall.toolName}`,
+        `${errorPrefix}Tool execution denied: ${toolCall.toolName}${
+          isHeadlessBlock
+            ? " (unsafe tool blocked in headless mode)"
+            : ""
+        }`,
         startedAt,
         config,
         toolCall.id,

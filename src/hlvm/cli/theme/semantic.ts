@@ -190,7 +190,7 @@ export function buildSemanticColors(palette: ThemePalette): SemanticColors {
     },
     chrome,
     shell: {
-      prompt: palette.primary,
+      prompt: palette.text,
       separator: chrome.separator,
       queueHint: palette.muted,
       chipNeutral: chrome.chipNeutral,
@@ -224,11 +224,11 @@ export function buildSemanticColors(palette: ThemePalette): SemanticColors {
       error: palette.error,
     },
     syntax: {
-      keyword: palette.primary,
+      keyword: palette.accent,
       string: palette.success,
       number: palette.warning,
       comment: palette.muted,
-      function: palette.primary,
+      function: palette.text,
       operator: palette.text,
       default: palette.text,
     },

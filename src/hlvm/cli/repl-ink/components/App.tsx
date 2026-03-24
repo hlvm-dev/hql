@@ -854,51 +854,60 @@ function AppContent(
         return;
       }
 
-      if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
-        addHistoryEntry(code, {
-          success: false,
-          error: new Error("Evaluation already running. Ctrl+B to background, Esc cancels."),
-        });
-        return;
-      }
-
-      // Conversation mode: keep input active and queue turns while the agent is running.
-      if (hasConversationContext) {
-        recordPromptHistory(replState, code, "conversation");
-        const conversationDraft = createConversationComposerDraft(
-          code.trim(),
-          attachments,
-        );
-        if (agentControllerRef.current) {
-          setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
-            enqueueConversationDraft(prev, conversationDraft)
-          );
+      // HQL code (starts with "(") always evaluates locally, even in conversation mode.
+      if (trimmedInput.startsWith("(")) {
+        if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
+          addHistoryEntry(code, {
+            success: false,
+            error: new Error("Evaluation already running. Ctrl+B to background, Esc cancels."),
+          });
           return;
         }
-        const result = submitConversationDraft(conversationDraft);
-        if (!result.started) {
-          restoreComposerDraftRef.current(conversationDraft);
-          if (result.unsupportedMimeType) {
-            conversationRef.current.addError(
-              describeConversationAttachmentMimeTypeError(
-                result.unsupportedMimeType,
-              ),
-            );
-          }
+        // Fall through to HQL eval below
+      } else {
+        // Natural language → agent conversation
+        if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
+          addHistoryEntry(code, {
+            success: false,
+            error: new Error("Evaluation already running. Ctrl+B to background, Esc cancels."),
+          });
+          return;
         }
-        return;
-      }
 
-      if (agentControllerRef.current) {
-        addHistoryEntry(code, {
-          success: false,
-          error: new Error("Agent is already running. Press Esc to cancel."),
-        });
-        return;
-      }
+        if (hasConversationContext) {
+          recordPromptHistory(replState, code, "conversation");
+          const conversationDraft = createConversationComposerDraft(
+            code.trim(),
+            attachments,
+          );
+          if (agentControllerRef.current) {
+            setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
+              enqueueConversationDraft(prev, conversationDraft)
+            );
+            return;
+          }
+          const result = submitConversationDraft(conversationDraft);
+          if (!result.started) {
+            restoreComposerDraftRef.current(conversationDraft);
+            if (result.unsupportedMimeType) {
+              conversationRef.current.addError(
+                describeConversationAttachmentMimeTypeError(
+                  result.unsupportedMimeType,
+                ),
+              );
+            }
+          }
+          return;
+        }
 
-      // Simple routing: ( → code eval, everything else → agent conversation
-      if (!trimmedInput.startsWith("(")) {
+        if (agentControllerRef.current) {
+          addHistoryEntry(code, {
+            success: false,
+            error: new Error("Agent is already running. Press Esc to cancel."),
+          });
+          return;
+        }
+
         recordPromptHistory(replState, code, "conversation");
         const { attachments: conversationAttachments, unsupportedMimeType } =
           prepareConversationAttachmentPayload(attachments);
@@ -1276,14 +1285,14 @@ function AppContent(
     }
   })();
   const tokenColor = useMemo(() => {
-    const p = color("primary");
+    const a = color("accent");
     const s = color("secondary");
     const su = color("success");
     const w = color("warning");
     const m = color("muted");
     const t = color("text");
     const map: Record<string, string | undefined> = {
-      keyword: p,
+      keyword: a,
       macro: s,
       string: su,
       number: w,
@@ -1291,14 +1300,14 @@ function AppContent(
       boolean: w,
       nil: m,
       comment: m,
-      whitespace: m,
-      "open-paren": m,
-      "close-paren": m,
-      "open-bracket": m,
-      "close-bracket": m,
-      "open-brace": m,
-      "close-brace": m,
-      functionCall: p,
+      whitespace: undefined,
+      "open-paren": t,
+      "close-paren": t,
+      "open-bracket": t,
+      "close-bracket": t,
+      "open-brace": t,
+      "close-brace": t,
+      functionCall: t,
     };
     return (type: TokenType): string | undefined => map[type];
   }, [color]);
@@ -1373,8 +1382,8 @@ function AppContent(
         />
       )}
 
-      {/* History of inputs and outputs (hidden during conversation to prevent ghost rendering) */}
-      {!isOverlayOpen && !hasConversationContext && !hasStandaloneSurface &&
+      {/* History of inputs and outputs */}
+      {!isOverlayOpen && !hasStandaloneSurface &&
         history.map((entry: HistoryEntry) => {
           const lines = entry.input.split("\n");
           const unclosedDepth = lines.length > 1
@@ -1384,11 +1393,11 @@ function AppContent(
             <Box key={entry.id} flexDirection="column" marginBottom={1}>
               {lines.map((line: string, lineIndex: number) => (
                 <Box key={`${entry.id}-${lineIndex}`}>
-                  <Text color={color("primary")} bold>
+                  <Text bold>
                     {lineIndex === 0
                       ? "hlvm>"
                       : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
-                  </Text>
+                  </Text>{" "}
                   <Box>
                     {getHighlightSegments(line).map((seg, segIdx) => (
                       <React.Fragment

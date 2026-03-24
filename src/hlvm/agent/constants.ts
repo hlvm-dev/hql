@@ -517,3 +517,25 @@ export function computeTierToolFilter(
   const baseAllowlist = userAllowlist?.length ? userAllowlist : [...WEAK_TIER_CORE_TOOLS];
   return { allowlist: baseAllowlist, denylist: userDenylist };
 }
+
+// ============================================================
+// CLI Exit Codes (SSOT)
+// ============================================================
+
+/**
+ * Standard exit codes for CLI commands (particularly `hlvm ask`).
+ *
+ * Following Unix conventions and industry standards:
+ * - 0: Success
+ * - 1: General failure (query failed, LLM error, validation error)
+ * - 2: Tool permission denied in headless mode (unsafe tool blocked)
+ * - 3: User interaction blocked in headless mode (ask_user attempted)
+ */
+export const EXIT_CODES = {
+  SUCCESS: 0,
+  GENERAL_FAILURE: 1,
+  TOOL_BLOCKED: 2,
+  INTERACTION_BLOCKED: 3,
+} as const;
+
+export type ExitCode = typeof EXIT_CODES[keyof typeof EXIT_CODES];

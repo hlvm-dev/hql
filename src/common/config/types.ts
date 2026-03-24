@@ -51,14 +51,23 @@ export type AgentMode = "hlvm" | "claude-code-agent";
  * - "auto-edit": auto-approve L0+L1, only confirm L2 destructive
  * - "plan": research and plan first, then execute with approval
  * - "yolo": auto-approve everything (no prompts)
+ * - "headless": -p/--print mode (L0 auto-approve, all else denied)
  */
-export type PermissionMode = "default" | "auto-edit" | "plan" | "yolo";
+export type PermissionMode = "default" | "auto-edit" | "plan" | "yolo" | "headless";
 export const PERMISSION_MODES: PermissionMode[] = [
   "default",
   "auto-edit",
   "plan",
   "yolo",
+  "headless",
 ];
+
+/** Tool permissions for CLI control */
+export interface ToolPermissions {
+  allowedTools: Set<string>;
+  deniedTools: Set<string>;
+  mode: PermissionMode;
+}
 
 /** User-customized keybindings (action ID -> key combo) */
 export type KeybindingsConfig = Record<string, string>;

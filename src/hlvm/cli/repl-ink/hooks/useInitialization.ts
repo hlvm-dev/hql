@@ -118,7 +118,8 @@ export function useInitialization(state: ReplState): InitializationState {
       }
 
       const globalAi = (globalThis as Record<string, unknown>).ai;
-      const isAiAvailable = globalAi != null && typeof globalAi === "object";
+      const isAiAvailable = globalAi != null &&
+        (typeof globalAi === "object" || typeof globalAi === "function");
 
       const readiness = normalizedModelId
         ? await getModelReadiness(normalizedModelId)
@@ -169,7 +170,9 @@ export function useInitialization(state: ReplState): InitializationState {
 
         // AI is available if globalThis.ai is registered (done by registerApis)
         const globalAi = (globalThis as Record<string, unknown>).ai;
-        const isAiAvailable = globalAi != null && typeof globalAi === "object";
+        const isAiAvailable = globalAi != null &&
+          (typeof globalAi === "object" || typeof globalAi === "function");
+
         setAiAvailable(isAiAvailable);
 
         if (initResult.bindingsResult?.errors.length) {

@@ -163,8 +163,7 @@ async function initState(): Promise<ReplState> {
 
   if (moduleResult) {
     log.info(
-      `Loaded ${moduleResult.stdlibExports.length} stdlib + ` +
-        `${moduleResult.aiExports.length} AI functions`,
+      `Loaded ${moduleResult.stdlibExports.length} stdlib functions`,
     );
 
     if (moduleResult.errors.length > 0) {

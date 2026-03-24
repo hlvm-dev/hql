@@ -37,7 +37,22 @@ export async function listModels(
       headers: oauthHeaders(token),
       timeout: API_TIMEOUT_MS,
     });
-    if (!response.ok) return [];
+
+    // Auth failure → clear token cache and return empty
+    if (response.status === 401 || response.status === 403) {
+      const { clearTokenCache } = await import("./auth.ts");
+      clearTokenCache();
+      return [];
+    }
+
+    if (!response.ok) {
+      // Log non-auth failures for debugging
+      const { log } = await import("../../api/log.ts");
+      log.warn(
+        `Claude Code model list fetch failed: ${response.status} ${response.statusText}`,
+      );
+      return [];
+    }
 
     const result = await response.json() as {
       data: { id: string; display_name: string }[];
@@ -50,7 +65,13 @@ export async function listModels(
         family: "claude",
         capabilities: ["chat" as const, "tools" as const, "vision" as const],
       }));
-  } catch {
+  } catch (error) {
+    // Log unexpected errors for debugging
+    const { log } = await import("../../api/log.ts");
+    const { getErrorMessage } = await import("../../../common/utils.ts");
+    log.warn(
+      `Claude Code model list fetch error: ${getErrorMessage(error)}`,
+    );
     return [];
   }
 }

@@ -24,7 +24,7 @@ Deno.test("buildSemanticColors derives shell chrome from palette tokens only", (
   const semanticColors = buildSemanticColors(THEMES.sicp);
   const shell = semanticColors.shell;
 
-  assertEquals(shell.prompt, THEMES.sicp.primary);
+  assertEquals(shell.prompt, THEMES.sicp.text);
   assertEquals(shell.separator, THEMES.sicp.muted);
   assertEquals(shell.queueHint, THEMES.sicp.muted);
   assertEquals(shell.chipNeutral.background, THEMES.sicp.muted);

@@ -8,7 +8,7 @@
 
 import React from "react";
 import { Box, Text, useStdout } from "ink";
-import { useSemanticColors } from "../../theme/index.ts";
+import { useSemanticColors, useTheme } from "../../theme/index.ts";
 import {
   type StreamingState,
   StreamingState as ConversationStreamingState,
@@ -119,18 +119,36 @@ export function buildFooterLeftState({
       : null;
 
   if (!inConversation) {
-    const segments: ShellFooterSegment[] = [];
-    if (modeChip) {
-      const isFullAuto = modeChip === "Full auto";
-      segments.push({ text: modeChip, tone: "error", chip: isFullAuto });
+    // Status message takes precedence (mode switch flash, etc.)
+    if (statusMessage) {
+      return {
+        mode: "message",
+        segments: [],
+        text: statusMessage,
+        tone: "muted",
+      };
     }
+
+    const segments: ShellFooterSegment[] = [];
+    const isFullAuto = modeChip === "Full auto";
+
+    // Full auto gets red chip, others get text with hint
+    if (isFullAuto) {
+      segments.push({ text: modeChip, tone: "error", chip: true });
+    }
+
     if (teamChip) segments.push(teamChip);
     if (teamWorkerSegment) segments.push(teamWorkerSegment);
     if (bgChip) segments.push(bgChip);
     if (bgTaskHint) segments.push(bgTaskHint);
+
     const hintText = isEvaluating
       ? "Ctrl+B background \u00B7 Esc cancels"
-      : statusMessage || (modeChip ? "Shift+Tab cycles" : "") || "";
+      : isFullAuto
+      ? "Shift+Tab cycles"
+      : modeChip
+      ? `${modeChip} (Shift+Tab cycles)`
+      : "";
     const combinedHint = [hintText, teamHint].filter(Boolean).join(
       SHELL_SEGMENT_SEPARATOR,
     );
@@ -180,12 +198,24 @@ export function buildFooterLeftState({
       text: "Waiting for confirmation",
       tone: "warning",
     };
+  } else if (statusMessage) {
+    // Status message (mode switch flash, etc.) - show after high-priority warnings
+    return {
+      mode: "message",
+      segments: [],
+      text: statusMessage,
+      tone: "muted",
+    };
   }
 
   const segments: ShellFooterSegment[] = [];
-  if (modeChip) {
-    segments.push({ text: modeChip, tone: "neutral", chip: true });
+  const isFullAuto = modeChip === "Full auto";
+
+  // Only show mode chip for "Full auto"
+  if (isFullAuto) {
+    segments.push({ text: modeChip, tone: "error", chip: true });
   }
+
   if (queuedCount > 0) {
     segments.push({
       text: `+${queuedCount} queued`,
@@ -212,7 +242,11 @@ export function buildFooterLeftState({
 
   const hintText = streamingState === ConversationStreamingState.Responding
     ? hasDraftInput ? "Tab queues · Ctrl+Enter forces" : "Esc cancels"
-    : statusMessage || (modeChip ? "Shift+Tab cycles" : "") || "";
+    : isFullAuto
+    ? "Shift+Tab cycles"
+    : modeChip
+    ? `${modeChip} (Shift+Tab cycles)`
+    : "";
   const combinedHint = [hintText, teamHint].filter(Boolean).join(
     SHELL_SEGMENT_SEPARATOR,
   );
@@ -278,6 +312,7 @@ export function FooterHint({
   aiAvailable = false,
 }: FooterProps): React.ReactElement {
   const { stdout } = useStdout();
+  const { color } = useTheme();
   const sc = useSemanticColors();
   const model = modelName ?? "";
   const isAnimating =
@@ -401,7 +436,7 @@ export function FooterHint({
         </Box>
         {rightParts.length > 0 && (
           <Box>
-            <Text color={aiAvailable ? sc.status.success : sc.status.error}>
+            <Text color={aiAvailable ? "#50fa7b" : sc.status.error}>
               {STATUS_GLYPHS.running}{" "}
             </Text>
             {rightParts.map((part, index) => (

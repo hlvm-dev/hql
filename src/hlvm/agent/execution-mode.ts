@@ -11,6 +11,7 @@ const EXECUTION_MODE_META: Record<AgentExecutionMode, { label: string }> = {
   "auto-edit": { label: "Accept edits" },
   "plan": { label: "Plan mode" },
   "yolo": { label: "Full auto" },
+  "headless": { label: "Headless mode" },
 };
 
 export function toAgentExecutionMode(

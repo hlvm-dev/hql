@@ -179,3 +179,215 @@ Deno.test("Safety: classifyShellPipeline falls back to simple classification for
   assertEquals(classifyShellPipeline("git status").level, "L0");
   assertEquals(classifyShellPipeline("git push").level, "L2");
 });
+
+// ---------------------------------------------------------------------------
+// checkToolSafety: integration with new toolPermissions system
+// ---------------------------------------------------------------------------
+
+Deno.test("Safety: checkToolSafety uses toolPermissions when provided", async () => {
+  const store = new Map<string, boolean>();
+
+  // Explicit deny blocks tool even in yolo mode
+  assertEquals(
+    await checkToolSafety(
+      "write_file",
+      { path: "a", content: "b" },
+      "yolo",
+      null,
+      store,
+      undefined,
+      undefined,
+      undefined,
+      { allowedTools: new Set(), deniedTools: new Set(["write_file"]) },
+    ),
+    false,
+  );
+
+  // Explicit allow overrides headless mode
+  assertEquals(
+    await checkToolSafety(
+      "shell_exec",
+      { command: "rm -rf /" },
+      "headless",
+      null,
+      store,
+      undefined,
+      undefined,
+      undefined,
+      { allowedTools: new Set(["shell_exec"]), deniedTools: new Set() },
+    ),
+    true,
+  );
+});
+
+Deno.test("Safety: checkToolSafety policy takes precedence over toolPermissions", async () => {
+  const store = new Map<string, boolean>();
+  const denyPolicy = { version: 1, toolRules: { write_file: "deny" } } as const;
+
+  // Policy deny blocks even with explicit allow in toolPermissions
+  assertEquals(
+    await checkToolSafety(
+      "write_file",
+      { path: "a", content: "b" },
+      "default",
+      denyPolicy,
+      store,
+      undefined,
+      undefined,
+      undefined,
+      { allowedTools: new Set(["write_file"]), deniedTools: new Set() },
+    ),
+    false,
+  );
+});
+
+Deno.test("Safety: checkToolSafety falls back to legacy logic when no toolPermissions", async () => {
+  const store = new Map<string, boolean>();
+
+  // Yolo mode works without toolPermissions
+  assertEquals(
+    await checkToolSafety(
+      "write_file",
+      { path: "a", content: "b" },
+      "yolo",
+      null,
+      store,
+    ),
+    true,
+  );
+
+  // Auto-edit mode works without toolPermissions
+  assertEquals(
+    await checkToolSafety(
+      "write_file",
+      { path: "a", content: "b" },
+      "auto-edit",
+      null,
+      store,
+    ),
+    true,
+  );
+});
+
+Deno.test("Safety: checkToolSafety L1 confirmation cache works with toolPermissions", async () => {
+  clearAllL1Confirmations();
+  const store = new Map<string, boolean>();
+  let prompts = 0;
+  const onInteraction = async () => {
+    prompts++;
+    return { approved: true, rememberChoice: true };
+  };
+
+  // First call prompts (toolPermissions returns "prompt")
+  assertEquals(
+    await checkToolSafety(
+      "write_file",
+      { path: "a", content: "b" },
+      "default",
+      null,
+      store,
+      undefined,
+      onInteraction,
+      undefined,
+      { allowedTools: new Set(), deniedTools: new Set() },
+    ),
+    true,
+  );
+  assertEquals(prompts, 1);
+
+  // Second call uses cache
+  assertEquals(
+    await checkToolSafety(
+      "write_file",
+      { path: "a", content: "b" },
+      "default",
+      null,
+      store,
+      undefined,
+      onInteraction,
+      undefined,
+      { allowedTools: new Set(), deniedTools: new Set() },
+    ),
+    true,
+  );
+  assertEquals(prompts, 1);
+});
+
+Deno.test("Safety: checkToolSafety prompt flow with toolPermissions", async () => {
+  const store = new Map<string, boolean>();
+  let prompted = false;
+  const onInteraction = async () => {
+    prompted = true;
+    return { approved: false, rememberChoice: false };
+  };
+
+  // Default mode with no explicit rules triggers prompt
+  assertEquals(
+    await checkToolSafety(
+      "shell_exec",
+      { command: "rm file" },
+      "default",
+      null,
+      store,
+      undefined,
+      onInteraction,
+      undefined,
+      { allowedTools: new Set(), deniedTools: new Set() },
+    ),
+    false,
+  );
+  assertEquals(prompted, true);
+});
+
+Deno.test("Safety: checkToolSafety with different safety levels", async () => {
+  const store = new Map<string, boolean>();
+  const permissions = { allowedTools: new Set<string>(), deniedTools: new Set<string>() };
+
+  // L0 is always auto-approved (before toolPermissions are checked)
+  assertEquals(
+    await checkToolSafety(
+      "read_file",
+      { path: "a" },
+      "default",
+      null,
+      store,
+      undefined,
+      undefined,
+      undefined,
+      permissions,
+    ),
+    true,
+  );
+
+  // L1 in headless mode is denied
+  assertEquals(
+    await checkToolSafety(
+      "write_file",
+      { path: "a", content: "b" },
+      "headless",
+      null,
+      store,
+      undefined,
+      undefined,
+      undefined,
+      permissions,
+    ),
+    false,
+  );
+
+  // L2 in headless mode is denied
+  assertEquals(
+    await checkToolSafety(
+      "delete_file",
+      { path: "a" },
+      "headless",
+      null,
+      store,
+      undefined,
+      undefined,
+      undefined,
+      permissions,
+    ),
+    false,
+  );
+});

@@ -35,9 +35,28 @@ REPL:
 hlvm repl
 ```
 
+AI Agent:
+
+```bash
+# Interactive mode (default)
+hlvm ask "explain this code"
+
+# Headless mode (CI/CD)
+hlvm ask -p "analyze code quality"
+
+# Fine-grained permissions
+hlvm ask --allow-tool write_file "fix linting errors"
+```
+
 ---
 
 ## Documentation
+
+**AI Agent:**
+
+- [Agent System](./docs/agent.md) - Architecture and reference
+- [CLI Permissions](./docs/cli-permissions.md) - Permission system guide
+- [Headless Mode](./docs/examples/headless-mode.md) - Non-interactive usage
 
 **Learning:**
 

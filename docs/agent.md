@@ -351,11 +351,42 @@ interface ToolMetadata {
 
 ### Permission Modes
 
-| Mode | L0 | L1 | L2 |
-|------|----|----|-----|
-| `default` | Auto | Prompt user | Prompt user |
-| `auto-edit` | Auto | Auto | Prompt user |
-| `yolo` | Auto | Auto | Auto |
+HLVM provides three built-in permission modes plus fine-grained tool control:
+
+#### Built-in Modes
+
+| Mode | L0 | L1 | L2 | CLI Flag | Use Case |
+|------|----|----|-----|----------|----------|
+| `default` | Auto | Prompt | Prompt | (none) | Interactive development |
+| `print` | Auto | Deny | Deny | `-p`, `--print` | Headless/CI pipelines |
+| `auto-edit` | Auto | Auto | Prompt | `--auto-edit` | [Legacy] Trusted file operations |
+| `yolo` | Auto | Auto | Auto | `--dangerously-skip-permissions` | [Legacy] Full automation (unsafe) |
+
+**Default mode** is fully interactive — safe tools (L0) auto-approve, mutations (L1/L2) prompt the user.
+
+**Print mode** (`-p`/`--print`) is the headless standard — non-interactive execution where unsafe tools are automatically denied. This is the recommended mode for CI/CD pipelines, scripts, and automation.
+
+#### Fine-Grained Tool Control
+
+Beyond built-in modes, you can explicitly allow or deny individual tools:
+
+```bash
+# Allow specific tools
+hlvm ask --allow-tool write_file --allow-tool edit_file "fix bug"
+
+# Deny specific tools
+hlvm ask --deny-tool shell_exec "analyze code"
+
+# Comma-separated lists
+hlvm ask --allowed-tools read_file,grep,search_code "search pattern"
+hlvm ask --denied-tools shell_exec,delete_file "refactor code"
+```
+
+**Permission resolution priority** (highest to lowest):
+1. Explicit `--deny-tool` / `--denied-tools`
+2. Explicit `--allow-tool` / `--allowed-tools`
+3. Mode-based defaults (`print`, `auto-edit`, `yolo`)
+4. Safety level defaults (L0 auto-approve, L1/L2 prompt)
 
 Permission mode propagates from the lead to spawned teammates via `ToolExecutionOptions.permissionMode`.
 

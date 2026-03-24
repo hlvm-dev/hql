@@ -531,6 +531,98 @@ hlvm run server.hql
 4. **Todo Manager** - Add, list, remove todos
 5. **HTTP API** - REST API with multiple routes
 
+## Level 8: AI Agent (15 minutes)
+
+HLVM includes a built-in AI agent for coding tasks.
+
+### Lesson 24: Basic Agent Usage
+
+Interactive mode (default):
+
+```bash
+hlvm ask "explain what this project does"
+hlvm ask "find all functions that use async/await"
+```
+
+The agent can:
+- Read and analyze code
+- Search codebases
+- Execute shell commands (with permission)
+- Write and edit files (with permission)
+
+### Lesson 25: Headless Mode
+
+For automation and CI/CD:
+
+```bash
+# Non-interactive analysis
+hlvm ask -p "analyze code quality"
+
+# Only allow specific tools
+hlvm ask -p --allow-tool write_file "generate documentation"
+```
+
+**Headless mode** (`-p`/`--print`):
+- No user prompts
+- Safe tools auto-approved
+- Unsafe tools auto-denied
+- Perfect for CI/CD
+
+### Lesson 26: Permission Control
+
+Fine-grained control over what the agent can do:
+
+```bash
+# Allow specific tools
+hlvm ask --allow-tool write_file "fix linting errors"
+
+# Deny specific tools
+hlvm ask --deny-tool shell_exec "refactor code"
+
+# Multiple permissions
+hlvm ask --allowed-tools read_file,grep,search_code "find pattern"
+```
+
+**Safety levels:**
+- **L0 (safe):** read_file, search_code — auto-approved
+- **L1 (mutations):** write_file, shell_exec — prompted or denied
+- **L2 (high-risk):** destructive ops — prompted or denied
+
+### Lesson 27: Practical Examples
+
+Code review:
+
+```bash
+hlvm ask "review auth.ts for security issues"
+```
+
+Refactoring:
+
+```bash
+hlvm ask "convert all var to let in src/"
+```
+
+Documentation:
+
+```bash
+hlvm ask -p --allow-tool write_file "generate API docs"
+```
+
+CI/CD:
+
+```bash
+# In your CI pipeline
+hlvm ask -p "check for unused imports" || exit 1
+```
+
+### Learn More
+
+- [Agent System](./agent.md) — Complete architecture
+- [CLI Permissions](./cli-permissions.md) — Permission system guide
+- [Headless Mode](./examples/headless-mode.md) — CI/CD integration
+
+---
+
 ## Testing Your Code
 
 Run HQL's test suite:
@@ -546,6 +638,7 @@ See [Testing Guide](./TESTING.md) for writing your own tests.
 - [API Reference](./api/) - Complete API documentation
 - [Standard Library](./api/stdlib.md) - Built-in functions
 - [Feature Examples](./features/) - Detailed feature examples
+- [Agent System](./agent.md) - AI agent capabilities
 
 ## Getting Help
 

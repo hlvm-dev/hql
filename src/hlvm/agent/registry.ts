@@ -129,6 +129,10 @@ export interface ToolExecutionOptions {
   maxIdlePolls?: number;
   /** Parent permission mode inherited by spawned teammates. */
   permissionMode?: import("../../common/config/types.ts").PermissionMode;
+  /** Explicit tool allow list for permission system. */
+  toolAllowlist?: string[];
+  /** Explicit tool deny list for permission system. */
+  toolDenylist?: string[];
 }
 
 /** Generic tool function signature */

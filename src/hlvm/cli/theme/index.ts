@@ -123,7 +123,7 @@ export function getSyntaxAnsi(): Record<string, string> & { reset: string } {
   }
   const theme = THEMES[themeName] || THEMES.sicp;
   const value = {
-    keyword: hexToAnsi(theme.primary),
+    keyword: hexToAnsi(theme.accent),
     macro: hexToAnsi(theme.secondary),
     string: hexToAnsi(theme.success),
     number: hexToAnsi(theme.warning),
@@ -131,8 +131,8 @@ export function getSyntaxAnsi(): Record<string, string> & { reset: string } {
     boolean: hexToAnsi(theme.warning),
     nil: hexToAnsi(theme.muted),
     comment: hexToAnsi(theme.muted),
-    delimiter: hexToAnsi(theme.muted),
-    functionCall: hexToAnsi(theme.primary),
+    delimiter: hexToAnsi(theme.text),
+    functionCall: hexToAnsi(theme.text),
     reset: ANSI_RESET,
   };
   _syntaxAnsiCache = { key: themeName, value };

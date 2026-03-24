@@ -29,7 +29,7 @@ import {
 import { isToolArgsObject } from "../validation.ts";
 import { classifyShellCommand, classifyShellPipeline } from "./shell-classifier.ts";
 import { canonicalizeForSignature } from "../orchestrator-tool-formatting.ts";
-import type { PermissionMode } from "../../../common/config/types.ts";
+import type { PermissionMode, ToolPermissions } from "../../../common/config/types.ts";
 
 // ============================================================
 // Types
@@ -544,6 +544,55 @@ async function readLine(
 }
 
 // ============================================================
+// Permission Resolution
+// ============================================================
+
+/**
+ * Resolve tool permission based on explicit allow/deny lists and mode.
+ *
+ * Priority:
+ * 1. Explicit deny (highest priority)
+ * 2. Explicit allow
+ * 3. Headless mode rules (L0 allow, L1/L2 deny)
+ * 4. Legacy yolo mode (allow all)
+ * 5. Legacy auto-edit mode (allow L0+L1, prompt L2)
+ * 6. Default mode (prompt for L1/L2)
+ *
+ * @param toolName Tool name to check
+ * @param safetyLevel Tool safety level (L0/L1/L2)
+ * @param permissions Tool permissions (allow/deny lists + mode)
+ * @returns "allow" | "deny" | "prompt"
+ */
+export function resolveToolPermission(
+  toolName: string,
+  safetyLevel: SafetyLevel,
+  permissions: ToolPermissions,
+): "allow" | "deny" | "prompt" {
+  // Priority 1: Explicit deny
+  if (permissions.deniedTools.has(toolName)) return "deny";
+
+  // Priority 2: Explicit allow
+  if (permissions.allowedTools.has(toolName)) return "allow";
+
+  // Priority 3: Headless mode rules
+  if (permissions.mode === "headless") {
+    if (safetyLevel === "L0") return "allow"; // Read-only always ok
+    return "deny"; // Block all write operations
+  }
+
+  // Priority 4: Legacy yolo mode
+  if (permissions.mode === "yolo") return "allow";
+
+  // Priority 5: Legacy auto-edit mode
+  if (permissions.mode === "auto-edit" && safetyLevel === "L1") {
+    return "allow";
+  }
+
+  // Default: prompt for confirmation
+  return "prompt";
+}
+
+// ============================================================
 // Safety Check (Combined)
 // ============================================================
 
@@ -582,6 +631,7 @@ export async function checkToolSafety(
   ownerId?: string,
   onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>,
   warning?: string,
+  toolPermissions?: { allowedTools?: Set<string>; deniedTools?: Set<string> },
 ): Promise<boolean> {
   // Classify tool
   const classification = classifyTool(toolName, args, ownerId);
@@ -599,6 +649,28 @@ export async function checkToolSafety(
     return true;
   }
 
+  // Apply explicit allow/deny lists and permission mode via resolveToolPermission
+  if (toolPermissions) {
+    const permissions: ToolPermissions = {
+      allowedTools: toolPermissions.allowedTools ?? new Set(),
+      deniedTools: toolPermissions.deniedTools ?? new Set(),
+      mode: permissionMode,
+    };
+    const decision = resolveToolPermission(
+      toolName,
+      classification.level,
+      permissions,
+    );
+    if (decision === "deny") {
+      return false;
+    }
+    if (decision === "allow") {
+      return true;
+    }
+    // If "prompt", continue to prompting logic below
+  }
+
+  // Fallback to legacy mode-based logic (when no toolPermissions provided)
   // Yolo mode: auto-approve everything
   if (permissionMode === "yolo") {
     return true;

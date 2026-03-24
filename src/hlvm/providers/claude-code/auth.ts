@@ -20,13 +20,20 @@ interface ClaudeOAuthCredentials {
 }
 
 let cachedToken: string | null = null;
+let tokenFetchTime = 0;
+const TOKEN_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Read the OAuth access token from the Claude Code credential store.
  * Priority: env var CLAUDE_CODE_TOKEN > macOS Keychain > filesystem fallback.
+ * Token is cached for 5 minutes to allow periodic refresh detection.
  */
 export async function getClaudeCodeToken(): Promise<string> {
-  if (cachedToken) return cachedToken;
+  // Re-fetch token if cache is older than 5 minutes
+  const now = Date.now();
+  if (cachedToken && (now - tokenFetchTime) < TOKEN_CACHE_TTL_MS) {
+    return cachedToken;
+  }
 
   const platform = getPlatform();
 
@@ -34,6 +41,7 @@ export async function getClaudeCodeToken(): Promise<string> {
   const envToken = platform.env.get("CLAUDE_CODE_TOKEN");
   if (envToken) {
     cachedToken = envToken;
+    tokenFetchTime = now;
     return envToken;
   }
 
@@ -42,6 +50,7 @@ export async function getClaudeCodeToken(): Promise<string> {
     const token = await readFromKeychain();
     if (token) {
       cachedToken = token;
+      tokenFetchTime = now;
       return token;
     }
   }
@@ -50,6 +59,7 @@ export async function getClaudeCodeToken(): Promise<string> {
   const token = await readFromFilesystem(platform);
   if (token) {
     cachedToken = token;
+    tokenFetchTime = now;
     return token;
   }
 
@@ -61,6 +71,7 @@ export async function getClaudeCodeToken(): Promise<string> {
 /** Clear cached token (e.g., after auth failure for retry) */
 export function clearTokenCache(): void {
   cachedToken = null;
+  tokenFetchTime = 0;
 }
 
 async function readFromKeychain(): Promise<string | null> {

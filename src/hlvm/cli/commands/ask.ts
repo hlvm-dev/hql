@@ -9,6 +9,7 @@ import { log } from "../../api/log.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 import { readLineInput, readSingleKey } from "../utils/input.ts";
 import { ValidationError } from "../../../common/error.ts";
+import { EXIT_CODES } from "../../agent/constants.ts";
 import { isOllamaAuthErrorMessage } from "../../../common/ollama-auth.ts";
 import { truncate } from "../../../common/utils.ts";
 import {
@@ -67,26 +68,57 @@ USAGE:
   hlvm ask --help              Show this help message
 
 EXAMPLES:
+  # Interactive mode (default)
   hlvm ask "list files in src/"
   hlvm ask "count test files in tests/unit"
-  hlvm ask "what are recent downloaded files?"
+
+  # Headless mode (non-interactive, safe tools only)
+  hlvm ask -p "analyze code quality"
+  hlvm ask --print "explain this function"
+
+  # Explicit tool permissions
+  hlvm ask --allow-tool write_file "fix bug"
+  hlvm ask --allowed-tools read_file,grep "search for pattern"
+  hlvm ask --deny-tool shell_exec "analyze code"
+
+  # Advanced usage
   hlvm ask --attach ./screenshot.png "describe this UI issue"
   hlvm ask --verbose "count test files"  # Debug mode with detailed output
   hlvm ask --json "count test files"     # Stream NDJSON events for automation
   hlvm ask --model openai/gpt-4o "summarize this codebase"
-  hlvm ask --model anthropic/claude-sonnet-4-5-20250929 "list files"
   hlvm ask --stateless "hello"           # Use an isolated hidden session
 
 OPTIONS:
   --help, -h                   Show this help message
+  -p, --print                  Headless mode (non-interactive, auto-deny unsafe tools)
   --verbose                    Show agent header, tool labels, stats, and trace output
   --json                       Emit newline-delimited JSON events
   --usage                      Show token usage summary after execution
   --attach <path>              Attach a file input (repeatable)
-  --model <provider/model>     Use a specific AI model (e.g., openai/gpt-4o, anthropic/claude-sonnet-4-5-20250929)
+  --model <provider/model>     Use a specific AI model (e.g., openai/gpt-4o)
   --stateless                  Use an isolated hidden session for this run only
-  --auto-edit                  Auto-approve file reads and writes; only confirm destructive ops
-  --dangerously-skip-permissions  Skip ALL permission prompts (like Claude Code --dangerously-skip-permissions)
+
+  Tool Permission Control:
+  --allow-tool <name>          Allow specific tool (can be repeated)
+  --deny-tool <name>           Deny specific tool (can be repeated)
+  --allowed-tools <list>       Comma-separated allow list
+  --denied-tools <list>        Comma-separated deny list
+
+  Legacy Permission Modes:
+  --auto-edit                  [Legacy] Auto-approve file reads/writes
+  --dangerously-skip-permissions  [Legacy] Auto-approve all tools (unsafe)
+
+PERMISSION MODES:
+  Interactive (default):       Prompt for L1/L2 tools, auto-approve L0 (read-only)
+  Headless (-p/--print):       Auto-deny unsafe tools (L1/L2), allow safe tools (L0)
+  Custom (--allow/--deny):     Explicit control over individual tools
+
+  Tool Safety Levels:
+    L0: Safe read-only (read_file, list_files, search_code)
+    L1: Mutations (write_file, edit_file, shell_exec)
+    L2: High-risk (destructive shell commands, delete operations)
+
+  Priority order: deny > allow > mode > default
 `);
 }
 
@@ -404,6 +436,26 @@ export async function attemptCloudAuthRecovery(
   }
 }
 
+/**
+ * Determine exit code based on error type.
+ * - EXIT_CODES.INTERACTION_BLOCKED (3): ask_user blocked in headless mode
+ * - EXIT_CODES.TOOL_BLOCKED (2): unsafe tool blocked in headless mode
+ * - EXIT_CODES.GENERAL_FAILURE (1): all other failures
+ */
+function getExitCodeForError(error: unknown): number {
+  const errorMsg = error instanceof Error ? error.message : String(error);
+
+  if (errorMsg.includes("[INTERACTION_BLOCKED]")) {
+    return EXIT_CODES.INTERACTION_BLOCKED;
+  }
+
+  if (errorMsg.includes("[TOOL_BLOCKED]")) {
+    return EXIT_CODES.TOOL_BLOCKED;
+  }
+
+  return EXIT_CODES.GENERAL_FAILURE;
+}
+
 export async function askCommand(args: string[]): Promise<void> {
   if (hasHelpFlag(args)) {
     showAskHelp();
@@ -418,6 +470,8 @@ export async function askCommand(args: string[]): Promise<void> {
   let modelOverride: string | undefined;
   let permissionModeOverride: PermissionMode | undefined;
   const attachmentArgs: string[] = [];
+  const allowedTools = new Set<string>();
+  const deniedTools = new Set<string>();
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -429,10 +483,54 @@ export async function askCommand(args: string[]): Promise<void> {
       showUsage = true;
     } else if (arg === "--stateless") {
       stateless = true;
+    } else if (arg === "-p" || arg === "--print") {
+      permissionModeOverride = "headless";
     } else if (arg === "--auto-edit") {
       permissionModeOverride = "auto-edit";
     } else if (arg === "--dangerously-skip-permissions") {
       permissionModeOverride = "yolo";
+    } else if (arg === "--allow-tool") {
+      i++;
+      if (i >= args.length) {
+        throw new ValidationError(
+          "--allow-tool requires a tool name",
+          "ask",
+        );
+      }
+      allowedTools.add(args[i]);
+    } else if (arg === "--deny-tool") {
+      i++;
+      if (i >= args.length) {
+        throw new ValidationError(
+          "--deny-tool requires a tool name",
+          "ask",
+        );
+      }
+      deniedTools.add(args[i]);
+    } else if (arg === "--allowed-tools") {
+      i++;
+      if (i >= args.length) {
+        throw new ValidationError(
+          "--allowed-tools requires a comma-separated list",
+          "ask",
+        );
+      }
+      args[i].split(",").forEach((tool) => {
+        const trimmed = tool.trim();
+        if (trimmed) allowedTools.add(trimmed);
+      });
+    } else if (arg === "--denied-tools") {
+      i++;
+      if (i >= args.length) {
+        throw new ValidationError(
+          "--denied-tools requires a comma-separated list",
+          "ask",
+        );
+      }
+      args[i].split(",").forEach((tool) => {
+        const trimmed = tool.trim();
+        if (trimmed) deniedTools.add(trimmed);
+      });
     } else if (arg === "--model") {
       i++;
       if (i >= args.length) {
@@ -840,6 +938,8 @@ export async function askCommand(args: string[]): Promise<void> {
       contextWindow,
       stateless,
       permissionMode: effectivePermissionMode,
+      toolAllowlist: allowedTools.size > 0 ? Array.from(allowedTools) : undefined,
+      toolDenylist: deniedTools.size > 0 ? Array.from(deniedTools) : undefined,
       callbacks: {
         onToken,
         onAgentEvent,
@@ -916,7 +1016,7 @@ export async function askCommand(args: string[]): Promise<void> {
       errorClass: described.class,
       retryable: described.retryable,
     });
-    getPlatform().process.exit(1);
+    getPlatform().process.exit(getExitCodeForError(executionError));
     return;
   }
 
