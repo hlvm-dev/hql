@@ -11,6 +11,7 @@ import {
   getMemoryDir,
   getMemoryMdPath,
   resetHlvmDirCacheForTests,
+  setHlvmDirForTests,
 } from "../../../src/common/paths.ts";
 import {
   appendExplicitMemoryNote,
@@ -55,14 +56,12 @@ async function setupTestEnv(): Promise<string> {
   const tempDir = await platform().fs.makeTempDir({
     prefix: "hlvm-memory-test-",
   });
-  platform().env.set("HLVM_DIR", tempDir);
-  resetHlvmDirCacheForTests();
+  setHlvmDirForTests(tempDir);
   return tempDir;
 }
 
 async function teardownTestEnv(tempDir: string): Promise<void> {
   closeFactDb();
-  platform().env.delete("HLVM_DIR");
   resetHlvmDirCacheForTests();
   try {
     await platform().fs.remove(tempDir, { recursive: true });

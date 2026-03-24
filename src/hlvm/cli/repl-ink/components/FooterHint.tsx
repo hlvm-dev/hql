@@ -132,9 +132,11 @@ export function buildFooterLeftState({
     const segments: ShellFooterSegment[] = [];
     const isFullAuto = modeChip === "Full auto";
 
-    // Full auto gets red chip, others get text with hint
+    // Full auto gets red chip, others get plain text segment
     if (isFullAuto) {
       segments.push({ text: modeChip, tone: "error", chip: true });
+    } else if (modeChip) {
+      segments.push({ text: modeChip, tone: "muted" });
     }
 
     if (teamChip) segments.push(teamChip);
@@ -144,10 +146,8 @@ export function buildFooterLeftState({
 
     const hintText = isEvaluating
       ? "Ctrl+B background \u00B7 Esc cancels"
-      : isFullAuto
+      : (isFullAuto || modeChip)
       ? "Shift+Tab cycles"
-      : modeChip
-      ? `${modeChip} (Shift+Tab cycles)`
       : "";
     const combinedHint = [hintText, teamHint].filter(Boolean).join(
       SHELL_SEGMENT_SEPARATOR,
@@ -211,9 +211,11 @@ export function buildFooterLeftState({
   const segments: ShellFooterSegment[] = [];
   const isFullAuto = modeChip === "Full auto";
 
-  // Only show mode chip for "Full auto"
+  // Full auto gets red chip, others get plain text segment
   if (isFullAuto) {
     segments.push({ text: modeChip, tone: "error", chip: true });
+  } else if (modeChip) {
+    segments.push({ text: modeChip, tone: "muted" });
   }
 
   if (queuedCount > 0) {
@@ -242,10 +244,8 @@ export function buildFooterLeftState({
 
   const hintText = streamingState === ConversationStreamingState.Responding
     ? hasDraftInput ? "Tab queues · Ctrl+Enter forces" : "Esc cancels"
-    : isFullAuto
+    : (isFullAuto || modeChip)
     ? "Shift+Tab cycles"
-    : modeChip
-    ? `${modeChip} (Shift+Tab cycles)`
     : "";
   const combinedHint = [hintText, teamHint].filter(Boolean).join(
     SHELL_SEGMENT_SEPARATOR,

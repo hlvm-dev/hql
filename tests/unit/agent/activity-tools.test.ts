@@ -4,6 +4,7 @@ import { appendJsonLines } from "../../../src/common/jsonl.ts";
 import {
   getHistoryPath,
   resetHlvmDirCacheForTests,
+  setHlvmDirForTests,
 } from "../../../src/common/paths.ts";
 import {
   DAY_MS,
@@ -57,8 +58,7 @@ async function setupTestEnv(): Promise<string> {
     prefix: "hlvm-activity-test-",
   });
   currentHlvmDir = tempDir;
-  platform().env.set("HLVM_DIR", tempDir);
-  resetHlvmDirCacheForTests();
+  setHlvmDirForTests(tempDir);
   return tempDir;
 }
 
@@ -67,7 +67,6 @@ async function teardownTestEnv(tempDir: string): Promise<void> {
   currentTestDb = null;
   currentHlvmDir = null;
   _resetDbForTesting();
-  platform().env.delete("HLVM_DIR");
   resetHlvmDirCacheForTests();
   try {
     await platform().fs.remove(tempDir, { recursive: true });

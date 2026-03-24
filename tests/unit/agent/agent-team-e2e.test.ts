@@ -44,6 +44,7 @@ import {
   getTeamConfigPath,
   getTeamHighwatermarkPath,
   resetHlvmDirCacheForTests,
+  setHlvmDirForTests,
 } from "../../../src/common/paths.ts";
 import {
   type AgentEngine,
@@ -710,8 +711,7 @@ class TestHarness {
     );
     getPlatform().fs.mkdirSync(tmpDir, { recursive: true });
     this.dir = tmpDir;
-    getPlatform().env.set("HLVM_DIR", tmpDir);
-    resetHlvmDirCacheForTests();
+    setHlvmDirForTests(tmpDir);
     resetTeamStoreForTests();
     resetThreadRegistry();
     resetBatchRegistry();
@@ -774,7 +774,6 @@ class TestHarness {
     resetAgentEngine();
     resetThreadRegistry();
     resetBatchRegistry();
-    getPlatform().env.delete("HLVM_DIR");
     resetHlvmDirCacheForTests();
     resetTeamStoreForTests();
     try {

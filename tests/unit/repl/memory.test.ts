@@ -12,7 +12,7 @@ import {
 import { evaluate } from "../../../src/hlvm/cli/repl/evaluator.ts";
 import { ReplState } from "../../../src/hlvm/cli/repl/state.ts";
 import { initializeRuntime } from "../../../src/common/runtime-initializer.ts";
-import { resetHlvmDirCacheForTests } from "../../../src/common/paths.ts";
+import { resetHlvmDirCacheForTests, setHlvmDirForTests } from "../../../src/common/paths.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { withGlobalTestLock } from "../_shared/global-test-lock.ts";
 
@@ -29,17 +29,11 @@ async function withIsolatedMemoryDir<T>(fn: () => Promise<T>): Promise<T> {
     const tempHlvmDir = await platform.fs.makeTempDir({
       prefix: "hlvm-memory-test-",
     });
-    platform.env.set("HLVM_DIR", tempHlvmDir);
-    resetHlvmDirCacheForTests();
+    setHlvmDirForTests(tempHlvmDir);
 
     try {
       return await fn();
     } finally {
-      if (priorHlvmDir === undefined) {
-        platform.env.delete("HLVM_DIR");
-      } else {
-        platform.env.set("HLVM_DIR", priorHlvmDir);
-      }
       resetHlvmDirCacheForTests();
       await platform.fs.remove(tempHlvmDir, { recursive: true }).catch(() =>
         undefined

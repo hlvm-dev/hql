@@ -5,7 +5,7 @@
  * All unit tests should import helper functions from here to avoid duplication.
  */
 import hql, { type RunOptions } from "../../mod.ts";
-import { resetHlvmDirCacheForTests } from "../../src/common/paths.ts";
+import { resetHlvmDirCacheForTests, setHlvmDirForTests } from "../../src/common/paths.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
 import { generateTypeScript } from "../../src/hql/transpiler/pipeline/ir-to-typescript.ts";
@@ -227,23 +227,14 @@ export async function withTempHlvmDir(
       closeFactDb();
       _resetActiveConversationForTesting();
     };
-    const restoreHlvmDirEnv = () => {
-      if (previousHlvmDir === undefined) {
-        platform.env.delete("HLVM_DIR");
-      } else {
-        platform.env.set("HLVM_DIR", previousHlvmDir);
-      }
-    };
 
     resetHlvmRuntimeState();
-    platform.env.set("HLVM_DIR", tempDir);
-    resetHlvmDirCacheForTests();
+    setHlvmDirForTests(tempDir);
 
     try {
       await fn();
     } finally {
       resetHlvmRuntimeState();
-      restoreHlvmDirEnv();
       resetHlvmDirCacheForTests();
 
       try {

@@ -1,35 +1,31 @@
 import { assertEquals } from "jsr:@std/assert";
-import { ai } from "../../../src/hlvm/api/ai.ts";
+import { http } from "../../../src/common/http-client.ts";
 import { aiEngine } from "../../../src/hlvm/runtime/ai-runtime.ts";
 
-Deno.test("aiEngine.isRunning checks ollama provider explicitly", async () => {
-  const originalStatus = ai.status;
-  let providerNameArg: string | undefined;
+Deno.test("aiEngine.isRunning returns true when ollama endpoint responds OK", async () => {
+  const originalFetchRaw = http.fetchRaw;
 
-  (ai as { status: (providerName?: string) => Promise<{ available: boolean }> }).status = (providerName?: string) => {
-    providerNameArg = providerName;
-    return Promise.resolve({ available: true });
-  };
+  (http as { fetchRaw: typeof http.fetchRaw }).fetchRaw = () =>
+    Promise.resolve(new Response("OK", { status: 200 }));
 
   try {
     const running = await aiEngine.isRunning();
     assertEquals(running, true);
-    assertEquals(providerNameArg, "ollama");
   } finally {
-    (ai as { status: typeof ai.status }).status = originalStatus;
+    (http as { fetchRaw: typeof http.fetchRaw }).fetchRaw = originalFetchRaw;
   }
 });
 
-Deno.test("aiEngine.isRunning returns false when ollama status check throws", async () => {
-  const originalStatus = ai.status;
+Deno.test("aiEngine.isRunning returns false when ollama endpoint throws", async () => {
+  const originalFetchRaw = http.fetchRaw;
 
-  (ai as { status: (providerName?: string) => Promise<{ available: boolean }> }).status = () =>
+  (http as { fetchRaw: typeof http.fetchRaw }).fetchRaw = () =>
     Promise.reject(new Error("offline"));
 
   try {
     const running = await aiEngine.isRunning();
     assertEquals(running, false);
   } finally {
-    (ai as { status: typeof ai.status }).status = originalStatus;
+    (http as { fetchRaw: typeof http.fetchRaw }).fetchRaw = originalFetchRaw;
   }
 });

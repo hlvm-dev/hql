@@ -26,6 +26,7 @@ import {
   getTeamInboxPath,
   getTeamTasksDir,
   resetHlvmDirCacheForTests,
+  setHlvmDirForTests,
 } from "../../../src/common/paths.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import {
@@ -67,15 +68,12 @@ function tmpHlvmDir(): string {
 
 function setupTestEnv(): string {
   const dir = tmpHlvmDir();
-  getPlatform().env.set("HLVM_DIR", dir);
-  resetHlvmDirCacheForTests();
+  setHlvmDirForTests(dir);
   resetTeamStoreForTests();
   return dir;
 }
 
-function teardownTestEnv(): void {
-  const dir = getPlatform().env.get("HLVM_DIR");
-  getPlatform().env.delete("HLVM_DIR");
+function teardownTestEnv(dir?: string): void {
   resetHlvmDirCacheForTests();
   resetTeamStoreForTests();
   if (dir) {

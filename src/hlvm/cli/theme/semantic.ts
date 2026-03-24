@@ -183,9 +183,9 @@ export function buildSemanticColors(palette: ThemePalette): SemanticColors {
       meta: palette.text,
       bullet: palette.secondary,
       status: {
-        ready: palette.success,  // Green for AI available
-        attention: palette.warning,  // Yellow for setup required
-        error: palette.error,  // Red for AI unavailable
+        ready: palette.accent,     // Theme-neutral (avoids SICP success gold)
+        attention: palette.secondary,  // Theme-neutral (avoids SICP warning gold)
+        error: palette.error,      // Red for AI unavailable
       },
     },
     chrome,

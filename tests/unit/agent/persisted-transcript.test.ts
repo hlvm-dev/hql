@@ -39,6 +39,7 @@ import { createTeamRuntime } from "../../../src/hlvm/agent/team-runtime.ts";
 import {
   getMemoryMdPath,
   resetHlvmDirCacheForTests,
+  setHlvmDirForTests,
 } from "../../../src/common/paths.ts";
 import { closeFactDb } from "../../../src/hlvm/memory/mod.ts";
 import { withGlobalTestLock } from "../_shared/global-test-lock.ts";
@@ -596,8 +597,7 @@ Deno.test({
       const hlvmDir = await platform.fs.makeTempDir({
         prefix: "hlvm-agent-memory-",
       });
-      platform.env.set("HLVM_DIR", hlvmDir);
-      resetHlvmDirCacheForTests();
+      setHlvmDirForTests(hlvmDir);
 
       try {
         await platform.fs.mkdir(platform.path.dirname(getMemoryMdPath()), {
@@ -628,7 +628,6 @@ Deno.test({
         });
       } finally {
         closeFactDb();
-        platform.env.delete("HLVM_DIR");
         resetHlvmDirCacheForTests();
         resetAgentEngine();
         await disposeAllSessions();

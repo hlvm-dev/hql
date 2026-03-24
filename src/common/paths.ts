@@ -94,6 +94,14 @@ export function resetHlvmDirCacheForTests(): void {
 }
 
 /**
+ * Override the cached HLVM dir directly (used in tests).
+ * Avoids Deno.env mutations which leak across parallel test workers.
+ */
+export function setHlvmDirForTests(dir: string): void {
+  _hlvmDir = dir;
+}
+
+/**
  * Get the config file path (~/.hlvm/config.json)
  */
 export function getConfigPath(): string {

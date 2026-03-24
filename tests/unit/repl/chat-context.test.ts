@@ -2,6 +2,7 @@ import { assertEquals, assertExists } from "jsr:@std/assert";
 import {
   getMemoryMdPath,
   resetHlvmDirCacheForTests,
+  setHlvmDirForTests,
 } from "../../../src/common/paths.ts";
 import type { MessageRow } from "../../../src/hlvm/store/types.ts";
 import { registerAttachmentFromPath } from "../../../src/hlvm/attachments/service.ts";
@@ -358,8 +359,7 @@ Deno.test("chat context: disablePersistentMemory suppresses memory injection for
     const tmpDir = await platform.fs.makeTempDir({
       prefix: "chat-ctx-memory-",
     });
-    platform.env.set("HLVM_DIR", tmpDir);
-    resetHlvmDirCacheForTests();
+    setHlvmDirForTests(tmpDir);
 
     try {
       await platform.fs.mkdir(platform.path.dirname(getMemoryMdPath()), {
@@ -397,7 +397,6 @@ Deno.test("chat context: disablePersistentMemory suppresses memory injection for
         false,
       );
     } finally {
-      platform.env.delete("HLVM_DIR");
       resetHlvmDirCacheForTests();
       await platform.fs.remove(tmpDir, { recursive: true });
     }

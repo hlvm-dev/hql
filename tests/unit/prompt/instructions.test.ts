@@ -9,7 +9,7 @@ import {
   trustWorkspace,
 } from "../../../src/hlvm/prompt/instructions.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
-import { resetHlvmDirCacheForTests } from "../../../src/common/paths.ts";
+import { resetHlvmDirCacheForTests, setHlvmDirForTests } from "../../../src/common/paths.ts";
 import type { InstructionHierarchy } from "../../../src/hlvm/prompt/types.ts";
 
 /**
@@ -30,17 +30,12 @@ async function setupTestEnv(): Promise<{
   await fs.mkdir(hlvmDir, { recursive: true });
   await fs.mkdir(`${workspace}/.hlvm`, { recursive: true });
 
-  // Point HLVM_DIR to our temp dir and reset cached path
-  const originalHlvmDir = getPlatform().env.get("HLVM_DIR");
-  getPlatform().env.set("HLVM_DIR", hlvmDir);
-  resetHlvmDirCacheForTests();
+  // Set HLVM dir directly (avoids env mutation that leaks across parallel workers)
+  setHlvmDirForTests(hlvmDir);
 
-  // Re-assert env isolation to defend against parallel test contamination.
-  // HLVM_DIR is process-global; another --parallel test file can overwrite it
-  // between setupTestEnv() and the actual loadInstructionHierarchy() call.
+  // Re-assert dir isolation to defend against parallel test contamination.
   const reassertEnv = () => {
-    getPlatform().env.set("HLVM_DIR", hlvmDir);
-    resetHlvmDirCacheForTests();
+    setHlvmDirForTests(hlvmDir);
   };
 
   return {
@@ -48,11 +43,6 @@ async function setupTestEnv(): Promise<{
     workspace,
     reassertEnv,
     cleanup: () => {
-      if (originalHlvmDir) {
-        getPlatform().env.set("HLVM_DIR", originalHlvmDir);
-      } else {
-        getPlatform().env.delete("HLVM_DIR");
-      }
       resetHlvmDirCacheForTests();
     },
   };
