@@ -164,7 +164,7 @@ Deno.test("handleFinalResponse promotes an approved plan-mode draft into executi
     planModeState: {
       active: true,
       phase: "researching",
-      executionPermissionMode: "auto-edit",
+      executionPermissionMode: "acceptEdits",
       executionAllowlist: ["read_file", "write_file"],
       planningAllowlist: ["read_file"],
     },
@@ -199,7 +199,7 @@ Deno.test("handleFinalResponse promotes an approved plan-mode draft into executi
   assert(uiEvents.includes("plan_created"));
   assertEquals(phaseEvents, ["drafting", "reviewing", "executing"]);
   assertEquals(config.planModeState?.phase, "executing");
-  assertEquals(config.permissionMode, "auto-edit");
+  assertEquals(config.permissionMode, "acceptEdits");
   assertEquals(config.toolAllowlist, ["read_file", "write_file"]);
   assertEquals(config.toolFilterState?.allowlist, ["read_file", "write_file"]);
   assertEquals(config.toolFilterBaseline?.allowlist, [
@@ -255,7 +255,7 @@ Deno.test("handleFinalResponse narrows plan execution tools and restores the exe
     planModeState: {
       active: true,
       phase: "researching",
-      executionPermissionMode: "auto-edit",
+      executionPermissionMode: "acceptEdits",
       executionAllowlist: undefined,
       executionDenylist: [],
       planningAllowlist: ["read_file"],
@@ -289,7 +289,7 @@ Deno.test("handleFinalResponse narrows plan execution tools and restores the exe
   );
 
   assertEquals(result.action, "continue");
-  assertEquals(config.permissionMode, "auto-edit");
+  assertEquals(config.permissionMode, "acceptEdits");
   assertEquals(config.toolDenylist, undefined);
   assertEquals(config.toolFilterState?.denylist, undefined);
   assertEquals(config.toolFilterBaseline?.denylist, undefined);
@@ -331,7 +331,7 @@ Deno.test("handleFinalResponse accepts a markdown PLAN block in plan mode", asyn
     planModeState: {
       active: true,
       phase: "researching",
-      executionPermissionMode: "auto-edit",
+      executionPermissionMode: "acceptEdits",
       executionAllowlist: ["read_file", "write_file"],
       planningAllowlist: ["read_file"],
     },
@@ -477,7 +477,7 @@ Deno.test("handleFinalResponse returns to planning when plan review requests rev
     planModeState: {
       active: true,
       phase: "researching",
-      executionPermissionMode: "auto-edit",
+      executionPermissionMode: "acceptEdits",
       executionAllowlist: ["read_file", "write_file"],
       planningAllowlist: ["read_file"],
     },
@@ -528,7 +528,7 @@ Deno.test("handleFinalResponse returns a cancellation message when plan review i
     planModeState: {
       active: true,
       phase: "researching",
-      executionPermissionMode: "auto-edit",
+      executionPermissionMode: "acceptEdits",
       executionAllowlist: ["read_file", "write_file"],
       planningAllowlist: ["read_file"],
     },
@@ -573,7 +573,7 @@ Deno.test("handleFinalResponse turns plain-text planning questions into clarific
     planModeState: {
       active: true,
       phase: "researching",
-      executionPermissionMode: "auto-edit",
+      executionPermissionMode: "acceptEdits",
       executionAllowlist: ["read_file", "write_file"],
       planningAllowlist: ["read_file", "ask_user"],
     },
@@ -617,7 +617,7 @@ Deno.test("handleFinalResponse retries once when plan mode gets prose instead of
     planModeState: {
       active: true,
       phase: "researching",
-      executionPermissionMode: "auto-edit",
+      executionPermissionMode: "acceptEdits",
       executionAllowlist: ["read_file", "write_file"],
       planningAllowlist: ["read_file"],
     },
@@ -674,7 +674,7 @@ Deno.test("handlePostToolExecution drafts a plan after plan-mode research using 
     planModeState: {
       active: true,
       phase: "researching",
-      executionPermissionMode: "auto-edit",
+      executionPermissionMode: "acceptEdits",
       executionAllowlist: ["read_file", "write_file"],
       planningAllowlist: ["read_file"],
     },

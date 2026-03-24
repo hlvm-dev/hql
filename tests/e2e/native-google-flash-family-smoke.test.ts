@@ -58,7 +58,7 @@ Deno.test({
                 "Use live web search right now to find the latest post on the official Deno blog. Reply with the post title and exact source URL only. Do not answer from memory.",
               model,
               workspace,
-              permissionMode: "yolo",
+              permissionMode: "bypassPermissions",
               toolAllowlist: ["web_search"],
               disablePersistentMemory: true,
               signal: controller.signal,

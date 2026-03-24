@@ -22,7 +22,6 @@ import { MEMORY_TOOLS } from "../memory/mod.ts";
 import { DATA_TOOLS } from "./tools/data-tools.ts";
 import { GIT_TOOLS } from "./tools/git-tools.ts";
 import { DELEGATE_TOOLS } from "./tools/delegate-tools.ts";
-import { TEAM_TOOLS } from "./tools/team-tools.ts";
 import { ACTIVITY_TOOLS } from "./tools/activity-tools.ts";
 import { AGENT_TEAM_TOOLS } from "./tools/agent-team-tools.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
@@ -324,7 +323,6 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...DATA_TOOLS,
   ...GIT_TOOLS,
   ...DELEGATE_TOOLS,
-  ...TEAM_TOOLS,
   ...ACTIVITY_TOOLS,
   ...AGENT_TEAM_TOOLS,
 } as Record<string, ToolMetadata>;
@@ -649,7 +647,6 @@ export function getToolsByCategory(): {
       "delegate_agent",
       "batch_delegate",
       ...Object.keys(DELEGATE_TOOLS),
-      ...Object.keys(TEAM_TOOLS),
       ...Object.keys(AGENT_TEAM_TOOLS),
     ],
     data: Object.keys(DATA_TOOLS),

@@ -777,7 +777,7 @@ localAskTest({
           port,
           [
             "--stateless",
-            "--auto-edit",
+            "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
             "ollama/test-fixture",
@@ -817,7 +817,7 @@ localAskTest({
           port,
           [
             "--stateless",
-            "--auto-edit",
+            "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
             "ollama/test-fixture",
@@ -861,7 +861,7 @@ localAskTest({
           port,
           [
             "--stateless",
-            "--auto-edit",
+            "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
             "ollama/test-fixture",
@@ -902,7 +902,7 @@ localAskTest({
           port,
           [
             "--stateless",
-            "--auto-edit",
+            "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
             "ollama/test-fixture",
@@ -1009,7 +1009,7 @@ localAskTest({
           port,
           [
             "--stateless",
-            "--auto-edit",
+            "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
             "ollama/test-fixture",
@@ -1034,7 +1034,7 @@ localAskTest({
           port,
           [
             "--stateless",
-            "--auto-edit",
+            "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
             "ollama/test-fixture",
@@ -1118,7 +1118,7 @@ localAskTest({
           port,
           [
             "--stateless",
-            "--auto-edit",
+            "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
             "ollama/test-fixture",

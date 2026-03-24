@@ -574,17 +574,17 @@ export function resolveToolPermission(
   // Priority 2: Explicit allow
   if (permissions.allowedTools.has(toolName)) return "allow";
 
-  // Priority 3: Headless mode rules
-  if (permissions.mode === "headless") {
+  // Priority 3: Non-interactive mode (dontAsk) rules
+  if (permissions.mode === "dontAsk") {
     if (safetyLevel === "L0") return "allow"; // Read-only always ok
     return "deny"; // Block all write operations
   }
 
-  // Priority 4: Legacy yolo mode
-  if (permissions.mode === "yolo") return "allow";
+  // Priority 4: Bypass permissions mode
+  if (permissions.mode === "bypassPermissions") return "allow";
 
-  // Priority 5: Legacy auto-edit mode
-  if (permissions.mode === "auto-edit" && safetyLevel === "L1") {
+  // Priority 5: Accept edits mode
+  if (permissions.mode === "acceptEdits" && safetyLevel === "L1") {
     return "allow";
   }
 
@@ -607,7 +607,7 @@ export function resolveToolPermission(
  *
  * @param toolName Tool name
  * @param args Tool arguments
- * @param permissionMode Permission mode: "default" | "auto-edit" | "yolo"
+ * @param permissionMode Permission mode: "default" | "acceptEdits" | "bypassPermissions" | "dontAsk"
  * @returns True if execution should proceed
  *
  * @example
@@ -671,8 +671,8 @@ export async function checkToolSafety(
   }
 
   // Fallback to legacy mode-based logic (when no toolPermissions provided)
-  // Yolo mode: auto-approve everything
-  if (permissionMode === "yolo") {
+  // Bypass permissions mode: auto-approve everything
+  if (permissionMode === "bypassPermissions") {
     return true;
   }
 
@@ -681,8 +681,8 @@ export async function checkToolSafety(
     return true;
   }
 
-  // Auto-edit mode: auto-approve L1 (file edits, web fetch)
-  if (permissionMode === "auto-edit" && classification.level === "L1") {
+  // Accept edits mode: auto-approve L1 (file edits, web fetch)
+  if (permissionMode === "acceptEdits" && classification.level === "L1") {
     return true;
   }
 
@@ -708,7 +708,7 @@ export async function checkToolSafety(
     return result.confirmed;
   }
 
-  // L2: Always prompt (unless yolo, handled above)
+  // L2: Always prompt (unless bypassPermissions, handled above)
   const result = await promptUserConfirmation(
     toolName,
     args,

@@ -3,7 +3,7 @@ import { getPlanningModeForExecutionMode } from "../../../src/hlvm/agent/executi
 
 Deno.test("getPlanningModeForExecutionMode only enables structured planning in explicit plan mode", () => {
   assertEquals(getPlanningModeForExecutionMode("default"), "off");
-  assertEquals(getPlanningModeForExecutionMode("auto-edit"), "off");
-  assertEquals(getPlanningModeForExecutionMode("yolo"), "off");
+  assertEquals(getPlanningModeForExecutionMode("acceptEdits"), "off");
+  assertEquals(getPlanningModeForExecutionMode("bypassPermissions"), "off");
   assertEquals(getPlanningModeForExecutionMode("plan"), "always");
 });

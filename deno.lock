@@ -43,7 +43,7 @@
     "npm:@ai-sdk/google@3": "3.0.30_zod@4.3.6",
     "npm:@ai-sdk/google@3.0.30": "3.0.30_zod@4.3.6",
     "npm:@ai-sdk/openai@3": "3.0.30_zod@4.3.6",
-    "npm:@google/genai@*": "1.46.0_@modelcontextprotocol+sdk@1.27.0__zod@4.3.6__hono@4.12.1__ajv@8.18.0__express@5.2.1",
+    "npm:@google/genai@*": "1.46.0_@modelcontextprotocol+sdk@1.27.0__zod@4.3.6__hono@4.12.1__ajv@8.18.0__express@5.2.1_zod@3.25.76",
     "npm:@modelcontextprotocol/sdk@*": "1.27.0_zod@4.3.6_hono@4.12.1_ajv@8.18.0_express@5.2.1",
     "npm:@modelcontextprotocol/sdk@1.27.0": "1.27.0_zod@4.3.6_hono@4.12.1_ajv@8.18.0_express@5.2.1",
     "npm:@modelcontextprotocol/sdk@^1.12.0": "1.27.0_zod@4.3.6_hono@4.12.1_ajv@8.18.0_express@5.2.1",
@@ -80,7 +80,8 @@
     "npm:typescript@5.3.3": "5.3.3",
     "npm:vlq@2.0.4": "2.0.4",
     "npm:xlsx@0.18.5": "0.18.5",
-    "npm:yaml@2.0.0-1": "2.0.0-1"
+    "npm:yaml@2.0.0-1": "2.0.0-1",
+    "npm:zod@^3.25.0": "3.25.76"
   },
   "jsr": {
     "@david/code-block-writer@13.0.3": {
@@ -242,7 +243,7 @@
       "dependencies": [
         "@ai-sdk/provider",
         "@ai-sdk/provider-utils",
-        "zod"
+        "zod@4.3.6"
       ]
     },
     "@ai-sdk/gateway@3.0.53_zod@4.3.6": {
@@ -251,7 +252,7 @@
         "@ai-sdk/provider",
         "@ai-sdk/provider-utils",
         "@vercel/oidc",
-        "zod"
+        "zod@4.3.6"
       ]
     },
     "@ai-sdk/google@3.0.30_zod@4.3.6": {
@@ -259,7 +260,7 @@
       "dependencies": [
         "@ai-sdk/provider",
         "@ai-sdk/provider-utils",
-        "zod"
+        "zod@4.3.6"
       ]
     },
     "@ai-sdk/openai@3.0.30_zod@4.3.6": {
@@ -267,7 +268,7 @@
       "dependencies": [
         "@ai-sdk/provider",
         "@ai-sdk/provider-utils",
-        "zod"
+        "zod@4.3.6"
       ]
     },
     "@ai-sdk/provider-utils@4.0.15_zod@4.3.6": {
@@ -276,7 +277,7 @@
         "@ai-sdk/provider",
         "@standard-schema/spec",
         "eventsource-parser",
-        "zod"
+        "zod@4.3.6"
       ]
     },
     "@ai-sdk/provider@3.0.8": {
@@ -388,7 +389,17 @@
     "@google/genai@1.46.0_@modelcontextprotocol+sdk@1.27.0__zod@4.3.6__hono@4.12.1__ajv@8.18.0__express@5.2.1": {
       "integrity": "sha512-ewPMN5JkKfgU5/kdco9ZhXBHDPhVqZpMQqIFQhwsHLf8kyZfx1cNpw1pHo1eV6PGEW7EhIBFi3aYZraFndAXqg==",
       "dependencies": [
-        "@modelcontextprotocol/sdk",
+        "@modelcontextprotocol/sdk@1.27.0_zod@4.3.6_hono@4.12.1_ajv@8.18.0_express@5.2.1",
+        "google-auth-library",
+        "p-retry",
+        "protobufjs",
+        "ws"
+      ]
+    },
+    "@google/genai@1.46.0_@modelcontextprotocol+sdk@1.27.0__zod@4.3.6__hono@4.12.1__ajv@8.18.0__express@5.2.1_zod@3.25.76": {
+      "integrity": "sha512-ewPMN5JkKfgU5/kdco9ZhXBHDPhVqZpMQqIFQhwsHLf8kyZfx1cNpw1pHo1eV6PGEW7EhIBFi3aYZraFndAXqg==",
+      "dependencies": [
+        "@modelcontextprotocol/sdk@1.27.0_zod@4.3.6_hono@4.12.1_ajv@8.18.0_express@5.2.1_zod@3.25.76",
         "google-auth-library",
         "p-retry",
         "protobufjs",
@@ -422,8 +433,30 @@
         "json-schema-typed",
         "pkce-challenge",
         "raw-body",
-        "zod",
-        "zod-to-json-schema"
+        "zod-to-json-schema@3.25.1_zod@4.3.6",
+        "zod@4.3.6"
+      ]
+    },
+    "@modelcontextprotocol/sdk@1.27.0_zod@4.3.6_hono@4.12.1_ajv@8.18.0_express@5.2.1_zod@3.25.76": {
+      "integrity": "sha512-qOdO524oPMkUsOJTrsH9vz/HN3B5pKyW+9zIW51A9kDMVe7ON70drz1ouoyoyOcfzc+oxhkQ6jWmbyKnlWmYqA==",
+      "dependencies": [
+        "@hono/node-server",
+        "ajv",
+        "ajv-formats",
+        "content-type",
+        "cors",
+        "cross-spawn",
+        "eventsource",
+        "eventsource-parser",
+        "express",
+        "express-rate-limit",
+        "hono",
+        "jose",
+        "json-schema-typed",
+        "pkce-challenge",
+        "raw-body",
+        "zod-to-json-schema@3.25.1_zod@4.3.6_zod@3.25.76",
+        "zod@3.25.76"
       ]
     },
     "@mozilla/readability@0.5.0": {
@@ -598,7 +631,7 @@
         "@ai-sdk/provider",
         "@ai-sdk/provider-utils",
         "@opentelemetry/api",
-        "zod"
+        "zod@4.3.6"
       ]
     },
     "ajv-formats@3.0.1_ajv@8.18.0": {
@@ -1593,7 +1626,7 @@
         "@ai-sdk/provider",
         "@ai-sdk/provider-utils",
         "ai",
-        "zod"
+        "zod@4.3.6"
       ]
     },
     "on-finished@2.4.1": {
@@ -2243,8 +2276,17 @@
     "zod-to-json-schema@3.25.1_zod@4.3.6": {
       "integrity": "sha512-pM/SU9d3YAggzi6MtR4h7ruuQlqKtad8e9S0fmxcMi+ueAK5Korys/aWcV9LIIHTVbj01NdzxcnXSN+O74ZIVA==",
       "dependencies": [
-        "zod"
+        "zod@4.3.6"
       ]
+    },
+    "zod-to-json-schema@3.25.1_zod@4.3.6_zod@3.25.76": {
+      "integrity": "sha512-pM/SU9d3YAggzi6MtR4h7ruuQlqKtad8e9S0fmxcMi+ueAK5Korys/aWcV9LIIHTVbj01NdzxcnXSN+O74ZIVA==",
+      "dependencies": [
+        "zod@3.25.76"
+      ]
+    },
+    "zod@3.25.76": {
+      "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="
     },
     "zod@4.3.6": {
       "integrity": "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="
@@ -2462,7 +2504,8 @@
       "npm:tldts@7.0.23",
       "npm:typescript@5.3.3",
       "npm:vlq@2.0.4",
-      "npm:xlsx@0.18.5"
+      "npm:xlsx@0.18.5",
+      "npm:zod@^3.25.0"
     ]
   }
 }

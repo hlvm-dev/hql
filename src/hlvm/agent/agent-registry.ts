@@ -22,15 +22,13 @@ export interface AgentProfile {
   maxTokenBudget?: number;
 }
 
-/** Team tools available to worker agents (claim tasks, send messages, read status). */
+/** Team tools available to worker agents (task management, messaging, status). */
 const TEAM_WORKER_TOOLS = [
-  "team_task_read",
-  "team_task_claim",
-  "team_status_read",
-  "team_message_send",
-  "team_message_read",
-  "ack_team_shutdown",
-  "submit_team_plan",
+  "TaskList",
+  "TaskGet",
+  "TaskUpdate",
+  "SendMessage",
+  "TeamStatus",
 ];
 
 /** Frozen profiles: immutable at runtime, safe to return by reference */
@@ -58,7 +56,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
       "memory_edit",
       // Team worker tools + task creation for generalist
       ...TEAM_WORKER_TOOLS,
-      "team_task_write",
+      "TaskCreate",
     ],
   },
   {

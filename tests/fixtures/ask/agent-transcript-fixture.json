@@ -62,11 +62,10 @@
           "toolCalls": [
             {
               "id": "team_task_1",
-              "toolName": "team_task_write",
+              "toolName": "TaskCreate",
               "args": {
-                "id": "task-1",
-                "goal": "Review parser change",
-                "status": "in_progress"
+                "subject": "Review parser change",
+                "description": "Review the parser change for correctness"
               }
             }
           ]
@@ -75,8 +74,9 @@
           "toolCalls": [
             {
               "id": "team_plan_1",
-              "toolName": "submit_team_plan",
+              "toolName": "SendMessage",
               "args": {
+                "type": "submit_plan",
                 "task_id": "task-1",
                 "note": "Need lead review",
                 "plan": {
@@ -96,7 +96,7 @@
           "toolCalls": [
             {
               "id": "team_status_1",
-              "toolName": "team_status_read",
+              "toolName": "TeamStatus",
               "args": {}
             }
           ]
@@ -130,11 +130,10 @@
           "toolCalls": [
             {
               "id": "team_task_1",
-              "toolName": "team_task_write",
+              "toolName": "TaskCreate",
               "args": {
-                "id": "task-review",
-                "goal": "Review parser patch",
-                "status": "pending"
+                "subject": "Review parser patch",
+                "description": "Review parser patch for correctness"
               }
             }
           ]
@@ -143,8 +142,9 @@
           "toolCalls": [
             {
               "id": "team_plan_1",
-              "toolName": "submit_team_plan",
+              "toolName": "SendMessage",
               "args": {
+                "type": "submit_plan",
                 "task_id": "task-review",
                 "note": "Need lead review before patching",
                 "plan": {
@@ -168,7 +168,7 @@
           "toolCalls": [
             {
               "id": "team_status_1",
-              "toolName": "team_status_read",
+              "toolName": "TeamStatus",
               "args": {}
             }
           ]

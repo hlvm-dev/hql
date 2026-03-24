@@ -133,31 +133,6 @@ function emitTeamTaskUpdated(
   });
 }
 
-function emitTeamMessages(
-  config: OrchestratorConfig,
-  messages:
-    | Array<{
-      kind: string;
-      fromMemberId: string;
-      toMemberId?: string;
-      relatedTaskId?: string;
-      content: string;
-    }>
-    | undefined,
-): void {
-  if (!messages?.length) return;
-  for (const message of messages) {
-    config.onAgentEvent?.({
-      type: "team_message",
-      kind: message.kind,
-      fromMemberId: message.fromMemberId,
-      toMemberId: message.toMemberId,
-      relatedTaskId: message.relatedTaskId,
-      contentPreview: truncate(message.content, 120),
-    });
-  }
-}
-
 /** DRY: Resolve team member/task IDs for a delegate thread and build delegate args. */
 function buildDelegateResumeArgs(
   config: OrchestratorConfig,
@@ -469,11 +444,10 @@ export async function executeToolCall(
 
     if (toolCall.toolName === "ask_user") {
       // Block ask_user in headless mode
-      if (config.permissionMode === "headless") {
-        const errorMsg = "ask_user is blocked in headless mode (--print). The agent must complete the task without user interaction.";
+      if (config.permissionMode === "dontAsk") {
         return buildToolErrorResult(
           toolCall.toolName,
-          `[INTERACTION_BLOCKED] ${errorMsg}`,
+          "ask_user is blocked in non-interactive mode (--print). The agent must complete the task without user interaction.",
           startedAt,
           config,
           toolCall.id,
@@ -544,12 +518,12 @@ export async function executeToolCall(
       : undefined;
 
     // Check safety
-    const permissionMode = config.permissionMode === "yolo"
-      ? "yolo"
-      : config.permissionMode === "auto-edit"
-      ? "auto-edit"
-      : config.permissionMode === "headless"
-      ? "headless"
+    const permissionMode = config.permissionMode === "bypassPermissions"
+      ? "bypassPermissions"
+      : config.permissionMode === "acceptEdits"
+      ? "acceptEdits"
+      : config.permissionMode === "dontAsk"
+      ? "dontAsk"
       : "default";
     const toolPermissions = config.toolAllowlist || config.toolDenylist
       ? {
@@ -574,13 +548,11 @@ export async function executeToolCall(
     );
 
     if (!approved) {
-      const isHeadlessBlock = config.permissionMode === "headless";
-      const errorPrefix = isHeadlessBlock ? "[TOOL_BLOCKED] " : "";
       return buildToolErrorResult(
         toolCall.toolName,
-        `${errorPrefix}Tool execution denied: ${toolCall.toolName}${
-          isHeadlessBlock
-            ? " (unsafe tool blocked in headless mode)"
+        `Tool execution denied: ${toolCall.toolName}${
+          config.permissionMode === "dontAsk"
+            ? " (unsafe tool blocked in non-interactive mode)"
             : ""
         }`,
         startedAt,
@@ -1202,195 +1174,6 @@ export async function executeToolCall(
         },
         source: "tool",
       });
-    }
-
-    if (
-      (toolCall.toolName === "team_task_write" ||
-        toolCall.toolName === "team_task_claim") &&
-      result &&
-      typeof result === "object" &&
-      "task" in result
-    ) {
-      const task = (result as {
-        task?: {
-          id: string;
-          goal: string;
-          status: string;
-          assigneeMemberId?: string;
-        };
-      }).task;
-      emitTeamTaskUpdated(config, task);
-    }
-
-    if (
-      toolCall.toolName === "team_message_send" && result &&
-      typeof result === "object"
-    ) {
-      emitTeamMessages(
-        config,
-        (result as {
-          messages?: Array<{
-            kind: string;
-            fromMemberId: string;
-            toMemberId?: string;
-            relatedTaskId?: string;
-            content: string;
-          }>;
-        }).messages,
-      );
-    }
-
-    if (
-      toolCall.toolName === "submit_team_plan" &&
-      config.teamRuntime &&
-      result &&
-      typeof result === "object" &&
-      "approval" in result
-    ) {
-      const approval = (result as {
-        approval?: {
-          id: string;
-          taskId: string;
-          submittedByMemberId: string;
-          note?: string;
-        };
-      }).approval;
-      if (approval) {
-        const task = config.teamRuntime.updateTask(approval.taskId, {
-          approvalId: approval.id,
-          status: "blocked",
-        });
-        emitTeamTaskUpdated(config, task);
-        emitTeamMessages(
-          config,
-          config.teamRuntime.sendMessage({
-            fromMemberId: approval.submittedByMemberId,
-            toMemberId: config.teamRuntime.leadMemberId,
-            kind: "approval_request",
-            content: approval.note?.trim().length
-              ? approval.note
-              : `Plan review requested for task ${approval.taskId}`,
-            relatedTaskId: approval.taskId,
-          }),
-        );
-        config.onAgentEvent?.({
-          type: "team_plan_review_required",
-          approvalId: approval.id,
-          taskId: approval.taskId,
-          submittedByMemberId: approval.submittedByMemberId,
-        });
-      }
-    }
-
-    if (
-      toolCall.toolName === "review_team_plan" &&
-      config.teamRuntime &&
-      result &&
-      typeof result === "object" &&
-      "approval" in result
-    ) {
-      const approval = (result as {
-        approval?: {
-          id: string;
-          taskId: string;
-          submittedByMemberId: string;
-          reviewedByMemberId?: string;
-          approved: boolean;
-          status: "approved" | "rejected";
-          feedback?: string;
-        };
-      }).approval;
-      if (approval) {
-        const approved = approval.status === "approved";
-        const task = config.teamRuntime.updateTask(approval.taskId, {
-          approvalId: approval.id,
-          status: approved ? "in_progress" : "pending",
-          resultSummary: approval.feedback,
-        });
-        emitTeamTaskUpdated(config, task);
-        emitTeamMessages(
-          config,
-          config.teamRuntime.sendMessage({
-            fromMemberId: approval.reviewedByMemberId ??
-              config.teamRuntime.leadMemberId,
-            toMemberId: approval.submittedByMemberId,
-            kind: "approval_response",
-            content: approval.feedback?.trim().length
-              ? approval.feedback
-              : approved
-              ? `Plan approved for task ${approval.taskId}`
-              : `Plan rejected for task ${approval.taskId}`,
-            relatedTaskId: approval.taskId,
-          }),
-        );
-        config.onAgentEvent?.({
-          type: "team_plan_review_resolved",
-          approvalId: approval.id,
-          taskId: approval.taskId,
-          submittedByMemberId: approval.submittedByMemberId,
-          approved,
-          reviewedByMemberId: approval.reviewedByMemberId,
-        });
-      }
-    }
-
-    if (
-      toolCall.toolName === "request_team_shutdown" &&
-      result &&
-      typeof result === "object" &&
-      "shutdown" in result
-    ) {
-      const shutdown = (result as {
-        shutdown?: {
-          id: string;
-          memberId: string;
-          requestedByMemberId: string;
-          reason?: string;
-        };
-      }).shutdown;
-      if (shutdown) {
-        config.onAgentEvent?.({
-          type: "team_shutdown_requested",
-          requestId: shutdown.id,
-          memberId: shutdown.memberId,
-          requestedByMemberId: shutdown.requestedByMemberId,
-          reason: shutdown.reason,
-        });
-      }
-    }
-
-    if (
-      toolCall.toolName === "ack_team_shutdown" &&
-      config.teamRuntime &&
-      result &&
-      typeof result === "object" &&
-      "shutdown" in result
-    ) {
-      const shutdown = (result as {
-        shutdown?: {
-          id: string;
-          memberId: string;
-          requestedByMemberId: string;
-        };
-      }).shutdown;
-      if (shutdown) {
-        emitTeamMessages(
-          config,
-          config.teamRuntime.sendMessage({
-            fromMemberId: shutdown.memberId,
-            toMemberId: shutdown.requestedByMemberId,
-            kind: "shutdown_ack",
-            content: `Shutdown acknowledged by ${shutdown.memberId}`,
-          }),
-        );
-        config.onAgentEvent?.({
-          type: "team_shutdown_resolved",
-          requestId: shutdown.id,
-          memberId: shutdown.memberId,
-          requestedByMemberId: shutdown.requestedByMemberId,
-          status: "acknowledged",
-        });
-      }
     }
 
     return {

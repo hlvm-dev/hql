@@ -15,12 +15,13 @@ HLVM's agent system provides Claude Code-equivalent functionality with additiona
 | Claude Code | HLVM | Notes |
 |-------------|------|-------|
 | `claude ask "query"` | `hlvm ask "query"` | Identical interactive mode |
-| `claude ask -p "query"` | `hlvm ask -p "query"` | Identical headless mode |
+| `claude ask -p "query"` | `hlvm ask -p "query"` | Non-interactive mode (defaults to `dontAsk`) |
 | `claude ask --print "query"` | `hlvm ask --print "query"` | Same long form |
-| `claude ask --dangerously-skip-permissions` | `hlvm ask --dangerously-skip-permissions` | Same (use with caution) |
-| *(not available)* | `hlvm ask --allow-tool <tool>` | **HLVM exclusive** — fine-grained control |
-| *(not available)* | `hlvm ask --deny-tool <tool>` | **HLVM exclusive** — explicit denials |
-| *(not available)* | `hlvm ask --auto-edit` | **HLVM exclusive** — auto-approve file ops |
+| `claude ask --permission-mode <mode>` | `hlvm ask --permission-mode <mode>` | Modes: default, acceptEdits, plan, bypassPermissions, dontAsk |
+| `claude ask --dangerously-skip-permissions` | `hlvm ask --dangerously-skip-permissions` | Legacy alias for `--permission-mode bypassPermissions` |
+| `claude ask --allowedTools <tool>` | `hlvm ask --allowedTools <tool>` | Repeatable flag for fine-grained control |
+| `claude ask --disallowedTools <tool>` | `hlvm ask --disallowedTools <tool>` | Repeatable flag for explicit denials |
+| *(not available)* | `hlvm ask --permission-mode acceptEdits` | Auto-approve file ops, prompt for destructive |
 
 ---
 
@@ -42,7 +43,7 @@ hlvm ask "fix the bug in auth.ts"
 
 ---
 
-### Headless Mode (`-p` / `--print`)
+### Non-Interactive Mode (`-p` / `--print`)
 
 **Claude Code:**
 ```bash
@@ -52,11 +53,11 @@ claude ask -p "analyze code quality"
 
 **HLVM:**
 ```bash
-# Same behavior
+# Same behavior — defaults to dontAsk permission mode
 hlvm ask -p "analyze code quality"
 ```
 
-**Behavior:** Identical — no prompts, mutations denied, read-only approved.
+**Behavior:** Identical — no prompts, mutations denied, read-only approved. The `-p`/`--print` flag sets `printMode=true` and defaults to `dontAsk` permission mode when no explicit `--permission-mode` is given.
 
 **Use cases:**
 - CI/CD pipelines
@@ -65,7 +66,7 @@ hlvm ask -p "analyze code quality"
 
 ---
 
-### Unsafe Mode (`--dangerously-skip-permissions`)
+### Bypass Permissions Mode (`--permission-mode bypassPermissions`)
 
 **Claude Code:**
 ```bash
@@ -75,11 +76,14 @@ claude ask --dangerously-skip-permissions "task"
 
 **HLVM:**
 ```bash
-# Same flag, same behavior
+# Preferred: explicit permission mode
+hlvm ask --permission-mode bypassPermissions "task"
+
+# Legacy alias (still works)
 hlvm ask --dangerously-skip-permissions "task"
 ```
 
-**⚠️ Warning:** Auto-approves all tools including destructive operations. Use only in fully trusted environments.
+**Warning:** Auto-approves all tools including destructive operations. Use only in fully trusted environments.
 
 ---
 
@@ -93,36 +97,33 @@ HLVM extends Claude Code's permission model with surgical tool control:
 
 ```bash
 # Allow only write_file (everything else denied unless L0)
-hlvm ask --allow-tool write_file "generate config"
+hlvm ask --allowedTools write_file "generate config"
 
-# Allow multiple tools
-hlvm ask --allow-tool write_file --allow-tool edit_file "refactor"
-
-# Comma-separated
-hlvm ask --allowed-tools read_file,grep,search_code "search"
+# Allow multiple tools (repeatable flag)
+hlvm ask --allowedTools write_file --allowedTools edit_file "refactor"
 ```
 
-**Use case:** Headless mode with selective mutations.
+**Use case:** Non-interactive mode with selective mutations.
 
 #### Deny Specific Tools
 
 ```bash
 # Deny shell_exec (everything else follows normal rules)
-hlvm ask --deny-tool shell_exec "refactor code"
+hlvm ask --disallowedTools shell_exec "refactor code"
 
-# Deny multiple tools
-hlvm ask --deny-tool shell_exec --deny-tool delete_file "task"
-
-# Comma-separated
-hlvm ask --denied-tools shell_exec,git_commit "read-only task"
+# Deny multiple tools (repeatable flag)
+hlvm ask --disallowedTools shell_exec --disallowedTools delete_file "task"
 ```
 
 **Use case:** Interactive mode with extra safety guardrails.
 
-#### Auto-Edit Mode
+#### Accept Edits Mode
 
 ```bash
 # Auto-approve L0+L1 (read + file ops), prompt for L2 (destructive)
+hlvm ask --permission-mode acceptEdits "apply linter fixes"
+
+# Legacy alias (still works)
 hlvm ask --auto-edit "apply linter fixes"
 ```
 
@@ -134,26 +135,29 @@ hlvm ask --auto-edit "apply linter fixes"
 
 ### Claude Code
 
-Claude Code has two modes:
+Claude Code has similar modes:
 
 | Mode | Behavior |
 |------|----------|
 | Default (interactive) | Prompt for all mutations |
-| Headless (`-p`) | Deny all mutations |
-| Unsafe (`--dangerously-skip-permissions`) | Approve all |
+| dontAsk (`-p`) | Deny all mutations |
+| bypassPermissions (`--dangerously-skip-permissions`) | Approve all |
 
 ### HLVM
 
-HLVM adds two modes + fine-grained control:
+HLVM provides five permission modes via `--permission-mode` plus fine-grained control:
 
-| Mode | L0 (read) | L1 (mutations) | L2 (destructive) |
-|------|-----------|----------------|------------------|
-| Default (interactive) | Auto | Prompt | Prompt |
-| Headless (`-p`) | Auto | Deny | Deny |
-| Auto-edit (`--auto-edit`) | Auto | Auto | Prompt |
-| Unsafe (`--dangerously-skip-permissions`) | Auto | Auto | Auto |
+| Mode | L0 (read) | L1 (mutations) | L2 (destructive) | CLI |
+|------|-----------|----------------|------------------|-----|
+| `default` | Auto | Prompt | Prompt | (none) |
+| `plan` | Auto | Prompt | Prompt | `--permission-mode plan` |
+| `acceptEdits` | Auto | Auto | Prompt | `--permission-mode acceptEdits` |
+| `bypassPermissions` | Auto | Auto | Auto | `--permission-mode bypassPermissions` |
+| `dontAsk` | Auto | Deny | Deny | `--permission-mode dontAsk` |
 
-**Plus** explicit `--allow-tool` / `--deny-tool` flags.
+**Plus** explicit `--allowedTools` / `--disallowedTools` flags (repeatable).
+
+**Note:** `-p`/`--print` defaults to `dontAsk` when no explicit `--permission-mode` is given.
 
 ---
 
@@ -221,8 +225,8 @@ claude ask --dangerously-skip-permissions "generate docs"
 
 **HLVM:**
 ```bash
-# Safer: headless + selective write permission
-hlvm ask -p --allow-tool write_file "generate docs"
+# Safer: non-interactive + selective write permission
+hlvm ask -p --allowedTools write_file "generate docs"
 ```
 
 **Migration:** Use fine-grained control instead of blanket unsafe mode.
@@ -240,7 +244,7 @@ claude ask "refactor code"
 **HLVM:**
 ```bash
 # Block shell access upfront
-hlvm ask --deny-tool shell_exec "refactor code"
+hlvm ask --disallowedTools shell_exec "refactor code"
 ```
 
 **Migration:** Use explicit denials for extra guardrails.
@@ -258,10 +262,10 @@ claude ask --dangerously-skip-permissions "apply fixes"
 **HLVM:**
 ```bash
 # Auto-approve file ops, prompt for destructive
-hlvm ask --auto-edit "apply fixes"
+hlvm ask --permission-mode acceptEdits "apply fixes"
 ```
 
-**Migration:** Use auto-edit instead of unsafe mode.
+**Migration:** Use `acceptEdits` mode instead of bypassing all permissions.
 
 ---
 
@@ -270,32 +274,33 @@ hlvm ask --auto-edit "apply fixes"
 Unlike Claude Code's binary prompt/deny model, HLVM has a priority system:
 
 **Priority order (highest to lowest):**
-1. Explicit deny (`--deny-tool`)
-2. Explicit allow (`--allow-tool`)
-3. Mode defaults (`-p`, `--auto-edit`, etc.)
+1. Explicit deny (`--disallowedTools`)
+2. Explicit allow (`--allowedTools`)
+3. Mode defaults (`dontAsk`, `acceptEdits`, etc.)
 4. Safety level defaults (L0 auto, L1/L2 prompt)
 
 **Example:**
 
 ```bash
-hlvm ask -p --allow-tool write_file "task"
+hlvm ask -p --allowedTools write_file "task"
 ```
 
-- `-p` (headless) would normally deny `write_file`
-- `--allow-tool write_file` explicitly allows it
+- `-p` (dontAsk mode) would normally deny `write_file`
+- `--allowedTools write_file` explicitly allows it
 - **Result:** `write_file` is allowed (explicit allow wins)
 
 ---
 
 ## Exit Codes
 
-Both Claude Code and HLVM use standard POSIX exit codes:
+Both Claude Code and HLVM use standard exit codes:
 
 | Code | Meaning | Example |
 |------|---------|---------|
 | `0` | Success | Query completed without errors |
-| `1` | Execution error | LLM API failure, timeout |
-| `2` | Validation error | Invalid flags, bad arguments |
+| `1` | Error | LLM API failure, timeout, tool blocked, or any other error |
+
+All errors (execution failures, tool blocks, interaction blocks) now use exit code 1.
 
 **Usage:**
 
@@ -389,7 +394,7 @@ Identical — detailed trace output.
 
 ## Advanced Examples
 
-### Example 1: Headless with Selective Writes
+### Example 1: Non-Interactive with Selective Writes
 
 **Goal:** Auto-generate documentation files in CI.
 
@@ -401,8 +406,8 @@ claude ask --dangerously-skip-permissions "generate API docs"
 
 **HLVM (safer):**
 ```bash
-# Headless + selective write permission
-hlvm ask -p --allow-tool write_file "generate API docs"
+# Non-interactive + selective write permission
+hlvm ask -p --allowedTools write_file "generate API docs"
 ```
 
 ---
@@ -420,7 +425,7 @@ claude ask "refactor authentication module"
 **HLVM:**
 ```bash
 # Explicitly deny shell upfront
-hlvm ask --deny-tool shell_exec "refactor authentication module"
+hlvm ask --disallowedTools shell_exec "refactor authentication module"
 ```
 
 ---
@@ -436,7 +441,7 @@ hlvm ask --deny-tool shell_exec "refactor authentication module"
 
 **HLVM:**
 ```bash
-hlvm ask --allowed-tools read_file,search_code,edit_file \
+hlvm ask --allowedTools read_file --allowedTools search_code --allowedTools edit_file \
   "replace all instances of oldFunc with newFunc"
 ```
 
@@ -445,12 +450,13 @@ hlvm ask --allowed-tools read_file,search_code,edit_file \
 ## Migration Checklist
 
 - [ ] Replace `claude ask` with `hlvm ask` in scripts
-- [ ] Review `-p` usage — no changes needed
-- [ ] Review `--dangerously-skip-permissions` — consider safer alternatives (`--auto-edit` or `--allow-tool`)
-- [ ] Add `--deny-tool` for extra safety where needed
-- [ ] Use `--allow-tool` for selective headless mutations
+- [ ] Review `-p` usage -- now defaults to `dontAsk` permission mode
+- [ ] Replace `--dangerously-skip-permissions` with `--permission-mode bypassPermissions` (legacy alias still works)
+- [ ] Replace `--auto-edit` with `--permission-mode acceptEdits` (legacy alias still works)
+- [ ] Add `--disallowedTools` for extra safety where needed
+- [ ] Use `--allowedTools` for selective non-interactive mutations
 - [ ] Update CI/CD pipelines with new flags
-- [ ] Test exit code handling (should be identical)
+- [ ] Update exit code handling -- all errors are now exit code 1
 - [ ] Update documentation and examples
 
 ---
@@ -459,14 +465,15 @@ hlvm ask --allowed-tools read_file,search_code,edit_file \
 
 | Feature | Claude Code | HLVM |
 |---------|-------------|------|
-| Interactive mode | ✅ Yes | ✅ Yes |
-| Headless mode (`-p`) | ✅ Yes | ✅ Yes |
-| Unsafe mode | ✅ Yes | ✅ Yes (same flag) |
-| Fine-grained allow | ❌ No | ✅ Yes (`--allow-tool`) |
-| Fine-grained deny | ❌ No | ✅ Yes (`--deny-tool`) |
-| Auto-edit mode | ❌ No | ✅ Yes (`--auto-edit`) |
-| Permission priority | N/A | ✅ Yes (deny > allow > mode > default) |
-| Safety levels | Binary (safe/unsafe) | ✅ Three levels (L0/L1/L2) |
+| Interactive mode | Yes | Yes |
+| Non-interactive mode (`-p`) | Yes | Yes (defaults to `dontAsk`) |
+| Permission modes | Yes | Yes (`--permission-mode`) |
+| `bypassPermissions` mode | Yes (`--dangerously-skip-permissions`) | Yes (same flag as legacy alias) |
+| Fine-grained allow | Yes (`--allowedTools`) | Yes (`--allowedTools`, repeatable) |
+| Fine-grained deny | Yes (`--disallowedTools`) | Yes (`--disallowedTools`, repeatable) |
+| `acceptEdits` mode | Yes | Yes (`--permission-mode acceptEdits`) |
+| Permission priority | N/A | Yes (deny > allow > mode > default) |
+| Safety levels | Binary (safe/unsafe) | Three levels (L0/L1/L2) |
 
 ---
 
@@ -482,4 +489,4 @@ hlvm ask --allowed-tools read_file,search_code,edit_file \
 
 - [Agent System Architecture](./agent.md) — Complete technical reference
 - [CLI Permission System](./cli-permissions.md) — Permission guide
-- [Non-Interactive Usage Guide](./non-interactive-guide.md) — Headless patterns
+- [Non-Interactive Usage Guide](./non-interactive-guide.md) — Non-interactive patterns

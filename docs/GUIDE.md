@@ -550,7 +550,7 @@ The agent can:
 - Execute shell commands (with permission)
 - Write and edit files (with permission)
 
-### Lesson 25: Headless Mode
+### Lesson 25: Non-Interactive Mode
 
 For automation and CI/CD:
 
@@ -559,11 +559,11 @@ For automation and CI/CD:
 hlvm ask -p "analyze code quality"
 
 # Only allow specific tools
-hlvm ask -p --allow-tool write_file "generate documentation"
+hlvm ask -p --allowedTools write_file "generate documentation"
 ```
 
-**Headless mode** (`-p`/`--print`):
-- No user prompts
+**Non-interactive mode** (`-p`/`--print`):
+- No user prompts (defaults to `dontAsk` permission mode)
 - Safe tools auto-approved
 - Unsafe tools auto-denied
 - Perfect for CI/CD
@@ -573,14 +573,15 @@ hlvm ask -p --allow-tool write_file "generate documentation"
 Fine-grained control over what the agent can do:
 
 ```bash
-# Allow specific tools
-hlvm ask --allow-tool write_file "fix linting errors"
+# Allow specific tools (repeatable flag)
+hlvm ask --allowedTools write_file --allowedTools edit_file "fix linting errors"
 
-# Deny specific tools
-hlvm ask --deny-tool shell_exec "refactor code"
+# Deny specific tools (repeatable flag)
+hlvm ask --disallowedTools shell_exec "refactor code"
 
-# Multiple permissions
-hlvm ask --allowed-tools read_file,grep,search_code "find pattern"
+# Permission modes
+hlvm ask --permission-mode acceptEdits "apply fixes"
+hlvm ask --permission-mode bypassPermissions "full automation"
 ```
 
 **Safety levels:**
@@ -605,7 +606,7 @@ hlvm ask "convert all var to let in src/"
 Documentation:
 
 ```bash
-hlvm ask -p --allow-tool write_file "generate API docs"
+hlvm ask -p --allowedTools write_file "generate API docs"
 ```
 
 CI/CD:
@@ -619,7 +620,7 @@ hlvm ask -p "check for unused imports" || exit 1
 
 - [Agent System](./agent.md) — Complete architecture
 - [CLI Permissions](./cli-permissions.md) — Permission system guide
-- [Headless Mode](./examples/headless-mode.md) — CI/CD integration
+- [Non-Interactive Mode](./examples/headless-mode.md) — CI/CD integration
 
 ---
 

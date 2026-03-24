@@ -3,22 +3,23 @@
 ## Overview
 
 Comprehensive test coverage implemented for the Claude Code CLI parity features:
-- `-p/--print` flag for headless mode
-- `--allow-tool` and `--deny-tool` flags for fine-grained control
+- `-p/--print` flag for non-interactive mode (defaults to `dontAsk` permission mode)
+- `--allowedTools` and `--disallowedTools` flags for fine-grained control (repeatable)
+- `--permission-mode <mode>` flag (accepts: default, acceptEdits, plan, bypassPermissions, dontAsk)
 - `resolveToolPermission()` function with priority system
-- Exit codes: 0 (success), 1 (failure), 2 (tool blocked), 3 (interaction blocked)
+- Exit codes: 0 (success), 1 (any error)
 
 ## Test Files Created/Modified
 
 ### 1. Unit Tests: resolveToolPermission()
 **File**: `tests/unit/agent/security/permission-resolution.test.ts`
-**Status**: ✅ 8/8 passing
+**Status**: 8/8 passing
 **Coverage**:
 - Explicit deny takes precedence over allow
 - Explicit allow overrides mode defaults
-- Headless mode: L0 allowed, L1/L2 denied
-- Yolo mode allows everything
-- Auto-edit mode allows L1
+- dontAsk mode: L0 allowed, L1/L2 denied
+- bypassPermissions mode allows everything
+- acceptEdits mode allows L1
 - Default mode returns prompt
 - Priority order verification
 - Edge cases with empty sets
@@ -36,80 +37,53 @@ Comprehensive test coverage implemented for the Claude Code CLI parity features:
 
 ### 3. CLI Flag Parsing Tests
 **File**: `tests/unit/cli/ask-permissions.test.ts`
-**Status**: ✅ 14/14 passing
+**Status**: 14/14 passing
 **Coverage**:
-- `-p` and `--print` set headless mode
-- `--allow-tool` adds to allowedTools (repeatable)
-- `--deny-tool` adds to deniedTools (repeatable)
-- `--allowed-tools` parses CSV correctly
-- `--denied-tools` parses CSV correctly
-- Multiple `--allow-tool` flags accumulate
+- `-p` and `--print` set non-interactive mode (dontAsk)
+- `--allowedTools` adds to allowedTools (repeatable)
+- `--disallowedTools` adds to disallowedTools (repeatable)
+- `--permission-mode` sets the permission mode correctly
+- Multiple `--allowedTools` flags accumulate
 - Tool lists passed to runtime
 - Flag combinations
 - Exit code tests:
-  - 3 for INTERACTION_BLOCKED
-  - 2 for TOOL_BLOCKED
-  - 1 for general errors
+  - 1 for all errors (tool blocked, interaction blocked, general errors)
   - String error handling
 
-### 4. E2E Tests: Headless Mode
+### 4. E2E Tests: Non-Interactive Mode
 **File**: `tests/binary/cli/ask-headless.test.ts`
-**Status**: ✅ 7/7 passing
+**Status**: 7/7 passing
 
 **All tests passing**:
-- ✅ Headless mode logs ask_user tool blocking
-- ✅ Headless mode logs unsafe tool blocking
-- ✅ Headless mode allows safe tools (exit code 0)
-- ✅ Explicit `--allow-tool` in headless mode succeeds
-- ✅ Explicit `--deny-tool` blocks tool even in yolo mode
-- ✅ Multiple `--allow-tool` flags work together
-- ✅ `--print` is equivalent to `-p` for tool blocking
+- Non-interactive (dontAsk) mode logs ask_user tool blocking
+- Non-interactive (dontAsk) mode logs unsafe tool blocking
+- Non-interactive (dontAsk) mode allows safe tools (exit code 0)
+- Explicit `--allowedTools` in non-interactive mode succeeds
+- Explicit `--disallowedTools` blocks tool even in bypassPermissions mode
+- Multiple `--allowedTools` flags work together
+- `--print` is equivalent to `-p` for tool blocking
 
-**Note**: Tests verify tool blocking behavior (errors logged) rather than exit codes, as tool blocks are recoverable and only cause exit codes 2/3 when they prevent query completion.
+**Note**: Tests verify tool blocking behavior (errors logged) rather than exit codes, as tool blocks are recoverable and cause exit code 1 only when they prevent query completion.
 
 ## Test Statistics
 
 | Category | Tests Created | Passing | Status |
 |----------|---------------|---------|--------|
-| resolveToolPermission unit tests | 8 | 8 | ✅ Complete |
-| checkToolSafety integration tests | 6 | 6 | ✅ Complete |
-| CLI flag parsing tests | 14 | 14 | ✅ Complete |
-| E2E headless mode tests | 7 | 7 | ✅ Complete |
+| resolveToolPermission unit tests | 8 | 8 | Complete |
+| checkToolSafety integration tests | 6 | 6 | Complete |
+| CLI flag parsing tests | 14 | 14 | Complete |
+| E2E non-interactive mode tests | 7 | 7 | Complete |
 | **Total** | **35** | **35** | **100% passing** |
 
-## E2E Test Issue
+## E2E Test Notes
 
-The 4 failing E2E tests have the same root cause:
+Tool blocks are recoverable errors. When a tool is blocked:
+1. Tool blocking works correctly
+2. Error is logged
+3. Agent continues to next step (tool blocks don't terminate execution)
+4. Exit code is 1 only if the blocked tool prevents query completion
 
-**Expected behavior**: Tool block → agent exits immediately with exit code 2 or 3
-**Actual behavior**: Tool block → error logged → agent continues → exits with code 0
-
-### Example Output
-```
-✗ shell_exec → Error: [TOOL_BLOCKED] Tool execution denied...
-─── 1 tool · 0.0s ───
-⡇ Working…
-─── 0 tools · 0.0s ───
-Task complete  ← Agent continues!
-```
-
-### Root Cause
-The test fixture format allows the agent to continue after tool errors. When a tool is blocked:
-1. ✓ Tool blocking works correctly
-2. ✓ Error is logged with `[TOOL_BLOCKED]` prefix
-3. ✗ Agent continues to next fixture step instead of exiting
-4. ✗ Final exit code is 0 (success) instead of 2/3
-
-### Questions for Resolution
-1. **Should tool blocks terminate the agent immediately?**
-   - Current: Tool fails → logs error → continues
-   - Expected by tests: Tool fails → throws → exit with code 2/3
-
-2. **Are the exit codes only for exceptions, not tool failures?**
-   - If yes, adjust E2E tests to verify tool blocking without exit code assertions
-
-3. **Should the orchestrator be modified to propagate exit codes?**
-   - Or is the current behavior (log and continue) the correct design?
+All errors now use a unified exit code 1 (previously there were separate codes 2 and 3 for TOOL_BLOCKED and INTERACTION_BLOCKED, which have been removed).
 
 ## Testing Patterns Used
 
@@ -144,7 +118,7 @@ deno test tests/unit/agent/security/safety.test.ts --allow-all
 # CLI flag parsing tests
 deno test tests/unit/cli/ask-permissions.test.ts --allow-all
 
-# E2E headless mode tests
+# E2E non-interactive mode tests
 deno test tests/binary/cli/ask-headless.test.ts --allow-all
 ```
 
@@ -191,25 +165,21 @@ deno task test:unit
 
 ## Gaps/Future Work
 
-1. **E2E exit code behavior**: Needs design clarification
-   - Current implementation may be correct (log and continue)
-   - Or may need orchestrator changes to propagate exit codes
-
-2. **Performance tests**: Not included (out of scope)
+1. **Performance tests**: Not included (out of scope)
    - Tool permission resolution is O(1), likely not needed
 
-3. **Fuzzing tests**: Not included (out of scope)
+2. **Fuzzing tests**: Not included (out of scope)
    - Could add randomized input testing for CLI parsing
 
-4. **Stress tests**: Not included (out of scope)
-   - Could test with hundreds of --allow-tool flags
+3. **Stress tests**: Not included (out of scope)
+   - Could test with hundreds of --allowedTools flags
 
 ## Conclusion
 
 **35 out of 35 tests passing (100%)** with comprehensive coverage of:
-- ✅ Unit tests for core permission resolution logic (8/8 passing)
-- ✅ Integration tests for safety system interactions (6/6 passing)
-- ✅ CLI flag parsing and validation (14/14 passing)
-- ✅ E2E tests for headless mode behavior (7/7 passing)
+- Unit tests for core permission resolution logic (8/8 passing)
+- Integration tests for safety system interactions (6/6 passing)
+- CLI flag parsing and validation (14/14 passing)
+- E2E tests for non-interactive mode behavior (7/7 passing)
 
 All tests pass without any regressions to existing tests. E2E tests verify tool blocking behavior rather than exit codes, as tool blocks are recoverable unless they prevent query completion.

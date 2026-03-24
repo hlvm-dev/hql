@@ -72,11 +72,11 @@ Deno.test("Safety: permission modes auto-approve the intended levels", async () 
   const store = new Map<string, boolean>();
 
   assertEquals(
-    await checkToolSafety("write_file", { path: "a", content: "b" }, "yolo", null, store),
+    await checkToolSafety("write_file", { path: "a", content: "b" }, "bypassPermissions", null, store),
     true,
   );
   assertEquals(
-    await checkToolSafety("shell_exec", { command: "deno test --dry-run" }, "auto-edit", null, store),
+    await checkToolSafety("shell_exec", { command: "deno test --dry-run" }, "acceptEdits", null, store),
     true,
   );
   assertEquals(
@@ -187,12 +187,12 @@ Deno.test("Safety: classifyShellPipeline falls back to simple classification for
 Deno.test("Safety: checkToolSafety uses toolPermissions when provided", async () => {
   const store = new Map<string, boolean>();
 
-  // Explicit deny blocks tool even in yolo mode
+  // Explicit deny blocks tool even in bypassPermissions mode
   assertEquals(
     await checkToolSafety(
       "write_file",
       { path: "a", content: "b" },
-      "yolo",
+      "bypassPermissions",
       null,
       store,
       undefined,
@@ -203,12 +203,12 @@ Deno.test("Safety: checkToolSafety uses toolPermissions when provided", async ()
     false,
   );
 
-  // Explicit allow overrides headless mode
+  // Explicit allow overrides dontAsk mode
   assertEquals(
     await checkToolSafety(
       "shell_exec",
       { command: "rm -rf /" },
-      "headless",
+      "dontAsk",
       null,
       store,
       undefined,
@@ -244,24 +244,24 @@ Deno.test("Safety: checkToolSafety policy takes precedence over toolPermissions"
 Deno.test("Safety: checkToolSafety falls back to legacy logic when no toolPermissions", async () => {
   const store = new Map<string, boolean>();
 
-  // Yolo mode works without toolPermissions
+  // bypassPermissions mode works without toolPermissions
   assertEquals(
     await checkToolSafety(
       "write_file",
       { path: "a", content: "b" },
-      "yolo",
+      "bypassPermissions",
       null,
       store,
     ),
     true,
   );
 
-  // Auto-edit mode works without toolPermissions
+  // acceptEdits mode works without toolPermissions
   assertEquals(
     await checkToolSafety(
       "write_file",
       { path: "a", content: "b" },
-      "auto-edit",
+      "acceptEdits",
       null,
       store,
     ),
@@ -359,12 +359,12 @@ Deno.test("Safety: checkToolSafety with different safety levels", async () => {
     true,
   );
 
-  // L1 in headless mode is denied
+  // L1 in dontAsk mode is denied
   assertEquals(
     await checkToolSafety(
       "write_file",
       { path: "a", content: "b" },
-      "headless",
+      "dontAsk",
       null,
       store,
       undefined,
@@ -375,12 +375,12 @@ Deno.test("Safety: checkToolSafety with different safety levels", async () => {
     false,
   );
 
-  // L2 in headless mode is denied
+  // L2 in dontAsk mode is denied
   assertEquals(
     await checkToolSafety(
       "delete_file",
       { path: "a" },
-      "headless",
+      "dontAsk",
       null,
       store,
       undefined,

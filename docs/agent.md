@@ -346,46 +346,48 @@ interface ToolMetadata {
 | Level | Meaning | Examples | Auto-approve |
 |-------|---------|----------|-------------|
 | **L0** | Read-only | `read_file`, `list_files`, `search_code`, `git_status` | All modes |
-| **L1** | Low-risk execution | `write_file`, `edit_file`, `shell_exec` (safe commands) | `auto-edit` and `yolo` |
-| **L2** | High-risk mutation | `shell_exec` (dangerous), `delete` operations | `yolo` only |
+| **L1** | Low-risk execution | `write_file`, `edit_file`, `shell_exec` (safe commands) | `acceptEdits` and `bypassPermissions` |
+| **L2** | High-risk mutation | `shell_exec` (dangerous), `delete` operations | `bypassPermissions` only |
 
 ### Permission Modes
 
-HLVM provides three built-in permission modes plus fine-grained tool control:
+HLVM provides five permission modes plus fine-grained tool control via `--permission-mode`:
 
 #### Built-in Modes
 
 | Mode | L0 | L1 | L2 | CLI Flag | Use Case |
 |------|----|----|-----|----------|----------|
 | `default` | Auto | Prompt | Prompt | (none) | Interactive development |
-| `print` | Auto | Deny | Deny | `-p`, `--print` | Headless/CI pipelines |
-| `auto-edit` | Auto | Auto | Prompt | `--auto-edit` | [Legacy] Trusted file operations |
-| `yolo` | Auto | Auto | Auto | `--dangerously-skip-permissions` | [Legacy] Full automation (unsafe) |
+| `plan` | Auto | Prompt | Prompt | `--permission-mode plan` | Plan-first execution |
+| `acceptEdits` | Auto | Auto | Prompt | `--permission-mode acceptEdits` | Trusted file operations |
+| `bypassPermissions` | Auto | Auto | Auto | `--permission-mode bypassPermissions` | Full automation (unsafe) |
+| `dontAsk` | Auto | Deny | Deny | `--permission-mode dontAsk` | Non-interactive/CI pipelines |
 
 **Default mode** is fully interactive — safe tools (L0) auto-approve, mutations (L1/L2) prompt the user.
 
-**Print mode** (`-p`/`--print`) is the headless standard — non-interactive execution where unsafe tools are automatically denied. This is the recommended mode for CI/CD pipelines, scripts, and automation.
+**dontAsk mode** is the non-interactive standard — execution where unsafe tools are automatically denied. This is the recommended mode for CI/CD pipelines, scripts, and automation. When `-p`/`--print` is used without an explicit `--permission-mode`, it defaults to `dontAsk`.
+
+**Legacy aliases:** `--auto-edit` maps to `--permission-mode acceptEdits`. `--dangerously-skip-permissions` maps to `--permission-mode bypassPermissions`.
 
 #### Fine-Grained Tool Control
 
 Beyond built-in modes, you can explicitly allow or deny individual tools:
 
 ```bash
-# Allow specific tools
-hlvm ask --allow-tool write_file --allow-tool edit_file "fix bug"
+# Allow specific tools (repeatable)
+hlvm ask --allowedTools write_file --allowedTools edit_file "fix bug"
 
-# Deny specific tools
-hlvm ask --deny-tool shell_exec "analyze code"
+# Deny specific tools (repeatable)
+hlvm ask --disallowedTools shell_exec "analyze code"
 
-# Comma-separated lists
-hlvm ask --allowed-tools read_file,grep,search_code "search pattern"
-hlvm ask --denied-tools shell_exec,delete_file "refactor code"
+# Combine with permission modes
+hlvm ask --permission-mode dontAsk --allowedTools write_file "generate docs"
 ```
 
 **Permission resolution priority** (highest to lowest):
-1. Explicit `--deny-tool` / `--denied-tools`
-2. Explicit `--allow-tool` / `--allowed-tools`
-3. Mode-based defaults (`print`, `auto-edit`, `yolo`)
+1. Explicit `--disallowedTools`
+2. Explicit `--allowedTools`
+3. Mode-based defaults (`dontAsk`, `acceptEdits`, `bypassPermissions`)
 4. Safety level defaults (L0 auto-approve, L1/L2 prompt)
 
 Permission mode propagates from the lead to spawned teammates via `ToolExecutionOptions.permissionMode`.
@@ -773,14 +775,14 @@ SendMessage({ type: "plan_approval_response", request_id: "abc", recipient: "res
 The lead's `permissionMode` propagates to all spawned teammates:
 
 ```
-Lead (permissionMode: "auto-edit")
+Lead (permissionMode: "acceptEdits")
   → Teammate(spawnAgent) passes permissionMode via ToolExecutionOptions
     → runTeammateLoop receives it
       → runReActLoop uses it for tool execution
         → L1 tools (write_file, edit_file) auto-approve
 ```
 
-This ensures teammates can write files without user prompts when the lead has `auto-edit` mode.
+This ensures teammates can write files without user prompts when the lead has `acceptEdits` mode.
 
 ---
 
@@ -1249,7 +1251,7 @@ Note: Automated unit tests use `createScriptedLLM()` (deterministic stubs). The 
 ```bash
 cd /tmp/hlvm-team-e2e-test && deno run -A --no-check src/hlvm/cli/cli.ts ask \
   --model claude-code/claude-haiku-4-5-20251001 \
-  --auto-edit --json \
+  --permission-mode acceptEdits --json \
   "Use a team of agents to accomplish these 2 tasks in parallel: \
    (1) Create hello.txt containing 'Hello from Agent 1' and \
    (2) Create goodbye.txt containing 'Goodbye from Agent 2'. \
@@ -1297,7 +1299,7 @@ ls: No such file or directory   # cleanup removed all team artifacts
 **Key observations**:
 - Workers ran **in parallel** (both claimed tasks before either completed)
 - Workers used **real Claude Haiku 4.5 inference** (not scripted) to decide tool calls
-- Permission mode (`--auto-edit`) propagated from lead to workers (write_file auto-approved)
+- Permission mode (`acceptEdits`) propagated from lead to workers (write_file auto-approved)
 - Task completion messages flowed from workers back to lead via inbox system
 - Shutdown + cleanup removed all persistent state
 - Total: ~142K input tokens, ~1K output tokens, 9 lead iterations + 2 iterations per worker
@@ -1353,7 +1355,7 @@ ls: No such file or directory   # cleanup removed all team artifacts
 
 2. **Display modes**: Claude Code supports `in-process`, `tmux`, and `auto` modes. HLVM currently only supports in-process.
 
-3. **Hooks**: Claude Code has `TeammateIdle` and `TaskCompleted` lifecycle hooks with quality gate support (exit code 2 = feedback loop). HLVM has hook infrastructure but not these specific hooks.
+3. **Hooks**: Claude Code has `TeammateIdle` and `TaskCompleted` lifecycle hooks with quality gate support. HLVM has hook infrastructure but not these specific hooks.
 
 4. **Known Claude Code bugs**: Teammate messages render with `Human:` prefix ([#27555](https://github.com/anthropics/claude-code/issues/27555)). HLVM renders them as structured `TeamMessageInfoItem` with proper sender attribution.
 

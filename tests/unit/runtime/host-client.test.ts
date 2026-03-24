@@ -240,7 +240,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
         query: "fix it",
         attachmentIds: ["att_example_png", "att_example_pdf"],
         model: "ollama/llama3.1:8b",
-        permissionMode: "auto-edit",
+        permissionMode: "acceptEdits",
         contextWindow: 4096,
         callbacks: {
           onToken: (text) => tokens.push(text),
@@ -277,7 +277,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
 
       assert(capturedChatBody !== null);
       assertEquals(capturedChatBody?.session_id, undefined);
-      assertEquals(capturedChatBody?.permission_mode, "auto-edit");
+      assertEquals(capturedChatBody?.permission_mode, "acceptEdits");
       assertEquals(capturedChatBody?.context_window, 4096);
       assertEquals(capturedChatBody?.skip_session_history, undefined);
       assertEquals(capturedChatBody?.trace, true);

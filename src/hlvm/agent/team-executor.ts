@@ -279,11 +279,12 @@ export async function runTeammateLoop(
 
     // 3. Find claimable task: pending + unblocked + unowned, sorted by ID
     const allTasks = await store.listTasks();
+    const taskById = new Map(allTasks.map((t) => [t.id, t]));
     const claimable = allTasks.filter((t) =>
       t.status === "pending" &&
       !t.owner &&
       t.blockedBy.every((blockerId) => {
-        const blocker = allTasks.find((bt) => bt.id === blockerId);
+        const blocker = taskById.get(blockerId);
         return blocker && blocker.status === "completed";
       })
     ).sort((a, b) => parseInt(a.id) - parseInt(b.id));
@@ -378,7 +379,7 @@ export async function runTeammateLoop(
         {
           workspace,
           context,
-          permissionMode: options.permissionMode ?? "auto-edit",
+          permissionMode: options.permissionMode ?? "acceptEdits",
           maxIterations: DELEGATE_MAX_ITERATIONS,
           totalTimeout: DELEGATE_TOTAL_TIMEOUT,
           policy: policy ?? null,

@@ -15,39 +15,39 @@ Deno.test("resolveToolPermission: explicit allow overrides mode defaults", () =>
   const permissions: ToolPermissions = {
     allowedTools: new Set(["shell_exec"]),
     deniedTools: new Set(),
-    mode: "headless",
+    mode: "dontAsk",
   };
-  // shell_exec is L2, headless would normally deny, but explicit allow wins
+  // shell_exec is L2, dontAsk would normally deny, but explicit allow wins
   assertEquals(resolveToolPermission("shell_exec", "L2", permissions), "allow");
 });
 
-Deno.test("resolveToolPermission: headless mode allows L0, denies L1/L2", () => {
+Deno.test("resolveToolPermission: dontAsk mode allows L0, denies L1/L2", () => {
   const permissions: ToolPermissions = {
     allowedTools: new Set(),
     deniedTools: new Set(),
-    mode: "headless",
+    mode: "dontAsk",
   };
   assertEquals(resolveToolPermission("read_file", "L0", permissions), "allow");
   assertEquals(resolveToolPermission("write_file", "L1", permissions), "deny");
   assertEquals(resolveToolPermission("shell_exec", "L2", permissions), "deny");
 });
 
-Deno.test("resolveToolPermission: yolo mode allows everything", () => {
+Deno.test("resolveToolPermission: bypassPermissions mode allows everything", () => {
   const permissions: ToolPermissions = {
     allowedTools: new Set(),
     deniedTools: new Set(),
-    mode: "yolo",
+    mode: "bypassPermissions",
   };
   assertEquals(resolveToolPermission("read_file", "L0", permissions), "allow");
   assertEquals(resolveToolPermission("write_file", "L1", permissions), "allow");
   assertEquals(resolveToolPermission("shell_exec", "L2", permissions), "allow");
 });
 
-Deno.test("resolveToolPermission: auto-edit mode allows L1, prompts L2", () => {
+Deno.test("resolveToolPermission: acceptEdits mode allows L1, prompts L2", () => {
   const permissions: ToolPermissions = {
     allowedTools: new Set(),
     deniedTools: new Set(),
-    mode: "auto-edit",
+    mode: "acceptEdits",
   };
   // L0 is handled by checkToolSafety before this function, so we test L1/L2
   assertEquals(resolveToolPermission("write_file", "L1", permissions), "allow");
@@ -72,7 +72,7 @@ Deno.test("resolveToolPermission: priority order verification", () => {
   const permissions: ToolPermissions = {
     allowedTools: new Set(["tool_a"]),
     deniedTools: new Set(["tool_a", "tool_b"]),
-    mode: "yolo",
+    mode: "bypassPermissions",
   };
 
   // Priority 1: Explicit deny wins over allow
@@ -82,7 +82,7 @@ Deno.test("resolveToolPermission: priority order verification", () => {
   const permissions2: ToolPermissions = {
     allowedTools: new Set(["tool_b"]),
     deniedTools: new Set(),
-    mode: "headless",
+    mode: "dontAsk",
   };
   assertEquals(resolveToolPermission("tool_b", "L2", permissions2), "allow");
 

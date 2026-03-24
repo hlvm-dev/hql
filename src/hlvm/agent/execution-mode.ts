@@ -8,10 +8,10 @@ export type AgentExecutionMode = PermissionMode;
 
 const EXECUTION_MODE_META: Record<AgentExecutionMode, { label: string }> = {
   "default": { label: "Default mode" },
-  "auto-edit": { label: "Accept edits" },
+  "acceptEdits": { label: "Accept edits" },
   "plan": { label: "Plan mode" },
-  "yolo": { label: "Full auto" },
-  "headless": { label: "Headless mode" },
+  "bypassPermissions": { label: "Bypass permissions" },
+  "dontAsk": { label: "Non-interactive" },
 };
 
 export function toAgentExecutionMode(

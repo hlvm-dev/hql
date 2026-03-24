@@ -920,7 +920,7 @@ Deno.test("background delegate queues automatic supervisor update", async () => 
     {
       workspace: "/tmp/hlvm-test-delegation",
       context: new ContextManager(),
-      permissionMode: "yolo",
+      permissionMode: "bypassPermissions",
       delegateInbox: inbox,
     },
   ) as Record<string, unknown>;
@@ -960,7 +960,7 @@ Deno.test("background delegate threads retain ownerId for request-scoped cleanup
       {
         workspace,
         context: new ContextManager(),
-        permissionMode: "yolo",
+        permissionMode: "bypassPermissions",
       },
     ) as Record<string, unknown>;
 
@@ -1001,7 +1001,7 @@ Deno.test({
         {
           workspace,
           context: new ContextManager(),
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           onAgentEvent: (event) =>
             events.push(event as unknown as Record<string, unknown>),
         },
@@ -1059,7 +1059,7 @@ Deno.test({
         {
           workspace,
           context: new ContextManager(),
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
         },
       ) as Record<string, unknown>;
 
@@ -1100,7 +1100,7 @@ Deno.test("background delegate snapshots parent workspace at spawn time", async 
       {
         workspace: parentDir,
         context: new ContextManager(),
-        permissionMode: "yolo",
+        permissionMode: "bypassPermissions",
       },
     ) as Record<string, unknown>;
 
@@ -1166,7 +1166,7 @@ Deno.test("fixture-backed delegates get fresh child fixture state", async () => 
       {
         workspace: dir,
         context: new ContextManager(),
-        permissionMode: "yolo",
+        permissionMode: "bypassPermissions",
       },
     );
 
@@ -1214,7 +1214,7 @@ Deno.test("built-in delegates create a fresh child LLM using the parent model fa
       {
         workspace: dir,
         context: new ContextManager(),
-        permissionMode: "yolo",
+        permissionMode: "bypassPermissions",
       },
     );
 
@@ -1251,7 +1251,7 @@ Deno.test("foreground delegates strip mutating tools in shared workspace", async
       {
         workspace: dir,
         context: new ContextManager(),
-        permissionMode: "yolo",
+        permissionMode: "bypassPermissions",
       },
     );
 
@@ -1293,7 +1293,7 @@ Deno.test("background delegates keep mutating tools when running in isolated wor
       {
         workspace: dir,
         context: new ContextManager(),
-        permissionMode: "yolo",
+        permissionMode: "bypassPermissions",
       },
     ) as { threadId: string };
 
@@ -2313,7 +2313,7 @@ Deno.test("completed delegates terminate their team member so maxMembers is not 
   const config = {
     workspace: "/tmp/hlvm-test-member-retire",
     context: new ContextManager(),
-    permissionMode: "yolo" as const,
+    permissionMode: "bypassPermissions" as const,
     teamRuntime,
     teamLeadMemberId: "lead-id",
   };
@@ -2357,13 +2357,11 @@ Deno.test("agent profiles include team worker tools", async () => {
     "../../../src/hlvm/agent/agent-registry.ts"
   );
   const teamWorkerTools = [
-    "team_task_read",
-    "team_task_claim",
-    "team_status_read",
-    "team_message_send",
-    "team_message_read",
-    "ack_team_shutdown",
-    "submit_team_plan",
+    "TaskList",
+    "TaskGet",
+    "TaskUpdate",
+    "SendMessage",
+    "TeamStatus",
   ];
 
   // All profiles except memory should have team worker tools
@@ -2379,10 +2377,10 @@ Deno.test("agent profiles include team worker tools", async () => {
     }
   }
 
-  // General profile also gets team_task_write
+  // General profile also gets TaskCreate
   const general = getAgentProfile("general");
   assertExists(general);
-  assertEquals(general.tools.includes("team_task_write"), true);
+  assertEquals(general.tools.includes("TaskCreate"), true);
 });
 
 Deno.test("memory profile does not include team tools", async () => {
@@ -2391,8 +2389,8 @@ Deno.test("memory profile does not include team tools", async () => {
   );
   const memoryProfile = getAgentProfile("memory");
   assertExists(memoryProfile);
-  assertEquals(memoryProfile.tools.includes("team_task_claim"), false);
-  assertEquals(memoryProfile.tools.includes("team_status_read"), false);
+  assertEquals(memoryProfile.tools.includes("TaskUpdate"), false);
+  assertEquals(memoryProfile.tools.includes("TeamStatus"), false);
 });
 
 // ============================================================

@@ -72,14 +72,17 @@ EXAMPLES:
   hlvm ask "list files in src/"
   hlvm ask "count test files in tests/unit"
 
-  # Headless mode (non-interactive, safe tools only)
+  # Non-interactive / print mode
   hlvm ask -p "analyze code quality"
   hlvm ask --print "explain this function"
 
+  # Explicit permission mode
+  hlvm ask --permission-mode acceptEdits "fix bug"
+  hlvm ask --permission-mode dontAsk "analyze code"
+
   # Explicit tool permissions
-  hlvm ask --allow-tool write_file "fix bug"
-  hlvm ask --allowed-tools read_file,grep "search for pattern"
-  hlvm ask --deny-tool shell_exec "analyze code"
+  hlvm ask --allowedTools write_file "fix bug"
+  hlvm ask --disallowedTools shell_exec "analyze code"
 
   # Advanced usage
   hlvm ask --attach ./screenshot.png "describe this UI issue"
@@ -90,7 +93,7 @@ EXAMPLES:
 
 OPTIONS:
   --help, -h                   Show this help message
-  -p, --print                  Headless mode (non-interactive, auto-deny unsafe tools)
+  -p, --print                  Non-interactive output (defaults to dontAsk mode)
   --verbose                    Show agent header, tool labels, stats, and trace output
   --json                       Emit newline-delimited JSON events
   --usage                      Show token usage summary after execution
@@ -98,20 +101,26 @@ OPTIONS:
   --model <provider/model>     Use a specific AI model (e.g., openai/gpt-4o)
   --stateless                  Use an isolated hidden session for this run only
 
-  Tool Permission Control:
-  --allow-tool <name>          Allow specific tool (can be repeated)
-  --deny-tool <name>           Deny specific tool (can be repeated)
-  --allowed-tools <list>       Comma-separated allow list
-  --denied-tools <list>        Comma-separated deny list
+  Permission Mode:
+  --permission-mode <mode>     Set permission mode (default, acceptEdits, plan,
+                               bypassPermissions, dontAsk)
 
-  Legacy Permission Modes:
-  --auto-edit                  [Legacy] Auto-approve file reads/writes
-  --dangerously-skip-permissions  [Legacy] Auto-approve all tools (unsafe)
+  Tool Permission Control:
+  --allowedTools <name>        Allow specific tool (repeatable)
+  --disallowedTools <name>     Deny specific tool (repeatable)
+
+  Legacy Aliases:
+  --auto-edit                  Alias for --permission-mode acceptEdits
+  --dangerously-skip-permissions  Alias for --permission-mode bypassPermissions
+  --allow-tool <name>          Alias for --allowedTools
+  --deny-tool <name>           Alias for --disallowedTools
 
 PERMISSION MODES:
-  Interactive (default):       Prompt for L1/L2 tools, auto-approve L0 (read-only)
-  Headless (-p/--print):       Auto-deny unsafe tools (L1/L2), allow safe tools (L0)
-  Custom (--allow/--deny):     Explicit control over individual tools
+  default:                     Prompt for L1/L2 tools, auto-approve L0 (read-only)
+  acceptEdits:                 Auto-approve L0+L1, prompt for L2 (destructive)
+  plan:                        Research/plan first, execute with approval
+  bypassPermissions:           Auto-approve all tools (unsafe)
+  dontAsk:                     Non-interactive (auto-deny L1/L2, allow L0)
 
   Tool Safety Levels:
     L0: Safe read-only (read_file, list_files, search_code)
@@ -133,12 +142,12 @@ async function promptRuntimeInteraction(
 ): Promise<{ approved?: boolean; userInput?: string }> {
   if (!getPlatform().terminal.stdin.isTerminal()) {
     if (event.mode === "permission") {
-      if (permissionMode === "yolo") {
+      if (permissionMode === "bypassPermissions") {
         return event.toolName === "plan_review"
           ? { approved: true, userInput: "approve:auto" }
           : { approved: true };
       }
-      if (permissionMode === "auto-edit" && event.toolName === "plan_review") {
+      if (permissionMode === "acceptEdits" && event.toolName === "plan_review") {
         return { approved: true };
       }
     }
@@ -436,23 +445,8 @@ export async function attemptCloudAuthRecovery(
   }
 }
 
-/**
- * Determine exit code based on error type.
- * - EXIT_CODES.INTERACTION_BLOCKED (3): ask_user blocked in headless mode
- * - EXIT_CODES.TOOL_BLOCKED (2): unsafe tool blocked in headless mode
- * - EXIT_CODES.GENERAL_FAILURE (1): all other failures
- */
-function getExitCodeForError(error: unknown): number {
-  const errorMsg = error instanceof Error ? error.message : String(error);
-
-  if (errorMsg.includes("[INTERACTION_BLOCKED]")) {
-    return EXIT_CODES.INTERACTION_BLOCKED;
-  }
-
-  if (errorMsg.includes("[TOOL_BLOCKED]")) {
-    return EXIT_CODES.TOOL_BLOCKED;
-  }
-
+/** All errors exit with code 1 (Claude Code parity). */
+function getExitCodeForError(_error: unknown): number {
   return EXIT_CODES.GENERAL_FAILURE;
 }
 
@@ -467,11 +461,21 @@ export async function askCommand(args: string[]): Promise<void> {
   let jsonOutput = false;
   let showUsage = false;
   let stateless = false;
+  let printMode = false;
   let modelOverride: string | undefined;
   let permissionModeOverride: PermissionMode | undefined;
+  let permissionModeExplicitlySet = false;
   const attachmentArgs: string[] = [];
   const allowedTools = new Set<string>();
   const deniedTools = new Set<string>();
+
+  const VALID_PERMISSION_MODES: readonly PermissionMode[] = [
+    "default",
+    "acceptEdits",
+    "plan",
+    "bypassPermissions",
+    "dontAsk",
+  ];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -484,53 +488,50 @@ export async function askCommand(args: string[]): Promise<void> {
     } else if (arg === "--stateless") {
       stateless = true;
     } else if (arg === "-p" || arg === "--print") {
-      permissionModeOverride = "headless";
-    } else if (arg === "--auto-edit") {
-      permissionModeOverride = "auto-edit";
-    } else if (arg === "--dangerously-skip-permissions") {
-      permissionModeOverride = "yolo";
-    } else if (arg === "--allow-tool") {
+      printMode = true;
+    } else if (arg === "--permission-mode") {
       i++;
       if (i >= args.length) {
         throw new ValidationError(
-          "--allow-tool requires a tool name",
+          "--permission-mode requires a value (default, acceptEdits, plan, bypassPermissions, dontAsk)",
+          "ask",
+        );
+      }
+      const mode = args[i] as PermissionMode;
+      if (!VALID_PERMISSION_MODES.includes(mode)) {
+        throw new ValidationError(
+          `Invalid permission mode: "${args[i]}". Valid modes: ${VALID_PERMISSION_MODES.join(", ")}`,
+          "ask",
+        );
+      }
+      permissionModeOverride = mode;
+      permissionModeExplicitlySet = true;
+    } else if (arg === "--auto-edit") {
+      // Legacy alias
+      permissionModeOverride = "acceptEdits";
+      permissionModeExplicitlySet = true;
+    } else if (arg === "--dangerously-skip-permissions") {
+      // Legacy alias
+      permissionModeOverride = "bypassPermissions";
+      permissionModeExplicitlySet = true;
+    } else if (arg === "--allowedTools" || arg === "--allow-tool") {
+      i++;
+      if (i >= args.length) {
+        throw new ValidationError(
+          `${arg} requires a tool name`,
           "ask",
         );
       }
       allowedTools.add(args[i]);
-    } else if (arg === "--deny-tool") {
+    } else if (arg === "--disallowedTools" || arg === "--deny-tool") {
       i++;
       if (i >= args.length) {
         throw new ValidationError(
-          "--deny-tool requires a tool name",
+          `${arg} requires a tool name`,
           "ask",
         );
       }
       deniedTools.add(args[i]);
-    } else if (arg === "--allowed-tools") {
-      i++;
-      if (i >= args.length) {
-        throw new ValidationError(
-          "--allowed-tools requires a comma-separated list",
-          "ask",
-        );
-      }
-      args[i].split(",").forEach((tool) => {
-        const trimmed = tool.trim();
-        if (trimmed) allowedTools.add(trimmed);
-      });
-    } else if (arg === "--denied-tools") {
-      i++;
-      if (i >= args.length) {
-        throw new ValidationError(
-          "--denied-tools requires a comma-separated list",
-          "ask",
-        );
-      }
-      args[i].split(",").forEach((tool) => {
-        const trimmed = tool.trim();
-        if (trimmed) deniedTools.add(trimmed);
-      });
     } else if (arg === "--model") {
       i++;
       if (i >= args.length) {
@@ -549,11 +550,16 @@ export async function askCommand(args: string[]): Promise<void> {
         );
       }
       attachmentArgs.push(args[i]);
-    } else if (!arg.startsWith("--")) {
+    } else if (!arg.startsWith("--") && arg !== "-p") {
       query += (query ? " " : "") + arg;
     } else {
       throw new ValidationError(`Unknown option: ${arg}`, "ask");
     }
+  }
+
+  // -p/--print: default to dontAsk if no explicit --permission-mode was set
+  if (printMode && !permissionModeExplicitlySet) {
+    permissionModeOverride = "dontAsk";
   }
 
   if (!query) {

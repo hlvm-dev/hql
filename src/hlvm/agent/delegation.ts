@@ -103,8 +103,8 @@ function buildAgentSystemNote(
   tools: string[],
   options: { canDelegate: boolean; isolatedWorkspace: boolean },
 ): string {
-  const hasTeamTools = tools.includes("team_task_claim") &&
-    tools.includes("team_status_read");
+  const hasTeamTools = tools.includes("TaskUpdate") &&
+    tools.includes("TeamStatus");
 
   return [
     `Specialist agent: ${profile.name}`,
@@ -117,7 +117,7 @@ function buildAgentSystemNote(
       : "Do not call delegate_agent.",
     ...(hasTeamTools
       ? [
-        "Team worker: Use team_task_claim to claim tasks, team_message_send to report progress or ask questions, team_status_read to check team state. Acknowledge shutdown requests promptly via ack_team_shutdown.",
+        "Team worker: Use TaskUpdate to claim/complete tasks, SendMessage to report progress or ask questions, TeamStatus to check team state. Respond to shutdown requests via SendMessage(type='shutdown_response').",
       ]
       : []),
     ...(profile.instructions?.trim()
@@ -514,7 +514,7 @@ async function runDelegateChild(
       {
         workspace: childWorkspace,
         context,
-        permissionMode: config.permissionMode === "yolo"
+        permissionMode: config.permissionMode === "bypassPermissions"
           ? "default"
           : config.permissionMode,
         maxIterations: DELEGATE_MAX_ITERATIONS,

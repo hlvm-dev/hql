@@ -7,7 +7,7 @@ Comprehensive guide for using HLVM in CI/CD pipelines, scripts, and automation.
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Basic Headless Mode](#basic-headless-mode)
+2. [Basic Non-Interactive Mode](#basic-non-interactive-mode)
 3. [CI/CD Integration](#cicd-integration)
 4. [Scripting Patterns](#scripting-patterns)
 5. [Exit Codes](#exit-codes)
@@ -20,12 +20,12 @@ Comprehensive guide for using HLVM in CI/CD pipelines, scripts, and automation.
 
 ## Overview
 
-**Headless mode** (`-p`/`--print`) enables fully automated HLVM agent execution without user interaction:
+**Non-interactive mode** (`-p`/`--print`) enables fully automated HLVM agent execution without user interaction. When `-p` is used without an explicit `--permission-mode`, it defaults to `dontAsk` mode:
 
-- **No prompts** — agent never asks for permission
-- **Safe by default** — unsafe tools auto-denied
-- **Deterministic** — predictable behavior
-- **Exit codes** — standard POSIX codes (0/1/2)
+- **No prompts** -- agent never asks for permission
+- **Safe by default** -- unsafe tools auto-denied
+- **Deterministic** -- predictable behavior
+- **Exit codes** -- 0 for success, 1 for any error
 
 **Use cases:**
 - CI/CD quality gates
@@ -36,7 +36,7 @@ Comprehensive guide for using HLVM in CI/CD pipelines, scripts, and automation.
 
 ---
 
-## Basic Headless Mode
+## Basic Non-Interactive Mode
 
 ### Minimal Example
 
@@ -256,7 +256,7 @@ import sys
 from pathlib import Path
 
 def run_hlvm_analysis(query: str, output_file: str | None = None) -> str:
-    """Run HLVM analysis in headless mode."""
+    """Run HLVM analysis in non-interactive mode."""
     cmd = ["hlvm", "ask", "-p", query]
 
     try:
@@ -363,13 +363,14 @@ async function runHlvmAnalysis(query, outputFile = null) {
 
 ## Exit Codes
 
-HLVM follows POSIX exit code conventions:
+HLVM uses simple exit codes:
 
 | Code | Meaning | Example Cause |
 |------|---------|---------------|
 | `0` | Success | Analysis completed without errors |
-| `1` | Execution error | LLM API failure, network timeout, runtime error |
-| `2` | Validation error | Invalid flags, bad model name, missing query |
+| `1` | Error | LLM API failure, network timeout, tool blocked, invalid arguments, or any other error |
+
+All errors (execution failures, tool blocks, validation errors) now use exit code 1.
 
 ### Exit Code Handling
 
@@ -379,23 +380,12 @@ HLVM follows POSIX exit code conventions:
 hlvm ask -p "analyze code"
 exit_code=$?
 
-case $exit_code in
-  0)
-    echo "✓ Success"
-    ;;
-  1)
-    echo "✗ Execution error"
-    exit 1
-    ;;
-  2)
-    echo "✗ Invalid arguments"
-    exit 2
-    ;;
-  *)
-    echo "✗ Unknown error (code: $exit_code)"
-    exit $exit_code
-    ;;
-esac
+if [ $exit_code -eq 0 ]; then
+  echo "Success"
+else
+  echo "Failed (exit code: $exit_code)"
+  exit 1
+fi
 ```
 
 ---
@@ -587,13 +577,13 @@ echo "✓ Review posted to PR #${PR_NUMBER}"
 
 ## Best Practices
 
-### 1. Always Use Headless Mode in Automation
+### 1. Always Use Non-Interactive Mode in Automation
 
 ```bash
-# ✅ Good
+# Good
 hlvm ask -p "query"
 
-# ❌ Bad - might hang waiting for input
+# Bad - might hang waiting for input
 hlvm ask "query"
 ```
 
@@ -678,10 +668,10 @@ hlvm ask -p "query" | grep "pattern"
 
 ```bash
 #!/bin/bash
-# Headless mode with write permission for doc generation
+# Non-interactive mode with write permission for doc generation
 # Requires: write_file tool for output
 
-hlvm ask -p --allow-tool write_file "generate API docs"
+hlvm ask -p --allowedTools write_file "generate API docs"
 ```
 
 ---
@@ -706,11 +696,11 @@ hlvm ask -p "analyze src/main.ts for TypeScript errors"
 
 ---
 
-### Problem: Exit Code 1 (Execution Error)
+### Problem: Exit Code 1 (Error)
 
 **Symptoms:** Script fails with exit code 1.
 
-**Cause:** LLM API failure, network timeout, or runtime error.
+**Cause:** LLM API failure, network timeout, tool blocked, or runtime error.
 
 **Solutions:**
 
@@ -733,19 +723,19 @@ hlvm ask -p "analyze src/main.ts for TypeScript errors"
 
 ---
 
-### Problem: Exit Code 2 (Validation Error)
+### Problem: Immediate Failure (Validation Error)
 
-**Symptoms:** Script fails immediately with exit code 2.
+**Symptoms:** Script fails immediately with exit code 1.
 
 **Cause:** Invalid flags or missing query.
 
 **Solution:**
 
 ```bash
-# ❌ Bad - missing model name
+# Bad - missing model name
 hlvm ask -p --model
 
-# ✅ Good
+# Good
 hlvm ask -p --model openai/gpt-4o "query"
 ```
 

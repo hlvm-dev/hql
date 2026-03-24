@@ -89,36 +89,28 @@ Deno.test("ai(prompt, {data: null}): does not append Data section", async () => 
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ai(prompt, {schema}) — structured output
+// ai(prompt, {schema}) — structured output (via AI SDK native path)
+// NOTE: Schema path now uses generateStructuredWithSdk, which bypasses
+// the mock provider (goes through SDK directly). These tests verify
+// the schema-to-zod converter and the non-schema plain-text path.
+// Full schema E2E tests live in tests/e2e/real-user-e2e*.ts.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Deno.test("ai(prompt, {schema}): parses JSON response into object", async () => {
-  resetMock('{"sentiment": "positive", "score": 9}');
-  const result = await ai("classify", { schema: { sentiment: "string", score: "number" } });
-  assertEquals(result, { sentiment: "positive", score: 9 });
-});
-
-Deno.test("ai(prompt, {schema}): strips markdown code fences before parsing", async () => {
-  resetMock('```json\n{"x": 1}\n```');
-  const result = await ai("extract", { schema: { x: "number" } });
-  assertEquals(result, { x: 1 });
-});
-
-Deno.test("ai(prompt, {schema}): throws ValidationError on invalid JSON", async () => {
-  resetMock("not json at all");
-  await assertRejects(
-    () => ai("classify", { schema: { sentiment: "string" } }),
-    Error,
-    "not valid JSON",
-  );
-});
-
-Deno.test("ai(prompt, {schema}): includes schema instruction in user message", async () => {
-  resetMock('{"a": 1}');
-  await ai("do it", { schema: { a: "number" } });
-  const content = (lastChatMessages as any[])[0].content as string;
-  assertStringIncludes(content, "ONLY raw JSON");
-  assertStringIncludes(content, '"a":"number"');
+Deno.test({
+  name: "ai(prompt, {schema}): schema path does NOT go through provider.chat",
+  sanitizeResources: false,
+  async fn() {
+    resetMock("should not be called");
+    // Schema path uses the SDK, which will try to resolve a real provider.
+    // With the mock provider (no SDK backend), this will throw a provider error.
+    // The point is: it does NOT call provider.chat() (lastChatMessages stays empty).
+    try {
+      await ai("classify", { schema: { sentiment: "string" }, model: "mock/test" });
+    } catch {
+      // Expected: mock provider is not an SDK provider
+    }
+    assertEquals(lastChatMessages.length, 0);
+  },
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

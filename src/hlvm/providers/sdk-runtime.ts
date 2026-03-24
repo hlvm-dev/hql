@@ -7,8 +7,9 @@
  */
 
 import { decodeBase64 } from "@std/encoding/base64";
-import { generateText, jsonSchema, streamText, tool } from "ai";
+import { generateText, jsonSchema, Output, streamText, tool } from "ai";
 import type { LanguageModel, ModelMessage, ToolCallPart, ToolSet } from "ai";
+import type { ZodType } from "zod";
 import type {
   ChatOptions,
   ChatStructuredResponse,
@@ -1386,6 +1387,31 @@ export async function chatStructuredWithSdk(
       sources: mapSdkSources(result.sources),
       providerMetadata: normalizeProviderMetadata(result.providerMetadata),
     };
+  } catch (error) {
+    await maybeHandleSdkAuthError(spec.providerName, error);
+    wrapProviderSdkError(error, spec.providerName);
+  }
+}
+
+export async function generateStructuredWithSdk(
+  spec: SdkModelSpec,
+  messages: SdkConvertibleMessage[],
+  zodSchema: ZodType,
+  options?: { signal?: AbortSignal; temperature?: number },
+): Promise<unknown> {
+  const model = await createSdkLanguageModel(spec);
+  const sdkMessages = convertToSdkMessages(messages);
+  try {
+    // deno-lint-ignore no-explicit-any
+    const outputSpec = Output.object({ schema: zodSchema as any });
+    const { output } = await generateText({
+      model,
+      messages: sdkMessages,
+      output: outputSpec,
+      temperature: options?.temperature ?? 0.0,
+      abortSignal: options?.signal,
+    });
+    return output;
   } catch (error) {
     await maybeHandleSdkAuthError(spec.providerName, error);
     wrapProviderSdkError(error, spec.providerName);

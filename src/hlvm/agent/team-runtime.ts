@@ -276,11 +276,6 @@ function cloneTask(task: TeamTask): TeamTask {
   };
 }
 
-/** Deep clone a task from snapshot format (same shape, used in snapshot restoration). */
-function cloneSnapshotTask(task: TeamTask): TeamTask {
-  return cloneTask(task);
-}
-
 export function cloneTeamRuntimeSnapshot(
   snapshot: TeamRuntimeSnapshot,
 ): TeamRuntimeSnapshot {
@@ -549,7 +544,9 @@ export function createTeamRuntime(
       taskByThread.set(next.delegateThreadId, next.id);
     }
     syncTaskAssignment(current, next);
-    syncBlockedTasks();
+    if (patch.status !== undefined || patch.dependencies !== undefined || patch.approvalId !== undefined) {
+      syncBlockedTasks();
+    }
     notifyChange();
     return next;
   };
@@ -723,6 +720,11 @@ export function createTeamRuntime(
         messages.push(message);
         return cloneMessage(message);
       });
+      // Cap messages to prevent unbounded growth
+      const MAX_MESSAGES = 200;
+      if (messages.length > MAX_MESSAGES) {
+        messages.splice(0, messages.length - MAX_MESSAGES);
+      }
       if (created.length > 0) {
         notifyChange();
       }
@@ -952,7 +954,7 @@ export function createTeamRuntime(
       }
     }
     for (const task of snapshot.tasks) {
-      tasks.set(task.id, cloneSnapshotTask(task));
+      tasks.set(task.id, cloneTask(task));
       if (task.delegateThreadId) {
         taskByThread.set(task.delegateThreadId, task.id);
       }

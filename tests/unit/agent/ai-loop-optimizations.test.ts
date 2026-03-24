@@ -127,7 +127,7 @@ Deno.test({
         {
           workspace,
           context,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           toolFilterState,
           toolFilterBaseline: {},
           modelTier: "weak",

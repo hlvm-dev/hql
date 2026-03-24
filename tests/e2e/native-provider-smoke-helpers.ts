@@ -26,7 +26,7 @@ export async function runWithCompatibleModel(options: {
         query: options.query,
         model,
         workspace: options.workspace,
-        permissionMode: "yolo",
+        permissionMode: "bypassPermissions",
         toolAllowlist: options.toolAllowlist,
         disablePersistentMemory: true,
         signal: options.signal,

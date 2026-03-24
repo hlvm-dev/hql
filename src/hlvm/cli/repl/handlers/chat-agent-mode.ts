@@ -96,7 +96,7 @@ export async function handleAgentMode(
     lastUserMessage?.attachment_ids,
     attachmentMaterializationOptions,
   );
-  const toolAllowlist = resolveQueryToolAllowlist();
+  const toolAllowlist = resolveQueryToolAllowlist(body.tool_allowlist);
 
   const history = await buildAgentHistoryMessages({
     requestMessages: body.messages,

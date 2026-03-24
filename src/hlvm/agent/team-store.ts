@@ -233,7 +233,8 @@ function toRuntimeStatus(
 function toFileStatus(
   s: TeamTaskStatus,
 ): "pending" | "in_progress" | "completed" {
-  if (s === "claimed" || s === "blocked" || s === "cancelled" || s === "errored") return "pending";
+  if (s === "cancelled" || s === "errored") return "completed";
+  if (s === "claimed" || s === "blocked") return "pending";
   return s as "pending" | "in_progress" | "completed";
 }
 
@@ -333,19 +334,6 @@ export async function createTeamStore(
         await persistTask(blocked);
       }
     }
-  }
-
-  function buildBlocks(taskId: string): string[] {
-    const blocks: string[] = [];
-    for (const t of taskCache.values()) {
-      if (t.blockedBy.includes(taskId)) blocks.push(t.id);
-    }
-    return blocks;
-  }
-
-  function buildBlockedBy(taskId: string): string[] {
-    const task = taskCache.get(taskId);
-    return task?.blockedBy ?? [];
   }
 
   // ── Store implementation ──
@@ -479,7 +467,6 @@ export async function createTeamStore(
     },
 
     async sendMessage(msg): Promise<void> {
-      const recipient = msg.recipient ?? msg.from; // fallback
       if (msg.type === "broadcast") {
         // Send to all members except sender
         const members = runtime.listMembers();
@@ -491,10 +478,9 @@ export async function createTeamStore(
             writeJsonSync(inboxPath, existing);
           }
         }
-      } else {
-        // DM or protocol message
-        const target = msg.recipient ?? recipient;
-        const inboxPath = getTeamInboxPath(teamName, target);
+      } else if (msg.recipient) {
+        // DM or protocol message — recipient is required for non-broadcast
+        const inboxPath = getTeamInboxPath(teamName, msg.recipient);
         const existing = readJsonSync<InboxMessage[]>(inboxPath) ?? [];
         existing.push(msg);
         writeJsonSync(inboxPath, existing);

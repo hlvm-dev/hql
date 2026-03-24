@@ -44,7 +44,7 @@ Deno.test({
       {
         workspace: "/tmp",
         context,
-        permissionMode: "yolo",
+        permissionMode: "bypassPermissions",
         maxToolCalls: TEST_MAX_TOOL_CALLS,
         groundingMode: "strict",
       },
@@ -90,7 +90,7 @@ Deno.test({
         {
           workspace: "/tmp",
           context,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: TEST_MAX_TOOL_CALLS,
           groundingMode: "strict",
         },
@@ -126,7 +126,7 @@ Deno.test({
         {
           workspace: "/tmp",
           context,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: TEST_MAX_TOOL_CALLS,
           groundingMode: "strict",
         },
@@ -174,7 +174,7 @@ Deno.test({
         {
           workspace: "/tmp",
           context,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: TEST_MAX_TOOL_CALLS,
           groundingMode: "strict",
         },
@@ -215,7 +215,7 @@ Deno.test({
         {
           workspace: "/tmp",
           context,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: TEST_MAX_TOOL_CALLS,
           groundingMode: "strict",
         },
@@ -283,7 +283,7 @@ Deno.test({
         {
           workspace: "/tmp",
           context,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: TEST_MAX_TOOL_CALLS,
           groundingMode: "strict",
         },
@@ -330,7 +330,7 @@ Deno.test({
         {
           workspace: "/tmp",
           context,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: TEST_MAX_TOOL_CALLS,
           groundingMode: "strict",
         },
@@ -385,7 +385,7 @@ Deno.test({
         {
           workspace: "/tmp",
           context,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: TEST_MAX_TOOL_CALLS,
           continueOnError: true,
         },
@@ -432,7 +432,7 @@ Deno.test({
             {
               workspace: "/tmp",
               context,
-              permissionMode: "yolo",
+              permissionMode: "bypassPermissions",
               maxToolCalls: TEST_MAX_TOOL_CALLS,
               maxTotalToolResultBytes: 10,
             },
@@ -482,7 +482,7 @@ END_PLAN`,
         {
           workspace: "/tmp",
           context,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: TEST_MAX_TOOL_CALLS,
           planning: { mode: "always", requireStepMarkers: true },
         },

@@ -358,9 +358,8 @@ function renderTeamCoordination(
   tier: ModelTier,
 ): PromptSection {
   const hasNewTools = "Teammate" in tools && "SendMessage" in tools;
-  const hasOldTools = "team_task_read" in tools;
 
-  if (!hasNewTools && !hasOldTools) {
+  if (!hasNewTools) {
     return { id: "team_coordination", content: "", minTier: "weak" };
   }
 
@@ -415,29 +414,6 @@ function renderTeamCoordination(
     "- Blocked tasks auto-unblock when dependencies complete",
     "- Teammates pick tasks in ID order (lowest first)",
   ];
-
-  // Keep backward compat section if old tools still registered
-  if (hasOldTools && !hasNewTools) {
-    return {
-      id: "team_coordination",
-      content: [
-        "# Team Coordination",
-        "",
-        "## Lead Responsibilities",
-        "- Use team_status_read to inspect members, blocked tasks, pending approvals, pending shutdowns, unread messages, and team policy",
-        "- Keep the shared task board current with team_task_write and use dependencies for multi-step work",
-        "- Route implementation, review, research, and synthesis work using the preferred profiles in team policy",
-        "- Use team_message_send only when direct coordination is needed; prefer task state over chat when possible",
-        "",
-        "## Worker Responsibilities",
-        "- Read team task state before starting or claiming work",
-        "- Claim tasks before doing work and keep result_summary/artifacts current",
-        "- Submit plans with submit_team_plan when a task needs lead review before execution",
-        "- Acknowledge shutdown requests promptly at a safe boundary",
-      ].join("\n"),
-      minTier: "weak",
-    };
-  }
 
   return {
     id: "team_coordination",

@@ -8,13 +8,13 @@ import { EXIT_CODES } from "../../../src/hlvm/agent/constants.ts";
 function parseAskFlags(args: string[]): {
   headless: boolean;
   allowedTools: Set<string>;
-  deniedTools: Set<string>;
+  disallowedTools: Set<string>;
   permissionMode: string;
 } {
   let headless = false;
   let permissionMode = "default";
   const allowedTools = new Set<string>();
-  const deniedTools = new Set<string>();
+  const disallowedTools = new Set<string>();
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -22,31 +22,17 @@ function parseAskFlags(args: string[]): {
     if (arg === "-p" || arg === "--print") {
       headless = true;
     } else if (arg === "--dangerously-skip-permissions") {
-      permissionMode = "yolo";
-    } else if (arg === "--allow-tool") {
+      permissionMode = "bypassPermissions";
+    } else if (arg === "--allowedTools") {
       const toolName = args[++i];
       if (toolName) allowedTools.add(toolName);
-    } else if (arg === "--deny-tool") {
+    } else if (arg === "--disallowedTools") {
       const toolName = args[++i];
-      if (toolName) deniedTools.add(toolName);
-    } else if (arg === "--allowed-tools") {
-      const tools = args[++i];
-      if (tools) {
-        tools.split(",").map((t) => t.trim()).filter(Boolean).forEach((t) =>
-          allowedTools.add(t)
-        );
-      }
-    } else if (arg === "--denied-tools") {
-      const tools = args[++i];
-      if (tools) {
-        tools.split(",").map((t) => t.trim()).filter(Boolean).forEach((t) =>
-          deniedTools.add(t)
-        );
-      }
+      if (toolName) disallowedTools.add(toolName);
     }
   }
 
-  return { headless, allowedTools, deniedTools, permissionMode };
+  return { headless, allowedTools, disallowedTools, permissionMode };
 }
 
 // ---------------------------------------------------------------------------
@@ -63,48 +49,25 @@ Deno.test("CLI ask: --print sets headless mode", () => {
   assertEquals(result.headless, true);
 });
 
-Deno.test("CLI ask: --allow-tool adds to allowedTools", () => {
-  const result = parseAskFlags(["--allow-tool", "write_file", "test query"]);
+Deno.test("CLI ask: --allowedTools adds to allowedTools", () => {
+  const result = parseAskFlags(["--allowedTools", "write_file", "test query"]);
   assertEquals(result.allowedTools.has("write_file"), true);
   assertEquals(result.allowedTools.size, 1);
 });
 
-Deno.test("CLI ask: --deny-tool adds to deniedTools", () => {
-  const result = parseAskFlags(["--deny-tool", "shell_exec", "test query"]);
-  assertEquals(result.deniedTools.has("shell_exec"), true);
-  assertEquals(result.deniedTools.size, 1);
+Deno.test("CLI ask: --disallowedTools adds to disallowedTools", () => {
+  const result = parseAskFlags(["--disallowedTools", "shell_exec", "test query"]);
+  assertEquals(result.disallowedTools.has("shell_exec"), true);
+  assertEquals(result.disallowedTools.size, 1);
 });
 
-Deno.test("CLI ask: --allowed-tools parses CSV correctly", () => {
+Deno.test("CLI ask: multiple --allowedTools flags accumulate", () => {
   const result = parseAskFlags([
-    "--allowed-tools",
-    "write_file,read_file,git_status",
-    "test query",
-  ]);
-  assertEquals(result.allowedTools.has("write_file"), true);
-  assertEquals(result.allowedTools.has("read_file"), true);
-  assertEquals(result.allowedTools.has("git_status"), true);
-  assertEquals(result.allowedTools.size, 3);
-});
-
-Deno.test("CLI ask: --denied-tools parses CSV correctly", () => {
-  const result = parseAskFlags([
-    "--denied-tools",
-    "shell_exec,delete_file",
-    "test query",
-  ]);
-  assertEquals(result.deniedTools.has("shell_exec"), true);
-  assertEquals(result.deniedTools.has("delete_file"), true);
-  assertEquals(result.deniedTools.size, 2);
-});
-
-Deno.test("CLI ask: multiple --allow-tool flags accumulate", () => {
-  const result = parseAskFlags([
-    "--allow-tool",
+    "--allowedTools",
     "write_file",
-    "--allow-tool",
+    "--allowedTools",
     "read_file",
-    "--allow-tool",
+    "--allowedTools",
     "git_status",
     "test query",
   ]);
@@ -114,52 +77,52 @@ Deno.test("CLI ask: multiple --allow-tool flags accumulate", () => {
   assertEquals(result.allowedTools.size, 3);
 });
 
-Deno.test("CLI ask: multiple --deny-tool flags accumulate", () => {
+Deno.test("CLI ask: multiple --disallowedTools flags accumulate", () => {
   const result = parseAskFlags([
-    "--deny-tool",
+    "--disallowedTools",
     "shell_exec",
-    "--deny-tool",
+    "--disallowedTools",
     "delete_file",
     "test query",
   ]);
-  assertEquals(result.deniedTools.has("shell_exec"), true);
-  assertEquals(result.deniedTools.has("delete_file"), true);
-  assertEquals(result.deniedTools.size, 2);
+  assertEquals(result.disallowedTools.has("shell_exec"), true);
+  assertEquals(result.disallowedTools.has("delete_file"), true);
+  assertEquals(result.disallowedTools.size, 2);
 });
 
-Deno.test("CLI ask: --dangerously-skip-permissions sets yolo mode", () => {
+Deno.test("CLI ask: --dangerously-skip-permissions sets bypassPermissions mode", () => {
   const result = parseAskFlags(["--dangerously-skip-permissions", "test query"]);
-  assertEquals(result.permissionMode, "yolo");
+  assertEquals(result.permissionMode, "bypassPermissions");
 });
 
 Deno.test("CLI ask: flags can be combined", () => {
   const result = parseAskFlags([
     "-p",
-    "--allow-tool",
+    "--allowedTools",
     "read_file",
-    "--deny-tool",
+    "--disallowedTools",
     "delete_file",
     "test query",
   ]);
   assertEquals(result.headless, true);
   assertEquals(result.allowedTools.has("read_file"), true);
-  assertEquals(result.deniedTools.has("delete_file"), true);
+  assertEquals(result.disallowedTools.has("delete_file"), true);
 });
 
 // ---------------------------------------------------------------------------
 // Exit Code Tests
 // ---------------------------------------------------------------------------
 
-Deno.test("CLI ask: getExitCodeForError returns 3 for INTERACTION_BLOCKED", () => {
-  const error = new Error("[INTERACTION_BLOCKED] ask_user is not allowed in headless mode");
+Deno.test("CLI ask: getExitCodeForError returns 1 for tool blocked errors", () => {
+  const error = new Error("shell_exec is blocked in dontAsk mode");
   const code = getExitCodeForErrorTest(error);
-  assertEquals(code, EXIT_CODES.INTERACTION_BLOCKED);
+  assertEquals(code, EXIT_CODES.GENERAL_FAILURE);
 });
 
-Deno.test("CLI ask: getExitCodeForError returns 2 for TOOL_BLOCKED", () => {
-  const error = new Error("[TOOL_BLOCKED] shell_exec is blocked in headless mode");
+Deno.test("CLI ask: getExitCodeForError returns 1 for interaction blocked errors", () => {
+  const error = new Error("ask_user is not allowed in dontAsk mode");
   const code = getExitCodeForErrorTest(error);
-  assertEquals(code, EXIT_CODES.TOOL_BLOCKED);
+  assertEquals(code, EXIT_CODES.GENERAL_FAILURE);
 });
 
 Deno.test("CLI ask: getExitCodeForError returns 1 for general errors", () => {
@@ -169,22 +132,12 @@ Deno.test("CLI ask: getExitCodeForError returns 1 for general errors", () => {
 });
 
 Deno.test("CLI ask: getExitCodeForError handles string errors", () => {
-  const error = "[TOOL_BLOCKED] blocked";
+  const error = "blocked";
   const code = getExitCodeForErrorTest(error);
-  assertEquals(code, EXIT_CODES.TOOL_BLOCKED);
+  assertEquals(code, EXIT_CODES.GENERAL_FAILURE);
 });
 
-// Test helper that mirrors the actual implementation
-function getExitCodeForErrorTest(error: unknown): number {
-  const errorMsg = error instanceof Error ? error.message : String(error);
-
-  if (errorMsg.includes("[INTERACTION_BLOCKED]")) {
-    return EXIT_CODES.INTERACTION_BLOCKED;
-  }
-
-  if (errorMsg.includes("[TOOL_BLOCKED]")) {
-    return EXIT_CODES.TOOL_BLOCKED;
-  }
-
+// Test helper that mirrors the actual implementation (simplified: all errors map to GENERAL_FAILURE)
+function getExitCodeForErrorTest(_error: unknown): number {
   return EXIT_CODES.GENERAL_FAILURE;
 }

@@ -48,7 +48,7 @@ async function runWithCompatibleClaudeModel(options: {
         query: options.query,
         model,
         workspace: options.workspace,
-        permissionMode: "yolo",
+        permissionMode: "bypassPermissions",
         toolAllowlist: ["web_search"],
         disablePersistentMemory: true,
         signal: options.signal,

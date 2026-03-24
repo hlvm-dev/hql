@@ -534,8 +534,6 @@ export function computeTierToolFilter(
 export const EXIT_CODES = {
   SUCCESS: 0,
   GENERAL_FAILURE: 1,
-  TOOL_BLOCKED: 2,
-  INTERACTION_BLOCKED: 3,
 } as const;
 
 export type ExitCode = typeof EXIT_CODES[keyof typeof EXIT_CODES];

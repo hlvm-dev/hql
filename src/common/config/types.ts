@@ -46,20 +46,20 @@ export class ConfigError extends Error {
 export type AgentMode = "hlvm" | "claude-code-agent";
 
 /**
- * Permission mode for agent tool execution.
+ * Permission mode for agent tool execution (Claude Code parity).
  * - "default": auto-approve L0 reads, confirm-once L1 writes, always-confirm L2 destructive
- * - "auto-edit": auto-approve L0+L1, only confirm L2 destructive
+ * - "acceptEdits": auto-approve L0+L1, only confirm L2 destructive
  * - "plan": research and plan first, then execute with approval
- * - "yolo": auto-approve everything (no prompts)
- * - "headless": -p/--print mode (L0 auto-approve, all else denied)
+ * - "bypassPermissions": auto-approve everything (no prompts)
+ * - "dontAsk": non-interactive mode (L0 auto-approve, all else denied)
  */
-export type PermissionMode = "default" | "auto-edit" | "plan" | "yolo" | "headless";
+export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "dontAsk";
 export const PERMISSION_MODES: PermissionMode[] = [
   "default",
-  "auto-edit",
+  "acceptEdits",
   "plan",
-  "yolo",
-  "headless",
+  "bypassPermissions",
+  "dontAsk",
 ];
 
 /** Tool permissions for CLI control */
@@ -112,7 +112,7 @@ export interface HlvmConfig {
   approvedProviders?: string[]; // Providers the user has consented to (e.g., ["openai", "anthropic"])
   agentMode?: AgentMode; // Agent mode for Claude models: "hlvm" (HLVM orchestrates) or "claude-code-agent" (full passthrough)
   sessionMemory?: boolean; // Claude Code session memory: remembers context across messages in same chat session (default: true)
-  permissionMode?: PermissionMode; // Agent tool permission mode: "default" | "auto-edit" | "plan" | "yolo"
+  permissionMode?: PermissionMode; // Agent tool permission mode: "default" | "acceptEdits" | "plan" | "bypassPermissions" | "dontAsk"
   agentMaxThreads?: number; // Max concurrent background delegate agents (default: 4)
   agentMaxDepth?: number; // Max delegation nesting depth (default: 1, range 1-3)
 }

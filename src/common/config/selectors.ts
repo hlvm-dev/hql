@@ -25,8 +25,8 @@ export function getPermissionMode(config: unknown): PermissionMode | undefined {
   const rawPermissionMode = isObjectValue(config)
     ? config.permissionMode
     : undefined;
-  return rawPermissionMode === "default" || rawPermissionMode === "auto-edit" ||
-      rawPermissionMode === "plan" || rawPermissionMode === "yolo"
+  return rawPermissionMode === "default" || rawPermissionMode === "acceptEdits" ||
+      rawPermissionMode === "plan" || rawPermissionMode === "bypassPermissions"
     ? rawPermissionMode
     : undefined;
 }

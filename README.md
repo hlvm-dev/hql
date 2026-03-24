@@ -41,11 +41,11 @@ AI Agent:
 # Interactive mode (default)
 hlvm ask "explain this code"
 
-# Headless mode (CI/CD)
+# Non-interactive mode (CI/CD)
 hlvm ask -p "analyze code quality"
 
 # Fine-grained permissions
-hlvm ask --allow-tool write_file "fix linting errors"
+hlvm ask --allowedTools write_file "fix linting errors"
 ```
 
 ---
@@ -56,7 +56,7 @@ hlvm ask --allow-tool write_file "fix linting errors"
 
 - [Agent System](./docs/agent.md) - Architecture and reference
 - [CLI Permissions](./docs/cli-permissions.md) - Permission system guide
-- [Headless Mode](./docs/examples/headless-mode.md) - Non-interactive usage
+- [Non-Interactive Mode](./docs/examples/headless-mode.md) - Non-interactive usage
 
 **Learning:**
 

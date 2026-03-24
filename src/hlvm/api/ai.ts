@@ -108,14 +108,6 @@ function buildPrompt(prompt: string, data?: unknown): string {
     : prompt;
 }
 
-/** Strip markdown code fences that LLMs commonly wrap JSON in */
-function stripCodeFences(text: string): string {
-  return text
-    .replace(/^```(?:json)?\s*\n?/i, "")
-    .replace(/\n?```\s*$/, "")
-    .trim();
-}
-
 // ============================================================================
 // Factory
 // ============================================================================
@@ -126,13 +118,36 @@ function createAiApi(): AiApi {
     prompt: string,
     options?: AiCallableOptions,
   ): Promise<string | unknown> {
-    const provider = resolveProvider(options?.model);
-
-    let content = buildPrompt(prompt, options?.data);
+    // Structured output path: use AI SDK native constrained decoding
     if (options?.schema != null) {
-      content += "\n\nRespond with ONLY raw JSON (no markdown, no code fences, no explanation) matching this schema:\n" +
-        JSON.stringify(options.schema);
+      const { schemaToZod } = await import("./schema-to-zod.ts");
+      const { generateStructuredWithSdk } = await import(
+        "../providers/sdk-runtime.ts"
+      );
+      const { resolveSdkModelSpec, toSdkRuntimeModelSpec } = await import(
+        "../agent/engine-sdk.ts"
+      );
+
+      const zodSchema = schemaToZod(options.schema);
+      const modelString = options.model ?? resolveProvider().name;
+      const resolved = resolveSdkModelSpec(modelString);
+      const spec = toSdkRuntimeModelSpec(resolved);
+
+      const messages: Message[] = [];
+      if (options.system) {
+        messages.push({ role: "system", content: options.system });
+      }
+      messages.push({ role: "user", content: buildPrompt(prompt, options.data) });
+
+      return await generateStructuredWithSdk(spec, messages, zodSchema, {
+        signal: options.signal,
+        temperature: options.temperature,
+      });
     }
+
+    // Plain text path: use provider.chat() as before
+    const provider = resolveProvider(options?.model);
+    const content = buildPrompt(prompt, options?.data);
 
     const messages: Message[] = [];
     if (options?.system) {
@@ -140,7 +155,7 @@ function createAiApi(): AiApi {
     }
     messages.push({ role: "user", content });
 
-    const result = await collectAsyncGenerator(
+    return await collectAsyncGenerator(
       provider.chat(messages, {
         model: localModelName(options?.model),
         signal: options?.signal,
@@ -148,20 +163,6 @@ function createAiApi(): AiApi {
       }),
       options?.signal,
     );
-
-    if (options?.schema != null) {
-      const cleaned = stripCodeFences(result);
-      try {
-        return JSON.parse(cleaned);
-      } catch {
-        throw new ValidationError(
-          `AI response is not valid JSON: ${result.slice(0, 200)}`,
-          "ai_callable_schema",
-        );
-      }
-    }
-
-    return result;
   } as AiApi;
 
   // ── chat (streaming) ──────────────────────────────────────────────

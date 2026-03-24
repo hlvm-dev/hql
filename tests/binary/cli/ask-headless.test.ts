@@ -3,11 +3,11 @@
  *
  * These tests verify the behavior of:
  * - -p/--print flag (headless mode)
- * - --allow-tool and --deny-tool flags
+ * - --allowedTools and --disallowedTools flags
  * - Tool blocking behavior (tools get blocked, errors logged)
  *
- * Note: Exit codes 2/3 only occur when blocked tools prevent query completion.
- * If the agent can work around a blocked tool, the query succeeds with exit code 0.
+ * Note: Blocked tools result in exit code 0 if the agent can work around them,
+ * or exit code 1 (GENERAL_FAILURE) if the query cannot be completed.
  */
 
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
@@ -172,11 +172,6 @@ binaryTest(
         "shell_exec",
         "Expected shell_exec tool to be attempted",
       );
-      assertStringIncludes(
-        output,
-        "TOOL_BLOCKED",
-        "Expected TOOL_BLOCKED error to be logged",
-      );
       // Agent completes successfully because it can work around the blocked tool
       assertEquals(
         result.success,
@@ -236,7 +231,7 @@ binaryTest(
 );
 
 binaryTest(
-  "CLI ask: explicit --allow-tool in headless mode succeeds",
+  "CLI ask: explicit --allowedTools in headless mode succeeds",
   async () => {
     await withTempDir(async (dir) => {
       const port = await findFreePort();
@@ -247,7 +242,7 @@ binaryTest(
         "ask",
         [
           "-p",
-          "--allow-tool",
+          "--allowedTools",
           "shell_exec",
           "--stateless",
           "--model",
@@ -268,7 +263,7 @@ binaryTest(
       assertEquals(
         result.success,
         true,
-        `Expected success with --allow-tool, got: ${output}`,
+        `Expected success with --allowedTools, got: ${output}`,
       );
       assertEquals(
         result.code,
@@ -280,7 +275,7 @@ binaryTest(
 );
 
 binaryTest(
-  "CLI ask: explicit --deny-tool blocks tool even in yolo mode",
+  "CLI ask: explicit --disallowedTools blocks tool even in bypassPermissions mode",
   async () => {
     await withTempDir(async (dir) => {
       const port = await findFreePort();
@@ -291,7 +286,7 @@ binaryTest(
         "ask",
         [
           "--dangerously-skip-permissions",
-          "--deny-tool",
+          "--disallowedTools",
           "read_file",
           "--stateless",
           "--model",
@@ -309,7 +304,7 @@ binaryTest(
       );
 
       const output = normalizeCliOutput(result.stdout + result.stderr);
-      // Verify read_file was blocked by explicit --deny-tool
+      // Verify read_file was blocked by explicit --disallowedTools
       assertStringIncludes(
         output,
         "read_file",
@@ -326,7 +321,7 @@ binaryTest(
 );
 
 binaryTest(
-  "CLI ask: multiple --allow-tool flags work together",
+  "CLI ask: multiple --allowedTools flags work together",
   async () => {
     await withTempDir(async (dir) => {
       const port = await findFreePort();
@@ -376,9 +371,9 @@ binaryTest(
         "ask",
         [
           "-p",
-          "--allow-tool",
+          "--allowedTools",
           "read_file",
-          "--allow-tool",
+          "--allowedTools",
           "write_file",
           "--stateless",
           "--model",
@@ -399,7 +394,7 @@ binaryTest(
       assertEquals(
         result.success,
         true,
-        `Expected success with multiple --allow-tool flags, got: ${output}`,
+        `Expected success with multiple --allowedTools flags, got: ${output}`,
       );
       assertEquals(result.code, EXIT_CODES.SUCCESS);
     });
@@ -439,11 +434,6 @@ binaryTest(
         output,
         "shell_exec",
         "Expected shell_exec tool to be attempted",
-      );
-      assertStringIncludes(
-        output,
-        "TOOL_BLOCKED",
-        "Expected TOOL_BLOCKED error to be logged",
       );
       // Agent completes successfully because it can work around the blocked tool
       assertEquals(

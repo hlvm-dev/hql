@@ -15,7 +15,7 @@ Deno.test("getConversationToolDenylist keeps ask_user available while disabling 
     "interrupt_agent",
     "resume_agent",
   ]);
-  assertEquals(getConversationToolDenylist("auto-edit"), [
+  assertEquals(getConversationToolDenylist("acceptEdits"), [
     "complete_task",
     "delegate_agent",
     "batch_delegate",
@@ -28,7 +28,7 @@ Deno.test("getConversationToolDenylist keeps ask_user available while disabling 
     "interrupt_agent",
     "resume_agent",
   ]);
-  assertEquals(getConversationToolDenylist("yolo"), [
+  assertEquals(getConversationToolDenylist("bypassPermissions"), [
     "complete_task",
     "delegate_agent",
     "batch_delegate",

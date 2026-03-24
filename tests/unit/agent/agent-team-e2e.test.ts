@@ -156,7 +156,7 @@ Deno.test({
         {
           workspace,
           context: parentContext,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: 5,
           groundingMode: "off",
           delegate,
@@ -222,7 +222,7 @@ Deno.test({
         {
           workspace,
           context: parentContext,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: 5,
           groundingMode: "off",
           delegate,
@@ -249,11 +249,11 @@ Deno.test({
 });
 
 // ============================================================
-// Test 3: team_task_write + team_task_claim lifecycle
+// Test 3: TaskCreate + TaskUpdate lifecycle
 // ============================================================
 
 Deno.test({
-  name: "E2E pipeline: team_task_write and team_task_claim via runReActLoop",
+  name: "E2E pipeline: TaskCreate and TaskUpdate via runReActLoop",
   async fn() {
     await withTestWorkspace(async (workspace) => {
       const runtime = createTeamRuntime("lead", "lead");
@@ -262,30 +262,51 @@ Deno.test({
       const context = createContext();
       const events: AgentUIEvent[] = [];
 
-      const llm = createScriptedLLM([
-        {
-          toolCalls: [{
-            toolName: "team_task_write",
-            args: { id: "task-1", goal: "Implement feature X" },
-          }],
-        },
-        {
-          toolCalls: [{
-            toolName: "team_task_claim",
-            args: { task_id: "task-1" },
-          }],
-        },
-        {
+      // Step 1: Create task, step 2: claim it via TaskUpdate, step 3: final answer
+      let createdTaskId: string | undefined;
+      let callCount = 0;
+      const llm: LLMFunction = (messages) => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({
+            content: "",
+            toolCalls: [{
+              toolName: "TaskCreate",
+              args: { subject: "Implement feature X", description: "Build feature X" },
+            }],
+          });
+        }
+        if (callCount === 2) {
+          // Extract task ID from previous tool result
+          for (let i = messages.length - 1; i >= 0; i--) {
+            const c = messages[i].content;
+            if (c) {
+              const match = c.match(/"id"\s*:\s*"([^"]+)"/);
+              if (match) { createdTaskId = match[1]; break; }
+            }
+          }
+          if (createdTaskId) {
+            return Promise.resolve({
+              content: "",
+              toolCalls: [{
+                toolName: "TaskUpdate",
+                args: { taskId: createdTaskId, status: "in_progress", owner: "lead" },
+              }],
+            });
+          }
+        }
+        return Promise.resolve({
           content: "Task created and claimed successfully.",
-        },
-      ]);
+          toolCalls: [],
+        });
+      };
 
       const result = await runReActLoop(
         "Create and claim a task",
         {
           workspace,
           context,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: 5,
           groundingMode: "off",
           teamRuntime: runtime,
@@ -299,28 +320,28 @@ Deno.test({
 
       assertStringIncludes(result, "claimed");
 
-      // Verify task was created and claimed
-      const task = runtime.getTask("task-1");
+      // Verify task was created
+      assertExists(createdTaskId, "Should have captured task ID");
+      const task = runtime.getTask(createdTaskId!);
       assertExists(task, "Task should exist");
-      assertEquals(task.status, "claimed");
 
       // Verify team_task_updated events were emitted
       const taskUpdatedEvents = events.filter((e) => e.type === "team_task_updated");
       assertEquals(
         taskUpdatedEvents.length >= 2,
         true,
-        "Should have team_task_updated events for write and claim",
+        "Should have team_task_updated events for create and update",
       );
     });
   },
 });
 
 // ============================================================
-// Test 4: submit_team_plan + review_team_plan approval flow
+// Test 4: SendMessage submit_plan + plan_approval_response flow
 // ============================================================
 
 Deno.test({
-  name: "E2E pipeline: submit_team_plan and review_team_plan approval flow",
+  name: "E2E pipeline: SendMessage submit_plan and plan_approval_response approval flow",
   async fn() {
     await withTestWorkspace(async (workspace) => {
       const runtime = createTeamRuntime("lead", "lead");
@@ -347,12 +368,13 @@ Deno.test({
         callCount++;
 
         if (callCount === 1) {
-          // Step 1: submit the plan
+          // Step 1: submit the plan via SendMessage
           return Promise.resolve({
             content: "",
             toolCalls: [{
-              toolName: "submit_team_plan",
+              toolName: "SendMessage",
               args: {
+                type: "submit_plan",
                 task_id: "task-review",
                 plan: { steps: ["step 1", "step 2"] },
                 note: "Please review my plan",
@@ -363,7 +385,6 @@ Deno.test({
 
         if (callCount === 2) {
           // Step 2: extract approval ID from tool result and review it
-          // Search all messages for the approval ID pattern
           for (let i = messages.length - 1; i >= 0; i--) {
             const content = messages[i].content;
             if (content) {
@@ -378,16 +399,17 @@ Deno.test({
             return Promise.resolve({
               content: "",
               toolCalls: [{
-                toolName: "review_team_plan",
+                toolName: "SendMessage",
                 args: {
-                  approval_id: capturedApprovalId,
-                  approved: true,
-                  feedback: "Looks good!",
+                  type: "plan_approval_response",
+                  recipient: "worker-1",
+                  request_id: capturedApprovalId,
+                  approve: true,
+                  content: "Looks good!",
                 },
               }],
             });
           }
-          // Fallback if we couldn't find it
           return Promise.resolve({
             content: "Could not find approval ID.",
             toolCalls: [],
@@ -406,7 +428,7 @@ Deno.test({
         {
           workspace,
           context,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: 5,
           groundingMode: "off",
           teamRuntime: runtime,
@@ -504,7 +526,7 @@ Deno.test({
         {
           workspace,
           context: parentContext,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: 5,
           groundingMode: "off",
           delegate,
@@ -545,7 +567,7 @@ Deno.test({
 // ============================================================
 
 Deno.test({
-  name: "E2E pipeline: fork_with_history copies parent messages, yolo downgrades to default",
+  name: "E2E pipeline: fork_with_history copies parent messages, bypassPermissions downgrades to default",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -596,13 +618,13 @@ Deno.test({
 
       const delegate = createDelegateHandler(childLlm, {});
 
-      // Use "yolo" permission mode — should be downgraded to "default" for child
+      // Use "bypassPermissions" permission mode — should be downgraded to "default" for child
       const result = await runReActLoop(
         "Delegate with history",
         {
           workspace,
           context: parentContext,
-          permissionMode: "yolo",
+          permissionMode: "bypassPermissions",
           maxToolCalls: 5,
           groundingMode: "off",
           delegate,
@@ -1162,7 +1184,7 @@ Deno.test({
 // ============================================================
 
 Deno.test({
-  name: "E2E team: teammate writes file (L1) with inherited auto-edit permission",
+  name: "E2E team: teammate writes file (L1) with inherited acceptEdits permission",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -1172,7 +1194,7 @@ Deno.test({
       await h.spawnTeam("e2e-write-file", "File write test");
       await h.createTask("Create config file", "Write a config.json to workspace");
 
-      // Script LLM to call write_file (L1 — requires auto-edit permission)
+      // Script LLM to call write_file (L1 — requires acceptEdits permission)
       const targetPath = platform.path.join(workspace, "config.json");
       const fileContent = JSON.stringify({ version: 1, name: "test-app" }, null, 2);
       const capturedEvents: AgentUIEvent[] = [];
@@ -1194,7 +1216,7 @@ Deno.test({
       await AGENT_TEAM_TOOLS.Teammate.fn(
         { operation: "spawnAgent", name: "writer", agent_type: "general-purpose" },
         workspace,
-        { agentProfiles: writeProfiles, ...FAST_POLL, onAgentEvent: (event: AgentUIEvent) => capturedEvents.push(event), permissionMode: "auto-edit" } as any,
+        { agentProfiles: writeProfiles, ...FAST_POLL, onAgentEvent: (event: AgentUIEvent) => capturedEvents.push(event), permissionMode: "acceptEdits" } as any,
       );
       await h.waitForThreads();
 

@@ -1,15 +1,18 @@
 /**
- * Agent Team Tools — Claude Code-Compatible API
+ * Agent Team Tools — Unified Team API
  *
- * Provides the exact same tool signatures as Claude Code's agent teams:
- *   - Teammate (spawnTeam, cleanup)
+ * Provides the Claude Code-compatible tool signatures for agent teams:
+ *   - Teammate (spawnTeam, spawnAgent, cleanup)
  *   - SendMessage (message, broadcast, shutdown_request, shutdown_response, plan_approval_response)
  *   - TaskCreate (subject, description, activeForm)
  *   - TaskGet (taskId)
  *   - TaskUpdate (taskId, status, owner, addBlocks, addBlockedBy, ...)
  *   - TaskList ()
+ *   - TeamStatus ()
  *
- * These tools wrap the file-backed TeamStore for persistent coordination.
+ * Works in two modes via resolveBackend():
+ *   - Store mode: when getActiveTeamStore() returns a store (lead/persistent teammates)
+ *   - Runtime mode: when options.teamRuntime is set (delegated workers)
  */
 
 import { ValidationError } from "../../../common/error.ts";
@@ -20,17 +23,39 @@ import {
   getActiveTeamStore,
   setActiveTeamStore,
   type InboxMessage,
-  type TaskFile,
+  type TeamStore,
 } from "../team-store.ts";
+import type { TeamRuntime } from "../team-runtime.ts";
+import type { Plan } from "../planning.ts";
 import type { TeammateIdentity } from "../team-executor.ts";
 import {
   registerThread,
   type DelegateThreadResult,
 } from "../delegate-threads.ts";
 
-// ── Helpers ───────────────────────────────────────────────────────────
+// ── Backend Resolution ──────────────────────────────────────────────
 
-function requireStore(toolName: string): ReturnType<typeof getActiveTeamStore> & {} {
+interface TeamBackend {
+  store: TeamStore | null;
+  runtime: TeamRuntime;
+}
+
+/**
+ * Resolve the team backend from either the global store singleton or
+ * the per-tool-call options.teamRuntime injection.
+ */
+function resolveBackend(toolName: string, options?: ToolExecutionOptions): TeamBackend {
+  const store = getActiveTeamStore();
+  if (store) return { store, runtime: store.runtime };
+  if (options?.teamRuntime) return { store: null, runtime: options.teamRuntime };
+  throw new ValidationError(
+    "No active team. Use the Teammate tool with operation 'spawnTeam' first.",
+    toolName,
+  );
+}
+
+/** Require a store (for operations that need file persistence like Teammate). */
+function requireStore(toolName: string): TeamStore {
   const store = getActiveTeamStore();
   if (!store) {
     throw new ValidationError(
@@ -40,6 +65,8 @@ function requireStore(toolName: string): ReturnType<typeof getActiveTeamStore> &
   }
   return store;
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────
 
 function requireString(
   args: Record<string, unknown>,
@@ -71,6 +98,14 @@ function optionalStringArray(
     return value as string[];
   }
   return undefined;
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) + "..." : s;
+}
+
+function getMemberId(options: ToolExecutionOptions | undefined, runtime: TeamRuntime): string {
+  return options?.teamMemberId ?? runtime.leadMemberId;
 }
 
 // ── Teammate Tool ─────────────────────────────────────────────────────
@@ -137,7 +172,7 @@ export const teammate: ToolMetadata = {
       }
 
       // Register member in runtime
-      const member = store.runtime.registerMember({
+      store.runtime.registerMember({
         id: name,
         agent: agentType,
         role: "worker",
@@ -285,14 +320,15 @@ export const sendMessage: ToolMetadata = {
       throw new ValidationError("args must be an object", "SendMessage");
     }
     const a = args as Record<string, unknown>;
-    const store = requireStore("SendMessage");
-    const type = requireString(a, "type", "SendMessage") as InboxMessage["type"];
+    const { store, runtime } = resolveBackend("SendMessage", options);
+    const type = requireString(a, "type", "SendMessage");
     const validTypes = [
       "message",
       "broadcast",
       "shutdown_request",
       "shutdown_response",
       "plan_approval_response",
+      "submit_plan",
     ];
     if (!validTypes.includes(type)) {
       throw new ValidationError(
@@ -301,7 +337,7 @@ export const sendMessage: ToolMetadata = {
       );
     }
 
-    const from = options?.teamMemberId ?? store.runtime.leadMemberId;
+    const from = getMemberId(options, runtime);
     const content = optionalString(a, "content") ?? "";
     const summary = optionalString(a, "summary") ?? "";
     const recipient = optionalString(a, "recipient");
@@ -316,36 +352,86 @@ export const sendMessage: ToolMetadata = {
       }
     }
 
-    const msg: InboxMessage = {
-      id: crypto.randomUUID(),
-      type,
-      from,
-      content,
-      summary,
-      timestamp: Date.now(),
-      recipient,
-    };
-
     // Handle shutdown_request via runtime
     if (type === "shutdown_request" && recipient) {
       try {
-        store.runtime.requestShutdown({
+        runtime.requestShutdown({
           memberId: recipient,
           requestedByMemberId: from,
           reason: content,
         });
       } catch { /* member may not be registered */ }
+      options?.onAgentEvent?.({
+        type: "team_shutdown_requested",
+        requestId: crypto.randomUUID(),
+        memberId: recipient,
+        requestedByMemberId: from,
+        reason: content,
+      });
+    }
+
+    // Handle submit_plan: worker submits a plan for lead review
+    if (type === "submit_plan") {
+      const taskId = requireString(a, "task_id", "SendMessage");
+      const plan = a.plan;
+      if (!plan || typeof plan !== "object") {
+        throw new ValidationError("'plan' must be a non-empty object for type 'submit_plan'", "SendMessage");
+      }
+      const note = optionalString(a, "note");
+      const approval = runtime.requestPlanApproval({
+        taskId,
+        submittedByMemberId: from,
+        plan: plan as Plan,
+        note,
+      });
+      options?.onAgentEvent?.({
+        type: "team_plan_review_required",
+        approvalId: approval.id,
+        taskId: approval.taskId,
+        submittedByMemberId: approval.submittedByMemberId,
+        plan: approval.plan,
+        note: approval.note,
+      });
+      return {
+        sent: true,
+        type,
+        approval: { id: approval.id, taskId: approval.taskId, status: approval.status },
+      };
     }
 
     // Handle shutdown_response
     if (type === "shutdown_response") {
       const requestId = optionalString(a, "request_id");
       const approve = a.approve === true;
-      msg.requestId = requestId;
-      msg.approve = approve;
 
       if (approve && requestId) {
-        store.runtime.acknowledgeShutdown(requestId, from);
+        runtime.acknowledgeShutdown(requestId, from);
+        // Emit shutdown resolved event + ack message via runtime
+        try {
+          const msgs = runtime.sendMessage({
+            fromMemberId: from,
+            toMemberId: runtime.leadMemberId,
+            kind: "shutdown_ack",
+            content: `Shutdown acknowledged by ${from}`,
+          });
+          for (const msg of msgs) {
+            options?.onAgentEvent?.({
+              type: "team_message",
+              kind: msg.kind,
+              fromMemberId: msg.fromMemberId,
+              toMemberId: msg.toMemberId,
+              relatedTaskId: msg.relatedTaskId,
+              contentPreview: truncate(msg.content, 120),
+            });
+          }
+        } catch { /* ignore */ }
+        options?.onAgentEvent?.({
+          type: "team_shutdown_resolved",
+          requestId,
+          memberId: from,
+          requestedByMemberId: runtime.leadMemberId,
+          status: "acknowledged",
+        });
       }
     }
 
@@ -353,20 +439,104 @@ export const sendMessage: ToolMetadata = {
     if (type === "plan_approval_response" && recipient) {
       const requestId = optionalString(a, "request_id");
       const approve = a.approve === true;
-      msg.requestId = requestId;
-      msg.approve = approve;
 
       if (requestId) {
-        store.runtime.reviewPlan({
+        const approval = runtime.reviewPlan({
           approvalId: requestId,
           reviewedByMemberId: from,
           approved: approve,
           feedback: content,
         });
+        if (approval) {
+          const task = runtime.updateTask(approval.taskId, {
+            approvalId: approval.id,
+            status: approve ? "in_progress" : "pending",
+            resultSummary: approval.feedback,
+          });
+          // Emit task update + approval message + plan review resolved events
+          if (task) {
+            options?.onAgentEvent?.({
+              type: "team_task_updated",
+              taskId: task.id,
+              goal: task.goal,
+              status: task.status,
+              assigneeMemberId: task.assigneeMemberId,
+              artifacts: task.artifacts,
+            });
+          }
+          try {
+            const msgs = runtime.sendMessage({
+              fromMemberId: from,
+              toMemberId: approval.submittedByMemberId,
+              kind: "approval_response",
+              content: content?.trim().length
+                ? content
+                : approve
+                ? `Plan approved for task ${approval.taskId}`
+                : `Plan rejected for task ${approval.taskId}`,
+              relatedTaskId: approval.taskId,
+            });
+            for (const msg of msgs) {
+              options?.onAgentEvent?.({
+                type: "team_message",
+                kind: msg.kind,
+                fromMemberId: msg.fromMemberId,
+                toMemberId: msg.toMemberId,
+                relatedTaskId: msg.relatedTaskId,
+                contentPreview: truncate(msg.content, 120),
+              });
+            }
+          } catch { /* ignore */ }
+          options?.onAgentEvent?.({
+            type: "team_plan_review_resolved",
+            approvalId: approval.id,
+            taskId: approval.taskId,
+            submittedByMemberId: approval.submittedByMemberId,
+            approved: approve,
+            reviewedByMemberId: from,
+          });
+        }
       }
     }
 
-    await store.sendMessage(msg);
+    // File-backed inbox delivery (store mode only)
+    if (store) {
+      const msg: InboxMessage = {
+        id: crypto.randomUUID(),
+        type: type as InboxMessage["type"],
+        from,
+        content,
+        summary,
+        timestamp: Date.now(),
+        recipient,
+        ...(type === "shutdown_response" ? {
+          requestId: optionalString(a, "request_id"),
+          approve: a.approve === true,
+        } : {}),
+      };
+      await store.sendMessage(msg);
+    } else {
+      // Runtime-only mode: direct runtime messaging
+      const broadcast = type === "broadcast";
+      try {
+        const msgs = runtime.sendMessage({
+          fromMemberId: from,
+          toMemberId: broadcast ? undefined : recipient,
+          kind: broadcast ? "broadcast" : "direct",
+          content,
+        });
+        for (const msg of msgs) {
+          options?.onAgentEvent?.({
+            type: "team_message",
+            kind: msg.kind,
+            fromMemberId: msg.fromMemberId,
+            toMemberId: msg.toMemberId,
+            relatedTaskId: msg.relatedTaskId,
+            contentPreview: truncate(msg.content, 120),
+          });
+        }
+      } catch { /* member may not be registered */ }
+    }
 
     return {
       sent: true,
@@ -376,10 +546,10 @@ export const sendMessage: ToolMetadata = {
     };
   },
   description:
-    "Send messages to agent teammates. Supports direct messages, broadcasts, shutdown requests/responses, and plan approval responses.",
+    "Send messages to agent teammates. Supports direct messages, broadcasts, shutdown requests/responses, plan submissions, and plan approval responses.",
   category: "meta",
   args: {
-    type: "string (required) - 'message', 'broadcast', 'shutdown_request', 'shutdown_response', 'plan_approval_response'",
+    type: "string (required) - 'message', 'broadcast', 'shutdown_request', 'shutdown_response', 'plan_approval_response', 'submit_plan'",
     recipient:
       "string (optional) - Agent name of recipient (required for message/shutdown_request/plan_approval_response)",
     content: "string (optional) - Message text or feedback",
@@ -389,6 +559,12 @@ export const sendMessage: ToolMetadata = {
       "string (optional) - Request ID (required for shutdown_response/plan_approval_response)",
     approve:
       "boolean (optional) - Whether to approve (for shutdown_response/plan_approval_response)",
+    task_id:
+      "string (optional) - Task ID (required for submit_plan)",
+    plan:
+      "object (optional) - Plan object with steps (required for submit_plan)",
+    note:
+      "string (optional) - Note to include with plan submission (for submit_plan)",
   },
   returns: {
     sent: "boolean - Whether the message was sent",
@@ -402,12 +578,12 @@ export const sendMessage: ToolMetadata = {
 // ── TaskCreate Tool ───────────────────────────────────────────────────
 
 export const taskCreate: ToolMetadata = {
-  fn: async (args: unknown, _workspace: string, _options?: ToolExecutionOptions) => {
+  fn: async (args: unknown, _workspace: string, options?: ToolExecutionOptions) => {
     if (!isToolArgsObject(args)) {
       throw new ValidationError("args must be an object", "TaskCreate");
     }
     const a = args as Record<string, unknown>;
-    const store = requireStore("TaskCreate");
+    const { store, runtime } = resolveBackend("TaskCreate", options);
     const subject = requireString(a, "subject", "TaskCreate");
     const description = requireString(a, "description", "TaskCreate");
     const activeForm = optionalString(a, "activeForm");
@@ -415,19 +591,33 @@ export const taskCreate: ToolMetadata = {
       ? a.metadata as Record<string, unknown>
       : undefined;
 
-    const task = await store.createTask({
-      subject,
-      description,
-      activeForm,
-      metadata,
-    });
+    if (store) {
+      const task = await store.createTask({ subject, description, activeForm, metadata });
+      return {
+        id: task.id,
+        subject: task.subject,
+        status: task.status,
+        message: `Task #${task.id} created: ${task.subject}`,
+      };
+    }
 
-    return {
-      id: task.id,
-      subject: task.subject,
+    // Runtime-only mode
+    const memberId = getMemberId(options, runtime);
+    const task = runtime.ensureTask({
+      goal: subject,
+      status: "pending",
+      assigneeMemberId: memberId,
+      artifacts: activeForm ? { activeForm } : undefined,
+    });
+    options?.onAgentEvent?.({
+      type: "team_task_updated",
+      taskId: task.id,
+      goal: task.goal,
       status: task.status,
-      message: `Task #${task.id} created: ${task.subject}`,
-    };
+      assigneeMemberId: task.assigneeMemberId,
+      artifacts: task.artifacts,
+    });
+    return { task };
   },
   description:
     "Create a task in the team's shared task list. Tasks help track progress and coordinate work across teammates.",
@@ -452,17 +642,23 @@ export const taskCreate: ToolMetadata = {
 // ── TaskGet Tool ──────────────────────────────────────────────────────
 
 export const taskGet: ToolMetadata = {
-  fn: async (args: unknown, _workspace: string, _options?: ToolExecutionOptions) => {
+  fn: async (args: unknown, _workspace: string, options?: ToolExecutionOptions) => {
     if (!isToolArgsObject(args)) {
       throw new ValidationError("args must be an object", "TaskGet");
     }
     const a = args as Record<string, unknown>;
-    const store = requireStore("TaskGet");
+    const { store, runtime } = resolveBackend("TaskGet", options);
     const taskId = requireString(a, "taskId", "TaskGet");
-    const task = await store.getTask(taskId);
-    if (!task) {
-      throw new ValidationError(`Task '${taskId}' not found`, "TaskGet");
+
+    if (store) {
+      const task = await store.getTask(taskId);
+      if (!task) throw new ValidationError(`Task '${taskId}' not found`, "TaskGet");
+      return task;
     }
+
+    // Runtime-only mode
+    const task = runtime.getTask(taskId);
+    if (!task) throw new ValidationError(`Task '${taskId}' not found`, "TaskGet");
     return task;
   },
   description: "Retrieve a task by its ID from the shared task list.",
@@ -486,50 +682,79 @@ export const taskGet: ToolMetadata = {
 // ── TaskUpdate Tool ───────────────────────────────────────────────────
 
 export const taskUpdate: ToolMetadata = {
-  fn: async (args: unknown, _workspace: string, _options?: ToolExecutionOptions) => {
+  fn: async (args: unknown, _workspace: string, options?: ToolExecutionOptions) => {
     if (!isToolArgsObject(args)) {
       throw new ValidationError("args must be an object", "TaskUpdate");
     }
     const a = args as Record<string, unknown>;
-    const store = requireStore("TaskUpdate");
+    const { store, runtime } = resolveBackend("TaskUpdate", options);
     const taskId = requireString(a, "taskId", "TaskUpdate");
 
-    const patch: Parameters<typeof store.updateTask>[1] = {};
-    const status = optionalString(a, "status");
-    if (status) {
-      const valid = ["pending", "in_progress", "completed", "deleted"];
-      if (!valid.includes(status)) {
-        throw new ValidationError(
-          `Invalid status '${status}'. Must be one of: ${valid.join(", ")}`,
-          "TaskUpdate",
-        );
+    if (store) {
+      const patch: Parameters<typeof store.updateTask>[1] = {};
+      const status = optionalString(a, "status");
+      if (status) {
+        const valid = ["pending", "in_progress", "completed", "deleted"];
+        if (!valid.includes(status)) {
+          throw new ValidationError(
+            `Invalid status '${status}'. Must be one of: ${valid.join(", ")}`,
+            "TaskUpdate",
+          );
+        }
+        patch.status = status as typeof patch.status;
       }
-      patch.status = status as typeof patch.status;
-    }
-    if (a.subject !== undefined) patch.subject = String(a.subject);
-    if (a.description !== undefined) patch.description = String(a.description);
-    if (a.activeForm !== undefined) patch.activeForm = String(a.activeForm);
-    if (a.owner !== undefined) patch.owner = String(a.owner);
-    patch.addBlocks = optionalStringArray(a, "addBlocks");
-    patch.addBlockedBy = optionalStringArray(a, "addBlockedBy");
-    if (typeof a.metadata === "object" && a.metadata !== null) {
-      patch.metadata = a.metadata as Record<string, unknown>;
+      if (a.subject !== undefined) patch.subject = String(a.subject);
+      if (a.description !== undefined) patch.description = String(a.description);
+      if (a.activeForm !== undefined) patch.activeForm = String(a.activeForm);
+      if (a.owner !== undefined) patch.owner = String(a.owner);
+      patch.addBlocks = optionalStringArray(a, "addBlocks");
+      patch.addBlockedBy = optionalStringArray(a, "addBlockedBy");
+      if (typeof a.metadata === "object" && a.metadata !== null) {
+        patch.metadata = a.metadata as Record<string, unknown>;
+      }
+
+      const result = await store.updateTask(taskId, patch);
+      if (patch.status === "deleted") {
+        return { deleted: true, taskId };
+      }
+      if (!result) {
+        throw new ValidationError(`Task '${taskId}' not found`, "TaskUpdate");
+      }
+      return {
+        id: result.id,
+        subject: result.subject,
+        status: result.status,
+        owner: result.owner,
+        message: `Task #${result.id} updated`,
+      };
     }
 
-    const result = await store.updateTask(taskId, patch);
-    if (patch.status === "deleted") {
-      return { deleted: true, taskId };
-    }
-    if (!result) {
+    // Runtime-only mode: update via runtime
+    const existing = runtime.getTask(taskId);
+    if (!existing) {
       throw new ValidationError(`Task '${taskId}' not found`, "TaskUpdate");
     }
-    return {
-      id: result.id,
-      subject: result.subject,
-      status: result.status,
-      owner: result.owner,
-      message: `Task #${result.id} updated`,
-    };
+    const patch: Partial<{ status: string; assigneeMemberId: string; dependencies: string[]; resultSummary: string; artifacts: Record<string, unknown> }> = {};
+    if (a.status !== undefined) patch.status = String(a.status);
+    if (a.owner !== undefined) patch.assigneeMemberId = String(a.owner);
+    if (a.addBlockedBy !== undefined) {
+      patch.dependencies = [
+        ...existing.dependencies,
+        ...(optionalStringArray(a, "addBlockedBy") ?? []),
+      ];
+    }
+    const task = runtime.updateTask(taskId, patch as Record<string, unknown>);
+    if (task) {
+      options?.onAgentEvent?.({
+        type: "team_task_updated",
+        taskId: task.id,
+        goal: task.goal,
+        status: task.status,
+        assigneeMemberId: task.assigneeMemberId,
+        artifacts: task.artifacts,
+      });
+    }
+    return { task };
   },
   description:
     "Update a task in the shared task list. Can change status, ownership, dependencies, and other fields.",
@@ -558,20 +783,35 @@ export const taskUpdate: ToolMetadata = {
 // ── TaskList Tool ─────────────────────────────────────────────────────
 
 export const taskList: ToolMetadata = {
-  fn: async (_args: unknown, _workspace: string, _options?: ToolExecutionOptions) => {
-    const store = requireStore("TaskList");
-    const tasks = await store.listTasks();
+  fn: async (_args: unknown, _workspace: string, options?: ToolExecutionOptions) => {
+    const { store, runtime } = resolveBackend("TaskList", options);
+
+    if (store) {
+      const tasks = await store.listTasks();
+      const taskById = new Map(tasks.map((t) => [t.id, t]));
+      return {
+        tasks: tasks.map((t) => ({
+          id: t.id,
+          subject: t.subject,
+          status: t.status,
+          owner: t.owner ?? "",
+          blockedBy: t.blockedBy.filter((id) => {
+            const blocker = taskById.get(id);
+            return blocker && blocker.status !== "completed";
+          }),
+        })),
+      };
+    }
+
+    // Runtime-only mode
+    const tasks = runtime.listTasks();
     return {
       tasks: tasks.map((t) => ({
         id: t.id,
-        subject: t.subject,
+        goal: t.goal,
         status: t.status,
-        owner: t.owner ?? "",
-        blockedBy: t.blockedBy.filter((id) => {
-          // Only show open blockers
-          const blocker = tasks.find((bt) => bt.id === id);
-          return blocker && blocker.status !== "completed";
-        }),
+        assigneeMemberId: t.assigneeMemberId ?? "",
+        dependencies: t.dependencies,
       })),
     };
   },
@@ -587,6 +827,56 @@ export const taskList: ToolMetadata = {
   safety: "Read-only task list.",
 };
 
+// ── TeamStatus Tool ──────────────────────────────────────────────────
+
+export const teamStatus: ToolMetadata = {
+  fn: async (_args: unknown, _workspace: string, options?: ToolExecutionOptions) => {
+    const { runtime } = resolveBackend("TeamStatus", options);
+    const memberId = getMemberId(options, runtime);
+    const currentMember = runtime.getMember(memberId);
+    const summary = runtime.deriveSummary(memberId);
+    const pendingApprovals = runtime.listPendingApprovals().map((approval) => ({
+      id: approval.id,
+      taskId: approval.taskId,
+      submittedByMemberId: approval.submittedByMemberId,
+      note: approval.note,
+      createdAt: approval.createdAt,
+    }));
+    const pendingShutdowns = runtime.listShutdowns().filter(
+      (shutdown) =>
+        shutdown.status === "requested" || shutdown.status === "acknowledged",
+    ).map((shutdown) => ({
+      id: shutdown.id,
+      memberId: shutdown.memberId,
+      requestedByMemberId: shutdown.requestedByMemberId,
+      status: shutdown.status,
+      reason: shutdown.reason,
+      escalateAt: shutdown.escalateAt,
+    }));
+    const unreadMessages = runtime.readMessages(memberId, { markRead: false });
+    return {
+      summary,
+      current_member: currentMember,
+      pending_approvals: pendingApprovals,
+      pending_shutdowns: pendingShutdowns,
+      unread_messages: unreadMessages,
+    };
+  },
+  description:
+    "Read the current team summary, your member state, pending approvals, pending shutdowns, and unread messages.",
+  category: "meta",
+  args: {},
+  returns: {
+    summary: "object - Team summary including policy, members, task counts, blocked tasks, and unread counts",
+    current_member: "object (optional) - Current team member record",
+    pending_approvals: "array - Pending approval records",
+    pending_shutdowns: "array - Active shutdown requests",
+    unread_messages: "array - Unread team messages for the current member",
+  },
+  safetyLevel: "L0",
+  safety: "Read-only observation of aggregate team state.",
+};
+
 // ── Tool Registry ─────────────────────────────────────────────────────
 
 export const AGENT_TEAM_TOOLS: Record<string, ToolMetadata> = {
@@ -596,4 +886,5 @@ export const AGENT_TEAM_TOOLS: Record<string, ToolMetadata> = {
   TaskGet: taskGet,
   TaskUpdate: taskUpdate,
   TaskList: taskList,
+  TeamStatus: teamStatus,
 };

@@ -672,7 +672,7 @@ export async function runAgentQuery(
       ? {
         active: true,
         phase: "researching" as PlanningPhase,
-        executionPermissionMode: "auto-edit" as Exclude<
+        executionPermissionMode: "acceptEdits" as Exclude<
           AgentExecutionMode,
           "plan"
         >,
@@ -727,7 +727,7 @@ export async function runAgentQuery(
     const planReview = {
       getCurrentPlan: (): typeof activePlan => activePlan,
       shouldGateMutatingTools: (): boolean =>
-        permissionMode !== "yolo" &&
+        permissionMode !== "bypassPermissions" &&
         effectiveToolSurfaceIncludesMutation({
           allowlist: session.toolFilterState?.allowlist ??
             session.llmConfig?.toolAllowlist,
@@ -775,7 +775,7 @@ export async function runAgentQuery(
           const approved = autoApproved ||
             (!reviseRequested && response.approved === true);
           if (planModeState && approved) {
-            planModeState.executionPermissionMode = "yolo";
+            planModeState.executionPermissionMode = "bypassPermissions";
           }
           resolvePendingPlanReview(sessionKey, {
             approved,
