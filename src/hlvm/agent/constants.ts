@@ -528,8 +528,6 @@ export function computeTierToolFilter(
  * Following Unix conventions and industry standards:
  * - 0: Success
  * - 1: General failure (query failed, LLM error, validation error)
- * - 2: Tool permission denied in headless mode (unsafe tool blocked)
- * - 3: User interaction blocked in headless mode (ask_user attempted)
  */
 export const EXIT_CODES = {
   SUCCESS: 0,

@@ -578,7 +578,6 @@ async function spawnClaudeCodeProcess(
   const platform = getPlatform();
 
   const cmd = buildClaudeCodeCommand(query, claudeCodeSessionId);
-
   const proc = platform.command.run({
     cmd,
     env: buildClaudeSubprocessEnv(),
@@ -586,7 +585,6 @@ async function spawnClaudeCodeProcess(
     stderr: "piped",
     stdin: "null",
   });
-
   const onAbort = () => {
     proc.kill?.("SIGTERM");
   };
@@ -621,7 +619,6 @@ async function spawnClaudeCodeProcess(
     const decoder = new TextDecoder();
     let buffer = "";
     const textState = { fullText };
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;

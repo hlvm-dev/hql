@@ -43,26 +43,24 @@ Deno.test("resolveToolPermission: bypassPermissions mode allows everything", () 
   assertEquals(resolveToolPermission("shell_exec", "L2", permissions), "allow");
 });
 
-Deno.test("resolveToolPermission: acceptEdits mode allows L1, prompts L2", () => {
+Deno.test("resolveToolPermission: acceptEdits mode allows L0+L1, prompts L2", () => {
   const permissions: ToolPermissions = {
     allowedTools: new Set(),
     deniedTools: new Set(),
     mode: "acceptEdits",
   };
-  // L0 is handled by checkToolSafety before this function, so we test L1/L2
+  assertEquals(resolveToolPermission("read_file", "L0", permissions), "allow");
   assertEquals(resolveToolPermission("write_file", "L1", permissions), "allow");
   assertEquals(resolveToolPermission("delete_file", "L2", permissions), "prompt");
-  // L0 would return "prompt" from this function, but is auto-approved earlier
-  assertEquals(resolveToolPermission("read_file", "L0", permissions), "prompt");
 });
 
-Deno.test("resolveToolPermission: default mode returns prompt", () => {
+Deno.test("resolveToolPermission: default mode auto-approves L0, prompts L1/L2", () => {
   const permissions: ToolPermissions = {
     allowedTools: new Set(),
     deniedTools: new Set(),
     mode: "default",
   };
-  // L0 is always allowed (handled earlier in checkToolSafety), but let's verify the function
+  assertEquals(resolveToolPermission("read_file", "L0", permissions), "allow");
   assertEquals(resolveToolPermission("write_file", "L1", permissions), "prompt");
   assertEquals(resolveToolPermission("delete_file", "L2", permissions), "prompt");
 });

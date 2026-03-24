@@ -90,9 +90,8 @@ Deno.test("ai(prompt, {data: null}): does not append Data section", async () => 
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ai(prompt, {schema}) — structured output (via AI SDK native path)
-// NOTE: Schema path now uses generateStructuredWithSdk, which bypasses
-// the mock provider (goes through SDK directly). These tests verify
-// the schema-to-zod converter and the non-schema plain-text path.
+// NOTE: Schema path now uses generateStructuredWithSdk (AI SDK native
+// constrained decoding), which bypasses the mock provider entirely.
 // Full schema E2E tests live in tests/e2e/real-user-e2e*.ts.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

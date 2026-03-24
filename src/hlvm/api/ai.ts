@@ -108,6 +108,19 @@ function buildPrompt(prompt: string, data?: unknown): string {
     : prompt;
 }
 
+/** Build messages array from prompt + options (shared by schema + text paths) */
+function buildMessages(
+  prompt: string,
+  options?: { system?: string; data?: unknown },
+): Message[] {
+  const messages: Message[] = [];
+  if (options?.system) {
+    messages.push({ role: "system", content: options.system });
+  }
+  messages.push({ role: "user", content: buildPrompt(prompt, options?.data) });
+  return messages;
+}
+
 // ============================================================================
 // Factory
 // ============================================================================
@@ -120,7 +133,9 @@ function createAiApi(): AiApi {
   ): Promise<string | unknown> {
     // Structured output path: use AI SDK native constrained decoding
     if (options?.schema != null) {
-      const { schemaToZod } = await import("./schema-to-zod.ts");
+      const { descriptorToJsonSchema } = await import(
+        "./schema-to-json-schema.ts"
+      );
       const { generateStructuredWithSdk } = await import(
         "../providers/sdk-runtime.ts"
       );
@@ -128,35 +143,31 @@ function createAiApi(): AiApi {
         "../agent/engine-sdk.ts"
       );
 
-      const zodSchema = schemaToZod(options.schema);
-      const modelString = options.model ?? resolveProvider().name;
-      const resolved = resolveSdkModelSpec(modelString);
-      const spec = toSdkRuntimeModelSpec(resolved);
-
-      const messages: Message[] = [];
-      if (options.system) {
-        messages.push({ role: "system", content: options.system });
+      let modelString = options.model;
+      if (!modelString) {
+        // Read from persisted config — the SSOT shared with `hlvm model set`,
+        // REPL model picker, and `hlvm ask`.
+        const { loadConfig } = await import("../../common/config/storage.ts");
+        const { getConfiguredModel } = await import(
+          "../../common/config/selectors.ts"
+        );
+        modelString = getConfiguredModel(await loadConfig());
       }
-      messages.push({ role: "user", content: buildPrompt(prompt, options.data) });
+      const spec = toSdkRuntimeModelSpec(resolveSdkModelSpec(modelString));
 
-      return await generateStructuredWithSdk(spec, messages, zodSchema, {
-        signal: options.signal,
-        temperature: options.temperature,
-      });
+      return await generateStructuredWithSdk(
+        spec,
+        buildMessages(prompt, options),
+        descriptorToJsonSchema(options.schema) as Record<string, unknown>,
+        { signal: options.signal, temperature: options.temperature },
+      );
     }
 
-    // Plain text path: use provider.chat() as before
+    // Plain text path: use provider.chat() — respects setDefaultProvider() and
+    // the provider registry, which is initialized from persisted config at startup.
     const provider = resolveProvider(options?.model);
-    const content = buildPrompt(prompt, options?.data);
-
-    const messages: Message[] = [];
-    if (options?.system) {
-      messages.push({ role: "system", content: options.system });
-    }
-    messages.push({ role: "user", content });
-
     return await collectAsyncGenerator(
-      provider.chat(messages, {
+      provider.chat(buildMessages(prompt, options), {
         model: localModelName(options?.model),
         signal: options?.signal,
         ...(options?.temperature != null && { raw: { temperature: options.temperature } }),

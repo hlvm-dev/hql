@@ -918,6 +918,7 @@ export async function startHttpServer(
       `REPL server failed to start: ${getErrorMessage(error)}`,
     );
   } finally {
+    log.debug("finally block reached");
     serverHandle = null;
   }
 }

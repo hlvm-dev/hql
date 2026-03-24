@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, DEFAULT_MODEL_ID, type PermissionMode } from "./types.ts";
+import { DEFAULT_CONFIG, DEFAULT_MODEL_ID, PERMISSION_MODES, type PermissionMode } from "./types.ts";
 import { normalizeSelectedModelId } from "./model-selection.ts";
 import { isObjectValue } from "../utils.ts";
 
@@ -22,12 +22,9 @@ export function getContextWindow(config: unknown): number | undefined {
 }
 
 export function getPermissionMode(config: unknown): PermissionMode | undefined {
-  const rawPermissionMode = isObjectValue(config)
-    ? config.permissionMode
-    : undefined;
-  return rawPermissionMode === "default" || rawPermissionMode === "acceptEdits" ||
-      rawPermissionMode === "plan" || rawPermissionMode === "bypassPermissions"
-    ? rawPermissionMode
+  const raw = isObjectValue(config) ? config.permissionMode : undefined;
+  return typeof raw === "string" && PERMISSION_MODES.includes(raw as PermissionMode)
+    ? (raw as PermissionMode)
     : undefined;
 }
 

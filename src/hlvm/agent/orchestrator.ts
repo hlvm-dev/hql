@@ -971,7 +971,7 @@ function buildLimitStopMessage(
   return [
     headline,
     buildProgressSummary(state),
-    "Re-run without --stateless to continue from current context.",
+    "Re-run without --no-session-persistence to continue from current context.",
   ].join("\n");
 }
 

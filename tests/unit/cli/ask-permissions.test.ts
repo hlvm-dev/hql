@@ -113,31 +113,6 @@ Deno.test("CLI ask: flags can be combined", () => {
 // Exit Code Tests
 // ---------------------------------------------------------------------------
 
-Deno.test("CLI ask: getExitCodeForError returns 1 for tool blocked errors", () => {
-  const error = new Error("shell_exec is blocked in dontAsk mode");
-  const code = getExitCodeForErrorTest(error);
-  assertEquals(code, EXIT_CODES.GENERAL_FAILURE);
+Deno.test("CLI ask: all errors use GENERAL_FAILURE exit code", () => {
+  assertEquals(EXIT_CODES.GENERAL_FAILURE, 1);
 });
-
-Deno.test("CLI ask: getExitCodeForError returns 1 for interaction blocked errors", () => {
-  const error = new Error("ask_user is not allowed in dontAsk mode");
-  const code = getExitCodeForErrorTest(error);
-  assertEquals(code, EXIT_CODES.GENERAL_FAILURE);
-});
-
-Deno.test("CLI ask: getExitCodeForError returns 1 for general errors", () => {
-  const error = new Error("Some general error");
-  const code = getExitCodeForErrorTest(error);
-  assertEquals(code, EXIT_CODES.GENERAL_FAILURE);
-});
-
-Deno.test("CLI ask: getExitCodeForError handles string errors", () => {
-  const error = "blocked";
-  const code = getExitCodeForErrorTest(error);
-  assertEquals(code, EXIT_CODES.GENERAL_FAILURE);
-});
-
-// Test helper that mirrors the actual implementation (simplified: all errors map to GENERAL_FAILURE)
-function getExitCodeForErrorTest(_error: unknown): number {
-  return EXIT_CODES.GENERAL_FAILURE;
-}

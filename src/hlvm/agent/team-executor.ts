@@ -30,12 +30,14 @@ import { CHILD_TOOL_DENYLIST } from "./delegation.ts";
 import { hasTool } from "./registry.ts";
 import { createTodoState } from "./todo-state.ts";
 import { createDelegateInbox } from "./delegate-inbox.ts";
+import { delay } from "@std/async";
 import { getAgentLogger } from "./logger.ts";
 import { getAgentEngine } from "./engine.ts";
 import type { AgentHookRuntime } from "./hooks.ts";
 import type { AgentPolicy } from "./policy.ts";
 import type { TeamRuntime } from "./team-runtime.ts";
 import type { TeamStore } from "./team-store.ts";
+import { TEAMMATE_AVAILABLE_TOOL_NAMES } from "./tools/agent-team-tools.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -117,18 +119,9 @@ function resolveTeammateTools(
   );
 }
 
+/** Signal-aware sleep using @std/async/delay. */
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(signal.reason ?? new Error("Aborted"));
-      return;
-    }
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => {
-      clearTimeout(timer);
-      reject(signal.reason ?? new Error("Aborted"));
-    }, { once: true });
-  });
+  return delay(ms, { signal });
 }
 
 // ── Main Loop ────────────────────────────────────────────────────────
@@ -165,17 +158,10 @@ export async function runTeammateLoop(
     agentProfiles,
     toolOwnerId,
   );
-  // Also include team tools that teammates can use
-  const teamToolNames = [
-    "SendMessage",
-    "TaskCreate",
-    "TaskGet",
-    "TaskUpdate",
-    "TaskList",
-  ];
+  // Also include team tools that teammates can use (derived from registry SSOT)
   const fullToolAllowlist = [
     ...allowedTools,
-    ...teamToolNames.filter((t) => hasTool(t, toolOwnerId)),
+    ...TEAMMATE_AVAILABLE_TOOL_NAMES.filter((t) => hasTool(t, toolOwnerId)),
   ];
 
   log.info(

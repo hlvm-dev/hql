@@ -255,25 +255,13 @@ export interface TeamRuntime {
   deriveTodoState(): TodoState;
 }
 
-function cloneMessage(message: TeamMessage): TeamMessage {
-  return { ...message, readBy: new Set(message.readBy) };
-}
-
-function clonePlan(plan: Plan): Plan {
-  return { goal: plan.goal, steps: plan.steps.map((step) => ({ ...step })) };
-}
+/** Deep clone via native structuredClone (handles Set, arrays, nested objects). */
+function cloneMessage(m: TeamMessage): TeamMessage { return structuredClone(m); }
+function clonePlan(p: Plan): Plan { return structuredClone(p); }
+function cloneTask(t: TeamTask): TeamTask { return structuredClone(t); }
 
 function toMessageSnapshot(message: TeamMessage): TeamMessageSnapshot {
   return { ...message, readBy: [...message.readBy].sort() };
-}
-
-/** Deep clone a task, copying mutable arrays and optional objects. */
-function cloneTask(task: TeamTask): TeamTask {
-  return {
-    ...task,
-    dependencies: [...task.dependencies],
-    ...(task.artifacts ? { artifacts: { ...task.artifacts } } : {}),
-  };
 }
 
 export function cloneTeamRuntimeSnapshot(

@@ -5,6 +5,7 @@
  * Agent execution is routed through the local host boundary.
  */
 
+import { parseArgs } from "@std/cli/parse-args";
 import { log } from "../../api/log.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 import { readLineInput, readSingleKey } from "../utils/input.ts";
@@ -35,7 +36,7 @@ import {
   verifyOllamaCloudAccess,
 } from "../../runtime/ollama-cloud-access.ts";
 import type { ChatResultStats } from "../../runtime/chat-protocol.ts";
-import type { PermissionMode } from "../../../common/config/types.ts";
+import { PERMISSION_MODES, type PermissionMode } from "../../../common/config/types.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 import { runAgentQueryViaHost } from "../../runtime/host-client.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
@@ -87,19 +88,20 @@ EXAMPLES:
   # Advanced usage
   hlvm ask --attach ./screenshot.png "describe this UI issue"
   hlvm ask --verbose "count test files"  # Debug mode with detailed output
-  hlvm ask --json "count test files"     # Stream NDJSON events for automation
+  hlvm ask --output-format stream-json "count test files"  # NDJSON events
+  hlvm ask --output-format json "count test files"         # Single JSON result
   hlvm ask --model openai/gpt-4o "summarize this codebase"
-  hlvm ask --stateless "hello"           # Use an isolated hidden session
+  hlvm ask --no-session-persistence "hello"  # Use an isolated hidden session
 
 OPTIONS:
   --help, -h                   Show this help message
   -p, --print                  Non-interactive output (defaults to dontAsk mode)
   --verbose                    Show agent header, tool labels, stats, and trace output
-  --json                       Emit newline-delimited JSON events
+  --output-format <format>     Output format: text (default), json, stream-json
   --usage                      Show token usage summary after execution
   --attach <path>              Attach a file input (repeatable)
   --model <provider/model>     Use a specific AI model (e.g., openai/gpt-4o)
-  --stateless                  Use an isolated hidden session for this run only
+  --no-session-persistence     Use an isolated hidden session for this run only
 
   Permission Mode:
   --permission-mode <mode>     Set permission mode (default, acceptEdits, plan,
@@ -109,11 +111,7 @@ OPTIONS:
   --allowedTools <name>        Allow specific tool (repeatable)
   --disallowedTools <name>     Deny specific tool (repeatable)
 
-  Legacy Aliases:
-  --auto-edit                  Alias for --permission-mode acceptEdits
   --dangerously-skip-permissions  Alias for --permission-mode bypassPermissions
-  --allow-tool <name>          Alias for --allowedTools
-  --deny-tool <name>           Alias for --disallowedTools
 
 PERMISSION MODES:
   default:                     Prompt for L1/L2 tools, auto-approve L0 (read-only)
@@ -445,122 +443,72 @@ export async function attemptCloudAuthRecovery(
   }
 }
 
-/** All errors exit with code 1 (Claude Code parity). */
-function getExitCodeForError(_error: unknown): number {
-  return EXIT_CODES.GENERAL_FAILURE;
-}
-
 export async function askCommand(args: string[]): Promise<void> {
   if (hasHelpFlag(args)) {
     showAskHelp();
     return;
   }
 
-  let query = "";
-  let verbose = false;
-  let jsonOutput = false;
-  let showUsage = false;
-  let stateless = false;
-  let printMode = false;
-  let modelOverride: string | undefined;
+  const parsed = parseArgs(args, {
+    boolean: ["verbose", "usage", "no-session-persistence", "print", "dangerously-skip-permissions"],
+    string: ["permission-mode", "allowedTools", "disallowedTools", "model", "attach", "output-format"],
+    alias: {
+      p: "print",
+    },
+    collect: ["allowedTools", "disallowedTools", "attach"],
+    unknown: (flag: string) => {
+      if (flag.startsWith("-")) {
+        throw new ValidationError(`Unknown option: ${flag}`, "ask");
+      }
+      return true;
+    },
+  });
+
+  const verbose = parsed.verbose;
+  const outputFormat = (parsed["output-format"] as string) ?? "text";
+  const VALID_OUTPUT_FORMATS = ["text", "json", "stream-json"] as const;
+  if (!VALID_OUTPUT_FORMATS.includes(outputFormat as typeof VALID_OUTPUT_FORMATS[number])) {
+    throw new ValidationError(
+      `Invalid output format: "${outputFormat}". Valid formats: ${VALID_OUTPUT_FORMATS.join(", ")}`,
+      "ask",
+    );
+  }
+  const jsonOutput = outputFormat !== "text";
+  const showUsage = parsed.usage;
+  let stateless = parsed["no-session-persistence"];
+  const printMode = parsed.print;
+  let modelOverride: string | undefined = parsed.model || undefined;
+  const attachmentArgs: string[] = (parsed.attach as string[]) ?? [];
+  const allowedTools = new Set<string>((parsed.allowedTools as string[]) ?? []);
+  const deniedTools = new Set<string>((parsed.disallowedTools as string[]) ?? []);
+
+  // Resolve permission mode from flags
   let permissionModeOverride: PermissionMode | undefined;
   let permissionModeExplicitlySet = false;
-  const attachmentArgs: string[] = [];
-  const allowedTools = new Set<string>();
-  const deniedTools = new Set<string>();
 
-  const VALID_PERMISSION_MODES: readonly PermissionMode[] = [
-    "default",
-    "acceptEdits",
-    "plan",
-    "bypassPermissions",
-    "dontAsk",
-  ];
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--verbose") {
-      verbose = true;
-    } else if (arg === "--json") {
-      jsonOutput = true;
-    } else if (arg === "--usage") {
-      showUsage = true;
-    } else if (arg === "--stateless") {
-      stateless = true;
-    } else if (arg === "-p" || arg === "--print") {
-      printMode = true;
-    } else if (arg === "--permission-mode") {
-      i++;
-      if (i >= args.length) {
-        throw new ValidationError(
-          "--permission-mode requires a value (default, acceptEdits, plan, bypassPermissions, dontAsk)",
-          "ask",
-        );
-      }
-      const mode = args[i] as PermissionMode;
-      if (!VALID_PERMISSION_MODES.includes(mode)) {
-        throw new ValidationError(
-          `Invalid permission mode: "${args[i]}". Valid modes: ${VALID_PERMISSION_MODES.join(", ")}`,
-          "ask",
-        );
-      }
-      permissionModeOverride = mode;
-      permissionModeExplicitlySet = true;
-    } else if (arg === "--auto-edit") {
-      // Legacy alias
-      permissionModeOverride = "acceptEdits";
-      permissionModeExplicitlySet = true;
-    } else if (arg === "--dangerously-skip-permissions") {
-      // Legacy alias
-      permissionModeOverride = "bypassPermissions";
-      permissionModeExplicitlySet = true;
-    } else if (arg === "--allowedTools" || arg === "--allow-tool") {
-      i++;
-      if (i >= args.length) {
-        throw new ValidationError(
-          `${arg} requires a tool name`,
-          "ask",
-        );
-      }
-      allowedTools.add(args[i]);
-    } else if (arg === "--disallowedTools" || arg === "--deny-tool") {
-      i++;
-      if (i >= args.length) {
-        throw new ValidationError(
-          `${arg} requires a tool name`,
-          "ask",
-        );
-      }
-      deniedTools.add(args[i]);
-    } else if (arg === "--model") {
-      i++;
-      if (i >= args.length) {
-        throw new ValidationError(
-          "--model requires a value (e.g., openai/gpt-4o)",
-          "ask",
-        );
-      }
-      modelOverride = args[i];
-    } else if (arg === "--attach") {
-      i++;
-      if (i >= args.length) {
-        throw new ValidationError(
-          "--attach requires a file path",
-          "ask",
-        );
-      }
-      attachmentArgs.push(args[i]);
-    } else if (!arg.startsWith("--") && arg !== "-p") {
-      query += (query ? " " : "") + arg;
-    } else {
-      throw new ValidationError(`Unknown option: ${arg}`, "ask");
+  if (parsed["permission-mode"]) {
+    const mode = parsed["permission-mode"] as PermissionMode;
+    if (!PERMISSION_MODES.includes(mode)) {
+      throw new ValidationError(
+        `Invalid permission mode: "${parsed["permission-mode"]}". Valid modes: ${PERMISSION_MODES.join(", ")}`,
+        "ask",
+      );
     }
+    permissionModeOverride = mode;
+    permissionModeExplicitlySet = true;
+  }
+
+  if (parsed["dangerously-skip-permissions"]) {
+    permissionModeOverride = "bypassPermissions";
+    permissionModeExplicitlySet = true;
   }
 
   // -p/--print: default to dontAsk if no explicit --permission-mode was set
   if (printMode && !permissionModeExplicitlySet) {
     permissionModeOverride = "dontAsk";
   }
+
+  const query = parsed._.join(" ");
 
   if (!query) {
     throw new ValidationError(
@@ -571,7 +519,7 @@ export async function askCommand(args: string[]): Promise<void> {
 
   if (jsonOutput && verbose) {
     throw new ValidationError(
-      "--json cannot be combined with --verbose",
+      "--output-format json/stream-json cannot be combined with --verbose",
       "ask",
     );
   }
@@ -668,10 +616,11 @@ export async function askCommand(args: string[]): Promise<void> {
   };
 
   const onToken = (text: string) => {
-    if (jsonOutput) {
+    if (outputFormat === "stream-json") {
       emitJson({ type: "token", text });
       return;
     }
+    if (outputFormat === "json") return;
     const visibleText = responseSanitizer.push(text);
     if (!visibleText) return;
     clearThinking();
@@ -684,10 +633,11 @@ export async function askCommand(args: string[]): Promise<void> {
       type: "agent_event",
       event,
     });
-    if (jsonOutput) {
+    if (outputFormat === "stream-json") {
       emitJson({ type: "agent_event", event });
       return;
     }
+    if (outputFormat === "json") return;
     if (verbose) {
       switch (event.type) {
         case "tool_end":
@@ -959,13 +909,23 @@ export async function askCommand(args: string[]): Promise<void> {
     });
     const visibleResultText = stripPlanEnvelopeBlocks(result.text);
 
-    if (jsonOutput) {
+    if (outputFormat === "stream-json") {
       emitJson({
         type: "final",
         text: result.text,
         stats: result.stats,
         meta: finalMeta,
       });
+      return;
+    }
+
+    if (outputFormat === "json") {
+      log.raw.log(JSON.stringify({
+        type: "result",
+        result: result.text,
+        stats: result.stats,
+        meta: finalMeta,
+      }));
       return;
     }
 
@@ -1016,13 +976,14 @@ export async function askCommand(args: string[]): Promise<void> {
 
   if (jsonOutput) {
     const described = describeErrorForDisplay(executionError);
-    emitJson({
+    const errorPayload = {
       type: "error",
       message: described.message,
       errorClass: described.class,
       retryable: described.retryable,
-    });
-    getPlatform().process.exit(getExitCodeForError(executionError));
+    };
+    log.raw.log(JSON.stringify(errorPayload));
+    getPlatform().process.exit(EXIT_CODES.GENERAL_FAILURE);
     return;
   }
 

@@ -1,6 +1,7 @@
 import { getPlatform } from "../../platform/platform.ts";
 
 export const HLVM_RUNTIME_DEFAULT_PORT = 11435;
+export const HLVM_RUNTIME_PORT_SCAN_RANGE = 10;
 const TEST_RUNTIME_PORT_OVERRIDE_KEY = "__HLVM_RUNTIME_PORT_OVERRIDE__";
 
 type RuntimeHostConfigGlobal = typeof globalThis & {
@@ -29,8 +30,18 @@ export function resolveHlvmRuntimePort(): number {
   return parsed;
 }
 
+let cachedRuntimeBaseUrl: string | null = null;
+
+export function setCachedRuntimeBaseUrl(url: string): void {
+  cachedRuntimeBaseUrl = url;
+}
+
+export function getCachedRuntimeBaseUrl(): string | null {
+  return cachedRuntimeBaseUrl;
+}
+
 export function getHlvmRuntimeBaseUrl(): string {
-  return `http://127.0.0.1:${resolveHlvmRuntimePort()}`;
+  return cachedRuntimeBaseUrl ?? `http://127.0.0.1:${resolveHlvmRuntimePort()}`;
 }
 
 export async function withRuntimePortOverrideForTests<T>(
@@ -39,7 +50,9 @@ export async function withRuntimePortOverrideForTests<T>(
 ): Promise<T> {
   const globals = globalThis as RuntimeHostConfigGlobal;
   const previous = globals[TEST_RUNTIME_PORT_OVERRIDE_KEY];
+  const previousCachedUrl = cachedRuntimeBaseUrl;
   globals[TEST_RUNTIME_PORT_OVERRIDE_KEY] = port;
+  cachedRuntimeBaseUrl = null;
   try {
     return await fn();
   } finally {
@@ -48,5 +61,6 @@ export async function withRuntimePortOverrideForTests<T>(
     } else {
       globals[TEST_RUNTIME_PORT_OVERRIDE_KEY] = previous;
     }
+    cachedRuntimeBaseUrl = previousCachedUrl;
   }
 }

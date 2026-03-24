@@ -572,7 +572,7 @@ localAskTest({
       const result = await runLocalAsk(
         port,
         [
-          "--stateless",
+          "--no-session-persistence",
           "--verbose",
           "--model",
           "ollama/test-fixture",
@@ -621,7 +621,7 @@ localAskTest({
       const result = await runLocalAsk(
         port,
         [
-          "--stateless",
+          "--no-session-persistence",
           "--verbose",
           "--attach",
           imagePath,
@@ -664,7 +664,7 @@ localAskTest({
       const result = await runLocalAsk(
         port,
         [
-          "--stateless",
+          "--no-session-persistence",
           "--verbose",
           "--model",
           "ollama/test-fixture",
@@ -707,7 +707,7 @@ localAskTest({
         const result = await runLocalAsk(
           port,
           [
-            "--stateless",
+            "--no-session-persistence",
             "--verbose",
             "--model",
             "ollama/test-fixture",
@@ -742,7 +742,7 @@ localAskTest({
         const result = await runLocalAsk(
           port,
           [
-            "--stateless",
+            "--no-session-persistence",
             "--model",
             "ollama/test-fixture",
             "compression enhancement smoke",
@@ -776,7 +776,7 @@ localAskTest({
         const result = await runLocalAsk(
           port,
           [
-            "--stateless",
+            "--no-session-persistence",
             "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
@@ -816,7 +816,7 @@ localAskTest({
         const result = await runLocalAsk(
           port,
           [
-            "--stateless",
+            "--no-session-persistence",
             "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
@@ -860,7 +860,7 @@ localAskTest({
         const result = await runLocalAsk(
           port,
           [
-            "--stateless",
+            "--no-session-persistence",
             "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
@@ -901,7 +901,7 @@ localAskTest({
         const result = await runLocalAsk(
           port,
           [
-            "--stateless",
+            "--no-session-persistence",
             "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
@@ -957,7 +957,7 @@ localAskTest({
         const result = await runLocalAsk(
           port,
           [
-            "--stateless",
+            "--no-session-persistence",
             "--verbose",
             "--model",
             "ollama/test-fixture",
@@ -1008,7 +1008,7 @@ localAskTest({
         const passResult = await runLocalAsk(
           port,
           [
-            "--stateless",
+            "--no-session-persistence",
             "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
@@ -1033,7 +1033,7 @@ localAskTest({
         const failResult = await runLocalAsk(
           port,
           [
-            "--stateless",
+            "--no-session-persistence",
             "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
@@ -1075,7 +1075,7 @@ localAskTest({
         const result = await runLocalAsk(
           port,
           [
-            "--stateless",
+            "--no-session-persistence",
             "--verbose",
             "--model",
             "openai/o3",
@@ -1117,7 +1117,7 @@ localAskTest({
         const result = await runLocalAsk(
           port,
           [
-            "--stateless",
+            "--no-session-persistence",
             "--permission-mode", "acceptEdits",
             "--verbose",
             "--model",
@@ -1155,7 +1155,7 @@ localAskTest({
         const result = await runLocalAsk(
           port,
           [
-            "--stateless",
+            "--no-session-persistence",
             "--verbose",
             "--model",
             "ollama/test-fixture",
@@ -1194,7 +1194,7 @@ localAskTest({
       const result = await runLocalAsk(
         port,
         [
-          "--stateless",
+          "--no-session-persistence",
           "--verbose",
           "--model",
           LIVE_MODEL,

@@ -1,7 +1,6 @@
 import { log } from "../../api/log.ts";
 import { getProgressPercent } from "../../../common/ai-default-model.ts";
 import { capabilitiesToDisplayTags } from "../../providers/index.ts";
-import type { ModelInfo } from "../../providers/types.ts";
 import { RuntimeError, ValidationError } from "../../../common/error.ts";
 import { startModelBrowser } from "../repl-ink/model-browser.tsx";
 import { formatBytes } from "../../../common/limits.ts";
@@ -24,35 +23,7 @@ import {
   getRuntimeModelAvailability,
 } from "../../runtime/model-availability.ts";
 import { isOllamaCloudModelId } from "../../runtime/ollama-cloud-access.ts";
-
-function buildCatalogIndex(models: ModelInfo[]): Map<string, ModelInfo> {
-  const index = new Map<string, ModelInfo>();
-  for (const entry of models) {
-    index.set(entry.name.toLowerCase(), entry);
-  }
-  return index;
-}
-
-function findCatalogEntry(
-  index: Map<string, ModelInfo>,
-  modelName: string,
-): ModelInfo | null {
-  const lower = modelName.toLowerCase();
-  if (index.has(lower)) return index.get(lower) ?? null;
-  if (!lower.includes(":")) {
-    const latest = index.get(`${lower}:latest`);
-    if (latest) return latest;
-    for (const [name, entry] of index.entries()) {
-      if (name.startsWith(`${lower}:`)) return entry;
-    }
-  }
-  return null;
-}
-
-function pad(text: string, width: number): string {
-  if (text.length >= width) return truncate(text, width, "…");
-  return text.padEnd(width);
-}
+import { buildCatalogIndex, findCatalogEntry, pad } from "./model.ts";
 
 function formatDownloadProgress(task: ModelPullTask): string {
   const progress = task.progress;
@@ -161,6 +132,7 @@ export async function aiCommand(args: string[]): Promise<void> {
         );
       }
       log.raw.log(`Model ready: ${result.modelName}`);
+      log.raw.log("Hint: Use `hlvm model pull` instead.");
       return;
     }
     case "list": {
@@ -232,6 +204,7 @@ export async function aiCommand(args: string[]): Promise<void> {
           );
         }
       }
+      log.raw.log("\nHint: Use `hlvm model list` instead.");
       return;
     }
     case "downloads": {
@@ -299,6 +272,7 @@ export async function aiCommand(args: string[]): Promise<void> {
       const availability = await getRuntimeModelAvailability(configuredModel);
       const status = availability.available ? "installed" : "not installed";
       log.raw.log(`Default: ${configuredModel} (${status})`);
+      log.raw.log("Hint: Use `hlvm model` instead.");
       return;
     }
     case "browse":

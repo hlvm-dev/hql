@@ -37,12 +37,12 @@ export interface HqlPackageConfig extends Record<string, unknown> {
   dependencies?: Record<string, string>;
 }
 
-type MetadataFileType = "package.json" | "deno.json" | "jsr.json";
+export type MetadataFileType = "package.json" | "deno.json" | "jsr.json";
 
 /**
  * Metadata file types for JSR/NPM
  */
-interface MetadataStatus {
+export interface MetadataStatus {
   npm: MetadataFileType | null;
   jsr: MetadataFileType | null;
 }

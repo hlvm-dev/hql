@@ -17,7 +17,9 @@ import type { AgentExecutionMode } from "../agent/execution-mode.ts";
 import type { InteractionOption } from "../agent/registry.ts";
 import {
   getHlvmRuntimeBaseUrl,
+  HLVM_RUNTIME_PORT_SCAN_RANGE,
   resolveHlvmRuntimePort,
+  setCachedRuntimeBaseUrl,
 } from "./host-config.ts";
 import {
   type ChatMode,
@@ -353,7 +355,7 @@ async function requestRuntimeShutdown(
   }
 }
 
-function spawnRuntimeHost(authToken: string, buildId: string): void {
+function spawnRuntimeHost(authToken: string, buildId: string, port?: number): void {
   const platform = getPlatform();
   const env = {
     ...platform.env.toObject(),
@@ -367,6 +369,7 @@ function spawnRuntimeHost(authToken: string, buildId: string): void {
       platform.env.get("DENO_V8_FLAGS"),
       "--max-old-space-size=4096",
     ].filter(Boolean).join(","),
+    ...(port !== undefined ? { HLVM_REPL_PORT: String(port) } : {}),
   };
   const process = platform.command.run({
     cmd: buildRuntimeServeCommand(),
@@ -428,35 +431,105 @@ async function releaseRuntimeStartLock(): Promise<void> {
   }
 }
 
+function makeBaseUrl(port: number): string {
+  return `http://127.0.0.1:${port}`;
+}
+
+function cacheAndReturn(baseUrl: string, authToken: string): {
+  baseUrl: string;
+  authToken: string;
+} {
+  setCachedRuntimeBaseUrl(baseUrl);
+  return { baseUrl, authToken };
+}
+
 async function ensureRuntimeHost(): Promise<{
   baseUrl: string;
   authToken: string;
 }> {
+  const basePort = resolveHlvmRuntimePort();
   const baseUrl = getHlvmRuntimeBaseUrl();
   const identity = await getRuntimeHostIdentity();
-  const attachCompatibleHost = async (attempts = HEALTH_POLL_ATTEMPTS) => {
+
+  const attachCompatibleHost = async (
+    url: string,
+    attempts = HEALTH_POLL_ATTEMPTS,
+  ) => {
     const attached = await waitForRuntimeHost(
-      baseUrl,
+      url,
       (health) => matchesRuntimeHostIdentity(health, identity.buildId),
       attempts,
     );
     return attached?.authToken
-      ? { baseUrl, authToken: attached.authToken }
+      ? cacheAndReturn(url, attached.authToken)
       : null;
   };
 
+  // Check base port first
   const attached = await readHealth(baseUrl);
   if (
     attached?.status === "ok" && attached.authToken &&
     matchesRuntimeHostIdentity(attached, identity.buildId)
   ) {
-    return { baseUrl, authToken: attached.authToken };
+    return cacheAndReturn(baseUrl, attached.authToken);
   }
 
+  // If an incompatible host occupies the base port, scan for a free port
+  // instead of killing it (avoids race conditions with GUI app).
+  const incompatibleOnBasePort = attached?.status === "ok" &&
+    attached.authToken &&
+    !matchesRuntimeHostIdentity(attached, identity.buildId);
+
+  if (incompatibleOnBasePort) {
+    // Scan ports base+1..base+N for a compatible host or free port
+    for (
+      let offset = 1;
+      offset <= HLVM_RUNTIME_PORT_SCAN_RANGE;
+      offset++
+    ) {
+      const candidatePort = basePort + offset;
+      const candidateUrl = makeBaseUrl(candidatePort);
+      const candidateHealth = await readHealth(candidateUrl);
+
+      if (!candidateHealth) {
+        // Free port — start our host here
+        const authToken = crypto.randomUUID();
+        spawnRuntimeHost(authToken, identity.buildId, candidatePort);
+
+        const started = await waitForRuntimeHost(
+          candidateUrl,
+          (health) =>
+            health.authToken === authToken &&
+            matchesRuntimeHostIdentity(health, identity.buildId),
+          HEALTH_POLL_ATTEMPTS * 4,
+        );
+        if (started?.authToken) {
+          return cacheAndReturn(candidateUrl, started.authToken);
+        }
+        // Spawning failed on this port, try next
+        continue;
+      }
+
+      if (
+        candidateHealth.status === "ok" && candidateHealth.authToken &&
+        matchesRuntimeHostIdentity(candidateHealth, identity.buildId)
+      ) {
+        return cacheAndReturn(candidateUrl, candidateHealth.authToken);
+      }
+      // Port occupied by another incompatible host, try next
+    }
+
+    throw createRuntimeHostError(
+      "Failed to find a free port for the local HLVM runtime host. " +
+        `Ports ${basePort}-${basePort + HLVM_RUNTIME_PORT_SCAN_RANGE} are all occupied.`,
+    );
+  }
+
+  // Base port is free or no response — proceed with the original startup logic
   let acquiredLock = await tryAcquireRuntimeStartLock();
   if (!acquiredLock) {
     for (let i = 0; i < RUNTIME_START_LOCK_WAIT_ATTEMPTS; i++) {
-      const waitingAttachment = await attachCompatibleHost(1);
+      const waitingAttachment = await attachCompatibleHost(baseUrl, 1);
       if (waitingAttachment) {
         return waitingAttachment;
       }
@@ -469,6 +542,7 @@ async function ensureRuntimeHost(): Promise<{
 
     if (!acquiredLock) {
       const waitedAttachment = await attachCompatibleHost(
+        baseUrl,
         HEALTH_POLL_ATTEMPTS * 4,
       );
       if (waitedAttachment) {
@@ -486,24 +560,7 @@ async function ensureRuntimeHost(): Promise<{
       reattached?.status === "ok" && reattached.authToken &&
       matchesRuntimeHostIdentity(reattached, identity.buildId)
     ) {
-      return { baseUrl, authToken: reattached.authToken };
-    }
-    if (
-      reattached?.status === "ok" && reattached.authToken &&
-      !matchesRuntimeHostIdentity(reattached, identity.buildId)
-    ) {
-      const shutdownRequested = await requestRuntimeShutdown(
-        baseUrl,
-        reattached.authToken,
-      );
-      if (shutdownRequested) {
-        const stopped = await waitForRuntimeShutdown(baseUrl);
-        if (!stopped) {
-          throw createRuntimeHostError(
-            "Failed to replace the stale local HLVM runtime host.",
-          );
-        }
-      }
+      return cacheAndReturn(baseUrl, reattached.authToken);
     }
 
     const authToken = crypto.randomUUID();
@@ -520,10 +577,11 @@ async function ensureRuntimeHost(): Promise<{
       started?.authToken &&
       matchesRuntimeHostIdentity(started, identity.buildId)
     ) {
-      return { baseUrl, authToken: started.authToken };
+      return cacheAndReturn(baseUrl, started.authToken);
     }
 
     const compatibleAttached = await attachCompatibleHost(
+      baseUrl,
       HEALTH_POLL_ATTEMPTS * 4,
     );
     if (compatibleAttached) {

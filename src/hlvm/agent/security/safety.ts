@@ -553,10 +553,11 @@ async function readLine(
  * Priority:
  * 1. Explicit deny (highest priority)
  * 2. Explicit allow
- * 3. Headless mode rules (L0 allow, L1/L2 deny)
- * 4. Legacy yolo mode (allow all)
- * 5. Legacy auto-edit mode (allow L0+L1, prompt L2)
- * 6. Default mode (prompt for L1/L2)
+ * 3. L0 auto-approve (read-only, all modes)
+ * 4. dontAsk mode rules (L1/L2 deny)
+ * 5. bypassPermissions mode (allow all)
+ * 6. acceptEdits mode (allow L1, prompt L2)
+ * 7. Default/plan mode (prompt for L1/L2)
  *
  * @param toolName Tool name to check
  * @param safetyLevel Tool safety level (L0/L1/L2)
@@ -574,16 +575,18 @@ export function resolveToolPermission(
   // Priority 2: Explicit allow
   if (permissions.allowedTools.has(toolName)) return "allow";
 
-  // Priority 3: Non-interactive mode (dontAsk) rules
+  // Priority 3: L0 always auto-approved (read-only, all modes)
+  if (safetyLevel === "L0") return "allow";
+
+  // Priority 4: Non-interactive mode (dontAsk) rules
   if (permissions.mode === "dontAsk") {
-    if (safetyLevel === "L0") return "allow"; // Read-only always ok
-    return "deny"; // Block all write operations
+    return "deny"; // Block all write operations (L1/L2)
   }
 
-  // Priority 4: Bypass permissions mode
+  // Priority 5: Bypass permissions mode
   if (permissions.mode === "bypassPermissions") return "allow";
 
-  // Priority 5: Accept edits mode
+  // Priority 6: Accept edits mode
   if (permissions.mode === "acceptEdits" && safetyLevel === "L1") {
     return "allow";
   }
@@ -607,7 +610,7 @@ export function resolveToolPermission(
  *
  * @param toolName Tool name
  * @param args Tool arguments
- * @param permissionMode Permission mode: "default" | "acceptEdits" | "bypassPermissions" | "dontAsk"
+ * @param permissionMode Permission mode (see PermissionMode type)
  * @returns True if execution should proceed
  *
  * @example
@@ -650,49 +653,29 @@ export async function checkToolSafety(
   }
 
   // Apply explicit allow/deny lists and permission mode via resolveToolPermission
-  if (toolPermissions) {
-    const permissions: ToolPermissions = {
-      allowedTools: toolPermissions.allowedTools ?? new Set(),
-      deniedTools: toolPermissions.deniedTools ?? new Set(),
-      mode: permissionMode,
-    };
-    const decision = resolveToolPermission(
-      toolName,
-      classification.level,
-      permissions,
-    );
-    if (decision === "deny") {
-      return false;
-    }
-    if (decision === "allow") {
-      return true;
-    }
-    // If "prompt", continue to prompting logic below
+  const permissions: ToolPermissions = {
+    allowedTools: toolPermissions?.allowedTools ?? new Set(),
+    deniedTools: toolPermissions?.deniedTools ?? new Set(),
+    mode: permissionMode,
+  };
+  const decision = resolveToolPermission(
+    toolName,
+    classification.level,
+    permissions,
+  );
+  if (decision === "deny") {
+    return false;
   }
-
-  // Fallback to legacy mode-based logic (when no toolPermissions provided)
-  // Bypass permissions mode: auto-approve everything
-  if (permissionMode === "bypassPermissions") {
+  if (decision === "allow") {
     return true;
   }
 
-  // L0: Always auto-approve (all modes)
-  if (classification.level === "L0") {
-    return true;
-  }
-
-  // Accept edits mode: auto-approve L1 (file edits, web fetch)
-  if (permissionMode === "acceptEdits" && classification.level === "L1") {
-    return true;
-  }
-
-  // L1 default mode: Check confirmation cache, then prompt
+  // decision === "prompt": Check L1 cache, then prompt user
   if (classification.level === "L1") {
     if (hasL1Confirmation(toolName, args, l1Store)) {
       return true;
     }
 
-    // Prompt user
     const result = await promptUserConfirmation(
       toolName,
       args,
@@ -708,7 +691,7 @@ export async function checkToolSafety(
     return result.confirmed;
   }
 
-  // L2: Always prompt (unless bypassPermissions, handled above)
+  // L2: Always prompt
   const result = await promptUserConfirmation(
     toolName,
     args,

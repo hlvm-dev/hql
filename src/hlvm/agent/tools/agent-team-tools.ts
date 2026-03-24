@@ -16,6 +16,7 @@
  */
 
 import { ValidationError } from "../../../common/error.ts";
+import { truncate } from "../../../common/utils.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 import { isToolArgsObject } from "../validation.ts";
 import {
@@ -98,10 +99,6 @@ function optionalStringArray(
     return value as string[];
   }
   return undefined;
-}
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max) + "..." : s;
 }
 
 function getMemberId(options: ToolExecutionOptions | undefined, runtime: TeamRuntime): string {
@@ -878,6 +875,15 @@ export const teamStatus: ToolMetadata = {
 };
 
 // ── Tool Registry ─────────────────────────────────────────────────────
+
+/** Tool names available to teammates (excludes Teammate itself — managed by lead only). */
+export const TEAMMATE_AVAILABLE_TOOL_NAMES = [
+  "SendMessage",
+  "TaskCreate",
+  "TaskGet",
+  "TaskUpdate",
+  "TaskList",
+] as const;
 
 export const AGENT_TEAM_TOOLS: Record<string, ToolMetadata> = {
   Teammate: teammate,

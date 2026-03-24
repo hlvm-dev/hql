@@ -23,6 +23,7 @@ import { chatCommand, showChatHelp } from "./commands/chat.ts";
 import { ollamaCommand, showOllamaHelp } from "./commands/ollama.ts";
 import { serveCommand, showServeHelp } from "./commands/serve.ts";
 import { mcpCommand, showMcpHelp } from "./commands/mcp.ts";
+import { modelCommand, showModelHelp } from "./commands/model.ts";
 
 import { run as runCommand } from "./run.ts";
 import { startInkRepl } from "./repl-ink/index.tsx";
@@ -85,6 +86,7 @@ Commands:
   serve              Start HTTP REPL server
   hql                HQL language tools (init, compile, publish)
   ask "<query>"      Ask AI agent to perform a task
+  model              Manage AI models (list, set, show, pull, rm)
   ai                 Setup and manage AI models
   ollama serve       Start Ollama server (forwards to system Ollama)
   mcp                Manage MCP tool servers
@@ -131,6 +133,7 @@ const COMMANDS: Record<string, CommandEntry> = {
   ollama: { run: ollamaCommand, help: showOllamaHelp },
   serve: { run: serveCommand, help: showServeHelp },
   mcp: { run: mcpCommand, help: showMcpHelp },
+  model: { run: modelCommand, help: showModelHelp },
 };
 
 /**

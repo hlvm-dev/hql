@@ -518,23 +518,11 @@ export async function executeToolCall(
       : undefined;
 
     // Check safety
-    const permissionMode = config.permissionMode === "bypassPermissions"
-      ? "bypassPermissions"
-      : config.permissionMode === "acceptEdits"
-      ? "acceptEdits"
-      : config.permissionMode === "dontAsk"
-      ? "dontAsk"
-      : "default";
-    const toolPermissions = config.toolAllowlist || config.toolDenylist
-      ? {
-        allowedTools: config.toolAllowlist
-          ? new Set(config.toolAllowlist)
-          : undefined,
-        deniedTools: config.toolDenylist
-          ? new Set(config.toolDenylist)
-          : undefined,
-      }
-      : undefined;
+    const permissionMode = config.permissionMode ?? "default";
+    const toolPermissions = {
+      allowedTools: config.toolAllowlist ? new Set(config.toolAllowlist) : new Set<string>(),
+      deniedTools: config.toolDenylist ? new Set(config.toolDenylist) : new Set<string>(),
+    };
     const approved = await checkToolSafety(
       toolCall.toolName,
       coercedArgs,

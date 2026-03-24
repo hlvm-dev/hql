@@ -24,6 +24,7 @@ import {
   getConfiguredModelReadiness,
   getModelReadiness,
 } from "../../../runtime/configured-model-readiness.ts";
+import { ensureRuntimeHostReady } from "../../../runtime/host-client.ts";
 
 interface InitializationState {
   loading: boolean;
@@ -118,8 +119,17 @@ export function useInitialization(state: ReplState): InitializationState {
       }
 
       const globalAi = (globalThis as Record<string, unknown>).ai;
-      const isAiAvailable = globalAi != null &&
+      let isAiAvailable = globalAi != null &&
         (typeof globalAi === "object" || typeof globalAi === "function");
+
+      // Verify runtime host is actually reachable with a compatible build
+      if (isAiAvailable) {
+        try {
+          await ensureRuntimeHostReady();
+        } catch {
+          isAiAvailable = false;
+        }
+      }
 
       const readiness = normalizedModelId
         ? await getModelReadiness(normalizedModelId)
@@ -168,10 +178,18 @@ export function useInitialization(state: ReplState): InitializationState {
           }
         }
 
-        // AI is available if globalThis.ai is registered (done by registerApis)
+        // AI is available if globalThis.ai is registered AND runtime host is reachable
         const globalAi = (globalThis as Record<string, unknown>).ai;
-        const isAiAvailable = globalAi != null &&
+        let isAiAvailable = globalAi != null &&
           (typeof globalAi === "object" || typeof globalAi === "function");
+
+        if (isAiAvailable) {
+          try {
+            await ensureRuntimeHostReady();
+          } catch {
+            isAiAvailable = false;
+          }
+        }
 
         setAiAvailable(isAiAvailable);
 

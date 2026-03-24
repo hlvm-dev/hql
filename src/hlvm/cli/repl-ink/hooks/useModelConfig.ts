@@ -16,7 +16,6 @@ import {
 import {
   type AgentExecutionMode,
   cycleReplAgentExecutionMode,
-  getAgentExecutionModeChangeMessage,
   toAgentExecutionMode,
 } from "../../../agent/execution-mode.ts";
 import {
@@ -145,7 +144,6 @@ export function useModelConfig(
     const nextMode = cycleReplAgentExecutionMode(agentExecutionMode);
     replModeTouchedRef.current = true;
     setAgentExecutionMode(nextMode);
-    flashFooterStatus(getAgentExecutionModeChangeMessage(nextMode));
   }, [agentExecutionMode, flashFooterStatus, supportsAgent]);
 
   const refreshRuntimeConfigState = useCallback(async (): Promise<

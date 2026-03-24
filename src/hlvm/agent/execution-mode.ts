@@ -10,7 +10,7 @@ const EXECUTION_MODE_META: Record<AgentExecutionMode, { label: string }> = {
   "default": { label: "Default mode" },
   "acceptEdits": { label: "Accept edits" },
   "plan": { label: "Plan mode" },
-  "bypassPermissions": { label: "Bypass permissions" },
+  "bypassPermissions": { label: "Full auto" },
   "dontAsk": { label: "Non-interactive" },
 };
 

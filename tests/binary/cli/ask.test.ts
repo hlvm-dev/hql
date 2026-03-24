@@ -42,7 +42,7 @@ binaryTest(
       const port = await findFreePort();
       const result = await runCLI(
         "ask",
-        ["--stateless", "--model", "ollama/test-fixture", "inspect the project"],
+        ["--no-session-persistence", "--model", "ollama/test-fixture", "inspect the project"],
         {
           cwd: dir,
           env: {
@@ -76,7 +76,7 @@ binaryTest(
       const result = await runCLI(
         "ask",
         [
-          "--stateless",
+          "--no-session-persistence",
           "--verbose",
           "--model",
           "ollama/test-fixture",
@@ -113,7 +113,7 @@ binaryTest(
       const result = await runCLI(
         "ask",
         [
-          "--stateless",
+          "--no-session-persistence",
           "--verbose",
           "--model",
           "ollama/test-fixture",
@@ -148,8 +148,8 @@ binaryTest(
       const result = await runCLI(
         "ask",
         [
-          "--stateless",
-          "--json",
+          "--no-session-persistence",
+          "--output-format", "stream-json",
           "--model",
           "ollama/test-fixture",
           "coordinate the team runtime",
@@ -236,7 +236,7 @@ binaryTest(
       const result = await runCLI(
         "ask",
         [
-          "--stateless",
+          "--no-session-persistence",
           "--verbose",
           "--model",
           "ollama/test-fixture",

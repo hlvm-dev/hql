@@ -50,7 +50,7 @@ import {
 import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
-import { useTeamState } from "../hooks/useTeamState.ts";
+import { useTeamState, type TeamMemberItem } from "../hooks/useTeamState.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
 import { useOverlayPanel } from "../hooks/useOverlayPanel.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
@@ -199,6 +199,11 @@ function AppContent(
     isEvaluatingRef.current = isEvaluating;
   }, [isEvaluating]);
   const [nextId, setNextId] = useState(1);
+  // Split point: history entries with id < this value render above ConversationPanel,
+  // entries with id >= this value render below. Set when conversation context first activates.
+  const [conversationHistorySplit, setConversationHistorySplit] = useState<
+    number | null
+  >(null);
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
   const composerRef = useRef<ComposerSurfaceHandle | null>(null);
@@ -715,7 +720,7 @@ function AppContent(
           setActiveOverlay("team-dashboard");
         }
         // Cycle: -1 → 0 → 1 → ... → workerCount-1 → -1
-        setFocusedTeammateIndex((prev) =>
+        setFocusedTeammateIndex((prev: number) =>
           prev + 1 >= workerCount ? -1 : prev + 1
         );
       },
@@ -860,7 +865,7 @@ function AppContent(
           addHistoryEntry(code, {
             success: false,
             error: new Error("Evaluation already running. Ctrl+B to background, Esc cancels."),
-          });
+          }, hasConversationContext);
           return;
         }
         // Fall through to HQL eval below
@@ -966,7 +971,7 @@ function AppContent(
           evalState.taskId = taskId;
           failEvalTask(taskId, err);
         } else {
-          addHistoryEntry(code, { success: false, error: err });
+          addHistoryEntry(code, { success: false, error: err }, hasConversationContext);
         }
         finalizeForeground();
         return;
@@ -983,7 +988,7 @@ function AppContent(
           evalState.taskId = taskId;
           failEvalTask(taskId, err);
         } else {
-          addHistoryEntry(code, { success: false, error: err });
+          addHistoryEntry(code, { success: false, error: err }, hasConversationContext);
         }
         finalizeForeground();
         return;
@@ -1002,7 +1007,7 @@ function AppContent(
 
         if (!evalState.backgrounded) {
           const historyId = nextId;
-          addHistoryEntry(code, { success: true, streamTaskId: taskId });
+          addHistoryEntry(code, { success: true, streamTaskId: taskId }, hasConversationContext);
           evalState.historyId = historyId;
         }
 
@@ -1213,7 +1218,7 @@ function AppContent(
     !pickerInteractionActive;
   const isInputVisible = !isOverlayOpen &&
     (surfacePanel === "none" || isConversationInputVisible);
-  const isInputDisabled = init.loading ||
+  const isInputDisabled =
     (hasConversationContext && pendingInteraction?.mode === "permission");
   const isConversationTaskRunning = hasConversationContext &&
     (isEvaluating || agentControllerRef.current !== null);
@@ -1324,16 +1329,12 @@ function AppContent(
         isOverlayOpen,
         hasStandaloneSurface,
         hasActivePlanningState,
-      }) &&
-        (
-          init.ready
-            ? (
-              <Banner
-                errors={init.errors}
-              />
-            )
-            : <LoadingScreen progress={init.progress} />
-        )}
+      }) && (
+        <>
+          <Banner errors={init.errors} />
+          {!init.ready && <LoadingScreen progress={init.progress} />}
+        </>
+      )}
 
       {/* Overlays rendered as siblings (not ternary) to preserve Ink's live area tracking */}
       {activeOverlay === "palette" && (
@@ -1397,7 +1398,8 @@ function AppContent(
                     {lineIndex === 0
                       ? "hlvm>"
                       : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
-                  </Text>{" "}
+                  </Text>
+                  <Text>{" "}</Text>
                   <Box>
                     {getHighlightSegments(line).map((seg, segIdx) => (
                       <React.Fragment
@@ -1517,8 +1519,8 @@ function AppContent(
             teamAttentionCount={teamState.attentionItems.length}
             teamWorkerSummary={teamState.active
               ? teamState.members
-                  .filter(m => m.role === "worker")
-                  .map(m => `${m.id}: ${m.currentTaskId ? "working" : "idle"}`)
+                  .filter((m: TeamMemberItem) => m.role === "worker")
+                  .map((m: TeamMemberItem) => `${m.id}: ${m.currentTaskId ? "working" : "idle"}`)
                   .join(" \u00B7 ") || undefined
               : undefined}
             activeTaskCount={activeCount}

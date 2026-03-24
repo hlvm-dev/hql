@@ -9,7 +9,6 @@
 import { decodeBase64 } from "@std/encoding/base64";
 import { generateText, jsonSchema, Output, streamText, tool } from "ai";
 import type { LanguageModel, ModelMessage, ToolCallPart, ToolSet } from "ai";
-import type { ZodType } from "zod";
 import type {
   ChatOptions,
   ChatStructuredResponse,
@@ -1396,18 +1395,16 @@ export async function chatStructuredWithSdk(
 export async function generateStructuredWithSdk(
   spec: SdkModelSpec,
   messages: SdkConvertibleMessage[],
-  zodSchema: ZodType,
+  schema: Record<string, unknown>,
   options?: { signal?: AbortSignal; temperature?: number },
 ): Promise<unknown> {
   const model = await createSdkLanguageModel(spec);
   const sdkMessages = convertToSdkMessages(messages);
   try {
-    // deno-lint-ignore no-explicit-any
-    const outputSpec = Output.object({ schema: zodSchema as any });
     const { output } = await generateText({
       model,
       messages: sdkMessages,
-      output: outputSpec,
+      output: Output.object({ schema: jsonSchema(schema) }),
       temperature: options?.temperature ?? 0.0,
       abortSignal: options?.signal,
     });
