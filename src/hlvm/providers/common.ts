@@ -86,7 +86,20 @@ function pickProviderErrorText(value: unknown): string | null {
 export function extractProviderErrorMessage(text: string): string | null {
   try {
     const json = JSON.parse(text) as Record<string, unknown>;
-    return pickProviderErrorText(json);
+    const message = pickProviderErrorText(json);
+    // Anthropic: {"type":"error","error":{"type":"invalid_request_error","message":"Error"}}
+    // When the message is generic (e.g. just "Error"), include the error type for context.
+    const errorObj = json.error;
+    if (
+      errorObj && typeof errorObj === "object" &&
+      typeof (errorObj as Record<string, unknown>).type === "string"
+    ) {
+      const errorType = (errorObj as Record<string, unknown>).type as string;
+      if (!message || message.toLowerCase() === "error") {
+        return errorType.replace(/_/g, " ");
+      }
+    }
+    return message;
   } catch { /* not JSON or unexpected shape */ }
   return null;
 }
@@ -205,6 +218,7 @@ export function formatProviderFailureMessage(options: {
   status?: number | null;
   responseBody?: string;
   fallbackMessage?: string;
+  modelId?: string;
 }): string {
   const {
     providerName,
@@ -212,6 +226,7 @@ export function formatProviderFailureMessage(options: {
     status,
     responseBody,
     fallbackMessage,
+    modelId,
   } = options;
   const summary = providerFailureSummary(providerName, code, status);
   const detailCandidates = [
@@ -224,12 +239,14 @@ export function formatProviderFailureMessage(options: {
     !isGenericFailureDetail(candidate, status)
   );
 
+  const modelHint = modelId ? ` (model: ${modelId})` : "";
+
   if (detail) {
-    return `${summary}: ${detail}`;
+    return `${summary}${modelHint}: ${detail}`;
   }
 
   const fix = getErrorFixes(code)[0];
-  return fix ? `${summary}. ${fix}` : summary;
+  return fix ? `${summary}${modelHint}. ${fix}` : `${summary}${modelHint}`;
 }
 
 export function classifyProviderErrorCode(

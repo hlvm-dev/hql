@@ -652,7 +652,7 @@ export class SdkAgentEngine implements AgentEngine {
         model,
         messages: cacheDecorated.messages,
         tools: cacheDecorated.tools,
-        temperature: config.options?.temperature ?? 0.0,
+        ...(config.options?.temperature != null && { temperature: config.options.temperature }),
         maxTokens: config.options?.maxTokens,
         abortSignal: signal,
         experimental_repairToolCall: repairToolCall,

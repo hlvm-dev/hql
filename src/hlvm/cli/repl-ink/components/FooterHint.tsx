@@ -34,6 +34,7 @@ interface FooterProps {
   statusMessage?: string;
   contextUsageLabel?: string;
   modeLabel?: string;
+  planningPhase?: string;
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
   inConversation?: boolean;
@@ -48,6 +49,8 @@ interface FooterProps {
   activeTaskCount?: number;
   recentActiveTaskLabel?: string;
   aiAvailable?: boolean;
+  conversationQueueCount?: number;
+  localEvalQueueCount?: number;
 }
 
 interface FooterLeftStateInput {
@@ -56,6 +59,7 @@ interface FooterLeftStateInput {
   streamingState?: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   modeLabel?: string;
+  planningPhase?: string;
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
   hasPendingPermission?: boolean;
@@ -69,6 +73,8 @@ interface FooterLeftStateInput {
   recentActiveTaskLabel?: string;
   spinner: string;
   statusMessage?: string;
+  conversationQueueCount?: number;
+  localEvalQueueCount?: number;
 }
 
 interface FooterLeftState {
@@ -84,6 +90,7 @@ export function buildFooterLeftState({
   streamingState,
   activeTool,
   modeLabel,
+  planningPhase,
   interactionQueueLength = 0,
   hasDraftInput,
   hasPendingPermission,
@@ -97,6 +104,8 @@ export function buildFooterLeftState({
   recentActiveTaskLabel,
   spinner,
   statusMessage,
+  conversationQueueCount = 0,
+  localEvalQueueCount = 0,
 }: FooterLeftStateInput): FooterLeftState {
   const modeChip = summarizeModeLabel(modeLabel);
   const queuedCount = Math.max(0, interactionQueueLength - 1);
@@ -143,6 +152,12 @@ export function buildFooterLeftState({
     if (teamWorkerSegment) segments.push(teamWorkerSegment);
     if (bgChip) segments.push(bgChip);
     if (bgTaskHint) segments.push(bgTaskHint);
+    if (conversationQueueCount > 0) {
+      segments.push({ text: `+${conversationQueueCount} chat`, tone: "active", chip: true });
+    }
+    if (localEvalQueueCount > 0) {
+      segments.push({ text: `+${localEvalQueueCount} eval`, tone: "active", chip: true });
+    }
 
     const hintText = isEvaluating
       ? "Ctrl+B background \u00B7 Esc cancels"
@@ -225,8 +240,25 @@ export function buildFooterLeftState({
       chip: true,
     });
   }
+  if (conversationQueueCount > 0) {
+    segments.push({
+      text: `+${conversationQueueCount} chat`,
+      tone: "active",
+      chip: true,
+    });
+  }
+  if (localEvalQueueCount > 0) {
+    segments.push({
+      text: `+${localEvalQueueCount} eval`,
+      tone: "active",
+      chip: true,
+    });
+  }
   if (teamChip) segments.push(teamChip);
   if (teamWorkerSegment) segments.push(teamWorkerSegment);
+  if (planningPhase && planningPhase !== "done") {
+    segments.push({ text: `Plan ${planningPhase}`, tone: "active", chip: true });
+  }
   if (bgChip) segments.push(bgChip);
   if (bgTaskHint) segments.push(bgTaskHint);
   if (
@@ -289,13 +321,14 @@ export function buildFooterRightState({
   };
 }
 
-export function FooterHint({
+export const FooterHint = React.memo(function FooterHint({
   streamingState,
   activeTool,
   modelName,
   statusMessage,
   contextUsageLabel,
   modeLabel,
+  planningPhase,
   interactionQueueLength = 0,
   hasDraftInput,
   inConversation,
@@ -310,6 +343,8 @@ export function FooterHint({
   activeTaskCount,
   recentActiveTaskLabel,
   aiAvailable = false,
+  conversationQueueCount,
+  localEvalQueueCount,
 }: FooterProps): React.ReactElement {
   const { stdout } = useStdout();
   const { color } = useTheme();
@@ -327,6 +362,7 @@ export function FooterHint({
     streamingState,
     activeTool,
     modeLabel,
+    planningPhase,
     interactionQueueLength,
     hasDraftInput,
     hasPendingPermission,
@@ -340,6 +376,8 @@ export function FooterHint({
     recentActiveTaskLabel,
     spinner,
     statusMessage,
+    conversationQueueCount,
+    localEvalQueueCount,
   });
 
   const right = buildFooterRightState({
@@ -362,7 +400,6 @@ export function FooterHint({
   const rightLen = rightParts.length > 0 ? rightText.length + 2 : 0;
   const gap = 2; // minimum gap between left and right
   const leftMaxWidth = Math.max(8, contentWidth - rightLen - gap);
-  const separator = "─".repeat(contentWidth);
   const fittedSegments = left.mode === "segments"
     ? fitShellFooterSegments(left.segments, leftMaxWidth)
     : [];
@@ -406,11 +443,12 @@ export function FooterHint({
 
   return (
     <Box flexDirection="column">
-      <Text color={sc.shell.separator}>{separator}</Text>
       <Box
         flexGrow={1}
         flexDirection="row"
         justifyContent="space-between"
+        paddingLeft={1}
+        paddingRight={1}
       >
         <Box>
           {left.mode === "message"
@@ -454,4 +492,4 @@ export function FooterHint({
       </Box>
     </Box>
   );
-}
+});

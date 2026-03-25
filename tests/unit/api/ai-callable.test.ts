@@ -1,6 +1,8 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert@1";
 import { ai } from "../../../src/hlvm/api/ai.ts";
 import { registerProvider, setDefaultProvider } from "../../../src/hlvm/providers/registry.ts";
+import { setHlvmDirForTests, resetHlvmDirCacheForTests } from "../../../src/common/paths.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 import type { AIProvider } from "../../../src/hlvm/providers/types.ts";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -39,6 +41,15 @@ function createMockProvider(): AIProvider {
 // Register mock AFTER ai.ts import (which triggers providers/index.ts init)
 registerProvider("mock", createMockProvider, { isDefault: true });
 setDefaultProvider("mock");
+
+// Isolate tests from the developer's real config by pointing HLVM_DIR to a
+// temp directory with a config that routes to the mock provider.
+const tmpDir = Deno.makeTempDirSync();
+await getPlatform().fs.writeTextFile(
+  `${tmpDir}/config.json`,
+  JSON.stringify({ model: "mock/mock-model", modelConfigured: true }),
+);
+setHlvmDirForTests(tmpDir);
 
 function resetMock(response = "mock response") {
   mockResponse = response;

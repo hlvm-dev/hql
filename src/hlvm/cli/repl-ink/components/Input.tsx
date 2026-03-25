@@ -349,6 +349,12 @@ export function Input({
   } = useReplContext();
   const [cursorPos, setCursorPos] = useState(value.length);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const historyIndexRef = useRef(-1);
+  // Sync wrapper: keeps ref + state in lockstep for rapid keypresses
+  const updateHistoryIndex = useCallback((idx: number) => {
+    historyIndexRef.current = idx;
+    setHistoryIndex(idx);
+  }, []);
   const [tempInput, setTempInput] = useState("");
 
   // Theme from context
@@ -482,7 +488,7 @@ export function Input({
     setPlaceholders([]);
     setPlaceholderIndex(-1);
     setSuggestion(null);
-    setHistoryIndex(-1);
+    updateHistoryIndex(-1);
     setTempInput("");
     setCursorPos(
       Math.max(
@@ -497,6 +503,7 @@ export function Input({
     historySearch.actions,
     restoredCursorOffset,
     restoredDraftRevision,
+    updateHistoryIndex,
     value,
     value.length,
   ]);
@@ -577,16 +584,34 @@ export function Input({
 
   // Update suggestion when value changes
   useEffect(() => {
+    const effectiveValue = pendingValueRef.current ?? value;
+
+    // History recall must stay inert: no ghost text while browsing recalled
+    // entries, and no suggestion computed from a stale pre-recall prop value.
+    if (historyIndex !== -1 || textChangeFromHistoryRef.current) {
+      setSuggestion(null);
+      return;
+    }
+
     // Don't show ghost text suggestion when completion dropdown is visible
     if (
-      cursorPos === value.length && value.length > 0 && !completion.isVisible
+      cursorPos === effectiveValue.length &&
+      effectiveValue.length > 0 &&
+      !completion.isVisible
     ) {
-      const found = findSuggestion(value, history, userBindings);
+      const found = findSuggestion(effectiveValue, history, userBindings);
       setSuggestion(found);
     } else {
       setSuggestion(null);
     }
-  }, [value, cursorPos, history, userBindings, completion.isVisible]);
+  }, [
+    value,
+    cursorPos,
+    history,
+    userBindings,
+    completion.isVisible,
+    historyIndex,
+  ]);
 
   // Cleanup paste timeout on unmount
   useEffect(() => {
@@ -927,7 +952,7 @@ export function Input({
         historySearch.actions.cancelSearch();
         exitPlaceholderMode();
         setSuggestion(null);
-        setHistoryIndex(-1);
+        updateHistoryIndex(-1);
         setTempInput("");
         onChange("");
         setCursorPos(0);
@@ -1203,7 +1228,7 @@ export function Input({
     textChangeFromCyclingRef.current = false;
     clearPasteBuffer();
     cancelPendingEsc();
-    setHistoryIndex(-1);
+    updateHistoryIndex(-1);
     setTempInput("");
     completion.close();
     historySearch.actions.cancelSearch();
@@ -1220,6 +1245,7 @@ export function Input({
     exitPlaceholderMode,
     historySearch.actions,
     onChange,
+    updateHistoryIndex,
   ]);
 
   const cycleComposerMode = useCallback(() => {
@@ -1389,6 +1415,7 @@ export function Input({
   // Helper: navigate history
   // FIX H4: Clear paste buffer when navigating history
   // FIX H5: Capture value directly to avoid stale closure
+  // Reads from historyIndexRef to avoid React async state batching races
   const navigateHistory = useCallback((direction: number) => {
     if (history.length === 0) return;
 
@@ -1399,43 +1426,46 @@ export function Input({
     // Suppress completion auto-trigger for recalled history entries (inert recall)
     textChangeFromHistoryRef.current = true;
     completion.close();
+    setSuggestion(null);
+
+    const currentIdx = historyIndexRef.current;
 
     if (direction < 0) {
       // Up arrow - go back in history
-      if (historyIndex === -1) {
+      if (currentIdx === -1) {
         // FIX H5: Save current input value directly (captured at call time)
         const entry = history[history.length - 1];
         setTempInput(value);
-        setHistoryIndex(history.length - 1);
+        updateHistoryIndex(history.length - 1);
         pendingValueRef.current = entry;
         onChange(entry);
         setCursorPos(entry.length);
-      } else if (historyIndex > 0) {
-        const entry = history[historyIndex - 1];
-        setHistoryIndex(historyIndex - 1);
+      } else if (currentIdx > 0) {
+        const entry = history[currentIdx - 1];
+        updateHistoryIndex(currentIdx - 1);
         pendingValueRef.current = entry;
         onChange(entry);
         setCursorPos(entry.length);
       }
     } else {
       // Down arrow - go forward in history
-      if (historyIndex === -1) return;
+      if (currentIdx === -1) return;
 
-      if (historyIndex < history.length - 1) {
-        const entry = history[historyIndex + 1];
-        setHistoryIndex(historyIndex + 1);
+      if (currentIdx < history.length - 1) {
+        const entry = history[currentIdx + 1];
+        updateHistoryIndex(currentIdx + 1);
         pendingValueRef.current = entry;
         onChange(entry);
         setCursorPos(entry.length);
       } else {
         // Restore temp input
-        setHistoryIndex(-1);
+        updateHistoryIndex(-1);
         pendingValueRef.current = tempInput;
         onChange(tempInput);
         setCursorPos(tempInput.length);
       }
     }
-  }, [history, historyIndex, tempInput, value, onChange, pushUndo, clearPasteBuffer, completion]);
+  }, [history, tempInput, value, onChange, pushUndo, clearPasteBuffer, completion, updateHistoryIndex]);
 
   // Helper: Tab completion toggle.
   // Behavior: open dropdown when closed, close it when open.
@@ -1900,6 +1930,12 @@ export function Input({
         const selected = historySearch.actions.confirm();
         if (selected !== null) {
           pushUndo();
+          textChangeFromHistoryRef.current = true;
+          completion.close();
+          setSuggestion(null);
+          updateHistoryIndex(-1);
+          setTempInput("");
+          pendingValueRef.current = selected;
           onChange(selected);
           setCursorPos(selected.length);
         }
@@ -2290,7 +2326,7 @@ export function Input({
           pendingAttachmentOpsRef.current = 0;
           pushUndo();
           pendingValueRef.current = "";
-          setHistoryIndex(-1);
+          updateHistoryIndex(-1);
           setTempInput("");
           onChange("");
           setCursorPos(0);
@@ -2588,7 +2624,7 @@ export function Input({
     // current logical line, with cross-line handling at boundaries.
     if (key.upArrow) {
       const pw = getShellPromptPrefixWidth(promptLabel);
-      const cw = Math.max(1, (stdout?.columns ?? 80) - pw);
+      const cw = Math.max(1, (stdout?.columns ?? 80) - pw - 4);
       const lines = value.split("\n");
       let acc = 0;
       let logIdx = 0;
@@ -2603,7 +2639,6 @@ export function Input({
       const wrap = wrapLine(lines[logIdx], cw);
       const chunkIdx = findChunkIndex(wrap.offsets, posInLine);
       if (chunkIdx > 0) {
-        // Move up within this logical line (to previous visual chunk)
         const colInChunk = posInLine - wrap.offsets[chunkIdx];
         const prevOff = wrap.offsets[chunkIdx - 1];
         const prevLen = wrap.chunks[chunkIdx - 1].length;
@@ -2611,7 +2646,6 @@ export function Input({
           acc + prevOff + Math.min(colInChunk, Math.max(0, prevLen - 1)),
         );
       } else if (logIdx > 0) {
-        // Cross to last visual row of previous logical line
         const colInChunk = posInLine - wrap.offsets[0];
         const prevLine = lines[logIdx - 1];
         const prevStart = acc - prevLine.length - 1;
@@ -2622,18 +2656,15 @@ export function Input({
           prevStart + lastOff + Math.min(colInChunk, Math.max(0, lastLen - 1)),
         );
       } else if (!value.includes("\n") || cursorPos === 0) {
-        // Single-line: always navigate history
-        // Multiline at pos 0: navigate history
         navigateHistory(-1);
       } else {
-        // Multiline, top line, cursor not at 0: move to start first
         setCursorPos(0);
       }
       return;
     }
     if (key.downArrow) {
       const pw = getShellPromptPrefixWidth(promptLabel);
-      const cw = Math.max(1, (stdout?.columns ?? 80) - pw);
+      const cw = Math.max(1, (stdout?.columns ?? 80) - pw - 4);
       const lines = value.split("\n");
       let acc = 0;
       let logIdx = 0;
@@ -2973,12 +3004,18 @@ export function Input({
   // Render with syntax highlighting
   // Paren matching: highlight BOTH brackets of a pair when cursor is ON/NEAR any delimiter
   // Returns array of [cursorBracketPos, matchingBracketPos] for pair highlighting
+  // Use pending value for immediate display when parent prop hasn't caught up yet.
+  // When navigateHistory calls onChange (parent state) + setCursorPos (local state),
+  // Input re-renders with the new cursorPos but stale value prop. Reading from
+  // pendingValueRef ensures the display shows the recalled entry immediately.
+  const displayValue = pendingValueRef.current ?? value;
+
   const bracketPair = useMemo(() => {
     // Check if cursor is ON a bracket (opening or closing)
-    if (cursorPos < value.length) {
-      const ch = value[cursorPos];
+    if (cursorPos < displayValue.length) {
+      const ch = displayValue[cursorPos];
       if ("()[]{}".includes(ch)) {
-        const matchPos = findMatchingParen(value, cursorPos);
+        const matchPos = findMatchingParen(displayValue, cursorPos);
         if (matchPos !== null) {
           return [cursorPos, matchPos]; // Both brackets of the pair
         }
@@ -2986,16 +3023,16 @@ export function Input({
     }
     // Check if cursor is just AFTER a closing bracket
     if (cursorPos > 0) {
-      const ch = value[cursorPos - 1];
+      const ch = displayValue[cursorPos - 1];
       if (")]}".includes(ch)) {
-        const matchPos = findMatchingParen(value, cursorPos - 1);
+        const matchPos = findMatchingParen(displayValue, cursorPos - 1);
         if (matchPos !== null) {
           return [cursorPos - 1, matchPos]; // Both brackets of the pair
         }
       }
     }
     return null;
-  }, [value, cursorPos]);
+  }, [displayValue, cursorPos]);
 
   const rawGhostText = suggestion ? suggestion.ghost : "";
   const hasPlaceholderMode = placeholders.length > 0 && placeholderIndex >= 0;
@@ -3131,11 +3168,13 @@ export function Input({
   ]);
 
   const visualLayout = useMemo(() => {
-    const logicalLines = value.split("\n");
+    const logicalLines = displayValue.split("\n");
     const promptSlotWidth = getShellPromptSlotWidth(promptLabel);
     const prefixWidth = promptSlotWidth + 1;
     const termWidth = stdout?.columns ?? 80;
-    const contentWidth = Math.max(1, termWidth - prefixWidth);
+    // 4 = 2 (left+right border chars) + 2 (left+right padding inside border)
+    const borderOverhead = 4;
+    const contentWidth = Math.max(1, termWidth - prefixWidth - borderOverhead);
     const wrappedLines = logicalLines.map((line: string) => ({
       line,
       wrap: wrapLine(line, contentWidth),
@@ -3167,7 +3206,7 @@ export function Input({
           globalOffset: chunkGlobalOffset,
           isLastVisual: logIdx === lastLogIdx &&
             chunkIdx === wrap.chunks.length - 1,
-          key: `${logIdx}-${chunkIdx}`,
+          key: `${logIdx}-${chunkIdx}-${text}`,
           logIdx,
           prompt: isFirstVisual
             ? padShellPromptLabel(promptLabel)
@@ -3185,7 +3224,7 @@ export function Input({
       logicalLines,
       wrappedLines,
     };
-  }, [promptLabel, renderChunkText, stdout?.columns, value]);
+  }, [promptLabel, renderChunkText, stdout?.columns, displayValue]);
 
   const cursorLayout = useMemo(() => {
     let cursorLogLine = 0;
@@ -3344,8 +3383,17 @@ export function Input({
         </Box>
       )}
 
-      {/* Input lines */}
-      {lineElements}
+      {/* Input lines — bordered container matching Claude Code style */}
+      <Box
+        key={`composer:${historyIndex}:${displayValue}`}
+        borderStyle="round"
+        borderColor={sc.border.dim}
+        paddingLeft={1}
+        paddingRight={1}
+        flexDirection="column"
+      >
+        {lineElements}
+      </Box>
 
       {/* Placeholder mode hint - shows current parameter context */}
       {/* FIX M4: Use getCurrentPlaceholder for safe bounds-checked access */}

@@ -72,9 +72,32 @@ export type AiApi = {
   status: (providerName?: string) => Promise<ProviderStatus>;
 };
 
+/** Default max output tokens for the simple `ai()` callable (Anthropic requires max_tokens). */
+const DEFAULT_AI_MAX_TOKENS = 4096;
+
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/**
+ * SSOT model resolution — shared by ALL ai() code paths.
+ * Priority: explicit model arg → persisted config → undefined (use default provider).
+ */
+async function resolveModelString(explicitModel?: string): Promise<string | undefined> {
+  if (explicitModel) return explicitModel;
+  try {
+    const { loadConfig } = await import("../../common/config/storage.ts");
+    const { getConfiguredModel } = await import(
+      "../../common/config/selectors.ts"
+    );
+    const model = getConfiguredModel(await loadConfig());
+    // Only use config model if its provider is actually registered
+    return getProviderForModel(model) ? model : undefined;
+  } catch {
+    // No config file (e.g., test environment) — fall through to default provider
+    return undefined;
+  }
+}
 
 /** Resolve "provider/model" → provider instance, or throw */
 function resolveProvider(modelString?: string): AIProvider {
@@ -131,6 +154,9 @@ function createAiApi(): AiApi {
     prompt: string,
     options?: AiCallableOptions,
   ): Promise<string | unknown> {
+    // Single SSOT model resolution for ALL paths
+    const modelString = await resolveModelString(options?.model);
+
     // Structured output path: use AI SDK native constrained decoding
     if (options?.schema != null) {
       const { descriptorToJsonSchema } = await import(
@@ -142,17 +168,6 @@ function createAiApi(): AiApi {
       const { resolveSdkModelSpec, toSdkRuntimeModelSpec } = await import(
         "../agent/engine-sdk.ts"
       );
-
-      let modelString = options.model;
-      if (!modelString) {
-        // Read from persisted config — the SSOT shared with `hlvm model set`,
-        // REPL model picker, and `hlvm ask`.
-        const { loadConfig } = await import("../../common/config/storage.ts");
-        const { getConfiguredModel } = await import(
-          "../../common/config/selectors.ts"
-        );
-        modelString = getConfiguredModel(await loadConfig());
-      }
       const spec = toSdkRuntimeModelSpec(resolveSdkModelSpec(modelString));
 
       return await generateStructuredWithSdk(
@@ -163,12 +178,12 @@ function createAiApi(): AiApi {
       );
     }
 
-    // Plain text path: use provider.chat() — respects setDefaultProvider() and
-    // the provider registry, which is initialized from persisted config at startup.
-    const provider = resolveProvider(options?.model);
+    // Plain text path: use provider.chat() with the same SSOT model
+    const provider = resolveProvider(modelString);
     return await collectAsyncGenerator(
       provider.chat(buildMessages(prompt, options), {
-        model: localModelName(options?.model),
+        model: localModelName(modelString),
+        maxTokens: DEFAULT_AI_MAX_TOKENS,
         signal: options?.signal,
         ...(options?.temperature != null && { raw: { temperature: options.temperature } }),
       }),
@@ -206,9 +221,10 @@ function createAiApi(): AiApi {
     options?: AiAgentOptions,
   ): Promise<string> {
     const { runAgentQuery } = await import("../agent/agent-runner.ts");
+    const resolvedModel = await resolveModelString(options?.model);
     const result = await runAgentQuery({
       query: buildPrompt(prompt, options?.data),
-      model: options?.model,
+      model: resolvedModel,
       callbacks: {},
       toolAllowlist: options?.tools,
       signal: options?.signal,

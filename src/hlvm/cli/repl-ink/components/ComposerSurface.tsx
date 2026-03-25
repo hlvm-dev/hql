@@ -210,7 +210,6 @@ export const ComposerSurface = forwardRef<
       )}
 
       <Box
-        marginTop={isConversationContext ? 1 : 0}
         flexDirection="column"
       >
         <Input

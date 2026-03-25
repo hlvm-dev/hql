@@ -2,13 +2,10 @@ import { assertEquals } from "jsr:@std/assert@1";
 import {
   buildConversationSectionText,
   buildDelegateHeaderText,
-  buildWorkingIndicatorLayout,
   getDelegateStatusGlyph,
   getDelegateStatusTone,
   getThinkingLabel,
   getToolDurationTone,
-  getToolResultLabel,
-  getToolResultTone,
   splitArgKeyValue,
 } from "../../../src/hlvm/cli/repl-ink/components/conversation/conversation-chrome.ts";
 import { STATUS_GLYPHS } from "../../../src/hlvm/cli/repl-ink/ui-constants.ts";
@@ -27,14 +24,6 @@ Deno.test("getDelegateStatusGlyph maps delegate statuses into stable glyphs", ()
   assertEquals(getDelegateStatusGlyph("running"), "↗");
 });
 
-Deno.test("tool result chrome stays mapped through shared conversation tones", () => {
-  assertEquals(getToolResultTone("error"), "error");
-  assertEquals(getToolResultTone("success"), "success");
-  assertEquals(getToolResultTone("pending"), "neutral");
-  assertEquals(getToolResultLabel("error"), "Error output");
-  assertEquals(getToolResultLabel("success"), "Result");
-});
-
 Deno.test("conversation section labels use the shared default width", () => {
   assertEquals(
     buildConversationSectionText("Choices"),
@@ -46,16 +35,9 @@ Deno.test("conversation section labels use the shared default width", () => {
   );
 });
 
-Deno.test("conversation status helpers provide stable waiting and thinking labels", () => {
+Deno.test("conversation status helpers provide stable thinking labels", () => {
   assertEquals(getThinkingLabel("reasoning"), "Thinking");
   assertEquals(getThinkingLabel("planning"), "Planning");
-
-  const layout = buildWorkingIndicatorLayout(44, "5s");
-  assertEquals(layout.rightText, "5s · Esc interrupt");
-  assertEquals(
-    layout.leftText.length + layout.gapWidth + layout.rightText.length,
-    44,
-  );
 });
 
 Deno.test("buildDelegateHeaderText keeps status and duration in a fixed right slot", () => {

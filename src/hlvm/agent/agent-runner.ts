@@ -235,7 +235,9 @@ export async function reuseSession(
     const engine = session.engine ?? getAgentEngine();
     llm = engine.createLLM({
       ...session.llmConfig,
-      options: { temperature: session.llmConfig.temperature ?? 0.0 },
+      options: {
+        ...(session.llmConfig.temperature != null && { temperature: session.llmConfig.temperature }),
+      },
       onToken,
     });
   }

@@ -6,12 +6,14 @@ import {
   summarizeTodoState,
   type TodoState,
 } from "../agent/todo-state.ts";
+import type { EvalResult } from "./repl/evaluator.ts";
 import {
   type AssistantCitation,
   type AssistantItem,
   type ConversationAttachmentRef,
   type ConversationItem,
   type DelegateItem,
+  type HqlEvalItem,
   type InfoItem,
   type MemoryActivityDetail,
   type MemoryActivityItem,
@@ -29,6 +31,7 @@ import {
 
 export interface TranscriptState {
   items: ConversationItem[];
+  evalHistory: HqlEvalItem[];
   streamingState: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   nextId: number;
@@ -38,6 +41,8 @@ export interface TranscriptState {
   todoState?: TodoState;
   planTodoState?: TodoState;
   pendingPlanReview?: { plan: Plan };
+  currentTurnId?: string;
+  turnCounter: number;
 }
 
 export type TranscriptInput =
@@ -57,6 +62,7 @@ export type TranscriptInput =
   | { type: "error"; text: string }
   | { type: "info"; text: string; isTransient?: boolean }
   | { type: "replace_items"; items: ConversationItem[] }
+  | { type: "hql_eval"; input: string; result: EvalResult }
   | { type: "reset_status" }
   | { type: "cancel_planning" }
   | { type: "finalize" }
@@ -65,9 +71,11 @@ export type TranscriptInput =
 export function createTranscriptState(): TranscriptState {
   return {
     items: [],
+    evalHistory: [],
     streamingState: ConversationStreamingState.Idle,
     nextId: 0,
     completedPlanStepIds: [],
+    turnCounter: 0,
   };
 }
 
@@ -87,6 +95,11 @@ export function getVisibleTodoSummary(
 function nextItemId(state: TranscriptState): [TranscriptState, string] {
   const nextId = state.nextId + 1;
   return [{ ...state, nextId }, `ci-${nextId}`];
+}
+
+function nextTurnId(state: TranscriptState): [TranscriptState, string] {
+  const counter = state.turnCounter + 1;
+  return [{ ...state, turnCounter: counter }, `turn-${counter}`];
 }
 
 function findPendingAssistantIndex(items: ConversationItem[]): number {
@@ -174,6 +187,7 @@ function appendInfoItem(
     type: "info",
     id,
     text,
+    turnId: state.currentTurnId,
   };
   return {
     ...nextState,
@@ -270,6 +284,7 @@ function upsertThinkingItem(
       kind,
       summary,
       iteration,
+      turnId: state.currentTurnId,
     };
     return {
       ...nextState,
@@ -345,6 +360,7 @@ function appendDelegateItem(
     threadId,
     nickname,
     ts: Date.now(),
+    turnId: state.currentTurnId,
   };
   return {
     ...nextState,
@@ -424,6 +440,7 @@ function upsertAssistantTextItem(
   text: string,
   isPending: boolean,
   citations?: AssistantCitation[],
+  turnId?: string,
 ): TranscriptState {
   // When a pending assistant item is created or updated, ensure streamingState
   // is Responding so the footer shows "Working · esc to interrupt" immediately.
@@ -499,6 +516,7 @@ function upsertAssistantTextItem(
     citations,
     isPending,
     ts: Date.now(),
+    turnId,
   };
   return {
     ...nextState,
@@ -617,6 +635,7 @@ export function reduceTranscriptState(
             id: groupId,
             tools: [nextTool],
             ts: Date.now(),
+            turnId: nextState.currentTurnId,
           };
           return {
             ...stateWithGroupId,
@@ -822,6 +841,7 @@ export function reduceTranscriptState(
             searched,
             details,
             ts: Date.now(),
+            turnId: state.currentTurnId,
           };
           return {
             ...nextState,
@@ -889,11 +909,22 @@ export function reduceTranscriptState(
           const cleaned = removeCurrentTurnTurnStats(
             cleanupTransientItems(state.items),
           );
+          // Clear stale planning state when the turn ends without an active plan
+          const hasPlanContext = Boolean(
+            state.activePlan || state.pendingPlanReview,
+          );
+          const turnId = state.currentTurnId;
           const [nextState, id] = nextItemId({
             ...state,
             streamingState: ConversationStreamingState.Idle,
             activeTool: undefined,
+            currentTurnId: undefined,
             items: cleaned,
+            ...(hasPlanContext ? {} : {
+              planningPhase: undefined,
+              completedPlanStepIds: [],
+              planTodoState: undefined,
+            }),
           });
           return {
             ...nextState,
@@ -907,6 +938,7 @@ export function reduceTranscriptState(
                 inputTokens: event.inputTokens,
                 outputTokens: event.outputTokens,
                 modelId: event.modelId,
+                turnId,
               },
             ],
           };
@@ -945,6 +977,14 @@ export function reduceTranscriptState(
           ? undefined
           : state.pendingPlanReview,
       };
+
+      // Generate a new turnId when starting a new turn
+      let turnId = nextState.currentTurnId;
+      if (startTurn) {
+        [nextState, turnId] = nextTurnId(nextState);
+        nextState = { ...nextState, currentTurnId: turnId };
+      }
+
       let id: string;
       [nextState, id] = nextItemId(nextState);
       const userItem: ConversationItem = {
@@ -953,6 +993,7 @@ export function reduceTranscriptState(
         text: input.text,
         attachments: input.attachments,
         ts: Date.now(),
+        turnId,
       };
 
       if (!startTurn) {
@@ -974,6 +1015,7 @@ export function reduceTranscriptState(
         citations: undefined,
         isPending: true,
         ts: Date.now(),
+        turnId,
       };
       return {
         ...nextState,
@@ -986,12 +1028,15 @@ export function reduceTranscriptState(
         input.text,
         input.isPending,
         input.citations,
+        state.currentTurnId,
       );
     case "error": {
       const [nextState, id] = nextItemId(state);
       return {
         ...nextState,
-        items: [...nextState.items, { type: "error", id, text: input.text }],
+        items: [...nextState.items, {
+          type: "error", id, text: input.text, turnId: state.currentTurnId,
+        }],
       };
     }
     case "info": {
@@ -1005,6 +1050,7 @@ export function reduceTranscriptState(
           id,
           text: input.text,
           isTransient: true,
+          turnId: state.currentTurnId,
         };
         return {
           ...nextState,
@@ -1014,13 +1060,32 @@ export function reduceTranscriptState(
       const [nextState, id] = nextItemId(state);
       return {
         ...nextState,
-        items: [...nextState.items, { type: "info", id, text: input.text }],
+        items: [...nextState.items, {
+          type: "info", id, text: input.text, turnId: state.currentTurnId,
+        }],
+      };
+    }
+    case "hql_eval": {
+      let nextState = state;
+      let id: string;
+      [nextState, id] = nextItemId(nextState);
+      const evalItem: HqlEvalItem = {
+        type: "hql_eval",
+        id,
+        input: input.input.trim(),
+        result: input.result,
+        ts: Date.now(),
+      };
+      return {
+        ...nextState,
+        evalHistory: [...nextState.evalHistory, evalItem],
       };
     }
     case "replace_items":
       return {
         ...state,
         items: input.items,
+        evalHistory: [],
         streamingState: ConversationStreamingState.Idle,
         activeTool: undefined,
         activePlan: undefined,
@@ -1055,6 +1120,7 @@ export function reduceTranscriptState(
         ...state,
         streamingState: ConversationStreamingState.Idle,
         activeTool: undefined,
+        currentTurnId: undefined,
         items: cleanupTransientItems(state.items),
       };
     case "clear":

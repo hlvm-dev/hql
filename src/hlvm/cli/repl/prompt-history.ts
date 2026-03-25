@@ -9,7 +9,7 @@ type PromptHistorySource =
 export function shouldRecordPromptHistory(
   source: PromptHistorySource,
 ): boolean {
-  return source !== "evaluate";
+  return true;
 }
 
 export function recordPromptHistory(

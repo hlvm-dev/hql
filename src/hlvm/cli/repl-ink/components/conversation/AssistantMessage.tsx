@@ -4,7 +4,7 @@
  * Displays an assistant response with markdown rendering and optional sources.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef } from "react";
 import { Box, Text } from "ink";
 import { truncate } from "../../../../../common/utils.ts";
 import { useSemanticColors } from "../../../theme/index.ts";
@@ -14,39 +14,19 @@ import { OPEN_LATEST_SOURCE_HINT } from "../../ui-constants.ts";
 import { STATUS_GLYPHS } from "../../ui-constants.ts";
 
 import { createIncrementalSanitizer } from "../../utils/sanitize-ansi.ts";
-import { formatElapsed } from "../../utils/formatting.ts";
-import { useConversationSpinnerFrame } from "../../hooks/useConversationMotion.ts";
-import {
-  buildConversationSectionText,
-  buildWorkingIndicatorLayout,
-} from "./conversation-chrome.ts";
-import { ConversationCallout } from "./ConversationCallout.tsx";
+import { buildConversationSectionText } from "./conversation-chrome.ts";
 
-/** Shown while waiting for the first token from the model. */
-function WorkingIndicator({ width }: { width: number }): React.ReactElement {
+/** Shown while waiting for the first token from the model.
+ *  Uses static marker — no spinner avoids terminal redraws that break text selection.
+ */
+function WorkingIndicator({ width: _width }: { width: number }): React.ReactElement {
   const sc = useSemanticColors();
-  const [startTime] = useState(() => Date.now());
-  const [elapsed, setElapsed] = useState(0);
-  const spinnerFrame = useConversationSpinnerFrame(true);
-  useEffect(() => {
-    const id = setInterval(() => setElapsed(Date.now() - startTime), 1000);
-    return () => clearInterval(id);
-  }, [startTime]);
-  const layout = buildWorkingIndicatorLayout(
-    Math.max(10, width - 6),
-    formatElapsed(elapsed),
-  );
   return (
-    <ConversationCallout
-      title={`${spinnerFrame ?? STATUS_GLYPHS.running} Thinking`}
-      tone="warning"
-    >
-      <Box marginTop={0}>
-        <Text color={sc.text.secondary}>{layout.leftText}</Text>
-        {layout.gapWidth > 0 && <Text>{" ".repeat(layout.gapWidth)}</Text>}
-        <Text color={sc.text.muted}>{layout.rightText}</Text>
-      </Box>
-    </ConversationCallout>
+    <Box paddingLeft={2} marginBottom={1}>
+      <Text color={sc.text.muted}>
+        {STATUS_GLYPHS.running} Waiting for response...
+      </Text>
+    </Box>
   );
 }
 

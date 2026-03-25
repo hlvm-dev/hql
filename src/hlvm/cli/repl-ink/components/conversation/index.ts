@@ -23,6 +23,9 @@ export { ProgressBar } from "./ProgressBar.tsx";
 // Diff renderer
 export { default as DiffRenderer } from "./DiffRenderer.tsx";
 
+// HQL eval display
+export { HqlEvalDisplay } from "./HqlEvalDisplay.tsx";
+
 // Memory activity
 export { MemoryActivityLine } from "./MemoryActivityLine.tsx";
 

@@ -1,6 +1,5 @@
 import { formatDurationMs } from "../../utils/formatting.ts";
 import {
-  buildBalancedTextRow,
   buildRightSlotTextLayout,
   buildSectionLabelText,
 } from "../../utils/display-chrome.ts";
@@ -59,27 +58,12 @@ export function getDelegateStatusLabel(status: string): string {
   }
 }
 
-export function getToolResultTone(status: string): ConversationStatusTone {
-  switch (status) {
-    case "error":
-      return "error";
-    case "success":
-      return "success";
-    default:
-      return "neutral";
-  }
-}
-
 export function getToolDurationTone(
   durationMs: number | undefined,
 ): ConversationStatusTone {
   if (durationMs == null || durationMs < 1000) return "neutral";
   if (durationMs <= 5000) return "warning";
   return "error";
-}
-
-export function getToolResultLabel(status: string): string {
-  return status === "error" ? "Error output" : "Result";
 }
 
 export function getThinkingLabel(kind: "reasoning" | "planning"): string {
@@ -253,16 +237,3 @@ export function getTeamPlanReviewGlyph(status: string): string {
   }
 }
 
-export function buildWorkingIndicatorLayout(
-  width: number,
-  elapsedText: string,
-): { leftText: string; rightText: string; gapWidth: number } {
-  return buildBalancedTextRow(
-    width,
-    "Waiting for first token",
-    `${elapsedText} · Esc interrupt`,
-    {
-      maxRightWidth: Math.max(14, Math.floor(width * 0.45)),
-    },
-  );
-}

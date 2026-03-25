@@ -3,7 +3,7 @@
  *
  * Single-line display for one tool call within a ToolGroup.
  * Layout: [StatusIcon] tool_name args_summary (duration)
- * Optional result text shown as indented sub-line.
+ * Result shown on next line with ⎿ gutter prefix.
  */
 
 import React from "react";
@@ -13,12 +13,7 @@ import { ToolStatusIcon } from "./ToolStatusIcon.tsx";
 import { ToolResult } from "./ToolResult.tsx";
 import type { ToolCallDisplay } from "../../types.ts";
 import { buildToolCallTextLayout } from "./layout.ts";
-import { ConversationCallout } from "./ConversationCallout.tsx";
-import {
-  getToolDurationTone,
-  getToolResultLabel,
-  getToolResultTone,
-} from "./conversation-chrome.ts";
+import { getToolDurationTone } from "./conversation-chrome.ts";
 
 interface ToolCallItemProps {
   tool: ToolCallDisplay;
@@ -57,12 +52,15 @@ export const ToolCallItem = React.memo(function ToolCallItem(
     : durationTone === "warning"
     ? sc.status.warning
     : sc.text.muted;
+  const resultGutterColor = tool.status === "error"
+    ? sc.status.error
+    : sc.text.muted;
 
   return (
     <Box flexDirection="column">
       <Box>
         <ToolStatusIcon status={tool.status} animate={animateStatusIcon} />
-        <Text></Text>
+        <Text> </Text>
         <Text bold color={nameColor}>{tool.name}</Text>
         {layout.argsText && (
           <Text color={argsColor}>
@@ -77,22 +75,17 @@ export const ToolCallItem = React.memo(function ToolCallItem(
       </Box>
 
       {resolveToolResultText(tool, expanded) && tool.status !== "running" && (
-        <Box marginLeft={2} flexDirection="column">
-          <ConversationCallout
-            title={getToolResultLabel(tool.status)}
-            tone={getToolResultTone(tool.status)}
-            marginBottom={0}
-          >
-            <Box marginTop={0}>
-              <ToolResult
-                text={resolveToolResultText(tool, expanded)}
-                width={Math.max(10, width - 10)}
-                maxLines={tool.status === "error" ? 12 : 8}
-                expanded={expanded}
-                tone={tool.status === "error" ? "error" : "default"}
-              />
-            </Box>
-          </ConversationCallout>
+        <Box marginLeft={2} flexDirection="row">
+          <Text color={resultGutterColor}>{"⎿  "}</Text>
+          <Box flexDirection="column" flexShrink={1}>
+            <ToolResult
+              text={resolveToolResultText(tool, expanded)}
+              width={Math.max(10, width - 5)}
+              maxLines={tool.status === "error" ? 12 : 8}
+              expanded={expanded}
+              tone={tool.status === "error" ? "error" : "default"}
+            />
+          </Box>
         </Box>
       )}
     </Box>

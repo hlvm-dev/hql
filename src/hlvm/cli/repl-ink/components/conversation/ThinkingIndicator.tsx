@@ -1,26 +1,23 @@
 /**
  * Renders persisted reasoning/planning transcript entries.
  *
- * The active row shows a clean text indicator; historical rows stay static.
+ * Compact inline text: · Thinking... or · Planning...
+ * Uses static markers (no animated spinner) to avoid terminal redraws
+ * that break text selection. The footer shows spinner activity instead.
  */
 
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
-import { useConversationSpinnerFrame } from "../../hooks/useConversationMotion.ts";
 import { STATUS_GLYPHS } from "../../ui-constants.ts";
-import { ChromeChip } from "../ChromeChip.tsx";
-import {
-  buildConversationSectionText,
-  getThinkingLabel,
-} from "./conversation-chrome.ts";
+import { getThinkingLabel } from "./conversation-chrome.ts";
 
 interface ThinkingIndicatorProps {
   kind: "reasoning" | "planning";
   summary: string;
   iteration: number;
   expanded?: boolean;
-  /** Disable animation when the stream is paused (e.g. waiting for permission) */
+  /** Whether the agent is actively processing (affects marker glyph) */
   isAnimating?: boolean;
 }
 
@@ -32,10 +29,8 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
   isAnimating = true,
 }: ThinkingIndicatorProps): React.ReactElement {
   const sc = useSemanticColors();
-  const spinnerFrame = useConversationSpinnerFrame(isAnimating);
-  const marker = isAnimating
-    ? (spinnerFrame ?? STATUS_GLYPHS.running)
-    : STATUS_GLYPHS.pending;
+  // Static marker — no spinner subscription avoids 250ms terminal redraws
+  const marker = isAnimating ? STATUS_GLYPHS.running : "\u00B7"; // ● vs ·
   const lines = summary ? summary.split("\n") : [];
   const maxBodyLines = expanded ? lines.length : 0;
   const visibleBodyLines = lines.slice(0, maxBodyLines);
@@ -47,31 +42,24 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
   const title = getThinkingLabel(kind);
 
   return (
-    <Box paddingLeft={1} flexDirection="column" marginBottom={1}>
+    <Box paddingLeft={2} flexDirection="column">
       <Box>
-        <ChromeChip
-          text={`${marker} ${title}`}
-          tone={isAnimating ? "warning" : "neutral"}
-        />
+        <Text color={sc.text.muted}>
+          {isAnimating ? `${marker} ${title}...` : `\u00B7 ${title}`}
+        </Text>
         {iteration > 1 && (
-          <Text color={sc.text.muted}>{` pass ${iteration}`}</Text>
+          <Text color={sc.text.muted}>{` (pass ${iteration})`}</Text>
         )}
       </Box>
       {body && (
-        <Box
-          paddingLeft={1}
-          flexDirection="column"
-        >
-          <Text color={sc.chrome.sectionLabel}>
-            {buildConversationSectionText("Summary", 18)}
-          </Text>
+        <Box paddingLeft={2}>
           <Text color={sc.text.secondary} italic wrap="wrap">
             {body}
           </Text>
         </Box>
       )}
       {expanded && hiddenBodyLineCount > 0 && (
-        <Box marginLeft={1}>
+        <Box marginLeft={2}>
           <Text color={sc.text.muted}>
             ... ({hiddenBodyLineCount} more lines)
           </Text>

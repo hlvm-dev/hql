@@ -3,7 +3,6 @@ import {
   computeSegmentedProgressCells,
 } from "../../../src/hlvm/cli/repl-ink/components/conversation/ProgressBar.tsx";
 import type { ProgressBarSegments } from "../../../src/hlvm/cli/repl-ink/components/conversation/ProgressBar.tsx";
-import { getToolGroupProgressWidth } from "../../../src/hlvm/cli/repl-ink/components/conversation/ToolGroup.tsx";
 
 Deno.test("computeSegmentedProgressCells preserves exact widths for clean ratios", () => {
   const segments: ProgressBarSegments = {
@@ -37,10 +36,4 @@ Deno.test("computeSegmentedProgressCells always fills the requested width", () =
     cells.success + cells.error + cells.running + cells.pending,
     18,
   );
-});
-
-Deno.test("getToolGroupProgressWidth follows the segmented width thresholds", () => {
-  assertEquals(getToolGroupProgressWidth(34), 18);
-  assertEquals(getToolGroupProgressWidth(30), 12);
-  assertEquals(getToolGroupProgressWidth(27), null);
 });

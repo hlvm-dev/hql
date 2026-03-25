@@ -84,6 +84,8 @@ interface UseAgentRunnerInput {
   restoreComposerDraft: (draft: ConversationComposerDraft | null) => void;
   hasConversationContext: boolean;
   replState: ReplState;
+  onQueuedHqlEval?: (code: string, attachments?: AnyAttachment[]) => Promise<void>;
+  isLocalEvalBusy?: () => boolean;
 }
 
 export interface UseAgentRunnerResult {
@@ -148,12 +150,18 @@ export function useAgentRunner(
     restoreComposerDraft,
     hasConversationContext,
     replState,
+    onQueuedHqlEval,
+    isLocalEvalBusy,
   }: UseAgentRunnerInput,
 ): UseAgentRunnerResult {
   const [interactionQueue, setInteractionQueue] = useState<
     InteractionRequestEvent[]
   >([]);
   const pendingInteraction = interactionQueue[0];
+
+  // Stable ref for conversation — avoids recreating callbacks on every event
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
 
   const agentControllerRef = useRef<AbortController | null>(null);
   const interactionResolversRef = useRef<
@@ -216,8 +224,8 @@ export function useAgentRunner(
     // Show user message and pending indicator immediately — before expensive
     // config/model init, unless the caller already seeded the transcript.
     if (!options?.skipTranscriptSeed) {
-      conversation.addUserMessage(query, { attachments });
-      conversation.addAssistantText("", true);
+      conversationRef.current.addUserMessage(query, { attachments });
+      conversationRef.current.addAssistantText("", true);
     }
 
     try {
@@ -264,7 +272,7 @@ export function useAgentRunner(
       const flushStreamBuffer = () => {
         pendingStreamTimerRef.current = null;
         if (!controller.signal.aborted && isActiveConversationRun()) {
-          conversation.addAssistantText(textBuffer, true);
+          conversationRef.current.addAssistantText(textBuffer, true);
           lastStreamRender = Date.now();
         }
       };
@@ -315,7 +323,7 @@ export function useAgentRunner(
               // partially-streamed text flush naturally to avoid
               // visible screen flicker during plan phase transitions.
             }
-            conversation.addEvent(event);
+            conversationRef.current.addEvent(event);
             // Wire background delegate lifecycle to TaskManager
             if (event.type === "delegate_start" && event.threadId) {
               getTaskManager().createDelegateTask(
@@ -435,7 +443,7 @@ export function useAgentRunner(
         ? sanitizePlanModeFinalText(result.text ?? textBuffer)
         : (textBuffer || result.text || "");
       if (finalAssistantText) {
-        conversation.addAssistantText(
+        conversationRef.current.addAssistantText(
           finalAssistantText,
           false,
           finalCitations,
@@ -464,11 +472,11 @@ export function useAgentRunner(
     } catch (error) {
       if (controller.signal.aborted) {
         if (isActiveConversationRun()) {
-          conversation.addInfo("Cancelled");
+          conversationRef.current.addInfo("Cancelled");
         }
       } else {
         if (isActiveConversationRun()) {
-          conversation.addError(ensureError(error).message);
+          conversationRef.current.addError(ensureError(error).message);
         }
       }
     } finally {
@@ -477,13 +485,12 @@ export function useAgentRunner(
         interactionResolversRef.current.clear();
         setInteractionQueue([]);
         setIsEvaluating(false);
-        conversation.finalize();
+        conversationRef.current.finalize();
       }
     }
   }, [
     agentExecutionMode,
     configuredContextWindow,
-    conversation,
     refreshRuntimeConfigState,
   ]);
 
@@ -498,15 +505,14 @@ export function useAgentRunner(
     if (unsupportedMimeType) {
       return { started: false, unsupportedMimeType };
     }
-    conversation.addUserMessage(expandedText, { attachments });
-    conversation.addAssistantText("", true);
+    conversationRef.current.addUserMessage(expandedText, { attachments });
+    conversationRef.current.addAssistantText("", true);
     setIsEvaluating(true);
     void runConversation(expandedText, attachments, {
       skipTranscriptSeed: true,
     });
     return { started: true };
   }, [
-    conversation,
     expandConversationDraftText,
     prepareConversationAttachmentPayload,
     runConversation,
@@ -540,16 +546,16 @@ export function useAgentRunner(
       }
       setIsEvaluating(false);
       if (options?.clearConversation) {
-        conversation.clear();
+        conversationRef.current.clear();
       } else {
-        conversation.finalize();
+        conversationRef.current.finalize();
       }
       setPendingConversationQueue([]);
       setFooterContextUsageLabel("");
       setActiveOverlay("none");
       setSurfacePanel("none");
     },
-    [conversation, interactionQueue],
+    [interactionQueue],
   );
 
   const interruptConversationRun = useCallback((
@@ -566,7 +572,7 @@ export function useAgentRunner(
       });
     }
     if (options?.clearPlanning) {
-      conversation.cancelPlanning();
+      conversationRef.current.cancelPlanning();
     }
 
     const controller = agentControllerRef.current;
@@ -597,13 +603,12 @@ export function useAgentRunner(
     setFooterContextUsageLabel("");
     restoreComposerDraft(restoredDraft);
     if (options?.addCancelledInfo !== false) {
-      conversation.addInfo("Cancelled");
+      conversationRef.current.addInfo("Cancelled");
     }
-    conversation.finalize();
+    conversationRef.current.finalize();
   }, [
     getCurrentComposerDraft,
     getPendingConversationQueue,
-    conversation,
     handleInteractionResponse,
     restoreComposerDraft,
     setFooterContextUsageLabel,
@@ -626,7 +631,7 @@ export function useAgentRunner(
       if (!result.started) {
         restoreComposerDraft(draft);
         if (result.unsupportedMimeType) {
-          conversation.addError(
+          conversationRef.current.addError(
             describeConversationAttachmentMimeTypeError(
               result.unsupportedMimeType,
             ),
@@ -647,6 +652,11 @@ export function useAgentRunner(
   useEffect(() => {
     if (!hasConversationContext) return;
     if (agentControllerRef.current) return;
+    if (isLocalEvalBusy?.()) return;
+    // Don't drain during plan workflow gaps (agent briefly idle between plan turns)
+    const { planningPhase, pendingPlanReview } = conversationRef.current;
+    if (planningPhase && planningPhase !== "done") return;
+    if (pendingPlanReview) return;
     const pendingConversationQueue = getPendingConversationQueue();
     if (pendingConversationQueue.length === 0) return;
 
@@ -654,6 +664,14 @@ export function useAgentRunner(
       pendingConversationQueue,
     );
     if (!nextTurn) return;
+
+    // Route queued HQL evals to the local evaluator instead of the agent
+    if (nextTurn.text.trim().startsWith("(") && onQueuedHqlEval) {
+      setPendingConversationQueue(remaining);
+      void onQueuedHqlEval(nextTurn.text);
+      return;
+    }
+
     const result = submitConversationDraft(nextTurn);
     if (result.started) {
       setPendingConversationQueue(remaining);
@@ -665,17 +683,18 @@ export function useAgentRunner(
       mergeConversationDraftsForInterrupt([nextTurn], currentComposerDraft),
     );
     if (result.unsupportedMimeType) {
-      conversation.addError(
+      conversationRef.current.addError(
         describeConversationAttachmentMimeTypeError(
           result.unsupportedMimeType,
         ),
       );
     }
   }, [
-    conversation,
     getCurrentComposerDraft,
     getPendingConversationQueue,
     hasConversationContext,
+    isLocalEvalBusy,
+    onQueuedHqlEval,
     pendingConversationQueueVersion,
     restoreComposerDraft,
     submitConversationDraft,

@@ -27,6 +27,7 @@ export function shouldRenderMainBanner(options: {
   isOverlayOpen: boolean;
   hasStandaloneSurface: boolean;
   hasActivePlanningState: boolean;
+  hasShellHistory?: boolean;
 }): boolean {
   return options.showBanner &&
     !options.hasBeenCleared &&

@@ -45,7 +45,6 @@ export function useRepl(options: UseReplOptions = {}): UseReplReturn {
       return { success: false, error: new Error("Cancelled") };
     }
 
-    state.addHistory(trimmed);
     state.nextLine();
 
     try {

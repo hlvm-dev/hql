@@ -7,6 +7,7 @@
 
 // Re-export EvalResult from evaluator.ts (used by Output, App, useRepl)
 export type { EvalResult } from "../repl/evaluator.ts";
+import type { EvalResult } from "../repl/evaluator.ts";
 import type { Citation } from "../../agent/tools/web/search-provider.ts";
 import type { ToolEventMeta } from "../../agent/orchestrator.ts";
 import type { DelegateTranscriptSnapshot } from "../../agent/delegate-transcript.ts";
@@ -66,6 +67,7 @@ export interface UserItem {
   text: string;
   attachments?: ConversationAttachmentRef[];
   ts: number;
+  turnId?: string;
 }
 
 /** Assistant (model) response — may be streaming */
@@ -76,6 +78,7 @@ export interface AssistantItem {
   citations?: AssistantCitation[];
   isPending: boolean;
   ts: number;
+  turnId?: string;
 }
 
 /** Thinking/reasoning indicator */
@@ -85,6 +88,7 @@ export interface ThinkingItem {
   kind: "reasoning" | "planning";
   summary: string;
   iteration: number;
+  turnId?: string;
 }
 
 /** Group of tool calls executed together */
@@ -93,6 +97,7 @@ export interface ToolGroupItem {
   id: string;
   tools: ToolCallDisplay[];
   ts: number;
+  turnId?: string;
 }
 
 /** Turn completion statistics */
@@ -104,6 +109,7 @@ export interface TurnStatsItem {
   inputTokens?: number;
   outputTokens?: number;
   modelId?: string;
+  turnId?: string;
 }
 
 /** Delegated sub-agent activity */
@@ -121,6 +127,7 @@ export interface DelegateItem {
   threadId?: string;
   nickname?: string;
   ts: number;
+  turnId?: string;
 }
 
 /** Error message */
@@ -128,6 +135,7 @@ export interface ErrorItem {
   type: "error";
   id: string;
   text: string;
+  turnId?: string;
 }
 
 /** Informational message */
@@ -137,6 +145,7 @@ export interface InfoItem {
   text: string;
   isTransient?: boolean;
   ts?: number;
+  turnId?: string;
 }
 
 export interface TeamTaskInfoItem extends InfoItem {
@@ -202,6 +211,17 @@ export interface MemoryActivityItem {
   searched?: { query: string; count: number };
   details: MemoryActivityDetail[];
   ts: number;
+  turnId?: string;
+}
+
+/** HQL evaluation result displayed in the unified timeline */
+export interface HqlEvalItem {
+  type: "hql_eval";
+  id: string;
+  input: string;
+  result: EvalResult;
+  ts: number;
+  turnId?: string;
 }
 
 /** Discriminated union of all renderable conversation items */
@@ -215,7 +235,43 @@ export type ConversationItem =
   | ErrorItem
   | StructuredTeamInfoItem
   | InfoItem
-  | MemoryActivityItem;
+  | MemoryActivityItem
+  | HqlEvalItem;
+
+export type AgentConversationItem = Exclude<ConversationItem, HqlEvalItem>;
+
+export type ShellHistoryEntry = AgentConversationItem | HqlEvalItem;
+
+export interface CommittedTurn {
+  turnId?: string;
+  items: AgentConversationItem[];
+}
+
+export interface ActiveAgentTurn {
+  turnId?: string;
+  items: AgentConversationItem[];
+}
+
+export interface QueuedLocalEval {
+  id: string;
+  input: string;
+  attachmentCount: number;
+  queuedAt: number;
+}
+
+export type DialogState =
+  | { mode: "none" }
+  | {
+    mode: "permission";
+    requestId: string;
+    toolName?: string;
+    toolArgs?: string;
+  }
+  | {
+    mode: "question";
+    requestId: string;
+    question?: string;
+  };
 
 export function isStructuredTeamInfoItem(
   item: ConversationItem,

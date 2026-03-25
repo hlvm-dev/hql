@@ -1,16 +1,14 @@
 /**
  * TurnStats Component
  *
- * Displays turn completion statistics as a styled separator.
- * Inspired by Gemini CLI's line separator pattern.
- * Shows tool count, elapsed time, and token usage (input/output).
+ * Displays turn completion statistics as a compact single line.
+ * Format: Done (N tool uses · Xk tokens · Ns)
  */
 
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { formatDurationMs } from "../../utils/formatting.ts";
-import { buildTurnStatsTextLayout } from "./layout.ts";
 
 interface TurnStatsProps {
   toolCount: number;
@@ -29,50 +27,27 @@ function formatTokens(n: number): string {
 }
 
 export const TurnStats = React.memo(function TurnStats(
-  { toolCount, durationMs, width, inputTokens, outputTokens, modelId }:
+  { toolCount, durationMs, inputTokens, outputTokens }:
     TurnStatsProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
   const duration = formatDurationMs(durationMs);
-  const tools = toolCount === 0
-    ? ""
-    : toolCount === 1
-    ? "1 tool"
-    : `${toolCount} tools`;
-  const model = modelId ? modelId.split("/").pop() ?? modelId : "";
 
-  // Build token summary with explicit direction labels.
-  // Example: "in 2.8k tokens · out 420 tokens"
-  let tokenPart = "";
-  if (inputTokens || outputTokens) {
-    const segments: string[] = [];
-    if (inputTokens) segments.push(`in ${formatTokens(inputTokens)} tokens`);
-    if (outputTokens) segments.push(`out ${formatTokens(outputTokens)} tokens`);
-    tokenPart = segments.join(" · ");
+  const parts: string[] = [];
+  if (toolCount > 0) {
+    parts.push(
+      toolCount === 1 ? "1 tool use" : `${toolCount} tool uses`,
+    );
   }
-
-  const layout = buildTurnStatsTextLayout(
-    Math.max(10, width),
-    [model, tools, duration, tokenPart],
-  );
-  const leadingRule = "─".repeat(layout.leftRuleWidth);
-  const trailingRule = "─".repeat(layout.rightRuleWidth);
+  if (inputTokens || outputTokens) {
+    const total = (inputTokens ?? 0) + (outputTokens ?? 0);
+    parts.push(`${formatTokens(total)} tokens`);
+  }
+  parts.push(duration);
 
   return (
-    <Box marginY={1}>
-      {leadingRule.length > 0 && (
-        <Text color={sc.chrome.separator}>{leadingRule}</Text>
-      )}
-      {layout.text.length > 0 && (
-        <Text color={sc.text.muted}>
-          {leadingRule.length > 0 ? " " : ""}
-          {layout.text}
-          {trailingRule.length > 0 ? " " : ""}
-        </Text>
-      )}
-      {trailingRule.length > 0 && (
-        <Text color={sc.chrome.separator}>{trailingRule}</Text>
-      )}
+    <Box marginBottom={1}>
+      <Text color={sc.text.muted}>Done ({parts.join(" \u00B7 ")})</Text>
     </Box>
   );
 });

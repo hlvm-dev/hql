@@ -10,14 +10,20 @@ import {
   type TranscriptState,
 } from "../../agent-transcript-state.ts";
 import type {
+  AgentConversationItem,
   AssistantCitation,
   ConversationAttachmentRef,
   ConversationItem,
+  EvalResult,
+  HqlEvalItem,
   StreamingState,
 } from "../types.ts";
 
 export interface UseConversationResult {
   items: ConversationItem[];
+  historyItems: AgentConversationItem[];
+  liveItems: AgentConversationItem[];
+  evalHistory: HqlEvalItem[];
   streamingState: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   activePlan?: TranscriptState["activePlan"];
@@ -36,6 +42,7 @@ export interface UseConversationResult {
     isPending: boolean,
     citations?: AssistantCitation[],
   ) => void;
+  addHqlEval: (input: string, result: EvalResult) => void;
   addError: (text: string) => void;
   addInfo: (text: string, options?: { isTransient?: boolean }) => void;
   replaceItems: (items: ConversationItem[]) => void;
@@ -90,6 +97,10 @@ export function useConversation(): UseConversationResult {
     });
   }, []);
 
+  const addHqlEval = useCallback((input: string, result: EvalResult) => {
+    updateState(setState, { type: "hql_eval", input, result });
+  }, []);
+
   const addError = useCallback((text: string) => {
     updateState(setState, { type: "error", text });
   }, []);
@@ -132,6 +143,7 @@ export function useConversation(): UseConversationResult {
     addEvent,
     addUserMessage,
     addAssistantText,
+    addHqlEval,
 
     addError,
     addInfo,
@@ -145,6 +157,7 @@ export function useConversation(): UseConversationResult {
     addEvent,
     addUserMessage,
     addAssistantText,
+    addHqlEval,
 
     addError,
     addInfo,
@@ -157,6 +170,17 @@ export function useConversation(): UseConversationResult {
 
   const dataMemo = useMemo(() => ({
     items: state.items,
+    historyItems: state.currentTurnId
+      ? state.items.filter((item) =>
+        item.turnId !== state.currentTurnId
+      ) as AgentConversationItem[]
+      : state.items as AgentConversationItem[],
+    liveItems: state.currentTurnId
+      ? state.items.filter((item) =>
+        item.turnId === state.currentTurnId
+      ) as AgentConversationItem[]
+      : [] as AgentConversationItem[],
+    evalHistory: state.evalHistory,
     streamingState: state.streamingState,
     activeTool: state.activeTool,
     activePlan: state.activePlan,
@@ -166,6 +190,8 @@ export function useConversation(): UseConversationResult {
     pendingPlanReview: state.pendingPlanReview,
   }), [
     state.items,
+    state.currentTurnId,
+    state.evalHistory,
     state.streamingState,
     state.activeTool,
     state.activePlan,

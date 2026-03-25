@@ -4,14 +4,14 @@ import {
   shouldRecordPromptHistory,
 } from "../../../src/hlvm/cli/repl/prompt-history.ts";
 
-Deno.test("prompt history policy skips only local evaluate submissions", () => {
-  assertEquals(shouldRecordPromptHistory("evaluate"), false);
+Deno.test("prompt history records all submission sources", () => {
+  assertEquals(shouldRecordPromptHistory("evaluate"), true);
   assertEquals(shouldRecordPromptHistory("command"), true);
   assertEquals(shouldRecordPromptHistory("conversation"), true);
   assertEquals(shouldRecordPromptHistory("interaction"), true);
 });
 
-Deno.test("recordPromptHistory forwards non-evaluate submissions to repl state", () => {
+Deno.test("recordPromptHistory forwards all submissions to repl state", () => {
   const recorded: string[] = [];
   const replState = {
     addHistory(input: string) {
@@ -23,5 +23,5 @@ Deno.test("recordPromptHistory forwards non-evaluate submissions to repl state",
   recordPromptHistory(replState, "/help", "command");
   recordPromptHistory(replState, "(+ 1 2)", "evaluate");
 
-  assertEquals(recorded, ["open ~/Desktop", "/help"]);
+  assertEquals(recorded, ["open ~/Desktop", "/help", "(+ 1 2)"]);
 });

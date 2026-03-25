@@ -225,6 +225,7 @@ function classifyProviderError(
 function wrapProviderSdkError(
   error: unknown,
   providerName: string,
+  modelId?: string,
 ): never {
   const code = classifyProviderError(error, providerName);
   const message = formatProviderFailureMessage({
@@ -233,6 +234,7 @@ function wrapProviderSdkError(
     status: extractStatusCode(error),
     responseBody: extractResponseBodyText(error),
     fallbackMessage: getErrorMessage(error),
+    modelId,
   });
   throw new RuntimeError(
     message,
@@ -974,7 +976,7 @@ async function* streamGoogleVideoRequest(
       "provider_failed",
       { errorMessage: getErrorMessage(error) },
     );
-    wrapProviderSdkError(error, spec.providerName);
+    wrapProviderSdkError(error, spec.providerName, spec.modelId);
   }
 }
 
@@ -1246,8 +1248,8 @@ function buildCommonSettings(
     model,
     messages,
     ...(tools ? { tools } : {}),
-    temperature: options?.temperature ?? 0.0,
-    maxTokens: options?.maxTokens,
+    ...(options?.temperature != null && { temperature: options.temperature }),
+    maxOutputTokens: options?.maxTokens ?? 4096,
     stopSequences: options?.stop,
     abortSignal: signal,
     ...(numCtx ? { providerOptions: { ollama: { num_ctx: numCtx } } } : {}),
@@ -1311,7 +1313,7 @@ export async function* chatWithSdk(
     // "No output generated" retry is handled by the agent engine layer
     // (engine-sdk.ts) which has richer recovery (tool calls, usage tracking).
     // Re-throwing here avoids a double retry that wastes latency.
-    wrapProviderSdkError(error, spec.providerName);
+    wrapProviderSdkError(error, spec.providerName, spec.modelId);
   }
 }
 
@@ -1388,7 +1390,7 @@ export async function chatStructuredWithSdk(
     };
   } catch (error) {
     await maybeHandleSdkAuthError(spec.providerName, error);
-    wrapProviderSdkError(error, spec.providerName);
+    wrapProviderSdkError(error, spec.providerName, spec.modelId);
   }
 }
 
@@ -1405,12 +1407,12 @@ export async function generateStructuredWithSdk(
       model,
       messages: sdkMessages,
       output: Output.object({ schema: jsonSchema(schema) }),
-      temperature: options?.temperature ?? 0.0,
+      ...(options?.temperature != null && { temperature: options.temperature }),
       abortSignal: options?.signal,
     });
     return output;
   } catch (error) {
     await maybeHandleSdkAuthError(spec.providerName, error);
-    wrapProviderSdkError(error, spec.providerName);
+    wrapProviderSdkError(error, spec.providerName, spec.modelId);
   }
 }

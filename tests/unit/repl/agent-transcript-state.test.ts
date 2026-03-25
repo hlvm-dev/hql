@@ -8,6 +8,7 @@ import {
   type ConversationItem,
   createConversationAttachmentRefs,
   isStructuredTeamInfoItem,
+  StreamingState,
 } from "../../../src/hlvm/cli/repl-ink/types.ts";
 
 function withItems(items: ConversationItem[]) {
@@ -1026,3 +1027,176 @@ Deno.test("agent transcript state preserves items during plan phase transitions"
   assertEquals(state.items.length, itemCountBefore);
   assertEquals(state.planningPhase, "executing");
 });
+
+// ============================================================
+// HQL eval — insertion + turnId
+// ============================================================
+
+Deno.test("hql_eval during Responding inserts before pending assistant", () => {
+  // Set up state with user + pending assistant + currentTurnId
+  let state = createTranscriptState();
+  state = reduceTranscriptState(state, {
+    type: "user_message",
+    text: "hello",
+    startTurn: true,
+  });
+  // state now has user + pending assistant, with a currentTurnId
+  assertEquals(state.currentTurnId, "turn-1");
+  const itemsBefore = state.items.length; // user + pending assistant = 2
+  assertEquals(itemsBefore, 2);
+
+  const next = reduceTranscriptState(state, {
+    type: "hql_eval",
+    input: "(+ 1 2)",
+    result: { success: true, value: "3" },
+  });
+  // Eval should be inserted before pending assistant
+  assertEquals(next.items.length, 3);
+  assertEquals(next.items[1].type, "hql_eval");
+  assertEquals(next.items[2].type, "assistant");
+  // Should inherit the current turn's turnId
+  const evalItem = next.items[1];
+  if (evalItem.type === "hql_eval") {
+    assertEquals(evalItem.turnId, "turn-1");
+  }
+});
+
+Deno.test("hql_eval during Idle gets its own ephemeral turnId", () => {
+  const state = createTranscriptState();
+  const next = reduceTranscriptState(state, {
+    type: "hql_eval",
+    input: "(+ 1 2)",
+    result: { success: true, value: "3" },
+  });
+  assertEquals(next.items.length, 1);
+  assertEquals(next.items[0].type, "hql_eval");
+  // Should have an ephemeral turnId
+  const evalItem = next.items[0];
+  if (evalItem.type === "hql_eval") {
+    assertEquals(evalItem.turnId, "turn-1");
+  }
+  assertEquals(next.turnCounter, 1);
+});
+
+// ============================================================
+// Turn grouping via turnId
+// ============================================================
+
+Deno.test("user_message with startTurn generates turnId", () => {
+  const state = createTranscriptState();
+  const next = reduceTranscriptState(state, {
+    type: "user_message",
+    text: "hello",
+    startTurn: true,
+  });
+  assertEquals(next.currentTurnId, "turn-1");
+  assertEquals(next.turnCounter, 1);
+  // User item and pending assistant both get the turnId
+  const userItem = next.items[0];
+  const assistantItem = next.items[1];
+  assertEquals(userItem.type, "user");
+  if (userItem.type === "user") {
+    assertEquals(userItem.turnId, "turn-1");
+  }
+  assertEquals(assistantItem.type, "assistant");
+  if (assistantItem.type === "assistant") {
+    assertEquals(assistantItem.turnId, "turn-1");
+  }
+});
+
+Deno.test("turnId propagates through agent_event sub-cases", () => {
+  let state = createTranscriptState();
+  // Start a turn
+  state = reduceTranscriptState(state, {
+    type: "user_message",
+    text: "hello",
+    startTurn: true,
+  });
+  assertEquals(state.currentTurnId, "turn-1");
+
+  // Dispatch tool_start
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "tool_start",
+      name: "read_file",
+      argsSummary: "test.ts",
+      toolIndex: 1,
+      toolTotal: 1,
+    },
+  });
+  // Find the tool_group item
+  const toolGroup = state.items.find((i) => i.type === "tool_group");
+  assertEquals(toolGroup?.type, "tool_group");
+  if (toolGroup?.type === "tool_group") {
+    assertEquals(toolGroup.turnId, "turn-1");
+  }
+});
+
+Deno.test("turn_stats clears currentTurnId", () => {
+  let state = createTranscriptState();
+  state = reduceTranscriptState(state, {
+    type: "user_message",
+    text: "hello",
+    startTurn: true,
+  });
+  assertEquals(state.currentTurnId, "turn-1");
+
+  // Add some text so finalize doesn't strip the assistant
+  state = reduceTranscriptState(state, {
+    type: "assistant_text",
+    text: "world",
+    isPending: false,
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "turn_stats",
+      iteration: 1,
+      toolCount: 0,
+      durationMs: 100,
+    },
+  });
+  assertEquals(state.currentTurnId, undefined);
+  // turn_stats item should carry the turnId from the turn
+  const statsItem = state.items.find((i) => i.type === "turn_stats");
+  if (statsItem?.type === "turn_stats") {
+    assertEquals(statsItem.turnId, "turn-1");
+  }
+});
+
+Deno.test("turnCounter increments monotonically", () => {
+  let state = createTranscriptState();
+  assertEquals(state.turnCounter, 0);
+
+  // First turn
+  state = reduceTranscriptState(state, {
+    type: "user_message",
+    text: "first",
+    startTurn: true,
+  });
+  assertEquals(state.currentTurnId, "turn-1");
+  assertEquals(state.turnCounter, 1);
+
+  // End first turn
+  state = reduceTranscriptState(state, {
+    type: "assistant_text",
+    text: "reply",
+    isPending: false,
+  });
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: { type: "turn_stats", iteration: 1, toolCount: 0, durationMs: 50 },
+  });
+
+  // Second turn
+  state = reduceTranscriptState(state, {
+    type: "user_message",
+    text: "second",
+    startTurn: true,
+  });
+  assertEquals(state.currentTurnId, "turn-2");
+  assertEquals(state.turnCounter, 2);
+});
+

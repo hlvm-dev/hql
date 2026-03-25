@@ -41,7 +41,10 @@ const handlerCategoryMap = new Map<string, KeybindingCategory>();
 export function normalizeKeyInput(input: string, key: Key): string | null {
   // macOS terminals can emit Option+Enter as a single ESC-prefixed payload.
   // Normalize this explicitly so higher layers can treat it as Alt+Enter.
-  if (input && input.startsWith("\x1b") && (input.endsWith("\r") || input.endsWith("\n"))) {
+  if (
+    input && input.startsWith("\x1b") &&
+    (input.endsWith("\r") || input.endsWith("\n"))
+  ) {
     return "alt+enter";
   }
 
@@ -70,8 +73,9 @@ export function normalizeKeyInput(input: string, key: Key): string | null {
   // This avoids misclassifying raw control bytes (e.g., Tab as Ctrl+I).
   let specialKey: string | null = null;
   if (key.tab || (!key.ctrl && input === "\t")) specialKey = "tab";
-  else if (key.return || (!key.ctrl && (input === "\r" || input === "\n"))) specialKey = "enter";
-  else if (key.backspace) specialKey = "backspace";
+  else if (key.return || (!key.ctrl && (input === "\r" || input === "\n"))) {
+    specialKey = "enter";
+  } else if (key.backspace) specialKey = "backspace";
   else if (key.delete) specialKey = "delete";
   else if (key.upArrow) specialKey = "up";
   else if (key.downArrow) specialKey = "down";
@@ -88,7 +92,8 @@ export function normalizeKeyInput(input: string, key: Key): string | null {
   if (input && input.length === 1) {
     const code = input.charCodeAt(0);
     // Keep plain tab/newline/return as special keys, but allow explicit Ctrl+I/J/M.
-    const isPlainSpecialControl = !key.ctrl && (code === 9 || code === 10 || code === 13);
+    const isPlainSpecialControl = !key.ctrl &&
+      (code === 9 || code === 10 || code === 13);
     if (code >= 1 && code <= 26 && !isPlainSpecialControl) {
       char = String.fromCharCode(code + 96); // Convert to a-z
       isCtrl = true;
@@ -115,7 +120,6 @@ export function normalizeKeyInput(input: string, key: Key): string | null {
 
   return parts.join("+");
 }
-
 // ============================================================
 // Lookup Refresh
 // ============================================================
@@ -256,8 +260,11 @@ function displayToCombo(display: string): string | null {
     for (let i = 0; i < parts.length - 1; i++) {
       const mod = parts[i].toLowerCase();
       if (mod === "ctrl" || mod === "control") normalized.push("ctrl");
-      else if (mod === "cmd" || mod === "meta" || mod === "⌘") normalized.push("cmd");
-      else if (mod === "alt" || mod === "option" || mod === "opt" || mod === "⌥") normalized.push("alt");
+      else if (mod === "cmd" || mod === "meta" || mod === "⌘") {
+        normalized.push("cmd");
+      } else if (
+        mod === "alt" || mod === "option" || mod === "opt" || mod === "⌥"
+      ) normalized.push("alt");
       else if (mod === "shift" || mod === "⇧") normalized.push("shift");
     }
     const key = parts[parts.length - 1].toLowerCase();

@@ -33,6 +33,16 @@ build: clean stdlib embed-packages
 	@echo "✅ Done! Binary: ./$(BINARY)"
 	@ls -lh $(BINARY)
 
+# Fast build — uses cached DENO_DIR, skips clean
+build-fast: stdlib embed-packages
+	@echo "🔨 Building HLVM binary (cached)..."
+	@deno compile --allow-all --no-check --config deno.json \
+		--v8-flags=--max-old-space-size=4096 \
+		--include src/hql/lib/stdlib/js/index.js \
+		--output $(BINARY) $(CLI_ENTRY)
+	@echo "✅ Done! Binary: ./$(BINARY)"
+	@ls -lh $(BINARY)
+
 # Install to system
 install: build
 	@echo "📦 Installing HLVM system-wide..."
@@ -41,6 +51,11 @@ install: build
 
 # Build and launch REPL immediately
 repl: build
+	@echo "🚀 Launching REPL..."
+	@./$(BINARY) repl
+
+# Fast REPL — cached build, no clean
+fast: build-fast
 	@echo "🚀 Launching REPL..."
 	@./$(BINARY) repl
 
@@ -144,9 +159,10 @@ help:
 	@echo "HLVM Build System"
 	@echo ""
 	@echo "Commands:"
-	@echo "  make              - Build for current computer"
-	@echo "  make repl         - Build binary and launch REPL"
-	@echo "  make ink          - Build binary and launch Ink REPL (experimental)"
+	@echo "  make              - Build for current computer (clean)"
+	@echo "  make fast         - Build + REPL with cached deps (fast)"
+	@echo "  make repl         - Build + REPL from clean slate"
+	@echo "  make ink          - Build + Ink REPL (experimental)"
 	@echo "  make install      - Install system-wide"
 	@echo "  make test         - Build and test"
 	@echo "  make all          - Build for all platforms"
@@ -163,6 +179,6 @@ help:
 	@echo "  make build-linux"
 	@echo "  make build-windows"
 
-.PHONY: stdlib embed-packages openapi build install repl ink test all clean help
+.PHONY: stdlib embed-packages openapi build build-fast install repl fast ink test all clean help
 .PHONY: build-mac-intel build-mac-arm build-linux build-windows
 .PHONY: build-ai setup-ai test-ai

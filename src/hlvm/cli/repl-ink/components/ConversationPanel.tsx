@@ -8,6 +8,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 import { truncate } from "../../../../common/utils.ts";
+import { STATUS_GLYPHS } from "../ui-constants.ts";
 import {
   type AssistantCitation,
   type ConversationItem,
@@ -46,6 +47,7 @@ import {
   ConfirmationDialog,
   DelegateItem,
   ErrorMessage,
+  HqlEvalDisplay,
   InfoMessage,
   MemoryActivityLine,
   QuestionDialog,
@@ -320,61 +322,11 @@ export function getRecentPlanFlowActivitySummaries(
   return getPlanFlowActivities(items, "recent", limit);
 }
 
-function getPlanningPhaseTitle(
-  phase: PlanningPhase | undefined,
-  hasPendingPlanReview: boolean,
-): string | undefined {
-  switch (phase) {
-    case "researching":
-      return "Researching";
-    case "drafting":
-      return "Drafting plan";
-    case "reviewing":
-      return hasPendingPlanReview ? "Ready to code" : "Reviewing";
-    case "executing":
-      return "Executing";
-    case "done":
-      return "Plan complete";
-    default:
-      return undefined;
-  }
-}
-
-function getPlanningPhaseSummary(
-  phase: PlanningPhase | undefined,
-  plan: Plan | undefined,
-  hasPendingPlanReview: boolean,
-): string | undefined {
-  if (plan) {
-    if (hasPendingPlanReview) {
-      return plan.goal;
-    }
-    return plan.goal;
-  }
-  switch (phase) {
-    case "researching":
-      return "Read-only planning is active";
-    case "drafting":
-      return "Turning research into a concrete plan";
-    case "reviewing":
-      return "Review the plan before execution";
-    default:
-      return undefined;
-  }
-}
-
 function estimateTodoRows(
   todoState: TodoState | undefined,
-  width: number,
 ): number {
   if (!todoState || todoState.items.length === 0) return 0;
-  const contentWidth = Math.max(12, width);
-  return 1 +
-    todoState.items.reduce(
-      (total: number, item: TodoState["items"][number]) =>
-        total + estimateWrappedRows(`[ ] ${item.content}`, contentWidth),
-      0,
-    );
+  return todoState.items.length;
 }
 
 function renderItem(
@@ -455,6 +407,8 @@ function renderItem(
           expanded={isMemoryExpanded(item.id)}
         />
       );
+    case "hql_eval":
+      return <HqlEvalDisplay input={item.input} result={item.result} />;
     case "error":
       return <ErrorMessage text={item.text} />;
     case "info":
@@ -508,8 +462,6 @@ export const ConversationPanel = React.memo(function ConversationPanel({
       shouldCompactPlanTranscript(planningPhase, activePlan, pendingPlanReview),
     [activePlan, pendingPlanReview, planningPhase],
   );
-  const planFlowActive = streamingState !== ConversationStreamingState.Idle ||
-    Boolean(interactionRequest);
   const pickerInteractionActive = useMemo(
     () => isPickerInteractionRequest(interactionRequest),
     [interactionRequest],
@@ -546,90 +498,18 @@ export const ConversationPanel = React.memo(function ConversationPanel({
   }, [displayItems.length]);
 
   const terminalRows = stdout?.rows ?? 24;
-  const contentWidth = Math.max(10, width - 6);
-  // Derive plan checklist display state from active/pending plan and current planning phase
-  // Plan checklist: shows pending-review plan if present, otherwise the active plan
-  const planSummary = pendingPlanReview?.plan ?? activePlan;
-  const phaseTitle = getPlanningPhaseTitle(
-    planningPhase,
-    Boolean(pendingPlanReview),
-  );
-  const phaseSummary = getPlanningPhaseSummary(
-    planningPhase,
-    planSummary,
-    Boolean(pendingPlanReview),
-  );
-  const latestPlanActivity = useMemo(
-    () => compactPlanTranscript ? getPlanFlowActivitySummary(items) : undefined,
-    [compactPlanTranscript, items],
-  );
-  const recentPlanActivities = useMemo(
-    () =>
-      compactPlanTranscript ? getRecentPlanFlowActivitySummaries(items, 3) : [],
-    [compactPlanTranscript, items],
-  );
-  const activeTodoItem = compactPlanTranscript &&
-      (planningPhase === "executing" || planningPhase === "done")
-    ? todoState?.items.find((item) => item.status === "in_progress")
-    : undefined;
-  const todoSectionTitle = pendingPlanReview
-    ? "Plan"
-    : planningPhase === "executing" || planningPhase === "done"
-    ? "Progress"
-    : "Planning...";
   const interactionRows = estimateInteractionDialogRows(
     interactionRequest,
     width,
   );
   const headerRows = useMemo(() => {
     let total = 0;
-    if (!hidePlanChromeDuringReviewPicker && (phaseTitle || phaseSummary)) {
-      total += estimateWrappedRows(phaseTitle ?? "Researching", contentWidth);
-      if (phaseSummary) {
-        total += estimateWrappedRows(phaseSummary, contentWidth);
-      }
-      if (
-        recentPlanActivities.length > 0 &&
-        planFlowActive &&
-        planningPhase !== "reviewing" &&
-        planningPhase !== "done"
-      ) {
-        total += 1;
-        total += recentPlanActivities.reduce(
-          (rows: number, summary: string) =>
-            rows + estimateWrappedRows(`• ${summary}`, contentWidth),
-          0,
-        );
-      } else if (
-        latestPlanActivity &&
-        planFlowActive &&
-        planningPhase !== "reviewing" &&
-        planningPhase !== "done"
-      ) {
-        total += estimateWrappedRows(latestPlanActivity, contentWidth);
-      }
-      total += 1;
-    }
     if (!hidePlanChromeDuringReviewPicker) {
-      total += estimateTodoRows(todoState, contentWidth);
-    }
-    if (!hidePlanChromeDuringReviewPicker && activeTodoItem) {
-      total += estimateWrappedRows(
-        `Current: ${activeTodoItem.content}`,
-        contentWidth,
-      ) + 1;
+      total += estimateTodoRows(todoState);
     }
     return total;
   }, [
-    activeTodoItem,
-    contentWidth,
-    latestPlanActivity,
-    planFlowActive,
-    recentPlanActivities,
     hidePlanChromeDuringReviewPicker,
-    phaseSummary,
-    phaseTitle,
-    planningPhase,
     todoState,
   ]);
   const visibleCount = useMemo(
@@ -787,9 +667,8 @@ export const ConversationPanel = React.memo(function ConversationPanel({
   return (
     <Box flexDirection="column" width={width}>
       {displayItems.length === 0 &&
+        streamingState != null &&
         streamingState !== ConversationStreamingState.Idle &&
-        !phaseTitle &&
-        !phaseSummary &&
         !todoState?.items.length &&
         !interactionRequest && (
         <Text color={sc.text.muted}>Conversation starting...</Text>
@@ -825,97 +704,30 @@ export const ConversationPanel = React.memo(function ConversationPanel({
         </Text>
       )}
 
-      {!hidePlanChromeDuringReviewPicker && (phaseTitle || phaseSummary) && (
-        <Box
-          marginTop={1}
-          flexDirection="column"
-        >
-          <Text
-            color={planningPhase === "done"
-              ? sc.status.success
-              : planningPhase === "reviewing"
-              ? sc.status.warning
-              : sc.text.primary}
-            bold
-          >
-            {phaseTitle ?? "Researching"}
-          </Text>
-          {phaseSummary && (
-            <Text color={sc.text.secondary}>
-              {phaseSummary}
-            </Text>
-          )}
-          {recentPlanActivities.length > 0 &&
-            planFlowActive &&
-            planningPhase !== "reviewing" &&
-            planningPhase !== "done" && (
-            <Box marginTop={1} flexDirection="column">
-              <Text color={sc.text.muted}>Activity</Text>
-              {recentPlanActivities.map((summary: string) => (
-                <Box key={summary}>
-                  <Text color={sc.text.muted}>
-                    • {summary}
-                  </Text>
-                </Box>
-              ))}
-            </Box>
-          )}
-          {recentPlanActivities.length === 0 &&
-            latestPlanActivity &&
-            planFlowActive &&
-            planningPhase !== "reviewing" &&
-            planningPhase !== "done" && (
-            <Text color={sc.text.muted}>
-              {latestPlanActivity}
-            </Text>
-          )}
-        </Box>
-      )}
-
-      {!hidePlanChromeDuringReviewPicker && activeTodoItem && (
-        <Box
-          marginTop={1}
-          flexDirection="column"
-        >
-          <Text color={sc.border.active} bold>
-            Current step
-          </Text>
-          <Text color={sc.text.primary}>{activeTodoItem.content}</Text>
-        </Box>
-      )}
-
       {!hidePlanChromeDuringReviewPicker && todoState &&
         todoState.items.length > 0 && (
-        <Box
-          marginTop={1}
-          flexDirection="column"
-        >
-          <Text color={sc.status.warning} bold>
-            {todoSectionTitle}
-          </Text>
-          <Box flexDirection="column">
-            {todoState.items.map((item) => {
-              const marker = item.status === "completed"
-                ? "[✓]"
-                : item.status === "in_progress"
-                ? "[~]"
-                : "[ ]";
-              const markerColor = item.status === "completed"
-                ? sc.status.success
-                : item.status === "in_progress"
-                ? sc.status.warning
-                : sc.text.muted;
-              const textColor = item.status === "pending"
-                ? sc.text.muted
-                : sc.text.primary;
-              return (
-                <Box key={item.id}>
-                  <Text color={markerColor}>{marker}</Text>
-                  <Text color={textColor}>{item.content}</Text>
-                </Box>
-              );
-            })}
-          </Box>
+        <Box marginTop={1} flexDirection="column" paddingLeft={2}>
+          {todoState.items.map((item) => {
+            const glyph = item.status === "completed"
+              ? STATUS_GLYPHS.success
+              : item.status === "in_progress"
+              ? STATUS_GLYPHS.running
+              : STATUS_GLYPHS.pending;
+            const glyphColor = item.status === "completed"
+              ? sc.status.success
+              : item.status === "in_progress"
+              ? sc.status.warning
+              : sc.text.muted;
+            const textColor = item.status === "pending"
+              ? sc.text.muted
+              : sc.text.primary;
+            return (
+              <Box key={item.id}>
+                <Text color={glyphColor}>{glyph} </Text>
+                <Text color={textColor}>{item.content}</Text>
+              </Box>
+            );
+          })}
         </Box>
       )}
 

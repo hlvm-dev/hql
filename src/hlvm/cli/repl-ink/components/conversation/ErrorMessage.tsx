@@ -1,15 +1,13 @@
 /**
  * ErrorMessage Component
  *
- * Displays an error message with icon and error color.
- * Wraps text for readability.
+ * Displays an error message with icon prefix, flat text (no box).
  */
 
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { STATUS_GLYPHS } from "../../ui-constants.ts";
-import { ConversationCallout } from "./ConversationCallout.tsx";
 
 interface ErrorMessageProps {
   text: string;
@@ -18,16 +16,10 @@ interface ErrorMessageProps {
 export const ErrorMessage = React.memo(
   function ErrorMessage({ text }: ErrorMessageProps): React.ReactElement {
     const sc = useSemanticColors();
-
     return (
-      <ConversationCallout
-        title={`${STATUS_GLYPHS.error} Error`}
-        tone="error"
-      >
-        <Box marginTop={0}>
-          <Text color={sc.status.error} wrap="wrap">{text}</Text>
-        </Box>
-      </ConversationCallout>
+      <Box paddingLeft={2} marginBottom={1}>
+        <Text color={sc.status.error}>{STATUS_GLYPHS.error} {text}</Text>
+      </Box>
     );
   },
 );

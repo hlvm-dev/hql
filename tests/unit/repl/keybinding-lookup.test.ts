@@ -164,6 +164,7 @@ Deno.test("global keybindings omit unsupported queue navigation shortcuts", () =
   assertEquals(globalIds.has("alt+up-queue"), false);
   assertEquals(globalIds.has("alt+down-queue"), false);
   assertEquals(globalIds.has("alt+backspace-queue"), false);
+  assertEquals(globalIds.has("cmd+k"), false);
 });
 
 Deno.test("global keybindings use canonical handler IDs", () => {
@@ -178,7 +179,6 @@ Deno.test("global keybindings use canonical handler IDs", () => {
   );
   assertEquals(globalHandlerIds.get("ctrl+c"), HandlerIds.APP_EXIT);
   assertEquals(globalHandlerIds.get("ctrl+l"), HandlerIds.APP_CLEAR);
-  assertEquals(globalHandlerIds.get("cmd+k"), HandlerIds.APP_CLEAR);
   assertEquals(globalHandlerIds.get("ctrl+p"), HandlerIds.APP_PALETTE);
   assertEquals(globalHandlerIds.get("ctrl+b"), HandlerIds.APP_BACKGROUND);
   assertEquals(globalHandlerIds.get("ctrl+t"), HandlerIds.APP_TEAM_DASHBOARD);

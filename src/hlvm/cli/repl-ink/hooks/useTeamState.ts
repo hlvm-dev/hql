@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import {
   cloneTeamRuntimeSnapshot,
   createDefaultTeamPolicy,
@@ -495,5 +495,49 @@ export function deriveTeamDashboardState(items: ConversationItem[]): TeamDashboa
 }
 
 export function useTeamState(items: ConversationItem[]): TeamDashboardState {
-  return useMemo(() => deriveTeamDashboardState(items), [items]);
+  // Cache: skip full derivation when items grew but no new team-related items were added.
+  // During streaming, items changes on every token — but team events are rare, so the
+  // O(n) .some() scan in deriveTeamDashboardState is wasted work for non-team conversations.
+  const cacheRef = useRef<{
+    length: number;
+    hadTeamItems: boolean;
+    result: TeamDashboardState;
+  }>({ length: 0, hadTeamItems: false, result: EMPTY_TEAM_STATE });
+
+  return useMemo(() => {
+    const cache = cacheRef.current;
+
+    // Items shrunk or reset → full recompute (conversation cleared)
+    if (items.length < cache.length) {
+      const result = deriveTeamDashboardState(items);
+      cacheRef.current = {
+        length: items.length,
+        hadTeamItems: result !== EMPTY_TEAM_STATE,
+        result,
+      };
+      return result;
+    }
+
+    // Items grew — check only the new items for team relevance
+    if (!cache.hadTeamItems && items.length > cache.length) {
+      const newItems = items.slice(cache.length);
+      const hasNewTeamItem = newItems.some((i) =>
+        isStructuredTeamInfoItem(i) || i.type === "delegate"
+      );
+      if (!hasNewTeamItem) {
+        // No team items anywhere — return cached EMPTY_TEAM_STATE
+        cache.length = items.length;
+        return cache.result;
+      }
+    }
+
+    // Full derivation (team items exist, or first render)
+    const result = deriveTeamDashboardState(items);
+    cacheRef.current = {
+      length: items.length,
+      hadTeamItems: result !== EMPTY_TEAM_STATE,
+      result,
+    };
+    return result;
+  }, [items]);
 }

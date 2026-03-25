@@ -35,7 +35,7 @@ function writeTerminalSequence(sequence: string): void {
 
 /**
  * Clear terminal screen and scrollback buffer.
- * Used for Ctrl+L and Cmd+K screen clear in REPL.
+ * Used for in-app REPL flush / clear actions.
  */
 export function clearTerminal(): void {
   writeTerminalSequence(getTerminalClearSequence());

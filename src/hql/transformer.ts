@@ -163,9 +163,9 @@ export async function transformAST(
           continue;
         }
 
-        // TS2304 "Cannot find name" - suppress in REPL mode (bindings are on globalThis)
-        // or if it's about dynamic runtime variables
-        if (err.code === 2304) {
+        // TS2304 "Cannot find name" / TS2552 "Cannot find name…Did you mean?"
+        // Suppress in REPL mode (bindings are on globalThis) or for dynamic runtime vars
+        if (err.code === 2304 || err.code === 2552) {
           if (options.suppressUnknownNameErrors) {
             continue;  // REPL mode: all unknown names are likely globalThis bindings
           }

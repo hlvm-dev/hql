@@ -10,8 +10,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, Text, type Key, useApp, useInput, useStdout } from "ink";
-import { Output } from "./Output.tsx";
+import { Box, type Key, useApp, useInput, useStdout } from "ink";
 import { Banner } from "./Banner.tsx";
 import { LoadingScreen } from "./LoadingScreen.tsx";
 import { ConfigOverlay } from "./ConfigOverlay.tsx";
@@ -30,7 +29,10 @@ import {
   type ComposerSurfaceHandle,
   type ComposerSurfaceUiState,
 } from "./ComposerSurface.tsx";
-import { ConversationPanel } from "./ConversationPanel.tsx";
+import { TranscriptHistory } from "./TranscriptHistory.tsx";
+import { PendingTurnPanel } from "./PendingTurnPanel.tsx";
+import { DialogStack } from "./DialogStack.tsx";
+import { LocalEvalQueuePreview } from "./LocalEvalQueuePreview.tsx";
 import { RenderErrorBoundary } from "./ErrorBoundary.tsx";
 import {
   isPickerInteractionRequest,
@@ -54,16 +56,10 @@ import { useTeamState, type TeamMemberItem } from "../hooks/useTeamState.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
 import { useOverlayPanel } from "../hooks/useOverlayPanel.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
-import type { EvalResult } from "../types.ts";
+import type { EvalResult, QueuedLocalEval } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { getPersistentAgentExecutionModeLabel } from "../../../agent/execution-mode.ts";
 import { clearTerminal } from "../../ansi.ts";
-import {
-  getHighlightSegments,
-  getUnclosedDepth,
-  type TokenType,
-} from "../../repl/syntax.ts";
-import { useTheme } from "../../theme/index.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 import { isCommand, runCommand } from "../../repl/commands.ts";
@@ -109,19 +105,16 @@ import {
   shouldRenderMainBanner,
 } from "../utils/app-surface.ts";
 
-interface HistoryEntry {
-  id: number;
-  input: string;
-  result: EvalResult;
-}
-
 interface CurrentEval {
   code: string;
   controller: AbortController;
   backgrounded: boolean;
   cancelled?: boolean;
   taskId?: string;
-  historyId?: number;
+}
+
+interface QueuedLocalEvalDraft extends QueuedLocalEval {
+  attachments?: AnyAttachment[];
 }
 
 interface AppProps {
@@ -140,17 +133,6 @@ function isAsyncIterable(
 ): value is AsyncIterableIterator<string> {
   return !!value && typeof value === "object" &&
     Symbol.asyncIterator in (value as object);
-}
-
-/**
- * Keep history input rendering stable by stripping terminal control bytes that
- * can leak from key sequences while preserving tabs/newlines.
- */
-function sanitizeHistoryInput(input: string): string {
-  // deno-lint-ignore no-control-regex -- intentional ANSI escape stripping
-  const withoutAnsi = input.replace(/\x1B\[[0-9;?]*[ -/]*[@-~]/g, "");
-  // deno-lint-ignore no-control-regex -- intentional control-byte stripping except tab/newline
-  return withoutAnsi.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "");
 }
 
 /**
@@ -191,21 +173,18 @@ function AppContent(
   const init = useInitialization(replState);
   const { refreshAiReadiness } = init;
 
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [isEvaluating, setIsEvaluating] = useState(false);
   // Ref to avoid stale closure in useInput callback
   const isEvaluatingRef = useRef(false);
   useEffect(() => {
     isEvaluatingRef.current = isEvaluating;
   }, [isEvaluating]);
-  const [nextId, setNextId] = useState(1);
-  // Split point: history entries with id < this value render above ConversationPanel,
-  // entries with id >= this value render below. Set when conversation context first activates.
-  const [conversationHistorySplit, setConversationHistorySplit] = useState<
-    number | null
-  >(null);
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
+  const [queuedLocalEvals, setQueuedLocalEvals] = useState<QueuedLocalEvalDraft[]>(
+    [],
+  );
+  const nextQueuedLocalEvalIdRef = useRef(0);
   const composerRef = useRef<ComposerSurfaceHandle | null>(null);
   const [composerShellState, setComposerShellState] = useState<
     ComposerShellState
@@ -231,6 +210,10 @@ function AppContent(
   // Track current evaluation for Ctrl+B to push to background
   // AbortController enables true cancellation of async operations (AI calls, fetch, etc.)
   const currentEvalRef = useRef<CurrentEval | null>(null);
+  // Forward-ref for handleSubmit — allows the drain callback to call it
+  const handleSubmitRef = useRef<(code: string, attachments?: AnyAttachment[]) => Promise<void>>(
+    async () => {},
+  );
 
   // Overlay/surface panel state machine
   const overlay = useOverlayPanel({
@@ -258,21 +241,35 @@ function AppContent(
     toggleShortcutsOverlay,
     toggleBackgroundTasks,
   } = overlay;
-  // Theme from context (auto-updates when theme changes)
-  const { color } = useTheme();
-
   // Terminal width for responsive layout
   const { stdout } = useStdout();
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
 
   // Conversation state for agent mode
   const conversation = useConversation();
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
   const baseTeamState = useTeamState(conversation.items);
+  const transcriptItemCount =
+    conversation.historyItems.length +
+    conversation.liveItems.length +
+    conversation.evalHistory.length;
+  const committedHistoryCount =
+    conversation.historyItems.length +
+    conversation.evalHistory.length;
   const [focusedTeammateIndex, setFocusedTeammateIndex] = useState(-1);
   const teamState = useMemo(
     () => ({ ...baseTeamState, focusedWorkerIndex: focusedTeammateIndex }),
     [baseTeamState, focusedTeammateIndex],
   );
+  const teamWorkerSummary = useMemo(() => {
+    if (!teamState.active) return undefined;
+    const summary = teamState.members
+      .filter((m: TeamMemberItem) => m.role === "worker")
+      .map((m: TeamMemberItem) => `${m.id}: ${m.currentTaskId ? "working" : "idle"}`)
+      .join(" \u00B7 ");
+    return summary || undefined;
+  }, [teamState.active, teamState.members]);
   const hasConversationContext = usesConversationContext(surfacePanel);
   const hasActivePlanningState = Boolean(
     conversation.activePlan ||
@@ -353,22 +350,42 @@ function AppContent(
   const clearComposerDraft = useCallback(() => {
     composerRef.current?.clearDraft();
   }, []);
-  // Helper to add history entry and increment ID (DRY pattern used 8+ times)
-  // Uses ref to avoid stale closure — no dependency on nextId state
-  const nextIdRef = useRef(nextId);
-  useEffect(() => {
-    nextIdRef.current = nextId;
-  }, [nextId]);
-  const addHistoryEntry = useCallback((input: string, result: EvalResult) => {
-    const id = nextIdRef.current;
-    setHistory((prev: HistoryEntry[]) => [
-      ...prev,
-      { id, input: sanitizeHistoryInput(input), result },
-    ]);
-    setNextId((n: number) => n + 1);
-  }, []);
 
+  const enqueueLocalEval = useCallback((
+    code: string,
+    attachments?: AnyAttachment[],
+  ) => {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    recordPromptHistory(replState, code, "evaluate");
+    nextQueuedLocalEvalIdRef.current += 1;
+    setQueuedLocalEvals((prev: QueuedLocalEvalDraft[]) => [
+      ...prev,
+      {
+        id: `leq-${nextQueuedLocalEvalIdRef.current}`,
+        input: trimmed,
+        attachmentCount: attachments?.length ?? 0,
+        queuedAt: Date.now(),
+        attachments,
+      },
+    ]);
+  }, [replState]);
   // Agent runner: conversation execution, interaction queue, force-interrupt
+  // Callback for draining queued HQL evals when agent becomes idle
+  const executeQueuedHqlEval = useCallback(
+    async (code: string) => {
+      // handleSubmit is defined later — use handleSubmitRef to avoid circular dep.
+      // When agent is idle, handleSubmit evaluates HQL normally (queue gate skips).
+      await handleSubmitRef.current(code);
+    },
+    [],
+  );
+
+  const isLocalEvalBusy = useCallback(
+    () => Boolean(currentEvalRef.current && !currentEvalRef.current.backgrounded),
+    [],
+  );
+
   const agentRunner = useAgentRunner({
     conversation,
     agentExecutionMode,
@@ -386,6 +403,8 @@ function AppContent(
     restoreComposerDraft,
     hasConversationContext,
     replState,
+    onQueuedHqlEval: executeQueuedHqlEval,
+    isLocalEvalBusy,
   });
   const {
     interactionQueue,
@@ -408,7 +427,7 @@ function AppContent(
       interaction.requestId === requestId &&
       interaction.toolName === "plan_review"
     ) {
-      const plan = conversation.pendingPlanReview?.plan ??
+      const plan = conversationRef.current.pendingPlanReview?.plan ??
         parsePlanReviewToolArgs(interaction.toolName, interaction.toolArgs);
       if (plan) {
         const choice = response.userInput?.trim().toLowerCase();
@@ -416,7 +435,7 @@ function AppContent(
         const autoApproved = choice === "approve:auto";
         const approved = autoApproved ||
           (!reviseRequested && response.approved === true);
-        conversation.addEvent({
+        conversationRef.current.addEvent({
           type: "plan_review_resolved",
           plan,
           approved,
@@ -430,7 +449,6 @@ function AppContent(
     }
     handleInteractionResponse(requestId, response);
   }, [
-    conversation,
     handleInteractionResponse,
     pendingInteraction,
   ]);
@@ -450,9 +468,10 @@ function AppContent(
       shouldAutoCloseConversationSurface({
         activeOverlay,
         surfacePanel,
-        itemCount: conversation.items.length,
+        itemCount: transcriptItemCount,
         hasActiveRun: isEvaluating || agentControllerRef.current !== null,
-        queuedDraftCount: composerShellState.queuedDraftCount,
+        queuedDraftCount: composerShellState.queuedDraftCount +
+          queuedLocalEvals.length,
         hasPendingInteraction: Boolean(pendingInteraction),
         hasPlanState: hasActivePlanningState,
       })
@@ -463,26 +482,15 @@ function AppContent(
     activeOverlay,
     agentExecutionMode,
     surfacePanel,
-    conversation.items.length,
+    transcriptItemCount,
     agentControllerRef,
     isEvaluating,
     composerShellState.queuedDraftCount,
+    queuedLocalEvals.length,
     pendingInteraction,
     hasActivePlanningState,
     setSurfacePanel,
   ]);
-
-  const suppressHistoryOutput = useCallback((historyId: number) => {
-    setHistory((prev: HistoryEntry[]) =>
-      prev.map((entry: HistoryEntry) => {
-        if (entry.id !== historyId) return entry;
-        return {
-          ...entry,
-          result: { ...entry.result, suppressOutput: true },
-        };
-      })
-    );
-  }, []);
 
   const streamEvalToTask = useCallback((
     taskId: string,
@@ -578,17 +586,11 @@ function AppContent(
   //  all moved to useAgentRunner)
   const flushReplOutput = useCallback(() => {
     clearTerminal();
-    setHistory([]);
-    setNextId(1);
     setHasBeenCleared(true);
     setClearKey((k: number) => k + 1);
-    if (hasConversationContext) {
-      conversation.clear();
-    }
-  }, [
-    conversation,
-    hasConversationContext,
-  ]);
+    setQueuedLocalEvals([]);
+    conversationRef.current.clear();
+  }, []);
 
   const handleAppExit = useCallback(() => {
     replState.flushHistorySync();
@@ -617,25 +619,22 @@ function AppContent(
     const taskId = activeEval.taskId ??
       createEvalTask(activeEval.code, activeEval.controller);
     activeEval.taskId = taskId;
-    if (activeEval.historyId != null) {
-      suppressHistoryOutput(activeEval.historyId);
-    }
     currentEvalRef.current = null;
     setIsEvaluating(false);
     const preview = truncate(activeEval.code, 40);
-    addHistoryEntry("", {
+    conversationRef.current.addHqlEval("", {
       success: true,
       value: `Pushed to background (Task ${taskId.slice(0, 8)}): ${preview}`,
       isCommandOutput: true,
     });
-  }, [addHistoryEntry, createEvalTask, suppressHistoryOutput]);
+  }, [createEvalTask]);
 
   // Ctrl+F double-press kill-all state
   const ctrlFTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleKillAll = useCallback(() => {
     if (activeCount === 0) {
-      addHistoryEntry("", {
+      conversationRef.current.addHqlEval("", {
         success: true,
         value: "No active tasks.",
         isCommandOutput: true,
@@ -647,14 +646,14 @@ function AppContent(
       clearTimeout(ctrlFTimerRef.current);
       ctrlFTimerRef.current = null;
       cancelAll();
-      addHistoryEntry("", {
+      conversationRef.current.addHqlEval("", {
         success: true,
         value: "All background tasks cancelled.",
         isCommandOutput: true,
       });
     } else {
       // First press — start 3s confirmation window
-      addHistoryEntry("", {
+      conversationRef.current.addHqlEval("", {
         success: true,
         value: "Press Ctrl+F again within 3s to cancel all tasks.",
         isCommandOutput: true,
@@ -663,7 +662,7 @@ function AppContent(
         ctrlFTimerRef.current = null;
       }, 3000);
     }
-  }, [activeCount, cancelAll, addHistoryEntry]);
+  }, [activeCount, cancelAll]);
 
   // Clean up Ctrl+F timer on unmount
   useEffect(() => {
@@ -764,8 +763,6 @@ function AppContent(
   teamStateRef.current = teamState;
   const activeOverlayRef = useRef(activeOverlay);
   activeOverlayRef.current = activeOverlay;
-  const conversationRef = useRef(conversation);
-  conversationRef.current = conversation;
   const pendingInteractionRef = useRef(pendingInteraction);
   pendingInteractionRef.current = pendingInteraction;
   const handleInteractionResponseRef = useRef(handleInteractionResponse);
@@ -849,7 +846,7 @@ function AppContent(
         recordPromptHistory(replState, code, "command");
         const output = await handleCommand(code, exit, replState);
         if (output !== null) {
-          addHistoryEntry(code, {
+          conversationRef.current.addHqlEval(code, {
             success: true,
             value: output,
             isCommandOutput: true,
@@ -862,20 +859,26 @@ function AppContent(
       // HQL code (starts with "(") always evaluates locally, even in conversation mode.
       if (trimmedInput.startsWith("(")) {
         if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
-          addHistoryEntry(code, {
-            success: false,
-            error: new Error("Evaluation already running. Ctrl+B to background, Esc cancels."),
-          }, hasConversationContext);
+          enqueueLocalEval(code, attachments);
+          return;
+        }
+        if (agentControllerRef.current) {
+          enqueueLocalEval(code, attachments);
           return;
         }
         // Fall through to HQL eval below
       } else {
         // Natural language → agent conversation
         if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
-          addHistoryEntry(code, {
-            success: false,
-            error: new Error("Evaluation already running. Ctrl+B to background, Esc cancels."),
-          });
+          recordPromptHistory(replState, code, "conversation");
+          setSurfacePanel("conversation");
+          const conversationDraft = createConversationComposerDraft(
+            code.trim(),
+            attachments,
+          );
+          setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
+            enqueueConversationDraft(prev, conversationDraft)
+          );
           return;
         }
 
@@ -906,7 +909,7 @@ function AppContent(
         }
 
         if (agentControllerRef.current) {
-          addHistoryEntry(code, {
+          conversationRef.current.addHqlEval(code, {
             success: false,
             error: new Error("Agent is already running. Press Esc to cancel."),
           });
@@ -917,7 +920,7 @@ function AppContent(
         const { attachments: conversationAttachments, unsupportedMimeType } =
           prepareConversationAttachmentPayload(attachments);
         if (unsupportedMimeType) {
-          addHistoryEntry(code, {
+          conversationRef.current.addHqlEval(code, {
             success: false,
             error: new Error(
               describeConversationAttachmentMimeTypeError(
@@ -937,6 +940,7 @@ function AppContent(
         return;
       }
 
+      recordPromptHistory(replState, code, "evaluate");
       setIsEvaluating(true);
 
       // Evaluate (with optional attachments)
@@ -971,7 +975,7 @@ function AppContent(
           evalState.taskId = taskId;
           failEvalTask(taskId, err);
         } else {
-          addHistoryEntry(code, { success: false, error: err }, hasConversationContext);
+          conversationRef.current.addHqlEval(code, { success: false, error: err });
         }
         finalizeForeground();
         return;
@@ -988,7 +992,7 @@ function AppContent(
           evalState.taskId = taskId;
           failEvalTask(taskId, err);
         } else {
-          addHistoryEntry(code, { success: false, error: err }, hasConversationContext);
+          conversationRef.current.addHqlEval(code, { success: false, error: err });
         }
         finalizeForeground();
         return;
@@ -1006,9 +1010,7 @@ function AppContent(
         );
 
         if (!evalState.backgrounded) {
-          const historyId = nextId;
-          addHistoryEntry(code, { success: true, streamTaskId: taskId }, hasConversationContext);
-          evalState.historyId = historyId;
+          conversationRef.current.addHqlEval(code, { success: true, streamTaskId: taskId });
         }
 
         return;
@@ -1019,7 +1021,7 @@ function AppContent(
         evalState.taskId = taskId;
         completeEvalTask(taskId, result.value);
       } else {
-        addHistoryEntry(code, result);
+        conversationRef.current.addHqlEval(code, result);
       }
 
       finalizeForeground();
@@ -1027,21 +1029,32 @@ function AppContent(
     [
       repl,
       exit,
-      addHistoryEntry,
       createEvalTask,
       completeEvalTask,
       failEvalTask,
-      suppressHistoryOutput,
       streamEvalToTask,
       prepareConversationAttachmentPayload,
       runConversation,
       submitConversationDraft,
       hasConversationContext,
+      enqueueLocalEval,
+      setPendingConversationQueue,
+      setSurfacePanel,
       replState,
       conversation,
       setFooterContextUsageLabel,
     ],
   );
+  handleSubmitRef.current = handleSubmit;
+
+  useEffect(() => {
+    if (queuedLocalEvals.length === 0) return;
+    if (agentControllerRef.current) return;
+    if (currentEvalRef.current && !currentEvalRef.current.backgrounded) return;
+    const [nextEval, ...remaining] = queuedLocalEvals;
+    setQueuedLocalEvals(remaining);
+    void handleSubmitRef.current(nextEval.input, nextEval.attachments);
+  }, [queuedLocalEvals]);
 
   // Command palette action handler
   const handlePaletteAction = useCallback((action: KeybindingAction) => {
@@ -1188,12 +1201,10 @@ function AppContent(
         evalState.controller.abort();
       }
 
-      if (evalState.historyId == null) {
-        addHistoryEntry(evalState.code, {
-          success: true,
-          value: "[Cancelled]",
-        });
-      }
+      conversationRef.current.addHqlEval(evalState.code, {
+        success: true,
+        value: "[Cancelled]",
+      });
 
       currentEvalRef.current = null;
       setIsEvaluating(false);
@@ -1246,7 +1257,7 @@ function AppContent(
             }}
             onModelSet={(modelName: string) => {
               const normalizedModel = normalizeModelId(modelName) ?? modelName;
-              addHistoryEntry("", {
+              conversation.addHqlEval("", {
                 success: true,
                 value: `✓ Default model: ${normalizedModel}`,
                 isCommandOutput: true,
@@ -1266,7 +1277,7 @@ function AppContent(
                 }).catch(() => {});
                 setModelSetupHandled(true);
                 setSurfacePanel("none");
-                addHistoryEntry("", {
+                conversation.addHqlEval("", {
                   success: true,
                   value: `✓ AI model installed: ${init.modelToSetup}`,
                   isCommandOutput: true,
@@ -1275,7 +1286,7 @@ function AppContent(
               onCancel={() => {
                 setModelSetupHandled(true);
                 setSurfacePanel("none");
-                addHistoryEntry("", {
+                conversation.addHqlEval("", {
                   success: true,
                   value:
                     `AI model setup cancelled. Run "hlvm ai pull ${init.modelToSetup}" to download later.`,
@@ -1289,34 +1300,19 @@ function AppContent(
         return null;
     }
   })();
-  const tokenColor = useMemo(() => {
-    const a = color("accent");
-    const s = color("secondary");
-    const su = color("success");
-    const w = color("warning");
-    const m = color("muted");
-    const t = color("text");
-    const map: Record<string, string | undefined> = {
-      keyword: a,
-      macro: s,
-      string: su,
-      number: w,
-      operator: t,
-      boolean: w,
-      nil: m,
-      comment: m,
-      whitespace: undefined,
-      "open-paren": t,
-      "close-paren": t,
-      "open-bracket": t,
-      "close-bracket": t,
-      "open-brace": t,
-      "close-brace": t,
-      functionCall: t,
-    };
-    return (type: TokenType): string | undefined => map[type];
-  }, [color]);
-
+  const liveTodoCount = hasConversationContext
+    ? (conversation.planTodoState ?? conversation.todoState)?.items.length ?? 0
+    : 0;
+  const transcriptReservedRows = 10 +
+    composerShellState.queuePreviewRows +
+    (queuedLocalEvals.length > 0
+      ? Math.min(queuedLocalEvals.length + 2, 6)
+      : 0) +
+    (hasConversationContext && pendingInteraction ? 8 : 0) +
+    (hasConversationContext &&
+        (conversation.liveItems.length > 0 || liveTodoCount > 0)
+      ? Math.min(conversation.liveItems.length + liveTodoCount + 2, 12)
+      : 0);
   return (
     <Box
       key={clearKey}
@@ -1329,6 +1325,7 @@ function AppContent(
         isOverlayOpen,
         hasStandaloneSurface,
         hasActivePlanningState,
+        hasShellHistory: committedHistoryCount > 0,
       }) && (
         <>
           <Banner errors={init.errors} />
@@ -1383,44 +1380,6 @@ function AppContent(
         />
       )}
 
-      {/* History of inputs and outputs */}
-      {!isOverlayOpen && !hasStandaloneSurface &&
-        history.map((entry: HistoryEntry) => {
-          const lines = entry.input.split("\n");
-          const unclosedDepth = lines.length > 1
-            ? getUnclosedDepth(entry.input)
-            : 0;
-          return (
-            <Box key={entry.id} flexDirection="column" marginBottom={1}>
-              {lines.map((line: string, lineIndex: number) => (
-                <Box key={`${entry.id}-${lineIndex}`}>
-                  <Text bold>
-                    {lineIndex === 0
-                      ? "hlvm>"
-                      : (unclosedDepth > 0 ? `..${unclosedDepth}>` : "...>")}
-                  </Text>
-                  <Text>{" "}</Text>
-                  <Box>
-                    {getHighlightSegments(line).map((seg, segIdx) => (
-                      <React.Fragment
-                        key={`${entry.id}-${lineIndex}-${segIdx}`}
-                      >
-                        <Text
-                          color={seg.colorKey ? tokenColor(seg.colorKey as TokenType) : undefined}
-                          bold={seg.bold}
-                        >
-                          {seg.value}
-                        </Text>
-                      </React.Fragment>
-                    ))}
-                  </Box>
-                </Box>
-              ))}
-              <Output result={entry.result} />
-            </Box>
-          );
-        })}
-
       {/* Standalone surfaces (picker, model browser, etc.) */}
       {!isOverlayOpen && hasStandaloneSurface && standaloneSurfaceScreen && (
         <Box flexGrow={1} justifyContent="center" alignItems="center">
@@ -1428,29 +1387,49 @@ function AppContent(
         </Box>
       )}
 
-      {/* Conversation Panel (agent mode) */}
-      {!isOverlayOpen && hasConversationContext && (
+      {/* Shell lanes: committed history, local eval queue, live turn, dialogs */}
+      {!isOverlayOpen && !hasStandaloneSurface && (
         <Box flexDirection="column">
           <RenderErrorBoundary>
-            <ConversationPanel
-              items={conversation.items}
+            <TranscriptHistory
+              historyItems={conversation.historyItems}
+              evalHistory={conversation.evalHistory}
               width={Math.max(20, terminalWidth - 2)}
-              streamingState={conversation.streamingState}
-              activePlan={conversation.activePlan}
-              planningPhase={conversation.planningPhase}
-              todoState={conversation.planTodoState ?? conversation.todoState}
-              pendingPlanReview={conversation.pendingPlanReview}
+              reservedRows={transcriptReservedRows}
               allowToggleHotkeys={surfacePanel === "conversation" &&
-                allowConversationToggleHotkeys}
-              interactionRequest={pendingInteraction}
-              interactionQueueLength={interactionQueue.length}
-              onInteractionResponse={handleConversationInteractionResponse}
-              onQuestionInterrupt={pendingInteraction?.mode === "question"
-                ? handleQuestionInterrupt
-                : undefined}
-              extraReservedRows={composerShellState.queuePreviewRows}
+                allowConversationToggleHotkeys &&
+                conversation.liveItems.length === 0}
             />
           </RenderErrorBoundary>
+          <LocalEvalQueuePreview
+            items={queuedLocalEvals}
+            width={Math.max(20, terminalWidth - 2)}
+          />
+          {hasConversationContext && (
+            <>
+              <RenderErrorBoundary>
+                <PendingTurnPanel
+                  items={conversation.liveItems}
+                  width={Math.max(20, terminalWidth - 2)}
+                  streamingState={conversation.streamingState}
+                  todoState={conversation.planTodoState ?? conversation.todoState}
+                  allowToggleHotkeys={surfacePanel === "conversation" &&
+                    allowConversationToggleHotkeys &&
+                    conversation.liveItems.length > 0}
+                />
+              </RenderErrorBoundary>
+              <RenderErrorBoundary>
+                <DialogStack
+                  interactionRequest={pendingInteraction}
+                  interactionQueueLength={interactionQueue.length}
+                  onInteractionResponse={handleConversationInteractionResponse}
+                  onQuestionInterrupt={pendingInteraction?.mode === "question"
+                    ? handleQuestionInterrupt
+                    : undefined}
+                />
+              </RenderErrorBoundary>
+            </>
+          )}
         </Box>
       )}
 
@@ -1478,11 +1457,7 @@ function AppContent(
               disabled={isInputDisabled}
               isConversationContext={hasConversationContext}
               highlightMode={hasConversationContext ? "chat" : "code"}
-              promptLabel={hasConversationContext &&
-                  pendingInteraction?.mode === "question" &&
-                  !pickerInteractionActive
-                ? "answer>"
-                : "hlvm>"}
+              promptLabel=">"
           />
         )}
 
@@ -1493,6 +1468,7 @@ function AppContent(
             modelName={modelSelection.displayLabel}
             statusMessage={footerStatusMessage}
             modeLabel={getPersistentAgentExecutionModeLabel(agentExecutionMode)}
+            planningPhase={hasConversationContext ? conversation.planningPhase : undefined}
             streamingState={hasConversationContext
               ? conversation.streamingState
               : undefined}
@@ -1517,15 +1493,12 @@ function AppContent(
               pickerInteractionActive}
             teamActive={teamState.active}
             teamAttentionCount={teamState.attentionItems.length}
-            teamWorkerSummary={teamState.active
-              ? teamState.members
-                  .filter((m: TeamMemberItem) => m.role === "worker")
-                  .map((m: TeamMemberItem) => `${m.id}: ${m.currentTaskId ? "working" : "idle"}`)
-                  .join(" \u00B7 ") || undefined
-              : undefined}
+            teamWorkerSummary={teamWorkerSummary}
             activeTaskCount={activeCount}
             recentActiveTaskLabel={recentActiveTaskLabel}
             aiAvailable={init.aiAvailable}
+            conversationQueueCount={composerShellState.queuedDraftCount}
+            localEvalQueueCount={queuedLocalEvals.length}
           />
         )}
 

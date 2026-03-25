@@ -402,7 +402,7 @@ export async function createAgentSession(
           "agent_session",
         );
       })(),
-      options: { temperature: 0.0 },
+      options: {},
       contextBudget: resolved.budget,
       toolAllowlist: toolFilterState.allowlist,
       toolDenylist: toolFilterState.denylist,
@@ -422,7 +422,6 @@ export async function createAgentSession(
     toolFilterState,
     thinkingState,
     toolOwnerId,
-    temperature: 0.0,
     providerExecutionPlan,
   };
 
