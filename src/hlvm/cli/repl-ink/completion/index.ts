@@ -53,6 +53,7 @@ export { Dropdown } from "./Dropdown.tsx";
 
 export type {
   ApplyContext,
+  ApplyResult,
   CompletionAction,
   CompletionItem,
   ProviderId,

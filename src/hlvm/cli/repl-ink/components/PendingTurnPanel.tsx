@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, useInput } from "ink";
+import type { PlanningPhase } from "../../../agent/planning.ts";
 import type { TodoState } from "../../../agent/todo-state.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import type { AgentConversationItem, StreamingState } from "../types.ts";
-import { STATUS_GLYPHS } from "../ui-constants.ts";
-import { useSemanticColors } from "../../theme/index.ts";
 import {
   executeHandler,
   HandlerIds,
@@ -19,6 +18,9 @@ import {
   TimelineItemRenderer,
   type ToggleTarget,
 } from "./TimelineItemRenderer.tsx";
+import { PlanChecklistPanel } from "./conversation/PlanChecklistPanel.tsx";
+import { derivePlanSurfaceState } from "./conversation/plan-flow.ts";
+import { getLiveConversationSpacing } from "./conversation/message-spacing.ts";
 
 const CONVERSATION_KEYBINDING_CATEGORIES = ["Conversation"] as const;
 
@@ -26,7 +28,9 @@ interface PendingTurnPanelProps {
   items: AgentConversationItem[];
   width: number;
   streamingState?: StreamingState;
+  planningPhase?: PlanningPhase;
   todoState?: TodoState;
+  compactSpacing?: boolean;
   allowToggleHotkeys?: boolean;
 }
 
@@ -35,11 +39,13 @@ export function PendingTurnPanel(
     items,
     width,
     streamingState,
+    planningPhase,
     todoState,
+    compactSpacing = false,
     allowToggleHotkeys = true,
   }: PendingTurnPanelProps,
 ): React.ReactElement | null {
-  const sc = useSemanticColors();
+  const spacing = getLiveConversationSpacing(compactSpacing);
   const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -56,6 +62,16 @@ export function PendingTurnPanel(
     () => getActiveThinkingId(items, streamingState),
     [items, streamingState],
   );
+  const planSurface = useMemo(
+    () =>
+      derivePlanSurfaceState({
+        items,
+        planningPhase,
+        todoState,
+      }),
+    [items, planningPhase, todoState],
+  );
+  const visibleItems = planSurface.visibleItems;
 
   useEffect(() => {
     if (items.length === 0) {
@@ -67,8 +83,8 @@ export function PendingTurnPanel(
   }, [items.length]);
 
   const toggleTargets = useMemo(
-    () => getToggleTargets(items),
-    [items],
+    () => getToggleTargets(visibleItems),
+    [visibleItems],
   );
 
   const isToolExpanded = useCallback(
@@ -132,7 +148,7 @@ export function PendingTurnPanel(
   }, [allowToggleHotkeys, items, toggleTarget, toggleTargets]);
 
   useInput((char, key) => {
-    if (!allowToggleHotkeys || items.length === 0) return;
+    if (!allowToggleHotkeys || visibleItems.length === 0) return;
     const binding = inspectHandlerKeybinding(char, key, {
       categories: CONVERSATION_KEYBINDING_CATEGORIES,
     });
@@ -141,43 +157,30 @@ export function PendingTurnPanel(
     }
   });
 
-  if (items.length === 0 && !(todoState && todoState.items.length > 0)) {
+  if (visibleItems.length === 0 && !planSurface.active) {
     return null;
   }
 
   return (
-    <Box flexDirection="column" width={width} marginTop={1}>
-      {todoState && todoState.items.length > 0 && (
-        <Box marginBottom={1} flexDirection="column" paddingLeft={2}>
-          {todoState.items.map((item) => {
-            const glyph = item.status === "completed"
-              ? STATUS_GLYPHS.success
-              : item.status === "in_progress"
-              ? STATUS_GLYPHS.running
-              : STATUS_GLYPHS.pending;
-            const glyphColor = item.status === "completed"
-              ? sc.status.success
-              : item.status === "in_progress"
-              ? sc.status.warning
-              : sc.text.muted;
-            const textColor = item.status === "pending"
-              ? sc.text.muted
-              : sc.text.primary;
-            return (
-              <Box key={item.id}>
-                <Text color={glyphColor}>{glyph} </Text>
-                <Text color={textColor}>{item.content}</Text>
-              </Box>
-            );
-          })}
-        </Box>
+    <Box
+      flexDirection="column"
+      width={width}
+      marginTop={spacing.pendingTurnMarginTop}
+    >
+      {planSurface.active && (
+        <PlanChecklistPanel
+          planningPhase={planningPhase}
+          todoState={todoState}
+          items={items}
+        />
       )}
-      {items.map((item: AgentConversationItem) => (
+      {visibleItems.map((item: AgentConversationItem) => (
         <Box key={item.id}>
           <TimelineItemRenderer
             item={item}
             width={width}
             activeThinkingId={activeThinkingId}
+            compactSpacing={compactSpacing}
             isToolExpanded={isToolExpanded}
             isThinkingExpanded={isThinkingExpanded}
             isDelegateExpanded={isDelegateExpanded}

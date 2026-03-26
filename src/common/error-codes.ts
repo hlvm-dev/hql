@@ -187,6 +187,8 @@ export enum HLVMErrorCode {
   TRANSPORT_ERROR = 5009,
   /** Runtime host stream read or parser error */
   STREAM_ERROR = 5010,
+  /** Local AI engine startup or validation failure */
+  AI_ENGINE_STARTUP_FAILED = 5011,
 }
 
 export enum ProviderErrorCode {
@@ -879,6 +881,20 @@ const HLVM_ERROR_INFO: Record<HLVMErrorCode, ErrorInfo> = {
       "Retry the request to confirm whether the issue is transient",
       "Collect host logs for the failing request and event stream",
       "Report if malformed stream responses recur",
+    ],
+  },
+  [HLVMErrorCode.AI_ENGINE_STARTUP_FAILED]: {
+    description:
+      "The local AI engine could not be validated or did not become ready after startup.",
+    causes: [
+      "Cached embedded engine binary is invalid or from the wrong program",
+      "Embedded AI engine resource is missing or corrupted",
+      "System Ollama was unavailable or failed to become reachable on localhost:11434",
+    ],
+    fixes: [
+      "Remove the cached embedded engine so HLVM can extract a fresh copy",
+      "Verify the embedded AI engine resource or rebuild HLVM with a valid Ollama binary",
+      "Check whether system Ollama can start and respond on localhost:11434",
     ],
   },
 };

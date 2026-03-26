@@ -245,11 +245,21 @@ function wrapProviderSdkError(
   );
 }
 
+export function resolveSdkStreamFailure(
+  error: unknown,
+  streamError: unknown,
+): unknown {
+  if (streamError == null) return error;
+  return getErrorMessage(error).includes("No output generated")
+    ? streamError
+    : error;
+}
+
 export async function maybeHandleSdkAuthError(
   providerName: SdkProviderName,
   error: unknown,
-): Promise<void> {
-  if (providerName !== "claude-code") return;
+): Promise<boolean> {
+  if (providerName !== "claude-code") return false;
   const status = extractStatusCode(error);
   const message = getErrorMessage(error);
   const responseBody = extractResponseBodyText(error);
@@ -258,7 +268,7 @@ export async function maybeHandleSdkAuthError(
   if (status === 401 || status === 403) {
     const { clearTokenCache } = await import("./claude-code/auth.ts");
     clearTokenCache();
-    return;
+    return true;
   }
 
   // Anthropic returns 400 with a generic "Error" message when an OAuth token
@@ -281,6 +291,8 @@ export async function maybeHandleSdkAuthError(
       );
     }
   }
+
+  return false;
 }
 
 function safeCreateNativeTools(factory: () => ToolSet): ToolSet {
@@ -1292,29 +1304,47 @@ export async function* chatWithSdk(
     yield* streamGoogleVideoRequest(spec, messages, options, signal);
     return;
   }
-  const model = await createSdkLanguageModel(spec);
   const sdkMessages = convertToSdkMessages(messages);
-  const settings = buildCommonSettings(
-    spec,
-    model,
-    sdkMessages,
-    options,
-    signal,
-  );
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const model = await createSdkLanguageModel(spec);
+    const settings = buildCommonSettings(
+      spec,
+      model,
+      sdkMessages,
+      options,
+      signal,
+    );
+    let streamError: unknown = null;
 
-  try {
-    const result = streamText(settings);
-    for await (const chunk of result.textStream) {
-      yield chunk;
+    try {
+      const result = streamText({
+        ...settings,
+        onError: ({ error }) => {
+          streamError = error;
+        },
+      });
+      for await (const chunk of result.textStream) {
+        yield chunk;
+      }
+      await result.text;
+      return;
+    } catch (error) {
+      const resolvedError = resolveSdkStreamFailure(error, streamError);
+      const shouldRetry = attempt === 0 &&
+        await maybeHandleSdkAuthError(spec.providerName, resolvedError);
+      if (shouldRetry) {
+        continue;
+      }
+      // "No output generated" retry is handled by the agent engine layer
+      // (engine-sdk.ts) which has richer recovery (tool calls, usage tracking).
+      // Re-throwing here avoids a double retry that wastes latency.
+      wrapProviderSdkError(resolvedError, spec.providerName, spec.modelId);
     }
-    await result.text;
-  } catch (error) {
-    await maybeHandleSdkAuthError(spec.providerName, error);
-    // "No output generated" retry is handled by the agent engine layer
-    // (engine-sdk.ts) which has richer recovery (tool calls, usage tracking).
-    // Re-throwing here avoids a double retry that wastes latency.
-    wrapProviderSdkError(error, spec.providerName, spec.modelId);
   }
+
+  throw new RuntimeError("Provider SDK chat retry exhausted unexpectedly.", {
+    code: ProviderErrorCode.REQUEST_FAILED,
+  });
 }
 
 export async function chatStructuredWithSdk(
@@ -1342,56 +1372,76 @@ export async function chatStructuredWithSdk(
       content,
     };
   }
-  const model = await createSdkLanguageModel(spec);
   const sdkMessages = convertToSdkMessages(messages);
-  const settings = buildCommonSettings(
-    spec,
-    model,
-    sdkMessages,
-    options,
-    signal,
-  );
   const onToken = options?.onToken;
 
-  try {
-    if (typeof onToken === "function") {
-      const result = streamText(settings);
-      const contentChunks: string[] = [];
-      for await (const chunk of result.textStream) {
-        contentChunks.push(chunk);
-        onToken(chunk);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const model = await createSdkLanguageModel(spec);
+    const settings = buildCommonSettings(
+      spec,
+      model,
+      sdkMessages,
+      options,
+      signal,
+    );
+    let streamError: unknown = null;
+
+    try {
+      if (typeof onToken === "function") {
+        const result = streamText({
+          ...settings,
+          onError: ({ error }) => {
+            streamError = error;
+          },
+        });
+        const contentChunks: string[] = [];
+        for await (const chunk of result.textStream) {
+          contentChunks.push(chunk);
+          onToken(chunk);
+        }
+
+        const [text, toolCalls, usage, sources, providerMetadata] =
+          await Promise
+            .all([
+              result.text,
+              result.toolCalls,
+              result.usage,
+              result.sources,
+              result.providerMetadata,
+            ]);
+
+        return {
+          content: contentChunks.join("") || text || "",
+          toolCalls: toProviderToolCalls(toolCalls),
+          usage: mapSdkUsage(usage),
+          sources: mapSdkSources(sources),
+          providerMetadata: normalizeProviderMetadata(providerMetadata),
+        };
       }
 
-      const [text, toolCalls, usage, sources, providerMetadata] = await Promise
-        .all([
-          result.text,
-          result.toolCalls,
-          result.usage,
-          result.sources,
-          result.providerMetadata,
-        ]);
-
+      const result = await generateText(settings);
       return {
-        content: contentChunks.join("") || text || "",
-        toolCalls: toProviderToolCalls(toolCalls),
-        usage: mapSdkUsage(usage),
-        sources: mapSdkSources(sources),
-        providerMetadata: normalizeProviderMetadata(providerMetadata),
+        content: result.text || "",
+        toolCalls: toProviderToolCalls(result.toolCalls),
+        usage: mapSdkUsage(result.usage),
+        sources: mapSdkSources(result.sources),
+        providerMetadata: normalizeProviderMetadata(result.providerMetadata),
       };
+    } catch (error) {
+      const resolvedError = resolveSdkStreamFailure(error, streamError);
+      const shouldRetry = attempt === 0 &&
+        await maybeHandleSdkAuthError(spec.providerName, resolvedError);
+      if (shouldRetry) {
+        continue;
+      }
+      wrapProviderSdkError(resolvedError, spec.providerName, spec.modelId);
     }
-
-    const result = await generateText(settings);
-    return {
-      content: result.text || "",
-      toolCalls: toProviderToolCalls(result.toolCalls),
-      usage: mapSdkUsage(result.usage),
-      sources: mapSdkSources(result.sources),
-      providerMetadata: normalizeProviderMetadata(result.providerMetadata),
-    };
-  } catch (error) {
-    await maybeHandleSdkAuthError(spec.providerName, error);
-    wrapProviderSdkError(error, spec.providerName, spec.modelId);
   }
+
+  throw new RuntimeError(
+    "Provider SDK structured chat retry exhausted unexpectedly.",
+    { code: ProviderErrorCode.REQUEST_FAILED },
+  );
 }
 
 export async function generateStructuredWithSdk(
@@ -1400,19 +1450,31 @@ export async function generateStructuredWithSdk(
   schema: Record<string, unknown>,
   options?: { signal?: AbortSignal; temperature?: number },
 ): Promise<unknown> {
-  const model = await createSdkLanguageModel(spec);
   const sdkMessages = convertToSdkMessages(messages);
-  try {
-    const { output } = await generateText({
-      model,
-      messages: sdkMessages,
-      output: Output.object({ schema: jsonSchema(schema) }),
-      ...(options?.temperature != null && { temperature: options.temperature }),
-      abortSignal: options?.signal,
-    });
-    return output;
-  } catch (error) {
-    await maybeHandleSdkAuthError(spec.providerName, error);
-    wrapProviderSdkError(error, spec.providerName, spec.modelId);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const model = await createSdkLanguageModel(spec);
+    try {
+      const { output } = await generateText({
+        model,
+        messages: sdkMessages,
+        output: Output.object({ schema: jsonSchema(schema) }),
+        ...(options?.temperature != null &&
+          { temperature: options.temperature }),
+        abortSignal: options?.signal,
+      });
+      return output;
+    } catch (error) {
+      const shouldRetry = attempt === 0 &&
+        await maybeHandleSdkAuthError(spec.providerName, error);
+      if (shouldRetry) {
+        continue;
+      }
+      wrapProviderSdkError(error, spec.providerName, spec.modelId);
+    }
   }
+
+  throw new RuntimeError(
+    "Provider SDK structured generation retry exhausted unexpectedly.",
+    { code: ProviderErrorCode.REQUEST_FAILED },
+  );
 }

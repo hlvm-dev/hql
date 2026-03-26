@@ -3,6 +3,7 @@
  */
 
 import {
+  findExactActiveFact,
   insertFact as insertFactRecord,
   type InsertFactOptions,
 } from "./facts.ts";
@@ -37,7 +38,9 @@ function normalizeWriteOptions(
 ): WriteMemoryFactOptions {
   return {
     ...opts,
-    content: typeof opts.content === "string" ? opts.content.trim() : "",
+    content: typeof opts.content === "string"
+      ? opts.content.replace(/\s+/g, " ").trim()
+      : "",
     category: opts.category?.trim() || "General",
     source: opts.source?.trim() || "memory",
   };
@@ -65,6 +68,13 @@ export function writeMemoryFact(
   opts: WriteMemoryFactOptions,
 ): WriteMemoryFactResult {
   const normalized = normalizeWriteOptions(opts);
+  const existing = findExactActiveFact(
+    normalized.content,
+    normalized.category ?? "General",
+  );
+  if (existing) {
+    return { factId: existing.id, linkedEntities: 0, invalidated: 0 };
+  }
   const factId = insertFactRecord(normalized);
   const linkedEntities = normalized.linkEntities === false
     ? 0

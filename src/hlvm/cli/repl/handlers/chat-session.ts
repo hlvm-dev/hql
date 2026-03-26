@@ -165,6 +165,10 @@ export function awaitInteractionResponse(
     toolArgs?: string;
     question?: string;
     options?: InteractionOption[];
+    sourceLabel?: string;
+    sourceMemberId?: string;
+    sourceThreadId?: string;
+    sourceTeamName?: string;
   },
   signal: AbortSignal,
   emit: (obj: unknown) => void,
@@ -177,6 +181,10 @@ export function awaitInteractionResponse(
     tool_args: event.toolArgs,
     question: event.question,
     options: event.options,
+    source_label: event.sourceLabel,
+    source_member_id: event.sourceMemberId,
+    source_thread_id: event.sourceThreadId,
+    source_team_name: event.sourceTeamName,
   });
 
   return new Promise<InteractionResponse>((resolve) => {

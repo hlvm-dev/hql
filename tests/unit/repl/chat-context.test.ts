@@ -16,6 +16,7 @@ import {
   trimReplayMessages,
   validateChatRequestMessages,
 } from "../../../src/hlvm/cli/repl/handlers/chat-context.ts";
+import { insertFact } from "../../../src/hlvm/memory/mod.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { withGlobalTestLock } from "../_shared/global-test-lock.ts";
 
@@ -400,6 +401,33 @@ Deno.test("chat context: disablePersistentMemory suppresses memory injection for
       resetHlvmDirCacheForTests();
       await platform.fs.remove(tmpDir, { recursive: true });
     }
+  });
+});
+
+Deno.test("chat context: query-matched relevant memory is injected for plain chat", async () => {
+  await withTempHlvmDir(async () => {
+    insertFact({
+      content: "User prefers Deno for all new projects",
+      category: "Preferences",
+    });
+
+    const chat = await buildChatProviderMessages({
+      requestMessages: [{
+        role: "user",
+        content: "What runtime do I prefer for new projects?",
+      }],
+      storedMessages: [],
+      modelKey: "test-chat/plain",
+    });
+
+    assertEquals(
+      chat.messages.some((message) =>
+        message.role === "system" &&
+        message.content.includes("[Memory Recall]") &&
+        message.content.includes("User prefers Deno")
+      ),
+      true,
+    );
   });
 });
 

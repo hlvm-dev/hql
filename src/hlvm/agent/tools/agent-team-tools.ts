@@ -193,6 +193,7 @@ export const teammate: ToolMetadata = {
       const workspace = _workspace;
       const hookRuntime = _options?.hookRuntime;
       const onAgentEvent = _options?.onAgentEvent;
+      const onInteraction = _options?.onInteraction;
       const agentProfiles = _options?.agentProfiles;
       const toolOwnerId = _options?.toolOwnerId;
       const agentPolicy = _options?.policy ?? null;
@@ -215,6 +216,7 @@ export const teammate: ToolMetadata = {
             signal: controller.signal,
             hookRuntime,
             onAgentEvent,
+            onInteraction,
             modelId,
             agentProfiles,
             instructions,
@@ -246,6 +248,7 @@ export const teammate: ToolMetadata = {
         controller,
         promise,
         mergeState: "none",
+        inputQueue: [],
       });
 
       // Update member with thread ID

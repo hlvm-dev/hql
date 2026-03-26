@@ -14,7 +14,10 @@ import {
   setHlvmDirForTests,
 } from "../../../src/common/paths.ts";
 import {
+  accessBoost,
   appendExplicitMemoryNote,
+  buildMemorySystemMessage,
+  buildRelevantMemoryRecall,
   closeFactDb,
   countValidFacts,
   getExplicitMemoryPath,
@@ -24,18 +27,18 @@ import {
   invalidateFact,
   isMemorySystemMessage,
   linkFactEntities,
+  loadMemoryContext,
   loadMemorySystemMessage,
   MEMORY_TOOLS,
+  persistConversationFacts,
+  persistExplicitMemoryRequest,
   readExplicitMemory,
-  searchFactsFts,
-  touchFact,
-  writeExplicitMemory,
-  accessBoost,
-  buildMemorySystemMessage,
-  loadMemoryContext,
   retrieveMemory,
   sanitizeSensitiveContent,
+  searchFactsFts,
   temporalDecay,
+  touchFact,
+  writeExplicitMemory,
 } from "../../../src/hlvm/memory/mod.ts";
 import { memory as memoryApi } from "../../../src/hlvm/api/memory.ts";
 import { reuseSession } from "../../../src/hlvm/agent/agent-runner.ts";
@@ -471,15 +474,69 @@ Deno.test("memory: countValidFacts returns accurate count", async () => {
   });
 });
 
-Deno.test("memory: pinned-facts startup loads limited facts with availability hint", async () => {
+Deno.test("memory: explicit remember requests normalize and dedupe exact duplicates", async () => {
   await withTestEnv(async () => {
-    // Insert more than the pinned limit (10)
-    for (let i = 0; i < 15; i++) {
+    persistExplicitMemoryRequest(
+      "Remember that I prefer Deno for all new projects",
+    );
+    persistExplicitMemoryRequest(
+      "Remember that I prefer Deno for all new projects",
+    );
+
+    assertEquals(countValidFacts(), 1);
+    const [stored] = getValidFacts();
+    assert(stored !== undefined);
+    assertEquals(stored.category, "Preferences");
+    assertStringIncludes(stored.content, "User prefers Deno");
+  });
+});
+
+Deno.test("memory: conversation fact persistence captures implicit user facts and grounded outcomes", async () => {
+  await withTestEnv(async () => {
+    const result = persistConversationFacts({
+      userMessage:
+        "We decided to use Postgres instead of SQLite for production.",
+      assistantMessage: "Fixed auth bug by normalizing refresh tokens.",
+    });
+
+    assert(result.written >= 2);
+    const facts = getValidFacts();
+    assert(
+      facts.some((fact) =>
+        fact.category === "Decisions" &&
+        fact.content.includes("Postgres instead of SQLite")
+      ),
+    );
+    assert(
+      facts.some((fact) =>
+        fact.category === "Bugs" && fact.content.includes("fixed auth bug")
+      ),
+    );
+  });
+});
+
+Deno.test("memory: relevant recall message returns query-matched facts", async () => {
+  await withTestEnv(async () => {
+    insertFact({
+      content: "User prefers Deno for all new projects",
+      category: "Preferences",
+    });
+
+    const recall = buildRelevantMemoryRecall("Deno projects");
+    assert(recall !== null);
+    assertStringIncludes(recall.message.content, "[Memory Recall]");
+    assertStringIncludes(recall.message.content, "User prefers Deno");
+  });
+});
+
+Deno.test("memory: startup memory budget uses larger pinned limits with availability hint", async () => {
+  await withTestEnv(async () => {
+    for (let i = 0; i < 125; i++) {
       insertFact({ content: `Fact ${i}`, category: "General" });
     }
 
     const context = await loadMemoryContext(32_000);
-    assertStringIncludes(context, "15 memories available");
+    assertStringIncludes(context, "125 memories available");
     assertStringIncludes(context, "memory_search");
   });
 });
@@ -490,7 +547,10 @@ Deno.test("memory: MEMORY.md content is loaded when file exists", async () => {
   await withTestEnv(async () => {
     await ensureMemoryDirs();
     const mdPath = getMemoryMdPath();
-    await platform().fs.writeTextFile(mdPath, "User prefers dark mode.\nTimezone: Asia/Seoul.");
+    await platform().fs.writeTextFile(
+      mdPath,
+      "User prefers dark mode.\nTimezone: Asia/Seoul.",
+    );
 
     const context = await loadMemoryContext(32_000);
     assertStringIncludes(context, "User prefers dark mode.");
@@ -539,7 +599,10 @@ Deno.test("memory: MEMORY.md has token priority over DB facts", async () => {
     await platform().fs.writeTextFile(getMemoryMdPath(), bigContent);
 
     // Also insert a DB fact
-    insertFact({ content: "DB-learned preference: functional style", category: "Preferences" });
+    insertFact({
+      content: "DB-learned preference: functional style",
+      category: "Preferences",
+    });
 
     // Use a very small context window so budget is tight (8000 * 0.15 = 1200 tokens)
     const context = await loadMemoryContext(8_000);
@@ -566,9 +629,15 @@ Deno.test("memory: empty MEMORY.md is treated as no user notes (DB-only)", async
 Deno.test("memory: MEMORY.md and DB facts are combined with --- separator", async () => {
   await withTestEnv(async () => {
     await ensureMemoryDirs();
-    await platform().fs.writeTextFile(getMemoryMdPath(), "Always use TypeScript.");
+    await platform().fs.writeTextFile(
+      getMemoryMdPath(),
+      "Always use TypeScript.",
+    );
 
-    insertFact({ content: "Likes functional programming", category: "Preferences" });
+    insertFact({
+      content: "Likes functional programming",
+      category: "Preferences",
+    });
 
     const context = await loadMemoryContext(32_000);
     assertStringIncludes(context, "Always use TypeScript.");

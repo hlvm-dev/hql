@@ -195,7 +195,18 @@ function renderBlock(
     }
     case "paragraph": {
       const t = token as Tokens.Paragraph;
-      return <InlineTokens tokens={t.tokens} />;
+      if (!t.text.includes("\n")) {
+        return <InlineTokens tokens={t.tokens} />;
+      }
+      return (
+        <Box flexDirection="column">
+          {t.text.split("\n").map((line: string, index: number) => (
+            <Box key={index}>
+              <InlineMarkdown text={line} />
+            </Box>
+          ))}
+        </Box>
+      );
     }
     case "list": {
       const t = token as Tokens.List;

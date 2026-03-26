@@ -3,6 +3,8 @@ import { THEMES } from "../../../src/hlvm/cli/theme/index.ts";
 import { buildSemanticColors } from "../../../src/hlvm/cli/theme/semantic.ts";
 import {
   buildContextUsageMiniBar,
+  buildLocalEvalPreviewHeaderLine,
+  buildLocalEvalPreviewOverflowLine,
   fitShellFooterSegments,
   getHistorySearchHintText,
   getHistorySearchMatchLabel,
@@ -75,4 +77,20 @@ Deno.test("buildContextUsageMiniBar renders percentage as block bar", () => {
   assertEquals(buildContextUsageMiniBar("45% ctx"), "[████░░░░] 45%");
   assertEquals(buildContextUsageMiniBar("100% ctx"), "[████████] 100%");
   assertEquals(buildContextUsageMiniBar("no percentage"), "no percentage");
+});
+
+Deno.test("local eval preview shell helpers keep queued eval copy compact", () => {
+  assertEquals(buildLocalEvalPreviewHeaderLine(1).text, "• Queued local eval");
+  assertEquals(
+    buildLocalEvalPreviewHeaderLine(3).text,
+    "• Queued 3 local evals",
+  );
+  assertEquals(
+    buildLocalEvalPreviewOverflowLine(1).text,
+    "+1 more queued eval",
+  );
+  assertEquals(
+    buildLocalEvalPreviewOverflowLine(2).text,
+    "+2 more queued evals",
+  );
 });

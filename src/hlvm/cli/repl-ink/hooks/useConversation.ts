@@ -171,12 +171,12 @@ export function useConversation(): UseConversationResult {
   const dataMemo = useMemo(() => ({
     items: state.items,
     historyItems: state.currentTurnId
-      ? state.items.filter((item) =>
+      ? state.items.filter((item: ConversationItem) =>
         item.turnId !== state.currentTurnId
       ) as AgentConversationItem[]
       : state.items as AgentConversationItem[],
     liveItems: state.currentTurnId
-      ? state.items.filter((item) =>
+      ? state.items.filter((item: ConversationItem) =>
         item.turnId === state.currentTurnId
       ) as AgentConversationItem[]
       : [] as AgentConversationItem[],

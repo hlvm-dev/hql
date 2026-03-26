@@ -17,6 +17,8 @@ import {
   isPersistentMemoryEnabled,
   loadMemorySystemMessage,
   MEMORY_TOOLS,
+  persistConversationFacts,
+  persistExplicitMemoryRequest,
   setMemoryModelTier,
 } from "../memory/mod.ts";
 import { setAgentLogger } from "./logger.ts";
@@ -236,7 +238,8 @@ export async function reuseSession(
     llm = engine.createLLM({
       ...session.llmConfig,
       options: {
-        ...(session.llmConfig.temperature != null && { temperature: session.llmConfig.temperature }),
+        ...(session.llmConfig.temperature != null &&
+          { temperature: session.llmConfig.temperature }),
       },
       onToken,
     });
@@ -626,6 +629,13 @@ export async function runAgentQuery(
 
     const usageTracker = new UsageTracker();
     setMemoryModelTier(session.modelTier);
+    if (persistentMemoryEnabled) {
+      try {
+        persistExplicitMemoryRequest(query);
+      } catch {
+        // Best-effort only; memory capture must not block agent execution.
+      }
+    }
 
     let finalResponseMeta: FinalResponseMeta | undefined;
     let activePlan:
@@ -1029,6 +1039,17 @@ export async function runAgentQuery(
 
     if (persistedTurn) {
       completePersistedAgentTurn(persistedTurn, model, text);
+    }
+
+    if (persistentMemoryEnabled) {
+      try {
+        persistConversationFacts({
+          userMessage: query,
+          assistantMessage: text,
+        });
+      } catch {
+        // Best-effort only; memory capture must not block agent execution.
+      }
     }
 
     const stats = session.context.getStats();

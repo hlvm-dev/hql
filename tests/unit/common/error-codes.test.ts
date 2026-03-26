@@ -17,6 +17,10 @@ import {
 Deno.test("error code formatting uses domain prefixes", () => {
   assertEquals(formatErrorCode(HQLErrorCode.UNDEFINED_VARIABLE), "HQL5001");
   assertEquals(formatErrorCode(HLVMErrorCode.REQUEST_TOO_LARGE), "HLVM5008");
+  assertEquals(
+    formatErrorCode(HLVMErrorCode.AI_ENGINE_STARTUP_FAILED),
+    "HLVM5011",
+  );
   assertEquals(formatErrorCode(ProviderErrorCode.AUTH_FAILED), "PRV9004");
 });
 
@@ -28,6 +32,10 @@ Deno.test("error code parsing extracts domain-prefixed code", () => {
   assertEquals(
     parseErrorCodeFromMessage("[HLVM5010] Runtime transport closed"),
     HLVMErrorCode.STREAM_ERROR,
+  );
+  assertEquals(
+    parseErrorCodeFromMessage("[HLVM5011] AI engine failed to start"),
+    HLVMErrorCode.AI_ENGINE_STARTUP_FAILED,
   );
   assertEquals(
     parseErrorCodeFromMessage("[PRV9008] Provider timeout"),

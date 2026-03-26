@@ -14,7 +14,12 @@ import { warnMemory } from "./store.ts";
 const MEMORY_MAX_TOKENS = 6000;
 const MEMORY_BUDGET_RATIO = 0.15;
 const MEMORY_SYSTEM_MESSAGE_HEADER = "# Your Memory";
-const PINNED_FACTS_LIMIT = 10;
+
+function resolvePinnedFactsLimit(contextWindow: number): number {
+  if (contextWindow >= 32_000) return 120;
+  if (contextWindow >= 16_000) return 60;
+  return 30;
+}
 
 function groupFactsForPrompt(facts: ReturnType<typeof getValidFacts>): string {
   const grouped = new Map<string, string[]>();
@@ -60,6 +65,7 @@ export function buildMemorySystemMessage(memoryContext: string): string {
 export async function loadMemoryContext(
   contextWindow: number,
 ): Promise<string> {
+  const pinnedFactsLimit = resolvePinnedFactsLimit(contextWindow);
   const maxTokens = Math.min(
     Math.floor(contextWindow * MEMORY_BUDGET_RATIO),
     MEMORY_MAX_TOKENS,
@@ -84,7 +90,7 @@ export async function loadMemoryContext(
   // --- Priority 2: Pinned top facts (on-demand retrieval handles the rest) ---
   let dbSection = "";
   if (remainingTokens > 0) {
-    const pinnedFacts = getValidFacts({ limit: PINNED_FACTS_LIMIT });
+    const pinnedFacts = getValidFacts({ limit: pinnedFactsLimit });
     const totalCount = countValidFacts();
 
     if (pinnedFacts.length > 0) {
@@ -92,9 +98,9 @@ export async function loadMemoryContext(
       const result = truncateToTokenBudget(grouped, remainingTokens);
       dbSection = result.text;
 
-      if (totalCount > PINNED_FACTS_LIMIT) {
+      if (totalCount > pinnedFactsLimit) {
         dbSection +=
-          `\n\nYou have ${totalCount} memories available. Relevant ones are provided automatically each turn, or use memory_search for specific queries.`;
+          `\n\nYou have ${totalCount} memories available. Top durable facts are loaded automatically each turn, and additional relevant facts can be recalled automatically or via memory_search.`;
       }
     }
   }

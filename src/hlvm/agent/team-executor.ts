@@ -35,9 +35,14 @@ import { getAgentLogger } from "./logger.ts";
 import { getAgentEngine } from "./engine.ts";
 import type { AgentHookRuntime } from "./hooks.ts";
 import type { AgentPolicy } from "./policy.ts";
+import type {
+  InteractionRequestEvent,
+  InteractionResponse,
+} from "./registry.ts";
 import type { TeamRuntime } from "./team-runtime.ts";
 import type { TeamStore } from "./team-store.ts";
 import { TEAMMATE_AVAILABLE_TOOL_NAMES } from "./tools/agent-team-tools.ts";
+import { getThread } from "./delegate-threads.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -71,6 +76,10 @@ export interface TeammateLoopOptions {
   maxIdlePolls?: number;
   /** Inherited permission mode from parent (default inherits lead's mode). */
   permissionMode?: import("../../common/config/types.ts").PermissionMode;
+  /** Bubble teammate permission/question interactions up through the lead UI. */
+  onInteraction?: (
+    event: InteractionRequestEvent,
+  ) => Promise<InteractionResponse>;
 }
 
 export interface TeammateLoopResult {
@@ -145,6 +154,7 @@ export async function runTeammateLoop(
     agentProfiles,
     instructions,
     toolOwnerId,
+    onInteraction,
   } = options;
 
   const log = getAgentLogger();
@@ -183,6 +193,19 @@ export async function runTeammateLoop(
       // Member may have been removed
     }
   };
+
+  const forwardInteraction = onInteraction
+    ? (event: InteractionRequestEvent) => {
+      const threadId = runtime.getMember(identity.teamMemberId)?.threadId;
+      return onInteraction({
+        ...event,
+        sourceLabel: event.sourceLabel ?? identity.name,
+        sourceMemberId: event.sourceMemberId ?? identity.teamMemberId,
+        sourceThreadId: event.sourceThreadId ?? threadId,
+        sourceTeamName: event.sourceTeamName ?? identity.teamName,
+      });
+    }
+    : undefined;
 
   /** Send idle notification + dispatch hook in one call. */
   const notifyIdle = (reason: string, tc?: number): void => {
@@ -359,6 +382,10 @@ export async function runTeammateLoop(
       });
 
       const taskPrompt = `Task #${task.id}: ${task.subject}\n\n${task.description}`;
+      const threadId = runtime.getMember(identity.teamMemberId)?.threadId;
+      const sharedInputQueue = threadId
+        ? getThread(threadId)?.inputQueue
+        : undefined;
 
       const result = await runReActLoop(
         taskPrompt,
@@ -382,6 +409,8 @@ export async function runTeammateLoop(
           teamMemberId: identity.teamMemberId,
           teamLeadMemberId: identity.leadMemberId,
           agentProfiles,
+          inputQueue: sharedInputQueue,
+          onInteraction: forwardInteraction,
         },
         childLlm,
       );

@@ -41,33 +41,56 @@ Deno.test("normalizeKeyInput: plain enter, tab, and escape keep their canonical 
   assertEquals(normalizeKeyInput("\t", makeKey()), "tab");
   assertEquals(normalizeKeyInput("\n", makeKey({ return: true })), "enter");
   assertEquals(normalizeKeyInput("\x1b", makeKey({ escape: true })), "esc");
+  assertEquals(normalizeKeyInput("\x1b", makeKey()), "esc");
 });
 
 Deno.test("input escape helpers distinguish pure escape from alt-prefixed sequences", () => {
   assertEquals(isPureEscKeyEvent("\x1b", makeKey({ escape: true })), true);
+  assertEquals(isPureEscKeyEvent("\x1b", makeKey()), true);
   assertEquals(isPureEscKeyEvent("", makeKey({ escape: true })), true);
   assertEquals(isPureEscKeyEvent("z", makeKey({ escape: true })), false);
   assertEquals(
     shouldInterruptConversationOnEsc("\x1b", makeKey({ escape: true }), {
-      highlightMode: "chat",
+      composerLanguage: "chat",
       isConversationTaskRunning: true,
       hasInterruptHandler: true,
+      hasActiveEscapeSurface: false,
+    }),
+    true,
+  );
+  assertEquals(
+    shouldInterruptConversationOnEsc("\x1b", makeKey(), {
+      composerLanguage: "chat",
+      isConversationTaskRunning: true,
+      hasInterruptHandler: true,
+      hasActiveEscapeSurface: false,
     }),
     true,
   );
   assertEquals(
     shouldInterruptConversationOnEsc("z", makeKey({ escape: true }), {
-      highlightMode: "chat",
+      composerLanguage: "chat",
       isConversationTaskRunning: true,
       hasInterruptHandler: true,
+      hasActiveEscapeSurface: false,
     }),
     false,
   );
   assertEquals(
     shouldInterruptConversationOnEsc("\x1b", makeKey({ escape: true }), {
-      highlightMode: "code",
+      composerLanguage: "hql",
       isConversationTaskRunning: true,
       hasInterruptHandler: true,
+      hasActiveEscapeSurface: false,
+    }),
+    false,
+  );
+  assertEquals(
+    shouldInterruptConversationOnEsc("\x1b", makeKey({ escape: true }), {
+      composerLanguage: "chat",
+      isConversationTaskRunning: true,
+      hasInterruptHandler: true,
+      hasActiveEscapeSurface: true,
     }),
     false,
   );

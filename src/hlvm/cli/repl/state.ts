@@ -7,6 +7,7 @@ import { getGlobalRecord } from "./string-utils.ts";
 import {
   getHistoryStorage,
   type HistoryEntry,
+  type HistoryEntryMetadata,
   HistoryStorage,
 } from "./history-storage.ts";
 import { log } from "../../api/log.ts";
@@ -227,13 +228,23 @@ export class ReplState {
   }
 
   /** Add to history (also persists to disk if initialized) */
-  addHistory(input: string): void {
+  addHistory(input: string, metadata: HistoryEntryMetadata = {}): void {
     const trimmed = input.trim();
-    if (trimmed && this._history[this._history.length - 1] !== trimmed) {
+    const last = this._historyEntries[this._historyEntries.length - 1];
+    const isDuplicate = !!last &&
+      last.cmd === trimmed &&
+      last.source === metadata.source &&
+      last.language === metadata.language;
+    if (trimmed && !isDuplicate) {
       this._history.push(trimmed);
       const entry = this._historyInitialized && this.historyStorage
-        ? this.historyStorage.append(trimmed)
-        : { ts: Date.now(), cmd: trimmed };
+        ? this.historyStorage.append(trimmed, metadata)
+        : {
+          ts: Date.now(),
+          cmd: trimmed,
+          source: metadata.source,
+          language: metadata.language,
+        };
       if (entry) {
         this._historyEntries.push(entry);
       }

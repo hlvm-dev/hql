@@ -6,9 +6,8 @@
  */
 
 import React, { useMemo } from "react";
-import { Box, Text, useStdout } from "ink";
+import { useStdout } from "ink";
 import { truncate } from "../../../../common/utils.ts";
-import { useSemanticColors } from "../../theme/index.ts";
 import {
   type ConversationComposerDraft,
   getConversationDraftPreview,
@@ -18,9 +17,10 @@ import {
   buildQueuePreviewHeaderLine,
   buildQueuePreviewHintLine,
   buildQueuePreviewItemLine,
-  buildQueuePreviewOverflowLine,
+  buildQueuePreviewOverflowCountLine,
   type ShellQueuePreviewLine,
 } from "../utils/shell-chrome.ts";
+import { ShellPreviewList } from "./ShellPreviewList.tsx";
 
 const MAX_VISIBLE_ITEMS = 3;
 const PREVIEW_LENGTH = 72;
@@ -43,14 +43,15 @@ export function buildQueuePreviewLines(
   for (let i = 0; i < visibleItems.length; i++) {
     lines.push(
       buildQueuePreviewItemLine(
-        i,
         truncate(getConversationDraftPreview(visibleItems[i]), PREVIEW_LENGTH),
       ),
     );
   }
 
   if (items.length > visibleItems.length) {
-    lines.push(buildQueuePreviewOverflowLine());
+    lines.push(
+      buildQueuePreviewOverflowCountLine(items.length - visibleItems.length),
+    );
   }
 
   lines.push(buildQueuePreviewHintLine(editBindingLabel));
@@ -63,7 +64,6 @@ export const QueuePreview = React.memo(function QueuePreview({
   editBindingLabel,
 }: QueuePreviewProps): React.ReactElement | null {
   const { stdout } = useStdout();
-  const sc = useSemanticColors();
   const lines = useMemo(
     () => buildQueuePreviewLines(items, editBindingLabel),
     [items, editBindingLabel],
@@ -75,38 +75,5 @@ export const QueuePreview = React.memo(function QueuePreview({
 
   if (lines.length === 0) return null;
 
-  return (
-    <Box flexDirection="column">
-      {lines.map((line: QueuePreviewLine, index: number) => {
-        if (line.chip) {
-          return (
-            <Box key={`${line.kind}-${index}`}>
-              <Text
-                backgroundColor={sc.shell.chipNeutral.background}
-                color={sc.shell.chipNeutral.foreground}
-              >
-                {" "}
-                {truncate(line.text, maxWidth, "…")}
-                {" "}
-              </Text>
-            </Box>
-          );
-        }
-
-        const color = line.tone === "hint"
-          ? sc.shell.queueHint
-          : line.tone === "neutral"
-          ? sc.text.primary
-          : sc.text.secondary;
-        const dimColor = line.tone !== "neutral";
-        return (
-          <Box key={`${line.kind}-${index}`}>
-            <Text color={color} dimColor={dimColor}>
-              {truncate(line.text, maxWidth, "…")}
-            </Text>
-          </Box>
-        );
-      })}
-    </Box>
-  );
+  return <ShellPreviewList lines={lines} maxWidth={maxWidth} />;
 });

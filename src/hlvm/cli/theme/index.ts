@@ -132,7 +132,8 @@ export function getSyntaxAnsi(): Record<string, string> & { reset: string } {
     nil: hexToAnsi(theme.muted),
     comment: hexToAnsi(theme.muted),
     delimiter: hexToAnsi(theme.text),
-    functionCall: hexToAnsi(theme.text),
+    functionCall: hexToAnsi(theme.primary),
+    regex: hexToAnsi(theme.error),
     reset: ANSI_RESET,
   };
   _syntaxAnsiCache = { key: themeName, value };

@@ -4,9 +4,12 @@ import { formatProgressBar } from "./formatting.ts";
 export const SHELL_PROMPT_LABELS = ["hlvm>", "answer>"] as const;
 export const SHELL_SEGMENT_SEPARATOR = " · ";
 
-const QUEUE_PREVIEW_INDEX_WIDTH = 2;
-
-export type ShellFooterSegmentTone = "neutral" | "active" | "warning" | "error" | "muted";
+export type ShellFooterSegmentTone =
+  | "neutral"
+  | "active"
+  | "warning"
+  | "error"
+  | "muted";
 
 export interface ShellFooterSegment {
   text: string;
@@ -15,7 +18,7 @@ export interface ShellFooterSegment {
 }
 
 export interface ShellQueuePreviewLine {
-  kind: "header" | "item" | "ellipsis" | "hint";
+  kind: "header" | "item" | "overflow" | "hint";
   text: string;
   tone: "neutral" | "muted" | "hint";
   chip?: boolean;
@@ -142,29 +145,38 @@ export function buildContextUsageMiniBar(
 export function buildQueuePreviewHeaderLine(): ShellQueuePreviewLine {
   return {
     kind: "header",
-    text: "Queued",
+    text: "• Queued follow-up messages",
     tone: "neutral",
-    chip: true,
   };
 }
 
 export function buildQueuePreviewItemLine(
-  index: number,
   preview: string,
 ): ShellQueuePreviewLine {
   return {
     kind: "item",
-    text: `${
-      String(index + 1).padStart(QUEUE_PREVIEW_INDEX_WIDTH, " ")
-    }. ${preview}`,
+    text: `↳ ${preview}`,
     tone: "muted",
   };
 }
 
 export function buildQueuePreviewOverflowLine(): ShellQueuePreviewLine {
   return {
-    kind: "ellipsis",
-    text: "…",
+    kind: "overflow",
+    text: "+1 more queued message",
+    tone: "hint",
+  };
+}
+
+export function buildQueuePreviewOverflowCountLine(
+  hiddenCount: number,
+): ShellQueuePreviewLine {
+  if (hiddenCount <= 1) {
+    return buildQueuePreviewOverflowLine();
+  }
+  return {
+    kind: "overflow",
+    text: `+${hiddenCount} more queued messages`,
     tone: "hint",
   };
 }
@@ -175,6 +187,38 @@ export function buildQueuePreviewHintLine(
   return {
     kind: "hint",
     text: `${editBindingLabel} edit last queued message`,
+    tone: "hint",
+  };
+}
+
+export function buildLocalEvalPreviewHeaderLine(
+  count: number,
+): ShellQueuePreviewLine {
+  return {
+    kind: "header",
+    text: count === 1 ? "• Queued local eval" : `• Queued ${count} local evals`,
+    tone: "neutral",
+  };
+}
+
+export function buildLocalEvalPreviewItemLine(
+  preview: string,
+): ShellQueuePreviewLine {
+  return {
+    kind: "item",
+    text: `↳ ${preview}`,
+    tone: "muted",
+  };
+}
+
+export function buildLocalEvalPreviewOverflowLine(
+  hiddenCount: number,
+): ShellQueuePreviewLine {
+  return {
+    kind: "overflow",
+    text: hiddenCount === 1
+      ? "+1 more queued eval"
+      : `+${hiddenCount} more queued evals`,
     tone: "hint",
   };
 }

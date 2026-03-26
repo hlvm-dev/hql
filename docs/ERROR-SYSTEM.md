@@ -562,6 +562,7 @@ The code prefix indicates the owning runtime boundary:
 | HLVM5008 | Runtime host request payload too large |
 | HLVM5009 | Runtime host transport failure |
 | HLVM5010 | Runtime host stream parsing failure |
+| HLVM5011 | Local AI engine startup or validation failure |
 
 ### Provider Errors (PRV9xxx)
 

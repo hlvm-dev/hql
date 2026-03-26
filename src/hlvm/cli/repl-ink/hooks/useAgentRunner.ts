@@ -362,6 +362,10 @@ export function useAgentRunner(
             toolArgs: event.toolArgs,
             question: event.question,
             options: event.options,
+            sourceLabel: event.sourceLabel,
+            sourceMemberId: event.sourceMemberId,
+            sourceThreadId: event.sourceThreadId,
+            sourceTeamName: event.sourceTeamName,
           };
           setInteractionQueue((prev: InteractionRequestEvent[]) => {
             if (

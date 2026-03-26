@@ -1,7 +1,4 @@
-import type {
-  OverlayPanel,
-  SurfacePanel,
-} from "../hooks/useOverlayPanel.ts";
+import type { OverlayPanel, SurfacePanel } from "../hooks/useOverlayPanel.ts";
 
 export function shouldAutoCloseConversationSurface(options: {
   activeOverlay: OverlayPanel;
@@ -38,7 +35,11 @@ export function shouldRenderMainBanner(options: {
 export function resolveConversationEscapeAction(options: {
   surfacePanel: SurfacePanel;
   isConversationTaskRunning: boolean;
+  composerShouldCaptureEscape?: boolean;
 }): "interrupt" | "ignore" {
+  if (options.composerShouldCaptureEscape) {
+    return "ignore";
+  }
   if (options.surfacePanel !== "conversation") {
     return "ignore";
   }

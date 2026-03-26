@@ -13,6 +13,9 @@ import {
   type HlvmConfig,
 } from "./config/types.ts";
 import {
+  getConfiguredModel as getConfiguredModelFromConfig,
+} from "./config/selectors.ts";
+import {
   buildSelectedModelConfigUpdates,
   buildSelectedModelConfigUpdatesPreservingAgentMode,
 } from "./config/model-selection.ts";
@@ -43,11 +46,7 @@ export interface EnsureDefaultModelOptions {
 }
 
 export function getConfiguredModel(): string {
-  const snapshot = config.snapshot;
-  if (snapshot?.model && typeof snapshot.model === "string") {
-    return snapshot.model;
-  }
-  return DEFAULT_MODEL_ID;
+  return getConfiguredModelFromConfig(config.snapshot);
 }
 
 function normalizeProviderLocalModelName(name: string): string {
@@ -444,9 +443,7 @@ export async function ensureInitialModelConfigured(
     }
   }
 
-  const configuredModel = snapshot.model && typeof snapshot.model === "string"
-    ? snapshot.model
-    : DEFAULT_MODEL_ID;
+  const configuredModel = getConfiguredModelFromConfig(snapshot);
 
   return {
     model: await resolveCompatibleClaudeCodeModel(configuredModel, {

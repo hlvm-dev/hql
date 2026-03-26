@@ -500,7 +500,11 @@ function upsertAssistantTextItem(
       };
       return {
         ...baseState,
-        items: appendBeforeTrailingTurnStats(nextItems, updatedAssistant, isPending),
+        items: appendBeforeTrailingTurnStats(
+          nextItems,
+          updatedAssistant,
+          isPending,
+        ),
       };
     }
   }
@@ -802,13 +806,22 @@ export function reduceTranscriptState(
         case "memory_activity": {
           const details: MemoryActivityDetail[] = [];
           for (const r of event.recalled) {
-            details.push({ action: "recalled", text: r.text, score: r.score, factId: r.factId });
+            details.push({
+              action: "recalled",
+              text: r.text,
+              score: r.score,
+              factId: r.factId,
+            });
           }
           for (const w of event.written) {
             details.push({ action: "wrote", text: w.text, factId: w.factId });
           }
           if (event.searched) {
-            details.push({ action: "searched", text: `"${event.searched.query}" → ${event.searched.count} results` });
+            details.push({
+              action: "searched",
+              text:
+                `"${event.searched.query}" → ${event.searched.count} results`,
+            });
           }
           const recalled = event.recalled.length;
           const written = event.written.length;
@@ -962,7 +975,8 @@ export function reduceTranscriptState(
     }
     case "user_message": {
       const startTurn = input.startTurn !== false;
-      const clearFinishedPlanState = startTurn && state.planningPhase === "done";
+      const clearFinishedPlanState = startTurn &&
+        state.planningPhase === "done";
       let nextState: TranscriptState = {
         ...state,
         items: startTurn ? cleanupTransientItems(state.items) : state.items,
@@ -1004,10 +1018,12 @@ export function reduceTranscriptState(
       }
 
       let assistantId: string;
-      [nextState, assistantId] = nextItemId({
-        ...nextState,
-        items: [...nextState.items, userItem],
-      } satisfies TranscriptState);
+      [nextState, assistantId] = nextItemId(
+        {
+          ...nextState,
+          items: [...nextState.items, userItem],
+        } satisfies TranscriptState,
+      );
       const pendingAssistant: AssistantItem = {
         type: "assistant",
         id: assistantId,
@@ -1035,7 +1051,10 @@ export function reduceTranscriptState(
       return {
         ...nextState,
         items: [...nextState.items, {
-          type: "error", id, text: input.text, turnId: state.currentTurnId,
+          type: "error",
+          id,
+          text: input.text,
+          turnId: state.currentTurnId,
         }],
       };
     }
@@ -1061,7 +1080,10 @@ export function reduceTranscriptState(
       return {
         ...nextState,
         items: [...nextState.items, {
-          type: "info", id, text: input.text, turnId: state.currentTurnId,
+          type: "info",
+          id,
+          text: input.text,
+          turnId: state.currentTurnId,
         }],
       };
     }
@@ -1122,6 +1144,16 @@ export function reduceTranscriptState(
         activeTool: undefined,
         currentTurnId: undefined,
         items: cleanupTransientItems(state.items),
+        ...(state.planningPhase && state.planningPhase !== "done"
+          ? {
+            activePlan: undefined,
+            planningPhase: undefined,
+            completedPlanStepIds: [],
+            todoState: undefined,
+            planTodoState: undefined,
+            pendingPlanReview: undefined,
+          }
+          : {}),
       };
     case "clear":
       return createTranscriptState();

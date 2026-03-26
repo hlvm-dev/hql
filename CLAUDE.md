@@ -1,6 +1,13 @@
 # HLVM Project Guidelines
 
-Follow `AGENTS.md` for authoritative AI agent instructions.
+## Concurrent Development - MANDATORY
+
+**Multiple AI agents work on this codebase concurrently.** Always assume another genAI is working on other parts at the same time.
+
+- **NEVER use `git stash`** — it will clobber another agent's uncommitted work. Only stash when explicitly told to.
+- **NEVER run unit tests (`deno task test:unit`)** until the user explicitly asks you to. Other agents may have in-progress changes that cause unrelated failures.
+- **NEVER assume test failures are yours** — they may be from another agent's WIP.
+- **Minimize git operations** that touch the working tree globally (checkout, reset, clean). Scope your changes narrowly.
 
 ## 🚨 100% SSOT Compliance is MANDATORY
 
@@ -58,8 +65,6 @@ Every piece of logic must exist in **exactly ONE place**. Zero tolerance for cop
 - Similar logic in 2+ places → VIOLATION (refactor required)
 - Copy-paste code → FORBIDDEN (extract to shared location)
 
-See `AGENTS.md` for detailed DRY/KISS guidelines and examples.
-
 ### Required Patterns
 
 **Always use SSOT entry points:**
@@ -68,8 +73,6 @@ See `AGENTS.md` for detailed DRY/KISS guidelines and examples.
 - File I/O: `getPlatform().fs.*` (NEVER `Deno.readFile()`, `Deno.writeFile()`)
 - Platform APIs: `getPlatform().*` (NEVER direct `Deno.*`)
 - AI/Config: `globalThis.ai`, `globalThis.config`
-
-See `AGENTS.md` for complete SSOT table and forbidden patterns.
 
 ### Pre-Commit Requirements (MANDATORY)
 
@@ -88,12 +91,12 @@ deno task test:unit     # Must pass all tests
 
 ### Tests
 
-**Testing order matters. Do NOT run the full test suite prematurely.**
+**Do NOT run tests unless the user explicitly asks.**
 
-1. **Domain-specific test first**: After making a change, test ONLY the specific feature/domain to confirm it works correctly (e.g., run a quick `deno eval` or targeted test)
-2. **Get user approval**: Confirm the change works as expected with the user before proceeding
-3. **Full test suite last**: Run `deno task test:unit` only after all changes are implemented and approved
-4. Tests must be real (no fake tests that always pass)
+- Other AI agents may be working concurrently — their WIP can cause unrelated failures.
+- When asked to test, run only the specific domain test, not the full suite.
+- `deno task test:unit` (full suite) only when the user explicitly requests it.
+- Tests must be real (no fake tests that always pass).
 
 ## HQL Stdlib Architecture - MANDATORY
 

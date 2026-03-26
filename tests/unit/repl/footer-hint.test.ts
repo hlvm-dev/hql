@@ -142,6 +142,51 @@ Deno.test("buildFooterLeftState includes queued interaction count", () => {
   assertEquals(state.text, "+2 queued");
 });
 
+Deno.test("buildFooterLeftState uses review-specific wording for reviewing phase", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Responding,
+    planningPhase: "reviewing",
+    spinner: "x",
+  });
+
+  assertEquals(state.text, "Plan review \u00B7 Esc cancels");
+});
+
+Deno.test("buildFooterLeftState uses human plan labels instead of raw phase names", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Responding,
+    planningPhase: "researching",
+    spinner: "x",
+  });
+
+  assertEquals(state.text, "Plan research \u00B7 Esc cancels");
+});
+
+Deno.test("buildFooterLeftState suppresses the duplicate generic plan-mode segment when a specific plan phase is active", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Responding,
+    planningPhase: "researching",
+    modeLabel: "Plan mode (shift+tab to cycle)",
+    spinner: "x",
+  });
+
+  assertEquals(state.text, "Plan research \u00B7 Esc cancels");
+});
+
+Deno.test("buildFooterLeftState exposes an idle escape hatch for lingering plan state", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    planningPhase: "executing",
+    spinner: "x",
+  });
+
+  assertEquals(state.text, "Plan executing \u00B7 Esc clears plan");
+});
+
 Deno.test("buildFooterLeftState prefers queue/force hints over tool status when draft exists", () => {
   const state = buildFooterLeftState({
     inConversation: true,
@@ -286,6 +331,34 @@ Deno.test("buildFooterLeftState shows worker summary when team active with worke
   const workerSegment = state.segments.find((s) => s.text.includes("alice"));
   assertEquals(workerSegment?.tone, "muted");
   assertEquals(workerSegment?.text, "alice: working \u00B7 bob: idle");
+});
+
+Deno.test("buildFooterLeftState shows focused teammate chip and team controls hint", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    teamActive: true,
+    teamFocusLabel: "alice",
+    teamAttentionCount: 2,
+    spinner: "x",
+  });
+
+  const focusChip = state.segments.find((s) => s.text === "To alice");
+  assertEquals(focusChip?.chip, true);
+  const hint = state.segments.find((s) => s.text.includes("Shift+Down teammate"));
+  assertEquals(hint?.text, "Shift+Down teammate · Ctrl+T (2)");
+});
+
+Deno.test("buildFooterLeftState prefixes pending permission hints with source label", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    hasPendingPermission: true,
+    pendingInteractionLabel: "cleaner-1",
+    spinner: "x",
+  });
+
+  assertEquals(state.mode, "message");
+  assertEquals(state.text, "cleaner-1 · Enter approve · Esc cancel");
 });
 
 Deno.test("buildFooterLeftState omits Team chip when team not active", () => {

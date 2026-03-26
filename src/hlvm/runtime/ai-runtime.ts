@@ -10,11 +10,12 @@
 
 import { delay } from "@std/async";
 import { RuntimeError } from "../../common/error.ts";
+import { HLVMErrorCode } from "../../common/error-codes.ts";
 import { ai } from "../api/ai.ts";
 import { log } from "../api/log.ts";
 import { ensureRuntimeDir, getRuntimeDir } from "../../common/paths.ts";
 import { findLegacyRuntimeEngine } from "../../common/legacy-migration.ts";
-import { getPlatform } from "../../platform/platform.ts";
+import { getPlatform, type PlatformCommandProcess } from "../../platform/platform.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../common/config/types.ts";
 import { http } from "../../common/http-client.ts";
 
@@ -39,6 +40,16 @@ export interface AIEngineLifecycle {
 const SYSTEM_AI_ENGINE = "ollama";
 const AI_STARTUP_MAX_POLLS = 30;
 const AI_STARTUP_POLL_INTERVAL_MS = 300;
+const OLLAMA_HELP_MARKERS = [
+  "Large language model runner",
+  "serve       Start Ollama",
+] as const;
+const HLVM_HELP_MARKERS = [
+  "HLVM - AI-native runtime infrastructure",
+  "HLVM Serve - HTTP REPL Server",
+] as const;
+
+const textDecoder = new TextDecoder();
 
 let initPromise: Promise<void> | null = null;
 
@@ -48,6 +59,106 @@ function isMissingEmbeddedEngineError(error: unknown): boolean {
 
 function getEmbeddedEnginePath(): string {
   return `${getRuntimeDir()}/engine`;
+}
+
+function normalizeCommandOutput(output: {
+  stdout: Uint8Array;
+  stderr: Uint8Array;
+}): string {
+  const stdout = textDecoder.decode(output.stdout).trim();
+  const stderr = textDecoder.decode(output.stderr).trim();
+  return [stdout, stderr].filter(Boolean).join("\n");
+}
+
+function isLikelyOllamaBinary(output: string): boolean {
+  return OLLAMA_HELP_MARKERS.every((marker) => output.includes(marker));
+}
+
+function isLikelyHlvmBinary(output: string): boolean {
+  return HLVM_HELP_MARKERS.some((marker) => output.includes(marker));
+}
+
+async function describeInvalidEngine(
+  candidatePath: string,
+  platform = getPlatform(),
+): Promise<string | null> {
+  try {
+    const helpOutput = await platform.command.output({
+      cmd: [candidatePath, "--help"],
+      stdin: "null",
+      stdout: "piped",
+      stderr: "piped",
+    });
+    const normalizedOutput = normalizeCommandOutput(helpOutput);
+
+    if (isLikelyOllamaBinary(normalizedOutput)) {
+      return null;
+    }
+
+    if (isLikelyHlvmBinary(normalizedOutput)) {
+      return "binary resolves to HLVM instead of Ollama";
+    }
+
+    if (normalizedOutput.length > 0) {
+      return `unexpected help output: ${normalizedOutput.split("\n")[0]}`;
+    }
+
+    return `engine help exited with code ${helpOutput.code}`;
+  } catch (error) {
+    return error instanceof Error ? error.message : "unknown validation error";
+  }
+}
+
+async function removeEmbeddedEngine(
+  reason: string,
+  platform = getPlatform(),
+): Promise<void> {
+  const embeddedEnginePath = getEmbeddedEnginePath();
+  if (!await platform.fs.exists(embeddedEnginePath)) {
+    return;
+  }
+
+  try {
+    await platform.fs.remove(embeddedEnginePath);
+    log.debug?.(
+      `Discarded cached AI engine at ${embeddedEnginePath}: ${reason}`,
+    );
+  } catch (error) {
+    log.debug?.(
+      `Failed to remove cached AI engine at ${embeddedEnginePath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+async function resolveEmbeddedEnginePath(
+  platform = getPlatform(),
+): Promise<string | null> {
+  const embeddedEnginePath = getEmbeddedEnginePath();
+  if (!await platform.fs.exists(embeddedEnginePath)) {
+    return null;
+  }
+
+  try {
+    if (await matchesSelfBinarySize(embeddedEnginePath, platform)) {
+      await removeEmbeddedEngine(
+        "binary matches the current HLVM executable",
+        platform,
+      );
+      return null;
+    }
+  } catch {
+    // Best-effort guard only.
+  }
+
+  const invalidReason = await describeInvalidEngine(embeddedEnginePath, platform);
+  if (invalidReason) {
+    await removeEmbeddedEngine(invalidReason, platform);
+    return null;
+  }
+
+  return embeddedEnginePath;
 }
 
 async function isAIRunning(): Promise<boolean> {
@@ -82,8 +193,7 @@ async function matchesSelfBinarySize(
 }
 
 async function extractAIEngine(platform = getPlatform()): Promise<void> {
-  const embeddedEnginePath = getEmbeddedEnginePath();
-  if (await platform.fs.exists(embeddedEnginePath)) {
+  if (await resolveEmbeddedEnginePath(platform)) {
     return;
   }
 
@@ -91,22 +201,42 @@ async function extractAIEngine(platform = getPlatform()): Promise<void> {
     const legacyEnginePath = await findLegacyRuntimeEngine();
     if (legacyEnginePath) {
       if (await matchesSelfBinarySize(legacyEnginePath, platform)) {
-        log.warn?.("Legacy engine binary matches HLVM CLI size — skipping copy");
+        log.debug?.("Legacy engine binary matches HLVM CLI size — skipping copy");
         // Fall through to embedded resource extraction below
       } else {
-        await ensureRuntimeDir();
-        await platform.fs.copyFile(legacyEnginePath, embeddedEnginePath);
-        await platform.fs.chmod(embeddedEnginePath, 0o755);
-        return;
+        const invalidLegacyReason = await describeInvalidEngine(
+          legacyEnginePath,
+          platform,
+        );
+        if (invalidLegacyReason) {
+          log.debug?.(
+            `Skipping legacy AI engine at ${legacyEnginePath}: ${invalidLegacyReason}`,
+          );
+        } else {
+          const embeddedEnginePath = getEmbeddedEnginePath();
+          await ensureRuntimeDir();
+          await platform.fs.copyFile(legacyEnginePath, embeddedEnginePath);
+          await platform.fs.chmod(embeddedEnginePath, 0o755);
+          if (await resolveEmbeddedEnginePath(platform)) {
+            return;
+          }
+        }
       }
     }
 
+    const embeddedEnginePath = getEmbeddedEnginePath();
     const engineBytes = await platform.fs.readFile(
       platform.path.fromFileUrl(new URL("../../resources/ai-engine", import.meta.url))
     );
     await ensureRuntimeDir();
     await platform.fs.writeFile(embeddedEnginePath, engineBytes);
     await platform.fs.chmod(embeddedEnginePath, 0o755);
+    if (await resolveEmbeddedEnginePath(platform)) {
+      return;
+    }
+    log.debug?.(
+      "Embedded AI engine failed validation after extraction; falling back to system Ollama",
+    );
   } catch (error) {
     // In development mode, AI engine might not be embedded — fall back to system
     if (isMissingEmbeddedEngineError(error)) {
@@ -127,8 +257,8 @@ async function waitForAIEngineReady(): Promise<boolean> {
 }
 
 async function startAIEngine(platform = getPlatform()): Promise<void> {
-  const embeddedEnginePath = getEmbeddedEnginePath();
-  const enginePath = await platform.fs.exists(embeddedEnginePath)
+  const embeddedEnginePath = await resolveEmbeddedEnginePath(platform);
+  const enginePath = embeddedEnginePath
     ? embeddedEnginePath
     : SYSTEM_AI_ENGINE;
 
@@ -146,8 +276,9 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
     }
   }
 
+  let aiProcess: PlatformCommandProcess | null = null;
   try {
-    const aiProcess = platform.command.run({
+    aiProcess = platform.command.run({
       cmd: [enginePath, "serve"],
       stdout: "null",
       stderr: "null",
@@ -158,12 +289,24 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
       log.debug?.(`AI engine started successfully (${enginePath})`);
       return;
     }
-    throw new RuntimeError("AI engine failed to start");
+    try {
+      aiProcess.kill?.("SIGTERM");
+    } catch {
+      // Best-effort cleanup only.
+    }
+    throw new RuntimeError("AI engine failed to start", {
+      code: HLVMErrorCode.AI_ENGINE_STARTUP_FAILED,
+    });
   } catch (error) {
     // If Ollama is already running (port conflict), that's fine - check if it's responsive
     if (await isAIRunning()) {
       log.debug?.("AI engine already running (port in use but responsive)");
       return;
+    }
+    try {
+      aiProcess?.kill?.("SIGTERM");
+    } catch {
+      // Best-effort cleanup only.
     }
     log.warn(`AI features unavailable: ${(error as Error).message}`);
     throw error;
@@ -172,8 +315,8 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
 
 async function resolveEnginePath(): Promise<string> {
   const platform = getPlatform();
-  const embeddedEnginePath = getEmbeddedEnginePath();
-  if (await platform.fs.exists(embeddedEnginePath)) {
+  const embeddedEnginePath = await resolveEmbeddedEnginePath(platform);
+  if (embeddedEnginePath) {
     return embeddedEnginePath;
   }
   return SYSTEM_AI_ENGINE;

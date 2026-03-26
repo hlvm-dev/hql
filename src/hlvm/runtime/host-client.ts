@@ -116,6 +116,10 @@ interface RuntimeInteractionRequest {
   toolArgs?: string;
   question?: string;
   options?: InteractionOption[];
+  sourceLabel?: string;
+  sourceMemberId?: string;
+  sourceThreadId?: string;
+  sourceTeamName?: string;
 }
 
 interface RuntimeInteractionResponse {
@@ -1337,6 +1341,10 @@ async function runChatViaHostAttempt(
               toolArgs: event.tool_args,
               question: event.question,
               options: event.options,
+              sourceLabel: event.source_label,
+              sourceMemberId: event.source_member_id,
+              sourceThreadId: event.source_thread_id,
+              sourceTeamName: event.source_team_name,
             })
             : { approved: false };
           await respondToInteraction(baseUrl, authToken, {

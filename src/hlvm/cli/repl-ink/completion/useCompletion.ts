@@ -6,7 +6,14 @@
  */
 
 import { useCallback, useRef, useEffect, useMemo } from "react";
-import type { CompletionContext, CompletionItem, ProviderId, ApplyContext, CompletionAction } from "./types.ts";
+import type {
+  ApplyContext,
+  ApplyResult,
+  CompletionAction,
+  CompletionContext,
+  CompletionItem,
+  ProviderId,
+} from "./types.ts";
 import { useDropdownState } from "./useDropdownState.ts";
 import { buildContext } from "./providers.ts";
 import { getActiveProvider, ALL_PROVIDERS } from "./concrete-providers.ts";
@@ -60,16 +67,16 @@ export interface UseCompletionReturn {
    * Opens dropdown with all items, returns the first item applied to input.
    * Returns null if no completions available.
    */
-  readonly triggerAndApply: (text: string, cursorPosition: number) => Promise<{ text: string; cursorPosition: number } | null>;
+  readonly triggerAndApply: (text: string, cursorPosition: number) => Promise<ApplyResult | null>;
 
   /** Handle a key press - returns true if handled */
   readonly handleKey: (key: string, text: string, cursorPosition: number, shiftKey?: boolean) => boolean;
 
   /** Apply the currently selected completion using stored original values (does NOT close dropdown for cycling) */
-  readonly applySelected: () => { text: string; cursorPosition: number } | null;
+  readonly applySelected: () => ApplyResult | null;
 
   /** Apply selected and close dropdown (for final confirmation) */
-  readonly confirmSelected: () => { text: string; cursorPosition: number } | null;
+  readonly confirmSelected: (action?: CompletionAction) => ApplyResult | null;
 
   /** Whether completion dropdown is currently visible */
   readonly isVisible: boolean;
@@ -80,14 +87,11 @@ export interface UseCompletionReturn {
   /** Help text from the active provider (for dropdown display) */
   readonly activeProviderHelpText: string;
 
-  /** Whether arrow navigation should apply selection (cycling behavior) */
-  readonly shouldApplyOnNavigate: boolean;
-
   /** Navigate to previous item, returns new text if cycling behavior applies */
-  readonly navigateUp: () => { text: string; cursorPosition: number } | null;
+  readonly navigateUp: () => void;
 
   /** Navigate to next item, returns new text if cycling behavior applies */
-  readonly navigateDown: () => { text: string; cursorPosition: number } | null;
+  readonly navigateDown: () => void;
 
   /** Get render props for dropdown (encapsulates all state access for rendering) */
   readonly renderProps: DropdownRenderProps | null;
@@ -306,7 +310,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   // ============================================================
 
   const triggerAndApply = useCallback(
-    async (text: string, cursorPosition: number): Promise<{ text: string; cursorPosition: number } | null> => {
+    async (text: string, cursorPosition: number): Promise<ApplyResult | null> => {
       if (disabled) return null;
 
       // Build context
@@ -339,9 +343,9 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         cursorPosition,
         anchorPosition: result.anchor,
       });
-      return { text: applyResult.text, cursorPosition: applyResult.cursorPosition };
+      return applyResult;
     },
-    [disabled, userBindings, signatures, docstrings, bindingNames, dropdown]
+    [disabled, userBindings, signatures, docstrings, bindingNames, attachedPaths, dropdown]
   );
 
   // ============================================================
@@ -350,7 +354,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   // ============================================================
 
   const applySelected = useCallback(
-    (): { text: string; cursorPosition: number } | null => {
+    (): ApplyResult | null => {
       const selected = dropdown.selectedItem;
       if (!selected) return null;
 
@@ -361,7 +365,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         cursorPosition: dropdown.state.originalCursor,
         anchorPosition: dropdown.state.anchorPosition,
       });
-      return { text: applyResult.text, cursorPosition: applyResult.cursorPosition };
+      return applyResult;
     },
     [dropdown]
   );
@@ -371,7 +375,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   // ============================================================
 
   const confirmSelected = useCallback(
-    (action: CompletionAction = "SELECT"): { text: string; cursorPosition: number } | null => {
+    (action: CompletionAction = "SELECT"): ApplyResult | null => {
       const selected = dropdown.selectedItem;
       if (!selected) return null;
 
@@ -383,7 +387,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       });
 
       dropdown.close();
-      return { text: applyResult.text, cursorPosition: applyResult.cursorPosition };
+      return applyResult;
     },
     [dropdown]
   );
@@ -401,45 +405,31 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   const activeProviderHelpText = useMemo(() => {
     const providerId = dropdown.state.providerId;
     if (!providerId) return "";
-    const provider = ALL_PROVIDERS.find((p) => p.id === providerId);
-    const baseHelp = provider?.helpText ?? "↑↓ navigate • Tab close • Enter select • Esc cancel";
-    // Show docs toggle status: replace "Ctrl+D docs" with "Ctrl+D docs ON/OFF"
-    const docsStatus = dropdown.state.showDocPanel ? "ON" : "OFF";
-    return baseHelp.replace("Ctrl+D docs", `Ctrl+D docs ${docsStatus}`);
+    const docsStatus = dropdown.state.showDocPanel ? "on" : "off";
+    if (providerId === "file") {
+      return `Enter select • Tab drill • Esc close • docs ${docsStatus}`;
+    }
+    return `Enter select • Tab next • Esc close • docs ${docsStatus}`;
   }, [dropdown.state.providerId, dropdown.state.showDocPanel]);
-
-  // Whether arrow navigation should apply selection (cycling behavior)
-  const shouldApplyOnNavigate = useMemo(() => {
-    const providerId = dropdown.state.providerId;
-    if (!providerId) return false;
-    const provider = ALL_PROVIDERS.find((p) => p.id === providerId);
-    return provider?.appliesOnNavigate ?? false;
-  }, [dropdown.state.providerId]);
 
   // ============================================================
   // Navigation Methods (encapsulates cycling behavior)
   // ============================================================
 
   const navigateUp = useCallback(
-    (): { text: string; cursorPosition: number } | null => {
-      if (!dropdown.isDropdownActive) return null;
+    (): void => {
+      if (!dropdown.isDropdownActive) return;
       dropdown.selectPrev();
-      // Only apply selection for providers with cycling behavior
-      if (!shouldApplyOnNavigate) return null;
-      return applySelected();
     },
-    [dropdown, shouldApplyOnNavigate, applySelected]
+    [dropdown]
   );
 
   const navigateDown = useCallback(
-    (): { text: string; cursorPosition: number } | null => {
-      if (!dropdown.isDropdownActive) return null;
+    (): void => {
+      if (!dropdown.isDropdownActive) return;
       dropdown.selectNext();
-      // Only apply selection for providers with cycling behavior
-      if (!shouldApplyOnNavigate) return null;
-      return applySelected();
     },
-    [dropdown, shouldApplyOnNavigate, applySelected]
+    [dropdown]
   );
 
   // ============================================================
@@ -508,7 +498,6 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       isVisible,
       activeProviderId,
       activeProviderHelpText,
-      shouldApplyOnNavigate,
       navigateUp,
       navigateDown,
       renderProps,
@@ -517,6 +506,6 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       getApplyContext,
       selectedItem,
     }),
-    [triggerCompletion, triggerAndApply, handleKey, applySelected, confirmSelected, isVisible, activeProviderId, activeProviderHelpText, shouldApplyOnNavigate, navigateUp, navigateDown, renderProps, toggleDocPanel, close, getApplyContext, selectedItem]
+    [triggerCompletion, triggerAndApply, handleKey, applySelected, confirmSelected, isVisible, activeProviderId, activeProviderHelpText, navigateUp, navigateDown, renderProps, toggleDocPanel, close, getApplyContext, selectedItem]
   );
 }

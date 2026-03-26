@@ -7,12 +7,15 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { fuzzyMatch } from "../../repl/fuzzy.ts";
+import type { HistoryEntry } from "../../repl/history-storage.ts";
 
 // ============================================================
 // Types
 // ============================================================
 
 interface HistoryMatch {
+  /** The underlying history entry */
+  readonly entry: HistoryEntry;
   /** The history entry text */
   readonly text: string;
   /** Index in the history array */
@@ -52,7 +55,7 @@ interface HistorySearchActions {
   /** Select previous match (Ctrl+S) */
   readonly selectPrev: () => void;
   /** Confirm selection and exit */
-  readonly confirm: () => string | null;
+  readonly confirm: () => HistoryEntry | null;
 }
 
 // ============================================================
@@ -75,7 +78,7 @@ const MAX_MATCHES = 50; // Limit matches for performance
  * ```
  */
 export function useHistorySearch(
-  history: readonly string[]
+  history: readonly HistoryEntry[]
 ): { state: HistorySearchState; actions: HistorySearchActions } {
   // State
   const [isSearching, setIsSearching] = useState(false);
@@ -93,7 +96,8 @@ export function useHistorySearch(
 
     // Search history in reverse order (most recent first)
     for (let i = history.length - 1; i >= 0; i--) {
-      const text = history[i];
+      const entry = history[i];
+      const text = entry.cmd;
 
       // Skip duplicates - show only most recent occurrence
       if (seen.has(text)) continue;
@@ -103,6 +107,7 @@ export function useHistorySearch(
 
       if (result) {
         results.push({
+          entry,
           text,
           historyIndex: i,
           score: result.score,
@@ -163,8 +168,8 @@ export function useHistorySearch(
     );
   }, [matches.length]);
 
-  const confirm = useCallback((): string | null => {
-    const result = selectedMatch?.text ?? null;
+  const confirm = useCallback((): HistoryEntry | null => {
+    const result = selectedMatch?.entry ?? null;
     setIsSearching(false);
     setQueryState("");
     setSelectedIndex(0);

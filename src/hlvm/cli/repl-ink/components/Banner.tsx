@@ -131,6 +131,11 @@ export function Banner(
   const compact = shouldUseCompactBanner(terminalWidth, terminalHeight);
   const contentWidth = Math.max(20, terminalWidth - 2);
   const logoColors = getBannerLogoColors(themeName, sc.banner, compact);
+  const titleLine = truncate(
+    `HLVM ${VERSION} — High Level Virtual Machine`,
+    contentWidth,
+    "…",
+  );
 
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -143,14 +148,9 @@ export function Banner(
           </React.Fragment>
         ))}
       </Box>
-
       {!compact && <Text />}
-      <Text color={sc.banner.meta} bold>
-        {truncate(
-          `HLVM ${VERSION} — High Level Virtual Machine`,
-          contentWidth,
-          "…",
-        )}
+      <Text color={sc.banner.meta} bold={!compact}>
+        {titleLine}
       </Text>
 
       {errors.length > 0 && (

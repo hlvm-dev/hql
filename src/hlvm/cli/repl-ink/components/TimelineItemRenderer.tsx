@@ -35,13 +35,16 @@ interface TimelineItemRendererProps {
   item: ShellHistoryEntry;
   width: number;
   activeThinkingId?: string;
+  compactSpacing?: boolean;
   isToolExpanded?: (toolId: string) => boolean;
   isThinkingExpanded?: (thinkingId: string) => boolean;
   isDelegateExpanded?: (delegateId: string) => boolean;
   isMemoryExpanded?: (memoryId: string) => boolean;
 }
 
-export function getToggleTargets(items: readonly ShellHistoryEntry[]): ToggleTarget[] {
+export function getToggleTargets(
+  items: readonly ShellHistoryEntry[],
+): ToggleTarget[] {
   const targets: ToggleTarget[] = [];
   for (const item of items) {
     if (item.type === "thinking") {
@@ -104,6 +107,7 @@ export function TimelineItemRenderer(
     item,
     width,
     activeThinkingId,
+    compactSpacing = false,
     isToolExpanded,
     isThinkingExpanded,
     isDelegateExpanded,
@@ -111,7 +115,14 @@ export function TimelineItemRenderer(
   }: TimelineItemRendererProps,
 ): React.ReactElement {
   if (item.type === "user") {
-    return <UserMessage text={item.text} attachments={item.attachments} width={width} />;
+    return (
+      <UserMessage
+        text={item.text}
+        attachments={item.attachments}
+        width={width}
+        compactSpacing={compactSpacing}
+      />
+    );
   }
   if (item.type === "assistant") {
     return (
@@ -120,6 +131,7 @@ export function TimelineItemRenderer(
         citations={item.citations}
         isPending={item.isPending}
         width={width}
+        compactSpacing={compactSpacing}
       />
     );
   }

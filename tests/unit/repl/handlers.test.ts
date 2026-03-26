@@ -1,4 +1,6 @@
 import { assertEquals } from "jsr:@std/assert";
+import { RuntimeError } from "../../../src/common/error.ts";
+import { ProviderErrorCode } from "../../../src/common/error-codes.ts";
 import {
   createSession,
   getSession,
@@ -12,6 +14,7 @@ import {
   handleUpdateMessage,
 } from "../../../src/hlvm/cli/repl/handlers/messages.ts";
 import { handleChat } from "../../../src/hlvm/cli/repl/handlers/chat.ts";
+import { ai } from "../../../src/hlvm/api/ai.ts";
 import {
   __testOnlyResetAgentReadyState,
   isAgentReady,
@@ -305,6 +308,41 @@ Deno.test("handlers: chat rejects attachments for agent models without vision su
         (await response.json()).error,
         "multimodal-test/tools-only does not support image attachments. Supported: PDF, audio, video, text.",
       );
+    });
+  });
+});
+
+Deno.test("handlers: chat surfaces provider auth failures during agent model verification", async () => {
+  await withTempHlvmDir(async () => {
+    await withDb(async () => {
+      const originalGet = ai.models.get;
+      (ai.models as { get: typeof ai.models.get }).get = () =>
+        Promise.reject(
+          new RuntimeError(
+            "Claude Code OAuth token invalid or expired. Run `claude login` to re-authenticate.",
+            { code: ProviderErrorCode.AUTH_FAILED },
+          ),
+        );
+
+      try {
+        const response = await handleChat(jsonRequest({
+          mode: "agent",
+          session_id: "session-auth-gate",
+          model: "claude-code/claude-haiku-4-5-20251001",
+          messages: [{
+            role: "user",
+            content: "hello world",
+          }],
+        }));
+
+        assertEquals(response.status, 503);
+        assertEquals(
+          (await response.json()).error,
+          "[PRV9004] Claude Code OAuth token invalid or expired. Run `claude login` to re-authenticate.",
+        );
+      } finally {
+        (ai.models as { get: typeof ai.models.get }).get = originalGet;
+      }
     });
   });
 });

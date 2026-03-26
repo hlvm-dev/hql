@@ -78,6 +78,7 @@ async function askUser(
       type: "interaction_request",
       requestId,
       mode: "question",
+      toolName: "ask_user",
       question: question as string,
       options: normalizedChoices.length > 0 ? normalizedChoices : undefined,
     });

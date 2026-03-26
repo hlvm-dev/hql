@@ -15,6 +15,7 @@
  */
 
 import { getHistoryPath } from "../../common/paths.ts";
+import type { HistoryEntryMetadata } from "../cli/repl/history-storage.ts";
 
 // ============================================================================
 // REPL State Reference
@@ -28,7 +29,7 @@ let _replState: ReplStateRef | null = null;
 
 interface ReplStateRef {
   history: string[];
-  addHistory(input: string): void;
+  addHistory(input: string, metadata?: HistoryEntryMetadata): void;
   flushHistory(): Promise<void>;
   clearHistory(): Promise<void>;
 }

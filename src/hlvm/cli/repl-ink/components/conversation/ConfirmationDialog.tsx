@@ -28,12 +28,21 @@ interface ConfirmationDialogProps {
   requestId?: string;
   toolName?: string;
   toolArgs?: string;
+  sourceLabel?: string;
+  sourceTeamName?: string;
   onResolve?: (requestId: string, response: InteractionResponse) => void;
 }
 
 export const ConfirmationDialog = React.memo(
   function ConfirmationDialog(
-    { requestId, toolName, toolArgs, onResolve }: ConfirmationDialogProps,
+    {
+      requestId,
+      toolName,
+      toolArgs,
+      sourceLabel,
+      sourceTeamName,
+      onResolve,
+    }: ConfirmationDialogProps,
   ): React.ReactElement {
     const sc = useSemanticColors();
     const dialog = getConfirmationDialogDisplay(toolName, toolArgs);
@@ -42,7 +51,7 @@ export const ConfirmationDialog = React.memo(
     if (isPlanReview && dialog.planReview && requestId && onResolve) {
       return (
         <InteractionPicker
-          title="Implement this plan?"
+          title="Ready to start implementation?"
           options={[
             {
               label: "Yes, implement this plan",
@@ -63,6 +72,7 @@ export const ConfirmationDialog = React.memo(
             },
           ]}
           hint={PLAN_REVIEW_PICKER_HINT}
+          tone="warning"
           onSubmit={(option: InteractionPickerOption) => {
             if (option.value === "approve:auto") {
               onResolve(requestId, {
@@ -83,48 +93,40 @@ export const ConfirmationDialog = React.memo(
           onCancel={() => onResolve(requestId, { approved: false })}
         >
           <Box flexDirection="column">
-            <Box>
-              <ChromeChip text="Plan review" tone="active" />
-            </Box>
+            <Text color={sc.text.secondary}>Overview</Text>
+            <Text color={sc.text.primary} wrap="wrap">
+              {dialog.planReview.plan.goal}
+            </Text>
             <Box marginTop={1} flexDirection="column">
-              <Text color={sc.text.primary} wrap="wrap">
-                {dialog.planReview.plan.goal}
-              </Text>
-              <Text color={sc.chrome.sectionLabel}>
-                {buildConversationSectionText("Steps")}
-              </Text>
-              <Box paddingLeft={1} flexDirection="column">
-                {dialog.planReview.visibleSteps.map((step) => (
-                  <React.Fragment key={step.id}>
-                    <Text color={sc.text.primary} wrap="truncate-end">
-                      [ ] {step.title}
+              <Text color={sc.text.secondary}>Implementation steps</Text>
+              {dialog.planReview.visibleSteps.map((step, index) => (
+                <React.Fragment key={step.id}>
+                  <Text color={sc.text.primary} wrap="wrap">
+                    {" "}
+                    {index + 1}. {step.title}
+                  </Text>
+                </React.Fragment>
+              ))}
+              {dialog.planReview.hiddenStepCount > 0 && (
+                <Text color={sc.text.muted}>
+                  ... {dialog.planReview.hiddenStepCount} more step
+                  {dialog.planReview.hiddenStepCount === 1 ? "" : "s"}
+                </Text>
+              )}
+            </Box>
+            {dialog.planReview.verificationLines.length > 0 && (
+              <Box marginTop={1} flexDirection="column">
+                <Text color={sc.text.secondary}>Verification</Text>
+                {dialog.planReview.verificationLines.map((line) => (
+                  <React.Fragment key={line}>
+                    <Text color={sc.text.muted} wrap="wrap">
+                      {" "}
+                      • {line}
                     </Text>
                   </React.Fragment>
                 ))}
-                {dialog.planReview.hiddenStepCount > 0 && (
-                  <Text color={sc.text.muted}>
-                    ... {dialog.planReview.hiddenStepCount} more step
-                    {dialog.planReview.hiddenStepCount === 1 ? "" : "s"}
-                  </Text>
-                )}
               </Box>
-              {dialog.planReview.verificationLines.length > 0 && (
-                <>
-                  <Text color={sc.chrome.sectionLabel}>
-                    {buildConversationSectionText("Verification")}
-                  </Text>
-                  <Box paddingLeft={1} flexDirection="column">
-                    {dialog.planReview.verificationLines.map((line) => (
-                      <React.Fragment key={line}>
-                        <Text color={sc.text.muted} wrap="truncate-end">
-                          • {line}
-                        </Text>
-                      </React.Fragment>
-                    ))}
-                  </Box>
-                </>
-              )}
-            </Box>
+            )}
           </Box>
         </InteractionPicker>
       );
@@ -144,6 +146,17 @@ export const ConfirmationDialog = React.memo(
             tone={isPlanReview ? "active" : "warning"}
           />
         </Box>
+        {(sourceLabel || sourceTeamName) && (
+          <Box marginTop={0}>
+            <Text color={sc.text.secondary}>From:</Text>
+            <Text color={sc.text.primary} bold>
+              {sourceLabel ?? sourceTeamName}
+            </Text>
+            {sourceLabel && sourceTeamName && (
+              <Text color={sc.text.muted}>{" · "}{sourceTeamName}</Text>
+            )}
+          </Box>
+        )}
         {isPlanReview && (
           <Text color={sc.text.secondary}>Review before proceeding.</Text>
         )}
@@ -208,7 +221,8 @@ export const ConfirmationDialog = React.memo(
                   return (
                     <Box key={i}>
                       <Text color={sc.text.secondary} wrap="truncate-end">
-                        {kv.key}{kv.separator}
+                        {kv.key}
+                        {kv.separator}
                       </Text>
                       <Text color={sc.text.muted} wrap="truncate-end">
                         {kv.value}
@@ -218,7 +232,9 @@ export const ConfirmationDialog = React.memo(
                 }
                 return (
                   <React.Fragment key={i}>
-                    <Text color={sc.text.muted} wrap="truncate-end">{line}</Text>
+                    <Text color={sc.text.muted} wrap="truncate-end">
+                      {line}
+                    </Text>
                   </React.Fragment>
                 );
               })}

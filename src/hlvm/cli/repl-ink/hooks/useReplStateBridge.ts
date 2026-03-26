@@ -5,6 +5,7 @@
 
 import { useSyncExternalStore, useMemo } from "react";
 import type { ReplState } from "../../repl/state.ts";
+import type { HistoryEntry } from "../../repl/history-storage.ts";
 
 /**
  * Snapshot of all reactive state from ReplState
@@ -14,6 +15,7 @@ export interface ReplStateSnapshot {
   signatures: ReadonlyMap<string, string[]>;
   docstrings: ReadonlyMap<string, string>;
   history: readonly string[];
+  historyEntries: readonly HistoryEntry[];
   replState: ReplState;
   /** Version number - use this as useEffect dependency, not collections */
   version: number;
@@ -47,6 +49,7 @@ export function useReplStateBridge(replState: ReplState): ReplStateSnapshot {
       signatures: replState.getSignatures(),
       docstrings: replState.getDocstrings(),
       history: replState.history,
+      historyEntries: replState.historyEntries,
       replState,
       version,  // Include version for useEffect dependencies
     }),

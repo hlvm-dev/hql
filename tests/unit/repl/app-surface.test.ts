@@ -25,6 +25,7 @@ Deno.test("resolveConversationEscapeAction only interrupts active conversation r
     resolveConversationEscapeAction({
       surfacePanel: "conversation",
       isConversationTaskRunning: true,
+      composerShouldCaptureEscape: false,
     }),
     "interrupt",
   );
@@ -32,6 +33,7 @@ Deno.test("resolveConversationEscapeAction only interrupts active conversation r
     resolveConversationEscapeAction({
       surfacePanel: "conversation",
       isConversationTaskRunning: false,
+      composerShouldCaptureEscape: false,
     }),
     "ignore",
   );
@@ -39,6 +41,15 @@ Deno.test("resolveConversationEscapeAction only interrupts active conversation r
     resolveConversationEscapeAction({
       surfacePanel: "none",
       isConversationTaskRunning: true,
+      composerShouldCaptureEscape: false,
+    }),
+    "ignore",
+  );
+  assertEquals(
+    resolveConversationEscapeAction({
+      surfacePanel: "conversation",
+      isConversationTaskRunning: true,
+      composerShouldCaptureEscape: true,
     }),
     "ignore",
   );

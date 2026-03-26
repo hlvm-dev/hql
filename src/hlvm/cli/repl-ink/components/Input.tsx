@@ -19,12 +19,17 @@ import {
   findMatchingParen,
   forwardDownSexp,
   forwardSexp,
-  highlight,
+  getComposerHighlightSegments,
+  type HighlightSegment,
   isBalanced,
   isInsideEmptyQuotePair,
   isInsideString,
   OPEN_TO_CLOSE,
 } from "../../repl/syntax.ts";
+import {
+  type ComposerLanguage,
+  detectComposerLanguage,
+} from "../../repl/composer-language.ts";
 import {
   barfBackward,
   barfForward,
@@ -60,7 +65,6 @@ import {
 } from "../hooks/useAttachments.ts";
 import { useHistorySearch } from "../hooks/useHistorySearch.ts";
 import { HistorySearchPrompt } from "./HistorySearchPrompt.tsx";
-import { ANSI_COLORS, getThemedAnsi } from "../../ansi.ts";
 import { useSemanticColors, useTheme } from "../../theme/index.ts";
 import type {
   ConversationComposerDraft,
@@ -78,6 +82,7 @@ import {
 
 // Unified Completion System
 import {
+  type ApplyResult,
   ATTACHMENT_PLACEHOLDER,
   buildContext as buildCompletionContext,
   type CompletionAction,
@@ -96,12 +101,14 @@ import {
   getShellPromptSlotWidth,
   padShellPromptLabel,
 } from "../utils/shell-chrome.ts";
+import { tracePromptHistoryEvent } from "../../repl/prompt-history.ts";
 
 // Handler Registry - for palette/keybinding execution
 import {
   executeHandler,
   HandlerIds,
   inspectHandlerKeybinding,
+  isBareEscapeInput,
   registerHandler,
   unregisterHandler,
 } from "../keybindings/index.ts";
@@ -135,9 +142,7 @@ const PASTE_CONTINUE_THRESHOLD_MS = 100; // Char-by-char paste arrives < 100ms a
 const PASTE_PROCESS_DELAY_MS = 300; // Wait 300ms for more chunks before processing (increased for slow terminals)
 const CTRL_ENTER_CSI_U_REGEX = new RegExp("^\u001b\\[13;(\\d+)u$");
 const CTRL_ENTER_LEGACY_REGEX = new RegExp("^\u001b\\[27;(\\d+);13~$");
-
-// ANSI Reset constant
-const { RESET } = ANSI_COLORS;
+const COMPOSER_INDENT = "  ";
 
 /** Fast newline check without regex overhead. */
 function hasNewlineChars(str: string): boolean {
@@ -242,10 +247,15 @@ interface InputProps {
   restoredDraftRevision?: number;
   onCycleMode?: () => void;
   disabled?: boolean;
-  /** "chat" disables code token coloring for natural-language turns */
-  highlightMode?: "code" | "chat";
+  composerLanguage?: ComposerLanguage;
   /** Override first-line prompt label (e.g. "answer>") */
   promptLabel?: string;
+  /** When a picker dialog owns focus, keep the composer visible but visually subdued. */
+  interactionMode?: "permission" | "question";
+  /** Notify parent when the composer starts/stops owning Escape. */
+  onEscapeSurfaceChange?: (active: boolean) => void;
+  /** Notify parent when the composer consumed Escape for the current keypress. */
+  onEscapeConsumed?: () => void;
   // FRP: history, bindings, signatures, docstrings now come from ReplContext
 }
 
@@ -298,25 +308,23 @@ interface InputHandlerActions {
 }
 
 export function isPureEscKeyEvent(input: string, key: EscapeKeyInfo): boolean {
-  return !!key.escape &&
-    !key.ctrl &&
-    !key.meta &&
-    !key.return &&
-    (!input || input.length === 0 || input === "\x1b");
+  return isBareEscapeInput(input, key);
 }
 
 export function shouldInterruptConversationOnEsc(
   input: string,
   key: EscapeKeyInfo,
   options: {
-    highlightMode: "code" | "chat";
+    composerLanguage: ComposerLanguage;
     isConversationTaskRunning: boolean;
     hasInterruptHandler: boolean;
+    hasActiveEscapeSurface: boolean;
   },
 ): boolean {
-  return options.highlightMode === "chat" &&
+  return options.composerLanguage === "chat" &&
     options.isConversationTaskRunning &&
     options.hasInterruptHandler &&
+    !options.hasActiveEscapeSurface &&
     isPureEscKeyEvent(input, key);
 }
 
@@ -336,8 +344,11 @@ export function Input({
   restoredDraftRevision,
   onCycleMode,
   disabled = false,
-  highlightMode = "code",
+  composerLanguage = "hql",
   promptLabel = "hlvm>",
+  interactionMode,
+  onEscapeSurfaceChange,
+  onEscapeConsumed,
 }: InputProps): React.ReactElement {
   // FRP: Get all reactive state from context
   const {
@@ -345,6 +356,7 @@ export function Input({
     signatures,
     docstrings,
     history,
+    historyEntries,
     bindingNames,
   } = useReplContext();
   const [cursorPos, setCursorPos] = useState(value.length);
@@ -369,7 +381,7 @@ export function Input({
   const bindingNamesSet = useMemo(() => new Set(bindingNames), [bindingNames]);
 
   // Ctrl+R History Search
-  const historySearch = useHistorySearch(history);
+  const historySearch = useHistorySearch(historyEntries);
 
   // Attachment management
   const {
@@ -799,35 +811,6 @@ export function Input({
     [value, placeholders, placeholderIndex, exitPlaceholderMode],
   );
 
-  // Helper: enter placeholder mode after completing a function
-  // FIX C2: Close completion dropdown when entering placeholder mode
-  const enterPlaceholderMode = useCallback(
-    (params: string[], startPos: number) => {
-      if (params.length === 0) return;
-
-      // Close completion dropdown when entering placeholder mode
-      completion.close();
-
-      const newPlaceholders: Placeholder[] = [];
-      let pos = startPos;
-
-      for (const param of params) {
-        newPlaceholders.push({
-          start: pos,
-          length: param.length,
-          text: param,
-          touched: false,
-        });
-        pos += param.length + 1; // +1 for space between params
-      }
-
-      setPlaceholders(newPlaceholders);
-      setPlaceholderIndex(0);
-      setCursorPos(newPlaceholders[0].start);
-    },
-    [completion],
-  );
-
   // Helper: push current state to undo stack (call BEFORE each mutation)
   const pushUndo = useCallback(() => {
     const stack = undoStackRef.current;
@@ -899,91 +882,111 @@ export function Input({
     [addAttachmentWithId, removeFailedAttachmentDisplayName],
   );
 
+  const enterSnippetSession = useCallback((
+    tabstops: readonly { start: number; end: number; text: string }[],
+  ) => {
+    if (tabstops.length === 0) return;
+
+    completion.close();
+    const nextPlaceholders: Placeholder[] = tabstops.map((tabstop) => ({
+      start: tabstop.start,
+      length: Math.max(0, tabstop.end - tabstop.start),
+      text: tabstop.text,
+      touched: false,
+    }));
+    setPlaceholders(nextPlaceholders);
+    setPlaceholderIndex(0);
+    setCursorPos(nextPlaceholders[0].start);
+  }, [completion]);
+
+  const applyCompletionResult = useCallback((
+    result: ApplyResult,
+    preserveDropdown: boolean = false,
+  ) => {
+    pushUndo();
+
+    if (result.sideEffect?.type === "ADD_ATTACHMENT") {
+      // Media file attachment
+      const id = reserveNextId();
+      const mimeType = detectMimeType(result.sideEffect.path);
+      const type = getAttachmentType(mimeType);
+      const displayName = getDisplayName(type, id);
+      // Replace placeholder with actual display name
+      const finalText = result.text.replace(
+        ATTACHMENT_PLACEHOLDER,
+        displayName,
+      );
+      pendingValueRef.current = finalText;
+      onChange(finalText);
+      const placeholderLen = ATTACHMENT_PLACEHOLDER.length;
+      setCursorPos(
+        result.cursorPosition - placeholderLen + displayName.length,
+      );
+      attachPathWithCleanup(result.sideEffect.path, id, displayName);
+    } else if (result.sideEffect?.type === "ENTER_SNIPPET_SESSION") {
+      pendingValueRef.current = result.text;
+      onChange(result.text);
+      enterSnippetSession(result.sideEffect.tabstops);
+      return;
+    } else if (result.sideEffect?.type === "EXECUTE") {
+      // Command execution - close dropdown and submit immediately (single Enter)
+      const finalText = result.text.trim();
+      onSubmit(finalText, attachments.length > 0 ? attachments : undefined);
+      pendingAttachmentOpsRef.current = 0;
+      undoStackRef.current = [];
+      redoStackRef.current = [];
+      pendingValueRef.current = "";
+      textChangeFromCyclingRef.current = false;
+      clearPasteBuffer();
+      cancelPendingEsc();
+      completion.close();
+      historySearch.actions.cancelSearch();
+      exitPlaceholderMode();
+      setSuggestion(null);
+      updateHistoryIndex(-1);
+      setTempInput("");
+      onChange("");
+      setCursorPos(0);
+      clearAttachments();
+      return; // Early return - already closed dropdown
+    } else {
+      // Normal completion
+      pendingValueRef.current = result.text;
+      onChange(result.text);
+      setCursorPos(result.cursorPosition);
+    }
+
+    // Close dropdown if instructed
+    if (result.closeDropdown && !preserveDropdown) {
+      completion.close();
+    }
+  }, [
+    completion,
+    onChange,
+    onSubmit,
+    attachments,
+    reserveNextId,
+    attachPathWithCleanup,
+    cancelPendingEsc,
+    clearAttachments,
+    clearPasteBuffer,
+    exitPlaceholderMode,
+    historySearch.actions,
+    pushUndo,
+    enterSnippetSession,
+  ]);
+
   // Helper: execute completion action (GENERIC - uses item.applyAction)
   // This replaces the old applyCompletionSelection with provider-defined behavior
   const executeCompletionAction = useCallback(
     (item: CompletionItem, action: CompletionAction) => {
       const context = completion.getApplyContext();
       if (!context) return; // No active completion session
-
-      pushUndo();
-
-      // Let the item define how to apply the action
-      const result = item.applyAction(action, context);
-
-      // Handle side effects from providers
-      if (result.sideEffect?.type === "ADD_ATTACHMENT") {
-        // Media file attachment
-        const id = reserveNextId();
-        const mimeType = detectMimeType(result.sideEffect.path);
-        const type = getAttachmentType(mimeType);
-        const displayName = getDisplayName(type, id);
-        // Replace placeholder with actual display name
-        const finalText = result.text.replace(
-          ATTACHMENT_PLACEHOLDER,
-          displayName,
-        );
-        pendingValueRef.current = finalText;
-        onChange(finalText);
-        const placeholderLen = ATTACHMENT_PLACEHOLDER.length;
-        setCursorPos(
-          result.cursorPosition - placeholderLen + displayName.length,
-        );
-        attachPathWithCleanup(result.sideEffect.path, id, displayName);
-      } else if (result.sideEffect?.type === "ENTER_PLACEHOLDER_MODE") {
-        // Function param completion
-        onChange(result.text);
-        enterPlaceholderMode(
-          result.sideEffect.params,
-          result.sideEffect.startPos,
-        );
-      } else if (result.sideEffect?.type === "EXECUTE") {
-        // Command execution - close dropdown and submit immediately (single Enter)
-        const finalText = result.text.trim();
-        onSubmit(finalText, attachments.length > 0 ? attachments : undefined);
-        pendingAttachmentOpsRef.current = 0;
-        undoStackRef.current = [];
-        redoStackRef.current = [];
-        pendingValueRef.current = "";
-        textChangeFromCyclingRef.current = false;
-        clearPasteBuffer();
-        cancelPendingEsc();
-        completion.close();
-        historySearch.actions.cancelSearch();
-        exitPlaceholderMode();
-        setSuggestion(null);
-        updateHistoryIndex(-1);
-        setTempInput("");
-        onChange("");
-        setCursorPos(0);
-        clearAttachments();
-        return; // Early return - already closed dropdown
-      } else {
-        // Normal completion
-        pendingValueRef.current = result.text;
-        onChange(result.text);
-        setCursorPos(result.cursorPosition);
-      }
-
-      // Close dropdown if instructed
-      if (result.closeDropdown) {
-        completion.close();
-      }
+      applyCompletionResult(item.applyAction(action, context));
     },
     [
+      applyCompletionResult,
       completion,
-      onChange,
-      onSubmit,
-      attachments,
-      reserveNextId,
-      attachPathWithCleanup,
-      cancelPendingEsc,
-      clearAttachments,
-      clearPasteBuffer,
-      exitPlaceholderMode,
-      enterPlaceholderMode,
-      historySearch.actions,
-      pushUndo,
     ],
   );
 
@@ -1417,7 +1420,7 @@ export function Input({
   // FIX H5: Capture value directly to avoid stale closure
   // Reads from historyIndexRef to avoid React async state batching races
   const navigateHistory = useCallback((direction: number) => {
-    if (history.length === 0) return;
+    if (historyEntries.length === 0) return;
 
     pushUndo();
 
@@ -1434,53 +1437,141 @@ export function Input({
       // Up arrow - go back in history
       if (currentIdx === -1) {
         // FIX H5: Save current input value directly (captured at call time)
-        const entry = history[history.length - 1];
+        const entry = historyEntries[historyEntries.length - 1];
         setTempInput(value);
-        updateHistoryIndex(history.length - 1);
-        pendingValueRef.current = entry;
-        onChange(entry);
-        setCursorPos(entry.length);
+        updateHistoryIndex(historyEntries.length - 1);
+        pendingValueRef.current = entry.cmd;
+        onChange(entry.cmd);
+        setCursorPos(entry.cmd.length);
+        tracePromptHistoryEvent({
+          event: "history-up",
+          text: entry.cmd,
+          source: entry.source,
+          language: entry.language,
+          historyIndex: historyEntries.length - 1,
+        });
       } else if (currentIdx > 0) {
-        const entry = history[currentIdx - 1];
+        const entry = historyEntries[currentIdx - 1];
         updateHistoryIndex(currentIdx - 1);
-        pendingValueRef.current = entry;
-        onChange(entry);
-        setCursorPos(entry.length);
+        pendingValueRef.current = entry.cmd;
+        onChange(entry.cmd);
+        setCursorPos(entry.cmd.length);
+        tracePromptHistoryEvent({
+          event: "history-up",
+          text: entry.cmd,
+          source: entry.source,
+          language: entry.language,
+          historyIndex: currentIdx - 1,
+        });
       }
     } else {
       // Down arrow - go forward in history
       if (currentIdx === -1) return;
 
-      if (currentIdx < history.length - 1) {
-        const entry = history[currentIdx + 1];
+      if (currentIdx < historyEntries.length - 1) {
+        const entry = historyEntries[currentIdx + 1];
         updateHistoryIndex(currentIdx + 1);
-        pendingValueRef.current = entry;
-        onChange(entry);
-        setCursorPos(entry.length);
+        pendingValueRef.current = entry.cmd;
+        onChange(entry.cmd);
+        setCursorPos(entry.cmd.length);
+        tracePromptHistoryEvent({
+          event: "history-down",
+          text: entry.cmd,
+          source: entry.source,
+          language: entry.language,
+          historyIndex: currentIdx + 1,
+        });
       } else {
         // Restore temp input
         updateHistoryIndex(-1);
         pendingValueRef.current = tempInput;
         onChange(tempInput);
         setCursorPos(tempInput.length);
+        tracePromptHistoryEvent({
+          event: "history-restore-draft",
+          text: tempInput,
+        });
       }
     }
-  }, [history, tempInput, value, onChange, pushUndo, clearPasteBuffer, completion, updateHistoryIndex]);
+  }, [
+    historyEntries,
+    tempInput,
+    value,
+    onChange,
+    pushUndo,
+    clearPasteBuffer,
+    completion,
+    updateHistoryIndex,
+  ]);
 
-  // Helper: Tab completion toggle.
-  // Behavior: open dropdown when closed, close it when open.
-  // FIX: Use triggerCompletionRef to avoid stale closure issues with completion object
+  const shouldInsertIndentWithTab = useCallback((): boolean => {
+    if (composerLanguage === "chat") return false;
+    if (!hasNewlineChars(value)) return false;
+
+    const beforeCursor = value.slice(0, cursorPos);
+    const lastNewline = beforeCursor.lastIndexOf("\n");
+    const linePrefix = beforeCursor.slice(lastNewline + 1);
+
+    if (linePrefix.length === 0) return false;
+    return /^[ \t]+$/.test(linePrefix);
+  }, [composerLanguage, cursorPos, value]);
+
+  // Deno-style Tab behavior:
+  // - snippet session => move to next tabstop
+  // - open dropdown => confirm current item
+  // - whitespace boundary => insert indentation
+  // - otherwise => trigger completion and smart-apply first ranked item
   const handleTab = useCallback(async () => {
-    // Toggle behavior: if dropdown is open, Tab closes it (never auto-select on Tab).
-    if (completion.isVisible) {
-      completion.close();
+    if (isInPlaceholderMode()) {
+      nextPlaceholder();
       return;
     }
 
-    // Trigger completion and open dropdown (first item may be selected visually, never applied on Tab).
-    // Use ref to ensure we always have the latest triggerCompletion function
+    if (completion.isVisible) {
+      completion.navigateDown();
+      return;
+    }
+
+    if (shouldInsertIndentWithTab()) {
+      insertAt(COMPOSER_INDENT);
+      return;
+    }
+
+    const completionContext = buildCompletionContext(
+      value,
+      cursorPos,
+      userBindings,
+      signatures,
+      docstrings,
+      bindingNamesSet,
+      attachedPathsSet,
+    );
+
+    if (completionContext.currentWord.length === 0) {
+      await triggerCompletionRef.current(value, cursorPos, true);
+      return;
+    }
+
+    if (value.trim().length === 0) {
+      await triggerCompletionRef.current(value, cursorPos, true);
+      return;
+    }
+
     await triggerCompletionRef.current(value, cursorPos, true);
-  }, [value, cursorPos, completion]);
+  }, [
+    completion,
+    cursorPos,
+    docstrings,
+    insertAt,
+    isInPlaceholderMode,
+    nextPlaceholder,
+    shouldInsertIndentWithTab,
+    attachedPathsSet,
+    bindingNamesSet,
+    signatures,
+    userBindings,
+    value,
+  ]);
 
   const registeredHandlerActionsRef = useRef<InputHandlerActions>({
     composerClear: () => {},
@@ -1839,12 +1930,16 @@ export function Input({
   // Main input handler
   inputEventHandlerRef.current = (input: string, key: Key) => {
     const isPureEscPrefixEvent = isPureEscKeyEvent(input, key);
+    const hasActiveEscapeSurface = historySearch.state.isSearching ||
+      isInPlaceholderMode() ||
+      completion.isVisible;
 
     if (
       shouldInterruptConversationOnEsc(input, key, {
-        highlightMode,
+        composerLanguage,
         isConversationTaskRunning,
         hasInterruptHandler: typeof onInterruptRunningTask === "function",
+        hasActiveEscapeSurface,
       })
     ) {
       cancelPendingEsc();
@@ -1892,7 +1987,7 @@ export function Input({
     }
 
     if (
-      highlightMode === "chat" &&
+      composerLanguage === "chat" &&
       queueEditBinding === "shift-left" &&
       key.shift &&
       key.leftArrow &&
@@ -1904,7 +1999,7 @@ export function Input({
     }
 
     if (
-      highlightMode === "chat" &&
+      composerLanguage === "chat" &&
       isConversationTaskRunning &&
       !key.shift &&
       !completion.isVisible &&
@@ -1920,7 +2015,8 @@ export function Input({
     // ============================================================
     if (historySearch.state.isSearching) {
       // Escape: cancel search
-      if (key.escape) {
+      if (isPureEscPrefixEvent) {
+        onEscapeConsumed?.();
         historySearch.actions.cancelSearch();
         return;
       }
@@ -1935,9 +2031,15 @@ export function Input({
           setSuggestion(null);
           updateHistoryIndex(-1);
           setTempInput("");
-          pendingValueRef.current = selected;
-          onChange(selected);
-          setCursorPos(selected.length);
+          pendingValueRef.current = selected.cmd;
+          onChange(selected.cmd);
+          setCursorPos(selected.cmd.length);
+          tracePromptHistoryEvent({
+            event: "history-search-confirm",
+            text: selected.cmd,
+            source: selected.source,
+            language: selected.language,
+          });
         }
         return;
       }
@@ -2191,7 +2293,13 @@ export function Input({
     // macOS Terminal sends ESC sequences for Option key (key.escape or key.meta)
     // This handles BOTH key.escape AND key.meta since macOS Terminal sends ESC sequences
     // IMPORTANT: Skip this block if Ctrl is pressed to let Ctrl handler run
-    if ((key.escape || key.meta) && !key.ctrl) {
+    if ((key.escape || key.meta || isPureEscPrefixEvent) && !key.ctrl) {
+      if (isPureEscPrefixEvent && completion.isVisible) {
+        onEscapeConsumed?.();
+        completion.close();
+        return;
+      }
+
       // Paredit helper using current value/cursorPos closure (with undo)
       const applyParedit = (fn: PareditFn) => {
         const result = fn(value, cursorPos);
@@ -2221,7 +2329,7 @@ export function Input({
       }
       if (key.upArrow) {
         if (
-          highlightMode === "chat" &&
+          composerLanguage === "chat" &&
           queueEditBinding === "alt-up" &&
           canEditQueuedDraft &&
           onEditLastQueuedDraft
@@ -2304,7 +2412,7 @@ export function Input({
         schedulePureEscAction(() => {
           lastEscPrefixAtRef.current = 0;
           if (
-            highlightMode === "chat" &&
+            composerLanguage === "chat" &&
             isConversationTaskRunning &&
             onInterruptRunningTask
           ) {
@@ -2455,23 +2563,11 @@ export function Input({
       }
 
       if (key.upArrow) {
-        // Navigate UP - encapsulated cycling behavior in hook
-        const result = completion.navigateUp();
-        if (result) {
-          textChangeFromCyclingRef.current = true; // Mark as cycling, not typing
-          onChange(result.text);
-          setCursorPos(result.cursorPosition);
-        }
+        completion.navigateUp();
         return;
       }
       if (key.downArrow) {
-        // Navigate DOWN - encapsulated cycling behavior in hook
-        const result = completion.navigateDown();
-        if (result) {
-          textChangeFromCyclingRef.current = true; // Mark as cycling, not typing
-          onChange(result.text);
-          setCursorPos(result.cursorPosition);
-        }
+        completion.navigateDown();
         return;
       }
       if (key.leftArrow) {
@@ -2528,6 +2624,7 @@ export function Input({
       }
       if (key.escape) {
         // Cancel and close dropdown
+        onEscapeConsumed?.();
         completion.close();
         return;
       }
@@ -3036,6 +3133,10 @@ export function Input({
 
   const rawGhostText = suggestion ? suggestion.ghost : "";
   const hasPlaceholderMode = placeholders.length > 0 && placeholderIndex >= 0;
+  const effectiveComposerLanguage = useMemo(
+    () => detectComposerLanguage(composerLanguage, displayValue),
+    [composerLanguage, displayValue],
+  );
   const sliceRelativeBracketPositions = useCallback((
     positions: readonly number[] | null,
     sliceStart: number,
@@ -3050,6 +3151,54 @@ export function Input({
     return sliced.length > 0 ? sliced : null;
   }, []);
 
+  const getSegmentColor = useCallback(
+    (segment: HighlightSegment): string | undefined => {
+      switch (segment.colorKey) {
+        case "keyword":
+          return color("accent");
+        case "macro":
+          return color("secondary");
+        case "string":
+          return color("success");
+        case "number":
+        case "boolean":
+          return color("warning");
+        case "nil":
+        case "comment":
+          return color("muted");
+        case "functionCall":
+          return color("primary");
+        case "regex":
+          return color("error");
+        default:
+          return undefined;
+      }
+    },
+    [color],
+  );
+
+  const renderPlainTextSegments = useCallback((
+    text: string,
+    bracketPositions: readonly number[] | null,
+    keyPrefix: string,
+  ): React.ReactNode[] => {
+    return getComposerHighlightSegments(
+      text,
+      effectiveComposerLanguage,
+      bracketPositions && bracketPositions.length > 0
+        ? [...bracketPositions]
+        : null,
+    ).map((segment: HighlightSegment, index: number) => (
+      <Text
+        key={`${keyPrefix}-${index}`}
+        color={getSegmentColor(segment)}
+        bold={segment.bold}
+      >
+        {segment.value}
+      </Text>
+    ));
+  }, [effectiveComposerLanguage, getSegmentColor]);
+
   // Render text with placeholder highlighting. Bracket positions are
   // relative to the provided text slice so cursor-only changes can decorate
   // a small subset of already-cached chunks.
@@ -3057,20 +3206,13 @@ export function Input({
     text: string,
     startOffset: number,
     bracketPositions: readonly number[] | null = null,
-  ): string => {
-    const renderHighlighted = (
-      chunk: string,
-      relativeBracketPositions: readonly number[] | null,
-    ): string =>
-      highlightMode === "chat" ? chunk : highlight(
-        chunk,
-        relativeBracketPositions && relativeBracketPositions.length > 0
-          ? [...relativeBracketPositions]
-          : null,
-      );
-
+  ): React.ReactNode => {
     if (!hasPlaceholderMode || placeholders.length === 0) {
-      return renderHighlighted(text, bracketPositions);
+      return renderPlainTextSegments(
+        text,
+        bracketPositions,
+        `plain-${startOffset}`,
+      );
     }
 
     const endOffset = startOffset + text.length;
@@ -3081,10 +3223,14 @@ export function Input({
       );
 
     if (relevantPhs.length === 0) {
-      return renderHighlighted(text, bracketPositions);
+      return renderPlainTextSegments(
+        text,
+        bracketPositions,
+        `plain-${startOffset}`,
+      );
     }
 
-    let result = "";
+    const nodes: React.ReactNode[] = [];
     let textPos = 0;
     let phIdx = 0;
 
@@ -3104,14 +3250,15 @@ export function Input({
         if (pos >= ph.start && pos < ph.start + ph.length) {
           const phStartInText = Math.max(0, ph.start - startOffset);
           if (phStartInText > textPos) {
-            result += renderHighlighted(
+            nodes.push(...renderPlainTextSegments(
               text.slice(textPos, phStartInText),
               sliceRelativeBracketPositions(
                 bracketPositions,
                 textPos,
                 phStartInText,
               ),
-            );
+              `plain-${startOffset + textPos}`,
+            ));
           }
 
           const phEndInText = Math.min(
@@ -3124,11 +3271,26 @@ export function Input({
           );
 
           if (ph.touched) {
-            result += renderHighlighted(phText, null);
+            nodes.push(...renderPlainTextSegments(
+              phText,
+              null,
+              `touched-${ph.start}`,
+            ));
           } else if (originalIdx === placeholderIndex) {
-            result += getThemedAnsi().accent + phText + RESET;
+            nodes.push(
+              <Text
+                key={`placeholder-active-${ph.start}`}
+                color={color("accent")}
+              >
+                {phText}
+              </Text>,
+            );
           } else {
-            result += getThemedAnsi().muted + phText + RESET;
+            nodes.push(
+              <Text key={`placeholder-${ph.start}`} color={color("muted")}>
+                {phText}
+              </Text>,
+            );
           }
 
           textPos = phEndInText;
@@ -3136,34 +3298,37 @@ export function Input({
         }
 
         const nextPhStart = Math.min(text.length, ph.start - startOffset);
-        result += renderHighlighted(
+        nodes.push(...renderPlainTextSegments(
           text.slice(textPos, nextPhStart),
           sliceRelativeBracketPositions(
             bracketPositions,
             textPos,
             nextPhStart,
           ),
-        );
+          `plain-${startOffset + textPos}`,
+        ));
         textPos = nextPhStart;
       } else {
-        result += renderHighlighted(
+        nodes.push(...renderPlainTextSegments(
           text.slice(textPos),
           sliceRelativeBracketPositions(
             bracketPositions,
             textPos,
             text.length,
           ),
-        );
+          `plain-${startOffset + textPos}`,
+        ));
         break;
       }
     }
 
-    return result;
+    return nodes;
   }, [
+    color,
     hasPlaceholderMode,
-    highlightMode,
     placeholderIndex,
     placeholders,
+    renderPlainTextSegments,
     sliceRelativeBracketPositions,
   ]);
 
@@ -3180,7 +3345,6 @@ export function Input({
       wrap: wrapLine(line, contentWidth),
     }));
     const chunks: Array<{
-      baseRendered: string;
       chunkIdx: number;
       globalOffset: number;
       isLastVisual: boolean;
@@ -3201,7 +3365,6 @@ export function Input({
         const text = wrap.chunks[chunkIdx];
         const chunkGlobalOffset = globalOffset + wrap.offsets[chunkIdx];
         chunks.push({
-          baseRendered: renderChunkText(text, chunkGlobalOffset),
           chunkIdx,
           globalOffset: chunkGlobalOffset,
           isLastVisual: logIdx === lastLogIdx &&
@@ -3224,7 +3387,7 @@ export function Input({
       logicalLines,
       wrappedLines,
     };
-  }, [promptLabel, renderChunkText, stdout?.columns, displayValue]);
+  }, [promptLabel, stdout?.columns, displayValue]);
 
   const cursorLayout = useMemo(() => {
     let cursorLogLine = 0;
@@ -3287,6 +3450,56 @@ export function Input({
       : rawGhostText.slice(0, Math.max(0, available - 1)) + "…";
   }, [rawGhostText, visualLayout.contentWidth, visualLayout.wrappedLines]);
 
+  const completionPanelMarginLeft = 0;
+  const completionPanelWidth = useMemo(
+    () => Math.min(64, Math.max(24, visualLayout.contentWidth - 2)),
+    [visualLayout.contentWidth],
+  );
+
+  // ============================================================
+  // FIX C1: Unified mode guard - ensure only ONE overlay at a time
+  // Priority: history search > placeholder > completion
+  // This prevents UI corruption from overlapping overlays
+  // ============================================================
+  const activeOverlay = useMemo(
+    (): "history" | "placeholder" | "completion" | "none" => {
+      if (historySearch.state.isSearching) return "history";
+      if (isInPlaceholderMode()) return "placeholder";
+      if (completion.renderProps) return "completion";
+      return "none";
+    },
+    [
+      historySearch.state.isSearching,
+      placeholders,
+      placeholderIndex,
+      completion.renderProps,
+    ],
+  );
+  useEffect(() => {
+    onEscapeSurfaceChange?.(activeOverlay !== "none");
+  }, [activeOverlay, onEscapeSurfaceChange]);
+  useEffect(() => {
+    return () => {
+      onEscapeSurfaceChange?.(false);
+    };
+  }, [onEscapeSurfaceChange]);
+  const composerHasActivity = interactionMode != null ||
+    activeOverlay !== "none" ||
+    displayValue.trim().length > 0 ||
+    attachments.length > 0;
+  const promptColor = interactionMode
+    ? sc.text.muted
+    : composerHasActivity
+    ? sc.chrome.sectionLabel
+    : sc.shell.prompt;
+  const composerBorderColor = interactionMode
+    ? sc.border.dim
+    : activeOverlay !== "none"
+    ? sc.border.active
+    : composerHasActivity
+    ? sc.border.default
+    : sc.border.dim;
+
   const lineElements = visualLayout.chunks.map(
     (chunk: typeof visualLayout.chunks[number]) => {
       const chunkBracketPositions = chunkBracketPositionsByKey.get(chunk.key) ??
@@ -3298,14 +3511,17 @@ export function Input({
         return (
           <Box key={chunk.key}>
             <Text>
-              <Text color={sc.shell.prompt} bold>{chunk.prompt}</Text>{" "}
+              <Text color={promptColor} bold>{chunk.prompt}</Text>{" "}
               {chunkBracketPositions
                 ? renderChunkText(
                   chunk.text,
                   chunk.globalOffset,
                   chunkBracketPositions,
                 )
-                : chunk.baseRendered}
+                : renderChunkText(
+                  chunk.text,
+                  chunk.globalOffset,
+                )}
             </Text>
           </Box>
         );
@@ -3325,7 +3541,7 @@ export function Input({
       return (
         <Box key={chunk.key}>
           <Text>
-            <Text color={sc.shell.prompt} bold>{chunk.prompt}</Text>{" "}
+            <Text color={promptColor} bold>{chunk.prompt}</Text>{" "}
             {renderChunkText(
               before,
               chunk.globalOffset,
@@ -3354,26 +3570,6 @@ export function Input({
     },
   );
 
-  // ============================================================
-  // FIX C1: Unified mode guard - ensure only ONE overlay at a time
-  // Priority: history search > placeholder > completion
-  // This prevents UI corruption from overlapping overlays
-  // ============================================================
-  const activeOverlay = useMemo(
-    (): "history" | "placeholder" | "completion" | "none" => {
-      if (historySearch.state.isSearching) return "history";
-      if (isInPlaceholderMode()) return "placeholder";
-      if (completion.renderProps) return "completion";
-      return "none";
-    },
-    [
-      historySearch.state.isSearching,
-      placeholders,
-      placeholderIndex,
-      completion.renderProps,
-    ],
-  );
-
   return (
     <Box flexDirection="column">
       {/* Show attachment error only */}
@@ -3383,11 +3579,11 @@ export function Input({
         </Box>
       )}
 
-      {/* Input lines — bordered container matching Claude Code style */}
+      {/* Input lines — shared shell composer surface */}
       <Box
         key={`composer:${historyIndex}:${displayValue}`}
-        borderStyle="round"
-        borderColor={sc.border.dim}
+        borderStyle="single"
+        borderColor={composerBorderColor}
         paddingLeft={1}
         paddingRight={1}
         flexDirection="column"
@@ -3426,6 +3622,8 @@ export function Input({
           helpText={completion.renderProps.helpText}
           isLoading={completion.renderProps.isLoading}
           showDocPanel={completion.renderProps.showDocPanel}
+          marginLeft={completionPanelMarginLeft}
+          width={completionPanelWidth}
         />
       )}
     </Box>

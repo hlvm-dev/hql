@@ -15,10 +15,11 @@ import React, {
   useState,
 } from "react";
 import { Box } from "ink";
+import type { ComposerLanguage } from "../../repl/composer-language.ts";
 import type { ReplState } from "../../repl/state.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
 import { Input } from "./Input.tsx";
-import { QueuePreview, buildQueuePreviewLines } from "./QueuePreview.tsx";
+import { buildQueuePreviewLines, QueuePreview } from "./QueuePreview.tsx";
 import {
   type ConversationComposerDraft,
   type ConversationQueueEditBinding,
@@ -45,7 +46,10 @@ export interface ComposerSurfaceHandle {
   getDraftText: () => string;
   getPendingQueue: () => ConversationComposerDraft[];
   restoreDraft: (draft: ConversationComposerDraft | null) => void;
-  setPendingQueue: React.Dispatch<React.SetStateAction<ConversationComposerDraft[]>>;
+  setPendingQueue: React.Dispatch<
+    React.SetStateAction<ConversationComposerDraft[]>
+  >;
+  shouldSuppressAppEscapeInterrupt: () => boolean;
 }
 
 interface ComposerSurfaceProps {
@@ -56,12 +60,15 @@ interface ComposerSurfaceProps {
   onCycleMode?: () => void;
   onUiStateChange?: (state: ComposerSurfaceUiState) => void;
   disabled?: boolean;
-  highlightMode?: "code" | "chat";
+  composerLanguage?: ComposerLanguage;
   promptLabel?: string;
   isConversationContext?: boolean;
   isConversationTaskRunning?: boolean;
   queueEnabled?: boolean;
+  interactionMode?: "permission" | "question";
 }
+
+const ESCAPE_CONSUMED_SUPPRESSION_MS = 32;
 
 export const ComposerSurface = forwardRef<
   ComposerSurfaceHandle,
@@ -75,11 +82,12 @@ export const ComposerSurface = forwardRef<
     onCycleMode,
     onUiStateChange,
     disabled = false,
-    highlightMode = "code",
+    composerLanguage = "hql",
     promptLabel = "hlvm>",
     isConversationContext = false,
     isConversationTaskRunning = false,
     queueEnabled = false,
+    interactionMode,
   }: ComposerSurfaceProps,
   ref: React.ForwardedRef<ComposerSurfaceHandle>,
 ): React.ReactElement {
@@ -99,6 +107,8 @@ export const ComposerSurface = forwardRef<
   pendingQueueRef.current = pendingConversationQueue;
   const attachmentsRef = useRef(attachmentState.attachments);
   attachmentsRef.current = attachmentState.attachments;
+  const escapeSurfaceActiveRef = useRef(false);
+  const lastEscapeConsumedAtRef = useRef(0);
 
   const queueEditBinding = useMemo<ConversationQueueEditBinding>(
     () => getConversationQueueEditBinding(getPlatform().env),
@@ -139,6 +149,14 @@ export const ComposerSurface = forwardRef<
     restoreDraft(null);
   }, [restoreDraft]);
 
+  const handleEscapeSurfaceChange = useCallback((active: boolean) => {
+    escapeSurfaceActiveRef.current = active;
+  }, []);
+
+  const handleEscapeConsumed = useCallback(() => {
+    lastEscapeConsumedAtRef.current = Date.now();
+  }, []);
+
   const getCurrentDraft = useCallback((): ConversationComposerDraft => {
     return createConversationComposerDraft(
       inputRef.current,
@@ -171,10 +189,15 @@ export const ComposerSurface = forwardRef<
     getPendingQueue: () => pendingQueueRef.current,
     restoreDraft,
     setPendingQueue: setPendingConversationQueue,
+    shouldSuppressAppEscapeInterrupt: () =>
+      escapeSurfaceActiveRef.current ||
+      Date.now() - lastEscapeConsumedAtRef.current <
+        ESCAPE_CONSUMED_SUPPRESSION_MS,
   }), [clearDraft, getCurrentDraft, restoreDraft]);
 
   const uiState = useMemo<ComposerSurfaceUiState>(() => ({
-    hasDraftInput: input.trim().length > 0 || attachmentState.attachments.length > 0,
+    hasDraftInput: input.trim().length > 0 ||
+      attachmentState.attachments.length > 0,
     queuedDraftCount: pendingConversationQueue.length,
     queuePreviewRows,
   }), [
@@ -209,9 +232,7 @@ export const ComposerSurface = forwardRef<
         />
       )}
 
-      <Box
-        flexDirection="column"
-      >
+      <Box flexDirection="column">
         <Input
           value={input}
           onChange={setInput}
@@ -232,8 +253,11 @@ export const ComposerSurface = forwardRef<
           restoredDraftRevision={restoredComposerDraftRevision}
           onCycleMode={onCycleMode}
           disabled={disabled}
-          highlightMode={highlightMode}
+          composerLanguage={composerLanguage}
           promptLabel={promptLabel}
+          interactionMode={interactionMode}
+          onEscapeSurfaceChange={handleEscapeSurfaceChange}
+          onEscapeConsumed={handleEscapeConsumed}
         />
       </Box>
     </>

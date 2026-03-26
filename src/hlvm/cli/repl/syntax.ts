@@ -3,6 +3,7 @@
  * Tokenizer, syntax highlighting, and paren matching for REPL input
  */
 
+import ts from "typescript";
 import { ANSI_COLORS } from "../ansi.ts";
 import { getSyntaxAnsi } from "../theme/index.ts";
 import {
@@ -15,6 +16,7 @@ import {
   OPERATOR_SET,
   MACRO_SET as BASE_MACRO_SET,
 } from "../../../common/known-identifiers.ts";
+import type { ComposerLanguage } from "./composer-language.ts";
 
 const { BOLD, RESET } = ANSI_COLORS;
 
@@ -47,7 +49,10 @@ export interface Token {
   readonly end: number;
 }
 
-type HighlightColorKey = Exclude<TokenType, "symbol" | "whitespace"> | "functionCall";
+type HighlightColorKey =
+  | Exclude<TokenType, "symbol" | "whitespace">
+  | "functionCall"
+  | "regex";
 
 export interface HighlightSegment {
   readonly value: string;
@@ -94,6 +99,7 @@ const BOOLEAN_SET: ReadonlySet<string> = new Set(["true", "false"]);
 
 // Nil/null literals
 const NIL_SET: ReadonlySet<string> = new Set(["nil", "null", "undefined"]);
+const JS_WARNING_LITERALS = new Set(["Infinity", "NaN"]);
 
 // Char-code predicates for tokenizer hot path (faster than regex for single-char tests)
 function isWhitespace(ch: string): boolean {
@@ -324,7 +330,10 @@ export function __getTokenizeCacheKeysForTest(): string[] {
  * so colors update when the user switches themes at runtime.
  * hexCache in theme/index.ts makes hex->ANSI O(1) after first call.
  */
-function getTokenColors(): Partial<Record<TokenType, string>> & { functionCall: string } {
+function getTokenColors(): Partial<Record<TokenType, string>> & {
+  functionCall: string;
+  regex: string;
+} {
   const sc = getSyntaxAnsi();
   return {
     string: sc.string,
@@ -342,6 +351,7 @@ function getTokenColors(): Partial<Record<TokenType, string>> & { functionCall: 
     "open-brace": sc.delimiter,
     "close-brace": sc.delimiter,
     functionCall: sc.functionCall,
+    regex: sc.regex,
   };
 }
 
@@ -380,6 +390,160 @@ function getHighlightColorKey(
   return token.type;
 }
 
+function splitSegmentByHighlights(
+  tokenText: string,
+  tokenStart: number,
+  colorKey: HighlightColorKey | undefined,
+  highlightSet: ReadonlySet<number> | null,
+): HighlightSegment[] {
+  if (tokenText.length === 0) return [];
+
+  const matchPositions: number[] = [];
+  if (highlightSet !== null) {
+    for (let pos = tokenStart; pos < tokenStart + tokenText.length; pos++) {
+      if (highlightSet.has(pos)) {
+        matchPositions.push(pos - tokenStart);
+      }
+    }
+  }
+
+  if (matchPositions.length === 0) {
+    return [{ value: tokenText, colorKey }];
+  }
+
+  const segments: HighlightSegment[] = [];
+  let lastEnd = 0;
+  for (const relPos of matchPositions) {
+    const beforeMatch = tokenText.slice(lastEnd, relPos);
+    const matchChar = tokenText[relPos];
+
+    if (beforeMatch.length > 0) {
+      segments.push({ value: beforeMatch, colorKey });
+    }
+    segments.push({ value: matchChar, colorKey: "functionCall", bold: true });
+    lastEnd = relPos + 1;
+  }
+
+  const afterMatch = tokenText.slice(lastEnd);
+  if (afterMatch.length > 0) {
+    segments.push({ value: afterMatch, colorKey });
+  }
+  return segments;
+}
+
+function isCallableIdentifier(input: string, end: number): boolean {
+  let cursor = end;
+  while (cursor < input.length && /\s/.test(input[cursor])) {
+    cursor++;
+  }
+  return input[cursor] === "(";
+}
+
+function getJsTsHighlightColorKey(
+  tokenKind: ts.SyntaxKind,
+  tokenText: string,
+  input: string,
+  tokenEnd: number,
+): HighlightColorKey | undefined {
+  if (
+    tokenKind === ts.SyntaxKind.WhitespaceTrivia ||
+    tokenKind === ts.SyntaxKind.NewLineTrivia
+  ) {
+    return undefined;
+  }
+  if (
+    tokenKind === ts.SyntaxKind.SingleLineCommentTrivia ||
+    tokenKind === ts.SyntaxKind.MultiLineCommentTrivia
+  ) {
+    return "comment";
+  }
+  if (
+    tokenKind === ts.SyntaxKind.StringLiteral ||
+    tokenKind === ts.SyntaxKind.NoSubstitutionTemplateLiteral ||
+    tokenKind === ts.SyntaxKind.TemplateHead ||
+    tokenKind === ts.SyntaxKind.TemplateMiddle ||
+    tokenKind === ts.SyntaxKind.TemplateTail
+  ) {
+    return "string";
+  }
+  if (
+    tokenKind === ts.SyntaxKind.NumericLiteral ||
+    tokenKind === ts.SyntaxKind.BigIntLiteral
+  ) {
+    return "number";
+  }
+  if (tokenText === "true" || tokenText === "false") {
+    return "boolean";
+  }
+  if (
+    tokenText === "null" ||
+    tokenText === "undefined"
+  ) {
+    return "nil";
+  }
+  if (JS_WARNING_LITERALS.has(tokenText)) {
+    return "number";
+  }
+  if (
+    tokenKind >= ts.SyntaxKind.FirstKeyword &&
+    tokenKind <= ts.SyntaxKind.LastKeyword
+  ) {
+    return "keyword";
+  }
+  if (
+    tokenKind === ts.SyntaxKind.Identifier &&
+    isCallableIdentifier(input, tokenEnd)
+  ) {
+    return "functionCall";
+  }
+  if (/^\/.+\/[dgimsuvy]*$/.test(tokenText)) {
+    return "regex";
+  }
+  return undefined;
+}
+
+function getJsTsHighlightSegments(
+  input: string,
+  bracketPositions: number | number[] | null = null,
+): HighlightSegment[] {
+  if (input.length === 0) return [];
+
+  const highlightSet: ReadonlySet<number> | null = bracketPositions === null
+    ? null
+    : new Set<number>(
+      typeof bracketPositions === "number" ? [bracketPositions] : bracketPositions,
+    );
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    false,
+    ts.LanguageVariant.Standard,
+    input,
+  );
+  const parts: HighlightSegment[] = [];
+
+  let tokenKind = scanner.scan();
+  while (tokenKind !== ts.SyntaxKind.EndOfFileToken) {
+    const tokenText = scanner.getTokenText();
+    const tokenStart = scanner.getTokenPos();
+    const tokenEnd = scanner.getTextPos();
+    const colorKey = getJsTsHighlightColorKey(
+      tokenKind,
+      tokenText,
+      input,
+      tokenEnd,
+    );
+    parts.push(...splitSegmentByHighlights(
+      tokenText,
+      tokenStart,
+      colorKey,
+      highlightSet,
+    ));
+    tokenKind = scanner.scan();
+  }
+
+  return parts;
+}
+
 export function getHighlightSegments(
   input: string,
   bracketPositions: number | number[] | null = null,
@@ -396,40 +560,29 @@ export function getHighlightSegments(
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     const colorKey = getHighlightColorKey(token, functionPositionTokens.has(i));
-
-    const matchPositions: number[] = [];
-    if (highlightSet !== null) {
-      for (let pos = token.start; pos < token.end; pos++) {
-        if (highlightSet.has(pos)) {
-          matchPositions.push(pos - token.start);
-        }
-      }
-    }
-
-    if (matchPositions.length === 0) {
-      parts.push({ value: token.value, colorKey });
-      continue;
-    }
-
-    let lastEnd = 0;
-    for (const relPos of matchPositions) {
-      const beforeMatch = token.value.slice(lastEnd, relPos);
-      const matchChar = token.value[relPos];
-
-      if (beforeMatch.length > 0) {
-        parts.push({ value: beforeMatch, colorKey });
-      }
-      parts.push({ value: matchChar, colorKey: "functionCall", bold: true });
-      lastEnd = relPos + 1;
-    }
-
-    const afterMatch = token.value.slice(lastEnd);
-    if (afterMatch.length > 0) {
-      parts.push({ value: afterMatch, colorKey });
-    }
+    parts.push(...splitSegmentByHighlights(
+      token.value,
+      token.start,
+      colorKey,
+      highlightSet,
+    ));
   }
 
   return parts;
+}
+
+export function getComposerHighlightSegments(
+  input: string,
+  language: ComposerLanguage,
+  bracketPositions: number | number[] | null = null,
+): HighlightSegment[] {
+  if (language === "chat") {
+    return [{ value: input }];
+  }
+  if (language === "js" || language === "ts") {
+    return getJsTsHighlightSegments(input, bracketPositions);
+  }
+  return getHighlightSegments(input, bracketPositions);
 }
 
 /**

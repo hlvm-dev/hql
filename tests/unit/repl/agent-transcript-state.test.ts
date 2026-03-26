@@ -332,6 +332,50 @@ Deno.test("agent transcript state cancel_planning clears plan-owned todos too", 
   assertEquals(next.planTodoState, undefined);
 });
 
+Deno.test("agent transcript state finalize clears orphaned planning state when execution ends early", () => {
+  const state = {
+    ...createTranscriptState(),
+    items: [
+      {
+        type: "assistant" as const,
+        id: "assistant-1",
+        text: "Partial execution output",
+        isPending: false,
+        ts: 1,
+      },
+    ],
+    activePlan: samplePlan,
+    planningPhase: "executing" as const,
+    completedPlanStepIds: ["step-1"],
+    todoState: {
+      items: [{
+        id: "step-1",
+        content: "Create the screenshots directory",
+        status: "in_progress" as const,
+      }],
+    },
+    planTodoState: {
+      items: [{
+        id: "step-1",
+        content: "Create the screenshots directory",
+        status: "in_progress" as const,
+      }],
+    },
+    pendingPlanReview: { plan: samplePlan },
+  };
+
+  const next = reduceTranscriptState(state, { type: "finalize" });
+
+  assertEquals(next.items.length, 1);
+  assertEquals(next.items[0]?.type, "assistant");
+  assertEquals(next.activePlan, undefined);
+  assertEquals(next.planningPhase, undefined);
+  assertEquals(next.completedPlanStepIds, []);
+  assertEquals(next.todoState, undefined);
+  assertEquals(next.planTodoState, undefined);
+  assertEquals(next.pendingPlanReview, undefined);
+});
+
 Deno.test("agent transcript state cancel_planning drops current-turn planning artifacts", () => {
   const state = {
     ...createTranscriptState(),
@@ -1199,4 +1243,3 @@ Deno.test("turnCounter increments monotonically", () => {
   assertEquals(state.currentTurnId, "turn-2");
   assertEquals(state.turnCounter, 2);
 });
-

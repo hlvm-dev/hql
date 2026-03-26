@@ -13,6 +13,16 @@ export {
   loadMemorySystemMessage,
 } from "./manager.ts";
 export { isPersistentMemoryEnabled } from "./policy.ts";
+export {
+  extractConversationFacts,
+  extractExplicitMemoryRequests,
+  persistConversationFacts,
+  persistExplicitMemoryRequest,
+} from "./extract.ts";
+export {
+  buildRelevantMemoryRecall,
+  type RelevantMemoryRecall,
+} from "./recall.ts";
 
 // Tools
 export { MEMORY_TOOLS, setMemoryModelTier } from "./tools.ts";
@@ -32,14 +42,19 @@ export {
   touchFact,
 } from "./facts.ts";
 export { linkFactEntities } from "./entities.ts";
-export { accessBoost, retrieveMemory, temporalDecay, type RetrievalResult } from "./retrieve.ts";
+export {
+  accessBoost,
+  type RetrievalResult,
+  retrieveMemory,
+  temporalDecay,
+} from "./retrieve.ts";
 
 // Explicit memory (user-facing MEMORY.md)
 export {
-  readExplicitMemory,
   appendExplicitMemoryNote,
   clearExplicitMemory,
   getExplicitMemoryPath,
+  readExplicitMemory,
   replaceExplicitMemoryText,
   writeExplicitMemory,
 } from "./explicit.ts";

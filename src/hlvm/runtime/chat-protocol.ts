@@ -194,6 +194,10 @@ export type ChatStreamEvent =
     tool_args?: string;
     question?: string;
     options?: InteractionOption[];
+    source_label?: string;
+    source_member_id?: string;
+    source_thread_id?: string;
+    source_team_name?: string;
   }
   | {
     event: "turn_stats";

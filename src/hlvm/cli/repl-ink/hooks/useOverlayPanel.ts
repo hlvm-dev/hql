@@ -114,7 +114,7 @@ export function useOverlayPanel(
   const activeOverlay = "overlay" in route ? route.overlay : "none";
 
   const setSurfacePanel = useMemo<Dispatch<SetStateAction<SurfacePanel>>>(
-    () => (value) => {
+    () => (value: SetStateAction<SurfacePanel>) => {
       setRoute((prev: ShellRoute) => {
         const prevValue = prev.kind === "conversation"
           ? "conversation"
@@ -141,7 +141,7 @@ export function useOverlayPanel(
   );
 
   const setActiveOverlay = useMemo<Dispatch<SetStateAction<OverlayPanel>>>(
-    () => (value) => {
+    () => (value: SetStateAction<OverlayPanel>) => {
       setRoute((prev: ShellRoute) => {
         const prevValue = "overlay" in prev ? prev.overlay : "none";
         const nextValue = typeof value === "function" ? value(prevValue) : value;

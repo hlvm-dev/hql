@@ -40,9 +40,10 @@ import {
 import { canonicalizeForSignature } from "./orchestrator-tool-formatting.ts";
 import { getToolRegistryGeneration } from "./registry.ts";
 import { normalizeToolArgs } from "./validation.ts";
-import { ValidationError } from "../../common/error.ts";
+import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../common/ai-messages.ts";
+import { ProviderErrorCode } from "../../common/error-codes.ts";
 import {
   getDefaultProvider,
   getProviderDefaultConfig,
@@ -59,6 +60,7 @@ import {
   mapSdkUsage,
   maybeHandleSdkAuthError,
   normalizeProviderMetadata,
+  resolveSdkStreamFailure,
   type SdkModelSpec as SdkRuntimeModelSpec,
   type SdkProviderBundle,
 } from "../providers/sdk-runtime.ts";
@@ -584,7 +586,7 @@ export class SdkAgentEngine implements AgentEngine {
           nativeTools: cachedNativeTools,
         }
         : await getSdkProviderBundleFromSpec(spec);
-      const model = activeBundle.model;
+      let model = activeBundle.model;
       const nativeTools = activeBundle.nativeTools;
       const sdkMessages = convertToSdkMessages(messages);
 
@@ -648,122 +650,156 @@ export class SdkAgentEngine implements AgentEngine {
         toolFilterSignature,
       );
 
-      const commonOpts = {
-        model,
-        messages: cacheDecorated.messages,
-        tools: cacheDecorated.tools,
-        ...(config.options?.temperature != null && { temperature: config.options.temperature }),
-        maxTokens: config.options?.maxTokens,
-        abortSignal: signal,
-        experimental_repairToolCall: repairToolCall,
-        ...(cacheDecorated.providerOptions
-          ? { providerOptions: cacheDecorated.providerOptions }
-          : {}),
-      };
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const commonOpts = {
+          model,
+          messages: cacheDecorated.messages,
+          tools: cacheDecorated.tools,
+          ...(config.options?.temperature != null &&
+            { temperature: config.options.temperature }),
+          maxTokens: config.options?.maxTokens,
+          abortSignal: signal,
+          experimental_repairToolCall: repairToolCall,
+          ...(cacheDecorated.providerOptions
+            ? { providerOptions: cacheDecorated.providerOptions }
+            : {}),
+        };
+        let streamError: unknown = null;
 
-      try {
-        if (config.onToken) {
-          // Streaming path
-          const result = streamText(commonOpts);
+        try {
+          if (config.onToken) {
+            // Streaming path
+            const result = streamText({
+              ...commonOpts,
+              onError: ({ error }) => {
+                streamError = error;
+              },
+            });
 
-          // Feed tokens to callback as they arrive
-          const chunks: string[] = [];
-          for await (const chunk of result.textStream) {
-            chunks.push(chunk);
-            config.onToken(chunk);
+            // Feed tokens to callback as they arrive
+            const chunks: string[] = [];
+            for await (const chunk of result.textStream) {
+              chunks.push(chunk);
+              config.onToken(chunk);
+            }
+
+            // streamText properties are PromiseLike — await them
+            const [
+              toolCalls,
+              usage,
+              text,
+              sources,
+              providerMetadata,
+              reasoning,
+              response,
+            ] = await Promise.all([
+              result.toolCalls,
+              result.usage,
+              result.text,
+              result.sources,
+              result.providerMetadata,
+              result.reasoning,
+              result.response,
+            ]);
+
+            return {
+              content: chunks.join("") || text || "",
+              toolCalls: filterLocallyExecutableToolCalls(
+                mapSdkToolCalls(toolCalls),
+                providerExecutionPlan,
+              ),
+              usage: mapSdkUsage(usage),
+              sources: mapSdkSources(sources),
+              providerMetadata: normalizeProviderMetadata(providerMetadata),
+              reasoning: extractReasoningText(reasoning),
+              sdkResponseMessages: response?.messages,
+            };
           }
 
-          // streamText properties are PromiseLike — await them
-          const [
-            toolCalls,
-            usage,
-            text,
-            sources,
-            providerMetadata,
-            reasoning,
-            response,
-          ] = await Promise.all([
-            result.toolCalls,
-            result.usage,
-            result.text,
-            result.sources,
-            result.providerMetadata,
-            result.reasoning,
-            result.response,
-          ]);
-
+          // Non-streaming path — generateText returns resolved values directly
+          const result = await generateText(commonOpts);
           return {
-            content: chunks.join("") || text || "",
+            content: result.text || "",
             toolCalls: filterLocallyExecutableToolCalls(
-              mapSdkToolCalls(toolCalls),
+              mapSdkToolCalls(result.toolCalls),
               providerExecutionPlan,
             ),
-            usage: mapSdkUsage(usage),
-            sources: mapSdkSources(sources),
-            providerMetadata: normalizeProviderMetadata(providerMetadata),
-            reasoning: extractReasoningText(reasoning),
-            sdkResponseMessages: response?.messages,
+            usage: mapSdkUsage(result.usage),
+            sources: mapSdkSources(result.sources),
+            providerMetadata: normalizeProviderMetadata(
+              result.providerMetadata,
+            ),
+            reasoning: extractReasoningText(result.reasoning),
+            sdkResponseMessages: result.response?.messages,
           };
+        } catch (error) {
+          const executionError = resolveSdkStreamFailure(error, streamError);
+          const shouldRetry = attempt === 0 &&
+            await maybeHandleSdkAuthError(spec.providerName, executionError);
+          if (shouldRetry) {
+            model = await createSdkLanguageModel(spec);
+            if (shouldCacheModel) {
+              cachedModel = model;
+            }
+            continue;
+          }
+
+          const message = getErrorMessage(executionError);
+          if (message.includes("No output generated")) {
+            let fallbackText = "";
+            let fallbackCalls: ToolCall[] = [];
+            let fallbackUsage:
+              | { inputTokens: number; outputTokens: number }
+              | undefined;
+            let fallbackSources;
+            let fallbackProviderMetadata;
+
+            try {
+              const fallback = await generateText(commonOpts);
+              fallbackText = (fallback.text || "").trim();
+              fallbackCalls = filterLocallyExecutableToolCalls(
+                mapSdkToolCalls(fallback.toolCalls),
+              );
+              fallbackUsage = mapSdkUsage(fallback.usage);
+              fallbackSources = mapSdkSources(fallback.sources);
+              fallbackProviderMetadata = normalizeProviderMetadata(
+                fallback.providerMetadata,
+              );
+            } catch (fallbackError) {
+              const retryFallback = attempt === 0 &&
+                await maybeHandleSdkAuthError(spec.providerName, fallbackError);
+              if (retryFallback) {
+                model = await createSdkLanguageModel(spec);
+                if (shouldCacheModel) {
+                  cachedModel = model;
+                }
+                continue;
+              }
+            }
+
+            if (fallbackText.length === 0 && fallbackCalls.length === 0) {
+              fallbackText = AI_NO_OUTPUT_FALLBACK_TEXT;
+            }
+            if (config.onToken && fallbackText.length > 0) {
+              config.onToken(fallbackText);
+            }
+
+            return {
+              content: fallbackText,
+              toolCalls: fallbackCalls,
+              usage: fallbackUsage,
+              sources: fallbackSources,
+              providerMetadata: fallbackProviderMetadata,
+            };
+          }
+          throw executionError;
         }
-
-        // Non-streaming path — generateText returns resolved values directly
-        const result = await generateText(commonOpts);
-        return {
-          content: result.text || "",
-          toolCalls: filterLocallyExecutableToolCalls(
-            mapSdkToolCalls(result.toolCalls),
-            providerExecutionPlan,
-          ),
-          usage: mapSdkUsage(result.usage),
-          sources: mapSdkSources(result.sources),
-          providerMetadata: normalizeProviderMetadata(result.providerMetadata),
-          reasoning: extractReasoningText(result.reasoning),
-          sdkResponseMessages: result.response?.messages,
-        };
-      } catch (error) {
-        await maybeHandleSdkAuthError(spec.providerName, error);
-        const message = getErrorMessage(error);
-        if (message.includes("No output generated")) {
-          let fallbackText = "";
-          let fallbackCalls: ToolCall[] = [];
-          let fallbackUsage:
-            | { inputTokens: number; outputTokens: number }
-            | undefined;
-          let fallbackSources;
-          let fallbackProviderMetadata;
-
-          try {
-            const fallback = await generateText(commonOpts);
-            fallbackText = (fallback.text || "").trim();
-            fallbackCalls = filterLocallyExecutableToolCalls(
-              mapSdkToolCalls(fallback.toolCalls),
-            );
-            fallbackUsage = mapSdkUsage(fallback.usage);
-            fallbackSources = mapSdkSources(fallback.sources);
-            fallbackProviderMetadata = normalizeProviderMetadata(
-              fallback.providerMetadata,
-            );
-          } catch (fallbackError) {
-            await maybeHandleSdkAuthError(spec.providerName, fallbackError);
-          }
-
-          if (fallbackText.length === 0 && fallbackCalls.length === 0) {
-            fallbackText = AI_NO_OUTPUT_FALLBACK_TEXT;
-          }
-          if (config.onToken && fallbackText.length > 0) {
-            config.onToken(fallbackText);
-          }
-
-          return {
-            content: fallbackText,
-            toolCalls: fallbackCalls,
-            usage: fallbackUsage,
-            sources: fallbackSources,
-            providerMetadata: fallbackProviderMetadata,
-          };
-        }
-        throw error;
       }
+
+      throw new RuntimeError(
+        "Agent SDK request retry exhausted unexpectedly.",
+        { code: ProviderErrorCode.REQUEST_FAILED },
+      );
     };
   }
 

@@ -176,15 +176,25 @@ function createSymbolApplyAction(
       // Position cursor at first param
       const firstParamStart = ctx.anchorPosition + openParen.length +
         id.length + 1;
+      const tabstops = params!.map((param: string, index: number) => {
+        const start = firstParamStart + params!
+          .slice(0, index)
+          .reduce((total: number, next: string) => total + next.length + 1, 0);
+        return {
+          start,
+          end: start + param.length,
+          text: param,
+        };
+      });
 
       return {
         text: newText,
         cursorPosition: firstParamStart,
         closeDropdown: true,
         sideEffect: {
-          type: "ENTER_PLACEHOLDER_MODE",
-          params: [...params!],
-          startPos: firstParamStart,
+          type: "ENTER_SNIPPET_SESSION",
+          tabstops,
+          exitCursor: ctx.anchorPosition + insertText.length,
         },
       };
     }
@@ -316,8 +326,11 @@ export const SymbolProvider: CompletionProvider = {
         context.docstrings,
       );
       const matchIndices = matchResult?.indices;
+      const callableBonus = params && params.length > 0 ? 40 : 0;
+      const prefixBonus = prefix && name.startsWith(prefix) ? 20 : 0;
       // Combine base score with fuzzy score for ranking
-      const score = baseScore + (matchResult?.score ?? 0);
+      const score = baseScore + callableBonus + prefixBonus +
+        (matchResult?.score ?? 0);
 
       // Extended doc is ONLY the docstring (shown in DocPanel)
       // Signature is already shown inline via getDescription()

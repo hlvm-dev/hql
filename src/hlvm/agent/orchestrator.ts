@@ -61,7 +61,7 @@ import {
 import type { AgentExecutionMode } from "./execution-mode.ts";
 import { isPlanExecutionMode } from "./execution-mode.ts";
 import { getAgentLogger } from "./logger.ts";
-import { type RetrievalResult, retrieveMemory } from "../memory/mod.ts";
+import { buildRelevantMemoryRecall } from "../memory/mod.ts";
 import { resetWebToolBudget } from "./tools/web-tools.ts";
 import { evaluateDelegationSignal } from "./delegation-heuristics.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
@@ -742,27 +742,6 @@ export function applyAdaptiveToolPhase(
 // Mid-Conversation Reminders
 // ============================================================
 
-const MEMORY_RECALL_RESULT_LIMIT = 3;
-const MEMORY_RECALL_MAX_QUERY_CHARS = 400;
-const MEMORY_RECALL_RESULT_CHARS = 220;
-
-function formatMemoryRecall(results: RetrievalResult[]): string {
-  const lines = results.map((result) => {
-    const source = result.file.split(/[\\/]/).pop() ?? result.file;
-    const excerpt = truncate(
-      result.text.replace(/\s+/g, " ").trim(),
-      MEMORY_RECALL_RESULT_CHARS,
-    );
-    return `- [${result.date}] ${source}: ${excerpt}`;
-  });
-
-  return [
-    "[Memory Recall] Relevant notes from earlier work:",
-    ...lines,
-    "Use these only when they match the current task.",
-  ].join("\n");
-}
-
 function maybeInjectMemoryRecall(
   state: LoopState,
   userRequest: string,
@@ -774,18 +753,13 @@ function maybeInjectMemoryRecall(
   const trimmed = userRequest.trim();
   if (!trimmed) return;
 
-  const query = trimmed.slice(0, MEMORY_RECALL_MAX_QUERY_CHARS);
-
   try {
-    const results = retrieveMemory(query, MEMORY_RECALL_RESULT_LIMIT);
-    if (results.length === 0) return;
-    addContextMessage(config, {
-      role: "system",
-      content: formatMemoryRecall(results),
-    });
+    const recall = buildRelevantMemoryRecall(trimmed);
+    if (!recall) return;
+    addContextMessage(config, recall.message);
     config.onAgentEvent?.({
       type: "memory_activity",
-      recalled: results.map((r) => ({
+      recalled: recall.results.map((r) => ({
         text: truncate(r.text.replace(/\s+/g, " ").trim(), 120),
         score: Math.round(r.score * 100) / 100,
         factId: r.factId,

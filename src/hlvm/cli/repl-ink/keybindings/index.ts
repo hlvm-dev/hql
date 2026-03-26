@@ -31,6 +31,7 @@ export type {
 export {
   refreshKeybindingLookup,
   inspectHandlerKeybinding,
+  isBareEscapeInput,
   normalizeKeyInput,
 } from "./keybinding-lookup.ts";
 

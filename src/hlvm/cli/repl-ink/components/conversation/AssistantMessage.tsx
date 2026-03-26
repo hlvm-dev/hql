@@ -15,14 +15,18 @@ import { STATUS_GLYPHS } from "../../ui-constants.ts";
 
 import { createIncrementalSanitizer } from "../../utils/sanitize-ansi.ts";
 import { buildConversationSectionText } from "./conversation-chrome.ts";
+import { getLiveConversationSpacing } from "./message-spacing.ts";
 
 /** Shown while waiting for the first token from the model.
  *  Uses static marker — no spinner avoids terminal redraws that break text selection.
  */
-function WorkingIndicator({ width: _width }: { width: number }): React.ReactElement {
+function WorkingIndicator(
+  { compactSpacing, width: _width }: { width: number; compactSpacing: boolean },
+): React.ReactElement {
   const sc = useSemanticColors();
+  const spacing = getLiveConversationSpacing(compactSpacing);
   return (
-    <Box paddingLeft={2} marginBottom={1}>
+    <Box paddingLeft={2} marginBottom={spacing.waitingIndicatorMarginBottom}>
       <Text color={sc.text.muted}>
         {STATUS_GLYPHS.running} Waiting for response...
       </Text>
@@ -37,6 +41,7 @@ interface AssistantMessageProps {
   citations?: AssistantCitation[];
   isPending: boolean;
   width: number;
+  compactSpacing?: boolean;
 }
 
 interface CitationSourceView {
@@ -150,7 +155,8 @@ export function buildCitationRenderView(
 }
 
 export const AssistantMessage = React.memo(function AssistantMessage(
-  { text, citations, isPending, width }: AssistantMessageProps,
+  { text, citations, isPending, width, compactSpacing = false }:
+    AssistantMessageProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
 
@@ -178,7 +184,7 @@ export const AssistantMessage = React.memo(function AssistantMessage(
   }, [text, citations]);
 
   if (isPending && !text) {
-    return <WorkingIndicator width={width} />;
+    return <WorkingIndicator width={width} compactSpacing={compactSpacing} />;
   }
 
   return (
@@ -219,7 +225,11 @@ export const AssistantMessage = React.memo(function AssistantMessage(
                   <Box>
                     <Text color={sc.border.active} bold>{indexLabel}</Text>
                     <Text color={sc.text.secondary}>
-                      {truncate(titleText, contentWidth - indexLabel.length, "…")}
+                      {truncate(
+                        titleText,
+                        contentWidth - indexLabel.length,
+                        "…",
+                      )}
                     </Text>
                   </Box>
                   <Text color={sc.text.muted}>

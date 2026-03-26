@@ -842,6 +842,33 @@ function createMockEngine(responseText = "Task completed successfully."): AgentE
   };
 }
 
+function createToolCallingEngine(
+  toolName: string,
+  args: Record<string, unknown>,
+  finalText = "Task completed successfully.",
+): AgentEngine {
+  let callCount = 0;
+  return {
+    createLLM: () => {
+      return async (): Promise<LLMResponse> => {
+        if (callCount++ === 0) {
+          return {
+            content: `Running ${toolName}.`,
+            toolCalls: [{ id: `tc-${toolName}`, toolName, args }],
+          };
+        }
+        return {
+          content: finalText,
+          toolCalls: [],
+        };
+      };
+    },
+    createSummarizer: () => {
+      return async () => "Summary";
+    },
+  };
+}
+
 function createTestIdentity(overrides?: Partial<TeammateIdentity>): TeammateIdentity {
   return {
     name: "test-worker",
@@ -987,6 +1014,64 @@ Deno.test("runTeammateLoop: completes a single task", async () => {
     // Task should be marked completed
     const task = await store.getTask("1");
     assertEquals(task?.status, "completed");
+  } finally {
+    resetAgentEngine();
+    teardownTestEnv();
+  }
+});
+
+Deno.test("runTeammateLoop: forwards teammate interaction metadata to lead UI", async () => {
+  const dir = setupTestEnv();
+  try {
+    setAgentEngine(createToolCallingEngine("ask_user", {
+      question: "Need lead input",
+    }));
+    const store = await createTeamStore("exec-interaction");
+    const runtime = store.runtime;
+    runtime.registerMember({ id: "worker-1", agent: "general-purpose" });
+    await store.createTask({
+      subject: "Write note",
+      description: "Write a note to disk",
+    });
+
+    const interactions: Array<{
+      sourceLabel?: string;
+      sourceMemberId?: string;
+      sourceTeamName?: string;
+      toolName?: string;
+    }> = [];
+
+    const result = await runTeammateLoop({
+      identity: createTestIdentity({ teamName: "exec-interaction" }),
+      runtime,
+      store,
+      workspace: dir,
+      policy: null,
+      signal: new AbortController().signal,
+      agentProfiles: [{
+        name: "general-purpose",
+        description: "GP",
+        tools: ["ask_user"],
+      }],
+      permissionMode: "default",
+      onInteraction: async (event) => {
+        interactions.push({
+          sourceLabel: event.sourceLabel,
+          sourceMemberId: event.sourceMemberId,
+          sourceTeamName: event.sourceTeamName,
+          toolName: event.toolName,
+        });
+        return { approved: true, userInput: "Continue" };
+      },
+      ...FAST_POLL,
+    });
+
+    assertEquals(result.tasksCompleted, 1);
+    assertEquals(interactions.length, 1);
+    assertEquals(interactions[0]?.sourceLabel, "test-worker");
+    assertEquals(interactions[0]?.sourceMemberId, "worker-1");
+    assertEquals(interactions[0]?.sourceTeamName, "exec-interaction");
+    assertEquals(interactions[0]?.toolName, "ask_user");
   } finally {
     resetAgentEngine();
     teardownTestEnv();

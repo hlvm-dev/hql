@@ -25,6 +25,7 @@ import {
   TimelineItemRenderer,
   type ToggleTarget,
 } from "./TimelineItemRenderer.tsx";
+import { compactPlanTranscriptItems } from "./conversation/plan-flow.ts";
 
 const CONVERSATION_KEYBINDING_CATEGORIES = ["Conversation"] as const;
 
@@ -33,6 +34,7 @@ interface TranscriptHistoryProps {
   evalHistory: HqlEvalItem[];
   width: number;
   reservedRows?: number;
+  compactPlanTranscript?: boolean;
   allowToggleHotkeys?: boolean;
 }
 
@@ -42,14 +44,20 @@ export function TranscriptHistory(
     evalHistory,
     width,
     reservedRows = 8,
+    compactPlanTranscript = false,
     allowToggleHotkeys = true,
   }: TranscriptHistoryProps,
 ): React.ReactElement | null {
   const sc = useSemanticColors();
   const { stdout } = useStdout();
   const items = useMemo<ShellHistoryEntry[]>(
-    () => [...historyItems, ...evalHistory],
-    [historyItems, evalHistory],
+    () => [
+      ...(compactPlanTranscript
+        ? compactPlanTranscriptItems(historyItems)
+        : historyItems),
+      ...evalHistory,
+    ],
+    [compactPlanTranscript, evalHistory, historyItems],
   );
   const [scrollOffsetFromBottom, setScrollOffsetFromBottom] = useState(0);
   const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(
@@ -81,7 +89,12 @@ export function TranscriptHistory(
     [reservedRows, terminalRows],
   );
   const viewport = useMemo(
-    () => computeConversationViewport(items.length, visibleCount, scrollOffsetFromBottom),
+    () =>
+      computeConversationViewport(
+        items.length,
+        visibleCount,
+        scrollOffsetFromBottom,
+      ),
     [items.length, visibleCount, scrollOffsetFromBottom],
   );
   const visibleItems = useMemo(
@@ -91,7 +104,9 @@ export function TranscriptHistory(
 
   useEffect(() => {
     setScrollOffsetFromBottom((prev: number) =>
-      prev === 0 ? 0 : clampConversationScrollOffset(prev, items.length, visibleCount)
+      prev === 0
+        ? 0
+        : clampConversationScrollOffset(prev, items.length, visibleCount)
     );
   }, [items.length, visibleCount]);
 
@@ -165,14 +180,22 @@ export function TranscriptHistory(
     if (key.pageUp) {
       const pageSize = Math.max(1, visibleCount - 1);
       setScrollOffsetFromBottom((prev: number) =>
-        clampConversationScrollOffset(prev + pageSize, items.length, visibleCount)
+        clampConversationScrollOffset(
+          prev + pageSize,
+          items.length,
+          visibleCount,
+        )
       );
       return;
     }
     if (key.pageDown) {
       const pageSize = Math.max(1, visibleCount - 1);
       setScrollOffsetFromBottom((prev: number) =>
-        clampConversationScrollOffset(prev - pageSize, items.length, visibleCount)
+        clampConversationScrollOffset(
+          prev - pageSize,
+          items.length,
+          visibleCount,
+        )
       );
       return;
     }
@@ -193,7 +216,8 @@ export function TranscriptHistory(
     <Box flexDirection="column" width={width}>
       {viewport.hiddenAbove > 0 && (
         <Text color={sc.text.muted}>
-          ↑ {viewport.hiddenAbove} earlier item{viewport.hiddenAbove === 1 ? "" : "s"}
+          ↑ {viewport.hiddenAbove}{" "}
+          earlier item{viewport.hiddenAbove === 1 ? "" : "s"}
         </Text>
       )}
       {visibleItems.map((item: ShellHistoryEntry) => (
@@ -201,6 +225,7 @@ export function TranscriptHistory(
           <TimelineItemRenderer
             item={item}
             width={width}
+            compactSpacing
             isToolExpanded={isToolExpanded}
             isThinkingExpanded={isThinkingExpanded}
             isDelegateExpanded={isDelegateExpanded}
@@ -210,7 +235,8 @@ export function TranscriptHistory(
       ))}
       {viewport.hiddenBelow > 0 && (
         <Text color={sc.text.muted}>
-          ↓ {viewport.hiddenBelow} newer item{viewport.hiddenBelow === 1 ? "" : "s"}
+          ↓ {viewport.hiddenBelow}{" "}
+          newer item{viewport.hiddenBelow === 1 ? "" : "s"}
         </Text>
       )}
     </Box>

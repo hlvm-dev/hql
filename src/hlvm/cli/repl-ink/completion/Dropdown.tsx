@@ -14,6 +14,11 @@ import { calculateScrollWindow } from "./navigation.ts";
 import { HighlightedText } from "../components/HighlightedText.tsx";
 import { useTheme } from "../../theme/index.ts";
 
+const SELECTOR_COLUMN_WIDTH = 2;
+const META_COLUMN_WIDTH = 10;
+const PANEL_MIN_WIDTH = 24;
+const PANEL_MAX_WIDTH = 64;
+
 // ============================================================
 // Truncation (Dropdown-specific)
 // ============================================================
@@ -97,68 +102,53 @@ interface GenericItemProps {
   readonly spec: ItemRenderSpec;
   /** Whether this item is selected */
   readonly isSelected: boolean;
+  /** Available width for the row */
+  readonly width?: number;
 }
 
 /**
  * Generic item renderer - uses ItemRenderSpec to display any completion item.
- * Clean, aligned layout: [▸] [icon] [label padded] [description dimmed]
+ * Dense code-first layout: [selector] [label] [kind]
  */
-function GenericItem({ spec, isSelected }: GenericItemProps): React.ReactElement {
+function GenericItem({
+  spec,
+  isSelected,
+  width,
+}: GenericItemProps): React.ReactElement {
   const { color } = useTheme();
-  // Pad label to maxWidth for consistent alignment
-  const paddedLabel = spec.label.padEnd(spec.maxWidth);
-  return (
-    <Box>
-      {/* Selection indicator */}
-      <Text color={isSelected ? color("accent") : undefined}>
-        {isSelected ? "▸ " : "  "}
-      </Text>
-      <Text color={isSelected ? color("accent") : undefined} inverse={isSelected}>
-        {spec.icon}
-      </Text>
-      <Text> </Text>
-      <TruncatedHighlightedText
-        label={paddedLabel}
-        matchIndices={spec.matchIndices}
-        maxWidth={spec.maxWidth}
-        truncate={spec.truncate}
-        isSelected={isSelected}
-      />
-      {spec.description && <Text dimColor> {spec.description}</Text>}
-    </Box>
+  const rowWidth = Math.max(PANEL_MIN_WIDTH, Math.min(width ?? PANEL_MAX_WIDTH, PANEL_MAX_WIDTH));
+  const rightMeta = spec.typeLabel ?? "";
+  const labelWidth = Math.max(
+    12,
+    Math.min(
+      spec.maxWidth,
+      rowWidth - SELECTOR_COLUMN_WIDTH - 1 - (rightMeta ? META_COLUMN_WIDTH : 0),
+    ),
   );
-}
-
-// ============================================================
-// Documentation Panel
-// ============================================================
-
-interface DocPanelProps {
-  /** Extended documentation text */
-  readonly doc: string;
-}
-
-/** Max lines to show in DocPanel before truncating */
-const DOC_PANEL_MAX_LINES = 12;
-
-/**
- * Documentation panel shown below dropdown when item has extended docs.
- * Shows multi-line documentation in a bordered box.
- */
-function DocPanel({ doc }: DocPanelProps): React.ReactElement {
-  // Split into lines once and limit to max
-  const allLines = doc.split("\n");
-  const lines = allLines.slice(0, DOC_PANEL_MAX_LINES);
-  const hasMore = allLines.length > DOC_PANEL_MAX_LINES;
-
   return (
-    <Box flexDirection="column" marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
-      {lines.map((line, i) => (
-        <React.Fragment key={i}>
-          <Text dimColor>{line}</Text>
-        </React.Fragment>
-      ))}
-      {hasMore && <Text dimColor>...</Text>}
+    <Box width={rowWidth}>
+      <Box width={SELECTOR_COLUMN_WIDTH}>
+        <Text color={isSelected ? color("accent") : undefined}>
+          {isSelected ? "›" : " "}
+        </Text>
+      </Box>
+      <Text> </Text>
+      <Box width={labelWidth}>
+        <TruncatedHighlightedText
+          label={spec.label}
+          matchIndices={spec.matchIndices}
+          maxWidth={labelWidth}
+          truncate={spec.truncate}
+          isSelected={isSelected}
+        />
+      </Box>
+      {rightMeta && (
+        <Box width={META_COLUMN_WIDTH} justifyContent="flex-end">
+          <Text dimColor color={isSelected ? color("muted") : undefined}>
+            {rightMeta}
+          </Text>
+        </Box>
+      )}
     </Box>
   );
 }
@@ -178,10 +168,12 @@ interface DropdownProps {
   readonly isLoading: boolean;
   /** Margin from left edge */
   readonly marginLeft?: number;
-  /** Max visible items (default 8) */
+  /** Max visible items */
   readonly maxVisible?: number;
   /** Whether to show DocPanel (toggled with Ctrl+D shortcut) */
   readonly showDocPanel?: boolean;
+  /** Available width */
+  readonly width?: number;
 }
 
 /**
@@ -204,10 +196,15 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
     selectedIndex,
     helpText,
     isLoading,
-    marginLeft = 5,
+    marginLeft = 1,
     maxVisible = MAX_VISIBLE_ITEMS,
     showDocPanel = false,
+    width,
   } = props;
+  const panelWidth = Math.max(
+    PANEL_MIN_WIDTH,
+    Math.min(width ?? PANEL_MAX_WIDTH, PANEL_MAX_WIDTH),
+  );
 
   // Don't render if no items and not loading
   if (items.length === 0 && !isLoading) {
@@ -234,27 +231,54 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
   const selectedItem = selectedIndex >= 0 && selectedIndex < items.length
     ? items[selectedIndex]
     : null;
-  const extendedDoc = selectedItem?.getRenderSpec().extendedDoc;
+  const selectedSpec = selectedItem?.getRenderSpec();
+  const extendedDoc = selectedSpec?.extendedDoc;
+
+  const previewLines = useMemo(() => {
+    const lines: string[] = [];
+    if (selectedSpec?.description) {
+      lines.push(selectedSpec.description);
+    }
+    if (extendedDoc) {
+      const limit = showDocPanel ? 2 : 1;
+      lines.push(...extendedDoc.split("\n").filter(Boolean).slice(0, limit));
+    }
+    return lines.slice(0, showDocPanel ? 3 : 2);
+  }, [extendedDoc, selectedSpec, showDocPanel]);
 
   return (
-    <Box flexDirection="column" marginLeft={marginLeft}>
+    <Box
+      flexDirection="column"
+      marginLeft={marginLeft}
+      marginTop={1}
+      marginBottom={1}
+      width={panelWidth}
+      borderStyle="round"
+      borderColor="gray"
+      paddingX={1}
+    >
       {/* Loading indicator */}
       {isLoading && items.length === 0 && (
         <Text dimColor>Searching...</Text>
       )}
 
-      {/* Scroll up indicator (minimal, or empty line for fixed height) */}
+      {/* Scroll up indicator */}
       {hasMoreAbove ? (
-        <Text dimColor>  ...</Text>
-      ) : (
-        <Text> </Text>
-      )}
+        <Text dimColor>…</Text>
+      ) : null}
 
       {/* Visible items - GENERIC rendering via getRenderSpec() */}
       {visibleItems.map((item, i) => {
         const isSelected = scrollWindow.start + i === selectedIndex;
         const spec = item.getRenderSpec();
-        return <GenericItem key={item.id} spec={spec} isSelected={isSelected} />;
+        return (
+          <GenericItem
+            key={item.id}
+            spec={spec}
+            isSelected={isSelected}
+            width={panelWidth - 2}
+          />
+        );
       })}
 
       {/* Empty padding rows for fixed height (prevents shaking) */}
@@ -264,24 +288,24 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
         </React.Fragment>
       ))}
 
-      {/* Scroll down indicator (minimal, or empty line for fixed height) */}
+      {/* Scroll down indicator */}
       {hasMoreBelow ? (
-        <Text dimColor>  ...</Text>
-      ) : (
-        <Text> </Text>
-      )}
+        <Text dimColor>…</Text>
+      ) : null}
 
-      {/* Help hint from provider */}
       {items.length > 0 && (
-        <Text dimColor>  {helpText}</Text>
+        <Box marginTop={1}>
+          <Text dimColor>{helpText}</Text>
+        </Box>
       )}
 
-      {/* Extended documentation panel (shown when user presses Ctrl+D) */}
-      {showDocPanel && extendedDoc && <DocPanel doc={extendedDoc} />}
+      {previewLines.map((line: string, index: number) => (
+        <Text key={`${selectedItem?.id ?? "doc"}-${index}`} dimColor>
+          {line}
+        </Text>
+      ))}
       {showDocPanel && !extendedDoc && (
-        <Box marginTop={1}>
-          <Text dimColor>  (no documentation available)</Text>
-        </Box>
+        <Text dimColor>(no documentation available)</Text>
       )}
     </Box>
   );
@@ -290,4 +314,3 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
 // ============================================================
 // Exports
 // ============================================================
-

@@ -171,6 +171,13 @@ export function getWebCachePath(): string {
 }
 
 /**
+ * Get the REPL rollout debug log path (~/.hlvm/debug.log)
+ */
+export function getDebugLogPath(): string {
+  return join(getHlvmDir(), "debug.log");
+}
+
+/**
  * Get the cloud model catalog cache path (~/.hlvm/cloud-model-catalog.json)
  */
 export function getCloudModelCatalogCachePath(): string {

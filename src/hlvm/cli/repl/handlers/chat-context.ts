@@ -23,6 +23,7 @@ import {
   type ResolvedBudget,
 } from "../../../agent/context-resolver.ts";
 import {
+  buildRelevantMemoryRecall,
   isPersistentMemoryEnabled,
   loadMemorySystemMessage,
 } from "../../../memory/mod.ts";
@@ -31,9 +32,7 @@ import type {
   ModelInfo,
   ProviderToolCall,
 } from "../../../providers/types.ts";
-import {
-  parseStoredStringArray,
-} from "../../../store/message-utils.ts";
+import { parseStoredStringArray } from "../../../store/message-utils.ts";
 import type { MessageRow } from "../../../store/types.ts";
 import { materializeConversationAttachments } from "../../../attachments/service.ts";
 import type {
@@ -51,7 +50,8 @@ interface BuildReplayMessagesOptions {
   requestMessages: ChatRequest["messages"];
   storedMessages: MessageRow[];
   assistantMessageId?: number;
-  attachmentMaterializationOptions?: ConversationAttachmentMaterializationOptions;
+  attachmentMaterializationOptions?:
+    ConversationAttachmentMaterializationOptions;
 }
 
 interface BuildChatProviderMessagesOptions extends BuildReplayMessagesOptions {
@@ -176,6 +176,8 @@ export async function buildChatProviderMessages(
     ? await injectMemoryReplayMessage(
       replayMessages,
       resolvedContextBudget.budget,
+      options.requestMessages[options.requestMessages.length - 1]?.content ??
+        "",
     )
     : replayMessages;
   const trimmed = trimReplayMessages(
@@ -266,7 +268,8 @@ export function trimReplayMessages(
 
 async function normalizeRequestMessages(
   messages: ChatRequest["messages"],
-  attachmentMaterializationOptions?: ConversationAttachmentMaterializationOptions,
+  attachmentMaterializationOptions?:
+    ConversationAttachmentMaterializationOptions,
 ): Promise<ReplayMessage[]> {
   const replayMessages: ReplayMessage[] = [];
   for (const message of messages) {
@@ -286,7 +289,8 @@ async function normalizeRequestMessages(
 async function normalizeStoredMessages(
   storedMessages: MessageRow[],
   assistantMessageId?: number,
-  attachmentMaterializationOptions?: ConversationAttachmentMaterializationOptions,
+  attachmentMaterializationOptions?:
+    ConversationAttachmentMaterializationOptions,
 ): Promise<ReplayMessage[]> {
   const orderedMessages = reorderStoredMessages(
     storedMessages,
@@ -571,7 +575,8 @@ async function createReplayMessage(
     role: ReplayMessage["role"];
     content: string;
     attachmentIds?: string[];
-    attachmentMaterializationOptions?: ConversationAttachmentMaterializationOptions;
+    attachmentMaterializationOptions?:
+      ConversationAttachmentMaterializationOptions;
     toolCalls?: ProviderToolCall[];
     toolName?: string;
     toolCallId?: string;
@@ -633,12 +638,21 @@ export async function resolveAttachments(
 async function injectMemoryReplayMessage(
   messages: ReplayMessage[],
   budget: number,
+  currentUserRequest: string,
 ): Promise<ReplayMessage[]> {
   const replayMessages = [...messages];
   try {
+    const injected: ReplayMessage[] = [];
     const memoryMessage = await loadMemorySystemMessage(budget);
     if (memoryMessage) {
-      replayMessages.unshift(memoryMessage);
+      injected.push(memoryMessage);
+    }
+    const recall = buildRelevantMemoryRecall(currentUserRequest);
+    if (recall) {
+      injected.push(recall.message);
+    }
+    if (injected.length > 0) {
+      return [...injected, ...replayMessages];
     }
   } catch {
     log.debug("Failed to load memory context for chat mode");

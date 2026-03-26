@@ -69,9 +69,12 @@ export function buildTeamDashboardSummaryRows(
   contentWidth: number,
   interactionMode?: "permission" | "question",
 ): [string, string] {
+  const teammateCount = teamState.members.filter((member) =>
+    member.role === "worker" && member.status !== "terminated"
+  ).length || teamState.workers.length;
   const primary = buildBalancedTextRow(
     contentWidth,
-    `Members ${teamState.members.length} · Workers ${teamState.workers.length}`,
+    `Members ${teamState.members.length} · Workers ${teammateCount}`,
     `Active ${
       (teamState.taskCounts.in_progress ?? 0) +
       (teamState.taskCounts.claimed ?? 0)
@@ -196,6 +199,7 @@ function detailLines(item: DashboardItem): string[] {
         `Agent: ${item.data.agent}`,
         `Role: ${item.data.role}`,
         `Status: ${item.data.status}`,
+        item.data.threadId ? `Thread: ${item.data.threadId}` : "",
         item.data.currentTaskId
           ? `Current task: ${item.data.currentTaskId}`
           : "",
@@ -381,6 +385,16 @@ export function TeamDashboardOverlay({
       setDetailId(null);
     }
   }, [detailId, items, selectedId, viewMode]);
+
+  useEffect(() => {
+    if (teamState.focusedWorkerIndex < 0) return;
+    const activeTeammates = teamState.members.filter((member) =>
+      member.role === "worker" && member.status !== "terminated"
+    );
+    const focusedTeammate = activeTeammates[teamState.focusedWorkerIndex];
+    if (!focusedTeammate) return;
+    setSelectedId(`member-${focusedTeammate.id}`);
+  }, [teamState.focusedWorkerIndex, teamState.members]);
 
   const drawOverlay = useCallback(() => {
     if (shouldClearOverlay(previousFrameRef.current, overlayFrame)) {

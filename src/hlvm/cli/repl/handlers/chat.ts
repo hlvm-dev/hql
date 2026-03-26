@@ -41,6 +41,11 @@ import {
 import { config } from "../../../api/config.ts";
 import { ai } from "../../../api/ai.ts";
 import { log } from "../../../api/log.ts";
+import {
+  persistConversationFacts,
+  persistExplicitMemoryRequest,
+} from "../../../memory/mod.ts";
+import { getErrorMessage } from "../../../../common/utils.ts";
 
 import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
 import { evaluateProviderApproval } from "../../../providers/approval.ts";
@@ -285,6 +290,7 @@ export async function handleChat(req: Request): Promise<Response> {
     | import("../../../providers/types.ts").ModelInfo
     | null = null;
   let modelDiscoveryFailed = false;
+  let modelDiscoveryError: string | null = null;
   const hasMediaAttachments = requestHasMediaAttachments(body.messages);
   if (resolvedModel && !fixturePath) {
     const [parsedProvider, parsedModelName] = parseModelString(resolvedModel);
@@ -293,8 +299,9 @@ export async function handleChat(req: Request): Promise<Response> {
         parsedModelName,
         parsedProvider ?? undefined,
       );
-    } catch {
+    } catch (error) {
       modelDiscoveryFailed = true;
+      modelDiscoveryError = getErrorMessage(error);
     }
     if (body.model && resolvedModelInfo === null && !modelDiscoveryFailed) {
       return jsonError(`Model not found: ${body.model}`, 400);
@@ -305,7 +312,8 @@ export async function handleChat(req: Request): Promise<Response> {
       modelDiscoveryFailed
     ) {
       return jsonError(
-        "Could not verify selected model capabilities for agent mode. Check provider connection and model availability.",
+        modelDiscoveryError ??
+          "Could not verify selected model capabilities for agent mode. Check provider connection and model availability.",
         503,
       );
     }
@@ -522,6 +530,19 @@ export async function handleChat(req: Request): Promise<Response> {
               ))
           ? CLAUDE_CODE_AGENT_MODE
           : body.mode;
+        const runnerHandlesMemoryCapture = effectiveMode === "agent" &&
+          supportsAgentExecution(resolvedModel, resolvedModelInfo);
+
+        if (
+          body.disable_persistent_memory !== true &&
+          !runnerHandlesMemoryCapture
+        ) {
+          try {
+            persistExplicitMemoryRequest(currentUserMessage.content);
+          } catch (error) {
+            log.warn("Failed to persist explicit user memory request", error);
+          }
+        }
 
         if (effectiveMode === CLAUDE_CODE_AGENT_MODE) {
           await handleClaudeCodeAgentMode(
@@ -573,6 +594,19 @@ export async function handleChat(req: Request): Promise<Response> {
         if (controller.signal.aborted) {
           emitCancellationOnce();
         } else {
+          if (
+            body.disable_persistent_memory !== true &&
+            !runnerHandlesMemoryCapture
+          ) {
+            try {
+              persistConversationFacts({
+                userMessage: currentUserMessage.content,
+                assistantMessage: partialText,
+              });
+            } catch (error) {
+              log.warn("Failed to persist conversation memory", error);
+            }
+          }
           const currentSession = getSession(sessionId);
           if (currentSession && !currentSession.title) {
             const recentMsgs = loadRecentMessages(

@@ -38,6 +38,20 @@ const handlerCategoryMap = new Map<string, KeybindingCategory>();
  * normalizeKeyInput("\x07", { ctrl: false, ... }) -> "ctrl+g" (Ctrl+G sends char code 7)
  * normalizeKeyInput("j", { ctrl: true, ... }) -> "ctrl+j"
  */
+export type EscapeLikeKey = Partial<
+  Pick<Key, "ctrl" | "meta" | "return" | "escape">
+>;
+
+export function isBareEscapeInput(
+  input: string,
+  key: EscapeLikeKey,
+): boolean {
+  return key.ctrl !== true &&
+    key.meta !== true &&
+    key.return !== true &&
+    (input === "\x1b" || (key.escape === true && (!input || input === "\x1b")));
+}
+
 export function normalizeKeyInput(input: string, key: Key): string | null {
   // macOS terminals can emit Option+Enter as a single ESC-prefixed payload.
   // Normalize this explicitly so higher layers can treat it as Alt+Enter.
@@ -81,7 +95,7 @@ export function normalizeKeyInput(input: string, key: Key): string | null {
   else if (key.downArrow) specialKey = "down";
   else if (key.leftArrow) specialKey = "left";
   else if (key.rightArrow) specialKey = "right";
-  else if (key.escape && (!input || input === "\x1b")) specialKey = "esc";
+  else if (isBareEscapeInput(input, key)) specialKey = "esc";
 
   const parts: string[] = [];
   let char = input;

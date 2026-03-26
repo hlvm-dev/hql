@@ -9,11 +9,16 @@ import {
   ANTHROPIC_VERSION,
   API_TIMEOUT_MS,
   bearerAuthHeaders,
+  classifyProviderErrorCode,
+  extractProviderErrorMessage,
+  formatProviderFailureMessage,
 } from "../common.ts";
+import { RuntimeError } from "../../../common/error.ts";
+import { ProviderErrorCode } from "../../../common/error-codes.ts";
 import { http } from "../../../common/http-client.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import type { ModelInfo, ProviderStatus } from "../types.ts";
-import { getClaudeCodeToken } from "./auth.ts";
+import { clearTokenCache, getClaudeCodeToken } from "./auth.ts";
 
 function oauthHeaders(token: string): Record<string, string> {
   return {
@@ -23,6 +28,59 @@ function oauthHeaders(token: string): Record<string, string> {
   };
 }
 
+function isAuthFailureStatus(status: number): boolean {
+  return status === 401 || status === 403;
+}
+
+async function fetchWithOAuthRetry(
+  url: string,
+): Promise<Response> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = await getClaudeCodeToken();
+    const response = await http.fetchRaw(url, {
+      headers: oauthHeaders(token),
+      timeout: API_TIMEOUT_MS,
+    });
+    if (!isAuthFailureStatus(response.status) || attempt > 0) {
+      return response;
+    }
+    await response.body?.cancel().catch(() => {});
+    clearTokenCache();
+  }
+
+  throw new RuntimeError(
+    "Claude Code model discovery retry exhausted unexpectedly.",
+    { code: ProviderErrorCode.REQUEST_FAILED },
+  );
+}
+
+async function throwModelListFailure(response: Response): Promise<never> {
+  const responseBody = await response.text().catch(() => "");
+  const detail = extractProviderErrorMessage(responseBody) ??
+    `${response.status} ${response.statusText}`.trim();
+
+  if (isAuthFailureStatus(response.status)) {
+    clearTokenCache();
+    const authDetail = detail.length > 0 ? `${detail} ` : "";
+    throw new RuntimeError(
+      `Claude Code OAuth token invalid or expired. ${authDetail}Run \`claude login\` to re-authenticate.`,
+      { code: ProviderErrorCode.AUTH_FAILED },
+    );
+  }
+
+  const code = classifyProviderErrorCode(response.status, detail);
+  throw new RuntimeError(
+    formatProviderFailureMessage({
+      providerName: "claude-code",
+      code,
+      status: response.status,
+      responseBody,
+      fallbackMessage: detail,
+    }),
+    { code },
+  );
+}
+
 /**
  * Fetch available models via OAuth auth.
  * Same Anthropic /v1/models endpoint, different auth header.
@@ -30,66 +88,36 @@ function oauthHeaders(token: string): Record<string, string> {
 export async function listModels(
   endpoint: string,
 ): Promise<ModelInfo[]> {
-  try {
-    const token = await getClaudeCodeToken();
-    const url = `${endpoint}/v1/models?limit=100`;
-    const response = await http.fetchRaw(url, {
-      headers: oauthHeaders(token),
-      timeout: API_TIMEOUT_MS,
-    });
+  const url = `${endpoint}/v1/models?limit=100`;
+  const response = await fetchWithOAuthRetry(url);
 
-    // Auth failure → clear token cache and return empty
-    if (response.status === 401 || response.status === 403) {
-      const { clearTokenCache } = await import("./auth.ts");
-      clearTokenCache();
-      return [];
-    }
-
-    if (!response.ok) {
-      // Log non-auth failures for debugging
-      const { log } = await import("../../api/log.ts");
-      log.warn(
-        `Claude Code model list fetch failed: ${response.status} ${response.statusText}`,
-      );
-      return [];
-    }
-
-    const result = await response.json() as {
-      data: { id: string; display_name: string }[];
-    };
-    return (result.data ?? [])
-      .filter((m) => m.id.startsWith("claude-"))
-      .map((m) => ({
-        name: m.id,
-        displayName: m.display_name,
-        family: "claude",
-        capabilities: ["chat" as const, "tools" as const, "vision" as const],
-      }));
-  } catch (error) {
-    // Log unexpected errors for debugging
-    const { log } = await import("../../api/log.ts");
-    const { getErrorMessage } = await import("../../../common/utils.ts");
-    log.warn(
-      `Claude Code model list fetch error: ${getErrorMessage(error)}`,
-    );
-    return [];
+  if (!response.ok) {
+    await throwModelListFailure(response);
   }
+
+  const result = await response.json() as {
+    data: { id: string; display_name: string }[];
+  };
+  return (result.data ?? [])
+    .filter((m) => m.id.startsWith("claude-"))
+    .map((m) => ({
+      name: m.id,
+      displayName: m.display_name,
+      family: "claude",
+      capabilities: ["chat" as const, "tools" as const, "vision" as const],
+    }));
 }
 
 export async function checkStatus(
   endpoint: string,
 ): Promise<ProviderStatus> {
   try {
-    const token = await getClaudeCodeToken();
     // Use model-agnostic endpoint — no hardcoded model IDs
     const url = `${endpoint}/v1/models?limit=1`;
-    const response = await http.fetchRaw(url, {
-      headers: oauthHeaders(token),
-      timeout: API_TIMEOUT_MS,
-    });
+    const response = await fetchWithOAuthRetry(url);
     return {
-      available: response.status !== 401 && response.status !== 403,
-      error: (response.status === 401 || response.status === 403)
+      available: !isAuthFailureStatus(response.status),
+      error: isAuthFailureStatus(response.status)
         ? "Claude Code OAuth token invalid or expired. Run `claude login` to re-authenticate."
         : undefined,
     };

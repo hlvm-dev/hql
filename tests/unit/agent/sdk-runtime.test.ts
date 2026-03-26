@@ -1,14 +1,21 @@
 import { assertEquals, assertThrows } from "jsr:@std/assert";
 import {
   assertSupportedSdkProvider,
-  convertToSdkMessages,
   convertToolDefinitionsToSdk,
+  convertToSdkMessages,
   mapSdkSources,
   mapSdkUsage,
+  maybeHandleSdkAuthError,
   normalizeProviderMetadata,
+  resolveSdkStreamFailure,
   type SdkConvertibleMessage,
 } from "../../../src/hlvm/providers/sdk-runtime.ts";
 import type { ToolDefinition } from "../../../src/hlvm/agent/llm-integration.ts";
+import {
+  clearTokenCache,
+  getClaudeCodeToken,
+} from "../../../src/hlvm/providers/claude-code/auth.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 
 Deno.test("sdk runtime: supported providers normalize case and reject unknown names", () => {
   assertEquals(assertSupportedSdkProvider("OpenAI"), "openai");
@@ -18,6 +25,50 @@ Deno.test("sdk runtime: supported providers normalize case and reject unknown na
   assertEquals(assertSupportedSdkProvider("Ollama"), "ollama");
   assertThrows(() => assertSupportedSdkProvider("invalid-provider"), Error);
   assertThrows(() => assertSupportedSdkProvider(""), Error);
+});
+
+Deno.test("sdk runtime: stream wrapper errors defer to underlying provider failures", () => {
+  const wrapped = new Error(
+    "No output generated. Check the stream for errors.",
+  );
+  const providerError = Object.assign(
+    new Error("OAuth token has expired."),
+    { statusCode: 401 },
+  );
+  const passthrough = new Error("other");
+
+  assertEquals(resolveSdkStreamFailure(wrapped, providerError), providerError);
+  assertEquals(
+    resolveSdkStreamFailure(passthrough, providerError),
+    passthrough,
+  );
+});
+
+Deno.test("sdk runtime: claude-code auth failures clear token cache for an immediate retry", async () => {
+  const platform = getPlatform();
+  const previousToken = platform.env.get("CLAUDE_CODE_TOKEN");
+
+  try {
+    platform.env.set("CLAUDE_CODE_TOKEN", "stale-token");
+    clearTokenCache();
+    assertEquals(await getClaudeCodeToken(), "stale-token");
+
+    platform.env.set("CLAUDE_CODE_TOKEN", "fresh-token");
+    const shouldRetry = await maybeHandleSdkAuthError("claude-code", {
+      statusCode: 401,
+      message: "expired",
+    });
+
+    assertEquals(shouldRetry, true);
+    assertEquals(await getClaudeCodeToken(), "fresh-token");
+  } finally {
+    clearTokenCache();
+    if (previousToken === undefined) {
+      platform.env.delete("CLAUDE_CODE_TOKEN");
+    } else {
+      platform.env.set("CLAUDE_CODE_TOKEN", previousToken);
+    }
+  }
 });
 
 Deno.test("sdk runtime: tool definitions convert to a named record and omit empty input", () => {
@@ -123,7 +174,9 @@ Deno.test("sdk runtime: orphaned tool results are dropped and missing ids are re
     { role: "tool", content: "file a", toolName: "read_file" },
     { role: "tool", content: "file b", toolName: "search_web" },
   ]);
-  const repairedAssistant = repaired[0].content as Array<Record<string, unknown>>;
+  const repairedAssistant = repaired[0].content as Array<
+    Record<string, unknown>
+  >;
   const repairedTools = repaired[1].content as Array<Record<string, unknown>>;
 
   assertEquals(repaired.length, 2);
@@ -148,7 +201,12 @@ Deno.test("sdk runtime: orphaned tool results are dropped and missing ids are re
 
   const orphan = convertToSdkMessages([
     { role: "user", content: "hello" },
-    { role: "tool", content: "orphan result", toolCallId: "tc_orphan", toolName: "search" },
+    {
+      role: "tool",
+      content: "orphan result",
+      toolCallId: "tc_orphan",
+      toolName: "search",
+    },
   ]);
   assertEquals(orphan.length, 1);
   assertEquals(orphan[0].role, "user");
@@ -245,9 +303,12 @@ Deno.test("sdk runtime: native sources and provider metadata normalize to plain 
   assertEquals(sources?.length, 2);
   assertEquals(sources?.[0]?.sourceType, "url");
   assertEquals(sources?.[0]?.providerMetadata?.openai !== undefined, true);
-  assertEquals(normalizeProviderMetadata({ google: { groundingMetadata: true } }), {
-    google: { groundingMetadata: true },
-  });
+  assertEquals(
+    normalizeProviderMetadata({ google: { groundingMetadata: true } }),
+    {
+      google: { groundingMetadata: true },
+    },
+  );
   assertEquals(normalizeProviderMetadata("bad"), undefined);
 });
 
@@ -258,7 +319,12 @@ Deno.test("sdk runtime: _sdkResponseMessages passthrough preserves assistant mes
     content: [
       { type: "reasoning", text: "Let me think about this..." },
       { type: "text", text: "I'll search for that." },
-      { type: "tool-call", toolCallId: "tc_sdk_1", toolName: "search", input: { query: "test" } },
+      {
+        type: "tool-call",
+        toolCallId: "tc_sdk_1",
+        toolName: "search",
+        input: { query: "test" },
+      },
     ],
   };
 
@@ -267,10 +333,18 @@ Deno.test("sdk runtime: _sdkResponseMessages passthrough preserves assistant mes
     {
       role: "assistant",
       content: "I'll search for that.",
-      toolCalls: [{ id: "tc_sdk_1", function: { name: "search", arguments: { query: "test" } } }],
+      toolCalls: [{
+        id: "tc_sdk_1",
+        function: { name: "search", arguments: { query: "test" } },
+      }],
       _sdkResponseMessages: [sdkAssistantMessage],
     },
-    { role: "tool", content: "Found it", toolCallId: "tc_sdk_1", toolName: "search" },
+    {
+      role: "tool",
+      content: "Found it",
+      toolCallId: "tc_sdk_1",
+      toolName: "search",
+    },
   ];
 
   const result = convertToSdkMessages(messages);
@@ -313,9 +387,17 @@ Deno.test("sdk runtime: assistant without _sdkResponseMessages reconstructs norm
     {
       role: "assistant",
       content: "I found the answer.",
-      toolCalls: [{ id: "tc_1", function: { name: "read_file", arguments: { path: "a.ts" } } }],
+      toolCalls: [{
+        id: "tc_1",
+        function: { name: "read_file", arguments: { path: "a.ts" } },
+      }],
     },
-    { role: "tool", content: "file contents", toolCallId: "tc_1", toolName: "read_file" },
+    {
+      role: "tool",
+      content: "file contents",
+      toolCallId: "tc_1",
+      toolName: "read_file",
+    },
   ];
 
   const result = convertToSdkMessages(messages);

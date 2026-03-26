@@ -41,6 +41,7 @@ import {
 import {
   executeHandler,
   inspectHandlerKeybinding,
+  isBareEscapeInput,
   type KeybindingAction,
   refreshKeybindingLookup,
 } from "../keybindings/index.ts";
@@ -52,11 +53,11 @@ import {
 import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
-import { useTeamState, type TeamMemberItem } from "../hooks/useTeamState.ts";
+import { type TeamMemberItem, useTeamState } from "../hooks/useTeamState.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
 import { useOverlayPanel } from "../hooks/useOverlayPanel.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
-import type { EvalResult, QueuedLocalEval } from "../types.ts";
+import { type EvalResult, type QueuedLocalEval } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { getPersistentAgentExecutionModeLabel } from "../../../agent/execution-mode.ts";
 import { clearTerminal } from "../../ansi.ts";
@@ -74,10 +75,7 @@ import {
 } from "../../../../common/config/model-selection.ts";
 import { ReplProvider } from "../context/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
-import {
-  isTaskActive,
-  isEvalTask,
-} from "../../repl/task-manager/index.ts";
+import { isEvalTask, isTaskActive } from "../../repl/task-manager/index.ts";
 import {
   getRuntimeConfigApi,
   patchRuntimeConfig,
@@ -104,6 +102,8 @@ import {
   shouldAutoCloseConversationSurface,
   shouldRenderMainBanner,
 } from "../utils/app-surface.ts";
+import { getActiveTeamStore } from "../../../agent/team-store.ts";
+import { sendThreadInput } from "../../../agent/delegate-threads.ts";
 
 interface CurrentEval {
   code: string;
@@ -162,8 +162,7 @@ interface AppContentProps extends AppProps {
  * AppContent - main REPL UI (uses ReplContext for reactive state)
  */
 function AppContent(
-  { showBanner = true, initialConfig, replState }:
-    AppContentProps,
+  { showBanner = true, initialConfig, replState }: AppContentProps,
 ): React.ReactElement {
   const { exit } = useApp();
 
@@ -181,7 +180,9 @@ function AppContent(
   }, [isEvaluating]);
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
-  const [queuedLocalEvals, setQueuedLocalEvals] = useState<QueuedLocalEvalDraft[]>(
+  const [queuedLocalEvals, setQueuedLocalEvals] = useState<
+    QueuedLocalEvalDraft[]
+  >(
     [],
   );
   const nextQueuedLocalEvalIdRef = useRef(0);
@@ -211,7 +212,9 @@ function AppContent(
   // AbortController enables true cancellation of async operations (AI calls, fetch, etc.)
   const currentEvalRef = useRef<CurrentEval | null>(null);
   // Forward-ref for handleSubmit — allows the drain callback to call it
-  const handleSubmitRef = useRef<(code: string, attachments?: AnyAttachment[]) => Promise<void>>(
+  const handleSubmitRef = useRef<
+    (code: string, attachments?: AnyAttachment[]) => Promise<void>
+  >(
     async () => {},
   );
 
@@ -250,26 +253,38 @@ function AppContent(
   const conversationRef = useRef(conversation);
   conversationRef.current = conversation;
   const baseTeamState = useTeamState(conversation.items);
-  const transcriptItemCount =
-    conversation.historyItems.length +
+  const transcriptItemCount = conversation.historyItems.length +
     conversation.liveItems.length +
     conversation.evalHistory.length;
-  const committedHistoryCount =
-    conversation.historyItems.length +
+  const committedHistoryCount = conversation.historyItems.length +
     conversation.evalHistory.length;
   const [focusedTeammateIndex, setFocusedTeammateIndex] = useState(-1);
   const teamState = useMemo(
     () => ({ ...baseTeamState, focusedWorkerIndex: focusedTeammateIndex }),
     [baseTeamState, focusedTeammateIndex],
   );
+  const activeTeammates = useMemo(() =>
+    teamState.members.filter((member: TeamMemberItem) =>
+      member.role === "worker" && member.status !== "terminated"
+    ), [teamState.members]);
+  const focusedTeammate = focusedTeammateIndex >= 0
+    ? activeTeammates[focusedTeammateIndex]
+    : undefined;
   const teamWorkerSummary = useMemo(() => {
     if (!teamState.active) return undefined;
     const summary = teamState.members
       .filter((m: TeamMemberItem) => m.role === "worker")
-      .map((m: TeamMemberItem) => `${m.id}: ${m.currentTaskId ? "working" : "idle"}`)
+      .map((m: TeamMemberItem) =>
+        `${m.id}: ${m.currentTaskId ? "working" : "idle"}`
+      )
       .join(" \u00B7 ");
     return summary || undefined;
   }, [teamState.active, teamState.members]);
+  useEffect(() => {
+    setFocusedTeammateIndex((prev: number) =>
+      prev >= activeTeammates.length ? -1 : prev
+    );
+  }, [activeTeammates.length]);
   const hasConversationContext = usesConversationContext(surfacePanel);
   const hasActivePlanningState = Boolean(
     conversation.activePlan ||
@@ -382,7 +397,8 @@ function AppContent(
   );
 
   const isLocalEvalBusy = useCallback(
-    () => Boolean(currentEvalRef.current && !currentEvalRef.current.backgrounded),
+    () =>
+      Boolean(currentEvalRef.current && !currentEvalRef.current.backgrounded),
     [],
   );
 
@@ -709,8 +725,8 @@ function AppContent(
       () => {
         // Cycle through active teammates in in-process mode.
         // Opens team dashboard if not already open, then advances focus.
-        const workerCount = teamStateRef.current.workers.length;
-        if (workerCount === 0) {
+        const teammateCount = activeTeammatesRef.current.length;
+        if (teammateCount === 0) {
           toggleTeamDashboard();
           return;
         }
@@ -718,9 +734,9 @@ function AppContent(
         if (activeOverlayRef.current !== "team-dashboard") {
           setActiveOverlay("team-dashboard");
         }
-        // Cycle: -1 → 0 → 1 → ... → workerCount-1 → -1
+        // Cycle: -1 → 0 → 1 → ... → teammateCount-1 → -1
         setFocusedTeammateIndex((prev: number) =>
-          prev + 1 >= workerCount ? -1 : prev + 1
+          prev + 1 >= teammateCount ? -1 : prev + 1
         );
       },
       "App",
@@ -761,6 +777,8 @@ function AppContent(
   // every time streaming tokens cause conversation/interaction/queue state to change.
   const teamStateRef = useRef(teamState);
   teamStateRef.current = teamState;
+  const activeTeammatesRef = useRef(activeTeammates);
+  activeTeammatesRef.current = activeTeammates;
   const activeOverlayRef = useRef(activeOverlay);
   activeOverlayRef.current = activeOverlay;
   const pendingInteractionRef = useRef(pendingInteraction);
@@ -807,6 +825,58 @@ function AppContent(
             userInput: code.trim(),
           },
         );
+        return;
+      }
+
+      const targetTeammate = focusedTeammateIndex >= 0
+        ? activeTeammatesRef.current[focusedTeammateIndex]
+        : undefined;
+      if (
+        hasConversationContext &&
+        targetTeammate &&
+        !isAnyCommand &&
+        !trimmedInput.startsWith("(")
+      ) {
+        const content = code.trim();
+        const preview = truncate(content.replace(/\s+/g, " "), 120);
+        let delivered = false;
+
+        if (targetTeammate.threadId) {
+          delivered = sendThreadInput(targetTeammate.threadId, content);
+        }
+
+        if (!delivered) {
+          const store = getActiveTeamStore();
+          if (store) {
+            await store.sendMessage({
+              id: crypto.randomUUID(),
+              type: "message",
+              from: "lead",
+              content,
+              summary: truncate(content.replace(/\s+/g, " "), 80),
+              timestamp: Date.now(),
+              recipient: targetTeammate.id,
+            });
+            delivered = true;
+          }
+        }
+
+        if (!delivered) {
+          conversationRef.current.addError(
+            `Could not send message to teammate '${targetTeammate.id}'.`,
+          );
+          return;
+        }
+
+        recordPromptHistory(replState, code, "conversation");
+        conversationRef.current.addEvent({
+          type: "team_message",
+          kind: "message",
+          fromMemberId: "lead",
+          toMemberId: targetTeammate.id,
+          contentPreview: preview,
+        });
+        clearComposerDraft();
         return;
       }
 
@@ -975,7 +1045,10 @@ function AppContent(
           evalState.taskId = taskId;
           failEvalTask(taskId, err);
         } else {
-          conversationRef.current.addHqlEval(code, { success: false, error: err });
+          conversationRef.current.addHqlEval(code, {
+            success: false,
+            error: err,
+          });
         }
         finalizeForeground();
         return;
@@ -992,7 +1065,10 @@ function AppContent(
           evalState.taskId = taskId;
           failEvalTask(taskId, err);
         } else {
-          conversationRef.current.addHqlEval(code, { success: false, error: err });
+          conversationRef.current.addHqlEval(code, {
+            success: false,
+            error: err,
+          });
         }
         finalizeForeground();
         return;
@@ -1010,7 +1086,10 @@ function AppContent(
         );
 
         if (!evalState.backgrounded) {
-          conversationRef.current.addHqlEval(code, { success: true, streamTaskId: taskId });
+          conversationRef.current.addHqlEval(code, {
+            success: true,
+            streamTaskId: taskId,
+          });
         }
 
         return;
@@ -1095,6 +1174,7 @@ function AppContent(
     (_char: string, _key: Key) => {},
   );
   appInputHandlerRef.current = (char: string, key: Key) => {
+    const isEscKey = isBareEscapeInput(char, key);
     const globalBinding = inspectHandlerKeybinding(char, key, {
       categories: GLOBAL_KEYBINDING_CATEGORIES,
     });
@@ -1122,6 +1202,13 @@ function AppContent(
       if (globalBinding.source === "custom" || canOpenDefaultShortcuts) {
         void executeHandler(globalBinding.id);
       }
+      return;
+    }
+    if (
+      globalBinding.kind === "handler" &&
+      globalBinding.id === HandlerIds.APP_CYCLE_TEAMMATE
+    ) {
+      void executeHandler(globalBinding.id);
       return;
     }
     if (activeOverlay !== "none") {
@@ -1162,14 +1249,14 @@ function AppContent(
           });
           return;
         }
-        if (char === "n" || key.escape) {
+        if (char === "n" || isEscKey) {
           handleInteractionResponse(pendingInteraction.requestId, {
             approved: false,
           });
           return;
         }
       }
-      if (pendingInteraction.mode === "question" && key.escape) {
+      if (pendingInteraction.mode === "question" && isEscKey) {
         interruptConversationRun({
           requestId: pendingInteraction.requestId,
           clearPlanning: hasActivePlanningState,
@@ -1178,7 +1265,22 @@ function AppContent(
       }
     }
 
-    if (key.escape) {
+    if (isEscKey && composerRef.current?.shouldSuppressAppEscapeInterrupt()) {
+      return;
+    }
+
+    if (
+      isEscKey &&
+      hasConversationContext &&
+      hasActivePlanningState &&
+      !isConversationTaskRunning &&
+      !pendingInteraction
+    ) {
+      conversation.cancelPlanning();
+      return;
+    }
+
+    if (isEscKey) {
       const conversationEscapeAction = resolveConversationEscapeAction({
         surfacePanel,
         isConversationTaskRunning,
@@ -1191,7 +1293,7 @@ function AppContent(
       }
     }
 
-    if (key.escape && isEvaluatingRef.current && currentEvalRef.current) {
+    if (isEscKey && isEvaluatingRef.current && currentEvalRef.current) {
       const evalState = currentEvalRef.current;
       evalState.cancelled = true;
 
@@ -1210,9 +1312,12 @@ function AppContent(
       setIsEvaluating(false);
     }
   };
-  const handleAppInput = useCallback((char: string, key: Parameters<
-    typeof appInputHandlerRef.current
-  >[1]) => {
+  const handleAppInput = useCallback((
+    char: string,
+    key: Parameters<
+      typeof appInputHandlerRef.current
+    >[1],
+  ) => {
     appInputHandlerRef.current(char, key);
   }, []);
   useInput(handleAppInput);
@@ -1225,12 +1330,11 @@ function AppContent(
 
   const pickerInteractionActive = hasConversationContext &&
     isPickerInteractionRequest(pendingInteraction);
-  const isConversationInputVisible = hasConversationContext && !isOverlayOpen &&
-    !pickerInteractionActive;
+  const isConversationInputVisible = hasConversationContext && !isOverlayOpen;
   const isInputVisible = !isOverlayOpen &&
     (surfacePanel === "none" || isConversationInputVisible);
-  const isInputDisabled =
-    (hasConversationContext && pendingInteraction?.mode === "permission");
+  const isInputDisabled = hasConversationContext &&
+    (pendingInteraction?.mode === "permission" || pickerInteractionActive);
   const isConversationTaskRunning = hasConversationContext &&
     (isEvaluating || agentControllerRef.current !== null);
 
@@ -1396,6 +1500,10 @@ function AppContent(
               evalHistory={conversation.evalHistory}
               width={Math.max(20, terminalWidth - 2)}
               reservedRows={transcriptReservedRows}
+              compactPlanTranscript={Boolean(
+                conversation.planningPhase &&
+                  conversation.planningPhase !== "done",
+              )}
               allowToggleHotkeys={surfacePanel === "conversation" &&
                 allowConversationToggleHotkeys &&
                 conversation.liveItems.length === 0}
@@ -1412,7 +1520,10 @@ function AppContent(
                   items={conversation.liveItems}
                   width={Math.max(20, terminalWidth - 2)}
                   streamingState={conversation.streamingState}
-                  todoState={conversation.planTodoState ?? conversation.todoState}
+                  planningPhase={conversation.planningPhase}
+                  todoState={conversation.planTodoState ??
+                    conversation.todoState}
+                  compactSpacing
                   allowToggleHotkeys={surfacePanel === "conversation" &&
                     allowConversationToggleHotkeys &&
                     conversation.liveItems.length > 0}
@@ -1440,24 +1551,27 @@ function AppContent(
             ref={composerRef}
             replState={replState}
             onUiStateChange={handleComposerUiStateChange}
-              onSubmit={handleSubmit}
-              onForceSubmit={hasConversationContext
-                ? handleForceInterrupt
-                : undefined}
-              onInterruptRunningTask={hasConversationContext
-                ? () =>
-                  interruptConversationRun({
-                    clearPlanning: hasActivePlanningState,
-                  })
-                : undefined}
-              queueEnabled={hasConversationContext &&
-                agentControllerRef.current !== null}
-              isConversationTaskRunning={isConversationTaskRunning}
-              onCycleMode={cycleAgentMode}
-              disabled={isInputDisabled}
-              isConversationContext={hasConversationContext}
-              highlightMode={hasConversationContext ? "chat" : "code"}
-              promptLabel=">"
+            onSubmit={handleSubmit}
+            onForceSubmit={hasConversationContext
+              ? handleForceInterrupt
+              : undefined}
+            onInterruptRunningTask={hasConversationContext
+              ? () =>
+                interruptConversationRun({
+                  clearPlanning: hasActivePlanningState,
+                })
+              : undefined}
+            queueEnabled={hasConversationContext &&
+              agentControllerRef.current !== null}
+            isConversationTaskRunning={isConversationTaskRunning}
+            onCycleMode={cycleAgentMode}
+            disabled={isInputDisabled}
+            isConversationContext={hasConversationContext}
+            composerLanguage={hasConversationContext ? "chat" : "hql"}
+            promptLabel={focusedTeammate ? `${focusedTeammate.id}>` : ">"}
+            interactionMode={pickerInteractionActive
+              ? pendingInteraction?.mode
+              : undefined}
           />
         )}
 
@@ -1468,7 +1582,9 @@ function AppContent(
             modelName={modelSelection.displayLabel}
             statusMessage={footerStatusMessage}
             modeLabel={getPersistentAgentExecutionModeLabel(agentExecutionMode)}
-            planningPhase={hasConversationContext ? conversation.planningPhase : undefined}
+            planningPhase={hasConversationContext
+              ? conversation.planningPhase
+              : undefined}
             streamingState={hasConversationContext
               ? conversation.streamingState
               : undefined}
@@ -1493,7 +1609,9 @@ function AppContent(
               pickerInteractionActive}
             teamActive={teamState.active}
             teamAttentionCount={teamState.attentionItems.length}
+            teamFocusLabel={focusedTeammate?.id}
             teamWorkerSummary={teamWorkerSummary}
+            pendingInteractionLabel={pendingInteraction?.sourceLabel}
             activeTaskCount={activeCount}
             recentActiveTaskLabel={recentActiveTaskLabel}
             aiAvailable={init.aiAvailable}
@@ -1501,7 +1619,6 @@ function AppContent(
             localEvalQueueCount={queuedLocalEvals.length}
           />
         )}
-
     </Box>
   );
 }

@@ -50,6 +50,7 @@ export interface TeamMemberItem {
   agent: string;
   role: "lead" | "worker";
   status: string;
+  threadId?: string;
   currentTaskId?: string;
   currentTaskGoal?: string;
 }
@@ -470,6 +471,7 @@ export function deriveTeamDashboardState(items: ConversationItem[]): TeamDashboa
         agent: member.agent,
         role: member.role,
         status: member.status,
+        threadId: member.threadId,
         currentTaskId: member.currentTaskId,
         currentTaskGoal,
       };

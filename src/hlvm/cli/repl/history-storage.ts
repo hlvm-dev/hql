@@ -30,15 +30,29 @@ import {
 import { isFileNotFoundError } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
+import type { ComposerLanguage } from "./composer-language.ts";
 
 // ============================================================================
 // Types
 // ============================================================================
 
 /** Single history entry stored in JSONL file */
+export type HistoryEntrySource =
+  | "evaluate"
+  | "command"
+  | "conversation"
+  | "interaction";
+
+export interface HistoryEntryMetadata {
+  readonly source?: HistoryEntrySource;
+  readonly language?: ComposerLanguage;
+}
+
 export interface HistoryEntry {
   ts: number; // Unix timestamp in milliseconds
   cmd: string; // The command
+  source?: HistoryEntrySource;
+  language?: ComposerLanguage;
 }
 
 /** Configuration for history storage */
@@ -58,15 +72,35 @@ const DEFAULT_CONFIG: HistoryStorageConfig = {
 
 let legacyMigrationChecked = false;
 
+function getHistoryEntryKey(entry: Pick<HistoryEntry, "cmd" | "source" | "language">): string {
+  return `${entry.cmd}\u0000${entry.source ?? ""}\u0000${entry.language ?? ""}`;
+}
+
 function toHistoryEntry(value: unknown): HistoryEntry | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
   }
-  const entry = value as { cmd?: unknown; ts?: unknown };
+  const entry = value as {
+    cmd?: unknown;
+    ts?: unknown;
+    source?: unknown;
+    language?: unknown;
+  };
   if (typeof entry.cmd !== "string" || typeof entry.ts !== "number") {
     return undefined;
   }
-  return { cmd: entry.cmd, ts: entry.ts };
+  if (entry.source !== undefined && typeof entry.source !== "string") {
+    return undefined;
+  }
+  if (entry.language !== undefined && typeof entry.language !== "string") {
+    return undefined;
+  }
+  return {
+    cmd: entry.cmd,
+    ts: entry.ts,
+    source: entry.source as HistoryEntrySource | undefined,
+    language: entry.language as ComposerLanguage | undefined,
+  };
 }
 
 function parseHistoryContent(content: string): HistoryEntry[] {
@@ -105,10 +139,12 @@ async function ensureLegacyHistoryMerged(maxEntries: number): Promise<void> {
   }
 
   const currentKeys = new Set(
-    currentEntries.map((entry) => `${entry.ts}:${entry.cmd}`),
+    currentEntries.map((entry) => `${entry.ts}:${getHistoryEntryKey(entry)}`),
   );
   if (
-    legacyEntries.every((entry) => currentKeys.has(`${entry.ts}:${entry.cmd}`))
+    legacyEntries.every((entry) =>
+      currentKeys.has(`${entry.ts}:${getHistoryEntryKey(entry)}`)
+    )
   ) {
     return;
   }
@@ -117,7 +153,7 @@ async function ensureLegacyHistoryMerged(maxEntries: number): Promise<void> {
   const mergedKeys = new Set<string>();
   const merged: HistoryEntry[] = [];
   for (const entry of [...currentEntries, ...legacyEntries]) {
-    const key = `${entry.ts}:${entry.cmd}`;
+    const key = `${entry.ts}:${getHistoryEntryKey(entry)}`;
     if (mergedKeys.has(key)) continue;
     mergedKeys.add(key);
     merged.push(entry);
@@ -180,7 +216,7 @@ export class HistoryStorage {
       const deduplicated: HistoryEntry[] = [];
       for (const entry of allEntries) {
         const last = deduplicated[deduplicated.length - 1];
-        if (!last || last.cmd !== entry.cmd) {
+        if (!last || getHistoryEntryKey(last) !== getHistoryEntryKey(entry)) {
           deduplicated.push(entry);
         }
       }
@@ -216,17 +252,28 @@ export class HistoryStorage {
    * Append a command (queues for debounced save).
    * Fire-and-forget - returns immediately.
    */
-  append(cmd: string): HistoryEntry | null {
+  append(cmd: string, metadata: HistoryEntryMetadata = {}): HistoryEntry | null {
     const trimmed = cmd.trim();
     if (!trimmed) return null;
 
     // Skip consecutive duplicates
     const last = this.entries[this.entries.length - 1];
-    if (last?.cmd === trimmed) return null;
+    if (
+      last &&
+      getHistoryEntryKey(last) === getHistoryEntryKey({
+        cmd: trimmed,
+        source: metadata.source,
+        language: metadata.language,
+      })
+    ) {
+      return null;
+    }
 
     const entry: HistoryEntry = {
       ts: Date.now(),
       cmd: trimmed,
+      source: metadata.source,
+      language: metadata.language,
     };
 
     // Add to in-memory array

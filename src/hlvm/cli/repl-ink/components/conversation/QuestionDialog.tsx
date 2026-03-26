@@ -57,10 +57,11 @@ export const QuestionDialog = React.memo(function QuestionDialog(
   if (dialog.usesPicker && requestId && onResolve) {
     return (
       <InteractionPicker
-        title="Question 1/1"
+        title="Clarification needed"
         subtitle={dialog.question}
         options={dialog.options}
         hint={QUESTION_PICKER_HINT}
+        tone="warning"
         allowNotes
         onSubmit={(option: InteractionPickerOption, notes?: string) =>
           onResolve(requestId, {

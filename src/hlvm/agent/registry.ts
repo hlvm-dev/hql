@@ -70,6 +70,14 @@ export interface InteractionRequestEvent {
   toolArgs?: string;
   question?: string;
   options?: InteractionOption[];
+  /** Optional label for the originating worker/session shown in UI. */
+  sourceLabel?: string;
+  /** Optional originating team member ID for team-sourced interactions. */
+  sourceMemberId?: string;
+  /** Optional originating thread ID for background worker interactions. */
+  sourceThreadId?: string;
+  /** Optional team name for team-sourced interactions. */
+  sourceTeamName?: string;
   /** Optional JSON Schema for MCP elicitation form inputs */
   schema?: Record<string, unknown>;
 }

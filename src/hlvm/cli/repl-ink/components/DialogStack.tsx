@@ -47,6 +47,8 @@ export function DialogStack(
           requestId={interactionRequest.requestId}
           toolName={interactionRequest.toolName}
           toolArgs={interactionRequest.toolArgs}
+          sourceLabel={interactionRequest.sourceLabel}
+          sourceTeamName={interactionRequest.sourceTeamName}
           onResolve={onInteractionResponse}
         />
       )}

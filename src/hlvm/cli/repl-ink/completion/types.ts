@@ -26,9 +26,19 @@ export interface ApplyContext {
 }
 
 /** Side effects that can be triggered by completion */
+export interface SnippetTabstop {
+  readonly start: number;
+  readonly end: number;
+  readonly text: string;
+}
+
 type CompletionSideEffect =
   | { type: "ADD_ATTACHMENT"; path: string }
-  | { type: "ENTER_PLACEHOLDER_MODE"; params: string[]; startPos: number }
+  | {
+    type: "ENTER_SNIPPET_SESSION";
+    tabstops: readonly SnippetTabstop[];
+    exitCursor: number;
+  }
   | { type: "EXECUTE" };
 
 /** Result of applying a completion action */
@@ -217,8 +227,8 @@ export interface CompletionContext {
 // Dropdown State
 // ============================================================
 
-/** Maximum visible items - fixed at 4 for stable UI (prevents dropdown height shaking) */
-export const MAX_VISIBLE_ITEMS = 4;
+/** Maximum visible items - fixed for stable UI (prevents dropdown height shaking) */
+export const MAX_VISIBLE_ITEMS = 6;
 
 /**
  * Dropdown state managed by useDropdownState hook.

@@ -31,6 +31,7 @@ import {
 } from "./runtime.ts";
 import { log } from "./log.ts";
 import { errors } from "./errors.ts";
+import type { HistoryEntryMetadata } from "../cli/repl/history-storage.ts";
 
 /** Top-level alias for ai.agent — runs the ReAct agent loop */
 export const agent: AiApi["agent"] = ai.agent;
@@ -57,7 +58,7 @@ interface RegisterApisOptions {
   /** REPL state for history API */
   replState?: {
     history: string[];
-    addHistory(input: string): void;
+    addHistory(input: string, metadata?: HistoryEntryMetadata): void;
     flushHistory(): Promise<void>;
     clearHistory(): Promise<void>;
   };

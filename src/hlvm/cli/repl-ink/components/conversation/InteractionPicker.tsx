@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
-import { ChromeChip } from "../ChromeChip.tsx";
-import { buildConversationSectionText } from "./conversation-chrome.ts";
+import type { ChromeChipTone } from "../ChromeChip.tsx";
 
 export interface InteractionPickerOption {
   label: string;
@@ -25,6 +24,7 @@ interface InteractionPickerProps {
   subtitle?: string;
   options: InteractionPickerOption[];
   hint: string;
+  tone?: ChromeChipTone;
   onSubmit: (option: InteractionPickerOption, notes?: string) => void;
   onCancel: () => void;
   allowNotes?: boolean;
@@ -57,6 +57,7 @@ export const InteractionPicker = React.memo(function InteractionPicker(
     subtitle,
     options,
     hint,
+    tone = "active",
     onSubmit,
     onCancel,
     allowNotes = false,
@@ -64,6 +65,22 @@ export const InteractionPicker = React.memo(function InteractionPicker(
   }: InteractionPickerProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
+  const borderColor = tone === "warning"
+    ? sc.status.warning
+    : tone === "success"
+    ? sc.status.success
+    : tone === "error"
+    ? sc.status.error
+    : tone === "active"
+    ? sc.border.active
+    : sc.border.default;
+  const titleColor = tone === "warning"
+    ? sc.status.warning
+    : tone === "success"
+    ? sc.status.success
+    : tone === "error"
+    ? sc.status.error
+    : sc.text.primary;
   const optionsSignature = useMemo(
     () =>
       options.map((option) =>
@@ -154,14 +171,23 @@ export const InteractionPicker = React.memo(function InteractionPicker(
   });
 
   return (
-    <Box flexDirection="column">
+    <Box
+      borderStyle="round"
+      borderColor={borderColor}
+      paddingX={1}
+      paddingY={0}
+      flexDirection="column"
+      marginBottom={0}
+    >
       <Box>
-        <ChromeChip text={title} tone="active" />
+        <Text color={titleColor} bold>{title}</Text>
       </Box>
       {subtitle && (
-        <Text color={sc.text.secondary} wrap="wrap">
-          {subtitle}
-        </Text>
+        <Box marginTop={1}>
+          <Text color={sc.text.secondary} wrap="wrap">
+            {subtitle}
+          </Text>
+        </Box>
       )}
       {children && (
         <Box marginTop={1} flexDirection="column">
@@ -169,26 +195,22 @@ export const InteractionPicker = React.memo(function InteractionPicker(
         </Box>
       )}
       <Box marginTop={1} flexDirection="column">
-        <Text color={sc.chrome.sectionLabel}>
-          {buildConversationSectionText("Choices")}
-        </Text>
         {options.map((option, index) => {
           const isSelected = index === selectedIndex;
           return (
             <Box
               key={`${option.value}-${index}`}
               flexDirection="column"
-              marginBottom={1}
             >
               <Box>
                 <Text
-                  color={isSelected ? sc.border.active : sc.text.muted}
+                  color={isSelected ? titleColor : sc.text.muted}
                   bold
                 >
-                  {isSelected ? "›" : " "} {index + 1}.
+                  {isSelected ? "●" : " "} {index + 1}.
                 </Text>
                 <Text
-                  color={isSelected ? sc.border.active : sc.text.primary}
+                  color={isSelected ? titleColor : sc.text.primary}
                   bold
                 >
                   {" "}
@@ -196,13 +218,16 @@ export const InteractionPicker = React.memo(function InteractionPicker(
                 </Text>
                 {option.recommended && (
                   <>
-                    <Text> </Text>
-                    <ChromeChip text="Recommended" tone="success" />
+                    <Text color={sc.text.secondary}>{" "}</Text>
+                    <Text color={sc.status.success}>Recommended</Text>
                   </>
                 )}
               </Box>
               {option.detail && (
-                <Box paddingLeft={4}>
+                <Box
+                  paddingLeft={5}
+                  marginBottom={index < options.length - 1 ? 1 : 0}
+                >
                   <Text color={sc.text.secondary} wrap="wrap">
                     {option.detail}
                   </Text>
@@ -213,10 +238,8 @@ export const InteractionPicker = React.memo(function InteractionPicker(
         })}
       </Box>
       {allowNotes && (notesMode || notes.length > 0) && (
-        <Box marginBottom={1} flexDirection="column">
-          <Text color={sc.chrome.sectionLabel}>
-            {buildConversationSectionText("Notes")}
-          </Text>
+        <Box marginTop={1} marginBottom={1} flexDirection="column">
+          <Text color={sc.text.secondary}>Notes</Text>
           <Text color={notesMode ? sc.text.primary : sc.text.muted}>
             {notes.length > 0
               ? notes
@@ -226,9 +249,11 @@ export const InteractionPicker = React.memo(function InteractionPicker(
           </Text>
         </Box>
       )}
-      <Text color={sc.text.muted}>
-        {displayedHint}
-      </Text>
+      <Box marginTop={1}>
+        <Text color={sc.text.muted}>
+          {displayedHint}
+        </Text>
+      </Box>
     </Box>
   );
 });

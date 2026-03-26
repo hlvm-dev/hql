@@ -9,6 +9,7 @@
 import React from "react";
 import { Box, Text, useStdout } from "ink";
 import { useSemanticColors, useTheme } from "../../theme/index.ts";
+import type { PlanningPhase } from "../../../agent/planning.ts";
 import {
   type StreamingState,
   StreamingState as ConversationStreamingState,
@@ -18,6 +19,7 @@ import { STATUS_GLYPHS } from "../ui-constants.ts";
 
 import { truncate } from "../../../../common/utils.ts";
 import { useConversationSpinnerFrame } from "../hooks/useConversationMotion.ts";
+import { getPlanPhaseLabel } from "./conversation/plan-flow.ts";
 import {
   buildContextUsageMiniBar,
   fitShellFooterSegments,
@@ -34,7 +36,7 @@ interface FooterProps {
   statusMessage?: string;
   contextUsageLabel?: string;
   modeLabel?: string;
-  planningPhase?: string;
+  planningPhase?: PlanningPhase;
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
   inConversation?: boolean;
@@ -45,7 +47,9 @@ interface FooterProps {
   suppressInteractionHints?: boolean;
   teamActive?: boolean;
   teamAttentionCount?: number;
+  teamFocusLabel?: string;
   teamWorkerSummary?: string;
+  pendingInteractionLabel?: string;
   activeTaskCount?: number;
   recentActiveTaskLabel?: string;
   aiAvailable?: boolean;
@@ -59,7 +63,7 @@ interface FooterLeftStateInput {
   streamingState?: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   modeLabel?: string;
-  planningPhase?: string;
+  planningPhase?: PlanningPhase;
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
   hasPendingPermission?: boolean;
@@ -68,7 +72,9 @@ interface FooterLeftStateInput {
   suppressInteractionHints?: boolean;
   teamActive?: boolean;
   teamAttentionCount?: number;
+  teamFocusLabel?: string;
   teamWorkerSummary?: string;
+  pendingInteractionLabel?: string;
   activeTaskCount?: number;
   recentActiveTaskLabel?: string;
   spinner: string;
@@ -99,7 +105,9 @@ export function buildFooterLeftState({
   suppressInteractionHints,
   teamActive,
   teamAttentionCount,
+  teamFocusLabel,
   teamWorkerSummary,
+  pendingInteractionLabel,
   activeTaskCount = 0,
   recentActiveTaskLabel,
   spinner,
@@ -107,24 +115,43 @@ export function buildFooterLeftState({
   conversationQueueCount = 0,
   localEvalQueueCount = 0,
 }: FooterLeftStateInput): FooterLeftState {
-  const modeChip = summarizeModeLabel(modeLabel);
+  const summarizedModeLabel = summarizeModeLabel(modeLabel);
+  const modeChip = planningPhase && planningPhase !== "done" &&
+      summarizedModeLabel === "Plan mode"
+    ? undefined
+    : summarizedModeLabel;
   const queuedCount = Math.max(0, interactionQueueLength - 1);
-  const teamHint = teamActive && teamAttentionCount && teamAttentionCount > 0
-    ? `Ctrl+T (${teamAttentionCount})`
-    : "";
   const teamChip: ShellFooterSegment | null = teamActive
     ? { text: "Team", tone: "active", chip: true }
     : null;
+  const teamFocusChip: ShellFooterSegment | null =
+    teamActive && teamFocusLabel
+      ? { text: `To ${teamFocusLabel}`, tone: "active", chip: true }
+      : null;
   const teamWorkerSegment: ShellFooterSegment | null =
     teamActive && teamWorkerSummary
       ? { text: teamWorkerSummary, tone: "muted" }
       : null;
+  const teamHint = teamActive
+    ? `Shift+Down teammate · Ctrl+T${
+      teamAttentionCount && teamAttentionCount > 0
+        ? ` (${teamAttentionCount})`
+        : " team"
+    }`
+    : "";
   const bgChip: ShellFooterSegment | null = activeTaskCount > 0
-    ? { text: `${STATUS_GLYPHS.running} ${activeTaskCount} tasks`, tone: "active", chip: true }
+    ? {
+      text: `${STATUS_GLYPHS.running} ${activeTaskCount} tasks`,
+      tone: "active",
+      chip: true,
+    }
     : null;
   const bgTaskHint: ShellFooterSegment | null =
     recentActiveTaskLabel && activeTaskCount > 0
-      ? { text: `${truncate(recentActiveTaskLabel, 24)} \u00B7 Ctrl+J tasks`, tone: "muted" }
+      ? {
+        text: `${truncate(recentActiveTaskLabel, 24)} \u00B7 Ctrl+J tasks`,
+        tone: "muted",
+      }
       : null;
 
   if (!inConversation) {
@@ -149,26 +176,37 @@ export function buildFooterLeftState({
     }
 
     if (teamChip) segments.push(teamChip);
+    if (teamFocusChip) segments.push(teamFocusChip);
+    if (teamHint) {
+      segments.push({ text: teamHint, tone: "muted" });
+    }
     if (teamWorkerSegment) segments.push(teamWorkerSegment);
     if (bgChip) segments.push(bgChip);
     if (bgTaskHint) segments.push(bgTaskHint);
     if (conversationQueueCount > 0) {
-      segments.push({ text: `+${conversationQueueCount} chat`, tone: "active", chip: true });
+      segments.push({
+        text: `+${conversationQueueCount} chat`,
+        tone: "active",
+        chip: true,
+      });
     }
     if (localEvalQueueCount > 0) {
-      segments.push({ text: `+${localEvalQueueCount} eval`, tone: "active", chip: true });
+      segments.push({
+        text: `+${localEvalQueueCount} eval`,
+        tone: "active",
+        chip: true,
+      });
     }
 
     const hintText = isEvaluating
       ? "Ctrl+B background \u00B7 Esc cancels"
+      : teamActive
+      ? ""
       : (isFullAuto || modeChip)
       ? "Shift+Tab cycles"
       : "";
-    const combinedHint = [hintText, teamHint].filter(Boolean).join(
-      SHELL_SEGMENT_SEPARATOR,
-    );
-    if (combinedHint) {
-      segments.push({ text: combinedHint, tone: "muted" });
+    if (hintText) {
+      segments.push({ text: hintText, tone: "muted" });
     }
     return {
       mode: "segments",
@@ -187,21 +225,27 @@ export function buildFooterLeftState({
     return {
       mode: "message",
       segments: [],
-      text: "Use arrows or 1-3 · Enter confirm · Esc cancel",
+      text: pendingInteractionLabel
+        ? `${pendingInteractionLabel} · Use arrows or 1-3 · Enter confirm · Esc cancel`
+        : "Use arrows or 1-3 · Enter confirm · Esc cancel",
       tone: "warning",
     };
   } else if (hasPendingPermission) {
     return {
       mode: "message",
       segments: [],
-      text: "Enter approve · Esc cancel",
+      text: pendingInteractionLabel
+        ? `${pendingInteractionLabel} · Enter approve · Esc cancel`
+        : "Enter approve · Esc cancel",
       tone: "warning",
     };
   } else if (hasPendingQuestion) {
     return {
       mode: "message",
       segments: [],
-      text: "Enter submit · Tab notes · Esc cancel",
+      text: pendingInteractionLabel
+        ? `${pendingInteractionLabel} · Enter submit · Tab notes · Esc cancel`
+        : "Enter submit · Tab notes · Esc cancel",
       tone: "warning",
     };
   } else if (
@@ -255,9 +299,21 @@ export function buildFooterLeftState({
     });
   }
   if (teamChip) segments.push(teamChip);
+  if (teamFocusChip) segments.push(teamFocusChip);
+  if (
+    teamHint &&
+    streamingState !== ConversationStreamingState.Responding &&
+    !(planningPhase && planningPhase !== "done")
+  ) {
+    segments.push({ text: teamHint, tone: "muted" });
+  }
   if (teamWorkerSegment) segments.push(teamWorkerSegment);
   if (planningPhase && planningPhase !== "done") {
-    segments.push({ text: `Plan ${planningPhase}`, tone: "active", chip: true });
+    segments.push({
+      text: getPlanPhaseLabel(planningPhase),
+      tone: "active",
+      chip: true,
+    });
   }
   if (bgChip) segments.push(bgChip);
   if (bgTaskHint) segments.push(bgTaskHint);
@@ -276,15 +332,16 @@ export function buildFooterLeftState({
 
   const hintText = streamingState === ConversationStreamingState.Responding
     ? hasDraftInput ? "Tab queues · Ctrl+Enter forces" : "Esc cancels"
+    : planningPhase && planningPhase !== "done"
+    ? "Esc clears plan"
+    : teamActive
+    ? ""
     : (isFullAuto || modeChip)
     ? "Shift+Tab cycles"
     : "";
-  const combinedHint = [hintText, teamHint].filter(Boolean).join(
-    SHELL_SEGMENT_SEPARATOR,
-  );
-  if (combinedHint) {
+  if (hintText) {
     segments.push({
-      text: combinedHint,
+      text: hintText,
       tone: hasDraftInput &&
           streamingState === ConversationStreamingState.Responding
         ? "active"
@@ -339,7 +396,9 @@ export const FooterHint = React.memo(function FooterHint({
   suppressInteractionHints,
   teamActive,
   teamAttentionCount,
+  teamFocusLabel,
   teamWorkerSummary,
+  pendingInteractionLabel,
   activeTaskCount,
   recentActiveTaskLabel,
   aiAvailable = false,
@@ -371,7 +430,9 @@ export const FooterHint = React.memo(function FooterHint({
     suppressInteractionHints,
     teamActive,
     teamAttentionCount,
+    teamFocusLabel,
     teamWorkerSummary,
+    pendingInteractionLabel,
     activeTaskCount,
     recentActiveTaskLabel,
     spinner,
@@ -475,7 +536,8 @@ export const FooterHint = React.memo(function FooterHint({
         {rightParts.length > 0 && (
           <Box>
             <Text color={aiAvailable ? "#50fa7b" : sc.status.error}>
-              {STATUS_GLYPHS.running}{" "}
+              {STATUS_GLYPHS.running}
+              {" "}
             </Text>
             {rightParts.map((part, index) => (
               <React.Fragment key={`${part}-${index}`}>

@@ -7,16 +7,13 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
-import { truncate } from "../../../../common/utils.ts";
-import { STATUS_GLYPHS } from "../ui-constants.ts";
 import {
+  type AgentConversationItem,
   type AssistantCitation,
   type ConversationItem,
   isStructuredTeamInfoItem,
   type StreamingState,
   StreamingState as ConversationStreamingState,
-  type ThinkingItem,
-  type ToolCallDisplay,
 } from "../types.ts";
 import type { Plan, PlanningPhase } from "../../../agent/planning.ts";
 import type { TodoState } from "../../../agent/todo-state.ts";
@@ -59,15 +56,9 @@ import {
 } from "./conversation/index.ts";
 import { useSemanticColors } from "../../theme/index.ts";
 import { RenderErrorBoundary } from "./ErrorBoundary.tsx";
+import { PlanChecklistPanel } from "./conversation/PlanChecklistPanel.tsx";
 
 const CONVERSATION_KEYBINDING_CATEGORIES = ["Conversation"] as const;
-
-const SHELL_COMMAND_LABELS: ReadonlyArray<[RegExp, string]> = [
-  [/^mkdir\b/i, "Creating directories"],
-  [/^mv\b/i, "Moving files"],
-  [/^cp\b/i, "Copying files"],
-  [/^rm\b/i, "Removing files"],
-];
 
 interface ConversationPanelProps {
   items: ConversationItem[];
@@ -171,13 +162,14 @@ export function getActiveThinkingId(
 }
 
 function shouldCompactPlanTranscript(
-  _planningPhase: PlanningPhase | undefined,
-  _activePlan: Plan | undefined,
-  _pendingPlanReview: { plan: Plan } | undefined,
+  planningPhase: PlanningPhase | undefined,
+  activePlan: Plan | undefined,
+  pendingPlanReview: { plan: Plan } | undefined,
 ): boolean {
-  // Disabled: compact mode hid conversation history and flushed the screen.
-  // All items now render normally during plan mode.
-  return false;
+  return Boolean(
+    (planningPhase && planningPhase !== "done") || activePlan ||
+      pendingPlanReview,
+  );
 }
 
 export function shouldHideConversationTextInCompactPlanFlow(
@@ -235,92 +227,11 @@ export function getConversationDisplayItems(
   });
 }
 
-function summarizeThinkingActivity(item: ThinkingItem): string {
-  const firstLine =
-    item.summary.split("\n").find((line) => line.trim().length > 0)
-      ?.trim() ?? "";
-  return truncate(firstLine, 84, "…");
-}
-
-function summarizeToolActivity(tool: ToolCallDisplay): string {
-  const args = truncate(tool.argsSummary.replace(/\s+/g, " ").trim(), 72, "…");
-  const shellCommand = tool.name === "shell_exec"
-    ? tool.argsSummary.replace(/\s+/g, " ").trim()
-    : "";
-  switch (tool.name) {
-    case "read_file":
-      return args ? `Reading ${args}` : "Reading the target file";
-    case "search_code":
-      return args ? `Searching ${args}` : "Searching the codebase";
-    case "list_files":
-      return args ? `Listing ${args}` : "Inspecting the target directory";
-    case "edit_file":
-      return args ? `Editing ${args}` : "Editing the target file";
-    case "todo_write":
-      return "Updating the checklist";
-    case "ask_user":
-      return "Waiting on a clarification";
-    case "shell_exec": {
-      const shellMatch = SHELL_COMMAND_LABELS.find(([re]) =>
-        re.test(shellCommand)
-      );
-      if (shellMatch) {
-        const label = shellMatch[1];
-        return args ? `${label}: ${args}` : label;
-      }
-      return args ? `Running ${args}` : "Running a shell command";
-    }
-    default:
-      return args ? `${tool.name} ${args}` : tool.name;
-  }
-}
-
-export function getPlanFlowActivities(
-  items: ConversationItem[],
-  mode: "latest" | "recent",
-  limit = 3,
-): string[] {
-  const results: string[] = [];
-  const seen = new Set<string>();
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i];
-    if (mode === "latest" && item?.type === "thinking") {
-      const summary = summarizeThinkingActivity(item);
-      if (summary.length > 0) return [summary];
-      continue;
-    }
-    if (item?.type === "tool_group") {
-      if (mode === "latest") {
-        const latestTool = [...item.tools].reverse().find((tool) =>
-          tool.status === "running"
-        ) ?? item.tools[item.tools.length - 1];
-        if (latestTool) return [summarizeToolActivity(latestTool)];
-      } else {
-        for (const tool of [...item.tools].reverse()) {
-          const summary = summarizeToolActivity(tool).trim();
-          if (!summary || seen.has(summary)) continue;
-          seen.add(summary);
-          results.push(summary);
-          if (results.length >= limit) return results;
-        }
-      }
-    }
-  }
-  return results;
-}
-
-export function getPlanFlowActivitySummary(
-  items: ConversationItem[],
-): string | undefined {
-  return getPlanFlowActivities(items, "latest")[0];
-}
-
-export function getRecentPlanFlowActivitySummaries(
-  items: ConversationItem[],
-  limit = 3,
-): string[] {
-  return getPlanFlowActivities(items, "recent", limit);
-}
+export {
+  getPlanFlowActivities,
+  getPlanFlowActivitySummary,
+  getRecentPlanFlowActivitySummaries,
+} from "./conversation/plan-flow.ts";
 
 function estimateTodoRows(
   todoState: TodoState | undefined,
@@ -455,6 +366,13 @@ export const ConversationPanel = React.memo(function ConversationPanel({
   const activeThinkingId = useMemo(
     () => getActiveThinkingId(items, streamingState),
     [items, streamingState],
+  );
+  const agentItems = useMemo(
+    () =>
+      items.filter((item): item is AgentConversationItem =>
+        item.type !== "hql_eval"
+      ),
+    [items],
   );
   const [scrollOffsetFromBottom, setScrollOffsetFromBottom] = useState(0);
   const compactPlanTranscript = useMemo(
@@ -706,28 +624,12 @@ export const ConversationPanel = React.memo(function ConversationPanel({
 
       {!hidePlanChromeDuringReviewPicker && todoState &&
         todoState.items.length > 0 && (
-        <Box marginTop={1} flexDirection="column" paddingLeft={2}>
-          {todoState.items.map((item) => {
-            const glyph = item.status === "completed"
-              ? STATUS_GLYPHS.success
-              : item.status === "in_progress"
-              ? STATUS_GLYPHS.running
-              : STATUS_GLYPHS.pending;
-            const glyphColor = item.status === "completed"
-              ? sc.status.success
-              : item.status === "in_progress"
-              ? sc.status.warning
-              : sc.text.muted;
-            const textColor = item.status === "pending"
-              ? sc.text.muted
-              : sc.text.primary;
-            return (
-              <Box key={item.id}>
-                <Text color={glyphColor}>{glyph} </Text>
-                <Text color={textColor}>{item.content}</Text>
-              </Box>
-            );
-          })}
+        <Box marginTop={1}>
+          <PlanChecklistPanel
+            planningPhase={planningPhase}
+            todoState={todoState}
+            items={agentItems}
+          />
         </Box>
       )}
 
@@ -745,6 +647,8 @@ export const ConversationPanel = React.memo(function ConversationPanel({
               requestId={interactionRequest.requestId}
               toolName={interactionRequest.toolName}
               toolArgs={interactionRequest.toolArgs}
+              sourceLabel={interactionRequest.sourceLabel}
+              sourceTeamName={interactionRequest.sourceTeamName}
               onResolve={onInteractionResponse}
             />
           )}

@@ -29,6 +29,10 @@ export interface InsertFactOptions {
   embeddingModel?: string;
 }
 
+function normalizeFactContent(content: string): string {
+  return content.replace(/\s+/g, " ").trim();
+}
+
 type RawFactRow = {
   id: number;
   content: string;
@@ -96,7 +100,7 @@ export function insertFact(opts: InsertFactOptions): number {
   const source = opts.source?.trim() || "memory";
   const validFrom = opts.validFrom?.trim() || todayDate();
   const { sanitized, stripped } = sanitizeSensitiveContent(opts.content ?? "");
-  const content = sanitized.trim();
+  const content = normalizeFactContent(sanitized);
 
   if (!content) {
     throw new ValidationError("Fact content is required", "memory_write");
@@ -133,6 +137,27 @@ export function insertFact(opts: InsertFactOptions): number {
     );
     return factId;
   });
+}
+
+export function findExactActiveFact(
+  content: string,
+  category?: string,
+): FactRecord | null {
+  const normalizedContent = normalizeFactContent(content);
+  if (!normalizedContent) return null;
+
+  const normalizedCategory = category?.trim() || "General";
+  const row = getFactDb().prepare(
+    `SELECT id, content, category, source, valid_from, valid_until, created_at, accessed_at, access_count, embedding, embedding_model
+     FROM facts
+     WHERE valid_until IS NULL
+       AND category = ?
+       AND lower(content) = lower(?)
+     ORDER BY id DESC
+     LIMIT 1`,
+  ).get<RawFactRow>(normalizedCategory, normalizedContent);
+
+  return row ? parseFactRow(row) : null;
 }
 
 export function invalidateFact(factId: number): void {
