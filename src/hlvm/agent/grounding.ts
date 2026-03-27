@@ -97,7 +97,7 @@ function extractClaimedToolNames(response: string): string[] {
       }
     }
   }
-  return Array.from(names);
+  return [...names];
 }
 
 /**

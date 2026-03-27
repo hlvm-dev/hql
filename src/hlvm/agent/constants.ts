@@ -533,5 +533,3 @@ export const EXIT_CODES = {
   SUCCESS: 0,
   GENERAL_FAILURE: 1,
 } as const;
-
-export type ExitCode = typeof EXIT_CODES[keyof typeof EXIT_CODES];

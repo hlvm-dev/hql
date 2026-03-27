@@ -16,6 +16,7 @@ import {
 } from "../types.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 import { STATUS_GLYPHS } from "../ui-constants.ts";
+import { getShellContentWidth } from "../utils/layout-tokens.ts";
 
 import { truncate } from "../../../../common/utils.ts";
 import { useConversationSpinnerFrame } from "../hooks/useConversationMotion.ts";
@@ -90,6 +91,10 @@ interface FooterLeftState {
   tone: "muted" | "warning";
 }
 
+function isDefaultModeLabel(label: string | undefined): boolean {
+  return !label || label === "Default mode";
+}
+
 export function buildFooterLeftState({
   inConversation,
   isEvaluating,
@@ -104,7 +109,7 @@ export function buildFooterLeftState({
   hasPendingQuestion,
   suppressInteractionHints,
   teamActive,
-  teamAttentionCount,
+  teamAttentionCount: _teamAttentionCount,
   teamFocusLabel,
   teamWorkerSummary,
   pendingInteractionLabel,
@@ -122,34 +127,40 @@ export function buildFooterLeftState({
     : summarizedModeLabel;
   const queuedCount = Math.max(0, interactionQueueLength - 1);
   const teamChip: ShellFooterSegment | null = teamActive
-    ? { text: "Team", tone: "active", chip: true }
+    ? { text: "Team", tone: "active" }
     : null;
-  const teamFocusChip: ShellFooterSegment | null =
-    teamActive && teamFocusLabel
-      ? { text: `To ${teamFocusLabel}`, tone: "active", chip: true }
-      : null;
+  const showTeamControls = teamActive &&
+    !hasDraftInput &&
+    streamingState !== ConversationStreamingState.Responding;
+  const teamFocusChip: ShellFooterSegment | null = teamActive && teamFocusLabel
+    ? { text: `To ${teamFocusLabel}`, tone: "active" }
+    : null;
   const teamWorkerSegment: ShellFooterSegment | null =
     teamActive && teamWorkerSummary
       ? { text: teamWorkerSummary, tone: "muted" }
       : null;
-  const teamHint = teamActive
-    ? `Shift+Down teammate · Ctrl+T${
-      teamAttentionCount && teamAttentionCount > 0
-        ? ` (${teamAttentionCount})`
-        : " team"
-    }`
-    : "";
+  const teamCycleSegment: ShellFooterSegment | null = showTeamControls &&
+      !teamWorkerSegment
+    ? { text: "Shift+Down teammate", tone: "muted" }
+    : null;
+  const teamSessionSegment: ShellFooterSegment | null =
+    showTeamControls && teamFocusLabel
+      ? { text: "Enter session", tone: "muted" }
+      : null;
+  const teamManageSegment: ShellFooterSegment | null = showTeamControls &&
+      teamWorkerSegment
+    ? { text: "Ctrl+T manager", tone: "muted" }
+    : null;
   const bgChip: ShellFooterSegment | null = activeTaskCount > 0
     ? {
       text: `${STATUS_GLYPHS.running} ${activeTaskCount} tasks`,
       tone: "active",
-      chip: true,
     }
     : null;
   const bgTaskHint: ShellFooterSegment | null =
     recentActiveTaskLabel && activeTaskCount > 0
       ? {
-        text: `${truncate(recentActiveTaskLabel, 24)} \u00B7 Ctrl+J tasks`,
+        text: `${truncate(recentActiveTaskLabel, 24)} \u00B7 Ctrl+T tasks`,
         tone: "muted",
       }
       : null;
@@ -167,44 +178,46 @@ export function buildFooterLeftState({
 
     const segments: ShellFooterSegment[] = [];
     const isFullAuto = modeChip === "Full auto";
+    const shouldShowModeChip = !isDefaultModeLabel(modeChip);
 
     // Full auto gets red chip, others get plain text segment
     if (isFullAuto) {
       segments.push({ text: modeChip, tone: "error", chip: true });
-    } else if (modeChip) {
+    } else if (shouldShowModeChip && modeChip) {
       segments.push({ text: modeChip, tone: "muted" });
     }
 
     if (teamChip) segments.push(teamChip);
     if (teamFocusChip) segments.push(teamFocusChip);
-    if (teamHint) {
-      segments.push({ text: teamHint, tone: "muted" });
-    }
+    if (teamCycleSegment) segments.push(teamCycleSegment);
+    if (teamSessionSegment) segments.push(teamSessionSegment);
     if (teamWorkerSegment) segments.push(teamWorkerSegment);
+    if (teamManageSegment) segments.push(teamManageSegment);
     if (bgChip) segments.push(bgChip);
     if (bgTaskHint) segments.push(bgTaskHint);
     if (conversationQueueCount > 0) {
       segments.push({
         text: `+${conversationQueueCount} chat`,
         tone: "active",
-        chip: true,
       });
     }
     if (localEvalQueueCount > 0) {
       segments.push({
         text: `+${localEvalQueueCount} eval`,
         tone: "active",
-        chip: true,
       });
     }
 
-    const hintText = isEvaluating
-      ? "Ctrl+B background \u00B7 Esc cancels"
-      : teamActive
-      ? ""
-      : (isFullAuto || modeChip)
-      ? "Shift+Tab cycles"
-      : "";
+    if (isEvaluating) {
+      return {
+        mode: "message",
+        segments: [],
+        text: "Ctrl+B background \u00B7 Esc cancels",
+        tone: "muted",
+      };
+    }
+
+    const hintText = segments.length === 0 ? "? for shortcuts" : "";
     if (hintText) {
       segments.push({ text: hintText, tone: "muted" });
     }
@@ -269,11 +282,12 @@ export function buildFooterLeftState({
 
   const segments: ShellFooterSegment[] = [];
   const isFullAuto = modeChip === "Full auto";
+  const shouldShowModeChip = !isDefaultModeLabel(modeChip);
 
   // Full auto gets red chip, others get plain text segment
   if (isFullAuto) {
     segments.push({ text: modeChip, tone: "error", chip: true });
-  } else if (modeChip) {
+  } else if (shouldShowModeChip && modeChip) {
     segments.push({ text: modeChip, tone: "muted" });
   }
 
@@ -281,38 +295,30 @@ export function buildFooterLeftState({
     segments.push({
       text: `+${queuedCount} queued`,
       tone: "active",
-      chip: true,
     });
   }
   if (conversationQueueCount > 0) {
     segments.push({
       text: `+${conversationQueueCount} chat`,
       tone: "active",
-      chip: true,
     });
   }
   if (localEvalQueueCount > 0) {
     segments.push({
       text: `+${localEvalQueueCount} eval`,
       tone: "active",
-      chip: true,
     });
   }
   if (teamChip) segments.push(teamChip);
   if (teamFocusChip) segments.push(teamFocusChip);
-  if (
-    teamHint &&
-    streamingState !== ConversationStreamingState.Responding &&
-    !(planningPhase && planningPhase !== "done")
-  ) {
-    segments.push({ text: teamHint, tone: "muted" });
-  }
+  if (teamCycleSegment) segments.push(teamCycleSegment);
+  if (teamSessionSegment) segments.push(teamSessionSegment);
   if (teamWorkerSegment) segments.push(teamWorkerSegment);
+  if (teamManageSegment) segments.push(teamManageSegment);
   if (planningPhase && planningPhase !== "done") {
     segments.push({
       text: getPlanPhaseLabel(planningPhase),
       tone: "active",
-      chip: true,
     });
   }
   if (bgChip) segments.push(bgChip);
@@ -334,10 +340,8 @@ export function buildFooterLeftState({
     ? hasDraftInput ? "Tab queues · Ctrl+Enter forces" : "Esc cancels"
     : planningPhase && planningPhase !== "done"
     ? "Esc clears plan"
-    : teamActive
-    ? ""
-    : (isFullAuto || modeChip)
-    ? "Shift+Tab cycles"
+    : segments.length === 0
+    ? "? for shortcuts"
     : "";
   if (hintText) {
     segments.push({
@@ -447,7 +451,7 @@ export const FooterHint = React.memo(function FooterHint({
   });
 
   const rawTerminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
-  const contentWidth = Math.max(20, rawTerminalWidth - 2);
+  const contentWidth = getShellContentWidth(rawTerminalWidth);
 
   // Single line: left status ... right model info
   const maxRightWidth = Math.max(8, Math.floor(contentWidth * 0.45));

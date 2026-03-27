@@ -14,14 +14,7 @@ export { TurnStats } from "./TurnStats.tsx";
 export { DelegateItem } from "./DelegateItem.tsx";
 
 // Tool display components
-export { ToolStatusIcon } from "./ToolStatusIcon.tsx";
-export { ToolCallItem } from "./ToolCallItem.tsx";
 export { ToolGroup } from "./ToolGroup.tsx";
-export { ToolResult } from "./ToolResult.tsx";
-export { ProgressBar } from "./ProgressBar.tsx";
-
-// Diff renderer
-export { default as DiffRenderer } from "./DiffRenderer.tsx";
 
 // HQL eval display
 export { HqlEvalDisplay } from "./HqlEvalDisplay.tsx";
@@ -35,4 +28,3 @@ export { TeamEventItem } from "./TeamEventItem.tsx";
 // Dialog components
 export { ConfirmationDialog } from "./ConfirmationDialog.tsx";
 export { QuestionDialog } from "./QuestionDialog.tsx";
-export { InteractionPicker } from "./InteractionPicker.tsx";

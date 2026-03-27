@@ -44,7 +44,6 @@ import {
   requestPlan,
   stripStepMarkers,
 } from "./planning.ts";
-import { listAgentProfiles } from "./agent-registry.ts";
 import type { OrchestratorConfig } from "./orchestrator.ts";
 import {
   checkToolResultBytesLimit,
@@ -566,7 +565,7 @@ async function maybeDraftPlanFromResearch(
   });
 
   try {
-    const agentNames = listAgentProfiles(config.agentProfiles).map((agent) =>
+    const agentNames = (config.agentProfiles ?? []).map((agent) =>
       agent.name
     );
     const plan = await withDraftingToolLock(

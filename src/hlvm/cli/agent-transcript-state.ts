@@ -19,6 +19,7 @@ import {
   type MemoryActivityItem,
   type StreamingState,
   StreamingState as ConversationStreamingState,
+  type TeamMemberActivityInfoItem,
   type StructuredTeamInfoItem,
   type TeamMessageInfoItem,
   type TeamPlanReviewInfoItem,
@@ -170,7 +171,7 @@ function withoutTransientItems(state: TranscriptState): TranscriptState {
 
 function cleanupTransientItems(items: ConversationItem[]): ConversationItem[] {
   return removeTransientInfoItems(items).flatMap((item) => {
-    if (item.type === "thinking" && item.summary.trim().length === 0) return [];
+    if (item.type === "thinking") return [];
     if (item.type === "assistant" && item.isPending) {
       return item.text.trim().length > 0 ? [{ ...item, isPending: false }] : [];
     }
@@ -198,6 +199,7 @@ function appendInfoItem(
 type StructuredTeamInfoInput =
   | Omit<TeamTaskInfoItem, "id" | "type" | "text" | "ts">
   | Omit<TeamMessageInfoItem, "id" | "type" | "text" | "ts">
+  | Omit<TeamMemberActivityInfoItem, "id" | "type" | "text" | "ts">
   | Omit<TeamPlanReviewInfoItem, "id" | "type" | "text" | "ts">
   | Omit<TeamShutdownInfoItem, "id" | "type" | "text" | "ts">;
 
@@ -234,6 +236,12 @@ function describeTeamMessage(
   return event.toMemberId
     ? `Team ${event.kind}: ${event.fromMemberId} -> ${event.toMemberId}: ${event.contentPreview}`
     : `Team ${event.kind}: ${event.fromMemberId}: ${event.contentPreview}`;
+}
+
+function describeTeamMemberActivity(
+  event: Extract<AgentUIEvent, { type: "team_member_activity" }>,
+): string {
+  return `Team worker ${event.memberLabel}: ${event.summary}`;
 }
 
 function describeTeamPlanReview(
@@ -748,6 +756,20 @@ export function reduceTranscriptState(
             },
             describeTeamMessage(event),
           );
+        case "team_member_activity":
+          return appendStructuredTeamInfoItem(
+            withoutTransientItems(state),
+            {
+              teamEventType: "team_member_activity",
+              memberId: event.memberId,
+              memberLabel: event.memberLabel,
+              threadId: event.threadId,
+              activityKind: event.activityKind,
+              status: event.status,
+              summary: event.summary,
+            },
+            describeTeamMemberActivity(event),
+          );
         case "team_plan_review_required":
           return appendStructuredTeamInfoItem(
             withoutTransientItems(state),
@@ -1089,6 +1111,10 @@ export function reduceTranscriptState(
     }
     case "hql_eval": {
       let nextState = state;
+      let turnId = state.currentTurnId;
+      if (!turnId) {
+        [nextState, turnId] = nextTurnId(nextState);
+      }
       let id: string;
       [nextState, id] = nextItemId(nextState);
       const evalItem: HqlEvalItem = {
@@ -1097,6 +1123,7 @@ export function reduceTranscriptState(
         input: input.input.trim(),
         result: input.result,
         ts: Date.now(),
+        turnId,
       };
       return {
         ...nextState,

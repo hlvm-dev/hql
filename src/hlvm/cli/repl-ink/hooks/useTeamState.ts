@@ -55,6 +55,26 @@ export interface TeamMemberItem {
   currentTaskGoal?: string;
 }
 
+export interface MemberActivityItem {
+  id: string;
+  summary: string;
+  status: "active" | "success" | "error";
+  activityKind:
+    | "message"
+    | "task"
+    | "review"
+    | "shutdown"
+    | "reasoning"
+    | "planning"
+    | "plan_created"
+    | "plan_step"
+    | "tool_start"
+    | "tool_end"
+    | "turn_stats";
+  ts: number;
+  threadId?: string;
+}
+
 export interface PendingApprovalItem {
   id: string;
   taskId: string;
@@ -76,6 +96,7 @@ export interface TeamDashboardState {
   active: boolean;
   workers: WorkerStatus[];
   members: TeamMemberItem[];
+  memberActivity: Record<string, MemberActivityItem[]>;
   taskBoard: TaskBoardItem[];
   pendingApprovals: PendingApprovalItem[];
   shutdowns: ShutdownItem[];
@@ -233,6 +254,15 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
           readBy: [item.fromMemberId],
         });
         break;
+      case "team_member_activity": {
+        ensureMember(snapshot, item.memberId, ts);
+        const member = snapshot.members.find((entry) => entry.id === item.memberId);
+        if (member) {
+          member.updatedAt = Math.max(member.updatedAt, ts);
+          if (item.threadId) member.threadId = item.threadId;
+        }
+        break;
+      }
       case "team_plan_review": {
         ensureMember(snapshot, item.submittedByMemberId, ts);
         if (item.reviewedByMemberId) {
@@ -300,6 +330,7 @@ const EMPTY_TEAM_STATE: TeamDashboardState = Object.freeze({
   active: false,
   workers: [],
   members: [],
+  memberActivity: {},
   taskBoard: [],
   pendingApprovals: [],
   shutdowns: [],
@@ -318,6 +349,89 @@ export function deriveTeamDashboardState(items: ConversationItem[]): TeamDashboa
   const workers: WorkerStatus[] = [];
   const attentionItems: AttentionItem[] = [];
   const snapshot = applyStructuredTeamItems(items);
+  const memberActivity: Record<string, MemberActivityItem[]> = {};
+
+  const appendMemberActivity = (
+    memberId: string | undefined,
+    entry: MemberActivityItem,
+  ): void => {
+    if (!memberId) return;
+    if (!memberActivity[memberId]) memberActivity[memberId] = [];
+    memberActivity[memberId]!.unshift(entry);
+    if (memberActivity[memberId]!.length > 8) {
+      memberActivity[memberId] = memberActivity[memberId]!.slice(0, 8);
+    }
+  };
+
+  for (const item of items) {
+    if (!isStructuredTeamInfoItem(item)) continue;
+    const ts = item.ts ?? Date.now();
+    switch (item.teamEventType) {
+      case "team_member_activity":
+        appendMemberActivity(item.memberId, {
+          id: item.id,
+          summary: item.summary,
+          status: item.status,
+          activityKind: item.activityKind,
+          ts,
+          threadId: item.threadId,
+        });
+        break;
+      case "team_message":
+        appendMemberActivity(item.fromMemberId, {
+          id: item.id,
+          summary: item.toMemberId
+            ? `Message to ${item.toMemberId}: ${item.contentPreview}`
+            : `Broadcast: ${item.contentPreview}`,
+          status: "active",
+          activityKind: "message",
+          ts,
+        });
+        break;
+      case "team_task_updated":
+        appendMemberActivity(item.assigneeMemberId, {
+          id: item.id,
+          summary: `Task ${item.status}: ${item.goal}`,
+          status: item.status === "completed"
+            ? "success"
+            : item.status === "errored"
+            ? "error"
+            : "active",
+          activityKind: "task",
+          ts,
+          threadId: typeof item.artifacts?.threadId === "string"
+            ? item.artifacts.threadId
+            : undefined,
+        });
+        break;
+      case "team_plan_review":
+        appendMemberActivity(item.submittedByMemberId, {
+          id: item.id,
+          summary: `Plan review ${item.status} for task ${item.taskId}`,
+          status: item.status === "approved"
+            ? "success"
+            : item.status === "rejected"
+            ? "error"
+            : "active",
+          activityKind: "review",
+          ts,
+        });
+        break;
+      case "team_shutdown":
+        appendMemberActivity(item.memberId, {
+          id: item.id,
+          summary: item.reason
+            ? `Shutdown ${item.status}: ${item.reason}`
+            : `Shutdown ${item.status}`,
+          status: item.status === "forced" ? "error" : "active",
+          activityKind: "shutdown",
+          ts,
+        });
+        break;
+      case "team_runtime_snapshot":
+        break;
+    }
+  }
 
   const delegateItems = items.filter(
     (item): item is DelegateItem => item.type === "delegate",
@@ -481,12 +595,14 @@ export function deriveTeamDashboardState(items: ConversationItem[]): TeamDashboa
 
   return {
     active: workers.length > 0 ||
+      Object.keys(memberActivity).length > 0 ||
       taskBoard.length > 0 ||
       messageCount > 0 ||
       pendingApprovals.length > 0 ||
       shutdowns.length > 0,
     workers,
     members,
+    memberActivity,
     taskBoard,
     pendingApprovals,
     shutdowns,

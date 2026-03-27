@@ -11,7 +11,6 @@ import {
   type AgentConversationItem,
   type AssistantCitation,
   type ConversationItem,
-  isStructuredTeamInfoItem,
   type StreamingState,
   StreamingState as ConversationStreamingState,
 } from "../types.ts";
@@ -32,6 +31,7 @@ import {
   computeConversationViewport,
   getConversationVisibleCount,
 } from "../utils/conversation-viewport.ts";
+import { shouldRenderTimelineItem } from "../utils/timeline-visibility.ts";
 import {
   executeHandler,
   HandlerIds,
@@ -97,13 +97,6 @@ function estimateWrappedRows(text: string, width: number): number {
   return text.split("\n").reduce((rows: number, line: string) => {
     return rows + Math.max(1, Math.ceil(Array.from(line).length / usableWidth));
   }, 0);
-}
-
-function shouldRenderConversationItem(item: ConversationItem): boolean {
-  return !(
-    isStructuredTeamInfoItem(item) &&
-    item.teamEventType === "team_runtime_snapshot"
-  );
 }
 
 function getToggleTargets(items: ConversationItem[]): ToggleTarget[] {
@@ -198,7 +191,7 @@ export function getConversationDisplayItems(
       ? findCurrentTurnStartIndex(items)
       : -1;
   return items.filter((item, itemIndex) => {
-    if (!shouldRenderConversationItem(item)) {
+    if (!shouldRenderTimelineItem(item)) {
       return false;
     }
     // Picker prompt suppression (unchanged)
@@ -249,7 +242,7 @@ function renderItem(
   isDelegateExpanded: (delegateId: string) => boolean,
   isMemoryExpanded: (memoryId: string) => boolean,
 ): React.ReactElement | null {
-  if (!shouldRenderConversationItem(item)) {
+  if (!shouldRenderTimelineItem(item)) {
     return null;
   }
 

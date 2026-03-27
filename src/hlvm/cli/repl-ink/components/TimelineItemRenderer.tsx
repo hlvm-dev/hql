@@ -36,6 +36,7 @@ interface TimelineItemRendererProps {
   width: number;
   activeThinkingId?: string;
   compactSpacing?: boolean;
+  showDividerBefore?: boolean;
   isToolExpanded?: (toolId: string) => boolean;
   isThinkingExpanded?: (thinkingId: string) => boolean;
   isDelegateExpanded?: (delegateId: string) => boolean;
@@ -108,6 +109,7 @@ export function TimelineItemRenderer(
     width,
     activeThinkingId,
     compactSpacing = false,
+    showDividerBefore = false,
     isToolExpanded,
     isThinkingExpanded,
     isDelegateExpanded,
@@ -121,6 +123,7 @@ export function TimelineItemRenderer(
         attachments={item.attachments}
         width={width}
         compactSpacing={compactSpacing}
+        showDividerBefore={showDividerBefore}
       />
     );
   }

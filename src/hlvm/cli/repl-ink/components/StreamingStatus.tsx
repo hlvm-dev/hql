@@ -13,7 +13,6 @@ import { STATUS_GLYPHS } from "../ui-constants.ts";
 
 interface StreamingStatusProps {
   isStreaming: boolean;
-  startTime: number;
 }
 
 export const StreamingStatus = React.memo(function StreamingStatus({

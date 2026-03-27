@@ -26,38 +26,46 @@ import {
   type ToggleTarget,
 } from "./TimelineItemRenderer.tsx";
 import { compactPlanTranscriptItems } from "./conversation/plan-flow.ts";
+import { shouldRenderTranscriptDividerBeforeIndex } from "../utils/layout-tokens.ts";
+import { filterRenderableTimelineItems } from "../utils/timeline-visibility.ts";
 
 const CONVERSATION_KEYBINDING_CATEGORIES = ["Conversation"] as const;
 
 interface TranscriptHistoryProps {
   historyItems: AgentConversationItem[];
+  liveItems?: AgentConversationItem[];
   evalHistory: HqlEvalItem[];
   width: number;
   reservedRows?: number;
   compactPlanTranscript?: boolean;
   allowToggleHotkeys?: boolean;
+  expandAll?: boolean;
 }
 
 export function TranscriptHistory(
   {
     historyItems,
+    liveItems = [],
     evalHistory,
     width,
     reservedRows = 8,
     compactPlanTranscript = false,
     allowToggleHotkeys = true,
+    expandAll = false,
   }: TranscriptHistoryProps,
 ): React.ReactElement | null {
   const sc = useSemanticColors();
   const { stdout } = useStdout();
   const items = useMemo<ShellHistoryEntry[]>(
-    () => [
-      ...(compactPlanTranscript
-        ? compactPlanTranscriptItems(historyItems)
-        : historyItems),
-      ...evalHistory,
-    ],
-    [compactPlanTranscript, evalHistory, historyItems],
+    () =>
+      filterRenderableTimelineItems([
+        ...(compactPlanTranscript
+          ? compactPlanTranscriptItems(historyItems)
+          : historyItems),
+        ...liveItems,
+        ...evalHistory,
+      ]),
+    [compactPlanTranscript, evalHistory, historyItems, liveItems],
   );
   const [scrollOffsetFromBottom, setScrollOffsetFromBottom] = useState(0);
   const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(
@@ -116,20 +124,22 @@ export function TranscriptHistory(
   );
 
   const isToolExpanded = useCallback(
-    (toolId: string): boolean => expandedToolIds.has(toolId),
-    [expandedToolIds],
+    (toolId: string): boolean => expandAll || expandedToolIds.has(toolId),
+    [expandAll, expandedToolIds],
   );
   const isThinkingExpanded = useCallback(
-    (thinkingId: string): boolean => expandedThinkingIds.has(thinkingId),
-    [expandedThinkingIds],
+    (thinkingId: string): boolean =>
+      expandAll || expandedThinkingIds.has(thinkingId),
+    [expandAll, expandedThinkingIds],
   );
   const isDelegateExpanded = useCallback(
-    (delegateId: string): boolean => expandedDelegateIds.has(delegateId),
-    [expandedDelegateIds],
+    (delegateId: string): boolean =>
+      expandAll || expandedDelegateIds.has(delegateId),
+    [expandAll, expandedDelegateIds],
   );
   const isMemoryExpanded = useCallback(
-    (memoryId: string): boolean => expandedMemoryIds.has(memoryId),
-    [expandedMemoryIds],
+    (memoryId: string): boolean => expandAll || expandedMemoryIds.has(memoryId),
+    [expandAll, expandedMemoryIds],
   );
 
   const toggleTarget = useCallback((target: ToggleTarget): void => {
@@ -220,12 +230,17 @@ export function TranscriptHistory(
           earlier item{viewport.hiddenAbove === 1 ? "" : "s"}
         </Text>
       )}
-      {visibleItems.map((item: ShellHistoryEntry) => (
+      {visibleItems.map((item: ShellHistoryEntry, visibleIndex: number) => (
         <Box key={item.id}>
           <TimelineItemRenderer
             item={item}
             width={width}
             compactSpacing
+            showDividerBefore={shouldRenderTranscriptDividerBeforeIndex(
+              items,
+              viewport.start + visibleIndex,
+              viewport.start > 0,
+            )}
             isToolExpanded={isToolExpanded}
             isThinkingExpanded={isThinkingExpanded}
             isDelegateExpanded={isDelegateExpanded}

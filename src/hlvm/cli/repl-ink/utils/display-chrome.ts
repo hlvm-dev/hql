@@ -72,16 +72,3 @@ export function buildBalancedTextRow(
   };
 }
 
-/** @deprecated Use `buildBalancedTextRow` with `{ maxRightWidth }` instead. */
-export function buildRightSlotTextLayout(
-  width: number,
-  left: string,
-  right: string,
-  rightSlotWidth: number,
-  minGap = 2,
-): TwoColumnTextLayout {
-  return buildBalancedTextRow(width, left, right, {
-    minGap,
-    maxRightWidth: rightSlotWidth,
-  });
-}

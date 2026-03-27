@@ -4,13 +4,12 @@ import { truncate } from "../../../../../common/utils.ts";
 import { listDelegateTranscriptLines } from "../../../../agent/delegate-transcript.ts";
 import { useSemanticColors } from "../../../theme/index.ts";
 import type { DelegateItem as DelegateItemData } from "../../types.ts";
-import { ChromeChip } from "../ChromeChip.tsx";
 import {
-  buildConversationSectionText,
   buildDelegateHeaderText,
   getDelegateStatusGlyph,
   getDelegateStatusTone,
 } from "./conversation-chrome.ts";
+import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 
 interface DelegateItemProps {
   item: DelegateItemData;
@@ -48,56 +47,53 @@ export const DelegateItem = React.memo(function DelegateItem(
   );
 
   return (
-    <Box flexDirection="row" width={width} marginBottom={1}>
-      <Box width={4} flexShrink={0}>
-        <Text color={accent} bold>{icon}</Text>
-      </Box>
+    <Box flexDirection="column" width={width} marginBottom={1}>
       <Box
-        flexDirection="column"
-        flexGrow={1}
-        borderStyle="round"
-        borderLeft
-        borderRight={false}
-        borderTop={false}
-        borderBottom={false}
-        borderColor={accent}
-        paddingLeft={1}
+        flexDirection="row"
+        paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
+        width={width}
       >
-        <Box>
-          <Text bold color={accent}>{headerLayout.leftText}</Text>
-          {headerLayout.gapWidth > 0 && (
-            <Text>{" ".repeat(headerLayout.gapWidth)}</Text>
+        <Text color={accent} bold>{icon}</Text>
+        <Text color={accent}>{" "}</Text>
+        <Text bold color={accent}>
+          {truncate(
+            `${headerLayout.leftText} · ${item.task}`,
+            Math.max(10, width - 4 - TRANSCRIPT_LAYOUT.detailIndent),
+            "…",
           )}
-          <Text color={sc.text.muted}>{headerLayout.rightText}</Text>
-        </Box>
-        <Text color={sc.text.secondary}>
-          {truncate(item.task, Math.max(10, width - 8), "…")}
         </Text>
-        {body && (
-          <Text
-            color={item.status === "error" ? sc.status.error : sc.text.muted}
-          >
-            {truncate(body, Math.max(10, width - 8), "…")}
-          </Text>
+        {headerLayout.rightText && (
+          <>
+            <Text color={sc.text.muted}>{" "}</Text>
+            <Text color={sc.text.muted}>{headerLayout.rightText}</Text>
+          </>
         )}
-        {item.childSessionId && (
-          <Text color={sc.text.muted}>
-            {truncate(
-              `child session: ${item.childSessionId}`,
-              Math.max(10, width - 8),
-              "…",
-            )}
-          </Text>
-        )}
-        {expanded && item.snapshot && (
-          <Box flexDirection="column" marginTop={1}>
-            <Box marginBottom={0}>
-              <ChromeChip text={` ${icon} transcript `} tone={tone} />
-            </Box>
-            <Text color={sc.chrome.sectionLabel}>
-              {buildConversationSectionText("Events", Math.max(10, width - 8))}
+      </Box>
+      {expanded && (
+        <Box
+          flexDirection="column"
+          paddingLeft={TRANSCRIPT_LAYOUT.detailIndent * 2}
+          marginTop={1}
+        >
+          {body && (
+            <Text
+              color={item.status === "error" ? sc.status.error : sc.text.muted}
+              wrap="wrap"
+            >
+              {truncate(body, Math.max(10, width - 8), "…")}
             </Text>
-            {listDelegateTranscriptLines(item.snapshot).map((line, index) => (
+          )}
+          {item.childSessionId && (
+            <Text color={sc.text.muted}>
+              {truncate(
+                `child session: ${item.childSessionId}`,
+                Math.max(10, width - 8),
+                "…",
+              )}
+            </Text>
+          )}
+          {item.snapshot &&
+            listDelegateTranscriptLines(item.snapshot).map((line, index) => (
               <React.Fragment key={`${item.id}-event-${index}`}>
                 <Text color={sc.text.muted}>
                   {truncate(
@@ -108,9 +104,8 @@ export const DelegateItem = React.memo(function DelegateItem(
                 </Text>
               </React.Fragment>
             ))}
-          </Box>
-        )}
-      </Box>
+        </Box>
+      )}
     </Box>
   );
 });

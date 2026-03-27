@@ -175,48 +175,19 @@ function ensureHelpers(): void {
     },
   });
 
-  if (!Object.getOwnPropertyDescriptor(globalAny, "_")) {
-    Object.defineProperty(globalAny, "_", {
-      configurable: true,
-      get() {
-        const current = placeholderStore.value;
-        return current === undefined ? placeholderProxy : current;
-      },
-      set(value) {
-        placeholderStore.value = value;
-        return true;
-      },
-    });
-  } else {
-    const original = Object.getOwnPropertyDescriptor(globalAny, "_");
-    if (original?.set) {
-      const prevSetter = original.set;
-      Object.defineProperty(globalAny, "_", {
-        configurable: true,
-        get() {
-          const current = placeholderStore.value;
-          return current === undefined ? placeholderProxy : current;
-        },
-        set(value) {
-          placeholderStore.value = value;
-          prevSetter.call(globalAny, value);
-          return true;
-        },
-      });
-    } else {
-      Object.defineProperty(globalAny, "_", {
-        configurable: true,
-        get() {
-          const current = placeholderStore.value;
-          return current === undefined ? placeholderProxy : current;
-        },
-        set(value) {
-          placeholderStore.value = value;
-          return true;
-        },
-      });
-    }
-  }
+  const prevSetter = Object.getOwnPropertyDescriptor(globalAny, "_")?.set;
+  Object.defineProperty(globalAny, "_", {
+    configurable: true,
+    get() {
+      const current = placeholderStore.value;
+      return current === undefined ? placeholderProxy : current;
+    },
+    set(value) {
+      placeholderStore.value = value;
+      prevSetter?.call(globalAny, value);
+      return true;
+    },
+  });
 
   // Use the shared __hql_get implementation from runtime-helper-impl.ts
   // This ensures REPL and transpiled code have identical behavior (including function calling)

@@ -3,6 +3,7 @@ import {
   resolveConversationEscapeAction,
   shouldAutoCloseConversationSurface,
   shouldRenderMainBanner,
+  shouldRenderShellLanes,
 } from "../../../src/hlvm/cli/repl-ink/utils/app-surface.ts";
 
 Deno.test("shouldAutoCloseConversationSurface stays open while a conversation run is starting", () => {
@@ -85,7 +86,7 @@ Deno.test("shouldAutoCloseConversationSurface stays open while plan state still 
   );
 });
 
-Deno.test("shouldRenderMainBanner keeps the banner visible during normal conversation flow", () => {
+Deno.test("shouldRenderMainBanner keeps the banner visible on a pristine shell", () => {
   assertEquals(
     shouldRenderMainBanner({
       showBanner: true,
@@ -129,6 +130,52 @@ Deno.test("shouldRenderMainBanner keeps the banner visible during active plan fl
       isOverlayOpen: false,
       hasStandaloneSurface: false,
       hasActivePlanningState: true,
+    }),
+    true,
+  );
+});
+
+Deno.test("shouldRenderShellLanes stays collapsed for an empty start screen", () => {
+  assertEquals(
+    shouldRenderShellLanes({
+      historyItemCount: 0,
+      localEvalQueueCount: 0,
+      liveItemCount: 0,
+      liveTodoCount: 0,
+      hasPendingInteraction: false,
+    }),
+    false,
+  );
+});
+
+Deno.test("shouldRenderShellLanes keeps transcript spacing when shell content exists", () => {
+  assertEquals(
+    shouldRenderShellLanes({
+      historyItemCount: 1,
+      localEvalQueueCount: 0,
+      liveItemCount: 0,
+      liveTodoCount: 0,
+      hasPendingInteraction: false,
+    }),
+    true,
+  );
+  assertEquals(
+    shouldRenderShellLanes({
+      historyItemCount: 0,
+      localEvalQueueCount: 0,
+      liveItemCount: 0,
+      liveTodoCount: 1,
+      hasPendingInteraction: false,
+    }),
+    true,
+  );
+  assertEquals(
+    shouldRenderShellLanes({
+      historyItemCount: 0,
+      localEvalQueueCount: 0,
+      liveItemCount: 0,
+      liveTodoCount: 0,
+      hasPendingInteraction: true,
     }),
     true,
   );

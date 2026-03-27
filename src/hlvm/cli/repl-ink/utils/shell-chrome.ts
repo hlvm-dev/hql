@@ -1,10 +1,9 @@
 import { truncate } from "../../../../common/utils.ts";
 import { formatProgressBar } from "./formatting.ts";
 
-export const SHELL_PROMPT_LABELS = ["hlvm>", "answer>"] as const;
 export const SHELL_SEGMENT_SEPARATOR = " · ";
 
-export type ShellFooterSegmentTone =
+type ShellFooterSegmentTone =
   | "neutral"
   | "active"
   | "warning"
@@ -61,7 +60,7 @@ export function summarizeModeLabel(modeLabel?: string): string | undefined {
   return modeLabel.replace(/\s*\([^)]*\)\s*$/, "").trim() || undefined;
 }
 
-export function joinShellText(
+function joinShellText(
   parts: Array<string | undefined | null | false>,
 ): string {
   return parts.filter((part): part is string => Boolean(part && part.trim()))
@@ -72,7 +71,7 @@ export function formatShellFooterText(segments: ShellFooterSegment[]): string {
   return joinShellText(segments.map((segment) => segment.text));
 }
 
-export function measureShellFooterSegments(
+function measureShellFooterSegments(
   segments: ShellFooterSegment[],
 ): number {
   return segments.reduce((total, segment, index) => {
@@ -92,15 +91,11 @@ export function fitShellFooterSegments(
 
   const fitted = segments.slice();
   while (fitted.length > 0 && measureShellFooterSegments(fitted) > safeWidth) {
-    const targetIndex = [...fitted].reverse().findIndex((segment) =>
-      !segment.chip
-    );
-    if (targetIndex === -1) {
+    const actualIndex = fitted.findLastIndex((segment) => !segment.chip);
+    if (actualIndex === -1) {
       fitted.pop();
       continue;
     }
-
-    const actualIndex = fitted.length - 1 - targetIndex;
     const prefix = fitted.slice(0, actualIndex);
     const prefixWidth = measureShellFooterSegments(prefix) +
       (prefix.length > 0 ? SHELL_SEGMENT_SEPARATOR.length : 0);
@@ -160,7 +155,7 @@ export function buildQueuePreviewItemLine(
   };
 }
 
-export function buildQueuePreviewOverflowLine(): ShellQueuePreviewLine {
+function buildQueuePreviewOverflowLine(): ShellQueuePreviewLine {
   return {
     kind: "overflow",
     text: "+1 more queued message",

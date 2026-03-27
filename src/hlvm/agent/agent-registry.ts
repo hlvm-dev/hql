@@ -279,12 +279,6 @@ export async function loadAgentProfiles(
   return [...AGENT_PROFILES, ...projectProfiles];
 }
 
-export function listAgentProfiles(
-  profiles: readonly AgentProfile[] = AGENT_PROFILES,
-): readonly AgentProfile[] {
-  return profiles;
-}
-
 /** Common aliases LLMs use for built-in profile names. */
 const PROFILE_ALIASES: Record<string, string> = {
   "general-purpose": "general",

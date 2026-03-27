@@ -1,6 +1,5 @@
 import {
   buildBalancedTextRow,
-  buildRightSlotTextLayout,
   type TwoColumnTextLayout,
 } from "../utils/display-chrome.ts";
 import { truncate } from "../../../../common/utils.ts";
@@ -37,10 +36,10 @@ export function buildModelBrowserFocusLayout(
   selectedModelName: string | undefined,
   statusLabel: string | undefined,
 ): TwoColumnTextLayout {
-  return buildRightSlotTextLayout(
+  return buildBalancedTextRow(
     width,
     `${MODEL_BROWSER_FOCUSED_LABEL}: ${selectedModelName ?? "None"}`,
     selectedModelName && statusLabel ? `[${statusLabel}]` : "",
-    Math.max(10, Math.floor(width * 0.26)),
+    { maxRightWidth: Math.max(10, Math.floor(width * 0.26)) },
   );
 }

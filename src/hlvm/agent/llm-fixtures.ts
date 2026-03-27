@@ -258,7 +258,7 @@ function selectCase(
   fixture: LlmFixture,
   messages: AgentMessage[],
 ): FixtureCase {
-  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const lastUser = messages.findLast((m) => m.role === "user");
   const haystack = lastUser?.content ?? "";
 
   // First, try to match cases with explicit contains
@@ -309,7 +309,7 @@ function assertStepExpect(
     }
   }
 
-  const lastUser = [...messages].reverse().find((message) =>
+  const lastUser = messages.findLast((message) =>
     message.role === "user"
   );
   const attachments = lastUser?.attachments ?? [];

@@ -222,3 +222,43 @@ Deno.test("buildBackgroundTasksSummaryRows skips section items in count", () => 
   assertEquals(primary.includes("Done 1"), true);
   assertEquals(secondary.includes("1/1"), true);
 });
+
+Deno.test("buildBackgroundTasksSummaryRows prioritizes local agent counts when present", () => {
+  const items: UnifiedTaskItem[] = [
+    {
+      id: "teammate:worker-1",
+      kind: "local_agent",
+      label: "worker-1 · Inspect CLI",
+      status: "running",
+      statusText: "running",
+      icon: "●",
+      iconColor: WARN_COLOR,
+      blocked: false,
+    },
+    {
+      id: "delegate:1",
+      kind: "local_agent",
+      label: "alpha · Inspect overlay",
+      status: "idle",
+      statusText: "idle",
+      icon: "○",
+      iconColor: MUTED_COLOR,
+      blocked: false,
+    },
+  ];
+
+  const [primary, secondary] = buildBackgroundTasksSummaryRows(
+    items,
+    {
+      viewMode: "list",
+      selectedIndex: 0,
+      viewingItem: null,
+      resultLines: [],
+    },
+    64,
+  );
+
+  assertEquals(primary.includes("2 local agents"), true);
+  assertEquals(primary.includes("1 running"), true);
+  assertEquals(secondary.includes("Agent manager"), true);
+});

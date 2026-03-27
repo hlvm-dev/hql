@@ -31,6 +31,18 @@ Deno.test("buildToolCallTextLayout omits the duration slot when there is no room
   assertEquals(layout.gapWidth, 0);
 });
 
+Deno.test("buildToolCallTextLayout hides sub-second durations to keep the row quiet", () => {
+  const layout = buildToolCallTextLayout(
+    40,
+    "TaskCreate",
+    "Remove screenshots from ~/Desktop",
+    15,
+  );
+
+  assertEquals(layout.durationText, "");
+  assertEquals(layout.gapWidth, 0);
+});
+
 Deno.test("resolveCollapsedToolList returns null for small groups", () => {
   const tools = Array.from({ length: 5 }, () => ({ status: "success" }));
   assertEquals(resolveCollapsedToolList(tools), null);

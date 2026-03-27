@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import type { ChromeChipTone } from "../ChromeChip.tsx";
+import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 
 export interface InteractionPickerOption {
   label: string;
@@ -171,14 +172,7 @@ export const InteractionPicker = React.memo(function InteractionPicker(
   });
 
   return (
-    <Box
-      borderStyle="round"
-      borderColor={borderColor}
-      paddingX={1}
-      paddingY={0}
-      flexDirection="column"
-      marginBottom={0}
-    >
+    <Box flexDirection="column" marginBottom={0}>
       <Box>
         <Text color={titleColor} bold>{title}</Text>
       </Box>
@@ -197,6 +191,10 @@ export const InteractionPicker = React.memo(function InteractionPicker(
       <Box marginTop={1} flexDirection="column">
         {options.map((option, index) => {
           const isSelected = index === selectedIndex;
+          const optionBackground = isSelected ? borderColor : undefined;
+          const optionForeground = isSelected
+            ? sc.chrome.chipActive.foreground
+            : sc.text.primary;
           return (
             <Box
               key={`${option.value}-${index}`}
@@ -204,28 +202,48 @@ export const InteractionPicker = React.memo(function InteractionPicker(
             >
               <Box>
                 <Text
-                  color={isSelected ? titleColor : sc.text.muted}
-                  bold
-                >
-                  {isSelected ? "●" : " "} {index + 1}.
-                </Text>
-                <Text
-                  color={isSelected ? titleColor : sc.text.primary}
+                  backgroundColor={optionBackground}
+                  color={isSelected
+                    ? sc.chrome.chipActive.foreground
+                    : sc.text.muted}
                   bold
                 >
                   {" "}
+                  {isSelected ? ">" : " "}
+                  {" "}
+                  {index + 1}.
+                  {" "}
+                </Text>
+                <Text
+                  backgroundColor={optionBackground}
+                  color={optionForeground}
+                  bold
+                >
                   {option.label}
+                  {" "}
                 </Text>
                 {option.recommended && (
                   <>
-                    <Text color={sc.text.secondary}>{" "}</Text>
-                    <Text color={sc.status.success}>Recommended</Text>
+                    <Text
+                      backgroundColor={optionBackground}
+                      color={isSelected
+                        ? sc.chrome.chipActive.foreground
+                        : sc.status.success}
+                    >
+                      (Recommended)
+                    </Text>
+                    <Text
+                      backgroundColor={optionBackground}
+                      color={optionForeground}
+                    >
+                      {" "}
+                    </Text>
                   </>
                 )}
               </Box>
               {option.detail && (
                 <Box
-                  paddingLeft={5}
+                  paddingLeft={TRANSCRIPT_LAYOUT.pickerDetailIndent}
                   marginBottom={index < options.length - 1 ? 1 : 0}
                 >
                   <Text color={sc.text.secondary} wrap="wrap">

@@ -166,6 +166,23 @@ export interface TeamMessageInfoItem extends InfoItem {
   contentPreview: string;
 }
 
+export interface TeamMemberActivityInfoItem extends InfoItem {
+  teamEventType: "team_member_activity";
+  memberId: string;
+  memberLabel: string;
+  threadId?: string;
+  activityKind:
+    | "reasoning"
+    | "planning"
+    | "plan_created"
+    | "plan_step"
+    | "tool_start"
+    | "tool_end"
+    | "turn_stats";
+  status: "active" | "success" | "error";
+  summary: string;
+}
+
 export interface TeamPlanReviewInfoItem extends InfoItem {
   teamEventType: "team_plan_review";
   approvalId: string;
@@ -192,6 +209,7 @@ export interface TeamRuntimeSnapshotInfoItem extends InfoItem {
 export type StructuredTeamInfoItem =
   | TeamTaskInfoItem
   | TeamMessageInfoItem
+  | TeamMemberActivityInfoItem
   | TeamPlanReviewInfoItem
   | TeamShutdownInfoItem
   | TeamRuntimeSnapshotInfoItem;
@@ -241,16 +259,6 @@ export type ConversationItem =
 export type AgentConversationItem = Exclude<ConversationItem, HqlEvalItem>;
 
 export type ShellHistoryEntry = AgentConversationItem | HqlEvalItem;
-
-export interface CommittedTurn {
-  turnId?: string;
-  items: AgentConversationItem[];
-}
-
-export interface ActiveAgentTurn {
-  turnId?: string;
-  items: AgentConversationItem[];
-}
 
 export interface QueuedLocalEval {
   id: string;

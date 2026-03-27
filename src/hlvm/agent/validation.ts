@@ -4,6 +4,7 @@
  * SSOT helpers for validating tool argument shapes.
  */
 
+import { ValidationError } from "../../common/error.ts";
 import { isObjectValue, tryParseJson } from "../../common/utils.ts";
 import { getAgentLogger } from "./logger.ts";
 
@@ -15,6 +16,37 @@ export function isToolArgsObject(
   value: unknown,
 ): value is Record<string, unknown> {
   return isObjectValue(value) && !Array.isArray(value);
+}
+
+/**
+ * Require args to be a valid object, throwing ValidationError otherwise.
+ */
+export function requireArgsRecord(
+  args: unknown,
+  toolName: string,
+): Record<string, unknown> {
+  if (!isToolArgsObject(args)) {
+    throw new ValidationError("args must be an object", toolName);
+  }
+  return args;
+}
+
+/**
+ * Require a non-empty string value. Throws ValidationError if the value
+ * is not a string or is empty/whitespace-only. Returns the trimmed value.
+ *
+ * This is the SSOT for the pattern:
+ *   `if (typeof x !== "string" || x.trim() === "") throw ...`
+ */
+export function requireNonEmptyString(
+  value: unknown,
+  label: string,
+  toolName: string,
+): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new ValidationError(`${label} must be a non-empty string`, toolName);
+  }
+  return value.trim();
 }
 
 function unwrapArgsObject(

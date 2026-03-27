@@ -73,7 +73,7 @@ export function resolveConversationSessionId(
   return ensureActiveConversationSession().id;
 }
 
-export function pruneInactiveSessions(): void {
+function pruneInactiveSessions(): void {
   const now = Date.now();
   const sessions = listSessions()
     .filter((session) => session.id !== activeSessionId)

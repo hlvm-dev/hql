@@ -1,18 +1,18 @@
 import { formatDurationMs } from "../../utils/formatting.ts";
 import {
-  buildRightSlotTextLayout,
+  buildBalancedTextRow,
   buildSectionLabelText,
 } from "../../utils/display-chrome.ts";
 import { STATUS_GLYPHS } from "../../ui-constants.ts";
 
-export type ConversationStatusTone =
+type ConversationStatusTone =
   | "neutral"
   | "active"
   | "success"
   | "warning"
   | "error";
 
-export const DEFAULT_CONVERSATION_SECTION_LABEL_WIDTH = 24;
+const DEFAULT_CONVERSATION_SECTION_LABEL_WIDTH = 24;
 
 export function getDelegateStatusTone(status: string): ConversationStatusTone {
   switch (status) {
@@ -113,12 +113,9 @@ export function buildDelegateHeaderText(
   if (durationMs != null) {
     rightParts.push(formatDurationMs(durationMs));
   }
-  return buildRightSlotTextLayout(
-    width,
-    header,
-    rightParts.join(" · "),
-    Math.max(10, Math.floor(width * 0.38)),
-  );
+  return buildBalancedTextRow(width, header, rightParts.join(" · "), {
+    maxRightWidth: Math.max(10, Math.floor(width * 0.38)),
+  });
 }
 
 export function buildConversationSectionText(

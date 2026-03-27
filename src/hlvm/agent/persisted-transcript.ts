@@ -469,7 +469,7 @@ export function loadPersistedAgentChildSessionSummaries(
     const metadata = parsePersistedAgentSessionMetadata(child.metadata);
     const messages = loadAllMessages(sessionId);
     const toolMessages = messages.filter((message) => message.role === "tool");
-    const finalAssistant = [...messages].reverse().find((message) =>
+    const finalAssistant = messages.findLast((message) =>
       message.role === "assistant"
     )?.content;
     const failurePrefix = "Delegation failed:";

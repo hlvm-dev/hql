@@ -108,7 +108,6 @@ import {
   executeHandler,
   HandlerIds,
   inspectHandlerKeybinding,
-  isBareEscapeInput,
   registerHandler,
   unregisterHandler,
 } from "../keybindings/index.ts";
@@ -225,6 +224,14 @@ interface InputProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string, attachments?: AnyAttachment[]) => void;
+  /** Open a contextual view when Enter is pressed on an empty composer. */
+  onEmptySubmit?: () => void;
+  /** Move focus from the empty composer into the local-agents surface. */
+  onFocusLocalAgents?: () => boolean;
+  /** Consume keypresses while the local-agents surface owns focus. */
+  onLocalAgentsInput?: (input: string, key: EscapeKeyInfo) => boolean;
+  /** Whether the local-agents surface currently owns keyboard focus. */
+  localAgentsFocused?: boolean;
   /** Force-submit: abort current agent and send immediately (Ctrl+Enter) */
   onForceSubmit?: (value: string, attachments?: AnyAttachment[]) => void;
   /** Interrupt the currently running chat task (Esc) */
@@ -272,6 +279,13 @@ export interface EscapeKeyInfo {
   ctrl?: boolean;
   meta?: boolean;
   return?: boolean;
+  tab?: boolean;
+  backspace?: boolean;
+  delete?: boolean;
+  upArrow?: boolean;
+  downArrow?: boolean;
+  leftArrow?: boolean;
+  rightArrow?: boolean;
 }
 
 interface InputHandlerActions {
@@ -308,7 +322,16 @@ interface InputHandlerActions {
 }
 
 export function isPureEscKeyEvent(input: string, key: EscapeKeyInfo): boolean {
-  return isBareEscapeInput(input, key);
+  return !key.ctrl &&
+    !key.return &&
+    !key.tab &&
+    !key.backspace &&
+    !key.delete &&
+    !key.upArrow &&
+    !key.downArrow &&
+    !key.leftArrow &&
+    !key.rightArrow &&
+    (input === "\x1b" || (key.escape === true && !input));
 }
 
 export function shouldInterruptConversationOnEsc(
@@ -332,6 +355,10 @@ export function Input({
   value,
   onChange,
   onSubmit,
+  onEmptySubmit,
+  onFocusLocalAgents,
+  onLocalAgentsInput,
+  localAgentsFocused = false,
   onForceSubmit,
   onInterruptRunningTask,
   onQueueDraft,
@@ -2120,6 +2147,21 @@ export function Input({
 
     const isEnterLikeInput = key.return;
 
+    if (localAgentsFocused && onLocalAgentsInput?.(input, key)) {
+      return;
+    }
+
+    if (
+      !localAgentsFocused &&
+      key.downArrow &&
+      cursorPos === 0 &&
+      value.length === 0 &&
+      attachments.length === 0 &&
+      onFocusLocalAgents?.()
+    ) {
+      return;
+    }
+
     // ============================================================
     // CUSTOM KEYBINDING INTERCEPTION
     // Check custom bindings FIRST, before all hardcoded handlers.
@@ -2440,8 +2482,8 @@ export function Input({
           setCursorPos(0);
           clearAttachments();
         });
+        return;
       }
-      return;
     }
 
     // Placeholder mode handling (highest priority)
@@ -2690,6 +2732,10 @@ export function Input({
       }
 
       const trimmed = finalValue.trim();
+      if (!trimmed && attachments.length === 0) {
+        onEmptySubmit?.();
+        return;
+      }
 
       // Allow submission for @mention queries without balanced parens check
       const hasAtMention = trimmed.startsWith("@") || trimmed.includes(" @");
@@ -2913,7 +2959,6 @@ export function Input({
         // Right-hand keys:
         //   Ctrl+Y = Splice      ((|a))   →  (|a)
         //   Ctrl+L = Raise       (x (|y)) →  (|y)
-        //   Ctrl+O = Kill        (a |b c) →  (a |)
         // ═══════════════════════════════════════════════════════════════
         case "g":
           applyParedit(wrapSexp);
@@ -2936,15 +2981,11 @@ export function Input({
         case "l":
           applyParedit(raiseSexp);
           return; // Ctrl+L = Raise
-        case "o":
-          applyParedit(killSexp);
-          return;
 
           // Note: Ctrl+P = Command Palette (handled in App.tsx)
           // Note: Ctrl+D = EOF (handled in App.tsx)
           // Note: Ctrl+B = Tasks Panel (handled in App.tsx)
           // Note: Ctrl+R = History Search (handled above)
-          // Ctrl+O = Kill
       }
       return;
     }
@@ -3189,13 +3230,14 @@ export function Input({
         ? [...bracketPositions]
         : null,
     ).map((segment: HighlightSegment, index: number) => (
-      <Text
-        key={`${keyPrefix}-${index}`}
-        color={getSegmentColor(segment)}
-        bold={segment.bold}
-      >
-        {segment.value}
-      </Text>
+      <React.Fragment key={`${keyPrefix}-${index}`}>
+        <Text
+          color={getSegmentColor(segment)}
+          bold={segment.bold}
+        >
+          {segment.value}
+        </Text>
+      </React.Fragment>
     ));
   }, [effectiveComposerLanguage, getSegmentColor]);
 
@@ -3278,18 +3320,19 @@ export function Input({
             ));
           } else if (originalIdx === placeholderIndex) {
             nodes.push(
-              <Text
-                key={`placeholder-active-${ph.start}`}
-                color={color("accent")}
-              >
-                {phText}
-              </Text>,
+              <React.Fragment key={`placeholder-active-${ph.start}`}>
+                <Text color={color("accent")}>
+                  {phText}
+                </Text>
+              </React.Fragment>,
             );
           } else {
             nodes.push(
-              <Text key={`placeholder-${ph.start}`} color={color("muted")}>
-                {phText}
-              </Text>,
+              <React.Fragment key={`placeholder-${ph.start}`}>
+                <Text color={color("muted")}>
+                  {phText}
+                </Text>
+              </React.Fragment>,
             );
           }
 

@@ -300,9 +300,9 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
       )}
 
       {previewLines.map((line: string, index: number) => (
-        <Text key={`${selectedItem?.id ?? "doc"}-${index}`} dimColor>
-          {line}
-        </Text>
+        <React.Fragment key={`${selectedItem?.id ?? "doc"}-${index}`}>
+          <Text dimColor>{line}</Text>
+        </React.Fragment>
       ))}
       {showDocPanel && !extendedDoc && (
         <Text dimColor>(no documentation available)</Text>

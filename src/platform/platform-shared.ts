@@ -6,7 +6,28 @@
  * implementations share — keeping types.ts pure interfaces/protocols.
  */
 
-import type { OperatingSystem } from "./types.ts";
+import * as nodePath from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import type { OperatingSystem, PlatformPath } from "./types.ts";
+
+// =============================================================================
+// Shared Path Implementation (node:path — identical for Deno and Node.js)
+// =============================================================================
+
+export const SharedPath: PlatformPath = {
+  sep: nodePath.sep,
+  join: (...segments: string[]): string => nodePath.join(...segments),
+  dirname: (path: string): string => nodePath.dirname(path),
+  basename: (path: string, ext?: string): string =>
+    nodePath.basename(path, ext),
+  extname: (path: string): string => nodePath.extname(path),
+  isAbsolute: (path: string): boolean => nodePath.isAbsolute(path),
+  resolve: (...segments: string[]): string => nodePath.resolve(...segments),
+  normalize: (path: string): string => nodePath.normalize(path),
+  relative: (from: string, to: string): string => nodePath.relative(from, to),
+  fromFileUrl: (url: string | URL): string => fileURLToPath(url),
+  toFileUrl: (path: string): URL => pathToFileURL(path),
+};
 
 // =============================================================================
 // Open URL/Path — Cross-Platform Command Builder

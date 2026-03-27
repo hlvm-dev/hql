@@ -1,11 +1,15 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { buildTeamDashboardSummaryRows } from "../../../src/hlvm/cli/repl-ink/components/TeamDashboardOverlay.tsx";
+import {
+  buildTeamDashboardDetailLines,
+  buildTeamDashboardSummaryRows,
+} from "../../../src/hlvm/cli/repl-ink/components/TeamDashboardOverlay.tsx";
 import type { TeamDashboardState } from "../../../src/hlvm/cli/repl-ink/hooks/useTeamState.ts";
 
 const EMPTY_TEAM_STATE: TeamDashboardState = {
   active: true,
   members: [],
   workers: [],
+  memberActivity: {},
   taskBoard: [],
   pendingApprovals: [],
   shutdowns: [],
@@ -68,4 +72,46 @@ Deno.test("buildTeamDashboardSummaryRows uses stable metric ordering", () => {
     secondary,
     "Reviews 1 · Attention 1               Shutdowns 1 · Errors 1",
   );
+});
+
+Deno.test("buildTeamDashboardDetailLines includes waiting state and recent member activity", () => {
+  const lines = buildTeamDashboardDetailLines(
+    {
+      id: "member-worker-1",
+      kind: "member",
+      data: {
+        id: "worker-1",
+        role: "worker",
+        status: "active",
+        agent: "sonnet",
+        threadId: "thread-1",
+      },
+    },
+    {
+      ...EMPTY_TEAM_STATE,
+      members: [{
+        id: "worker-1",
+        role: "worker",
+        status: "active",
+        agent: "sonnet",
+        threadId: "thread-1",
+      }],
+      memberActivity: {
+        "worker-1": [{
+          id: "activity-1",
+          summary: "Tool TaskList: listed tasks",
+          status: "success",
+          activityKind: "tool_end",
+          ts: 1,
+          threadId: "thread-1",
+        }],
+      },
+    },
+    "question",
+    "worker-1",
+  );
+
+  assertEquals(lines.includes("Waiting on lead: question"), true);
+  assertEquals(lines.includes("Recent activity:"), true);
+  assertEquals(lines.includes("- Tool TaskList: listed tasks"), true);
 });

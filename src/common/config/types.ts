@@ -14,6 +14,10 @@ export const DEFAULT_MODEL_PROVIDER = DEFAULT_MODEL_ID.split("/")[0];
 export const DEFAULT_MODEL_NAME = DEFAULT_MODEL_ID.split("/")[1];
 export const DEFAULT_OLLAMA_ENDPOINT = "http://localhost:11434";
 
+/** Single source of truth for the user-agent string across all web tools. */
+export const DEFAULT_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
 /**
  * Normalize a model ID to provider/model format.
  * Defaults to the provider from DEFAULT_MODEL_ID when missing.
@@ -121,7 +125,7 @@ export interface HlvmConfig {
 // Defaults
 // ============================================================
 
-export const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = {
+const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = {
   enabled: true,
   provider: "duckduckgo",
   maxResults: 5,
@@ -129,14 +133,13 @@ export const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = {
   cacheTtlMinutes: 15,
 };
 
-export const DEFAULT_WEB_FETCH_CONFIG: WebFetchConfig = {
+const DEFAULT_WEB_FETCH_CONFIG: WebFetchConfig = {
   enabled: true,
   maxChars: 50000,
   timeoutSeconds: 30,
   cacheTtlMinutes: 15,
   maxRedirects: 3,
-  userAgent:
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  userAgent: DEFAULT_USER_AGENT,
   readability: true,
 };
 

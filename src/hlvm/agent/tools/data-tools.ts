@@ -12,7 +12,7 @@ import { ValidationError } from "../../../common/error.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
 import { isObjectValue } from "../../../common/utils.ts";
 import { okTool } from "../tool-results.ts";
-import { isToolArgsObject } from "../validation.ts";
+import { requireArgsRecord, requireNonEmptyString } from "../validation.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 
 // ============================================================
@@ -58,16 +58,6 @@ interface ComputeArgs {
 // Helpers
 // ============================================================
 
-function requireArgsObject(
-  args: unknown,
-  toolName: string,
-): Record<string, unknown> {
-  if (!isToolArgsObject(args)) {
-    throw new ValidationError("args must be an object", toolName);
-  }
-  return args;
-}
-
 function requireArray(
   value: unknown,
   name: string,
@@ -75,17 +65,6 @@ function requireArray(
 ): unknown[] {
   if (!Array.isArray(value)) {
     throw new ValidationError(`${name} must be an array`, toolName);
-  }
-  return value;
-}
-
-function requireString(
-  value: unknown,
-  name: string,
-  toolName: string,
-): string {
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new ValidationError(`${name} must be a non-empty string`, toolName);
   }
   return value;
 }
@@ -144,7 +123,7 @@ function aggregateEntries(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   throwIfAborted(options?.signal);
-  const record = requireArgsObject(args, "aggregate_entries");
+  const record = requireArgsRecord(args, "aggregate_entries");
 
   const items = requireArray(record.items, "items", "aggregate_entries");
   const operation = parseEnum(
@@ -228,10 +207,10 @@ function filterEntries(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   throwIfAborted(options?.signal);
-  const record = requireArgsObject(args, "filter_entries");
+  const record = requireArgsRecord(args, "filter_entries");
 
   const items = requireArray(record.items, "items", "filter_entries");
-  const field = requireString(record.field, "field", "filter_entries");
+  const field = requireNonEmptyString(record.field, "field", "filter_entries");
   const operator = parseEnum(
     record.operator,
     ["equals", "not_equals", "contains", "gt", "gte", "lt", "lte"] as const,
@@ -303,7 +282,7 @@ function transformEntries(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   throwIfAborted(options?.signal);
-  const record = requireArgsObject(args, "transform_entries");
+  const record = requireArgsRecord(args, "transform_entries");
 
   const items = requireArray(record.items, "items", "transform_entries");
   const operation = parseEnum(
@@ -648,9 +627,9 @@ function compute(
   options?: ToolExecutionOptions,
 ): Promise<Record<string, unknown>> {
   throwIfAborted(options?.signal);
-  const record = requireArgsObject(args, "compute");
+  const record = requireArgsRecord(args, "compute");
 
-  const expression = requireString(record.expression, "expression", "compute");
+  const expression = requireNonEmptyString(record.expression, "expression", "compute");
   const values = parseValues(record.values, "compute");
   const result = evaluateExpression(expression, values, "compute");
 

@@ -10,6 +10,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import type { MemoryActivityDetail } from "../../types.ts";
+import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 
 interface MemoryActivityLineProps {
   recalled: number;
@@ -45,9 +46,14 @@ export const MemoryActivityLine = React.memo(function MemoryActivityLine({
 
   return (
     <Box flexDirection="column">
-      <Text color={sc.text.muted}>  ◆ {summary}</Text>
+      <Box paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}>
+        <Text color={sc.text.muted}>◆ {summary}</Text>
+      </Box>
       {expanded && details.length > 0 && (
-        <Box flexDirection="column" marginLeft={4}>
+        <Box
+          flexDirection="column"
+          marginLeft={TRANSCRIPT_LAYOUT.detailIndent * 2}
+        >
           {details.map((detail, i) => {
             const isLast = i === details.length - 1;
             const prefix = isLast ? "└─" : "├─";

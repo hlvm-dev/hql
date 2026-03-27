@@ -23,7 +23,12 @@ import { ShortcutsOverlay } from "./ShortcutsOverlay.tsx";
 import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
 import { ModelBrowser } from "./ModelBrowser.tsx";
 import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
+import { TranscriptViewerOverlay } from "./TranscriptViewerOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
+import {
+  LocalAgentsBar,
+  shouldRenderLocalAgentsBar,
+} from "./LocalAgentsBar.tsx";
 import {
   ComposerSurface,
   type ComposerSurfaceHandle,
@@ -101,7 +106,13 @@ import {
   resolveConversationEscapeAction,
   shouldAutoCloseConversationSurface,
   shouldRenderMainBanner,
+  shouldRenderShellLanes,
 } from "../utils/app-surface.ts";
+import { getShellContentWidth, SHELL_LAYOUT } from "../utils/layout-tokens.ts";
+import {
+  buildLocalAgentEntries,
+  type LocalAgentEntry,
+} from "../utils/local-agents.ts";
 import { getActiveTeamStore } from "../../../agent/team-store.ts";
 import { sendThreadInput } from "../../../agent/delegate-threads.ts";
 
@@ -122,7 +133,25 @@ interface AppProps {
   initialConfig?: HlvmConfig;
 }
 
+interface TeamDashboardOverlayState {
+  initialViewMode: "dashboard" | "details";
+  initialDetailItemId?: string;
+  sessionOnly: boolean;
+}
+
+interface BackgroundTasksOverlayState {
+  initialSelectedItemId?: string;
+  initialViewMode?: "list" | "result";
+}
+
 const GLOBAL_KEYBINDING_CATEGORIES = ["Global"] as const;
+const DEFAULT_TEAM_DASHBOARD_OVERLAY_STATE: TeamDashboardOverlayState = {
+  initialViewMode: "dashboard",
+  sessionOnly: false,
+};
+const DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE: BackgroundTasksOverlayState = {
+  initialViewMode: "list",
+};
 
 function usesConversationContext(surfacePanel: string): boolean {
   return surfacePanel === "conversation";
@@ -240,13 +269,14 @@ function AppContent(
     configOverlayState,
     setConfigOverlayState,
     togglePalette,
-    toggleTeamDashboard,
     toggleShortcutsOverlay,
+    toggleTranscriptHistory,
     toggleBackgroundTasks,
   } = overlay;
   // Terminal width for responsive layout
   const { stdout } = useStdout();
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
+  const shellContentWidth = getShellContentWidth(terminalWidth);
 
   // Conversation state for agent mode
   const conversation = useConversation();
@@ -259,32 +289,80 @@ function AppContent(
   const committedHistoryCount = conversation.historyItems.length +
     conversation.evalHistory.length;
   const [focusedTeammateIndex, setFocusedTeammateIndex] = useState(-1);
+  const [localAgentsFocused, setLocalAgentsFocused] = useState(false);
+  const [teamDashboardOverlayState, setTeamDashboardOverlayState] = useState<
+    TeamDashboardOverlayState
+  >(DEFAULT_TEAM_DASHBOARD_OVERLAY_STATE);
+  const [backgroundTasksOverlayState, setBackgroundTasksOverlayState] =
+    useState<BackgroundTasksOverlayState>(
+      DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE,
+    );
   const teamState = useMemo(
     () => ({ ...baseTeamState, focusedWorkerIndex: focusedTeammateIndex }),
     [baseTeamState, focusedTeammateIndex],
   );
-  const activeTeammates = useMemo(() =>
-    teamState.members.filter((member: TeamMemberItem) =>
-      member.role === "worker" && member.status !== "terminated"
-    ), [teamState.members]);
+  const activeTeammates = useMemo(
+    () =>
+      teamState.members.filter((member: TeamMemberItem) =>
+        member.role === "worker" && member.status !== "terminated"
+      ),
+    [teamState.members],
+  );
   const focusedTeammate = focusedTeammateIndex >= 0
     ? activeTeammates[focusedTeammateIndex]
     : undefined;
   const teamWorkerSummary = useMemo(() => {
     if (!teamState.active) return undefined;
-    const summary = teamState.members
-      .filter((m: TeamMemberItem) => m.role === "worker")
-      .map((m: TeamMemberItem) =>
-        `${m.id}: ${m.currentTaskId ? "working" : "idle"}`
-      )
-      .join(" \u00B7 ");
-    return summary || undefined;
+    const workers = teamState.members.filter((m: TeamMemberItem) =>
+      m.role === "worker" && m.status !== "terminated"
+    );
+    if (workers.length === 0) return undefined;
+    const activeCount = workers.filter((m: TeamMemberItem) =>
+      Boolean(m.currentTaskId)
+    ).length;
+    const idleCount = workers.length - activeCount;
+    if (activeCount > 0 && idleCount > 0) {
+      return `${activeCount} working \u00B7 ${idleCount} idle`;
+    }
+    if (activeCount > 0) {
+      return `${activeCount} working`;
+    }
+    return `${idleCount} idle`;
   }, [teamState.active, teamState.members]);
+  const localAgentEntries = useMemo<LocalAgentEntry[]>(
+    () =>
+      buildLocalAgentEntries(
+        teamState.members,
+        teamState.memberActivity,
+        tasks,
+      ),
+    [tasks, teamState.memberActivity, teamState.members],
+  );
   useEffect(() => {
     setFocusedTeammateIndex((prev: number) =>
       prev >= activeTeammates.length ? -1 : prev
     );
   }, [activeTeammates.length]);
+  useEffect(() => {
+    if (localAgentEntries.length === 0) {
+      setLocalAgentsFocused(false);
+    }
+  }, [localAgentEntries.length]);
+  useEffect(() => {
+    if (activeOverlay !== "none" || composerShellState.hasDraftInput) {
+      setLocalAgentsFocused(false);
+    }
+  }, [activeOverlay, composerShellState.hasDraftInput]);
+  const previousOverlayForRepaintRef = useRef(activeOverlay);
+  useEffect(() => {
+    if (
+      previousOverlayForRepaintRef.current !== "none" &&
+      activeOverlay === "none"
+    ) {
+      setClearKey((current: number) => current + 1);
+    }
+    previousOverlayForRepaintRef.current = activeOverlay;
+  }, [activeOverlay]);
   const hasConversationContext = usesConversationContext(surfacePanel);
   const hasActivePlanningState = Boolean(
     conversation.activePlan ||
@@ -365,6 +443,119 @@ function AppContent(
   const clearComposerDraft = useCallback(() => {
     composerRef.current?.clearDraft();
   }, []);
+  const closeTeamDashboardOverlay = useCallback(() => {
+    setActiveOverlay("none");
+    setTeamDashboardOverlayState(DEFAULT_TEAM_DASHBOARD_OVERLAY_STATE);
+  }, [setActiveOverlay]);
+  const closeBackgroundTasksOverlay = useCallback(() => {
+    setActiveOverlay("none");
+    setBackgroundTasksOverlayState(DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE);
+  }, [setActiveOverlay]);
+  const toggleTeamDashboardOverlay = useCallback(() => {
+    setTeamDashboardOverlayState(DEFAULT_TEAM_DASHBOARD_OVERLAY_STATE);
+    setActiveOverlay((
+      current:
+        | "none"
+        | "palette"
+        | "config-overlay"
+        | "team-dashboard"
+        | "shortcuts-overlay"
+        | "transcript-history"
+        | "background-tasks",
+    ) => current === "team-dashboard" ? "none" : "team-dashboard");
+  }, [setActiveOverlay]);
+  const toggleBackgroundTasksOverlay = useCallback(() => {
+    setBackgroundTasksOverlayState(DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE);
+    toggleBackgroundTasks();
+  }, [toggleBackgroundTasks]);
+  const openBackgroundTasksOverlay = useCallback((
+    initialSelectedItemId?: string,
+    initialViewMode: "list" | "result" = "list",
+  ) => {
+    setBackgroundTasksOverlayState({ initialSelectedItemId, initialViewMode });
+    setActiveOverlay("background-tasks");
+  }, [setActiveOverlay]);
+  const openFocusedTeammateSession = useCallback(() => {
+    if (!focusedTeammate) return;
+    setTeamDashboardOverlayState({
+      initialViewMode: "details",
+      initialDetailItemId: `member-${focusedTeammate.id}`,
+      sessionOnly: true,
+    });
+    setActiveOverlay("team-dashboard");
+  }, [focusedTeammate, setActiveOverlay]);
+  const focusLocalAgents = useCallback(() => {
+    if (localAgentEntries.length === 0) return false;
+    setLocalAgentsFocused(true);
+    return true;
+  }, [localAgentEntries.length]);
+  const foregroundLocalAgent = useCallback((agent: LocalAgentEntry) => {
+    if (agent.kind !== "teammate" || !agent.memberId) {
+      return false;
+    }
+    const teammateIndex = activeTeammates.findIndex((member: TeamMemberItem) =>
+      member.id === agent.memberId
+    );
+    if (teammateIndex < 0) return false;
+    setFocusedTeammateIndex(teammateIndex);
+    setLocalAgentsFocused(false);
+    setTeamDashboardOverlayState({
+      initialViewMode: "details",
+      initialDetailItemId: `member-${agent.memberId}`,
+      sessionOnly: true,
+    });
+    setActiveOverlay("team-dashboard");
+    return true;
+  }, [activeTeammates, setActiveOverlay]);
+  const openLocalAgentsSurface = useCallback(() => {
+    if (localAgentEntries.length === 0) return false;
+    const singleAgent = localAgentEntries.length === 1
+      ? localAgentEntries[0]
+      : undefined;
+    if (!singleAgent) {
+      openBackgroundTasksOverlay(undefined, "list");
+      return true;
+    }
+    if (singleAgent.kind === "teammate" && foregroundLocalAgent(singleAgent)) {
+      return true;
+    }
+    openBackgroundTasksOverlay(singleAgent.id, "result");
+    return true;
+  }, [
+    foregroundLocalAgent,
+    localAgentEntries,
+    openBackgroundTasksOverlay,
+  ]);
+  const handleLocalAgentsInput = useCallback((input: string, key: {
+    escape?: boolean;
+    return?: boolean;
+    space?: boolean;
+    upArrow?: boolean;
+    downArrow?: boolean;
+  }) => {
+    if (!localAgentsFocused || localAgentEntries.length === 0) {
+      return false;
+    }
+    if (key.upArrow || key.escape) {
+      setLocalAgentsFocused(false);
+      return true;
+    }
+    if (
+      key.return ||
+      input === " " ||
+      input === "\r" ||
+      input === "\n" ||
+      key.downArrow
+    ) {
+      openLocalAgentsSurface();
+      return true;
+    }
+    return false;
+  }, [
+    localAgentsFocused,
+    localAgentEntries,
+    openLocalAgentsSurface,
+  ]);
 
   const enqueueLocalEval = useCallback((
     code: string,
@@ -716,25 +907,23 @@ function AppContent(
       "App",
     );
     registerHandler(
+      HandlerIds.CONVERSATION_OPEN_HISTORY,
+      toggleTranscriptHistory,
+      "App",
+    );
+    registerHandler(
       HandlerIds.APP_TEAM_DASHBOARD,
-      toggleTeamDashboard,
+      toggleTeamDashboardOverlay,
       "App",
     );
     registerHandler(
       HandlerIds.APP_CYCLE_TEAMMATE,
       () => {
-        // Cycle through active teammates in in-process mode.
-        // Opens team dashboard if not already open, then advances focus.
         const teammateCount = activeTeammatesRef.current.length;
         if (teammateCount === 0) {
-          toggleTeamDashboard();
+          setFocusedTeammateIndex(-1);
           return;
         }
-        // Open dashboard if not already open
-        if (activeOverlayRef.current !== "team-dashboard") {
-          setActiveOverlay("team-dashboard");
-        }
-        // Cycle: -1 → 0 → 1 → ... → teammateCount-1 → -1
         setFocusedTeammateIndex((prev: number) =>
           prev + 1 >= teammateCount ? -1 : prev + 1
         );
@@ -748,7 +937,7 @@ function AppContent(
     );
     registerHandler(
       HandlerIds.APP_TASK_OVERLAY,
-      toggleBackgroundTasks,
+      toggleBackgroundTasksOverlay,
       "App",
     );
     return () => {
@@ -757,6 +946,7 @@ function AppContent(
       unregisterHandler(HandlerIds.APP_CLEAR);
       unregisterHandler(HandlerIds.APP_PALETTE);
       unregisterHandler(HandlerIds.APP_BACKGROUND);
+      unregisterHandler(HandlerIds.CONVERSATION_OPEN_HISTORY);
       unregisterHandler(HandlerIds.APP_TEAM_DASHBOARD);
       unregisterHandler(HandlerIds.APP_CYCLE_TEAMMATE);
       unregisterHandler(HandlerIds.APP_KILL_ALL);
@@ -769,8 +959,9 @@ function AppContent(
     handleBackground,
     handleKillAll,
     togglePalette,
-    toggleTeamDashboard,
-    toggleBackgroundTasks,
+    toggleTranscriptHistory,
+    toggleTeamDashboardOverlay,
+    toggleBackgroundTasksOverlay,
   ]);
 
   // Refs for values only read inside handlers — avoids re-creating callbacks
@@ -779,8 +970,6 @@ function AppContent(
   teamStateRef.current = teamState;
   const activeTeammatesRef = useRef(activeTeammates);
   activeTeammatesRef.current = activeTeammates;
-  const activeOverlayRef = useRef(activeOverlay);
-  activeOverlayRef.current = activeOverlay;
   const pendingInteractionRef = useRef(pendingInteraction);
   pendingInteractionRef.current = pendingInteraction;
   const handleInteractionResponseRef = useRef(handleInteractionResponse);
@@ -901,7 +1090,7 @@ function AppContent(
 
       // Handle /tasks command - open background tasks overlay
       if (commandName === "/tasks") {
-        setActiveOverlay("background-tasks");
+        openBackgroundTasksOverlay();
         return;
       }
 
@@ -1178,6 +1367,14 @@ function AppContent(
     const globalBinding = inspectHandlerKeybinding(char, key, {
       categories: GLOBAL_KEYBINDING_CATEGORIES,
     });
+    if (
+      activeOverlay === "transcript-history" &&
+      globalBinding.kind === "handler" &&
+      globalBinding.id === HandlerIds.APP_EXIT
+    ) {
+      setActiveOverlay("none");
+      return;
+    }
     const canOpenDefaultShortcuts = globalBinding.kind === "handler" &&
       globalBinding.id === HandlerIds.APP_SHORTCUTS &&
       globalBinding.source === "default" &&
@@ -1208,6 +1405,7 @@ function AppContent(
       globalBinding.kind === "handler" &&
       globalBinding.id === HandlerIds.APP_CYCLE_TEAMMATE
     ) {
+      if (activeOverlay !== "none") return;
       void executeHandler(globalBinding.id);
       return;
     }
@@ -1338,11 +1536,8 @@ function AppContent(
   const isConversationTaskRunning = hasConversationContext &&
     (isEvaluating || agentControllerRef.current !== null);
 
-  // Keep Ctrl+O section toggles from conflicting with Input paredit Ctrl+O.
-  // Safe contexts:
-  // - conversation mode without input visible (Input hidden, no conflict)
-  // - input disabled (agent actively running / permission mode / overlays)
-  // - empty prompt (paredit no-op)
+  // Conversation shortcuts should only take over when the composer will not
+  // immediately consume the same key sequence.
   const allowConversationToggleHotkeys = !isInputVisible || isInputDisabled ||
     !composerShellState.hasDraftInput;
   // overlayScreen removed — overlays are inlined as flat conditional siblings in JSX
@@ -1407,7 +1602,16 @@ function AppContent(
   const liveTodoCount = hasConversationContext
     ? (conversation.planTodoState ?? conversation.todoState)?.items.length ?? 0
     : 0;
+  const renderShellLanes = shouldRenderShellLanes({
+    historyItemCount: committedHistoryCount,
+    localEvalQueueCount: queuedLocalEvals.length,
+    liveItemCount: hasConversationContext ? conversation.liveItems.length : 0,
+    liveTodoCount,
+    hasPendingInteraction: hasConversationContext &&
+      Boolean(pendingInteraction),
+  });
   const transcriptReservedRows = 10 +
+    SHELL_LAYOUT.transcriptToComposerGap +
     composerShellState.queuePreviewRows +
     (queuedLocalEvals.length > 0
       ? Math.min(queuedLocalEvals.length + 2, 6)
@@ -1421,7 +1625,7 @@ function AppContent(
     <Box
       key={clearKey}
       flexDirection="column"
-      paddingX={1}
+      paddingX={SHELL_LAYOUT.gutterX}
     >
       {shouldRenderMainBanner({
         showBanner,
@@ -1466,21 +1670,40 @@ function AppContent(
       )}
       {activeOverlay === "team-dashboard" && (
         <TeamDashboardOverlay
-          onClose={() => {
-            setActiveOverlay("none");
-            setFocusedTeammateIndex(-1);
-          }}
+          onClose={closeTeamDashboardOverlay}
           teamState={teamState}
           interactionMode={pendingInteraction?.mode}
+          interactionSourceMemberId={pendingInteraction?.sourceMemberId}
+          interactionSourceLabel={pendingInteraction?.sourceLabel}
+          initialViewMode={teamDashboardOverlayState.initialViewMode}
+          initialDetailItemId={teamDashboardOverlayState.initialDetailItemId}
+          sessionOnly={teamDashboardOverlayState.sessionOnly}
         />
       )}
       {activeOverlay === "shortcuts-overlay" && (
         <ShortcutsOverlay onClose={() => setActiveOverlay("none")} />
       )}
+      {activeOverlay === "transcript-history" && (
+        <TranscriptViewerOverlay
+          historyItems={conversation.historyItems}
+          liveItems={conversation.liveItems}
+          evalHistory={conversation.evalHistory}
+          width={shellContentWidth}
+          onClose={() => setActiveOverlay("none")}
+        />
+      )}
       {activeOverlay === "background-tasks" && (
         <BackgroundTasksOverlay
-          onClose={() => setActiveOverlay("none")}
+          onClose={closeBackgroundTasksOverlay}
+          localAgents={localAgentEntries}
           teamTasks={teamState.taskBoard}
+          teamState={teamState}
+          interactionMode={pendingInteraction?.mode}
+          interactionSourceMemberId={pendingInteraction?.sourceMemberId}
+          initialSelectedItemId={backgroundTasksOverlayState
+            .initialSelectedItemId}
+          initialViewMode={backgroundTasksOverlayState.initialViewMode}
+          onForegroundLocalAgent={foregroundLocalAgent}
         />
       )}
 
@@ -1492,13 +1715,16 @@ function AppContent(
       )}
 
       {/* Shell lanes: committed history, local eval queue, live turn, dialogs */}
-      {!isOverlayOpen && !hasStandaloneSurface && (
-        <Box flexDirection="column">
+      {!isOverlayOpen && !hasStandaloneSurface && renderShellLanes && (
+        <Box
+          flexDirection="column"
+          marginBottom={SHELL_LAYOUT.transcriptToComposerGap}
+        >
           <RenderErrorBoundary>
             <TranscriptHistory
               historyItems={conversation.historyItems}
               evalHistory={conversation.evalHistory}
-              width={Math.max(20, terminalWidth - 2)}
+              width={shellContentWidth}
               reservedRows={transcriptReservedRows}
               compactPlanTranscript={Boolean(
                 conversation.planningPhase &&
@@ -1511,19 +1737,21 @@ function AppContent(
           </RenderErrorBoundary>
           <LocalEvalQueuePreview
             items={queuedLocalEvals}
-            width={Math.max(20, terminalWidth - 2)}
+            width={shellContentWidth}
           />
           {hasConversationContext && (
             <>
               <RenderErrorBoundary>
                 <PendingTurnPanel
                   items={conversation.liveItems}
-                  width={Math.max(20, terminalWidth - 2)}
+                  width={shellContentWidth}
                   streamingState={conversation.streamingState}
                   planningPhase={conversation.planningPhase}
                   todoState={conversation.planTodoState ??
                     conversation.todoState}
                   compactSpacing
+                  showLeadingDivider={committedHistoryCount > 0 ||
+                    queuedLocalEvals.length > 0}
                   allowToggleHotkeys={surfacePanel === "conversation" &&
                     allowConversationToggleHotkeys &&
                     conversation.liveItems.length > 0}
@@ -1552,6 +1780,18 @@ function AppContent(
             replState={replState}
             onUiStateChange={handleComposerUiStateChange}
             onSubmit={handleSubmit}
+            onEmptySubmit={hasConversationContext && focusedTeammate &&
+                !localAgentsFocused
+              ? openFocusedTeammateSession
+              : undefined}
+            onFocusLocalAgents={localAgentEntries.length > 0 &&
+                !composerShellState.hasDraftInput
+              ? focusLocalAgents
+              : undefined}
+            onLocalAgentsInput={localAgentsFocused
+              ? handleLocalAgentsInput
+              : undefined}
+            localAgentsFocused={localAgentsFocused}
             onForceSubmit={hasConversationContext
               ? handleForceInterrupt
               : undefined}
@@ -1574,6 +1814,20 @@ function AppContent(
               : undefined}
           />
         )}
+
+      {!isOverlayOpen &&
+        shouldRenderLocalAgentsBar(
+          localAgentEntries,
+          localAgentsFocused,
+          teamWorkerSummary,
+        ) && (
+        <LocalAgentsBar
+          entries={localAgentEntries}
+          focused={localAgentsFocused}
+          teamWorkerSummary={teamWorkerSummary}
+          width={shellContentWidth}
+        />
+      )}
 
       {/* Footer hint (directly under input, no gap) */}
       {!isOverlayOpen && (isInputVisible || hasConversationContext) &&

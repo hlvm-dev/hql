@@ -62,7 +62,6 @@ export const Output = React.memo(function Output({ result }: { result: EvalResul
 interface StreamingContentProps {
   text: string;
   isStreaming: boolean;
-  startTime: number;
   width: number;
   error?: { message: string } | null;
   taskStatus?: string;
@@ -71,7 +70,6 @@ interface StreamingContentProps {
 const StreamingContent = React.memo(function StreamingContent({
   text,
   isStreaming,
-  startTime,
   width,
   error,
   taskStatus,
@@ -84,7 +82,6 @@ const StreamingContent = React.memo(function StreamingContent({
       {isStreaming && (
         <StreamingStatus
           isStreaming={isStreaming}
-          startTime={startTime}
         />
       )}
       {showOutput && (
@@ -115,13 +112,11 @@ const StreamingTaskOutput = React.memo(function StreamingTaskOutput({ taskId, wi
 
   const output = task.output ?? (typeof task.result === "string" ? task.result : "");
   const isStreaming = task.status === "running";
-  const startTime = task.progress?.startedAt ?? task.startedAt ?? Date.now();
 
   return (
     <StreamingContent
       text={output}
       isStreaming={isStreaming}
-      startTime={startTime}
       width={width}
       error={task.status === "failed" ? task.error : null}
       taskStatus={task.status}
@@ -131,7 +126,7 @@ const StreamingTaskOutput = React.memo(function StreamingTaskOutput({ taskId, wi
 
 const StreamingOutput = React.memo(function StreamingOutput({ iterator, width }: { iterator: AsyncIterableIterator<string>; width: number }): React.ReactElement {
   const { color } = useTheme();
-  const { displayText, isStreaming, startTime, error } = useStreaming(iterator, { renderInterval: 100 });
+  const { displayText, isStreaming, error } = useStreaming(iterator, { renderInterval: 100 });
 
   // Show error if streaming failed (but preserve any partial content)
   if (error) {
@@ -147,7 +142,6 @@ const StreamingOutput = React.memo(function StreamingOutput({ iterator, width }:
     <StreamingContent
       text={displayText}
       isStreaming={isStreaming}
-      startTime={startTime}
       width={width}
     />
   );

@@ -9,10 +9,10 @@ export const conversationKeybindings: Keybinding[] = [
   {
     id: "ctrl+o",
     display: "Ctrl+O",
-    label: "Toggle latest section",
-    description: "Expand or collapse the latest tool, thinking, or delegate block",
+    label: "Transcript history",
+    description: "Open the compact transcript/history viewer",
     category: "Conversation",
-    action: { type: "HANDLER", id: HandlerIds.CONVERSATION_TOGGLE_LATEST },
+    action: { type: "HANDLER", id: HandlerIds.CONVERSATION_OPEN_HISTORY },
   },
   {
     id: "ctrl+y",

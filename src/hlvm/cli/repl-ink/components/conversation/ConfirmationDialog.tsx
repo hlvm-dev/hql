@@ -18,11 +18,10 @@ import {
   type InteractionPickerOption,
 } from "./InteractionPicker.tsx";
 import type { InteractionResponse } from "../../../../agent/registry.ts";
-import { ChromeChip } from "../ChromeChip.tsx";
 import {
-  buildConversationSectionText,
   splitArgKeyValue,
 } from "./conversation-chrome.ts";
+import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 
 interface ConfirmationDialogProps {
   requestId?: string;
@@ -133,19 +132,10 @@ export const ConfirmationDialog = React.memo(
     }
 
     return (
-      <Box
-        borderStyle={isPlanReview ? undefined : "round"}
-        borderColor={isPlanReview ? undefined : sc.status.warning}
-        paddingX={isPlanReview ? 0 : 1}
-        paddingY={0}
-        flexDirection="column"
-      >
-        <Box>
-          <ChromeChip
-            text={isPlanReview ? "Ready to code?" : "Permission required"}
-            tone={isPlanReview ? "active" : "warning"}
-          />
-        </Box>
+      <Box flexDirection="column">
+        <Text color={isPlanReview ? sc.text.primary : sc.status.warning} bold>
+          {isPlanReview ? "Ready to code?" : "Permission required"}
+        </Text>
         {(sourceLabel || sourceTeamName) && (
           <Box marginTop={0}>
             <Text color={sc.text.secondary}>From:</Text>
@@ -173,10 +163,11 @@ export const ConfirmationDialog = React.memo(
             <Text color={sc.text.primary} wrap="wrap">
               {dialog.planReview.plan.goal}
             </Text>
-            <Text color={sc.chrome.sectionLabel}>
-              {buildConversationSectionText("Steps")}
-            </Text>
-            <Box paddingLeft={1} flexDirection="column">
+            <Text color={sc.text.secondary}>Steps</Text>
+            <Box
+              paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
+              flexDirection="column"
+            >
               {dialog.planReview.visibleSteps.map((step) => (
                 <React.Fragment key={step.id}>
                   <Text color={sc.text.primary} wrap="truncate-end">
@@ -193,10 +184,11 @@ export const ConfirmationDialog = React.memo(
             </Box>
             {dialog.planReview.verificationLines.length > 0 && (
               <>
-                <Text color={sc.chrome.sectionLabel}>
-                  {buildConversationSectionText("Verification")}
-                </Text>
-                <Box paddingLeft={1} flexDirection="column">
+                <Text color={sc.text.secondary}>Verification</Text>
+                <Box
+                  paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
+                  flexDirection="column"
+                >
                   {dialog.planReview.verificationLines.map((line) => (
                     <React.Fragment key={line}>
                       <Text color={sc.text.muted} wrap="truncate-end">
@@ -211,10 +203,11 @@ export const ConfirmationDialog = React.memo(
         )}
         {!dialog.planReview && visibleArgLines.length > 0 && (
           <Box flexDirection="column" marginTop={0}>
-            <Text color={sc.chrome.sectionLabel}>
-              {buildConversationSectionText(isPlanReview ? "Plan" : "Args")}
-            </Text>
-            <Box paddingLeft={1} flexDirection="column">
+            <Text color={sc.text.secondary}>{isPlanReview ? "Plan" : "Args"}</Text>
+            <Box
+              paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
+              flexDirection="column"
+            >
               {visibleArgLines.map((line: string, i: number) => {
                 const kv = splitArgKeyValue(line);
                 if (kv) {

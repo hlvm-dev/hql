@@ -11,6 +11,7 @@ import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { STATUS_GLYPHS } from "../../ui-constants.ts";
 import { getThinkingLabel } from "./conversation-chrome.ts";
+import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 
 interface ThinkingIndicatorProps {
   kind: "reasoning" | "planning";
@@ -42,7 +43,10 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
   const title = getThinkingLabel(kind);
 
   return (
-    <Box paddingLeft={2} flexDirection="column">
+    <Box
+      paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
+      flexDirection="column"
+    >
       <Box>
         <Text color={sc.text.muted}>
           {isAnimating ? `${marker} ${title}...` : `\u00B7 ${title}`}
@@ -52,14 +56,14 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
         )}
       </Box>
       {body && (
-        <Box paddingLeft={2}>
+        <Box paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}>
           <Text color={sc.text.secondary} italic wrap="wrap">
             {body}
           </Text>
         </Box>
       )}
       {expanded && hiddenBodyLineCount > 0 && (
-        <Box marginLeft={2}>
+        <Box marginLeft={TRANSCRIPT_LAYOUT.detailIndent}>
           <Text color={sc.text.muted}>
             ... ({hiddenBodyLineCount} more lines)
           </Text>

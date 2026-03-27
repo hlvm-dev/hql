@@ -11,11 +11,10 @@ import { useSemanticColors } from "../../../theme/index.ts";
 import { MarkdownDisplay } from "../markdown/index.ts";
 import type { AssistantCitation } from "../../types.ts";
 import { OPEN_LATEST_SOURCE_HINT } from "../../ui-constants.ts";
-import { STATUS_GLYPHS } from "../../ui-constants.ts";
 
 import { createIncrementalSanitizer } from "../../utils/sanitize-ansi.ts";
-import { buildConversationSectionText } from "./conversation-chrome.ts";
 import { getLiveConversationSpacing } from "./message-spacing.ts";
+import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 
 /** Shown while waiting for the first token from the model.
  *  Uses static marker — no spinner avoids terminal redraws that break text selection.
@@ -26,10 +25,14 @@ function WorkingIndicator(
   const sc = useSemanticColors();
   const spacing = getLiveConversationSpacing(compactSpacing);
   return (
-    <Box paddingLeft={2} marginBottom={spacing.waitingIndicatorMarginBottom}>
-      <Text color={sc.text.muted}>
-        {STATUS_GLYPHS.running} Waiting for response...
-      </Text>
+    <Box
+      flexDirection="row"
+      marginBottom={spacing.waitingIndicatorMarginBottom}
+    >
+      <Box width={TRANSCRIPT_LAYOUT.assistantBulletWidth} flexShrink={0}>
+        <Text color={sc.text.muted}>·</Text>
+      </Box>
+      <Text color={sc.text.muted}>Thinking</Text>
     </Box>
   );
 }
@@ -188,31 +191,31 @@ export const AssistantMessage = React.memo(function AssistantMessage(
   }
 
   return (
-    <Box flexDirection="row" width={width} marginBottom={1} marginTop={0}>
+    <Box
+      flexDirection="row"
+      width={width}
+      marginBottom={getLiveConversationSpacing(compactSpacing)
+        .assistantMessageMarginBottom}
+      marginTop={0}
+    >
+      <Box width={TRANSCRIPT_LAYOUT.assistantBulletWidth} flexShrink={0}>
+        <Text color={sc.banner.bullet}>•</Text>
+      </Box>
       <Box
         flexDirection="column"
         flexGrow={1}
-        borderStyle="single"
-        borderLeft
-        borderRight={false}
-        borderTop={false}
-        borderBottom={false}
-        borderColor={sc.border.default}
-        paddingLeft={1}
       >
         <MarkdownDisplay
           text={citationMemo.citationView.text}
-          width={contentWidth}
+          width={Math.max(
+            10,
+            width - TRANSCRIPT_LAYOUT.assistantBulletWidth,
+          )}
           isPending={isPending}
         />
         {!isPending && citationMemo.sources.length > 0 && (
           <Box flexDirection="column" marginTop={1}>
-            <Text color={sc.chrome.sectionLabel}>
-              {buildConversationSectionText(
-                citationMemo.sourcesLabel,
-                contentWidth,
-              )}
-            </Text>
+            <Text color={sc.text.secondary}>{citationMemo.sourcesLabel}</Text>
             {citationMemo.sources.map((source: CitationSourceView) => {
               const indexLabel = `[${source.index}]`;
               const titleText = ` ${source.title}`;

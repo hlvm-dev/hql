@@ -55,6 +55,25 @@ export interface ComposerSurfaceHandle {
 interface ComposerSurfaceProps {
   replState: ReplState;
   onSubmit: (value: string, attachments?: AnyAttachment[]) => void;
+  onEmptySubmit?: () => void;
+  onFocusLocalAgents?: () => boolean;
+  onLocalAgentsInput?: (
+    input: string,
+    key: {
+      escape?: boolean;
+      ctrl?: boolean;
+      meta?: boolean;
+      return?: boolean;
+      tab?: boolean;
+      backspace?: boolean;
+      delete?: boolean;
+      upArrow?: boolean;
+      downArrow?: boolean;
+      leftArrow?: boolean;
+      rightArrow?: boolean;
+    },
+  ) => boolean;
+  localAgentsFocused?: boolean;
   onForceSubmit?: (value: string, attachments?: AnyAttachment[]) => void;
   onInterruptRunningTask?: () => void;
   onCycleMode?: () => void;
@@ -77,6 +96,10 @@ export const ComposerSurface = forwardRef<
   {
     replState,
     onSubmit,
+    onEmptySubmit,
+    onFocusLocalAgents,
+    onLocalAgentsInput,
+    localAgentsFocused = false,
     onForceSubmit,
     onInterruptRunningTask,
     onCycleMode,
@@ -237,6 +260,10 @@ export const ComposerSurface = forwardRef<
           value={input}
           onChange={setInput}
           onSubmit={onSubmit}
+          onEmptySubmit={onEmptySubmit}
+          onFocusLocalAgents={onFocusLocalAgents}
+          onLocalAgentsInput={onLocalAgentsInput}
+          localAgentsFocused={localAgentsFocused}
           onForceSubmit={onForceSubmit}
           onInterruptRunningTask={onInterruptRunningTask}
           onQueueDraft={queueEnabled ? handleQueueDraft : undefined}

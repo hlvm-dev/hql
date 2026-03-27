@@ -20,7 +20,7 @@ import {
   writeToTerminal,
 } from "../overlay/index.ts";
 import {
-  buildRightSlotTextLayout,
+  buildBalancedTextRow,
   buildSectionLabelText,
 } from "../utils/display-chrome.ts";
 
@@ -41,7 +41,7 @@ interface ShortcutSection {
 const SECTION_IDS = [
   {
     title: "General",
-    ids: ["ctrl+p", "ctrl+b", "ctrl+t", "/help"],
+    ids: ["ctrl+p", "ctrl+b", "ctrl+t"],
   },
   {
     title: "Conversation",
@@ -116,6 +116,13 @@ function buildShortcutSections(): ShortcutSection[] {
     if (rows.length > 0) {
       sections.push({ title: section.title, rows });
     }
+  }
+
+  if (sections.length > 0) {
+    sections[0] = {
+      ...sections[0],
+      rows: [{ display: "?", label: "Shortcuts" }, ...sections[0].rows],
+    };
   }
 
   return sections;
@@ -216,12 +223,9 @@ export function ShortcutsOverlay({
 
       for (const row of section.rows) {
         drawRow(rowY, () => {
-          const layout = buildRightSlotTextLayout(
-            contentWidth,
-            row.label,
-            row.display,
-            displayWidth,
-          );
+          const layout = buildBalancedTextRow(contentWidth, row.label, row.display, {
+            maxRightWidth: displayWidth,
+          });
           output += " ".repeat(PADDING.left);
           output += layout.leftText;
           output += " ".repeat(layout.gapWidth);

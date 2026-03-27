@@ -43,6 +43,8 @@ import type { TeamRuntime } from "./team-runtime.ts";
 import type { TeamStore } from "./team-store.ts";
 import { TEAMMATE_AVAILABLE_TOOL_NAMES } from "./tools/agent-team-tools.ts";
 import { getThread } from "./delegate-threads.ts";
+import { formatDelegateTranscriptEvent } from "./delegate-transcript.ts";
+import { toDelegateTranscriptEvent } from "./agent-ui-activity.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -206,6 +208,40 @@ export async function runTeammateLoop(
       });
     }
     : undefined;
+
+  const forwardChildAgentEvent = (event: AgentUIEvent): void => {
+    const threadId = runtime.getMember(identity.teamMemberId)?.threadId;
+    const activity = toDelegateTranscriptEvent(event);
+    if (activity) {
+      onAgentEvent?.({
+        type: "team_member_activity",
+        memberId: identity.teamMemberId,
+        memberLabel: identity.name,
+        threadId,
+        activityKind: activity.type,
+        summary: formatDelegateTranscriptEvent(activity),
+        status: activity.type === "tool_end"
+          ? activity.success
+            ? "success"
+            : "error"
+          : "active",
+      });
+      return;
+    }
+
+    switch (event.type) {
+      case "team_task_updated":
+      case "team_message":
+      case "team_plan_review_required":
+      case "team_plan_review_resolved":
+      case "team_shutdown_requested":
+      case "team_shutdown_resolved":
+        onAgentEvent?.(event);
+        return;
+      default:
+        return;
+    }
+  };
 
   /** Send idle notification + dispatch hook in one call. */
   const notifyIdle = (reason: string, tc?: number): void => {
@@ -400,7 +436,7 @@ export async function runTeammateLoop(
           toolDenylist: TEAMMATE_TOOL_DENYLIST,
           l1Confirmations: new Map<string, boolean>(),
           toolOwnerId,
-          onAgentEvent,
+          onAgentEvent: forwardChildAgentEvent,
           delegateInbox: createDelegateInbox(),
           planning: { mode: "off" },
           todoState: createTodoState(),

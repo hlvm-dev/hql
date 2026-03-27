@@ -89,6 +89,7 @@ Deno.test("deriveTeamDashboardState uses structured team items and delegate card
   assertEquals(state.workers[0]?.nickname, "Alpha");
   assertEquals(state.attentionItems.some((item) => item.kind === "worker_failed"), true);
   assertEquals(state.attentionItems.some((item) => item.kind === "review_pending"), true);
+  assertEquals(state.memberActivity["worker-1"]?.[0]?.summary, "Message to lead: Need clarification");
 });
 
 Deno.test("deriveTeamDashboardState maps worker-only activity into in-progress task counts", () => {
@@ -105,4 +106,28 @@ Deno.test("deriveTeamDashboardState maps worker-only activity into in-progress t
 
   assertEquals(state.taskCounts.in_progress, 1);
   assertEquals(state.taskCounts.running, 0);
+});
+
+Deno.test("deriveTeamDashboardState keeps teammate activity history from worker events", () => {
+  const items: ConversationItem[] = [{
+    type: "info",
+    id: "activity-1",
+    teamEventType: "team_member_activity",
+    text: "Team worker worker-1: Tool TaskList: listed tasks",
+    memberId: "worker-1",
+    memberLabel: "worker-1",
+    threadId: "thread-1",
+    activityKind: "tool_end",
+    status: "success",
+    summary: "Tool TaskList: listed tasks",
+    ts: 1,
+  }];
+
+  const state = deriveTeamDashboardState(items);
+  const worker = state.members.find((member) => member.id === "worker-1");
+
+  assertEquals(state.active, true);
+  assertEquals(worker?.id, "worker-1");
+  assertEquals(worker?.threadId, "thread-1");
+  assertEquals(state.memberActivity["worker-1"]?.[0]?.summary, "Tool TaskList: listed tasks");
 });

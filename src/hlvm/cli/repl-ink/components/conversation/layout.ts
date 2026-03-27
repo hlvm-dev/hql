@@ -13,7 +13,8 @@ export function buildToolCallTextLayout(
   argsSummary: string,
   durationMs?: number,
 ): ToolCallTextLayout {
-  const fullDurationText = durationMs != null
+  const shouldRenderDuration = durationMs != null && durationMs >= 1000;
+  const fullDurationText = shouldRenderDuration
     ? `· (${formatDurationMs(durationMs)})`
     : "";
   const durationText = fullDurationText.length > 0 &&

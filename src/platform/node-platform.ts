@@ -14,7 +14,6 @@ import * as fsp from "node:fs/promises";
 import * as nodePath from "node:path";
 import * as os from "node:os";
 import nodeProcess from "node:process";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import type { Socket } from "node:net";
@@ -48,7 +47,7 @@ import type {
   PlatformWriteOptions,
   SignalType,
 } from "./types.ts";
-import { buildOpenCommands } from "./platform-shared.ts";
+import { buildOpenCommands, SharedPath } from "./platform-shared.ts";
 
 // =============================================================================
 // Helper Functions
@@ -356,23 +355,10 @@ const NodeFs: PlatformFs = {
 };
 
 // =============================================================================
-// Path Implementation (identical to DenoPlatform — both use node:path)
+// Path Implementation (shared with DenoPlatform — both use node:path)
 // =============================================================================
 
-const NodePath: PlatformPath = {
-  sep: nodePath.sep,
-  join: (...segments: string[]): string => nodePath.join(...segments),
-  dirname: (path: string): string => nodePath.dirname(path),
-  basename: (path: string, ext?: string): string =>
-    nodePath.basename(path, ext),
-  extname: (path: string): string => nodePath.extname(path),
-  isAbsolute: (path: string): boolean => nodePath.isAbsolute(path),
-  resolve: (...segments: string[]): string => nodePath.resolve(...segments),
-  normalize: (path: string): string => nodePath.normalize(path),
-  relative: (from: string, to: string): string => nodePath.relative(from, to),
-  fromFileUrl: (url: string | URL): string => fileURLToPath(url),
-  toFileUrl: (path: string): URL => pathToFileURL(path),
-};
+const NodePath: PlatformPath = SharedPath;
 
 // =============================================================================
 // Environment Implementation

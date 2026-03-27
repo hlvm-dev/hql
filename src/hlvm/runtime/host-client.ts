@@ -716,6 +716,16 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         relatedTaskId: event.related_task_id,
         contentPreview: event.content_preview,
       };
+    case "team_member_activity":
+      return {
+        type: "team_member_activity",
+        memberId: event.member_id,
+        memberLabel: event.member_label,
+        threadId: event.thread_id,
+        activityKind: event.activity_kind,
+        summary: event.summary,
+        status: event.status,
+      };
     case "team_plan_review_required":
       return {
         type: "team_plan_review_required",

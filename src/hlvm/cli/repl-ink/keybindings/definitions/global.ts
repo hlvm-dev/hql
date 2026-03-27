@@ -40,10 +40,10 @@ export const globalKeybindings: Keybinding[] = [
   {
     id: "ctrl+t",
     display: "Ctrl+T",
-    label: "Team dashboard",
-    description: "Open team dashboard overlay",
+    label: "Task status",
+    description: "Open background tasks/status overlay",
     category: "Global",
-    action: { type: "HANDLER", id: HandlerIds.APP_TEAM_DASHBOARD },
+    action: { type: "HANDLER", id: HandlerIds.APP_TASK_OVERLAY },
   },
   {
     id: "shift+down",
@@ -52,14 +52,6 @@ export const globalKeybindings: Keybinding[] = [
     description: "Cycle through active teammates in in-process mode",
     category: "Global",
     action: { type: "HANDLER", id: HandlerIds.APP_CYCLE_TEAMMATE },
-  },
-  {
-    id: "ctrl+j",
-    display: "Ctrl+J",
-    label: "Background tasks",
-    description: "Open background tasks overlay",
-    category: "Global",
-    action: { type: "HANDLER", id: HandlerIds.APP_TASK_OVERLAY },
   },
   {
     id: "ctrl+f",

@@ -249,7 +249,7 @@ async function recentActivity(
     ...historyEntries,
   ].sort((a, b) => a.ts - b.ts);
   const currentQueryEntry = currentUserRequest
-    ? [...currentSessionEntries].reverse().find((entry) =>
+    ? currentSessionEntries.findLast((entry) =>
       normalizePrompt(entry.cmd) === currentUserRequest
     )
     : undefined;

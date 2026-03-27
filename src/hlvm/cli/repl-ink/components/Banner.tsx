@@ -13,6 +13,10 @@ import {
   DEFAULT_TERMINAL_HEIGHT,
   DEFAULT_TERMINAL_WIDTH,
 } from "../ui-constants.ts";
+import {
+  getShellContentWidth,
+  SHELL_LAYOUT,
+} from "../utils/layout-tokens.ts";
 
 const LOGO_LINES = [
   "██  ██ ██      ██    ██ ██    ██",
@@ -129,7 +133,7 @@ export function Banner(
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const terminalHeight = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
   const compact = shouldUseCompactBanner(terminalWidth, terminalHeight);
-  const contentWidth = Math.max(20, terminalWidth - 2);
+  const contentWidth = getShellContentWidth(terminalWidth);
   const logoColors = getBannerLogoColors(themeName, sc.banner, compact);
   const titleLine = truncate(
     `HLVM ${VERSION} — High Level Virtual Machine`,
@@ -138,7 +142,7 @@ export function Banner(
   );
 
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="column" marginBottom={SHELL_LAYOUT.bannerBottomGap}>
       <Box flexDirection="column">
         {(compact ? ["HLVM"] : LOGO_LINES).map((line, index) => (
           <React.Fragment key={index}>

@@ -44,11 +44,11 @@ Deno.test("buildFooterLeftState shows empty text when idle in conversation", () 
     spinner: "x",
   });
 
-  assertEquals(state.text, "");
+  assertEquals(state.text, "? for shortcuts");
   assertEquals(state.tone, "muted");
 });
 
-Deno.test("buildFooterLeftState shows the persistent mode label when idle in conversation", () => {
+Deno.test("buildFooterLeftState shows non-default mode labels when idle in conversation", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
@@ -57,7 +57,7 @@ Deno.test("buildFooterLeftState shows the persistent mode label when idle in con
   });
 
   assertEquals(state.mode, "segments");
-  assertEquals(state.text, "Plan mode \u00B7 Shift+Tab cycles");
+  assertEquals(state.text, "Plan mode");
   assertEquals(state.tone, "muted");
 });
 
@@ -80,7 +80,7 @@ Deno.test("buildFooterLeftState shows empty text outside conversation", () => {
     spinner: "x",
   });
 
-  assertEquals(state.text, "");
+  assertEquals(state.text, "? for shortcuts");
   assertEquals(state.tone, "muted");
 });
 
@@ -95,7 +95,7 @@ Deno.test("buildFooterLeftState shows Ctrl+B hint when evaluating outside conver
   assertEquals(state.tone, "muted");
 });
 
-Deno.test("buildFooterLeftState shows persistent mode label outside conversation", () => {
+Deno.test("buildFooterLeftState shows non-default mode label outside conversation", () => {
   const state = buildFooterLeftState({
     inConversation: false,
     modeLabel: "Accept edits (shift+tab to cycle)",
@@ -103,7 +103,7 @@ Deno.test("buildFooterLeftState shows persistent mode label outside conversation
   });
 
   assertEquals(state.mode, "segments");
-  assertEquals(state.text, "Accept edits \u00B7 Shift+Tab cycles");
+  assertEquals(state.text, "Accept edits");
   assertEquals(state.tone, "muted");
 });
 
@@ -211,7 +211,7 @@ Deno.test("buildFooterLeftState orders shell segments as mode, queue, active too
 
   assertEquals(
     state.segments.map((segment) => segment.text),
-    ["Default mode", "+2 queued", "x search_web 1/2", "Esc cancels"],
+    ["+2 queued", "x search_web 1/2", "Esc cancels"],
   );
 });
 
@@ -246,7 +246,7 @@ Deno.test("buildFooterLeftState shows bg chip outside conversation when tasks ac
 
   assertEquals(state.mode, "segments");
   const bgChip = state.segments.find((s) => s.text === "● 3 tasks");
-  assertEquals(bgChip?.chip, true);
+  assertEquals(bgChip?.chip, undefined);
   assertEquals(bgChip?.tone, "active");
 });
 
@@ -273,7 +273,7 @@ Deno.test("buildFooterLeftState shows bg chip in conversation idle", () => {
 
   assertEquals(state.mode, "segments");
   const bgChip = state.segments.find((s) => s.text === "● 2 tasks");
-  assertEquals(bgChip?.chip, true);
+  assertEquals(bgChip?.chip, undefined);
   assertEquals(bgChip?.tone, "active");
 });
 
@@ -286,9 +286,9 @@ Deno.test("buildFooterLeftState shows task label hint when recentActiveTaskLabel
   });
 
   assertEquals(state.mode, "segments");
-  const hint = state.segments.find((s) => s.text.includes("Ctrl+J tasks"));
+  const hint = state.segments.find((s) => s.text.includes("Ctrl+T tasks"));
   assertEquals(hint?.tone, "muted");
-  assertEquals(hint?.text, "(+ 1 2) \u00B7 Ctrl+J tasks");
+  assertEquals(hint?.text, "(+ 1 2) \u00B7 Ctrl+T tasks");
 });
 
 Deno.test("buildFooterLeftState omits task hint when no recentActiveTaskLabel", () => {
@@ -299,7 +299,7 @@ Deno.test("buildFooterLeftState omits task hint when no recentActiveTaskLabel", 
   });
 
   assertEquals(
-    state.segments.some((s) => s.text.includes("Ctrl+J")),
+    state.segments.some((s) => s.text.includes("Ctrl+T")),
     false,
   );
 });
@@ -314,7 +314,7 @@ Deno.test("buildFooterLeftState shows Team chip when teamActive", () => {
 
   assertEquals(state.mode, "segments");
   const teamChip = state.segments.find((s) => s.text === "Team");
-  assertEquals(teamChip?.chip, true);
+  assertEquals(teamChip?.chip, undefined);
   assertEquals(teamChip?.tone, "active");
 });
 
@@ -331,9 +331,11 @@ Deno.test("buildFooterLeftState shows worker summary when team active with worke
   const workerSegment = state.segments.find((s) => s.text.includes("alice"));
   assertEquals(workerSegment?.tone, "muted");
   assertEquals(workerSegment?.text, "alice: working \u00B7 bob: idle");
+  const managerHint = state.segments.find((s) => s.text === "Ctrl+T manager");
+  assertEquals(managerHint?.tone, "muted");
 });
 
-Deno.test("buildFooterLeftState shows focused teammate chip and team controls hint", () => {
+Deno.test("buildFooterLeftState shows focused teammate controls when team focus is active", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
@@ -344,9 +346,32 @@ Deno.test("buildFooterLeftState shows focused teammate chip and team controls hi
   });
 
   const focusChip = state.segments.find((s) => s.text === "To alice");
-  assertEquals(focusChip?.chip, true);
-  const hint = state.segments.find((s) => s.text.includes("Shift+Down teammate"));
-  assertEquals(hint?.text, "Shift+Down teammate · Ctrl+T (2)");
+  assertEquals(focusChip?.chip, undefined);
+  const cycleHint = state.segments.find((s) =>
+    s.text.includes("Shift+Down teammate")
+  );
+  assertEquals(cycleHint?.text, "Shift+Down teammate");
+  const sessionHint = state.segments.find((s) => s.text === "Enter session");
+  assertEquals(sessionHint?.text, "Enter session");
+});
+
+Deno.test("buildFooterLeftState suppresses the teammate cycle hint when a team summary is already visible", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    teamActive: true,
+    teamWorkerSummary: "3 working",
+    spinner: "x",
+  });
+
+  assertEquals(
+    state.segments.some((s) => s.text === "Shift+Down teammate"),
+    false,
+  );
+  assertEquals(
+    state.segments.some((s) => s.text === "Ctrl+T manager"),
+    true,
+  );
 });
 
 Deno.test("buildFooterLeftState prefixes pending permission hints with source label", () => {

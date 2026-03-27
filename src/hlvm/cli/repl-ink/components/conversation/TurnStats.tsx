@@ -9,6 +9,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { formatDurationMs } from "../../utils/formatting.ts";
+import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 
 interface TurnStatsProps {
   toolCount: number;
@@ -46,7 +47,10 @@ export const TurnStats = React.memo(function TurnStats(
   parts.push(duration);
 
   return (
-    <Box marginBottom={1}>
+    <Box
+      marginBottom={1}
+      paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
+    >
       <Text color={sc.text.muted}>Done ({parts.join(" \u00B7 ")})</Text>
     </Box>
   );

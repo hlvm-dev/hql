@@ -32,6 +32,3 @@ export function canonicalizeModuleId(
   return path().normalize(localPath);
 }
 
-export function canonicalizeCurrentFileModuleId(filePath: string): string {
-  return canonicalizeModuleId(filePath, filePath);
-}

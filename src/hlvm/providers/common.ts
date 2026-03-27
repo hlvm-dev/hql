@@ -282,13 +282,6 @@ export function classifyProviderErrorCode(
 }
 
 /**
- * Throw a RuntimeError for a failed HTTP response.
- * Parses the response body to extract the provider's human-readable error message.
- * Always includes HTTP status code (for error taxonomy classification) and
- * Retry-After header when present (for rate limit handling).
- * Shared across all provider API modules.
- */
-/**
  * Common status check for providers that use simple HTTP ping.
  * Consolidates the identical pattern used by OpenAI and Google APIs.
  * For providers with custom logic (Anthropic, Claude Code), use a direct implementation.

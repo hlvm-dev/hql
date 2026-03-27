@@ -703,6 +703,12 @@ export async function askCommand(args: string[]): Promise<void> {
             } ${event.contentPreview}\n`,
           );
           break;
+        case "team_member_activity":
+          flushStream();
+          log.raw.log(
+            `\n[Team Worker] ${event.memberLabel} ${event.summary}\n`,
+          );
+          break;
         case "team_plan_review_required":
           flushStream();
           log.raw.log(

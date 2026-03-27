@@ -145,6 +145,22 @@ export type ChatStreamEvent =
     content_preview: string;
   }
   | {
+    event: "team_member_activity";
+    member_id: string;
+    member_label: string;
+    thread_id?: string;
+    activity_kind:
+      | "reasoning"
+      | "planning"
+      | "plan_created"
+      | "plan_step"
+      | "tool_start"
+      | "tool_end"
+      | "turn_stats";
+    summary: string;
+    status: "active" | "success" | "error";
+  }
+  | {
     event: "team_plan_review_required";
     approval_id: string;
     task_id: string;

@@ -23,8 +23,6 @@ interface UseStreamingReturn {
   isStreaming: boolean;
   /** Stream has completed */
   isDone: boolean;
-  /** Timestamp when streaming started */
-  startTime: number;
   /** Cancel the stream */
   cancel: () => void;
   /** Error if streaming failed */
@@ -44,7 +42,6 @@ export function useStreaming(
   const [displayText, setDisplayText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isDone, setIsDone] = useState(false);
-  const [startTime, setStartTime] = useState(0);
   const [error, setError] = useState<Error | null>(null);
 
   // Buffer ref for accumulation without triggering re-renders per token
@@ -80,7 +77,6 @@ export function useStreaming(
     setDisplayText("");
     setIsStreaming(true);
     setIsDone(false);
-    setStartTime(Date.now());
     setError(null);
 
     // Throttled update function
@@ -156,7 +152,6 @@ export function useStreaming(
     displayText,
     isStreaming,
     isDone,
-    startTime,
     cancel,
     error,
   };

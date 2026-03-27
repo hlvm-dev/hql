@@ -260,7 +260,7 @@ function mergePolicyPathRoots(
   if (roots.length === 0) return policy;
   const base: AgentPolicy = policy ?? { version: 1 };
   const existing = base.pathRules?.roots ?? [];
-  const merged = Array.from(new Set([...existing, ...roots]));
+  const merged = [...new Set([...existing, ...roots])];
   return {
     ...base,
     pathRules: {

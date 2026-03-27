@@ -8,14 +8,13 @@ import { getEnvVar } from "../paths.ts";
 import {
   createDefaultWebFetchConfig,
   createDefaultWebSearchConfig,
+  DEFAULT_USER_AGENT,
   type SearchProvider,
   type WebFetchConfig,
   type WebSearchConfig,
 } from "./types.ts";
 
-/** Single source of truth for the user-agent string across all web tools. */
-export const DEFAULT_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+export { DEFAULT_USER_AGENT } from "./types.ts";
 
 export interface ResolvedWebSearchConfig {
   enabled: boolean;

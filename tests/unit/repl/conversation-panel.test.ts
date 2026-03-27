@@ -2,8 +2,8 @@ import { assertEquals } from "jsr:@std/assert";
 import {
   getActiveThinkingId,
   getConversationDisplayItems,
-  getRecentPlanFlowActivitySummaries,
   getPlanFlowActivitySummary,
+  getRecentPlanFlowActivitySummaries,
   shouldHideConversationTextInCompactPlanFlow,
 } from "../../../src/hlvm/cli/repl-ink/components/ConversationPanel.tsx";
 import { StreamingState } from "../../../src/hlvm/cli/repl-ink/types.ts";
@@ -126,7 +126,10 @@ Deno.test("getConversationDisplayItems compacts plan-mode transcript noise by hi
     },
   ], { compactPlanTranscript: true });
 
-  assertEquals(compactItems.map((item) => item.type), ["tool_group", "assistant"]);
+  assertEquals(compactItems.map((item) => item.type), [
+    "tool_group",
+    "assistant",
+  ]);
 });
 
 Deno.test("getConversationDisplayItems preserves previous conversation history during compact plan mode", () => {
@@ -160,8 +163,15 @@ Deno.test("getConversationDisplayItems preserves previous conversation history d
   ], { compactPlanTranscript: true });
 
   assertEquals(
-    compactItems.map((item) => `${item.type}:${"text" in item ? item.text : item.id}`),
-    ["user:old request", "assistant:Old answer", "user:new request", "assistant:Current answer"],
+    compactItems.map((item) =>
+      `${item.type}:${"text" in item ? item.text : item.id}`
+    ),
+    [
+      "user:old request",
+      "assistant:Old answer",
+      "user:new request",
+      "assistant:Current answer",
+    ],
   );
 });
 
@@ -185,6 +195,37 @@ Deno.test("getConversationDisplayItems keeps errored tool groups visible during 
   ], { compactPlanTranscript: true });
 
   assertEquals(compactItems.map((item) => item.type), ["tool_group"]);
+});
+
+Deno.test("getConversationDisplayItems hides raw worker activity rows but keeps higher-level team updates", () => {
+  const displayItems = getConversationDisplayItems([
+    {
+      type: "info",
+      id: "team-activity-1",
+      text: "Team worker alice: Tool TaskList: 2 tasks",
+      teamEventType: "team_member_activity",
+      memberId: "alice",
+      memberLabel: "alice",
+      threadId: "thread-1",
+      activityKind: "tool_end",
+      status: "success",
+      summary: "Tool TaskList: 2 tasks",
+      ts: 1,
+    },
+    {
+      type: "info",
+      id: "team-task-1",
+      text: "Team task in_progress: Inspect overlay (alice)",
+      teamEventType: "team_task_updated",
+      taskId: "task-1",
+      goal: "Inspect overlay",
+      status: "in_progress",
+      assigneeMemberId: "alice",
+      ts: 2,
+    },
+  ]);
+
+  assertEquals(displayItems.map((item) => item.id), ["team-task-1"]);
 });
 
 Deno.test("getConversationDisplayItems hides the current-turn prompt and assistant text while a picker interaction is active but preserves prior history", () => {
@@ -222,7 +263,9 @@ Deno.test("getConversationDisplayItems hides the current-turn prompt and assista
 
   // Previous history is preserved; only current-turn user/assistant suppressed
   assertEquals(
-    compactItems.map((item) => `${item.type}:${"text" in item ? item.text : item.id}`),
+    compactItems.map((item) =>
+      `${item.type}:${"text" in item ? item.text : item.id}`
+    ),
     ["user:old prompt", "assistant:Older answer"],
   );
 });
@@ -248,7 +291,9 @@ Deno.test("getConversationDisplayItems keeps the current-turn prompt visible for
   });
 
   assertEquals(
-    displayItems.map((item) => `${item.type}:${"text" in item ? item.text : item.id}`),
+    displayItems.map((item) =>
+      `${item.type}:${"text" in item ? item.text : item.id}`
+    ),
     [
       "user:remove firefox app",
       "assistant:Would you like me to open Terminal for you?",
@@ -267,7 +312,8 @@ Deno.test("getConversationDisplayItems hides user and assistant transcript text 
     {
       type: "assistant",
       id: "assistant-1",
-      text: "Direct prose that should not appear in the compact planning surface.",
+      text:
+        "Direct prose that should not appear in the compact planning surface.",
       isPending: false,
       ts: 2,
     },
@@ -307,7 +353,10 @@ Deno.test("getConversationDisplayItems hides user and assistant transcript text 
   });
 
   // Both successful AND errored tool groups are visible (progress visibility)
-  assertEquals(compactItems.map((item) => item.type), ["tool_group", "tool_group"]);
+  assertEquals(compactItems.map((item) => item.type), [
+    "tool_group",
+    "tool_group",
+  ]);
 });
 
 Deno.test("shouldHideConversationTextInCompactPlanFlow keeps final assistant text visible once execution is idle", () => {
@@ -356,7 +405,8 @@ Deno.test("getPlanFlowActivitySummary prefers the latest tool activity for compa
       tools: [{
         id: "tool-1",
         name: "read_file",
-        argsSummary: "path=src/hlvm/cli/repl-ink/components/ConversationPanel.tsx",
+        argsSummary:
+          "path=src/hlvm/cli/repl-ink/components/ConversationPanel.tsx",
         status: "running",
         toolIndex: 1,
         toolTotal: 1,
@@ -417,7 +467,9 @@ Deno.test("getConversationDisplayItems preserves prompt during non-picker intera
   });
 
   assertEquals(
-    displayItems.map((item) => `${item.type}:${"text" in item ? item.text : item.id}`),
+    displayItems.map((item) =>
+      `${item.type}:${"text" in item ? item.text : item.id}`
+    ),
     [
       "user:implement the feature",
       "assistant:I have a question about the approach.",

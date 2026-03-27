@@ -282,21 +282,10 @@ export function extractConversationFacts(options: {
   return facts;
 }
 
-export function persistConversationFacts(options: {
-  userMessage: string;
-  assistantMessage?: string;
-}): PersistMemoryResult {
-  const facts = extractConversationFacts(options);
+function persistFacts(facts: ExtractedMemoryFact[]): PersistMemoryResult {
   if (facts.length === 0) {
-    return {
-      written: 0,
-      linkedEntities: 0,
-      invalidated: 0,
-      factIds: [],
-      facts: [],
-    };
+    return { written: 0, linkedEntities: 0, invalidated: 0, factIds: [], facts: [] };
   }
-
   const result = writeMemoryFacts(
     facts.map((fact) => ({
       content: fact.content,
@@ -305,38 +294,18 @@ export function persistConversationFacts(options: {
       invalidateConflicts: false,
     })),
   );
+  return { ...result, facts };
+}
 
-  return {
-    ...result,
-    facts,
-  };
+export function persistConversationFacts(options: {
+  userMessage: string;
+  assistantMessage?: string;
+}): PersistMemoryResult {
+  return persistFacts(extractConversationFacts(options));
 }
 
 export function persistExplicitMemoryRequest(
   userMessage: string,
 ): PersistMemoryResult {
-  const facts = extractExplicitMemoryRequests(userMessage);
-  if (facts.length === 0) {
-    return {
-      written: 0,
-      linkedEntities: 0,
-      invalidated: 0,
-      factIds: [],
-      facts: [],
-    };
-  }
-
-  const result = writeMemoryFacts(
-    facts.map((fact) => ({
-      content: fact.content,
-      category: fact.category,
-      source: fact.source,
-      invalidateConflicts: false,
-    })),
-  );
-
-  return {
-    ...result,
-    facts,
-  };
+  return persistFacts(extractExplicitMemoryRequests(userMessage));
 }

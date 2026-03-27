@@ -332,7 +332,7 @@ export function getPlanFlowActivities(
       }
 
       if (mode === "latest") {
-        const latestTool = [...visibleTools].reverse().find((tool) =>
+        const latestTool = visibleTools.findLast((tool) =>
           tool.status === "running"
         ) ?? visibleTools[visibleTools.length - 1];
         if (latestTool) {
@@ -341,8 +341,8 @@ export function getPlanFlowActivities(
         continue;
       }
 
-      for (const tool of [...visibleTools].reverse()) {
-        const summary = summarizeToolActivity(tool).trim();
+      for (let ti = visibleTools.length - 1; ti >= 0; ti--) {
+        const summary = summarizeToolActivity(visibleTools[ti]).trim();
         if (!summary || seen.has(summary)) continue;
         seen.add(summary);
         results.push(summary);

@@ -322,80 +322,49 @@ export function classifyError(err: unknown): ClassifiedError {
 }
 
 /**
+ * Recovery hint rules: [keywords, hint].
+ * All keywords in a rule must match (AND). Order matters -- first match wins.
+ * "command not found" must precede "not found" to avoid false match on file errors.
+ */
+const RECOVERY_HINT_RULES: readonly [string[], string][] = [
+  [["command not found"], "Command not available. Check spelling or try an alternative command."],
+  [["not recognized"], "Command not available. Check spelling or try an alternative command."],
+  [["enoent"], "Verify the path exists. Use list_files to check the directory contents first."],
+  [["no such file"], "Verify the path exists. Use list_files to check the directory contents first."],
+  [["not found"], "Verify the path exists. Use list_files to check the directory contents first."],
+  [["eacces"], "Permission denied. Try a different path or ask the user for access."],
+  [["permission denied"], "Permission denied. Try a different path or ask the user for access."],
+  [["eisdir"], "Expected a file but got a directory. Specify the full file path."],
+  [["is a directory"], "Expected a file but got a directory. Specify the full file path."],
+  [["enotdir"], "Part of the path is not a directory. Check the path components."],
+  [["not a directory"], "Part of the path is not a directory. Check the path components."],
+  [["eexist"], "File already exists. Read it first or use edit_file to modify it."],
+  [["already exists"], "File already exists. Read it first or use edit_file to modify it."],
+  [["required", "missing"], "Missing required argument. Check the tool schema and provide all required fields."],
+  [["invalid", "argument"], "Invalid argument value. Check the expected type and format in the tool schema."],
+  [["invalid", "parameter"], "Invalid argument value. Check the expected type and format in the tool schema."],
+  [["denied by user"], "User denied this action. Try an alternative approach or ask the user what they prefer."],
+  [["timeout"], "Operation timed out. Try a simpler query or break the task into smaller steps."],
+  [["timed out"], "Operation timed out. Try a simpler query or break the task into smaller steps."],
+  [["etimedout"], "Operation timed out. Try a simpler query or break the task into smaller steps."],
+  [["rate limit"], "Rate limit hit. Wait a moment before retrying this operation."],
+  [["429"], "Rate limit hit. Wait a moment before retrying this operation."],
+  [["too many requests"], "Rate limit hit. Wait a moment before retrying this operation."],
+  [["invalid", "schema"], "Tool schema rejected by provider. Check tool definitions for invalid types."],
+  [["http 401"], "Authentication failed. Check your API key configuration."],
+  [["http 403"], "Authentication failed. Check your API key configuration."],
+  [["exit code"], "Command failed. Check the error output for details and fix the command."],
+];
+
+/**
  * Get an actionable recovery hint for a tool error message.
  * Helps the model self-correct instead of blindly retrying.
  */
 export function getRecoveryHint(errorMessage: string): string | null {
   const msg = errorMessage.toLowerCase();
-
-  // Shell errors (check before file errors — "command not found" contains "not found")
-  if (msg.includes("command not found") || msg.includes("not recognized")) {
-    return "Command not available. Check spelling or try an alternative command.";
+  for (const [keywords, hint] of RECOVERY_HINT_RULES) {
+    if (keywords.every((kw) => msg.includes(kw))) return hint;
   }
-
-  // File system errors
-  if (
-    msg.includes("enoent") || msg.includes("no such file") ||
-    msg.includes("not found")
-  ) {
-    return "Verify the path exists. Use list_files to check the directory contents first.";
-  }
-  if (msg.includes("eacces") || msg.includes("permission denied")) {
-    return "Permission denied. Try a different path or ask the user for access.";
-  }
-  if (msg.includes("eisdir") || msg.includes("is a directory")) {
-    return "Expected a file but got a directory. Specify the full file path.";
-  }
-  if (msg.includes("enotdir") || msg.includes("not a directory")) {
-    return "Part of the path is not a directory. Check the path components.";
-  }
-  if (msg.includes("eexist") || msg.includes("already exists")) {
-    return "File already exists. Read it first or use edit_file to modify it.";
-  }
-
-  // Tool usage errors
-  if (msg.includes("required") && msg.includes("missing")) {
-    return "Missing required argument. Check the tool schema and provide all required fields.";
-  }
-  if (
-    msg.includes("invalid") &&
-    (msg.includes("argument") || msg.includes("parameter"))
-  ) {
-    return "Invalid argument value. Check the expected type and format in the tool schema.";
-  }
-  if (msg.includes("denied by user")) {
-    return "User denied this action. Try an alternative approach or ask the user what they prefer.";
-  }
-
-  // Network/API errors
-  if (
-    msg.includes("timeout") || msg.includes("timed out") ||
-    msg.includes("etimedout")
-  ) {
-    return "Operation timed out. Try a simpler query or break the task into smaller steps.";
-  }
-  if (
-    msg.includes("rate limit") || msg.includes("429") ||
-    msg.includes("too many requests")
-  ) {
-    return "Rate limit hit. Wait a moment before retrying this operation.";
-  }
-
-  // Schema errors
-  if (msg.includes("invalid") && msg.includes("schema")) {
-    return "Tool schema rejected by provider. Check tool definitions for invalid types.";
-  }
-
-  // Auth errors (HTTP status)
-  if (msg.includes("http 401") || msg.includes("http 403")) {
-    return "Authentication failed. Check your API key configuration.";
-  }
-
-  // Shell exit codes
-  if (msg.includes("exit code")) {
-    return "Command failed. Check the error output for details and fix the command.";
-  }
-
   return null;
 }
 

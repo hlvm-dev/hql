@@ -1083,13 +1083,6 @@ export class Environment {
     return undefined;
   }
 
-  /**
-   * Check if a macro is accessible in the current scope
-   */
-  isMacroAccessible(macroName: string): boolean {
-    return this.resolveMacro(macroName) !== undefined;
-  }
-
   importMacro(
     sourceFile: string,
     macroName: string,

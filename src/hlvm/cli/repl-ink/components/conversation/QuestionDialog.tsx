@@ -21,7 +21,6 @@ import type {
   InteractionOption,
   InteractionResponse,
 } from "../../../../agent/registry.ts";
-import { ConversationCallout } from "./ConversationCallout.tsx";
 
 interface QuestionDialogProps {
   requestId?: string;
@@ -77,11 +76,8 @@ export const QuestionDialog = React.memo(function QuestionDialog(
   }
 
   return (
-    <ConversationCallout
-      title="Clarification needed"
-      tone="warning"
-      marginBottom={0}
-    >
+    <Box flexDirection="column">
+      <Text color={sc.status.warning} bold>Clarification needed</Text>
       {dialog.question && (
         <Box marginTop={0}>
           <Text color={sc.text.primary} wrap="wrap">
@@ -94,6 +90,6 @@ export const QuestionDialog = React.memo(function QuestionDialog(
           {QUESTION_DIALOG_HINT}
         </Text>
       </Box>
-    </ConversationCallout>
+    </Box>
   );
 });

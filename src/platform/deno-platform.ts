@@ -8,8 +8,6 @@
  * elsewhere as they don't create runtime dependencies.
  */
 
-import * as nodePath from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
   Platform,
   PlatformBuild,
@@ -36,7 +34,7 @@ import type {
   PlatformWriteOptions,
   SignalType,
 } from "./types.ts";
-import { buildOpenCommands } from "./platform-shared.ts";
+import { buildOpenCommands, SharedPath } from "./platform-shared.ts";
 
 // =============================================================================
 // Helper Functions
@@ -240,23 +238,10 @@ const DenoFs: PlatformFs = {
 };
 
 // =============================================================================
-// Path Implementation
+// Path Implementation (shared with NodePlatform — both use node:path)
 // =============================================================================
 
-const DenoPath: PlatformPath = {
-  sep: nodePath.sep,
-  join: (...segments: string[]): string => nodePath.join(...segments),
-  dirname: (path: string): string => nodePath.dirname(path),
-  basename: (path: string, ext?: string): string =>
-    nodePath.basename(path, ext),
-  extname: (path: string): string => nodePath.extname(path),
-  isAbsolute: (path: string): boolean => nodePath.isAbsolute(path),
-  resolve: (...segments: string[]): string => nodePath.resolve(...segments),
-  normalize: (path: string): string => nodePath.normalize(path),
-  relative: (from: string, to: string): string => nodePath.relative(from, to),
-  fromFileUrl: (url: string | URL): string => fileURLToPath(url),
-  toFileUrl: (path: string): URL => pathToFileURL(path),
-};
+const DenoPath: PlatformPath = SharedPath;
 
 // =============================================================================
 // Environment Implementation

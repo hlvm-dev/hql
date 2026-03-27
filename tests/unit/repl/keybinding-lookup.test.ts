@@ -48,7 +48,12 @@ Deno.test("input escape helpers distinguish pure escape from alt-prefixed sequen
   assertEquals(isPureEscKeyEvent("\x1b", makeKey({ escape: true })), true);
   assertEquals(isPureEscKeyEvent("\x1b", makeKey()), true);
   assertEquals(isPureEscKeyEvent("", makeKey({ escape: true })), true);
+  assertEquals(isPureEscKeyEvent("", makeKey({ escape: true, meta: true })), true);
   assertEquals(isPureEscKeyEvent("z", makeKey({ escape: true })), false);
+  assertEquals(
+    isPureEscKeyEvent("", makeKey({ escape: true, leftArrow: true })),
+    false,
+  );
   assertEquals(
     shouldInterruptConversationOnEsc("\x1b", makeKey({ escape: true }), {
       composerLanguage: "chat",
@@ -149,19 +154,19 @@ Deno.test("global keybindings do not reserve bare question-mark", () => {
   );
 });
 
-Deno.test("global keybindings include Ctrl+T team dashboard handler", () => {
+Deno.test("global keybindings include Ctrl+T task overlay handler", () => {
   assertEquals(
     globalKeybindings.some((binding) =>
       binding.display === "Ctrl+T" &&
-      binding.label === "Team dashboard" &&
+      binding.label === "Task status" &&
       binding.action.type === "HANDLER" &&
-      binding.action.id === HandlerIds.APP_TEAM_DASHBOARD
+      binding.action.id === HandlerIds.APP_TASK_OVERLAY
     ),
     true,
   );
 });
 
-Deno.test("conversation keybindings include toggle and source handlers", () => {
+Deno.test("conversation keybindings include history and source handlers", () => {
   const conversationHandlerIds = new Map(
     conversationKeybindings
       .filter((
@@ -174,7 +179,7 @@ Deno.test("conversation keybindings include toggle and source handlers", () => {
 
   assertEquals(
     conversationHandlerIds.get("ctrl+o"),
-    HandlerIds.CONVERSATION_TOGGLE_LATEST,
+    HandlerIds.CONVERSATION_OPEN_HISTORY,
   );
   assertEquals(
     conversationHandlerIds.get("ctrl+y"),
@@ -204,7 +209,7 @@ Deno.test("global keybindings use canonical handler IDs", () => {
   assertEquals(globalHandlerIds.get("ctrl+l"), HandlerIds.APP_CLEAR);
   assertEquals(globalHandlerIds.get("ctrl+p"), HandlerIds.APP_PALETTE);
   assertEquals(globalHandlerIds.get("ctrl+b"), HandlerIds.APP_BACKGROUND);
-  assertEquals(globalHandlerIds.get("ctrl+t"), HandlerIds.APP_TEAM_DASHBOARD);
+  assertEquals(globalHandlerIds.get("ctrl+t"), HandlerIds.APP_TASK_OVERLAY);
 });
 
 Deno.test("inspectHandlerKeybinding leaves bare question-mark available for typing", () => {
@@ -240,7 +245,7 @@ Deno.test("inspectHandlerKeybinding resolves global default handlers by scope", 
 
     assertEquals(result, {
       kind: "handler",
-      id: HandlerIds.APP_TEAM_DASHBOARD,
+      id: HandlerIds.APP_TASK_OVERLAY,
       source: "default",
     });
   } finally {

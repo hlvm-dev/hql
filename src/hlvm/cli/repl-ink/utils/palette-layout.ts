@@ -1,6 +1,5 @@
 import {
   buildBalancedTextRow,
-  buildRightSlotTextLayout,
   buildSectionLabelText,
   type TwoColumnTextLayout,
 } from "./display-chrome.ts";
@@ -46,10 +45,7 @@ export function buildPaletteItemLayout(
   shortcut: string,
   contentWidth: number,
 ): TwoColumnTextLayout {
-  return buildRightSlotTextLayout(
-    contentWidth,
-    label,
-    shortcut,
-    COMMAND_PALETTE_SHORTCUT_WIDTH,
-  );
+  return buildBalancedTextRow(contentWidth, label, shortcut, {
+    maxRightWidth: COMMAND_PALETTE_SHORTCUT_WIDTH,
+  });
 }

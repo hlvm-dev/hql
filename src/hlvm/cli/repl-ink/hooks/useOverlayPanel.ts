@@ -27,6 +27,7 @@ export type OverlayPanel =
   | "config-overlay"
   | "team-dashboard"
   | "shortcuts-overlay"
+  | "transcript-history"
   | "background-tasks";
 
 export type ShellRoute =
@@ -54,6 +55,7 @@ function isModalOverlayPanel(panel: string): boolean {
   return panel === "palette" || panel === "config-overlay" ||
     panel === "team-dashboard" ||
     panel === "shortcuts-overlay" ||
+    panel === "transcript-history" ||
     panel === "background-tasks";
 }
 
@@ -94,6 +96,7 @@ export interface UseOverlayPanelResult {
   togglePalette: () => void;
   toggleTeamDashboard: () => void;
   toggleShortcutsOverlay: () => void;
+  toggleTranscriptHistory: () => void;
   toggleBackgroundTasks: () => void;
 }
 
@@ -229,6 +232,15 @@ export function useOverlayPanel(
       ),
     [],
   );
+  const toggleTranscriptHistory = useMemo(
+    () =>
+      createOverlayToggle(
+        "transcript-history",
+        lastPanelToggleRef,
+        setActiveOverlay,
+      ),
+    [],
+  );
   const toggleBackgroundTasks = useMemo(
     () =>
       createOverlayToggle(
@@ -264,6 +276,7 @@ export function useOverlayPanel(
     togglePalette,
     toggleTeamDashboard,
     toggleShortcutsOverlay,
+    toggleTranscriptHistory,
     toggleBackgroundTasks,
   };
 }

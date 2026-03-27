@@ -32,6 +32,20 @@ export function shouldRenderMainBanner(options: {
     !options.hasStandaloneSurface;
 }
 
+export function shouldRenderShellLanes(options: {
+  historyItemCount: number;
+  localEvalQueueCount: number;
+  liveItemCount: number;
+  liveTodoCount: number;
+  hasPendingInteraction: boolean;
+}): boolean {
+  return options.historyItemCount > 0 ||
+    options.localEvalQueueCount > 0 ||
+    options.liveItemCount > 0 ||
+    options.liveTodoCount > 0 ||
+    options.hasPendingInteraction;
+}
+
 export function resolveConversationEscapeAction(options: {
   surfacePanel: SurfacePanel;
   isConversationTaskRunning: boolean;

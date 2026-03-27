@@ -237,6 +237,19 @@ export function sanitizeArgs(
   return Object.fromEntries(entries);
 }
 
+function readStringField(
+  args: Record<string, unknown>,
+  ...keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 /** Tool name → primary arg field for single-field summary */
 const SUMMARY_FIELD = new Map<string, string>([
   ["read_file", "path"],
@@ -282,6 +295,68 @@ export function generateArgsSummary(
     case "todo_write": {
       const items = Array.isArray(a.items) ? a.items.length : 0;
       return `${items} todo${items === 1 ? "" : "s"}`;
+    }
+    case "Teammate": {
+      const operation = readStringField(a, "operation");
+      const teamName = readStringField(a, "team_name", "teamName");
+      const name = readStringField(a, "name");
+      const agentType = readStringField(a, "agent_type", "agentType");
+      switch (operation) {
+        case "spawnTeam":
+          return teamName ? `spawn team ${truncate(teamName, 48)}` : "spawn team";
+        case "spawnAgent":
+          return name
+            ? `spawn ${truncate(name, 40)}${
+              agentType ? ` (${truncate(agentType, 20)})` : ""
+            }`
+            : "spawn teammate";
+        case "cleanup":
+          return teamName
+            ? `cleanup ${truncate(teamName, 48)}`
+            : "cleanup team";
+        default:
+          return truncate(
+            [operation, name ?? teamName].filter(Boolean).join(" "),
+            80,
+          );
+      }
+    }
+    case "TaskCreate":
+      return truncate(readStringField(a, "subject") ?? "", 80);
+    case "TaskGet": {
+      const taskId = readStringField(a, "taskId", "task_id");
+      return taskId ? `task ${truncate(taskId, 24)}` : "";
+    }
+    case "TaskUpdate": {
+      const taskId = readStringField(a, "taskId", "task_id");
+      const status = readStringField(a, "status");
+      const owner = readStringField(a, "owner");
+      const parts = [
+        taskId ? `task ${truncate(taskId, 24)}` : undefined,
+        status,
+        owner ? `owner ${truncate(owner, 24)}` : undefined,
+      ].filter((part): part is string => Boolean(part));
+      return truncate(parts.join(" · "), 80);
+    }
+    case "TaskList":
+      return "team tasks";
+    case "SendMessage": {
+      const type = readStringField(a, "type");
+      const recipient = readStringField(a, "recipient");
+      const taskId = readStringField(a, "task_id", "taskId");
+      const content = readStringField(a, "summary", "content");
+      const label = type === "broadcast"
+        ? "broadcast"
+        : type === "submit_plan"
+        ? "submit plan"
+        : type?.replaceAll("_", " ");
+      const parts = [
+        label,
+        recipient ? `to ${truncate(recipient, 24)}` : undefined,
+        taskId ? `task ${truncate(taskId, 24)}` : undefined,
+        content ? truncate(content, 36) : undefined,
+      ].filter((part): part is string => Boolean(part));
+      return truncate(parts.join(" · "), 80);
     }
     default: {
       try {

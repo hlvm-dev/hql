@@ -208,7 +208,7 @@ function mergeMcpHandlers(
   return {
     onSampling: next.onSampling ?? current.onSampling,
     onElicitation: next.onElicitation ?? current.onElicitation,
-    roots: roots.length > 0 ? Array.from(new Set(roots)) : undefined,
+    roots: roots.length > 0 ? [...new Set(roots)] : undefined,
   };
 }
 

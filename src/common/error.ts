@@ -64,6 +64,16 @@ const COLORS = {
 // Simple helpers
 // -----------------------------------------------------------------------------
 
+const ERROR_TYPE_SUGGESTION_HINTS: Record<string, string> = {
+  "Parse Error": "Check the syntax near this location. Look for missing or extra parentheses, brackets, or quotes.",
+  "Import Error": "Check that the file path is correct and the module exists.",
+  "Validation Error": "Check that the expression follows HQL syntax rules.",
+  "Transform Error": "The code structure might not be supported. Try simplifying the expression.",
+  "Runtime Error": "Check variable names, types, and ensure values are properly initialized.",
+  "Codegen Error": "This might be an internal compiler issue. Try simplifying the code.",
+  "Macro Error": "Check the macro definition and ensure arguments match the expected pattern.",
+};
+
 /**
  * Enhance error message with error code and location
  *
@@ -607,18 +617,7 @@ export class HQLError extends Error {
       }
     }
 
-    // Fallback based on error type
-    const errorTypeHints: Record<string, string> = {
-      "Parse Error": "Check the syntax near this location. Look for missing or extra parentheses, brackets, or quotes.",
-      "Import Error": "Check that the file path is correct and the module exists.",
-      "Validation Error": "Check that the expression follows HQL syntax rules.",
-      "Transform Error": "The code structure might not be supported. Try simplifying the expression.",
-      "Runtime Error": "Check variable names, types, and ensure values are properly initialized.",
-      "Codegen Error": "This might be an internal compiler issue. Try simplifying the code.",
-      "Macro Error": "Check the macro definition and ensure arguments match the expected pattern.",
-    };
-
-    return errorTypeHints[this.errorType] || "Check the code near this location for errors.";
+    return ERROR_TYPE_SUGGESTION_HINTS[this.errorType] || "Check the code near this location for errors.";
   }
 
   isCircularDependencyError(): boolean {

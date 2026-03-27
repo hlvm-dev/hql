@@ -496,7 +496,7 @@ Deno.test("agent transcript state clears finished plan state when a new turn sta
   assertEquals(next.items.at(-1)?.type, "assistant");
 });
 
-Deno.test("agent transcript state keeps provider reasoning summaries and drops generic working rows", () => {
+Deno.test("agent transcript state keeps provider reasoning summaries only while the turn is active", () => {
   let state = reduceTranscriptState(createTranscriptState(), {
     type: "agent_event",
     event: { type: "thinking", iteration: 1 },
@@ -522,11 +522,48 @@ Deno.test("agent transcript state keeps provider reasoning summaries and drops g
   }
 
   const finalized = reduceTranscriptState(state, { type: "finalize" });
-  assertEquals(finalized.items.length, 1);
-  assertEquals(finalized.items[0]?.type, "thinking");
-  if (finalized.items[0]?.type === "thinking") {
-    assertEquals(finalized.items[0].kind, "reasoning");
-  }
+  assertEquals(finalized.items.length, 0);
+});
+
+Deno.test("agent transcript state drops thinking rows when turn stats close the turn", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "user_message",
+    text: "hello",
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "reasoning_update",
+      iteration: 1,
+      summary: "Check the active file first.",
+    },
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "assistant_text",
+    text: "Hello there",
+    isPending: false,
+  });
+
+  const next = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "turn_stats",
+      iteration: 1,
+      toolCount: 0,
+      durationMs: 120,
+      inputTokens: 10,
+      outputTokens: 12,
+      modelId: "claude-test",
+    },
+  });
+
+  assertEquals(next.items.map((item) => item.type), [
+    "user",
+    "assistant",
+    "turn_stats",
+  ]);
 });
 
 Deno.test("agent transcript state records planning updates as reasoning outside explicit plan flow", () => {
@@ -630,7 +667,7 @@ Deno.test("agent transcript state keeps only the latest reasoning and planning r
   );
 });
 
-Deno.test("agent transcript state preserves prior-turn reasoning when later turns reuse iteration numbers", () => {
+Deno.test("agent transcript state clears prior-turn reasoning when later turns reuse iteration numbers", () => {
   let state = reduceTranscriptState(createTranscriptState(), {
     type: "user_message",
     text: "first turn",
@@ -664,7 +701,6 @@ Deno.test("agent transcript state preserves prior-turn reasoning when later turn
       item.type === "thinking" ? item.summary : ""
     ),
     [
-      "First-turn reasoning",
       "Second-turn reasoning",
     ],
   );
@@ -1076,7 +1112,7 @@ Deno.test("agent transcript state preserves items during plan phase transitions"
 // HQL eval — insertion + turnId
 // ============================================================
 
-Deno.test("hql_eval during Responding inserts before pending assistant", () => {
+Deno.test("hql_eval during Responding stays out of transcript items but keeps the active turnId", () => {
   // Set up state with user + pending assistant + currentTurnId
   let state = createTranscriptState();
   state = reduceTranscriptState(state, {
@@ -1094,13 +1130,11 @@ Deno.test("hql_eval during Responding inserts before pending assistant", () => {
     input: "(+ 1 2)",
     result: { success: true, value: "3" },
   });
-  // Eval should be inserted before pending assistant
-  assertEquals(next.items.length, 3);
-  assertEquals(next.items[1].type, "hql_eval");
-  assertEquals(next.items[2].type, "assistant");
-  // Should inherit the current turn's turnId
-  const evalItem = next.items[1];
-  if (evalItem.type === "hql_eval") {
+  assertEquals(next.items.length, 2);
+  assertEquals(next.items[1].type, "assistant");
+  assertEquals(next.evalHistory.length, 1);
+  const evalItem = next.evalHistory[0];
+  if (evalItem) {
     assertEquals(evalItem.turnId, "turn-1");
   }
 });
@@ -1112,11 +1146,11 @@ Deno.test("hql_eval during Idle gets its own ephemeral turnId", () => {
     input: "(+ 1 2)",
     result: { success: true, value: "3" },
   });
-  assertEquals(next.items.length, 1);
-  assertEquals(next.items[0].type, "hql_eval");
+  assertEquals(next.items.length, 0);
+  assertEquals(next.evalHistory.length, 1);
   // Should have an ephemeral turnId
-  const evalItem = next.items[0];
-  if (evalItem.type === "hql_eval") {
+  const evalItem = next.evalHistory[0];
+  if (evalItem) {
     assertEquals(evalItem.turnId, "turn-1");
   }
   assertEquals(next.turnCounter, 1);

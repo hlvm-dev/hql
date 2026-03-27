@@ -54,12 +54,7 @@ export function macroexpand1(
   return macroexpandInternal(source, 1, options);
 }
 
-export function macroexpandAll(
-  source: string,
-  options: MacroExpandOptions = {},
-): Promise<string[]> {
-  return macroexpandInternal(source, undefined, options);
-}
+export const macroexpandAll = macroexpand;
 
 export async function macroexpandTrace(
   source: string,

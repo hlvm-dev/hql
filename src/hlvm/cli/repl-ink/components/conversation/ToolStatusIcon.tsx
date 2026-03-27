@@ -2,7 +2,7 @@
  * ToolStatusIcon Component
  *
  * Renders a single status icon for a tool call.
- * Uses ⏺ (record) glyph for all states, static marker for running.
+ * Uses a small bullet glyph for all states.
  * No spinner subscription — avoids terminal redraws that break text selection.
  */
 
@@ -10,7 +10,7 @@ import React from "react";
 import { Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 
-const TOOL_GLYPH = "\u23FA"; // ⏺
+const TOOL_GLYPH = "\u2022"; // •
 
 interface ToolStatusIconProps {
   status: "pending" | "running" | "success" | "error";

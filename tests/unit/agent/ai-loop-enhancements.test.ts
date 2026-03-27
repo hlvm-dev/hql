@@ -12,6 +12,7 @@ import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
   buildToolResultOutputs,
   compressForLLM,
+  generateArgsSummary,
 } from "../../../src/hlvm/agent/orchestrator-tool-formatting.ts";
 import {
   getToolTimeoutMs,
@@ -234,6 +235,46 @@ Deno.test("Item 2: buildToolResultOutputs passes small results through unchanged
   assertStringIncludes(llmContent, "const x = 1;");
   // No compression marker
   assertEquals(llmContent.includes("lines omitted"), false);
+});
+
+Deno.test("Item 2: generateArgsSummary humanizes agent-team tools for the transcript", () => {
+  assertEquals(
+    generateArgsSummary("Teammate", {
+      operation: "spawnTeam",
+      team_name: "cleanup-team",
+    }),
+    "spawn team cleanup-team",
+  );
+  assertEquals(
+    generateArgsSummary("Teammate", {
+      operation: "spawnAgent",
+      name: "trash-emptier",
+      agent_type: "shell",
+    }),
+    "spawn trash-emptier (shell)",
+  );
+  assertEquals(
+    generateArgsSummary("TaskCreate", {
+      subject: "Remove screenshots from ~/Desktop",
+      description: "Find and remove screenshots",
+    }),
+    "Remove screenshots from ~/Desktop",
+  );
+  assertEquals(
+    generateArgsSummary("TaskUpdate", {
+      taskId: "7",
+      status: "in_progress",
+      owner: "desktop-cleaner",
+    }),
+    "task 7 · in_progress · owner desktop-cleaner",
+  );
+  assertEquals(
+    generateArgsSummary("SendMessage", {
+      type: "broadcast",
+      summary: "Cleanup team spawned with 3 agents",
+    }),
+    "broadcast · Cleanup team spawned with 3 agents",
+  );
 });
 
 // Leaf function tests (these were validated before, keeping for regression)

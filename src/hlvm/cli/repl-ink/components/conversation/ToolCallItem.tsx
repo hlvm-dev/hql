@@ -42,7 +42,7 @@ export const ToolCallItem = React.memo(function ToolCallItem(
     tool.durationMs,
   );
 
-  const nameColor = tool.status === "error" ? sc.status.error : sc.text.primary;
+  const nameColor = tool.status === "error" ? sc.status.error : sc.text.secondary;
   const argsColor = tool.status === "error"
     ? sc.status.error
     : sc.text.secondary;
@@ -55,13 +55,14 @@ export const ToolCallItem = React.memo(function ToolCallItem(
   const resultGutterColor = tool.status === "error"
     ? sc.status.error
     : sc.text.muted;
+  const shouldRenderResult = expanded || tool.status === "error";
 
   return (
     <Box flexDirection="column">
       <Box>
         <ToolStatusIcon status={tool.status} animate={animateStatusIcon} />
         <Text> </Text>
-        <Text bold color={nameColor}>{tool.name}</Text>
+        <Text color={nameColor}>{tool.name}</Text>
         {layout.argsText && (
           <Text color={argsColor}>
             {" "}
@@ -74,7 +75,9 @@ export const ToolCallItem = React.memo(function ToolCallItem(
         )}
       </Box>
 
-      {resolveToolResultText(tool, expanded) && tool.status !== "running" && (
+      {shouldRenderResult &&
+        resolveToolResultText(tool, expanded) &&
+        tool.status !== "running" && (
         <Box marginLeft={2} flexDirection="row">
           <Text color={resultGutterColor}>{"⎿  "}</Text>
           <Box flexDirection="column" flexShrink={1}>

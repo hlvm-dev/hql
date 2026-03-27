@@ -110,7 +110,7 @@ interface LspDiagnosticsRuntimeOptions {
   ) => Promise<LspServerCandidate[]>;
 }
 
-export async function resolveDefaultLspCandidates(
+async function resolveDefaultLspCandidates(
   filePath: string,
   workspace: string,
 ): Promise<LspServerCandidate[]> {

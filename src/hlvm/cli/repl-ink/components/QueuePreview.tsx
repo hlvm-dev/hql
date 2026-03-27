@@ -24,7 +24,6 @@ import { ShellPreviewList } from "./ShellPreviewList.tsx";
 
 const MAX_VISIBLE_ITEMS = 3;
 const PREVIEW_LENGTH = 72;
-export type QueuePreviewLine = ShellQueuePreviewLine;
 
 export interface QueuePreviewProps {
   items: ConversationComposerDraft[];
@@ -34,10 +33,10 @@ export interface QueuePreviewProps {
 export function buildQueuePreviewLines(
   items: ConversationComposerDraft[],
   editBindingLabel: string,
-): QueuePreviewLine[] {
+): ShellQueuePreviewLine[] {
   if (items.length === 0) return [];
 
-  const lines: QueuePreviewLine[] = [buildQueuePreviewHeaderLine()];
+  const lines: ShellQueuePreviewLine[] = [buildQueuePreviewHeaderLine()];
 
   const visibleItems = items.slice(0, MAX_VISIBLE_ITEMS);
   for (let i = 0; i < visibleItems.length; i++) {

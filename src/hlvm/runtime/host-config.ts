@@ -36,10 +36,6 @@ export function setCachedRuntimeBaseUrl(url: string): void {
   cachedRuntimeBaseUrl = url;
 }
 
-export function getCachedRuntimeBaseUrl(): string | null {
-  return cachedRuntimeBaseUrl;
-}
-
 export function getHlvmRuntimeBaseUrl(): string {
   return cachedRuntimeBaseUrl ?? `http://127.0.0.1:${resolveHlvmRuntimePort()}`;
 }

@@ -170,7 +170,7 @@ function listIncludesAnySelector(
 }
 
 function dedupeToolNames(names: readonly string[]): string[] {
-  return Array.from(new Set(names));
+  return [...new Set(names)];
 }
 
 function getProviderNativeAliases(spec: WebCapabilitySpec): readonly string[] {

@@ -6,24 +6,16 @@
 
 import type { Observation } from "./types.ts";
 import { sanitizeSensitiveContent } from "../memory/mod.ts";
+import { fnv1aHex } from "../../common/hash.ts";
 
 const MAX_STRING_LENGTH = 500;
 const MAX_CLIPBOARD_LENGTH = 200;
-
-/** DJB2 hash, base36 encoded. */
-function simpleHash(str: string): string {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
-  }
-  return (hash >>> 0).toString(36);
-}
 
 function redactString(value: string, isClipboard: boolean): string {
   const { sanitized } = sanitizeSensitiveContent(value);
   const limit = isClipboard ? MAX_CLIPBOARD_LENGTH : MAX_STRING_LENGTH;
   if (sanitized.length > limit) {
-    return sanitized.slice(0, limit) + `...[${simpleHash(sanitized)}]`;
+    return sanitized.slice(0, limit) + `...[${fnv1aHex(sanitized)}]`;
   }
   return sanitized;
 }

@@ -28,14 +28,13 @@ export function parseCliOptions(args: string[]): CliOptions {
   const teammateMode = parsed["teammate-mode"] as string | undefined;
   const validModes: TeammateMode[] = ["in-process", "tmux", "auto"];
 
+  const hasForceCache = parsed["force-cache"];
+  const hasNoCache = parsed["no-force-cache"] || parsed["no-cache"];
+
   return {
     verbose: parsed.verbose || undefined,
     showTiming: parsed.time || undefined,
-    forceCache: parsed["force-cache"]
-      ? true
-      : (parsed["no-force-cache"] || parsed["no-cache"])
-      ? false
-      : undefined,
+    forceCache: hasForceCache ? true : hasNoCache ? false : undefined,
     debug: parsed.debug || undefined,
     teammateMode: teammateMode && validModes.includes(teammateMode as TeammateMode)
       ? teammateMode as TeammateMode

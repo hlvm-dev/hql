@@ -4,33 +4,11 @@ import { truncate } from "../../../../common/utils.ts";
 import { useTheme } from "../../theme/index.ts";
 import { buildCursorWindowDisplay } from "../utils/cursor-window.ts";
 
-interface SearchFieldDisplay {
-  beforeCursor: string;
-  cursorChar: string;
-  afterCursor: string;
-}
-
 interface ListSearchFieldProps {
   query: string;
   cursor: number;
   width: number;
   placeholder?: string;
-}
-
-/**
- * Keep the cursor visible inside a fixed-width search field.
- */
-function buildSearchFieldDisplay(
-  value: string,
-  cursor: number,
-  maxChars: number,
-): SearchFieldDisplay {
-  const display = buildCursorWindowDisplay(value, cursor, maxChars);
-  return {
-    beforeCursor: display.beforeCursor,
-    cursorChar: display.cursorChar,
-    afterCursor: display.afterCursor,
-  };
 }
 
 export function ListSearchField({
@@ -43,7 +21,7 @@ export function ListSearchField({
   const contentWidth = Math.max(8, width - 4);
   const visibleChars = Math.max(1, contentWidth);
   const placeholderWidth = Math.max(1, visibleChars - 1);
-  const display = buildSearchFieldDisplay(query, cursor, visibleChars);
+  const display = buildCursorWindowDisplay(query, cursor, visibleChars);
   const borderColor = query.length === 0 ? color("muted") : color("accent");
 
   return (

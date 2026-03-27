@@ -21,6 +21,8 @@ import {
 import { PlanChecklistPanel } from "./conversation/PlanChecklistPanel.tsx";
 import { derivePlanSurfaceState } from "./conversation/plan-flow.ts";
 import { getLiveConversationSpacing } from "./conversation/message-spacing.ts";
+import { shouldRenderTranscriptDividerBeforeIndex } from "../utils/layout-tokens.ts";
+import { filterRenderableTimelineItems } from "../utils/timeline-visibility.ts";
 
 const CONVERSATION_KEYBINDING_CATEGORIES = ["Conversation"] as const;
 
@@ -31,6 +33,7 @@ interface PendingTurnPanelProps {
   planningPhase?: PlanningPhase;
   todoState?: TodoState;
   compactSpacing?: boolean;
+  showLeadingDivider?: boolean;
   allowToggleHotkeys?: boolean;
 }
 
@@ -42,6 +45,7 @@ export function PendingTurnPanel(
     planningPhase,
     todoState,
     compactSpacing = false,
+    showLeadingDivider = false,
     allowToggleHotkeys = true,
   }: PendingTurnPanelProps,
 ): React.ReactElement | null {
@@ -71,7 +75,10 @@ export function PendingTurnPanel(
       }),
     [items, planningPhase, todoState],
   );
-  const visibleItems = planSurface.visibleItems;
+  const visibleItems = useMemo(
+    () => filterRenderableTimelineItems(planSurface.visibleItems),
+    [planSurface.visibleItems],
+  );
 
   useEffect(() => {
     if (items.length === 0) {
@@ -174,13 +181,18 @@ export function PendingTurnPanel(
           items={items}
         />
       )}
-      {visibleItems.map((item: AgentConversationItem) => (
+      {visibleItems.map((item: AgentConversationItem, index: number) => (
         <Box key={item.id}>
           <TimelineItemRenderer
             item={item}
             width={width}
             activeThinkingId={activeThinkingId}
             compactSpacing={compactSpacing}
+            showDividerBefore={shouldRenderTranscriptDividerBeforeIndex(
+              visibleItems,
+              index,
+              showLeadingDivider,
+            )}
             isToolExpanded={isToolExpanded}
             isThinkingExpanded={isThinkingExpanded}
             isDelegateExpanded={isDelegateExpanded}

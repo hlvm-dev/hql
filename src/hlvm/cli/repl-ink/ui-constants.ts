@@ -34,8 +34,8 @@ export const STATUS_GLYPHS = {
 } as const;
 
 
-/** Shared helper hint for expanding/collapsing latest tool/thinking section. */
-export const TOGGLE_LATEST_HINT = "Ctrl+O toggles latest section";
+/** Shared helper hint for opening the transcript/history viewer. */
+export const TOGGLE_LATEST_HINT = "Ctrl+O for history";
 /** Shared helper hint for opening the latest citation URL. */
 export const OPEN_LATEST_SOURCE_HINT = "Ctrl+Y opens latest source";
 

@@ -10,6 +10,7 @@ import { truncate } from "../../../../common/utils.ts";
 import { calculateScrollWindow } from "../completion/navigation.ts";
 import type {
   AttentionItem,
+  MemberActivityItem,
   PendingApprovalItem,
   ShutdownItem,
   TaskBoardItem,
@@ -32,6 +33,8 @@ import {
 import { useTheme } from "../../theme/index.ts";
 import { padTo } from "../utils/formatting.ts";
 import { STATUS_GLYPHS } from "../ui-constants.ts";
+import { cancelThread, getThread } from "../../../agent/delegate-threads.ts";
+import { listDelegateTranscriptLines } from "../../../agent/delegate-transcript.ts";
 import {
   buildBalancedTextRow,
   buildSectionLabelText,
@@ -41,11 +44,16 @@ interface TeamDashboardOverlayProps {
   onClose: () => void;
   teamState: TeamDashboardState;
   interactionMode?: "permission" | "question";
+  interactionSourceMemberId?: string;
+  interactionSourceLabel?: string;
+  initialViewMode?: "dashboard" | "details";
+  initialDetailItemId?: string;
+  sessionOnly?: boolean;
 }
 
 type ViewMode = "dashboard" | "details";
 
-type DashboardItem =
+export type DashboardItem =
   | { id: string; kind: "member"; data: TeamMemberItem }
   | { id: string; kind: "worker"; data: WorkerStatus }
   | { id: string; kind: "task"; data: TaskBoardItem }
@@ -68,6 +76,7 @@ export function buildTeamDashboardSummaryRows(
   teamState: TeamDashboardState,
   contentWidth: number,
   interactionMode?: "permission" | "question",
+  interactionSourceLabel?: string,
 ): [string, string] {
   const teammateCount = teamState.members.filter((member) =>
     member.role === "worker" && member.status !== "terminated"
@@ -84,7 +93,9 @@ export function buildTeamDashboardSummaryRows(
     contentWidth,
     `Reviews ${teamState.pendingApprovals.length} · Attention ${teamState.attentionItems.length}`,
     interactionMode
-      ? `Interaction ${interactionMode}`
+      ? `Interaction ${interactionMode}${
+        interactionSourceLabel ? ` · ${interactionSourceLabel}` : ""
+      }`
       : `Shutdowns ${teamState.shutdowns.length} · Errors ${
         teamState.taskCounts.errored ?? 0
       }`,
@@ -255,6 +266,66 @@ function detailLines(item: DashboardItem): string[] {
   }
 }
 
+function getRecentMemberActivityLines(
+  activities: MemberActivityItem[] | undefined,
+): string[] {
+  if (!activities?.length) return [];
+  return [
+    "Recent activity:",
+    ...activities.slice(0, 6).map((entry) => `- ${entry.summary}`),
+  ];
+}
+
+function getInterruptibleThreadId(
+  item: DashboardItem | null | undefined,
+): string | undefined {
+  const threadId = item?.kind === "member" || item?.kind === "worker"
+    ? item.data.threadId
+    : undefined;
+  if (!threadId) return undefined;
+  const thread = getThread(threadId);
+  if (!thread) return undefined;
+  return thread.status === "queued" || thread.status === "running"
+    ? threadId
+    : undefined;
+}
+
+export function buildTeamDashboardDetailLines(
+  item: DashboardItem,
+  teamState: TeamDashboardState,
+  interactionMode?: "permission" | "question",
+  interactionSourceMemberId?: string,
+): string[] {
+  const baseLines = detailLines(item);
+  if (item.kind !== "member" && item.kind !== "worker") {
+    return baseLines;
+  }
+
+  const threadId = item.data.threadId;
+  const threadSnapshotLines = threadId
+    ? listDelegateTranscriptLines(getThread(threadId)?.snapshot).slice(-6)
+    : [];
+  const memberId = item.kind === "member" ? item.data.id : undefined;
+  const memberActivityLines = memberId
+    ? getRecentMemberActivityLines(teamState.memberActivity[memberId])
+    : [];
+  const interactionLine = memberId && interactionMode &&
+      interactionSourceMemberId === memberId
+    ? `Waiting on lead: ${interactionMode}`
+    : "";
+  const inspectLines = threadSnapshotLines.length > 0
+    ? ["Live session:", ...threadSnapshotLines.map((line) => `- ${line}`)]
+    : memberActivityLines.length > 0
+    ? memberActivityLines
+    : ["No recent activity yet"];
+
+  return [
+    ...baseLines,
+    interactionLine,
+    ...inspectLines,
+  ].filter(Boolean);
+}
+
 function splitDashboardColumns(items: DashboardItem[]): {
   left: DashboardItem[];
   right: DashboardItem[];
@@ -274,12 +345,22 @@ export function TeamDashboardOverlay({
   onClose,
   teamState,
   interactionMode,
+  interactionSourceMemberId,
+  interactionSourceLabel,
+  initialViewMode = "dashboard",
+  initialDetailItemId,
+  sessionOnly = false,
 }: TeamDashboardOverlayProps): React.ReactElement | null {
   const { theme } = useTheme();
   const { stdout } = useStdout();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("dashboard");
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialDetailItemId ?? null,
+  );
+  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
+  const [detailId, setDetailId] = useState<string | null>(
+    initialViewMode === "details" ? initialDetailItemId ?? null : null,
+  );
+  const [detailScrollOffset, setDetailScrollOffset] = useState(0);
   const terminalColumns = stdout?.columns ?? 0;
   const terminalRows = stdout?.rows ?? 0;
   const overlayFrame = useMemo(
@@ -359,16 +440,24 @@ export function TeamDashboardOverlay({
   const selectedIndex = selectedId
     ? items.findIndex((item: DashboardItem) => item.id === selectedId)
     : -1;
+  const selectedItem = selectedIndex >= 0 ? items[selectedIndex] ?? null : null;
   const detailItem = detailId
     ? items.find((item: DashboardItem) => item.id === detailId) ?? null
     : null;
+  const selectedInterruptibleThreadId = getInterruptibleThreadId(
+    viewMode === "details" ? detailItem : selectedItem,
+  );
 
   useEffect(() => {
     if (items.length === 0) {
       setSelectedId(null);
       if (viewMode === "details") {
-        setViewMode("dashboard");
-        setDetailId(null);
+        if (sessionOnly) {
+          onClose();
+        } else {
+          setViewMode("dashboard");
+          setDetailId(null);
+        }
       }
       return;
     }
@@ -381,10 +470,14 @@ export function TeamDashboardOverlay({
     if (
       detailId && !items.some((item: DashboardItem) => item.id === detailId)
     ) {
-      setViewMode("dashboard");
-      setDetailId(null);
+      if (sessionOnly) {
+        onClose();
+      } else {
+        setViewMode("dashboard");
+        setDetailId(null);
+      }
     }
-  }, [detailId, items, selectedId, viewMode]);
+  }, [detailId, items, onClose, selectedId, sessionOnly, viewMode]);
 
   useEffect(() => {
     if (teamState.focusedWorkerIndex < 0) return;
@@ -395,6 +488,54 @@ export function TeamDashboardOverlay({
     if (!focusedTeammate) return;
     setSelectedId(`member-${focusedTeammate.id}`);
   }, [teamState.focusedWorkerIndex, teamState.members]);
+
+  useEffect(() => {
+    if (!interactionSourceMemberId) return;
+    const activityItemId = `member-${interactionSourceMemberId}`;
+    if (items.some((item: DashboardItem) => item.id === activityItemId)) {
+      setSelectedId(activityItemId);
+    }
+  }, [interactionSourceMemberId, items]);
+
+  useEffect(() => {
+    setDetailScrollOffset(0);
+  }, [detailId, viewMode]);
+
+  const detailLines = useMemo(
+    () =>
+      viewMode === "details"
+        ? detailItem
+          ? buildTeamDashboardDetailLines(
+            detailItem,
+            teamState,
+            interactionMode,
+            interactionSourceMemberId,
+          )
+          : ["No selection"]
+        : [],
+    [
+      detailItem,
+      interactionMode,
+      interactionSourceMemberId,
+      teamState,
+      viewMode,
+    ],
+  );
+  const maxDetailScrollOffset = Math.max(0, detailLines.length - visibleRows);
+  const clampedDetailScrollOffset = Math.min(
+    detailScrollOffset,
+    maxDetailScrollOffset,
+  );
+  const visibleDetailLines = detailLines.slice(
+    clampedDetailScrollOffset,
+    clampedDetailScrollOffset + visibleRows,
+  );
+
+  useEffect(() => {
+    if (detailScrollOffset > maxDetailScrollOffset) {
+      setDetailScrollOffset(maxDetailScrollOffset);
+    }
+  }, [detailScrollOffset, maxDetailScrollOffset]);
 
   const drawOverlay = useCallback(() => {
     if (shouldClearOverlay(previousFrameRef.current, overlayFrame)) {
@@ -420,13 +561,23 @@ export function TeamDashboardOverlay({
     }
 
     const headerY = overlayFrame.y + PADDING.top;
-    const title = "Team Dashboard";
-    const closeHint = viewMode === "details" ? "esc/q back" : "esc/q close";
+    const title = viewMode === "details" &&
+        (detailItem?.kind === "member" || detailItem?.kind === "worker")
+      ? "Teammate Session"
+      : "Team Dashboard";
+    const closeHint = viewMode === "details"
+      ? selectedInterruptibleThreadId
+        ? "esc interrupt"
+        : sessionOnly
+        ? "esc/q close"
+        : "esc/q back"
+      : "esc/q close";
 
     const [summaryText, secondaryText] = buildTeamDashboardSummaryRows(
       teamState,
       contentWidth,
       interactionMode,
+      interactionSourceLabel,
     );
     drawRow(headerY, () => {
       output += " ".repeat(PADDING.left);
@@ -584,11 +735,10 @@ export function TeamDashboardOverlay({
         }
       }
     } else {
-      const lines = detailItem ? detailLines(detailItem) : ["No selection"];
       for (let row = 0; row < visibleRows; row++) {
         const rowY = overlayFrame.y + chromeLayout.contentStart + row;
         drawRow(rowY, () => {
-          const line = lines[row];
+          const line = visibleDetailLines[row];
           if (!line) return 0;
           output += " ".repeat(PADDING.left);
           output += truncate(line, contentWidth);
@@ -602,12 +752,28 @@ export function TeamDashboardOverlay({
       interactionMode
         ? "Esc/q close"
         : viewMode === "dashboard"
-        ? "j/k nav · Enter details · esc/q close"
-        : "q/Esc back",
+        ? `↑/↓ select · Enter inspect${
+          selectedInterruptibleThreadId ? " · k interrupt" : ""
+        } · esc/q close`
+        : `${
+          detailLines.length > visibleRows ? "↑/↓ scroll · " : ""
+        }${
+          selectedInterruptibleThreadId ? "k interrupt · " : ""
+        }${sessionOnly ? "q/Esc close" : "q/Esc back"}`,
       contentWidth,
     );
-    const countText = viewMode === "dashboard" && selectedIndex >= 0
-      ? `${selectedIndex + 1}/${items.length}`
+    const countText = viewMode === "dashboard"
+      ? selectedIndex >= 0
+        ? `${selectedIndex + 1}/${items.length}`
+        : ""
+      : detailLines.length > 0
+      ? `${Math.min(
+        detailLines.length,
+        clampedDetailScrollOffset + 1,
+      )}-${Math.min(
+        detailLines.length,
+        clampedDetailScrollOffset + visibleRows,
+      )}/${detailLines.length}`
       : "";
     drawRow(footerY, () => {
       output += " ".repeat(PADDING.left);
@@ -633,10 +799,17 @@ export function TeamDashboardOverlay({
   }, [
     colors,
     detailItem,
+    detailLines.length,
+    clampedDetailScrollOffset,
     interactionMode,
+    interactionSourceLabel,
+    interactionSourceMemberId,
     items,
     selectedIndex,
+    selectedInterruptibleThreadId,
+    sessionOnly,
     teamState,
+    visibleDetailLines,
     viewMode,
     contentWidth,
     chromeLayout.contentStart,
@@ -647,13 +820,47 @@ export function TeamDashboardOverlay({
 
   useEffect(() => {
     drawOverlay();
+    const timer = setTimeout(drawOverlay, 0);
+    return () => clearTimeout(timer);
   }, [drawOverlay]);
+
+  useEffect(() => () => {
+    if (previousFrameRef.current) {
+      clearOverlay(previousFrameRef.current);
+    }
+  }, []);
 
   useInput((input, key) => {
     if (viewMode === "details") {
+      if (input === "k" && selectedInterruptibleThreadId) {
+        cancelThread(selectedInterruptibleThreadId);
+        return;
+      }
+      if (key.upArrow) {
+        setDetailScrollOffset((current: number) => Math.max(0, current - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setDetailScrollOffset((current: number) =>
+          Math.min(maxDetailScrollOffset, current + 1)
+        );
+        return;
+      }
+      if (key.escape && selectedInterruptibleThreadId) {
+        cancelThread(selectedInterruptibleThreadId);
+        return;
+      }
+      if (input === "x" && selectedInterruptibleThreadId) {
+        cancelThread(selectedInterruptibleThreadId);
+        return;
+      }
       if (key.escape || input === "q") {
-        setViewMode("dashboard");
-        setDetailId(null);
+        if (sessionOnly) {
+          onClose();
+        } else {
+          setViewMode("dashboard");
+          setDetailId(null);
+        }
       }
       return;
     }
@@ -665,7 +872,12 @@ export function TeamDashboardOverlay({
 
     if (items.length === 0) return;
 
-    if (key.upArrow || input === "k") {
+    if ((input === "x" || input === "k") && selectedInterruptibleThreadId) {
+      cancelThread(selectedInterruptibleThreadId);
+      return;
+    }
+
+    if (key.upArrow) {
       setSelectedId((current: string | null) => {
         const index = current
           ? items.findIndex((item: DashboardItem) => item.id === current)
@@ -675,7 +887,7 @@ export function TeamDashboardOverlay({
       return;
     }
 
-    if (key.downArrow || input === "j") {
+    if (key.downArrow) {
       setSelectedId((current: string | null) => {
         const index = current
           ? items.findIndex((item: DashboardItem) => item.id === current)
@@ -690,6 +902,7 @@ export function TeamDashboardOverlay({
       if (!selected) return;
       setDetailId(selected.id);
       setViewMode("details");
+      setDetailScrollOffset(0);
     }
   });
 

@@ -10,16 +10,25 @@ import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import type { ConversationAttachmentRef } from "../../types.ts";
 import { getLiveConversationSpacing } from "./message-spacing.ts";
+import { ChromeChip } from "../ChromeChip.tsx";
+import { TranscriptDivider } from "./TranscriptDivider.tsx";
 
 interface UserMessageProps {
   text: string;
   attachments?: ConversationAttachmentRef[];
   width: number;
   compactSpacing?: boolean;
+  showDividerBefore?: boolean;
 }
 
 export const UserMessage = React.memo(function UserMessage(
-  { text, attachments, width, compactSpacing = false }: UserMessageProps,
+  {
+    text,
+    attachments,
+    width,
+    compactSpacing = false,
+    showDividerBefore = false,
+  }: UserMessageProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
   const spacing = getLiveConversationSpacing(compactSpacing);
@@ -28,22 +37,24 @@ export const UserMessage = React.memo(function UserMessage(
     : "";
 
   return (
-    <Box
-      width={width}
-      marginTop={spacing.userMessageMarginTop}
-      marginBottom={spacing.userMessageMarginBottom}
-      flexDirection="column"
-    >
-      <Box>
-        <Text color={sc.status.success} bold>{"> "}</Text>
-        <Text color={sc.text.primary}>{text}</Text>
+    <Box flexDirection="column" width={width}>
+      {showDividerBefore && <TranscriptDivider width={width} />}
+      <Box
+        width={width}
+        marginTop={spacing.userMessageMarginTop}
+        marginBottom={spacing.userMessageMarginBottom}
+        flexDirection="column"
+      >
+        <Box>
+          <ChromeChip text={text} tone="neutral" />
+        </Box>
+        {attachmentText && (
+          <Text color={sc.text.secondary} wrap="wrap">
+            {"  "}
+            {attachmentText}
+          </Text>
+        )}
       </Box>
-      {attachmentText && (
-        <Text color={sc.text.secondary} wrap="wrap">
-          {"  "}
-          {attachmentText}
-        </Text>
-      )}
     </Box>
   );
 });

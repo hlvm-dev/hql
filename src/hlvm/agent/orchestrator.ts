@@ -45,7 +45,6 @@ export type { LLMResponse, ToolCall } from "./tool-call.ts";
 import {
   type AgentProfile,
   getAgentProfile,
-  listAgentProfiles,
 } from "./agent-registry.ts";
 import {
   buildPlanModeReminder,
@@ -364,6 +363,22 @@ export type AgentUIEvent =
     contentPreview: string;
   }
   | {
+    type: "team_member_activity";
+    memberId: string;
+    memberLabel: string;
+    threadId?: string;
+    activityKind:
+      | "reasoning"
+      | "planning"
+      | "plan_created"
+      | "plan_step"
+      | "tool_start"
+      | "tool_end"
+      | "turn_stats";
+    summary: string;
+    status: "active" | "success" | "error";
+  }
+  | {
     type: "memory_activity";
     recalled: MemoryActivityEntry[];
     written: MemoryActivityEntry[];
@@ -568,7 +583,7 @@ export const COMPLETE_PHASE_CATEGORIES = new Set([
 ]);
 
 function uniqueToolList(items: string[]): string[] {
-  return Array.from(new Set(items));
+  return [...new Set(items)];
 }
 
 function intersectToolLists(
@@ -1013,7 +1028,7 @@ export async function runReActLoop(
     shouldPlanRequest(userRequest, lc.planningConfig.mode!)
   ) {
     try {
-      const agentNames = listAgentProfiles(config.agentProfiles).map((agent) =>
+      const agentNames = (config.agentProfiles ?? []).map((agent) =>
         agent.name
       );
       const plan = await requestPlan(

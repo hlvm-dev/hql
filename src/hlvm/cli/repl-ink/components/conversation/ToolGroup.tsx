@@ -11,6 +11,7 @@ import { useSemanticColors } from "../../../theme/index.ts";
 import { ToolCallItem } from "./ToolCallItem.tsx";
 import type { ToolCallDisplay } from "../../types.ts";
 import { resolveCollapsedToolList } from "./layout.ts";
+import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 
 interface ToolGroupProps {
   tools: ToolCallDisplay[];
@@ -79,7 +80,10 @@ export const ToolGroup = React.memo(function ToolGroup({
   }, [tools, isToolExpanded, activeRunningToolId, sc, innerWidth]);
 
   return (
-    <Box flexDirection="column" paddingLeft={2}>
+    <Box
+      flexDirection="column"
+      paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
+    >
       {toolElements}
     </Box>
   );

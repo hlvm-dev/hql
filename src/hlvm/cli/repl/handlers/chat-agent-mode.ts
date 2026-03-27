@@ -256,6 +256,17 @@ export async function handleAgentMode(
               content_preview: event.contentPreview,
             });
             break;
+          case "team_member_activity":
+            emit({
+              event: "team_member_activity",
+              member_id: event.memberId,
+              member_label: event.memberLabel,
+              thread_id: event.threadId,
+              activity_kind: event.activityKind,
+              summary: event.summary,
+              status: event.status,
+            });
+            break;
           case "team_plan_review_required":
             emit({
               event: "team_plan_review_required",

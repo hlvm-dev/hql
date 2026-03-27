@@ -197,7 +197,7 @@ function normalizeExtensionPattern(pattern: string): string {
     }
     extensions.push(match[1]);
   }
-  const unique = Array.from(new Set(extensions));
+  const unique = [...new Set(extensions)];
   return `*.{${unique.join(",")}}`;
 }
 

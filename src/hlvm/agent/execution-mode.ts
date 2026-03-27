@@ -6,12 +6,12 @@ import type { PlanningMode } from "./planning.ts";
 
 export type AgentExecutionMode = PermissionMode;
 
-const EXECUTION_MODE_META: Record<AgentExecutionMode, { label: string }> = {
-  "default": { label: "Default mode" },
-  "acceptEdits": { label: "Accept edits" },
-  "plan": { label: "Plan mode" },
-  "bypassPermissions": { label: "Full auto" },
-  "dontAsk": { label: "Non-interactive" },
+const EXECUTION_MODE_LABELS: Record<AgentExecutionMode, string> = {
+  "default": "Default mode",
+  "acceptEdits": "Accept edits",
+  "plan": "Plan mode",
+  "bypassPermissions": "Full auto",
+  "dontAsk": "Non-interactive",
 };
 
 export function toAgentExecutionMode(
@@ -28,19 +28,10 @@ export function cycleReplAgentExecutionMode(
   return PERMISSION_MODES[(safeIndex + 1) % PERMISSION_MODES.length];
 }
 
-export function getAgentExecutionModeChangeMessage(
-  mode: AgentExecutionMode,
-): string {
-  if (mode === "default") {
-    return EXECUTION_MODE_META[mode]?.label ?? mode;
-  }
-  return `${EXECUTION_MODE_META[mode]?.label ?? mode} (shift+tab to cycle)`;
-}
-
 export function getPersistentAgentExecutionModeLabel(
   mode: AgentExecutionMode,
 ): string {
-  return `${EXECUTION_MODE_META[mode]?.label ?? mode} (shift+tab to cycle)`;
+  return `${EXECUTION_MODE_LABELS[mode] ?? mode} (shift+tab to cycle)`;
 }
 
 export function getPlanningModeForExecutionMode(

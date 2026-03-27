@@ -1414,59 +1414,54 @@ async function loadModule(
   const processedFiles = options.processedFiles || new Set<string>();
   const inProgressFiles = options.inProgressFiles || new Set<string>();
 
-  try {
-    // Skip already processed modules (except HQL which handles this internally)
-    if (!isHqlFile(modulePath) && processedFiles.has(resolvedPath)) {
-      logger.debug(`Skipping already processed import: ${resolvedPath}`);
-      return;
-    }
+  // Skip already processed modules (except HQL which handles this internally)
+  if (!isHqlFile(modulePath) && processedFiles.has(resolvedPath)) {
+    logger.debug(`Skipping already processed import: ${resolvedPath}`);
+    return;
+  }
 
-    // Handle circular imports (except HQL which handles this internally)
-    if (!isHqlFile(modulePath) && inProgressFiles.has(resolvedPath)) {
-      logger.debug(
-        `Detected circular import for ${resolvedPath}, will be resolved by parent process`,
-      );
-      return;
-    }
+  // Handle circular imports (except HQL which handles this internally)
+  if (!isHqlFile(modulePath) && inProgressFiles.has(resolvedPath)) {
+    logger.debug(
+      `Detected circular import for ${resolvedPath}, will be resolved by parent process`,
+    );
+    return;
+  }
 
-    // Choose loading strategy based on module type
-    if (isStdlibPackage(modulePath)) {
-      await loadHqlModule(moduleName, modulePath, resolvedPath, env, options);
-    } else if (isRemoteModule(modulePath)) {
-      await loadRemoteModule(moduleName, modulePath, env);
-    } else if (isHqlFile(modulePath)) {
-      await loadHqlModule(moduleName, modulePath, resolvedPath, env, options);
-    } else if (isJsFile(modulePath)) {
-      await loadJavaScriptModule(
+  // Choose loading strategy based on module type
+  if (isStdlibPackage(modulePath)) {
+    await loadHqlModule(moduleName, modulePath, resolvedPath, env, options);
+  } else if (isRemoteModule(modulePath)) {
+    await loadRemoteModule(moduleName, modulePath, env);
+  } else if (isHqlFile(modulePath)) {
+    await loadHqlModule(moduleName, modulePath, resolvedPath, env, options);
+  } else if (isJsFile(modulePath)) {
+    await loadJavaScriptModule(
+      moduleName,
+      modulePath,
+      resolvedPath,
+      env,
+      processedFiles,
+    );
+  } else if (isTypeScriptFile(modulePath)) {
+    try {
+      await loadTypeScriptModule(
         moduleName,
         modulePath,
         resolvedPath,
         env,
         processedFiles,
       );
-    } else if (isTypeScriptFile(modulePath)) {
-      try {
-        await loadTypeScriptModule(
-          moduleName,
-          modulePath,
-          resolvedPath,
-          env,
-          processedFiles,
-        );
-      } catch (_error) {
-        // Do not log here; let the centralized error handler report it.
-        throw new ImportError(
-          `Failed to load module: ${modulePath}\nDetails: ${_error}`,
-        );
-      }
-    } else {
+    } catch (_error) {
       throw new ImportError(
-        `Unsupported import file type: ${modulePath}`,
-        modulePath,
+        `Failed to load module: ${modulePath}\nDetails: ${_error}`,
       );
     }
-  } catch (error) {
-    throw error;
+  } else {
+    throw new ImportError(
+      `Unsupported import file type: ${modulePath}`,
+      modulePath,
+    );
   }
 }
 
@@ -1851,29 +1846,25 @@ async function tryImportSources(
   errorMsg: string,
   createError: (message: string) => Error = (message) => new Error(message),
 ): Promise<void> {
-  try {
-    const importResults = await Promise.allSettled(sources.map((fn) => fn()));
-    const successfulImport = importResults.find((result) =>
-      result.status === "fulfilled"
-    );
-    if (successfulImport && successfulImport.status === "fulfilled") {
-      env.importModule(moduleName, successfulImport.value);
-      logger.debug(loggerMsg);
-    } else {
-      const errors = importResults
-        .filter((result): result is PromiseRejectedResult =>
-          result.status === "rejected"
-        )
-        .map((result) =>
-          typeof result.reason === "string"
-            ? result.reason
-            : (result.reason?.message || String(result.reason))
-        )
-        .join("; ");
-      throw createError(`${errorMsg}: ${errors}`);
-    }
-  } catch (error) {
-    throw error;
+  const importResults = await Promise.allSettled(sources.map((fn) => fn()));
+  const successfulImport = importResults.find((result) =>
+    result.status === "fulfilled"
+  );
+  if (successfulImport && successfulImport.status === "fulfilled") {
+    env.importModule(moduleName, successfulImport.value);
+    logger.debug(loggerMsg);
+  } else {
+    const errors = importResults
+      .filter((result): result is PromiseRejectedResult =>
+        result.status === "rejected"
+      )
+      .map((result) =>
+        typeof result.reason === "string"
+          ? result.reason
+          : (result.reason?.message || String(result.reason))
+      )
+      .join("; ");
+    throw createError(`${errorMsg}: ${errors}`);
   }
 }
 
@@ -1884,27 +1875,23 @@ function processFileDefinitions(
   exprs: SExp[],
   env: Environment,
 ): void {
-  try {
-    logger.debug("Processing file definitions for macros and variables");
+  logger.debug("Processing file definitions for macros and variables");
 
-    for (const expr of exprs) {
-      if (
-        expr.type !== "list" || expr.elements.length === 0 ||
-        !isSymbol(expr.elements[0])
-      ) {
-        continue;
-      }
-
-      const op = expr.elements[0].name;
-
-      if (op === "let" && expr.elements.length === 3) {
-        processLetDefinition(expr, env);
-      } else if (op === "fn" && expr.elements.length >= 4) {
-        processFunctionDefinition(expr, env);
-      }
+  for (const expr of exprs) {
+    if (
+      expr.type !== "list" || expr.elements.length === 0 ||
+      !isSymbol(expr.elements[0])
+    ) {
+      continue;
     }
-  } catch (error) {
-    throw error;
+
+    const op = expr.elements[0].name;
+
+    if (op === "let" && expr.elements.length === 3) {
+      processLetDefinition(expr, env);
+    } else if (op === "fn" && expr.elements.length >= 4) {
+      processFunctionDefinition(expr, env);
+    }
   }
 }
 
@@ -1960,95 +1947,91 @@ function processFileExportsAndDefinitions(
   moduleExports: Record<string, Value>,
   filePath: string,
 ): void {
-  try {
-    // Collect and process exports
-    const exportDefinitions = collectExportDefinitions(expressions);
+  // Collect and process exports
+  const exportDefinitions = collectExportDefinitions(expressions);
 
-    // For handling circular dependencies, we should first pre-register
-    // all exports with placeholder values if they're not already in the moduleExports
-    for (const { name } of exportDefinitions) {
-      if (moduleExports[name] === undefined) {
-        moduleExports[name] = null;
-      }
+  // For handling circular dependencies, we should first pre-register
+  // all exports with placeholder values if they're not already in the moduleExports
+  for (const { name } of exportDefinitions) {
+    if (moduleExports[name] === undefined) {
+      moduleExports[name] = null;
     }
+  }
 
-    for (const { name, value } of exportDefinitions) {
-      try {
-        // Check if this is a macro and export it directly
-        if (env.hasMacro(name)) {
-          const macroFn = env.getMacro(name);
+  for (const { name, value } of exportDefinitions) {
+    try {
+      // Check if this is a macro and export it directly
+      if (env.hasMacro(name)) {
+        const macroFn = env.getMacro(name);
+        logger.debug(
+          `processFileExportsAndDefinitions: macroFn for ${name} is ${
+            macroFn ? "defined" : "undefined"
+          }`,
+        );
+        if (macroFn) {
+          moduleExports[name] = macroFn;
           logger.debug(
-            `processFileExportsAndDefinitions: macroFn for ${name} is ${
-              macroFn ? "defined" : "undefined"
+            `processFileExportsAndDefinitions: added ${name} to moduleExports, keys now: ${
+              Object.keys(moduleExports).join(", ")
             }`,
           );
-          if (macroFn) {
-            moduleExports[name] = macroFn;
-            logger.debug(
-              `processFileExportsAndDefinitions: added ${name} to moduleExports, keys now: ${
-                Object.keys(moduleExports).join(", ")
-              }`,
-            );
 
-            // Mark this macro as exported from the current file
-            env.markMacroExported(name);
+          // Mark this macro as exported from the current file
+          env.markMacroExported(name);
 
-            logger.debug(`Added macro export: "${name}"`);
-            continue;
-          }
-        }
-
-        // Try to evaluate the export expression if present
-        if (value) {
-          try {
-            const evaluatedValue = evaluateForMacro(value, env, logger);
-            moduleExports[name] = evaluatedValue;
-            logger.debug(`Added export "${name}" with evaluated expression`);
-            continue;
-          } catch (evalError) {
-            logger.debug(
-              `Failed to evaluate expression for export "${name}": ${
-                getErrorMessage(evalError)
-              }`,
-            );
-          }
-        }
-
-        // Fall back to looking up the value from environment
-        try {
-          const lookupValue = env.lookup(name);
-          moduleExports[name] = lookupValue;
-          logger.debug(`Added export "${name}" with looked-up value`);
-        } catch (lookupError) {
-          // Only warn if the export wasn't pre-registered (which would indicate a circular dependency)
-          if (moduleExports[name] === undefined) {
-            logger.warn(`Symbol not found for export: "${name}"`);
-          } else {
-            logger.debug(
-              `Symbol not found for export "${name}", using placeholder for circular dependency`,
-            );
-          }
-
-          // Special handling for HQL files
-          if (isHqlFile(filePath)) {
-            // Only assign null if not already set (preserve pre-registered values)
-            if (moduleExports[name] === undefined) {
-              moduleExports[name] = null;
-            }
-          } else {
-            throw lookupError;
-          }
-        }
-      } catch (error) {
-        if (
-          !(error instanceof ValidationError &&
-            error.message.includes("Symbol not found"))
-        ) {
-          throw error;
+          logger.debug(`Added macro export: "${name}"`);
+          continue;
         }
       }
+
+      // Try to evaluate the export expression if present
+      if (value) {
+        try {
+          const evaluatedValue = evaluateForMacro(value, env, logger);
+          moduleExports[name] = evaluatedValue;
+          logger.debug(`Added export "${name}" with evaluated expression`);
+          continue;
+        } catch (evalError) {
+          logger.debug(
+            `Failed to evaluate expression for export "${name}": ${
+              getErrorMessage(evalError)
+            }`,
+          );
+        }
+      }
+
+      // Fall back to looking up the value from environment
+      try {
+        const lookupValue = env.lookup(name);
+        moduleExports[name] = lookupValue;
+        logger.debug(`Added export "${name}" with looked-up value`);
+      } catch (lookupError) {
+        // Only warn if the export wasn't pre-registered (which would indicate a circular dependency)
+        if (moduleExports[name] === undefined) {
+          logger.warn(`Symbol not found for export: "${name}"`);
+        } else {
+          logger.debug(
+            `Symbol not found for export "${name}", using placeholder for circular dependency`,
+          );
+        }
+
+        // Special handling for HQL files
+        if (isHqlFile(filePath)) {
+          // Only assign null if not already set (preserve pre-registered values)
+          if (moduleExports[name] === undefined) {
+            moduleExports[name] = null;
+          }
+        } else {
+          throw lookupError;
+        }
+      }
+    } catch (error) {
+      if (
+        !(error instanceof ValidationError &&
+          error.message.includes("Symbol not found"))
+      ) {
+        throw error;
+      }
     }
-  } catch (error) {
-    throw error;
   }
 }

@@ -1078,6 +1078,55 @@ Deno.test("runTeammateLoop: forwards teammate interaction metadata to lead UI", 
   }
 });
 
+Deno.test("runTeammateLoop: converts worker tool progress into team_member_activity events", async () => {
+  const dir = setupTestEnv();
+  try {
+    setAgentEngine(createToolCallingEngine("TaskList", {}));
+    const store = await createTeamStore("exec-activity");
+    const runtime = store.runtime;
+    runtime.registerMember({ id: "worker-1", agent: "general-purpose" });
+    await store.createTask({
+      subject: "Check tasks",
+      description: "Inspect the current task list",
+    });
+
+    const eventTypes: string[] = [];
+    const activitySummaries: string[] = [];
+
+    const result = await runTeammateLoop({
+      identity: createTestIdentity({ teamName: "exec-activity" }),
+      runtime,
+      store,
+      workspace: dir,
+      policy: null,
+      signal: new AbortController().signal,
+      agentProfiles: [{
+        name: "general-purpose",
+        description: "GP",
+        tools: ["TaskList"],
+      }],
+      onAgentEvent: (event) => {
+        eventTypes.push(event.type);
+        if (event.type === "team_member_activity") {
+          activitySummaries.push(event.summary);
+        }
+      },
+      ...FAST_POLL,
+    });
+
+    assertEquals(result.tasksCompleted, 1);
+    assertEquals(eventTypes.includes("tool_start"), false);
+    assertEquals(eventTypes.includes("team_member_activity"), true);
+    assertEquals(
+      activitySummaries.some((summary) => summary.includes("TaskList")),
+      true,
+    );
+  } finally {
+    resetAgentEngine();
+    teardownTestEnv();
+  }
+});
+
 Deno.test("runTeammateLoop: picks lowest-ID task first", async () => {
   const dir = setupTestEnv();
   try {

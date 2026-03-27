@@ -15,6 +15,7 @@ import {
 } from "../../../src/hlvm/cli/agent-transcript-state.ts";
 import {
   isStructuredTeamInfoItem,
+  type TeamMemberActivityInfoItem,
   type TeamMessageInfoItem,
   type TeamPlanReviewInfoItem,
   type TeamShutdownInfoItem,
@@ -135,6 +136,26 @@ Deno.test("E2E: team_message task_completed kind has success tone", () => {
   const msg = state.items[0] as TeamMessageInfoItem;
   assertEquals(getTeamMessageTone(msg.kind), "success");
   assertEquals(getTeamMessageGlyph(msg.kind), "✓");
+});
+
+Deno.test("E2E: team_member_activity flows through reducer with worker summary", () => {
+  const state = pushEvent(createTranscriptState(), {
+    type: "team_member_activity",
+    memberId: "alice",
+    memberLabel: "alice",
+    threadId: "thread-1",
+    activityKind: "tool_end",
+    summary: "Tool TaskList: 2 tasks",
+    status: "success",
+  });
+
+  assertEquals(state.items.length, 1);
+  const activity = state.items[0] as TeamMemberActivityInfoItem;
+  assertEquals(activity.teamEventType, "team_member_activity");
+  assertEquals(activity.memberId, "alice");
+  assertEquals(activity.threadId, "thread-1");
+  assertEquals(activity.summary, "Tool TaskList: 2 tasks");
+  assertEquals(activity.text, "Team worker alice: Tool TaskList: 2 tasks");
 });
 
 Deno.test("E2E: team_plan_review_required flows through as pending plan review", () => {
@@ -378,7 +399,7 @@ Deno.test("E2E: footer shows Team chip and worker summary when team active", () 
 
   // Team chip present
   const teamChip = state.segments.find((s) => s.text === "Team");
-  assertEquals(teamChip?.chip, true);
+  assertEquals(teamChip?.chip, undefined);
   assertEquals(teamChip?.tone, "active");
 
   // Worker summary present
@@ -386,9 +407,8 @@ Deno.test("E2E: footer shows Team chip and worker summary when team active", () 
   assertEquals(workerSeg?.tone, "muted");
   assertEquals(workerSeg?.text, "alice: working \u00B7 bob: idle");
 
-  // Ctrl+T hint present with attention count
-  const hintSeg = state.segments.find((s) => s.text.includes("Ctrl+T"));
-  assertEquals(hintSeg?.text.includes("(2)"), true);
+  const hintSeg = state.segments.find((s) => s.text === "Ctrl+T manager");
+  assertEquals(hintSeg?.tone, "muted");
 });
 
 Deno.test("E2E: footer omits team segments when team inactive", () => {

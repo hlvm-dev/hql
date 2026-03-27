@@ -41,7 +41,7 @@ export function createPolicyPathChecker(
 }
 
 /** Expand `~` and common home-relative shortcuts to an absolute path. */
-export function expandUserHome(path: string, home: string): string {
+function expandUserHome(path: string, home: string): string {
   if (!path) return path;
   if (path.startsWith("~")) {
     if (!home) return path;

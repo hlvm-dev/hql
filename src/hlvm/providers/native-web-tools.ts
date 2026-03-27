@@ -45,20 +45,11 @@ function safeToolSet(
   factory: () => ToolFactoryResult | undefined,
 ): ToolSet {
   try {
-    return toSingleToolSet(toolName, factory());
+    const tool = factory();
+    return tool ? { [toolName]: tool } : {};
   } catch {
     return {};
   }
-}
-
-function toSingleToolSet(
-  toolName: string,
-  tool: ToolFactoryResult | undefined,
-): ToolSet {
-  if (!tool) return {};
-  return {
-    [toolName]: tool,
-  };
 }
 
 function mergeToolSets(...sets: ToolSet[]): ToolSet {
