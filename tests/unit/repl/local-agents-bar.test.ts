@@ -6,6 +6,8 @@ import {
 import { buildLocalAgentEntries } from "../../../src/hlvm/cli/repl-ink/utils/local-agents.ts";
 import type {
   MemberActivityItem,
+  PendingApprovalItem,
+  TaskBoardItem,
   TeamMemberItem,
 } from "../../../src/hlvm/cli/repl-ink/hooks/useTeamState.ts";
 import type {
@@ -89,6 +91,90 @@ Deno.test("buildLocalAgentEntries falls back to idle teammate when no active wor
   assertEquals(entries.length, 1);
   assertEquals(entries[0]?.status, "idle");
   assertEquals(entries[0]?.label, "worker-1");
+  assertEquals(entries[0]?.interruptible, false);
+});
+
+Deno.test("buildLocalAgentEntries keeps terminated teammates visible with terminal status", () => {
+  const members: TeamMemberItem[] = [
+    makeWorker({
+      currentTaskId: undefined,
+      currentTaskGoal: undefined,
+      status: "terminated",
+      threadId: "thread-1",
+    }),
+  ];
+  const memberActivity: Record<string, MemberActivityItem[]> = {
+    "worker-1": [makeActivity({
+      summary: "Task completed: Inspect CLI",
+      status: "success",
+    })],
+  };
+  const taskBoard: TaskBoardItem[] = [{
+    id: "task-1",
+    goal: "Inspect CLI",
+    status: "completed",
+    assignee: "worker-1",
+    blockedBy: [],
+  }];
+
+  const entries = buildLocalAgentEntries(members, memberActivity, [], {
+    taskBoard,
+  });
+
+  assertEquals(entries.length, 1);
+  assertEquals(entries[0]?.status, "completed");
+  assertEquals(entries[0]?.statusLabel, "done");
+  assertEquals(entries[0]?.detail, "Task completed: Inspect CLI");
+});
+
+Deno.test("buildLocalAgentEntries marks teammates waiting on approval", () => {
+  const members: TeamMemberItem[] = [makeWorker()];
+  const pendingApprovals: PendingApprovalItem[] = [{
+    id: "approval-1",
+    taskId: "task-1",
+    taskGoal: "Inspect CLI",
+    submittedByMemberId: "worker-1",
+    status: "pending",
+  }];
+
+  const entries = buildLocalAgentEntries(members, {}, [], {
+    pendingApprovals,
+  });
+
+  assertEquals(entries[0]?.status, "waiting");
+  assertEquals(entries[0]?.statusLabel, "awaiting approval");
+  assertEquals(entries[0]?.detail, "Plan review pending: Inspect CLI");
+});
+
+Deno.test("buildLocalAgentEntries marks blocked teammates explicitly", () => {
+  const members: TeamMemberItem[] = [makeWorker()];
+  const taskBoard: TaskBoardItem[] = [{
+    id: "task-1",
+    goal: "Inspect CLI",
+    status: "blocked",
+    assignee: "worker-1",
+    blockedBy: ["task-0"],
+  }];
+
+  const entries = buildLocalAgentEntries(members, {}, [], {
+    taskBoard,
+  });
+
+  assertEquals(entries[0]?.status, "blocked");
+  assertEquals(entries[0]?.detail, "Blocked by #task-0");
+});
+
+Deno.test("buildLocalAgentEntries includes completed delegate tasks so outcomes stay visible", () => {
+  const entries = buildLocalAgentEntries([], {}, [
+    makeDelegateTask({
+      status: "completed",
+      summary: "Found unused exports in cli/",
+    }),
+  ]);
+
+  assertEquals(entries.length, 1);
+  assertEquals(entries[0]?.status, "completed");
+  assertEquals(entries[0]?.detail, "Found unused exports in cli/");
 });
 
 Deno.test("buildLocalAgentsBarLine shows summary state when unfocused", () => {
@@ -122,7 +208,7 @@ Deno.test("buildLocalAgentsBarLine shows summary state when unfocused", () => {
   );
 
   assertEquals(line?.summary, "2 local agents");
-  assertEquals(line?.hints.includes("↓ manage"), true);
+  assertEquals(line?.hints, "2 working · ↓ manage · Ctrl+T manager");
 });
 
 Deno.test("buildLocalAgentsBarLine shows focused agent controls", () => {
@@ -148,7 +234,7 @@ Deno.test("buildLocalAgentsBarLine shows focused agent controls", () => {
   assertEquals(line?.hints.includes("Enter open"), true);
 });
 
-Deno.test("shouldRenderLocalAgentsBar hides unfocused rail when footer already shows the team summary", () => {
+Deno.test("shouldRenderLocalAgentsBar keeps the rail visible when agents exist", () => {
   assertEquals(
     shouldRenderLocalAgentsBar(
       [
@@ -167,7 +253,7 @@ Deno.test("shouldRenderLocalAgentsBar hides unfocused rail when footer already s
       false,
       "3 working",
     ),
-    false,
+    true,
   );
 });
 

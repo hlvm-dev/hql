@@ -38,12 +38,14 @@ export function shouldRenderShellLanes(options: {
   liveItemCount: number;
   liveTodoCount: number;
   hasPendingInteraction: boolean;
+  hasLocalAgents?: boolean;
 }): boolean {
   return options.historyItemCount > 0 ||
     options.localEvalQueueCount > 0 ||
     options.liveItemCount > 0 ||
     options.liveTodoCount > 0 ||
-    options.hasPendingInteraction;
+    options.hasPendingInteraction ||
+    Boolean(options.hasLocalAgents);
 }
 
 export function resolveConversationEscapeAction(options: {

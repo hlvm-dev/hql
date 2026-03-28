@@ -116,7 +116,7 @@ Deno.test("buildBackgroundTasksSummaryRows shows team task details in result vie
 
   assertEquals(primary.includes("Status @alice"), true);
   assertEquals(primary.includes("2 lines"), true);
-  assertEquals(secondary.includes("team task"), true);
+  assertEquals(secondary.includes("shared task"), true);
 });
 
 Deno.test("buildBackgroundTasksSummaryRows counts failed tasks", () => {
@@ -259,6 +259,64 @@ Deno.test("buildBackgroundTasksSummaryRows prioritizes local agent counts when p
   );
 
   assertEquals(primary.includes("2 local agents"), true);
-  assertEquals(primary.includes("1 running"), true);
+  assertEquals(primary.includes("1 working"), true);
   assertEquals(secondary.includes("Agent manager"), true);
+});
+
+Deno.test("buildBackgroundTasksSummaryRows clarifies shared tasks when agents and tasks coexist", () => {
+  const items: UnifiedTaskItem[] = [
+    {
+      id: "__section_local_agents__",
+      kind: "section",
+      label: "Local agents",
+      status: "",
+      statusText: "",
+      icon: "",
+      iconColor: MUTED_COLOR,
+      blocked: false,
+    },
+    {
+      id: "teammate:worker-1",
+      kind: "local_agent",
+      label: "worker-1 · Inspect CLI",
+      status: "running",
+      statusText: "running",
+      icon: "●",
+      iconColor: WARN_COLOR,
+      blocked: false,
+    },
+    {
+      id: "__section_team__",
+      kind: "section",
+      label: "Shared tasks",
+      status: "",
+      statusText: "",
+      icon: "",
+      iconColor: MUTED_COLOR,
+      blocked: false,
+    },
+    {
+      id: "team:1",
+      kind: "team",
+      label: "#1 Remove screenshots",
+      status: "in_progress",
+      statusText: "@worker-1",
+      icon: "●",
+      iconColor: WARN_COLOR,
+      blocked: false,
+    },
+  ];
+
+  const [, secondary] = buildBackgroundTasksSummaryRows(
+    items,
+    {
+      viewMode: "list",
+      selectedIndex: 0,
+      viewingItem: null,
+      resultLines: [],
+    },
+    64,
+  );
+
+  assertEquals(secondary.includes("Agents above · shared tasks below"), true);
 });

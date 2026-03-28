@@ -50,6 +50,7 @@ interface FooterProps {
   teamAttentionCount?: number;
   teamFocusLabel?: string;
   teamWorkerSummary?: string;
+  localAgentCount?: number;
   pendingInteractionLabel?: string;
   activeTaskCount?: number;
   recentActiveTaskLabel?: string;
@@ -75,6 +76,7 @@ interface FooterLeftStateInput {
   teamAttentionCount?: number;
   teamFocusLabel?: string;
   teamWorkerSummary?: string;
+  localAgentCount?: number;
   pendingInteractionLabel?: string;
   activeTaskCount?: number;
   recentActiveTaskLabel?: string;
@@ -112,6 +114,7 @@ export function buildFooterLeftState({
   teamAttentionCount: _teamAttentionCount,
   teamFocusLabel,
   teamWorkerSummary,
+  localAgentCount = 0,
   pendingInteractionLabel,
   activeTaskCount = 0,
   recentActiveTaskLabel,
@@ -126,7 +129,8 @@ export function buildFooterLeftState({
     ? undefined
     : summarizedModeLabel;
   const queuedCount = Math.max(0, interactionQueueLength - 1);
-  const teamChip: ShellFooterSegment | null = teamActive
+  const suppressFooterTeamRail = localAgentCount > 0 && !teamFocusLabel;
+  const teamChip: ShellFooterSegment | null = teamActive && !suppressFooterTeamRail
     ? { text: "Team", tone: "active" }
     : null;
   const showTeamControls = teamActive &&
@@ -136,7 +140,7 @@ export function buildFooterLeftState({
     ? { text: `To ${teamFocusLabel}`, tone: "active" }
     : null;
   const teamWorkerSegment: ShellFooterSegment | null =
-    teamActive && teamWorkerSummary
+    teamActive && teamWorkerSummary && !suppressFooterTeamRail
       ? { text: teamWorkerSummary, tone: "muted" }
       : null;
   const teamCycleSegment: ShellFooterSegment | null = showTeamControls &&
@@ -148,7 +152,8 @@ export function buildFooterLeftState({
       ? { text: "Enter session", tone: "muted" }
       : null;
   const teamManageSegment: ShellFooterSegment | null = showTeamControls &&
-      teamWorkerSegment
+      teamWorkerSegment &&
+      !suppressFooterTeamRail
     ? { text: "Ctrl+T manager", tone: "muted" }
     : null;
   const bgChip: ShellFooterSegment | null = activeTaskCount > 0
@@ -402,6 +407,7 @@ export const FooterHint = React.memo(function FooterHint({
   teamAttentionCount,
   teamFocusLabel,
   teamWorkerSummary,
+  localAgentCount,
   pendingInteractionLabel,
   activeTaskCount,
   recentActiveTaskLabel,
@@ -436,6 +442,7 @@ export const FooterHint = React.memo(function FooterHint({
     teamAttentionCount,
     teamFocusLabel,
     teamWorkerSummary,
+    localAgentCount,
     pendingInteractionLabel,
     activeTaskCount,
     recentActiveTaskLabel,

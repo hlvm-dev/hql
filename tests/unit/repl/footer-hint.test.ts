@@ -399,3 +399,23 @@ Deno.test("buildFooterLeftState omits Team chip when team not active", () => {
     false,
   );
 });
+
+Deno.test("buildFooterLeftState suppresses team rail when local agents are already visible", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    teamActive: true,
+    teamWorkerSummary: "2 working",
+    localAgentCount: 2,
+    spinner: "x",
+  });
+
+  assertEquals(
+    state.segments.some((s) => s.text === "Team"),
+    false,
+  );
+  assertEquals(
+    state.segments.some((s) => s.text === "2 working"),
+    false,
+  );
+});

@@ -4,7 +4,7 @@
  * True floating overlay showing both agent team tasks (TaskCreate/TaskUpdate)
  * and background eval/delegate tasks. Matches Claude Code's task management TUI:
  *
- * - Team tasks shown with ○ pending / ● in_progress / ✓ completed status
+ * - Shared tasks shown with ○ pending / ● in_progress / ✓ completed status
  * - Task IDs (#1, #2) and owner/assignee
  * - activeForm text shown for in_progress tasks
  * - Background eval/delegate tasks in a separate section
@@ -61,6 +61,7 @@ import {
 import { cancelThread } from "../../../agent/delegate-threads.ts";
 import { loadRecentMessages } from "../../../store/message-utils.ts";
 import type { LocalAgentEntry } from "../utils/local-agents.ts";
+import { summarizeLocalAgentFleet } from "../utils/local-agents.ts";
 import {
   buildTeamDashboardDetailLines,
   type DashboardItem,
@@ -72,7 +73,7 @@ import {
 
 interface BackgroundTasksOverlayProps {
   onClose: () => void;
-  /** Team tasks from teamState.taskBoard (Claude Code TaskCreate/TaskUpdate). */
+  /** Shared task board from teamState.taskBoard (Claude Code TaskCreate/TaskUpdate). */
   teamTasks?: TaskBoardItem[];
   localAgents?: LocalAgentEntry[];
   teamState?: TeamDashboardState;
@@ -157,7 +158,11 @@ export function buildBackgroundTasksSummaryRows(
     const secondary = buildBalancedTextRow(
       contentWidth,
       viewingItem.label,
-      viewingItem.kind === "team" ? "team task" : "background",
+      viewingItem.kind === "team"
+        ? "shared task"
+        : viewingItem.kind === "local_agent"
+        ? "local agent"
+        : "background",
     );
     return [
       primary.leftText + " ".repeat(primary.gapWidth) + primary.rightText,
@@ -172,29 +177,32 @@ export function buildBackgroundTasksSummaryRows(
   if (localAgentCount > 0) {
     const teamItemCount = items.filter((item) => item.kind === "team").length;
     const evalItemCount = items.filter((item) => item.kind === "eval").length;
-    const runningCount = items.filter((item) =>
-      item.kind === "local_agent" && item.status === "running"
-    ).length;
-    const idleCount = items.filter((item) =>
-      item.kind === "local_agent" && item.status === "idle"
-    ).length;
+    const localAgents = items.flatMap((item) =>
+      item.kind === "local_agent"
+        ? [item.localAgent ?? {
+          id: item.id,
+          kind: "delegate" as const,
+          name: item.label,
+          label: item.label,
+          status: item.status as LocalAgentEntry["status"],
+          statusLabel: item.statusText,
+          interruptible: false,
+          overlayTarget: "background-tasks" as const,
+          overlayItemId: item.id,
+        }]
+        : []
+    );
     const primary = buildBalancedTextRow(
       contentWidth,
       localAgentCount === 1 ? "1 local agent" : `${localAgentCount} local agents`,
-      runningCount > 0 && idleCount > 0
-        ? `${runningCount} running · ${idleCount} idle`
-        : runningCount > 0
-        ? `${runningCount} running`
-        : idleCount > 0
-        ? `${idleCount} idle`
-        : "",
+      summarizeLocalAgentFleet(localAgents),
     );
     const secondary = buildBalancedTextRow(
       contentWidth,
       teamItemCount > 0
-        ? `Team tasks ${teamItemCount}`
+        ? "Agents above · shared tasks below"
         : evalItemCount > 0
-        ? `Background evals ${evalItemCount}`
+        ? "Agents above · evals below"
         : "Agent manager",
       totalReal > 0 ? `${selectedIndex + 1}/${totalReal}` : "empty",
     );
@@ -241,6 +249,10 @@ function resolveStatusDisplay(
     return { icon: STATUS_GLYPHS.pending, iconColor: colors.muted, statusText: "blocked" };
   }
   switch (status) {
+    case "waiting":
+      return { icon: STATUS_GLYPHS.pending, iconColor: colors.warning, statusText: "waiting" };
+    case "blocked":
+      return { icon: STATUS_GLYPHS.pending, iconColor: colors.muted, statusText: "blocked" };
     case "in_progress":
     case "running":
     case "claimed":
@@ -292,7 +304,7 @@ function buildUnifiedItems(
         kind: "local_agent",
         label: `${agent.name} · ${agent.label}`,
         status: agent.status,
-        statusText,
+        statusText: agent.statusLabel || statusText,
         icon,
         iconColor,
         blocked: false,
@@ -301,12 +313,12 @@ function buildUnifiedItems(
     }
   }
 
-  // Team tasks next (Claude Code TaskCreate/TaskUpdate)
+  // Shared task board next (Claude Code TaskCreate/TaskUpdate)
   if (teamTasks.length > 0) {
     items.push({
       id: "__section_team__",
       kind: "section",
-      label: "Team tasks",
+      label: "Shared tasks",
       status: "",
       statusText: "",
       icon: "",
@@ -686,9 +698,9 @@ export function BackgroundTasksOverlay({
     if (viewingItem.teamTask) {
       const tt = viewingItem.teamTask;
       const lines: string[] = [];
-      lines.push(`Task #${tt.id}: ${tt.goal}`);
+      lines.push(`Shared task #${tt.id}: ${tt.goal}`);
       lines.push(`Status: ${tt.status}`);
-      if (tt.assignee) lines.push(`Owner: @${tt.assignee}`);
+      if (tt.assignee) lines.push(`Assignee: @${tt.assignee}`);
       if (tt.blockedBy.length > 0) {
         lines.push(`Blocked by: ${tt.blockedBy.map((id: string) => `#${id}`).join(", ")}`);
       }

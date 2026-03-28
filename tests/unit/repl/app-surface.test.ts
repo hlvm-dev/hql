@@ -148,6 +148,20 @@ Deno.test("shouldRenderShellLanes stays collapsed for an empty start screen", ()
   );
 });
 
+Deno.test("shouldRenderShellLanes opens when local agents are active", () => {
+  assertEquals(
+    shouldRenderShellLanes({
+      historyItemCount: 0,
+      localEvalQueueCount: 0,
+      liveItemCount: 0,
+      liveTodoCount: 0,
+      hasPendingInteraction: false,
+      hasLocalAgents: true,
+    }),
+    true,
+  );
+});
+
 Deno.test("shouldRenderShellLanes keeps transcript spacing when shell content exists", () => {
   assertEquals(
     shouldRenderShellLanes({

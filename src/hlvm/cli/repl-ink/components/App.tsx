@@ -30,6 +30,10 @@ import {
   shouldRenderLocalAgentsBar,
 } from "./LocalAgentsBar.tsx";
 import {
+  getLocalAgentsStatusPanelRowCount,
+  LocalAgentsStatusPanel,
+} from "./LocalAgentsStatusPanel.tsx";
+import {
   ComposerSurface,
   type ComposerSurfaceHandle,
   type ComposerSurfaceUiState,
@@ -208,6 +212,7 @@ function AppContent(
     isEvaluatingRef.current = isEvaluating;
   }, [isEvaluating]);
   const [clearKey, setClearKey] = useState(0); // Force re-render on clear
+  const overlayRepaintTimersRef = useRef<number[]>([]);
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
   const [queuedLocalEvals, setQueuedLocalEvals] = useState<
     QueuedLocalEvalDraft[]
@@ -329,14 +334,24 @@ function AppContent(
     }
     return `${idleCount} idle`;
   }, [teamState.active, teamState.members]);
-  const localAgentEntries = useMemo<LocalAgentEntry[]>(
+  const baseLocalAgentEntries = useMemo<LocalAgentEntry[]>(
     () =>
       buildLocalAgentEntries(
         teamState.members,
         teamState.memberActivity,
         tasks,
+        {
+          taskBoard: teamState.taskBoard,
+          pendingApprovals: teamState.pendingApprovals,
+        },
       ),
-    [tasks, teamState.memberActivity, teamState.members],
+    [
+      tasks,
+      teamState.memberActivity,
+      teamState.members,
+      teamState.pendingApprovals,
+      teamState.taskBoard,
+    ],
   );
   useEffect(() => {
     setFocusedTeammateIndex((prev: number) =>
@@ -344,25 +359,44 @@ function AppContent(
     );
   }, [activeTeammates.length]);
   useEffect(() => {
-    if (localAgentEntries.length === 0) {
+    if (baseLocalAgentEntries.length === 0) {
       setLocalAgentsFocused(false);
     }
-  }, [localAgentEntries.length]);
+  }, [baseLocalAgentEntries.length]);
   useEffect(() => {
     if (activeOverlay !== "none" || composerShellState.hasDraftInput) {
       setLocalAgentsFocused(false);
     }
   }, [activeOverlay, composerShellState.hasDraftInput]);
+  const scheduleShellRepaint = useCallback(() => {
+    setClearKey((current: number) => current + 1);
+    for (const timer of overlayRepaintTimersRef.current) {
+      globalThis.clearTimeout(timer);
+    }
+    overlayRepaintTimersRef.current = [
+      globalThis.setTimeout(() => {
+        setClearKey((current: number) => current + 1);
+      }, 0),
+      globalThis.setTimeout(() => {
+        setClearKey((current: number) => current + 1);
+      }, 24),
+    ];
+  }, []);
+  useEffect(() => () => {
+    for (const timer of overlayRepaintTimersRef.current) {
+      globalThis.clearTimeout(timer);
+    }
+  }, []);
   const previousOverlayForRepaintRef = useRef(activeOverlay);
   useEffect(() => {
     if (
       previousOverlayForRepaintRef.current !== "none" &&
       activeOverlay === "none"
     ) {
-      setClearKey((current: number) => current + 1);
+      scheduleShellRepaint();
     }
     previousOverlayForRepaintRef.current = activeOverlay;
-  }, [activeOverlay]);
+  }, [activeOverlay, scheduleShellRepaint]);
   const hasConversationContext = usesConversationContext(surfacePanel);
   const hasActivePlanningState = Boolean(
     conversation.activePlan ||
@@ -485,10 +519,10 @@ function AppContent(
     setActiveOverlay("team-dashboard");
   }, [focusedTeammate, setActiveOverlay]);
   const focusLocalAgents = useCallback(() => {
-    if (localAgentEntries.length === 0) return false;
+    if (baseLocalAgentEntries.length === 0) return false;
     setLocalAgentsFocused(true);
     return true;
-  }, [localAgentEntries.length]);
+  }, [baseLocalAgentEntries.length]);
   const foregroundLocalAgent = useCallback((agent: LocalAgentEntry) => {
     if (agent.kind !== "teammate" || !agent.memberId) {
       return false;
@@ -508,9 +542,9 @@ function AppContent(
     return true;
   }, [activeTeammates, setActiveOverlay]);
   const openLocalAgentsSurface = useCallback(() => {
-    if (localAgentEntries.length === 0) return false;
-    const singleAgent = localAgentEntries.length === 1
-      ? localAgentEntries[0]
+    if (baseLocalAgentEntries.length === 0) return false;
+    const singleAgent = baseLocalAgentEntries.length === 1
+      ? baseLocalAgentEntries[0]
       : undefined;
     if (!singleAgent) {
       openBackgroundTasksOverlay(undefined, "list");
@@ -522,8 +556,8 @@ function AppContent(
     openBackgroundTasksOverlay(singleAgent.id, "result");
     return true;
   }, [
+    baseLocalAgentEntries,
     foregroundLocalAgent,
-    localAgentEntries,
     openBackgroundTasksOverlay,
   ]);
   const handleLocalAgentsInput = useCallback((input: string, key: {
@@ -533,7 +567,7 @@ function AppContent(
     upArrow?: boolean;
     downArrow?: boolean;
   }) => {
-    if (!localAgentsFocused || localAgentEntries.length === 0) {
+    if (!localAgentsFocused || baseLocalAgentEntries.length === 0) {
       return false;
     }
     if (key.upArrow || key.escape) {
@@ -552,8 +586,8 @@ function AppContent(
     }
     return false;
   }, [
+    baseLocalAgentEntries.length,
     localAgentsFocused,
-    localAgentEntries,
     openLocalAgentsSurface,
   ]);
 
@@ -624,6 +658,34 @@ function AppContent(
     interruptConversationRun,
     handleForceInterrupt,
   } = agentRunner;
+  const localAgentEntries = useMemo<LocalAgentEntry[]>(
+    () =>
+      pendingInteraction
+        ? buildLocalAgentEntries(
+          teamState.members,
+          teamState.memberActivity,
+          tasks,
+          {
+            taskBoard: teamState.taskBoard,
+            pendingApprovals: teamState.pendingApprovals,
+            pendingInteraction: {
+              sourceMemberId: pendingInteraction.sourceMemberId,
+              mode: pendingInteraction.mode,
+            },
+          },
+        )
+        : baseLocalAgentEntries,
+    [
+      baseLocalAgentEntries,
+      pendingInteraction?.mode,
+      pendingInteraction?.sourceMemberId,
+      tasks,
+      teamState.memberActivity,
+      teamState.members,
+      teamState.pendingApprovals,
+      teamState.taskBoard,
+    ],
+  );
   const handleConversationInteractionResponse = useCallback((
     requestId: string,
     response: InteractionResponse,
@@ -1609,7 +1671,11 @@ function AppContent(
     liveTodoCount,
     hasPendingInteraction: hasConversationContext &&
       Boolean(pendingInteraction),
+    hasLocalAgents: localAgentEntries.length > 0,
   });
+  const localAgentsPanelRows = getLocalAgentsStatusPanelRowCount(
+    localAgentEntries.length,
+  );
   const transcriptReservedRows = 10 +
     SHELL_LAYOUT.transcriptToComposerGap +
     composerShellState.queuePreviewRows +
@@ -1620,7 +1686,8 @@ function AppContent(
     (hasConversationContext &&
         (conversation.liveItems.length > 0 || liveTodoCount > 0)
       ? Math.min(conversation.liveItems.length + liveTodoCount + 2, 12)
-      : 0);
+      : 0) +
+    localAgentsPanelRows;
   return (
     <Box
       key={clearKey}
@@ -1769,6 +1836,13 @@ function AppContent(
               </RenderErrorBoundary>
             </>
           )}
+          {localAgentEntries.length > 0 && (
+            <LocalAgentsStatusPanel
+              entries={localAgentEntries}
+              memberActivity={teamState.memberActivity}
+              width={shellContentWidth}
+            />
+          )}
         </Box>
       )}
 
@@ -1865,6 +1939,7 @@ function AppContent(
             teamAttentionCount={teamState.attentionItems.length}
             teamFocusLabel={focusedTeammate?.id}
             teamWorkerSummary={teamWorkerSummary}
+            localAgentCount={localAgentEntries.length}
             pendingInteractionLabel={pendingInteraction?.sourceLabel}
             activeTaskCount={activeCount}
             recentActiveTaskLabel={recentActiveTaskLabel}
