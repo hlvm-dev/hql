@@ -8,7 +8,7 @@
 
 import React from "react";
 import { Box, Text, useStdout } from "ink";
-import { useSemanticColors, useTheme } from "../../theme/index.ts";
+import { useSemanticColors } from "../../theme/index.ts";
 import type { PlanningPhase } from "../../../agent/planning.ts";
 import {
   type StreamingState,
@@ -19,7 +19,6 @@ import { STATUS_GLYPHS } from "../ui-constants.ts";
 import { getShellContentWidth } from "../utils/layout-tokens.ts";
 
 import { truncate } from "../../../../common/utils.ts";
-import { useConversationSpinnerFrame } from "../hooks/useConversationMotion.ts";
 import { getPlanPhaseLabel } from "./conversation/plan-flow.ts";
 import {
   buildContextUsageMiniBar,
@@ -29,6 +28,10 @@ import {
   type ShellFooterSegment,
   summarizeModeLabel,
 } from "../utils/shell-chrome.ts";
+import {
+  formatSubmitActionCue,
+  type SubmitAction,
+} from "../utils/submit-routing.ts";
 
 interface FooterProps {
   streamingState?: StreamingState;
@@ -40,6 +43,7 @@ interface FooterProps {
   planningPhase?: PlanningPhase;
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
+  hasSubmitText?: boolean;
   inConversation?: boolean;
   isEvaluating?: boolean;
   hasPendingPermission?: boolean;
@@ -57,6 +61,7 @@ interface FooterProps {
   aiAvailable?: boolean;
   conversationQueueCount?: number;
   localEvalQueueCount?: number;
+  submitAction?: SubmitAction;
 }
 
 interface FooterLeftStateInput {
@@ -68,6 +73,7 @@ interface FooterLeftStateInput {
   planningPhase?: PlanningPhase;
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
+  hasSubmitText?: boolean;
   hasPendingPermission?: boolean;
   hasPendingPlanReview?: boolean;
   hasPendingQuestion?: boolean;
@@ -84,6 +90,7 @@ interface FooterLeftStateInput {
   statusMessage?: string;
   conversationQueueCount?: number;
   localEvalQueueCount?: number;
+  submitAction?: SubmitAction;
 }
 
 interface FooterLeftState {
@@ -97,6 +104,15 @@ function isDefaultModeLabel(label: string | undefined): boolean {
   return !label || label === "Default mode";
 }
 
+function getQueuedInputLabel(
+  conversationQueueCount = 0,
+  localEvalQueueCount = 0,
+): string | undefined {
+  const totalCount = conversationQueueCount + localEvalQueueCount;
+  if (totalCount === 0) return undefined;
+  return `+${totalCount} next`;
+}
+
 export function buildFooterLeftState({
   inConversation,
   isEvaluating,
@@ -106,6 +122,7 @@ export function buildFooterLeftState({
   planningPhase,
   interactionQueueLength = 0,
   hasDraftInput,
+  hasSubmitText,
   hasPendingPermission,
   hasPendingPlanReview,
   hasPendingQuestion,
@@ -122,6 +139,7 @@ export function buildFooterLeftState({
   statusMessage,
   conversationQueueCount = 0,
   localEvalQueueCount = 0,
+  submitAction,
 }: FooterLeftStateInput): FooterLeftState {
   const summarizedModeLabel = summarizeModeLabel(modeLabel);
   const modeChip = planningPhase && planningPhase !== "done" &&
@@ -130,9 +148,10 @@ export function buildFooterLeftState({
     : summarizedModeLabel;
   const queuedCount = Math.max(0, interactionQueueLength - 1);
   const suppressFooterTeamRail = localAgentCount > 0 && !teamFocusLabel;
-  const teamChip: ShellFooterSegment | null = teamActive && !suppressFooterTeamRail
-    ? { text: "Team", tone: "active" }
-    : null;
+  const teamChip: ShellFooterSegment | null =
+    teamActive && !suppressFooterTeamRail
+      ? { text: "Team", tone: "active" }
+      : null;
   const showTeamControls = teamActive &&
     !hasDraftInput &&
     streamingState !== ConversationStreamingState.Responding;
@@ -200,15 +219,19 @@ export function buildFooterLeftState({
     if (teamManageSegment) segments.push(teamManageSegment);
     if (bgChip) segments.push(bgChip);
     if (bgTaskHint) segments.push(bgTaskHint);
-    if (conversationQueueCount > 0) {
+    const queuedInputLabel = getQueuedInputLabel(
+      conversationQueueCount,
+      localEvalQueueCount,
+    );
+    if (queuedInputLabel) {
       segments.push({
-        text: `+${conversationQueueCount} chat`,
+        text: queuedInputLabel,
         tone: "active",
       });
     }
-    if (localEvalQueueCount > 0) {
+    if (hasSubmitText && submitAction) {
       segments.push({
-        text: `+${localEvalQueueCount} eval`,
+        text: formatSubmitActionCue(submitAction, "mixed-shell"),
         tone: "active",
       });
     }
@@ -302,15 +325,23 @@ export function buildFooterLeftState({
       tone: "active",
     });
   }
-  if (conversationQueueCount > 0) {
+  const queuedInputLabel = getQueuedInputLabel(
+    conversationQueueCount,
+    localEvalQueueCount,
+  );
+  if (queuedInputLabel) {
     segments.push({
-      text: `+${conversationQueueCount} chat`,
+      text: queuedInputLabel,
       tone: "active",
     });
   }
-  if (localEvalQueueCount > 0) {
+  if (
+    hasSubmitText &&
+    submitAction &&
+    streamingState !== ConversationStreamingState.Responding
+  ) {
     segments.push({
-      text: `+${localEvalQueueCount} eval`,
+      text: formatSubmitActionCue(submitAction, "conversation"),
       tone: "active",
     });
   }
@@ -397,6 +428,7 @@ export const FooterHint = React.memo(function FooterHint({
   planningPhase,
   interactionQueueLength = 0,
   hasDraftInput,
+  hasSubmitText,
   inConversation,
   isEvaluating,
   hasPendingPermission,
@@ -414,16 +446,12 @@ export const FooterHint = React.memo(function FooterHint({
   aiAvailable = false,
   conversationQueueCount,
   localEvalQueueCount,
+  submitAction,
 }: FooterProps): React.ReactElement {
   const { stdout } = useStdout();
-  const { color } = useTheme();
   const sc = useSemanticColors();
   const model = modelName ?? "";
-  const isAnimating =
-    streamingState === ConversationStreamingState.Responding &&
-    !!activeTool;
-  const spinnerFrame = useConversationSpinnerFrame(isAnimating);
-  const spinner = spinnerFrame ?? STATUS_GLYPHS.running;
+  const spinner = STATUS_GLYPHS.running;
 
   const left = buildFooterLeftState({
     inConversation,
@@ -434,6 +462,7 @@ export const FooterHint = React.memo(function FooterHint({
     planningPhase,
     interactionQueueLength,
     hasDraftInput,
+    hasSubmitText,
     hasPendingPermission,
     hasPendingPlanReview,
     hasPendingQuestion,
@@ -450,6 +479,7 @@ export const FooterHint = React.memo(function FooterHint({
     statusMessage,
     conversationQueueCount,
     localEvalQueueCount,
+    submitAction,
   });
 
   const right = buildFooterRightState({
@@ -506,7 +536,7 @@ export const FooterHint = React.memo(function FooterHint({
     const color = segment.tone === "error"
       ? sc.status.error
       : segment.tone === "active"
-      ? sc.shell.chipActive.background
+      ? sc.footer.status.active
       : segment.tone === "warning"
       ? sc.status.warning
       : sc.text.muted;
@@ -546,7 +576,11 @@ export const FooterHint = React.memo(function FooterHint({
         </Box>
         {rightParts.length > 0 && (
           <Box>
-            <Text color={aiAvailable ? "#50fa7b" : sc.status.error}>
+            <Text
+              color={aiAvailable
+                ? sc.footer.status.ready
+                : sc.footer.status.error}
+            >
               {STATUS_GLYPHS.running}
               {" "}
             </Text>

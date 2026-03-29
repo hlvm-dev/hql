@@ -47,6 +47,13 @@ type RawFactRow = {
   embedding_model?: string | null;
 };
 
+/** Canonical column list for SELECT queries returning full fact rows. */
+const FACT_COLUMNS =
+  "id, content, category, source, valid_from, valid_until, created_at, accessed_at, access_count, embedding, embedding_model";
+/** Table-prefixed variant for JOIN queries. */
+const FACT_COLUMNS_F =
+  "f.id, f.content, f.category, f.source, f.valid_from, f.valid_until, f.created_at, f.accessed_at, f.access_count, f.embedding, f.embedding_model";
+
 /** Run `fn` inside a BEGIN/COMMIT transaction; ROLLBACK on throw. */
 export function withTransaction<T>(fn: () => T): T {
   const db = getFactDb();
@@ -148,7 +155,7 @@ export function findExactActiveFact(
 
   const normalizedCategory = category?.trim() || "General";
   const row = getFactDb().prepare(
-    `SELECT id, content, category, source, valid_from, valid_until, created_at, accessed_at, access_count, embedding, embedding_model
+    `SELECT ${FACT_COLUMNS}
      FROM facts
      WHERE valid_until IS NULL
        AND category = ?
@@ -235,7 +242,7 @@ export function getValidFacts(
   const params = category ? [category, limit] : [limit];
 
   const rows = db.prepare(
-    `SELECT id, content, category, source, valid_from, valid_until, created_at, accessed_at, access_count, embedding, embedding_model
+    `SELECT ${FACT_COLUMNS}
      FROM facts
      ${whereClause}
      ORDER BY access_count DESC, created_at DESC, id DESC
@@ -250,7 +257,7 @@ export function getFactsByIds(ids: number[]): FactRecord[] {
   const db = getFactDb();
   const placeholders = ids.map(() => "?").join(",");
   const rows = db.prepare(
-    `SELECT id, content, category, source, valid_from, valid_until, created_at, accessed_at, access_count, embedding, embedding_model
+    `SELECT ${FACT_COLUMNS}
      FROM facts
      WHERE valid_until IS NULL AND id IN (${placeholders})`,
   ).all(...ids);
@@ -306,8 +313,7 @@ export function searchFactsFts(
   const orExpr = escaped.join(" OR ");
 
   const stmt = db.prepare(
-    `SELECT f.id, f.content, f.category, f.source, f.valid_from, f.valid_until,
-            f.created_at, f.accessed_at, f.access_count, f.embedding, f.embedding_model,
+    `SELECT ${FACT_COLUMNS_F},
             abs(rank) AS bm25_score
      FROM facts_fts
      JOIN facts f ON f.id = facts_fts.rowid

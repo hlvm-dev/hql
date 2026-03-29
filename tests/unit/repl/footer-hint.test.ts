@@ -84,6 +84,18 @@ Deno.test("buildFooterLeftState shows empty text outside conversation", () => {
   assertEquals(state.tone, "muted");
 });
 
+Deno.test("buildFooterLeftState shows submit cue outside conversation when draft text is present", () => {
+  const state = buildFooterLeftState({
+    inConversation: false,
+    hasSubmitText: true,
+    submitAction: "evaluate-local",
+    spinner: "x",
+  });
+
+  assertEquals(state.mode, "segments");
+  assertEquals(state.text, "Enter eval");
+});
+
 Deno.test("buildFooterLeftState shows Ctrl+B hint when evaluating outside conversation", () => {
   const state = buildFooterLeftState({
     inConversation: false,
@@ -140,6 +152,42 @@ Deno.test("buildFooterLeftState includes queued interaction count", () => {
   });
 
   assertEquals(state.text, "+2 queued");
+});
+
+Deno.test("buildFooterLeftState collapses mixed chat/eval queue counts into one segment", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    conversationQueueCount: 1,
+    localEvalQueueCount: 4,
+    spinner: "x",
+  });
+
+  assertEquals(state.text, "+5 next");
+});
+
+Deno.test("buildFooterLeftState keeps one total queue segment even for eval-only items", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    localEvalQueueCount: 2,
+    spinner: "x",
+  });
+
+  assertEquals(state.text, "+2 next");
+});
+
+Deno.test("buildFooterLeftState shows conversation submit cue when idle with draft text", () => {
+  const state = buildFooterLeftState({
+    inConversation: true,
+    streamingState: StreamingState.Idle,
+    hasSubmitText: true,
+    submitAction: "send-agent",
+    spinner: "x",
+  });
+
+  assertEquals(state.mode, "segments");
+  assertEquals(state.text, "Enter send");
 });
 
 Deno.test("buildFooterLeftState uses review-specific wording for reviewing phase", () => {

@@ -18,15 +18,18 @@ import type {
   InteractionRequestEvent,
   InteractionResponse,
 } from "../../../agent/registry.ts";
-import type { AssistantCitation, ConversationAttachmentRef } from "../types.ts";
+import type {
+  AssistantCitation,
+  ConversationAttachmentRef,
+  TurnCompletionStatus,
+} from "../types.ts";
 import { createConversationAttachmentRef } from "../types.ts";
 import type { UseConversationResult } from "./useConversation.ts";
 import type { SurfacePanel } from "./useOverlayPanel.ts";
 import {
   type ConversationComposerDraft,
   createConversationComposerDraft,
-  mergeConversationDraftsForInterrupt,
-  shiftQueuedConversationDraft,
+  hasConversationDraftContent,
 } from "../utils/conversation-queue.ts";
 import { ensureError } from "../../../../common/utils.ts";
 
@@ -77,15 +80,11 @@ interface UseAgentRunnerInput {
   clearComposerDraft: () => void;
   getCurrentComposerDraft: () => ConversationComposerDraft;
   getPendingConversationQueue: () => ConversationComposerDraft[];
-  pendingConversationQueueVersion: number;
   setPendingConversationQueue: Dispatch<
     SetStateAction<ConversationComposerDraft[]>
   >;
   restoreComposerDraft: (draft: ConversationComposerDraft | null) => void;
-  hasConversationContext: boolean;
   replState: ReplState;
-  onQueuedHqlEval?: (code: string, attachments?: AnyAttachment[]) => Promise<void>;
-  isLocalEvalBusy?: () => boolean;
 }
 
 export interface UseAgentRunnerResult {
@@ -145,13 +144,9 @@ export function useAgentRunner(
     clearComposerDraft,
     getCurrentComposerDraft,
     getPendingConversationQueue,
-    pendingConversationQueueVersion,
     setPendingConversationQueue,
     restoreComposerDraft,
-    hasConversationContext,
     replState,
-    onQueuedHqlEval,
-    isLocalEvalBusy,
   }: UseAgentRunnerInput,
 ): UseAgentRunnerResult {
   const [interactionQueue, setInteractionQueue] = useState<
@@ -227,6 +222,8 @@ export function useAgentRunner(
       conversationRef.current.addUserMessage(query, { attachments });
       conversationRef.current.addAssistantText("", true);
     }
+
+    let finalizeStatus: TurnCompletionStatus = "completed";
 
     try {
       const attachmentIds = attachments
@@ -475,10 +472,12 @@ export function useAgentRunner(
       }
     } catch (error) {
       if (controller.signal.aborted) {
+        finalizeStatus = "cancelled";
         if (isActiveConversationRun()) {
           conversationRef.current.addInfo("Cancelled");
         }
       } else {
+        finalizeStatus = "failed";
         if (isActiveConversationRun()) {
           conversationRef.current.addError(ensureError(error).message);
         }
@@ -489,7 +488,7 @@ export function useAgentRunner(
         interactionResolversRef.current.clear();
         setInteractionQueue([]);
         setIsEvaluating(false);
-        conversationRef.current.finalize();
+        conversationRef.current.finalize(finalizeStatus);
       }
     }
   }, [
@@ -544,6 +543,7 @@ export function useAgentRunner(
       }
       interactionResolversRef.current.clear();
       setInteractionQueue([]);
+      const hadActiveRun = agentControllerRef.current !== null;
       if (agentControllerRef.current) {
         agentControllerRef.current.abort();
         agentControllerRef.current = null;
@@ -551,8 +551,8 @@ export function useAgentRunner(
       setIsEvaluating(false);
       if (options?.clearConversation) {
         conversationRef.current.clear();
-      } else {
-        conversationRef.current.finalize();
+      } else if (hadActiveRun) {
+        conversationRef.current.finalize("cancelled");
       }
       setPendingConversationQueue([]);
       setFooterContextUsageLabel("");
@@ -584,14 +584,11 @@ export function useAgentRunner(
       return;
     }
 
-    const pendingConversationQueue = getPendingConversationQueue();
     const currentComposerDraft = getCurrentComposerDraft();
-    const restoredDraft = options?.restoreDraft === false
+    const restoredDraft = options?.restoreDraft === false ||
+        !hasConversationDraftContent(currentComposerDraft)
       ? null
-      : mergeConversationDraftsForInterrupt(
-        pendingConversationQueue,
-        currentComposerDraft,
-      );
+      : currentComposerDraft;
 
     if (pendingStreamTimerRef.current) {
       clearTimeout(pendingStreamTimerRef.current);
@@ -603,13 +600,12 @@ export function useAgentRunner(
     interactionResolversRef.current.clear();
     setInteractionQueue([]);
     setIsEvaluating(false);
-    setPendingConversationQueue([]);
     setFooterContextUsageLabel("");
     restoreComposerDraft(restoredDraft);
     if (options?.addCancelledInfo !== false) {
       conversationRef.current.addInfo("Cancelled");
     }
-    conversationRef.current.finalize();
+    conversationRef.current.finalize("cancelled");
   }, [
     getCurrentComposerDraft,
     getPendingConversationQueue,
@@ -651,58 +647,6 @@ export function useAgentRunner(
       submitConversationDraft,
     ],
   );
-
-  // Queue drain effect: auto-submit queued drafts when agent is idle
-  useEffect(() => {
-    if (!hasConversationContext) return;
-    if (agentControllerRef.current) return;
-    if (isLocalEvalBusy?.()) return;
-    // Don't drain during plan workflow gaps (agent briefly idle between plan turns)
-    const { planningPhase, pendingPlanReview } = conversationRef.current;
-    if (planningPhase && planningPhase !== "done") return;
-    if (pendingPlanReview) return;
-    const pendingConversationQueue = getPendingConversationQueue();
-    if (pendingConversationQueue.length === 0) return;
-
-    const { draft: nextTurn, remaining } = shiftQueuedConversationDraft(
-      pendingConversationQueue,
-    );
-    if (!nextTurn) return;
-
-    // Route queued HQL evals to the local evaluator instead of the agent
-    if (nextTurn.text.trim().startsWith("(") && onQueuedHqlEval) {
-      setPendingConversationQueue(remaining);
-      void onQueuedHqlEval(nextTurn.text);
-      return;
-    }
-
-    const result = submitConversationDraft(nextTurn);
-    if (result.started) {
-      setPendingConversationQueue(remaining);
-      return;
-    }
-    const currentComposerDraft = getCurrentComposerDraft();
-    setPendingConversationQueue(remaining);
-    restoreComposerDraft(
-      mergeConversationDraftsForInterrupt([nextTurn], currentComposerDraft),
-    );
-    if (result.unsupportedMimeType) {
-      conversationRef.current.addError(
-        describeConversationAttachmentMimeTypeError(
-          result.unsupportedMimeType,
-        ),
-      );
-    }
-  }, [
-    getCurrentComposerDraft,
-    getPendingConversationQueue,
-    hasConversationContext,
-    isLocalEvalBusy,
-    onQueuedHqlEval,
-    pendingConversationQueueVersion,
-    restoreComposerDraft,
-    submitConversationDraft,
-  ]);
 
   return {
     interactionQueue,

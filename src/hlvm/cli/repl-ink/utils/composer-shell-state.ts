@@ -10,8 +10,10 @@ export function advanceComposerShellState(
 ): ComposerShellState {
   if (
     previous.hasDraftInput === next.hasDraftInput &&
+    previous.hasSubmitText === next.hasSubmitText &&
     previous.queuedDraftCount === next.queuedDraftCount &&
-    previous.queuePreviewRows === next.queuePreviewRows
+    previous.queuePreviewRows === next.queuePreviewRows &&
+    previous.submitAction === next.submitAction
   ) {
     return previous;
   }

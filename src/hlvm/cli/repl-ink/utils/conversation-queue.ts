@@ -6,11 +6,16 @@ import {
   getTextDisplayName,
   type TextAttachment,
 } from "../../repl/attachment.ts";
+import { isShellCommandText } from "./submit-routing.ts";
+
+export type QueuedInputKind = "chat" | "eval" | "command";
 
 export interface ConversationComposerDraft {
   text: string;
   attachments: AnyAttachment[];
   cursorOffset: number;
+  queuedAt?: number;
+  queuedKind?: QueuedInputKind;
 }
 
 export type ConversationQueueEditBinding = "alt-up" | "shift-left";
@@ -42,6 +47,8 @@ function cloneDraft(
     text: draft.text,
     attachments: draft.attachments.map(cloneAttachment),
     cursorOffset: clampCursorOffset(draft.text, draft.cursorOffset),
+    queuedAt: draft.queuedAt,
+    queuedKind: draft.queuedKind,
   };
 }
 
@@ -144,12 +151,33 @@ export function createConversationComposerDraft(
   text: string,
   attachments?: AnyAttachment[],
   cursorOffset = text.length,
+  queuedAt?: number,
+  queuedKind?: QueuedInputKind,
 ): ConversationComposerDraft {
   return {
     text,
     attachments: (attachments ?? []).map(cloneAttachment),
     cursorOffset: clampCursorOffset(text, cursorOffset),
+    queuedAt,
+    queuedKind,
   };
+}
+
+export function resolveQueuedInputKind(text: string): QueuedInputKind {
+  const trimmed = text.trim();
+  if (isShellCommandText(trimmed)) {
+    return "command";
+  }
+  if (trimmed.startsWith("(")) {
+    return "eval";
+  }
+  return "chat";
+}
+
+export function getQueuedDraftKind(
+  draft: ConversationComposerDraft,
+): QueuedInputKind {
+  return draft.queuedKind ?? resolveQueuedInputKind(draft.text);
 }
 
 export function hasConversationDraftContent(
@@ -166,7 +194,12 @@ export function enqueueConversationDraft(
   if (!hasConversationDraftContent(draft)) {
     return cloneQueue(queue);
   }
-  return [...cloneQueue(queue), cloneDraft(draft)];
+  const queuedDraft = cloneDraft({
+    ...draft,
+    queuedAt: draft.queuedAt ?? Date.now(),
+    queuedKind: draft.queuedKind ?? resolveQueuedInputKind(draft.text),
+  });
+  return [...cloneQueue(queue), queuedDraft];
 }
 
 export function shiftQueuedConversationDraft(

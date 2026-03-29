@@ -692,6 +692,7 @@ export function ConfigOverlay({
 
     output += drawOverlayFrame(overlayFrame, {
       borderColor: colors.primary,
+      backgroundColor: colors.background,
       title: "Configuration",
       rightText: "esc close",
     });

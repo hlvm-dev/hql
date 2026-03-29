@@ -1,8 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
-import { truncate } from "../../../../common/utils.ts";
-import { useTheme } from "../../theme/index.ts";
-import { buildCursorWindowDisplay } from "../utils/cursor-window.ts";
+import { useSemanticColors } from "../../theme/index.ts";
+import { buildFieldDisplayState } from "../utils/field-display.ts";
 
 interface ListSearchFieldProps {
   query: string;
@@ -17,36 +16,66 @@ export function ListSearchField({
   width,
   placeholder = "Filter models",
 }: ListSearchFieldProps): React.ReactElement {
-  const { color } = useTheme();
+  const sc = useSemanticColors();
   const contentWidth = Math.max(8, width - 4);
-  const visibleChars = Math.max(1, contentWidth);
-  const placeholderWidth = Math.max(1, visibleChars - 1);
-  const display = buildCursorWindowDisplay(query, cursor, visibleChars);
-  const borderColor = query.length === 0 ? color("muted") : color("accent");
+  const display = buildFieldDisplayState(
+    query,
+    cursor,
+    contentWidth,
+    placeholder,
+  );
+  const borderColor = query.length === 0
+    ? sc.surface.field.border
+    : sc.surface.field.borderActive;
 
   return (
     <Box
       borderStyle="single"
       borderColor={borderColor}
+      backgroundColor={sc.surface.field.background}
       paddingX={1}
       width={width}
     >
-      {query.length === 0
+      {display.isPlaceholder
         ? (
           <>
-            <Text inverse>{" "}</Text>
-            <Text dimColor wrap="truncate-end">
-              {truncate(placeholder, placeholderWidth, "…")}
+            <Text
+              inverse
+              backgroundColor={sc.surface.field.background}
+              color={sc.surface.field.cursor}
+            >
+              {display.cursorChar}
+            </Text>
+            <Text
+              color={sc.surface.field.placeholder}
+              backgroundColor={sc.surface.field.background}
+              wrap="truncate-end"
+            >
+              {display.placeholderText}
             </Text>
           </>
         )
         : (
           <>
-            <Text>{display.beforeCursor}</Text>
-            <Text inverse>
+            <Text
+              color={sc.surface.field.text}
+              backgroundColor={sc.surface.field.background}
+            >
+              {display.beforeCursor}
+            </Text>
+            <Text
+              inverse
+              backgroundColor={sc.surface.field.background}
+              color={sc.surface.field.cursor}
+            >
               {display.cursorChar}
             </Text>
-            <Text>{display.afterCursor}</Text>
+            <Text
+              color={sc.surface.field.text}
+              backgroundColor={sc.surface.field.background}
+            >
+              {display.afterCursor}
+            </Text>
           </>
         )}
     </Box>

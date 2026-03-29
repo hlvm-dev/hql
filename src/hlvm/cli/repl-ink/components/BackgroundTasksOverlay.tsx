@@ -39,11 +39,9 @@ import { formatEvalTaskResultLines } from "../utils/eval-task-results.ts";
 import {
   ansi,
   BACKGROUND_TASKS_OVERLAY_SPEC,
-  bg,
   clearOverlay,
   drawOverlayFrame,
   fg,
-  OVERLAY_BG_COLOR,
   resolveOverlayChromeLayout,
   resolveOverlayFrame,
   type RGB,
@@ -515,7 +513,7 @@ function buildLocalAgentDetailLines(
     return [
       `Agent: ${agent.name}`,
       `Task: ${agent.label}`,
-      `Status: ${agent.status}`,
+      `Status: ${agent.statusLabel}`,
     ];
   }
 
@@ -526,7 +524,7 @@ function buildLocalAgentDetailLines(
     return [
       `Agent: ${agent.name}`,
       `Task: ${agent.label}`,
-      `Status: ${agent.status}`,
+      `Status: ${agent.statusLabel}`,
     ];
   }
 
@@ -554,6 +552,16 @@ function resolveInterruptibleThreadId(
     return undefined;
   }
   return item.localAgent.threadId;
+}
+
+function isForegroundableLocalAgent(
+  agent: LocalAgentEntry | undefined,
+): agent is LocalAgentEntry {
+  return Boolean(
+    agent &&
+      agent.kind === "teammate" &&
+      agent.foregroundable === true,
+  );
 }
 
 // ============================================================
@@ -615,10 +623,7 @@ export function BackgroundTasksOverlay({
   const previousFrameRef = useRef<typeof overlayFrame | null>(null);
 
   // Theme colors
-  const colors = useMemo(() => ({
-    ...themeToOverlayColors(theme),
-    bgStyle: bg(OVERLAY_BG_COLOR),
-  }), [theme]);
+  const colors = useMemo(() => themeToOverlayColors(theme), [theme]);
 
   // Filter and sort background tasks (eval + delegate)
   const bgTasks = useMemo(() => {
@@ -930,9 +935,8 @@ export function BackgroundTasksOverlay({
       Boolean(interruptibleThreadId);
     const canDismiss = managedTask != null && !canInterrupt;
     const canForeground = Boolean(
-      selectedItem?.localAgent &&
-        onForegroundLocalAgent &&
-        selectedItem.localAgent.kind === "teammate",
+      onForegroundLocalAgent &&
+        isForegroundableLocalAgent(selectedItem?.localAgent),
     );
     const listHints = canInterrupt && canForeground
       ? "\u2191/\u2193 select  Enter/Space view  f foreground  k interrupt  Esc close"
@@ -950,9 +954,8 @@ export function BackgroundTasksOverlay({
       viewingItem,
     );
     const detailCanForeground = Boolean(
-      viewingItem?.localAgent &&
-        onForegroundLocalAgent &&
-        viewingItem.localAgent.kind === "teammate",
+      onForegroundLocalAgent &&
+        isForegroundableLocalAgent(viewingItem?.localAgent),
     );
     const detailHints = ((detailManagedTask && isTaskActive(detailManagedTask)) ||
         detailInterruptibleThreadId)
@@ -993,7 +996,7 @@ export function BackgroundTasksOverlay({
 
     output += drawOverlayFrame(overlayFrame, {
       borderColor: colors.primary,
-      backgroundColor: OVERLAY_BG_COLOR,
+      backgroundColor: colors.background,
       title,
       rightText: escHint,
     });
@@ -1050,7 +1053,7 @@ export function BackgroundTasksOverlay({
       }
       if (
         input === "f" &&
-        viewingItem?.localAgent &&
+        isForegroundableLocalAgent(viewingItem?.localAgent) &&
         onForegroundLocalAgent?.(viewingItem.localAgent)
       ) {
         return;
@@ -1097,7 +1100,7 @@ export function BackgroundTasksOverlay({
 
     if (
       input === "f" &&
-      selectableItems[selectedIndex]?.localAgent &&
+      isForegroundableLocalAgent(selectableItems[selectedIndex]?.localAgent) &&
       onForegroundLocalAgent?.(selectableItems[selectedIndex].localAgent)
     ) {
       return;

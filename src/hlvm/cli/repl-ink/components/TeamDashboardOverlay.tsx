@@ -78,9 +78,10 @@ export function buildTeamDashboardSummaryRows(
   interactionMode?: "permission" | "question",
   interactionSourceLabel?: string,
 ): [string, string] {
-  const teammateCount = teamState.members.filter((member) =>
-    member.role === "worker" && member.status !== "terminated"
-  ).length || teamState.workers.length;
+  const teammateCount =
+    teamState.members.filter((member) =>
+      member.role === "worker" && member.status !== "terminated"
+    ).length || teamState.workers.length;
   const primary = buildBalancedTextRow(
     contentWidth,
     `Members ${teamState.members.length} · Workers ${teammateCount}`,
@@ -93,9 +94,11 @@ export function buildTeamDashboardSummaryRows(
     contentWidth,
     `Reviews ${teamState.pendingApprovals.length} · Attention ${teamState.attentionItems.length}`,
     interactionMode
-      ? `Interaction ${interactionMode}${
-        interactionSourceLabel ? ` · ${interactionSourceLabel}` : ""
-      }`
+      ? `${
+        interactionMode === "permission"
+          ? "Waiting for approval"
+          : "Waiting for reply"
+      }${interactionSourceLabel ? ` · ${interactionSourceLabel}` : ""}`
       : `Shutdowns ${teamState.shutdowns.length} · Errors ${
         teamState.taskCounts.errored ?? 0
       }`,
@@ -232,7 +235,9 @@ function detailLines(item: DashboardItem): string[] {
         `Status: ${item.data.status}`,
         item.data.assignee ? `Assignee: ${item.data.assignee}` : "",
         item.data.blockedBy.length > 0
-          ? `Blocked by: ${item.data.blockedBy.join(", ")}`
+          ? `Blocked by: ${
+            item.data.blockedBy.map((id) => `#${id}`).join(", ")
+          }`
           : "",
         item.data.reviewStatus ? `Review: ${item.data.reviewStatus}` : "",
         item.data.mergeState ? `Merge: ${item.data.mergeState}` : "",
@@ -311,7 +316,9 @@ export function buildTeamDashboardDetailLines(
     : [];
   const interactionLine = memberId && interactionMode &&
       interactionSourceMemberId === memberId
-    ? `Waiting on lead: ${interactionMode}`
+    ? interactionMode === "permission"
+      ? "Waiting for your approval"
+      : "Waiting for your answer"
     : "";
   const inspectLines = threadSnapshotLines.length > 0
     ? ["Live session:", ...threadSnapshotLines.map((line) => `- ${line}`)]
@@ -614,9 +621,7 @@ export function TeamDashboardOverlay({
         output += isSelected ? "▸ " : "  ";
         len += 2;
         output += fg(iconRgb) + prefix.icon + ansi.reset;
-        output += isSelected
-          ? colors.selectedBgStyle
-          : bgStyle;
+        output += isSelected ? colors.selectedBgStyle : bgStyle;
         output += " ";
         len += 2;
         const textWidth = Math.max(0, cellWidth - len);
@@ -755,25 +760,25 @@ export function TeamDashboardOverlay({
         ? `↑/↓ select · Enter inspect${
           selectedInterruptibleThreadId ? " · k interrupt" : ""
         } · esc/q close`
-        : `${
-          detailLines.length > visibleRows ? "↑/↓ scroll · " : ""
-        }${
+        : `${detailLines.length > visibleRows ? "↑/↓ scroll · " : ""}${
           selectedInterruptibleThreadId ? "k interrupt · " : ""
         }${sessionOnly ? "q/Esc close" : "q/Esc back"}`,
       contentWidth,
     );
     const countText = viewMode === "dashboard"
-      ? selectedIndex >= 0
-        ? `${selectedIndex + 1}/${items.length}`
-        : ""
+      ? selectedIndex >= 0 ? `${selectedIndex + 1}/${items.length}` : ""
       : detailLines.length > 0
-      ? `${Math.min(
-        detailLines.length,
-        clampedDetailScrollOffset + 1,
-      )}-${Math.min(
-        detailLines.length,
-        clampedDetailScrollOffset + visibleRows,
-      )}/${detailLines.length}`
+      ? `${
+        Math.min(
+          detailLines.length,
+          clampedDetailScrollOffset + 1,
+        )
+      }-${
+        Math.min(
+          detailLines.length,
+          clampedDetailScrollOffset + visibleRows,
+        )
+      }/${detailLines.length}`
       : "";
     drawRow(footerY, () => {
       output += " ".repeat(PADDING.left);
@@ -791,6 +796,7 @@ export function TeamDashboardOverlay({
 
     output += drawOverlayFrame(overlayFrame, {
       borderColor: colors.primary,
+      backgroundColor: colors.background,
       title,
       rightText: closeHint,
     });

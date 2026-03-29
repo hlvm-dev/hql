@@ -26,6 +26,8 @@ interface HighlightedTextProps {
   readonly highlightColor?: string;
   /** Base text color (default: undefined = terminal default) */
   readonly baseColor?: string;
+  /** Optional background color applied to the full text run */
+  readonly backgroundColor?: string;
   /** Whether to bold highlighted text (default: true) */
   readonly bold?: boolean;
   /** Whether to underline highlighted text (default: false) */
@@ -42,7 +44,10 @@ interface HighlightedTextProps {
  * Split text into segments based on match indices.
  * Returns alternating normal/highlighted segments for rendering.
  */
-function splitByIndices(text: string, indices: readonly number[]): TextSegment[] {
+function splitByIndices(
+  text: string,
+  indices: readonly number[],
+): TextSegment[] {
   if (!indices.length) {
     return [{ text, highlighted: false }];
   }
@@ -90,6 +95,7 @@ export function HighlightedText({
   matchIndices,
   highlightColor = "yellow",
   baseColor,
+  backgroundColor,
   bold = true,
   underline = false,
   inverse = false,
@@ -97,7 +103,11 @@ export function HighlightedText({
   // If no highlights needed, render simple text
   if (!matchIndices || !matchIndices.length) {
     return (
-      <Text color={baseColor} inverse={inverse}>
+      <Text
+        color={baseColor}
+        backgroundColor={backgroundColor}
+        inverse={inverse}
+      >
         {text}
       </Text>
     );
@@ -107,21 +117,28 @@ export function HighlightedText({
   const segments = splitByIndices(text, matchIndices);
 
   return (
-    <Text inverse={inverse}>
+    <Text backgroundColor={backgroundColor} inverse={inverse}>
       {segments.map((seg, i) =>
-        seg.highlighted ? (
-          <React.Fragment key={i}>
-            <Text color={highlightColor} bold={bold} underline={underline}>
-              {seg.text}
-            </Text>
-          </React.Fragment>
-        ) : (
-          <React.Fragment key={i}>
-            <Text color={baseColor}>
-              {seg.text}
-            </Text>
-          </React.Fragment>
-        )
+        seg.highlighted
+          ? (
+            <React.Fragment key={i}>
+              <Text
+                color={highlightColor}
+                backgroundColor={backgroundColor}
+                bold={bold}
+                underline={underline}
+              >
+                {seg.text}
+              </Text>
+            </React.Fragment>
+          )
+          : (
+            <React.Fragment key={i}>
+              <Text color={baseColor} backgroundColor={backgroundColor}>
+                {seg.text}
+              </Text>
+            </React.Fragment>
+          )
       )}
     </Text>
   );

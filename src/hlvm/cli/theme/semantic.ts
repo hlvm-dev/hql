@@ -82,6 +82,40 @@ export interface SemanticColors {
     active: string;
     dim: string;
   };
+  surface: {
+    modal: {
+      border: string;
+      borderActive: string;
+      background: string;
+      selectedBackground: string;
+      title: string;
+      meta: string;
+      section: string;
+      footer: string;
+      empty: string;
+    };
+    field: {
+      border: string;
+      borderActive: string;
+      background: string;
+      text: string;
+      placeholder: string;
+      cursor: string;
+    };
+    inline: {
+      border: string;
+      selectedBackground: string;
+      selectedForeground: string;
+      meta: string;
+    };
+  };
+  footer: {
+    status: {
+      ready: string;
+      active: string;
+      error: string;
+    };
+  };
   background: {
     diff: {
       added: string;
@@ -150,12 +184,13 @@ function pickReadableForeground(
  * Pure function — deterministic mapping from flat palette → structured tokens.
  */
 export function buildSemanticColors(palette: ThemePalette): SemanticColors {
+  const inlineSelectedForeground = pickReadableForeground(palette.muted, palette);
   const chrome = {
     separator: palette.muted,
     sectionLabel: palette.accent,
     chipNeutral: {
       background: palette.muted,
-      foreground: pickReadableForeground(palette.muted, palette),
+      foreground: inlineSelectedForeground,
     },
     chipActive: {
       background: palette.accent,
@@ -211,6 +246,40 @@ export function buildSemanticColors(palette: ThemePalette): SemanticColors {
       default: palette.muted,
       active: palette.primary,
       dim: palette.muted,
+    },
+    surface: {
+      modal: {
+        border: palette.primary,
+        borderActive: palette.accent,
+        background: palette.bg,
+        selectedBackground: palette.muted,
+        title: palette.primary,
+        meta: palette.muted,
+        section: palette.accent,
+        footer: palette.muted,
+        empty: palette.muted,
+      },
+      field: {
+        border: palette.muted,
+        borderActive: palette.accent,
+        background: palette.bg,
+        text: palette.text,
+        placeholder: palette.muted,
+        cursor: palette.text,
+      },
+      inline: {
+        border: palette.muted,
+        selectedBackground: palette.muted,
+        selectedForeground: inlineSelectedForeground,
+        meta: palette.muted,
+      },
+    },
+    footer: {
+      status: {
+        ready: palette.success,
+        active: palette.accent,
+        error: palette.error,
+      },
     },
     background: {
       diff: {

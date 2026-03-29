@@ -149,23 +149,23 @@ Deno.test("mergeConversationDraftsForInterrupt restores queued drafts before cur
   );
 });
 
-Deno.test("buildQueuePreviewLines renders codex-style header, previews, and hint", () => {
+Deno.test("buildQueuePreviewLines renders one queued-next surface with typed items", () => {
   const lines = buildQueuePreviewLines(
     [
-      createConversationComposerDraft("first queued"),
-      createConversationComposerDraft("second queued"),
-      createConversationComposerDraft("third queued"),
-      createConversationComposerDraft("fourth queued"),
+      enqueueConversationDraft([], createConversationComposerDraft("first queued"))[0],
+      enqueueConversationDraft([], createConversationComposerDraft("(+ 1 2)"))[0],
+      enqueueConversationDraft([], createConversationComposerDraft(".help"))[0],
+      enqueueConversationDraft([], createConversationComposerDraft("fourth queued"))[0],
     ],
     "Alt+\u2191",
   );
 
   assertEquals(lines.map((line) => line.text), [
-    "\u2022 Queued follow-up messages",
-    "\u21b3 first queued",
-    "\u21b3 second queued",
-    "\u21b3 third queued",
-    "+1 more queued message",
-    "Alt+\u2191 edit last queued message",
+    "\u2022 Queued next",
+    "\u21b3 chat first queued",
+    "\u21b3 eval (+ 1 2)",
+    "\u21b3 command .help",
+    "+1 more queued item",
+    "Alt+\u2191 edit last queued input",
   ]);
 });

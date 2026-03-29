@@ -10,8 +10,6 @@ import React from "react";
 import { Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 
-const TOOL_GLYPH = "\u2022"; // •
-
 interface ToolStatusIconProps {
   status: "pending" | "running" | "success" | "error";
   animate?: boolean;
@@ -23,12 +21,12 @@ export const ToolStatusIcon = React.memo(function ToolStatusIcon({
   const sc = useSemanticColors();
   switch (status) {
     case "pending":
-      return <Text color={sc.text.muted}>{TOOL_GLYPH}</Text>;
+      return <Text color={sc.text.muted}>○</Text>;
     case "running":
-      return <Text color={sc.tool.running}>{TOOL_GLYPH}</Text>;
+      return <Text color={sc.tool.running}>●</Text>;
     case "success":
-      return <Text color={sc.text.muted}>{TOOL_GLYPH}</Text>;
+      return <Text color={sc.tool.success}>✓</Text>;
     case "error":
-      return <Text color={sc.tool.error}>{TOOL_GLYPH}</Text>;
+      return <Text color={sc.tool.error}>✗</Text>;
   }
 });

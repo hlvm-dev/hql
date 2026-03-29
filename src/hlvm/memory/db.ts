@@ -94,6 +94,8 @@ export function getFactDb(): Database {
     _db.exec("PRAGMA busy_timeout = 5000");
     _db.exec(DDL);
     migrateFactDb(_db);
+    // Ensure WAL checkpoint and connection cleanup on process exit.
+    globalThis.addEventListener("unload", () => closeFactDb());
   }
   return _db;
 }

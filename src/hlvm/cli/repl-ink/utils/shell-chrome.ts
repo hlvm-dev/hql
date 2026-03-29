@@ -137,83 +137,43 @@ export function buildContextUsageMiniBar(
   return `[${formatProgressBar(pct, barWidth)}] ${pct}%`;
 }
 
-export function buildQueuePreviewHeaderLine(): ShellQueuePreviewLine {
-  return {
-    kind: "header",
-    text: "• Queued follow-up messages",
-    tone: "neutral",
-  };
-}
-
-export function buildQueuePreviewItemLine(
-  preview: string,
-): ShellQueuePreviewLine {
-  return {
-    kind: "item",
-    text: `↳ ${preview}`,
-    tone: "muted",
-  };
-}
-
-function buildQueuePreviewOverflowLine(): ShellQueuePreviewLine {
-  return {
-    kind: "overflow",
-    text: "+1 more queued message",
-    tone: "hint",
-  };
-}
-
-export function buildQueuePreviewOverflowCountLine(
-  hiddenCount: number,
-): ShellQueuePreviewLine {
-  if (hiddenCount <= 1) {
-    return buildQueuePreviewOverflowLine();
-  }
-  return {
-    kind: "overflow",
-    text: `+${hiddenCount} more queued messages`,
-    tone: "hint",
-  };
-}
-
 export function buildQueuePreviewHintLine(
   editBindingLabel: string,
 ): ShellQueuePreviewLine {
   return {
     kind: "hint",
-    text: `${editBindingLabel} edit last queued message`,
+    text: `${editBindingLabel} edit last queued input`,
     tone: "hint",
   };
 }
 
-export function buildLocalEvalPreviewHeaderLine(
-  count: number,
-): ShellQueuePreviewLine {
+export function buildMixedQueuePreviewHeaderLine(): ShellQueuePreviewLine {
   return {
     kind: "header",
-    text: count === 1 ? "• Queued local eval" : `• Queued ${count} local evals`,
+    text: "• Queued next",
     tone: "neutral",
   };
 }
 
-export function buildLocalEvalPreviewItemLine(
+export function buildMixedQueuePreviewItemLine(
+  kind: "chat" | "eval" | "command",
   preview: string,
 ): ShellQueuePreviewLine {
   return {
     kind: "item",
-    text: `↳ ${preview}`,
+    text: `↳ ${kind} ${preview}`,
     tone: "muted",
   };
 }
 
-export function buildLocalEvalPreviewOverflowLine(
+export function buildMixedQueuePreviewOverflowLine(
   hiddenCount: number,
 ): ShellQueuePreviewLine {
   return {
     kind: "overflow",
     text: hiddenCount === 1
-      ? "+1 more queued eval"
-      : `+${hiddenCount} more queued evals`,
+      ? "+1 more queued item"
+      : `+${hiddenCount} more queued items`,
     tone: "hint",
   };
 }

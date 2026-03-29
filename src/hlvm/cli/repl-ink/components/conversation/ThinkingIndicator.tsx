@@ -48,7 +48,7 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
       flexDirection="column"
     >
       <Box>
-        <Text color={sc.text.muted}>
+        <Text color={isAnimating ? sc.text.primary : sc.text.muted}>
           {isAnimating ? `${marker} ${title}...` : `\u00B7 ${title}`}
         </Text>
         {iteration > 1 && (

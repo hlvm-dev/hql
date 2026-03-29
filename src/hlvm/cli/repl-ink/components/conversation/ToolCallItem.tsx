@@ -14,6 +14,7 @@ import { ToolResult } from "./ToolResult.tsx";
 import type { ToolCallDisplay } from "../../types.ts";
 import { buildToolCallTextLayout } from "./layout.ts";
 import { getToolDurationTone } from "./conversation-chrome.ts";
+import { isProminentToolName } from "./turn-activity.ts";
 
 interface ToolCallItemProps {
   tool: ToolCallDisplay;
@@ -42,7 +43,11 @@ export const ToolCallItem = React.memo(function ToolCallItem(
     tool.durationMs,
   );
 
-  const nameColor = tool.status === "error" ? sc.status.error : sc.text.secondary;
+  const nameColor = tool.status === "error"
+    ? sc.status.error
+    : isProminentToolName(tool.name)
+    ? sc.text.primary
+    : sc.text.secondary;
   const argsColor = tool.status === "error"
     ? sc.status.error
     : sc.text.secondary;
@@ -55,13 +60,13 @@ export const ToolCallItem = React.memo(function ToolCallItem(
   const resultGutterColor = tool.status === "error"
     ? sc.status.error
     : sc.text.muted;
-  const shouldRenderResult = expanded || tool.status === "error";
+  const shouldRenderResult = tool.status !== "running";
 
   return (
     <Box flexDirection="column">
       <Box>
         <ToolStatusIcon status={tool.status} animate={animateStatusIcon} />
-        <Text> </Text>
+        <Text></Text>
         <Text color={nameColor}>{tool.name}</Text>
         {layout.argsText && (
           <Text color={argsColor}>
@@ -84,7 +89,7 @@ export const ToolCallItem = React.memo(function ToolCallItem(
             <ToolResult
               text={resolveToolResultText(tool, expanded)}
               width={Math.max(10, width - 5)}
-              maxLines={tool.status === "error" ? 12 : 8}
+              maxLines={tool.status === "error" ? 12 : expanded ? 8 : 1}
               expanded={expanded}
               tone={tool.status === "error" ? "error" : "default"}
             />

@@ -1,6 +1,7 @@
 export const SHELL_LAYOUT = Object.freeze({
   contentMinWidth: 20,
   gutterX: 1,
+  bannerTopGap: 1,
   bannerBottomGap: 1,
   transcriptToComposerGap: 1,
   composerToFooterGap: 0,
@@ -51,7 +52,9 @@ export function shouldRenderTranscriptDividerBeforeIndex(
   showLeadingDivider = false,
 ): boolean {
   const item = items[index];
-  if (!item || item.type !== "user") return false;
+  if (!item || (item.type !== "user" && item.type !== "hql_eval")) {
+    return false;
+  }
   return index > 0 || showLeadingDivider;
 }
 

@@ -16,6 +16,7 @@ import React, {
 } from "react";
 import { Box } from "ink";
 import type { ComposerLanguage } from "../../repl/composer-language.ts";
+import { isBalanced } from "../../repl/syntax.ts";
 import type { ReplState } from "../../repl/state.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
 import { Input } from "./Input.tsx";
@@ -25,6 +26,7 @@ import {
   type ConversationQueueEditBinding,
   createConversationComposerDraft,
   enqueueConversationDraft,
+  getQueuedDraftKind,
   getConversationQueueEditBinding,
   getConversationQueueEditBindingLabel,
   popLastQueuedConversationDraft,
@@ -32,11 +34,17 @@ import {
 import { useAttachments } from "../hooks/useAttachments.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
+import {
+  resolveSubmitAction,
+  type SubmitAction,
+} from "../utils/submit-routing.ts";
 
 export interface ComposerSurfaceUiState {
   hasDraftInput: boolean;
+  hasSubmitText: boolean;
   queuedDraftCount: number;
   queuePreviewRows: number;
+  submitAction: SubmitAction;
 }
 
 export interface ComposerSurfaceHandle {
@@ -149,6 +157,21 @@ export const ComposerSurface = forwardRef<
       ).length,
     [pendingConversationQueue, queueEditBindingLabel],
   );
+  const submitAction = useMemo<SubmitAction>(() => {
+    const trimmedInput = input.trim();
+    return resolveSubmitAction({
+      text: input,
+      isBalanced: trimmedInput.length === 0 || isBalanced(trimmedInput),
+      hasAttachments: attachmentState.attachments.length > 0,
+      composerLanguage,
+      routeHint: isConversationContext ? "conversation" : "mixed-shell",
+    });
+  }, [
+    attachmentState.attachments.length,
+    composerLanguage,
+    input,
+    isConversationContext,
+  ]);
 
   const restoreDraft = useCallback(
     (draft: ConversationComposerDraft | null) => {
@@ -188,7 +211,13 @@ export const ComposerSurface = forwardRef<
   }, []);
 
   const handleQueueDraft = useCallback((draft: ConversationComposerDraft) => {
-    recordPromptHistory(replState, draft.text, "conversation");
+    const queuedKind = getQueuedDraftKind(draft);
+    const historyKind = queuedKind === "eval"
+      ? "evaluate"
+      : queuedKind === "command"
+      ? "command"
+      : "conversation";
+    recordPromptHistory(replState, draft.text, historyKind);
     setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
       enqueueConversationDraft(prev, draft)
     );
@@ -221,13 +250,16 @@ export const ComposerSurface = forwardRef<
   const uiState = useMemo<ComposerSurfaceUiState>(() => ({
     hasDraftInput: input.trim().length > 0 ||
       attachmentState.attachments.length > 0,
+    hasSubmitText: input.trim().length > 0,
     queuedDraftCount: pendingConversationQueue.length,
     queuePreviewRows,
+    submitAction,
   }), [
     attachmentState.attachments.length,
     input,
     pendingConversationQueue.length,
     queuePreviewRows,
+    submitAction,
   ]);
 
   const lastUiStateRef = useRef<ComposerSurfaceUiState | null>(null);
@@ -237,8 +269,10 @@ export const ComposerSurface = forwardRef<
     if (
       lastState &&
       lastState.hasDraftInput === uiState.hasDraftInput &&
+      lastState.hasSubmitText === uiState.hasSubmitText &&
       lastState.queuedDraftCount === uiState.queuedDraftCount &&
-      lastState.queuePreviewRows === uiState.queuePreviewRows
+      lastState.queuePreviewRows === uiState.queuePreviewRows &&
+      lastState.submitAction === uiState.submitAction
     ) {
       return;
     }
@@ -248,7 +282,7 @@ export const ComposerSurface = forwardRef<
 
   return (
     <>
-      {isConversationContext && pendingConversationQueue.length > 0 && (
+      {pendingConversationQueue.length > 0 && (
         <QueuePreview
           items={pendingConversationQueue}
           editBindingLabel={queueEditBindingLabel}
@@ -267,13 +301,11 @@ export const ComposerSurface = forwardRef<
           onForceSubmit={onForceSubmit}
           onInterruptRunningTask={onInterruptRunningTask}
           onQueueDraft={queueEnabled ? handleQueueDraft : undefined}
-          onEditLastQueuedDraft={isConversationContext &&
-              pendingConversationQueue.length > 0
+          onEditLastQueuedDraft={pendingConversationQueue.length > 0
             ? handleEditLastQueuedDraft
             : undefined}
           queueEditBinding={queueEditBinding}
-          canEditQueuedDraft={isConversationContext &&
-            pendingConversationQueue.length > 0}
+          canEditQueuedDraft={pendingConversationQueue.length > 0}
           isConversationTaskRunning={isConversationTaskRunning}
           attachmentState={attachmentState}
           restoredCursorOffset={restoredComposerCursorOffset}

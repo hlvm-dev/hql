@@ -24,6 +24,7 @@ import {
   TurnStats,
   UserMessage,
 } from "./conversation/index.ts";
+import { TranscriptDivider } from "./conversation/TranscriptDivider.tsx";
 
 export type ToggleTarget =
   | { kind: "tool"; id: string }
@@ -175,6 +176,9 @@ export function TimelineItemRenderer(
         inputTokens={item.inputTokens}
         outputTokens={item.outputTokens}
         modelId={item.modelId}
+        status={item.status}
+        summary={item.summary}
+        activityTrail={item.activityTrail}
         width={width}
       />
     );
@@ -201,7 +205,12 @@ export function TimelineItemRenderer(
   }
   if ((item as HqlEvalItem).type === "hql_eval") {
     const evalItem = item as HqlEvalItem;
-    return <HqlEvalDisplay input={evalItem.input} result={evalItem.result} />;
+    return (
+      <Box flexDirection="column" width={width}>
+        {showDividerBefore && <TranscriptDivider width={width} />}
+        <HqlEvalDisplay input={evalItem.input} result={evalItem.result} />
+      </Box>
+    );
   }
   return <Box />;
 }

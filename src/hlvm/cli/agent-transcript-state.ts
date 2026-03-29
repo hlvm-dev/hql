@@ -19,8 +19,8 @@ import {
   type MemoryActivityItem,
   type StreamingState,
   StreamingState as ConversationStreamingState,
-  type TeamMemberActivityInfoItem,
   type StructuredTeamInfoItem,
+  type TeamMemberActivityInfoItem,
   type TeamMessageInfoItem,
   type TeamPlanReviewInfoItem,
   type TeamShutdownInfoItem,
@@ -28,11 +28,24 @@ import {
   type ThinkingItem,
   type ToolCallDisplay,
   type ToolGroupItem,
+  type TurnCompletionStatus,
+  type TurnStatsItem,
 } from "./repl-ink/types.ts";
+import {
+  getRecentTurnActivityTrail,
+  summarizeTurnCompletion,
+} from "./repl-ink/components/conversation/turn-activity.ts";
+
+interface PendingTurnStats {
+  toolCount: number;
+  durationMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  modelId?: string;
+}
 
 export interface TranscriptState {
   items: ConversationItem[];
-  evalHistory: HqlEvalItem[];
   streamingState: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   nextId: number;
@@ -43,6 +56,8 @@ export interface TranscriptState {
   planTodoState?: TodoState;
   pendingPlanReview?: { plan: Plan };
   currentTurnId?: string;
+  currentTurnStartedAt?: number;
+  pendingTurnStats?: PendingTurnStats;
   turnCounter: number;
 }
 
@@ -66,13 +81,12 @@ export type TranscriptInput =
   | { type: "hql_eval"; input: string; result: EvalResult }
   | { type: "reset_status" }
   | { type: "cancel_planning" }
-  | { type: "finalize" }
+  | { type: "finalize"; status: TurnCompletionStatus }
   | { type: "clear" };
 
 export function createTranscriptState(): TranscriptState {
   return {
     items: [],
-    evalHistory: [],
     streamingState: ConversationStreamingState.Idle,
     nextId: 0,
     completedPlanStepIds: [],
@@ -177,6 +191,64 @@ function cleanupTransientItems(items: ConversationItem[]): ConversationItem[] {
     }
     return [item];
   });
+}
+
+function getTurnItems(
+  items: readonly ConversationItem[],
+  turnId: string | undefined,
+): ConversationItem[] {
+  return turnId ? items.filter((item) => item.turnId === turnId) : [];
+}
+
+function countTurnTools(items: readonly ConversationItem[]): number {
+  let count = 0;
+  for (const item of items) {
+    if (item.type === "tool_group") {
+      count += item.tools.length;
+    }
+  }
+  return count;
+}
+
+function resolveFinalTurnDurationMs(state: TranscriptState): number {
+  if (typeof state.pendingTurnStats?.durationMs === "number") {
+    return state.pendingTurnStats.durationMs;
+  }
+  if (typeof state.currentTurnStartedAt === "number") {
+    return Math.max(0, Date.now() - state.currentTurnStartedAt);
+  }
+  return 0;
+}
+
+function appendCommittedTurnStats(
+  state: TranscriptState,
+  cleanedItems: ConversationItem[],
+  status: TurnCompletionStatus,
+): TranscriptState {
+  if (!state.currentTurnId) {
+    return { ...state, items: cleanedItems };
+  }
+
+  const turnItems = getTurnItems(cleanedItems, state.currentTurnId);
+  const [nextState, id] = nextItemId({ ...state, items: cleanedItems });
+  const statsItem: TurnStatsItem = {
+    type: "turn_stats",
+    id,
+    toolCount: state.pendingTurnStats?.toolCount ?? countTurnTools(turnItems),
+    durationMs: resolveFinalTurnDurationMs(state),
+    inputTokens: state.pendingTurnStats?.inputTokens,
+    outputTokens: state.pendingTurnStats?.outputTokens,
+    modelId: state.pendingTurnStats?.modelId,
+    status,
+    summary: summarizeTurnCompletion(turnItems),
+    activityTrail: getRecentTurnActivityTrail(turnItems, 2),
+    turnId: state.currentTurnId,
+  };
+
+  return {
+    ...nextState,
+    items: [...cleanedItems, statsItem],
+  };
 }
 
 function appendInfoItem(
@@ -941,41 +1013,15 @@ export function reduceTranscriptState(
             streamingState: ConversationStreamingState.Responding,
           };
         case "turn_stats": {
-          const cleaned = removeCurrentTurnTurnStats(
-            cleanupTransientItems(state.items),
-          );
-          // Clear stale planning state when the turn ends without an active plan
-          const hasPlanContext = Boolean(
-            state.activePlan || state.pendingPlanReview,
-          );
-          const turnId = state.currentTurnId;
-          const [nextState, id] = nextItemId({
-            ...state,
-            streamingState: ConversationStreamingState.Idle,
-            activeTool: undefined,
-            currentTurnId: undefined,
-            items: cleaned,
-            ...(hasPlanContext ? {} : {
-              planningPhase: undefined,
-              completedPlanStepIds: [],
-              planTodoState: undefined,
-            }),
-          });
           return {
-            ...nextState,
-            items: [
-              ...cleaned,
-              {
-                type: "turn_stats",
-                id,
-                toolCount: event.toolCount,
-                durationMs: event.durationMs,
-                inputTokens: event.inputTokens,
-                outputTokens: event.outputTokens,
-                modelId: event.modelId,
-                turnId,
-              },
-            ],
+            ...state,
+            pendingTurnStats: {
+              toolCount: event.toolCount,
+              durationMs: event.durationMs,
+              inputTokens: event.inputTokens,
+              outputTokens: event.outputTokens,
+              modelId: event.modelId,
+            },
           };
         }
         case "interaction_request":
@@ -1012,6 +1058,10 @@ export function reduceTranscriptState(
         pendingPlanReview: clearFinishedPlanState
           ? undefined
           : state.pendingPlanReview,
+        pendingTurnStats: startTurn ? undefined : state.pendingTurnStats,
+        currentTurnStartedAt: startTurn
+          ? Date.now()
+          : state.currentTurnStartedAt,
       };
 
       // Generate a new turnId when starting a new turn
@@ -1127,14 +1177,13 @@ export function reduceTranscriptState(
       };
       return {
         ...nextState,
-        evalHistory: [...nextState.evalHistory, evalItem],
+        items: [...nextState.items, evalItem],
       };
     }
     case "replace_items":
       return {
         ...state,
         items: input.items,
-        evalHistory: [],
         streamingState: ConversationStreamingState.Idle,
         activeTool: undefined,
         activePlan: undefined,
@@ -1143,6 +1192,8 @@ export function reduceTranscriptState(
         todoState: undefined,
         planTodoState: undefined,
         pendingPlanReview: undefined,
+        currentTurnStartedAt: undefined,
+        pendingTurnStats: undefined,
         nextId: input.items.length,
       };
     case "reset_status":
@@ -1164,14 +1215,27 @@ export function reduceTranscriptState(
         planTodoState: undefined,
         pendingPlanReview: undefined,
       };
-    case "finalize":
+    case "finalize": {
+      const cleanedItems = cleanupTransientItems(state.items);
+      const finalizedState = appendCommittedTurnStats(
+        state,
+        cleanedItems,
+        input.status,
+      );
+      const hasPlanContext = Boolean(
+        state.activePlan || state.pendingPlanReview,
+      );
+      const shouldResetActivePlan = Boolean(
+        state.planningPhase && state.planningPhase !== "done",
+      );
       return {
-        ...state,
+        ...finalizedState,
         streamingState: ConversationStreamingState.Idle,
         activeTool: undefined,
         currentTurnId: undefined,
-        items: cleanupTransientItems(state.items),
-        ...(state.planningPhase && state.planningPhase !== "done"
+        currentTurnStartedAt: undefined,
+        pendingTurnStats: undefined,
+        ...(shouldResetActivePlan
           ? {
             activePlan: undefined,
             planningPhase: undefined,
@@ -1180,8 +1244,15 @@ export function reduceTranscriptState(
             planTodoState: undefined,
             pendingPlanReview: undefined,
           }
-          : {}),
+          : hasPlanContext
+          ? {}
+          : {
+            planningPhase: undefined,
+            completedPlanStepIds: [],
+            planTodoState: undefined,
+          }),
       };
+    }
     case "clear":
       return createTranscriptState();
   }

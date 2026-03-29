@@ -10,19 +10,13 @@ import { useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { getDisplay, type Keybinding, registry } from "../keybindings/index.ts";
 import {
-  ansi,
-  drawOverlayFrame,
-  fg,
+  createModalOverlayScaffold,
   fitOverlayRect,
   resolveOverlayChromeLayout,
   SHORTCUTS_OVERLAY_SPEC,
   themeToOverlayColors,
   writeToTerminal,
 } from "../overlay/index.ts";
-import {
-  buildBalancedTextRow,
-  buildSectionLabelText,
-} from "../utils/display-chrome.ts";
 
 interface ShortcutsOverlayProps {
   onClose: () => void;
@@ -140,9 +134,9 @@ export function ShortcutsOverlay({
     const c = themeToOverlayColors(theme);
     return {
       primary: c.primary,
-      accent: c.accent,
-      muted: c.muted,
-      bgStyle: c.bgStyle,
+      accent: c.section,
+      muted: c.meta,
+      fieldText: c.fieldText,
     };
   }, [theme]);
 
@@ -182,58 +176,51 @@ export function ShortcutsOverlay({
       0,
     );
     const hasHiddenRows = renderedRowCount < totalRowCount;
-    const bgStyle = colors.bgStyle;
-    let output = ansi.cursorSave + ansi.cursorHide;
-
-    const drawRow = (y: number, render: () => number): void => {
-      output += ansi.cursorTo(overlay.x, y) + bgStyle;
-      const visibleLen = render();
-      const remaining = overlay.width - visibleLen;
-      if (remaining > 0) output += " ".repeat(remaining);
-    };
-
-    const drawEmptyRow = (y: number): void => drawRow(y, () => 0);
-
-    for (let i = 0; i < PADDING.top; i++) {
-      drawEmptyRow(overlay.y + i);
-    }
+    const surface = createModalOverlayScaffold({
+      frame: { ...overlay, clipped: false },
+      colors: themeToOverlayColors(theme),
+      title: "Shortcuts",
+      rightText: "esc",
+    });
+    surface.blankRows(overlay.y, overlay.height);
 
     const headerY = overlay.y + PADDING.top;
 
-    drawRow(headerY, () => {
-      const hint =
-        "Summary first by default. Expand only when you need detail.";
-      output += " ".repeat(PADDING.left);
-      output += fg(colors.muted) + hint.slice(0, contentWidth) + ansi.reset +
-        bgStyle;
-      return PADDING.left + Math.min(hint.length, contentWidth);
-    });
+    surface.textRow(
+      headerY,
+      "Summary first by default. Expand only when you need detail.".slice(
+        0,
+        contentWidth,
+      ),
+      {
+        paddingLeft: PADDING.left,
+        color: colors.muted,
+      },
+    );
 
-    drawEmptyRow(headerY + 1);
+    surface.blankRow(headerY + 1);
 
     let rowY = overlay.y + chromeLayout.contentStart;
     for (const section of visibleSections) {
-      drawRow(rowY, () => {
-        output += " ".repeat(PADDING.left);
-        const label = buildSectionLabelText(section.title, contentWidth);
-        output += fg(colors.accent) + label + ansi.reset + bgStyle;
-        return PADDING.left + label.length;
+      surface.sectionRow(rowY, section.title, contentWidth, {
+        paddingLeft: PADDING.left,
+        color: colors.accent,
       });
       rowY += 1;
 
       for (const row of section.rows) {
-        drawRow(rowY, () => {
-          const layout = buildBalancedTextRow(contentWidth, row.label, row.display, {
+        surface.balancedRow(
+          rowY,
+          row.label,
+          row.display,
+          contentWidth,
+          {
+            paddingLeft: PADDING.left,
+            leftColor: colors.fieldText,
+            rightColor: colors.primary,
             maxRightWidth: displayWidth,
-          });
-          output += " ".repeat(PADDING.left);
-          output += layout.leftText;
-          output += " ".repeat(layout.gapWidth);
-          output += fg(colors.primary) + layout.rightText + ansi.reset +
-            bgStyle;
-          return PADDING.left + layout.leftText.length + layout.gapWidth +
-            layout.rightText.length;
-        });
+          },
+        );
         rowY += 1;
       }
 
@@ -241,28 +228,27 @@ export function ShortcutsOverlay({
     }
 
     const footerY = overlay.y + chromeLayout.footerY;
-    drawRow(footerY, () => {
-      const footer = hasHiddenRows
+    surface.textRow(
+      footerY,
+      (hasHiddenRows
         ? "Reopen with /help. Widen terminal for the full list."
-        : "Reopen with /help. Ctrl+P opens command palette.";
-      output += " ".repeat(PADDING.left);
-      const visibleFooter = footer.slice(0, contentWidth);
-      output += fg(colors.muted) + visibleFooter + ansi.reset + bgStyle;
-      return PADDING.left + visibleFooter.length;
-    });
+        : "Reopen with /help. Ctrl+P opens command palette.").slice(
+          0,
+          contentWidth,
+        ),
+      {
+        paddingLeft: PADDING.left,
+        color: colors.muted,
+      },
+    );
 
-    for (let i = 0; i < PADDING.bottom; i++) {
-      drawEmptyRow(overlay.y + overlayHeight - PADDING.bottom + i);
-    }
+    surface.blankRows(
+      overlay.y + overlayHeight - PADDING.bottom,
+      PADDING.bottom,
+    );
 
-    output += drawOverlayFrame(overlay, {
-      borderColor: colors.primary,
-      title: "Shortcuts",
-      rightText: "esc",
-    });
-    output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
-    writeToTerminal(output);
-  }, [colors, sections, terminalColumns, terminalRows]);
+    writeToTerminal(surface.finish());
+  }, [colors, sections, terminalColumns, terminalRows, theme]);
 
   useEffect(() => {
     drawOverlay();

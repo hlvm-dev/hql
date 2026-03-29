@@ -164,5 +164,5 @@ export function getConnectedFacts(entityName: string, limit = 10): number[] {
      LIMIT ?`,
   ).all(cleaned, limit) as Array<{ fact_id: number }>;
 
-  return rows.map((row) => row.fact_id).filter(Boolean);
+  return rows.map((row) => row.fact_id);
 }

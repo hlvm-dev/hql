@@ -33,6 +33,7 @@ export interface LocalAgentEntry {
   statusLabel: string;
   detail?: string;
   interruptible: boolean;
+  foregroundable?: boolean;
   overlayTarget: "team-dashboard" | "background-tasks";
   overlayItemId: string;
 }
@@ -360,7 +361,10 @@ export function buildLocalAgentEntries(
         status: derived.status,
         statusLabel: derived.statusLabel,
         detail: derived.detail,
-        interruptible: derived.status === "running" &&
+        interruptible: (derived.status === "running" ||
+            derived.status === "waiting") &&
+          Boolean(member.threadId),
+        foregroundable: member.status !== "terminated" &&
           Boolean(member.threadId),
         overlayTarget: "team-dashboard" as const,
         overlayItemId: `member-${member.id}`,
@@ -383,6 +387,7 @@ export function buildLocalAgentEntries(
         statusLabel,
         detail: summarizeDelegateDetail(task),
         interruptible: status === "running",
+        foregroundable: false,
         overlayTarget: "background-tasks" as const,
         overlayItemId: `bg:${task.id}`,
       };

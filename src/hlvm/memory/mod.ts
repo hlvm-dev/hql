@@ -14,8 +14,6 @@ export {
 } from "./manager.ts";
 export { isPersistentMemoryEnabled } from "./policy.ts";
 export {
-  extractConversationFacts,
-  extractExplicitMemoryRequests,
   persistConversationFacts,
   persistExplicitMemoryRequest,
 } from "./extract.ts";

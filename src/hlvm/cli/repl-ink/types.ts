@@ -100,6 +100,8 @@ export interface ToolGroupItem {
   turnId?: string;
 }
 
+export type TurnCompletionStatus = "completed" | "cancelled" | "failed";
+
 /** Turn completion statistics */
 export interface TurnStatsItem {
   type: "turn_stats";
@@ -109,6 +111,9 @@ export interface TurnStatsItem {
   inputTokens?: number;
   outputTokens?: number;
   modelId?: string;
+  status: TurnCompletionStatus;
+  summary?: string;
+  activityTrail?: string[];
   turnId?: string;
 }
 
@@ -259,13 +264,6 @@ export type ConversationItem =
 export type AgentConversationItem = Exclude<ConversationItem, HqlEvalItem>;
 
 export type ShellHistoryEntry = AgentConversationItem | HqlEvalItem;
-
-export interface QueuedLocalEval {
-  id: string;
-  input: string;
-  attachmentCount: number;
-  queuedAt: number;
-}
 
 export type DialogState =
   | { mode: "none" }

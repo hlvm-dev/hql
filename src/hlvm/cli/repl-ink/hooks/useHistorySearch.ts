@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback, useMemo } from "react";
-import { fuzzyMatch } from "../../repl/fuzzy.ts";
+import { compareScoredFuzzyMatches, fuzzyMatch } from "../../repl/fuzzy.ts";
 import type { HistoryEntry } from "../../repl/history-storage.ts";
 
 // ============================================================
@@ -103,7 +103,7 @@ export function useHistorySearch(
       if (seen.has(text)) continue;
       seen.add(text);
 
-      const result = fuzzyMatch(query, text);
+      const result = fuzzyMatch(query, text, "history");
 
       if (result) {
         results.push({
@@ -120,7 +120,16 @@ export function useHistorySearch(
     }
 
     // Sort by score (descending)
-    results.sort((a, b) => b.score - a.score);
+    results.sort((a, b) =>
+      compareScoredFuzzyMatches(
+        a.text,
+        a.score,
+        a.matchIndices,
+        b.text,
+        b.score,
+        b.matchIndices,
+      )
+    );
 
     return results;
   }, [history, query, isSearching]);

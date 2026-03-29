@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import type { ChromeChipTone } from "../ChromeChip.tsx";
+import { PickerRow } from "../PickerRow.tsx";
 import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
+import { getPickerColors } from "../../utils/picker-theme.ts";
 
 export interface InteractionPickerOption {
   label: string;
@@ -66,22 +68,7 @@ export const InteractionPicker = React.memo(function InteractionPicker(
   }: InteractionPickerProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
-  const borderColor = tone === "warning"
-    ? sc.status.warning
-    : tone === "success"
-    ? sc.status.success
-    : tone === "error"
-    ? sc.status.error
-    : tone === "active"
-    ? sc.border.active
-    : sc.border.default;
-  const titleColor = tone === "warning"
-    ? sc.status.warning
-    : tone === "success"
-    ? sc.status.success
-    : tone === "error"
-    ? sc.status.error
-    : sc.text.primary;
+  const pickerColors = getPickerColors(sc, tone);
   const optionsSignature = useMemo(
     () =>
       options.map((option) =>
@@ -174,7 +161,7 @@ export const InteractionPicker = React.memo(function InteractionPicker(
   return (
     <Box flexDirection="column" marginBottom={0}>
       <Box>
-        <Text color={titleColor} bold>{title}</Text>
+        <Text color={pickerColors.titleColor} bold>{title}</Text>
       </Box>
       {subtitle && (
         <Box marginTop={1}>
@@ -191,62 +178,35 @@ export const InteractionPicker = React.memo(function InteractionPicker(
       <Box marginTop={1} flexDirection="column">
         {options.map((option, index) => {
           const isSelected = index === selectedIndex;
-          const optionBackground = isSelected ? borderColor : undefined;
-          const optionForeground = isSelected
-            ? sc.chrome.chipActive.foreground
-            : sc.text.primary;
+          const optionBackground = isSelected
+            ? pickerColors.selectedBackground
+            : undefined;
+          const markerText = `${isSelected ? ">" : " "} ${index + 1}.`;
           return (
             <Box
               key={`${option.value}-${index}`}
               flexDirection="column"
             >
               <Box>
-                <Text
-                  backgroundColor={optionBackground}
-                  color={isSelected
-                    ? sc.chrome.chipActive.foreground
-                    : sc.text.muted}
-                  bold
-                >
-                  {" "}
-                  {isSelected ? ">" : " "}
-                  {" "}
-                  {index + 1}.
-                  {" "}
-                </Text>
-                <Text
-                  backgroundColor={optionBackground}
-                  color={optionForeground}
-                  bold
-                >
-                  {option.label}
-                  {" "}
-                </Text>
-                {option.recommended && (
-                  <>
-                    <Text
-                      backgroundColor={optionBackground}
-                      color={isSelected
-                        ? sc.chrome.chipActive.foreground
-                        : sc.status.success}
-                    >
-                      (Recommended)
-                    </Text>
-                    <Text
-                      backgroundColor={optionBackground}
-                      color={optionForeground}
-                    >
-                      {" "}
-                    </Text>
-                  </>
-                )}
+                <PickerRow
+                  label={option.label}
+                  pickerColors={pickerColors}
+                  isSelected={isSelected}
+                  markerText={markerText}
+                  markerWidth={markerText.length}
+                  suffixText={option.recommended ? " (Recommended)" : undefined}
+                  suffixColor={isSelected
+                    ? pickerColors.selectedMeta
+                    : sc.status.success}
+                  labelBold
+                />
               </Box>
               {option.detail && (
                 <Box
                   paddingLeft={TRANSCRIPT_LAYOUT.pickerDetailIndent}
                   marginBottom={index < options.length - 1 ? 1 : 0}
                 >
-                  <Text color={sc.text.secondary} wrap="wrap">
+                  <Text color={pickerColors.previewColor} wrap="wrap">
                     {option.detail}
                   </Text>
                 </Box>
@@ -257,8 +217,12 @@ export const InteractionPicker = React.memo(function InteractionPicker(
       </Box>
       {allowNotes && (notesMode || notes.length > 0) && (
         <Box marginTop={1} marginBottom={1} flexDirection="column">
-          <Text color={sc.text.secondary}>Notes</Text>
-          <Text color={notesMode ? sc.text.primary : sc.text.muted}>
+          <Text color={pickerColors.previewColor}>Notes</Text>
+          <Text
+            color={notesMode
+              ? pickerColors.rowForeground
+              : pickerColors.emptyColor}
+          >
             {notes.length > 0
               ? notes
               : notesMode
@@ -268,7 +232,7 @@ export const InteractionPicker = React.memo(function InteractionPicker(
         </Box>
       )}
       <Box marginTop={1}>
-        <Text color={sc.text.muted}>
+        <Text color={pickerColors.hintColor}>
           {displayedHint}
         </Text>
       </Box>

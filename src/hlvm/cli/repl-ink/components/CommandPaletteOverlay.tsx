@@ -31,8 +31,7 @@ import {
   ansi,
   clearOverlay,
   COMMAND_PALETTE_OVERLAY_SPEC,
-  drawOverlayFrame,
-  fg,
+  createModalOverlayScaffold,
   resolveOverlayChromeLayout,
   resolveOverlayFrame,
   shouldClearOverlay,
@@ -42,7 +41,7 @@ import {
 import { useTheme } from "../../theme/index.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import { CURSOR_BLINK_MS } from "../ui-constants.ts";
-import { buildCursorWindowDisplay } from "../utils/cursor-window.ts";
+import { buildFieldDisplayState } from "../utils/field-display.ts";
 import {
   buildPaletteCategoryLabel,
   buildPaletteHeaderLayout,
@@ -222,9 +221,11 @@ export function CommandPaletteOverlay({
     const c = themeToOverlayColors(theme);
     return {
       highlight: c.warning,
-      category: c.accent,
+      category: c.section,
       primary: c.primary,
-      muted: c.muted,
+      muted: c.meta,
+      fieldText: c.fieldText,
+      placeholder: c.fieldPlaceholder,
       bgStyle: c.bgStyle,
       selectedBgStyle: c.selectedBgStyle,
     };
@@ -287,7 +288,12 @@ export function CommandPaletteOverlay({
     if (frame.width <= 0 || frame.height <= 0) return;
 
     const searchY = frame.y + PADDING.top + 1;
-    const display = buildCursorWindowDisplay(query, cursorPos, contentWidth);
+    const display = buildFieldDisplayState(
+      rebindMode ? "Press new key combo..." : query,
+      rebindMode ? 0 : cursorPos,
+      contentWidth,
+      "Search",
+    );
     const cursorX = frame.x + PADDING.left + display.beforeCursor.length;
 
     const cursorStyle = cursorVisible
@@ -300,7 +306,7 @@ export function CommandPaletteOverlay({
       ansi.cursorRestore + ansi.cursorShow;
 
     writeToTerminal(output);
-  }, [query, cursorPos, cursorVisible, colors.bgStyle, contentWidth]);
+  }, [query, cursorPos, cursorVisible, colors.bgStyle, contentWidth, rebindMode]);
 
   // Draw full palette
   const drawPalette = useCallback(() => {
@@ -310,27 +316,13 @@ export function CommandPaletteOverlay({
     }
     previousFrameRef.current = overlayFrame;
 
-    const bgStyle = colors.bgStyle;
-    let output = ansi.cursorSave + ansi.cursorHide;
-
-    const drawRow = (y: number, renderContent: () => number) => {
-      output += ansi.cursorTo(overlayFrame.x, y) + bgStyle;
-      const visibleLen = renderContent();
-      const remaining = overlayFrame.width - visibleLen;
-      if (remaining > 0) {
-        output += " ".repeat(remaining);
-      }
-    };
-
-    // Helper: draw empty row
-    const drawEmptyRow = (y: number) => {
-      drawRow(y, () => 0);
-    };
-
-    // === Top padding ===
-    for (let i = 0; i < PADDING.top; i++) {
-      drawEmptyRow(overlayFrame.y + i);
-    }
+    const surface = createModalOverlayScaffold({
+      frame: overlayFrame,
+      colors: themeToOverlayColors(theme),
+      title: "Commands",
+      rightText: "esc",
+    });
+    surface.blankRows(overlayFrame.y, overlayFrame.height);
 
     const headerY = overlayFrame.y + PADDING.top;
     const headerLayout = buildPaletteHeaderLayout({
@@ -339,52 +331,47 @@ export function CommandPaletteOverlay({
       selectedCount: selectedIndex >= 0 ? selectedIndex + 1 : 0,
       rebindMode,
     }, contentWidth);
-    drawRow(headerY, () => {
-      output += " ".repeat(PADDING.left);
-      output += fg(colors.muted) + headerLayout.leftText + ansi.reset + bgStyle;
-      output += " ".repeat(headerLayout.gapWidth);
-      output += fg(colors.category) + headerLayout.rightText + ansi.reset +
-        bgStyle;
-      return PADDING.left + headerLayout.leftText.length +
-        headerLayout.gapWidth + headerLayout.rightText.length;
-    });
+    surface.balancedRow(
+      headerY,
+      headerLayout.leftText,
+      headerLayout.rightText,
+      contentWidth,
+      {
+        paddingLeft: PADDING.left,
+        leftColor: colors.muted,
+        rightColor: colors.category,
+      },
+    );
 
     // === Search input row ===
     const searchY = headerY + 1;
-    output += ansi.cursorTo(overlayFrame.x, searchY) + bgStyle;
-    output += " ".repeat(PADDING.left);
-
-    if (rebindMode) {
-      // Rebind mode: show "Press new key..." with blinking cursor
-      const rebindText = "Press new key combo...";
-      output += fg(colors.highlight);
-      output += cursorVisible
-        ? ansi.inverse + rebindText[0] + ansi.reset + bgStyle +
-          fg(colors.highlight) + rebindText.slice(1)
-        : rebindText;
-      output += ansi.reset + bgStyle;
-      output += " ".repeat(contentWidth - rebindText.length);
-    } else if (query) {
-      const display = buildCursorWindowDisplay(query, cursorPos, contentWidth);
-      output += display.beforeCursor;
-      output += cursorVisible
-        ? ansi.inverse + display.cursorChar + ansi.reset + bgStyle
-        : display.cursorChar;
-      output += display.afterCursor;
-      output += " ".repeat(Math.max(0, contentWidth - display.renderWidth));
-    } else {
-      // Placeholder with cursor
-      output += fg(colors.muted);
-      output += cursorVisible
-        ? ansi.inverse + "S" + ansi.reset + bgStyle + fg(colors.muted) + "earch"
-        : "Search";
-      output += ansi.reset + bgStyle;
-      output += " ".repeat(Math.max(0, contentWidth - 6));
-    }
-    output += " ".repeat(PADDING.right);
+    surface.row(searchY, (ctx) => {
+      const display = buildFieldDisplayState(
+        rebindMode ? "Press new key combo..." : query,
+        rebindMode ? 0 : cursorPos,
+        contentWidth,
+        "Search",
+      );
+      ctx.pad(PADDING.left);
+      if (rebindMode) {
+        ctx.write(display.beforeCursor, { color: colors.highlight });
+        ctx.write(display.cursorChar, { inverse: cursorVisible });
+        ctx.write(display.afterCursor, { color: colors.highlight });
+        ctx.pad(Math.max(0, contentWidth - display.renderWidth));
+      } else if (display.isPlaceholder) {
+        ctx.write(display.cursorChar, { inverse: cursorVisible });
+        ctx.write(display.placeholderText, { color: colors.placeholder });
+      } else {
+        ctx.write(display.beforeCursor, { color: colors.fieldText });
+        ctx.write(display.cursorChar, { inverse: cursorVisible });
+        ctx.write(display.afterCursor, { color: colors.fieldText });
+        ctx.pad(Math.max(0, contentWidth - display.renderWidth));
+      }
+      ctx.pad(PADDING.right);
+    });
 
     // === Empty row after search ===
-    drawEmptyRow(searchY + 1);
+    surface.blankRow(searchY + 1);
 
     // === Content rows ===
     const visibleList = flatList.slice(
@@ -396,75 +383,55 @@ export function CommandPaletteOverlay({
     for (let row = 0; row < visibleRows; row++) {
       const rowY = overlayFrame.y + chromeLayout.contentStart + row;
       const item = visibleList[row];
-
-      output += ansi.cursorTo(overlayFrame.x, rowY) + bgStyle;
-
-      if (!item) {
-        // Empty row
-        output += " ".repeat(overlayFrame.width);
-      } else if (item.type === "spacer") {
-        // Spacer row
-        output += " ".repeat(overlayFrame.width);
-      } else if (item.type === "category") {
-        // Category header
-        output += " ".repeat(PADDING.left);
-        output += fg(colors.category) + ansi.bold;
-        const catText = buildPaletteCategoryLabel(item.category, contentWidth);
-        output += catText;
-        output += ansi.reset + bgStyle;
-        output += " ".repeat(
-          Math.max(0, overlayFrame.width - PADDING.left - catText.length),
-        );
-      } else {
-        // Item row
-        const { match } = item;
-        const isSelected = item === selectedItem;
-        const kb = match.keybinding;
-        const display = getDisplay(kb);
-        const isInfoOnly = kb.action.type === "INFO";
-
-        if (isSelected) {
-          output += colors.selectedBgStyle;
-        }
-
-        output += " ".repeat(PADDING.left - 2);
-        // Show different indicator: ▸ for executable, ⌨ for info-only (keyboard shortcut reference)
-        if (isSelected) {
-          output += isInfoOnly ? "⌨ " : "▸ ";
-        } else {
-          output += isInfoOnly ? "⌨ " : "  ";
-        }
-
-        const itemLayout = buildPaletteItemLayout(
-          kb.label,
-          display,
-          Math.max(0, contentWidth - 2),
-        );
-        // Dim INFO items slightly when not selected
-        if (isInfoOnly && !isSelected) {
-          output += fg(colors.muted);
-        }
-        output += itemLayout.leftText;
-        if (isInfoOnly && !isSelected) {
-          output += ansi.reset + bgStyle;
-        }
-
-        output += " ".repeat(itemLayout.gapWidth);
-
-        if (!isSelected) {
-          output += fg(colors.muted);
-        }
-        output += itemLayout.rightText;
-        output += ansi.reset + bgStyle;
-        output += " ".repeat(PADDING.right);
+      if (!item || item.type === "spacer") {
+        surface.blankRow(rowY);
+        continue;
       }
+      if (item.type === "category") {
+        surface.row(rowY, (ctx) => {
+          ctx.pad(PADDING.left);
+          ctx.write(
+            buildPaletteCategoryLabel(item.category, contentWidth),
+            { color: colors.category, bold: true },
+          );
+        });
+        continue;
+      }
+
+      const { match } = item;
+      const isSelected = item === selectedItem;
+      const kb = match.keybinding;
+      const display = getDisplay(kb);
+      const isInfoOnly = kb.action.type === "INFO";
+      const itemLayout = buildPaletteItemLayout(
+        kb.label,
+        display,
+        Math.max(0, contentWidth - 2),
+      );
+      surface.row(rowY, (ctx) => {
+        ctx.pad(PADDING.left - 2);
+        ctx.write(
+          isInfoOnly ? "⌨ " : isSelected ? "▸ " : "  ",
+          { color: isSelected ? colors.primary : colors.muted },
+        );
+        ctx.write(itemLayout.leftText, {
+          color: isSelected ? colors.fieldText : isInfoOnly ? colors.muted : undefined,
+          dim: isInfoOnly && !isSelected,
+        });
+        ctx.pad(itemLayout.gapWidth);
+        ctx.write(itemLayout.rightText, {
+          color: isSelected ? colors.fieldText : colors.muted,
+        });
+        ctx.pad(PADDING.right);
+      }, { selected: isSelected });
     }
 
     // === Bottom padding ===
     const footerY = overlayFrame.y + chromeLayout.footerY;
-    for (let y = footerY + 1; y < overlayFrame.y + overlayFrame.height; y++) {
-      drawEmptyRow(y);
-    }
+    surface.blankRows(
+      footerY + 1,
+      overlayFrame.y + overlayFrame.height - (footerY + 1),
+    );
 
     // === Footer row ===
     // Show different hints based on mode
@@ -477,23 +444,14 @@ export function CommandPaletteOverlay({
       ? `${selectedIndex + 1}/${selectableItems.length}`
       : "";
 
-    output += ansi.cursorTo(overlayFrame.x, footerY) + bgStyle;
-    output += " ".repeat(PADDING.left);
-    output += fg(colors.muted) + hintText;
-    const middlePad = overlayFrame.width - PADDING.left - hintText.length -
-      posText.length - PADDING.right;
-    output += " ".repeat(Math.max(1, middlePad));
-    output += posText + ansi.reset + bgStyle;
-    output += " ".repeat(PADDING.right);
-
-    output += drawOverlayFrame(overlayFrame, {
-      borderColor: colors.primary,
-      title: "Commands",
-      rightText: "esc",
+    surface.balancedRow(footerY, hintText, posText, contentWidth, {
+      paddingLeft: PADDING.left,
+      paddingRight: PADDING.right,
+      leftColor: colors.muted,
+      rightColor: colors.muted,
     });
-    output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
 
-    writeToTerminal(output);
+    writeToTerminal(surface.finish());
   }, [
     query,
     cursorPos,
@@ -510,6 +468,7 @@ export function CommandPaletteOverlay({
     chromeLayout.footerY,
     overlayFrame,
     visibleRows,
+    theme,
   ]);
 
   // Cursor blink effect

@@ -60,6 +60,26 @@ interface CitationRenderView {
   sources: CitationSourceView[];
 }
 
+export function buildCompactSourceLines(
+  sources: CitationSourceView[],
+  sourceOverflow: number,
+  sourcesLabel: string,
+  maxVisibleSources = 3,
+): string[] {
+  if (sources.length === 0) return [];
+  const visibleSources = sources.slice(0, maxVisibleSources).map((source) =>
+    `[${source.index}] ${source.title}`
+  );
+  const lines = [`${sourcesLabel} ${visibleSources.join(" · ")}`];
+  const secondaryParts: string[] = [];
+  if (sourceOverflow > 0) {
+    secondaryParts.push(`+${sourceOverflow} more sources`);
+  }
+  secondaryParts.push(OPEN_LATEST_SOURCE_HINT);
+  lines.push(secondaryParts.join(" · "));
+  return lines;
+}
+
 function resolveSourcesLabel(citations: AssistantCitation[]): string {
   return citations.some((citation) =>
       citation?.provenance && citation.provenance !== "inferred"
@@ -171,19 +191,31 @@ export const AssistantMessage = React.memo(function AssistantMessage(
     sources: CitationSourceView[];
     sourceOverflow: number;
     sourcesLabel: string;
+    compactSourceLines: string[];
   }>(() => {
     const sanitizedText = sanitizeRef.current(text);
     const displayText = sanitizedText.length > MAX_DISPLAY_CHARS
       ? "..." + sanitizedText.slice(-MAX_DISPLAY_CHARS)
       : sanitizedText;
     const citationView = buildCitationRenderView(displayText, citations ?? []);
-    const sources = citationView.sources.slice(0, 6);
+    const sources = citationView.sources.slice(0, 3);
     const sourceOverflow = Math.max(
       0,
       citationView.sources.length - sources.length,
     );
     const sourcesLabel = resolveSourcesLabel(citations ?? []);
-    return { citationView, sources, sourceOverflow, sourcesLabel };
+    const compactSourceLines = buildCompactSourceLines(
+      sources,
+      sourceOverflow,
+      sourcesLabel,
+    );
+    return {
+      citationView,
+      sources,
+      sourceOverflow,
+      sourcesLabel,
+      compactSourceLines,
+    };
   }, [text, citations]);
 
   if (isPending && !text) {
@@ -215,38 +247,19 @@ export const AssistantMessage = React.memo(function AssistantMessage(
         />
         {!isPending && citationMemo.sources.length > 0 && (
           <Box flexDirection="column" marginTop={1}>
-            <Text color={sc.text.secondary}>{citationMemo.sourcesLabel}</Text>
-            {citationMemo.sources.map((source: CitationSourceView) => {
-              const indexLabel = `[${source.index}]`;
-              const titleText = ` ${source.title}`;
-              return (
-                <Box
-                  key={`${source.index}:${source.url}`}
-                  flexDirection="column"
-                  marginTop={0}
+            {citationMemo.compactSourceLines.map((
+              line: string,
+              index: number,
+            ) => (
+              <Box key={`${index}:${line}`}>
+                <Text
+                  color={index === 0 ? sc.text.secondary : sc.text.muted}
+                  wrap="wrap"
                 >
-                  <Box>
-                    <Text color={sc.border.active} bold>{indexLabel}</Text>
-                    <Text color={sc.text.secondary}>
-                      {truncate(
-                        titleText,
-                        contentWidth - indexLabel.length,
-                        "…",
-                      )}
-                    </Text>
-                  </Box>
-                  <Text color={sc.text.muted}>
-                    {truncate(source.url, contentWidth, "…")}
-                  </Text>
-                </Box>
-              );
-            })}
-            {citationMemo.sourceOverflow > 0 && (
-              <Text color={sc.text.muted}>
-                +{citationMemo.sourceOverflow} more sources
-              </Text>
-            )}
-            <Text color={sc.text.muted}>{OPEN_LATEST_SOURCE_HINT}</Text>
+                  {truncate(line, contentWidth, "…")}
+                </Text>
+              </Box>
+            ))}
           </Box>
         )}
       </Box>

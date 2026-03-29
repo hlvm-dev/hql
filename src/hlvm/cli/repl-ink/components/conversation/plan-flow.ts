@@ -11,6 +11,10 @@ import type {
   ThinkingItem,
   ToolCallDisplay,
 } from "../../types.ts";
+import {
+  normalizeActivityText,
+  summarizeActivityArgs,
+} from "./activity-labels.ts";
 
 const SHELL_COMMAND_LABELS: ReadonlyArray<[RegExp, string]> = [
   [/^mkdir\b/i, "Creating directories"],
@@ -42,6 +46,15 @@ export interface PlanSurfaceState<T extends ConversationItem> {
   currentActivity?: string;
   recentActivities: string[];
   visibleItems: T[];
+}
+
+export interface PlanFlowActivityOptions {
+  includeThinking?: boolean;
+  includeAssistant?: boolean;
+  includeInfo?: boolean;
+  includeErrors?: boolean;
+  includeMemory?: boolean;
+  includeDelegates?: boolean;
 }
 
 export function summarizePlanTodoState(
@@ -146,19 +159,28 @@ function summarizeThinkingActivity(item: ThinkingItem): string {
 }
 
 function summarizeToolActivity(tool: ToolCallDisplay): string {
-  const args = truncate(tool.argsSummary.replace(/\s+/g, " ").trim(), 72, "…");
+  const args = summarizeActivityArgs(tool.name, tool.argsSummary);
   const shellCommand = tool.name === "shell_exec"
-    ? tool.argsSummary.replace(/\s+/g, " ").trim()
+    ? normalizeActivityText(tool.argsSummary)
     : "";
   switch (tool.name) {
+    case "search_web":
+      return args ? `Researching ${args}` : "Researching the request";
+    case "web_fetch":
+    case "fetch_url":
+      return args ? `Fetching ${args}` : "Fetching the target";
     case "read_file":
       return args ? `Reading ${args}` : "Reading the target file";
     case "search_code":
       return args ? `Searching ${args}` : "Searching the codebase";
     case "list_files":
       return args ? `Listing ${args}` : "Inspecting the target directory";
+    case "write_file":
+      return args ? `Writing ${args}` : "Writing the target file";
     case "edit_file":
       return args ? `Editing ${args}` : "Editing the target file";
+    case "open_path":
+      return args ? `Opening ${args}` : "Opening the result";
     case "shell_exec": {
       const shellMatch = SHELL_COMMAND_LABELS.find(([re]) =>
         re.test(shellCommand)
@@ -210,12 +232,12 @@ function summarizeDelegateActivity(item: DelegateItem): string {
 }
 
 function summarizeInfoActivity(item: InfoItem): string | undefined {
-  const text = item.text.trim();
+  const text = normalizeActivityText(item.text);
   return text.length > 0 ? truncate(text, 84, "…") : undefined;
 }
 
 function summarizeErrorActivity(item: ErrorItem): string | undefined {
-  const text = item.text.trim();
+  const text = normalizeActivityText(item.text);
   return text.length > 0 ? truncate(text, 84, "…") : undefined;
 }
 
@@ -235,19 +257,26 @@ function summarizeAssistantActivity(text: string): string | undefined {
 
 function summarizeConversationItemActivity(
   item: ConversationItem,
+  options: PlanFlowActivityOptions = {},
 ): string | undefined {
   switch (item.type) {
     case "thinking":
+      if (options.includeThinking === false) return undefined;
       return summarizeThinkingActivity(item);
     case "delegate":
+      if (options.includeDelegates === false) return undefined;
       return summarizeDelegateActivity(item);
     case "error":
+      if (options.includeErrors === false) return undefined;
       return summarizeErrorActivity(item);
     case "info":
+      if (options.includeInfo === false) return undefined;
       return summarizeInfoActivity(item);
     case "memory_activity":
+      if (options.includeMemory === false) return undefined;
       return summarizeMemoryActivity(item);
     case "assistant":
+      if (options.includeAssistant === false) return undefined;
       return summarizeAssistantActivity(item.text);
     default:
       return undefined;
@@ -315,6 +344,7 @@ export function getPlanFlowActivities(
   items: readonly ConversationItem[],
   mode: "latest" | "recent",
   limit = 3,
+  options: PlanFlowActivityOptions = {},
 ): string[] {
   const results: string[] = [];
   const seen = new Set<string>();
@@ -351,7 +381,7 @@ export function getPlanFlowActivities(
       continue;
     }
 
-    const summary = summarizeConversationItemActivity(item)?.trim();
+    const summary = summarizeConversationItemActivity(item, options)?.trim();
     if (!summary) {
       continue;
     }

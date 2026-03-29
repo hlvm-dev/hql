@@ -5,7 +5,7 @@
  * This is the primary hook for components to use.
  */
 
-import { useCallback, useRef, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type {
   ApplyContext,
   ApplyResult,
@@ -16,7 +16,7 @@ import type {
 } from "./types.ts";
 import { useDropdownState } from "./useDropdownState.ts";
 import { buildContext } from "./providers.ts";
-import { getActiveProvider, ALL_PROVIDERS } from "./concrete-providers.ts";
+import { ALL_PROVIDERS, getActiveProvider } from "./concrete-providers.ts";
 import { isNavigationKey, shouldCloseOnInput } from "./navigation.ts";
 
 // ============================================================
@@ -50,6 +50,7 @@ export interface DropdownRenderProps {
   readonly isLoading: boolean;
   readonly helpText: string;
   readonly providerId: ProviderId;
+  readonly anchorPosition: number;
   /** Whether to show DocPanel (toggled with Ctrl+D shortcut) */
   readonly showDocPanel: boolean;
 }
@@ -60,17 +61,29 @@ export interface DropdownRenderProps {
 
 export interface UseCompletionReturn {
   /** Trigger completion at current position */
-  readonly triggerCompletion: (text: string, cursorPosition: number, force?: boolean) => void;
+  readonly triggerCompletion: (
+    text: string,
+    cursorPosition: number,
+    force?: boolean,
+  ) => void;
 
   /**
    * HYBRID: Trigger completion AND apply first item immediately.
    * Opens dropdown with all items, returns the first item applied to input.
    * Returns null if no completions available.
    */
-  readonly triggerAndApply: (text: string, cursorPosition: number) => Promise<ApplyResult | null>;
+  readonly triggerAndApply: (
+    text: string,
+    cursorPosition: number,
+  ) => Promise<ApplyResult | null>;
 
   /** Handle a key press - returns true if handled */
-  readonly handleKey: (key: string, text: string, cursorPosition: number, shiftKey?: boolean) => boolean;
+  readonly handleKey: (
+    key: string,
+    text: string,
+    cursorPosition: number,
+    shiftKey?: boolean,
+  ) => boolean;
 
   /** Apply the currently selected completion using stored original values (does NOT close dropdown for cycling) */
   readonly applySelected: () => ApplyResult | null;
@@ -142,7 +155,9 @@ export interface UseCompletionReturn {
  * }
  * ```
  */
-export function useCompletion(options: UseCompletionOptions): UseCompletionReturn {
+export function useCompletion(
+  options: UseCompletionOptions,
+): UseCompletionReturn {
   const {
     userBindings,
     signatures,
@@ -227,7 +242,13 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
             if (result.items.length === 0) {
               dropdown.close();
             } else {
-              dropdown.open(result.items, result.anchor, provider.id, text, cursorPosition);
+              dropdown.open(
+                result.items,
+                result.anchor,
+                provider.id,
+                text,
+                cursorPosition,
+              );
             }
           } catch {
             if (requestId === requestIdRef.current) {
@@ -251,14 +272,29 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
           dropdown.close();
           return;
         }
-        dropdown.open(result.items, result.anchor, provider.id, text, cursorPosition);
+        dropdown.open(
+          result.items,
+          result.anchor,
+          provider.id,
+          text,
+          cursorPosition,
+        );
       } catch {
         if (requestId === requestIdRef.current) {
           dropdown.close();
         }
       }
     },
-    [clearDebounce, disabled, userBindings, signatures, docstrings, bindingNames, debounceMs, dropdown]
+    [
+      clearDebounce,
+      disabled,
+      userBindings,
+      signatures,
+      docstrings,
+      bindingNames,
+      debounceMs,
+      dropdown,
+    ],
   );
 
   // ============================================================
@@ -266,7 +302,12 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   // ============================================================
 
   const handleKey = useCallback(
-    (key: string, _text: string, _cursorPosition: number, shiftKey: boolean = false): boolean => {
+    (
+      key: string,
+      _text: string,
+      _cursorPosition: number,
+      shiftKey: boolean = false,
+    ): boolean => {
       if (disabled) return false;
 
       // If dropdown is open, handle navigation keys
@@ -302,7 +343,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
 
       return false;
     },
-    [clearDebounce, disabled, dropdown]
+    [clearDebounce, disabled, dropdown],
   );
 
   // ============================================================
@@ -310,7 +351,10 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
   // ============================================================
 
   const triggerAndApply = useCallback(
-    async (text: string, cursorPosition: number): Promise<ApplyResult | null> => {
+    async (
+      text: string,
+      cursorPosition: number,
+    ): Promise<ApplyResult | null> => {
       if (disabled) return null;
 
       // Build context
@@ -334,7 +378,13 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       if (result.items.length === 0) return null;
 
       // Open dropdown with all items - pass original text/cursor for session
-      dropdown.open(result.items, result.anchor, provider.id, text, cursorPosition);
+      dropdown.open(
+        result.items,
+        result.anchor,
+        provider.id,
+        text,
+        cursorPosition,
+      );
 
       // Apply the first item immediately (using original text/cursor)
       const firstItem = result.items[0];
@@ -345,7 +395,15 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       });
       return applyResult;
     },
-    [disabled, userBindings, signatures, docstrings, bindingNames, attachedPaths, dropdown]
+    [
+      disabled,
+      userBindings,
+      signatures,
+      docstrings,
+      bindingNames,
+      attachedPaths,
+      dropdown,
+    ],
   );
 
   // ============================================================
@@ -367,7 +425,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       });
       return applyResult;
     },
-    [dropdown]
+    [dropdown],
   );
 
   // ============================================================
@@ -389,7 +447,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       dropdown.close();
       return applyResult;
     },
-    [dropdown]
+    [dropdown],
   );
 
   // ============================================================
@@ -421,7 +479,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       if (!dropdown.isDropdownActive) return;
       dropdown.selectPrev();
     },
-    [dropdown]
+    [dropdown],
   );
 
   const navigateDown = useCallback(
@@ -429,7 +487,7 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       if (!dropdown.isDropdownActive) return;
       dropdown.selectNext();
     },
-    [dropdown]
+    [dropdown],
   );
 
   // ============================================================
@@ -445,10 +503,20 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
         isLoading: dropdown.state.isLoading,
         helpText: activeProviderHelpText,
         providerId: dropdown.state.providerId!,
+        anchorPosition: dropdown.state.anchorPosition,
         showDocPanel: dropdown.state.showDocPanel,
       };
     },
-    [dropdown.isDropdownActive, dropdown.state.items, dropdown.state.selectedIndex, dropdown.state.isLoading, dropdown.state.providerId, dropdown.state.showDocPanel, activeProviderHelpText]
+    [
+      dropdown.isDropdownActive,
+      dropdown.state.items,
+      dropdown.state.selectedIndex,
+      dropdown.state.isLoading,
+      dropdown.state.providerId,
+      dropdown.state.anchorPosition,
+      dropdown.state.showDocPanel,
+      activeProviderHelpText,
+    ],
   );
 
   // Direct pass-through — dropdown.toggleDocPanel is already stable
@@ -475,7 +543,12 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       cursorPosition: dropdown.state.originalCursor,
       anchorPosition: dropdown.state.anchorPosition,
     };
-  }, [dropdown.isDropdownActive, dropdown.state.originalText, dropdown.state.originalCursor, dropdown.state.anchorPosition]);
+  }, [
+    dropdown.isDropdownActive,
+    dropdown.state.originalText,
+    dropdown.state.originalCursor,
+    dropdown.state.anchorPosition,
+  ]);
 
   // ============================================================
   // Selected Item Helper (encapsulates state access)
@@ -506,6 +579,22 @@ export function useCompletion(options: UseCompletionOptions): UseCompletionRetur
       getApplyContext,
       selectedItem,
     }),
-    [triggerCompletion, triggerAndApply, handleKey, applySelected, confirmSelected, isVisible, activeProviderId, activeProviderHelpText, navigateUp, navigateDown, renderProps, toggleDocPanel, close, getApplyContext, selectedItem]
+    [
+      triggerCompletion,
+      triggerAndApply,
+      handleKey,
+      applySelected,
+      confirmSelected,
+      isVisible,
+      activeProviderId,
+      activeProviderHelpText,
+      navigateUp,
+      navigateDown,
+      renderProps,
+      toggleDocPanel,
+      close,
+      getApplyContext,
+      selectedItem,
+    ],
   );
 }

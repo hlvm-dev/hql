@@ -101,6 +101,12 @@ import {
   getShellPromptSlotWidth,
   padShellPromptLabel,
 } from "../utils/shell-chrome.ts";
+import {
+  canOpenComposerSurface,
+  resolveActiveComposerSurface,
+} from "../utils/composer-overlays.ts";
+import { resolveCompletionPanelLayout } from "../utils/completion-layout.ts";
+import { resolveSubmitAction } from "../utils/submit-routing.ts";
 import { tracePromptHistoryEvent } from "../../repl/prompt-history.ts";
 
 // Handler Registry - for palette/keybinding execution
@@ -702,8 +708,12 @@ export function Input({
       return;
     }
 
-    // Don't auto-trigger in placeholder mode (user is filling in arguments)
-    if (placeholders.length > 0 && placeholderIndex >= 0) {
+    const activeComposerSurface = resolveActiveComposerSurface({
+      isHistorySearching: historySearch.state.isSearching,
+      hasPlaceholderMode: placeholders.length > 0 && placeholderIndex >= 0,
+      hasCompletion: completion.isVisible,
+    });
+    if (!canOpenComposerSurface(activeComposerSurface, "completion")) {
       return;
     }
 
@@ -1957,9 +1967,11 @@ export function Input({
   // Main input handler
   inputEventHandlerRef.current = (input: string, key: Key) => {
     const isPureEscPrefixEvent = isPureEscKeyEvent(input, key);
-    const hasActiveEscapeSurface = historySearch.state.isSearching ||
-      isInPlaceholderMode() ||
-      completion.isVisible;
+    const hasActiveEscapeSurface = resolveActiveComposerSurface({
+      isHistorySearching: historySearch.state.isSearching,
+      hasPlaceholderMode: isInPlaceholderMode(),
+      hasCompletion: completion.isVisible,
+    }) !== "none";
 
     if (
       shouldInterruptConversationOnEsc(input, key, {
@@ -2737,16 +2749,25 @@ export function Input({
         return;
       }
 
-      // Allow submission for @mention queries without balanced parens check
-      const hasAtMention = trimmed.startsWith("@") || trimmed.includes(" @");
-      // Allow submission if we have attachments (e.g., "[Image #1] describe this")
-      const hasAttachments = attachments.length > 0;
-      if (trimmed && (isBalanced(trimmed) || hasAtMention || hasAttachments)) {
+      const submitAction = resolveSubmitAction({
+        text: finalValue,
+        isBalanced: trimmed.length === 0 || isBalanced(trimmed),
+        hasAttachments: attachments.length > 0,
+        composerLanguage: effectiveComposerLanguage,
+        routeHint: composerLanguage === "chat" ? "conversation" : "mixed-shell",
+      });
+
+      if (
+        trimmed &&
+        (
+          submitAction === "run-command" ||
+          submitAction === "evaluate-local" ||
+          submitAction === "send-agent"
+        )
+      ) {
         onSubmit(trimmed, attachments.length > 0 ? attachments : undefined);
         resetAfterSubmit();
-      } else if (trimmed && !isBalanced(trimmed)) {
-        // Unbalanced brackets: enter continuation mode (insert newline)
-        // This allows multi-line input for incomplete expressions
+      } else if (trimmed && submitAction === "continue-multiline") {
         insertAt("\n");
       }
       return;
@@ -2980,12 +3001,13 @@ export function Input({
           return; // Ctrl+Y = Splice
         case "l":
           applyParedit(raiseSexp);
-          return; // Ctrl+L = Raise
+          return;
 
           // Note: Ctrl+P = Command Palette (handled in App.tsx)
           // Note: Ctrl+D = EOF (handled in App.tsx)
           // Note: Ctrl+B = Tasks Panel (handled in App.tsx)
           // Note: Ctrl+R = History Search (handled above)
+          // Ctrl+L = Raise
       }
       return;
     }
@@ -3493,10 +3515,64 @@ export function Input({
       : rawGhostText.slice(0, Math.max(0, available - 1)) + "…";
   }, [rawGhostText, visualLayout.contentWidth, visualLayout.wrappedLines]);
 
-  const completionPanelMarginLeft = 0;
-  const completionPanelWidth = useMemo(
-    () => Math.min(64, Math.max(24, visualLayout.contentWidth - 2)),
-    [visualLayout.contentWidth],
+  const completionAnchorColumn = useMemo(() => {
+    const anchorPosition = completion.renderProps?.anchorPosition;
+    if (anchorPosition == null) {
+      return 0;
+    }
+
+    let lineStart = 0;
+    for (
+      let lineIndex = 0;
+      lineIndex < visualLayout.logicalLines.length;
+      lineIndex++
+    ) {
+      const line = visualLayout.logicalLines[lineIndex];
+      const lineEnd = lineStart + line.length;
+
+      if (anchorPosition <= lineEnd) {
+        const posInLine = Math.max(
+          0,
+          Math.min(anchorPosition - lineStart, line.length),
+        );
+        const wrappedLine = visualLayout.wrappedLines[lineIndex];
+        if (!wrappedLine) {
+          return 0;
+        }
+        const chunkIdx = findChunkIndex(wrappedLine.wrap.offsets, posInLine);
+        return Math.max(
+          0,
+          posInLine - (wrappedLine.wrap.offsets[chunkIdx] ?? 0),
+        );
+      }
+
+      lineStart = lineEnd + 1;
+    }
+
+    return 0;
+  }, [
+    completion.renderProps?.anchorPosition,
+    visualLayout.logicalLines,
+    visualLayout.wrappedLines,
+  ]);
+  const completionPanelLayout = useMemo(
+    () =>
+      resolveCompletionPanelLayout({
+        terminalWidth: stdout?.columns ?? 80,
+        promptPrefixWidth: getShellPromptPrefixWidth(promptLabel),
+        anchorColumn: completionAnchorColumn,
+      }),
+    [completionAnchorColumn, promptLabel, stdout?.columns],
+  );
+  const commandCompletionDivider = useMemo(
+    () =>
+      "─".repeat(
+        Math.max(
+          1,
+          getShellPromptPrefixWidth(promptLabel) + visualLayout.contentWidth,
+        ),
+      ),
+    [promptLabel, visualLayout.contentWidth],
   );
 
   // ============================================================
@@ -3505,19 +3581,20 @@ export function Input({
   // This prevents UI corruption from overlapping overlays
   // ============================================================
   const activeOverlay = useMemo(
-    (): "history" | "placeholder" | "completion" | "none" => {
-      if (historySearch.state.isSearching) return "history";
-      if (isInPlaceholderMode()) return "placeholder";
-      if (completion.renderProps) return "completion";
-      return "none";
-    },
+    () =>
+      resolveActiveComposerSurface({
+        isHistorySearching: historySearch.state.isSearching,
+        hasPlaceholderMode: isInPlaceholderMode(),
+        hasCompletion: completion.isVisible,
+      }),
     [
+      completion.isVisible,
       historySearch.state.isSearching,
-      placeholders,
-      placeholderIndex,
-      completion.renderProps,
+      isInPlaceholderMode,
     ],
   );
+  const isCommandCompletionActive = activeOverlay === "completion" &&
+    completion.renderProps?.providerId === "command";
   useEffect(() => {
     onEscapeSurfaceChange?.(activeOverlay !== "none");
   }, [activeOverlay, onEscapeSurfaceChange]);
@@ -3623,16 +3700,31 @@ export function Input({
       )}
 
       {/* Input lines — shared shell composer surface */}
-      <Box
-        key={`composer:${historyIndex}:${displayValue}`}
-        borderStyle="single"
-        borderColor={composerBorderColor}
-        paddingLeft={1}
-        paddingRight={1}
-        flexDirection="column"
-      >
-        {lineElements}
-      </Box>
+      {isCommandCompletionActive
+        ? (
+          <Box
+            key={`composer:${historyIndex}:${displayValue}`}
+            flexDirection="column"
+          >
+            <Text color={sc.chrome.separator}>{commandCompletionDivider}</Text>
+            <Box flexDirection="column">
+              {lineElements}
+            </Box>
+            <Text color={sc.chrome.separator}>{commandCompletionDivider}</Text>
+          </Box>
+        )
+        : (
+          <Box
+            key={`composer:${historyIndex}:${displayValue}`}
+            borderStyle="single"
+            borderColor={composerBorderColor}
+            paddingLeft={1}
+            paddingRight={1}
+            flexDirection="column"
+          >
+            {lineElements}
+          </Box>
+        )}
 
       {/* Placeholder mode hint - shows current parameter context */}
       {/* FIX M4: Use getCurrentPlaceholder for safe bounds-checked access */}
@@ -3664,9 +3756,10 @@ export function Input({
           selectedIndex={completion.renderProps.selectedIndex}
           helpText={completion.renderProps.helpText}
           isLoading={completion.renderProps.isLoading}
+          providerId={completion.renderProps.providerId}
           showDocPanel={completion.renderProps.showDocPanel}
-          marginLeft={completionPanelMarginLeft}
-          width={completionPanelWidth}
+          marginLeft={completionPanelLayout.marginLeft}
+          width={completionPanelLayout.maxWidth}
         />
       )}
     </Box>

@@ -41,7 +41,6 @@ import {
 import { TranscriptHistory } from "./TranscriptHistory.tsx";
 import { PendingTurnPanel } from "./PendingTurnPanel.tsx";
 import { DialogStack } from "./DialogStack.tsx";
-import { LocalEvalQueuePreview } from "./LocalEvalQueuePreview.tsx";
 import { RenderErrorBoundary } from "./ErrorBoundary.tsx";
 import {
   isPickerInteractionRequest,
@@ -64,15 +63,19 @@ import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
 import { type TeamMemberItem, useTeamState } from "../hooks/useTeamState.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
-import { useOverlayPanel } from "../hooks/useOverlayPanel.ts";
+import {
+  type OverlayPanel,
+  useOverlayPanel,
+} from "../hooks/useOverlayPanel.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
-import { type EvalResult, type QueuedLocalEval } from "../types.ts";
+import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { getPersistentAgentExecutionModeLabel } from "../../../agent/execution-mode.ts";
 import { clearTerminal } from "../../ansi.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
-import { isCommand, runCommand } from "../../repl/commands.ts";
+import { runCommand } from "../../repl/commands.ts";
+import { isBalanced } from "../../repl/syntax.ts";
 import { ensureError, truncate } from "../../../../common/utils.ts";
 import {
   type HlvmConfig,
@@ -99,6 +102,7 @@ import {
   type ConversationComposerDraft,
   createConversationComposerDraft,
   enqueueConversationDraft,
+  shiftQueuedConversationDraft,
 } from "../utils/conversation-queue.ts";
 import { resolveCtrlCAction } from "../ctrl-c-behavior.ts";
 import type { InteractionResponse } from "../../../agent/registry.ts";
@@ -106,6 +110,10 @@ import {
   advanceComposerShellState,
   type ComposerShellState,
 } from "../utils/composer-shell-state.ts";
+import {
+  isShellCommandText,
+  resolveSubmitAction,
+} from "../utils/submit-routing.ts";
 import {
   resolveConversationEscapeAction,
   shouldAutoCloseConversationSurface,
@@ -126,10 +134,6 @@ interface CurrentEval {
   backgrounded: boolean;
   cancelled?: boolean;
   taskId?: string;
-}
-
-interface QueuedLocalEvalDraft extends QueuedLocalEval {
-  attachments?: AnyAttachment[];
 }
 
 interface AppProps {
@@ -211,22 +215,16 @@ function AppContent(
   useEffect(() => {
     isEvaluatingRef.current = isEvaluating;
   }, [isEvaluating]);
-  const [clearKey, setClearKey] = useState(0); // Force re-render on clear
-  const overlayRepaintTimersRef = useRef<number[]>([]);
   const [hasBeenCleared, setHasBeenCleared] = useState(false); // Hide banner after Ctrl+L
-  const [queuedLocalEvals, setQueuedLocalEvals] = useState<
-    QueuedLocalEvalDraft[]
-  >(
-    [],
-  );
-  const nextQueuedLocalEvalIdRef = useRef(0);
   const composerRef = useRef<ComposerSurfaceHandle | null>(null);
   const [composerShellState, setComposerShellState] = useState<
     ComposerShellState
   >({
     hasDraftInput: false,
+    hasSubmitText: false,
     queuedDraftCount: 0,
     queuePreviewRows: 0,
+    submitAction: "send-agent",
     version: 0,
   });
 
@@ -289,10 +287,8 @@ function AppContent(
   conversationRef.current = conversation;
   const baseTeamState = useTeamState(conversation.items);
   const transcriptItemCount = conversation.historyItems.length +
-    conversation.liveItems.length +
-    conversation.evalHistory.length;
-  const committedHistoryCount = conversation.historyItems.length +
-    conversation.evalHistory.length;
+    conversation.liveItems.length;
+  const committedHistoryCount = conversation.historyItems.length;
   const [focusedTeammateIndex, setFocusedTeammateIndex] = useState(-1);
   const [localAgentsFocused, setLocalAgentsFocused] = useState(false);
   const [teamDashboardOverlayState, setTeamDashboardOverlayState] = useState<
@@ -368,35 +364,6 @@ function AppContent(
       setLocalAgentsFocused(false);
     }
   }, [activeOverlay, composerShellState.hasDraftInput]);
-  const scheduleShellRepaint = useCallback(() => {
-    setClearKey((current: number) => current + 1);
-    for (const timer of overlayRepaintTimersRef.current) {
-      globalThis.clearTimeout(timer);
-    }
-    overlayRepaintTimersRef.current = [
-      globalThis.setTimeout(() => {
-        setClearKey((current: number) => current + 1);
-      }, 0),
-      globalThis.setTimeout(() => {
-        setClearKey((current: number) => current + 1);
-      }, 24),
-    ];
-  }, []);
-  useEffect(() => () => {
-    for (const timer of overlayRepaintTimersRef.current) {
-      globalThis.clearTimeout(timer);
-    }
-  }, []);
-  const previousOverlayForRepaintRef = useRef(activeOverlay);
-  useEffect(() => {
-    if (
-      previousOverlayForRepaintRef.current !== "none" &&
-      activeOverlay === "none"
-    ) {
-      scheduleShellRepaint();
-    }
-    previousOverlayForRepaintRef.current = activeOverlay;
-  }, [activeOverlay, scheduleShellRepaint]);
   const hasConversationContext = usesConversationContext(surfacePanel);
   const hasActivePlanningState = Boolean(
     conversation.activePlan ||
@@ -487,16 +454,9 @@ function AppContent(
   }, [setActiveOverlay]);
   const toggleTeamDashboardOverlay = useCallback(() => {
     setTeamDashboardOverlayState(DEFAULT_TEAM_DASHBOARD_OVERLAY_STATE);
-    setActiveOverlay((
-      current:
-        | "none"
-        | "palette"
-        | "config-overlay"
-        | "team-dashboard"
-        | "shortcuts-overlay"
-        | "transcript-history"
-        | "background-tasks",
-    ) => current === "team-dashboard" ? "none" : "team-dashboard");
+    setActiveOverlay((current: OverlayPanel) =>
+      current === "team-dashboard" ? "none" : "team-dashboard"
+    );
   }, [setActiveOverlay]);
   const toggleBackgroundTasksOverlay = useCallback(() => {
     setBackgroundTasksOverlayState(DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE);
@@ -524,7 +484,11 @@ function AppContent(
     return true;
   }, [baseLocalAgentEntries.length]);
   const foregroundLocalAgent = useCallback((agent: LocalAgentEntry) => {
-    if (agent.kind !== "teammate" || !agent.memberId) {
+    if (
+      agent.kind !== "teammate" ||
+      !agent.memberId ||
+      agent.foregroundable !== true
+    ) {
       return false;
     }
     const teammateIndex = activeTeammates.findIndex((member: TeamMemberItem) =>
@@ -550,7 +514,11 @@ function AppContent(
       openBackgroundTasksOverlay(undefined, "list");
       return true;
     }
-    if (singleAgent.kind === "teammate" && foregroundLocalAgent(singleAgent)) {
+    if (
+      singleAgent.kind === "teammate" &&
+      singleAgent.foregroundable === true &&
+      foregroundLocalAgent(singleAgent)
+    ) {
       return true;
     }
     openBackgroundTasksOverlay(singleAgent.id, "result");
@@ -591,42 +559,6 @@ function AppContent(
     openLocalAgentsSurface,
   ]);
 
-  const enqueueLocalEval = useCallback((
-    code: string,
-    attachments?: AnyAttachment[],
-  ) => {
-    const trimmed = code.trim();
-    if (!trimmed) return;
-    recordPromptHistory(replState, code, "evaluate");
-    nextQueuedLocalEvalIdRef.current += 1;
-    setQueuedLocalEvals((prev: QueuedLocalEvalDraft[]) => [
-      ...prev,
-      {
-        id: `leq-${nextQueuedLocalEvalIdRef.current}`,
-        input: trimmed,
-        attachmentCount: attachments?.length ?? 0,
-        queuedAt: Date.now(),
-        attachments,
-      },
-    ]);
-  }, [replState]);
-  // Agent runner: conversation execution, interaction queue, force-interrupt
-  // Callback for draining queued HQL evals when agent becomes idle
-  const executeQueuedHqlEval = useCallback(
-    async (code: string) => {
-      // handleSubmit is defined later — use handleSubmitRef to avoid circular dep.
-      // When agent is idle, handleSubmit evaluates HQL normally (queue gate skips).
-      await handleSubmitRef.current(code);
-    },
-    [],
-  );
-
-  const isLocalEvalBusy = useCallback(
-    () =>
-      Boolean(currentEvalRef.current && !currentEvalRef.current.backgrounded),
-    [],
-  );
-
   const agentRunner = useAgentRunner({
     conversation,
     agentExecutionMode,
@@ -639,13 +571,9 @@ function AppContent(
     clearComposerDraft,
     getCurrentComposerDraft,
     getPendingConversationQueue,
-    pendingConversationQueueVersion: composerShellState.version,
     setPendingConversationQueue,
     restoreComposerDraft,
-    hasConversationContext,
     replState,
-    onQueuedHqlEval: executeQueuedHqlEval,
-    isLocalEvalBusy,
   });
   const {
     interactionQueue,
@@ -739,8 +667,7 @@ function AppContent(
         surfacePanel,
         itemCount: transcriptItemCount,
         hasActiveRun: isEvaluating || agentControllerRef.current !== null,
-        queuedDraftCount: composerShellState.queuedDraftCount +
-          queuedLocalEvals.length,
+        queuedDraftCount: composerShellState.queuedDraftCount,
         hasPendingInteraction: Boolean(pendingInteraction),
         hasPlanState: hasActivePlanningState,
       })
@@ -755,7 +682,6 @@ function AppContent(
     agentControllerRef,
     isEvaluating,
     composerShellState.queuedDraftCount,
-    queuedLocalEvals.length,
     pendingInteraction,
     hasActivePlanningState,
     setSurfacePanel,
@@ -856,8 +782,6 @@ function AppContent(
   const flushReplOutput = useCallback(() => {
     clearTerminal();
     setHasBeenCleared(true);
-    setClearKey((k: number) => k + 1);
-    setQueuedLocalEvals([]);
     conversationRef.current.clear();
   }, []);
 
@@ -1043,8 +967,8 @@ function AppContent(
     async (code: string, attachments?: AnyAttachment[]) => {
       if (!code.trim()) return;
 
-      // Handle commands that need React state (pickers/panels)
       const trimmedInput = code.trim();
+      const shellCommand = isShellCommandText(code);
       const normalizedInput = trimmedInput.startsWith(".")
         ? "/" + trimmedInput.slice(1)
         : trimmedInput;
@@ -1056,114 +980,48 @@ function AppContent(
       const isPanelCommand = commandName === "/help" ||
         commandName === "/config" || commandName === "/flush" ||
         opensModelPicker;
-      const isAnyCommand = isPanelCommand || isCommand(code);
+      const isAnyCommand = isPanelCommand || shellCommand;
+      const submitAction = resolveSubmitAction({
+        text: code,
+        isBalanced: isBalanced(trimmedInput),
+        hasAttachments: (attachments?.length ?? 0) > 0,
+        composerLanguage: hasConversationContext ? "chat" : "hql",
+        routeHint: hasConversationContext ? "conversation" : "mixed-shell",
+        isCommand: isAnyCommand,
+      });
 
-      // If there's a pending question interaction, route non-command input as the answer.
-      // Commands must still work while a question prompt is active.
-      const currentPendingInteraction = pendingInteractionRef.current;
-      if (currentPendingInteraction?.mode === "question" && !isAnyCommand) {
-        recordPromptHistory(replState, code, "interaction");
-        conversationRef.current.addUserMessage(
-          code.trim(),
-          {
-            startTurn: false,
-          },
-        );
-        handleInteractionResponseRef.current(
-          currentPendingInteraction.requestId,
-          {
-            approved: true,
-            userInput: code.trim(),
-          },
-        );
+      if (submitAction === "continue-multiline") {
         return;
       }
 
-      const targetTeammate = focusedTeammateIndex >= 0
-        ? activeTeammatesRef.current[focusedTeammateIndex]
-        : undefined;
-      if (
-        hasConversationContext &&
-        targetTeammate &&
-        !isAnyCommand &&
-        !trimmedInput.startsWith("(")
-      ) {
-        const content = code.trim();
-        const preview = truncate(content.replace(/\s+/g, " "), 120);
-        let delivered = false;
-
-        if (targetTeammate.threadId) {
-          delivered = sendThreadInput(targetTeammate.threadId, content);
-        }
-
-        if (!delivered) {
-          const store = getActiveTeamStore();
-          if (store) {
-            await store.sendMessage({
-              id: crypto.randomUUID(),
-              type: "message",
-              from: "lead",
-              content,
-              summary: truncate(content.replace(/\s+/g, " "), 80),
-              timestamp: Date.now(),
-              recipient: targetTeammate.id,
-            });
-            delivered = true;
-          }
-        }
-
-        if (!delivered) {
-          conversationRef.current.addError(
-            `Could not send message to teammate '${targetTeammate.id}'.`,
-          );
+      if (submitAction === "run-command") {
+        if (commandName === "/help") {
+          setActiveOverlay("shortcuts-overlay");
           return;
         }
 
-        recordPromptHistory(replState, code, "conversation");
-        conversationRef.current.addEvent({
-          type: "team_message",
-          kind: "message",
-          fromMemberId: "lead",
-          toMemberId: targetTeammate.id,
-          contentPreview: preview,
-        });
-        clearComposerDraft();
-        return;
-      }
+        if (commandName === "/config") {
+          setActiveOverlay("config-overlay");
+          return;
+        }
 
-      if (commandName === "/help") {
-        setActiveOverlay("shortcuts-overlay");
-        return;
-      }
+        if (opensModelPicker) {
+          setModelBrowserParentSurface(surfacePanel);
+          setModelBrowserParentOverlay("none");
+          setActiveOverlay("models");
+          return;
+        }
 
-      // Handle /config command - show floating overlay
-      if (commandName === "/config") {
-        setActiveOverlay("config-overlay");
-        return;
-      }
+        if (commandName === "/tasks") {
+          openBackgroundTasksOverlay();
+          return;
+        }
 
-      // Handle /model command - open model picker
-      if (opensModelPicker) {
-        setModelBrowserParentSurface(surfacePanel);
-        setModelBrowserParentOverlay("none");
-        setSurfacePanel("models");
-        return;
-      }
+        if (commandName === "/flush") {
+          flushReplOutput();
+          return;
+        }
 
-      // Handle /tasks command - open background tasks overlay
-      if (commandName === "/tasks") {
-        openBackgroundTasksOverlay();
-        return;
-      }
-
-      // Handle /flush command - clear visible output only
-      if (commandName === "/flush") {
-        flushReplOutput();
-        return;
-      }
-
-      // Commands (supports both /command and .command)
-      if (isAnyCommand) {
         recordPromptHistory(replState, code, "command");
         const output = await handleCommand(code, exit, replState);
         if (output !== null) {
@@ -1173,29 +1031,84 @@ function AppContent(
             isCommandOutput: true,
           });
         }
-        // FRP: bindingNames auto-update via ReplContext when bindings change
         return;
       }
 
-      // HQL code (starts with "(") always evaluates locally, even in conversation mode.
-      if (trimmedInput.startsWith("(")) {
-        if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
-          enqueueLocalEval(code, attachments);
+      if (submitAction === "send-agent") {
+        const currentPendingInteraction = pendingInteractionRef.current;
+        if (currentPendingInteraction?.mode === "question") {
+          recordPromptHistory(replState, code, "interaction");
+          conversationRef.current.addUserMessage(
+            trimmedInput,
+            {
+              startTurn: false,
+            },
+          );
+          handleInteractionResponseRef.current(
+            currentPendingInteraction.requestId,
+            {
+              approved: true,
+              userInput: trimmedInput,
+            },
+          );
           return;
         }
-        if (agentControllerRef.current) {
-          enqueueLocalEval(code, attachments);
+
+        const targetTeammate = focusedTeammateIndex >= 0
+          ? activeTeammatesRef.current[focusedTeammateIndex]
+          : undefined;
+        if (hasConversationContext && targetTeammate) {
+          const preview = truncate(trimmedInput.replace(/\s+/g, " "), 120);
+          let delivered = false;
+
+          if (targetTeammate.threadId) {
+            delivered = sendThreadInput(targetTeammate.threadId, trimmedInput);
+          }
+
+          if (!delivered) {
+            const store = getActiveTeamStore();
+            if (store) {
+              await store.sendMessage({
+                id: crypto.randomUUID(),
+                type: "message",
+                from: "lead",
+                content: trimmedInput,
+                summary: truncate(trimmedInput.replace(/\s+/g, " "), 80),
+                timestamp: Date.now(),
+                recipient: targetTeammate.id,
+              });
+              delivered = true;
+            }
+          }
+
+          if (!delivered) {
+            conversationRef.current.addError(
+              `Could not send message to teammate '${targetTeammate.id}'.`,
+            );
+            return;
+          }
+
+          recordPromptHistory(replState, code, "conversation");
+          conversationRef.current.addEvent({
+            type: "team_message",
+            kind: "message",
+            fromMemberId: "lead",
+            toMemberId: targetTeammate.id,
+            contentPreview: preview,
+          });
+          clearComposerDraft();
           return;
         }
-        // Fall through to HQL eval below
-      } else {
-        // Natural language → agent conversation
+
         if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
           recordPromptHistory(replState, code, "conversation");
           setSurfacePanel("conversation");
           const conversationDraft = createConversationComposerDraft(
-            code.trim(),
+            trimmedInput,
             attachments,
+            trimmedInput.length,
+            undefined,
+            "chat",
           );
           setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
             enqueueConversationDraft(prev, conversationDraft)
@@ -1206,8 +1119,11 @@ function AppContent(
         if (hasConversationContext) {
           recordPromptHistory(replState, code, "conversation");
           const conversationDraft = createConversationComposerDraft(
-            code.trim(),
+            trimmedInput,
             attachments,
+            trimmedInput.length,
+            undefined,
+            "chat",
           );
           if (agentControllerRef.current) {
             setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
@@ -1257,6 +1173,35 @@ function AppContent(
           trimmedInput,
           conversationAttachments,
           {},
+        );
+        return;
+      }
+
+      if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
+        recordPromptHistory(replState, code, "evaluate");
+        const queuedEval = createConversationComposerDraft(
+          trimmedInput,
+          attachments,
+          trimmedInput.length,
+          undefined,
+          "eval",
+        );
+        setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
+          enqueueConversationDraft(prev, queuedEval)
+        );
+        return;
+      }
+      if (agentControllerRef.current) {
+        recordPromptHistory(replState, code, "evaluate");
+        const queuedEval = createConversationComposerDraft(
+          trimmedInput,
+          attachments,
+          trimmedInput.length,
+          undefined,
+          "eval",
+        );
+        setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
+          enqueueConversationDraft(prev, queuedEval)
         );
         return;
       }
@@ -1367,7 +1312,6 @@ function AppContent(
       runConversation,
       submitConversationDraft,
       hasConversationContext,
-      enqueueLocalEval,
       setPendingConversationQueue,
       setSurfacePanel,
       replState,
@@ -1378,13 +1322,33 @@ function AppContent(
   handleSubmitRef.current = handleSubmit;
 
   useEffect(() => {
-    if (queuedLocalEvals.length === 0) return;
+    const pendingQueue = getPendingConversationQueue();
+    if (pendingQueue.length === 0) return;
+    if (isEvaluating) return;
     if (agentControllerRef.current) return;
     if (currentEvalRef.current && !currentEvalRef.current.backgrounded) return;
-    const [nextEval, ...remaining] = queuedLocalEvals;
-    setQueuedLocalEvals(remaining);
-    void handleSubmitRef.current(nextEval.input, nextEval.attachments);
-  }, [queuedLocalEvals]);
+    if (pendingInteraction) return;
+    if (conversation.planningPhase && conversation.planningPhase !== "done") {
+      return;
+    }
+    if (conversation.pendingPlanReview) return;
+
+    const { draft: nextInput, remaining } = shiftQueuedConversationDraft(
+      pendingQueue,
+    );
+    if (!nextInput) return;
+    setPendingConversationQueue(remaining);
+    void handleSubmitRef.current(nextInput.text, nextInput.attachments);
+  }, [
+    agentControllerRef,
+    composerShellState.version,
+    conversation.pendingPlanReview,
+    conversation.planningPhase,
+    getPendingConversationQueue,
+    isEvaluating,
+    pendingInteraction,
+    setPendingConversationQueue,
+  ]);
 
   // Command palette action handler
   const handlePaletteAction = useCallback((action: KeybindingAction) => {
@@ -1595,78 +1559,21 @@ function AppContent(
     (surfacePanel === "none" || isConversationInputVisible);
   const isInputDisabled = hasConversationContext &&
     (pendingInteraction?.mode === "permission" || pickerInteractionActive);
+  const isForegroundTaskRunning = isEvaluating ||
+    agentControllerRef.current !== null;
   const isConversationTaskRunning = hasConversationContext &&
-    (isEvaluating || agentControllerRef.current !== null);
+    isForegroundTaskRunning;
 
   // Conversation shortcuts should only take over when the composer will not
   // immediately consume the same key sequence.
   const allowConversationToggleHotkeys = !isInputVisible || isInputDisabled ||
     !composerShellState.hasDraftInput;
-  // overlayScreen removed — overlays are inlined as flat conditional siblings in JSX
-  const standaloneSurfaceScreen = (() => {
-    switch (surfacePanel) {
-      case "models":
-        return (
-          <ModelBrowser
-            currentModel={modelSelection.activeModelId}
-            isCurrentModelConfigured={modelSelection.modelConfigured}
-            onClose={() => {
-              setSurfacePanel(modelBrowserParentSurface);
-              setActiveOverlay(modelBrowserParentOverlay);
-              setModelBrowserParentSurface("none");
-              setModelBrowserParentOverlay("none");
-            }}
-            onModelSet={(modelName: string) => {
-              const normalizedModel = normalizeModelId(modelName) ?? modelName;
-              conversation.addHqlEval("", {
-                success: true,
-                value: `✓ Default model: ${normalizedModel}`,
-                isCommandOutput: true,
-              });
-            }}
-            onSelectModel={handleModelSelectionChange}
-          />
-        );
-      case "model-setup":
-        return init.modelToSetup
-          ? (
-            <ModelSetupOverlay
-              modelName={init.modelToSetup}
-              onComplete={() => {
-                refreshAiReadiness(modelSelection.activeModelId, {
-                  force: true,
-                }).catch(() => {});
-                setModelSetupHandled(true);
-                setSurfacePanel("none");
-                conversation.addHqlEval("", {
-                  success: true,
-                  value: `✓ AI model installed: ${init.modelToSetup}`,
-                  isCommandOutput: true,
-                });
-              }}
-              onCancel={() => {
-                setModelSetupHandled(true);
-                setSurfacePanel("none");
-                conversation.addHqlEval("", {
-                  success: true,
-                  value:
-                    `AI model setup cancelled. Run "hlvm ai pull ${init.modelToSetup}" to download later.`,
-                  isCommandOutput: true,
-                });
-              }}
-            />
-          )
-          : null;
-      default:
-        return null;
-    }
-  })();
   const liveTodoCount = hasConversationContext
     ? (conversation.planTodoState ?? conversation.todoState)?.items.length ?? 0
     : 0;
   const renderShellLanes = shouldRenderShellLanes({
     historyItemCount: committedHistoryCount,
-    localEvalQueueCount: queuedLocalEvals.length,
+    localEvalQueueCount: 0,
     liveItemCount: hasConversationContext ? conversation.liveItems.length : 0,
     liveTodoCount,
     hasPendingInteraction: hasConversationContext &&
@@ -1679,9 +1586,6 @@ function AppContent(
   const transcriptReservedRows = 10 +
     SHELL_LAYOUT.transcriptToComposerGap +
     composerShellState.queuePreviewRows +
-    (queuedLocalEvals.length > 0
-      ? Math.min(queuedLocalEvals.length + 2, 6)
-      : 0) +
     (hasConversationContext && pendingInteraction ? 8 : 0) +
     (hasConversationContext &&
         (conversation.liveItems.length > 0 || liveTodoCount > 0)
@@ -1690,7 +1594,6 @@ function AppContent(
     localAgentsPanelRows;
   return (
     <Box
-      key={clearKey}
       flexDirection="column"
       paddingX={SHELL_LAYOUT.gutterX}
     >
@@ -1718,14 +1621,61 @@ function AppContent(
           onStateChange={setPaletteState}
         />
       )}
+      {activeOverlay === "models" && (
+        <ModelBrowser
+          currentModel={modelSelection.activeModelId}
+          isCurrentModelConfigured={modelSelection.modelConfigured}
+          onClose={() => {
+            setSurfacePanel(modelBrowserParentSurface);
+            setActiveOverlay(modelBrowserParentOverlay);
+            setModelBrowserParentSurface("none");
+            setModelBrowserParentOverlay("none");
+          }}
+          onModelSet={(modelName: string) => {
+            const normalizedModel = normalizeModelId(modelName) ?? modelName;
+            conversation.addHqlEval("", {
+              success: true,
+              value: `✓ Default model: ${normalizedModel}`,
+              isCommandOutput: true,
+            });
+          }}
+          onSelectModel={handleModelSelectionChange}
+        />
+      )}
+      {activeOverlay === "model-setup" && init.modelToSetup && (
+        <ModelSetupOverlay
+          modelName={init.modelToSetup}
+          onComplete={() => {
+            refreshAiReadiness(modelSelection.activeModelId, {
+              force: true,
+            }).catch(() => {});
+            setModelSetupHandled(true);
+            setActiveOverlay("none");
+            conversation.addHqlEval("", {
+              success: true,
+              value: `✓ AI model installed: ${init.modelToSetup}`,
+              isCommandOutput: true,
+            });
+          }}
+          onCancel={() => {
+            setModelSetupHandled(true);
+            setActiveOverlay("none");
+            conversation.addHqlEval("", {
+              success: true,
+              value:
+                `AI model setup cancelled. Run "hlvm ai pull ${init.modelToSetup}" to download later.`,
+              isCommandOutput: true,
+            });
+          }}
+        />
+      )}
       {activeOverlay === "config-overlay" && (
         <ConfigOverlay
           onClose={() => setActiveOverlay("none")}
           onOpenModelBrowser={() => {
             setModelBrowserParentSurface(surfacePanel);
             setModelBrowserParentOverlay("config-overlay");
-            setActiveOverlay("none");
-            setSurfacePanel("models");
+            setActiveOverlay("models");
           }}
           onConfigChange={(cfg) =>
             applyRuntimeConfigState(
@@ -1754,7 +1704,6 @@ function AppContent(
         <TranscriptViewerOverlay
           historyItems={conversation.historyItems}
           liveItems={conversation.liveItems}
-          evalHistory={conversation.evalHistory}
           width={shellContentWidth}
           onClose={() => setActiveOverlay("none")}
         />
@@ -1774,15 +1723,8 @@ function AppContent(
         />
       )}
 
-      {/* Standalone surfaces (picker, model browser, etc.) */}
-      {!isOverlayOpen && hasStandaloneSurface && standaloneSurfaceScreen && (
-        <Box flexGrow={1} justifyContent="center" alignItems="center">
-          {standaloneSurfaceScreen}
-        </Box>
-      )}
-
-      {/* Shell lanes: committed history, local eval queue, live turn, dialogs */}
-      {!isOverlayOpen && !hasStandaloneSurface && renderShellLanes && (
+      {/* Shell lanes: committed history, live turn, dialogs */}
+      {!hasStandaloneSurface && renderShellLanes && (
         <Box
           flexDirection="column"
           marginBottom={SHELL_LAYOUT.transcriptToComposerGap}
@@ -1790,22 +1732,18 @@ function AppContent(
           <RenderErrorBoundary>
             <TranscriptHistory
               historyItems={conversation.historyItems}
-              evalHistory={conversation.evalHistory}
               width={shellContentWidth}
               reservedRows={transcriptReservedRows}
               compactPlanTranscript={Boolean(
                 conversation.planningPhase &&
                   conversation.planningPhase !== "done",
               )}
+              interactive={!isOverlayOpen}
               allowToggleHotkeys={surfacePanel === "conversation" &&
                 allowConversationToggleHotkeys &&
                 conversation.liveItems.length === 0}
             />
           </RenderErrorBoundary>
-          <LocalEvalQueuePreview
-            items={queuedLocalEvals}
-            width={shellContentWidth}
-          />
           {hasConversationContext && (
             <>
               <RenderErrorBoundary>
@@ -1818,21 +1756,23 @@ function AppContent(
                     conversation.todoState}
                   compactSpacing
                   showLeadingDivider={committedHistoryCount > 0 ||
-                    queuedLocalEvals.length > 0}
+                    composerShellState.queuedDraftCount > 0}
                   allowToggleHotkeys={surfacePanel === "conversation" &&
                     allowConversationToggleHotkeys &&
                     conversation.liveItems.length > 0}
                 />
               </RenderErrorBoundary>
               <RenderErrorBoundary>
-                <DialogStack
-                  interactionRequest={pendingInteraction}
-                  interactionQueueLength={interactionQueue.length}
-                  onInteractionResponse={handleConversationInteractionResponse}
-                  onQuestionInterrupt={pendingInteraction?.mode === "question"
-                    ? handleQuestionInterrupt
-                    : undefined}
-                />
+                {!isOverlayOpen && (
+                  <DialogStack
+                    interactionRequest={pendingInteraction}
+                    interactionQueueLength={interactionQueue.length}
+                    onInteractionResponse={handleConversationInteractionResponse}
+                    onQuestionInterrupt={pendingInteraction?.mode === "question"
+                      ? handleQuestionInterrupt
+                      : undefined}
+                  />
+                )}
               </RenderErrorBoundary>
             </>
           )}
@@ -1875,8 +1815,7 @@ function AppContent(
                   clearPlanning: hasActivePlanningState,
                 })
               : undefined}
-            queueEnabled={hasConversationContext &&
-              agentControllerRef.current !== null}
+            queueEnabled={isForegroundTaskRunning}
             isConversationTaskRunning={isConversationTaskRunning}
             onCycleMode={cycleAgentMode}
             disabled={isInputDisabled}
@@ -1889,12 +1828,11 @@ function AppContent(
           />
         )}
 
-      {!isOverlayOpen &&
-        shouldRenderLocalAgentsBar(
-          localAgentEntries,
-          localAgentsFocused,
-          teamWorkerSummary,
-        ) && (
+      {shouldRenderLocalAgentsBar(
+        localAgentEntries,
+        localAgentsFocused,
+        teamWorkerSummary,
+      ) && (
         <LocalAgentsBar
           entries={localAgentEntries}
           focused={localAgentsFocused}
@@ -1904,7 +1842,7 @@ function AppContent(
       )}
 
       {/* Footer hint (directly under input, no gap) */}
-      {!isOverlayOpen && (isInputVisible || hasConversationContext) &&
+      {(isInputVisible || hasConversationContext) &&
         (
           <FooterHint
             modelName={modelSelection.displayLabel}
@@ -1924,6 +1862,7 @@ function AppContent(
               ? interactionQueue.length
               : 0}
             hasDraftInput={composerShellState.hasDraftInput}
+            hasSubmitText={composerShellState.hasSubmitText}
             inConversation={hasConversationContext}
             isEvaluating={isEvaluating && !hasConversationContext}
             hasPendingPermission={hasConversationContext &&
@@ -1945,7 +1884,9 @@ function AppContent(
             recentActiveTaskLabel={recentActiveTaskLabel}
             aiAvailable={init.aiAvailable}
             conversationQueueCount={composerShellState.queuedDraftCount}
-            localEvalQueueCount={queuedLocalEvals.length}
+            submitAction={composerShellState.hasSubmitText
+              ? composerShellState.submitAction
+              : undefined}
           />
         )}
     </Box>

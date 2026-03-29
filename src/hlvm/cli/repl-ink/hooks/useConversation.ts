@@ -2,7 +2,13 @@
  * useConversation — React wrapper over the shared agent transcript reducer.
  */
 
-import { type Dispatch, type SetStateAction, useCallback, useMemo, useState } from "react";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 import type { AgentUIEvent } from "../../../agent/orchestrator.ts";
 import {
   createTranscriptState,
@@ -10,20 +16,19 @@ import {
   type TranscriptState,
 } from "../../agent-transcript-state.ts";
 import type {
-  AgentConversationItem,
   AssistantCitation,
   ConversationAttachmentRef,
   ConversationItem,
   EvalResult,
-  HqlEvalItem,
+  ShellHistoryEntry,
   StreamingState,
+  TurnCompletionStatus,
 } from "../types.ts";
 
 export interface UseConversationResult {
   items: ConversationItem[];
-  historyItems: AgentConversationItem[];
-  liveItems: AgentConversationItem[];
-  evalHistory: HqlEvalItem[];
+  historyItems: ShellHistoryEntry[];
+  liveItems: Exclude<ConversationItem, { type: "hql_eval" }>[];
   streamingState: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   activePlan?: TranscriptState["activePlan"];
@@ -35,7 +40,10 @@ export interface UseConversationResult {
   addEvent: (event: AgentUIEvent) => void;
   addUserMessage: (
     text: string,
-    options?: { attachments?: ConversationAttachmentRef[]; startTurn?: boolean },
+    options?: {
+      attachments?: ConversationAttachmentRef[];
+      startTurn?: boolean;
+    },
   ) => void;
   addAssistantText: (
     text: string,
@@ -48,7 +56,7 @@ export interface UseConversationResult {
   replaceItems: (items: ConversationItem[]) => void;
   resetStatus: () => void;
   cancelPlanning: () => void;
-  finalize: () => void;
+  finalize: (status: TurnCompletionStatus) => void;
   clear: () => void;
 }
 
@@ -74,7 +82,10 @@ export function useConversation(): UseConversationResult {
 
   const addUserMessage = useCallback((
     text: string,
-    options?: { attachments?: ConversationAttachmentRef[]; startTurn?: boolean },
+    options?: {
+      attachments?: ConversationAttachmentRef[];
+      startTurn?: boolean;
+    },
   ) => {
     updateState(setState, {
       type: "user_message",
@@ -128,8 +139,8 @@ export function useConversation(): UseConversationResult {
     updateState(setState, { type: "cancel_planning" });
   }, []);
 
-  const finalize = useCallback(() => {
-    updateState(setState, { type: "finalize" });
+  const finalize = useCallback((status: TurnCompletionStatus) => {
+    updateState(setState, { type: "finalize", status });
   }, []);
 
   const clear = useCallback(() => {
@@ -172,15 +183,14 @@ export function useConversation(): UseConversationResult {
     items: state.items,
     historyItems: state.currentTurnId
       ? state.items.filter((item: ConversationItem) =>
-        item.turnId !== state.currentTurnId
-      ) as AgentConversationItem[]
-      : state.items as AgentConversationItem[],
+        item.turnId !== state.currentTurnId || item.type === "hql_eval"
+      ) as ShellHistoryEntry[]
+      : state.items as ShellHistoryEntry[],
     liveItems: state.currentTurnId
       ? state.items.filter((item: ConversationItem) =>
-        item.turnId === state.currentTurnId
-      ) as AgentConversationItem[]
-      : [] as AgentConversationItem[],
-    evalHistory: state.evalHistory,
+        item.turnId === state.currentTurnId && item.type !== "hql_eval"
+      ) as Exclude<ConversationItem, { type: "hql_eval" }>[]
+      : [] as Exclude<ConversationItem, { type: "hql_eval" }>[],
     streamingState: state.streamingState,
     activeTool: state.activeTool,
     activePlan: state.activePlan,
@@ -191,7 +201,6 @@ export function useConversation(): UseConversationResult {
   }), [
     state.items,
     state.currentTurnId,
-    state.evalHistory,
     state.streamingState,
     state.activeTool,
     state.activePlan,

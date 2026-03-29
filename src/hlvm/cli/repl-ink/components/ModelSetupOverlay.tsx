@@ -5,13 +5,11 @@
  * Uses existing ProgressBar and TaskManager infrastructure.
  */
 
-import React, { useEffect, useMemo, useRef } from "react";
-import { Box, Text, useInput, useStdout } from "ink";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
-import { useSemanticColors } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { formatBytes } from "../../../../common/limits.ts";
-import { ProgressBar } from "./conversation/ProgressBar.tsx";
 import { isModelPullTask } from "../../repl/task-manager/types.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
@@ -19,9 +17,18 @@ import { DEFAULT_OLLAMA_ENDPOINT } from "../../../../common/config/types.ts";
 import { createRuntimeConfigManager } from "../../../runtime/model-config.ts";
 import { resolveModelAvailabilityTarget } from "../../../runtime/model-availability.ts";
 import { getConfiguredModelReadiness } from "../../../runtime/configured-model-readiness.ts";
-import { clampPanelWidth, DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
+import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 import { truncate } from "../../../../common/utils.ts";
-import { ChromeChip } from "./ChromeChip.tsx";
+import {
+  clearOverlay,
+  createModalOverlayScaffold,
+  resolveOverlayFrame,
+  shouldClearOverlay,
+  themeToOverlayColors,
+  writeToTerminal,
+} from "../overlay/index.ts";
+import { buildBalancedTextRow } from "../utils/display-chrome.ts";
+import { formatProgressBar } from "../utils/formatting.ts";
 
 // ============================================================
 // Types
@@ -48,18 +55,24 @@ export function ModelSetupOverlay({
   onCancel,
   endpoint = DEFAULT_OLLAMA_ENDPOINT,
 }: ModelSetupOverlayProps): React.ReactElement {
-  const { color } = useTheme();
-  const sc = useSemanticColors();
+  const { theme } = useTheme();
   const { stdout } = useStdout();
   const { tasks, cancel } = useTaskManager();
   const manager = useMemo(() => getTaskManager(endpoint), [endpoint]);
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
-  const panelWidth = clampPanelWidth(terminalWidth, {
-    maxWidth: 72,
-    minWidth: 40,
-  });
-  const contentWidth = Math.max(20, panelWidth - 4);
-  const progressWidth = Math.max(8, Math.min(30, contentWidth - 8));
+  const terminalHeight = stdout?.rows ?? 24;
+  const overlayFrame = useMemo(
+    () =>
+      resolveOverlayFrame(72, 13, {
+        minWidth: 40,
+        minHeight: 12,
+        viewport: { columns: terminalWidth, rows: terminalHeight },
+      }),
+    [terminalHeight, terminalWidth],
+  );
+  const contentWidth = Math.max(20, overlayFrame.width - 6);
+  const colors = useMemo(() => themeToOverlayColors(theme), [theme]);
+  const previousFrameRef = useRef<typeof overlayFrame | null>(null);
 
   // Prevent multiple onComplete/onCancel calls
   const handledRef = useRef(false);
@@ -128,93 +141,148 @@ export function ModelSetupOverlay({
     task?.status === "pending";
   const isFailed = task?.status === "failed";
   const isCancelled = task?.status === "cancelled";
+  const drawOverlay = useCallback(() => {
+    if (shouldClearOverlay(previousFrameRef.current, overlayFrame)) {
+      clearOverlay(previousFrameRef.current);
+    }
+    previousFrameRef.current = overlayFrame;
 
-  return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={color("primary")}
-      paddingX={2}
-      paddingY={1}
-      marginY={1}
-      width={panelWidth}
-      alignSelf="center"
-    >
-      <Box marginBottom={1}>
-        <ChromeChip text="AI setup" tone="active" />
-        <Text></Text>
-        <Text bold color={color("primary")}>
-          First-time model download
-        </Text>
-      </Box>
+    const surface = createModalOverlayScaffold({
+      frame: overlayFrame,
+      colors,
+      title: "AI setup",
+      rightText: "esc cancel",
+    });
+    surface.blankRows(overlayFrame.y, overlayFrame.height);
+    const headerY = overlayFrame.y + 1;
+    const progressText = buildBalancedTextRow(
+      contentWidth,
+      "First-time model download",
+      isDownloading
+        ? percentLabel
+        : isFailed
+        ? "failed"
+        : isCancelled
+        ? "cancelled"
+        : "ready",
+    );
 
-      <Box marginBottom={1}>
-        <Text color={sc.text.muted}>Downloading</Text>
-        <Text bold color={color("accent")}>
-          {truncate(modelName, Math.max(8, contentWidth - 12), "…")}
-        </Text>
-      </Box>
+    surface.blankRows(overlayFrame.y, 1);
+    surface.balancedRow(
+      headerY,
+      progressText.leftText,
+      progressText.rightText,
+      contentWidth,
+      {
+        paddingLeft: 3,
+        leftColor: colors.title,
+        rightColor: isFailed
+          ? colors.error
+          : isCancelled
+          ? colors.warning
+          : colors.meta,
+        leftBold: true,
+      },
+    );
+    surface.textRow(
+      headerY + 1,
+      truncate(`Model · ${modelName}`, contentWidth, "…"),
+      { paddingLeft: 3, color: colors.section },
+    );
+    surface.textRow(
+      headerY + 2,
+      truncate(`Endpoint · ${endpoint}`, contentWidth, "…"),
+      { paddingLeft: 3, color: colors.meta },
+    );
+    surface.blankRow(headerY + 3);
 
-      <Box marginBottom={1}>
-        <Text color={sc.text.muted}>
-          {truncate(`Endpoint · ${endpoint}`, contentWidth, "…")}
-        </Text>
-      </Box>
-
-      {isDownloading && (
-        <Box flexDirection="column">
-          <Box justifyContent="space-between">
-            <ProgressBar current={percent} total={100} width={progressWidth} />
-            <Text color={sc.text.muted}>{percentLabel}</Text>
-          </Box>
-          {total > 0 && (
-            <Box marginTop={0}>
-              <Text color={sc.text.muted}>
-                {status} · {formatBytes(completed)} / {formatBytes(total)}
-              </Text>
-            </Box>
-          )}
-          {status && !total && (
-            <Box marginTop={0}>
-              <Text color={sc.text.muted}>{status}</Text>
-            </Box>
-          )}
-        </Box>
-      )}
-
-      {isFailed && (
-        <Box flexDirection="column" marginTop={1}>
-          <Box>
-            <ChromeChip text="Download failed" tone="error" />
-          </Box>
-          <Text color={sc.text.muted}>
-            Check that Ollama is running and try again.
-          </Text>
-        </Box>
-      )}
-
-      {isCancelled && (
-        <Box marginTop={1}>
-          <ChromeChip text="Download cancelled" tone="warning" />
-        </Box>
-      )}
-
-      <Box marginTop={1} flexDirection="column">
-        <Box>
-          <ChromeChip text="One-time download" tone="neutral" />
-          <Text></Text>
-          <ChromeChip text="Esc cancels" tone="warning" />
-        </Box>
-        <Text color={sc.text.muted} wrap="truncate-end">
-          {truncate(
-            "Initial model setup may download around 2GB once.",
+    if (isDownloading) {
+      const progressBar = formatProgressBar(
+        percent,
+        Math.max(10, contentWidth - 14),
+      );
+      surface.balancedRow(
+        headerY + 4,
+        `[${progressBar}]`,
+        percentLabel,
+        contentWidth,
+        {
+          paddingLeft: 3,
+          leftColor: colors.warning,
+          rightColor: colors.meta,
+        },
+      );
+      surface.textRow(
+        headerY + 5,
+        total > 0
+          ? truncate(
+            `${status} · ${formatBytes(completed)} / ${formatBytes(total)}`,
             contentWidth,
             "…",
-          )}
-        </Text>
-      </Box>
-    </Box>
-  );
+          )
+          : truncate(status, contentWidth, "…"),
+        { paddingLeft: 3, color: colors.meta },
+      );
+    } else if (isFailed) {
+      surface.textRow(
+        headerY + 4,
+        "Download failed. Check that Ollama is running and try again.",
+        { paddingLeft: 3, color: colors.error },
+      );
+    } else if (isCancelled) {
+      surface.textRow(
+        headerY + 4,
+        "Download cancelled. Reopen setup when you are ready.",
+        { paddingLeft: 3, color: colors.warning },
+      );
+    } else {
+      surface.textRow(
+        headerY + 4,
+        truncate(status, contentWidth, "…"),
+        { paddingLeft: 3, color: colors.meta },
+      );
+    }
+
+    surface.blankRow(headerY + 6);
+    surface.textRow(
+      headerY + 7,
+      "One-time download · initial setup may download around 2GB once.",
+      { paddingLeft: 3, color: colors.meta },
+    );
+    surface.textRow(
+      headerY + 8,
+      "Esc cancels · background shell stays visible while setup is open.",
+      { paddingLeft: 3, color: colors.footer },
+    );
+
+    writeToTerminal(surface.finish());
+  }, [
+    colors,
+    completed,
+    contentWidth,
+    endpoint,
+    isCancelled,
+    isDownloading,
+    isFailed,
+    modelName,
+    overlayFrame,
+    percent,
+    percentLabel,
+    status,
+    total,
+  ]);
+
+  useEffect(() => {
+    drawOverlay();
+  }, [drawOverlay]);
+
+  useEffect(() => () => {
+    if (previousFrameRef.current) {
+      clearOverlay(previousFrameRef.current);
+    }
+  }, []);
+
+  return null;
 }
 
 // ============================================================

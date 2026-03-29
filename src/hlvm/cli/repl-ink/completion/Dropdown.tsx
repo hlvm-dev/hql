@@ -8,88 +8,30 @@
  */
 
 import React, { useMemo } from "react";
-import { Text, Box } from "ink";
-import { MAX_VISIBLE_ITEMS, type CompletionItem, type ItemRenderSpec } from "./types.ts";
+import { Box, Text } from "ink";
+import {
+  type CompletionItem,
+  type ItemRenderSpec,
+  MAX_VISIBLE_ITEMS,
+  type ProviderId,
+} from "./types.ts";
 import { calculateScrollWindow } from "./navigation.ts";
+import { PickerRow } from "../components/PickerRow.tsx";
 import { HighlightedText } from "../components/HighlightedText.tsx";
-import { useTheme } from "../../theme/index.ts";
+import { useSemanticColors } from "../../theme/index.ts";
+import { getPickerColors, type PickerColors } from "../utils/picker-theme.ts";
+import {
+  COMPLETION_PANEL_CHROME_WIDTH,
+  COMPLETION_PANEL_MAX_WIDTH,
+  measureCompletionPanelWidth,
+} from "../utils/completion-layout.ts";
+import { truncate } from "../../../../common/utils.ts";
 
 const SELECTOR_COLUMN_WIDTH = 2;
 const META_COLUMN_WIDTH = 10;
-const PANEL_MIN_WIDTH = 24;
-const PANEL_MAX_WIDTH = 64;
-
-// ============================================================
-// Truncation (Dropdown-specific)
-// ============================================================
-
-/**
- * Truncate and adjust match indices accordingly.
- * Returns truncated label and adjusted indices.
- */
-function truncateWithIndices(
-  label: string,
-  maxWidth: number,
-  strategy: "start" | "end" | "none",
-  indices?: readonly number[]
-): { label: string; indices: readonly number[] } {
-  if (strategy === "none" || label.length <= maxWidth) {
-    return { label, indices: indices ?? [] };
-  }
-
-  if (strategy === "start") {
-    // Truncate from start (show end of path): "…" + last (maxWidth-1) chars
-    const offset = label.length - (maxWidth - 1);
-    const truncated = "…" + label.slice(offset);
-    // Shift indices: subtract offset, filter out negative, add 1 for "…"
-    const adjusted = (indices ?? [])
-      .map(i => i - offset + 1)
-      .filter(i => i > 0 && i < truncated.length);
-    return { label: truncated, indices: adjusted };
-  }
-
-  // Truncate from end: first (maxWidth-1) chars + "…"
-  const truncated = label.slice(0, maxWidth - 1) + "…";
-  const adjusted = (indices ?? []).filter(i => i < maxWidth - 1);
-  return { label: truncated, indices: adjusted };
-}
-
-interface TruncatedHighlightedTextProps {
-  readonly label: string;
-  readonly matchIndices?: readonly number[];
-  readonly maxWidth: number;
-  readonly truncate: "start" | "end" | "none";
-  readonly isSelected: boolean;
-}
-
-/**
- * Render text with truncation and fuzzy match highlighting.
- * Uses shared HighlightedText component for actual highlighting.
- */
-function TruncatedHighlightedText({
-  label,
-  matchIndices,
-  maxWidth,
-  truncate,
-  isSelected,
-}: TruncatedHighlightedTextProps): React.ReactElement {
-  const { color } = useTheme();
-  const { label: truncatedLabel, indices } = truncateWithIndices(
-    label,
-    maxWidth,
-    truncate,
-    matchIndices
-  );
-
-  return (
-    <HighlightedText
-      text={truncatedLabel}
-      matchIndices={indices.length > 0 ? indices : undefined}
-      baseColor={isSelected ? color("accent") : undefined}
-      inverse={isSelected}
-    />
-  );
-}
+const COMMAND_MARKER_WIDTH = 2;
+const COMMAND_MIN_LABEL_WIDTH = 12;
+const COMMAND_MAX_LABEL_WIDTH = 18;
 
 // ============================================================
 // Generic Item Rendering
@@ -100,6 +42,8 @@ interface GenericItemProps {
   readonly key?: string | number;
   /** The render specification for this item */
   readonly spec: ItemRenderSpec;
+  /** Shared picker chrome colors */
+  readonly pickerColors: PickerColors;
   /** Whether this item is selected */
   readonly isSelected: boolean;
   /** Available width for the row */
@@ -112,44 +56,25 @@ interface GenericItemProps {
  */
 function GenericItem({
   spec,
+  pickerColors,
   isSelected,
   width,
 }: GenericItemProps): React.ReactElement {
-  const { color } = useTheme();
-  const rowWidth = Math.max(PANEL_MIN_WIDTH, Math.min(width ?? PANEL_MAX_WIDTH, PANEL_MAX_WIDTH));
-  const rightMeta = spec.typeLabel ?? "";
-  const labelWidth = Math.max(
-    12,
-    Math.min(
-      spec.maxWidth,
-      rowWidth - SELECTOR_COLUMN_WIDTH - 1 - (rightMeta ? META_COLUMN_WIDTH : 0),
-    ),
-  );
+  const rowWidth = Math.max(1, width ?? COMPLETION_PANEL_MAX_WIDTH);
   return (
-    <Box width={rowWidth}>
-      <Box width={SELECTOR_COLUMN_WIDTH}>
-        <Text color={isSelected ? color("accent") : undefined}>
-          {isSelected ? "›" : " "}
-        </Text>
-      </Box>
-      <Text> </Text>
-      <Box width={labelWidth}>
-        <TruncatedHighlightedText
-          label={spec.label}
-          matchIndices={spec.matchIndices}
-          maxWidth={labelWidth}
-          truncate={spec.truncate}
-          isSelected={isSelected}
-        />
-      </Box>
-      {rightMeta && (
-        <Box width={META_COLUMN_WIDTH} justifyContent="flex-end">
-          <Text dimColor color={isSelected ? color("muted") : undefined}>
-            {rightMeta}
-          </Text>
-        </Box>
-      )}
-    </Box>
+    <PickerRow
+      label={spec.label}
+      matchIndices={spec.matchIndices}
+      pickerColors={pickerColors}
+      isSelected={isSelected}
+      width={rowWidth}
+      markerText={isSelected ? "›" : " "}
+      markerWidth={SELECTOR_COLUMN_WIDTH}
+      metaText={spec.typeLabel}
+      metaWidth={META_COLUMN_WIDTH}
+      maxLabelWidth={spec.maxWidth}
+      truncate={spec.truncate}
+    />
   );
 }
 
@@ -166,14 +91,79 @@ interface DropdownProps {
   readonly helpText: string;
   /** Whether the dropdown is loading */
   readonly isLoading: boolean;
+  /** Active provider determines the chrome variant */
+  readonly providerId?: ProviderId;
   /** Margin from left edge */
   readonly marginLeft?: number;
+  /** Margin from the composer above */
+  readonly marginTop?: number;
+  /** Margin below the panel */
+  readonly marginBottom?: number;
   /** Max visible items */
   readonly maxVisible?: number;
   /** Whether to show DocPanel (toggled with Ctrl+D shortcut) */
   readonly showDocPanel?: boolean;
   /** Available width */
   readonly width?: number;
+}
+
+interface CommandItemRowProps {
+  readonly key?: string | number;
+  readonly item: CompletionItem;
+  readonly isSelected: boolean;
+  readonly commandColumnWidth: number;
+  readonly width: number;
+  readonly pickerColors: PickerColors;
+  readonly accentColor: string;
+  readonly mutedColor: string;
+}
+
+function CommandItemRow({
+  item,
+  isSelected,
+  commandColumnWidth,
+  width,
+  pickerColors,
+  accentColor,
+  mutedColor,
+}: CommandItemRowProps): React.ReactElement {
+  const renderSpec = item.getRenderSpec();
+  const commandColor = isSelected ? accentColor : pickerColors.rowForeground;
+  const highlightColor = isSelected
+    ? pickerColors.selectedMatch
+    : pickerColors.rowMatch;
+  const descriptionColor = isSelected ? pickerColors.rowForeground : mutedColor;
+  const descriptionWidth = Math.max(
+    1,
+    width - COMMAND_MARKER_WIDTH - commandColumnWidth,
+  );
+  const description = renderSpec.description
+    ? truncate(renderSpec.description, descriptionWidth, "…")
+    : "";
+
+  return (
+    <Box width={width}>
+      <Box width={COMMAND_MARKER_WIDTH}>
+        <Text color={isSelected ? accentColor : mutedColor}>
+          {isSelected ? "›" : " "}
+        </Text>
+      </Box>
+      <Box width={commandColumnWidth}>
+        <HighlightedText
+          text={renderSpec.label}
+          matchIndices={renderSpec.matchIndices}
+          baseColor={commandColor}
+          highlightColor={highlightColor}
+          bold={isSelected}
+        />
+      </Box>
+      <Box width={descriptionWidth}>
+        <Text color={descriptionColor} dimColor={!isSelected}>
+          {description}
+        </Text>
+      </Box>
+    </Box>
+  );
 }
 
 /**
@@ -196,15 +186,17 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
     selectedIndex,
     helpText,
     isLoading,
+    providerId,
     marginLeft = 1,
+    marginTop = 0,
+    marginBottom = 1,
     maxVisible = MAX_VISIBLE_ITEMS,
     showDocPanel = false,
     width,
   } = props;
-  const panelWidth = Math.max(
-    PANEL_MIN_WIDTH,
-    Math.min(width ?? PANEL_MAX_WIDTH, PANEL_MAX_WIDTH),
-  );
+  const sc = useSemanticColors();
+  const pickerColors = getPickerColors(sc);
+  const isCommandMenu = providerId === "command";
 
   // Don't render if no items and not loading
   if (items.length === 0 && !isLoading) {
@@ -214,7 +206,7 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
   // Calculate scroll window internally
   const scrollWindow = useMemo(
     () => calculateScrollWindow(selectedIndex, items.length, maxVisible),
-    [selectedIndex, items.length, maxVisible]
+    [selectedIndex, items.length, maxVisible],
   );
 
   // Trivial comparisons — no need for useMemo
@@ -235,6 +227,9 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
   const extendedDoc = selectedSpec?.extendedDoc;
 
   const previewLines = useMemo(() => {
+    if (isCommandMenu) {
+      return [];
+    }
     const lines: string[] = [];
     if (selectedSpec?.description) {
       lines.push(selectedSpec.description);
@@ -244,28 +239,97 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
       lines.push(...extendedDoc.split("\n").filter(Boolean).slice(0, limit));
     }
     return lines.slice(0, showDocPanel ? 3 : 2);
-  }, [extendedDoc, selectedSpec, showDocPanel]);
+  }, [extendedDoc, isCommandMenu, selectedSpec, showDocPanel]);
+
+  const panelWidth = useMemo(() => {
+    if (isCommandMenu) {
+      return Math.max(1, width ?? COMPLETION_PANEL_MAX_WIDTH);
+    }
+    const rowWidths = items.map((item: CompletionItem) => {
+      const spec = item.getRenderSpec();
+      const fittedLabelWidth = spec.truncate === "none"
+        ? spec.label.length
+        : Math.min(spec.label.length, spec.maxWidth);
+      return SELECTOR_COLUMN_WIDTH + 1 + fittedLabelWidth +
+        (spec.typeLabel ? META_COLUMN_WIDTH : 0);
+    });
+
+    return measureCompletionPanelWidth({
+      rowWidths,
+      helpText: items.length > 0 ? helpText : undefined,
+      previewLines,
+      maxWidth: width,
+    });
+  }, [helpText, isCommandMenu, items, previewLines, width]);
+  const innerWidth = Math.max(1, panelWidth - COMPLETION_PANEL_CHROME_WIDTH);
+  const commandColumnWidth = useMemo(
+    () => {
+      const longestLabel = items.length > 0
+        ? Math.max(...items.map((item: CompletionItem) => item.label.length))
+        : 0;
+      return Math.max(
+        COMMAND_MIN_LABEL_WIDTH,
+        Math.min(COMMAND_MAX_LABEL_WIDTH, longestLabel + 2),
+      );
+    },
+    [items],
+  );
+
+  if (isCommandMenu) {
+    return (
+      <Box
+        flexDirection="column"
+        marginLeft={marginLeft}
+        marginTop={marginTop}
+        marginBottom={marginBottom}
+        width={panelWidth}
+      >
+        {isLoading && items.length === 0 && (
+          <Text color={pickerColors.previewColor} dimColor>Searching...</Text>
+        )}
+        {hasMoreAbove
+          ? <Text color={pickerColors.separatorColor}>…</Text>
+          : null}
+        {visibleItems.map((item, i) => {
+          const isSelected = scrollWindow.start + i === selectedIndex;
+          return (
+            <CommandItemRow
+              key={item.id}
+              item={item}
+              isSelected={isSelected}
+              commandColumnWidth={commandColumnWidth}
+              width={panelWidth}
+              pickerColors={pickerColors}
+              accentColor={sc.chrome.sectionLabel}
+              mutedColor={sc.text.muted}
+            />
+          );
+        })}
+        {hasMoreBelow
+          ? <Text color={pickerColors.separatorColor}>…</Text>
+          : null}
+      </Box>
+    );
+  }
 
   return (
     <Box
       flexDirection="column"
       marginLeft={marginLeft}
-      marginTop={1}
-      marginBottom={1}
+      marginTop={marginTop}
+      marginBottom={marginBottom}
       width={panelWidth}
       borderStyle="round"
-      borderColor="gray"
+      borderColor={pickerColors.borderColor}
       paddingX={1}
     >
       {/* Loading indicator */}
       {isLoading && items.length === 0 && (
-        <Text dimColor>Searching...</Text>
+        <Text color={pickerColors.previewColor} dimColor>Searching...</Text>
       )}
 
       {/* Scroll up indicator */}
-      {hasMoreAbove ? (
-        <Text dimColor>…</Text>
-      ) : null}
+      {hasMoreAbove ? <Text color={pickerColors.separatorColor}>…</Text> : null}
 
       {/* Visible items - GENERIC rendering via getRenderSpec() */}
       {visibleItems.map((item, i) => {
@@ -275,37 +339,41 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
           <GenericItem
             key={item.id}
             spec={spec}
+            pickerColors={pickerColors}
             isSelected={isSelected}
-            width={panelWidth - 2}
+            width={innerWidth}
           />
         );
       })}
 
       {/* Empty padding rows for fixed height (prevents shaking) */}
-      {Array.from({ length: paddingCount }, (_, i) => (
-        <React.Fragment key={`pad-${i}`}>
-          <Text> </Text>
-        </React.Fragment>
-      ))}
+      {Array.from(
+        { length: paddingCount },
+        (_, i) => (
+          <React.Fragment key={`pad-${i}`}>
+            <Text>{" "}</Text>
+          </React.Fragment>
+        ),
+      )}
 
       {/* Scroll down indicator */}
-      {hasMoreBelow ? (
-        <Text dimColor>…</Text>
-      ) : null}
+      {hasMoreBelow ? <Text color={pickerColors.separatorColor}>…</Text> : null}
 
       {items.length > 0 && (
         <Box marginTop={1}>
-          <Text dimColor>{helpText}</Text>
+          <Text color={pickerColors.hintColor}>{helpText}</Text>
         </Box>
       )}
 
       {previewLines.map((line: string, index: number) => (
         <React.Fragment key={`${selectedItem?.id ?? "doc"}-${index}`}>
-          <Text dimColor>{line}</Text>
+          <Text color={pickerColors.previewColor}>{line}</Text>
         </React.Fragment>
       ))}
       {showDocPanel && !extendedDoc && (
-        <Text dimColor>(no documentation available)</Text>
+        <Text color={pickerColors.emptyColor}>
+          (no documentation available)
+        </Text>
       )}
     </Box>
   );

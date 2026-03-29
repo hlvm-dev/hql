@@ -4,7 +4,7 @@ import {
   reduceTranscriptState,
 } from "../../../src/hlvm/cli/agent-transcript-state.ts";
 
-Deno.test("transcript lanes: hql eval during an active turn stays out of agent transcript items", () => {
+Deno.test("transcript lanes: hql eval is committed into transcript items in insertion order", () => {
   let state = createTranscriptState();
 
   state = reduceTranscriptState(state, {
@@ -18,8 +18,8 @@ Deno.test("transcript lanes: hql eval during an active turn stays out of agent t
     result: { success: true, value: 2 },
   });
 
-  assertEquals(state.items.some((item) => item.type === "hql_eval"), false);
-  assertEquals(state.evalHistory.length, 1);
+  assertEquals(state.items.some((item) => item.type === "hql_eval"), true);
+  assertEquals(state.items.at(-1)?.type, "hql_eval");
 });
 
 Deno.test("transcript lanes: finalize clears currentTurnId after promoting the live turn", () => {
@@ -32,6 +32,7 @@ Deno.test("transcript lanes: finalize clears currentTurnId after promoting the l
   });
   state = reduceTranscriptState(state, {
     type: "finalize",
+    status: "completed",
   });
 
   assertEquals(state.currentTurnId, undefined);

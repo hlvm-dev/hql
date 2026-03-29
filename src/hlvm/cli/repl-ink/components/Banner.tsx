@@ -13,10 +13,7 @@ import {
   DEFAULT_TERMINAL_HEIGHT,
   DEFAULT_TERMINAL_WIDTH,
 } from "../ui-constants.ts";
-import {
-  getShellContentWidth,
-  SHELL_LAYOUT,
-} from "../utils/layout-tokens.ts";
+import { getShellContentWidth, SHELL_LAYOUT } from "../utils/layout-tokens.ts";
 
 const LOGO_LINES = [
   "██  ██ ██      ██    ██ ██    ██",
@@ -110,11 +107,13 @@ export function getBannerRowCount(
   height = DEFAULT_TERMINAL_HEIGHT,
 ): number {
   const compact = shouldUseCompactBanner(width, height);
+  const topPaddingRows = compact ? 0 : SHELL_LAYOUT.bannerTopGap;
   const logoRows = compact ? 1 : LOGO_LINES.length;
   const spacerRows = compact ? 0 : 1; // blank line between logo and tagline
   const warningRows = errorCount > 0 ? 1 : 0;
   const marginBottomRows = 1;
-  return logoRows + spacerRows + 1 + warningRows + marginBottomRows;
+  return topPaddingRows + logoRows + spacerRows + 1 + warningRows +
+    marginBottomRows;
 }
 
 export function shouldUseCompactBanner(
@@ -142,7 +141,11 @@ export function Banner(
   );
 
   return (
-    <Box flexDirection="column" marginBottom={SHELL_LAYOUT.bannerBottomGap}>
+    <Box
+      flexDirection="column"
+      marginTop={compact ? 0 : SHELL_LAYOUT.bannerTopGap}
+      marginBottom={SHELL_LAYOUT.bannerBottomGap}
+    >
       <Box flexDirection="column">
         {(compact ? ["HLVM"] : LOGO_LINES).map((line, index) => (
           <React.Fragment key={index}>

@@ -5,7 +5,6 @@ import {
   getOrCreateSession,
   getSession,
   insertMessage,
-  listSessions,
   updateSession,
 } from "../store/conversation-store.ts";
 import {
@@ -15,7 +14,6 @@ import {
 import { loadAllMessages } from "../store/message-utils.ts";
 import { buildStoredAgentHistoryMessages } from "../cli/repl/handlers/chat-context.ts";
 import type { TodoItem } from "./todo-state.ts";
-import type { DelegateTranscriptSnapshot } from "./delegate-transcript.ts";
 import type { Plan } from "./planning.ts";
 import {
   cloneTeamRuntimeSnapshot,
@@ -59,18 +57,6 @@ interface CreatePersistedAgentChildSessionOptions {
   parentSessionId: string;
   agent: string;
   task: string;
-}
-
-interface PersistedAgentChildSessionSummary {
-  sessionId: string;
-  agent: string;
-  task: string;
-  createdAt: number;
-  updatedAt: number;
-  status: "success" | "error";
-  summary?: string;
-  error?: string;
-  snapshot: DelegateTranscriptSnapshot;
 }
 
 export function getPersistedAgentSessionId(): string {
@@ -444,98 +430,3 @@ export function loadPersistedAgentSessionMetadata(
   return parsePersistedAgentSessionMetadata(session?.metadata);
 }
 
-function listPersistedAgentChildSessions(
-  parentSessionId: string,
-): string[] {
-  return listSessions()
-    .filter((session) => {
-      const metadata = parsePersistedAgentSessionMetadata(session.metadata);
-      return metadata.parentSessionId === parentSessionId;
-    })
-    .map((session) => session.id);
-}
-
-export function loadPersistedAgentChildSessionSummaries(
-  parentSessionId: string,
-): PersistedAgentChildSessionSummary[] {
-  const parent = getSession(parentSessionId);
-  const parentMetadata = parsePersistedAgentSessionMetadata(parent?.metadata);
-  const childIds = parentMetadata.childSessionIds ?? listPersistedAgentChildSessions(parentSessionId);
-
-  return childIds.flatMap((sessionId) => {
-    const child = getSession(sessionId);
-    if (!child) return [];
-
-    const metadata = parsePersistedAgentSessionMetadata(child.metadata);
-    const messages = loadAllMessages(sessionId);
-    const toolMessages = messages.filter((message) => message.role === "tool");
-    const finalAssistant = messages.findLast((message) =>
-      message.role === "assistant"
-    )?.content;
-    const failurePrefix = "Delegation failed:";
-    const error = !finalAssistant
-      ? "Incomplete child session"
-      : finalAssistant.startsWith(failurePrefix)
-      ? finalAssistant.slice(failurePrefix.length).trim() || finalAssistant
-      : undefined;
-    const summary = error ? undefined : finalAssistant;
-    const createdAt = Date.parse(child.created_at);
-    const updatedAt = Date.parse(child.updated_at);
-    const durationMs = Math.max(
-      0,
-      (Number.isFinite(updatedAt) ? updatedAt : createdAt) -
-        (Number.isFinite(createdAt) ? createdAt : updatedAt),
-    );
-
-    return [{
-      sessionId,
-      agent: metadata.agent ?? "delegate",
-      task: metadata.task ?? child.title,
-      createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
-      updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
-      status: error ? "error" as const : "success" as const,
-      summary,
-      error,
-      snapshot: {
-        agent: metadata.agent ?? "delegate",
-        task: metadata.task ?? child.title,
-        childSessionId: sessionId,
-        success: !error,
-        durationMs,
-        toolCount: toolMessages.length,
-        finalResponse: summary,
-        error,
-        events: toolMessages.map((message) => ({
-          type: "tool_end" as const,
-          name: message.tool_name ?? "tool",
-          success: parsePersistedToolMessageMetadata(message.tool_calls).success ?? true,
-          content: message.content,
-          summary: message.content,
-          durationMs: 0,
-          argsSummary: parsePersistedToolMessageMetadata(message.tool_calls).argsSummary ?? "",
-        })),
-      },
-    }];
-  }).sort((a, b) => a.createdAt - b.createdAt);
-}
-
-function parsePersistedToolMessageMetadata(
-  value: string | null,
-): PersistedToolMessageMetadata {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    const record = Array.isArray(parsed) ? parsed[0] : parsed;
-    if (!record || typeof record !== "object") return {};
-    return {
-      argsSummary: typeof (record as { argsSummary?: unknown }).argsSummary === "string"
-        ? (record as { argsSummary: string }).argsSummary
-        : undefined,
-      success: typeof (record as { success?: unknown }).success === "boolean"
-        ? (record as { success: boolean }).success
-        : undefined,
-    };
-  } catch {
-    return {};
-  }
-}

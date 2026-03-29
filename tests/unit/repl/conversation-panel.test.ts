@@ -116,6 +116,7 @@ Deno.test("getConversationDisplayItems compacts plan-mode transcript noise by hi
       id: "stats-1",
       toolCount: 1,
       durationMs: 120,
+      status: "completed",
     },
     {
       type: "assistant",
@@ -416,7 +417,7 @@ Deno.test("getPlanFlowActivitySummary prefers the latest tool activity for compa
 
   assertEquals(
     summary,
-    "Reading path=src/hlvm/cli/repl-ink/components/ConversationPanel.tsx",
+    "Reading ConversationPanel.tsx",
   );
 });
 
@@ -516,7 +517,7 @@ Deno.test("getRecentPlanFlowActivitySummaries returns the latest distinct tool a
 
   assertEquals(summaries, [
     "Moving files: mv ~/Desktop/a ~/Desktop/screenshots/",
-    "Reading src/app.tsx",
-    "Listing ~/Desktop",
+    "Reading app.tsx",
+    "Listing Desktop",
   ]);
 });

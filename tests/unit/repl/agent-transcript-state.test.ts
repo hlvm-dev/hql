@@ -55,6 +55,7 @@ Deno.test("agent transcript state drops stale turn stats when assistant text con
       id: "stats1",
       toolCount: 1,
       durationMs: 1200,
+      status: "completed",
     },
   ]);
 
@@ -249,7 +250,10 @@ Deno.test("agent transcript state finalization removes transient rows and empty 
     },
   ]);
 
-  const next = reduceTranscriptState(state, { type: "finalize" });
+  const next = reduceTranscriptState(state, {
+    type: "finalize",
+    status: "completed",
+  });
 
   assertEquals(next.items.map((item) => item.type), ["user", "assistant"]);
   assertEquals(next.items[1]?.type, "assistant");
@@ -364,7 +368,10 @@ Deno.test("agent transcript state finalize clears orphaned planning state when e
     pendingPlanReview: { plan: samplePlan },
   };
 
-  const next = reduceTranscriptState(state, { type: "finalize" });
+  const next = reduceTranscriptState(state, {
+    type: "finalize",
+    status: "completed",
+  });
 
   assertEquals(next.items.length, 1);
   assertEquals(next.items[0]?.type, "assistant");
@@ -521,11 +528,14 @@ Deno.test("agent transcript state keeps provider reasoning summaries only while 
     assertEquals(state.items[0].summary, "Inspect parser.ts before editing.");
   }
 
-  const finalized = reduceTranscriptState(state, { type: "finalize" });
+  const finalized = reduceTranscriptState(state, {
+    type: "finalize",
+    status: "completed",
+  });
   assertEquals(finalized.items.length, 0);
 });
 
-Deno.test("agent transcript state drops thinking rows when turn stats close the turn", () => {
+Deno.test("agent transcript state commits turn completion only when the turn finalizes", () => {
   let state = reduceTranscriptState(createTranscriptState(), {
     type: "user_message",
     text: "hello",
@@ -560,6 +570,16 @@ Deno.test("agent transcript state drops thinking rows when turn stats close the 
   });
 
   assertEquals(next.items.map((item) => item.type), [
+    "user",
+    "thinking",
+    "assistant",
+  ]);
+
+  const finalized = reduceTranscriptState(next, {
+    type: "finalize",
+    status: "completed",
+  });
+  assertEquals(finalized.items.map((item) => item.type), [
     "user",
     "assistant",
     "turn_stats",
@@ -682,7 +702,10 @@ Deno.test("agent transcript state clears prior-turn reasoning when later turns r
     },
   });
 
-  state = reduceTranscriptState(state, { type: "finalize" });
+  state = reduceTranscriptState(state, {
+    type: "finalize",
+    status: "completed",
+  });
   state = reduceTranscriptState(state, {
     type: "user_message",
     text: "second turn",
@@ -741,6 +764,7 @@ Deno.test("agent transcript state collapses repeated assistant blocks within one
       id: "stats1",
       toolCount: 1,
       durationMs: 1000,
+      status: "completed",
     },
     {
       type: "tool_group",
@@ -769,6 +793,7 @@ Deno.test("agent transcript state collapses repeated assistant blocks within one
       id: "stats2",
       toolCount: 2,
       durationMs: 2000,
+      status: "completed",
     },
   ]);
 
@@ -791,7 +816,7 @@ Deno.test("agent transcript state collapses repeated assistant blocks within one
   }
 });
 
-Deno.test("agent transcript state keeps only the latest turn stats for the active user turn", () => {
+Deno.test("agent transcript state keeps only the latest pending turn stats for the active user turn", () => {
   const withUser = reduceTranscriptState(createTranscriptState(), {
     type: "user_message",
     text: "hello",
@@ -819,14 +844,10 @@ Deno.test("agent transcript state keeps only the latest turn stats for the activ
 
   assertEquals(
     secondStats.items.filter((item) => item.type === "turn_stats").length,
-    1,
+    0,
   );
-  assertEquals(secondStats.items.at(-1)?.type, "turn_stats");
-  const latestItem = secondStats.items.at(-1);
-  if (latestItem?.type === "turn_stats") {
-    assertEquals(latestItem.toolCount, 2);
-    assertEquals(latestItem.durationMs, 2000);
-  }
+  assertEquals(secondStats.pendingTurnStats?.toolCount, 2);
+  assertEquals(secondStats.pendingTurnStats?.durationMs, 2000);
 });
 
 Deno.test("agent transcript state clears prior plan and todo state when hydrating a resumed transcript", () => {
@@ -1112,7 +1133,7 @@ Deno.test("agent transcript state preserves items during plan phase transitions"
 // HQL eval — insertion + turnId
 // ============================================================
 
-Deno.test("hql_eval during Responding stays out of transcript items but keeps the active turnId", () => {
+Deno.test("hql_eval during Responding is appended into transcript items and keeps the active turnId", () => {
   // Set up state with user + pending assistant + currentTurnId
   let state = createTranscriptState();
   state = reduceTranscriptState(state, {
@@ -1130,10 +1151,10 @@ Deno.test("hql_eval during Responding stays out of transcript items but keeps th
     input: "(+ 1 2)",
     result: { success: true, value: "3" },
   });
-  assertEquals(next.items.length, 2);
+  assertEquals(next.items.length, 3);
   assertEquals(next.items[1].type, "assistant");
-  assertEquals(next.evalHistory.length, 1);
-  const evalItem = next.evalHistory[0];
+  assertEquals(next.items[2]?.type, "hql_eval");
+  const evalItem = next.items[2];
   if (evalItem) {
     assertEquals(evalItem.turnId, "turn-1");
   }
@@ -1146,10 +1167,10 @@ Deno.test("hql_eval during Idle gets its own ephemeral turnId", () => {
     input: "(+ 1 2)",
     result: { success: true, value: "3" },
   });
-  assertEquals(next.items.length, 0);
-  assertEquals(next.evalHistory.length, 1);
+  assertEquals(next.items.length, 1);
+  assertEquals(next.items[0]?.type, "hql_eval");
   // Should have an ephemeral turnId
-  const evalItem = next.evalHistory[0];
+  const evalItem = next.items[0];
   if (evalItem) {
     assertEquals(evalItem.turnId, "turn-1");
   }
@@ -1211,7 +1232,7 @@ Deno.test("turnId propagates through agent_event sub-cases", () => {
   }
 });
 
-Deno.test("turn_stats clears currentTurnId", () => {
+Deno.test("finalize clears currentTurnId after committing pending turn stats", () => {
   let state = createTranscriptState();
   state = reduceTranscriptState(state, {
     type: "user_message",
@@ -1236,11 +1257,19 @@ Deno.test("turn_stats clears currentTurnId", () => {
       durationMs: 100,
     },
   });
+
+  assertEquals(state.currentTurnId, "turn-1");
+  assertEquals(state.items.some((i) => i.type === "turn_stats"), false);
+
+  state = reduceTranscriptState(state, {
+    type: "finalize",
+    status: "completed",
+  });
   assertEquals(state.currentTurnId, undefined);
-  // turn_stats item should carry the turnId from the turn
   const statsItem = state.items.find((i) => i.type === "turn_stats");
   if (statsItem?.type === "turn_stats") {
     assertEquals(statsItem.turnId, "turn-1");
+    assertEquals(statsItem.status, "completed");
   }
 });
 
@@ -1266,6 +1295,10 @@ Deno.test("turnCounter increments monotonically", () => {
   state = reduceTranscriptState(state, {
     type: "agent_event",
     event: { type: "turn_stats", iteration: 1, toolCount: 0, durationMs: 50 },
+  });
+  state = reduceTranscriptState(state, {
+    type: "finalize",
+    status: "completed",
   });
 
   // Second turn

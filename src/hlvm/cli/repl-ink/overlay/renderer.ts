@@ -15,6 +15,8 @@
  */
 
 import { getPlatform } from "../../../../platform/platform.ts";
+import { buildSemanticColors } from "../../theme/semantic.ts";
+import type { ThemePalette } from "../../theme/palettes.ts";
 import { DEFAULT_TERMINAL_HEIGHT, DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 
 // ANSI escape sequences
@@ -134,18 +136,6 @@ function hexToRgb(hex: string): [number, number, number] {
 /** RGB color tuple */
 export type RGB = [number, number, number];
 
-/** Default overlay background color */
-export const OVERLAY_BG_COLOR: RGB = [35, 35, 40];
-
-/** Default selected-row background color (subtle dark highlight) */
-export const OVERLAY_SELECTED_BG_COLOR: RGB = [55, 55, 65];
-
-/** Pre-computed ANSI background style for overlay background (use instead of bg(OVERLAY_BG_COLOR)) */
-export const OVERLAY_BG_STYLE: string = ansi.bg(...OVERLAY_BG_COLOR);
-
-/** Pre-computed ANSI background style for selected rows (use instead of bg(OVERLAY_SELECTED_BG_COLOR)) */
-export const OVERLAY_SELECTED_BG_STYLE: string = ansi.bg(...OVERLAY_SELECTED_BG_COLOR);
-
 /** Create ANSI foreground color string from RGB */
 export function fg(rgb: RGB): string {
   return ansi.fg(rgb[0], rgb[1], rgb[2]);
@@ -247,7 +237,7 @@ export function drawOverlayFrame(
 ): string {
   if (frame.width <= 0 || frame.height <= 0) return "";
 
-  const backgroundColor = options.backgroundColor ?? OVERLAY_BG_COLOR;
+  const backgroundColor = options.backgroundColor ?? options.borderColor;
   const borderStyle = fg(options.borderColor);
   const backgroundStyle = bg(backgroundColor);
   const { top, bottom } = buildOverlayFrameText(frame.width, {
@@ -385,6 +375,18 @@ export interface OverlayColors {
   warning: RGB;
   error: RGB;
   muted: RGB;
+  background: RGB;
+  selectedBackground: RGB;
+  title: RGB;
+  meta: RGB;
+  section: RGB;
+  footer: RGB;
+  fieldBorder: RGB;
+  fieldBorderActive: RGB;
+  fieldBackground: RGB;
+  fieldText: RGB;
+  fieldPlaceholder: RGB;
+  fieldCursor: RGB;
   /** ANSI bg string for overlay background — use directly, no bg() call needed */
   bgStyle: string;
   /** ANSI bg string for selected-row highlight — use directly, no bg() call needed */
@@ -409,7 +411,14 @@ export function themeToOverlayColors(theme: {
   warning: string;
   error: string;
   muted: string;
+  text: string;
+  bg: string;
 }): OverlayColors {
+  const semantic = buildSemanticColors(theme as ThemePalette);
+  const background = hexToRgb(semantic.surface.modal.background) as RGB;
+  const selectedBackground = hexToRgb(
+    semantic.surface.modal.selectedBackground,
+  ) as RGB;
   return {
     primary: hexToRgb(theme.primary) as RGB,
     secondary: hexToRgb(theme.secondary) as RGB,
@@ -418,7 +427,19 @@ export function themeToOverlayColors(theme: {
     warning: hexToRgb(theme.warning) as RGB,
     error: hexToRgb(theme.error) as RGB,
     muted: hexToRgb(theme.muted) as RGB,
-    bgStyle: OVERLAY_BG_STYLE,
-    selectedBgStyle: OVERLAY_SELECTED_BG_STYLE,
+    background,
+    selectedBackground,
+    title: hexToRgb(semantic.surface.modal.title) as RGB,
+    meta: hexToRgb(semantic.surface.modal.meta) as RGB,
+    section: hexToRgb(semantic.surface.modal.section) as RGB,
+    footer: hexToRgb(semantic.surface.modal.footer) as RGB,
+    fieldBorder: hexToRgb(semantic.surface.field.border) as RGB,
+    fieldBorderActive: hexToRgb(semantic.surface.field.borderActive) as RGB,
+    fieldBackground: hexToRgb(semantic.surface.field.background) as RGB,
+    fieldText: hexToRgb(semantic.surface.field.text) as RGB,
+    fieldPlaceholder: hexToRgb(semantic.surface.field.placeholder) as RGB,
+    fieldCursor: hexToRgb(semantic.surface.field.cursor) as RGB,
+    bgStyle: bg(background),
+    selectedBgStyle: bg(selectedBackground),
   };
 }

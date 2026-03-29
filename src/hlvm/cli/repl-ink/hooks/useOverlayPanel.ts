@@ -17,13 +17,13 @@ import { resetTerminalViewport } from "../../ansi.ts";
 
 export type SurfacePanel =
   | "none"
-  | "models"
-  | "model-setup"
   | "conversation";
 
 export type OverlayPanel =
   | "none"
   | "palette"
+  | "models"
+  | "model-setup"
   | "config-overlay"
   | "team-dashboard"
   | "shortcuts-overlay"
@@ -32,9 +32,7 @@ export type OverlayPanel =
 
 export type ShellRoute =
   | { kind: "shell"; overlay: OverlayPanel }
-  | { kind: "conversation"; overlay: OverlayPanel }
-  | { kind: "models" }
-  | { kind: "model-setup" };
+  | { kind: "conversation"; overlay: OverlayPanel };
 
 function createOverlayToggle(
   panelName: OverlayPanel,
@@ -52,15 +50,12 @@ function createOverlayToggle(
 }
 
 function isModalOverlayPanel(panel: string): boolean {
-  return panel === "palette" || panel === "config-overlay" ||
+  return panel === "palette" || panel === "models" ||
+    panel === "model-setup" || panel === "config-overlay" ||
     panel === "team-dashboard" ||
     panel === "shortcuts-overlay" ||
     panel === "transcript-history" ||
     panel === "background-tasks";
-}
-
-function usesStandaloneSurfacePanel(surfacePanel: string): boolean {
-  return surfacePanel === "models" || surfacePanel === "model-setup";
 }
 
 interface UseOverlayPanelInput {
@@ -107,34 +102,20 @@ export function useOverlayPanel(
     kind: "shell",
     overlay: "none",
   });
-  const surfacePanel = route.kind === "conversation"
-    ? "conversation"
-    : route.kind === "models"
-    ? "models"
-    : route.kind === "model-setup"
-    ? "model-setup"
-    : "none";
-  const activeOverlay = "overlay" in route ? route.overlay : "none";
+  const surfacePanel = route.kind === "conversation" ? "conversation" : "none";
+  const activeOverlay = route.overlay;
 
   const setSurfacePanel = useMemo<Dispatch<SetStateAction<SurfacePanel>>>(
     () => (value: SetStateAction<SurfacePanel>) => {
       setRoute((prev: ShellRoute) => {
         const prevValue = prev.kind === "conversation"
           ? "conversation"
-          : prev.kind === "models"
-          ? "models"
-          : prev.kind === "model-setup"
-          ? "model-setup"
           : "none";
         const nextValue = typeof value === "function" ? value(prevValue) : value;
-        const overlay = "overlay" in prev ? prev.overlay : "none";
+        const overlay = prev.overlay;
         switch (nextValue) {
           case "conversation":
             return { kind: "conversation", overlay };
-          case "models":
-            return { kind: "models" };
-          case "model-setup":
-            return { kind: "model-setup" };
           default:
             return { kind: "shell", overlay };
         }
@@ -146,11 +127,8 @@ export function useOverlayPanel(
   const setActiveOverlay = useMemo<Dispatch<SetStateAction<OverlayPanel>>>(
     () => (value: SetStateAction<OverlayPanel>) => {
       setRoute((prev: ShellRoute) => {
-        const prevValue = "overlay" in prev ? prev.overlay : "none";
+        const prevValue = prev.overlay;
         const nextValue = typeof value === "function" ? value(prevValue) : value;
-        if (prev.kind === "models" || prev.kind === "model-setup") {
-          return prev;
-        }
         return prev.kind === "conversation"
           ? { kind: "conversation", overlay: nextValue }
           : { kind: "shell", overlay: nextValue };
@@ -203,13 +181,14 @@ export function useOverlayPanel(
       activeOverlay === "none" &&
       !modelSetupHandled
     ) {
-      setRoute({ kind: "model-setup" });
+      setActiveOverlay("model-setup");
     }
   }, [
     activeOverlay,
     initReady,
     needsModelSetup,
     modelSetupHandled,
+    setActiveOverlay,
     surfacePanel,
   ]);
 
@@ -252,7 +231,7 @@ export function useOverlayPanel(
   );
 
   const isOverlayOpen = isModalOverlayPanel(activeOverlay);
-  const hasStandaloneSurface = usesStandaloneSurfacePanel(surfacePanel);
+  const hasStandaloneSurface = false;
 
   return {
     route,

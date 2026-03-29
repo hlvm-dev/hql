@@ -23,8 +23,8 @@ Deno.test("shouldUseCompactBanner activates for short terminals", () => {
 });
 
 Deno.test("getBannerRowCount matches compact and full banner footprints", () => {
-  assertEquals(getBannerRowCount(0, 80, 28), 8);
-  assertEquals(getBannerRowCount(1, 80, 28), 9);
+  assertEquals(getBannerRowCount(0, 80, 28), 9);
+  assertEquals(getBannerRowCount(1, 80, 28), 10);
   assertEquals(getBannerRowCount(0, 32, 28), 3);
 });
 

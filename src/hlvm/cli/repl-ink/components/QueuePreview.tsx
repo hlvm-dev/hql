@@ -1,8 +1,8 @@
 /**
  * QueuePreview Component
  *
- * Renders queued conversation drafts using the same explicit section shape as
- * Codex's queued follow-up preview.
+ * Renders one ordered foreground queue. Item type is shown inline, but the
+ * shell no longer splits chat/eval into separate queue lanes.
  */
 
 import React, { useMemo } from "react";
@@ -11,13 +11,14 @@ import { truncate } from "../../../../common/utils.ts";
 import {
   type ConversationComposerDraft,
   getConversationDraftPreview,
+  getQueuedDraftKind,
 } from "../utils/conversation-queue.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 import {
-  buildQueuePreviewHeaderLine,
+  buildMixedQueuePreviewHeaderLine,
+  buildMixedQueuePreviewItemLine,
+  buildMixedQueuePreviewOverflowLine,
   buildQueuePreviewHintLine,
-  buildQueuePreviewItemLine,
-  buildQueuePreviewOverflowCountLine,
   type ShellQueuePreviewLine,
 } from "../utils/shell-chrome.ts";
 import { ShellPreviewList } from "./ShellPreviewList.tsx";
@@ -36,20 +37,21 @@ export function buildQueuePreviewLines(
 ): ShellQueuePreviewLine[] {
   if (items.length === 0) return [];
 
-  const lines: ShellQueuePreviewLine[] = [buildQueuePreviewHeaderLine()];
-
+  const lines: ShellQueuePreviewLine[] = [buildMixedQueuePreviewHeaderLine()];
   const visibleItems = items.slice(0, MAX_VISIBLE_ITEMS);
-  for (let i = 0; i < visibleItems.length; i++) {
+
+  for (const item of visibleItems) {
     lines.push(
-      buildQueuePreviewItemLine(
-        truncate(getConversationDraftPreview(visibleItems[i]), PREVIEW_LENGTH),
+      buildMixedQueuePreviewItemLine(
+        getQueuedDraftKind(item),
+        truncate(getConversationDraftPreview(item), PREVIEW_LENGTH),
       ),
     );
   }
 
   if (items.length > visibleItems.length) {
     lines.push(
-      buildQueuePreviewOverflowCountLine(items.length - visibleItems.length),
+      buildMixedQueuePreviewOverflowLine(items.length - visibleItems.length),
     );
   }
 

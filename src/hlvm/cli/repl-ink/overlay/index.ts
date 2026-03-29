@@ -12,13 +12,18 @@ export {
   drawOverlayFrame,
   fg,
   fitOverlayRect,
-  OVERLAY_BG_COLOR,
   resolveOverlayFrame,
   type RGB,
   shouldClearOverlay,
   themeToOverlayColors,
   writeToTerminal,
 } from "./renderer.ts";
+export {
+  createModalOverlayScaffold,
+  type ModalOverlayScaffold,
+  type OverlayRowContext,
+  type OverlayTextStyle,
+} from "./scaffold.ts";
 export {
   BACKGROUND_TASKS_OVERLAY_SPEC,
   COMMAND_PALETTE_OVERLAY_SPEC,

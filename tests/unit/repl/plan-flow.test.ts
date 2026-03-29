@@ -233,10 +233,10 @@ Deno.test("derivePlanSurfaceState centralizes the active checklist, current step
   assertEquals(state.currentStep, "Implement plan shell");
   assertEquals(
     state.currentActivity,
-    "Reading src/hlvm/cli/repl-ink/components/App.tsx",
+    "Reading App.tsx",
   );
   assertEquals(state.recentActivities, [
-    "Reading src/hlvm/cli/repl-ink/components/App.tsx",
+    "Reading App.tsx",
     "Delegating to worker-1: Verify narrow terminal layout",
   ]);
 });
@@ -290,7 +290,7 @@ Deno.test("getPlanFlowActivitySummary skips checklist noise and surfaces the rea
 
   assertEquals(
     getPlanFlowActivitySummary(items),
-    "Reading src/hlvm/cli/repl-ink/components/App.tsx",
+    "Reading App.tsx",
   );
 });
 

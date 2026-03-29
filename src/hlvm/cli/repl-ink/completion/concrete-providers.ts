@@ -37,7 +37,11 @@ import {
   shouldTriggerSymbol,
 } from "./providers.ts";
 import { isSupportedConversationMedia } from "../../repl/attachment.ts";
-import { fuzzyMatch, type FuzzyResult } from "../../repl/fuzzy.ts";
+import {
+  compareScoredFuzzyMatches,
+  fuzzyMatch,
+  type FuzzyResult,
+} from "../../repl/fuzzy.ts";
 
 // ============================================================
 // Symbol Provider
@@ -358,7 +362,7 @@ export const SymbolProvider: CompletionProvider = {
     // Add USER BINDINGS FIRST - they override stdlib when names conflict
     // User's definitions should have higher priority than stdlib
     for (const binding of context.userBindings) {
-      const matchResult = prefix ? fuzzyMatch(prefix, binding) : null;
+      const matchResult = prefix ? fuzzyMatch(prefix, binding, "symbol") : null;
       const item = createItem(
         binding,
         "variable",
@@ -377,7 +381,7 @@ export const SymbolProvider: CompletionProvider = {
       for (const id of allIdentifiers) {
         if (seen.has(id)) continue;
 
-        const matchResult = prefix ? fuzzyMatch(prefix, id) : null;
+        const matchResult = prefix ? fuzzyMatch(prefix, id, "symbol") : null;
         const type = classifyIdentifier(id, context.userBindings);
         const item = createItem(
           id,
@@ -395,7 +399,16 @@ export const SymbolProvider: CompletionProvider = {
     // Sort by score (highest first) and limit results
     // More items for empty prefix (browsing), fewer for typed prefix (filtering)
     const limit = prefix ? 15 : 20;
-    items.sort((a, b) => b.score - a.score);
+    items.sort((a, b) =>
+      compareScoredFuzzyMatches(
+        a.label,
+        a.score,
+        a.matchIndices,
+        b.label,
+        b.score,
+        b.matchIndices,
+      )
+    );
     const ranked = items.slice(0, limit);
 
     return {
@@ -658,7 +671,7 @@ export const CommandProvider: CompletionProvider = {
     for (const cmd of COMMAND_CATALOG) {
       // Fuzzy match against command name without the leading /
       const cmdName = cmd.name.slice(1); // Remove /
-      const matchResult = query ? fuzzyMatch(query, cmdName) : null;
+      const matchResult = query ? fuzzyMatch(query, cmdName, "command") : null;
 
       // Include all for empty query, or only matches for non-empty
       if (query && !matchResult) continue;
@@ -686,7 +699,16 @@ export const CommandProvider: CompletionProvider = {
     }
 
     // Sort by score (higher = better match)
-    items.sort((a, b) => b.score - a.score);
+    items.sort((a, b) =>
+      compareScoredFuzzyMatches(
+        a.label,
+        a.score,
+        a.matchIndices,
+        b.label,
+        b.score,
+        b.matchIndices,
+      )
+    );
 
     return Promise.resolve({
       items,

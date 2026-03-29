@@ -11,6 +11,7 @@ import {
   type AgentConversationItem,
   type AssistantCitation,
   type ConversationItem,
+  isStructuredTeamInfoItem,
   type StreamingState,
   StreamingState as ConversationStreamingState,
 } from "../types.ts";
@@ -299,6 +300,9 @@ function renderItem(
           inputTokens={item.inputTokens}
           outputTokens={item.outputTokens}
           modelId={item.modelId}
+          status={item.status}
+          summary={item.summary}
+          activityTrail={item.activityTrail}
         />
       );
     case "memory_activity":

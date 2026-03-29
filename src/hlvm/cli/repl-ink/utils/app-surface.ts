@@ -41,7 +41,6 @@ export function shouldRenderShellLanes(options: {
   hasLocalAgents?: boolean;
 }): boolean {
   return options.historyItemCount > 0 ||
-    options.localEvalQueueCount > 0 ||
     options.liveItemCount > 0 ||
     options.liveTodoCount > 0 ||
     options.hasPendingInteraction ||

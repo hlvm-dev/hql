@@ -6,11 +6,12 @@
 
 import { validatePath } from "./security/path-sandbox.ts";
 import {
+  type AgentPolicy,
   enforcePathPolicy,
   isPathAllowedAbsolute,
   resolvePolicyPathRoots,
-  type AgentPolicy,
 } from "./policy.ts";
+import { expandCommonHomePath } from "../../common/home-folders.ts";
 import { getPlatform } from "../../platform/platform.ts";
 
 /**
@@ -22,7 +23,10 @@ export async function resolveToolPath(
   policy?: AgentPolicy | null,
 ): Promise<string> {
   const platform = getPlatform();
-  const expandedPath = expandUserHome(inputPath, platform.env.get("HOME") ?? "");
+  const expandedPath = expandCommonHomePath(
+    inputPath,
+    platform.env.get("HOME") ?? "",
+  );
   const roots = resolvePolicyPathRoots(policy ?? null, workspace);
   const validPath = await validatePath(expandedPath, workspace, roots);
   enforcePathPolicy(policy ?? null, workspace, validPath, inputPath);
@@ -38,36 +42,4 @@ export function createPolicyPathChecker(
 ): (absolutePath: string) => boolean {
   return (absolutePath: string) =>
     isPathAllowedAbsolute(policy, workspace, absolutePath);
-}
-
-/** Expand `~` and common home-relative shortcuts to an absolute path. */
-function expandUserHome(path: string, home: string): string {
-  if (!path) return path;
-  if (path.startsWith("~")) {
-    if (!home) return path;
-    return path.replace(/^~(?=$|\/)/, home);
-  }
-
-  if (!home) return path;
-  const normalizedHome = home.replace(/\/+$/, "");
-
-  if (!normalizedHome.startsWith("/home/") && path.startsWith("/home/")) {
-    const suffix = path.replace(/^\/home\/[^/]+/, "");
-    if (suffix === "") return normalizedHome;
-    return `${normalizedHome}${suffix}`;
-  }
-
-  const folderMatch = path.match(/^\/(downloads|desktop|documents)(\/.*)?$/i);
-  if (folderMatch) {
-    const map: Record<string, string> = {
-      downloads: "Downloads",
-      desktop: "Desktop",
-      documents: "Documents",
-    };
-    const folder = map[folderMatch[1].toLowerCase()];
-    const suffix = folderMatch[2] ?? "";
-    return `${normalizedHome}/${folder}${suffix}`;
-  }
-
-  return path;
 }

@@ -2,8 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 import { getPlatform } from "../../../../platform/platform.ts";
 import type {
-  AgentConversationItem,
-  HqlEvalItem,
   ShellHistoryEntry,
 } from "../types.ts";
 import { useSemanticColors } from "../../theme/index.ts";
@@ -32,26 +30,26 @@ import { filterRenderableTimelineItems } from "../utils/timeline-visibility.ts";
 const CONVERSATION_KEYBINDING_CATEGORIES = ["Conversation"] as const;
 
 interface TranscriptHistoryProps {
-  historyItems: AgentConversationItem[];
-  liveItems?: AgentConversationItem[];
-  evalHistory: HqlEvalItem[];
+  historyItems: ShellHistoryEntry[];
+  liveItems?: Exclude<ShellHistoryEntry, { type: "hql_eval" }>[];
   width: number;
   reservedRows?: number;
   compactPlanTranscript?: boolean;
   allowToggleHotkeys?: boolean;
   expandAll?: boolean;
+  interactive?: boolean;
 }
 
 export function TranscriptHistory(
   {
     historyItems,
     liveItems = [],
-    evalHistory,
     width,
     reservedRows = 8,
     compactPlanTranscript = false,
     allowToggleHotkeys = true,
     expandAll = false,
+    interactive = true,
   }: TranscriptHistoryProps,
 ): React.ReactElement | null {
   const sc = useSemanticColors();
@@ -63,9 +61,8 @@ export function TranscriptHistory(
           ? compactPlanTranscriptItems(historyItems)
           : historyItems),
         ...liveItems,
-        ...evalHistory,
       ]),
-    [compactPlanTranscript, evalHistory, historyItems, liveItems],
+    [compactPlanTranscript, historyItems, liveItems],
   );
   const [scrollOffsetFromBottom, setScrollOffsetFromBottom] = useState(0);
   const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(
@@ -160,7 +157,7 @@ export function TranscriptHistory(
   }, []);
 
   useEffect(() => {
-    if (!allowToggleHotkeys) return;
+    if (!interactive || !allowToggleHotkeys) return;
     registerHandler(
       HandlerIds.CONVERSATION_TOGGLE_LATEST,
       () => {
@@ -183,9 +180,10 @@ export function TranscriptHistory(
       unregisterHandler(HandlerIds.CONVERSATION_TOGGLE_LATEST);
       unregisterHandler(HandlerIds.CONVERSATION_OPEN_LATEST_SOURCE);
     };
-  }, [allowToggleHotkeys, items, toggleTarget, toggleTargets]);
+  }, [allowToggleHotkeys, interactive, items, toggleTarget, toggleTargets]);
 
   useInput((char, key) => {
+    if (!interactive) return;
     if (!items.length) return;
     if (key.pageUp) {
       const pageSize = Math.max(1, visibleCount - 1);

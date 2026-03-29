@@ -11,9 +11,7 @@ import { ModelBrowser } from "./components/ModelBrowser.tsx";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
-import {
-  getRuntimeConfigApi,
-} from "../../runtime/host-client.ts";
+import { getRuntimeConfigApi } from "../../runtime/host-client.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { setCurrentThemeName } from "../theme/state.ts";
 
@@ -37,7 +35,8 @@ interface ModelBrowserAppProps {
 }
 
 function ModelBrowserApp(
-  { endpoint, currentModel, currentModelConfigured, onSelect, onCancel }: ModelBrowserAppProps,
+  { endpoint, currentModel, currentModelConfigured, onSelect, onCancel }:
+    ModelBrowserAppProps,
 ): React.ReactElement {
   const { exit } = useApp();
   const doneRef = useRef(false);
@@ -73,11 +72,14 @@ function ModelBrowserApp(
       isCurrentModelConfigured={currentModelConfigured}
       onSelectModel={handleSelect}
       onClose={handleClose}
+      presentation="inline"
     />
   );
 }
 
-export async function startModelBrowser(options: ModelBrowserOptions = {}): Promise<ModelBrowserResult> {
+export async function startModelBrowser(
+  options: ModelBrowserOptions = {},
+): Promise<ModelBrowserResult> {
   if (!getPlatform().terminal.stdin.isTerminal()) {
     log.raw.error("Error: Requires interactive terminal.");
     return { code: 1 };
@@ -105,7 +107,7 @@ export async function startModelBrowser(options: ModelBrowserOptions = {}): Prom
           // No-op
         }}
       />
-    </ThemeProvider>
+    </ThemeProvider>,
   );
 
   await waitUntilExit();

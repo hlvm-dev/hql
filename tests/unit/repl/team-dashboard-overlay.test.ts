@@ -111,7 +111,7 @@ Deno.test("buildTeamDashboardDetailLines includes waiting state and recent membe
     "worker-1",
   );
 
-  assertEquals(lines.includes("Waiting on lead: question"), true);
+  assertEquals(lines.includes("Waiting for your answer"), true);
   assertEquals(lines.includes("Recent activity:"), true);
   assertEquals(lines.includes("- Tool TaskList: listed tasks"), true);
 });

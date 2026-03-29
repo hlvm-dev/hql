@@ -58,16 +58,27 @@ function isJsForm(input: string): boolean {
  *     a + 1
  *   ")
  */
-async function evaluateJsForm(input: string, state: ReplState): Promise<EvalResult> {
+async function evaluateJsForm(
+  input: string,
+  state: ReplState,
+): Promise<EvalResult> {
   // Find the string content between the first quote and last quote after (js
   const afterJs = input.slice(3).trim(); // skip "(js"
   const quote = afterJs[0];
   if (quote !== '"' && quote !== "'") {
-    return { success: false, error: new Error("(js ...) requires a string argument: (js \"your code here\")") };
+    return {
+      success: false,
+      error: new Error(
+        '(js ...) requires a string argument: (js "your code here")',
+      ),
+    };
   }
   const lastQuote = afterJs.lastIndexOf(quote, afterJs.length - 2); // exclude trailing )
   if (lastQuote <= 0) {
-    return { success: false, error: new Error("Unterminated string in (js ...) form") };
+    return {
+      success: false,
+      error: new Error("Unterminated string in (js ...) form"),
+    };
   }
   const jsCode = afterJs.slice(1, lastQuote).trim();
 
@@ -106,6 +117,26 @@ export interface EvalResult {
   isCommandOutput?: boolean;
   /** When set, output is streamed via task manager instead of direct iterator */
   streamTaskId?: string;
+}
+
+export interface EvalCommitState {
+  readonly isLoadingBindings: boolean;
+  addBinding(name: string): void;
+  addFunction(name: string, params: string[]): void;
+  getDocstring(name: string): string | undefined;
+}
+
+export interface EvalCommitEntry {
+  name: string;
+  params?: string[];
+  persist?: {
+    operator: "def" | "defn";
+    value: unknown;
+  };
+}
+
+interface CommitEvalOutcomeDeps {
+  appendBinding?: typeof appendToBindings;
 }
 
 type ExpressionKind = "declaration" | "binding" | "expression" | "import";
@@ -153,6 +184,40 @@ function analyzeExpression(ast: SList): ExpressionType {
     return { kind: "binding", name, operator: op };
   }
   return { kind: "expression" };
+}
+
+export async function commitEvalOutcome(
+  state: EvalCommitState,
+  entries: readonly EvalCommitEntry[],
+  deps: CommitEvalOutcomeDeps = {},
+): Promise<void> {
+  const appendBinding = deps.appendBinding ?? appendToBindings;
+
+  for (const entry of entries) {
+    if (!entry.persist || state.isLoadingBindings) {
+      continue;
+    }
+    try {
+      await appendBinding(
+        entry.name,
+        entry.persist.operator,
+        entry.persist.value,
+        state.getDocstring(entry.name),
+      );
+    } catch (error) {
+      log.error(
+        `[bindings] Failed to persist ${entry.persist.operator} '${entry.name}': ${error}`,
+      );
+    }
+  }
+
+  for (const entry of entries) {
+    if (entry.params && entry.params.length > 0) {
+      state.addFunction(entry.name, entry.params);
+    } else {
+      state.addBinding(entry.name);
+    }
+  }
 }
 
 /**
@@ -282,55 +347,32 @@ export async function evaluate(
 
         try {
           const result = await run(wrappedCode, getReplRunOptions(state));
-
-          // FIRST: Persist all definitions to memory.hql
-          // Must complete BEFORE state mutations to avoid race condition
-          // (state change triggers getBindingNames() which must see the written file)
-          for (const { name, operator } of bindingNames) {
-            if (operator === "def" && !state.isLoadingBindings) {
-              try {
-                const value = (globalThis as Record<string, unknown>)[
-                  sanitizeIdentifier(name)
-                ];
-                await appendToBindings(
-                  name,
-                  "def",
-                  value,
-                  state.getDocstring(name),
-                );
-              } catch (err) {
-                log.error(`[bindings] Failed to persist def '${name}': ${err}`);
-              }
-            }
-          }
-          for (const { name, operator, source } of declarationNames) {
-            if (operator === "defn" && !state.isLoadingBindings) {
-              try {
-                await appendToBindings(
-                  name,
-                  "defn",
-                  source,
-                  state.getDocstring(name),
-                );
-              } catch (err) {
-                log.error(
-                  `[bindings] Failed to persist defn '${name}': ${err}`,
-                );
-              }
-            }
-          }
-
-          // THEN: Register all bindings with state (triggers notify → getBindingNames)
-          for (const { name } of bindingNames) {
-            state.addBinding(name);
-          }
-          for (const { name, params } of declarationNames) {
-            if (params) {
-              state.addFunction(name, params);
-            } else {
-              state.addBinding(name);
-            }
-          }
+          await commitEvalOutcome(
+            state,
+            [
+              ...bindingNames.map(({ name, operator }) => ({
+                name,
+                persist: operator === "def"
+                  ? {
+                    operator: "def" as const,
+                    value: (globalThis as Record<string, unknown>)[
+                      sanitizeIdentifier(name)
+                    ],
+                  }
+                  : undefined,
+              })),
+              ...declarationNames.map(({ name, operator, params, source }) => ({
+                name,
+                params,
+                persist: operator === "defn"
+                  ? {
+                    operator: "defn" as const,
+                    value: source,
+                  }
+                  : undefined,
+              })),
+            ],
+          );
 
           return { success: true, value: result };
         } catch (error) {
@@ -488,22 +530,15 @@ async function handleBinding(
     `;
 
     const result = await run(wrappedHql, getReplRunOptions(state));
-
-    // Persist to memory.hql for "def" (not let/var/const)
-    // Only if not currently loading from memory (prevents loop)
-    // IMPORTANT: Must complete BEFORE state.addBinding() to avoid race condition
-
-    if (operator === "def" && !state.isLoadingBindings) {
-      try {
-        await appendToBindings(name, "def", result, state.getDocstring(name));
-      } catch (err) {
-        log.error(`[bindings] Failed to persist def '${name}': ${err}`);
-      }
-    }
-
-    // Register binding - triggers notify() → React re-render → getBindingNames()
-    // So appendToBindings() must complete BEFORE this line
-    state.addBinding(name);
+    await commitEvalOutcome(
+      state,
+      [{
+        name,
+        persist: operator === "def"
+          ? { operator: "def", value: result }
+          : undefined,
+      }],
+    );
 
     return { success: true, value: result };
   } catch (error) {
@@ -539,34 +574,16 @@ async function handleDeclaration(
     `;
 
     const result = await run(wrappedHql, getReplRunOptions(state));
-
-    // Persist to memory.hql for "defn" ONLY (not fn/function)
-    // Only if not currently loading from memory (prevents loop)
-    // IMPORTANT: Must complete BEFORE state.addFunction() to avoid race condition
-    // (state change triggers getBindingNames() which must see the written file)
-    if (operator === "defn" && !state.isLoadingBindings) {
-      try {
-        // For defn, store the original source code (not the evaluated function)
-        // state.getDocstring() is the single source of truth - appendToBindings strips any inline comments
-        await appendToBindings(
-          name,
-          "defn",
-          sourceCode,
-          state.getDocstring(name),
-        );
-      } catch (err) {
-        log.error(`[bindings] Failed to persist defn '${name}': ${err}`);
-      }
-    }
-
-    // Register binding with params if it's a function
-    // IMPORTANT: This triggers notify() which causes React to re-render and call getBindingNames()
-    // So appendToBindings() must complete BEFORE this line
-    if (params && params.length > 0) {
-      state.addFunction(name, params);
-    } else {
-      state.addBinding(name);
-    }
+    await commitEvalOutcome(
+      state,
+      [{
+        name,
+        params,
+        persist: operator === "defn"
+          ? { operator: "defn", value: sourceCode }
+          : undefined,
+      }],
+    );
 
     return { success: true, value: result };
   } catch (error) {

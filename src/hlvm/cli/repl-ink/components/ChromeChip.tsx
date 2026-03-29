@@ -1,13 +1,9 @@
 import React from "react";
 import { Text } from "ink";
 import { useSemanticColors } from "../../theme/index.ts";
+import type { PickerTone } from "../utils/picker-theme.ts";
 
-export type ChromeChipTone =
-  | "neutral"
-  | "active"
-  | "success"
-  | "warning"
-  | "error";
+export type ChromeChipTone = PickerTone;
 
 interface ChromeChipProps {
   text: string;

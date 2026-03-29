@@ -7,7 +7,7 @@
  * - Respects .gitignore patterns
  */
 
-import { binarySearchInsertIdx, fuzzyMatchPath } from "./fuzzy.ts";
+import { compareScoredFuzzyMatches, fuzzyMatchPath } from "./fuzzy.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { CLI_CACHE_TTL_MS } from "../repl-ink/ui-constants.ts";
 import {
@@ -16,13 +16,18 @@ import {
   shouldSkipFile,
   SKIP_DIRS,
 } from "../../../common/file-utils.ts";
+import {
+  expandCommonHomePath,
+  getCommonHomeFolderEntries,
+  resolveCommonHomeFolderQuery,
+} from "../../../common/home-folders.ts";
 
 // ============================================================
 // Types
 // ============================================================
 
 export interface FileMatch {
-  /** Relative path from the active workspace root */
+  /** Workspace-relative path, or a global/home path such as ~/Desktop/ */
   path: string;
   /** Whether it's a directory */
   isDirectory: boolean;
@@ -30,6 +35,36 @@ export interface FileMatch {
   score: number;
   /** Indices of matched characters for highlighting */
   matchIndices: number[];
+}
+
+function compareFileMatches(a: FileMatch, b: FileMatch): number {
+  if (b.score !== a.score) return b.score - a.score;
+  if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+  return compareScoredFuzzyMatches(
+    a.path,
+    a.score,
+    a.matchIndices,
+    b.path,
+    b.score,
+    b.matchIndices,
+  );
+}
+
+function binarySearchInsertFileMatch(
+  results: readonly FileMatch[],
+  candidate: FileMatch,
+): number {
+  let lo = 0;
+  let hi = results.length;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (compareFileMatches(results[mid], candidate) <= 0) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
 }
 
 interface FileIndex {
@@ -160,6 +195,7 @@ const ESCAPE_SPACE_REGEX = /\\ /g;
 const ESCAPE_SINGLE_QUOTE_REGEX = /\\'/g;
 const ESCAPE_DOUBLE_QUOTE_REGEX = /\\"/g;
 const ESCAPE_BACKSLASH_REGEX = /\\\\/g;
+const COMMON_HOME_FOLDER_SCORE_BONUS = 180;
 
 /**
  * Unescape shell-escaped path (e.g., "file\ name.png" -> "file name.png")
@@ -179,12 +215,10 @@ export function unescapeShellPath(path: string): string {
 export function normalizeComparableFilePath(path: string): string {
   const platform = getPlatform();
   const cleanPath = unescapeShellPath(path);
-  const expandedPath = cleanPath.startsWith("~")
-    ? (() => {
-      const homeDir = platform.env.get("HOME");
-      return homeDir ? cleanPath.replace(/^~/, homeDir) : cleanPath;
-    })()
-    : cleanPath;
+  const expandedPath = expandCommonHomePath(
+    cleanPath,
+    platform.env.get("HOME") ?? "",
+  );
   return platform.path.resolve(expandedPath);
 }
 
@@ -208,6 +242,136 @@ async function checkAbsolutePath(path: string): Promise<FileMatch | null> {
   }
 }
 
+function insertTopMatch(
+  results: FileMatch[],
+  candidate: FileMatch,
+  maxResults: number,
+): void {
+  if (results.length < maxResults) {
+    const insertIdx = binarySearchInsertFileMatch(results, candidate);
+    results.splice(insertIdx, 0, candidate);
+    return;
+  }
+
+  if (compareFileMatches(candidate, results[results.length - 1]) < 0) {
+    const insertIdx = binarySearchInsertFileMatch(results, candidate);
+    results.splice(insertIdx, 0, candidate);
+    results.pop();
+  }
+}
+
+async function searchAbsoluteOrHomePath(
+  query: string,
+  maxResults: number,
+): Promise<FileMatch[]> {
+  const platform = getPlatform();
+  const unescapedQuery = unescapeShellPath(query);
+  const expandedPath = expandCommonHomePath(
+    unescapedQuery,
+    platform.env.get("HOME") ?? "",
+  );
+
+  const match = await checkAbsolutePath(expandedPath);
+  if (match) {
+    return [match];
+  }
+
+  const parentDir = expandedPath.substring(0, expandedPath.lastIndexOf("/")) ||
+    "/";
+  const partial = expandedPath.substring(expandedPath.lastIndexOf("/") + 1);
+
+  try {
+    const results: FileMatch[] = [];
+    const partialLower = partial.toLowerCase();
+    const includeHidden = partial.startsWith(".");
+    for await (const entry of platform.fs.readDir(parentDir)) {
+      if (!includeHidden && entry.name.startsWith(".")) {
+        continue;
+      }
+      if (entry.isDirectory && SKIP_DIRS.has(entry.name)) {
+        continue;
+      }
+      if (!entry.isDirectory && shouldSkipFile(entry.name)) {
+        continue;
+      }
+      const nameLower = entry.name.toLowerCase();
+      if (partial && !nameLower.includes(partialLower)) {
+        continue;
+      }
+      const fullPath = parentDir === "/"
+        ? `/${entry.name}`
+        : `${parentDir}/${entry.name}`;
+      results.push({
+        path: fullPath,
+        isDirectory: entry.isDirectory,
+        score: nameLower.startsWith(partialLower) ? 100 : 50,
+        matchIndices: [],
+      });
+    }
+    results.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+      return a.path.localeCompare(b.path);
+    });
+    return results.slice(0, maxResults);
+  } catch {
+    return [];
+  }
+}
+
+async function searchCommonHomeFolders(
+  query: string,
+  maxResults: number,
+): Promise<FileMatch[]> {
+  const platform = getPlatform();
+  const homeEntries = getCommonHomeFolderEntries(
+    platform.env.get("HOME") ?? "",
+  );
+  const results: FileMatch[] = [];
+  const queryLower = query.toLowerCase();
+
+  for (const entry of homeEntries) {
+    try {
+      const stat = await platform.fs.stat(entry.absolutePath);
+      if (!stat.isDirectory) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+
+    if (!query.trim()) {
+      insertTopMatch(results, {
+        path: entry.displayPath,
+        isDirectory: true,
+        score: COMMON_HOME_FOLDER_SCORE_BONUS,
+        matchIndices: [],
+      }, maxResults);
+      continue;
+    }
+
+    const match = fuzzyMatchPath(query, entry.displayPath);
+    if (!match) {
+      continue;
+    }
+
+    const aliasBoost = entry.queryAliases.some((alias) =>
+        alias.startsWith(queryLower)
+      )
+      ? 40
+      : 0;
+
+    insertTopMatch(results, {
+      path: entry.displayPath,
+      isDirectory: true,
+      score: match.score + COMMON_HOME_FOLDER_SCORE_BONUS + aliasBoost,
+      matchIndices: [...match.indices],
+    }, maxResults);
+  }
+
+  return results;
+}
+
 /**
  * Search for files and directories matching the query
  */
@@ -215,122 +379,67 @@ export async function searchFiles(
   query: string,
   maxResults = 12,
 ): Promise<FileMatch[]> {
+  const platform = getPlatform();
+  const aliasedHomeQuery = resolveCommonHomeFolderQuery(
+    query,
+    platform.env.get("HOME") ?? "",
+  );
+  if (aliasedHomeQuery) {
+    return searchFiles(aliasedHomeQuery, maxResults);
+  }
+
   // Handle absolute paths (e.g., /Users/..., /var/..., ~/...)
   if (query.startsWith("/") || query.startsWith("~")) {
-    // First unescape any shell-escaped characters
-    const unescapedQuery = unescapeShellPath(query);
-    const expandedPath = unescapedQuery.startsWith("~")
-      ? unescapedQuery.replace(/^~/, getPlatform().env.get("HOME") || "")
-      : unescapedQuery;
-
-    const match = await checkAbsolutePath(expandedPath);
-    if (match) {
-      return [match];
-    }
-
-    // If exact path not found, try to complete partial path
-    const parentDir =
-      expandedPath.substring(0, expandedPath.lastIndexOf("/")) || "/";
-    const partial = expandedPath.substring(expandedPath.lastIndexOf("/") + 1);
-
-    try {
-      const results: FileMatch[] = [];
-      const partialLower = partial.toLowerCase(); // Pre-compute once outside loop
-      const includeHidden = partial.startsWith(".");
-      for await (const entry of getPlatform().fs.readDir(parentDir)) {
-        // Keep hidden files out by default, unless user explicitly starts with "."
-        if (!includeHidden && entry.name.startsWith(".")) {
-          continue;
-        }
-        if (entry.isDirectory && SKIP_DIRS.has(entry.name)) {
-          continue;
-        }
-        if (!entry.isDirectory && shouldSkipFile(entry.name)) {
-          continue;
-        }
-        const nameLower = entry.name.toLowerCase();
-        if (partial && !nameLower.includes(partialLower)) {
-          continue;
-        }
-        const fullPath = parentDir === "/"
-          ? `/${entry.name}`
-          : `${parentDir}/${entry.name}`;
-        results.push({
-          path: fullPath,
-          isDirectory: entry.isDirectory,
-          score: nameLower.startsWith(partialLower) ? 100 : 50,
-          matchIndices: [],
-        });
-      }
-      results.sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
-        return a.path.localeCompare(b.path);
-      });
-      return results.slice(0, maxResults);
-    } catch {
-      return [];
-    }
+    return searchAbsoluteOrHomePath(query, maxResults);
   }
 
   const index = await getFileIndex();
   const results: FileMatch[] = [];
+  const commonHomeMatches = await searchCommonHomeFolders(query, maxResults);
 
   // If empty query, return recent/common files
   if (!query.trim()) {
+    for (const homeMatch of commonHomeMatches) {
+      insertTopMatch(results, homeMatch, maxResults);
+    }
+
     // Return some directories and files
     for (const dir of index.dirs.slice(0, 6)) {
-      results.push({
+      insertTopMatch(results, {
         path: dir,
         isDirectory: true,
         score: 100,
         matchIndices: [],
-      });
+      }, maxResults);
     }
     for (const file of index.files.slice(0, 6)) {
-      results.push({
+      insertTopMatch(results, {
         path: file,
         isDirectory: false,
         score: 50,
         matchIndices: [],
-      });
+      }, maxResults);
     }
-    return results.slice(0, maxResults);
+    return results;
   }
 
   // OPTIMIZED: Direct iteration without intermediate array allocation
   // Time complexity: O(n log k) where n=files+dirs, k=maxResults
   // Process directories first, then files (no intermediate object allocation)
 
-  // Score getter for binary search
-  const getScore = (item: FileMatch) => item.score;
-
   // Helper to insert match into top-k results
   const insertMatch = (path: string, isDir: boolean) => {
     const match = fuzzyMatchPath(query, path);
     if (!match) return;
 
-    const score = match.score + (isDir ? 10 : 0);
+    const candidate: FileMatch = {
+      path,
+      isDirectory: isDir,
+      score: match.score + (isDir ? 10 : 0),
+      matchIndices: [...match.indices],
+    };
 
-    // Insert into results maintaining sorted order (top-k)
-    if (results.length < maxResults) {
-      const insertIdx = binarySearchInsertIdx(results, score, getScore);
-      results.splice(insertIdx, 0, {
-        path,
-        isDirectory: isDir,
-        score,
-        matchIndices: match.indices as number[],
-      });
-    } else if (score > results[results.length - 1].score) {
-      const insertIdx = binarySearchInsertIdx(results, score, getScore);
-      results.splice(insertIdx, 0, {
-        path,
-        isDirectory: isDir,
-        score,
-        matchIndices: match.indices as number[],
-      });
-      results.pop();
-    }
+    insertTopMatch(results, candidate, maxResults);
   };
 
   // Process directories
@@ -341,6 +450,10 @@ export async function searchFiles(
   // Process files
   for (const path of index.files) {
     insertMatch(path, false);
+  }
+
+  for (const homeMatch of commonHomeMatches) {
+    insertTopMatch(results, homeMatch, maxResults);
   }
 
   return results;

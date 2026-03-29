@@ -1,9 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Box, useInput } from "ink";
+import { Box, Text, useInput } from "ink";
 import type { PlanningPhase } from "../../../agent/planning.ts";
 import type { TodoState } from "../../../agent/todo-state.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
-import type { AgentConversationItem, StreamingState } from "../types.ts";
+import { useSemanticColors } from "../../theme/index.ts";
+import {
+  type AgentConversationItem,
+  type StreamingState,
+  StreamingState as ConversationStreamingState,
+} from "../types.ts";
 import {
   executeHandler,
   HandlerIds,
@@ -20,11 +25,37 @@ import {
 } from "./TimelineItemRenderer.tsx";
 import { PlanChecklistPanel } from "./conversation/PlanChecklistPanel.tsx";
 import { derivePlanSurfaceState } from "./conversation/plan-flow.ts";
+import { TranscriptDivider } from "./conversation/TranscriptDivider.tsx";
+import { deriveLiveTurnStatus } from "./conversation/turn-activity.ts";
 import { getLiveConversationSpacing } from "./conversation/message-spacing.ts";
 import { shouldRenderTranscriptDividerBeforeIndex } from "../utils/layout-tokens.ts";
 import { filterRenderableTimelineItems } from "../utils/timeline-visibility.ts";
 
 const CONVERSATION_KEYBINDING_CATEGORIES = ["Conversation"] as const;
+
+function LiveStatusRow(
+  {
+    label,
+    tone,
+    recentLabels,
+  }: { label: string; tone: "active" | "warning"; recentLabels?: string[] },
+): React.ReactElement {
+  const sc = useSemanticColors();
+  const color = tone === "warning" ? sc.status.warning : sc.text.primary;
+  const glyph = tone === "warning" ? "!" : "●";
+  return (
+    <Box marginBottom={1} flexDirection="column">
+      <Text color={color}>{`${glyph} ${label}`}</Text>
+      {recentLabels?.filter((recent) => recent !== label).slice(0, 2).map((
+        recent,
+      ) => (
+        <Box key={recent}>
+          <Text color={sc.text.muted}>{`  · ${recent}`}</Text>
+        </Box>
+      ))}
+    </Box>
+  );
+}
 
 interface PendingTurnPanelProps {
   items: AgentConversationItem[];
@@ -79,6 +110,20 @@ export function PendingTurnPanel(
     () => filterRenderableTimelineItems(planSurface.visibleItems),
     [planSurface.visibleItems],
   );
+  const liveStatus = useMemo(
+    () => deriveLiveTurnStatus({ items, streamingState, planningPhase }),
+    [items, streamingState, planningPhase],
+  );
+  const renderedItems = useMemo(() => {
+    const hidePassiveWaitingSignals = streamingState ===
+      ConversationStreamingState.WaitingForConfirmation;
+    return visibleItems.filter((item: AgentConversationItem) => {
+      if (!hidePassiveWaitingSignals) return true;
+      if (item.type === "thinking") return false;
+      return !(item.type === "assistant" && item.isPending &&
+        item.text.trim().length === 0);
+    });
+  }, [streamingState, visibleItems]);
 
   useEffect(() => {
     if (items.length === 0) {
@@ -90,8 +135,8 @@ export function PendingTurnPanel(
   }, [items.length]);
 
   const toggleTargets = useMemo(
-    () => getToggleTargets(visibleItems),
-    [visibleItems],
+    () => getToggleTargets(renderedItems),
+    [renderedItems],
   );
 
   const isToolExpanded = useCallback(
@@ -155,7 +200,7 @@ export function PendingTurnPanel(
   }, [allowToggleHotkeys, items, toggleTarget, toggleTargets]);
 
   useInput((char, key) => {
-    if (!allowToggleHotkeys || visibleItems.length === 0) return;
+    if (!allowToggleHotkeys || renderedItems.length === 0) return;
     const binding = inspectHandlerKeybinding(char, key, {
       categories: CONVERSATION_KEYBINDING_CATEGORIES,
     });
@@ -164,7 +209,7 @@ export function PendingTurnPanel(
     }
   });
 
-  if (visibleItems.length === 0 && !planSurface.active) {
+  if (renderedItems.length === 0 && !planSurface.active && !liveStatus) {
     return null;
   }
 
@@ -174,6 +219,7 @@ export function PendingTurnPanel(
       width={width}
       marginTop={spacing.pendingTurnMarginTop}
     >
+      {showLeadingDivider && <TranscriptDivider width={width} />}
       {planSurface.active && (
         <PlanChecklistPanel
           planningPhase={planningPhase}
@@ -181,7 +227,14 @@ export function PendingTurnPanel(
           items={items}
         />
       )}
-      {visibleItems.map((item: AgentConversationItem, index: number) => (
+      {liveStatus && (
+        <LiveStatusRow
+          label={liveStatus.label}
+          tone={liveStatus.tone}
+          recentLabels={liveStatus.recentLabels}
+        />
+      )}
+      {renderedItems.map((item: AgentConversationItem, index: number) => (
         <Box key={item.id}>
           <TimelineItemRenderer
             item={item}
@@ -189,9 +242,9 @@ export function PendingTurnPanel(
             activeThinkingId={activeThinkingId}
             compactSpacing={compactSpacing}
             showDividerBefore={shouldRenderTranscriptDividerBeforeIndex(
-              visibleItems,
+              renderedItems,
               index,
-              showLeadingDivider,
+              false,
             )}
             isToolExpanded={isToolExpanded}
             isThinkingExpanded={isThinkingExpanded}
