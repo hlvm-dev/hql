@@ -84,6 +84,12 @@ import {
   loadPersistedAgentSessionMetadata,
   loadPersistedAgentTodos,
   persistAgentPlanState,
+  persistAgentRuntimeMode,
+  persistLastAppliedExecutionFallbackState,
+  persistLastAppliedRoutingConstraints,
+  persistLastAppliedResponseShapeContext,
+  persistLastAppliedTaskCapabilityContext,
+  persistLastAppliedTurnContext,
   persistAgentTeamRuntime,
   persistAgentTodos,
   type PersistedAgentTurn,
@@ -108,6 +114,38 @@ import {
 } from "./security/safety.ts";
 import { type AgentHookRuntime, loadAgentHookRuntime } from "./hooks.ts";
 import { cloneToolList } from "./orchestrator-state.ts";
+import {
+  appendExecutionFallbackSuppression,
+  buildRoutedCapabilityEventKey,
+  buildRoutedCapabilityProvenance,
+  EMPTY_EXECUTION_FALLBACK_STATE,
+  executionSurfaceUsesMcp,
+  formatRoutedCapabilityEventSummary,
+  getSelectedExecutionPathCandidate,
+  getExecutionSurfaceSignature,
+  resolveRoutedCapabilityForToolName,
+  type ExecutionSurface,
+  type RoutedCapabilityEventPhase,
+} from "./execution-surface.ts";
+import { resolveExecutionSurfaceState } from "./execution-surface-runtime.ts";
+import { extractRoutingConstraintsFromTaskText } from "./routing-constraints.ts";
+import { deriveExecutionResponseShapeContextFromSchema } from "./response-shape-context.ts";
+import {
+  DEFAULT_RUNTIME_MODE,
+  resolveRuntimeMode,
+  type RuntimeMode,
+} from "./runtime-mode.ts";
+import { formatStructuredResultText } from "./structured-output.ts";
+import { extractTaskCapabilityContextFromTaskText } from "./task-capability-context.ts";
+import {
+  deriveExecutionTurnContextFromAttachments,
+  hasVisionRelevantTurnContext,
+} from "./turn-context.ts";
+import {
+  generateStructuredWithSdk,
+  type SdkConvertibleMessage,
+} from "../providers/sdk-runtime.ts";
+import { resolveSdkModelSpec, toSdkRuntimeModelSpec } from "./engine-sdk.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
@@ -129,6 +167,34 @@ function resolveDefaultAgentRoots(): string[] {
   return DEFAULT_AGENT_PATH_ROOTS.map((root) =>
     `file://${root.startsWith("~") ? home + root.slice(1) : root}`
   );
+}
+
+function hasProviderGroundedCitations(
+  meta: FinalResponseMeta | undefined,
+): boolean {
+  return meta?.citationSpans.some((citation) =>
+    citation.provenance === "provider"
+  ) ?? false;
+}
+
+function resolveProviderNativeWebCapabilityFromFinalResponse(
+  executionSurface: ExecutionSurface,
+  finalResponseMeta: FinalResponseMeta | undefined,
+): "web.search" | "web.read" | null {
+  if (!hasProviderGroundedCitations(finalResponseMeta)) {
+    return null;
+  }
+
+  const selectedProviderNativeCapabilities = (
+    ["web.search", "web.read"] as const
+  ).filter((capabilityId) =>
+    executionSurface.capabilities[capabilityId].selectedBackendKind ===
+      "provider-native"
+  );
+
+  return selectedProviderNativeCapabilities.length === 1
+    ? selectedProviderNativeCapabilities[0]
+    : null;
 }
 
 function buildPlanModeAllowlist(options: {
@@ -237,10 +303,7 @@ export async function reuseSession(
     const engine = session.engine ?? getAgentEngine();
     llm = engine.createLLM({
       ...session.llmConfig,
-      options: {
-        ...(session.llmConfig.temperature != null &&
-          { temperature: session.llmConfig.temperature }),
-      },
+      options: session.llmConfig.options,
       onToken,
     });
   }
@@ -281,16 +344,62 @@ function toolListsMatch(a?: string[], b?: string[]): boolean {
   return left.every((value, index) => value === right[index]);
 }
 
+async function synthesizeStructuredAgentResult(options: {
+  model: string;
+  query: string;
+  responseSchema: Record<string, unknown>;
+  finalDraft: string;
+  signal?: AbortSignal;
+}): Promise<unknown> {
+  const spec = toSdkRuntimeModelSpec(resolveSdkModelSpec(options.model));
+  const messages: SdkConvertibleMessage[] = [
+    {
+      role: "system",
+      content:
+        "Return only an object that satisfies the provided response schema for this turn. Do not add extra keys, narration, or markdown.",
+    },
+    {
+      role: "user",
+      content: options.query,
+    },
+    {
+      role: "assistant",
+      content: options.finalDraft,
+    },
+  ];
+  return await generateStructuredWithSdk(
+    spec,
+    messages,
+    options.responseSchema,
+    { signal: options.signal },
+  );
+}
+
 export function shouldReuseAgentSession(
   session: AgentSession | undefined,
   options: {
     model?: string;
     toolAllowlist?: string[];
     toolDenylist?: string[];
+    runtimeMode?: RuntimeMode;
+    executionSurfaceSignature?: string;
   },
 ): boolean {
   if (!session) return false;
   if ((session.llmConfig?.model ?? "") !== (options.model ?? "")) {
+    return false;
+  }
+  if (
+    (session.llmConfig?.runtimeMode ?? DEFAULT_RUNTIME_MODE) !==
+      (options.runtimeMode ?? DEFAULT_RUNTIME_MODE)
+  ) {
+    return false;
+  }
+  if (
+    options.executionSurfaceSignature &&
+    getExecutionSurfaceSignature(session.executionSurface) !==
+      options.executionSurfaceSignature
+  ) {
     return false;
   }
   return toolListsMatch(
@@ -383,6 +492,8 @@ interface AgentRunnerOptions {
   workspace?: string;
   callbacks: AgentRunnerCallbacks;
   permissionMode?: AgentExecutionMode;
+  runtimeMode?: RuntimeMode;
+  restorePersistedRuntimeMode?: boolean;
   noInput?: boolean;
   toolAllowlist?: string[];
   toolDenylist?: string[];
@@ -391,6 +502,8 @@ interface AgentRunnerOptions {
   messageHistory?: import("./context.ts").Message[];
   /** Runtime-materialized attachments for the initial user turn. */
   attachments?: ConversationAttachmentPayload[];
+  /** Explicit structured final-response schema for the current turn. */
+  responseSchema?: Record<string, unknown>;
   /** Pre-fetched model info to avoid duplicate provider API calls */
   modelInfo?: ModelInfo | null;
   /** Reuse an existing session (skips policy/MCP/LLM setup) */
@@ -401,6 +514,7 @@ interface AgentRunnerOptions {
 
 interface AgentRunnerResult {
   text: string;
+  structuredResult?: unknown;
   finalResponseMeta?: FinalResponseMeta;
   finalResponseState: {
     suppressFinalResponse: boolean;
@@ -478,6 +592,23 @@ export async function runAgentQuery(
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const hookRuntime = await loadAgentHookRuntime(workspace);
   const profile = ENGINE_PROFILES.normal;
+  const useExternalHistory = !!options.messageHistory;
+  const shouldPersistSession = !skipSessionHistory;
+  const sessionKey = shouldPersistSession
+    ? (options.sessionId ?? deriveDefaultSessionKey())
+    : null;
+  const shouldRestorePersistedTodos = !!sessionKey;
+  const persistedTurnSessionId = transcriptPersistenceMode === "runner"
+    ? sessionKey
+    : null;
+  const restoredSessionMetadata = sessionKey
+    ? loadPersistedAgentSessionMetadata(sessionKey)
+    : {};
+  const runtimeMode = options.restorePersistedRuntimeMode
+    ? resolveRuntimeMode(
+      options.runtimeMode ?? restoredSessionMetadata.runtimeMode,
+    )
+    : resolveRuntimeMode(options.runtimeMode);
   const persistentMemoryEnabled = isPersistentMemoryEnabled(
     disablePersistentMemory,
   );
@@ -485,6 +616,33 @@ export async function runAgentQuery(
     ? [...new Set([...toolDenylist, ...Object.keys(MEMORY_TOOLS)])]
     : [...toolDenylist];
   const toolAllowlist = resolveQueryToolAllowlist(options.toolAllowlist);
+  const routingConstraints = extractRoutingConstraintsFromTaskText(query);
+  const taskCapabilityContext = extractTaskCapabilityContextFromTaskText(query);
+  const responseShapeContext = deriveExecutionResponseShapeContextFromSchema(
+    options.responseSchema,
+  );
+  const turnContext = deriveExecutionTurnContextFromAttachments(
+    options.attachments,
+  );
+  const executionSurfaceState = await resolveExecutionSurfaceState({
+    model,
+    fixturePath: options.fixturePath,
+    runtimeMode,
+    routingConstraints,
+    taskCapabilityContext,
+    responseShapeContext,
+    turnContext,
+    toolAllowlist,
+    toolDenylist: effectiveToolDenylist,
+  });
+  const structuredOutputRoute =
+    executionSurfaceState.executionSurface.capabilities["structured.output"];
+  const structuredOutputRequested = responseShapeContext.requested;
+  const structuredOutputActive = structuredOutputRequested &&
+    structuredOutputRoute?.selectedBackendKind === "provider-native";
+  const effectiveOnToken = structuredOutputActive
+    ? undefined
+    : callbacks.onToken;
   const agentProfiles = await loadAgentProfiles(workspace, {
     toolValidator: hasTool,
   });
@@ -497,13 +655,16 @@ export async function runAgentQuery(
         model,
         toolAllowlist,
         toolDenylist: effectiveToolDenylist,
+        runtimeMode,
+        executionSurfaceSignature: executionSurfaceState.executionSurface
+          .signature,
       })
     ? options.reusableSession
     : undefined;
   const isReusableSession = !!matchingReusableSession;
   const engine = isReusableSession ? undefined : getAgentEngine();
   const session: AgentSession = matchingReusableSession
-    ? await reuseSession(matchingReusableSession, callbacks.onToken, {
+    ? await reuseSession(matchingReusableSession, effectiveOnToken, {
       disablePersistentMemory,
     })
     : await createAgentSession({
@@ -515,13 +676,31 @@ export async function runAgentQuery(
       failOnContextOverflow: false,
       toolAllowlist,
       toolDenylist: effectiveToolDenylist,
-      onToken: callbacks.onToken,
+      onToken: effectiveOnToken,
       modelInfo: options.modelInfo,
       instructions,
       disablePersistentMemory,
+      runtimeMode,
+      providerExecutionPlan: executionSurfaceState.providerExecutionPlan,
+      executionSurface: executionSurfaceState.executionSurface,
       engine,
       agentProfiles,
     });
+
+  session.providerExecutionPlan = executionSurfaceState.providerExecutionPlan;
+  session.executionSurface = executionSurfaceState.executionSurface;
+  if (session.llmConfig) {
+    session.llmConfig.providerExecutionPlan =
+      executionSurfaceState.providerExecutionPlan;
+    session.llmConfig.executionSurface =
+      executionSurfaceState.executionSurface;
+  }
+  if (
+    session.ensureMcpLoaded &&
+    executionSurfaceUsesMcp(executionSurfaceState.executionSurface)
+  ) {
+    await session.ensureMcpLoaded();
+  }
 
   // Emit prompt_compiled trace event (only when instruction hierarchy was compiled)
   if (callbacks.onTrace && session.compiledPromptMeta) {
@@ -531,21 +710,22 @@ export async function runAgentQuery(
     });
   }
 
-  const useExternalHistory = !!options.messageHistory;
-  const shouldPersistSession = !skipSessionHistory;
-  const sessionKey = shouldPersistSession
-    ? (options.sessionId ?? deriveDefaultSessionKey())
-    : null;
   const delegateOwnerId = crypto.randomUUID();
-  const shouldRestorePersistedTodos = !!sessionKey;
-  const persistedTurnSessionId = transcriptPersistenceMode === "runner"
-    ? sessionKey
-    : null;
   let persistedTurn: PersistedAgentTurn | null = null;
 
   try {
     // Reset any prior dynamic tool narrowing (tool_search) for this new turn.
     session.resetToolFilter?.();
+    if (sessionKey) {
+      persistLastAppliedRoutingConstraints(sessionKey, routingConstraints);
+      persistLastAppliedTaskCapabilityContext(sessionKey, taskCapabilityContext);
+      persistLastAppliedResponseShapeContext(sessionKey, responseShapeContext);
+      persistLastAppliedTurnContext(sessionKey, turnContext);
+      persistLastAppliedExecutionFallbackState(
+        sessionKey,
+        EMPTY_EXECUTION_FALLBACK_STATE,
+      );
+    }
 
     // Add file-roots system note BEFORE history so system messages stay contiguous
     session.context.addMessage({
@@ -571,9 +751,10 @@ export async function runAgentQuery(
       }
     }
 
-    const sessionMetadata = sessionKey
-      ? loadPersistedAgentSessionMetadata(sessionKey)
-      : {};
+    const sessionMetadata = restoredSessionMetadata;
+    if (sessionKey) {
+      persistAgentRuntimeMode(sessionKey, runtimeMode);
+    }
     if (sessionMetadata.delegateBatches?.length) {
       restoreBatchSnapshots(sessionMetadata.delegateBatches);
     }
@@ -815,6 +996,232 @@ export async function runAgentQuery(
       NonNullable<Parameters<typeof runReActLoop>[1]>["planReview"]
     >;
     let teamRuntime: ReturnType<typeof createTeamRuntime> | undefined;
+    const emittedCapabilityRouteKeys = new Set<string>();
+    let deliverAgentUiEvent: ((event: AgentUIEvent) => void) | undefined =
+      callbacks.onAgentEvent;
+    const emitCapabilityRoute = (
+      routedCapability: ReturnType<typeof buildRoutedCapabilityProvenance>,
+      routePhase: RoutedCapabilityEventPhase,
+    ): void => {
+      if (!routedCapability) return;
+      const eventKey = buildRoutedCapabilityEventKey(routedCapability);
+      if (emittedCapabilityRouteKeys.has(eventKey)) {
+        return;
+      }
+      emittedCapabilityRouteKeys.add(eventKey);
+      const summary = formatRoutedCapabilityEventSummary(
+        routedCapability,
+        routePhase,
+      );
+      callbacks.onTrace?.({
+        type: "capability_routed",
+        routePhase,
+        runtimeMode,
+        familyId: routedCapability.familyId,
+        capabilityId: routedCapability.capabilityId,
+        strategy: routedCapability.strategy,
+        selectedBackendKind: routedCapability.selectedBackendKind,
+        selectedToolName: routedCapability.selectedToolName,
+        selectedServerName: routedCapability.selectedServerName,
+        providerName: routedCapability.providerName,
+        fallbackReason: routedCapability.fallbackReason,
+        routeChangedByFailure: routedCapability.routeChangedByFailure,
+        failedBackendKind: routedCapability.failedBackendKind,
+        failedToolName: routedCapability.failedToolName,
+        failedServerName: routedCapability.failedServerName,
+        failureReason: routedCapability.failureReason,
+      });
+      deliverAgentUiEvent?.({
+        type: "capability_routed",
+        routePhase,
+        runtimeMode,
+        familyId: routedCapability.familyId,
+        capabilityId: routedCapability.capabilityId,
+        strategy: routedCapability.strategy,
+        selectedBackendKind: routedCapability.selectedBackendKind,
+        selectedToolName: routedCapability.selectedToolName,
+        selectedServerName: routedCapability.selectedServerName,
+        providerName: routedCapability.providerName,
+        fallbackReason: routedCapability.fallbackReason,
+        routeChangedByFailure: routedCapability.routeChangedByFailure,
+        failedBackendKind: routedCapability.failedBackendKind,
+        failedToolName: routedCapability.failedToolName,
+        failedServerName: routedCapability.failedServerName,
+        failureReason: routedCapability.failureReason,
+        candidates: routedCapability.candidates,
+        summary,
+      });
+    };
+    let pendingFallbackWork: Promise<void> | null = null;
+    let reactLoopConfig:
+      | Parameters<typeof runReActLoop>[1]
+      | undefined;
+    const queueFallbackWork = (work: () => Promise<void>): void => {
+      const next = (pendingFallbackWork ?? Promise.resolve())
+        .then(work)
+        .catch(() => {});
+      pendingFallbackWork = next.finally(() => {
+        if (pendingFallbackWork === next) {
+          pendingFallbackWork = null;
+        }
+      });
+    };
+    const awaitPendingFallbackWork = async (): Promise<void> => {
+      if (!pendingFallbackWork) return;
+      await pendingFallbackWork;
+    };
+    const updateExecutionSurfaceForFallback = async (failure: {
+      capabilityId:
+        | "web.search"
+        | "web.read"
+        | "vision.analyze"
+        | "code.exec"
+        | "structured.output";
+      routePhase: Exclude<RoutedCapabilityEventPhase, "fallback">;
+      failureReason: string;
+      failedToolName?: string;
+      failedServerName?: string;
+      failedBackendKind?: "provider-native" | "mcp" | "hlvm-local";
+    }): Promise<{ handled: boolean; retryNotice?: { role: "user"; content: string } }> => {
+      if (runtimeMode !== "auto") return { handled: false };
+      const currentRoute = session.executionSurface.capabilities[failure.capabilityId];
+      const selectedCandidate = getSelectedExecutionPathCandidate(currentRoute);
+      if (!selectedCandidate) return { handled: false };
+      if (
+        failure.failedBackendKind &&
+        selectedCandidate.backendKind !== failure.failedBackendKind
+      ) {
+        return { handled: false };
+      }
+      if (
+        failure.failedToolName &&
+        selectedCandidate.toolName !== failure.failedToolName
+      ) {
+        return { handled: false };
+      }
+      if (
+        failure.failedServerName &&
+        selectedCandidate.serverName !== failure.failedServerName
+      ) {
+        return { handled: false };
+      }
+
+      const failedCandidate = {
+        capabilityId: failure.capabilityId,
+        backendKind: selectedCandidate.backendKind,
+        ...(selectedCandidate.toolName
+          ? { toolName: selectedCandidate.toolName }
+          : {}),
+        ...(selectedCandidate.serverName
+          ? { serverName: selectedCandidate.serverName }
+          : {}),
+        routePhase: failure.routePhase,
+        failureReason: failure.failureReason,
+      } as const;
+      const nextFallbackState = appendExecutionFallbackSuppression(
+        session.executionSurface.fallbackState,
+        failedCandidate,
+      );
+      if (
+        nextFallbackState.suppressedCandidates.length ===
+          session.executionSurface.fallbackState.suppressedCandidates.length
+      ) {
+        return { handled: false };
+      }
+
+      const previousSurface = session.executionSurface;
+      const nextState = await resolveExecutionSurfaceState({
+        model,
+        fixturePath: options.fixturePath,
+        runtimeMode,
+        routingConstraints,
+        taskCapabilityContext,
+        responseShapeContext,
+        turnContext,
+        fallbackState: nextFallbackState,
+        toolAllowlist,
+        toolDenylist: effectiveToolDenylist,
+      });
+      session.providerExecutionPlan = nextState.providerExecutionPlan;
+      session.executionSurface = nextState.executionSurface;
+      if (session.llmConfig) {
+        session.llmConfig.providerExecutionPlan =
+          nextState.providerExecutionPlan;
+        session.llmConfig.executionSurface = nextState.executionSurface;
+      }
+      if (reactLoopConfig) {
+        reactLoopConfig.providerExecutionPlan = nextState.providerExecutionPlan;
+        reactLoopConfig.executionSurface = nextState.executionSurface;
+      }
+      if (
+        session.ensureMcpLoaded &&
+        executionSurfaceUsesMcp(nextState.executionSurface) &&
+        !executionSurfaceUsesMcp(previousSurface)
+      ) {
+        await session.ensureMcpLoaded();
+      }
+      if (sessionKey) {
+        persistLastAppliedExecutionFallbackState(
+          sessionKey,
+          nextState.executionSurface.fallbackState,
+        );
+      }
+
+      emitCapabilityRoute(
+        buildRoutedCapabilityProvenance(
+          nextState.executionSurface,
+          failure.capabilityId,
+          {
+            routeChangedByFailure: true,
+            failedCandidate,
+          },
+        ),
+        "fallback",
+      );
+      const nextRoute =
+        nextState.executionSurface.capabilities[failure.capabilityId];
+      const nextSelection = getSelectedExecutionPathCandidate(nextRoute);
+      const nextRouteLabel = nextSelection?.backendKind === "provider-native"
+        ? `provider-native via ${nextSelection.toolName ?? nextState.executionSurface.pinnedProviderName}`
+        : nextSelection?.backendKind === "mcp"
+        ? `MCP via ${nextSelection.serverName ?? "unknown"} / ${nextSelection.toolName ?? "unknown"}`
+        : nextSelection?.backendKind === "hlvm-local"
+        ? `HLVM local via ${nextSelection.toolName ?? "unknown"}`
+        : "unavailable for the rest of this turn";
+      const systemNotice = {
+        role: "user",
+        content: nextSelection
+          ? `[System Notice] The routed backend for ${failure.capabilityId} changed during this turn because ${
+            selectedCandidate.backendKind
+          }${selectedCandidate.toolName ? ` ${selectedCandidate.toolName}` : ""} failed: ${failure.failureReason}. The active route is now ${nextRouteLabel}. Do not retry the failed backend.`
+          : `[System Notice] The routed backend for ${failure.capabilityId} failed during this turn: ${failure.failureReason}. ${failure.capabilityId} is now unavailable for the remainder of this turn. Do not pretend that capability is still available.`,
+      } as const;
+      session.context.addMessage(systemNotice);
+      return {
+        handled: true,
+        retryNotice: systemNotice,
+      };
+    };
+    if (session.llmConfig) {
+      session.llmConfig.onToken = effectiveOnToken;
+      session.llmConfig.onProviderNativeRouteFailure = async (routeFailure) =>
+        await updateExecutionSurfaceForFallback({
+          capabilityId: routeFailure.capabilityId,
+          routePhase: routeFailure.routePhase,
+          failureReason: routeFailure.failureReason,
+          failedToolName: routeFailure.toolName,
+          failedServerName: routeFailure.serverName,
+          failedBackendKind: routeFailure.backendKind,
+        });
+      session.llm = (session.engine ?? getAgentEngine()).createLLM(
+        session.llmConfig,
+      );
+    }
+    const baseSessionLlm = session.llm;
+    session.llm = async (messages, signal) => {
+      await awaitPendingFallbackWork();
+      return await baseSessionLlm(messages, signal);
+    };
     const onAgentEvent = (() => {
       if (!persistedTurn && !sessionKey && !hookRuntime) {
         return callbacks.onAgentEvent;
@@ -843,6 +1250,13 @@ export async function runAgentQuery(
           modelId: model,
           sessionId: sessionKey ?? undefined,
         });
+        if (runtimeMode === "auto" && event.type === "tool_start") {
+          const routedCapability = resolveRoutedCapabilityForToolName(
+            session.executionSurface,
+            event.name,
+          );
+          emitCapabilityRoute(routedCapability, "tool-start");
+        }
         if (event.type === "tool_end") {
           if (activePersistedTurn) {
             appendPersistedAgentToolResult(
@@ -854,6 +1268,26 @@ export async function runAgentQuery(
                 success: event.success,
               },
             );
+          }
+          if (!event.success && runtimeMode === "auto") {
+            const routedCapability = resolveRoutedCapabilityForToolName(
+              session.executionSurface,
+              event.name,
+            );
+            if (routedCapability) {
+              queueFallbackWork(async () => {
+                await updateExecutionSurfaceForFallback({
+                  capabilityId: routedCapability.capabilityId,
+                  routePhase: routedCapability.familyId === "web"
+                    ? "tool-start"
+                    : "turn-start",
+                  failureReason: event.summary ?? event.content ?? "tool failed",
+                  failedToolName: event.name,
+                  failedBackendKind: routedCapability.selectedBackendKind,
+                  failedServerName: routedCapability.selectedServerName,
+                });
+              });
+            }
           }
         }
         if (event.type === "plan_created") {
@@ -893,13 +1327,56 @@ export async function runAgentQuery(
         callbacks.onAgentEvent?.(event);
       };
     })();
+    deliverAgentUiEvent = onAgentEvent;
     if (planModeState) {
       onAgentEvent?.({
         type: "plan_phase_changed",
         phase: planModeState.phase,
       });
     }
+    if (runtimeMode === "auto" && hasVisionRelevantTurnContext(turnContext)) {
+      emitCapabilityRoute(
+        buildRoutedCapabilityProvenance(
+          session.executionSurface,
+          "vision.analyze",
+        ),
+        "turn-start",
+      );
+    }
+    if (
+      runtimeMode === "auto" &&
+      taskCapabilityContext.requestedCapabilities.includes("code.exec")
+    ) {
+      emitCapabilityRoute(
+        buildRoutedCapabilityProvenance(
+          session.executionSurface,
+          "code.exec",
+        ),
+        "turn-start",
+      );
+    }
+    if (structuredOutputRequested) {
+      emitCapabilityRoute(
+        buildRoutedCapabilityProvenance(
+          session.executionSurface,
+          "structured.output",
+        ),
+        "turn-start",
+      );
+    }
+    if (structuredOutputRequested && !structuredOutputActive) {
+      const error = new ValidationError(
+        structuredOutputRoute?.fallbackReason ??
+          "structured.output requested but no valid provider-native route exists for this turn",
+        "agent_runner",
+      );
+      if (persistedTurn) {
+        completePersistedAgentTurn(persistedTurn, model, `Error: ${error.message}`);
+      }
+      throw error;
+    }
     let text: string;
+    let structuredResult: unknown;
     try {
       const delegateInbox = createDelegateInbox();
       const coordinationBoard = createDelegateCoordinationBoard();
@@ -931,69 +1408,87 @@ export async function runAgentQuery(
           });
         }
       }
+      reactLoopConfig = {
+        workspace,
+        context: session.context,
+        permissionMode,
+        maxToolCalls: profile.maxToolCalls,
+        groundingMode: profile.groundingMode,
+        policy,
+        onTrace: callbacks.onTrace,
+        onAgentEvent,
+        onFinalResponseMeta: (meta) => {
+          finalResponseMeta = meta;
+          callbacks.onFinalResponseMeta?.(meta);
+        },
+        onInteraction: callbacks.onInteraction,
+        noInput,
+        delegate,
+        delegateInbox,
+        coordinationBoard,
+        teamRuntime,
+        teamMemberId: teamRuntime.leadMemberId,
+        teamLeadMemberId: teamRuntime.leadMemberId,
+        agentProfiles,
+        instructions: session.instructions,
+        planning: {
+          mode: getPlanningModeForExecutionMode(permissionMode),
+          requireStepMarkers: false,
+        },
+        skipModelCompensation: session.isFrontierModel,
+        modelTier: session.modelTier,
+        modelId: model,
+        sessionId: sessionKey ?? undefined,
+        currentUserRequest: query,
+        signal: options.signal,
+        autoMemoryRecall: persistentMemoryEnabled,
+        usage: usageTracker,
+        l1Confirmations: session.l1Confirmations,
+        todoState: session.todoState,
+        lspDiagnostics: session.lspDiagnostics,
+        hookRuntime: hookRuntime ?? undefined,
+        initialPlanState: permissionMode !== "plan" &&
+            hasIncompleteRestoredPlan && activePlan
+          ? restorePlanState(activePlan, completedPlanStepIds)
+          : null,
+        planReview,
+        toolAllowlist: session.toolFilterState?.allowlist ??
+          session.llmConfig?.toolAllowlist,
+        toolDenylist: session.toolFilterState?.denylist ??
+          session.llmConfig?.toolDenylist,
+        toolFilterState: session.toolFilterState,
+        toolFilterBaseline: runtimeToolFilterBaseline,
+        thinkingState: session.thinkingState,
+        thinkingCapable: session.thinkingCapable,
+        planModeState,
+        toolOwnerId: session.toolOwnerId,
+        delegateOwnerId,
+        ensureMcpLoaded: session.ensureMcpLoaded,
+        providerExecutionPlan: session.providerExecutionPlan,
+        executionSurface: session.executionSurface,
+      };
       text = await runReActLoop(
         query,
-        {
-          workspace,
-          context: session.context,
-          permissionMode,
-          maxToolCalls: profile.maxToolCalls,
-          groundingMode: profile.groundingMode,
-          policy,
-          onTrace: callbacks.onTrace,
-          onAgentEvent,
-          onFinalResponseMeta: (meta) => {
-            finalResponseMeta = meta;
-            callbacks.onFinalResponseMeta?.(meta);
-          },
-          onInteraction: callbacks.onInteraction,
-          noInput,
-          delegate,
-          delegateInbox,
-          coordinationBoard,
-          teamRuntime,
-          teamMemberId: teamRuntime.leadMemberId,
-          teamLeadMemberId: teamRuntime.leadMemberId,
-          agentProfiles,
-          instructions: session.instructions,
-          planning: {
-            mode: getPlanningModeForExecutionMode(permissionMode),
-            requireStepMarkers: false,
-          },
-          skipModelCompensation: session.isFrontierModel,
-          modelTier: session.modelTier,
-          modelId: model,
-          sessionId: sessionKey ?? undefined,
-          currentUserRequest: query,
-          signal: options.signal,
-          autoMemoryRecall: persistentMemoryEnabled,
-          usage: usageTracker,
-          l1Confirmations: session.l1Confirmations,
-          todoState: session.todoState,
-          lspDiagnostics: session.lspDiagnostics,
-          hookRuntime: hookRuntime ?? undefined,
-          initialPlanState: permissionMode !== "plan" &&
-              hasIncompleteRestoredPlan && activePlan
-            ? restorePlanState(activePlan, completedPlanStepIds)
-            : null,
-          planReview,
-          toolAllowlist: session.toolFilterState?.allowlist ??
-            session.llmConfig?.toolAllowlist,
-          toolDenylist: session.toolFilterState?.denylist ??
-            session.llmConfig?.toolDenylist,
-          toolFilterState: session.toolFilterState,
-          toolFilterBaseline: runtimeToolFilterBaseline,
-          thinkingState: session.thinkingState,
-          thinkingCapable: session.thinkingCapable,
-          planModeState,
-          toolOwnerId: session.toolOwnerId,
-          delegateOwnerId,
-          ensureMcpLoaded: session.ensureMcpLoaded,
-          providerExecutionPlan: session.providerExecutionPlan,
-        },
+        reactLoopConfig,
         session.llm,
         options.attachments,
       );
+      if (runtimeMode === "auto") {
+        const providerNativeWebCapability =
+          resolveProviderNativeWebCapabilityFromFinalResponse(
+            session.executionSurface,
+            finalResponseMeta,
+          );
+        if (providerNativeWebCapability) {
+          emitCapabilityRoute(
+            buildRoutedCapabilityProvenance(
+              session.executionSurface,
+              providerNativeWebCapability,
+            ),
+            "tool-start",
+          );
+        }
+      }
     } catch (error) {
       if (sessionKey && isAbortLikeError(error, options.signal)) {
         clearPersistedAgentPlanningState(sessionKey);
@@ -1029,6 +1524,25 @@ export async function runAgentQuery(
       await hookRuntime?.waitForIdle();
     }
 
+    try {
+      if (structuredOutputActive) {
+        structuredResult = await synthesizeStructuredAgentResult({
+          model,
+          query,
+          responseSchema: options.responseSchema ?? {},
+          finalDraft: text,
+          signal: options.signal,
+        });
+        text = formatStructuredResultText(structuredResult);
+      }
+    } catch (error) {
+      if (persistedTurn) {
+        const message = getErrorMessage(error);
+        completePersistedAgentTurn(persistedTurn, model, `Error: ${message}`);
+      }
+      throw error;
+    }
+
     await hookRuntime?.dispatch("final_response", {
       modelId: model,
       sessionId: sessionKey ?? undefined,
@@ -1057,6 +1571,7 @@ export async function runAgentQuery(
     const finalResponseState = classifyAgentFinalResponse(text);
     return {
       text,
+      structuredResult,
       finalResponseMeta,
       finalResponseState,
       stats: {

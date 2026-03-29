@@ -121,6 +121,8 @@ export async function handleAgentMode(
     permissionMode: body.permission_mode ??
       getPermissionMode(config.snapshot) ??
       "default",
+    runtimeMode: body.runtime_mode,
+    restorePersistedRuntimeMode: true,
     noInput: false,
     signal,
     toolAllowlist,
@@ -132,6 +134,7 @@ export async function handleAgentMode(
     disablePersistentMemory: body.disable_persistent_memory === true,
     messageHistory: history,
     attachments: attachments.length > 0 ? attachments : undefined,
+    responseSchema: body.response_schema,
     modelInfo,
     callbacks: {
       onToken: (text: string) => {
@@ -154,6 +157,41 @@ export async function handleAgentMode(
               args_summary: event.argsSummary,
               tool_index: event.toolIndex,
               tool_total: event.toolTotal,
+            });
+            break;
+          case "capability_routed":
+            emit({
+              event: "capability_routed",
+              route_phase: event.routePhase,
+              runtime_mode: event.runtimeMode,
+              family_id: event.familyId,
+              capability_id: event.capabilityId,
+              strategy: event.strategy,
+              selected_backend_kind: event.selectedBackendKind,
+              selected_tool_name: event.selectedToolName,
+              selected_server_name: event.selectedServerName,
+              provider_name: event.providerName,
+              fallback_reason: event.fallbackReason,
+              route_changed_by_failure: event.routeChangedByFailure,
+              failed_backend_kind: event.failedBackendKind,
+              failed_tool_name: event.failedToolName,
+              failed_server_name: event.failedServerName,
+              failure_reason: event.failureReason,
+              summary: event.summary,
+              candidates: event.candidates.map((candidate) => ({
+                family_id: candidate.familyId,
+                capability_id: candidate.capabilityId,
+                backend_kind: candidate.backendKind,
+                label: candidate.label,
+                tool_name: candidate.toolName,
+                provider_name: candidate.providerName,
+                server_name: candidate.serverName,
+                reachable: candidate.reachable,
+                allowed: candidate.allowed,
+                selected: candidate.selected,
+                reason: candidate.reason,
+                blocked_reasons: candidate.blockedReasons,
+              })),
             });
             break;
           case "tool_end": {
@@ -368,10 +406,13 @@ export async function handleAgentMode(
 
   if (!signal.aborted) {
     let finalText = result.text;
-    const shouldFallbackToDirectChat =
-      result.finalResponseState.suppressFinalResponse ||
-      result.finalResponseState.orchestratorFailureCode !== null ||
-      (failedToolCalls > 0 && successfulToolCalls === 0 && !finalText.trim());
+    const structuredResponseRequested = !!body.response_schema;
+    const shouldFallbackToDirectChat = !structuredResponseRequested &&
+      (
+        result.finalResponseState.suppressFinalResponse ||
+        result.finalResponseState.orchestratorFailureCode !== null ||
+        (failedToolCalls > 0 && successfulToolCalls === 0 && !finalText.trim())
+      );
     if (shouldFallbackToDirectChat) {
       const fallbackText = await streamDirectChatFallback(
         body.messages,
@@ -395,7 +436,12 @@ export async function handleAgentMode(
       streamedFinalText = false;
     }
 
-    if (!streamedFinalText) {
+    if (result.structuredResult !== undefined) {
+      emit({
+        event: "structured_result",
+        result: result.structuredResult,
+      });
+    } else if (!streamedFinalText) {
       onPartial(finalText);
       emit({ event: "token", text: finalText });
     }

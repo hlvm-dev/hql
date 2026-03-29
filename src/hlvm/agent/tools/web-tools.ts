@@ -935,6 +935,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
     description:
       "Discover relevant web pages using DuckDuckGo. Use search_web to find sources, then web_fetch to read a chosen URL. Canonical args include timeRange and prefetch.",
     category: "web",
+    semanticCapabilities: ["web.search"],
     argAliases: {
       recency: "timeRange",
       time_range: "timeRange",
@@ -1013,6 +1014,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
     description:
       "Read one or more known URLs with readability + headless Chrome fallback. Prefer this after search_web identifies the page you want to read.",
     category: "web",
+    semanticCapabilities: ["web.read"],
     argAliases: {
       max_chars: "maxChars",
       timeout_seconds: "timeoutSeconds",

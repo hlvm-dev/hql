@@ -9,6 +9,7 @@ import type {
   AgentEngine,
   AgentLLMConfig,
 } from "../../src/hlvm/agent/engine.ts";
+import { persistLastAppliedExecutionFallbackState } from "../../src/hlvm/agent/persisted-transcript.ts";
 import { config } from "../../src/hlvm/api/config.ts";
 import { startHttpServer } from "../../src/hlvm/cli/repl/http-server.ts";
 import { initializeRuntime } from "../../src/common/runtime-initializer.ts";
@@ -23,16 +24,31 @@ import { insertMessage } from "../../src/hlvm/store/conversation-store.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import { findFreePort } from "../shared/light-helpers.ts";
 import { withTempHlvmDir } from "../unit/helpers.ts";
+import { overrideTool } from "../unit/agent/test-helpers.ts";
 
 class IntegrationAgentEngine implements AgentEngine {
   createLLM(config: AgentLLMConfig) {
     return (messages: AgentMessage[]) => {
       const sawToolResult = messages.some((message) =>
+        message.role === "tool" ||
         message.content.includes("observed-from-tool")
       );
       const lastUserMessage = [...messages].reverse().find((message) =>
         message.role === "user"
       );
+      if (
+        !sawToolResult &&
+        (lastUserMessage?.content ?? "").includes("mixed-task coherence probe")
+      ) {
+        return Promise.resolve({
+          content: "",
+          toolCalls: [{
+            toolName: "search_web",
+            args: { query: "hlvm mixed-task coherence docs" },
+          }],
+          usage: { inputTokens: 8, outputTokens: 4 },
+        });
+      }
       const text = sawToolResult
         ? "integration-agent-saw-tool"
         : `integration-agent:${lastUserMessage?.content ?? "ok"}`;
@@ -63,6 +79,12 @@ const INTEGRATION_TOOLLESS_MODEL: ModelInfo = {
   capabilities: ["chat"],
 };
 
+const INTEGRATION_VISION_MODEL: ModelInfo = {
+  name: "vision",
+  contextWindow: 65_536,
+  capabilities: ["chat", "tools", "vision"],
+};
+
 const integrationProvider: AIProvider = {
   name: "test-chat",
   displayName: "Test Chat",
@@ -75,7 +97,11 @@ const integrationProvider: AIProvider = {
   },
   models: {
     list() {
-      return Promise.resolve([INTEGRATION_MODEL, INTEGRATION_TOOLLESS_MODEL]);
+      return Promise.resolve([
+        INTEGRATION_MODEL,
+        INTEGRATION_TOOLLESS_MODEL,
+        INTEGRATION_VISION_MODEL,
+      ]);
     },
     get(name: string) {
       if (name === INTEGRATION_MODEL.name) {
@@ -83,6 +109,9 @@ const integrationProvider: AIProvider = {
       }
       if (name === INTEGRATION_TOOLLESS_MODEL.name) {
         return Promise.resolve(INTEGRATION_TOOLLESS_MODEL);
+      }
+      if (name === INTEGRATION_VISION_MODEL.name) {
+        return Promise.resolve(INTEGRATION_VISION_MODEL);
       }
       return Promise.resolve(null);
     },
@@ -248,6 +277,195 @@ async function fetchActiveChatMessages(): Promise<Array<{
     messages: Array<{ role: string; content: string }>;
   };
   return body.messages;
+}
+
+async function getActiveRuntimeMode(): Promise<{
+  status: number;
+  body: { session_id: string; runtime_mode: string };
+}> {
+  const { baseUrl, authToken } = await ensureServerRunning();
+  const response = await fetch(`${baseUrl}/api/chat/runtime-mode`, {
+    headers: {
+      Authorization: `Bearer ${authToken}`,
+    },
+  });
+  return {
+    status: response.status,
+    body: await response.json() as {
+      session_id: string;
+      runtime_mode: string;
+    },
+  };
+}
+
+async function setActiveRuntimeMode(mode: "manual" | "auto"): Promise<{
+  status: number;
+  body: { session_id: string; runtime_mode: string };
+}> {
+  const { baseUrl, authToken } = await ensureServerRunning();
+  const response = await fetch(`${baseUrl}/api/chat/runtime-mode`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify({
+      runtime_mode: mode,
+    }),
+  });
+  return {
+    status: response.status,
+    body: await response.json() as {
+      session_id: string;
+      runtime_mode: string;
+    },
+  };
+}
+
+async function getActiveExecutionSurface(): Promise<{
+  status: number;
+  body: {
+    session_id: string;
+    runtime_mode: string;
+    active_model_id?: string;
+    pinned_provider_name: string;
+    strategy: string;
+    signature: string;
+    constraints: {
+      hardConstraints: string[];
+      preference?: string;
+      preferenceConflict: boolean;
+      source: string;
+    };
+    task_capability_context: {
+      requestedCapabilities: string[];
+      source: string;
+      matchedCueLabels: string[];
+    };
+    response_shape_context: {
+      requested: boolean;
+      source: string;
+      schemaSignature?: string;
+      topLevelKeys: string[];
+    };
+    turn_context: {
+      attachmentCount: number;
+      attachmentKinds: string[];
+      visionEligibleAttachmentCount: number;
+      visionEligibleKinds: string[];
+    };
+    fallback_state: {
+      suppressedCandidates: Array<{
+        capabilityId: string;
+        backendKind: string;
+        toolName?: string;
+        serverName?: string;
+        routePhase: string;
+        failureReason: string;
+      }>;
+    };
+    providers: Array<{ providerName: string; available: boolean }>;
+    local_model_summary: { providerName: string; installedModelCount: number };
+    mcp_servers: Array<{ name: string; reachable: boolean }>;
+    capabilities: Record<
+      string,
+      {
+        selectedBackendKind?: string;
+        fallbackReason?: string;
+        candidates: Array<{
+          backendKind: string;
+          reason?: string;
+          blockedReasons?: string[];
+        }>;
+      }
+    >;
+  };
+}> {
+  const { baseUrl, authToken } = await ensureServerRunning();
+  const response = await fetch(`${baseUrl}/api/chat/execution-surface`, {
+    headers: {
+      Authorization: `Bearer ${authToken}`,
+    },
+  });
+  return {
+    status: response.status,
+    body: await response.json() as {
+      session_id: string;
+      runtime_mode: string;
+      active_model_id?: string;
+      pinned_provider_name: string;
+      strategy: string;
+      signature: string;
+      constraints: {
+        hardConstraints: string[];
+        preference?: string;
+        preferenceConflict: boolean;
+        source: string;
+      };
+      task_capability_context: {
+        requestedCapabilities: string[];
+        source: string;
+        matchedCueLabels: string[];
+      };
+      response_shape_context: {
+        requested: boolean;
+        source: string;
+        schemaSignature?: string;
+        topLevelKeys: string[];
+      };
+      turn_context: {
+        attachmentCount: number;
+        attachmentKinds: string[];
+        visionEligibleAttachmentCount: number;
+        visionEligibleKinds: string[];
+      };
+      fallback_state: {
+        suppressedCandidates: Array<{
+          capabilityId: string;
+          backendKind: string;
+          toolName?: string;
+          serverName?: string;
+          routePhase: string;
+          failureReason: string;
+        }>;
+      };
+      providers: Array<{ providerName: string; available: boolean }>;
+      local_model_summary: { providerName: string; installedModelCount: number };
+      mcp_servers: Array<{ name: string; reachable: boolean }>;
+      capabilities: Record<
+        string,
+        {
+          selectedBackendKind?: string;
+          fallbackReason?: string;
+          candidates: Array<{
+            backendKind: string;
+            reason?: string;
+            blockedReasons?: string[];
+          }>;
+        }
+      >;
+    },
+  };
+}
+
+async function registerImageAttachment(): Promise<string> {
+  const file = await Deno.makeTempFile({ suffix: ".png" });
+  try {
+    await Deno.writeFile(file, new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+    const { baseUrl, authToken } = await ensureServerRunning();
+    const response = await fetch(`${baseUrl}/api/attachments/register`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ path: file }),
+    });
+    const body = await response.json() as { id: string };
+    return body.id;
+  } finally {
+    await Deno.remove(file).catch(() => {});
+  }
 }
 
 async function evalCode(code: string): Promise<{
@@ -598,6 +816,488 @@ Deno.test({
           ["assistant", "integration-agent:again"],
         ],
       );
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: active conversation runtime mode defaults to manual and persists after update",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const initial = await getActiveRuntimeMode();
+      assertEquals(initial.status, 200);
+      assertEquals(initial.body.runtime_mode, "manual");
+      assertExists(initial.body.session_id);
+
+      const updated = await setActiveRuntimeMode("auto");
+      assertEquals(updated.status, 200);
+      assertEquals(updated.body.runtime_mode, "auto");
+      assertEquals(updated.body.session_id, initial.body.session_id);
+
+      const afterUpdate = await getActiveRuntimeMode();
+      assertEquals(afterUpdate.status, 200);
+      assertEquals(afterUpdate.body.runtime_mode, "auto");
+      assertEquals(afterUpdate.body.session_id, initial.body.session_id);
+
+      const turn = await postChatNdjson({
+        mode: "agent",
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: "hello under auto mode" }],
+      });
+      assertEquals(turn.status, 200);
+
+      const afterTurn = await getActiveRuntimeMode();
+      assertEquals(afterTurn.status, 200);
+      assertEquals(afterTurn.body.runtime_mode, "auto");
+      assertEquals(afterTurn.body.session_id, initial.body.session_id);
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: execution surface reports active session routing reality",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const initial = await getActiveExecutionSurface();
+      assertEquals(initial.status, 200);
+      assertEquals(initial.body.runtime_mode, "manual");
+      assertExists(initial.body.session_id);
+      assertEquals(initial.body.active_model_id, "test-chat/plain");
+      assertEquals(initial.body.pinned_provider_name, "test-chat");
+      assertEquals(initial.body.strategy, "configured-first");
+      assertExists(initial.body.capabilities["web.search"]);
+      assertExists(initial.body.capabilities["web.read"]);
+      assertEquals(
+        Array.isArray(initial.body.capabilities["web.search"].candidates),
+        true,
+      );
+      assertEquals(Array.isArray(initial.body.providers), true);
+      assertEquals(Array.isArray(initial.body.mcp_servers), true);
+      assertEquals(initial.body.local_model_summary.providerName, "ollama");
+
+      const updated = await setActiveRuntimeMode("auto");
+      assertEquals(updated.status, 200);
+
+      const afterUpdate = await getActiveExecutionSurface();
+      assertEquals(afterUpdate.status, 200);
+      assertEquals(afterUpdate.body.runtime_mode, "auto");
+      assertEquals(afterUpdate.body.session_id, initial.body.session_id);
+      assertEquals(afterUpdate.body.constraints.source, "none");
+      assertEquals(afterUpdate.body.task_capability_context.source, "none");
+      assertExists(afterUpdate.body.capabilities["web.search"].selectedBackendKind);
+      assertExists(afterUpdate.body.capabilities["code.exec"]);
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: execution surface reflects last applied routing constraints from an auto-mode turn",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const initial = await getActiveExecutionSurface();
+      assertEquals(initial.status, 200);
+
+      const updated = await setActiveRuntimeMode("auto");
+      assertEquals(updated.status, 200);
+
+      const turn = await postChatNdjson({
+        mode: "agent",
+        model: "test-chat/plain",
+        runtime_mode: "auto",
+        messages: [{
+          role: "user",
+          content:
+            "Use the latest docs but keep it local and cheap if possible.",
+        }],
+      });
+      assertEquals(turn.status, 200);
+
+      const constrained = await getActiveExecutionSurface();
+      assertEquals(constrained.status, 200);
+      assertEquals(constrained.body.runtime_mode, "auto");
+      assertEquals(constrained.body.constraints.hardConstraints, ["local-only"]);
+      assertEquals(constrained.body.constraints.preference, "cheap");
+      assertEquals(constrained.body.constraints.source, "task-text");
+      assertEquals(
+        constrained.body.signature === initial.body.signature,
+        false,
+      );
+      assertExists(constrained.body.capabilities["web.search"]);
+      assertExists(constrained.body.capabilities["web.read"]);
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: execution surface reflects the last effective fallback state from the most recent auto turn",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const updated = await setActiveRuntimeMode("auto");
+      assertEquals(updated.status, 200);
+
+      persistLastAppliedExecutionFallbackState(updated.body.session_id, {
+        suppressedCandidates: [{
+          capabilityId: "web.search",
+          backendKind: "hlvm-local",
+          toolName: "search_web",
+          routePhase: "tool-start",
+          failureReason: "local search failed",
+        }],
+      });
+
+      const surface = await getActiveExecutionSurface();
+      assertEquals(surface.status, 200);
+      assertEquals(
+        surface.body.fallback_state.suppressedCandidates,
+        [{
+          capabilityId: "web.search",
+          backendKind: "hlvm-local",
+          toolName: "search_web",
+          routePhase: "tool-start",
+          failureReason: "local search failed",
+        }],
+      );
+      assertEquals(surface.body.capabilities["web.search"].selectedBackendKind, undefined);
+      assertStringIncludes(
+        surface.body.capabilities["web.search"].fallbackReason ?? "",
+        "failed during current turn",
+      );
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: auto-mode routed tool failure emits a fallback route event and recomputes the execution surface",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const restoreSearch = overrideTool("search_web", {
+        fn: () => Promise.reject(new Error("synthetic search failure")),
+        description: "Failing search tool for fallback integration coverage",
+        args: { query: "string - Query to search" },
+        safetyLevel: "L0" as const,
+      });
+
+      try {
+        const updated = await setActiveRuntimeMode("auto");
+        assertEquals(updated.status, 200);
+
+        const turn = await postChatNdjson({
+          mode: "agent",
+          model: "test-chat/plain",
+          runtime_mode: "auto",
+          messages: [{
+            role: "user",
+            content:
+              "mixed-task coherence probe: use the latest docs even if search fails.",
+          }],
+        });
+        assertEquals(turn.status, 200);
+
+        const routed = turn.events.filter((event) =>
+          event.event === "capability_routed"
+        );
+        assertEquals(
+          routed.map((event) =>
+            `${String(event.route_phase)}:${String(event.capability_id)}`
+          ),
+          ["tool-start:web.search", "fallback:web.search"],
+        );
+
+        const fallbackEvent = routed.find((event) =>
+          event.route_phase === "fallback" &&
+          event.capability_id === "web.search"
+        );
+        assertExists(fallbackEvent);
+        assertEquals(fallbackEvent.selected_backend_kind, undefined);
+        assertEquals(fallbackEvent.route_changed_by_failure, true);
+        assertStringIncludes(
+          String(fallbackEvent.failure_reason ?? ""),
+          "synthetic search failure",
+        );
+
+        const failedSearch = turn.events.find((event) =>
+          event.event === "tool_end" &&
+          event.name === "search_web"
+        );
+        assertExists(failedSearch);
+        assertEquals(failedSearch.success, false);
+
+        const surface = await getActiveExecutionSurface();
+        assertEquals(surface.status, 200);
+        assertEquals(
+          surface.body.fallback_state.suppressedCandidates,
+          [{
+            capabilityId: "web.search",
+            backendKind: "hlvm-local",
+            toolName: "search_web",
+            routePhase: "tool-start",
+            failureReason: "synthetic search failure",
+          }],
+        );
+        assertEquals(
+          surface.body.capabilities["web.search"].selectedBackendKind,
+          undefined,
+        );
+        assertStringIncludes(
+          surface.body.capabilities["web.search"].fallbackReason ?? "",
+          "capability unavailable for remainder of turn",
+        );
+      } finally {
+        restoreSearch();
+      }
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: auto-mode compute task emits turn-start code.exec routing and updates the execution surface",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const updated = await setActiveRuntimeMode("auto");
+      assertEquals(updated.status, 200);
+
+      const turn = await postChatNdjson({
+        mode: "agent",
+        model: "test-chat/plain",
+        runtime_mode: "auto",
+        messages: [{
+          role: "user",
+          content: "Calculate the sha-256 and base64 output for this sample.",
+        }],
+      });
+      assertEquals(turn.status, 200);
+
+      const routed = turn.events.find((event) =>
+        event.event === "capability_routed" &&
+        event.capability_id === "code.exec"
+      );
+      assertExists(routed);
+      assertEquals(routed.route_phase, "turn-start");
+      assertEquals(routed.selected_backend_kind, undefined);
+
+      const surface = await getActiveExecutionSurface();
+      assertEquals(surface.status, 200);
+      assertEquals(
+        surface.body.task_capability_context.requestedCapabilities,
+        ["code.exec"],
+      );
+      assertEquals(surface.body.task_capability_context.source, "task-text");
+      assertEquals(
+        surface.body.capabilities["code.exec"].selectedBackendKind,
+        undefined,
+      );
+      assertStringIncludes(
+        surface.body.capabilities["code.exec"].fallbackReason ?? "",
+        "pinned model/provider lacks native remote code execution",
+      );
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: explicit structured output request updates response-shape context and fails clearly when no route exists",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const updated = await setActiveRuntimeMode("auto");
+      assertEquals(updated.status, 200);
+
+      const turn = await postChatNdjson({
+        mode: "agent",
+        model: "test-chat/plain",
+        runtime_mode: "auto",
+        response_schema: {
+          type: "object",
+          properties: {
+            answer: { type: "string" },
+            confidence: { type: "number" },
+          },
+          required: ["answer"],
+        },
+        messages: [{
+          role: "user",
+          content: "Return a structured answer for this prompt.",
+        }],
+      });
+      assertEquals(turn.status, 200);
+
+      const routed = turn.events.find((event) =>
+        event.event === "capability_routed" &&
+        event.capability_id === "structured.output"
+      );
+      assertExists(routed);
+      assertEquals(routed.route_phase, "turn-start");
+      assertEquals(routed.selected_backend_kind, undefined);
+
+      const errorEvent = turn.events.find((event) => event.event === "error");
+      assertExists(errorEvent);
+      assertStringIncludes(
+        String(errorEvent.message ?? ""),
+        "pinned model/provider lacks provider-native structured output",
+      );
+
+      const surface = await getActiveExecutionSurface();
+      assertEquals(surface.status, 200);
+      assertEquals(surface.body.response_shape_context.requested, true);
+      assertEquals(surface.body.response_shape_context.source, "request");
+      assertEquals(
+        surface.body.capabilities["structured.output"].selectedBackendKind,
+        undefined,
+      );
+      assertStringIncludes(
+        surface.body.capabilities["structured.output"].fallbackReason ?? "",
+        "pinned model/provider lacks provider-native structured output",
+      );
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: auto-mode image attachment emits turn-start vision routing and updates the execution surface",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      await config.patch({ model: "test-chat/vision", modelConfigured: true });
+      const attachmentId = await registerImageAttachment();
+
+      const updated = await setActiveRuntimeMode("auto");
+      assertEquals(updated.status, 200);
+
+      const turn = await postChatNdjson({
+        mode: "agent",
+        model: "test-chat/vision",
+        runtime_mode: "auto",
+        messages: [{
+          role: "user",
+          content: "Describe the attached image.",
+          attachment_ids: [attachmentId],
+        }],
+      });
+      assertEquals(turn.status, 200);
+      const routed = turn.events.find((event) =>
+        event.event === "capability_routed" &&
+        event.capability_id === "vision.analyze"
+      );
+      assertExists(routed);
+      assertEquals(routed.route_phase, "turn-start");
+      assertEquals(routed.selected_backend_kind, "provider-native");
+
+      const surface = await getActiveExecutionSurface();
+      assertEquals(surface.status, 200);
+      assertEquals(surface.body.active_model_id, "test-chat/vision");
+      assertEquals(surface.body.turn_context.attachmentCount, 1);
+      assertEquals(surface.body.turn_context.attachmentKinds, ["image"]);
+      assertEquals(
+        surface.body.turn_context.visionEligibleAttachmentCount,
+        1,
+      );
+      assertEquals(
+        surface.body.capabilities["vision.analyze"].selectedBackendKind,
+        "provider-native",
+      );
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: auto-mode mixed-task turn keeps vision and web routing coherent",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      await config.patch({ model: "test-chat/vision", modelConfigured: true });
+      const attachmentId = await registerImageAttachment();
+      const restoreSearch = overrideTool("search_web", {
+        fn: () =>
+          Promise.resolve({
+            query: "hlvm mixed-task coherence docs",
+            provider: "integration",
+            results: [{
+              title: "HLVM docs",
+              url: "https://example.com/hlvm",
+              snippet: "synthetic integration result",
+            }],
+            count: 1,
+          }),
+        description: "Fake search tool for integration mixed-task coherence",
+        args: { query: "string - Query to search" },
+        safetyLevel: "L0" as const,
+      });
+
+      try {
+        const updated = await setActiveRuntimeMode("auto");
+        assertEquals(updated.status, 200);
+
+        const turn = await postChatNdjson({
+          mode: "agent",
+          model: "test-chat/vision",
+          runtime_mode: "auto",
+          messages: [{
+            role: "user",
+            content:
+              "mixed-task coherence probe: describe the attached image, then use the latest docs to explain it.",
+            attachment_ids: [attachmentId],
+          }],
+        });
+        assertEquals(turn.status, 200);
+
+        const routed = turn.events.filter((event) =>
+          event.event === "capability_routed"
+        );
+        assertEquals(
+          routed.map((event) =>
+            `${String(event.route_phase)}:${String(event.capability_id)}`
+          ),
+          ["turn-start:vision.analyze", "tool-start:web.search"],
+        );
+        assertEquals(
+          routed.filter((event) => event.capability_id === "web.search").length,
+          1,
+        );
+        assertEquals(
+          turn.events.filter((event) =>
+            event.event === "tool_start" && event.name === "search_web"
+          ).length,
+          1,
+        );
+
+        const surface = await getActiveExecutionSurface();
+        assertEquals(surface.status, 200);
+        assertEquals(
+          surface.body.capabilities["vision.analyze"].selectedBackendKind,
+          "provider-native",
+        );
+        assertEquals(
+          surface.body.capabilities["web.search"].selectedBackendKind,
+          "hlvm-local",
+        );
+        assertEquals(surface.body.turn_context.visionEligibleAttachmentCount, 1);
+      } finally {
+        restoreSearch();
+      }
     });
   },
 });

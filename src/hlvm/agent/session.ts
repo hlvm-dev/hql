@@ -14,8 +14,8 @@ import { ContextManager } from "./context.ts";
 import { compileSystemPrompt } from "./llm-integration.ts";
 import type { CompiledPrompt, InstructionHierarchy } from "../prompt/mod.ts";
 import type { AgentProfile } from "./agent-registry.ts";
-import { resolveSdkModelSpec, toSdkRuntimeModelSpec } from "./engine-sdk.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
+import { ValidationError } from "../../common/error.ts";
 import { type AgentPolicy, loadAgentPolicy } from "./policy.ts";
 import {
   classifyModelTier,
@@ -29,7 +29,6 @@ import {
 import type { LLMFunction } from "./orchestrator.ts";
 import { loadMcpTools, type McpHandlers } from "./mcp/mod.ts";
 import { getAgentLogger } from "./logger.ts";
-import { ValidationError } from "../../common/error.ts";
 import { generateUUID } from "../../common/utils.ts";
 import {
   resolveContextBudget,
@@ -38,6 +37,7 @@ import {
 import type { ModelInfo } from "../providers/types.ts";
 import { createTodoState, type TodoState } from "./todo-state.ts";
 import {
+  type AgentLLMConfig,
   type AgentEngine,
   getAgentEngine,
   type ThinkingState,
@@ -51,15 +51,23 @@ import {
 import {
   type ResolvedProviderExecutionPlan,
   type ResolvedWebCapabilityPlan,
-  resolveProviderExecutionPlan,
 } from "./tool-capabilities.ts";
+import {
+  buildExecutionSurface,
+  executionSurfaceUsesMcp,
+  type ExecutionSurface,
+} from "./execution-surface.ts";
+import {
+  resolveExecutionSurfaceState,
+  resolveProviderExecutionPlanForSession,
+} from "./execution-surface-runtime.ts";
 import {
   isPersistentMemoryEnabled,
   loadMemorySystemMessage,
 } from "../memory/mod.ts";
 import { cloneToolList } from "./orchestrator-state.ts";
 import { releaseToolOwner } from "./registry.ts";
-import { preflightProviderExecutionCapabilities } from "../providers/sdk-runtime.ts";
+import { DEFAULT_RUNTIME_MODE, type RuntimeMode } from "./runtime-mode.ts";
 
 interface AgentSessionOptions {
   workspace: string;
@@ -83,6 +91,12 @@ interface AgentSessionOptions {
   agentProfiles?: readonly AgentProfile[];
   /** Disable persistent memory injection for this session. */
   disablePersistentMemory?: boolean;
+  /** Session-scoped runtime mode for prompt/routing behavior. */
+  runtimeMode?: RuntimeMode;
+  /** Precomputed provider execution plan for the session. */
+  providerExecutionPlan?: ResolvedProviderExecutionPlan;
+  /** Precomputed execution surface for the session. */
+  executionSurface?: ExecutionSurface;
 }
 
 export interface AgentSession {
@@ -100,17 +114,7 @@ export interface AgentSession {
   /** Resolved context budget (budget, rawLimit, source) */
   resolvedContextBudget: ResolvedBudget;
   /** LLM config for rebuilding with different onToken (GUI streaming) */
-  llmConfig?: {
-    model: string;
-    contextBudget: number;
-    toolAllowlist?: string[];
-    toolDenylist?: string[];
-    toolFilterState?: ToolFilterState;
-    thinkingState?: ThinkingState;
-    toolOwnerId?: string;
-    temperature?: number;
-    providerExecutionPlan?: ResolvedProviderExecutionPlan;
-  };
+  llmConfig?: AgentLLMConfig;
   /** Mutable reasoning state shared with orchestrator/engine and tests. */
   thinkingState?: ThinkingState;
   /** Whether the active model supports provider-native reasoning/thinking. */
@@ -123,6 +127,10 @@ export interface AgentSession {
   resetToolFilter?: () => void;
   /** Session-resolved provider execution plan reused across prompt/tool execution. */
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
+  /** Session runtime mode for prompt/tool routing behavior. */
+  runtimeMode: RuntimeMode;
+  /** Session execution surface for generic capability routing/provenance. */
+  executionSurface: ExecutionSurface;
   /** Session-resolved web capability plan reused across prompt/tool execution. */
   webCapabilityPlan?: ResolvedWebCapabilityPlan;
   /** Lazy MCP loader (connect/register only when first needed). */
@@ -160,46 +168,6 @@ async function tryGetModelInfo(
   return null;
 }
 
-async function resolveSessionProviderExecutionPlan(options: {
-  model?: string;
-  fixturePath?: string;
-  toolAllowlist?: string[];
-  toolDenylist?: string[];
-}): Promise<ResolvedProviderExecutionPlan> {
-  if (!options.model || options.fixturePath) {
-    return resolveProviderExecutionPlan({
-      providerName: "ollama",
-      allowlist: options.toolAllowlist,
-      denylist: options.toolDenylist,
-    });
-  }
-
-  let spec;
-  try {
-    spec = resolveSdkModelSpec(options.model);
-  } catch (error) {
-    if (error instanceof ValidationError) {
-      return resolveProviderExecutionPlan({
-        providerName: "ollama",
-        allowlist: options.toolAllowlist,
-        denylist: options.toolDenylist,
-      });
-    }
-    throw error;
-  }
-
-  const nativeCapabilities = await preflightProviderExecutionCapabilities(
-    toSdkRuntimeModelSpec(spec),
-  );
-
-  return resolveProviderExecutionPlan({
-    providerName: spec.providerName,
-    allowlist: options.toolAllowlist,
-    denylist: options.toolDenylist,
-    nativeCapabilities,
-  });
-}
-
 function mergeMcpHandlers(
   current: McpHandlers,
   next: McpHandlers,
@@ -216,6 +184,7 @@ export async function createAgentSession(
   options: AgentSessionOptions,
 ): Promise<AgentSession> {
   const profile = ENGINE_PROFILES[options.engineProfile ?? "normal"];
+  const runtimeMode = options.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const toolOwnerId = `session:${generateUUID()}`;
 
   // Parallelize independent I/O: policy, MCP server discovery, and model info
@@ -346,13 +315,43 @@ export async function createAgentSession(
     contextConfig.llmSummarize = engine.createSummarizer(options.model);
   }
 
-  const providerExecutionPlan = await resolveSessionProviderExecutionPlan({
-    model: options.model,
-    fixturePath: options.fixturePath,
-    toolAllowlist: toolFilterState.allowlist,
-    toolDenylist: toolFilterState.denylist,
-  });
+  const resolvedSurface = options.providerExecutionPlan && options.executionSurface
+    ? {
+      providerExecutionPlan: options.providerExecutionPlan,
+      executionSurface: options.executionSurface,
+    }
+    : runtimeMode === "auto"
+    ? await resolveExecutionSurfaceState({
+      model: options.model,
+      fixturePath: options.fixturePath,
+      runtimeMode,
+      toolAllowlist: toolFilterState.allowlist,
+      toolDenylist: toolFilterState.denylist,
+    })
+    : await (async () => {
+      const providerExecutionPlan = await resolveProviderExecutionPlanForSession({
+        model: options.model,
+        fixturePath: options.fixturePath,
+        toolAllowlist: toolFilterState.allowlist,
+        toolDenylist: toolFilterState.denylist,
+      });
+      return {
+        providerExecutionPlan,
+        executionSurface: buildExecutionSurface({
+          runtimeMode,
+          activeModelId: options.model,
+          pinnedProviderName: extractProviderName(options.model),
+          providerExecutionPlan,
+        }),
+      };
+    })();
+  const providerExecutionPlan = resolvedSurface.providerExecutionPlan;
+  const executionSurface = resolvedSurface.executionSurface;
   const webCapabilityPlan = providerExecutionPlan.web;
+
+  if (executionSurfaceUsesMcp(executionSurface)) {
+    await ensureMcpLoaded();
+  }
 
   const context = new ContextManager(contextConfig);
 
@@ -364,6 +363,8 @@ export async function createAgentSession(
     instructions: options.instructions,
     modelTier,
     agentProfiles: options.agentProfiles,
+    runtimeMode,
+    executionSurface,
     providerExecutionPlan,
   });
   context.addMessage({ role: "system", content: compiled.text });
@@ -393,9 +394,9 @@ export async function createAgentSession(
     thinkingCapable: modelInfo?.capabilities?.includes("thinking") ?? false,
   });
 
-  const llm = options.fixturePath
-    ? createFixtureLLM(await loadLlmFixture(options.fixturePath))
-    : engine.createLLM({
+  const llmConfig: AgentLLMConfig | undefined = options.fixturePath
+    ? undefined
+    : {
       model: options.model ?? (() => {
         throw new ValidationError(
           "Model is required when no fixture is provided",
@@ -411,19 +412,20 @@ export async function createAgentSession(
       toolOwnerId,
       onToken: options.onToken,
       thinkingCapable,
+      runtimeMode,
       providerExecutionPlan,
-    });
-
-  const llmConfig = options.fixturePath ? undefined : {
-    model: options.model!,
-    contextBudget: resolved.budget,
-    toolAllowlist: toolFilterState.allowlist,
-    toolDenylist: toolFilterState.denylist,
-    toolFilterState,
-    thinkingState,
-    toolOwnerId,
-    providerExecutionPlan,
-  };
+      executionSurface,
+    };
+  const llm = options.fixturePath
+    ? createFixtureLLM(await loadLlmFixture(options.fixturePath))
+    : engine.createLLM(
+      llmConfig ?? (() => {
+        throw new ValidationError(
+          "LLM config is required when no fixture is provided",
+          "agent_session",
+        );
+      })(),
+    );
 
   return {
     context,
@@ -456,6 +458,8 @@ export async function createAgentSession(
     toolFilterState,
     resetToolFilter,
     providerExecutionPlan,
+    runtimeMode,
+    executionSurface,
     webCapabilityPlan,
     ensureMcpLoaded,
     mcpSetHandlers,

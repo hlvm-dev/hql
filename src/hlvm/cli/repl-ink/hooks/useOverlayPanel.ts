@@ -25,6 +25,7 @@ export type OverlayPanel =
   | "models"
   | "model-setup"
   | "config-overlay"
+  | "execution-surface"
   | "team-dashboard"
   | "shortcuts-overlay"
   | "transcript-history"
@@ -52,6 +53,7 @@ function createOverlayToggle(
 function isModalOverlayPanel(panel: string): boolean {
   return panel === "palette" || panel === "models" ||
     panel === "model-setup" || panel === "config-overlay" ||
+    panel === "execution-surface" ||
     panel === "team-dashboard" ||
     panel === "shortcuts-overlay" ||
     panel === "transcript-history" ||

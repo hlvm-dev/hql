@@ -59,6 +59,7 @@ export interface TranscriptState {
   currentTurnStartedAt?: number;
   pendingTurnStats?: PendingTurnStats;
   turnCounter: number;
+  seenCapabilityRouteKeys: string[];
 }
 
 export type TranscriptInput =
@@ -91,7 +92,24 @@ export function createTranscriptState(): TranscriptState {
     nextId: 0,
     completedPlanStepIds: [],
     turnCounter: 0,
+    seenCapabilityRouteKeys: [],
   };
+}
+
+function getCapabilityRouteEventKey(
+  event: Extract<AgentUIEvent, { type: "capability_routed" }>,
+): string {
+  return JSON.stringify({
+    capabilityId: event.capabilityId,
+    selectedBackendKind: event.selectedBackendKind ?? null,
+    selectedToolName: event.selectedToolName ?? null,
+    selectedServerName: event.selectedServerName ?? null,
+    fallbackReason: event.fallbackReason ?? null,
+    failedBackendKind: event.failedBackendKind ?? null,
+    failedToolName: event.failedToolName ?? null,
+    failedServerName: event.failedServerName ?? null,
+    failureReason: event.failureReason ?? null,
+  });
 }
 
 function getVisibleTodoState(
@@ -645,6 +663,23 @@ export function reduceTranscriptState(
             activeTool: undefined,
             items: removeTransientInfoItems(state.items),
           };
+        case "capability_routed": {
+          const routeKey = getCapabilityRouteEventKey(event);
+          if (state.seenCapabilityRouteKeys.includes(routeKey)) {
+            return state;
+          }
+          return appendInfoItem(
+            {
+              ...state,
+              items: removeTransientInfoItems(state.items),
+              seenCapabilityRouteKeys: [
+                ...state.seenCapabilityRouteKeys,
+                routeKey,
+              ],
+            },
+            event.summary,
+          );
+        }
         case "reasoning_update":
         case "planning_update": {
           if (
@@ -1062,6 +1097,7 @@ export function reduceTranscriptState(
         currentTurnStartedAt: startTurn
           ? Date.now()
           : state.currentTurnStartedAt,
+        seenCapabilityRouteKeys: startTurn ? [] : state.seenCapabilityRouteKeys,
       };
 
       // Generate a new turnId when starting a new turn

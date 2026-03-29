@@ -74,6 +74,10 @@ import {
   type ResolvedProviderExecutionPlan,
   resolveProviderExecutionPlan,
 } from "./tool-capabilities.ts";
+import {
+  projectNamedToolListForExecutionSurface,
+  type ExecutionSurface,
+} from "./execution-surface.ts";
 
 const CHECKPOINT_SUPPORTED_MUTATION_TOOLS = new Set([
   "write_file",
@@ -214,6 +218,7 @@ async function executeToolWithTimeout(
   toolAllowlist?: string[],
   toolDenylist?: string[],
   providerExecutionPlan?: ResolvedProviderExecutionPlan,
+  executionSurface?: ExecutionSurface,
   hookRuntime?: OrchestratorConfig["hookRuntime"],
   onAgentEvent?: OrchestratorConfig["onAgentEvent"],
   agentProfiles?: OrchestratorConfig["agentProfiles"],
@@ -233,8 +238,8 @@ async function executeToolWithTimeout(
         ensureMcpLoaded,
         todoState,
         searchTools: (query, options) =>
-          projectToolSearchResultsForWebCapabilities(
-            searchTools(query, {
+          (() => {
+            const rawResults = searchTools(query, {
               ...options,
               allowlist: normalizeWebCapabilitySelectors(
                 options?.allowlist ?? toolAllowlist,
@@ -243,9 +248,34 @@ async function executeToolWithTimeout(
                 options?.denylist ?? toolDenylist,
               ),
               ownerId: options?.ownerId ?? toolOwnerId,
-            }),
-            providerExecutionPlan,
-          ),
+            });
+            const projected = projectNamedToolListForExecutionSurface(
+              projectToolSearchResultsForWebCapabilities(
+                rawResults,
+                providerExecutionPlan,
+              ),
+              executionSurface,
+            );
+            if (executionSurface?.runtimeMode !== "auto") {
+              return projected;
+            }
+            const restoredByName = new Map(projected.map((result) =>
+              [result.name, result]
+            ));
+            for (const route of Object.values(executionSurface.capabilities)) {
+              const selectedToolName = route.selectedToolName;
+              if (!selectedToolName || restoredByName.has(selectedToolName)) {
+                continue;
+              }
+              const rawMatch = rawResults.find((result) =>
+                result.name === selectedToolName
+              );
+              if (rawMatch) {
+                restoredByName.set(selectedToolName, { ...rawMatch });
+              }
+            }
+            return [...restoredByName.values()];
+          })(),
         teamRuntime,
         teamMemberId,
         teamLeadMemberId,
@@ -1003,6 +1033,7 @@ export async function executeToolCall(
         currentToolAllowlist,
         currentToolDenylist,
         providerExecutionPlan,
+        config.executionSurface,
         config.hookRuntime,
         config.onAgentEvent,
         config.agentProfiles,

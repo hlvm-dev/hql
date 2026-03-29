@@ -14,6 +14,8 @@ import { PLAN_END, PLAN_START } from "./planning.ts";
 // Pre-compiled regexes — hoisted to module level to avoid recompilation per call
 const RE_TOOL_CALL_JSON =
   /\{[\s\S]*?"(toolName|tool_name|function_name|name)"\s*:\s*"[^"]+"[\s\S]*?"(args|parameters|arguments)"\s*:\s*[\s\S]*?\}/m;
+const RE_TOOL_CALL_TEXT_ENVELOPE =
+  /^\s*[a-z_][\w.]*\s*\(\s*\{[\s\S]*\}\s*\)\s*$/i;
 const RE_JSON_OBJECT_TOOL = /\bjson object\b/;
 const RE_TOOL_WORD = /\btool\b/;
 const RE_FUNCTION_TOOL_CALL = /\b(function|tool)\s+call(ing)?\s*[:\(]/i;
@@ -28,6 +30,14 @@ const RE_PLAN_BLOCK = /PLAN\s*(?:\r?\n)[\s\S]*?(?:\r?\n)END_PLAN\s*/g;
  */
 export function looksLikeToolCallJsonAnywhere(text: string): boolean {
   return RE_TOOL_CALL_JSON.test(text);
+}
+
+/**
+ * Detect raw function-style tool calls rendered as plain text instead of
+ * structured native tool calls, e.g. `web_search({query: "..."})`.
+ */
+export function looksLikeToolCallTextEnvelope(text: string): boolean {
+  return RE_TOOL_CALL_TEXT_ENVELOPE.test(text.trim());
 }
 
 /**
@@ -71,6 +81,7 @@ export function responseAsksQuestion(response: string): boolean {
 export function shouldSuppressFinalResponse(response: string): boolean {
   if (!response.trim()) return true;
   if (looksLikeToolCallJsonAnywhere(response)) return true;
+  if (looksLikeToolCallTextEnvelope(response)) return true;
   if (looksLikePlanEnvelope(response)) return true;
   if (looksLikeToolInstruction(response)) return true;
   return false;

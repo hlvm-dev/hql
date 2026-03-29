@@ -15,6 +15,7 @@
 import { disposeAllSessions } from "../../src/hlvm/agent/agent-runner.ts";
 import type { AgentUIEvent } from "../../src/hlvm/agent/orchestrator.ts";
 import {
+  assertCapabilityRoute,
   assertHasProviderCitations,
   assertNoLocalToolEvents,
   hasEnvVar,
@@ -55,12 +56,18 @@ Deno.test({
             `Use the provider-native page reader to read this exact URL: ${TARGET_URL}. Reply with the page title and the exact source URL. Do not use raw HTML mode.`,
           workspace,
           signal: controller.signal,
+          runtimeMode: "auto",
           toolAllowlist: ["web_fetch"],
           callbacks: {
             onAgentEvent: (event) => events.push(event),
           },
         });
 
+        assertCapabilityRoute(events, {
+          capabilityId: "web.read",
+          routePhase: "tool-start",
+          selectedBackendKind: "provider-native",
+        });
         assertNoLocalToolEvents(events, "web_fetch");
         assertHasProviderCitations(result);
       });

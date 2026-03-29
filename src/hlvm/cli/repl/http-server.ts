@@ -26,6 +26,11 @@ import {
   handleChatInteraction,
 } from "./handlers/chat.ts";
 import {
+  handleGetActiveConversationRuntimeMode,
+  handleSetActiveConversationRuntimeMode,
+} from "./handlers/runtime-mode.ts";
+import { handleGetActiveConversationExecutionSurface } from "./handlers/execution-surface.ts";
+import {
   getRuntimeReady,
   isRuntimeReadinessManaged,
   isRuntimeReadyForAiRequests,
@@ -385,7 +390,9 @@ export async function handleEval(req: Request): Promise<Response> {
       },
     });
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(getErrorMessage(error));
+    const err = error instanceof Error
+      ? error
+      : new Error(getErrorMessage(error));
     return Response.json({
       success: false,
       error: {
@@ -697,6 +704,21 @@ router.add("POST", "/api/chat", (req) => handleChat(req));
 router.add("POST", "/eval", (req) => handleEval(req));
 router.add("POST", "/api/chat/cancel", (req) => handleChatCancel(req));
 router.add(
+  "GET",
+  "/api/chat/runtime-mode",
+  () => handleGetActiveConversationRuntimeMode(),
+);
+router.add(
+  "GET",
+  "/api/chat/execution-surface",
+  () => handleGetActiveConversationExecutionSurface(),
+);
+router.add(
+  "POST",
+  "/api/chat/runtime-mode",
+  (req) => handleSetActiveConversationRuntimeMode(req),
+);
+router.add(
   "POST",
   "/api/chat/interaction",
   (req) => handleChatInteraction(req),
@@ -722,7 +744,11 @@ router.add(
   (req, p) => handleGetAttachmentContent(req, p),
 );
 
-router.add("GET", "/api/chat/stream", (req) => handleActiveConversationStream(req));
+router.add(
+  "GET",
+  "/api/chat/stream",
+  (req) => handleActiveConversationStream(req),
+);
 router.add("GET", "/api/chat/messages", (req) => handleGetActiveMessages(req));
 router.add("POST", "/api/chat/messages", (req) => handleAddActiveMessage(req));
 router.add(

@@ -91,9 +91,9 @@ export function buildToolJsonSchema(tool: ToolMetadata): JsonSchemaObject {
     };
     if (parsed.isArray) {
       property.type = "array";
-      if (!isAny) {
-        property.items = { type: parsed.type as JsonSchemaProperty["type"] };
-      }
+      property.items = isAny
+        ? {}
+        : { type: parsed.type as JsonSchemaProperty["type"] };
     } else if (!isAny) {
       property.type = parsed.type as JsonSchemaProperty["type"];
     }

@@ -160,6 +160,8 @@ export interface ToolMetadata {
   fn: ToolFunction;
   description: string;
   args: Record<string, string>;
+  /** Semantic capabilities this concrete tool can fulfill. */
+  semanticCapabilities?: import("./semantic-capabilities.ts").SemanticCapabilityId[];
   /** Optional arg alias map applied before coercion/validation. */
   argAliases?: Record<string, string>;
   returns?: Record<string, string>;
@@ -267,6 +269,7 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
       language:
         "string (optional) - Language hint such as python; provider support varies",
     },
+    semanticCapabilities: ["code.exec"],
     safetyLevel: "L2",
   },
   delegate_agent: {

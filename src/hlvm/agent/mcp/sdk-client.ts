@@ -23,7 +23,7 @@ import {
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { getAgentLogger } from "../logger.ts";
-import { getErrorMessage } from "../../../common/utils.ts";
+import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import type {
   McpPromptInfo,
   McpPromptMessage,
@@ -203,6 +203,12 @@ export class SdkMcpClient {
       name: t.name,
       description: t.description,
       inputSchema: t.inputSchema as Record<string, unknown> | undefined,
+      metadata: isObjectValue((t as Record<string, unknown>).metadata)
+        ? (t as Record<string, unknown>).metadata as Record<string, unknown>
+        : undefined,
+      annotations: isObjectValue((t as Record<string, unknown>).annotations)
+        ? (t as Record<string, unknown>).annotations as Record<string, unknown>
+        : undefined,
     }));
   }
 

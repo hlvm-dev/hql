@@ -41,6 +41,8 @@ export interface McpToolInfo {
   name: string;
   description?: string;
   inputSchema?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  annotations?: Record<string, unknown>;
 }
 
 // ============================================================

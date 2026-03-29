@@ -1,6 +1,6 @@
 # HLVM Platform Thesis
 
-Prepared: 2026-03-20
+Prepared: 2026-03-20 | Last updated: 2026-03-30
 
 This is the single canonical document for understanding HLVM as a high-level AI
 runtime platform.
@@ -25,7 +25,51 @@ HLVM should not stop at being a multi-provider model adapter.
 HLVM should become the runtime that executes user intent across the AI
 ecosystem the user actually has access to.
 
-The core idea is:
+### 1.1 The "LLVM for LLM" Analogy
+
+The clearest way to understand what HLVM is trying to become:
+
+```text
+LLVM is the central platform that any language, any optimization pass,
+and any hardware target plugs into.
+
+HLVM is the central platform that any input frontend, any AI model,
+any tool backend, and any policy plugs into.
+```
+
+This is a role analogy, not a technique analogy. HLVM does not need to
+replicate LLVM's specific techniques (SSA, optimization passes, target
+codegen). HLVM needs to play the same structural role in the LLM ecosystem
+that LLVM plays in the compiler ecosystem:
+
+```text
+LLVM:   any language  →  IR  →  any target
+HLVM:   any input     →  orchestrator  →  any backend
+```
+
+Concretely:
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│                    HLVM Platform                        │
+│                                                         │
+│  Inputs              Core               Backends        │
+│  ──────              ────               ────────        │
+│  CLI prompt    ─┐                  ┌─  Ollama local     │
+│  GUI chat      ─┤                  ├─  Anthropic API    │
+│  API endpoint  ─┤  → Orchestrator  ├─  OpenAI API       │
+│  Webhooks      ─┤    + Policy      ├─  Google API       │
+│  Agent teams   ─┘    + Routing     ├─  MCP servers      │
+│                                    ├─  Local tools      │
+│                                    └─  Hosted tools     │
+└─────────────────────────────────────────────────────────┘
+```
+
+The key insight is that HLVM already owns the orchestrator — the central
+execution loop that corresponds to LLVM's optimizer pipeline. Everything
+else plugs in.
+
+### 1.2 Core Idea
 
 ```text
 User expresses intent
@@ -1404,6 +1448,606 @@ not:
 control disappears
 ```
 
+### 15.16 Implementation Status: Auto Mode Platform Progress
+
+The thesis above describes the intended staircase.
+
+This subsection records the current implementation status so the thesis can
+remain conceptual while the repository still has a concrete progress marker.
+
+#### Manual vs Auto Contract
+
+HLVM currently preserves two product meanings:
+
+```text
+manual                        auto
+  default                       explicit opt-in
+  explicit                      routed
+  preserved                     growing platform path
+  first-class forever           task-centric abstraction
+```
+
+The important point is unchanged:
+
+```text
+manual is not legacy
+auto is not forced
+```
+
+Manual remains the normal default until higher abstraction earns trust.
+
+#### Progress Tracker
+
+This is the operational snapshot of where HLVM stands right now.
+
+```text
+Platform journey
+
+  [done]     manual default preserved
+  [done]     auto mode introduced as explicit opt-in
+  [done]     execution surface foundation
+  [done]     web-family routed capability pilot
+  [done]     provenance / trust surface
+  [done]     execution-surface inspector (/surface command)
+  [done]     policy-aware routing
+  [done]     second capability family: vision.analyze (attachments-first)
+  [done]     mixed-task coherence (web + vision in one turn/session)
+  [done]     third capability family: code.exec (provider-native, task-text cues)
+  [done]     runtime fallback after selected backend failure
+  [done]     fourth capability family: structured.output (provider-native, request-schema driven)
+  [done]     targeted E2E/live validation layer (validation board + live smoke suite)
+  [next]     fifth capability family: audio
+  [later]    computer.use
+  [later]    model/provider auto-selection
+  [later]    trusted default
+  [polish]   /surface guidance hints (how to unlock missing capabilities)
+  [polish]   /doctor environment health check
+```
+
+Validation matrix:
+
+```text
+capability/family      implemented   integration-validated   live-validated
+web.search             yes           yes                     opt-in smoke
+web.read               yes           yes                     opt-in smoke
+vision.analyze         yes           yes                     opt-in smoke
+code.exec              yes           yes                     opt-in smoke
+structured.output      yes           yes                     opt-in smoke
+mixed-turn coherence   yes           yes                     opt-in smoke
+fallback               yes           yes                     deterministic runtime proof
+```
+
+What is still not proven live:
+
+- opt-in live smoke success still depends on the local machine having the
+  required provider auth and env gates enabled
+- fallback is intentionally validated through deterministic runtime tests, not
+  by forcing live provider outages
+- `audio` and `computer.use` are not yet on the routed platform spine
+
+Compact progress view:
+
+```text
+done
+  web family
+  /surface
+  task-derived constraints
+  vision.analyze on attachments
+  multi-family coherence
+  code.exec on task cues
+  routed backend fallback
+  structured.output final synthesis
+  validation board + live smoke suite
+
+next
+  audio
+
+later
+  computer.use
+  model/provider abstraction
+```
+
+Fallback trust flow:
+
+```text
+route selected
+  -> route failed
+  -> fallback selected
+  -> provenance + /surface stay aligned
+```
+
+Rough maturity snapshot:
+
+```text
+Strong agent runtime foundation
+  [################----] ~80%
+
+Reusable LLVM-for-LLM routing foundation
+  [#################---] ~85%
+
+Full thesis destination
+  [#############-------] ~65%
+```
+
+Current staircase position:
+
+```text
+roots: solid
+trunk: real (routing + policy on proven spine)
+first branch: web family (done)
+second branch: vision.analyze (done)
+coherence layer: done
+third branch: code.exec (done)
+fallback layer: done
+validation layer: done
+remaining: broader families + brain abstraction
+```
+
+Current fallback posture:
+
+```text
+per-turn only
+constraint-preserving
+trust-surfaced in transcript provenance and /surface
+manual remains unchanged
+```
+
+#### The Reusable Pattern Per Capability Family
+
+The web family implementation established a 6-step reusable pattern that
+every future capability family should follow:
+
+```text
+Step 1. Define semantic capability IDs
+          web.search, web.read
+          vision.analyze
+          code.exec
+          (later: ...)
+
+Step 2. Survey available backends for the family
+          provider-native? MCP-backed? HLVM-local?
+
+Step 3. Build routing decision function
+          buildWebSearchDecision(), buildWebReadDecision()
+          (later: buildCodeExecDecision(), ...)
+
+Step 4. Implement three-tier cascade
+          provider-native → MCP → HLVM-local
+
+Step 5. Emit provenance event
+          capability_routed with familyId, strategy, selectedBackendKind
+
+Step 6. Wire into prompt layer
+          auto-mode prompt guidance for the family
+```
+
+This pattern is proven on the web family and should be replicated rather
+than reinvented for each new family.
+
+#### Remaining Roadmap To LLVM-for-LLM
+
+The full journey from current state to the thesis destination:
+
+```text
+CURRENT STATE
+  ├── ReAct orchestrator               ✓ solid
+  ├── Local tool plane (15+ families)   ✓ solid
+  ├── Multi-provider adapters           ✓ solid
+  ├── MCP client (SDK-backed)           ✓ solid
+  ├── RuntimeMode manual/auto           ✓ implemented
+  ├── Execution surface                 ✓ implemented
+  ├── Web family routing                ✓ implemented
+  ├── Vision family routing             ✓ implemented
+  ├── Code.exec family routing          ✓ implemented
+  ├── Provenance events                 ✓ implemented
+  └── /surface inspector                ✓ implemented
+
+DONE: POLICY-AWARE ROUTING
+  │
+  │   Constraints (local-only, cheap, quality, no-upload) filter
+  │   candidates BEFORE selection, not just enforce at execution boundary.
+  │
+  │   Policy routing matrix:
+  │   ┌──────────────┬──────────┬─────────┬────────────┐
+  │   │ Constraint   │ Native   │ MCP     │ Local      │
+  │   ├──────────────┼──────────┼─────────┼────────────┤
+  │   │ local-only   │ blocked  │ blocked │ allowed    │
+  │   │ no-upload    │ check    │ check   │ allowed    │
+  │   │ cheap        │ depriori │ allowed │ preferred  │
+  │   │ quality      │ preferred│ allowed │ depriori   │
+  │   └──────────────┴──────────┴─────────┴────────────┘
+  │
+  │
+  │   Implemented details:
+  │   - deterministic task-text constraint extraction
+  │   - constraints persisted as last-applied session metadata
+  │   - execution surface carries constraints + blocked reasons
+  │   - /surface shows selected path and why other candidates were blocked
+  │   - constrained route selection is validated by targeted unit/integration tests
+  │
+  ▼
+DONE: CODE.EXEC FAMILY
+  │
+  │   A third family now proves task-text-activated routing on the same
+  │   execution-surface/provenance spine.
+  │
+  │   Scope:
+  │   - capability family: code.exec
+  │   - activation source: current task text only
+  │   - provider-native only in this phase
+  │   - no MCP/local backend yet
+  │   - turn-start provenance
+  │   - /surface shows task capability context + code.exec decision
+  │
+  │   Key architectural addition:
+  │   - task-scoped capability context derived deterministically from the
+  │     current user query
+  │   - code.exec routes to remote_code_execute only when the pinned
+  │     provider/model supports native remote sandbox execution
+  │
+  ▼
+NEXT: RUNTIME FALLBACK AFTER SELECTED BACKEND FAILURE
+  │   If a selected backend errors mid-task, HLVM should retry down the
+  │   valid cascade without violating constraints or pretending success
+  ▼
+THEN: MODEL/PROVIDER AUTO-SELECTION
+  │   configured-first: prefer user's pinned model
+  │   only switch when pinned path cannot satisfy the task
+  ▼
+THEN: TRUSTED DEFAULT
+  │   Higher abstraction becomes the default experience
+  │   Manual control remains first-class override
+  ▼
+POLISH ITEMS (non-blocking, post-implementation):
+      /surface guidance hints: locked/missing items show how to unlock
+        e.g. "Set GOOGLE_API_KEY to enable Google-hosted search"
+      /doctor: environment-level health check
+        e.g. "Ollama: running, 3 models | Anthropic: key set | OpenAI: no key"
+```
+
+#### Auto Mode Alpha: Implemented
+
+The first reusable platform slice is now implemented.
+
+Specifically:
+
+- session-scoped `runtimeMode: manual|auto`
+- persisted runtime mode per conversation/session
+- execution-surface foundation for the active session
+- web-family routing foundation
+- routed provenance via `capability_routed`
+
+In practical terms, HLVM now has a reusable middle-layer pattern rather than a
+web-only hack:
+
+```text
+manual or auto
+  -> execution surface
+  -> semantic capability routing
+  -> selected backend path
+  -> provenance / trust surface
+```
+
+#### Current Web Status
+
+The web family is the first capability family plugged into that pattern.
+
+The current contract is:
+
+```text
+web.search
+web.read
+```
+
+with the active backend cascade now intended as:
+
+```text
+provider-native
+  -> MCP-backed
+  -> HLVM-local
+```
+
+This is the first real proof that HLVM can route a semantic family rather than
+only call concrete tool names directly.
+
+#### What Was Validated
+
+The implementation has targeted validation, not blanket certification.
+
+Validated so far:
+
+- runtime mode defaults to `manual`
+- runtime mode persists per active conversation session
+- execution-surface routing logic for the web family
+- turn-scoped capability context for attachment-driven routing
+- provider-native vision routing for `vision.analyze`
+- turn-start provenance for attachment-driven routing
+- deterministic task-text capability extraction for `code.exec`
+- provider-native routing for `code.exec` when remote sandbox support exists
+- turn-start provenance for task-text-activated routing
+- provider-native preference when available
+- MCP participation only through explicit HLVM-owned semantic bindings
+- HLVM-local fallback when native/MCP are unavailable
+- runtime API support for the active conversation execution surface
+
+Validation status should be understood as:
+
+```text
+implemented: yes
+targeted unit/integration verification: yes
+full battle-tested maturity: not yet
+```
+
+#### Remaining Gaps In This Stage
+
+The foundation is real, but this is not yet the fully-finished platform.
+
+Still missing or still immature relative to the long-term thesis:
+
+- ~~policy-aware routing~~ (done — constraints filter candidates before selection)
+- runtime fallback after a chosen backend fails mid-task
+- ~~broader family coverage beyond the web family~~ (done — `vision.analyze`)
+- ~~full mixed-task coherence across multiple families~~ (done)
+- ~~third capability family~~ (done — `code.exec`)
+- later reasoning-model/provider auto-selection
+- eventual trusted-default posture
+
+So the right framing is:
+
+```text
+first strong reusable platform slice: done
+policy-aware routing: done
+second capability family: done
+third capability family: done
+full LLVM-for-LLM destination: not done
+```
+
+#### Before / Now / Next / Final
+
+```text
+BEFORE
+  manual model/provider choice
+  concrete tools
+  limited visibility into backend choice
+  no semantic capability layer
+  no concept of execution surface
+
+NOW
+  manual default preserved
+  auto opt-in introduced
+  execution surface exists and is inspectable (/surface)
+  semantic capability routing exists (web.search, web.read)
+  web family fully routed: provider-native → MCP → HLVM-local
+  provenance exists (capability_routed events)
+  first reusable platform slice proven on web family
+  policy-aware routing implemented (constraints filter candidates)
+  turn-scoped capability context implemented for attachments
+  vision.analyze implemented (provider-native, attachment-driven, turn-start provenance)
+  mixed-task coherence implemented across web + vision in one turn/session
+  task-scoped capability context implemented for compute cues
+  code.exec implemented (provider-native, task-text activated, turn-start provenance)
+  runtime fallback implemented (per-turn, constraint-preserving, trust-surfaced)
+  response-shape context implemented for explicit final schemas
+  structured.output implemented (provider-native, request-schema driven, final-response executed)
+
+NEXT
+  targeted E2E/live validation across the multi-family platform
+  then broader family coverage (audio, computer.use)
+
+FINAL
+  model/provider auto-selection (configured-first)
+  trusted default (higher abstraction as default experience)
+  /surface shows guidance hints for unlocking capabilities
+  /doctor for environment-level health checks
+```
+
+#### Platform Visual
+
+Current foundation architecture:
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                        User Task                             │
+│                     + constraints                            │
+└──────────────────────┬───────────────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────────────┐
+│                  Runtime Mode                                │
+│               manual (default) / auto (opt-in)               │
+└──────────────────────┬───────────────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────────────┐
+│                  Execution Surface                           │
+│  ┌────────────┐ ┌────────────┐ ┌──────────┐ ┌────────────┐  │
+│  │ Active     │ │ Reachable  │ │ Local    │ │ MCP        │  │
+│  │ Provider   │ │ Providers  │ │ Models   │ │ Servers    │  │
+│  └────────────┘ └────────────┘ └──────────┘ └────────────┘  │
+└──────────────────────┬───────────────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────────────┐
+│            Policy Filter [done]                              │
+│  local-only? no-upload? cheap? quality?                      │
+│  → eliminates invalid candidates before selection            │
+│  → /surface shows blocked reasons per candidate              │
+└──────────────────────┬───────────────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────────────┐
+│            Semantic Capability Routing                        │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐     │
+│  │ web.search   │  │ web.read     │  │ vision.analyze │     │
+│  │   [done]     │  │   [done]     │  │   [done]       │     │
+│  │              │  │              │  │ attach-first   │     │
+│  └──────┬───────┘  └──────┬───────┘  └───────┬────────┐     │
+│         │                 │                  │        │     │
+│         │                 │            ┌─────▼─────┐  │     │
+│         │                 │            │ code.exec │  │     │
+│         │                 │            │  [done]   │  │     │
+│         │                 │            │ cue-based │  │     │
+│         │                 │            └─────┬─────┘  │     │
+│         │                 │                  │        │     │
+│         │                 │        ┌─────────▼────────┐     │
+│         │                 │        │ structured.output │     │
+│         │                 │        │      [done]       │     │
+│         │                 │        │ request-schema    │     │
+└─────────┼─────────────────┼────────┼────────────────────────┘
+          │                 │        │
+          ▼                 ▼        ▼
+┌──────────────────────────────────────────────────────────────┐
+│            Backend Selection / Execution Paths                │
+│                                                              │
+│  1. provider-native  (Anthropic/Google/OpenAI hosted tools)  │
+│  2. MCP-backed       (user's configured MCP servers)         │
+│  3. HLVM-local       (built-in local tool fallback)          │
+└──────────────────────┬───────────────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────────────┐
+│              Provenance / Trust Surface                       │
+│  capability_routed event: familyId, strategy,                │
+│  selectedBackendKind, fallbackReason                         │
+│  → visible via /surface inspector                            │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Implemented files:
+
+```text
+runtime-mode.ts          RuntimeMode type, manual default
+execution-surface.ts     Routing decisions, three-tier cascade
+execution-surface-runtime.ts  Surface refresh from live state
+semantic-capabilities.ts Capability IDs, MCP metadata reading
+routing-constraints.ts   Task-text constraint extraction + types
+task-capability-context.ts  Task-text code.exec activation context
+orchestrator.ts          capability_routed event emission
+session.ts               runtimeMode threaded through session
+agent-runner.ts          Provenance + constraint extraction
+sections.ts              Auto-mode prompt guidance
+ExecutionSurfaceOverlay.tsx  /surface inspector UI (constraints + blocked)
+```
+
+#### This Phase Added
+
+This implementation phase adds:
+
+```text
+Targeted E2E / Live Validation Layer
+```
+
+Meaning:
+
+- README now separates `implemented`, `integration-validated`, and
+  `live-validated` status
+- the existing native-provider smoke harness now understands routed capability
+  events, inline attachment fixtures, and structured agent results
+- provider-backed opt-in smoke tests now exist for:
+  - `web.search`
+  - `web.read`
+  - `vision.analyze`
+  - `code.exec`
+  - `structured.output`
+  - mixed-turn coherence across `vision.analyze` + `web.search`
+- deterministic runtime tests now prove that routed fallback emits the real
+  `fallback` provenance event and recomputes the execution surface
+
+#### Completed: Policy-Aware Routing
+
+Policy-aware routing is now implemented. Constraints such as `local-only`,
+`cheap`, `quality`, `no-upload` filter candidates before selection.
+
+Implementation details:
+
+- deterministic task-text constraint extraction
+- constraints persisted as last-applied session metadata
+- execution surface carries constraints and blocked reasons
+- /surface shows selected path and why other candidates were blocked
+- constrained route selection validated by targeted unit/integration tests
+
+The architectural change that was made:
+
+```text
+BEFORE:
+  execution-surface.ts selected candidates by availability only
+  policy.ts enforced allow/deny at execution boundary (too late)
+
+AFTER:
+  policy constraints filter candidates BEFORE selection
+  execution-surface.ts receives pre-filtered candidate list
+  policy is a routing input, not just an enforcement gate
+```
+
+#### Validation Runbook
+
+Recommended targeted validation commands:
+
+```text
+deno test --allow-all tests/integration/http-server.test.ts
+deno test --allow-all tests/e2e/native-web-search-smoke.test.ts
+deno test --allow-all tests/e2e/native-google-web-search-smoke.test.ts
+HLVM_E2E_NATIVE_PAGE_READ=1 deno test --allow-all tests/e2e/native-web-page-read-smoke.test.ts
+HLVM_E2E_NATIVE_REMOTE_CODE=1 deno test --allow-all tests/e2e/native-remote-code-smoke.test.ts
+HLVM_E2E_NATIVE_VISION=1 deno test --allow-all tests/e2e/native-vision-analyze-smoke.test.ts
+HLVM_E2E_NATIVE_STRUCTURED_OUTPUT=1 deno test --allow-all tests/e2e/native-structured-output-smoke.test.ts
+HLVM_E2E_NATIVE_MIXED_PLATFORM=1 deno test --allow-all tests/e2e/native-mixed-platform-smoke.test.ts
+```
+
+#### Recommended Next Phase: Fifth Capability Family: audio
+
+The next step is now family breadth again, not another validation-only slice.
+Four families are already implemented on the same spine:
+
+```text
+web.*           tool-start routed
+vision.analyze  turn-start, attachment-driven
+code.exec       turn-start, task-text activated
+structured.output turn-start requested, final-response executed
+```
+
+The next architectural gap is broader task coverage on top of the now-proven
+multi-family path.
+
+```text
+four-family routed runtime
+  -> validated by runtime integration tests
+  -> covered by opt-in provider-backed live smokes
+  -> ready for the next semantic family
+```
+
+After targeted validation:
+
+- fifth capability family: audio
+- then `computer.use`
+- then later model/provider abstraction
+
+#### /surface And /doctor: Visibility Layer
+
+Two complementary visibility tools serve different scopes:
+
+```text
+/surface (implemented)
+  Session-level routing view
+  Shows which backends are active, which capabilities are routed
+  Currently shows raw status only
+
+  Future enhancement: guidance hints for locked/missing items
+    e.g. "Google search: unavailable — set GOOGLE_API_KEY to enable"
+    e.g. "MCP web search: no server configured — add brave-search MCP"
+
+/doctor (future, post-implementation polish)
+  Environment-level health check
+  Shows overall system readiness independent of any session
+    e.g. "Ollama: running, 3 models available"
+    e.g. "Anthropic: API key set, reachable"
+    e.g. "OpenAI: no API key"
+    e.g. "MCP: 2 servers configured, 1 unreachable"
+  Actionable guidance for improving the environment
+```
+
+These are polish items, not blockers for the core routing work.
+
 ---
 
 ## 16. The Important `search_web` Clarification
@@ -1424,28 +2068,26 @@ That means HLVM is not simply exposing raw vendor wire names to the model.
 
 That is good.
 
-### 16.2 What `search_web` does not yet solve
+### 16.2 What `search_web` now demonstrates
 
-Today `search_web` is still primarily:
+Updated: 2026-03-30
 
-```text
-one concrete HLVM tool
-```
-
-The larger target is:
+With the web family routing implementation, `search_web` is no longer just
+one concrete HLVM tool. It is now:
 
 ```text
-one semantic capability
-  -> many possible realizations
+one semantic capability (web.search)
+  -> multiple backend realizations
 ```
 
-Until the runtime can choose among:
+The runtime now chooses among:
 
-- hosted vendor search
-- MCP search
-- HLVM `search_web`
+- hosted vendor search (provider-native)
+- MCP search (user's configured MCP servers)
+- HLVM `search_web` (local fallback)
 
-the abstraction remains incomplete.
+This is the first proof that the semantic capability abstraction works in
+practice. The same pattern needs to be replicated for additional families.
 
 ### 16.3 Why naming still matters
 
@@ -1465,21 +2107,30 @@ That is the distinction to preserve.
 
 ## 17. Where HLVM Is Today
 
+Updated: 2026-03-30
+
 The current codebase is best described as:
 
 ```text
 strong agent runtime
 + strong local tool plane
 + decent multi-provider model plumbing
-- weak semantic capability routing
-- weak hosted/local/MCP unification
++ semantic capability routing (web.*, vision.analyze, code.exec, structured.output)
++ execution surface and provenance infrastructure
++ policy-aware routing (constraints filter before selection)
++ turn-scoped attachment, task, and response-shape context in the routing spine
++ per-turn runtime fallback after routed backend failure
++ mixed-task coherence across web + vision
 ```
 
 Or, in one sentence:
 
 ```text
-Today HLVM is a strong runtime with swappable brains.
-It is not yet a full task-level execution platform.
+Today HLVM has a strong runtime with a reusable platform slice proven on
+the web family, extended to attachment-driven vision routing, and
+hardened for mixed-task coherence and task-text-driven code.exec routing.
+The foundation is solid. The next step is runtime fallback after a
+selected backend fails.
 ```
 
 That is the most honest summary.
@@ -1604,63 +2255,67 @@ It is not enough if HLVM needs to answer questions like:
 - which backend can do structured output well?
 - which backend can supply grounding metadata?
 
-#### C. The shared runtime normalizes tool transport, not full platform semantics
+#### C. Semantic capability routing now spans multiple families, but breadth is still incomplete
 
-Relevant file:
+The web family now has full semantic routing:
 
-- [src/hlvm/providers/sdk-runtime.ts](../../src/hlvm/providers/sdk-runtime.ts)
+- [src/hlvm/agent/execution-surface.ts](../../src/hlvm/agent/execution-surface.ts)
+- [src/hlvm/agent/semantic-capabilities.ts](../../src/hlvm/agent/semantic-capabilities.ts)
 
-The current runtime converts HLVM tool definitions into SDK-native function
-tools.
+The routed platform now covers four semantic family shapes:
 
-This means it already handles:
+- `web.search` / `web.read` via provider-native → MCP → HLVM-local
+- `vision.analyze` as attachment-driven, turn-start routing
+- `code.exec` as task-text-driven, turn-start routing
+- `structured.output` as request-schema-driven, final-response execution
 
-- transport normalization
-- native tool-calling shape adaptation
+This proves the pattern is generic, not web-specific.
 
-But it does not yet represent:
+What still remains is breadth and hardening: more families, more real mixed
+tasks, and stronger live validation.
 
-- semantic capability families
-- hosted vs local choice
-- MCP vs vendor vs HLVM fallback choice
+#### D. Policy now participates in routing (implemented)
 
-That is the gap between lower-layer normalization and higher-layer orchestration.
+Policy constraints now filter candidates before selection:
 
-#### D. HLVM tool names are good, but not yet sufficient
+- deterministic task-text constraint extraction
+- constraints persisted as last-applied session metadata
+- execution surface carries constraints and blocked reasons
+- /surface shows selected path and why other candidates were blocked
 
-`search_web` is a good HLVM-owned tool name.
+This was previously the single most important architectural gap. It is now
+closed.
 
-But naming the HLVM tool `search_web` does not by itself create a full semantic
-capability system.
+### 17.3 What has been built and what remains
 
-It only means:
+Built since original writing:
 
-```text
-HLVM has its own local/public search tool vocabulary
-```
+- semantic capability layer (web.search, web.read) with three-tier cascade
+- backend-choice layer across local, hosted, and MCP paths
+- policy-aware routing (constraints filter candidates before selection)
+- execution surface with availability awareness
+- provenance and trust surface (capability_routed events)
+- /surface inspector for visibility into routing decisions
+- turn-scoped capability context for attachment-driven routing
+- `vision.analyze` as a second family (attachments-first, provider-native)
+- mixed-task coherence across web + vision in one turn/session
+- task-scoped capability context for code.exec activation
+- `code.exec` as a third family (provider-native, task-text activated)
+- runtime fallback after routed backend failure (per-turn, narrow, trust-surfaced)
+- response-shape context for explicit structured final responses
+- `structured.output` as a fourth family (provider-native, request-schema driven)
 
-It does not yet mean:
+Still needed:
 
-```text
-HLVM can choose among multiple implementations of the same semantic need
-```
+- targeted E2E/live validation of the multi-family platform
+- additional families (audio, computer.use)
+- model/provider auto-selection (configured-first strategy)
+- richer provider capability modeling for hosted tool families
+- /surface guidance hints (how to unlock missing capabilities)
+- /doctor environment health check (post-implementation polish)
 
-### 17.3 What is still missing
-
-The platform still needs:
-
-- a first-class semantic capability layer
-- a backend-choice layer across local, hosted, and MCP paths
-- a policy-aware execution layer
-- a stronger availability and capability picture
-- a cleaner separation between final semantics and concrete tool names
-
-Without enough of that layer, the system tends to collapse into:
-
-- vendor names
-- model names
-- tool transport details
-- HLVM tool names treated as if they were final semantics
+The foundation is solid. The remaining work is engineering on top of a
+proven architecture, not a rethink.
 
 ---
 
@@ -1735,15 +2390,38 @@ something that can support runtime choice over:
 
 ## 21. Final Summary
 
-HLVM should be treated as a runtime platform whose job is to execute user
-intent across heterogeneous AI backends rather than as a mere adapter whose job
-is to route prompts to many vendors. This does not eliminate the need for lower
-layers such as provider adapters, local tools, or MCP connections. It elevates
-them into inputs to a higher semantic execution layer. The current codebase
-already contains meaningful foundations for that direction, which means the
-vision is not fantasy. The architecture is not fundamentally wrong. It is
-unfinished. The end-state remains a high-level task execution platform, while
-the transitional product may still keep manual model/provider choice as the
+Updated: 2026-03-29
+
+HLVM should be understood as "LLVM for LLM" — the central platform that any
+input frontend, any AI model, any tool backend, and any policy plugs into.
+Like LLVM is the central hub in the compiler ecosystem, HLVM is the central
+hub in the LLM ecosystem:
+
+```text
+any input → orchestrator + policy + routing → any backend
+```
+
+This does not eliminate the need for lower layers such as provider adapters,
+local tools, or MCP connections. It elevates them into inputs to a higher
+semantic execution layer.
+
+The current codebase now contains a proven multi-family platform slice:
+
+- ReAct orchestrator (the "IR" — general enough for any task)
+- Execution surface (session-level availability awareness)
+- Semantic capability routing (`web.*`, `vision.analyze`, `code.exec`, `structured.output`)
+- Policy-aware candidate filtering (constraints applied before selection)
+- Provenance events (capability_routed with full routing rationale)
+- /surface inspector (visibility into routing decisions)
+- Mixed-task coherence across turn-start + tool-start families
+- Per-turn runtime fallback after routed backend failure
+
+The foundation is solid. The architecture is not fundamentally wrong. It is
+partially complete. The remaining work — additional capability families,
+model auto-selection, trusted default — is engineering on top of a proven
+architecture, not a rethink.
+
+The transitional product may still keep manual model/provider choice as the
 primary path until the higher abstraction is stable enough to trust. The route
-to that end-state should be understood as a staircase of prerequisite layers,
+to the end-state should be understood as a staircase of prerequisite layers,
 not as one giant all-at-once transformation.

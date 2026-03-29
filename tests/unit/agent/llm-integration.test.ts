@@ -11,6 +11,7 @@ import {
 import {
   resolveProviderExecutionPlan,
 } from "../../../src/hlvm/agent/tool-capabilities.ts";
+import { buildExecutionSurface } from "../../../src/hlvm/agent/execution-surface.ts";
 import {
   classifyModelTier,
   tierMeetsMinimum,
@@ -106,6 +107,39 @@ Deno.test("LLM integration: remote code guidance appears only when explicitly en
   assertStringIncludes(prompt, "# Remote Code Execution");
   assertStringIncludes(prompt, "provider-hosted sandbox");
   assertStringIncludes(prompt, "not the same thing as local compute");
+});
+
+Deno.test("LLM integration: auto-mode prompt guidance explains active code.exec routing", () => {
+  const providerExecutionPlan = resolveProviderExecutionPlan({
+    providerName: "google",
+    nativeCapabilities: {
+      webSearch: true,
+      webPageRead: true,
+      remoteCodeExecution: true,
+    },
+    autoRequestedRemoteCodeExecution: true,
+  });
+  const executionSurface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "google/gemini-2.5-pro",
+    pinnedProviderName: "google",
+    providerExecutionPlan,
+    taskCapabilityContext: {
+      requestedCapabilities: ["code.exec"],
+      source: "task-text",
+      matchedCueLabels: ["calculate", "quick script"],
+    },
+  });
+  const prompt = generateSystemPrompt({
+    runtimeMode: "auto",
+    executionSurface,
+    providerExecutionPlan,
+  });
+
+  assertStringIncludes(prompt, "# Auto Execution");
+  assertStringIncludes(prompt, "code.exec is active for this turn");
+  assertStringIncludes(prompt, "provider-hosted sandbox");
+  assertStringIncludes(prompt, "not local shell or workspace access");
 });
 
 Deno.test("LLM integration: prompt omits memory exceptions when memory tools are denied", () => {

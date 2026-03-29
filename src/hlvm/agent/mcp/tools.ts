@@ -17,11 +17,18 @@ import {
   type ToolMetadata,
   unregisterTool,
 } from "../registry.ts";
+import {
+  readSemanticCapabilitiesFromMetadata,
+  type SemanticCapabilityId,
+} from "../semantic-capabilities.ts";
 import { sanitizeToolName } from "../tool-schema.ts";
 import { createSdkMcpClient, SdkMcpClient } from "./sdk-client.ts";
 import {
   dedupeServers,
+  formatServerEntry,
   loadMcpConfigMultiScope,
+  type McpScope,
+  type McpServerWithScope,
 } from "./config.ts";
 import type {
   McpConnectedServer,
@@ -155,6 +162,7 @@ function buildToolEntry(
   const argsSchema = buildArgsSchema(tool.inputSchema);
   const skipValidation = Object.keys(argsSchema).length === 0;
   const safetyLevel = inferMcpSafetyLevel(tool.name, tool.description);
+  const semanticCapabilities = resolveMcpSemanticCapabilities(tool);
 
   return {
     fn: async (
@@ -176,7 +184,15 @@ function buildToolEntry(
     skipValidation,
     safetyLevel,
     safety: inferMcpSafetyReason(safetyLevel),
+    semanticCapabilities,
   };
+}
+
+function resolveMcpSemanticCapabilities(
+  tool: Pick<McpToolInfo, "metadata" | "annotations">,
+): SemanticCapabilityId[] | undefined {
+  return readSemanticCapabilitiesFromMetadata(tool.metadata) ??
+    readSemanticCapabilitiesFromMetadata(tool.annotations);
 }
 
 // ============================================================
@@ -335,6 +351,24 @@ interface ServerRegistration {
   client: SdkMcpClient;
   names: string[];
   connected: McpConnectedServer;
+}
+
+export interface McpCapabilityInspectionTool {
+  rawToolName: string;
+  registeredToolName: string;
+  semanticCapabilities: SemanticCapabilityId[];
+}
+
+export interface McpCapabilityInspectionServer {
+  name: string;
+  scope: McpScope;
+  scopeLabel: string;
+  transport: "http" | "stdio";
+  target: string;
+  reachable: boolean;
+  toolCount: number;
+  contributingTools: McpCapabilityInspectionTool[];
+  reason?: string;
 }
 
 /** Connect to a server, list+register its tools/resources/prompts. */
@@ -582,4 +616,86 @@ export async function loadMcpTools(
     setHandlers,
     setSignal,
   };
+}
+
+async function inspectMcpServer(
+  server: McpServerWithScope,
+): Promise<McpCapabilityInspectionServer> {
+  const entry = formatServerEntry(server);
+  const fallback: McpCapabilityInspectionServer = {
+    name: server.name,
+    scope: server.scope,
+    scopeLabel: entry.scopeLabel,
+    transport: server.url ? "http" : "stdio",
+    target: entry.target,
+    reachable: false,
+    toolCount: 0,
+    contributingTools: [],
+    reason: "connection unavailable",
+  };
+  const client = await connectWithTimeout(server);
+  if (!client) return fallback;
+
+  try {
+    const disabledSet = server.disabled_tools?.length
+      ? new Set(server.disabled_tools)
+      : null;
+    const allTools = await client.listTools();
+    const tools = disabledSet
+      ? allTools.filter((tool) => !disabledSet.has(tool.name))
+      : allTools;
+    const contributingTools = tools.flatMap((tool) => {
+      const semanticCapabilities = resolveMcpSemanticCapabilities(tool);
+      if (!semanticCapabilities?.length) return [];
+      return [{
+        rawToolName: tool.name,
+        registeredToolName: sanitizeToolName(`mcp_${server.name}_${tool.name}`),
+        semanticCapabilities,
+      }];
+    });
+
+    return {
+      name: server.name,
+      scope: server.scope,
+      scopeLabel: entry.scopeLabel,
+      transport: server.url ? "http" : "stdio",
+      target: entry.target,
+      reachable: true,
+      toolCount: tools.length,
+      contributingTools,
+    };
+  } catch (error) {
+    warnMcpConnectSkip(server.name, error);
+    return {
+      ...fallback,
+      reason: summarizeConnectError(error),
+    };
+  } finally {
+    await client.close().catch(() => undefined);
+  }
+}
+
+export async function inspectMcpServersForCapabilities(
+  extraServers?: McpServerConfig[],
+): Promise<McpCapabilityInspectionServer[]> {
+  const configServers = await loadMcpConfigMultiScope();
+  const merged = dedupeServers([
+    ...configServers,
+    ...(extraServers ?? []).map((server) => ({
+      ...server,
+      scope: "user" as const,
+    })),
+  ]);
+  if (merged.length === 0) return [];
+
+  const results = pooledMap(
+    MCP_CONNECT_CONCURRENCY,
+    merged,
+    (server) => inspectMcpServer(server as McpServerWithScope),
+  );
+  const servers: McpCapabilityInspectionServer[] = [];
+  for await (const result of results) {
+    servers.push(result);
+  }
+  return servers;
 }

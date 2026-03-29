@@ -31,6 +31,7 @@ import type { InteractionOption } from "./registry.ts";
 import {
   AGENT_ORCHESTRATOR_FAILURE_MESSAGES,
   looksLikeToolCallJsonAnywhere,
+  looksLikeToolCallTextEnvelope,
   responseAsksQuestion,
 } from "./model-compat.ts";
 import { renderEditFileRecoveryPrompt } from "./error-taxonomy.ts";
@@ -333,7 +334,10 @@ export function handleTextOnlyResponse(
   if (
     !lc.skipCompensation &&
     (response.toolCalls?.length ?? 0) === 0 &&
-    looksLikeToolCallJsonAnywhere(responseText)
+    (
+      looksLikeToolCallJsonAnywhere(responseText) ||
+      looksLikeToolCallTextEnvelope(responseText)
+    )
   ) {
     if (state.midLoopFormatRetries < lc.maxToolCallRetries) {
       state.midLoopFormatRetries++;
@@ -892,7 +896,10 @@ export async function handleFinalResponse(
   if (
     !lc.skipCompensation &&
     state.toolUses.length > 0 &&
-    looksLikeToolCallJsonAnywhere(finalResponse)
+    (
+      looksLikeToolCallJsonAnywhere(finalResponse) ||
+      looksLikeToolCallTextEnvelope(finalResponse)
+    )
   ) {
     if (state.finalResponseFormatRetries < lc.maxToolCallRetries) {
       state.finalResponseFormatRetries++;

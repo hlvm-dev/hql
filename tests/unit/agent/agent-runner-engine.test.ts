@@ -6,12 +6,16 @@ import {
   runAgentQuery,
   shouldReuseAgentSession,
 } from "../../../src/hlvm/agent/agent-runner.ts";
+import {
+  buildExecutionSurface,
+} from "../../../src/hlvm/agent/execution-surface.ts";
 import { SdkAgentEngine } from "../../../src/hlvm/agent/engine-sdk.ts";
 import {
   type AgentEngine,
   resetAgentEngine,
   setAgentEngine,
 } from "../../../src/hlvm/agent/engine.ts";
+import { resolveProviderExecutionPlan } from "../../../src/hlvm/agent/tool-capabilities.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { generateUUID } from "../../../src/common/utils.ts";
@@ -289,6 +293,64 @@ Deno.test({
       assertEquals(
         reused.webCapabilityPlan?.capabilities.raw_url_fetch.implementation,
         "disabled",
+      );
+    } finally {
+      await disposeAllSessions();
+      await platform.fs.remove(workspace, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "agent-runner: reusable sessions are not reused when turn attachment context changes the execution surface",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const platform = getPlatform();
+    const workspace = platform.path.join(
+      platform.process.cwd(),
+      ".tmp",
+      `hlvm-agent-cache-vision-${generateUUID()}`,
+    );
+    await platform.fs.mkdir(workspace, { recursive: true });
+
+    try {
+      const session = await createReusableSession(
+        workspace,
+        "anthropic/claude-sonnet-4-5-20250929",
+        {
+          modelInfo: { name: "claude-sonnet-4-5-20250929", capabilities: ["chat", "tools", "vision"] },
+        },
+      );
+      const providerExecutionPlan = resolveProviderExecutionPlan({
+        providerName: "anthropic",
+        nativeCapabilities: {
+          webSearch: false,
+          webPageRead: false,
+          remoteCodeExecution: false,
+        },
+      });
+      const turnScopedSurface = buildExecutionSurface({
+        runtimeMode: "auto",
+        activeModelId: "anthropic/claude-sonnet-4-5-20250929",
+        pinnedProviderName: "anthropic",
+        providerExecutionPlan,
+        turnContext: {
+          attachmentCount: 1,
+          attachmentKinds: ["image"],
+          visionEligibleAttachmentCount: 1,
+          visionEligibleKinds: ["image"],
+        },
+        directVisionKinds: ["image"],
+      });
+
+      assertEquals(
+        shouldReuseAgentSession(session, {
+          model: "anthropic/claude-sonnet-4-5-20250929",
+          executionSurfaceSignature: turnScopedSurface.signature,
+        }),
+        false,
       );
     } finally {
       await disposeAllSessions();

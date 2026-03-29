@@ -1,19 +1,33 @@
-import { assert, assertEquals } from "jsr:@std/assert";
+import {
+  assert,
+  assertEquals,
+  assertExists,
+} from "jsr:@std/assert";
 import { runAgentQuery } from "../../src/hlvm/agent/agent-runner.ts";
 import type { AgentUIEvent } from "../../src/hlvm/agent/orchestrator.ts";
+import type { ConversationAttachmentPayload } from "../../src/hlvm/attachments/types.ts";
+import type { RuntimeMode } from "../../src/hlvm/agent/runtime-mode.ts";
 import { resetHlvmDirCacheForTests } from "../../src/common/paths.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 
 const platform = getPlatform();
+const RED_PIXEL_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==";
+const BLUE_PIXEL_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPj/HwADBwIAMCbHYQAAAABJRU5ErkJggg==";
 
 export type SmokeRunResult = Awaited<ReturnType<typeof runAgentQuery>>;
+export type RoutedEvent = Extract<AgentUIEvent, { type: "capability_routed" }>;
 
 export async function runWithCompatibleModel(options: {
   models: readonly string[];
   query: string;
   workspace: string;
   signal: AbortSignal;
-  toolAllowlist: string[];
+  toolAllowlist?: string[];
+  runtimeMode?: RuntimeMode;
+  attachments?: ConversationAttachmentPayload[];
+  responseSchema?: Record<string, unknown>;
   callbacks: {
     onAgentEvent: (event: AgentUIEvent) => void;
   };
@@ -28,6 +42,9 @@ export async function runWithCompatibleModel(options: {
         workspace: options.workspace,
         permissionMode: "bypassPermissions",
         toolAllowlist: options.toolAllowlist,
+        runtimeMode: options.runtimeMode,
+        attachments: options.attachments,
+        responseSchema: options.responseSchema,
         disablePersistentMemory: true,
         signal: options.signal,
         callbacks: options.callbacks,
@@ -132,6 +149,83 @@ export function assertHasProviderCitations(result: SmokeRunResult): void {
       JSON.stringify(providerCitations, null, 2)
     }`,
   );
+}
+
+export function getCapabilityRouteEvents(events: AgentUIEvent[]): RoutedEvent[] {
+  return events.filter((event) =>
+    event.type === "capability_routed"
+  );
+}
+
+export function summarizeCapabilityRouteSequence(
+  events: AgentUIEvent[],
+): string[] {
+  return getCapabilityRouteEvents(events).map((event) =>
+    `${event.routePhase}:${event.capabilityId}`
+  );
+}
+
+export function assertCapabilityRouteSequence(
+  events: AgentUIEvent[],
+  expected: string[],
+): void {
+  assertEquals(summarizeCapabilityRouteSequence(events), expected);
+}
+
+export function assertCapabilityRoute(
+  events: AgentUIEvent[],
+  options: {
+    capabilityId: string;
+    routePhase: RoutedEvent["routePhase"];
+    selectedBackendKind?: RoutedEvent["selectedBackendKind"];
+  },
+): RoutedEvent {
+  const routed = getCapabilityRouteEvents(events).find((event) =>
+    event.capabilityId === options.capabilityId &&
+    event.routePhase === options.routePhase
+  );
+  assertExists(
+    routed,
+    `Expected capability_routed for ${options.routePhase}:${options.capabilityId}`,
+  );
+  assertEquals(routed.selectedBackendKind, options.selectedBackendKind);
+  return routed;
+}
+
+export function makeInlineImageAttachment(
+  color: "red" | "blue" = "red",
+): ConversationAttachmentPayload {
+  return {
+    mode: "binary",
+    attachmentId: `att-${color}-pixel`,
+    fileName: `${color}-pixel.png`,
+    mimeType: "image/png",
+    kind: "image",
+    conversationKind: "image",
+    size: 68,
+    data: color === "red" ? RED_PIXEL_PNG_BASE64 : BLUE_PIXEL_PNG_BASE64,
+  };
+}
+
+export function assertStructuredResult(
+  result: SmokeRunResult,
+  requiredKeys: string[],
+): Record<string, unknown> {
+  assertExists(
+    result.structuredResult,
+    "Expected structuredResult to be present for structured-output turn",
+  );
+  assert(
+    typeof result.structuredResult === "object" &&
+      result.structuredResult !== null &&
+      !Array.isArray(result.structuredResult),
+    `Expected structuredResult object, got ${typeof result.structuredResult}`,
+  );
+  const obj = result.structuredResult as Record<string, unknown>;
+  for (const key of requiredKeys) {
+    assertExists(obj[key], `Expected structuredResult.${key} to be defined`);
+  }
+  return obj;
 }
 
 export function hasEnvVar(name: string): boolean {

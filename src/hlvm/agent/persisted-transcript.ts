@@ -20,6 +20,27 @@ import {
   type TeamRuntimeSnapshot,
 } from "./team-runtime.ts";
 import type { DelegateBatchSnapshot } from "./delegate-batches.ts";
+import {
+  normalizeExecutionFallbackState,
+  type ExecutionFallbackState,
+} from "./execution-surface.ts";
+import {
+  normalizeRoutingConstraintSet,
+  type RoutingConstraintSet,
+} from "./routing-constraints.ts";
+import { normalizeRuntimeMode, type RuntimeMode } from "./runtime-mode.ts";
+import {
+  normalizeExecutionTaskCapabilityContext,
+  type ExecutionTaskCapabilityContext,
+} from "./task-capability-context.ts";
+import {
+  normalizeExecutionResponseShapeContext,
+  type ExecutionResponseShapeContext,
+} from "./response-shape-context.ts";
+import {
+  normalizeExecutionTurnContext,
+  type ExecutionTurnContext,
+} from "./turn-context.ts";
 
 const DEFAULT_TITLE_LENGTH = 60;
 const AGENT_SESSION_METADATA_KEY = "agentSession";
@@ -35,6 +56,12 @@ interface PersistedToolMessageMetadata {
 }
 
 export interface PersistedAgentSessionMetadata {
+  runtimeMode?: RuntimeMode;
+  lastAppliedRoutingConstraints?: RoutingConstraintSet;
+  lastAppliedTaskCapabilityContext?: ExecutionTaskCapabilityContext;
+  lastAppliedResponseShapeContext?: ExecutionResponseShapeContext;
+  lastAppliedTurnContext?: ExecutionTurnContext;
+  lastAppliedExecutionFallbackState?: ExecutionFallbackState;
   parentSessionId?: string;
   childSessionIds?: string[];
   todos?: TodoItem[];
@@ -115,7 +142,9 @@ export function appendPersistedAgentToolResult(
     tool_calls: (options?.argsSummary || typeof options?.success === "boolean")
       ? [{
         ...(options.argsSummary ? { argsSummary: options.argsSummary } : {}),
-        ...(typeof options.success === "boolean" ? { success: options.success } : {}),
+        ...(typeof options.success === "boolean"
+          ? { success: options.success }
+          : {}),
       }]
       : undefined,
   });
@@ -190,6 +219,22 @@ export function parsePersistedAgentSessionMetadata(
     : undefined;
 
   return {
+    runtimeMode: normalizeRuntimeMode(agentRecord.runtimeMode),
+    lastAppliedRoutingConstraints: normalizeRoutingConstraintSet(
+      agentRecord.lastAppliedRoutingConstraints,
+    ),
+    lastAppliedTaskCapabilityContext: normalizeExecutionTaskCapabilityContext(
+      agentRecord.lastAppliedTaskCapabilityContext,
+    ),
+    lastAppliedResponseShapeContext: normalizeExecutionResponseShapeContext(
+      agentRecord.lastAppliedResponseShapeContext,
+    ),
+    lastAppliedTurnContext: normalizeExecutionTurnContext(
+      agentRecord.lastAppliedTurnContext,
+    ),
+    lastAppliedExecutionFallbackState: normalizeExecutionFallbackState(
+      agentRecord.lastAppliedExecutionFallbackState,
+    ),
     parentSessionId: typeof agentRecord.parentSessionId === "string"
       ? agentRecord.parentSessionId
       : undefined,
@@ -206,7 +251,9 @@ export function parsePersistedAgentSessionMetadata(
         typeof value === "string"
       )
       : undefined,
-    agent: typeof agentRecord.agent === "string" ? agentRecord.agent : undefined,
+    agent: typeof agentRecord.agent === "string"
+      ? agentRecord.agent
+      : undefined,
     task: typeof agentRecord.task === "string" ? agentRecord.task : undefined,
     pendingPlanReview,
     approvedPlanSignature: typeof agentRecord.approvedPlanSignature === "string"
@@ -235,7 +282,9 @@ function clonePlanForPersistence(plan: Plan): Plan {
       title: step.title,
       ...(step.goal ? { goal: step.goal } : {}),
       ...(step.tools ? { tools: [...step.tools] } : {}),
-      ...(step.successCriteria ? { successCriteria: [...step.successCriteria] } : {}),
+      ...(step.successCriteria
+        ? { successCriteria: [...step.successCriteria] }
+        : {}),
       ...(step.agent ? { agent: step.agent } : {}),
     })),
   };
@@ -263,7 +312,9 @@ function isPendingPlanReviewRecord(
     isPlanRecord(record.plan);
 }
 
-function isTeamRuntimeSnapshotRecord(value: unknown): value is TeamRuntimeSnapshot {
+function isTeamRuntimeSnapshotRecord(
+  value: unknown,
+): value is TeamRuntimeSnapshot {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   return typeof record.teamId === "string" &&
@@ -317,6 +368,92 @@ export function persistAgentTodos(
   updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
     metadata.todos = items.map((item) => ({ ...item }));
     metadata.todoSource = source;
+  });
+}
+
+export function persistAgentRuntimeMode(
+  sessionId: string,
+  runtimeMode: RuntimeMode,
+): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    metadata.runtimeMode = runtimeMode;
+  });
+}
+
+export function persistLastAppliedRoutingConstraints(
+  sessionId: string,
+  constraints: RoutingConstraintSet,
+): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    metadata.lastAppliedRoutingConstraints = {
+      hardConstraints: [...constraints.hardConstraints],
+      ...(constraints.preference ? { preference: constraints.preference } : {}),
+      preferenceConflict: constraints.preferenceConflict,
+      source: constraints.source,
+    };
+  });
+}
+
+export function persistLastAppliedTaskCapabilityContext(
+  sessionId: string,
+  taskCapabilityContext: ExecutionTaskCapabilityContext,
+): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    metadata.lastAppliedTaskCapabilityContext = {
+      requestedCapabilities: [...taskCapabilityContext.requestedCapabilities],
+      source: taskCapabilityContext.source,
+      matchedCueLabels: [...taskCapabilityContext.matchedCueLabels],
+    };
+  });
+}
+
+export function persistLastAppliedResponseShapeContext(
+  sessionId: string,
+  responseShapeContext: ExecutionResponseShapeContext,
+): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    metadata.lastAppliedResponseShapeContext = {
+      requested: responseShapeContext.requested,
+      source: responseShapeContext.source,
+      ...(responseShapeContext.schemaSignature
+        ? { schemaSignature: responseShapeContext.schemaSignature }
+        : {}),
+      topLevelKeys: [...responseShapeContext.topLevelKeys],
+    };
+  });
+}
+
+export function persistLastAppliedTurnContext(
+  sessionId: string,
+  turnContext: ExecutionTurnContext,
+): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    metadata.lastAppliedTurnContext = {
+      attachmentCount: turnContext.attachmentCount,
+      attachmentKinds: [...turnContext.attachmentKinds],
+      visionEligibleAttachmentCount: turnContext.visionEligibleAttachmentCount,
+      visionEligibleKinds: [...turnContext.visionEligibleKinds],
+    };
+  });
+}
+
+export function persistLastAppliedExecutionFallbackState(
+  sessionId: string,
+  fallbackState: ExecutionFallbackState,
+): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    metadata.lastAppliedExecutionFallbackState = {
+      suppressedCandidates: fallbackState.suppressedCandidates.map((
+        candidate,
+      ) => ({
+        capabilityId: candidate.capabilityId,
+        backendKind: candidate.backendKind,
+        ...(candidate.toolName ? { toolName: candidate.toolName } : {}),
+        ...(candidate.serverName ? { serverName: candidate.serverName } : {}),
+        routePhase: candidate.routePhase,
+        failureReason: candidate.failureReason,
+      })),
+    };
   });
 }
 
@@ -429,4 +566,3 @@ export function loadPersistedAgentSessionMetadata(
   const session = getSession(sessionId);
   return parsePersistedAgentSessionMetadata(session?.metadata);
 }
-

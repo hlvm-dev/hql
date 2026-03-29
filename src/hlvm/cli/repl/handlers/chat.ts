@@ -236,6 +236,21 @@ export async function handleChat(req: Request): Promise<Response> {
       400,
     );
   }
+  if (body.response_schema !== undefined) {
+    if (
+      !body.response_schema ||
+      typeof body.response_schema !== "object" ||
+      Array.isArray(body.response_schema)
+    ) {
+      return jsonError("response_schema must be a JSON object", 400);
+    }
+    if (body.mode !== "agent") {
+      return jsonError(
+        "response_schema is supported only for mode:'agent' in this phase",
+        400,
+      );
+    }
+  }
 
   if (body.expected_version !== undefined) {
     if (!validateExpectedVersion(sessionId, body.expected_version)) {

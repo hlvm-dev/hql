@@ -14,12 +14,15 @@ import { persistSelectedModelConfig } from "../../../common/config/model-selecti
 import { listRuntimeMcpServers } from "../../runtime/host-client.ts";
 import {
   getTaskManager,
-  isModelPullTask,
-  isEvalTask,
   isDelegateTask,
+  isEvalTask,
+  isModelPullTask,
   isTaskActive,
 } from "./task-manager/index.ts";
-import { formatElapsed, formatProgressBar } from "../repl-ink/utils/formatting.ts";
+import {
+  formatElapsed,
+  formatProgressBar,
+} from "../repl-ink/utils/formatting.ts";
 import { STATUS_GLYPHS } from "../repl-ink/ui-constants.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
@@ -69,7 +72,16 @@ function createOutputWriter(
 }
 
 // Commands handled by App.tsx (not in the `commands` record below)
-const APP_HANDLED_COMMANDS: readonly { name: string; description: string }[] = [];
+const APP_HANDLED_COMMANDS: readonly { name: string; description: string }[] = [
+  {
+    name: "/runtime",
+    description: "Set session runtime mode (manual|auto)",
+  },
+  {
+    name: "/surface",
+    description: "Open the active execution-surface inspector",
+  },
+];
 
 /** Generate help text dynamically using keybinding registry */
 function generateHelpText(): string {
@@ -223,15 +235,21 @@ export const commands: Record<string, Command> = {
           : "";
         const timeSuffix = active
           ? elapsed ? `(${elapsed})` : ""
-          : elapsed ? `(${elapsed} ago)` : "";
+          : elapsed
+          ? `(${elapsed} ago)`
+          : "";
 
         if (isModelPullTask(task)) {
           const pct = task.progress.total && task.progress.completed
             ? Math.round((task.progress.completed / task.progress.total) * 100)
             : 0;
-          const bar = active ? `${formatProgressBar(pct)} ${pct}%` : task.status;
+          const bar = active
+            ? `${formatProgressBar(pct)} ${pct}%`
+            : task.status;
           context.output(
-            `  ${icon}  Pulling ${task.modelName.padEnd(20)} ${bar.padEnd(16)} ${timeSuffix}`,
+            `  ${icon}  Pulling ${task.modelName.padEnd(20)} ${
+              bar.padEnd(16)
+            } ${timeSuffix}`,
           );
         } else if (isEvalTask(task)) {
           const preview = task.preview.padEnd(24);
@@ -244,9 +262,13 @@ export const commands: Record<string, Command> = {
             `  ${icon}  ${preview} ${detail.padEnd(20)} ${timeSuffix}`,
           );
         } else if (isDelegateTask(task)) {
-          const label = `${task.nickname} (${task.agent}): ${task.task.slice(0, 20)}`;
+          const label = `${task.nickname} (${task.agent}): ${
+            task.task.slice(0, 20)
+          }`;
           context.output(
-            `  ${icon}  ${label.padEnd(36)} ${task.status.padEnd(12)} ${timeSuffix}`,
+            `  ${icon}  ${label.padEnd(36)} ${
+              task.status.padEnd(12)
+            } ${timeSuffix}`,
           );
         } else {
           context.output(`  ${icon}  ${task.label}  (${task.status})`);
@@ -280,13 +302,14 @@ export const commands: Record<string, Command> = {
 };
 
 /** Unified catalog of all slash commands (derived from `commands` + App-handled commands). */
-export const COMMAND_CATALOG: readonly { name: string; description: string }[] = [
-  ...Object.entries(commands).map(([name, cmd]) => ({
-    name,
-    description: cmd.description,
-  })),
-  ...APP_HANDLED_COMMANDS,
-];
+export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
+  [
+    ...Object.entries(commands).map(([name, cmd]) => ({
+      name,
+      description: cmd.description,
+    })),
+    ...APP_HANDLED_COMMANDS,
+  ];
 
 /** Check if input is a slash command */
 export function isCommand(input: string): boolean {

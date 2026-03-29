@@ -19,11 +19,19 @@ import {
   toAgentExecutionMode,
 } from "../../../agent/execution-mode.ts";
 import {
+  DEFAULT_RUNTIME_MODE,
+  type RuntimeMode,
+} from "../../../agent/runtime-mode.ts";
+import {
   isFrontierProvider,
   supportsAgentExecution,
 } from "../../../agent/constants.ts";
 import { parseModelString } from "../../../providers/registry.ts";
 import { createRuntimeConfigManager } from "../../../runtime/model-config.ts";
+import {
+  getActiveConversationRuntimeMode,
+  setActiveConversationRuntimeMode,
+} from "../../../runtime/host-client.ts";
 
 interface UseModelConfigInput {
   initialConfig?: HlvmConfig;
@@ -34,6 +42,7 @@ export interface UseModelConfigResult {
   modelSelection: ModelSelectionState;
   configuredContextWindow: number | undefined;
   agentExecutionMode: AgentExecutionMode;
+  runtimeMode: RuntimeMode;
   supportsAgent: boolean;
   footerStatusMessage: string;
   footerContextUsageLabel: string;
@@ -43,6 +52,8 @@ export interface UseModelConfigResult {
     activeModelId?: string,
   ) => ModelSelectionState;
   refreshRuntimeConfigState: () => Promise<ModelSelectionState>;
+  refreshRuntimeModeState: () => Promise<RuntimeMode>;
+  setSessionRuntimeMode: (mode: RuntimeMode) => Promise<RuntimeMode>;
   cycleAgentMode: () => void;
   flashFooterStatus: (message: string) => void;
 }
@@ -64,6 +75,9 @@ export function useModelConfig(
   const [agentExecutionMode, setAgentExecutionMode] = useState<
     AgentExecutionMode
   >(() => toAgentExecutionMode(getPermissionMode(initialConfig)));
+  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
+    DEFAULT_RUNTIME_MODE,
+  );
   const [supportsAgent, setSupportsAgent] = useState(true);
   const [footerStatusMessage, setFooterStatusMessage] = useState("");
   const [footerContextUsageLabel, setFooterContextUsageLabel] = useState("");
@@ -158,6 +172,23 @@ export function useModelConfig(
     );
   }, [applyRuntimeConfigState]);
 
+  const refreshRuntimeModeState = useCallback(
+    async (): Promise<RuntimeMode> => {
+      const state = await getActiveConversationRuntimeMode();
+      setRuntimeMode(state.runtime_mode);
+      return state.runtime_mode;
+    },
+    [],
+  );
+
+  const setSessionRuntimeMode = useCallback(async (
+    mode: RuntimeMode,
+  ): Promise<RuntimeMode> => {
+    const state = await setActiveConversationRuntimeMode(mode);
+    setRuntimeMode(state.runtime_mode);
+    return state.runtime_mode;
+  }, []);
+
   // Sync config on initial load
   useEffect(() => {
     if (initialConfig) {
@@ -174,20 +205,25 @@ export function useModelConfig(
   // Refresh when runtime becomes ready
   useEffect(() => {
     if (!initReady) return;
-    refreshRuntimeConfigState()
-      .catch(() => {});
-  }, [initReady, refreshRuntimeConfigState]);
+    Promise.allSettled([
+      refreshRuntimeConfigState(),
+      refreshRuntimeModeState(),
+    ]).catch(() => {});
+  }, [initReady, refreshRuntimeConfigState, refreshRuntimeModeState]);
 
   return {
     modelSelection,
     configuredContextWindow,
     agentExecutionMode,
+    runtimeMode,
     supportsAgent,
     footerStatusMessage,
     footerContextUsageLabel,
     setFooterContextUsageLabel,
     applyRuntimeConfigState,
     refreshRuntimeConfigState,
+    refreshRuntimeModeState,
+    setSessionRuntimeMode,
     cycleAgentMode,
     flashFooterStatus,
   };

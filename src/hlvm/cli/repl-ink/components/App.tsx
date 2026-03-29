@@ -24,6 +24,7 @@ import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
 import { ModelBrowser } from "./ModelBrowser.tsx";
 import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
 import { TranscriptViewerOverlay } from "./TranscriptViewerOverlay.tsx";
+import { ExecutionSurfaceOverlay } from "./ExecutionSurfaceOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
 import {
   LocalAgentsBar,
@@ -71,6 +72,11 @@ import { useAgentRunner } from "../hooks/useAgentRunner.ts";
 import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { getPersistentAgentExecutionModeLabel } from "../../../agent/execution-mode.ts";
+import {
+  getRuntimeModeFooterLabel,
+  getRuntimeModeStatusLabel,
+  normalizeRuntimeMode,
+} from "../../../agent/runtime-mode.ts";
 import { clearTerminal } from "../../ansi.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
@@ -380,11 +386,14 @@ function AppContent(
     modelSelection,
     configuredContextWindow,
     agentExecutionMode,
+    runtimeMode,
     footerStatusMessage,
     setFooterContextUsageLabel,
     applyRuntimeConfigState,
     refreshRuntimeConfigState,
+    setSessionRuntimeMode,
     cycleAgentMode,
+    flashFooterStatus,
   } = modelConfig;
 
   useEffect(() => {
@@ -562,6 +571,7 @@ function AppContent(
   const agentRunner = useAgentRunner({
     conversation,
     agentExecutionMode,
+    runtimeMode,
     configuredContextWindow,
     refreshRuntimeConfigState,
     setIsEvaluating,
@@ -977,9 +987,11 @@ function AppContent(
       const commandArgs = argTokens.join(" ").trim();
       const opensModelPicker = commandName === "/model" &&
         commandArgs.length === 0;
+      const opensExecutionSurface = commandName === "/surface";
+      const handlesRuntimeMode = commandName === "/runtime";
       const isPanelCommand = commandName === "/help" ||
         commandName === "/config" || commandName === "/flush" ||
-        opensModelPicker;
+        opensModelPicker || opensExecutionSurface || handlesRuntimeMode;
       const isAnyCommand = isPanelCommand || shellCommand;
       const submitAction = resolveSubmitAction({
         text: code,
@@ -1017,8 +1029,43 @@ function AppContent(
           return;
         }
 
+        if (opensExecutionSurface) {
+          recordPromptHistory(replState, code, "command");
+          if (commandArgs) {
+            conversationRef.current.addError("Usage: /surface");
+            return;
+          }
+          setActiveOverlay("execution-surface");
+          return;
+        }
+
         if (commandName === "/flush") {
           flushReplOutput();
+          return;
+        }
+
+        if (handlesRuntimeMode) {
+          recordPromptHistory(replState, code, "command");
+          const requestedMode = normalizeRuntimeMode(commandArgs.toLowerCase());
+          if (!requestedMode) {
+            if (!commandArgs) {
+              flashFooterStatus(
+                `${
+                  getRuntimeModeStatusLabel(runtimeMode)
+                } · /runtime manual|auto`,
+              );
+              return;
+            }
+            conversationRef.current.addError("Usage: /runtime manual|auto");
+            return;
+          }
+
+          try {
+            const nextRuntimeMode = await setSessionRuntimeMode(requestedMode);
+            flashFooterStatus(getRuntimeModeStatusLabel(nextRuntimeMode));
+          } catch (error) {
+            conversationRef.current.addError(ensureError(error).message);
+          }
           return;
         }
 
@@ -1313,9 +1360,12 @@ function AppContent(
       submitConversationDraft,
       hasConversationContext,
       setPendingConversationQueue,
+      setSessionRuntimeMode,
       setSurfacePanel,
       replState,
+      runtimeMode,
       conversation,
+      flashFooterStatus,
       setFooterContextUsageLabel,
     ],
   );
@@ -1708,6 +1758,9 @@ function AppContent(
           onClose={() => setActiveOverlay("none")}
         />
       )}
+      {activeOverlay === "execution-surface" && (
+        <ExecutionSurfaceOverlay onClose={() => setActiveOverlay("none")} />
+      )}
       {activeOverlay === "background-tasks" && (
         <BackgroundTasksOverlay
           onClose={closeBackgroundTasksOverlay}
@@ -1846,6 +1899,7 @@ function AppContent(
         (
           <FooterHint
             modelName={modelSelection.displayLabel}
+            runtimeModeLabel={getRuntimeModeFooterLabel(runtimeMode)}
             statusMessage={footerStatusMessage}
             modeLabel={getPersistentAgentExecutionModeLabel(agentExecutionMode)}
             planningPhase={hasConversationContext

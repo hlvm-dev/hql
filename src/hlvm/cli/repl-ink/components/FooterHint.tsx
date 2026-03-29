@@ -37,6 +37,7 @@ interface FooterProps {
   streamingState?: StreamingState;
   activeTool?: { name: string; toolIndex: number; toolTotal: number };
   modelName?: string;
+  runtimeModeLabel?: string;
   statusMessage?: string;
   contextUsageLabel?: string;
   modeLabel?: string;
@@ -399,17 +400,19 @@ export function buildFooterLeftState({
 
 interface FooterRightStateInput {
   modelName?: string;
+  runtimeModeLabel?: string;
   contextUsageLabel?: string;
 }
 
 export function buildFooterRightState({
   modelName,
+  runtimeModeLabel,
   contextUsageLabel,
 }: FooterRightStateInput): { infoParts: string[]; infoText: string } {
   const usageDisplay = contextUsageLabel
     ? buildContextUsageMiniBar(contextUsageLabel)
     : undefined;
-  const infoParts = [usageDisplay, modelName].filter(
+  const infoParts = [usageDisplay, runtimeModeLabel, modelName].filter(
     (part): part is string => Boolean(part && part.trim()),
   );
   return {
@@ -422,6 +425,7 @@ export const FooterHint = React.memo(function FooterHint({
   streamingState,
   activeTool,
   modelName,
+  runtimeModeLabel,
   statusMessage,
   contextUsageLabel,
   modeLabel,
@@ -484,6 +488,7 @@ export const FooterHint = React.memo(function FooterHint({
 
   const right = buildFooterRightState({
     modelName: model,
+    runtimeModeLabel,
     contextUsageLabel,
   });
 

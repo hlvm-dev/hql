@@ -25,6 +25,8 @@ import type {
   PromptCompilerInput,
   PromptSection,
 } from "./types.ts";
+import { type RuntimeMode } from "../agent/runtime-mode.ts";
+import { summarizeRoutingConstraints } from "../agent/routing-constraints.ts";
 
 /** Human-readable labels for routing table */
 const CATEGORY_LABELS: Record<string, string> = {
@@ -73,7 +75,9 @@ function renderChatNoToolsRule(): PromptSection {
 function renderCriticalRules(
   tools: Record<string, ToolMetadata>,
 ): PromptSection {
-  const memoryToolsAvailable = Object.keys(MEMORY_TOOLS).some((k) => k in tools);
+  const memoryToolsAvailable = Object.keys(MEMORY_TOOLS).some((k) =>
+    k in tools
+  );
   return {
     id: "critical_rules",
     content: `# CRITICAL: When NOT to use tools
@@ -154,6 +158,113 @@ function renderToolRouting(
   return {
     id: "routing",
     content: `# Tool Selection\n${rules.join("\n")}`,
+    minTier: "weak",
+  };
+}
+
+function renderAutoExecutionGuidance(
+  runtimeMode: RuntimeMode | undefined,
+  input: PromptCompilerInput,
+): PromptSection {
+  if (runtimeMode !== "auto") {
+    return { id: "auto_execution", content: "", minTier: "weak" };
+  }
+
+  const searchRoute = input.executionSurface?.capabilities["web.search"];
+  const readRoute = input.executionSurface?.capabilities["web.read"];
+  const visionRoute = input.executionSurface?.capabilities["vision.analyze"];
+  const codeExecRoute = input.executionSurface?.capabilities["code.exec"];
+  const structuredOutputRoute =
+    input.executionSurface?.capabilities["structured.output"];
+  const taskCapabilityContext = input.executionSurface?.taskCapabilityContext;
+  const responseShapeContext = input.executionSurface?.responseShapeContext;
+  const turnContext = input.executionSurface?.turnContext;
+  const constraintSummary = summarizeRoutingConstraints(
+    input.executionSurface?.constraints,
+  );
+  const lines = [
+    "# Auto Execution",
+    "- Runtime mode is auto. Think in semantic capability families first, then use the routed tool surface already exposed to you.",
+    "- The session uses a configured-first strategy. Keep the pinned model/provider as the reasoning brain; do not assume automatic brain switching.",
+    "- For live external information, use the surfaced web search/read tools for the active route instead of trying to force a different backend.",
+    `- Active routing constraints: ${constraintSummary}.`,
+  ];
+  if (input.executionSurface?.constraints.preferenceConflict) {
+    lines.push(
+      "- The current task text contained conflicting soft preferences (cheap and quality). Ignore the soft preference and follow the selected route.",
+    );
+  }
+
+  if (searchRoute?.selectedToolName) {
+    lines.push(
+      `- web.search currently routes through ${searchRoute.selectedToolName}.`,
+    );
+  } else {
+    lines.push(
+      "- web.search currently has no valid route under the active constraints. Do not attempt to bypass that with another backend.",
+    );
+  }
+  if (readRoute?.selectedToolName) {
+    lines.push(
+      `- web.read currently routes through ${readRoute.selectedToolName}.`,
+    );
+  } else {
+    lines.push(
+      "- web.read currently has no valid route under the active constraints. Do not attempt to bypass that with another backend.",
+    );
+  }
+  if ((turnContext?.attachmentCount ?? 0) > 0) {
+    lines.push(
+      `- Current turn attachments: ${turnContext?.attachmentCount ?? 0} total; vision-eligible attachments: ${turnContext?.visionEligibleAttachmentCount ?? 0}.`,
+    );
+    if (visionRoute?.selectedBackendKind === "provider-native") {
+      lines.push(
+        "- vision.analyze is active for this turn through the pinned model/provider path. If you discuss the attachments visually, base that on the actual attachment inputs for this turn.",
+      );
+    } else {
+      lines.push(
+        "- vision.analyze does not have a valid route for this turn. Do not pretend visual inspection occurred; only use attachment content that is already present in text form.",
+      );
+    }
+    lines.push(
+      "- Keep capability boundaries clear: use vision.analyze only for the current-turn attachments, and use web.search/web.read only for live external information. Do not treat one family as evidence for the other.",
+    );
+  }
+  if (taskCapabilityContext?.requestedCapabilities.includes("code.exec")) {
+    if (
+      codeExecRoute?.selectedBackendKind === "provider-native" &&
+      codeExecRoute.selectedToolName
+    ) {
+      lines.push(
+        `- code.exec is active for this turn through ${codeExecRoute.selectedToolName}. Treat that as a provider-hosted sandbox for inline compute/transformation only; it is not local shell or workspace access.`,
+      );
+    } else {
+      lines.push(
+        "- code.exec was requested by the current task, but no valid route exists for this turn. Do not pretend provider-side execution happened.",
+      );
+    }
+    lines.push(
+      "- Keep capability boundaries clear: use code.exec for inline compute/transformation only, web.search/web.read for live external information, and vision.analyze only for current-turn attachments.",
+    );
+  }
+  if (responseShapeContext?.requested) {
+    if (structuredOutputRoute?.selectedBackendKind === "provider-native") {
+      lines.push(
+        "- structured.output is active for this turn through the provider-native structured generation path. The final answer must satisfy the explicit response schema; do not treat an unstructured plain-text answer as valid.",
+      );
+    } else {
+      lines.push(
+        "- structured.output was explicitly requested for this turn, but no valid route exists. Do not pretend that plain text satisfies the schema contract.",
+      );
+    }
+    lines.push(
+      "- Keep capability boundaries clear: use structured.output only for the final response contract, code.exec for inline compute/transformation, web.search/web.read for live external information, and vision.analyze only for current-turn attachments.",
+    );
+  }
+
+  return {
+    id: "auto_execution",
+    content: lines.join("\n"),
     minTier: "weak",
   };
 }
@@ -271,7 +382,9 @@ function renderEnvironment(): PromptSection {
   };
 }
 
-function renderCustomInstructions(hierarchy: InstructionHierarchy): PromptSection {
+function renderCustomInstructions(
+  hierarchy: InstructionHierarchy,
+): PromptSection {
   // Delegate filtering, ordering, and cap to the SSOT mergeInstructions.
   const merged = mergeInstructions(hierarchy);
   if (!merged) return { id: "custom", content: "", minTier: "weak" };
@@ -477,13 +590,20 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
   }
 
   // Agent mode — full section set
-  const { tools, tier, instructions, agentProfiles, providerExecutionPlan } =
-    input;
+  const {
+    tools,
+    tier,
+    instructions,
+    agentProfiles,
+    providerExecutionPlan,
+    runtimeMode,
+  } = input;
 
   const sections: PromptSection[] = [
     renderRole(),
     renderCriticalRules(tools),
     renderInstructions(tier),
+    renderAutoExecutionGuidance(runtimeMode, input),
     renderToolRouting(tools),
     renderWebToolGuidance(tools, providerExecutionPlan),
     renderRemoteExecutionGuidance(tools),

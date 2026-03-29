@@ -1,5 +1,4 @@
 import type { ToolMetadata } from "./registry.ts";
-import type { SdkProviderName } from "../providers/sdk-runtime.ts";
 import { RuntimeError } from "../../common/error.ts";
 
 export type WebCapabilityId =
@@ -21,14 +20,14 @@ export const WEB_PAGE_READ_TOOL_NAME = "web_fetch";
 export const RAW_URL_FETCH_TOOL_NAME = "fetch_url";
 export const REMOTE_CODE_EXECUTE_TOOL_NAME = "remote_code_execute";
 
-const NATIVE_WEB_SEARCH_PROVIDERS = new Set<SdkProviderName>([
+const NATIVE_WEB_SEARCH_PROVIDERS = new Set<string>([
   "openai",
   "anthropic",
   "claude-code",
   "google",
 ]);
-const NATIVE_WEB_PAGE_READ_PROVIDERS = new Set<SdkProviderName>(["google"]);
-const NATIVE_REMOTE_CODE_EXECUTION_PROVIDERS = new Set<SdkProviderName>([
+const NATIVE_WEB_PAGE_READ_PROVIDERS = new Set<string>(["google"]);
+const NATIVE_REMOTE_CODE_EXECUTION_PROVIDERS = new Set<string>([
   "anthropic",
   "claude-code",
   "google",
@@ -62,7 +61,7 @@ interface WebCapabilitySpec {
   customToolName: string;
   nativeToolName?: string;
   providerNativeAliases?: readonly string[];
-  nativeProviders?: ReadonlySet<SdkProviderName>;
+  nativeProviders?: ReadonlySet<string>;
   nativeDescription?: string;
   citationBacked: boolean;
   rawPayloadCitationEligible: boolean;
@@ -81,7 +80,7 @@ interface ResolvedWebCapability {
 }
 
 export interface ResolvedWebCapabilityPlan {
-  providerName: SdkProviderName;
+  providerName: string;
   capabilities: Record<WebCapabilityId, ResolvedWebCapability>;
 }
 
@@ -96,7 +95,7 @@ export interface ResolvedRemoteExecutionCapability {
 }
 
 export interface ResolvedProviderExecutionPlan {
-  providerName: SdkProviderName;
+  providerName: string;
   routingProfile: ProviderRoutingProfile;
   web: ResolvedWebCapabilityPlan;
   remoteCodeExecution: ResolvedRemoteExecutionCapability;
@@ -227,7 +226,7 @@ function isConservativeNativePageReadEligible(
 function resolveCapabilityImplementation(
   spec: WebCapabilitySpec,
   options: {
-    providerName: SdkProviderName;
+    providerName: string;
     allowlist?: readonly string[];
     denylist?: readonly string[];
     nativeCapabilities: NativeProviderCapabilityAvailability;
@@ -275,7 +274,7 @@ export function normalizeWebCapabilitySelectors(
 }
 
 export function resolveWebCapabilityPlan(options: {
-  providerName: SdkProviderName;
+  providerName: string;
   allowlist?: readonly string[];
   denylist?: readonly string[];
   nativeCapabilities?: Partial<NativeProviderCapabilityAvailability>;
@@ -319,10 +318,11 @@ export function resolveWebCapabilityPlan(options: {
 }
 
 function resolveRemoteCodeExecutionCapability(options: {
-  providerName: SdkProviderName;
+  providerName: string;
   allowlist?: readonly string[];
   denylist?: readonly string[];
   nativeCapabilities: NativeProviderCapabilityAvailability;
+  autoRequestedRemoteCodeExecution?: boolean;
 }): ResolvedRemoteExecutionCapability {
   const selectors = [REMOTE_CODE_EXECUTE_TOOL_NAME] as const;
   const denied = listIncludesAnySelector(options.denylist, selectors);
@@ -330,8 +330,11 @@ function resolveRemoteCodeExecutionCapability(options: {
     options.allowlist,
     selectors,
   );
+  const autoRequestedWithoutExplicitAllowlist =
+    options.autoRequestedRemoteCodeExecution === true &&
+    !(options.allowlist?.length);
   const implementation: RemoteExecutionImplementation = !denied &&
-      explicitlyAllowlisted &&
+      (explicitlyAllowlisted || autoRequestedWithoutExplicitAllowlist) &&
       options.nativeCapabilities.remoteCodeExecution &&
       NATIVE_REMOTE_CODE_EXECUTION_PROVIDERS.has(options.providerName)
     ? "native"
@@ -353,11 +356,12 @@ function resolveRemoteCodeExecutionCapability(options: {
 }
 
 export function resolveProviderExecutionPlan(options: {
-  providerName: SdkProviderName;
+  providerName: string;
   allowlist?: readonly string[];
   denylist?: readonly string[];
   nativeCapabilities?: Partial<NativeProviderCapabilityAvailability>;
   nativeWebSearchAvailable?: boolean;
+  autoRequestedRemoteCodeExecution?: boolean;
 }): ResolvedProviderExecutionPlan {
   const nativeCapabilities = resolveNativeAvailability(options);
 
@@ -375,6 +379,7 @@ export function resolveProviderExecutionPlan(options: {
       allowlist: options.allowlist,
       denylist: options.denylist,
       nativeCapabilities,
+      autoRequestedRemoteCodeExecution: options.autoRequestedRemoteCodeExecution,
     }),
   };
 }

@@ -127,7 +127,7 @@ function resolveExplicitAttachmentKinds(
   }
 }
 
-async function resolveSupportedAttachmentKindsForModel(
+export async function resolveSupportedAttachmentKindsForModel(
   modelName: string,
   modelInfo: ModelInfo | null,
 ): Promise<readonly ConversationAttachmentKind[]> {

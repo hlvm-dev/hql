@@ -5,6 +5,7 @@ import type { FinalResponseMeta } from "../../../src/hlvm/agent/orchestrator.ts"
 import {
   handleFinalResponse,
   handlePostToolExecution,
+  handleTextOnlyResponse,
 } from "../../../src/hlvm/agent/orchestrator-response.ts";
 import {
   initializeLoopState,
@@ -12,6 +13,60 @@ import {
 } from "../../../src/hlvm/agent/orchestrator-state.ts";
 import { resolveTools } from "../../../src/hlvm/agent/registry.ts";
 import { buildCitationSourceIndex } from "../../../src/hlvm/agent/tools/web/citation-spans.ts";
+
+Deno.test("handleTextOnlyResponse retries when a model emits a plain-text function-style tool call", () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+
+  const result = handleTextOnlyResponse(
+    { content: 'web_search({query: "latest Deno blog"})', toolCalls: [] },
+    'web_search({query: "latest Deno blog"})',
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "continue");
+  const messages = config.context.getMessages();
+  assertEquals(messages.length, 1);
+  assertStringIncludes(
+    messages[0]?.content ?? "",
+    "Native tool calling required",
+  );
+});
+
+Deno.test("handleFinalResponse retries when a post-tool answer contains a plain-text function-style tool call", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.toolUses = [{ toolName: "search_web", result: "ok" }];
+
+  const result = await handleFinalResponse(
+    'web_fetch({url: "https://deno.com"})',
+    {
+      toolCallsMade: 0,
+      finalResponse: 'web_fetch({url: "https://deno.com"})',
+    },
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "continue");
+  const messages = config.context.getMessages();
+  assertEquals(messages.length, 1);
+  assertStringIncludes(
+    messages[0]?.content ?? "",
+    "Do not output tool call JSON",
+  );
+});
 
 Deno.test("handleFinalResponse does not emit citation metadata before a grounding retry", async () => {
   let finalMetaCalls = 0;

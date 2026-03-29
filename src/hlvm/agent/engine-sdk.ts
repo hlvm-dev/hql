@@ -26,6 +26,10 @@ import type { Message as AgentMessage } from "./context.ts";
 import type { LLMResponse, ToolCall } from "./tool-call.ts";
 import { buildToolDefinitions } from "./llm-integration.ts";
 import {
+  projectNamedToolMapForExecutionSurface,
+  type ExecutionSurface,
+} from "./execution-surface.ts";
+import {
   getActiveProviderExecutionToolNames,
   getProviderExecutedToolNameSet,
   getResolvedProviderExecutionPlan,
@@ -142,8 +146,12 @@ export function mergeSdkWebCapabilityTools(
   customTools: ToolSet,
   nativeTools: ToolSet,
   plan?: ResolvedProviderExecutionPlan | ResolvedWebCapabilityPlan,
+  executionSurface?: ExecutionSurface,
 ): ToolSet {
-  const merged = { ...customTools };
+  const merged = projectNamedToolMapForExecutionSurface(
+    customTools,
+    executionSurface,
+  );
   if (!plan) return merged;
 
   const providerExecutionPlan = getResolvedProviderExecutionPlan(plan);
@@ -151,6 +159,26 @@ export function mergeSdkWebCapabilityTools(
   if (!webPlan) return merged;
 
   for (const capability of Object.values(webPlan.capabilities)) {
+    const selectedRoute = capability.id === "web_search"
+      ? executionSurface?.capabilities["web.search"]
+      : capability.id === "web_page_read"
+      ? executionSurface?.capabilities["web.read"]
+      : undefined;
+    if (selectedRoute) {
+      if (
+        selectedRoute.selectedBackendKind !== "provider-native" ||
+        !selectedRoute.selectedToolName
+      ) {
+        if (
+          capability.nativeToolName &&
+          capability.nativeToolName !== capability.customToolName
+        ) {
+          delete merged[capability.nativeToolName];
+        }
+        continue;
+      }
+    }
+
     if (capability.implementation === "disabled") {
       delete merged[capability.customToolName];
       if (
@@ -181,6 +209,15 @@ export function mergeSdkWebCapabilityTools(
   if (!providerExecutionPlan) return merged;
 
   const remotePlan = providerExecutionPlan.remoteCodeExecution;
+  const selectedCodeExecRoute = executionSurface?.capabilities["code.exec"];
+  if (
+    selectedCodeExecRoute &&
+    (selectedCodeExecRoute.selectedBackendKind !== "provider-native" ||
+      !selectedCodeExecRoute.selectedToolName)
+  ) {
+    delete merged[remotePlan.nativeToolName];
+    return merged;
+  }
   if (remotePlan.implementation === "disabled") {
     delete merged[remotePlan.customToolName];
     return merged;
@@ -452,6 +489,61 @@ export function buildToolCallRepairFunction(): ToolCallRepairFunction<ToolSet> {
   };
 }
 
+function isObviousProviderNativeCapabilityRejectionMessage(
+  message: string,
+): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes("unsupported tool") ||
+    normalized.includes("invalid tool") ||
+    normalized.includes("unknown tool") ||
+    normalized.includes("no such tool") ||
+    normalized.includes("tool is not supported") ||
+    normalized.includes("tool not supported") ||
+    normalized.includes("capability unavailable") ||
+    normalized.includes("capability is unavailable") ||
+    normalized.includes("native capability unavailable");
+}
+
+export function resolveProviderNativeRouteFailureFromError(options: {
+  executionSurface?: ExecutionSurface;
+  error: unknown;
+}): {
+  capabilityId: "web.search" | "web.read" | "code.exec";
+  backendKind: "provider-native";
+  toolName?: string;
+  routePhase: "turn-start" | "tool-start";
+  failureReason: string;
+} | null {
+  if (options.executionSurface?.runtimeMode !== "auto") {
+    return null;
+  }
+  const failureReason = getErrorMessage(options.error);
+  if (!isObviousProviderNativeCapabilityRejectionMessage(failureReason)) {
+    return null;
+  }
+  const normalized = failureReason.toLowerCase();
+  for (const capabilityId of ["web.search", "web.read", "code.exec"] as const) {
+    const route = options.executionSurface.capabilities[capabilityId];
+    if (
+      route.selectedBackendKind !== "provider-native" ||
+      !route.selectedToolName
+    ) {
+      continue;
+    }
+    if (!normalized.includes(route.selectedToolName.toLowerCase())) {
+      continue;
+    }
+    return {
+      capabilityId,
+      backendKind: "provider-native",
+      toolName: route.selectedToolName,
+      routePhase: capabilityId.startsWith("web.") ? "tool-start" : "turn-start",
+      failureReason,
+    };
+  }
+  return null;
+}
+
 export function buildProviderOptions(
   spec: ResolvedModelSpec,
   config: AgentLLMConfig,
@@ -588,7 +680,7 @@ export class SdkAgentEngine implements AgentEngine {
         : await getSdkProviderBundleFromSpec(spec);
       let model = activeBundle.model;
       const nativeTools = activeBundle.nativeTools;
-      const sdkMessages = convertToSdkMessages(messages);
+      let retryNotices: AgentMessage[] = [];
 
       const generation = getToolRegistryGeneration();
       const toolFilters = resolveToolFilters();
@@ -621,36 +713,41 @@ export class SdkAgentEngine implements AgentEngine {
       const nativeCapabilities = getNativeProviderCapabilityAvailability(
         nativeTools,
       );
-      const providerExecutionPlan = config.providerExecutionPlan ??
-        resolveProviderExecutionPlan({
-          providerName: spec.providerName,
-          allowlist: toolFilters.allowlist,
-          denylist: toolFilters.denylist,
-          nativeCapabilities,
-        });
-      const sdkTools = mergeSdkWebCapabilityTools(
-        cachedCustomSdkTools,
-        nativeTools,
-        providerExecutionPlan,
-      );
-
-      const cacheDecorated = applyPromptCaching(
-        spec,
-        sdkMessages,
-        sdkTools,
-        buildProviderOptions(spec, config),
-        buildStableSignature({
-          tools: lastToolSchemaSignature,
-          activeWebTools: Object.keys(sdkTools).filter(isWebCapabilityToolName)
-            .sort(),
-          plannedProviderTools: getActiveProviderExecutionToolNames(
-            providerExecutionPlan,
-          ).sort(),
-        }),
-        toolFilterSignature,
-      );
 
       for (let attempt = 0; attempt < 2; attempt++) {
+        const attemptMessages = retryNotices.length > 0
+          ? [...messages, ...retryNotices]
+          : messages;
+        const sdkMessages = convertToSdkMessages(attemptMessages);
+        const providerExecutionPlan = config.providerExecutionPlan ??
+          resolveProviderExecutionPlan({
+            providerName: spec.providerName,
+            allowlist: toolFilters.allowlist,
+            denylist: toolFilters.denylist,
+            nativeCapabilities,
+          });
+        const sdkTools = mergeSdkWebCapabilityTools(
+          cachedCustomSdkTools,
+          nativeTools,
+          providerExecutionPlan,
+          config.executionSurface,
+        );
+
+        const cacheDecorated = applyPromptCaching(
+          spec,
+          sdkMessages,
+          sdkTools,
+          buildProviderOptions(spec, config),
+          buildStableSignature({
+            tools: lastToolSchemaSignature,
+            activeWebTools: Object.keys(sdkTools).filter(isWebCapabilityToolName)
+              .sort(),
+            plannedProviderTools: getActiveProviderExecutionToolNames(
+              providerExecutionPlan,
+            ).sort(),
+          }),
+          toolFilterSignature,
+        );
         const commonOpts = {
           model,
           messages: cacheDecorated.messages,
@@ -742,6 +839,24 @@ export class SdkAgentEngine implements AgentEngine {
               cachedModel = model;
             }
             continue;
+          }
+
+          if (attempt === 0 && config.onProviderNativeRouteFailure) {
+            const routeFailure = resolveProviderNativeRouteFailureFromError({
+              executionSurface: config.executionSurface,
+              error: executionError,
+            });
+            if (routeFailure) {
+              const fallback = await config.onProviderNativeRouteFailure(
+                routeFailure,
+              );
+              if (fallback.handled) {
+                retryNotices = fallback.retryNotice
+                  ? [fallback.retryNotice]
+                  : [];
+                continue;
+              }
+            }
           }
 
           const message = getErrorMessage(executionError);
