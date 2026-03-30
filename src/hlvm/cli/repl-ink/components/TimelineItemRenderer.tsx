@@ -13,6 +13,7 @@ import {
 } from "../types.ts";
 import {
   AssistantMessage,
+  DelegateGroup,
   DelegateItem,
   ErrorMessage,
   HqlEvalDisplay,
@@ -30,6 +31,7 @@ export type ToggleTarget =
   | { kind: "tool"; id: string }
   | { kind: "thinking"; id: string }
   | { kind: "delegate"; id: string }
+  | { kind: "delegate_group"; id: string }
   | { kind: "memory"; id: string };
 
 interface TimelineItemRendererProps {
@@ -41,6 +43,7 @@ interface TimelineItemRendererProps {
   isToolExpanded?: (toolId: string) => boolean;
   isThinkingExpanded?: (thinkingId: string) => boolean;
   isDelegateExpanded?: (delegateId: string) => boolean;
+  isDelegateGroupExpanded?: (groupId: string) => boolean;
   isMemoryExpanded?: (memoryId: string) => boolean;
 }
 
@@ -66,6 +69,10 @@ export function getToggleTargets(
     }
     if (item.type === "delegate" && item.snapshot?.events.length) {
       targets.push({ kind: "delegate", id: item.id });
+      continue;
+    }
+    if (item.type === "delegate_group" && item.entries.length > 0) {
+      targets.push({ kind: "delegate_group", id: item.id });
       continue;
     }
     if (item.type === "memory_activity" && item.details.length > 0) {
@@ -114,6 +121,7 @@ export function TimelineItemRenderer(
     isToolExpanded,
     isThinkingExpanded,
     isDelegateExpanded,
+    isDelegateGroupExpanded,
     isMemoryExpanded,
   }: TimelineItemRendererProps,
 ): React.ReactElement {
@@ -165,6 +173,15 @@ export function TimelineItemRenderer(
         item={item}
         width={width}
         expanded={Boolean(isDelegateExpanded?.(item.id))}
+      />
+    );
+  }
+  if (item.type === "delegate_group") {
+    return (
+      <DelegateGroup
+        item={item}
+        width={width}
+        expanded={Boolean(isDelegateGroupExpanded?.(item.id))}
       />
     );
   }

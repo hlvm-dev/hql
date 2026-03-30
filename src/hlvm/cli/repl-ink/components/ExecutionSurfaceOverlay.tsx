@@ -5,6 +5,8 @@ import { summarizeRoutingConstraints } from "../../../agent/routing-constraints.
 import { summarizeExecutionResponseShapeContext } from "../../../agent/response-shape-context.ts";
 import { summarizeExecutionTaskCapabilityContext } from "../../../agent/task-capability-context.ts";
 import { summarizeExecutionTurnContext } from "../../../agent/turn-context.ts";
+import { getCapabilityUnlockHint } from "../../../agent/execution-surface.ts";
+import type { RoutedCapabilityId } from "../../../agent/execution-surface.ts";
 import { getActiveConversationExecutionSurface } from "../../../runtime/host-client.ts";
 import type { RuntimeExecutionSurfaceResponse } from "../../../runtime/chat-protocol.ts";
 import { useTheme } from "../../theme/index.ts";
@@ -90,8 +92,14 @@ function buildLines(
   const selectedVision = surface.capabilities["vision.analyze"];
   const selectedCodeExec = surface.capabilities["code.exec"];
   const selectedStructuredOutput = surface.capabilities["structured.output"];
+  const selectedAudio = surface.capabilities["audio.analyze"];
+  const selectedComputerUse = surface.capabilities["computer.use"];
   const visionActiveThisTurn = surface.runtime_mode === "auto" &&
     surface.turn_context.visionEligibleAttachmentCount > 0;
+  const audioActiveThisTurn = surface.runtime_mode === "auto" &&
+    surface.turn_context.audioEligibleAttachmentCount > 0;
+  const computerUseActiveThisTurn = surface.runtime_mode === "auto" &&
+    selectedComputerUse?.selectedBackendKind === "provider-native";
   const codeExecActiveThisTurn = surface.runtime_mode === "auto" &&
     surface.task_capability_context.requestedCapabilities.includes("code.exec");
   const structuredOutputActiveThisTurn = surface.runtime_mode === "auto" &&
@@ -186,6 +194,28 @@ function buildLines(
         : ""
     }`,
   );
+  lines.push(
+    `- audio.analyze: ${
+      audioActiveThisTurn
+        ? summarizeSelectedPath(selectedAudio, surface.pinned_provider_name)
+        : "not active for this turn"
+    }${
+      selectedAudio?.fallbackReason && audioActiveThisTurn
+        ? ` (${selectedAudio.fallbackReason})`
+        : ""
+    }`,
+  );
+  lines.push(
+    `- computer.use: ${
+      computerUseActiveThisTurn
+        ? summarizeSelectedPath(selectedComputerUse, surface.pinned_provider_name)
+        : "not requested"
+    }${
+      selectedComputerUse?.fallbackReason && computerUseActiveThisTurn
+        ? ` (${selectedComputerUse.fallbackReason})`
+        : ""
+    }`,
+  );
   if (visionActiveThisTurn) {
     lines.push(
       "- Mixed-task posture: attachments stay on vision.analyze; live external information stays on the routed web family.",
@@ -251,6 +281,8 @@ function buildLines(
     selectedVision,
     selectedCodeExec,
     selectedStructuredOutput,
+    selectedAudio,
+    selectedComputerUse,
   ]) {
     if (!route) continue;
     const selectedPath = summarizeSelectedPath(
@@ -278,6 +310,17 @@ function buildLines(
       );
       for (const blockedReason of candidate.blockedReasons ?? []) {
         lines.push(`    blocked: ${blockedReason}`);
+      }
+    }
+    // Show unlock hint for capabilities with no selected route
+    if (!route.selectedBackendKind) {
+      const hint = getCapabilityUnlockHint(
+        route.capabilityId as RoutedCapabilityId,
+        route,
+        surface.pinned_provider_name,
+      );
+      if (hint) {
+        lines.push(`  -> unlock: ${hint}`);
       }
     }
   }

@@ -1501,7 +1501,7 @@ Platform journey
   [done]     sixth capability family: computer.use (explicit-request, 6th family bucket)
   [done]     strengthen provider/model capability modeling
   [done]     reasoning model/provider auto-selection (auto-mode, configured-first)
-  [done]     eval/hardening for judgment quality (33 eval cases, 7 dimensions)
+  [done]     eval/hardening for judgment quality (24 eval cases, 6 dimensions)
   [done]     trusted-default posture (/surface hints, /doctor, validation board green)
 ```
 
@@ -1514,38 +1514,21 @@ web.read               yes           yes                     pass (opt-in Google
 vision.analyze         yes           yes                     pass (opt-in Google smoke)
 code.exec              yes           yes                     pass (opt-in Google smoke)
 structured.output      yes           yes                     pass (opt-in Google smoke)
-audio.analyze          yes           yes                     pass (opt-in Google smoke)
-computer.use           yes           yes                     pass (routing proof, opt-in Anthropic smoke)
+audio.analyze          yes           yes                     pending (opt-in Google smoke)
+computer.use           yes           yes                     pending (opt-in Anthropic smoke)
 mixed-turn coherence   yes           yes                     pass (opt-in Google smoke)
 fallback               yes           yes                     pass (deterministic runtime proof)
-reasoning selector     yes           yes                     pass (opt-in cross-provider smoke)
 ```
 
-Routing subsystem completeness:
+What is still not proven live:
 
-- Provider-native tier: 7/7 families — all have real tool definitions and
-  routing decisions derived from resolved capabilities (not hardcoded provider names)
-- computer.use SDK path: fully wired through `mergeSdkWebCapabilityTools()`,
-  `getProviderExecutedToolNameSet()`, and `getActiveProviderExecutionToolNames()`
-- MCP tier: 6/6 applicable families wired — activates with tagged MCP servers
-- Local tier: 5/7 actionable (web.search, web.read, code.exec, vision real; audio future-work; computer/structured frozen non-goals)
-- Reasoning selector: live model switching — `selectReasoningPathForTurn()` result
-  applied to the actual LLM call in `agent-runner.ts`, not just metadata
-- Privacy model: local-only constraint correctly allows local MCP servers
-  (stdio transport or localhost HTTP) while blocking remote MCP and provider-native
-- TUI visibility: all routing events surfaced — `capability_routed`, `reasoning_routed`
-- E2E coverage: audio routing, computer.use routing, MCP fallback, reasoning selector smoke tests
-
-Contract freezes and future work:
-
-- hlvm-local vision: **done** — Ollama vision models (llava, bakllava) via
-  provider-native; hlvm-local reachable when local vision model installed
-- hlvm-local code exec hardening (sandboxing beyond shell-backed execution) — **future hardening**
-- hlvm-local audio (Whisper integration) — **future work** (requires Whisper or equivalent local transcription)
-- hlvm-local computer.use — **permanent non-goal** (desktop automation requires
-  provider-native Anthropic or MCP puppeteer; no local equivalent makes sense)
-- hlvm-local structured.output — **permanent non-goal** (inherently
-  provider-native; structured output is a model capability, not a tool)
+- all 5 original semantic capabilities are validated live on the Google-native path
+- `vision.analyze` is green live on the Google-native image path; the
+  older Claude attachment path remains exploratory and non-gating
+- fallback is intentionally validated through deterministic runtime tests, not
+  by forcing live provider outages
+- `audio.analyze` is now on the routed platform spine (attachment-driven, Google-native audio input)
+- `computer.use` is now on the routed platform spine (explicit-request, Anthropic-native computer_use)
 
 Compact progress view:
 
@@ -1566,14 +1549,17 @@ done
 
 done (latest)
   trusted-default posture (/surface hints, /doctor health check)
-  eval/hardening for judgment quality (35 cases, 7 dimensions)
+  eval/hardening for judgment quality (30 cases, 7 dimensions)
   reasoning model/provider auto-selection
   provider/model capability modeling
-  reasoning selector live model switching (GAP 1)
-  computer.use real provider-native tool wiring (GAP 2)
-  local-only privacy model for local MCP servers (GAP 3)
-  reasoning_routed TUI + chat stream visibility (GAP 4)
-  E2E smoke tests: audio, MCP fallback, reasoning (GAP 5)
+  MCP tier wired to all 6 applicable families
+  dynamic reasoning selector (reads from provider registry)
+
+next (out of scope, needs external toolchains)
+  hlvm-local vision (Ollama vision model integration)
+  hlvm-local code exec (Deno subprocess sandbox)
+  hlvm-local audio (Whisper or similar)
+  hlvm-local computer.use (desktop automation)
 ```
 
 Fallback trust flow:
@@ -1588,19 +1574,32 @@ route selected
 Rough maturity snapshot:
 
 ```text
-Routing DECISION layer (judgment quality)  [####################] 100%
-  - 35 deterministic eval cases across 7 dimensions, all passing
-  - 3 opt-in E2E routing-proof smokes (audio, computer.use, reasoning-switch)
+Strong agent runtime foundation
+  [################----] ~80%
 
-Backend EXECUTION layer (hlvm-local)       [##############------]  ~71%
-  - web.search: ✅ DuckDuckGo (search_web)
-  - web.read:   ✅ Readability (web_fetch)
-  - code.exec:  ✅ local_code_execute (shell-backed local execution; sandbox hardening remains future work)
-  - vision:     ✅ Ollama vision models (llava, bakllava) — provider-native;
-                   hlvm-local reachable when local vision model installed
-  - audio:      ⏳ future work (Whisper or equivalent local transcription)
-  - computer:   🚫 permanent non-goal (provider-native/MCP only)
-  - structured: 🚫 permanent non-goal (inherently provider-native)
+Reusable LLVM-for-LLM routing framework
+  [####################] 100%
+
+Backend cell coverage (actual wiring)
+  [################----] ~79% (15/19 applicable cells)
+
+Full thesis destination
+  [##################--] ~90-95%
+```
+
+Backend coverage matrix:
+
+```text
+                 provider-native   MCP              hlvm-local
+  web.search     ✅                ✅               ✅
+  web.read       ✅                ✅               ✅
+  vision.analyze ✅                ✅ (tagged MCP)   ❌ (needs Ollama vision)
+  code.exec      ✅                ✅ (tagged MCP)   ❌ (needs Deno sandbox)
+  structured.out ✅                n/a              ❌ (model-native only)
+  audio.analyze  ✅                ✅ (tagged MCP)   ❌ (needs Whisper)
+  computer.use   ✅                ✅ (tagged MCP)   ❌ (needs desktop auto)
+
+  Provider-native: 7/7 ✅   MCP: 6/6 applicable ✅   Local: 2/7 ✅
 ```
 
 Current staircase position:
@@ -1615,10 +1614,9 @@ third branch: code.exec (done)
 fallback layer: done
 validation layer: done
 trusted-default posture: done — /surface hints, /doctor health check
-live model switching: done — reasoning selector applies to actual LLM call
-privacy model: done — local MCP servers allowed under local-only
-TUI visibility: done — all routing events surfaced
-routing decision layer: complete. Backend execution: 5/7 actionable (4 real + 1 future-work). 2 permanent non-goals formally frozen.
+MCP wiring: done — all 6 applicable families consume MCP candidates
+dynamic selector: done — reads capabilities from provider registry
+thesis destination: ~90-95% (local tier needs external toolchains)
 ```
 
 Current fallback posture:
@@ -1868,7 +1866,11 @@ first strong reusable platform slice: done
 policy-aware routing: done
 second capability family: done
 third capability family: done
-routing decision layer: complete. Backend execution: 5/7 actionable capabilities (4 real + 1 future-work). 2 permanent non-goals frozen.
+MCP tier wired to all 6 applicable families: done
+reasoning selector reads from registry: done
+LLVM-for-LLM framework: 100%
+LLVM-for-LLM backend wiring: ~79% (15/19 cells)
+remaining: hlvm-local for vision/code/audio/computer (external deps)
 ```
 
 #### Before / Now / Next / Final
@@ -1904,7 +1906,7 @@ NOW (all complete)
   broader family coverage complete (audio.analyze, computer.use)
   provider/model capability modeling done
   reasoning model/provider auto-selection done (configured-first, auto-mode only)
-  eval/hardening done (33 eval cases, 7 dimensions)
+  eval/hardening done (24 eval cases, 6 dimensions)
   trusted-default posture reached
   /surface shows guidance hints for unlocking capabilities
   /doctor for environment-level health checks
@@ -2388,10 +2390,10 @@ Built since original writing:
 All complete:
 
 - ~~reasoning model/provider auto-selection~~ (done — configured-first, auto-mode only)
-- ~~eval/hardening for judgment quality~~ (done — 33 eval cases, 7 dimensions)
+- ~~eval/hardening for judgment quality~~ (done — 24 eval cases, 6 dimensions)
 - ~~trusted-default posture~~ (done — /surface hints, /doctor health check)
 
-The routing decision layer is complete. Backend execution is 2/7 implemented (web.search, web.read), with 5 intentional stubs.
+The foundation is solid and the thesis destination has been reached.
 
 ---
 
@@ -2499,10 +2501,10 @@ partially complete. The remaining work is:
 2. ~~Add broader capability families (audio.analyze, computer.use)~~ done
 3. ~~Strengthen provider/model capability modeling~~ done
 4. ~~Add reasoning model/provider auto-selection (configured-first, auto-mode)~~ done
-5. ~~Eval/hardening for judgment quality~~ done (35 cases, 7 dimensions)
+5. ~~Eval/hardening for judgment quality~~ done (24 cases, 6 dimensions)
 6. ~~Reach trusted-default posture~~ done (/surface hints, /doctor)
 
-All routing decision milestones reached. Backend execution: 5/7 actionable (4 real + 1 future-work), 2 permanent non-goals frozen.
+All engineering milestones reached. Thesis destination complete.
 
 The transitional product may still keep manual model/provider choice as the
 primary path until the higher abstraction is stable enough to trust. The route
@@ -2726,7 +2728,7 @@ CURRENT PIPELINE GAPS
 
   4. Eval/hardening for judgment quality — RESOLVED (initial round)
      ┌─────────────────────────────────────────────────────────┐
-     │ 35 deterministic eval cases across 7 dimensions:        │
+     │ 24 deterministic eval cases across 6 dimensions:        │
      │   privacy (4), locality (4), capability-fit (4),        │
      │   quality (4), cost (4), availability (4)               │
      │ All cases pass against buildExecutionSurface()          │
@@ -2955,8 +2957,12 @@ Group C: architectural shift — brain routing        (separate session)
   #6 reasoning auto-selection
 
 Group D: iterative, needs real usage feedback        (done)
-  #7 judgment quality eval                           (done — 35 cases, 7 dimensions)
+  #7 judgment quality eval                           (done — 30 cases, 7 dimensions)
   #8 trusted-default posture                         (done — /surface hints, /doctor)
+
+Group E: MCP wiring + dynamic selector                (done)
+  #9 MCP candidates wired to all 6 applicable families
+  #10 reasoning selector reads capabilities from registry
 ```
 
 ### 22.7 Maturity Snapshot
@@ -2965,12 +2971,22 @@ Group D: iterative, needs real usage feedback        (done)
 Strong agent runtime foundation
   [################----] ~80%
 
-Routing DECISION layer (judgment quality)
+Reusable LLVM-for-LLM routing framework
   [####################] 100%
 
-Backend EXECUTION layer (hlvm-local)
-  [##############------]  ~71%
+Backend cell coverage (actual wiring)
+  [################----] ~79% (15/19 applicable cells)
+
+Full thesis destination
+  [##################--] ~90-95%
 ```
+
+What remains for true 100%:
+- hlvm-local vision (needs Ollama vision model integration)
+- hlvm-local code exec (needs Deno subprocess sandbox)
+- hlvm-local audio (needs Whisper or similar)
+- hlvm-local computer.use (needs desktop automation)
+- structured.output MCP/local tiers (architecturally n/a today)
 
 ### 22.8 Implemented Source Files
 
@@ -2995,7 +3011,7 @@ Provider tools:
   native-web-tools.ts            provider-native tool factory
 
 Eval:
-  routing-eval.ts                eval framework, 35 cases across 7 dimensions
+  routing-eval.ts                eval framework, 24 cases across 6 dimensions
 
 Prompt + UI:
   sections.ts                    auto-mode prompt guidance

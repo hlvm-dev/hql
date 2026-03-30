@@ -53,6 +53,7 @@ export interface ChatRequest {
   tool_allowlist?: string[];
   tool_denylist?: string[];
   response_schema?: Record<string, unknown>;
+  computer_use?: boolean;
   trace?: boolean;
 }
 
@@ -152,6 +153,13 @@ export type ChatStreamEvent =
     }>;
   }
   | {
+    event: "reasoning_routed";
+    selected_model_id: string;
+    selected_provider_name: string;
+    reason: string;
+    switched_from_pinned: boolean;
+  }
+  | {
     event: "structured_result";
     result: unknown;
   }
@@ -180,6 +188,7 @@ export type ChatStreamEvent =
     thread_id?: string;
     nickname?: string;
     child_session_id?: string;
+    batch_id?: string;
   }
   | {
     event: "delegate_running";
@@ -196,6 +205,7 @@ export type ChatStreamEvent =
     snapshot?: DelegateTranscriptSnapshot;
     child_session_id?: string;
     thread_id?: string;
+    batch_id?: string;
   }
   | {
     event: "todo_updated";

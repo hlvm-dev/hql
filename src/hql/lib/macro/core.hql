@@ -569,3 +569,28 @@
 // comment ignores all forms in body — useful for inline examples
 (macro comment [& body]
   nil)
+
+// ====================
+// Nil-aware binding macros
+// ====================
+
+// when-some - Binds expr to name only if non-nil, then evaluates body
+// Usage: (when-some [x (get m :key)] (inc x))
+(macro when-some [binding & body]
+  (let (sym (%first binding)
+        expr (%nth binding 1))
+    `(let [g# ~expr]
+       (if (nil? g#) nil
+         (let [~sym g#]
+           ~@body)))))
+
+// if-some - Binds expr to name, evaluates then-branch if non-nil, else-branch otherwise
+// Usage: (if-some [x (get m :key)] (inc x) :not-found)
+(macro if-some [binding then-branch else-branch]
+  (let (sym (%first binding)
+        expr (%nth binding 1))
+    `(let [g# ~expr]
+       (if (nil? g#)
+         ~else-branch
+         (let [~sym g#]
+           ~then-branch)))))

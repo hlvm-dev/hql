@@ -28,6 +28,11 @@ export const createClaudeCodeProvider = createCloudProvider({
   noModelsError: "No Claude Code models available. Run `claude login` to authenticate.",
   publicCatalogProvider: "anthropic",
   allowPublicCatalogFallback: false,
+  capabilities: [
+    "chat", "tools", "vision", "models.list",
+    "hosted.webSearch", "hosted.codeExecution", "hosted.computerUse",
+    "structured.output", "citations.grounding",
+  ],
   createApi: () => ({
     listModels: api.listModels,
     checkStatus: api.checkStatus,

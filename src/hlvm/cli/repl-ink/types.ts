@@ -135,6 +135,31 @@ export interface DelegateItem {
   turnId?: string;
 }
 
+/** Single entry within a parallel delegate group */
+export interface DelegateGroupEntry {
+  id: string;
+  agent: string;
+  task: string;
+  childSessionId?: string;
+  status: "queued" | "running" | "success" | "error" | "cancelled";
+  summary?: string;
+  error?: string;
+  durationMs?: number;
+  snapshot?: DelegateTranscriptSnapshot;
+  threadId?: string;
+  nickname?: string;
+}
+
+/** Grouped parallel delegate agents (batch_delegate) */
+export interface DelegateGroupItem {
+  type: "delegate_group";
+  id: string;
+  batchId: string;
+  entries: DelegateGroupEntry[];
+  ts: number;
+  turnId?: string;
+}
+
 /** Error message */
 export interface ErrorItem {
   type: "error";
@@ -254,6 +279,7 @@ export type ConversationItem =
   | ThinkingItem
   | ToolGroupItem
   | DelegateItem
+  | DelegateGroupItem
   | TurnStatsItem
   | ErrorItem
   | StructuredTeamInfoItem

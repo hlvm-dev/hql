@@ -10,6 +10,7 @@ import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { formatDurationMs } from "../../utils/formatting.ts";
 import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
+import { formatTokens } from "../../../delegate-group-format.ts";
 import type { TurnCompletionStatus } from "../../types.ts";
 
 interface TurnStatsProps {
@@ -22,13 +23,6 @@ interface TurnStatsProps {
   status: TurnCompletionStatus;
   summary?: string;
   activityTrail?: string[];
-}
-
-/** Compact token count formatter: 420 -> "420", 2800 -> "2.8k", 12500 -> "13k" */
-function formatTokens(n: number): string {
-  if (n < 1000) return `${n}`;
-  if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
-  return `${Math.round(n / 1000)}k`;
 }
 
 export const TurnStats = React.memo(function TurnStats(

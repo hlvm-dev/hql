@@ -7,6 +7,8 @@ import {
   WEB_PAGE_READ_TOOL_NAME,
 } from "../agent/tool-capabilities.ts";
 
+export const NATIVE_COMPUTER_USE_TOOL_NAME = "computer";
+
 type ToolFactoryResult = ToolSet[string];
 type EmptyOptionsFactory = (options?: Record<string, never>) => ToolFactoryResult;
 
@@ -24,6 +26,9 @@ type AnthropicToolClient = {
       options?: { maxUses?: number },
     ) => ToolFactoryResult;
     codeExecution_20250522?: () => ToolFactoryResult;
+    computer_20250124?: (
+      options: { displayWidthPx: number; displayHeightPx: number },
+    ) => ToolFactoryResult;
   };
 };
 
@@ -73,6 +78,14 @@ function createAnthropicNativeTools(client: AnthropicToolClient): ToolSet {
     safeToolSet(
       REMOTE_CODE_EXECUTE_TOOL_NAME,
       () => client.tools?.codeExecution_20250522?.(),
+    ),
+    safeToolSet(
+      NATIVE_COMPUTER_USE_TOOL_NAME,
+      () =>
+        client.tools?.computer_20250124?.({
+          displayWidthPx: 1920,
+          displayHeightPx: 1080,
+        }),
     ),
   );
 }
@@ -124,5 +137,7 @@ export function getNativeProviderCapabilityAvailability(
     webSearch: NATIVE_WEB_SEARCH_TOOL_NAME in tools,
     webPageRead: WEB_PAGE_READ_TOOL_NAME in tools,
     remoteCodeExecution: REMOTE_CODE_EXECUTE_TOOL_NAME in tools,
+    audioAnalyze: false, // Populated from provider capabilities at routing layer
+    computerUse: NATIVE_COMPUTER_USE_TOOL_NAME in tools,
   };
 }

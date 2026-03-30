@@ -21,10 +21,11 @@ import {
 import {
   EMPTY_EXECUTION_TURN_CONTEXT,
   type ExecutionTurnContext,
+  type AudioEligibleAttachmentKind,
   type VisionEligibleAttachmentKind,
 } from "./turn-context.ts";
 
-export type CapabilityFamilyId = "web" | "vision" | "code" | "structured";
+export type CapabilityFamilyId = "web" | "vision" | "code" | "structured" | "audio" | "computer";
 export type ExecutionBackendKind = "provider-native" | "mcp" | "hlvm-local";
 export type RoutedCapabilityId = SemanticCapabilityId;
 export type ExecutionSelectionStrategy = "configured-first";
@@ -63,6 +64,8 @@ export interface ExecutionPathCandidate {
   selected: boolean;
   reason?: string;
   blockedReasons?: string[];
+  /** Whether this candidate runs locally (e.g. stdio MCP or localhost HTTP) */
+  isLocal?: boolean;
 }
 
 export interface CapabilityRoutingDecision {
@@ -120,6 +123,7 @@ export interface ExecutionSurface {
   localModelSummary: ExecutionSurfaceLocalModelSummary;
   mcpServers: ExecutionSurfaceMcpServerSummary[];
   capabilities: Record<RoutedCapabilityId, CapabilityRoutingDecision>;
+  reasoningSelection?: import("./reasoning-selector.ts").ReasoningSelectionResult;
 }
 
 export interface RoutedCapabilityProvenance {
@@ -146,6 +150,8 @@ export interface McpExecutionPathCandidate {
   serverName: string;
   toolName: string;
   label: string;
+  /** Whether this MCP server runs locally (stdio or localhost HTTP) */
+  isLocal?: boolean;
 }
 
 const EMPTY_LOCAL_MODEL_SUMMARY: ExecutionSurfaceLocalModelSummary = {
@@ -165,12 +171,16 @@ const CHEAP_ROUTE_ORDER: readonly ExecutionBackendKind[] = [
   "provider-native",
 ];
 
+export const LOCAL_CODE_EXECUTE_TOOL_NAME = "local_code_execute";
+
 function getCapabilityFamilyId(
   capabilityId: RoutedCapabilityId,
 ): CapabilityFamilyId {
   if (capabilityId.startsWith("vision.")) return "vision";
   if (capabilityId.startsWith("code.")) return "code";
   if (capabilityId.startsWith("structured.")) return "structured";
+  if (capabilityId.startsWith("audio.")) return "audio";
+  if (capabilityId.startsWith("computer.")) return "computer";
   return "web";
 }
 
@@ -335,6 +345,9 @@ function cloneTurnContext(
     visionEligibleAttachmentCount:
       turnContext?.visionEligibleAttachmentCount ?? 0,
     visionEligibleKinds: [...(turnContext?.visionEligibleKinds ?? [])],
+    audioEligibleAttachmentCount:
+      turnContext?.audioEligibleAttachmentCount ?? 0,
+    audioEligibleKinds: [...(turnContext?.audioEligibleKinds ?? [])],
   };
 }
 
@@ -492,8 +505,10 @@ function applyRoutingConstraintsToCandidate(
 
   const blockedReasons = [...(candidate.blockedReasons ?? [])];
   const hardConstraints = new Set(constraints.hardConstraints);
+  const isLocalBackend = candidate.backendKind === "hlvm-local" ||
+    (candidate.backendKind === "mcp" && candidate.isLocal === true);
   if (
-    candidate.backendKind !== "hlvm-local" &&
+    !isLocalBackend &&
     hardConstraints.has("local-only")
   ) {
     blockedReasons.push("blocked by task constraint local-only");
@@ -631,9 +646,18 @@ function buildMcpCandidates(
 ): ExecutionPathCandidate[] {
   const familyId = getCapabilityFamilyId(capabilityId);
   if (candidates.length === 0) {
+    const MCP_FALLBACK_LABELS: Record<RoutedCapabilityId, string> = {
+      "web.search": "MCP web search",
+      "web.read": "MCP page read",
+      "vision.analyze": "MCP vision analysis",
+      "audio.analyze": "MCP audio analysis",
+      "code.exec": "MCP code execution",
+      "computer.use": "MCP computer use",
+      "structured.output": "MCP structured output",
+    };
     return [
       buildCandidate(familyId, capabilityId, "mcp", {
-        label: capabilityId === "web.search" ? "MCP web search" : "MCP page read",
+        label: MCP_FALLBACK_LABELS[capabilityId] ?? `MCP ${capabilityId}`,
         reachable: false,
         allowed: false,
         selected: false,
@@ -650,6 +674,7 @@ function buildMcpCandidates(
       reachable: true,
       allowed: true,
       selected: false,
+      isLocal: candidate.isLocal,
     })
   );
 }
@@ -684,7 +709,7 @@ function buildWebSearchDecision(
     }),
     ...buildMcpCandidates("web.search", mcpCandidates).map((candidate) => ({
       ...candidate,
-      allowed: localAllowed && candidate.reachable,
+      allowed: candidate.reachable,
       selected: false,
       reason: candidate.reachable
         ? undefined
@@ -728,7 +753,7 @@ function buildWebReadDecision(
     }),
     ...buildMcpCandidates("web.read", mcpCandidates).map((candidate) => ({
       ...candidate,
-      allowed: localAllowed && candidate.reachable,
+      allowed: candidate.reachable,
       selected: false,
       reason: candidate.reachable
         ? undefined
@@ -778,6 +803,8 @@ function buildVisionDecision(options: {
   turnContext: ExecutionTurnContext;
   directVisionKinds: readonly VisionEligibleAttachmentKind[];
   fallbackState: ExecutionFallbackState;
+  mcpCandidates: McpExecutionPathCandidate[];
+  localVisionAvailable?: boolean;
 }): CapabilityRoutingDecision {
   const unsupportedKinds = options.turnContext.visionEligibleKinds.filter((kind) =>
     !options.directVisionKinds.includes(kind)
@@ -799,23 +826,161 @@ function buildVisionDecision(options: {
       selected: false,
       reason: providerNativeAvailable ? undefined : unavailableReason,
     }),
-    buildCandidate("vision", "vision.analyze", "mcp", {
-      label: "MCP visual attachment analysis",
-      reachable: false,
-      allowed: false,
-      selected: false,
-      reason: "not implemented for vision.analyze in this phase",
-    }),
+    ...buildMcpCandidates("vision.analyze", options.mcpCandidates),
     buildCandidate("vision", "vision.analyze", "hlvm-local", {
-      label: "HLVM local visual attachment analysis",
-      reachable: false,
-      allowed: false,
+      label: "HLVM local vision analysis (Ollama vision model)",
+      reachable: options.localVisionAvailable === true &&
+        options.runtimeMode === "auto" &&
+        options.turnContext.visionEligibleAttachmentCount > 0,
+      allowed: options.localVisionAvailable === true &&
+        options.runtimeMode === "auto" &&
+        options.turnContext.visionEligibleAttachmentCount > 0,
       selected: false,
-      reason: "not implemented for vision.analyze in this phase",
+      reason: !options.localVisionAvailable
+        ? "no local vision-capable model installed"
+        : options.runtimeMode !== "auto"
+        ? "vision.analyze is auto-mode only"
+        : options.turnContext.visionEligibleAttachmentCount === 0
+        ? "no vision-eligible attachments on the current turn"
+        : undefined,
     }),
   ];
   const decision = finalizeRoutingDecision({
     capabilityId: "vision.analyze",
+    baseCandidates,
+    constraints: options.constraints,
+    fallbackState: options.fallbackState,
+    providerName: options.plan.providerName,
+  });
+  return !decision.selectedBackendKind && !decision.fallbackReason
+    ? { ...decision, fallbackReason: unavailableReason }
+    : decision;
+}
+
+function buildAudioUnavailableReason(options: {
+  runtimeMode: RuntimeMode;
+  turnContext: ExecutionTurnContext;
+  directAudioKinds: readonly AudioEligibleAttachmentKind[];
+}): string {
+  if (options.runtimeMode !== "auto") {
+    return "audio.analyze is auto-mode only";
+  }
+  if (options.turnContext.attachmentCount === 0) {
+    return "no attachments on the current turn";
+  }
+  if (options.turnContext.audioEligibleAttachmentCount === 0) {
+    return "no audio-eligible attachments on the current turn";
+  }
+  if (options.directAudioKinds.length === 0) {
+    return "pinned model/provider lacks direct audio input support";
+  }
+  return "no valid provider-native audio route for the current turn";
+}
+
+function buildAudioDecision(options: {
+  runtimeMode: RuntimeMode;
+  plan: ResolvedProviderExecutionPlan;
+  constraints: RoutingConstraintSet;
+  turnContext: ExecutionTurnContext;
+  directAudioKinds: readonly AudioEligibleAttachmentKind[];
+  fallbackState: ExecutionFallbackState;
+  mcpCandidates: McpExecutionPathCandidate[];
+}): CapabilityRoutingDecision {
+  const unsupportedKinds = options.turnContext.audioEligibleKinds.filter((kind) =>
+    !options.directAudioKinds.includes(kind)
+  );
+  const providerNativeAvailable = options.runtimeMode === "auto" &&
+    options.turnContext.audioEligibleAttachmentCount > 0 &&
+    unsupportedKinds.length === 0;
+  const unavailableReason = buildAudioUnavailableReason({
+    runtimeMode: options.runtimeMode,
+    turnContext: options.turnContext,
+    directAudioKinds: options.directAudioKinds,
+  });
+  const baseCandidates = [
+    buildCandidate("audio", "audio.analyze", "provider-native", {
+      label: "Provider-native audio attachment analysis",
+      providerName: options.plan.providerName,
+      reachable: providerNativeAvailable,
+      allowed: providerNativeAvailable,
+      selected: false,
+      reason: providerNativeAvailable ? undefined : unavailableReason,
+    }),
+    ...buildMcpCandidates("audio.analyze", options.mcpCandidates),
+    buildCandidate("audio", "audio.analyze", "hlvm-local", {
+      label: "HLVM local audio attachment analysis",
+      reachable: false,
+      allowed: false,
+      selected: false,
+      reason: "hlvm-local audio.analyze is future work — requires Whisper or equivalent local transcription",
+    }),
+  ];
+  const decision = finalizeRoutingDecision({
+    capabilityId: "audio.analyze",
+    baseCandidates,
+    constraints: options.constraints,
+    fallbackState: options.fallbackState,
+    providerName: options.plan.providerName,
+  });
+  return !decision.selectedBackendKind && !decision.fallbackReason
+    ? { ...decision, fallbackReason: unavailableReason }
+    : decision;
+}
+
+function buildComputerUseUnavailableReason(options: {
+  runtimeMode: RuntimeMode;
+  computerUseRequested: boolean;
+  providerName: string;
+}): string {
+  if (options.runtimeMode !== "auto") {
+    return "computer.use is auto-mode only";
+  }
+  if (!options.computerUseRequested) {
+    return "computer.use not explicitly requested";
+  }
+  if (options.providerName !== "anthropic" && options.providerName !== "claude-code") {
+    return "computer.use requires Anthropic provider";
+  }
+  return "no valid provider-native computer.use route for the current turn";
+}
+
+function buildComputerUseDecision(options: {
+  runtimeMode: RuntimeMode;
+  plan: ResolvedProviderExecutionPlan;
+  constraints: RoutingConstraintSet;
+  computerUseRequested: boolean;
+  fallbackState: ExecutionFallbackState;
+  mcpCandidates: McpExecutionPathCandidate[];
+}): CapabilityRoutingDecision {
+  const providerNativeAvailable = options.runtimeMode === "auto" &&
+    options.computerUseRequested &&
+    options.plan.computerUse.available;
+  const unavailableReason = buildComputerUseUnavailableReason({
+    runtimeMode: options.runtimeMode,
+    computerUseRequested: options.computerUseRequested,
+    providerName: options.plan.providerName,
+  });
+  const baseCandidates = [
+    buildCandidate("computer", "computer.use", "provider-native", {
+      label: "Provider-native computer use (Anthropic)",
+      toolName: options.plan.computerUse.activeToolName,
+      providerName: options.plan.providerName,
+      reachable: providerNativeAvailable,
+      allowed: providerNativeAvailable,
+      selected: false,
+      reason: providerNativeAvailable ? undefined : unavailableReason,
+    }),
+    ...buildMcpCandidates("computer.use", options.mcpCandidates),
+    buildCandidate("computer", "computer.use", "hlvm-local", {
+      label: "HLVM local computer use",
+      reachable: false,
+      allowed: false,
+      selected: false,
+      reason: "hlvm-local computer.use is a permanent non-goal — desktop automation requires provider-native (Anthropic) or MCP (puppeteer)",
+    }),
+  ];
+  const decision = finalizeRoutingDecision({
+    capabilityId: "computer.use",
     baseCandidates,
     constraints: options.constraints,
     fallbackState: options.fallbackState,
@@ -849,6 +1014,8 @@ function buildCodeExecDecision(options: {
   constraints: RoutingConstraintSet;
   taskCapabilityContext: ExecutionTaskCapabilityContext;
   fallbackState: ExecutionFallbackState;
+  mcpCandidates: McpExecutionPathCandidate[];
+  localCodeExecAvailable: boolean;
 }): CapabilityRoutingDecision {
   const requested = hasRequestedSemanticCapability(
     options.taskCapabilityContext,
@@ -857,6 +1024,9 @@ function buildCodeExecDecision(options: {
   const providerNativeAvailable = options.runtimeMode === "auto" &&
     requested &&
     options.plan.remoteCodeExecution.implementation === "native";
+  const localCodeExecReachable = options.runtimeMode === "auto" &&
+    requested &&
+    options.localCodeExecAvailable;
   const unavailableReason = buildCodeExecUnavailableReason({
     runtimeMode: options.runtimeMode,
     taskCapabilityContext: options.taskCapabilityContext,
@@ -872,19 +1042,18 @@ function buildCodeExecDecision(options: {
       selected: false,
       reason: providerNativeAvailable ? undefined : unavailableReason,
     }),
-    buildCandidate("code", "code.exec", "mcp", {
-      label: "MCP remote code execution",
-      reachable: false,
-      allowed: false,
-      selected: false,
-      reason: "not implemented for code.exec in this phase",
-    }),
+    ...buildMcpCandidates("code.exec", options.mcpCandidates),
     buildCandidate("code", "code.exec", "hlvm-local", {
       label: "HLVM local code execution",
-      reachable: false,
-      allowed: false,
+      toolName: LOCAL_CODE_EXECUTE_TOOL_NAME,
+      reachable: localCodeExecReachable,
+      allowed: localCodeExecReachable,
       selected: false,
-      reason: "not implemented for code.exec in this phase",
+      reason: localCodeExecReachable
+        ? undefined
+        : requested
+        ? "local_code_execute is unavailable for this session"
+        : "code.exec not requested by current task",
     }),
   ];
   const decision = finalizeRoutingDecision({
@@ -947,14 +1116,14 @@ function buildStructuredOutputDecision(options: {
       reachable: false,
       allowed: false,
       selected: false,
-      reason: "not implemented for structured.output in this phase",
+      reason: "MCP structured.output is a permanent non-goal — inherently provider-native",
     }),
     buildCandidate("structured", "structured.output", "hlvm-local", {
       label: "HLVM local structured final response",
       reachable: false,
       allowed: false,
       selected: false,
-      reason: "not implemented for structured.output in this phase",
+      reason: "hlvm-local structured.output is a permanent non-goal — inherently provider-native",
     }),
   ];
   const decision = finalizeRoutingDecision({
@@ -1028,6 +1197,10 @@ export function buildExecutionSurface(options: {
   fallbackState?: ExecutionFallbackState;
   providerNativeStructuredOutputAvailable?: boolean;
   directVisionKinds?: readonly VisionEligibleAttachmentKind[];
+  directAudioKinds?: readonly AudioEligibleAttachmentKind[];
+  localCodeExecAvailable?: boolean;
+  localVisionAvailable?: boolean;
+  computerUseRequested?: boolean;
   providers?: ExecutionSurfaceProviderSummary[];
   localModelSummary?: ExecutionSurfaceLocalModelSummary;
   mcpServers?: ExecutionSurfaceMcpServerSummary[];
@@ -1068,6 +1241,8 @@ export function buildExecutionSurface(options: {
       turnContext,
       directVisionKinds: [...(options.directVisionKinds ?? [])],
       fallbackState,
+      mcpCandidates: sortMcpCandidates(options.mcpCandidates?.["vision.analyze"]),
+      localVisionAvailable: options.localVisionAvailable,
     }),
     "code.exec": buildCodeExecDecision({
       runtimeMode: options.runtimeMode,
@@ -1075,6 +1250,8 @@ export function buildExecutionSurface(options: {
       constraints,
       taskCapabilityContext,
       fallbackState,
+      mcpCandidates: sortMcpCandidates(options.mcpCandidates?.["code.exec"]),
+      localCodeExecAvailable: options.localCodeExecAvailable === true,
     }),
     "structured.output": buildStructuredOutputDecision({
       runtimeMode: options.runtimeMode,
@@ -1084,6 +1261,23 @@ export function buildExecutionSurface(options: {
       fallbackState,
       providerNativeAvailable:
         options.providerNativeStructuredOutputAvailable === true,
+    }),
+    "audio.analyze": buildAudioDecision({
+      runtimeMode: options.runtimeMode,
+      plan: options.providerExecutionPlan,
+      constraints,
+      turnContext,
+      directAudioKinds: [...(options.directAudioKinds ?? [])],
+      fallbackState,
+      mcpCandidates: sortMcpCandidates(options.mcpCandidates?.["audio.analyze"]),
+    }),
+    "computer.use": buildComputerUseDecision({
+      runtimeMode: options.runtimeMode,
+      plan: options.providerExecutionPlan,
+      constraints,
+      computerUseRequested: options.computerUseRequested === true,
+      fallbackState,
+      mcpCandidates: sortMcpCandidates(options.mcpCandidates?.["computer.use"]),
     }),
   };
 
@@ -1221,6 +1415,52 @@ export function buildRoutedCapabilityProvenance(
   };
   provenance.summary = buildCapabilitySummary(provenance);
   return provenance;
+}
+
+/**
+ * Get a human-readable unlock hint for an unavailable capability.
+ * Used by /surface to guide users on how to enable capabilities.
+ */
+export function getCapabilityUnlockHint(
+  capabilityId: RoutedCapabilityId,
+  decision: CapabilityRoutingDecision,
+  pinnedProviderName: string,
+): string | null {
+  // Only provide hints for capabilities that have no selected route
+  if (decision.selectedBackendKind) return null;
+
+  switch (capabilityId) {
+    case "web.search":
+    case "web.read":
+      if (pinnedProviderName === "ollama") {
+        return `Switch to a cloud provider (google, anthropic, openai) for native ${capabilityId}, or connect an MCP server with web tools.`;
+      }
+      return "Check provider API key configuration or connect an MCP server with web tools.";
+
+    case "vision.analyze":
+      if (pinnedProviderName === "ollama") {
+        return "Switch to a cloud provider with vision support (google, anthropic, openai) or use a local model with vision capabilities.";
+      }
+      return "Ensure attachments include images and the provider supports vision.";
+
+    case "audio.analyze":
+      return "Switch to Google Gemini (google/) for native audio input support.";
+
+    case "computer.use":
+      return "Set computer_use: true in the request and use Anthropic (anthropic/) as the provider.";
+
+    case "code.exec":
+      if (pinnedProviderName === "ollama") {
+        return "Enable local_code_execute for local execution, or switch to a cloud provider / MCP code runner when you need a hosted path.";
+      }
+      return "Enable local_code_execute, connect an MCP code runner, or use a provider with hosted code execution.";
+
+    case "structured.output":
+      return "Ensure the request includes a response schema and the provider supports structured output.";
+
+    default:
+      return null;
+  }
 }
 
 export function appendExecutionFallbackSuppression(

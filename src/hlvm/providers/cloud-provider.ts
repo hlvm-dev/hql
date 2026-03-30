@@ -43,6 +43,8 @@ export interface CloudProviderSpec {
   publicCatalogProvider: string;
   /** Allow fallback to OpenRouter public catalog when live provider listing is unavailable. */
   allowPublicCatalogFallback?: boolean;
+  /** Provider-level capabilities (defaults to chat+tools+vision+models.list if omitted). */
+  capabilities?: ProviderCapability[];
   /** Create the API adapter. For API-key providers, captures apiKey in closures. */
   createApi(apiKey: string): CloudProviderApi;
   /** Transform model name before API calls (e.g. strip :agent suffix). */
@@ -52,10 +54,16 @@ export interface CloudProviderSpec {
 }
 
 /** Build a ProviderFactory from a declarative spec. */
+/** Factory returned by createCloudProvider — carries spec capabilities for registration. */
+export interface CloudProviderFactory {
+  (config?: ProviderConfig): AIProvider;
+  specCapabilities?: ProviderCapability[];
+}
+
 export function createCloudProvider(
   spec: CloudProviderSpec,
-): (config?: ProviderConfig) => AIProvider {
-  return (config?: ProviderConfig): AIProvider => {
+): CloudProviderFactory {
+  const factory = (config?: ProviderConfig): AIProvider => {
     const endpoint = config?.endpoint ?? spec.defaultEndpoint;
     const configuredModel = config?.defaultModel;
     const apiKey = config?.apiKey ??
@@ -121,7 +129,7 @@ export function createCloudProvider(
       name: spec.name,
       displayName: spec.displayName,
       apiKeyConfigured,
-      capabilities: [
+      capabilities: spec.capabilities ?? [
         "chat",
         "tools",
         "vision",
@@ -165,4 +173,8 @@ export function createCloudProvider(
       },
     };
   };
+
+  // Attach spec capabilities so registration can access them without instantiation
+  factory.specCapabilities = spec.capabilities;
+  return factory as CloudProviderFactory;
 }

@@ -46,6 +46,8 @@ export interface NativeProviderCapabilityAvailability {
   webSearch: boolean;
   webPageRead: boolean;
   remoteCodeExecution: boolean;
+  audioAnalyze: boolean;
+  computerUse: boolean;
 }
 
 export const EMPTY_NATIVE_PROVIDER_CAPABILITY_AVAILABILITY:
@@ -53,6 +55,8 @@ export const EMPTY_NATIVE_PROVIDER_CAPABILITY_AVAILABILITY:
     webSearch: false,
     webPageRead: false,
     remoteCodeExecution: false,
+    audioAnalyze: false,
+    computerUse: false,
   };
 
 interface WebCapabilitySpec {
@@ -94,11 +98,17 @@ export interface ResolvedRemoteExecutionCapability {
   description: string;
 }
 
+export interface ResolvedComputerUseCapability {
+  available: boolean;
+  activeToolName?: string;
+}
+
 export interface ResolvedProviderExecutionPlan {
   providerName: string;
   routingProfile: ProviderRoutingProfile;
   web: ResolvedWebCapabilityPlan;
   remoteCodeExecution: ResolvedRemoteExecutionCapability;
+  computerUse: ResolvedComputerUseCapability;
 }
 
 type ToolSearchResultLike = {
@@ -381,6 +391,10 @@ export function resolveProviderExecutionPlan(options: {
       nativeCapabilities,
       autoRequestedRemoteCodeExecution: options.autoRequestedRemoteCodeExecution,
     }),
+    computerUse: {
+      available: nativeCapabilities.computerUse,
+      activeToolName: nativeCapabilities.computerUse ? "computer" : undefined,
+    },
   };
 }
 
@@ -560,6 +574,9 @@ export function getActiveProviderExecutionToolNames(
     ...(plan.remoteCodeExecution.activeToolName
       ? [plan.remoteCodeExecution.activeToolName]
       : []),
+    ...(plan.computerUse.activeToolName
+      ? [plan.computerUse.activeToolName]
+      : []),
   ]);
 }
 
@@ -591,6 +608,11 @@ export function getProviderExecutedToolNameSet(
   ) {
     names.add(plan.remoteCodeExecution.activeToolName);
     names.add("code_execution");
+  }
+
+  // computer.use
+  if (plan.computerUse.available && plan.computerUse.activeToolName) {
+    names.add(plan.computerUse.activeToolName);
   }
 
   return names;

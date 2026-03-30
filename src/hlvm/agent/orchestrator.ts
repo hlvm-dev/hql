@@ -368,6 +368,7 @@ export type AgentUIEvent =
     childSessionId?: string;
     threadId?: string;
     nickname?: string;
+    batchId?: string;
   }
   | {
     type: "delegate_running";
@@ -384,6 +385,7 @@ export type AgentUIEvent =
     snapshot?: DelegateTranscriptSnapshot;
     childSessionId?: string;
     threadId?: string;
+    batchId?: string;
   }
   | {
     type: "todo_updated";
@@ -459,6 +461,16 @@ export type AgentUIEvent =
   | {
     type: "batch_progress_updated";
     snapshot: import("./delegate-batches.ts").DelegateBatchSnapshot;
+  }
+  | {
+    type: "reasoning_routed";
+    pinnedModelId: string;
+    pinnedProviderName: string;
+    selectedModelId: string;
+    selectedProviderName: string;
+    reason: string;
+    switchedFromPinned: boolean;
+    unsatisfiedCapabilities: import("./execution-surface.ts").RoutedCapabilityId[];
   }
   | InteractionRequestEvent;
 

@@ -76,16 +76,21 @@ registerProvider("ollama", createOllamaProvider, { isDefault: true });
 const _env = getPlatform().env;
 registerProvider("openai", createOpenAIProvider, {
   apiKey: _env.get("OPENAI_API_KEY"),
+  capabilities: createOpenAIProvider.specCapabilities,
 });
 registerProvider("anthropic", createAnthropicProvider, {
   apiKey: _env.get("ANTHROPIC_API_KEY"),
+  capabilities: createAnthropicProvider.specCapabilities,
 });
 registerProvider("google", createGoogleProvider, {
   apiKey: _env.get("GOOGLE_API_KEY"),
+  capabilities: createGoogleProvider.specCapabilities,
 });
 
 // Claude Code: uses Max subscription via OAuth token (no API key needed)
-registerProvider("claude-code", createClaudeCodeProvider);
+registerProvider("claude-code", createClaudeCodeProvider, {
+  capabilities: createClaudeCodeProvider.specCapabilities,
+});
 
 /**
  * Initialize providers with custom configuration.
@@ -110,6 +115,7 @@ export function initializeProviders(config?: {
       endpoint: config.openai.endpoint,
       defaultModel: config.openai.defaultModel,
       apiKey: config.openai.apiKey,
+      capabilities: createOpenAIProvider.specCapabilities,
     });
   }
   if (config?.anthropic) {
@@ -117,6 +123,7 @@ export function initializeProviders(config?: {
       endpoint: config.anthropic.endpoint,
       defaultModel: config.anthropic.defaultModel,
       apiKey: config.anthropic.apiKey,
+      capabilities: createAnthropicProvider.specCapabilities,
     });
   }
   if (config?.google) {
@@ -124,12 +131,14 @@ export function initializeProviders(config?: {
       endpoint: config.google.endpoint,
       defaultModel: config.google.defaultModel,
       apiKey: config.google.apiKey,
+      capabilities: createGoogleProvider.specCapabilities,
     });
   }
   if (config?.claudeCode) {
     registerProvider("claude-code", createClaudeCodeProvider, {
       endpoint: config.claudeCode.endpoint,
       defaultModel: config.claudeCode.defaultModel,
+      capabilities: createClaudeCodeProvider.specCapabilities,
     });
   }
 }

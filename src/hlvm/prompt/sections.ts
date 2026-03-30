@@ -173,6 +173,8 @@ function renderAutoExecutionGuidance(
   const searchRoute = input.executionSurface?.capabilities["web.search"];
   const readRoute = input.executionSurface?.capabilities["web.read"];
   const visionRoute = input.executionSurface?.capabilities["vision.analyze"];
+  const audioRoute = input.executionSurface?.capabilities["audio.analyze"];
+  const computerUseRoute = input.executionSurface?.capabilities["computer.use"];
   const codeExecRoute = input.executionSurface?.capabilities["code.exec"];
   const structuredOutputRoute =
     input.executionSurface?.capabilities["structured.output"];
@@ -189,6 +191,8 @@ function renderAutoExecutionGuidance(
   const hasStructuredRequest = responseShapeContext?.requested === true;
   const hasUnavailableWebRoute = !searchRoute?.selectedBackendKind ||
     !readRoute?.selectedBackendKind;
+  const reasoningSelection = input.executionSurface?.reasoningSelection;
+  const hasReasoningSwitch = reasoningSelection?.switchedFromPinned === true;
 
   if (
     !hasNonDefaultConstraintSummary &&
@@ -196,7 +200,8 @@ function renderAutoExecutionGuidance(
     !hasAttachments &&
     !hasCodeExecRequest &&
     !hasStructuredRequest &&
-    !hasUnavailableWebRoute
+    !hasUnavailableWebRoute &&
+    !hasReasoningSwitch
   ) {
     return { id: "auto_execution", content: "", minTier: "weak" };
   }
@@ -241,6 +246,32 @@ function renderAutoExecutionGuidance(
     }
     lines.push(
       "- Keep capability boundaries clear: use vision.analyze only for the current-turn attachments, and use web.search/web.read only for live external information. Do not treat one family as evidence for the other.",
+    );
+    if ((turnContext?.audioEligibleAttachmentCount ?? 0) > 0) {
+      lines.push(
+        `- Audio-eligible attachments: ${turnContext?.audioEligibleAttachmentCount ?? 0}.`,
+      );
+      if (audioRoute?.selectedBackendKind === "provider-native") {
+        lines.push(
+          "- audio.analyze is active for this turn through the pinned model/provider path. If you discuss the audio content, base that on the actual audio attachment inputs for this turn.",
+        );
+      } else {
+        lines.push(
+          "- audio.analyze does not have a valid route for this turn. Do not pretend audio analysis occurred; only use audio content that is already present in text form (e.g. a transcript).",
+        );
+      }
+    }
+  }
+  if (computerUseRoute?.selectedBackendKind === "provider-native") {
+    lines.push(
+      "- computer.use is active for this turn through the Anthropic provider-native computer_use tool. This operates in a sandboxed environment. Do not assume it has access to the user's real desktop unless explicitly configured.",
+    );
+  }
+  if (hasReasoningSwitch && reasoningSelection) {
+    lines.push(
+      `- Reasoning auto-selection active: the pinned model could not satisfy ${reasoningSelection.unsatisfiedCapabilities.join(", ")}. ` +
+        `This turn is routed to ${reasoningSelection.selectedProviderName} (${reasoningSelection.selectedModelId}). ` +
+        `The switch applies to this turn only — the pinned model remains the default for subsequent turns.`,
     );
   }
   if (taskCapabilityContext?.requestedCapabilities.includes("code.exec")) {

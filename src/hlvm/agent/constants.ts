@@ -436,10 +436,11 @@ export function tierMeetsMinimum(tier: ModelTier, minTier: ModelTier): boolean {
  * - mid: everything else (safe default)
  */
 export function classifyModelTier(
-  modelInfo?: { parameterSize?: string; contextWindow?: number } | null,
+  modelInfo?: { parameterSize?: string; contextWindow?: number; costTier?: string } | null,
   isFrontier?: boolean,
 ): ModelTier {
   if (isFrontier) return "frontier";
+  if (modelInfo?.costTier === "premium") return "frontier";
   if (modelInfo?.parameterSize) {
     const match = modelInfo.parameterSize.match(/^(\d+(?:\.\d+)?)\s*[bB]/);
     if (match && parseFloat(match[1]) < 13) return "weak";

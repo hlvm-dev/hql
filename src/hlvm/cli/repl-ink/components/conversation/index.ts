@@ -12,6 +12,7 @@ export { ErrorMessage } from "./ErrorMessage.tsx";
 export { InfoMessage } from "./InfoMessage.tsx";
 export { TurnStats } from "./TurnStats.tsx";
 export { DelegateItem } from "./DelegateItem.tsx";
+export { DelegateGroup } from "./DelegateGroup.tsx";
 
 // Tool display components
 export { ToolGroup } from "./ToolGroup.tsx";

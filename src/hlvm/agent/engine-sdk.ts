@@ -228,6 +228,24 @@ export function mergeSdkWebCapabilityTools(
     merged[remotePlan.nativeToolName] = nativeTool;
   }
 
+  // computer.use native tool merge
+  const computerUsePlan = providerExecutionPlan.computerUse;
+  if (computerUsePlan?.available && computerUsePlan.activeToolName) {
+    const selectedComputerRoute = executionSurface?.capabilities["computer.use"];
+    if (
+      selectedComputerRoute &&
+      (selectedComputerRoute.selectedBackendKind !== "provider-native" ||
+        !selectedComputerRoute.selectedToolName)
+    ) {
+      delete merged[computerUsePlan.activeToolName];
+    } else {
+      const nativeComputerTool = nativeTools[computerUsePlan.activeToolName];
+      if (nativeComputerTool) {
+        merged[computerUsePlan.activeToolName] = nativeComputerTool;
+      }
+    }
+  }
+
   return merged;
 }
 

@@ -4,12 +4,15 @@ import type {
 } from "../attachments/types.ts";
 
 export type VisionEligibleAttachmentKind = "image" | "pdf";
+export type AudioEligibleAttachmentKind = "audio";
 
 export interface ExecutionTurnContext {
   attachmentCount: number;
   attachmentKinds: ConversationAttachmentKind[];
   visionEligibleAttachmentCount: number;
   visionEligibleKinds: VisionEligibleAttachmentKind[];
+  audioEligibleAttachmentCount: number;
+  audioEligibleKinds: AudioEligibleAttachmentKind[];
 }
 
 export const EMPTY_EXECUTION_TURN_CONTEXT: ExecutionTurnContext = {
@@ -17,6 +20,8 @@ export const EMPTY_EXECUTION_TURN_CONTEXT: ExecutionTurnContext = {
   attachmentKinds: [],
   visionEligibleAttachmentCount: 0,
   visionEligibleKinds: [],
+  audioEligibleAttachmentCount: 0,
+  audioEligibleKinds: [],
 };
 
 function isConversationAttachmentKind(
@@ -33,6 +38,12 @@ function isVisionEligibleAttachmentKind(
   value: unknown,
 ): value is VisionEligibleAttachmentKind {
   return value === "image" || value === "pdf";
+}
+
+function isAudioEligibleAttachmentKind(
+  value: unknown,
+): value is AudioEligibleAttachmentKind {
+  return value === "audio";
 }
 
 function uniqueSortedKinds<T extends string>(items: readonly T[]): T[] {
@@ -65,12 +76,24 @@ export function deriveExecutionTurnContextFromAttachments(
       attachment.conversationKind === "pdf"
     )
   ).length;
+  const audioEligibleKinds = uniqueSortedKinds(
+    attachments.flatMap((attachment) =>
+      attachment.mode === "binary" && attachment.conversationKind === "audio"
+        ? [attachment.conversationKind as AudioEligibleAttachmentKind]
+        : []
+    ),
+  );
+  const audioEligibleAttachmentCount = attachments.filter((attachment) =>
+    attachment.mode === "binary" && attachment.conversationKind === "audio"
+  ).length;
 
   return {
     attachmentCount: attachments.length,
     attachmentKinds,
     visionEligibleAttachmentCount,
     visionEligibleKinds,
+    audioEligibleAttachmentCount,
+    audioEligibleKinds,
   };
 }
 
@@ -103,12 +126,25 @@ export function normalizeExecutionTurnContext(
         record.visionEligibleAttachmentCount >= 0
       ? Math.trunc(record.visionEligibleAttachmentCount)
       : visionEligibleKinds.length;
+  const audioEligibleKinds = Array.isArray(record.audioEligibleKinds)
+    ? uniqueSortedKinds(
+      record.audioEligibleKinds.filter(isAudioEligibleAttachmentKind),
+    )
+    : [];
+  const audioEligibleAttachmentCount =
+    typeof record.audioEligibleAttachmentCount === "number" &&
+        Number.isFinite(record.audioEligibleAttachmentCount) &&
+        record.audioEligibleAttachmentCount >= 0
+      ? Math.trunc(record.audioEligibleAttachmentCount)
+      : audioEligibleKinds.length;
 
   return {
     attachmentCount,
     attachmentKinds,
     visionEligibleAttachmentCount,
     visionEligibleKinds,
+    audioEligibleAttachmentCount,
+    audioEligibleKinds,
   };
 }
 
@@ -126,11 +162,21 @@ export function summarizeExecutionTurnContext(
     ? context.visionEligibleKinds.join(", ")
     : "none";
 
-  return `${context.attachmentCount} attachment(s) · kinds=${attachmentKinds} · vision-eligible=${context.visionEligibleAttachmentCount} (${visionKinds})`;
+  const audioKinds = context.audioEligibleKinds.length > 0
+    ? context.audioEligibleKinds.join(", ")
+    : "none";
+
+  return `${context.attachmentCount} attachment(s) · kinds=${attachmentKinds} · vision-eligible=${context.visionEligibleAttachmentCount} (${visionKinds}) · audio-eligible=${context.audioEligibleAttachmentCount} (${audioKinds})`;
 }
 
 export function hasVisionRelevantTurnContext(
   context: ExecutionTurnContext | undefined,
 ): boolean {
   return (context?.attachmentCount ?? 0) > 0;
+}
+
+export function hasAudioRelevantTurnContext(
+  context: ExecutionTurnContext | undefined,
+): boolean {
+  return (context?.audioEligibleAttachmentCount ?? 0) > 0;
 }

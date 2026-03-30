@@ -126,6 +126,7 @@ import {
   resolveRoutedCapabilityForToolName,
   type ExecutionSurface,
   type RoutedCapabilityEventPhase,
+  type RoutedCapabilityId,
 } from "./execution-surface.ts";
 import { resolveExecutionSurfaceState } from "./execution-surface-runtime.ts";
 import { extractRoutingConstraintsFromTaskText } from "./routing-constraints.ts";
@@ -139,6 +140,7 @@ import { formatStructuredResultText } from "./structured-output.ts";
 import { extractTaskCapabilityContextFromTaskText } from "./task-capability-context.ts";
 import {
   deriveExecutionTurnContextFromAttachments,
+  hasAudioRelevantTurnContext,
   hasVisionRelevantTurnContext,
 } from "./turn-context.ts";
 import {
@@ -526,6 +528,8 @@ interface AgentRunnerOptions {
   attachments?: ConversationAttachmentPayload[];
   /** Explicit structured final-response schema for the current turn. */
   responseSchema?: Record<string, unknown>;
+  /** Explicit request for Anthropic computer_use capability. */
+  computerUse?: boolean;
   /** Pre-fetched model info to avoid duplicate provider API calls */
   modelInfo?: ModelInfo | null;
   /** Reuse an existing session (skips policy/MCP/LLM setup) */
@@ -646,7 +650,7 @@ export async function runAgentQuery(
   const turnContext = deriveExecutionTurnContextFromAttachments(
     options.attachments,
   );
-  const executionSurfaceState = await resolveExecutionSurfaceState({
+  let executionSurfaceState = await resolveExecutionSurfaceState({
     model,
     fixturePath: options.fixturePath,
     runtimeMode,
@@ -656,7 +660,32 @@ export async function runAgentQuery(
     turnContext,
     toolAllowlist,
     toolDenylist: effectiveToolDenylist,
+    computerUseRequested: options.computerUse,
   });
+
+  // GAP 1: If reasoning selector switched from pinned model, apply the switch
+  // to the live model and re-resolve the surface with the new model (skip
+  // reasoning selection on the re-resolve to prevent infinite recursion).
+  if (executionSurfaceState.executionSurface.reasoningSelection?.switchedFromPinned) {
+    const sel = executionSurfaceState.executionSurface.reasoningSelection;
+    model = sel.selectedModelId;
+    executionSurfaceState = await resolveExecutionSurfaceState({
+      model,
+      fixturePath: options.fixturePath,
+      runtimeMode,
+      routingConstraints,
+      taskCapabilityContext,
+      responseShapeContext,
+      turnContext,
+      toolAllowlist,
+      toolDenylist: effectiveToolDenylist,
+      computerUseRequested: options.computerUse,
+      skipReasoningSelection: true,
+    });
+    // Preserve the original reasoning selection on the re-resolved surface
+    executionSurfaceState.executionSurface.reasoningSelection = sel;
+  }
+
   const structuredOutputRoute =
     executionSurfaceState.executionSurface.capabilities["structured.output"];
   const structuredOutputRequested = responseShapeContext.requested;
@@ -1093,12 +1122,7 @@ export async function runAgentQuery(
       await pendingFallbackWork;
     };
     const updateExecutionSurfaceForFallback = async (failure: {
-      capabilityId:
-        | "web.search"
-        | "web.read"
-        | "vision.analyze"
-        | "code.exec"
-        | "structured.output";
+      capabilityId: RoutedCapabilityId;
       routePhase: Exclude<RoutedCapabilityEventPhase, "fallback">;
       failureReason: string;
       failedToolName?: string;
@@ -1163,6 +1187,7 @@ export async function runAgentQuery(
         fallbackState: nextFallbackState,
         toolAllowlist,
         toolDenylist: effectiveToolDenylist,
+        computerUseRequested: options.computerUse,
       });
       session.providerExecutionPlan = nextState.providerExecutionPlan;
       session.executionSurface = nextState.executionSurface;
@@ -1365,6 +1390,24 @@ export async function runAgentQuery(
         "turn-start",
       );
     }
+    if (runtimeMode === "auto" && hasAudioRelevantTurnContext(turnContext)) {
+      emitCapabilityRoute(
+        buildRoutedCapabilityProvenance(
+          session.executionSurface,
+          "audio.analyze",
+        ),
+        "turn-start",
+      );
+    }
+    if (runtimeMode === "auto" && options.computerUse) {
+      emitCapabilityRoute(
+        buildRoutedCapabilityProvenance(
+          session.executionSurface,
+          "computer.use",
+        ),
+        "turn-start",
+      );
+    }
     if (
       runtimeMode === "auto" &&
       taskCapabilityContext.requestedCapabilities.includes("code.exec")
@@ -1385,6 +1428,20 @@ export async function runAgentQuery(
         ),
         "turn-start",
       );
+    }
+    // Emit reasoning_routed if auto-selection switched from pinned model
+    const reasoningSelection = session.executionSurface?.reasoningSelection;
+    if (reasoningSelection?.switchedFromPinned) {
+      deliverAgentUiEvent?.({
+        type: "reasoning_routed",
+        pinnedModelId: session.executionSurface?.activeModelId ?? "unknown",
+        pinnedProviderName: session.executionSurface?.pinnedProviderName ?? "unknown",
+        selectedModelId: reasoningSelection.selectedModelId,
+        selectedProviderName: reasoningSelection.selectedProviderName,
+        reason: reasoningSelection.reason,
+        unsatisfiedCapabilities: reasoningSelection.unsatisfiedCapabilities,
+        switchedFromPinned: reasoningSelection.switchedFromPinned,
+      });
     }
     if (structuredOutputRequested && !structuredOutputActive) {
       const error = new ValidationError(

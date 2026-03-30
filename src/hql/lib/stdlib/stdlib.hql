@@ -69,14 +69,14 @@
         (lazy-seq
           (when-let [s (seq coll)]
             (cons (f (first s)) (map f (rest s)))))))
-    (lazy-seq
-      (let [seqs (doall (map seq colls))]
-        (if (js-call seqs "some" (fn [s] (nil? s)))
-          nil
-          (let [firsts (doall (map first seqs))
-                rests (doall (map rest seqs))]
-            (cons (apply f firsts)
-                  (apply map (cons f rests)))))))))
+    (let [mapMulti (fn mapMulti [colls]
+                     (lazy-seq
+                       (let [ss (vec (map seq colls))]
+                         (if (every identity ss)
+                           (cons (apply f (vec (map first ss)))
+                                 (mapMulti (map rest ss)))
+                           nil))))]
+      (mapMulti colls))))
 
 // filter - Filters collection by predicate (lazy)
 // Only includes elements where (pred elem) is truthy
@@ -130,17 +130,19 @@
 // Recursively flattens all iterable items (except strings)
 // Note: Uses JS interop for iterable checking in pre-transpiled version
 (fn flatten [coll]
-  (lazy-seq
-    (when-let [s (seq coll)]
-      (let [f (first s)]
-        (if (and (not (nil? f))
-                 (not (isString f))
-                 (or (isArray f)
-                     (instanceof f Set)
-                     (instanceof f Map)
-                     (isObject f)))
-          (concat (flatten f) (flatten (rest s)))
-          (cons f (flatten (rest s))))))))
+  (let [sequential? (fn [x]
+                      (and (not (nil? x))
+                           (not (isString x))
+                           (or (isArray x)
+                               (and (isObject x)
+                                    (isFunction (js-get x "first"))
+                                    (isFunction (js-get x "rest"))))))]
+    (lazy-seq
+      (when-let [s (seq coll)]
+        (let [f (first s)]
+          (if (sequential? f)
+            (concat (flatten f) (flatten (rest s)))
+            (cons f (flatten (rest s)))))))))
 
 // distinct - Removes duplicate elements (lazy)
 // Uses a Set to track seen elements efficiently
@@ -1271,7 +1273,10 @@
 (fn memoize [f]
   (let [cache (js-new Map ())]
     (fn [& args]
-      (let [k (js-call JSON.stringify args)]
+      (let [argc (count args)
+            k (if (=== argc 0) "__memoize_no_args__"
+                (if (=== argc 1) (first args)
+                  (js-call (js-call args "map" (fn [a] (str a))) "join" "\0")))]
         (if (.has cache k)
           (.get cache k)
           (let [result (apply f args)]
@@ -1367,6 +1372,128 @@
             (if (nil? v) result (rf-step result v))))
         TRANSDUCER_RESULT (fn [result] (rf-result result))))))
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 29: min, max, fnil, trampoline
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// min - Returns the minimum of its arguments
+(fn min [& args]
+  (reduce (fn [a b] (if (< a b) a b)) args))
+
+// max - Returns the maximum of its arguments
+(fn max [& args]
+  (reduce (fn [a b] (if (> a b) a b)) args))
+
+// fnil - Returns a function that replaces nil arguments with defaults
+(fn fnil [f & defaults]
+  (fn [& args]
+    (let [patched (vec (mapIndexed
+                         (fn [i arg]
+                           (if (nil? arg)
+                             (nth defaults i nil)
+                             arg))
+                         args))]
+      (apply f patched))))
+
+// trampoline - Calls f. If f returns a function, calls that function
+// repeatedly until a non-function value is returned. Useful for mutual TCO.
+(fn trampoline [f & args]
+  (let [result (apply f args)]
+    (let [bounce (fn bounce [r]
+                   (if (isFunction r)
+                     (bounce (r))
+                     r))]
+      (bounce result))))
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 30: String operations
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// strJoin - Joins collection elements into a string with separator
+(fn strJoin [separator coll]
+  (let [arr (vec coll)]
+    (js-call arr "join" (if (nil? separator) "" separator))))
+
+// split - Splits string by separator (string or regex)
+(fn split [s separator]
+  (js-call s "split" separator))
+
+// replace_ - Replaces occurrences of match with replacement in string
+(fn replace_ [s match replacement]
+  (js-call s "replaceAll" match replacement))
+
+// trim - Removes whitespace from both ends of string
+(fn trim [s] (js-call s "trim"))
+
+// upperCase - Converts string to upper case
+(fn upperCase [s] (js-call s "toUpperCase"))
+
+// lowerCase - Converts string to lower case
+(fn lowerCase [s] (js-call s "toLowerCase"))
+
+// startsWith - Tests if string starts with prefix
+(fn startsWith [s prefix] (js-call s "startsWith" prefix))
+
+// endsWith - Tests if string ends with suffix
+(fn endsWith [s suffix] (js-call s "endsWith" suffix))
+
+// includes - Tests if string contains substring
+(fn includes [s substr] (js-call s "includes" substr))
+
+// subs - Returns substring from start (inclusive) to end (exclusive)
+(fn subs [s start & args]
+  (let [end (first args)]
+    (if (nil? end)
+      (js-call s "substring" start)
+      (js-call s "substring" start end))))
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 31: Additional type predicates
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// isKeyword - Tests if value is a keyword (string starting with :)
+(fn isKeyword [x]
+  (and (isString x) (=== (js-call x "charAt" 0) ":")))
+
+// isSymbol - Tests if value is a JS Symbol
+(fn isSymbol [x]
+  (=== (typeof x) "symbol"))
+
+// isSeqable - Tests if value supports the seq protocol
+(fn isSeqable [x]
+  (or (nil? x) (isArray x) (isString x)
+      (and (not (nil? x)) (isObject x)
+           (isFunction (js-get x "first"))
+           (isFunction (js-get x "rest")))))
+
+// isVector - Tests if value is an array (vector)
+(fn isVector [x] (isArray x))
+
+// isMap - Tests if value is a plain object (map)
+(fn isMap [x]
+  (and (isObject x) (not (isArray x))
+       (not (instanceof x Set))
+       (not (instanceof x Map))))
+
+// isSet - Tests if value is a Set
+(fn isSet [x] (instanceof x Set))
+
+// isInt - Tests if value is an integer
+(fn isInt [x]
+  (and (isNumber x) (js-call Number.isInteger x)))
+
+// isFloat - Tests if value is a floating point number
+(fn isFloat [x]
+  (and (isNumber x) (not (js-call Number.isInteger x))))
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 32: mapcatT transducer
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// mapcatT - Transducer that maps f then concatenates results
+(fn mapcatT [f]
+  (composeTransducers (mapT f) cat))
+
 // Export all functions
 (export [
   // Sequence primitives (Lisp Trinity)
@@ -1450,5 +1577,15 @@
   memoize, notEmpty, boundedCount, runBang, everyPred, someFn,
 
   // Additional transducers
-  cat, dedupe, removeT, keepT
+  cat, dedupe, removeT, keepT, mapcatT,
+
+  // Min/Max/TCO utilities
+  min, max, fnil, trampoline,
+
+  // String operations
+  strJoin, split, replace_, trim, upperCase, lowerCase,
+  startsWith, endsWith, includes, subs,
+
+  // Additional type predicates
+  isKeyword, isSymbol, isSeqable, isVector, isMap, isSet, isInt, isFloat
 ])

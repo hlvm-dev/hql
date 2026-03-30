@@ -5,6 +5,7 @@ import { config } from "../api/config.ts";
 import { extractProviderName, extractModelSuffix } from "./constants.ts";
 import {
   buildExecutionSurface,
+  LOCAL_CODE_EXECUTE_TOOL_NAME,
   type ExecutionSurface,
   type ExecutionFallbackState,
   type ExecutionSurfaceLocalModelSummary,
@@ -27,9 +28,11 @@ import {
   resolveSupportedAttachmentKindsForModel,
 } from "../cli/attachment-policy.ts";
 import type {
+  AudioEligibleAttachmentKind,
   ExecutionTurnContext,
   VisionEligibleAttachmentKind,
 } from "./turn-context.ts";
+import { selectReasoningPathForTurn } from "./reasoning-selector.ts";
 
 export interface ExecutionSurfaceResolution {
   providerExecutionPlan: ResolvedProviderExecutionPlan;
@@ -131,6 +134,20 @@ async function resolveDirectVisionKinds(options: {
   );
 }
 
+async function resolveDirectAudioKinds(options: {
+  activeModelId?: string;
+  modelInfo: ModelInfo | null;
+}): Promise<AudioEligibleAttachmentKind[]> {
+  if (!options.activeModelId) return [];
+  const supportedKinds = await resolveSupportedAttachmentKindsForModel(
+    options.activeModelId,
+    options.modelInfo,
+  );
+  return supportedKinds.filter((kind): kind is AudioEligibleAttachmentKind =>
+    kind === "audio"
+  );
+}
+
 function supportsProviderNativeStructuredOutput(
   activeModelId: string | undefined,
   fixturePath: string | undefined,
@@ -145,6 +162,28 @@ function supportsProviderNativeStructuredOutput(
     }
     throw error;
   }
+}
+
+async function hasLocalVisionModel(): Promise<boolean> {
+  try {
+    const installed = await listInstalledModels();
+    return installed.some((m) => m.capabilities?.includes("vision"));
+  } catch {
+    return false;
+  }
+}
+
+function isLocalCodeExecAvailable(options: {
+  toolAllowlist?: string[];
+  toolDenylist?: string[];
+}): boolean {
+  if (options.toolDenylist?.includes(LOCAL_CODE_EXECUTE_TOOL_NAME)) {
+    return false;
+  }
+  if (options.toolAllowlist?.length) {
+    return options.toolAllowlist.includes(LOCAL_CODE_EXECUTE_TOOL_NAME);
+  }
+  return true;
 }
 
 function buildMcpServerSummaries(
@@ -168,25 +207,48 @@ function buildMcpServerSummaries(
   }));
 }
 
+/** Check whether an MCP server runs locally (stdio or localhost HTTP). */
+function isLocalMcpTransport(
+  server: { transport: "http" | "stdio"; target: string },
+): boolean {
+  if (server.transport === "stdio") return true;
+  if (server.transport === "http") {
+    try {
+      const url = new URL(server.target);
+      const host = url.hostname;
+      return host === "localhost" || host === "127.0.0.1" || host === "::1";
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 function buildMcpExecutionCandidates(
   servers: Awaited<ReturnType<typeof inspectMcpServersForCapabilities>>,
 ): Partial<Record<SemanticCapabilityId, McpExecutionPathCandidate[]>> {
+  const MCP_LABEL_PREFIX: Record<string, string> = {
+    "web.search": "MCP web search",
+    "web.read": "MCP page read",
+    "code.exec": "MCP code execution",
+    "vision.analyze": "MCP vision analysis",
+    "audio.analyze": "MCP audio analysis",
+    "computer.use": "MCP computer use",
+    "structured.output": "MCP structured output",
+  };
   const grouped: Partial<Record<SemanticCapabilityId, McpExecutionPathCandidate[]>> = {};
   for (const server of servers) {
     if (!server.reachable) continue;
+    const serverIsLocal = isLocalMcpTransport(server);
     for (const tool of server.contributingTools) {
       for (const capabilityId of tool.semanticCapabilities) {
+        const prefix = MCP_LABEL_PREFIX[capabilityId] ?? `MCP ${capabilityId}`;
         const entry: McpExecutionPathCandidate = {
           capabilityId,
           serverName: server.name,
           toolName: tool.registeredToolName,
-          label: capabilityId === "web.search"
-            ? `MCP web search via ${server.name}`
-            : capabilityId === "code.exec"
-            ? `MCP code execution via ${server.name}`
-            : capabilityId === "vision.analyze"
-            ? `MCP vision analysis via ${server.name}`
-            : `MCP page read via ${server.name}`,
+          label: `${prefix} via ${server.name}`,
+          isLocal: serverIsLocal,
         };
         const bucket = grouped[capabilityId] ?? [];
         bucket.push(entry);
@@ -255,6 +317,8 @@ export async function resolveExecutionSurfaceState(options: {
   fallbackState?: ExecutionFallbackState;
   toolAllowlist?: string[];
   toolDenylist?: string[];
+  computerUseRequested?: boolean;
+  skipReasoningSelection?: boolean;
 }): Promise<ExecutionSurfaceResolution> {
   const activeModelId = options.model ??
     getConfiguredModel(config.snapshot);
@@ -274,31 +338,55 @@ export async function resolveExecutionSurfaceState(options: {
       inspectMcpServersForCapabilities(),
       tryGetModelInfo(activeModelId),
     ]);
-  const directVisionKinds = await resolveDirectVisionKinds({
-    activeModelId,
-    modelInfo,
-  });
+  const [directVisionKinds, directAudioKinds, localVisionAvailable] = await Promise.all([
+    resolveDirectVisionKinds({ activeModelId, modelInfo }),
+    resolveDirectAudioKinds({ activeModelId, modelInfo }),
+    hasLocalVisionModel(),
+  ]);
   const providerNativeStructuredOutputAvailable =
     supportsProviderNativeStructuredOutput(activeModelId, options.fixturePath);
 
-  return {
+  const executionSurface = buildExecutionSurface({
+    runtimeMode: options.runtimeMode,
+    activeModelId,
+    pinnedProviderName,
     providerExecutionPlan,
-    executionSurface: buildExecutionSurface({
-      runtimeMode: options.runtimeMode,
-      activeModelId,
+    constraints: options.routingConstraints,
+    taskCapabilityContext: options.taskCapabilityContext,
+    responseShapeContext: options.responseShapeContext,
+    turnContext: options.turnContext,
+    fallbackState: options.fallbackState,
+    providerNativeStructuredOutputAvailable,
+    directVisionKinds,
+    directAudioKinds,
+    localCodeExecAvailable: isLocalCodeExecAvailable(options),
+    localVisionAvailable,
+    computerUseRequested: options.computerUseRequested,
+    providers: providerStatuses,
+    localModelSummary,
+    mcpServers: buildMcpServerSummaries(mcpServers),
+    mcpCandidates: buildMcpExecutionCandidates(mcpServers),
+  });
+
+  // Auto-mode reasoning selection: check if pinned model can satisfy all routed capabilities
+  if (options.runtimeMode === "auto" && !options.skipReasoningSelection) {
+    const availableProviders = providerStatuses
+      .filter((p) => p.available)
+      .map((p) => p.providerName);
+
+    const selection = selectReasoningPathForTurn({
+      pinnedModelId: activeModelId ?? "unknown",
       pinnedProviderName,
-      providerExecutionPlan,
-      constraints: options.routingConstraints,
-      taskCapabilityContext: options.taskCapabilityContext,
-      responseShapeContext: options.responseShapeContext,
+      surface: executionSurface,
+      availableProviders,
       turnContext: options.turnContext,
-      fallbackState: options.fallbackState,
-      providerNativeStructuredOutputAvailable,
-      directVisionKinds,
-      providers: providerStatuses,
-      localModelSummary,
-      mcpServers: buildMcpServerSummaries(mcpServers),
-      mcpCandidates: buildMcpExecutionCandidates(mcpServers),
-    }),
-  };
+      computerUseRequested: options.computerUseRequested,
+    });
+
+    if (selection) {
+      executionSurface.reasoningSelection = selection;
+    }
+  }
+
+  return { providerExecutionPlan, executionSurface };
 }

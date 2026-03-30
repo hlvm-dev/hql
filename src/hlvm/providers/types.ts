@@ -20,7 +20,16 @@ export type ProviderCapability =
   | "models.remove"
   | "vision"
   | "tools"
-  | "thinking";
+  | "thinking"
+  | "hosted.webSearch"
+  | "hosted.codeExecution"
+  | "hosted.computerUse"
+  | "media.audioInput"
+  | "structured.output"
+  | "citations.grounding";
+
+/** Cost tier for model pricing classification */
+export type ModelCostTier = "free" | "cheap" | "standard" | "premium";
 
 // ============================================================================
 // Message Types (Common across providers)
@@ -151,6 +160,8 @@ export interface ModelInfo {
   modifiedAt?: Date;
   /** Capabilities this model supports */
   capabilities?: ProviderCapability[];
+  /** Cost tier classification for routing decisions */
+  costTier?: ModelCostTier;
   /** Provider-specific metadata */
   metadata?: Record<string, unknown>;
   /** Context window size in tokens (from provider API or seed data) */
@@ -168,6 +179,11 @@ export interface ModelCapabilityFlags {
   tools: boolean;       // Function calling
   embedding: boolean;   // Vector embeddings
   thinking: boolean;    // Reasoning/deliberation (e.g., deepseek-r1)
+  audioInput: boolean;  // Audio understanding (e.g., Google Gemini)
+  structuredOutput: boolean; // Native structured/JSON output
+  hostedWebSearch: boolean;  // Provider-hosted web search tool
+  hostedCodeExecution: boolean; // Provider-hosted code execution
+  hostedComputerUse: boolean;  // Provider-hosted computer use (Anthropic)
 }
 
 /**
@@ -183,6 +199,11 @@ export function capabilitiesToFlags(capabilities?: ProviderCapability[]): ModelC
     tools: caps.includes("tools"),
     embedding: caps.includes("embeddings"),
     thinking: caps.includes("thinking"),
+    audioInput: caps.includes("media.audioInput"),
+    structuredOutput: caps.includes("structured.output"),
+    hostedWebSearch: caps.includes("hosted.webSearch"),
+    hostedCodeExecution: caps.includes("hosted.codeExecution"),
+    hostedComputerUse: caps.includes("hosted.computerUse"),
   };
 }
 
@@ -195,12 +216,16 @@ export function formatCapabilityTags(capabilities?: ProviderCapability[]): strin
   const flags = capabilitiesToFlags(capabilities);
   const tags: string[] = [];
 
-  // Order: vision, thinking, tools, text, embedding (following ollama.com/library)
+  // Order: vision, thinking, tools, text, embedding, then hosted/media (following ollama.com/library)
   if (flags.vision) tags.push("[vision]");
   if (flags.thinking) tags.push("[thinking]");
   if (flags.tools) tags.push("[tools]");
   if (flags.completion) tags.push("[text]");
   if (flags.embedding) tags.push("[embed]");
+  if (flags.audioInput) tags.push("[audio]");
+  if (flags.hostedWebSearch) tags.push("[web-search]");
+  if (flags.hostedCodeExecution) tags.push("[code-exec]");
+  if (flags.hostedComputerUse) tags.push("[computer-use]");
 
   return tags.join(" ");
 }
@@ -222,6 +247,10 @@ export function capabilitiesToDisplayTags(capabilities?: ProviderCapability[]): 
   if (flags.vision) tags.push("vision");
   if (flags.tools) tags.push("tools");
   if (flags.thinking) tags.push("thinking");
+  if (flags.audioInput) tags.push("audio");
+  if (flags.hostedWebSearch) tags.push("web-search");
+  if (flags.hostedCodeExecution) tags.push("code-exec");
+  if (flags.hostedComputerUse) tags.push("computer-use");
 
   return tags;
 }
@@ -351,4 +380,6 @@ export interface RegisteredProvider {
   factory: ProviderFactory;
   /** Default configuration */
   defaultConfig?: ProviderConfig;
+  /** Provider-level capabilities (e.g. chat, tools, vision, hosted.webSearch) */
+  capabilities?: ProviderCapability[];
 }

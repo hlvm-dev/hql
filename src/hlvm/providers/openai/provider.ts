@@ -12,6 +12,10 @@ export const createOpenAIProvider = createCloudProvider({
   envVarName: "OPENAI_API_KEY",
   noModelsError: "No OpenAI models available. Check your API key or network.",
   publicCatalogProvider: "openai",
+  capabilities: [
+    "chat", "tools", "vision", "models.list",
+    "hosted.webSearch", "structured.output",
+  ],
   createApi: (apiKey) => ({
     listModels: (ep) => api.listModels(ep, apiKey),
     checkStatus: (ep) => api.checkStatus(ep, apiKey),

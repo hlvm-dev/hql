@@ -49,6 +49,10 @@ import {
   type DelegateTranscriptSnapshot,
   listDelegateTranscriptLines,
 } from "../../agent/delegate-transcript.ts";
+import {
+  formatDelegateGroupForCli,
+} from "../delegate-group-format.ts";
+import type { DelegateGroupEntry } from "../repl-ink/types.ts";
 import { formatPlanForContext } from "../../agent/planning.ts";
 import {
   createTranscriptState,
@@ -596,6 +600,8 @@ export async function askCommand(args: string[]): Promise<void> {
   let transcriptState = createTranscriptState();
   let finalMeta: FinalResponseMeta | undefined;
   const responseSanitizer = createStreamingResponseSanitizer();
+  const activeDelegateGroups = new Map<string, DelegateGroupEntry[]>();
+  let groupEntryCounter = 0;
 
   const flushStream = (): void => {
     if (streamedTokens) {
@@ -664,20 +670,78 @@ export async function askCommand(args: string[]): Promise<void> {
           break;
         case "delegate_start":
           flushStream();
-          log.raw.log(`\n[Delegate] ${event.agent}\n${event.task}\n`);
+          if (event.batchId) {
+            const entries = activeDelegateGroups.get(event.batchId) ?? [];
+            entries.push({
+              id: `dge-${++groupEntryCounter}`,
+              agent: event.agent,
+              task: event.task,
+              status: "queued",
+              threadId: event.threadId,
+              nickname: event.nickname,
+              childSessionId: event.childSessionId,
+            });
+            activeDelegateGroups.set(event.batchId, entries);
+            log.raw.log(
+              `\n${formatDelegateGroupForCli(entries, true)}\n`,
+            );
+          } else {
+            log.raw.log(`\n[Delegate] ${event.agent}\n${event.task}\n`);
+          }
           break;
+        case "delegate_running": {
+          flushStream();
+          for (const [, entries] of activeDelegateGroups) {
+            const match = entries.find(
+              (e) => e.threadId === event.threadId && e.status === "queued",
+            );
+            if (match) {
+              match.status = "running";
+              log.raw.log(`\n${formatDelegateGroupForCli(entries, true)}\n`);
+              break;
+            }
+          }
+          break;
+        }
         case "delegate_end": {
           flushStream();
-          const label = event.success ? "Delegate Result" : "Delegate Error";
-          const body = event.success
-            ? event.summary ?? "Delegation complete."
-            : event.error ?? "Delegation failed.";
-          log.raw.log(`\n[${label}] ${event.agent}\n${body}\n`);
-          const snapshotText = formatDelegateSnapshotForVerboseMode(
-            event.snapshot,
-          );
-          if (snapshotText) {
-            log.raw.log(`${snapshotText}\n`);
+          if (event.batchId && activeDelegateGroups.has(event.batchId)) {
+            const entries = activeDelegateGroups.get(event.batchId)!;
+            const isCancelled = !event.success &&
+              event.error?.toLowerCase().includes("abort");
+            const match = entries.find((e) =>
+              (event.threadId && e.threadId === event.threadId) ||
+              (e.agent === event.agent && e.task === event.task &&
+                (e.status === "running" || e.status === "queued"))
+            );
+            if (match) {
+              match.status = isCancelled
+                ? "cancelled"
+                : event.success
+                ? "success"
+                : "error";
+              match.summary = event.summary;
+              match.error = event.error;
+              match.durationMs = event.durationMs;
+              match.snapshot = event.snapshot;
+            }
+            log.raw.log(
+              `\n${formatDelegateGroupForCli(entries, true)}\n`,
+            );
+          } else {
+            const label = event.success
+              ? "Delegate Result"
+              : "Delegate Error";
+            const body = event.success
+              ? event.summary ?? "Delegation complete."
+              : event.error ?? "Delegation failed.";
+            log.raw.log(`\n[${label}] ${event.agent}\n${body}\n`);
+            const snapshotText = formatDelegateSnapshotForVerboseMode(
+              event.snapshot,
+            );
+            if (snapshotText) {
+              log.raw.log(`${snapshotText}\n`);
+            }
           }
           break;
         }
@@ -736,10 +800,13 @@ export async function askCommand(args: string[]): Promise<void> {
           );
           break;
         case "batch_progress_updated":
-          flushStream();
-          log.raw.log(
-            `\n[Batch ${event.snapshot.batchId}] ${event.snapshot.running} running \u00b7 ${event.snapshot.completed} completed \u00b7 ${event.snapshot.errored} errored \u00b7 ${event.snapshot.cancelled} cancelled\n`,
-          );
+          // Suppress when delegate group already shows richer data
+          if (!activeDelegateGroups.has(event.snapshot.batchId)) {
+            flushStream();
+            log.raw.log(
+              `\n[Batch ${event.snapshot.batchId}] ${event.snapshot.running} running \u00b7 ${event.snapshot.completed} completed \u00b7 ${event.snapshot.errored} errored \u00b7 ${event.snapshot.cancelled} cancelled\n`,
+            );
+          }
           break;
         case "plan_review_required":
           flushStream();
@@ -822,15 +889,86 @@ export async function askCommand(args: string[]): Promise<void> {
       case "delegate_start":
         clearThinking();
         flushStream();
-        log.raw.write(
-          `  ${DIM}\u2847 delegate ${event.agent} ${
-            truncate(event.task, 60)
-          }${RESET}`,
-        );
-        toolInProgress = true;
+        if (event.batchId) {
+          const entries = activeDelegateGroups.get(event.batchId) ?? [];
+          entries.push({
+            id: `dge-${++groupEntryCounter}`,
+            agent: event.agent,
+            task: event.task,
+            status: "queued",
+            threadId: event.threadId,
+            nickname: event.nickname,
+            childSessionId: event.childSessionId,
+          });
+          activeDelegateGroups.set(event.batchId, entries);
+          log.raw.write(
+            `${CLEAR_LINE}  ${DIM}${formatDelegateGroupForCli(entries, false)}${RESET}`,
+          );
+          toolInProgress = true;
+        } else {
+          log.raw.write(
+            `  ${DIM}\u2847 delegate ${event.agent} ${
+              truncate(event.task, 60)
+            }${RESET}`,
+          );
+          toolInProgress = true;
+        }
         break;
+      case "delegate_running": {
+        for (const [, entries] of activeDelegateGroups) {
+          const match = entries.find(
+            (e) => e.threadId === event.threadId && e.status === "queued",
+          );
+          if (match) {
+            match.status = "running";
+            log.raw.write(
+              `${CLEAR_LINE}  ${DIM}${formatDelegateGroupForCli(entries, false)}${RESET}`,
+            );
+            break;
+          }
+        }
+        break;
+      }
       case "delegate_end": {
-        if (toolInProgress) {
+        if (event.batchId && activeDelegateGroups.has(event.batchId)) {
+          const entries = activeDelegateGroups.get(event.batchId)!;
+          const isCancelled = !event.success &&
+            event.error?.toLowerCase().includes("abort");
+          const match = entries.find((e) =>
+            (event.threadId && e.threadId === event.threadId) ||
+            (e.agent === event.agent && e.task === event.task &&
+              (e.status === "running" || e.status === "queued"))
+          );
+          if (match) {
+            match.status = isCancelled
+              ? "cancelled"
+              : event.success
+              ? "success"
+              : "error";
+            match.summary = event.summary;
+            match.error = event.error;
+            match.durationMs = event.durationMs;
+            match.snapshot = event.snapshot;
+          }
+          const allDone = entries.every((e) =>
+            e.status === "success" || e.status === "error" ||
+            e.status === "cancelled"
+          );
+          log.raw.write(
+            `${CLEAR_LINE}  ${
+              allDone
+                ? entries.some((e) => e.status === "error" || e.status === "cancelled")
+                  ? `${RED}\u2717${RESET}`
+                  : `${GREEN}\u2713${RESET}`
+                : DIM
+            } ${formatDelegateGroupForCli(entries, false)}${
+              allDone ? "" : RESET
+            }\n`,
+          );
+          if (allDone) {
+            toolInProgress = false;
+          }
+        } else if (toolInProgress) {
           const icon = event.success
             ? `${GREEN}\u2713${RESET}`
             : `${RED}\u2717${RESET}`;

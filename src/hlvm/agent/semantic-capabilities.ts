@@ -4,6 +4,8 @@ export const SEMANTIC_CAPABILITY_IDS = [
   "vision.analyze",
   "code.exec",
   "structured.output",
+  "audio.analyze",
+  "computer.use",
 ] as const;
 
 export type SemanticCapabilityId = (typeof SEMANTIC_CAPABILITY_IDS)[number];

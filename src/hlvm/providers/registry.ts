@@ -9,6 +9,7 @@
 
 import type {
   AIProvider,
+  ProviderCapability,
   ProviderConfig,
   ProviderFactory,
   RegisteredProvider,
@@ -50,12 +51,13 @@ function resolveProviderKey(name?: string | null): string | null {
 export function registerProvider(
   name: string,
   factory: ProviderFactory,
-  config?: ProviderConfig & { isDefault?: boolean },
+  config?: ProviderConfig & { isDefault?: boolean; capabilities?: ProviderCapability[] },
 ): void {
   const key = normalizeProviderName(name);
   const entry: RegisteredProvider = {
     factory,
     defaultConfig: config,
+    capabilities: config?.capabilities,
   };
 
   providers.set(key, entry);
@@ -101,6 +103,13 @@ export function getProvider(
   // Create new instance with merged config
   const mergedConfig = { ...entry.defaultConfig, ...config };
   return entry.factory(mergedConfig);
+}
+
+/** Get the registered capabilities for a provider, or null if not registered. */
+export function getProviderCapabilities(name: string): ProviderCapability[] | null {
+  const key = normalizeProviderName(name);
+  const entry = providers.get(key);
+  return entry?.capabilities ?? null;
 }
 
 /**

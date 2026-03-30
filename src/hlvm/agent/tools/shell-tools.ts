@@ -1,9 +1,10 @@
 /**
  * Shell Tools - SSOT-compliant shell execution for AI agents
  *
- * Provides 2 core shell operations with security:
+ * Provides 3 core shell operations with security:
  * 1. shell_exec - Execute shell command with allow-list checking
  * 2. shell_script - Execute multi-line shell script
+ * 3. local_code_execute - Execute inline code through the shell-backed runtime
  *
  * Security features:
  * - L2 (always confirm) by default
@@ -22,6 +23,7 @@ import {
 import { classifyShellCommand as classifyShellCommandWithReason } from "../security/shell-classifier.ts";
 import { getNetworkPolicyDeniedUrl } from "../policy.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
+import type { SemanticCapabilityId } from "../semantic-capabilities.ts";
 import { failTool, formatToolError, okTool } from "../tool-results.ts";
 
 // ============================================================
@@ -61,6 +63,75 @@ export interface ShellScriptArgs {
 interface ShellScriptResult extends ShellResult {
   success: boolean;
   message?: string;
+}
+
+/** Arguments for local_code_execute tool */
+export interface LocalCodeExecuteArgs {
+  code: string;
+  language?: string;
+  cwd?: string;
+}
+
+type LocalCodeLanguage =
+  | "python"
+  | "javascript"
+  | "typescript"
+  | "shell"
+  | "powershell"
+  | "cmd";
+
+function normalizeLocalCodeLanguage(
+  language?: string,
+): LocalCodeLanguage {
+  const normalized = language?.trim().toLowerCase();
+  switch (normalized) {
+    case undefined:
+    case "":
+    case "ts":
+    case "typescript":
+    case "deno":
+      return "typescript";
+    case "js":
+    case "javascript":
+    case "node":
+    case "nodejs":
+      return "javascript";
+    case "py":
+    case "python":
+    case "python3":
+      return "python";
+    case "sh":
+    case "bash":
+    case "zsh":
+    case "shell":
+      return "shell";
+    case "powershell":
+    case "pwsh":
+      return "powershell";
+    case "cmd":
+    case "batch":
+      return "cmd";
+    default:
+      return "typescript";
+  }
+}
+
+function quoteShellArg(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function buildInlineCodeCommand(
+  language: Exclude<LocalCodeLanguage, "shell" | "powershell" | "cmd">,
+  code: string,
+): string {
+  switch (language) {
+    case "python":
+      return `python3 -c ${quoteShellArg(code)}`;
+    case "javascript":
+      return `node -e ${quoteShellArg(code)}`;
+    case "typescript":
+      return `deno eval ${quoteShellArg(code)}`;
+  }
 }
 
 /**
@@ -477,6 +548,38 @@ export async function shellScript(
   }
 }
 
+/**
+ * Execute inline code locally using the existing shell safety/execution path.
+ *
+ * Defaults to Deno/TypeScript for deterministic local computation, while still
+ * allowing explicit Python, JavaScript, and shell-family execution.
+ */
+export async function localCodeExecute(
+  args: LocalCodeExecuteArgs,
+  workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<ShellExecResult | ShellScriptResult> {
+  const language = normalizeLocalCodeLanguage(args.language);
+
+  if (
+    language === "shell" || language === "powershell" ||
+    language === "cmd"
+  ) {
+    return shellScript({
+      script: args.code,
+      interpreter: language === "shell"
+        ? "sh"
+        : language,
+      cwd: args.cwd,
+    }, workspace, options);
+  }
+
+  return shellExec({
+    command: buildInlineCodeCommand(language, args.code),
+    cwd: args.cwd,
+  }, workspace, options);
+}
+
 function extractUrlsFromArgs(args: string[]): string[] {
   return args.flatMap(extractUrlsFromText);
 }
@@ -544,5 +647,28 @@ export const SHELL_TOOLS = {
       message: "string - Human-readable result message",
     },
     safety: "L2 always (always confirm)",
+  },
+  local_code_execute: {
+    fn: localCodeExecute,
+    description:
+      "Execute inline code locally through HLVM's shell-backed runtime. Prefer this over raw shell_exec for local code.exec tasks.",
+    category: "shell",
+    semanticCapabilities: ["code.exec"] as SemanticCapabilityId[],
+    safetyLevel: "L2",
+    args: {
+      code: "string - Inline code to execute locally",
+      language:
+        "string (optional) - typescript/deno (default), javascript/node, python, shell, powershell, or cmd",
+      cwd: "string (optional) - Working directory (default: workspace root)",
+    },
+    returns: {
+      success: "boolean - Whether the execution succeeded",
+      stdout: "string - Standard output",
+      stderr: "string - Standard error",
+      exitCode: "number - Process exit code",
+      message: "string - Human-readable result message",
+    },
+    safety:
+      "L2 always. Executes inline code locally via Deno/Node/Python or a shell interpreter.",
   },
 } as const;

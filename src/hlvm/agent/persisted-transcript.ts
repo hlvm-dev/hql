@@ -433,6 +433,8 @@ export function persistLastAppliedTurnContext(
       attachmentKinds: [...turnContext.attachmentKinds],
       visionEligibleAttachmentCount: turnContext.visionEligibleAttachmentCount,
       visionEligibleKinds: [...turnContext.visionEligibleKinds],
+      audioEligibleAttachmentCount: turnContext.audioEligibleAttachmentCount,
+      audioEligibleKinds: [...turnContext.audioEligibleKinds],
     };
   });
 }

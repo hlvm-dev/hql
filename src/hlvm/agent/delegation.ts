@@ -1092,6 +1092,7 @@ export function createDelegateHandler(
           snapshot,
           childSessionId,
           threadId,
+          batchId,
         });
         queueBackgroundDelegateUpdate(config, {
           threadId,
@@ -1152,6 +1153,7 @@ export function createDelegateHandler(
           durationMs: snapshot?.durationMs ?? 0,
           snapshot,
           threadId,
+          batchId,
         });
         queueBackgroundDelegateUpdate(config, {
           threadId,
@@ -1207,6 +1209,7 @@ export function createDelegateHandler(
         task,
         threadId,
         nickname,
+        batchId,
       });
     }
     emitDelegateBatchProgress(config, batchId);

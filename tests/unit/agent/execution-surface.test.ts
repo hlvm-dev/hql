@@ -291,6 +291,8 @@ Deno.test("execution surface: vision.analyze selects provider-native when auto m
       attachmentKinds: ["image"],
       visionEligibleAttachmentCount: 1,
       visionEligibleKinds: ["image"],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
     },
     directVisionKinds: ["image"],
   });
@@ -323,6 +325,8 @@ Deno.test("execution surface: vision.analyze stays unavailable without eligible 
       attachmentKinds: ["text"],
       visionEligibleAttachmentCount: 0,
       visionEligibleKinds: [],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
     },
     directVisionKinds: ["image", "pdf"],
   });
@@ -355,6 +359,8 @@ Deno.test("execution surface: vision.analyze requires direct binary PDF support 
       attachmentKinds: ["pdf"],
       visionEligibleAttachmentCount: 1,
       visionEligibleKinds: ["pdf"],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
     },
     directVisionKinds: [],
   });
@@ -388,6 +394,7 @@ Deno.test("execution surface: code.exec selects provider-native when requested a
       source: "task-text",
       matchedCueLabels: ["calculate", "base64"],
     },
+    localCodeExecAvailable: true,
   });
 
   assertEquals(surface.capabilities["code.exec"].selectedBackendKind, "provider-native");
@@ -414,6 +421,7 @@ Deno.test("execution surface: code.exec is unavailable when not requested by the
         remoteCodeExecution: true,
       },
     }),
+    localCodeExecAvailable: true,
   });
 
   assertEquals(surface.capabilities["code.exec"].selectedBackendKind, undefined);
@@ -423,7 +431,7 @@ Deno.test("execution surface: code.exec is unavailable when not requested by the
   );
 });
 
-Deno.test("execution surface: code.exec is unavailable when the pinned provider lacks native remote code execution", () => {
+Deno.test("execution surface: code.exec falls back to hlvm-local when the pinned provider lacks native remote code execution", () => {
   const surface = buildExecutionSurface({
     runtimeMode: "auto",
     activeModelId: "openai/gpt-5",
@@ -442,18 +450,52 @@ Deno.test("execution surface: code.exec is unavailable when the pinned provider 
       source: "task-text",
       matchedCueLabels: ["compute"],
     },
+    localCodeExecAvailable: true,
+  });
+
+  assertEquals(surface.capabilities["code.exec"].selectedBackendKind, "hlvm-local");
+  assertEquals(
+    surface.capabilities["code.exec"].selectedToolName,
+    "local_code_execute",
+  );
+  assertEquals(
+    surface.capabilities["code.exec"].fallbackReason,
+    "provider-native unavailable; no participating MCP route",
+  );
+  assertEquals(
+    surface.capabilities["code.exec"].candidates.find((candidate) =>
+      candidate.backendKind === "mcp"
+    )?.reason,
+    "no participating MCP route",
+  );
+});
+
+Deno.test("execution surface: code.exec stays unavailable when the local fallback is disabled for the session", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "openai/gpt-5",
+    pinnedProviderName: "openai",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "openai",
+      nativeCapabilities: {
+        webSearch: true,
+        webPageRead: false,
+        remoteCodeExecution: false,
+      },
+      autoRequestedRemoteCodeExecution: true,
+    }),
+    taskCapabilityContext: {
+      requestedCapabilities: ["code.exec"],
+      source: "task-text",
+      matchedCueLabels: ["compute"],
+    },
+    localCodeExecAvailable: false,
   });
 
   assertEquals(surface.capabilities["code.exec"].selectedBackendKind, undefined);
   assertEquals(
     surface.capabilities["code.exec"].fallbackReason,
     "pinned model/provider lacks native remote code execution or the tool is unavailable for this session",
-  );
-  assertEquals(
-    surface.capabilities["code.exec"].candidates.find((candidate) =>
-      candidate.backendKind === "mcp"
-    )?.reason,
-    "not implemented for code.exec in this phase",
   );
 });
 
@@ -549,7 +591,7 @@ Deno.test("execution surface: structured.output is unavailable when provider-nat
     surface.capabilities["structured.output"].candidates.find((candidate) =>
       candidate.backendKind === "mcp"
     )?.reason,
-    "not implemented for structured.output in this phase",
+    "MCP structured.output is a permanent non-goal — inherently provider-native",
   );
 });
 
@@ -571,6 +613,8 @@ Deno.test("execution surface: familyId is correct for web, vision, code, and str
       attachmentKinds: ["image"],
       visionEligibleAttachmentCount: 1,
       visionEligibleKinds: ["image"],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
     },
     directVisionKinds: ["image"],
   });
@@ -600,6 +644,8 @@ Deno.test("execution surface: local-only constraint blocks vision provider-nativ
       attachmentKinds: ["image"],
       visionEligibleAttachmentCount: 1,
       visionEligibleKinds: ["image"],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
     },
     directVisionKinds: ["image"],
     constraints: {
@@ -735,7 +781,7 @@ Deno.test("execution surface: last remaining web route failure leaves the capabi
   );
 });
 
-Deno.test("execution surface: code.exec provider-native failure makes the capability unavailable for the turn", () => {
+Deno.test("execution surface: code.exec provider-native failure falls back to hlvm-local for the turn", () => {
   const surface = buildExecutionSurface({
     runtimeMode: "auto",
     activeModelId: "google/gemini-2.5-pro",
@@ -754,6 +800,7 @@ Deno.test("execution surface: code.exec provider-native failure makes the capabi
       source: "task-text",
       matchedCueLabels: ["calculate"],
     },
+    localCodeExecAvailable: true,
     fallbackState: appendExecutionFallbackSuppression(
       EMPTY_EXECUTION_FALLBACK_STATE,
       {
@@ -766,11 +813,122 @@ Deno.test("execution surface: code.exec provider-native failure makes the capabi
     ),
   });
 
-  assertEquals(surface.capabilities["code.exec"].selectedBackendKind, undefined);
+  assertEquals(surface.capabilities["code.exec"].selectedBackendKind, "hlvm-local");
+  assertEquals(
+    surface.capabilities["code.exec"].selectedToolName,
+    "local_code_execute",
+  );
   assertEquals(
     surface.capabilities["code.exec"].fallbackReason,
-    "provider-native (google) via remote_code_execute failed during current turn; capability unavailable for remainder of turn",
+    "provider-native (google) via remote_code_execute failed during current turn",
   );
+});
+
+Deno.test("execution surface: vision.analyze selects hlvm-local when provider-native unavailable and local vision model installed", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "ollama/llama3.1:8b",
+    pinnedProviderName: "ollama",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "ollama",
+      nativeCapabilities: {
+        webSearch: false,
+        webPageRead: false,
+        remoteCodeExecution: false,
+      },
+    }),
+    turnContext: {
+      attachmentCount: 1,
+      attachmentKinds: ["image"],
+      visionEligibleAttachmentCount: 1,
+      visionEligibleKinds: ["image"],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
+    },
+    localVisionAvailable: true,
+  });
+
+  assertEquals(
+    surface.capabilities["vision.analyze"].selectedBackendKind,
+    "hlvm-local",
+  );
+  const localCandidate = surface.capabilities["vision.analyze"].candidates.find(
+    (c) => c.backendKind === "hlvm-local",
+  );
+  assertEquals(localCandidate?.reachable, true);
+  assertEquals(localCandidate?.allowed, true);
+});
+
+Deno.test("execution surface: vision.analyze unavailable when no local vision model and no provider-native", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "ollama/llama3.1:8b",
+    pinnedProviderName: "ollama",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "ollama",
+      nativeCapabilities: {
+        webSearch: false,
+        webPageRead: false,
+        remoteCodeExecution: false,
+      },
+    }),
+    turnContext: {
+      attachmentCount: 1,
+      attachmentKinds: ["image"],
+      visionEligibleAttachmentCount: 1,
+      visionEligibleKinds: ["image"],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
+    },
+    localVisionAvailable: false,
+  });
+
+  assertEquals(
+    surface.capabilities["vision.analyze"].selectedBackendKind,
+    undefined,
+  );
+  const localCandidate = surface.capabilities["vision.analyze"].candidates.find(
+    (c) => c.backendKind === "hlvm-local",
+  );
+  assertEquals(localCandidate?.reachable, false);
+  assertEquals(localCandidate?.reason, "no local vision-capable model installed");
+});
+
+Deno.test("execution surface: vision.analyze prefers provider-native over hlvm-local", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "ollama/llava:latest",
+    pinnedProviderName: "ollama",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "ollama",
+      nativeCapabilities: {
+        webSearch: false,
+        webPageRead: false,
+        remoteCodeExecution: false,
+      },
+    }),
+    turnContext: {
+      attachmentCount: 1,
+      attachmentKinds: ["image"],
+      visionEligibleAttachmentCount: 1,
+      visionEligibleKinds: ["image"],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
+    },
+    directVisionKinds: ["image"],
+    localVisionAvailable: true,
+  });
+
+  assertEquals(
+    surface.capabilities["vision.analyze"].selectedBackendKind,
+    "provider-native",
+  );
+  // hlvm-local should still be reachable but not selected
+  const localCandidate = surface.capabilities["vision.analyze"].candidates.find(
+    (c) => c.backendKind === "hlvm-local",
+  );
+  assertEquals(localCandidate?.reachable, true);
+  assertEquals(localCandidate?.selected, false);
 });
 
 Deno.test("execution surface: MCP and local vision candidates are explicitly unavailable this phase", () => {
@@ -791,6 +949,8 @@ Deno.test("execution surface: MCP and local vision candidates are explicitly una
       attachmentKinds: ["image"],
       visionEligibleAttachmentCount: 1,
       visionEligibleKinds: ["image"],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
     },
     directVisionKinds: ["image"],
   });
@@ -828,6 +988,8 @@ Deno.test("execution surface: signature changes when turn attachment context cha
       attachmentKinds: ["image"],
       visionEligibleAttachmentCount: 1,
       visionEligibleKinds: ["image"],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
     },
   });
 
@@ -907,4 +1069,298 @@ Deno.test("execution surface: signature changes when response shape context chan
     withoutSchema.signature === getExecutionSurfaceSignature(withSchema),
     false,
   );
+});
+
+// ============================================================================
+// Audio family tests
+// ============================================================================
+
+Deno.test("execution surface: audio.analyze selects provider-native when Google + audio attachment", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "google/gemini-2.0-flash",
+    pinnedProviderName: "google",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "google",
+      nativeCapabilities: {
+        webSearch: true,
+        webPageRead: true,
+        remoteCodeExecution: false,
+      },
+    }),
+    turnContext: {
+      attachmentCount: 1,
+      attachmentKinds: ["audio"],
+      visionEligibleAttachmentCount: 0,
+      visionEligibleKinds: [],
+      audioEligibleAttachmentCount: 1,
+      audioEligibleKinds: ["audio"],
+    },
+    directAudioKinds: ["audio"],
+  });
+
+  assertEquals(surface.capabilities["audio.analyze"].selectedBackendKind, "provider-native");
+  assertEquals(surface.capabilities["audio.analyze"].fallbackReason, undefined);
+});
+
+Deno.test("execution surface: audio.analyze unavailable without audio-eligible attachments", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "google/gemini-2.0-flash",
+    pinnedProviderName: "google",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "google",
+      nativeCapabilities: {
+        webSearch: true,
+        webPageRead: true,
+        remoteCodeExecution: false,
+      },
+    }),
+    directAudioKinds: ["audio"],
+  });
+
+  assertEquals(surface.capabilities["audio.analyze"].selectedBackendKind, undefined);
+});
+
+Deno.test("execution surface: audio.analyze blocked by local-only constraint", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "google/gemini-2.0-flash",
+    pinnedProviderName: "google",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "google",
+      nativeCapabilities: {
+        webSearch: true,
+        webPageRead: true,
+        remoteCodeExecution: false,
+      },
+    }),
+    turnContext: {
+      attachmentCount: 1,
+      attachmentKinds: ["audio"],
+      visionEligibleAttachmentCount: 0,
+      visionEligibleKinds: [],
+      audioEligibleAttachmentCount: 1,
+      audioEligibleKinds: ["audio"],
+    },
+    directAudioKinds: ["audio"],
+    constraints: {
+      hardConstraints: ["local-only"],
+      preferenceConflict: false,
+      source: "task-text",
+    },
+  });
+
+  assertEquals(surface.capabilities["audio.analyze"].selectedBackendKind, undefined);
+  const nativeCandidate = surface.capabilities["audio.analyze"].candidates.find(
+    (c) => c.backendKind === "provider-native",
+  );
+  assertEquals(
+    nativeCandidate?.blockedReasons?.includes("blocked by task constraint local-only"),
+    true,
+  );
+});
+
+Deno.test("execution surface: audio.analyze MCP candidate selected when provider-native unavailable", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "ollama/llama3.1:8b",
+    pinnedProviderName: "ollama",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "ollama",
+      nativeCapabilities: {
+        webSearch: false,
+        webPageRead: false,
+        remoteCodeExecution: false,
+      },
+    }),
+    turnContext: {
+      attachmentCount: 1,
+      attachmentKinds: ["audio"],
+      visionEligibleAttachmentCount: 0,
+      visionEligibleKinds: [],
+      audioEligibleAttachmentCount: 1,
+      audioEligibleKinds: ["audio"],
+    },
+    mcpCandidates: {
+      "audio.analyze": [{
+        capabilityId: "audio.analyze",
+        serverName: "whisper",
+        toolName: "mcp_whisper_transcribe",
+        label: "MCP audio analysis via whisper",
+      }],
+    },
+  });
+
+  assertEquals(surface.capabilities["audio.analyze"].selectedBackendKind, "mcp");
+  assertEquals(surface.capabilities["audio.analyze"].selectedServerName, "whisper");
+  assertEquals(surface.capabilities["audio.analyze"].selectedToolName, "mcp_whisper_transcribe");
+});
+
+// ============================================================================
+// Computer.use family tests
+// ============================================================================
+
+Deno.test("execution surface: computer.use selects provider-native on Anthropic when requested", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "anthropic/claude-sonnet-4-5-20250929",
+    pinnedProviderName: "anthropic",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "anthropic",
+      nativeCapabilities: {
+        webSearch: false,
+        webPageRead: false,
+        remoteCodeExecution: false,
+      },
+    }),
+    computerUseRequested: true,
+  });
+
+  assertEquals(surface.capabilities["computer.use"].selectedBackendKind, "provider-native");
+  assertEquals(surface.capabilities["computer.use"].fallbackReason, undefined);
+});
+
+Deno.test("execution surface: computer.use unavailable without explicit computerUseRequested", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "anthropic/claude-sonnet-4-5-20250929",
+    pinnedProviderName: "anthropic",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "anthropic",
+      nativeCapabilities: {
+        webSearch: false,
+        webPageRead: false,
+        remoteCodeExecution: false,
+      },
+    }),
+    computerUseRequested: false,
+  });
+
+  assertEquals(surface.capabilities["computer.use"].selectedBackendKind, undefined);
+});
+
+Deno.test("execution surface: computer.use unavailable on non-Anthropic providers", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "google/gemini-2.0-flash",
+    pinnedProviderName: "google",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "google",
+      nativeCapabilities: {
+        webSearch: true,
+        webPageRead: true,
+        remoteCodeExecution: true,
+      },
+    }),
+    computerUseRequested: true,
+  });
+
+  assertEquals(surface.capabilities["computer.use"].selectedBackendKind, undefined);
+});
+
+Deno.test("execution surface: computer.use MCP candidate selected when Anthropic unavailable", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "openai/gpt-4o",
+    pinnedProviderName: "openai",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "openai",
+      nativeCapabilities: {
+        webSearch: true,
+        webPageRead: false,
+        remoteCodeExecution: false,
+      },
+    }),
+    computerUseRequested: true,
+    mcpCandidates: {
+      "computer.use": [{
+        capabilityId: "computer.use",
+        serverName: "puppeteer",
+        toolName: "mcp_puppeteer_interact",
+        label: "MCP computer use via puppeteer",
+      }],
+    },
+  });
+
+  assertEquals(surface.capabilities["computer.use"].selectedBackendKind, "mcp");
+  assertEquals(surface.capabilities["computer.use"].selectedServerName, "puppeteer");
+  assertEquals(surface.capabilities["computer.use"].selectedToolName, "mcp_puppeteer_interact");
+});
+
+// ============================================================================
+// Vision MCP candidate test
+// ============================================================================
+
+Deno.test("execution surface: vision.analyze MCP candidate selected when provider-native unavailable", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "ollama/llama3.1:8b",
+    pinnedProviderName: "ollama",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "ollama",
+      nativeCapabilities: {
+        webSearch: false,
+        webPageRead: false,
+        remoteCodeExecution: false,
+      },
+    }),
+    turnContext: {
+      attachmentCount: 1,
+      attachmentKinds: ["image"],
+      visionEligibleAttachmentCount: 1,
+      visionEligibleKinds: ["image"],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
+    },
+    mcpCandidates: {
+      "vision.analyze": [{
+        capabilityId: "vision.analyze",
+        serverName: "vision-server",
+        toolName: "mcp_vision_analyze",
+        label: "MCP vision analysis via vision-server",
+      }],
+    },
+  });
+
+  assertEquals(surface.capabilities["vision.analyze"].selectedBackendKind, "mcp");
+  assertEquals(surface.capabilities["vision.analyze"].selectedServerName, "vision-server");
+});
+
+// ============================================================================
+// Code.exec MCP candidate test
+// ============================================================================
+
+Deno.test("execution surface: code.exec MCP candidate selected when provider-native unavailable", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "openai/gpt-4o",
+    pinnedProviderName: "openai",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "openai",
+      nativeCapabilities: {
+        webSearch: true,
+        webPageRead: false,
+        remoteCodeExecution: false,
+      },
+    }),
+    taskCapabilityContext: {
+      requestedCapabilities: ["code.exec"],
+      source: "task-text",
+      matchedCueLabels: ["calculate"],
+    },
+    localCodeExecAvailable: true,
+    mcpCandidates: {
+      "code.exec": [{
+        capabilityId: "code.exec",
+        serverName: "code-runner",
+        toolName: "mcp_code_execute",
+        label: "MCP code execution via code-runner",
+      }],
+    },
+  });
+
+  assertEquals(surface.capabilities["code.exec"].selectedBackendKind, "mcp");
+  assertEquals(surface.capabilities["code.exec"].selectedServerName, "code-runner");
+  assertEquals(surface.capabilities["code.exec"].selectedToolName, "mcp_code_execute");
 });

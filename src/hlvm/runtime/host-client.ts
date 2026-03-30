@@ -756,6 +756,7 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         threadId: event.thread_id,
         nickname: event.nickname,
         childSessionId: event.child_session_id,
+        batchId: event.batch_id,
       };
     case "delegate_running":
       return {
@@ -774,6 +775,7 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         snapshot: event.snapshot,
         childSessionId: event.child_session_id,
         threadId: event.thread_id,
+        batchId: event.batch_id,
       };
     case "todo_updated":
       return {

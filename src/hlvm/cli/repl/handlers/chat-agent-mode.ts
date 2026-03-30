@@ -137,6 +137,7 @@ export async function handleAgentMode(
     messageHistory: history,
     attachments: attachments.length > 0 ? attachments : undefined,
     responseSchema: body.response_schema,
+    computerUse: body.computer_use === true,
     modelInfo,
     callbacks: {
       onToken: (text: string) => {
@@ -196,6 +197,15 @@ export async function handleAgentMode(
               })),
             });
             break;
+          case "reasoning_routed":
+            emit({
+              event: "reasoning_routed",
+              selected_model_id: event.selectedModelId,
+              selected_provider_name: event.selectedProviderName,
+              reason: event.reason,
+              switched_from_pinned: event.switchedFromPinned,
+            });
+            break;
           case "tool_end": {
             if (event.success) {
               successfulToolCalls += 1;
@@ -248,6 +258,7 @@ export async function handleAgentMode(
               thread_id: event.threadId,
               nickname: event.nickname,
               child_session_id: event.childSessionId,
+              batch_id: event.batchId,
             });
             break;
           case "delegate_running":
@@ -268,6 +279,7 @@ export async function handleAgentMode(
               snapshot: event.snapshot,
               child_session_id: event.childSessionId,
               thread_id: event.threadId,
+              batch_id: event.batchId,
             });
             break;
           case "todo_updated":

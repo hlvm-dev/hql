@@ -1432,3 +1432,232 @@ Deno.test("capability_routed de-duplication resets on a new turn", () => {
   const infoItems = state.items.filter((item) => item.type === "info");
   assertEquals(infoItems.length, 2);
 });
+
+// ── Delegate Group (batchId) Tests ───────────────────────────
+
+Deno.test("delegate_start with batchId creates DelegateGroupItem with queued status", () => {
+  let state = createTranscriptState();
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "researcher",
+      task: "Search docs",
+      batchId: "batch-1",
+      threadId: "t1",
+    },
+  });
+  const groups = state.items.filter((i) => i.type === "delegate_group");
+  assertEquals(groups.length, 1);
+  if (groups[0].type === "delegate_group") {
+    assertEquals(groups[0].batchId, "batch-1");
+    assertEquals(groups[0].entries.length, 1);
+    assertEquals(groups[0].entries[0].agent, "researcher");
+    assertEquals(groups[0].entries[0].status, "queued");
+  }
+});
+
+Deno.test("second delegate_start with same batchId appends to existing group", () => {
+  let state = createTranscriptState();
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "researcher",
+      task: "Search docs",
+      batchId: "batch-1",
+      threadId: "t1",
+    },
+  });
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "coder",
+      task: "Write code",
+      batchId: "batch-1",
+      threadId: "t2",
+    },
+  });
+  const groups = state.items.filter((i) => i.type === "delegate_group");
+  assertEquals(groups.length, 1);
+  if (groups[0].type === "delegate_group") {
+    assertEquals(groups[0].entries.length, 2);
+    assertEquals(groups[0].entries[0].agent, "researcher");
+    assertEquals(groups[0].entries[1].agent, "coder");
+  }
+});
+
+Deno.test("delegate_end with batchId updates correct entry in group", () => {
+  let state = createTranscriptState();
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "researcher",
+      task: "Search docs",
+      batchId: "batch-1",
+      threadId: "t1",
+    },
+  });
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "coder",
+      task: "Write code",
+      batchId: "batch-1",
+      threadId: "t2",
+    },
+  });
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_end",
+      agent: "researcher",
+      task: "Search docs",
+      success: true,
+      summary: "Found 3 results",
+      durationMs: 1200,
+      batchId: "batch-1",
+      threadId: "t1",
+    },
+  });
+  const groups = state.items.filter((i) => i.type === "delegate_group");
+  assertEquals(groups.length, 1);
+  if (groups[0].type === "delegate_group") {
+    assertEquals(groups[0].entries[0].status, "success");
+    assertEquals(groups[0].entries[0].summary, "Found 3 results");
+    assertEquals(groups[0].entries[1].status, "queued");
+  }
+});
+
+Deno.test("delegate_start without batchId creates individual DelegateItem (regression)", () => {
+  let state = createTranscriptState();
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "solo",
+      task: "Do something",
+    },
+  });
+  const delegates = state.items.filter((i) => i.type === "delegate");
+  const groups = state.items.filter((i) => i.type === "delegate_group");
+  assertEquals(delegates.length, 1);
+  assertEquals(groups.length, 0);
+});
+
+Deno.test("delegate_running transitions queued group entry to running", () => {
+  let state = createTranscriptState();
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "researcher",
+      task: "Search docs",
+      batchId: "batch-1",
+      threadId: "t1",
+    },
+  });
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "coder",
+      task: "Write code",
+      batchId: "batch-1",
+      threadId: "t2",
+    },
+  });
+  // Both should start as queued
+  const groupBefore = state.items.find((i) => i.type === "delegate_group");
+  if (groupBefore?.type === "delegate_group") {
+    assertEquals(groupBefore.entries[0].status, "queued");
+    assertEquals(groupBefore.entries[1].status, "queued");
+  }
+  // Transition t1 to running
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_running",
+      agent: "researcher",
+      task: "Search docs",
+      threadId: "t1",
+    },
+  });
+  const groupAfter = state.items.find((i) => i.type === "delegate_group");
+  if (groupAfter?.type === "delegate_group") {
+    assertEquals(groupAfter.entries[0].status, "running");
+    assertEquals(groupAfter.entries[1].status, "queued");
+  }
+});
+
+Deno.test("delegate_running with no matching group entry returns state unchanged", () => {
+  let state = createTranscriptState();
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "researcher",
+      task: "Search docs",
+      batchId: "batch-1",
+      threadId: "t1",
+    },
+  });
+  // Transition t1 to running first
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_running",
+      agent: "researcher",
+      task: "Search docs",
+      threadId: "t1",
+    },
+  });
+  // Now try delegate_running for an unknown threadId — should be a no-op
+  const stateBefore = state;
+  const stateAfter = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_running",
+      agent: "unknown",
+      task: "Unknown task",
+      threadId: "t999",
+    },
+  });
+  assertEquals(stateAfter.items, stateBefore.items);
+});
+
+Deno.test("batch_progress_updated suppressed when delegate group exists", () => {
+  let state = createTranscriptState();
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "delegate_start",
+      agent: "researcher",
+      task: "Search",
+      batchId: "batch-1",
+      threadId: "t1",
+    },
+  });
+  const beforeCount = state.items.length;
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "batch_progress_updated",
+      snapshot: {
+        batchId: "batch-1",
+        spawned: 1,
+        queued: 0,
+        running: 1,
+        completed: 0,
+        errored: 0,
+        cancelled: 0,
+        status: "running" as const,
+      },
+    },
+  });
+  // No new info item should be added since the group already shows the data
+  assertEquals(state.items.length, beforeCount);
+});

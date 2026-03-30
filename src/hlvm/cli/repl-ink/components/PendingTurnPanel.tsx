@@ -90,6 +90,9 @@ export function PendingTurnPanel(
   const [expandedDelegateIds, setExpandedDelegateIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [expandedDelegateGroupIds, setExpandedDelegateGroupIds] = useState<
+    Set<string>
+  >(() => new Set());
   const [expandedMemoryIds, setExpandedMemoryIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -130,6 +133,7 @@ export function PendingTurnPanel(
       setExpandedToolIds(new Set());
       setExpandedThinkingIds(new Set());
       setExpandedDelegateIds(new Set());
+      setExpandedDelegateGroupIds(new Set());
       setExpandedMemoryIds(new Set());
     }
   }, [items.length]);
@@ -151,6 +155,10 @@ export function PendingTurnPanel(
     (delegateId: string): boolean => expandedDelegateIds.has(delegateId),
     [expandedDelegateIds],
   );
+  const isDelegateGroupExpanded = useCallback(
+    (groupId: string): boolean => expandedDelegateGroupIds.has(groupId),
+    [expandedDelegateGroupIds],
+  );
   const isMemoryExpanded = useCallback(
     (memoryId: string): boolean => expandedMemoryIds.has(memoryId),
     [expandedMemoryIds],
@@ -169,6 +177,9 @@ export function PendingTurnPanel(
     };
     if (target.kind === "tool") return toggle(setExpandedToolIds);
     if (target.kind === "delegate") return toggle(setExpandedDelegateIds);
+    if (target.kind === "delegate_group") {
+      return toggle(setExpandedDelegateGroupIds);
+    }
     if (target.kind === "memory") return toggle(setExpandedMemoryIds);
     toggle(setExpandedThinkingIds);
   }, []);
@@ -249,6 +260,7 @@ export function PendingTurnPanel(
             isToolExpanded={isToolExpanded}
             isThinkingExpanded={isThinkingExpanded}
             isDelegateExpanded={isDelegateExpanded}
+            isDelegateGroupExpanded={isDelegateGroupExpanded}
             isMemoryExpanded={isMemoryExpanded}
           />
         </Box>

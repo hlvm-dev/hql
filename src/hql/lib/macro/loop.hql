@@ -63,7 +63,7 @@
     (cond
       // Error: empty spec
       ((=== spec-count 0)
-       `(throw (str "Invalid 'for' loop binding: " '~binding)))
+       `(throw (str "Invalid 'for' loop binding: " ~binding)))
 
       // Collection/count iteration: (for (x coll) ...) or (for (i n) ...)
       // Uses for-of with __hql_toIterable to handle both collections and numbers
@@ -112,8 +112,8 @@
                              step (%nth spec 3))
                          `(for-of [~var (__hql_range 0 ~end ~step)]
                             ~@body))
-                       `(throw (str "Invalid 'for' loop binding: " '~binding)))
-                   `(throw (str "Invalid 'for' loop binding: " '~binding)))
+                       `(throw (str "Invalid 'for' loop binding: " ~binding)))
+                   `(throw (str "Invalid 'for' loop binding: " ~binding)))
                (if (=== (name first-elem) "from:")
                    // Named form: (for (i from: start to: end) ...)
                    (if (symbol? (%nth spec 2))
@@ -122,10 +122,10 @@
                                  end (%nth spec 3))
                              `(for-of [~var (__hql_range ~start ~end)]
                                 ~@body))
-                           `(throw (str "Invalid 'for' loop binding: " '~binding)))
-                       `(throw (str "Invalid 'for' loop binding: " '~binding)))
-                   `(throw (str "Invalid 'for' loop binding: " '~binding))))
-           `(throw (str "Invalid 'for' loop binding: " '~binding))))
+                           `(throw (str "Invalid 'for' loop binding: " ~binding)))
+                       `(throw (str "Invalid 'for' loop binding: " ~binding)))
+                   `(throw (str "Invalid 'for' loop binding: " ~binding))))
+           `(throw (str "Invalid 'for' loop binding: " ~binding))))
 
       // spec-count is 6 - must be named "from: start to: end by: step"
       ((=== spec-count 6)
@@ -140,12 +140,12 @@
                                      step (%nth spec 5))
                                  `(for-of [~var (__hql_range ~start ~end ~step)]
                                     ~@body))
-                               `(throw (str "Invalid 'for' loop binding: " '~binding)))
-                           `(throw (str "Invalid 'for' loop binding: " '~binding)))
-                       `(throw (str "Invalid 'for' loop binding: " '~binding)))
-                   `(throw (str "Invalid 'for' loop binding: " '~binding)))
-               `(throw (str "Invalid 'for' loop binding: " '~binding)))
-           `(throw (str "Invalid 'for' loop binding: " '~binding))))
+                               `(throw (str "Invalid 'for' loop binding: " ~binding)))
+                           `(throw (str "Invalid 'for' loop binding: " ~binding)))
+                       `(throw (str "Invalid 'for' loop binding: " ~binding)))
+                   `(throw (str "Invalid 'for' loop binding: " ~binding)))
+               `(throw (str "Invalid 'for' loop binding: " ~binding)))
+           `(throw (str "Invalid 'for' loop binding: " ~binding))))
 
-      (true `(throw (str "Invalid 'for' loop binding: " '~binding))))))
+      (true `(throw (str "Invalid 'for' loop binding: " ~binding))))))
   )

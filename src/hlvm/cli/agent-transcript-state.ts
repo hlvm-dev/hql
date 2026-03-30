@@ -12,6 +12,8 @@ import {
   type AssistantItem,
   type ConversationAttachmentRef,
   type ConversationItem,
+  type DelegateGroupEntry,
+  type DelegateGroupItem,
   type DelegateItem,
   type HqlEvalItem,
   type InfoItem,
@@ -412,6 +414,44 @@ function findMatchingRunningToolIndex(
   );
 }
 
+// ── Delegate Group Helpers ─────────────────────────────────────
+
+/** Reverse-search for existing DelegateGroupItem with matching batchId */
+function findTrailingDelegateGroupIndex(
+  items: ConversationItem[],
+  batchId: string,
+): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type === "delegate_group" && item.batchId === batchId) return i;
+  }
+  return -1;
+}
+
+/** Find group containing a running/queued entry matching the given criteria */
+function findDelegateGroupEntryIndex(
+  items: ConversationItem[],
+  agent: string,
+  task: string,
+  threadId?: string,
+): { groupIdx: number; entryIdx: number } | null {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type !== "delegate_group") continue;
+    for (let j = item.entries.length - 1; j >= 0; j--) {
+      const entry = item.entries[j];
+      if (entry.status !== "running" && entry.status !== "queued") continue;
+      if (threadId && entry.threadId === threadId) {
+        return { groupIdx: i, entryIdx: j };
+      }
+      if (entry.agent === agent && entry.task === task) {
+        return { groupIdx: i, entryIdx: j };
+      }
+    }
+  }
+  return null;
+}
+
 function findMatchingRunningDelegateIndex(
   items: ConversationItem[],
   agent: string,
@@ -680,6 +720,14 @@ export function reduceTranscriptState(
             event.summary,
           );
         }
+        case "reasoning_routed":
+          return appendInfoItem(
+            {
+              ...state,
+              items: removeTransientInfoItems(state.items),
+            },
+            `Provider Switch → ${event.selectedProviderName}/${event.selectedModelId} (${event.reason})`,
+          );
         case "reasoning_update":
         case "planning_update": {
           if (
@@ -805,33 +853,125 @@ export function reduceTranscriptState(
             activeTool: allDone ? undefined : state.activeTool,
           };
         }
-        case "delegate_running":
-          return state; // TaskManager handles state transition; transcript unchanged
-        case "delegate_start":
+        case "delegate_running": {
+          for (let i = state.items.length - 1; i >= 0; i--) {
+            const item = state.items[i];
+            if (item.type !== "delegate_group") continue;
+            const entryIdx = item.entries.findIndex(
+              (e) => e.threadId === event.threadId && e.status === "queued",
+            );
+            if (entryIdx >= 0) {
+              const nextEntries = [...item.entries];
+              nextEntries[entryIdx] = { ...nextEntries[entryIdx], status: "running" };
+              const nextItems = [...state.items];
+              nextItems[i] = { ...item, entries: nextEntries };
+              return { ...state, items: nextItems };
+            }
+          }
+          return state; // no match = individual delegate, unchanged
+        }
+        case "delegate_start": {
+          const baseState = {
+            ...state,
+            streamingState: ConversationStreamingState.Responding,
+            activeTool: undefined,
+            items: removeTransientInfoItems(state.items),
+          };
+          // Batched delegate → group into DelegateGroupItem
+          if (event.batchId) {
+            const groupIdx = findTrailingDelegateGroupIndex(
+              baseState.items,
+              event.batchId,
+            );
+            const [idState, entryId] = nextItemId(baseState);
+            const newEntry: DelegateGroupEntry = {
+              id: entryId,
+              agent: event.agent,
+              task: event.task,
+              childSessionId: event.childSessionId,
+              status: "queued",
+              threadId: event.threadId,
+              nickname: event.nickname,
+            };
+            if (groupIdx >= 0) {
+              // Append to existing group
+              const group = idState.items[groupIdx] as DelegateGroupItem;
+              const nextItems = [...idState.items];
+              nextItems[groupIdx] = {
+                ...group,
+                entries: [...group.entries, newEntry],
+              };
+              return { ...idState, items: nextItems };
+            }
+            // Create new group
+            const [groupIdState, groupId] = nextItemId(idState);
+            const groupItem: DelegateGroupItem = {
+              type: "delegate_group",
+              id: groupId,
+              batchId: event.batchId,
+              entries: [newEntry],
+              ts: Date.now(),
+              turnId: groupIdState.currentTurnId,
+            };
+            return {
+              ...groupIdState,
+              items: insertBeforePendingAssistant(groupIdState.items, groupItem),
+            };
+          }
+          // Non-batched → individual DelegateItem (unchanged)
           return appendDelegateItem(
-            {
-              ...state,
-              streamingState: ConversationStreamingState.Responding,
-              activeTool: undefined,
-              items: removeTransientInfoItems(state.items),
-            },
+            baseState,
             event.agent,
             event.task,
             event.childSessionId,
             event.threadId,
             event.nickname,
           );
-        case "delegate_end":
-          return {
-            ...completeDelegateItem(
-              {
-                ...state,
-                streamingState: ConversationStreamingState.Responding,
-                activeTool: undefined,
-              },
-              event,
-            ),
+        }
+        case "delegate_end": {
+          const endBaseState = {
+            ...state,
+            streamingState: ConversationStreamingState.Responding,
+            activeTool: undefined,
           };
+          // Batched → update entry within group
+          if (event.batchId) {
+            const match = findDelegateGroupEntryIndex(
+              endBaseState.items,
+              event.agent,
+              event.task,
+              event.threadId,
+            );
+            if (match) {
+              const group = endBaseState.items[match.groupIdx] as DelegateGroupItem;
+              const isCancelled = !event.success &&
+                event.error?.toLowerCase().includes("abort");
+              const nextEntries = [...group.entries];
+              nextEntries[match.entryIdx] = {
+                ...nextEntries[match.entryIdx],
+                status: isCancelled
+                  ? "cancelled"
+                  : event.success
+                  ? "success"
+                  : "error",
+                summary: event.summary,
+                error: event.error,
+                durationMs: event.durationMs,
+                snapshot: event.snapshot,
+                childSessionId: event.childSessionId ??
+                  nextEntries[match.entryIdx].childSessionId,
+              };
+              const nextItems = [...endBaseState.items];
+              nextItems[match.groupIdx] = {
+                ...group,
+                entries: nextEntries,
+              };
+              return { ...endBaseState, items: nextItems };
+            }
+          }
+          // Non-batched or no match → existing behavior
+          return { ...completeDelegateItem(endBaseState, event) };
+        }
         case "todo_updated":
           return {
             ...state,
@@ -927,11 +1067,18 @@ export function reduceTranscriptState(
             },
             describeTeamShutdown(event),
           );
-        case "batch_progress_updated":
+        case "batch_progress_updated": {
+          // Suppress redundant info item when a DelegateGroupItem already shows richer data
+          const hasGroup = findTrailingDelegateGroupIndex(
+            state.items,
+            event.snapshot.batchId,
+          ) >= 0;
+          if (hasGroup) return state;
           return appendInfoItem(
             withoutTransientItems(state),
             `Batch ${event.snapshot.batchId}: ${event.snapshot.running} running · ${event.snapshot.completed} completed · ${event.snapshot.errored} errored`,
           );
+        }
         case "memory_activity": {
           const details: MemoryActivityDetail[] = [];
           for (const r of event.recalled) {
