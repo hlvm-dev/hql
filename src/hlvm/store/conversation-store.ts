@@ -43,7 +43,7 @@ export function listSessions(): SessionRow[] {
   const db = getDb();
   return db.prepare(
     `SELECT id, title, created_at, updated_at, message_count, session_version, metadata
-     FROM sessions ORDER BY updated_at DESC`,
+     FROM sessions ORDER BY updated_at DESC, rowid DESC`,
   ).all<SessionRow>();
 }
 

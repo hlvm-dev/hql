@@ -88,8 +88,7 @@ export function resolveConversationSessionId(
 function pruneInactiveSessions(): void {
   const now = Date.now();
   const sessions = listSessions()
-    .filter((session) => session.id !== activeSessionId)
-    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+    .filter((session) => session.id !== activeSessionId);
 
   for (let index = 0; index < sessions.length; index++) {
     const session = sessions[index];

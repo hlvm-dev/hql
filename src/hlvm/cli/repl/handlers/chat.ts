@@ -496,11 +496,11 @@ export async function handleChat(req: Request): Promise<Response> {
         }
       }
 
-      const emitCancellationOnce = () => {
+      const emitCancellationOnce = async () => {
         if (cancellationEmitted) return;
         cancellationEmitted = true;
         try {
-          emitCancellation(
+          await emitCancellation(
             assistantMessageId,
             partialText,
             sessionId,
@@ -558,7 +558,7 @@ export async function handleChat(req: Request): Promise<Response> {
           if (!controller.signal.aborted) {
             controller.abort();
           }
-          emitCancellationOnce();
+          void emitCancellationOnce();
           try {
             streamController.close();
           } catch {

@@ -7,10 +7,12 @@ import { LRUCache } from "../../../../common/lru-cache.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
 import {
   cancelRequestMessages,
+  getMessage,
   updateMessage,
 } from "../../../store/conversation-store.ts";
 import type { InteractionResponse } from "../../../agent/orchestrator.ts";
 import type { InteractionOption } from "../../../agent/registry.ts";
+import { toRuntimeSessionMessage } from "../../../runtime/session-protocol.ts";
 import { jsonError, parseJsonBody } from "../http-utils.ts";
 export {
   type CancelRequest,
@@ -93,13 +95,13 @@ export function getLastUserMessage(
   return undefined;
 }
 
-export function emitCancellation(
+export async function emitCancellation(
   assistantMessageId: number,
   partialText: string,
   sessionId: string,
   requestId: string,
   emit: (obj: unknown) => void,
-): void {
+): Promise<void> {
   const cancelled = cancelRequestMessages(sessionId, requestId, {
     assistantMessageId,
     assistantContent: partialText,
@@ -110,10 +112,15 @@ export function emitCancellation(
       content: partialText,
     });
   }
+  const updatedAssistant = getMessage(assistantMessageId);
   pushSSEEvent(sessionId, "message_updated", {
-    id: assistantMessageId,
-    content: partialText,
-    cancelled: true,
+    message: updatedAssistant
+      ? await toRuntimeSessionMessage(updatedAssistant)
+      : {
+        id: assistantMessageId,
+        content: partialText,
+        cancelled: true,
+      },
   });
   pushConversationUpdatedEvent(sessionId);
   emit({

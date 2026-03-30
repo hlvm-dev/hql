@@ -4,11 +4,12 @@
  */
 
 import { ai } from "../../../api/ai.ts";
-import { updateMessage } from "../../../store/conversation-store.ts";
+import { getMessage, updateMessage } from "../../../store/conversation-store.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
 import { config } from "../../../api/config.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
+import { toRuntimeSessionMessage } from "../../../runtime/session-protocol.ts";
 import { pushConversationUpdatedEvent, type ChatRequest } from "./chat-session.ts";
 import {
   buildChatProviderMessages,
@@ -109,9 +110,14 @@ export async function handleChatMode(
 
   if (!signal.aborted) {
     updateMessage(assistantMessageId, { content: fullText });
+    const updatedAssistant = getMessage(assistantMessageId);
     pushSSEEvent(sessionId, "message_updated", {
-      id: assistantMessageId,
-      content: fullText,
+      message: updatedAssistant
+        ? await toRuntimeSessionMessage(updatedAssistant)
+        : {
+          id: assistantMessageId,
+          content: fullText,
+        },
     });
     pushConversationUpdatedEvent(sessionId);
   }

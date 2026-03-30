@@ -10,6 +10,7 @@ import {
 import { DEFAULT_TOOL_DENYLIST } from "../../../agent/constants.ts";
 import { resolveQueryToolAllowlist } from "../../../agent/query-tool-routing.ts";
 import {
+  getMessage,
   getSession,
   insertMessage,
   updateMessage,
@@ -18,6 +19,7 @@ import {
 import { pushSSEEvent } from "../../../store/sse-store.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
+import { toRuntimeSessionMessage } from "../../../runtime/session-protocol.ts";
 import { config } from "../../../api/config.ts";
 import { log } from "../../../api/log.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
@@ -447,9 +449,14 @@ export async function handleAgentMode(
     }
 
     updateMessage(assistantMessageId, { content: finalText });
+    const updatedAssistant = getMessage(assistantMessageId);
     pushSSEEvent(sessionId, "message_updated", {
-      id: assistantMessageId,
-      content: finalText,
+      message: updatedAssistant
+        ? await toRuntimeSessionMessage(updatedAssistant)
+        : {
+          id: assistantMessageId,
+          content: finalText,
+        },
     });
     pushConversationUpdatedEvent(sessionId);
   }
@@ -730,9 +737,14 @@ async function spawnClaudeCodeProcess(
 
   if (!signal.aborted) {
     updateMessage(assistantMessageId, { content: fullText });
+    const updatedAssistant = getMessage(assistantMessageId);
     pushSSEEvent(hlvmSessionId, "message_updated", {
-      id: assistantMessageId,
-      content: fullText,
+      message: updatedAssistant
+        ? await toRuntimeSessionMessage(updatedAssistant)
+        : {
+          id: assistantMessageId,
+          content: fullText,
+        },
     });
     pushConversationUpdatedEvent(hlvmSessionId);
   }
