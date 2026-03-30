@@ -10,7 +10,7 @@ import { SymbolTable, globalSymbolTable } from "./symbol_table.ts";
  * Macro definition stored in runtime
  * Contains all information needed to reconstruct a macro
  */
-export interface MacroDefinition {
+interface MacroDefinition {
   name: string;
   params: string[];
   restParam?: string | null;
@@ -34,7 +34,7 @@ export interface MacroRegistry {
 /**
  * Compiler options that can be overridden at runtime
  */
-export interface CompilerOptions {
+interface CompilerOptions {
   verbose?: boolean;
   showTiming?: boolean;
   maxExpandDepth?: number;

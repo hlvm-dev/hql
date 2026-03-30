@@ -283,7 +283,9 @@ Starts on port **11435**.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/eval` | Evaluate code (HQL or JS) |
+| `POST` | `/api/chat` | Submit chat, eval, or agent turns |
+| `GET` | `/api/chat/messages` | Read active conversation messages |
+| `GET` | `/api/chat/stream` | Subscribe to active conversation updates |
 | `GET` | `/health` | Health check |
 
 **Examples:**
@@ -295,17 +297,17 @@ hlvm serve
 curl http://localhost:11435/health
 
 # Evaluate HQL
-curl -X POST http://localhost:11435/eval \
+curl -X POST http://localhost:11435/api/chat \
   -H "Content-Type: application/json" \
-  -d '{"code":"(+ 1 2)"}'
+  -d '{"mode":"eval","messages":[{"role":"user","content":"(+ 1 2)"}]}'
 
-# Evaluate JavaScript
-curl -X POST http://localhost:11435/eval \
+# Chat
+curl -X POST http://localhost:11435/api/chat \
   -H "Content-Type: application/json" \
-  -d '{"code":"let a = 10"}'
+  -d '{"mode":"chat","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-Input starting with `(` is treated as code (HQL or JS via `(js ...)`). All other input is routed to AI conversation.
+GUI-visible top-level submission uses `POST /api/chat`. Internal compatibility endpoints may still exist, but they are not part of the public runtime-host contract.
 
 ---
 

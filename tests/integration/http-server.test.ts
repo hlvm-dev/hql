@@ -3,6 +3,7 @@ import {
   assertExists,
   assertStringIncludes,
 } from "jsr:@std/assert";
+import { Database } from "@db/sqlite";
 import type { Message as AgentMessage } from "../../src/hlvm/agent/context.ts";
 import { setAgentEngine } from "../../src/hlvm/agent/engine.ts";
 import type {
@@ -12,6 +13,7 @@ import type {
 import { persistLastAppliedExecutionFallbackState } from "../../src/hlvm/agent/persisted-transcript.ts";
 import { config } from "../../src/hlvm/api/config.ts";
 import { startHttpServer } from "../../src/hlvm/cli/repl/http-server.ts";
+import { getConversationsDbPath } from "../../src/common/paths.ts";
 import { initializeRuntime } from "../../src/common/runtime-initializer.ts";
 import {
   type AIProvider,
@@ -277,6 +279,89 @@ async function fetchActiveChatMessages(): Promise<Array<{
     messages: Array<{ role: string; content: string }>;
   };
   return body.messages;
+}
+
+async function fetchActiveChatMessageRows(): Promise<Array<{
+  role: string;
+  content: string;
+  request_id: string | null;
+  sender_type: string | null;
+}>> {
+  const { baseUrl, authToken } = await ensureServerRunning();
+  const response = await fetch(
+    `${baseUrl}/api/chat/messages?limit=50&offset=0&sort=asc`,
+    {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    },
+  );
+  const body = await response.json() as {
+    messages: Array<{
+      role: string;
+      content: string;
+      request_id: string | null;
+      sender_type: string | null;
+    }>;
+  };
+  return body.messages;
+}
+
+async function readFirstActiveConversationStreamEvent(): Promise<{
+  event: string;
+  data: unknown;
+}> {
+  const { baseUrl, authToken } = await ensureServerRunning();
+  const response = await fetch(`${baseUrl}/api/chat/stream`, {
+    headers: {
+      Authorization: `Bearer ${authToken}`,
+    },
+  });
+
+  assertEquals(response.status, 200);
+  assertStringIncludes(
+    response.headers.get("content-type") ?? "",
+    "text/event-stream",
+  );
+
+  const reader = response.body?.getReader();
+  assertExists(reader);
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      while (true) {
+        const boundary = buffer.indexOf("\n\n");
+        if (boundary < 0) {
+          break;
+        }
+        const rawEvent = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const event = rawEvent.split("\n").find((line) =>
+          line.startsWith("event: ")
+        )?.slice("event: ".length);
+        if (!event) {
+          continue;
+        }
+        const data = rawEvent.split("\n").find((line) =>
+          line.startsWith("data: ")
+        )?.slice("data: ".length) ?? "null";
+        return {
+          event,
+          data: JSON.parse(data),
+        };
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+
+  throw new Error("No SSE event received");
 }
 
 async function getActiveRuntimeMode(): Promise<{
@@ -707,6 +792,110 @@ Deno.test({
 
 Deno.test({
   name:
+    "http server: eval turns persist as one active transcript and restore across runtime restart",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const chat = await postChatNdjson({
+        mode: "chat",
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: "hello" }],
+      });
+      assertEquals(chat.status, 200);
+
+      const evalTurn = await postChatNdjson({
+        mode: "eval",
+        messages: [{ role: "user", content: "(+ 1 2)" }],
+      });
+      assertEquals(evalTurn.status, 200);
+
+      const beforeRestart = await fetchActiveChatMessageRows();
+      assertEquals(
+        beforeRestart.map((message) => [
+          message.role,
+          message.content,
+          message.sender_type,
+        ]),
+        [
+          ["user", "hello", "user"],
+          ["assistant", "reply:hello", "llm"],
+          ["user", "(+ 1 2)", "eval"],
+          ["assistant", "3", "eval"],
+        ],
+      );
+
+      await shutdownServer();
+
+      const afterRestart = await fetchActiveChatMessageRows();
+      assertEquals(afterRestart, beforeRestart);
+
+      const firstStreamEvent = await readFirstActiveConversationStreamEvent();
+      assertEquals(firstStreamEvent.event, "snapshot");
+
+      const snapshot = firstStreamEvent.data as {
+        messages: Array<{
+          role: string;
+          content: string;
+          sender_type: string | null;
+        }>;
+      };
+      assertEquals(
+        snapshot.messages.map((message) => [
+          message.role,
+          message.content,
+          message.sender_type,
+        ]),
+        [
+          ["user", "hello", "user"],
+          ["assistant", "reply:hello", "llm"],
+          ["user", "(+ 1 2)", "eval"],
+          ["assistant", "3", "eval"],
+        ],
+      );
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: /api/chat eval persists paired eval rows with a shared request id",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const result = await postChatNdjson({
+        mode: "eval",
+        messages: [{ role: "user", content: "(+ 2 3)" }],
+      });
+
+      assertEquals(result.status, 200);
+      const startEvent = result.events.find((event) => event.event === "start");
+      assertExists(startEvent);
+      const requestId = String(startEvent.request_id ?? "");
+      assertEquals(requestId.length > 0, true);
+
+      const messages = await fetchActiveChatMessageRows();
+      const evalMessages = messages.slice(-2);
+
+      assertEquals(evalMessages.map((message) => message.sender_type), [
+        "eval",
+        "eval",
+      ]);
+      assertEquals(evalMessages.map((message) => message.request_id), [
+        requestId,
+        requestId,
+      ]);
+      assertEquals(evalMessages.map((message) => message.content), [
+        "(+ 2 3)",
+        "5",
+      ]);
+    });
+  },
+});
+
+Deno.test({
+  name:
     "http server: chat rejects requests whose last message is not a user turn",
   sanitizeResources: false,
   sanitizeOps: false,
@@ -853,6 +1042,59 @@ Deno.test({
       assertEquals(afterTurn.status, 200);
       assertEquals(afterTurn.body.runtime_mode, "auto");
       assertEquals(afterTurn.body.session_id, initial.body.session_id);
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: wrong conversation schema marker resets the database to the fresh schema",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const dbPath = getConversationsDbPath();
+      const platform = getPlatform();
+      platform.fs.mkdirSync(platform.path.dirname(dbPath), { recursive: true });
+
+      const seeded = new Database(dbPath);
+      try {
+        seeded.exec("PRAGMA user_version = 999");
+        seeded.exec("CREATE TABLE legacy_marker (id INTEGER PRIMARY KEY)");
+      } finally {
+        seeded.close();
+      }
+
+      const { baseUrl, authToken } = await ensureServerRunning();
+      const response = await fetch(
+        `${baseUrl}/api/chat/messages?limit=10&offset=0&sort=asc`,
+        {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+        },
+      );
+      assertEquals(response.status, 200);
+
+      const reopened = new Database(dbPath);
+      try {
+        const userVersion = reopened.prepare("PRAGMA user_version").value<
+          [number]
+        >();
+        assertEquals(userVersion?.[0], 1);
+
+        const legacyMarker = reopened.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='legacy_marker'",
+        ).get<{ name: string }>();
+        assertEquals(legacyMarker, undefined);
+
+        const hostState = reopened.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='host_state'",
+        ).get<{ name: string }>();
+        assertExists(hostState);
+      } finally {
+        reopened.close();
+      }
     });
   },
 });

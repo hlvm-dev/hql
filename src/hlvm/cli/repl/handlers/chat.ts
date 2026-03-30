@@ -13,6 +13,7 @@
  */
 
 import {
+  getMessage,
   getMessageByClientTurnId,
   getOrCreateSession,
   getSession,
@@ -33,6 +34,10 @@ import {
   parseJsonBody,
   textEncoder,
 } from "../http-utils.ts";
+import type { AnyAttachment } from "../attachment.ts";
+import { evaluate } from "../evaluator.ts";
+import { formatPlainValue } from "../formatter.ts";
+import { ensureRuntimeHostReplState } from "../init-repl-state.ts";
 import { parseModelString } from "../../../providers/index.ts";
 import {
   loadAllMessages,
@@ -78,7 +83,11 @@ import {
   checkModelAttachmentIds,
   describeAttachmentFailure,
 } from "../../attachment-policy.ts";
-import { appendAttachmentPipelineTrace } from "../../../attachments/service.ts";
+import {
+  appendAttachmentPipelineTrace,
+  getAttachmentRecords,
+} from "../../../attachments/service.ts";
+import { toRuntimeSessionMessage } from "../../../runtime/session-protocol.ts";
 
 function requestHasMediaAttachments(
   messages: ChatRequest["messages"],
@@ -90,6 +99,31 @@ function getRequestAttachmentIds(
   messages: ChatRequest["messages"],
 ): string[] {
   return messages.flatMap((message) => message.attachment_ids ?? []);
+}
+
+async function buildEvalAttachments(
+  attachmentIds: readonly string[],
+): Promise<AnyAttachment[] | undefined> {
+  if (attachmentIds.length === 0) {
+    return undefined;
+  }
+
+  const records = await getAttachmentRecords(attachmentIds);
+  if (records.length === 0) {
+    return undefined;
+  }
+
+  return records.map((record, index) => ({
+    id: index + 1,
+    attachmentId: record.id,
+    type: record.kind,
+    displayName: record.fileName,
+    path: record.sourcePath ?? record.fileName,
+    fileName: record.fileName,
+    mimeType: record.mimeType,
+    size: record.size,
+    metadata: record.metadata,
+  }));
 }
 
 // ============================================================
@@ -228,14 +262,16 @@ export async function handleChat(req: Request): Promise<Response> {
     body.client_turn_id;
 
   if (
-    body.mode !== "chat" && body.mode !== "agent" &&
+    body.mode !== "chat" && body.mode !== "eval" &&
+    body.mode !== "agent" &&
     body.mode !== CLAUDE_CODE_AGENT_MODE
   ) {
     return jsonError(
-      `Invalid or missing mode: must be 'chat', 'agent', or '${CLAUDE_CODE_AGENT_MODE}'`,
+      `Invalid or missing mode: must be 'chat', 'eval', 'agent', or '${CLAUDE_CODE_AGENT_MODE}'`,
       400,
     );
   }
+  const isEvalMode = body.mode === "eval";
   if (body.response_schema !== undefined) {
     if (
       !body.response_schema ||
@@ -274,8 +310,9 @@ export async function handleChat(req: Request): Promise<Response> {
     }
   }
 
-  const resolvedModel = body.model ??
-    (await ensureInitialModelConfigured()).model;
+  const resolvedModel = isEvalMode
+    ? undefined
+    : body.model ?? (await ensureInitialModelConfigured()).model;
   const requestAttachmentIds = getRequestAttachmentIds(body.messages);
   if (requestAttachmentIds.length > 0) {
     await appendAttachmentPipelineTrace({
@@ -295,6 +332,7 @@ export async function handleChat(req: Request): Promise<Response> {
     : undefined;
 
   if (
+    !isEvalMode &&
     (body.mode === "agent" || body.mode === CLAUDE_CODE_AGENT_MODE) &&
     !resolvedModel
   ) {
@@ -377,6 +415,7 @@ export async function handleChat(req: Request): Promise<Response> {
   }
 
   if (
+    !isEvalMode &&
     !fixturePath &&
     resolvedModel &&
     evaluateProviderApproval(resolvedModel, config.snapshot.approvedProviders)
@@ -406,15 +445,21 @@ export async function handleChat(req: Request): Promise<Response> {
       content: message.content,
       client_turn_id: message.clientTurnId,
       request_id: requestId,
-      sender_type: message.senderType,
+      sender_type: isEvalMode && message.role !== "system"
+        ? "eval"
+        : message.senderType,
       attachment_ids: message.attachmentIds,
     });
-    pushSSEEvent(session.id, "message_added", { message: inserted });
+    pushSSEEvent(session.id, "message_added", {
+      message: await toRuntimeSessionMessage(inserted),
+    });
     pushConversationUpdatedEvent(session.id);
   }
 
   const senderType = body.mode === "agent"
     ? "agent"
+    : body.mode === "eval"
+    ? "eval"
     : body.mode === CLAUDE_CODE_AGENT_MODE
     ? "agent"
     : "llm";
@@ -428,7 +473,9 @@ export async function handleChat(req: Request): Promise<Response> {
     sender_detail: resolvedModel ?? "default",
   });
   const assistantMessageId = assistantMsg.id;
-  pushSSEEvent(session.id, "message_added", { message: assistantMsg });
+  pushSSEEvent(session.id, "message_added", {
+    message: await toRuntimeSessionMessage(assistantMsg),
+  });
   pushConversationUpdatedEvent(session.id);
 
   let partialText = "";
@@ -465,7 +512,7 @@ export async function handleChat(req: Request): Promise<Response> {
         }
       };
 
-      const emitErrorState = (error: unknown): void => {
+      const emitErrorState = async (error: unknown): Promise<void> => {
         const described = describeErrorForDisplay(error);
         const errorMsg = described.message;
         const displayContent = partialText.length > 0
@@ -479,9 +526,14 @@ export async function handleChat(req: Request): Promise<Response> {
         }
 
         try {
+          const updatedAssistant = getMessage(assistantMessageId);
           pushSSEEvent(sessionId, "message_updated", {
-            id: assistantMessageId,
-            content: displayContent,
+            message: updatedAssistant
+              ? await toRuntimeSessionMessage(updatedAssistant)
+              : {
+                id: assistantMessageId,
+                content: displayContent,
+              },
           });
           pushConversationUpdatedEvent(sessionId);
         } catch (pushError) {
@@ -545,10 +597,12 @@ export async function handleChat(req: Request): Promise<Response> {
               ))
           ? CLAUDE_CODE_AGENT_MODE
           : body.mode;
-        const runnerHandlesMemoryCapture = effectiveMode === "agent" &&
+        const runnerHandlesMemoryCapture = !isEvalMode &&
+          effectiveMode === "agent" &&
           supportsAgentExecution(resolvedModel, resolvedModelInfo);
 
         if (
+          !isEvalMode &&
           body.disable_persistent_memory !== true &&
           !runnerHandlesMemoryCapture
         ) {
@@ -559,7 +613,57 @@ export async function handleChat(req: Request): Promise<Response> {
           }
         }
 
-        if (effectiveMode === CLAUDE_CODE_AGENT_MODE) {
+        if (isEvalMode) {
+          const replState = await ensureRuntimeHostReplState();
+          const evalAttachments = await buildEvalAttachments(
+            getRequestAttachmentIds(body.messages),
+          );
+          const evalResult = await evaluate(
+            currentUserMessage.content,
+            replState,
+            evalAttachments,
+            controller.signal,
+          );
+
+          if (!evalResult.success) {
+            throw evalResult.error ?? new Error("Execution failed");
+          }
+
+          for (const logLine of evalResult.logs ?? []) {
+            const detail = logLine.trim();
+            if (detail.length === 0) {
+              continue;
+            }
+            emit({
+              event: "trace",
+              kind: "eval_log",
+              detail,
+            });
+          }
+
+          const hasValue = Object.prototype.hasOwnProperty.call(
+            evalResult,
+            "value",
+          );
+          const output = hasValue ? formatPlainValue(evalResult.value) : "";
+          partialText = output;
+
+          updateMessage(assistantMessageId, { content: output });
+          const updatedAssistant = getMessage(assistantMessageId);
+          pushSSEEvent(sessionId, "message_updated", {
+            message: updatedAssistant
+              ? await toRuntimeSessionMessage(updatedAssistant)
+              : {
+                id: assistantMessageId,
+                content: output,
+              },
+          });
+          pushConversationUpdatedEvent(sessionId);
+
+          if (output.length > 0) {
+            emit({ event: "token", text: output });
+          }
+        } else if (effectiveMode === CLAUDE_CODE_AGENT_MODE) {
           await handleClaudeCodeAgentMode(
             body,
             sessionId,
@@ -610,6 +714,7 @@ export async function handleChat(req: Request): Promise<Response> {
           emitCancellationOnce();
         } else {
           if (
+            !isEvalMode &&
             body.disable_persistent_memory !== true &&
             !runnerHandlesMemoryCapture
           ) {
@@ -656,7 +761,7 @@ export async function handleChat(req: Request): Promise<Response> {
         if (controller.signal.aborted) {
           emitCancellationOnce();
         } else {
-          emitErrorState(error);
+          await emitErrorState(error);
         }
       }
 

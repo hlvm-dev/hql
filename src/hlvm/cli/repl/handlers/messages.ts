@@ -267,7 +267,9 @@ export async function handleAddMessage(
     attachment_ids,
   });
 
-  pushSSEEvent(session.sessionId, "message_added", { id: row.id });
+  pushSSEEvent(session.sessionId, "message_added", {
+    message: await toRuntimeSessionMessage(row),
+  });
   pushConversationUpdatedEvent(session.sessionId);
   return Response.json(await toRuntimeSessionMessage(row), { status: 201 });
 }
@@ -341,16 +343,15 @@ export async function handleUpdateMessage(
     return jsonError("No fields to update", 400);
   }
 
-  const existing = getMessage(msg.messageId)!;
   updateMessage(msg.messageId, patch);
+  const updated = getMessage(msg.messageId);
+  if (!updated) {
+    return jsonError("Message not found", 404);
+  }
   pushSSEEvent(session.sessionId, "message_updated", {
-    id: msg.messageId,
-    content: patch.content ?? existing.content,
-    cancelled: patch.cancelled ?? Boolean(existing.cancelled),
+    message: await toRuntimeSessionMessage(updated),
   });
   pushConversationUpdatedEvent(session.sessionId);
-
-  const updated = getMessage(msg.messageId);
   return Response.json(
     updated ? await toRuntimeSessionMessage(updated) : null,
   );

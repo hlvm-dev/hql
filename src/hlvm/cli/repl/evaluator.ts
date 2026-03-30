@@ -47,6 +47,36 @@ function isJsForm(input: string): boolean {
   return /^\(js\s/i.test(input);
 }
 
+function looksLikeRawJs(input: string): boolean {
+  if (!input || input.startsWith("(")) {
+    return false;
+  }
+
+  return /^(?:let|const|var|class|function|async\s+function)\b/.test(input) ||
+    input.includes(";") ||
+    input.includes("=>");
+}
+
+async function evaluateJsSource(
+  jsCode: string,
+  state: ReplState,
+): Promise<EvalResult> {
+  if (!jsCode.trim()) {
+    return { success: true, suppressOutput: true };
+  }
+
+  try {
+    const bindings = extractJSBindings(jsCode);
+    const { value, logs } = await evaluateJS(jsCode);
+    for (const name of bindings) {
+      state.addBinding(name);
+    }
+    return { success: true, value, logs };
+  } catch (error) {
+    return { success: false, error: ensureError(error) };
+  }
+}
+
 /**
  * Extract JS code from `(js "...")` and evaluate it.
  *
@@ -81,21 +111,7 @@ async function evaluateJsForm(
     };
   }
   const jsCode = afterJs.slice(1, lastQuote).trim();
-
-  if (!jsCode) {
-    return { success: true, suppressOutput: true };
-  }
-
-  try {
-    const bindings = extractJSBindings(jsCode);
-    const { value, logs } = await evaluateJS(jsCode);
-    for (const name of bindings) {
-      state.addBinding(name);
-    }
-    return { success: true, value, logs };
-  } catch (error) {
-    return { success: false, error: ensureError(error) };
-  }
+  return await evaluateJsSource(jsCode, state);
 }
 
 function getReplRunOptions(state: ReplState) {
@@ -281,6 +297,10 @@ export async function evaluate(
     // (js ...) form: extract JS code and evaluate
     if (isJsForm(modeTrimmed)) {
       return await evaluateJsForm(modeTrimmed, state);
+    }
+
+    if (looksLikeRawJs(modeTrimmed)) {
+      return await evaluateJsSource(modeTrimmed, state);
     }
 
     // HQL evaluation

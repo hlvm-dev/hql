@@ -1495,8 +1495,9 @@ Platform journey
   [done]     third capability family: code.exec (provider-native, task-text cues)
   [done]     runtime fallback after selected backend failure
   [done]     fourth capability family: structured.output (provider-native, request-schema driven)
-  [done]     targeted E2E/live validation layer (validation board + live smoke suite)
-  [next]     fifth capability family: audio
+  [done]     targeted validation board + live smoke harness
+  [next]     close remaining live-proof gaps (web.search, mixed-turn)
+  [later]    fifth capability family: audio
   [later]    computer.use
   [later]    model/provider auto-selection
   [later]    trusted default
@@ -1508,19 +1509,31 @@ Validation matrix:
 
 ```text
 capability/family      implemented   integration-validated   live-validated
-web.search             yes           yes                     opt-in smoke
-web.read               yes           yes                     opt-in smoke
-vision.analyze         yes           yes                     opt-in smoke
-code.exec              yes           yes                     opt-in smoke
-structured.output      yes           yes                     opt-in smoke
-mixed-turn coherence   yes           yes                     opt-in smoke
-fallback               yes           yes                     deterministic runtime proof
+web.search             yes           yes                     pending rerun (quota-blocked)
+web.read               yes           yes                     pass (opt-in Google smoke)
+vision.analyze         yes           yes                     pass (opt-in Google smoke)
+code.exec              yes           yes                     pass (opt-in Google smoke)
+structured.output      yes           yes                     pass (opt-in Google smoke)
+mixed-turn coherence   yes           yes                     blocked on web.search live rerun
+fallback               yes           yes                     pass (deterministic runtime proof)
 ```
 
 What is still not proven live:
 
-- opt-in live smoke success still depends on the local machine having the
-  required provider auth and env gates enabled
+- provider-native `web.search` in `auto` is not yet a stable live proof on the
+  canonical Google path because the latest reruns are currently blocked by
+  provider free-tier quota, not because of fake local fallback or missing
+  routed provenance
+- deterministic coverage now proves the two runtime fixes behind the remaining
+  `web.search` proof gap:
+  - provider-native `web.search` routed provenance is emitted for text-only
+    grounded final responses
+  - Google grounding metadata is converted into provider citations when URL
+    `sources` are absent
+- `vision.analyze` is now green live on the Google-native image path; the
+  older Claude attachment path remains exploratory and non-gating
+- mixed-turn live proof remains blocked on a green `web.search` rerun on the
+  same provider path
 - fallback is intentionally validated through deterministic runtime tests, not
   by forcing live provider outages
 - `audio` and `computer.use` are not yet on the routed platform spine
@@ -1537,12 +1550,13 @@ done
   code.exec on task cues
   routed backend fallback
   structured.output final synthesis
-  validation board + live smoke suite
+  validation board + live smoke harness
 
 next
-  audio
+  close remaining live-proof gaps
 
 later
+  audio
   computer.use
   model/provider abstraction
 ```
@@ -1580,7 +1594,7 @@ coherence layer: done
 third branch: code.exec (done)
 fallback layer: done
 validation layer: done
-remaining: broader families + brain abstraction
+remaining: finish live proof + broader families + brain abstraction
 ```
 
 Current fallback posture:
@@ -1952,6 +1966,8 @@ Meaning:
   - mixed-turn coherence across `vision.analyze` + `web.search`
 - deterministic runtime tests now prove that routed fallback emits the real
   `fallback` provenance event and recomputes the execution surface
+- live validation is now explicit about what is green vs what is still blocked
+  on provider/runtime behavior
 
 #### Completed: Policy-Aware Routing
 
@@ -1981,23 +1997,30 @@ AFTER:
 
 #### Validation Runbook
 
-Recommended targeted validation commands:
+Recommended targeted validation commands that are green on the current branch:
 
 ```text
-deno test --allow-all tests/integration/http-server.test.ts
-deno test --allow-all tests/e2e/native-web-search-smoke.test.ts
-deno test --allow-all tests/e2e/native-google-web-search-smoke.test.ts
+deno test --allow-all tests/integration/http-server.test.ts --filter 'fallback route event and recomputes the execution surface'
 HLVM_E2E_NATIVE_PAGE_READ=1 deno test --allow-all tests/e2e/native-web-page-read-smoke.test.ts
-HLVM_E2E_NATIVE_REMOTE_CODE=1 deno test --allow-all tests/e2e/native-remote-code-smoke.test.ts
 HLVM_E2E_NATIVE_VISION=1 deno test --allow-all tests/e2e/native-vision-analyze-smoke.test.ts
+HLVM_E2E_NATIVE_REMOTE_CODE=1 deno test --allow-all tests/e2e/native-remote-code-smoke.test.ts
 HLVM_E2E_NATIVE_STRUCTURED_OUTPUT=1 deno test --allow-all tests/e2e/native-structured-output-smoke.test.ts
+deno test --allow-all tests/unit/agent/orchestrator-response.test.ts --filter 'plain-text function-style tool call'
+```
+
+Experimental follow-up commands for currently open live-proof gaps:
+
+```text
+HLVM_E2E_NATIVE_WEB_SEARCH=1 deno test --allow-all tests/e2e/native-web-search-smoke.test.ts
+HLVM_E2E_NATIVE_GOOGLE_WEB_SEARCH=1 deno test --allow-all tests/e2e/native-google-web-search-smoke.test.ts
 HLVM_E2E_NATIVE_MIXED_PLATFORM=1 deno test --allow-all tests/e2e/native-mixed-platform-smoke.test.ts
 ```
 
-#### Recommended Next Phase: Fifth Capability Family: audio
+#### Recommended Next Phase: Close Remaining Live-Proof Gaps
 
-The next step is now family breadth again, not another validation-only slice.
-Four families are already implemented on the same spine:
+The next step is to make the currently open live proofs green before claiming
+the routed platform spine is fully E2E-proven. Four families are already
+implemented on the same spine:
 
 ```text
 web.*           tool-start routed

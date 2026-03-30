@@ -30,11 +30,11 @@
 // Example usage:
 // (repeat 3 (print "hello"))
 (macro repeat [count & body]
-  `(loop [__repeat_i 0]
-     (if (< __repeat_i ~count)
+  `(loop [i# 0]
+     (if (< i# ~count)
        (do
          ~@body
-         (recur (+ __repeat_i 1)))
+         (recur (+ i# 1)))
        nil)))
 
 // ====================

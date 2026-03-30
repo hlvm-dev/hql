@@ -1,5 +1,5 @@
 /**
- * End-to-end smoke test for provider-native web_search via Claude Code Max auth.
+ * Exploratory opt-in smoke test for provider-native web_search via Claude Code Max auth.
  *
  * Uses a REAL Claude Code Max model through Claude Code OAuth and proves:
  *   1. HLVM exposes the native web_search capability to the model
@@ -9,8 +9,10 @@
  *
  * Requirements:
  *   - Claude Code Max subscription (run `claude login` first)
+ *   - HLVM_E2E_NATIVE_WEB_SEARCH=1
  *   - Network access
- *   - Run with: deno test --allow-all tests/e2e/native-web-search-smoke.test.ts
+ *   - Run with:
+ *     HLVM_E2E_NATIVE_WEB_SEARCH=1 deno test --allow-all tests/e2e/native-web-search-smoke.test.ts
  */
 
 import { assert } from "jsr:@std/assert";
@@ -20,6 +22,7 @@ import {
   assertCapabilityRoute,
   assertHasProviderCitations,
   assertNoLocalToolEvents,
+  hasEnvVar,
   runWithCompatibleModel,
   withIsolatedEnv,
 } from "./native-provider-smoke-helpers.ts";
@@ -33,10 +36,12 @@ const TIMEOUT_MS = 120_000;
 
 Deno.test({
   name:
-    "E2E real LLM: Claude Code uses native web_search and returns provider-grounded citations",
+    "E2E exploratory: Claude Code uses native web_search and returns provider-grounded citations",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
+    if (!hasEnvVar("HLVM_E2E_NATIVE_WEB_SEARCH")) return;
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 

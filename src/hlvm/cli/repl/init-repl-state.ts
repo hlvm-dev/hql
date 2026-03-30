@@ -6,12 +6,15 @@
 import type { RuntimeState } from "../../api/runtime.ts";
 import { registerApis } from "../../api/index.ts";
 import { bindings, type BindingsApi } from "../../api/bindings.ts";
+import { log } from "../../api/log.ts";
 import { evaluate } from "./evaluator.ts";
 import { registerReplHelpers } from "./helpers.ts";
 import { loadStdlibModules, type ModuleLoaderResult } from "./module-loader.ts";
 import { ReplState } from "./state.ts";
 
 type BindingsLoadResult = Awaited<ReturnType<BindingsApi["load"]>>;
+
+let runtimeHostReplState: ReplState | null = null;
 
 export type HistoryInitMode = "await" | "defer" | "skip";
 
@@ -47,6 +50,42 @@ export function startReplHistoryInit(
     initPromise.catch(onError);
   }
   return initPromise;
+}
+
+export function getRuntimeHostReplState(): ReplState | null {
+  return runtimeHostReplState;
+}
+
+export async function ensureRuntimeHostReplState(): Promise<ReplState> {
+  if (runtimeHostReplState) {
+    return runtimeHostReplState;
+  }
+
+  const initResult = await initReplState({});
+  runtimeHostReplState = initResult.state;
+
+  if (initResult.moduleResult) {
+    log.info(
+      `Loaded ${initResult.moduleResult.stdlibExports.length} stdlib functions`,
+    );
+
+    if (initResult.moduleResult.errors.length > 0) {
+      log.warn(
+        `Module load errors: ${initResult.moduleResult.errors.join(", ")}`,
+      );
+    }
+  }
+
+  log.info(
+    `REPL state initialized: ${
+      runtimeHostReplState.getDocstrings().size
+    } definitions`,
+  );
+  return runtimeHostReplState;
+}
+
+export function resetRuntimeHostReplState(): void {
+  runtimeHostReplState = null;
 }
 
 export async function initReplState(

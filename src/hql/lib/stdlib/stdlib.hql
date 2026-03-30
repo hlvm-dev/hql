@@ -146,14 +146,16 @@
 // Uses a Set to track seen elements efficiently
 // Note: Pre-transpiled version uses JS Set for O(1) lookup
 (fn distinct [coll]
-  (let [step (fn [s seen]
-               (lazy-seq
-                 (when-let [xs (seq s)]
-                   (let [f (first xs)]
-                     (if (.has seen f)
-                       (step (rest xs) seen)
-                       (cons f (step (rest xs) (conj seen f))))))))]
-    (step coll #[])))
+  (let [seen (js-new Set ())]
+    (let [step (fn [s]
+                 (lazy-seq
+                   (when-let [xs (seq s)]
+                     (let [f (first xs)]
+                       (if (.has seen f)
+                         (step (rest xs))
+                         (do (.add seen f)
+                             (cons f (step (rest xs)))))))))]
+      (step coll))))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 2: INDEXED OPERATIONS
@@ -947,26 +949,34 @@
                 (reduce (fn [acc item] (js-set acc (js-get item 0) (js-get item 1)) acc)
                         {...coll} items)))))))))
 
-// into - Pour collection into target
-(fn into [to from]
-  (if (nil? from)
-    (if (nil? to) [] to)
-      (if (nil? to)
-        (js-call Array.from from)
-        (if (js-call Array.isArray to)
-        (let [arr (js-call Array.from to)]
-          (reduce (fn [acc item] (js-call acc "push" item) acc) arr from))
-        (if (instanceof to Set)
-          (let [r (js-new Set (to))]
-            (reduce (fn [acc item] (js-call acc "add" item) acc) r from))
-          (if (instanceof to Map)
-            (let [r (js-new Map (to))]
-              (reduce (fn [acc item]
-                (if (and (js-call Array.isArray item) (=== (js-get item "length") 2))
-                  (js-call acc "set" (js-get item 0) (js-get item 1))
-                  acc)
-                acc) r from))
-            (reduce (fn [acc item] (conj acc item)) to from)))))))
+// into - Pour collection into target (2-arity or 3-arity with transducer)
+(fn into [& args]
+  (let [argc (count args)]
+    (if (=== argc 2)
+      (let [to (first args) from (nth args 1)]
+        (if (nil? from)
+          (if (nil? to) [] to)
+          (if (nil? to)
+            (js-call Array.from from)
+            (if (js-call Array.isArray to)
+              (let [arr (js-call Array.from to)]
+                (reduce (fn [acc item] (js-call acc "push" item) acc) arr from))
+              (if (instanceof to Set)
+                (let [r (js-new Set (to))]
+                  (reduce (fn [acc item] (js-call acc "add" item) acc) r from))
+                (if (instanceof to Map)
+                  (let [r (js-new Map (to))]
+                    (reduce (fn [acc item]
+                      (if (and (js-call Array.isArray item) (=== (js-get item "length") 2))
+                        (js-call acc "set" (js-get item 0) (js-get item 1))
+                        acc)
+                      acc) r from))
+                  (reduce (fn [acc item] (conj acc item)) to from)))))))
+      (if (=== argc 3)
+        // 3-arity: (into to xform from) — delegate to intoXform from core.js
+        (let [to (first args) xform (nth args 1) from (nth args 2)]
+          (intoXform to xform from))
+        (throw (js/TypeError "into requires 2 or 3 arguments"))))))
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PHASE 15: TYPE CONVERSIONS (self-hosted)
@@ -1213,6 +1223,150 @@
                 rf
                 (reverse xforms))))))
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 16: ADDITIONAL STDLIB FUNCTIONS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// frequencies - Returns a map of elements to their occurrence counts
+(fn frequencies [coll]
+  (reduce (fn [acc item]
+    (let [cnt (or (js-get acc item) 0)]
+      (js-set acc item (+ cnt 1))
+      acc))
+    {} coll))
+
+// selectKeys - Returns a map containing only the specified keys
+(fn selectKeys [m ks]
+  (reduce (fn [acc k]
+    (let [v (js-get m k)]
+      (if (=== v undefined)
+        acc
+        (do (js-set acc k v) acc))))
+    {} ks))
+
+// mergeWith - Merge maps using a function to resolve conflicts
+(fn mergeWith [f & maps]
+  (reduce (fn [acc m]
+    (if (nil? m)
+      acc
+      (let [ks (js-call Object.keys m)]
+        (reduce (fn [a k]
+          (let [existing (js-get a k)]
+            (if (=== existing undefined)
+              (js-set a k (js-get m k))
+              (js-set a k (f existing (js-get m k))))
+            a))
+          acc ks))))
+    {} maps))
+
+// remove - Returns lazy seq of items for which pred returns falsy (complement of filter)
+(fn remove [pred coll]
+  (filter (fn [x] (not (pred x))) coll))
+
+// complement - Returns a function that is the logical negation of f
+(fn complement [f]
+  (fn [& args] (not (apply f args))))
+
+// memoize - Returns a memoized version of f
+(fn memoize [f]
+  (let [cache (js-new Map ())]
+    (fn [& args]
+      (let [k (js-call JSON.stringify args)]
+        (if (.has cache k)
+          (.get cache k)
+          (let [result (apply f args)]
+            (.set cache k result)
+            result))))))
+
+// notEmpty - Returns coll if it's not empty, nil otherwise
+(fn notEmpty [coll]
+  (if (seq coll) coll nil))
+
+// boundedCount - Returns count up to limit n (avoids realizing entire infinite seq)
+(fn boundedCount [n coll]
+  (loop [i 0 s (seq coll)]
+    (if (or (nil? s) (>= i n))
+      i
+      (recur (+ i 1) (rest s)))))
+
+// runBang - Applies f to each item in coll for side effects, returns nil
+(fn runBang [f coll]
+  (reduce (fn [_ item] (f item) nil) nil coll)
+  nil)
+
+// everyPred - Returns a function that returns true when all predicates are satisfied
+(fn everyPred [& preds]
+  (fn [& args]
+    (reduce (fn [acc pred]
+      (if acc
+        (reduce (fn [a2 arg] (if a2 (pred arg) false)) true args)
+        false))
+      true preds)))
+
+// someFn - Returns a function that returns the first truthy predicate result
+(fn someFn [& preds]
+  (fn [& args]
+    (reduce (fn [acc pred]
+      (if acc acc
+        (reduce (fn [a2 arg]
+          (if a2 a2
+            (let [r (pred arg)]
+              (if r r nil))))
+          nil args)))
+      nil preds)))
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PHASE 17: ADDITIONAL TRANSDUCERS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// cat - Concatenation transducer (flattens one level)
+(fn cat [rf]
+  (let [rf-init (js-get rf TRANSDUCER_INIT)
+        rf-step (js-get rf TRANSDUCER_STEP)
+        rf-result (js-get rf TRANSDUCER_RESULT)]
+    (hash-map
+      TRANSDUCER_INIT (fn [] (rf-init))
+      TRANSDUCER_STEP (fn [result input]
+        (reduce (fn [acc item]
+          (let [r (rf-step acc item)]
+            (if (isReduced r) (reduced r) r)))
+          result input))
+      TRANSDUCER_RESULT (fn [result] (rf-result result)))))
+
+// dedupe - Transducer that removes consecutive duplicates
+(fn dedupe [rf]
+  (let [rf-init (js-get rf TRANSDUCER_INIT)
+        rf-step (js-get rf TRANSDUCER_STEP)
+        rf-result (js-get rf TRANSDUCER_RESULT)
+        state (js-new Object ())]
+    (js-set state "prev" :__dedupe_none__)
+    (hash-map
+      TRANSDUCER_INIT (fn [] (rf-init))
+      TRANSDUCER_STEP (fn [result input]
+        (let [p (js-get state "prev")]
+          (js-set state "prev" input)
+          (if (=== p input)
+            result
+            (rf-step result input))))
+      TRANSDUCER_RESULT (fn [result] (rf-result result)))))
+
+// removeT - Transducer form of remove (complement of filterT)
+(fn removeT [pred]
+  (filterT (fn [x] (not (pred x)))))
+
+// keepT - Transducer that keeps non-nil results of applying f
+(fn keepT [f]
+  (fn [rf]
+    (let [rf-init (js-get rf TRANSDUCER_INIT)
+          rf-step (js-get rf TRANSDUCER_STEP)
+          rf-result (js-get rf TRANSDUCER_RESULT)]
+      (hash-map
+        TRANSDUCER_INIT (fn [] (rf-init))
+        TRANSDUCER_STEP (fn [result input]
+          (let [v (f input)]
+            (if (nil? v) result (rf-step result v))))
+        TRANSDUCER_RESULT (fn [result] (rf-result result))))))
+
 // Export all functions
 (export [
   // Sequence primitives (Lisp Trinity)
@@ -1289,5 +1443,12 @@
 
   // Transducers (self-hosted)
   mapT, filterT, takeT, dropT, takeWhileT, dropWhileT,
-  distinctT, partitionAllT, composeTransducers
+  distinctT, partitionAllT, composeTransducers,
+
+  // Additional stdlib functions
+  frequencies, selectKeys, mergeWith, remove, complement,
+  memoize, notEmpty, boundedCount, runBang, everyPred, someFn,
+
+  // Additional transducers
+  cat, dedupe, removeT, keepT
 ])

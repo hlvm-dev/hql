@@ -197,6 +197,28 @@ function resolveProviderNativeWebCapabilityFromFinalResponse(
     : null;
 }
 
+function shouldSkipModelCompensationForTurn(options: {
+  runtimeMode: RuntimeMode;
+  isFrontierModel: boolean;
+  executionSurface: ExecutionSurface;
+}): boolean {
+  if (!options.isFrontierModel) {
+    return false;
+  }
+  if (options.runtimeMode !== "auto") {
+    return true;
+  }
+
+  return !(
+    options.executionSurface.capabilities["web.search"].selectedBackendKind ===
+      "provider-native" ||
+    options.executionSurface.capabilities["web.read"].selectedBackendKind ===
+      "provider-native" ||
+    options.executionSurface.capabilities["code.exec"].selectedBackendKind ===
+      "provider-native"
+  );
+}
+
 function buildPlanModeAllowlist(options: {
   allowlist?: string[];
   denylist?: string[];
@@ -1419,6 +1441,22 @@ export async function runAgentQuery(
         onAgentEvent,
         onFinalResponseMeta: (meta) => {
           finalResponseMeta = meta;
+          if (runtimeMode === "auto") {
+            const providerNativeWebCapability =
+              resolveProviderNativeWebCapabilityFromFinalResponse(
+                session.executionSurface,
+                meta,
+              );
+            if (providerNativeWebCapability) {
+              emitCapabilityRoute(
+                buildRoutedCapabilityProvenance(
+                  session.executionSurface,
+                  providerNativeWebCapability,
+                ),
+                "tool-start",
+              );
+            }
+          }
           callbacks.onFinalResponseMeta?.(meta);
         },
         onInteraction: callbacks.onInteraction,
@@ -1435,7 +1473,11 @@ export async function runAgentQuery(
           mode: getPlanningModeForExecutionMode(permissionMode),
           requireStepMarkers: false,
         },
-        skipModelCompensation: session.isFrontierModel,
+        skipModelCompensation: shouldSkipModelCompensationForTurn({
+          runtimeMode,
+          isFrontierModel: session.isFrontierModel,
+          executionSurface: session.executionSurface,
+        }),
         modelTier: session.modelTier,
         modelId: model,
         sessionId: sessionKey ?? undefined,
@@ -1473,22 +1515,6 @@ export async function runAgentQuery(
         session.llm,
         options.attachments,
       );
-      if (runtimeMode === "auto") {
-        const providerNativeWebCapability =
-          resolveProviderNativeWebCapabilityFromFinalResponse(
-            session.executionSurface,
-            finalResponseMeta,
-          );
-        if (providerNativeWebCapability) {
-          emitCapabilityRoute(
-            buildRoutedCapabilityProvenance(
-              session.executionSurface,
-              providerNativeWebCapability,
-            ),
-            "tool-start",
-          );
-        }
-      }
     } catch (error) {
       if (sessionKey && isAbortLikeError(error, options.signal)) {
         clearPersistedAgentPlanningState(sessionKey);

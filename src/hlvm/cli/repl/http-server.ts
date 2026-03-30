@@ -7,8 +7,11 @@
 import { delay } from "@std/async";
 import { evaluate } from "./evaluator.ts";
 import { formatPlainValue } from "./formatter.ts";
-import { initReplState } from "./init-repl-state.ts";
-import { ReplState } from "./state.ts";
+import {
+  ensureRuntimeHostReplState,
+  getRuntimeHostReplState,
+  resetRuntimeHostReplState,
+} from "./init-repl-state.ts";
 import { type BindingFunctionItem, listBindingFunctions } from "./bindings.ts";
 import { escapeString } from "./string-utils.ts";
 import { log } from "../../api/log.ts";
@@ -126,8 +129,6 @@ function resolvePort(): number {
   return port;
 }
 
-let replState: ReplState | null = null;
-
 // MARK: - Types
 
 interface CompletionRequest {
@@ -157,27 +158,6 @@ interface BindingExecuteResponse {
     message: string;
     code: string;
   };
-}
-
-// MARK: - REPL State
-
-async function initState(): Promise<ReplState> {
-  const initResult = await initReplState({});
-  const state = initResult.state;
-  const moduleResult = initResult.moduleResult;
-
-  if (moduleResult) {
-    log.info(
-      `Loaded ${moduleResult.stdlibExports.length} stdlib functions`,
-    );
-
-    if (moduleResult.errors.length > 0) {
-      log.warn(`Module load errors: ${moduleResult.errors.join(", ")}`);
-    }
-  }
-
-  log.info(`REPL state initialized: ${state.getDocstrings().size} definitions`);
-  return state;
 }
 
 /**
@@ -299,9 +279,7 @@ export async function handleComplete(req: Request): Promise<Response> {
       return jsonError("Missing cursor", 400);
     }
 
-    if (!replState) {
-      replState = await initState();
-    }
+    const replState = await ensureRuntimeHostReplState();
 
     const safeCursor = Math.max(0, Math.min(cursor, text.length));
     const bindingsApi = (globalThis as Record<string, unknown>).bindings as {
@@ -368,10 +346,7 @@ export async function handleEval(req: Request): Promise<Response> {
       return jsonError("Missing code", 400);
     }
 
-    if (!replState) {
-      replState = await initState();
-    }
-
+    const replState = await ensureRuntimeHostReplState();
     const result = await evaluate(code, replState);
     if (result.success) {
       const hasValue = Object.prototype.hasOwnProperty.call(result, "value");
@@ -438,6 +413,7 @@ export async function handleEval(req: Request): Promise<Response> {
  */
 async function handleHealth(): Promise<Response> {
   const identity = await getRuntimeHostIdentity();
+  const replState = getRuntimeHostReplState();
   return Response.json({
     status: "ok",
     initialized: replState !== null,
@@ -460,7 +436,7 @@ function scheduleServerShutdown(): void {
 }
 
 async function handleRuntimeShutdown(): Promise<Response> {
-  replState = null;
+  resetRuntimeHostReplState();
   await closeActiveConversationSession();
   scheduleServerShutdown();
   return Response.json({ ok: true, shutting_down: true });
@@ -672,10 +648,7 @@ async function handleBindingExecute(req: Request): Promise<Response> {
       return execError("def values do not accept arguments", "ARITY_MISMATCH");
     }
 
-    if (!replState) {
-      replState = await initState();
-    }
-
+    const replState = await ensureRuntimeHostReplState();
     const code = buildExecuteCode(definition, args);
     const result = await evaluate(code, replState);
     if (!result.success) {

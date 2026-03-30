@@ -12,9 +12,9 @@ import { getPlatform } from "../../src/platform/platform.ts";
 
 const platform = getPlatform();
 const RED_PIXEL_PNG_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==";
+  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mP4z8DwnxLMMGrAqAGjBgwXAwAwxP4QisZM5QAAAABJRU5ErkJggg==";
 const BLUE_PIXEL_PNG_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPj/HwADBwIAMCbHYQAAAABJRU5ErkJggg==";
+  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGElEQVR42mNgYPj/nzI8asCoAaMGDBMDADKm/hANtY/hAAAAAElFTkSuQmCC";
 
 export type SmokeRunResult = Awaited<ReturnType<typeof runAgentQuery>>;
 export type RoutedEvent = Extract<AgentUIEvent, { type: "capability_routed" }>;
@@ -202,7 +202,7 @@ export function makeInlineImageAttachment(
     mimeType: "image/png",
     kind: "image",
     conversationKind: "image",
-    size: 68,
+    size: color === "red" ? 82 : 81,
     data: color === "red" ? RED_PIXEL_PNG_BASE64 : BLUE_PIXEL_PNG_BASE64,
   };
 }

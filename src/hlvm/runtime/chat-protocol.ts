@@ -20,7 +20,11 @@ import type { ExecutionTurnContext } from "../agent/turn-context.ts";
 
 export const CLAUDE_CODE_AGENT_MODE = "claude-code-agent" as const;
 
-export type ChatMode = "chat" | "agent" | typeof CLAUDE_CODE_AGENT_MODE;
+export type ChatMode =
+  | "chat"
+  | "eval"
+  | "agent"
+  | typeof CLAUDE_CODE_AGENT_MODE;
 
 export interface ChatRequestMessage {
   role: "system" | "user" | "assistant" | "tool";

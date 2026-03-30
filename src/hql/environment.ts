@@ -61,7 +61,7 @@ export type MacroFn =
     sourceFile?: string;
   };
 
-export interface ResolvedMacro {
+interface ResolvedMacro {
   macro: MacroFn;
   macroName: string;
   sourceFile?: string;

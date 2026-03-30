@@ -18,6 +18,7 @@ import {
   buildCitationSourceIndex,
   buildRetrievalCitations,
   mapLlmSourcesToCitations,
+  mapProviderMetadataToCitations,
 } from "./tools/web/citation-spans.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
 import {
@@ -31,10 +32,12 @@ import type { InteractionOption } from "./registry.ts";
 import {
   AGENT_ORCHESTRATOR_FAILURE_MESSAGES,
   looksLikeToolCallJsonAnywhere,
+  parseToolCallTextEnvelope,
   looksLikeToolCallTextEnvelope,
   responseAsksQuestion,
 } from "./model-compat.ts";
 import { renderEditFileRecoveryPrompt } from "./error-taxonomy.ts";
+import { getProviderExecutedToolNameSet } from "./tool-capabilities.ts";
 import {
   advancePlanState,
   createPlanState,
@@ -350,6 +353,18 @@ export function handleTextOnlyResponse(
       });
       return { action: "continue" };
     }
+    const repairedToolCall = parseToolCallTextEnvelope(responseText);
+    if (
+      repairedToolCall &&
+      canRepairTextEnvelopeIntoLocalToolCall(repairedToolCall.toolName, config)
+    ) {
+      response.content = "";
+      response.toolCalls = [{
+        toolName: repairedToolCall.toolName,
+        args: repairedToolCall.args,
+      }];
+      return { action: "proceed" };
+    }
     return state.toolUses.length === 0
       ? {
         action: "return",
@@ -362,6 +377,21 @@ export function handleTextOnlyResponse(
   }
 
   return { action: "proceed" };
+}
+
+function canRepairTextEnvelopeIntoLocalToolCall(
+  toolName: string,
+  config: OrchestratorConfig,
+): boolean {
+  if (!hasTool(toolName, config.toolOwnerId)) {
+    return false;
+  }
+  if (!config.providerExecutionPlan) {
+    return true;
+  }
+  return !getProviderExecutedToolNameSet(config.providerExecutionPlan).has(
+    toolName,
+  );
 }
 
 function formatPlanPreview(
@@ -927,9 +957,14 @@ export async function handleFinalResponse(
     sourceKind: span.sourceKind,
   }));
   const providerCitations = mapLlmSourcesToCitations(result.nativeSources);
+  const providerMetadataCitations = providerCitations.length === 0
+    ? mapProviderMetadataToCitations(result.providerMetadata)
+    : [];
   const retrievalCitations = buildRetrievalCitations(state.passageIndex);
   const emittedCitations = providerCitations.length > 0
     ? providerCitations
+    : providerMetadataCitations.length > 0
+    ? providerMetadataCitations
     : retrievalCitations.length > 0
     ? retrievalCitations
     : groundingCitations;

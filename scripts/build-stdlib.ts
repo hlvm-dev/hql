@@ -58,6 +58,7 @@ const QMARK_ALIASES: [string, string][] = [
 const CORE_RUNTIME_IMPORTS = [
   "first", "rest", "cons", "seq", "range",
   "__hql_lazy_seq", "__hql_hash_map",
+  "intoXform",
 ];
 
 // Runtime imports from seq-protocol.js that the transpiler treats as globals.

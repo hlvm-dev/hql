@@ -1,8 +1,8 @@
 /**
- * Opt-in end-to-end smoke test for provider-native vision.analyze via Claude Code Max auth.
+ * Opt-in end-to-end smoke test for provider-native vision.analyze via Google.
  *
  * Requirements:
- *   - Claude Code Max subscription (run `claude login` first)
+ *   - GOOGLE_API_KEY
  *   - HLVM_E2E_NATIVE_VISION=1
  *   - Network access
  *   - Run with:
@@ -21,19 +21,21 @@ import {
 } from "./native-provider-smoke-helpers.ts";
 
 const MODEL_CANDIDATES = [
-  "claude-code/claude-opus-4-6",
-  "claude-code/claude-sonnet-4-5-20250929",
-  "claude-code/claude-haiku-4-5-20251001",
+  "google/gemini-2.5-flash",
+  "google/gemini-2.5-flash-lite",
+  "google/gemini-2.0-flash-001",
 ] as const;
 const TIMEOUT_MS = 120_000;
 
 Deno.test({
   name:
-    "E2E real LLM: Claude Code activates turn-start vision.analyze for current-turn image attachments",
+    "E2E real LLM: Google activates turn-start vision.analyze for current-turn image attachments",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    if (!hasEnvVar("HLVM_E2E_NATIVE_VISION")) return;
+    if (!hasEnvVar("GOOGLE_API_KEY") || !hasEnvVar("HLVM_E2E_NATIVE_VISION")) {
+      return;
+    }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -57,7 +59,7 @@ Deno.test({
 
         assert(
           MODEL_CANDIDATES.some((candidate) => candidate === model),
-          `Expected a Claude Code Max model candidate, got ${model}`,
+          `Expected a Google model candidate, got ${model}`,
         );
         assertCapabilityRoute(events, {
           capabilityId: "vision.analyze",

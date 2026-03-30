@@ -179,41 +179,54 @@ function renderAutoExecutionGuidance(
   const taskCapabilityContext = input.executionSurface?.taskCapabilityContext;
   const responseShapeContext = input.executionSurface?.responseShapeContext;
   const turnContext = input.executionSurface?.turnContext;
-  const constraintSummary = summarizeRoutingConstraints(
-    input.executionSurface?.constraints,
-  );
+  const constraints = input.executionSurface?.constraints;
+  const constraintSummary = summarizeRoutingConstraints(constraints);
+  const hasNonDefaultConstraintSummary = constraintSummary !== "none";
+  const hasPreferenceConflict = constraints?.preferenceConflict === true;
+  const hasAttachments = (turnContext?.attachmentCount ?? 0) > 0;
+  const hasCodeExecRequest = !!taskCapabilityContext?.requestedCapabilities
+    .includes("code.exec");
+  const hasStructuredRequest = responseShapeContext?.requested === true;
+  const hasUnavailableWebRoute = !searchRoute?.selectedBackendKind ||
+    !readRoute?.selectedBackendKind;
+
+  if (
+    !hasNonDefaultConstraintSummary &&
+    !hasPreferenceConflict &&
+    !hasAttachments &&
+    !hasCodeExecRequest &&
+    !hasStructuredRequest &&
+    !hasUnavailableWebRoute
+  ) {
+    return { id: "auto_execution", content: "", minTier: "weak" };
+  }
+
   const lines = [
     "# Auto Execution",
     "- Runtime mode is auto. Think in semantic capability families first, then use the routed tool surface already exposed to you.",
     "- The session uses a configured-first strategy. Keep the pinned model/provider as the reasoning brain; do not assume automatic brain switching.",
     "- For live external information, use the surfaced web search/read tools for the active route instead of trying to force a different backend.",
-    `- Active routing constraints: ${constraintSummary}.`,
   ];
+  if (hasNonDefaultConstraintSummary || hasPreferenceConflict) {
+    lines.push(`- Active routing constraints: ${constraintSummary}.`);
+  }
   if (input.executionSurface?.constraints.preferenceConflict) {
     lines.push(
       "- The current task text contained conflicting soft preferences (cheap and quality). Ignore the soft preference and follow the selected route.",
     );
   }
 
-  if (searchRoute?.selectedToolName) {
-    lines.push(
-      `- web.search currently routes through ${searchRoute.selectedToolName}.`,
-    );
-  } else {
+  if (!searchRoute?.selectedBackendKind) {
     lines.push(
       "- web.search currently has no valid route under the active constraints. Do not attempt to bypass that with another backend.",
     );
   }
-  if (readRoute?.selectedToolName) {
-    lines.push(
-      `- web.read currently routes through ${readRoute.selectedToolName}.`,
-    );
-  } else {
+  if (!readRoute?.selectedBackendKind) {
     lines.push(
       "- web.read currently has no valid route under the active constraints. Do not attempt to bypass that with another backend.",
     );
   }
-  if ((turnContext?.attachmentCount ?? 0) > 0) {
+  if (hasAttachments) {
     lines.push(
       `- Current turn attachments: ${turnContext?.attachmentCount ?? 0} total; vision-eligible attachments: ${turnContext?.visionEligibleAttachmentCount ?? 0}.`,
     );
@@ -236,7 +249,7 @@ function renderAutoExecutionGuidance(
       codeExecRoute.selectedToolName
     ) {
       lines.push(
-        `- code.exec is active for this turn through ${codeExecRoute.selectedToolName}. Treat that as a provider-hosted sandbox for inline compute/transformation only; it is not local shell or workspace access.`,
+        "- code.exec is active for this turn through a provider-hosted sandbox for inline compute/transformation only; it is not local shell or workspace access.",
       );
     } else {
       lines.push(

@@ -9,6 +9,7 @@ import { getSession } from "../../../store/conversation-store.ts";
 import { getActiveConversationSessionId } from "../../../store/active-conversation.ts";
 import { subscribe, replayAfter, nextSSEEventId } from "../../../store/sse-store.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
+import { toRuntimeSessionMessage } from "../../../runtime/session-protocol.ts";
 import type { RouteParams } from "../http-router.ts";
 import { jsonError, formatSSE, createSSEResponse } from "../http-utils.ts";
 
@@ -49,30 +50,56 @@ export function handleSSEStream(
   const lastEventId = req.headers.get("Last-Event-ID");
 
   return createSSEResponse(req, (emit) => {
-    const replay = replayAfter(sessionId, lastEventId);
-
-    if (replay.gapDetected) {
-      const messages = loadAllMessages(sessionId);
-      const freshSession = getSession(sessionId);
-      const snapshotVersion = freshSession?.session_version ?? session.session_version;
-      emit(formatSSE({
-        id: nextSSEEventId(sessionId),
-        event_type: "snapshot",
-        data: {
-          messages,
-          session_version: snapshotVersion,
-        },
-      }));
-    } else {
-      for (const event of replay.events) {
-        emit(formatSSE(event));
-      }
-    }
-
+    let isReady = false;
+    let closed = false;
+    let pendingEvents: string[] = [];
     const unsubscribe = subscribe(sessionId, (event) => {
-      emit(formatSSE(event));
+      const formatted = formatSSE(event);
+      if (closed) {
+        return;
+      }
+      if (isReady) {
+        emit(formatted);
+      } else {
+        pendingEvents.push(formatted);
+      }
     });
-    return unsubscribe;
+
+    void (async () => {
+      const replay = replayAfter(sessionId, lastEventId);
+
+      if (!lastEventId || replay.gapDetected) {
+        const messages = await Promise.all(
+          loadAllMessages(sessionId).map((message) => toRuntimeSessionMessage(message)),
+        );
+        const freshSession = getSession(sessionId);
+        const snapshotVersion = freshSession?.session_version ?? session.session_version;
+        emit(formatSSE({
+          id: nextSSEEventId(sessionId),
+          event_type: "snapshot",
+          data: {
+            messages,
+            session_version: snapshotVersion,
+          },
+        }));
+      } else {
+        for (const event of replay.events) {
+          emit(formatSSE(event));
+        }
+      }
+
+      isReady = true;
+      for (const event of pendingEvents) {
+        emit(event);
+      }
+      pendingEvents = [];
+    })();
+
+    return () => {
+      closed = true;
+      pendingEvents = [];
+      unsubscribe();
+    };
   });
 }
 

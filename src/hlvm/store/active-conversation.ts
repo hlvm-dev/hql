@@ -7,15 +7,19 @@
 
 import {
   createSession,
+  deleteHostStateValue,
   deleteSession,
+  getHostStateValue,
   getOrCreateSession,
   getSession,
   listSessions,
+  setHostStateValue,
 } from "./conversation-store.ts";
 
 
 const MAX_INACTIVE_SESSIONS = 20;
 const MAX_INACTIVE_AGE_MS = 1000 * 60 * 60 * 24 * 7;
+const ACTIVE_CONVERSATION_SESSION_KEY = "active_conversation_session_id";
 
 let activeSessionId: string | null = null;
 
@@ -31,6 +35,7 @@ function bindActiveConversationSession<T extends { id: string }>(
   session: T,
 ): T {
   activeSessionId = session.id;
+  setHostStateValue(ACTIVE_CONVERSATION_SESSION_KEY, session.id);
   return session;
 }
 
@@ -51,6 +56,13 @@ export function getActiveConversationSessionId(): string {
 export function ensureActiveConversationSession() {
   const existing = getExistingActiveConversationSession();
   if (existing) return existing;
+
+  const persisted = getPersistedActiveConversationSession();
+  if (persisted) return bindActiveConversationSession(persisted);
+
+  const mostRecent = getMostRecentConversationSession();
+  if (mostRecent) return bindActiveConversationSession(mostRecent);
+
   return bindActiveConversationSession(createConversationSession());
 }
 
@@ -90,6 +102,21 @@ function pruneInactiveSessions(): void {
       deleteSession(session.id);
     }
   }
+}
+
+function getPersistedActiveConversationSession() {
+  const persistedSessionId = getHostStateValue(ACTIVE_CONVERSATION_SESSION_KEY)
+    ?.trim();
+  if (!persistedSessionId) return null;
+  const existing = getSession(persistedSessionId);
+  if (existing) return existing;
+  deleteHostStateValue(ACTIVE_CONVERSATION_SESSION_KEY);
+  return null;
+}
+
+function getMostRecentConversationSession() {
+  const sessions = listSessions();
+  return sessions[0] ?? null;
 }
 
 export async function closeActiveConversationSession(): Promise<void> {

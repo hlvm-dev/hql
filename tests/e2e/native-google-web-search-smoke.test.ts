@@ -3,9 +3,10 @@
  *
  * Requirements:
  *   - GOOGLE_API_KEY
+ *   - HLVM_E2E_NATIVE_GOOGLE_WEB_SEARCH=1
  *   - Network access
  *   - Run with:
- *     deno test --allow-all tests/e2e/native-google-web-search-smoke.test.ts
+ *     HLVM_E2E_NATIVE_GOOGLE_WEB_SEARCH=1 deno test --allow-all tests/e2e/native-google-web-search-smoke.test.ts
  */
 
 import { assert } from "jsr:@std/assert";
@@ -21,8 +22,8 @@ import {
 } from "./native-provider-smoke-helpers.ts";
 
 const MODEL_CANDIDATES = [
-  "google/gemini-2.5-flash",
   "google/gemini-2.5-flash-lite",
+  "google/gemini-2.5-flash",
 ] as const;
 const TIMEOUT_MS = 120_000;
 
@@ -32,7 +33,12 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    if (!hasEnvVar("GOOGLE_API_KEY")) return;
+    if (
+      !hasEnvVar("GOOGLE_API_KEY") ||
+      !hasEnvVar("HLVM_E2E_NATIVE_GOOGLE_WEB_SEARCH")
+    ) {
+      return;
+    }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -63,6 +69,7 @@ Deno.test({
           routePhase: "tool-start",
           selectedBackendKind: "provider-native",
         });
+        assertNoLocalToolEvents(events, "web_search");
         assertNoLocalToolEvents(events, "search_web");
         assertHasProviderCitations(result);
       });

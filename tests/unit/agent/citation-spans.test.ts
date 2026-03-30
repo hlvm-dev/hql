@@ -4,6 +4,7 @@ import {
   buildCitationSourceIndex,
   buildRetrievalCitations,
   mapLlmSourcesToCitations,
+  mapProviderMetadataToCitations,
 } from "../../../src/hlvm/agent/tools/web/citation-spans.ts";
 
 Deno.test("buildCitationSourceIndex extracts snippets and passages from search_web payload", () => {
@@ -221,6 +222,55 @@ Deno.test("mapLlmSourcesToCitations keeps provider-native URL sources and drops 
   );
   assertEquals(citations[0]?.provenance, "provider");
   assertEquals(citations[0]?.sourceId, "src_1");
+});
+
+Deno.test("mapProviderMetadataToCitations extracts Google grounding chunk URLs", () => {
+  const citations = mapProviderMetadataToCitations({
+    google: {
+      groundingMetadata: {
+        groundingChunks: [
+          {
+            web: {
+              uri: "https://deno.com/blog/introducing-deno-sandbox",
+              title: "Introducing Deno Sandbox",
+            },
+          },
+          {
+            retrievedContext: {
+              uri: "https://docs.deno.com/runtime/manual",
+              title: "Deno Manual",
+            },
+          },
+          {
+            image: {
+              sourceUri: "https://example.com/image-source",
+              title: "Image source",
+            },
+          },
+          {
+            maps: {
+              uri: "not-a-http-url",
+              title: "Ignored non-http source",
+            },
+          },
+        ],
+      },
+    },
+  });
+
+  assertEquals(citations.length, 3);
+  assertEquals(
+    citations.map((citation) => citation.url),
+    [
+      "https://deno.com/blog/introducing-deno-sandbox",
+      "https://docs.deno.com/runtime/manual",
+      "https://example.com/image-source",
+    ],
+  );
+  assertEquals(
+    citations.every((citation) => citation.provenance === "provider"),
+    true,
+  );
 });
 
 Deno.test("buildRetrievalCitations prefers the strongest passage-backed source per URL", () => {

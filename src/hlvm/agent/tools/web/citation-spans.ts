@@ -133,6 +133,78 @@ function makeCitation(
   };
 }
 
+function getHttpUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.startsWith("http://") || trimmed.startsWith("https://")
+    ? trimmed
+    : null;
+}
+
+type GoogleGroundingChunk = {
+  web?: { uri?: string; title?: string | null } | null;
+  image?: { sourceUri?: string; title?: string | null } | null;
+  retrievedContext?: { uri?: string | null; title?: string | null } | null;
+  maps?: { uri?: string | null; title?: string | null } | null;
+};
+
+function extractGoogleGroundingChunks(
+  providerMetadata: Record<string, unknown> | undefined,
+): GoogleGroundingChunk[] {
+  if (!isObjectValue(providerMetadata?.google)) return [];
+  const googleMetadata = providerMetadata.google as Record<string, unknown>;
+  if (!isObjectValue(googleMetadata.groundingMetadata)) return [];
+  const groundingMetadata = googleMetadata.groundingMetadata as Record<
+    string,
+    unknown
+  >;
+  return Array.isArray(groundingMetadata.groundingChunks)
+    ? groundingMetadata.groundingChunks.filter((chunk): chunk is GoogleGroundingChunk =>
+      isObjectValue(chunk)
+    )
+    : [];
+}
+
+export function mapProviderMetadataToCitations(
+  providerMetadata: Record<string, unknown> | undefined,
+): Citation[] {
+  const chunks = extractGoogleGroundingChunks(providerMetadata);
+  if (chunks.length === 0) return [];
+
+  const deduped = new Map<string, Citation>();
+  for (const chunk of chunks) {
+    const candidates = [
+      {
+        url: getHttpUrl(chunk.web?.uri),
+        title: chunk.web?.title,
+      },
+      {
+        url: getHttpUrl(chunk.image?.sourceUri),
+        title: chunk.image?.title,
+      },
+      {
+        url: getHttpUrl(chunk.retrievedContext?.uri),
+        title: chunk.retrievedContext?.title,
+      },
+      {
+        url: getHttpUrl(chunk.maps?.uri),
+        title: chunk.maps?.title,
+      },
+    ];
+    for (const candidate of candidates) {
+      if (!candidate.url || deduped.has(candidate.url)) continue;
+      deduped.set(candidate.url, {
+        url: candidate.url,
+        title: typeof candidate.title === "string" ? candidate.title : candidate.url,
+        provenance: "provider",
+        providerMetadata,
+      });
+    }
+  }
+
+  return [...deduped.values()];
+}
+
 function evidenceStrengthRank(value: unknown): number {
   switch (value) {
     case "high":

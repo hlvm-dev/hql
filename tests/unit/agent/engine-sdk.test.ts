@@ -7,6 +7,7 @@ import {
   mapSdkToolCalls,
   mergeSdkWebCapabilityTools,
   repairMalformedToolCallInput,
+  resolveForcedProviderNativeToolChoice,
   resolveProviderNativeRouteFailureFromError,
   SdkAgentEngine,
 } from "../../../src/hlvm/agent/engine-sdk.ts";
@@ -241,6 +242,69 @@ Deno.test("engine sdk: provider-executed native web_search tool calls are exclud
       toolName: "read_file",
       args: { path: "README.md" },
     }],
+  );
+});
+
+Deno.test("engine sdk: explicit single-tool provider-native surfaces force the routed tool choice", () => {
+  const providerExecutionPlan = resolveProviderExecutionPlan({
+    providerName: "google",
+    allowlist: ["web_search"],
+    nativeCapabilities: {
+      webSearch: true,
+      webPageRead: false,
+      remoteCodeExecution: false,
+    },
+  });
+  const executionSurface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "google/gemini-2.5-flash-lite",
+    pinnedProviderName: "google",
+    providerExecutionPlan,
+  });
+
+  assertEquals(
+    resolveForcedProviderNativeToolChoice({
+      allowlist: ["web_search"],
+      executionSurface,
+      availableToolNames: ["web_search"],
+    }),
+    { type: "tool", toolName: "web_search" },
+  );
+});
+
+Deno.test("engine sdk: forced provider-native tool choice stays off when the routed backend is not native", () => {
+  const providerExecutionPlan = resolveProviderExecutionPlan({
+    providerName: "google",
+    allowlist: ["web_search"],
+    nativeCapabilities: {
+      webSearch: true,
+      webPageRead: false,
+      remoteCodeExecution: false,
+    },
+  });
+  const executionSurface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "google/gemini-2.5-flash-lite",
+    pinnedProviderName: "google",
+    providerExecutionPlan,
+    fallbackState: {
+      suppressedCandidates: [{
+        capabilityId: "web.search",
+        backendKind: "provider-native",
+        toolName: "web_search",
+        routePhase: "tool-start",
+        failureReason: "provider-native search failed",
+      }],
+    },
+  });
+
+  assertEquals(
+    resolveForcedProviderNativeToolChoice({
+      allowlist: ["web_search"],
+      executionSurface,
+      availableToolNames: ["search_web"],
+    }),
+    undefined,
   );
 });
 

@@ -459,3 +459,113 @@
 
           (else
            `((fn [] (throw (new Error "Invalid match clause")))))))))
+
+// ====================
+// Threading macros with nil-short-circuiting
+// ====================
+
+// some-> threads value through forms, short-circuiting on nil
+(macro some-> [expr & forms]
+  (if (seq forms)
+    (let (first-form (%first forms)
+          rest-forms (%rest forms))
+      (if (seq rest-forms)
+        `(let [g# ~expr]
+           (if (nil? g#) nil
+             (some-> ~(if (list? first-form)
+                         `(~(%first first-form) g# ~@(%rest first-form))
+                         `(~first-form g#))
+                     ~@rest-forms)))
+        `(let [g# ~expr]
+           (if (nil? g#) nil
+             ~(if (list? first-form)
+                `(~(%first first-form) g# ~@(%rest first-form))
+                `(~first-form g#))))))
+    expr))
+
+// some->> threads value as last arg, short-circuiting on nil
+(macro some->> [expr & forms]
+  (if (seq forms)
+    (let (first-form (%first forms)
+          rest-forms (%rest forms))
+      (if (seq rest-forms)
+        `(let [g# ~expr]
+           (if (nil? g#) nil
+             (some->> ~(if (list? first-form)
+                          `(~@first-form g#)
+                          `(~first-form g#))
+                      ~@rest-forms)))
+        `(let [g# ~expr]
+           (if (nil? g#) nil
+             ~(if (list? first-form)
+                `(~@first-form g#)
+                `(~first-form g#))))))
+    expr))
+
+// ====================
+// Conditional threading macros
+// ====================
+
+// cond-> threads value through forms where test passes
+(macro cond-> [expr & clauses]
+  (if (seq clauses)
+    (let (test (%first clauses)
+          form (%nth clauses 1)
+          rest-clauses (%rest (%rest clauses)))
+      (if (seq rest-clauses)
+        `(let [g# ~expr]
+           (cond-> ~(if (list? form)
+                      `(if ~test (~(%first form) g# ~@(%rest form)) g#)
+                      `(if ~test (~form g#) g#))
+                   ~@rest-clauses))
+        `(let [g# ~expr]
+           ~(if (list? form)
+              `(if ~test (~(%first form) g# ~@(%rest form)) g#)
+              `(if ~test (~form g#) g#)))))
+    expr))
+
+// cond->> threads value as last arg where test passes
+(macro cond->> [expr & clauses]
+  (if (seq clauses)
+    (let (test (%first clauses)
+          form (%nth clauses 1)
+          rest-clauses (%rest (%rest clauses)))
+      (if (seq rest-clauses)
+        `(let [g# ~expr]
+           (cond->> ~(if (list? form)
+                       `(if ~test (~@form g#) g#)
+                       `(if ~test (~form g#) g#))
+                    ~@rest-clauses))
+        `(let [g# ~expr]
+           ~(if (list? form)
+              `(if ~test (~@form g#) g#)
+              `(if ~test (~form g#) g#)))))
+    expr))
+
+// ====================
+// condp - Multi-test dispatch
+// ====================
+
+// condp dispatches on (pred test-val expr) pairs
+// Usage: (condp = x 1 "one" 2 "two" "default")
+(macro condp [pred expr & clauses]
+  (let (clause-count (%length clauses))
+    (if (=== clause-count 0)
+      `(throw (new Error "No matching clause in condp"))
+      (if (=== clause-count 1)
+        // Odd number of clauses: last is default
+        (%first clauses)
+        (let (test-val (%first clauses)
+              result (%nth clauses 1)
+              rest-clauses (%rest (%rest clauses)))
+          `(if (~pred ~test-val ~expr)
+             ~result
+             (condp ~pred ~expr ~@rest-clauses)))))))
+
+// ====================
+// comment - Ignored body (documentation)
+// ====================
+
+// comment ignores all forms in body — useful for inline examples
+(macro comment [& body]
+  nil)

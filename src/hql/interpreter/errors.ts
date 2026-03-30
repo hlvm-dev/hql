@@ -86,7 +86,7 @@ export class MaxCallDepthError extends InterpreterError {
  * Error: Type error during interpretation
  * Named HQLTypeError to avoid shadowing global TypeError
  */
-export class HQLTypeError extends InterpreterError {
+class HQLTypeError extends InterpreterError {
   readonly expected: string;
   readonly received: string;
 

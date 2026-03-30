@@ -219,11 +219,27 @@ function wrapForAsyncEval(code: string): string {
   while (lastIdx >= 0 && !lines[lastIdx].trim()) lastIdx--;
 
   if (lastIdx >= 0) {
-    const lastLine = lines[lastIdx].trimStart();
+    const originalLine = lines[lastIdx];
+    const indent = originalLine.length - originalLine.trimStart().length;
+    const lastLine = originalLine.trimStart();
+    let returnPrefix = "";
+    let returnCandidate = lastLine;
+
+    const lastSemicolon = lastLine.lastIndexOf(";");
+    if (lastSemicolon >= 0 && lastSemicolon < lastLine.length - 1) {
+      returnPrefix = lastLine.slice(0, lastSemicolon + 1).trimEnd();
+      returnCandidate = lastLine.slice(lastSemicolon + 1).trimStart();
+    }
+
     // Only inject return if last line is a single expression (no semicolons, not a statement keyword)
-    if (!STATEMENT_KEYWORD_RE.test(lastLine) && !lastLine.includes(";")) {
-      const indent = lines[lastIdx].length - lines[lastIdx].trimStart().length;
-      lines[lastIdx] = " ".repeat(indent) + "return (" + lastLine + ")";
+    if (
+      !STATEMENT_KEYWORD_RE.test(returnCandidate) &&
+      !returnCandidate.includes(";")
+    ) {
+      const prefixedReturn = returnPrefix
+        ? `${returnPrefix} return (${returnCandidate})`
+        : `return (${returnCandidate})`;
+      lines[lastIdx] = " ".repeat(indent) + prefixedReturn;
     }
   }
 

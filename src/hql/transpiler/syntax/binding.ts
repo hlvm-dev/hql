@@ -676,6 +676,25 @@ function makeIIFE(bodyBlock: IR.IRBlockStatement): IR.IRNode {
  * This is used for let bindings to prevent mutation of reference types
  * Uses recursive freezing to freeze nested objects/arrays
  */
+/**
+ * Check if a node is a primitive literal that doesn't need Object.freeze().
+ * Primitives (strings, numbers, booleans, null, bigints) are already immutable
+ * in JavaScript, so wrapping them in deepFreeze is a no-op at runtime cost.
+ */
+function isPrimitiveLiteral(node: IR.IRNode): boolean {
+  switch (node.type) {
+    case IR.IRNodeType.StringLiteral:
+    case IR.IRNodeType.NumericLiteral:
+    case IR.IRNodeType.BooleanLiteral:
+    case IR.IRNodeType.NullLiteral:
+    case IR.IRNodeType.BigIntLiteral:
+      return true;
+    default:
+      return false;
+  }
+}
+
 function wrapWithFreeze(node: IR.IRNode): IR.IRNode {
+  if (isPrimitiveLiteral(node)) return node;
   return createCall(createId(DEEP_FREEZE_HELPER), [node]);
 }

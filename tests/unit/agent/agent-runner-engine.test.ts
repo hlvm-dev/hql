@@ -15,6 +15,7 @@ import {
   resetAgentEngine,
   setAgentEngine,
 } from "../../../src/hlvm/agent/engine.ts";
+import type { AgentUIEvent } from "../../../src/hlvm/agent/orchestrator.ts";
 import { resolveProviderExecutionPlan } from "../../../src/hlvm/agent/tool-capabilities.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
@@ -354,6 +355,79 @@ Deno.test({
       );
     } finally {
       await disposeAllSessions();
+      await platform.fs.remove(workspace, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "agent-runner: auto-mode emits web.search capability_routed from final response metadata when provider-native search returns text-only output",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const platform = getPlatform();
+    const workspace = platform.path.join(
+      platform.process.cwd(),
+      ".tmp",
+      `hlvm-agent-provider-search-${generateUUID()}`,
+    );
+    await platform.fs.mkdir(workspace, { recursive: true });
+
+    const events: AgentUIEvent[] = [];
+    const providerNativeSearchEngine: AgentEngine = {
+      createLLM: () =>
+        () =>
+          Promise.resolve({
+            content:
+              'The latest post is "Introducing Deno Sandbox" at https://deno.com/blog/introducing-deno-sandbox.',
+            toolCalls: [],
+            sources: [{
+              id: "src-deno-blog",
+              sourceType: "url",
+              url: "https://deno.com/blog/introducing-deno-sandbox",
+              title: "Introducing Deno Sandbox",
+            }],
+            providerMetadata: { google: { groundingMetadata: {} } },
+          }),
+      createSummarizer: () => () => Promise.resolve(""),
+    };
+
+    try {
+      await withEngineOverride(providerNativeSearchEngine, async () => {
+        const result = await runAgentQuery({
+          query:
+            "Use live web search right now to find the latest post on the official Deno blog.",
+          model: "google/gemini-2.5-flash",
+          modelInfo: null,
+          callbacks: {
+            onAgentEvent: (event) => events.push(event),
+          },
+          workspace,
+          runtimeMode: "auto",
+          toolAllowlist: ["web_search"],
+          disablePersistentMemory: true,
+        });
+
+        const routed = events.find((event): event is Extract<
+          AgentUIEvent,
+          { type: "capability_routed" }
+        > =>
+          event.type === "capability_routed" &&
+          event.capabilityId === "web.search"
+        );
+        assertExists(routed);
+        assertEquals(routed.routePhase, "tool-start");
+        assertEquals(routed.selectedBackendKind, "provider-native");
+        assertEquals(routed.selectedToolName, "web_search");
+        assertEquals(
+          result.finalResponseMeta?.citationSpans.some((citation) =>
+            citation.provenance === "provider"
+          ),
+          true,
+        );
+      });
+    } finally {
       await platform.fs.remove(workspace, { recursive: true });
     }
   },

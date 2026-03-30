@@ -218,7 +218,7 @@ function isMacroFunction(value: Value): value is MacroFn {
 
 type ModuleImporter = () => Promise<Record<string, Value>>;
 
-export interface ImportProcessorOptions {
+interface ImportProcessorOptions {
   verbose?: boolean;
   baseDir?: string;
   tempDir?: string;

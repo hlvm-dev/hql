@@ -62,7 +62,7 @@
  *         sender_type:
  *           type: string
  *           nullable: true
- *           enum: [user, llm, agent, system]
+ *           enum: [user, llm, agent, system, reference, eval]
  *         sender_detail:
  *           type: string
  *           nullable: true
@@ -201,7 +201,7 @@
  *         sender_type:
  *           type: string
  *           nullable: true
- *           enum: [user, llm, agent, system]
+ *           enum: [user, llm, agent, system, reference, eval]
  *         sender_detail:
  *           type: string
  *           nullable: true
@@ -253,7 +253,7 @@
  *       properties:
  *         mode:
  *           type: string
- *           enum: [chat, agent, claude-code-agent]
+ *           enum: [chat, eval, agent, claude-code-agent]
  *         session_id:
  *           type: string
  *           description: |

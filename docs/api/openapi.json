@@ -3,7 +3,7 @@
   "info": {
     "title": "HLVM REPL HTTP API",
     "version": "0.1.0",
-    "description": "HTTP API for the HLVM REPL server — chat, sessions, messages, models, config, and eval."
+    "description": "HTTP API for the HLVM REPL server — chat, sessions, messages, models, config, completions, and health."
   },
   "servers": [
     {
@@ -39,7 +39,7 @@
     },
     {
       "name": "REPL",
-      "description": "Eval, completions, and health check"
+      "description": "Completions and health check"
     },
     {
       "name": "Bindings",
@@ -281,6 +281,389 @@
           },
           "404": {
             "description": "Request not found or already completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/messages": {
+      "get": {
+        "tags": [
+          "Messages"
+        ],
+        "summary": "List messages in a session",
+        "operationId": "getMessages",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Session ID."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_order",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Return only messages with order > this value."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated messages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeSessionMessagesResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Messages"
+        ],
+        "summary": "Add a message to a session",
+        "operationId": "addMessage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Session ID."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "system",
+                      "user",
+                      "assistant",
+                      "tool"
+                    ]
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "client_turn_id": {
+                    "type": "string"
+                  },
+                  "sender_type": {
+                    "type": "string"
+                  },
+                  "attachment_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "role",
+                  "content"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Message created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeSessionMessage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing role or content.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/messages/{messageId}": {
+      "get": {
+        "tags": [
+          "Messages"
+        ],
+        "summary": "Get a single message",
+        "operationId": "getMessage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Session ID."
+          },
+          {
+            "in": "path",
+            "name": "messageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Message ID (integer) or client_turn_id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeSessionMessage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid messageId.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session or message not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Messages"
+        ],
+        "summary": "Update a message",
+        "operationId": "updateMessage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Session ID."
+          },
+          {
+            "in": "path",
+            "name": "messageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Message ID (integer) or client_turn_id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  },
+                  "cancelled": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated message.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeSessionMessage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No fields to update or invalid messageId.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session or message not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Messages"
+        ],
+        "summary": "Delete a message",
+        "operationId": "deleteMessage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Session ID."
+          },
+          {
+            "in": "path",
+            "name": "messageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Message ID (integer) or client_turn_id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid messageId.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session or message not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal deletion failure.",
             "content": {
               "application/json": {
                 "schema": {
@@ -754,6 +1137,39 @@
         }
       }
     },
+    "/api/chat/stream": {
+      "get": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "SSE stream for the active conversation",
+        "operationId": "streamActiveConversation",
+        "description": "Server-Sent Events stream for real-time active-conversation updates.\nEvents: snapshot, message_added, message_updated, message_deleted,\nconversation_updated. Supports Last-Event-ID for replay.\n",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Resume from this event ID on reconnect."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE event stream.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "x-response-type": "stream"
+          }
+        }
+      }
+    },
     "/api/completions": {
       "post": {
         "tags": [
@@ -1144,7 +1560,9 @@
               "user",
               "llm",
               "agent",
-              "system"
+              "system",
+              "reference",
+              "eval"
             ]
           },
           "sender_detail": {
@@ -1397,7 +1815,9 @@
               "user",
               "llm",
               "agent",
-              "system"
+              "system",
+              "reference",
+              "eval"
             ]
           },
           "sender_detail": {
@@ -1485,12 +1905,18 @@
             "type": "string",
             "enum": [
               "chat",
+              "eval",
               "agent",
               "claude-code-agent"
             ]
           },
           "session_id": {
-            "type": "string"
+            "type": "string",
+            "description": "Optional explicit session to reuse or create. Omit to use the\ndaemon's active conversation, or combine with `stateless` to\nkeep the request isolated from the active visible session.\n"
+          },
+          "stateless": {
+            "type": "boolean",
+            "description": "When true, run this request in a fresh hidden session without\nrebinding the daemon's active visible conversation unless an\nexplicit `session_id` is provided.\n"
           },
           "messages": {
             "type": "array",
@@ -1544,10 +1970,6 @@
           "expected_version": {
             "type": "integer",
             "description": "Optimistic concurrency — reject if session has been modified."
-          },
-          "stateless": {
-            "type": "boolean",
-            "description": "When true, use a fresh hidden session for this request only without rebinding the daemon's active conversation."
           }
         },
         "required": [

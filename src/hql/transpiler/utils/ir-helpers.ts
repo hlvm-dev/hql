@@ -105,7 +105,7 @@ export function createExprStmt(expr: IR.IRNode): IR.IRExpressionStatement {
   return { type: IR.IRNodeType.ExpressionStatement, expression: expr };
 }
 
-export function ensureStatement(node: IR.IRNode): IR.IRNode {
+function ensureStatement(node: IR.IRNode): IR.IRNode {
   return STATEMENT_TYPES.has(node.type) ? node : createExprStmt(node);
 }
 

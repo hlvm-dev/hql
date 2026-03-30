@@ -2,6 +2,7 @@ import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import type { OrchestratorConfig } from "../../../src/hlvm/agent/orchestrator.ts";
 import type { FinalResponseMeta } from "../../../src/hlvm/agent/orchestrator.ts";
+import type { LLMResponse } from "../../../src/hlvm/agent/tool-call.ts";
 import {
   handleFinalResponse,
   handlePostToolExecution,
@@ -12,6 +13,7 @@ import {
   resolveLoopConfig,
 } from "../../../src/hlvm/agent/orchestrator-state.ts";
 import { resolveTools } from "../../../src/hlvm/agent/registry.ts";
+import { resolveProviderExecutionPlan } from "../../../src/hlvm/agent/tool-capabilities.ts";
 import { buildCitationSourceIndex } from "../../../src/hlvm/agent/tools/web/citation-spans.ts";
 
 Deno.test("handleTextOnlyResponse retries when a model emits a plain-text function-style tool call", () => {
@@ -37,6 +39,72 @@ Deno.test("handleTextOnlyResponse retries when a model emits a plain-text functi
     messages[0]?.content ?? "",
     "Native tool calling required",
   );
+});
+
+Deno.test("handleTextOnlyResponse repairs a locally executable plain-text function-style tool call after retry budget is exhausted", () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.midLoopFormatRetries = lc.maxToolCallRetries;
+  const response: LLMResponse = {
+    content: 'read_file({"path":"README.md"})',
+    toolCalls: [],
+  };
+
+  const result = handleTextOnlyResponse(
+    response,
+    response.content,
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "proceed");
+  assertEquals(response.content, "");
+  assertEquals(response.toolCalls.length, 1);
+  assertEquals(response.toolCalls[0]?.toolName, "read_file");
+  assertEquals(response.toolCalls[0]?.args.path, "README.md");
+});
+
+Deno.test("handleTextOnlyResponse does not repair provider-executed tool envelopes into local execution", () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "google",
+      allowlist: ["web_search"],
+      nativeCapabilities: {
+        webSearch: true,
+        webPageRead: false,
+        remoteCodeExecution: false,
+      },
+    }),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.midLoopFormatRetries = lc.maxToolCallRetries;
+  const response: LLMResponse = {
+    content: 'web_search({"query":"latest Deno blog"})',
+    toolCalls: [],
+  };
+
+  const result = handleTextOnlyResponse(
+    response,
+    response.content,
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "return");
+  if (result.action !== "return") {
+    throw new Error("Expected handleTextOnlyResponse to return a terminal failure");
+  }
+  assertStringIncludes(result.value, "Native tool calling required");
+  assertEquals(response.toolCalls.length, 0);
 });
 
 Deno.test("handleFinalResponse retries when a post-tool answer contains a plain-text function-style tool call", async () => {
@@ -171,6 +239,50 @@ Deno.test("handleFinalResponse prefers provider-native sources over inferred cit
   );
   assertEquals(finalMeta?.citationSpans?.[0]?.provenance, "provider");
   assertEquals(finalMeta?.providerMetadata?.google !== undefined, true);
+});
+
+Deno.test("handleFinalResponse derives provider-native citations from Google grounding metadata when sources are absent", async () => {
+  let finalMeta: FinalResponseMeta | undefined;
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    onFinalResponseMeta: (meta) => {
+      finalMeta = meta;
+    },
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+
+  const result = await handleFinalResponse(
+    "Introducing Deno Sandbox is the latest Deno post.",
+    {
+      toolCallsMade: 0,
+      finalResponse: "Introducing Deno Sandbox is the latest Deno post.",
+      providerMetadata: {
+        google: {
+          groundingMetadata: {
+            groundingChunks: [{
+              web: {
+                uri: "https://deno.com/blog/introducing-deno-sandbox",
+                title: "Introducing Deno Sandbox",
+              },
+            }],
+          },
+        },
+      },
+    },
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "return");
+  assertEquals(finalMeta?.citationSpans?.length, 1);
+  assertEquals(
+    finalMeta?.citationSpans?.[0]?.url,
+    "https://deno.com/blog/introducing-deno-sandbox",
+  );
+  assertEquals(finalMeta?.citationSpans?.[0]?.provenance, "provider");
 });
 
 Deno.test("handlePostToolExecution marks native provider sources as web usage", async () => {

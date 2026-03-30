@@ -47,6 +47,30 @@ export function listSessions(): SessionRow[] {
   ).all<SessionRow>();
 }
 
+export function getHostStateValue(key: string): string | null {
+  const db = getDb();
+  const row = db.prepare(
+    "SELECT value FROM host_state WHERE key = ?",
+  ).get<{ value: string }>(key);
+  return row?.value ?? null;
+}
+
+export function setHostStateValue(key: string, value: string): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO host_state (key, value, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET
+       value = excluded.value,
+       updated_at = excluded.updated_at`,
+  ).run(key, value, new Date().toISOString());
+}
+
+export function deleteHostStateValue(key: string): void {
+  const db = getDb();
+  db.prepare("DELETE FROM host_state WHERE key = ?").run(key);
+}
+
 export function updateSession(
   id: string,
   patch: { title?: string; metadata?: string | null },

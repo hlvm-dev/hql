@@ -20,7 +20,7 @@ const definition: swaggerJsdoc.Options["definition"] = {
     title: "HLVM REPL HTTP API",
     version: "0.1.0",
     description:
-      "HTTP API for the HLVM REPL server — chat, sessions, messages, models, config, and eval.",
+      "HTTP API for the HLVM REPL server — chat, sessions, messages, models, config, completions, and health.",
   },
   servers: [{ url: "http://127.0.0.1:11435", description: "Local REPL server" }],
   security: [{ BearerAuth: [] }],
@@ -30,7 +30,7 @@ const definition: swaggerJsdoc.Options["definition"] = {
     { name: "Messages", description: "Session message CRUD" },
     { name: "Models", description: "AI model management" },
     { name: "Config", description: "Runtime configuration" },
-    { name: "REPL", description: "Eval, completions, and health check" },
+    { name: "REPL", description: "Completions and health check" },
     { name: "Bindings", description: "HQL binding function endpoints" },
   ],
 };

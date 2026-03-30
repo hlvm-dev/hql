@@ -29,12 +29,7 @@ type AnthropicToolClient = {
 
 type GoogleToolClient = {
   tools?: {
-    googleSearch?: (
-      options?: {
-        mode?: "MODE_DYNAMIC" | "MODE_UNSPECIFIED";
-        dynamicThreshold?: number;
-      },
-    ) => ToolFactoryResult;
+    googleSearch?: EmptyOptionsFactory;
     urlContext?: () => ToolFactoryResult;
     codeExecution?: () => ToolFactoryResult;
   };
@@ -92,11 +87,7 @@ function createGoogleNativeTools(client: GoogleToolClient): ToolSet {
   return mergeToolSets(
     safeToolSet(
       NATIVE_WEB_SEARCH_TOOL_NAME,
-      () =>
-        client.tools?.googleSearch?.({
-          mode: "MODE_DYNAMIC",
-          dynamicThreshold: 0.7,
-        }),
+      () => client.tools?.googleSearch?.({}),
     ),
     safeToolSet(
       WEB_PAGE_READ_TOOL_NAME,

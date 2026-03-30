@@ -256,6 +256,44 @@ export function filterLocallyExecutableToolCalls(
   return calls.filter((call) => !providerExecutedToolNames.has(call.toolName));
 }
 
+export function resolveForcedProviderNativeToolChoice(options: {
+  allowlist?: readonly string[];
+  executionSurface?: ExecutionSurface;
+  availableToolNames?: readonly string[];
+}): { type: "tool"; toolName: string } | undefined {
+  if (options.executionSurface?.runtimeMode !== "auto") {
+    return undefined;
+  }
+  if (options.allowlist?.length !== 1) {
+    return undefined;
+  }
+
+  const requestedToolName = options.allowlist[0];
+  const routedCapabilities = [
+    options.executionSurface.capabilities["web.search"],
+    options.executionSurface.capabilities["web.read"],
+    options.executionSurface.capabilities["code.exec"],
+  ];
+  const matchingProviderNativeRoute = routedCapabilities.find((route) =>
+    route.selectedBackendKind === "provider-native" &&
+    route.selectedToolName === requestedToolName
+  );
+  if (!matchingProviderNativeRoute) {
+    return undefined;
+  }
+  if (
+    options.availableToolNames?.length &&
+    !options.availableToolNames.includes(requestedToolName)
+  ) {
+    return undefined;
+  }
+
+  return {
+    type: "tool",
+    toolName: requestedToolName,
+  };
+}
+
 // ============================================================
 // SdkAgentEngine
 // ============================================================
@@ -732,6 +770,11 @@ export class SdkAgentEngine implements AgentEngine {
           providerExecutionPlan,
           config.executionSurface,
         );
+        const forcedToolChoice = resolveForcedProviderNativeToolChoice({
+          allowlist: toolFilters.allowlist,
+          executionSurface: config.executionSurface,
+          availableToolNames: Object.keys(sdkTools),
+        });
 
         const cacheDecorated = applyPromptCaching(
           spec,
@@ -757,6 +800,7 @@ export class SdkAgentEngine implements AgentEngine {
           maxTokens: config.options?.maxTokens,
           abortSignal: signal,
           experimental_repairToolCall: repairToolCall,
+          ...(forcedToolChoice ? { toolChoice: forcedToolChoice } : {}),
           ...(cacheDecorated.providerOptions
             ? { providerOptions: cacheDecorated.providerOptions }
             : {}),

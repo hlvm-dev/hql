@@ -106,23 +106,25 @@ USAGE:
   hlvm serve
 
 ENDPOINTS:
-  POST /eval      Evaluate code (HQL or JS via (js ...))
-  GET  /health    Health check
+  POST /api/chat          Submit chat, eval, or agent turns
+  GET  /api/chat/messages Read active conversation messages
+  GET  /api/chat/stream   Subscribe to active conversation updates
+  GET  /health            Health check
 
 DESCRIPTION:
   Starts the local HLVM runtime host on port 11435.
   Used by GUI clients and host-backed CLI surfaces.
-  Input starting with '(' is code (HQL or JS via (js ...)),
-  all other input is AI conversation.
+  GUI-visible top-level submission flows through POST /api/chat.
+  Internal compatibility primitives remain available but are not part of the public contract.
 
 EXAMPLES:
   hlvm serve                                  # Start server
   curl http://localhost:11435/health          # Health check
-  curl -X POST http://localhost:11435/eval \\
+  curl -X POST http://localhost:11435/api/chat \\
     -H "Content-Type: application/json" \\
-    -d '{"code":"(+ 1 2)"}'                   # Evaluate HQL
-  curl -X POST http://localhost:11435/eval \\
+    -d '{"mode":"eval","messages":[{"role":"user","content":"(+ 1 2)"}]}'  # Evaluate HQL
+  curl -X POST http://localhost:11435/api/chat \\
     -H "Content-Type: application/json" \\
-    -d '{"code":"let a = 10"}'                # Evaluate JavaScript
+    -d '{"mode":"chat","messages":[{"role":"user","content":"hello"}]}'    # Chat
 `);
 }

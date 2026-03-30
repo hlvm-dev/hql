@@ -16,6 +16,8 @@ const RE_TOOL_CALL_JSON =
   /\{[\s\S]*?"(toolName|tool_name|function_name|name)"\s*:\s*"[^"]+"[\s\S]*?"(args|parameters|arguments)"\s*:\s*[\s\S]*?\}/m;
 const RE_TOOL_CALL_TEXT_ENVELOPE =
   /^\s*[a-z_][\w.]*\s*\(\s*\{[\s\S]*\}\s*\)\s*$/i;
+const RE_TOOL_CALL_TEXT_ENVELOPE_CAPTURE =
+  /^\s*([a-z_][\w.]*)\s*\(\s*(\{[\s\S]*\})\s*\)\s*$/i;
 const RE_JSON_OBJECT_TOOL = /\bjson object\b/;
 const RE_TOOL_WORD = /\btool\b/;
 const RE_FUNCTION_TOOL_CALL = /\b(function|tool)\s+call(ing)?\s*[:\(]/i;
@@ -38,6 +40,33 @@ export function looksLikeToolCallJsonAnywhere(text: string): boolean {
  */
 export function looksLikeToolCallTextEnvelope(text: string): boolean {
   return RE_TOOL_CALL_TEXT_ENVELOPE.test(text.trim());
+}
+
+export function parseToolCallTextEnvelope(
+  text: string,
+): { toolName: string; args: Record<string, unknown> } | null {
+  const match = RE_TOOL_CALL_TEXT_ENVELOPE_CAPTURE.exec(text.trim());
+  if (!match) {
+    return null;
+  }
+  const toolName = match[1]?.trim();
+  const rawArgs = match[2]?.trim();
+  if (!toolName || !rawArgs) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawArgs);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return {
+      toolName,
+      args: parsed as Record<string, unknown>,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**

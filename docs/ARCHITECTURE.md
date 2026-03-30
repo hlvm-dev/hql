@@ -322,7 +322,7 @@ Used by: /api/chat/stream, models/stream, config/stream
 
 | Method | Path | Auth | Response | Purpose |
 |--------|------|------|----------|---------|
-| POST | `/eval` | Yes | JSON | Evaluate code (HQL or JS via `(js ...)`) |
+| POST | `/eval` | Yes | JSON | Internal compatibility eval primitive (non-GUI) |
 | POST | `/api/completions` | Yes | JSON | Code completions |
 
 ### Memory Functions
@@ -461,7 +461,7 @@ When the user types `(map inc (range 5))` in Spotlight:
 ```
 GUI: detect "(" prefix → eval mode
    │
-   ├── POST :11435/eval { "code": "(map inc (range 5))" }
+   ├── POST :11435/api/chat { "mode": "eval", "messages": [{ "role": "user", "content": "(map inc (range 5))" }] }
    │
    ▼
 Server: evaluator.ts → analyzeExpression()
@@ -554,7 +554,7 @@ GUI Process                           hlvm serve (:11435)
  ───────────────────▶  POST /api/chat                  ⑤
 
  REST (on-demand):
- - - - - - - - - - ▶  POST /eval                       ⑥
+ - - - - - - - - - ▶  POST /api/chat (mode: eval)     ⑥
                        GET /api/models                  ⑦
                        PATCH /api/config                ⑧
                        POST /api/chat/cancel            ⑨
@@ -1025,7 +1025,7 @@ User presses Ctrl+3
   │   │                                                                                           │ │
   │   │  ReplServerManager    → Spawns hlvm binary, health checks, crash recovery                │ │
   │   │  HqlChatClient        → HTTP streaming to /api/chat (NDJSON line parser)                 │ │
-  │   │  HqlAPIClient         → HTTP calls to /eval, /complete, /api/memory/*                    │ │
+  │   │  HqlAPIClient         → HTTP calls to /api/chat, /api/completions, /api/memory/*         │ │
   │   │  HttpManager           → URLSession + StreamLineDelegate, async streams                   │ │
   │   │  JSON.swift            → yyjson C library, zero-copy parsing, thread-local codec pool     │ │
   │   │                                                                                           │ │
@@ -1060,8 +1060,8 @@ User presses Ctrl+3
                    └───────────────────────────┘│└──────────────────────────────┘
                                                │
                    ┌───────────────────────────┐│┌──────────────────────────────┐
-                   │  REST (CRUD)             │││  Eval/Complete               │
-                   │  /api/chat/messages      │││  POST /eval       │
+                   │  REST (CRUD)             │││  Internal Helpers            │
+                   │  /api/chat/messages      │││  POST /eval (internal)       │
                    │  /api/models (list/del)   │││  GET  /api/memory/functions  │
                    │  /api/config (get/patch)  │││  POST /api/memory/fn/execute │
                    │  GET /health (no auth)    │││                              │
@@ -1108,7 +1108,7 @@ User presses Ctrl+3
   │   │  └────────────────────────────────────────────────────────────────────────────────────┘   │  │
   │   │                                                                                          │  │
   │   │  ┌─ Eval Engine ─────────────────────────────────────────────────────────────────────┐   │  │
-  │   │  │  POST /eval              → starts with "(" = code (HQL or (js ...)), else = NL    │   │  │
+  │   │  │  POST /api/chat (mode: eval) → top-level eval turn in the active conversation     │   │  │
   │   │  │  POST /api/completions   → code completion (fuzzy match on REPL state)            │   │  │
   │   │  │  GET  /api/memory/functions    → list defn's in REPL memory                       │   │  │
   │   │  │  POST /api/memory/fn/execute   → call a persisted function by name                │   │  │
@@ -1387,7 +1387,7 @@ User presses Ctrl+3
   │   User types: (-> (clipboard) json-parse (get "users") (filter #(> (:age %) 18)) (map :name)) │
   │      │                                                                                          │
   │      ▼                                                                                          │
-  │   GUI → POST :11435/eval  { code: "(-> (clipboard) ...)" }                                     │
+  │   GUI → POST :11435/api/chat { mode: "eval", messages: [{ role: "user", content: "(-> (clipboard) ...)" }] } │
   │      │                                                                                          │
   │      ▼                                                                                          │
   │   Server: analyzeExpression() → starts with "(" → HQL mode                                     │
@@ -1429,7 +1429,7 @@ User presses Ctrl+3
   │      │  (REPL)  │  │ (1-press)  │  │ (Agent)  │                                               │
   │      └────┬─────┘  └─────┬──────┘  └────┬─────┘                                               │
   │           │               │              │                                                      │
-  │           │  /eval        │  /module/run │  /api/chat                                           │
+  │           │  /api/chat    │  /module/run │  /api/chat                                           │
   │           │               │              │                                                      │
   │           ▼               ▼              ▼                                                      │
   │      ┌─────────────────────────────────────────┐                                               │
@@ -2031,15 +2031,15 @@ User presses Ctrl+3
     │  SpotlightView → detect eval mode (input starts with "(")                   │
     │     │                                                                        │
     │     ▼                                                                        │
-    │  HqlAPIClient.eval(code: "(map inc (range 5))")                              │
+    │  ApiManager.submit(mode: .eval, prompt: "(map inc (range 5))", ...)          │
     │     │                                                                        │
-    │     └── POST http://127.0.0.1:11435/eval                                    │
-    │         Body: { "code": "(map inc (range 5))" }                              │
+    │     └── POST http://127.0.0.1:11435/api/chat                                │
+    │         Body: { "mode": "eval", "messages": [{ "role": "user", "content": "(map inc (range 5))" }] } │
     │                                                                              │
     └──────────────────────────────────┬───────────────────────────────────────────┘
                                        │
     ┌──────────────────────────────────▼───────────────────────────────────────────┐
-    │  Server: /eval handler                                                       │
+    │  Server: /api/chat handler (mode: eval)                                      │
     │                                                                              │
     │  evaluator.ts → analyzeExpression("(map inc (range 5))")                     │
     │     │                                                                        │
@@ -2350,7 +2350,7 @@ User presses Ctrl+3
     │  NDJSON (per-chat) ────│──── POST /api/chat              ④   │           │
     │  ─────────────────────▶│     (active agent stream)           │           │
     │                        │                                      │           │
-    │  REST (on-demand) ─────│──── POST /eval                  ⑤   │           │
+    │  REST (on-demand) ─────│──── POST /eval (internal)       ⑤   │           │
     │  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─▶│     GET /api/models             ⑥   │           │
     │                        │     PATCH /api/config            ⑦   │           │
     │                        │     POST /api/chat/cancel        ⑧   │           │

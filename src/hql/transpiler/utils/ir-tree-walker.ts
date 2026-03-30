@@ -168,7 +168,7 @@ function isIIFE(node: IR.IRNode): boolean {
 /**
  * Options for scope-aware walking
  */
-export interface ScopeWalkOptions {
+interface ScopeWalkOptions {
   /** If true, look inside IIFEs instead of stopping at them */
   lookInsideIIFEs?: boolean;
 }
