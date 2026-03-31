@@ -48,7 +48,7 @@ HLVM collapses the gap to zero:
 
   Step 1:  Search "monitor" in HLVM Spotlight     (2 seconds)
   Step 2:  Click Install                           (1 click)
-  Step 3:  Click the module icon on Hotbar         (1 click)
+  Step 3:  Click the module icon in Launchpad       (1 click)
   Step 4:  Enter competitor URL when prompted      (5 seconds)
   Step 5:  Done.
 
@@ -73,12 +73,12 @@ consumed.**
 │                                                             │
 │   AUTHOR              SHARE              CONSUME            │
 │                                                             │
-│   Write HQL     →    Deploy to     →    Click icon on       │
-│   (3-10 lines)       Module Store       macOS Hotbar        │
+│   Write HQL     →    Deploy to     →    Click icon in       │
+│   (3-10 lines)       Registry           macOS Launchpad     │
 │                      (1 command)        (1 click)           │
 │                                                             │
-│   Human or AI        Central            Native macOS        │
-│   can author         registry           GUI                 │
+│   Human or AI        Git registry       Native macOS        │
+│   can author         (Homebrew model)   GUI                 │
 │                      for all                                │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
@@ -94,9 +94,10 @@ traditional algorithms, or any combination. Deploy with one command.
 
 ### Consumers
 
-Browse the Module Store from the HLVM macOS app. Search, discover trending
-modules, read reviews, install with one click. Modules appear on the Hotbar
-as clickable icons. Click to run. Drag to rearrange. Remove what you don't need.
+Browse the Registry from the HLVM macOS app. Search, discover trending
+modules, read reviews, install with one click. Modules appear in the Launchpad
+as clickable icons. Pin favorites to the Hotbar for quick access. Click to run.
+Drag to rearrange. Remove what you don't need.
 
 ### The Platform
 
@@ -129,7 +130,13 @@ Skill loadout per dungeon           Hotbar config per workflow
 ```
 
 The UI is NOT a game. It is macOS native — clean, minimal, professional. The
-Hotbar looks like macOS Dock or Genie. The Store looks like Mac App Store.
+Hotbar looks like macOS Dock or Genie. The Registry browser looks like Mac App
+Store.
+
+> **Note:** The Hotbar is a subset of the Launchpad. All installed modules
+> appear in the Launchpad (full inventory). The Hotbar contains only the modules
+> the user has pinned or assigned shortcuts to. Flow: Registry (browse) -> Install
+> -> Launchpad -> pin/shortcut -> Hotbar.
 
 But the **mental model** is the game: you equip yourself with AI capabilities
 to fight your daily work. Each module is a weapon. The Store is the marketplace
@@ -150,11 +157,11 @@ ONE ESM module (standard JavaScript)
       │
       │  deployed to
       ▼
-ONE entry in the Module Store
+ONE entry in the Registry
       │
       │  installed as
       ▼
-ONE icon on the Hotbar
+ONE icon in the Launchpad
       │
       │  executed with
       ▼
@@ -304,7 +311,7 @@ The revolution is the **integration**. Nobody has combined ALL of these:
 │    + AI primitives as first-class (ai, agent)                │
 │    + Agent team orchestration built-in                       │
 │    + Compiles to standard portable format (ESM)              │
-│    + Central module store for sharing                        │
+│    + Git registry for sharing (Homebrew model)               │
 │    + Native macOS GUI for one-click execution                │
 │    + Full local system access (files, web, shell, git)       │
 │    + Effect system for safety classification                 │
@@ -335,7 +342,7 @@ TODAY (2026):                           HLVM:
 
   Developer-only.                       Anyone with a Mac.
   Fragile.                              Maintained by community.
-  Local-only.                           Shared via Store.
+  Local-only.                           Shared via Registry.
   No reuse.                             One-click reuse.
 ```
 
@@ -343,8 +350,10 @@ TODAY (2026):                           HLVM:
 
 ## The Ecosystem Flywheel
 
-The Module Store is not a "nice to have." It IS the product. Without it, HLVM
-is a local scripting tool. With it, HLVM is a platform.
+The Module Registry is not a "nice to have." It IS the product. Without it,
+HLVM is a local scripting tool. With it, HLVM is a platform. The Registry
+follows the Homebrew model: a Git repository (`hlvm/registry` on GitHub) with
+JSON pointers to author-hosted code. No central server.
 
 ```
 Local tool:     You write, you use.          Value = linear.
@@ -357,7 +366,7 @@ The flywheel:
     Author publishes module
             │
             ▼
-    Module appears in Store ──────────► Users discover it
+    Module appears in Registry ──────────► Users discover it
             ▲                                    │
             │                                    ▼
     More authors join                    Users install, use, star
@@ -382,8 +391,8 @@ Docker          →   Docker Hub             Just another VM tool
 iOS             →   App Store              Just another phone
 VS Code         →   Extension Marketplace  Just another editor
 
-HLVM            →   Module Store           Just another AI tool
-                    (CRITICAL)             (dead on arrival)
+HLVM            →   Git Registry           Just another AI tool
+                    (Homebrew model)       (dead on arrival)
 ```
 
 **NPM made Node.js. Not the other way around.** The registry is the moat.
@@ -409,7 +418,7 @@ Step 5:  Team collaborates using existing infrastructure:
 
 Step 6:  Output: a new HQL module that DOES the thing
 
-Step 7:  Module appears on Hotbar
+Step 7:  Module appears in Launchpad (pin to Hotbar for quick access)
 
 Step 8:  Now user clicks THAT module whenever they want to
          monitor competitor pricing
@@ -417,7 +426,7 @@ Step 8:  Now user clicks THAT module whenever they want to
 
 **AI builds AI capabilities. The platform consumes its own output.** The HQL
 module is the unit of currency — authored by humans OR by AI, compiled to ESM,
-shared through the Store, executed on demand through the GUI.
+shared through the Registry, executed on demand through the GUI.
 
 ---
 
@@ -425,15 +434,16 @@ shared through the Store, executed on demand through the GUI.
 
 In priority order:
 
-### 1. The Module Store (Central Registry)
+### 1. The Module Registry (Git-Based, Homebrew Model)
 
 Without this, nothing else matters. No sharing = no ecosystem = no network
 effect = no PMF. This is the #1 priority.
 
-### 2. The Hotbar / GUI Integration
+### 2. The Launchpad / Hotbar / GUI Integration
 
 Modules must be one-click executable from the macOS GUI. The friction from
-"installed module" to "running module" must be zero.
+"installed module" to "running module" must be zero. Installed modules appear
+in the Launchpad; users pin favorites to the Hotbar.
 
 ### 3. HQL Authoring Experience
 
@@ -476,11 +486,11 @@ EXISTS:
   ✓  Async HOFs (asyncMap, concurrentMap, asyncFilter, etc.)
 
 MISSING:
-  ✗  Module Store (central registry) — THE critical missing piece
+  ✗  Module Registry (Git-based, Homebrew model) — THE critical missing piece
   ✗  hlvm deploy command
-  ✗  Module Store GUI view in macOS app
-  ✗  Module manifest schema (hlvm.json)
-  ✗  Module → Hotbar registration pipeline
+  ✗  Registry browser GUI view in macOS app
+  ✗  Module manifest via (module ...) form + __hlvm_meta
+  ✗  Module → Launchpad → Hotbar pin pipeline
   ✗  Permission model for installed modules
   ✗  Meta-orchestrator lead agent
   ✗  Module packaging metadata (icon, description, params)

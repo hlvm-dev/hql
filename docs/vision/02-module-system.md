@@ -7,19 +7,20 @@
 ## Core Principle
 
 ```
-ONE HQL function  →  ONE ESM module  →  ONE Store entry  →  ONE Hotbar icon  →  ONE click
+ONE HQL function  →  ONE ESM module  →  ONE registry entry  →  ONE Launchpad icon  →  (optionally) ONE Hotbar shortcut
 ```
 
-An HQL module is the **atomic unit of AI capability** in the HLVM ecosystem.
-It encapsulates any combination of traditional code and AI operations behind a
-single callable function that compiles to a standard JavaScript ES Module.
+An HQL module (potion) is the **atomic unit of AI capability** in the HLVM
+ecosystem. It encapsulates any combination of traditional code and AI
+operations behind a single callable function that compiles to a standard
+JavaScript ES Module.
 
 ---
 
 ## What Is a Module
 
-A module is an HQL file that exports one or more functions. Each exported
-function becomes an executable capability in the HLVM ecosystem.
+A module (potion) is an HQL file that exports one or more functions. Each
+exported function becomes an executable capability in the HLVM ecosystem.
 
 ### Minimal Module (3 lines)
 
@@ -91,35 +92,86 @@ TaskUpdate, SendMessage).
 
 ---
 
-## Module Manifest (hlvm.json)
+## The Module Format — One File In, One File Out
 
-Every module includes a manifest that describes it to the HLVM platform and
-Module Store. This file sits alongside the compiled ESM output.
+Every potion is defined in a SINGLE file: `index.hql`. The `(module ...)` form
+is always the first expression — metadata lives inside the code. Compiles to a
+SINGLE output: `main.js` with metadata embedded as `__hlvm_meta`.
 
-```json
-{
-  "name": "Sentiment Analyzer",
-  "description": "Classify text sentiment with confidence score and keywords",
-  "version": "1.2.0",
-  "author": "jane",
-  "icon": "face.smiling",
-  "effect": "ai",
-  "permissions": ["network"],
-  "category": "data-analysis",
-  "params": [
-    {
-      "name": "text",
-      "type": "string",
-      "label": "Text to analyze",
-      "required": true
-    }
-  ],
-  "entry": "./sentiment.js",
-  "source": "hql"
-}
+No manifest. No config. No JSON. One file in, one file out.
+
+```
+┌─── index.hql — The ONE file ─────────────────────────────────────────────┐
+│                                                                           │
+│  (module                                     ;; FIRST FORM (metadata)    │
+│    {name:        "Sentiment Analyzer"                                     │
+│     description: "Classify text sentiment with confidence and keywords"  │
+│     version:     "1.2.0"                                                  │
+│     author:      "jane"                                                   │
+│     icon:        "face.smiling"              ;; SF Symbol name           │
+│     category:    "data-analysis"                                          │
+│     params:      [{name: "text"                                           │
+│                    type: "string"                                          │
+│                    label: "Text to analyze"                                │
+│                    required: true}]})                                      │
+│                                                                           │
+│  ;; That's it for metadata. No separate manifest needed.                 │
+│  ;; Effect and permissions are AUTO-DETECTED by the compiler.            │
+│  ;; The compiler sees ai() calls → marks effect: "ai"                    │
+│  ;; The compiler sees network usage → marks permissions accordingly      │
+│                                                                           │
+│  (generable Sentiment {                                                   │
+│    sentiment: (case "positive" "negative" "neutral")                      │
+│    score:     {type: number min: 0 max: 1}                                │
+│    keywords:  [string]})                                                  │
+│                                                                           │
+│  (export (defn analyze [text]                ;; THE CODE                 │
+│    (ai "analyze sentiment" {data: text schema: Sentiment})))             │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Manifest Fields
+What the compiler produces from this single file:
+
+```
+┌─── Compilation: One File In → One File Out ──────────────────────────────┐
+│                                                                           │
+│  INPUT:   index.hql                                                       │
+│  OUTPUT:  main.js  (+ main.js.map for debugging)                         │
+│                                                                           │
+│  main.js is a standard ESM JavaScript module that contains:               │
+│                                                                           │
+│    // The compiled code                                                   │
+│    export async function analyze(text) {                                  │
+│      return await ai("analyze sentiment", { data: text, schema: ... });  │
+│    }                                                                      │
+│                                                                           │
+│    // The embedded metadata (from (module ...) form + compiler analysis)  │
+│    export const __hlvm_meta = {                                           │
+│      name: "Sentiment Analyzer",                                          │
+│      description: "Classify text sentiment with confidence and keywords",│
+│      version: "1.2.0",                                                    │
+│      author: "jane",                                                      │
+│      icon: "face.smiling",                                                │
+│      category: "data-analysis",                                           │
+│      effect: "ai",                  // ← auto-detected by compiler      │
+│      permissions: ["network"],       // ← auto-detected                  │
+│      params: [{ name: "text", type: "string",                            │
+│                 label: "Text to analyze", required: true }]              │
+│    };                                                                     │
+│                                                                           │
+│  KEY INSIGHT:                                                             │
+│  - User writes ONE file (index.hql)                                       │
+│  - Compiler produces ONE file (main.js) — everything bundled inside      │
+│  - NO separate manifest, NO hlvm.json, NO config file                    │
+│  - GUI reads __hlvm_meta directly from the ESM module                    │
+│  - Effect/permissions are inferred, not declared                          │
+│  - The compiled JS IS the module. Self-describing. Self-contained.       │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+### (module ...) Form Fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -128,16 +180,15 @@ Module Store. This file sits alongside the compiled ESM output.
 | `version` | semver | yes | Module version |
 | `author` | string | yes | Author identifier |
 | `icon` | string | yes | SF Symbol name (macOS native icons) |
-| `effect` | enum | yes | Safety classification (see below) |
-| `permissions` | string[] | yes | Required permissions |
-| `category` | string | yes | Store category |
+| `category` | string | yes | Registry category |
 | `params` | Param[] | no | Input parameters the module accepts |
-| `entry` | string | yes | Path to main ESM file |
-| `source` | string | no | `"hql"` or `"js"` — authoring language |
+
+Note: `effect` and `permissions` are **not declared by the author**. They are
+auto-detected by the compiler's effect checker at compile time.
 
 ### Effect Classification
 
-The `effect` field maps directly from HQL's compile-time effect system:
+The compiler's effect checker infers the effect classification from the code:
 
 ```
 ┌─────────────┬──────────────────┬───────────────────────────────────┐
@@ -160,6 +211,8 @@ This classification is derived from HQL's effect system at compile time:
 - `fn` functions that call `ai()` → `"ai"`
 - `fn` functions that call `agent()` → `"agent"`
 
+The author never writes `effect: "agent"` — the compiler detects it.
+
 ### Permission Types
 
 ```
@@ -174,30 +227,39 @@ This classification is derived from HQL's effect system at compile time:
 └──────────────────┴──────────────────────────────────────────────┘
 ```
 
+Permissions are auto-detected by the compiler. The author does not declare them.
+
 ### Input Parameters
 
-Modules can declare input parameters that the GUI renders as a form:
+Modules declare input parameters inside the `(module ...)` form. The GUI
+renders these as a form when the user clicks the potion icon:
 
-```json
-"params": [
-  {
-    "name": "url",
-    "type": "string",
-    "label": "Target URL",
-    "placeholder": "https://competitor.com/pricing",
-    "required": true
-  },
-  {
-    "name": "frequency",
-    "type": "select",
-    "label": "Check frequency",
-    "options": ["hourly", "daily", "weekly"],
-    "default": "daily"
-  }
-]
+```lisp
+(module
+  {name:        "Price Tracker"
+   description: "Monitor competitor pricing pages"
+   version:     "1.0.0"
+   author:      "jane"
+   icon:        "chart.line.uptrend.xyaxis"
+   category:    "monitoring"
+   params:      [{name:        "url"
+                  type:        "string"
+                  label:       "Target URL"
+                  placeholder: "https://competitor.com/pricing"
+                  required:    true}
+                 {name:    "frequency"
+                  type:    "select"
+                  label:   "Check frequency"
+                  options: ["hourly" "daily" "weekly"]
+                  default: "daily"}]})
+
+(export (defn track [url frequency]
+  (agent (str "Monitor " url " every " frequency
+              ", alert me when prices change")
+    {data: {url: url frequency: frequency}})))
 ```
 
-When the user clicks the module icon, the GUI shows this form. After filling it
+When the user clicks the potion icon, the GUI shows this form. After filling it
 in, the module runs with these values as arguments.
 
 ---
@@ -230,7 +292,7 @@ imports:
 │  │              │    │             │    │    ))        │   │
 │  └──────────────┘    └─────────────┘    └─────────────┘   │
 │                                                              │
-│  Each can be a separate Hotbar icon.                         │
+│  Each can be a separate Launchpad icon.                      │
 │  Or user just clicks "report" and it cascades.               │
 │                                                              │
 │  This is CRAFTING: combine small capabilities into           │
@@ -245,7 +307,7 @@ Because the output is standard ESM and runs on Deno, modules can import from
 anywhere:
 
 ```lisp
-;; Import from another HLVM module (on the Store)
+;; Import from another HLVM potion (on the registry)
 (import {extract} from "hlvm:@jane/extractor")
 
 ;; Import from npm
@@ -272,47 +334,60 @@ is JavaScript — which is none.
 │                                                                 │
 │  1. AUTHOR                                                      │
 │     ┌──────────────┐                                            │
-│     │ Write HQL    │  Author writes sentiment.hql               │
-│     │ (3-10 lines) │  with ai(), agent(), or pure code          │
+│     │ Write HQL    │  Author writes index.hql                   │
+│     │ (3-10 lines) │  with (module ...) form + ai/agent code    │
 │     └──────┬───────┘                                            │
 │            │                                                    │
 │  2. COMPILE                                                     │
 │     ┌──────┴───────┐                                            │
-│     │ hlvm compile │  HQL → ESM JavaScript                      │
-│     │              │  + generates hlvm.json manifest             │
+│     │ hlvm build   │  index.hql → main.js (code + __hlvm_meta)  │
+│     │              │  Effect + permissions auto-detected         │
+│     │              │  No separate manifest generated             │
 │     └──────┬───────┘                                            │
 │            │                                                    │
 │  3. DEPLOY                                                      │
 │     ┌──────┴───────┐                                            │
 │     │ hlvm deploy  │  One command:                               │
-│     │              │  → uploads ESM to Module Store              │
-│     │              │  → registers manifest + metadata            │
-│     │              │  → now searchable by all users              │
+│     │              │  → uploads main.js to author's hosting      │
+│     │              │    (GitHub releases, JSR, npm, any URL)     │
+│     │              │  → PRs JSON metadata to hlvm/registry       │
+│     │              │    (Git repo, Homebrew model)               │
+│     │              │  → searchable once PR merged                │
 │     └──────┬───────┘                                            │
 │            │                                                    │
 │  4. DISCOVER                                                    │
 │     ┌──────┴───────┐                                            │
 │     │ User browses │  Module Store GUI in HLVM macOS app        │
 │     │ or searches  │  Search, browse categories, see trending   │
+│     │              │  CLI: hlvm search <query>                   │
 │     └──────┬───────┘                                            │
 │            │                                                    │
 │  5. INSTALL                                                     │
 │     ┌──────┴───────┐                                            │
 │     │ Click        │  GUI: "Install" button                     │
 │     │ Install      │  CLI: hlvm install @jane/sentiment         │
-│     │              │  → downloads ESM from Store                │
+│     │              │  → downloads main.js from author's hosting  │
 │     │              │  → stores in ~/.hlvm/modules/              │
+│     │              │  → reads __hlvm_meta from the module       │
+│     │              │  → appears in LAUNCHPAD (all installed)    │
 │     └──────┬───────┘                                            │
 │            │                                                    │
-│  6. EXECUTE                                                     │
+│  6. PIN (optional)                                              │
 │     ┌──────┴───────┐                                            │
-│     │ Click icon   │  Module icon appears on Hotbar             │
-│     │ on Hotbar    │  Click → GUI shows param form (if any)     │
+│     │ Pin to       │  User pins potion from Launchpad to Hotbar │
+│     │ Hotbar       │  Or assigns a keyboard shortcut            │
+│     │              │  Hotbar = quick-access subset of Launchpad  │
+│     └──────┬───────┘                                            │
+│            │                                                    │
+│  7. EXECUTE                                                     │
+│     ┌──────┴───────┐                                            │
+│     │ Click icon   │  From Launchpad grid OR Hotbar shortcut    │
+│     │              │  Click → GUI shows param form (if any)     │
 │     │              │  → hlvm run @jane/sentiment --text "..."   │
 │     │              │  → result displayed in GUI                 │
 │     └──────┬───────┘                                            │
 │            │                                                    │
-│  7. UPDATE                                                      │
+│  8. UPDATE                                                      │
 │     ┌──────┴───────┐                                            │
 │     │ Author       │  Author pushes new version                 │
 │     │ deploys v2   │  Users see update badge on icon            │
@@ -326,19 +401,18 @@ is JavaScript — which is none.
 
 ## Module Directory Structure
 
-A module on disk (after `hlvm compile`):
+A potion on disk (after `hlvm build`):
 
 ```
 my-module/
-├── src/
-│   └── main.hql           ← HQL source
-├── dist/
-│   ├── main.js             ← Compiled ESM (the actual module)
-│   └── main.js.map         ← Source map (for debugging)
-├── hlvm.json               ← Module manifest
-├── README.md               ← Description (shown in Store)
-└── deno.json               ← Deno config (dependencies, if any)
+├── index.hql              ← HQL source (the ONE file the author writes)
+└── dist/
+    ├── main.js             ← Compiled ESM (code + __hlvm_meta bundled)
+    └── main.js.map         ← Source map (for debugging)
 ```
+
+No `hlvm.json`. No separate manifest. The compiled `main.js` IS the module —
+self-describing via `__hlvm_meta`.
 
 After installation on a user's machine:
 
@@ -347,24 +421,61 @@ After installation on a user's machine:
 ├── @jane/
 │   └── sentiment/
 │       ├── 1.2.0/
-│       │   ├── main.js         ← The ESM module
-│       │   └── hlvm.json       ← Manifest
+│       │   └── main.js         ← The ONE compiled file (code + __hlvm_meta)
 │       └── current → 1.2.0/    ← Symlink to active version
 ├── @bob/
 │   └── report-writer/
 │       ├── 3.0.1/
-│       │   ├── main.js
-│       │   └── hlvm.json
+│       │   └── main.js
 │       └── current → 3.0.1/
-└── .hotbar.json                ← Which modules are on the Hotbar + order
+├── index.json                  ← Local module index (metadata cache)
+└── launchpad.json              ← Launchpad state (all installed potions)
 ```
+
+---
+
+## The Launchpad
+
+The Launchpad is the **complete inventory** of all installed potions. Every
+potion that has been installed — whether from the registry or locally — appears
+here. It is the **superset** of the Hotbar.
+
+```
+┌─── Launchpad (ALL installed potions) ─────────────────────────┐
+│                                                                │
+│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐   │
+│  │Sent│ │Rept│ │Code│ │Srch│ │Anlz│ │Test│ │Dply│ │Mntr│   │
+│  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘   │
+│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                         │
+│  │Git │ │Wiki│ │Mail│ │Data│ │Imgn│                          │
+│  └────┘ └────┘ └────┘ └────┘ └────┘                          │
+│                                                                │
+│  Every installed potion lives here. Search, filter, browse.   │
+│  Right-click any icon → "Pin to Hotbar" or "Assign Shortcut" │
+│                                                                │
+│  Store → Install → Launchpad → pin/shortcut → Hotbar          │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+The Launchpad is where the user goes to:
+- Browse all installed potions
+- Search by name, category, or effect
+- Launch any potion (click the icon)
+- Manage updates and versions
+- Pin potions to the Hotbar for quick access
 
 ---
 
 ## The Hotbar Configuration
 
-The Hotbar is the user's equipped set of modules. Configuration is a simple
-JSON file:
+The Hotbar is the user's **quick-access bar** — a **subset** of the Launchpad
+containing only potions the user has explicitly pinned or assigned shortcuts to.
+
+**Launchpad = ALL installed potions (superset).
+Hotbar = only pinned/shortcut potions (subset).**
+
+Configuration is a simple JSON file:
 
 ```json
 {
@@ -388,15 +499,14 @@ switchable from the GUI:
 ```
 My Monday hotbar:
 ┌────┐ ┌────┐ ┌────┐ ┌────┐
-│ 📝 │ │ 📊 │ │ 🔍 │ │ 📈 │
 │Rept│ │Mon │ │Srch│ │Anlz│
 └────┘ └────┘ └────┘ └────┘
 
 My Focus hotbar:
 ┌────┐ ┌────┐ ┌────┐ ┌────┐
-│ 💻 │ │ 🧪 │ │ 🚀 │ │ 📡 │
 │Code│ │Test│ │Dply│ │Mntr│
 └────┘ └────┘ └────┘ └────┘
 ```
 
-Drag icons in, drag icons out. Exactly like equipping skills in Diablo.
+Drag icons from Launchpad to Hotbar. Drag icons out to unpin.
+Exactly like equipping skills in Diablo.

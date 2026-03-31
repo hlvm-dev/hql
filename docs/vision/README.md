@@ -17,19 +17,20 @@ any human or AI reader.
 | [00-platform-thesis.md](./00-platform-thesis.md) | HLVM Platform Thesis: the "LLVM for LLM" analogy, architecture layers (moved from llvm-for-llm/) |
 | [01-story.md](./01-story.md) | The full story: why this exists, what it becomes, why it matters |
 | [02-module-system.md](./02-module-system.md) | ESM modules as AI capabilities: architecture, authoring, composition |
-| [03-module-store.md](./03-module-store.md) | The central registry: design, requirements, trust model, flywheel |
+| [03-module-store.md](./03-module-store.md) | The Git registry (Homebrew model): design, requirements, trust model, flywheel |
 | [04-user-journeys.md](./04-user-journeys.md) | End-to-end flows for authors, consumers, and AI-authored modules |
 | [05-competitive-analysis.md](./05-competitive-analysis.md) | Landscape analysis: what exists, what doesn't, where HLVM fits |
 | [06-beyond-llvm-for-llm.md](./06-beyond-llvm-for-llm.md) | TODO / next-layer vision: beyond capability routing toward objective compilation, team synthesis, and mission runtime |
 | [07-daily-driver-scenarios.md](./07-daily-driver-scenarios.md) | Concrete use cases: the abstraction ladder from parameterized function to zero-param binding to keyboard shortcut to composed pipeline |
+| [08-full-execution-pipeline.md](./08-full-execution-pipeline.md) | The complete execution pipeline: all 8 channels (GUI, CLI, REPL, global eval, direct ESM, HTTP API, programmatic import, agent invocation) with every data flow arrow |
 
 ---
 
 ## The One-Sentence Vision
 
 **HLVM is a platform where AI capabilities are authored in HQL, packaged as
-ESM modules, shared through a central store, and executed with one click on
-macOS.**
+ESM modules, shared through a Git registry (Homebrew model), and executed with
+one click on macOS.**
 
 ## The One-Paragraph Version
 
@@ -38,7 +39,7 @@ code review, research, monitoring. AI can handle most of this, but today the
 gap between "AI can do this" and "I have an automated workflow" requires
 learning Python, installing libraries, writing orchestration code, and running
 from a terminal. HLVM collapses that gap. Write a 3-line HQL function (or have
-AI write it for you), deploy it to the Module Store, and it becomes a clickable
+AI write it for you), deploy it to the Registry, and it becomes a clickable
 icon on your Mac. Behind that icon can be anything: a simple AI call, a
 multi-step pipeline, or a full autonomous agent team. One click. Job done.
 
@@ -51,9 +52,9 @@ multi-step pipeline, or a full autonomous agent team. One click. Job done.
 hlvm binary                      SwiftUI thin shell
   HQL compiler                     Spotlight panel
   Deno runtime                     Chat window
-  Agent engine                     Hotbar (module icons)
-  Team system                      Module Store view
-  Module Store CLI                 Settings
+  Agent engine                     Launchpad/Hotbar (module icons)
+  Team system                      Registry browser
+  Registry CLI                     Settings
   Memory system
   Tool registry
 
@@ -62,8 +63,9 @@ ALL logic here                        ZERO logic here
 ```
 
 The macOS app (`~/dev/HLVM`) is a thin SwiftUI client. The hlvm binary
-(this project, `~/dev/hql`) is the core that does everything. The Module Store
-follows this same pattern: CLI commands in the binary, beautiful GUI in the app.
+(this project, `~/dev/hql`) is the core that does everything. The Module
+Registry follows this same pattern: CLI commands in the binary, beautiful GUI
+in the app.
 
 ## Status Note
 

@@ -9,13 +9,14 @@
 Sarah is a marketing analyst. She analyzes customer reviews weekly. She has
 HLVM installed on her Mac.
 
-### Step 1: Open Module Store
+### Step 1: Browse the Registry
 
-Sarah opens the HLVM app and clicks the Store tab.
+Sarah opens the HLVM app and clicks Browse. The app searches the Git registry
+(`hlvm/registry` on GitHub) for available modules.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                     HLVM Module Store                         │
+│                     HLVM Module Registry                      │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
 │  ┌──────────────────────────────────────────────────────┐    │
@@ -94,12 +95,15 @@ Sarah clicks Install. Permission prompt:
 └──────────────────────────────────────────────────────────┘
 ```
 
-Sarah clicks Allow. Module downloads and appears on her Hotbar.
+Sarah clicks Allow. Module downloads and appears in her Launchpad.
 
 ### Step 4: Use the Module
 
+Sarah opens Launchpad (all installed modules) and clicks the new module.
+She can also pin it to the Hotbar for one-click access later.
+
 ```
-Sarah's Hotbar:
+Sarah's Launchpad (all installed):
 ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐
 │ 💬 │ │ 📊 │ │ 📝 │ │ 🔍 │ │ ⚙  │
 │Chat│ │Sent│ │Note│ │Srch│ │Sets│
@@ -173,11 +177,31 @@ Jake is a developer who wrote a useful HQL module for code review.
 
 ### Step 1: Write the Module
 
+One file. Metadata and code live together in `index.hql`. The `(module ...)` form
+is always the first expression. No separate manifest, no JSON config.
+
 ```
 ~/projects/code-reviewer/
 
-src/main.hql:
+index.hql:
 ┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│  (module                                                     │
+│    {name:        "Code Reviewer"                             │
+│     description: "AI-powered code review with severity       │
+│                   classification and line-level feedback"     │
+│     version:     "1.0.0"                                     │
+│     author:      "jake"                                      │
+│     icon:        "doc.text.magnifyingglass"                  │
+│     category:    "code-tools"                                │
+│     params:      [{name: "file-path"                         │
+│                    type: "string"                             │
+│                    label: "File to review"}]})                │
+│                                                              │
+│  ;; Effect and permissions are AUTO-DETECTED by the compiler │
+│  ;; The compiler sees ai() calls → marks effect: "ai"        │
+│  ;; The compiler sees readFile → marks permissions: network,  │
+│  ;;   filesystem                                             │
 │                                                              │
 │  (import {readFile} from "hlvm:fs")                          │
 │                                                              │
@@ -197,35 +221,14 @@ src/main.hql:
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 
-hlvm.json:
-┌──────────────────────────────────────────────────────────────┐
-│  {                                                           │
-│    "name": "Code Reviewer",                                  │
-│    "description": "AI-powered code review with severity      │
-│                    classification and line-level feedback",   │
-│    "version": "1.0.0",                                       │
-│    "author": "jake",                                         │
-│    "icon": "doc.text.magnifyingglass",                       │
-│    "effect": "ai",                                           │
-│    "permissions": ["network", "filesystem"],                 │
-│    "category": "code-tools",                                 │
-│    "params": [                                               │
-│      {                                                       │
-│        "name": "file-path",                                  │
-│        "type": "string",                                     │
-│        "label": "File to review"                             │
-│      }                                                       │
-│    ],                                                        │
-│    "entry": "./dist/main.js"                                 │
-│  }                                                           │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
+Compiles to ONE file: main.js (code + __hlvm_meta embedded).
+No separate manifest. The compiled JS IS the module.
 ```
 
 ### Step 2: Test Locally
 
 ```
-$ hlvm run ./src/main.hql --file-path ./test.ts
+$ hlvm run ./index.hql --file-path ./test.ts
 
   {
     "issues": [
@@ -239,29 +242,37 @@ $ hlvm run ./src/main.hql --file-path ./test.ts
 
 ### Step 3: Deploy
 
+There is no central server. `hlvm deploy` compiles the module, uploads the code
+to the author's own hosting (GitHub Releases by default), and opens a PR to the
+Git registry (`hlvm/registry` on GitHub, like Homebrew).
+
 ```
 $ hlvm deploy
 
-  Compiling src/main.hql → dist/main.js ........... done
-  Validating hlvm.json ............................. done
-  Detecting effect: ai ............................. done
-  Detecting permissions: network, filesystem ....... done
+  Step 1/4: Compiling
+  index.hql → dist/main.js ........................ done
+  Effect detected: ai (uses ai() calls)
+  Permissions detected: network, filesystem
 
-  Publishing @jake/code-reviewer@1.0.0:
-    Size: 3.1 KB (ESM) + 420 B (manifest)
-    Effect: ai (yellow badge)
+  Step 2/4: Uploading code
+  Creating GitHub release @jake/code-reviewer@1.0.0  done
+  Uploaded: main.js (3.1 KB, code + __hlvm_meta bundled)
+  URL: github.com/jake/hlvm-modules/releases/tag/code-reviewer-1.0.0
 
-  Uploading to Module Store ....................... done
-  Indexing for search ............................. done
+  Step 3/4: Updating registry
+  Forking hlvm/registry ........................... done
+  Adding entry: modules/j/jake/code-reviewer.json . done
+  Creating PR #2041 ............................... done
 
-  ✓ Published @jake/code-reviewer@1.0.0
-  ✓ Live at: https://store.hlvm.dev/@jake/code-reviewer
-  ✓ Searchable in HLVM Module Store now.
+  Step 4/4: Confirm
+  ✓ Code uploaded to your GitHub.
+  ✓ Registry PR created: github.com/hlvm/registry/pull/2041
+  ✓ Once merged, searchable via `hlvm search code-reviewer`.
 ```
 
 ### Step 4: Watch It Grow
 
-Jake can check stats from CLI or the Store web page:
+Jake can check stats from CLI or the registry page on GitHub:
 
 ```
 $ hlvm stats @jake/code-reviewer
@@ -284,11 +295,12 @@ Jake improves his module based on feedback:
 ```
 $ hlvm deploy
 
-  Publishing @jake/code-reviewer@1.1.0:
-    Changes: Added support for multiple files, TypeScript support
+  Compiling index.hql → dist/main.js .............. done
+  Uploading @jake/code-reviewer@1.1.0 ............. done
+  Registry PR #2098 ............................... created
 
-  ✓ Published @jake/code-reviewer@1.1.0
-  ✓ Users with auto-update will receive this version.
+  ✓ @jake/code-reviewer@1.1.0 uploaded.
+  ✓ Users with auto-update will receive this version once PR merges.
 ```
 
 ---
@@ -318,11 +330,10 @@ This is the ultimate vision: AI creates AI capabilities.
 │                                                              │
 │  Agent: I'll create a pricing monitor module for you.        │
 │                                                              │
-│  ◆ Creating module structure...                              │
-│    ├── Writing src/main.hql                                  │
-│    ├── Generating hlvm.json manifest                         │
+│  ◆ Creating module...                                        │
+│    ├── Writing index.hql (code + module metadata)            │
 │    ├── Testing locally                                       │
-│    └── Compiling to ESM                                      │
+│    └── Compiling to main.js (code + __hlvm_meta)             │
 │                                                              │
 │  ✓ Module created: competitor-monitor                        │
 │                                                              │
@@ -330,34 +341,42 @@ This is the ultimate vision: AI creates AI capabilities.
 │  sends you a notification if any price changes by > 5%.      │
 │                                                              │
 │  Would you like to:                                          │
-│  [Add to Hotbar]  [Deploy to Store]  [View Code]             │
+│  [Install]  [Deploy to Registry]  [View Code]                │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### Step 3: Module on Hotbar
+### Step 3: Module in Launchpad (Optionally Pinned to Hotbar)
 
-The user clicks "Add to Hotbar" and the module appears:
+The user clicks "Install". The module appears in Launchpad (all installed):
 
 ```
+Launchpad (all installed modules):
 ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐
 │ 💬 │ │ 📊 │ │ 📝 │ │ 🔍 │ │ 📡 │   ← NEW
 │Chat│ │Sent│ │Note│ │Srch│ │Mon │
 └────┘ └────┘ └────┘ └────┘ └────┘
 ```
 
+The user can right-click and "Pin to Hotbar" for quick access. But the module
+is already usable from Launchpad immediately.
+
 One click to run. The module that AI built is indistinguishable from a
 human-authored module. Same format, same execution, same GUI.
 
-### Step 4: (Optional) Deploy to Store
+### Step 4: (Optional) Deploy to Registry
 
-If the module is useful, the user can deploy it for others:
+If the module is useful, the user can deploy it for others via the Git registry:
 
 ```
 $ hlvm deploy ~/competitor-monitor/
 
-  ✓ Published @sarah/competitor-monitor@1.0.0
-  ✓ Now available for all HLVM users
+  Compiling index.hql → dist/main.js .............. done
+  Uploading to GitHub Releases .................... done
+  Registry PR #2105 ............................... created
+
+  ✓ @sarah/competitor-monitor@1.0.0 uploaded.
+  ✓ Available to all HLVM users once PR merges.
 ```
 
 **The loop: AI builds a capability → user uses it → user shares it →
@@ -440,32 +459,74 @@ everything else.
 │                                                              │
 │  ✓ All 4 modules built, tested, and ready.                   │
 │                                                              │
-│  [Add All to Hotbar]  [Deploy to Store]  [View Code]         │
+│  [Install All]  [Deploy to Registry]  [View Code]            │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### Step 4: Four New Icons on Hotbar
+### Step 4: Four New Modules in Launchpad
+
+All four appear in Launchpad immediately. The user can pin any to the Hotbar
+for quick access.
 
 ```
+Launchpad (all installed):
 ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐
 │ 💬 │ │ 💰 │ │ 📱 │ │ 📋 │ │ 🚨 │ │ 📊 │ │ 📝 │ │ ⚙  │
 │Chat│ │Pric│ │Socl│ │Wkly│ │Alrt│ │Sent│ │Note│ │Sets│
 └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘
        ─────────────────────────
        These 4 are NEW, built by AI
+
+Hotbar (pinned subset — user pins their favorites):
+┌────┐ ┌────┐ ┌────┐
+│ 💬 │ │ 🚨 │ │ 📋 │
+│Chat│ │Alrt│ │Wkly│
+└────┘ └────┘ └────┘
 ```
 
 Each module is independent, composable, and executable with one click.
 
 ---
 
-## Journey 5: Hotbar Management (The Loadout)
-
-### Rearranging Modules
+## Journey 5: Launchpad & Hotbar Management
 
 ```
-Drag-and-drop in the GUI:
+Launchpad = ALL installed modules (superset, searchable, scrollable grid).
+Hotbar    = PINNED subset (always visible, quick access, keyboard shortcuts).
+
+Install → Launchpad → (optionally) Pin to Hotbar.
+```
+
+### Pinning from Launchpad to Hotbar
+
+The Launchpad is the full inventory. The Hotbar is managed by pinning and
+unpinning modules from Launchpad.
+
+```
+Right-click a module in Launchpad:
+
+  ┌──────────────────────────┐
+  │  Run                     │
+  │  ────────────────────    │
+  │  View Details            │
+  │  Check for Updates       │
+  │  ────────────────────    │
+  │  Pin to Hotbar           │  ← adds to the quick-access bar
+  │  Assign Shortcut...      │  ← assigns key AND pins to Hotbar
+  │  ────────────────────    │
+  │  Uninstall               │
+  └──────────────────────────┘
+```
+
+"Pin to Hotbar" adds the module to the always-visible quick-access bar.
+"Assign Shortcut" assigns a keyboard shortcut AND automatically pins to Hotbar.
+"Uninstall" removes it from both Launchpad and Hotbar.
+
+### Rearranging the Hotbar
+
+```
+Drag-and-drop on the Hotbar:
 
 Before:
 ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐
@@ -482,26 +543,27 @@ After:
 └────┘ └────┘ └────┘ └────┘ └────┘
 ```
 
-### Removing a Module
+### Unpinning from Hotbar
 
 ```
-Right-click (or long-press) on icon:
+Right-click a module on the Hotbar:
 
-  ┌──────────────────────┐
-  │  Run                 │
-  │  ──────────────────  │
-  │  View Details        │
-  │  Check for Updates   │
-  │  ──────────────────  │
-  │  Remove from Hotbar  │
-  │  Uninstall           │
-  └──────────────────────┘
+  ┌──────────────────────────┐
+  │  Run                     │
+  │  ────────────────────    │
+  │  View Details            │
+  │  ────────────────────    │
+  │  Unpin from Hotbar       │  ← removes from Hotbar, stays in Launchpad
+  │  Uninstall               │  ← removes from both
+  └──────────────────────────┘
 ```
 
-"Remove from Hotbar" keeps it installed but hides the icon.
-"Uninstall" removes it completely.
+"Unpin from Hotbar" removes it from the quick-access bar but keeps it installed
+in Launchpad. "Uninstall" removes it completely.
 
 ### Switching Profiles (Loadouts)
+
+Hotbar profiles let you swap entire pinned sets for different workflows:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -527,6 +589,8 @@ Right-click (or long-press) on icon:
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Like Diablo: different skill loadouts for different encounters. The GUI is
-simple — radio buttons and drag-and-drop. But the concept is powerful:
-**pre-configured sets of AI capabilities for different workflows.**
+All modules in every profile are installed in Launchpad. Profiles just control
+which subset is pinned to the Hotbar. Like Diablo: different skill loadouts for
+different encounters. The GUI is simple — radio buttons and drag-and-drop. But
+the concept is powerful: **pre-configured sets of AI capabilities for different
+workflows.**

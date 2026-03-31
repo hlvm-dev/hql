@@ -477,7 +477,7 @@ But the output path, naming convention, and directory are all baked in.
 ```
 
 This shows the key design principle: **the GUI is a thin wrapper around the
-code.** The GUI renders form fields from the module manifest. The module
+code.** The GUI renders form fields from the module metadata (`__hlvm_meta`). The module
 determines what is parameterized and what is hardcoded. The user's personal
 binding decides where the slider sits between "always ask" and "always default."
 
@@ -556,7 +556,7 @@ Every scenario above demonstrates the same architectural truth:
 ```
 Code is the core building block. GUI is a thin wrapper.
 
-The module manifest declares parameters.
+The module's (module ...) form declares parameters.
 The GUI renders those parameters as a form.
 The user fills the form. The module runs.
 
@@ -571,7 +571,7 @@ never generates code — it only renders what the code declares. This means:
 
 1. **Version control works.** Your modules are files.
 2. **Composition works.** Import one module into another.
-3. **Sharing works.** Publish to the Module Store.
+3. **Sharing works.** Publish to the Registry.
 4. **AI authoring works.** Tell HLVM what you want, it writes the HQL.
 5. **Debugging works.** Read the source. It's 3-10 lines.
 
@@ -593,11 +593,11 @@ Shell script:
   ✗  No safety model. chmod +x and pray.
 
 HLVM module:
-  ✓  GUI form auto-generated from manifest.
+  ✓  GUI form auto-generated from __hlvm_meta.
   ✓  Parameters are typed and labeled.
   ✓  ESM imports for clean composition.
   ✓  ai() and agent() are first-class.
-  ✓  Module Store for one-click sharing.
+  ✓  Registry for one-click sharing.
   ✓  Effect system classifies safety level.
 ```
 
@@ -618,7 +618,7 @@ HLVM module:
   ✓  Text-based code. Scales infinitely.
   ✓  Full LLM integration (any provider).
   ✓  Autonomous agents with tools.
-  ✓  Module Store ecosystem.
+  ✓  Registry ecosystem.
   ✓  Entire JavaScript ecosystem available.
   ✓  Plain files. Git-friendly.
 ```

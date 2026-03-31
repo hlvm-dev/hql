@@ -14,7 +14,7 @@ A living, system-wide, programmable intelligence layer where code and AI are the
 
 Three access patterns, one unified runtime:
 - **Think** (Spotlight REPL) — type an expression, see the result
-- **Act** (Hotbar modules) — one keypress, immediate execution
+- **Act** (Hotbar modules, pinned from Launchpad) — one keypress, immediate execution
 - **Delegate** (Agent chat) — describe the task, AI handles it
 
 Runtime-first architecture:
@@ -34,8 +34,8 @@ Runtime-first architecture:
 │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
 │   │  Spotlight   │  │   Hotbar    │  │    Chat     │  │  Launchpad  │  │
 │   │  Panel       │  │  [1]...[0]  │  │   Window    │  │  (modules)  │  │
-│   │  (REPL/      │  │  (quick     │  │  (AI agent  │  │  (inventory │  │
-│   │   Search)    │  │   access)   │  │   ReAct)    │  │   browser)  │  │
+│   │  (REPL/      │  │  (pinned    │  │  (AI agent  │  │  (ALL       │  │
+│   │   Search)    │  │   subset)   │  │   ReAct)    │  │   installed)│  │
 │   └──────┬───────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  │
 │          │                 │                │                │          │
 │          └─────────────────┴────────────────┴────────────────┘          │
@@ -683,6 +683,7 @@ GUI                          Server                    Ollama
 - **Type**: NSPanel, floating horizontal icon bar
 - **Slots**: N configurable slots, each bound to a module action
 - **Interaction**: Click or keyboard shortcut to fire
+- **Relationship**: Hotbar is a **pinned subset** of Launchpad — only modules the user has assigned shortcuts to or explicitly pinned appear here
 
 ### Chat Window
 
@@ -694,8 +695,9 @@ GUI                          Server                    Ollama
 ### Launchpad
 
 - **Type**: Full-screen overlay (paged grid)
-- **Purpose**: Module inventory browser
+- **Purpose**: Module inventory browser — the **superset of all installed modules**. Every installed potion appears here.
 - **Features**: Search, drag-and-drop reorder, edit mode, keyboard shortcuts
+- **Flow**: Install -> Launchpad (all installed) -> pin/shortcut -> Hotbar (quick-access subset)
 
 ---
 
@@ -889,11 +891,13 @@ export async function actionName({ ai, shell, clipboard, fs, fetch, notify }) {
 | 2 | Community index (PR-reviewed) | Vetted |
 | 3 | Any HTTP URL | Use at own risk |
 
-### Hotbar Integration
+### Hotbar / Launchpad Integration
+
+Launchpad shows all installed modules. Hotbar shows only the pinned subset (modules with assigned shortcuts). Both trigger the same execution path:
 
 ```
-User presses Ctrl+3
-  → GUI reads slot 3: { module: "git-standup", action: "standup" }
+User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
+  → GUI reads binding: { module: "git-standup", action: "standup" }
   → POST :11435/module/run { url, action }
   → Server: import(url), inject context, execute
   → Result → notification / clipboard / panel
@@ -963,7 +967,7 @@ User presses Ctrl+3
   │   │  └─────────────────────────────────────────────────────────────────────────────────────┘  │ │
   │   │                                                                                           │ │
   │   │  ┌──────────────────────────────────────────────────────────────────────────────────────┐ │ │
-  │   │  │  HOTBAR (NSPanel, floating, always visible)           ← THE DIABLO QUICK ACCESS     │ │ │
+  │   │  │  HOTBAR (NSPanel, floating, always visible)           ← PINNED SUBSET of Launchpad  │ │ │
   │   │  │                                                                                      │ │ │
   │   │  │  [1]📋     [2]🔍     [3]📝     [4]🔧     [5]🚀    [6]🌐   [7]🇰🇷  ... [0]⚡  │ │ │
   │   │  │  clip-     code-     standup   json-     deploy    fetch   trans-      forge     │ │ │
@@ -975,7 +979,7 @@ User presses Ctrl+3
   │   │  └──────────────────────────────────────────────────────────────────────────────────────┘ │ │
   │   │                                                                                           │ │
   │   │  ┌──────────────────────────────────────────────────────────────────────────────────────┐ │ │
-  │   │  │  LAUNCHPAD (full-screen overlay, paged grid)            ← THE DIABLO MAIN INVENTORY │ │ │
+  │   │  │  LAUNCHPAD (full-screen overlay, paged grid)            ← ALL INSTALLED (superset)  │ │ │
   │   │  │                                                                                      │ │ │
   │   │  │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐          │ │ │
   │   │  │  │ git  │ │ csv  │ │ api  │ │email │ │ k8s  │ │regex │ │ sql  │ │ aws  │          │ │ │
@@ -1330,7 +1334,7 @@ User presses Ctrl+3
   │   │  │  (forge "describe what you need")                                                  │   │  │
   │   │  │     → AI generates ESM module                                                      │   │  │
   │   │  │     → saves to ~/hlvm-modules/                                                     │   │  │
-  │   │  │     → immediately equippable to hotbar                                             │   │  │
+  │   │  │     → immediately available in Launchpad, equippable to Hotbar                      │   │  │
   │   │  │     → sharable via URL                                                             │   │  │
   │   │  └────────────────────────────────────────────────────────────────────────────────────┘   │  │
   │   └──────────────────────────────────────────────────────────────────────────────────────────┘  │
@@ -1340,9 +1344,10 @@ User presses Ctrl+3
 
   ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
   │                                                                                                 │
-  │   DATA FLOW: HOTBAR MODULE EXECUTION (THE CORE LOOP)                                           │
+  │   DATA FLOW: MODULE EXECUTION — HOTBAR / LAUNCHPAD (THE CORE LOOP)                             │
+  │   (Same execution path whether triggered from Hotbar shortcut or Launchpad click)              │
   │                                                                                                 │
-  │   User presses Ctrl+3                                                                           │
+  │   User presses Ctrl+3 (Hotbar) or clicks module in Launchpad                                                                           │
   │      │                                                                                          │
   │      ▼                                                                                          │
   │   GUI: Hotbar reads slot 3 binding → { module: "git-standup", action: "standup" }               │
@@ -1477,12 +1482,12 @@ User presses Ctrl+3
 
   What this diagram shows about your vision:
 
-  The three surfaces — Spotlight (REPL), Hotbar (modules), Chat (agent) — are not three separate products. They're three windows into the same runtime.
-  They share globalThis.ai, the same REPL state, the same module cache, the same memory. A defn written in Spotlight is callable from a Hotbar module.
+  The four surfaces — Spotlight (REPL), Launchpad (all installed modules), Hotbar (pinned subset), Chat (agent) — are not four separate products. They're four windows into the same runtime.
+  They share globalThis.ai, the same REPL state, the same module cache, the same memory. A defn written in Spotlight is callable from a Launchpad/Hotbar module.
   An AI call in a module uses the same provider as the Chat agent. Everything is one connected system.
 
-  That's the iPhone insight — not three features bolted together, but one unified runtime with three access patterns optimized for different moments:
-  think (REPL), act (Hotbar), delegate (Agent).
+  That's the iPhone insight — not four features bolted together, but one unified runtime with three access patterns optimized for different moments:
+  think (REPL), act (Launchpad/Hotbar), delegate (Agent).
 
 ✻ Cooked for 5m 33s
 
@@ -2291,7 +2296,7 @@ User presses Ctrl+3
     │   │  GUI shows these in:              │                                    │
     │   │  - Spotlight search results       │                                    │
     │   │  - Module library (built-in tab)  │                                    │
-    │   │  - Hotbar equip picker            │                                    │
+    │   │  - Launchpad / Hotbar equip picker │                                    │
     │                                                                            │
     └────────────────────────────────────────────────────────────────────────────┘
 

@@ -186,7 +186,7 @@ Products that package AI agents with specific capabilities.
 │ Schema-typed AI   │  ✗     │  ✓     │  ✗     │  ✗     │  ✓   │
 │ Native macOS GUI  │  ✗     │  ✗     │  ✓     │  ✓     │  ✓   │
 │ One-click execute │  ✗     │  ✗     │  ✓     │  ✓     │  ✓   │
-│ Module store      │  ~(GPT)│  ✗     │  ✓     │  ✓     │  ✓   │
+│ Module registry   │  ~(GPT)│  ✗     │  ✓     │  ✓     │  ✓   │
 │ Composable        │  ✗     │  ✓     │  ✗     │  ~     │  ✓   │
 │ Multi-provider    │  ✗     │  ✓     │  ✗     │  ✗     │  ✓   │
 │ Local/offline     │  ✗     │  ✓     │  ✗     │  ✓     │  ✓   │
@@ -217,7 +217,7 @@ Authoring Language (HQL)
        ↓
 Compilation (ESM)
        ↓
-Distribution (Module Store)
+Distribution (Module Registry)
        ↓
 Discovery (Store GUI + Spotlight)
        ↓
@@ -236,7 +236,7 @@ ESM JavaScript runs everywhere. Modules created on HLVM can be:
 
 ```
 Used in:
-  ├── HLVM Hotbar (primary)
+  ├── HLVM Launchpad/Hotbar (primary)
   ├── Any Node.js project (import from npm)
   ├── Any Deno project (import from JSR or HTTP)
   ├── Browsers (ESM native)
@@ -267,7 +267,7 @@ The platform consumes its own output:
 ```
 User says "I need X"
   → AI builds an HQL module that does X
-  → Module appears on Hotbar
+  → Module appears in Launchpad
   → User clicks to use it
   → Optionally deploys to Store for others
 ```
@@ -277,7 +277,7 @@ reusable, one-click capabilities.
 
 ### 5. The Network Effect Moat
 
-Once the Module Store has critical mass:
+Once the Registry has critical mass:
 
 ```
 More modules → More users → More authors → More modules → ...
@@ -294,7 +294,7 @@ effect. You can only build your own.
 
 **Mitigation**: Modules can also be written in plain JavaScript. HQL is the
 recommended authoring language but not required. The Store accepts any valid
-ESM with an hlvm.json manifest. Additionally, AI can write modules —
+ESM with embedded `__hlvm_meta`. Additionally, AI can write modules —
 users don't need to learn any language at all.
 
 ### Risk: "Not enough modules at launch"
@@ -320,6 +320,6 @@ they run everywhere.
 ### Risk: "Competing with Raycast / Apple"
 
 **Mitigation**: Raycast is a launcher with AI chat. Apple Shortcuts is visual
-blocks. Neither has a module store for AI capabilities, agent orchestration,
+blocks. Neither has a module registry for AI capabilities, agent orchestration,
 multi-step pipelines, or a real programming language. HLVM operates in a
 different category — it is a platform, not a launcher.
